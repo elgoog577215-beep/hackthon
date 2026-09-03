@@ -24,6 +24,7 @@ from typing import Any, Awaitable, Callable
 
 from course_document import document_from_generation_draft
 from course_pedagogy import module_block_role
+from lesson_identity import lesson_chapter_index, resolve_lesson_chapter
 from teaching_design import normalize_lesson_arrangement
 from teacher_script import (
     SCRIPT_PIPELINE_VERSION,
@@ -227,13 +228,9 @@ def complete_teacher_lesson_plan_fields(
         item for item in source_plan.get("chapters") or []
         if isinstance(item, dict)
     ]
-    chapter_index = next(
-        (
-            index for index, item in enumerate(chapters)
-            if str(item.get("node_id") or item.get("chapter_id") or "")
-            == lesson_unit_id
-        ),
-        -1,
+    resolved_chapter_index = lesson_chapter_index(source_plan, lesson_unit_id)
+    chapter_index = (
+        resolved_chapter_index if resolved_chapter_index is not None else -1
     )
     chapter = chapters[chapter_index] if chapter_index >= 0 else {}
     next_chapter = (
@@ -1242,13 +1239,7 @@ def lesson_scope(course_data: dict[str, Any], lesson_unit_id: str) -> dict[str, 
         )
     plan = course_data.get("course_plan") or course_data.get("course_outline") or {}
     chapters = [item for item in plan.get("chapters") or [] if isinstance(item, dict)]
-    chapter = next(
-        (
-            item for item in chapters
-            if str(item.get("node_id") or item.get("chapter_id") or "") == lesson_unit_id
-        ),
-        None,
-    )
+    chapter = resolve_lesson_chapter(plan, lesson_unit_id)
     if chapter is None:
         section_ids = {str(item.get("node_id") or "") for item in sections}
         chapter = next(

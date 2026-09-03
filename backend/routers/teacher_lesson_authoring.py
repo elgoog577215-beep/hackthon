@@ -19,6 +19,7 @@ from dependencies import (
     require_task_manager,
 )
 from learner_context import resolve_user_id
+from lesson_identity import chapter_matches_lesson
 from generation_streaming import structured_generation_stream
 from course_schedule import lecture_duration_minutes
 from teaching_design import (
@@ -3367,12 +3368,11 @@ async def generate_lesson_plan(
                     for chapter in scoped_plan.get("chapters") or []:
                         if not isinstance(chapter, dict):
                             continue
-                        chapter_id = str(
-                            chapter.get("node_id")
-                            or chapter.get("chapter_id")
-                            or ""
-                        )
-                        if chapter_id != lesson_id:
+                        if not chapter_matches_lesson(
+                            scoped_plan,
+                            chapter,
+                            lesson_id,
+                        ):
                             continue
                         chapter["teacher_requirements"] = normalized_requirements
                         for section in chapter.get("sections") or []:

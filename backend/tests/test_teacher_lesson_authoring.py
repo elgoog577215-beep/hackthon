@@ -75,6 +75,20 @@ def course_data():
     }
 
 
+def lecture_course_data():
+    source = course_data()
+    source["authoring_structure_version"] = "lecture_v1"
+    source["course_plan"]["authoring_structure_version"] = "lecture_v1"
+    for lecture_number, chapter in enumerate(
+        source["course_plan"]["chapters"],
+        start=1,
+    ):
+        chapter.pop("node_id")
+        chapter["chapter_number"] = lecture_number
+        chapter["lecture_number"] = lecture_number
+    return source
+
+
 def standard_lesson_plan():
     return {
         "schema_version": "course_teaching_plan_v3",
@@ -157,6 +171,29 @@ def test_generated_lesson_completes_formal_fields_and_specific_block_names():
     assert section["teaching_modules"][0]["label"] == "形式化推导"
     assert "homework_submission" in section["teacher_confirmation_fields"]
     assert validate_teacher_lesson_plan(completed)["passed"] is True
+
+
+def test_lecture_v1_lesson_completion_keeps_current_and_next_lecture_context():
+    source = lecture_course_data()
+    source["course_plan"]["chapters"][0]["extension_resources"] = [
+        {
+            "title": "界面设计基础",
+            "resource_type": "book",
+            "verification_status": "verified",
+        }
+    ]
+
+    completed = complete_teacher_lesson_plan_fields(
+        source,
+        "L1-1",
+        standard_lesson_plan(),
+    )
+    section = completed["sections"][0]
+
+    assert "第二讲" in section["next_lesson_connection"]
+    assert section["resource_refs"] == [
+        "已确认来源｜教材/专著｜界面设计基础"
+    ]
 
 
 def test_material_absorption_creates_unconfirmed_linked_working_drafts(tmp_path):
@@ -359,16 +396,7 @@ def test_lesson_arrangement_adapts_legacy_node_outline_into_same_recommendation(
 
 
 def test_lesson_arrangement_resolves_lecture_v1_outline_by_lecture_number():
-    source = course_data()
-    source["authoring_structure_version"] = "lecture_v1"
-    source["course_plan"]["authoring_structure_version"] = "lecture_v1"
-    for lecture_number, chapter in enumerate(
-        source["course_plan"]["chapters"],
-        start=1,
-    ):
-        chapter.pop("node_id")
-        chapter["chapter_number"] = lecture_number
-        chapter["lecture_number"] = lecture_number
+    source = lecture_course_data()
 
     arrangement = recommend_lesson_arrangement(
         source,
@@ -391,6 +419,9 @@ def test_lesson_arrangement_resolves_lecture_v1_outline_by_lecture_number():
         arrangement,
     )
     assert applied["chapters"][0]["sections"][0]["module_plan"]
+
+    second_arrangement = recommend_lesson_arrangement(source, "L1-2")
+    assert second_arrangement["lesson_phase"] == "closing"
 
 
 def test_lesson_arrangement_compacts_large_legacy_chapter_to_one_row_per_section():
@@ -2398,7 +2429,7 @@ def test_outline_only_lesson_scope_reuses_existing_pedagogy_compiler(monkeypatch
     monkeypatch.setattr(service, "_prepare_course_teaching_plan", fake_prepare)
 
     result = asyncio.run(service.prepare_teacher_lesson_plan(
-        course_data={**course_data(), "blueprint_revision_id": "outline-v1"},
+        course_data={**lecture_course_data(), "blueprint_revision_id": "outline-v1"},
         lesson_unit_id="L1-1",
     ))
 
@@ -4208,7 +4239,7 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
             selected = next(
                 item
                 for item in course_data["course_plan"]["chapters"]
-                if item["node_id"] == lesson_unit_id
+                if item["lecture_number"] == int(lesson_unit_id.rsplit("-", 1)[1])
             )
             assert selected["teacher_requirements"] == "突出课堂讨论与案例分析"
             await on_phase(
@@ -4248,7 +4279,7 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
         @staticmethod
         def get_generation_workspace_course(course_id):
             assert course_id == "course-1"
-            source = course_data()
+            source = lecture_course_data()
             source["course_plan"]["reference_books"] = [
                 "张三：《核心概念导论》，高等教育出版社，2025"
             ]
@@ -4317,6 +4348,83 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
     generated_revision = assets["L1-2"]["revisions"][0]
     assert generated_revision["status"] == "draft"
     assert generated_revision["quality_report"]["passed"] is True
+
+
+def test_generate_all_lesson_plans_queues_lecture_v1_lessons(
+    tmp_path,
+    monkeypatch,
+):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+
+    class FakeTaskManager:
+        storage = None
+
+        @staticmethod
+        def get_generation_workspace_course(course_id):
+            assert course_id == "course-1"
+            return {
+                **lecture_course_data(),
+                "blueprint_revision_id": "outline-v1",
+            }
+
+        @staticmethod
+        def get_generation_preview(_course_id):
+            return None
+
+    requested_children = []
+
+    async def fake_generate_lesson_plan(
+        course_id,
+        lesson_unit_id,
+        body,
+        _request,
+        _tm,
+        child_repository,
+    ):
+        requested_children.append((lesson_unit_id, body))
+        job = child_repository.create_job(
+            course_id,
+            lesson_unit_id,
+            request_id=body.request_id,
+            source_outline_revision_id="outline-v1",
+        )
+        return {"job": job}
+
+    monkeypatch.setattr(
+        teacher_lesson_router,
+        "generate_lesson_plan",
+        fake_generate_lesson_plan,
+    )
+    monkeypatch.setattr(
+        teacher_lesson_router,
+        "_lesson_plan_material_scope",
+        lambda _course_id, _actor, lesson_unit_id: {
+            "source_package_id": "",
+            "source_asset_id": "",
+            "material_asset_ids": [f"material-{lesson_unit_id}"],
+        },
+    )
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: FakeTaskManager()
+    app.dependency_overrides[
+        get_teacher_lesson_authoring_repository
+    ] = lambda: repository
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/teacher/courses/course-1/lesson-plans/generate-all",
+            json={"request_id": "all-plans", "requirements": "重视案例"},
+        )
+
+    assert response.status_code == 202
+    payload = response.json()
+    assert len(payload["parent_job"]["child_job_ids"]) == 2
+    assert payload["parent_job"]["skipped_lesson_ids"] == []
+    assert [item[0] for item in requested_children] == ["L1-1", "L1-2"]
+    assert all(item[1].batch_size == 2 for item in requested_children)
+    assert repository.current_arrangement("course-1", "L1-1")["blocks"]
+    assert repository.current_arrangement("course-1", "L1-2")["blocks"]
 
 
 def test_generate_all_lesson_scripts_queues_every_lesson_with_one_parent(

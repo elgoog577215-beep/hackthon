@@ -188,6 +188,7 @@ from course_teaching_plan_v3 import (
 )
 from teaching_design import apply_course_type_brief, resolve_course_type
 from learner_context import DEFAULT_USER_ID
+from lesson_identity import resolve_lesson_chapter
 from teaching_design import apply_lesson_arrangement_to_plan
 from evidence_package import freeze_evidence_package
 from material_evidence import attach_evidence_to_plan, extract_grounding_annotations
@@ -1692,21 +1693,7 @@ class CourseService(AIBase):
             or course_data.get("course_outline")
             or {}
         )
-        chapters = [
-            chapter for chapter in source_plan.get("chapters") or []
-            if isinstance(chapter, dict)
-        ]
-        chapter = next(
-            (
-                chapter for chapter in chapters
-                if str(
-                    chapter.get("node_id")
-                    or chapter.get("chapter_id")
-                    or ""
-                ) == lesson_unit_id
-            ),
-            None,
-        )
+        chapter = resolve_lesson_chapter(source_plan, lesson_unit_id)
         if chapter is None:
             raise ValueError(f"Lesson unit not found: {lesson_unit_id}")
         sections = [

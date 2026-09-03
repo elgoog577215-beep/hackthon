@@ -18,6 +18,7 @@ from course_pedagogy import (
     coerce_persisted_profile,
     module_block_role,
 )
+from lesson_identity import lesson_chapter_index, resolve_lesson_chapter
 from .compiler import (
     LESSON_TYPE_CONTRACTS,
     compile_lesson_semantics,
@@ -84,33 +85,7 @@ def _course_plan(course_data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _lesson_chapter(plan: dict[str, Any], lesson_unit_id: str) -> dict[str, Any] | None:
-    direct_match = next(
-        (
-            item for item in plan.get("chapters") or []
-            if isinstance(item, dict)
-            and _text(item.get("node_id") or item.get("chapter_id")) == lesson_unit_id
-        ),
-        None,
-    )
-    if direct_match is not None:
-        return direct_match
-
-    # The teacher-facing lecture_v1 outline intentionally keeps lecture identity
-    # as an ordinal instead of exposing the internal L1 node id. Bridge that
-    # representation here so the teaching-arrangement compiler can serve both
-    # the formal lecture outline and historical node-addressed plans.
-    match = re.fullmatch(r"L1-(\d+)", lesson_unit_id)
-    if not match or plan.get("authoring_structure_version") != "lecture_v1":
-        return None
-    lecture_number = int(match.group(1))
-    return next(
-        (
-            item for item in plan.get("chapters") or []
-            if isinstance(item, dict)
-            and _text(item.get("lecture_number")) == str(lecture_number)
-        ),
-        None,
-    )
+    return resolve_lesson_chapter(plan, lesson_unit_id)
 
 
 def _lesson_type(archetype_ids: list[str], module_ids: list[str]) -> str:
@@ -342,13 +317,7 @@ def recommend_lesson_arrangement(
         block["planned_minutes"] = minutes
     legacy_lesson_type = _lesson_type(archetype_ids, module_ids)
     chapters = [item for item in plan.get("chapters") or [] if isinstance(item, dict)]
-    chapter_index = next(
-        (
-            index for index, item in enumerate(chapters)
-            if _text(item.get("node_id") or item.get("chapter_id")) == lesson_unit_id
-        ),
-        0,
-    )
+    chapter_index = lesson_chapter_index(plan, lesson_unit_id) or 0
     course_teaching_type = _course_teaching_type(course_data)
     phase = lesson_phase(chapter_index, len(chapters))
     lesson_type = recommend_lesson_type(
