@@ -234,113 +234,55 @@ class CoursePromptComposer:
         }
         if teacher_lecture_mode:
             lecture_count = int(shape.get("chapter_count") or 0)
-            return f"""## 全课讲次大纲
+            teacher_brief = brief.get("teacher_course_brief") or {}
+            total_hours = (
+                teacher_brief.get("total_class_hours")
+                or teacher_brief.get("total_hours")
+                or shape.get("total_class_hours")
+                or "按每讲学时汇总"
+            )
+            return f"""## 轻量课程方案 V1
 
-请按照高校教师正式教学大纲的写法，为本课程生成一份按讲组织的大纲。课程内容只有
-“第 1 讲”至“第 {lecture_count} 讲”这一个层级；不得使用章、小节、1.1、3.1 或任何
-二级课程目录。每一讲直接承担一次完整授课安排，讲内的知识、活动和评价只写进该讲的
-内容说明，不再拆成目录。
+本请求只生成教师可立即看到和编辑的课程方案，不生成完整大纲、教案、讲义或题目。
 
 ## 课程输入
 - 课程名称：{subject}
 - 教学对象：{audience}
-- 已确认讲数：{lecture_count}
-- 其余生成要求：{json.dumps(outline_input_brief, ensure_ascii=False)}
-
-## 正式教学大纲模板
-{json.dumps(formal_outline_contract, ensure_ascii=False)}
-
-## 学习目的、课程类型与学科要求
-- 学习目的：{brief.get('learning_purpose_label') or brief.get('course_type_label') or '系统学习'}
-- 学习目的要求：{json.dumps(learning_purpose_contract, ensure_ascii=False)}
-- 课程教学类型：{brief.get('course_teaching_type_label') or '综合课'}
-- 整课编排要求：{json.dumps(brief.get('course_teaching_type_contract') or {}, ensure_ascii=False)}
-- 一级学科类型：{brief.get('subject_type_label') or '自动判断'}
-- 学科专业要求：{json.dumps(brief.get('subject_standard_pack') or {}, ensure_ascii=False)}
-- 难度与学情：{json.dumps({'difficulty': difficulty_profile, 'gap': gap_assessment, 'adaptation': adaptation_decision}, ensure_ascii=False)}
+- 讲数：{lecture_count}
+- 总学时：{total_hours}
+- 教师要求：{json.dumps(teacher_brief, ensure_ascii=False)}
+- 其他必要约束：{json.dumps(outline_input_brief, ensure_ascii=False)}
 
 ## 资料摘要
 {material_context or '未上传资料；只能使用通用知识，不得伪装引用资料。'}
 
-## 写作要求
-1. 严格返回 {lecture_count} 讲，按真实教学先后排列；讲数由教师决定，不得增减。
-2. `course_intro_zh` 与 `course_intro_en` 分别写中文和英文课程简介，说明课程对象、范围与主要学习结果。
-3. 教学目标只分为学习目标、育人目标和可测量成果。知识、能力与创新素养写入学习目标；
-   责任、规范与价值判断写入育人目标；可测量成果负责验证二者。不得另建“素养与视野”目标组。
-   育人目标必须由真实课程内容支撑，不得要求每讲机械填写思政口号。
-4. `outcome_alignment` 必须为每项可测量成果建立一条关联：指明它承接哪些学习或育人目标、由哪些讲次覆盖、使用什么评价证据验证，以及覆盖边界。`outcome_number` 使用从 1 开始的可测量成果序号，不得引用不存在的成果或讲次。
-5. `assessment_plan` 是唯一结构化考核分配：至少包含一项过程性评价和一项终结性评价，
-   权重合计必须为 100%，每项写清评分标准并关联可测量成果。已确认的考核方式和比例必须原样保留；
-   只有方式没有比例时，可以提出供教师确认的候选比例。`assessment_methods` 只用于兼容原有文字说明。
-6. 本请求只形成可立即展示和审阅的全课框架，不生成每讲的内容摘要、重难点、活动、作业、案例、资源、学习任务或达成检验；这些由后续限流并行的讲次详情批次补全。
-7. 每讲框架只保留主题、可观察学习目标、内容边界、学时和在整课中的推进作用。标题不带“第N讲”、章、节或数字编号；系统会统一加上“第N讲”。
-8. 每讲 `hour_breakdown` 分别填写线下讲授、线下实践和计入总学时的在线教学；三项之和是本讲
-   `planned_hours`，全课各讲合计必须等于已确认总学时。`learning_tasks.estimated_hours` 是课外学习负担，
-   不计入课程总学时。
-9. `course_modules` 只按主题把讲次分组；每讲必须且只能进入一个模块。模块不是课程层级，
-    不得产生模块节点、小节或独立生成任务；模块学时由所含讲次自动汇总。
-10. 参考书籍、网站资料与课程网站只有在教师资料或已确认输入中有依据时才填写，否则保持空数组或空字符串。
-11. 中文字数、目标条数、书目数量和模块数量只有在学校模板或教师输入明确指定时才是硬约束；
-    未指定时按课程实际需要生成，不得套用固定的 300 字、5—8 条、8—12 本等数字。
-12. 教师输入的课程核心特点必须反映到现有 `positioning`、`teaching_methods`与 `assessment_plan` 中，不得另建重复字段。
-13. 为了让教师立即看到完整课程框架，JSON 字段顺序必须以 `course_title`、`lectures` 开头；`lectures` 严格按讲次顺序输出。
-14. 只输出有效 JSON，不输出 Markdown、解释、知识点树、教案、讲义或题目。
-{coverage_rules}
-{planning_rules}
+## 约束
+1. 只返回课程目标、课程模块、讲次顺序、每讲学时和总学时。
+2. 严格返回 {lecture_count} 讲，不得增减。标题不带“第N讲”、章、节或数字编号。
+3. 每讲 `hour_breakdown` 三项之和是该讲学时；全课合计必须等于 `total_hours`。
+4. `course_modules` 只用于按主题对讲次分组；每讲必须且只能进入一个模块。
+5. 不输出内容摘要、重难点、活动、作业、资源、学习任务、达成检验或考核方案。
+6. 只输出有效 JSON，不输出 Markdown 或解释。
 
 ## JSON Schema
 {{
   "course_title": "课程名称",
+  "learning_objectives": ["课程目标"],
+  "course_modules": [
+    {{"module_id": "M1", "title": "模块名称", "lecture_numbers": [1, 2]}}
+  ],
+  "total_hours": {json.dumps(total_hours, ensure_ascii=False)},
   "lectures": [
     {{
       "lecture_number": 1,
       "title": "本讲主题",
-      "learning_objective": "本讲完成后学生能够做到什么",
       "hour_breakdown": {{
         "classroom_lecture": 1,
         "classroom_practice": 1,
         "online_instruction": 0
-      }},
-      "scope_boundary": "本讲负责的内容，以及明确不提前展开什么",
-      "planning_stages": [],
-      "learning_path_role": "focus|standard|compressed|verify_in_project|milestone",
-      "path_reason": "本讲在整课中的推进作用"
+      }}
     }}
-  ],
-  "course_intro_zh": "中文简介",
-  "course_intro_en": "English description",
-  "positioning": "课程定位",
-  "learning_objectives": ["学习目标"],
-  "education_objectives": ["育人目标"],
-  "measurable_outcomes": ["可测量成果"],
-  "outcome_alignment": [
-    {{
-      "outcome_number": 1,
-      "objective_refs": ["学习目标1"],
-      "lecture_numbers": [1],
-      "assessment_evidence": ["可观察的作品、操作或评价证据"],
-      "coverage_scope": "该成果覆盖的内容与边界"
-    }}
-  ],
-  "prerequisites": ["先修要求"],
-  "teaching_methods": ["授课方式"],
-  "assessment_methods": ["考核方式"],
-  "assessment_plan": [
-    {{
-      "item": "考核项目",
-      "category": "formative|summative",
-      "weight_percent": 40,
-      "criteria": "评分内容与标准",
-      "outcome_numbers": [1]
-    }}
-  ],
-  "course_modules": [
-    {{"module_id": "M1", "title": "模块名称", "lecture_numbers": [1, 2]}}
-  ],
-  "ideology_cases": [],
-  "reference_books": [],
-  "reference_websites": [],
-  "course_website": ""
+  ]
 }}""".strip()
         return f"""## {structure_heading}
 
@@ -479,7 +421,7 @@ class CoursePromptComposer:
         material_context: str,
         detail_level: str = "full",
     ) -> str:
-        """Expand a few frozen lectures without regenerating their framework."""
+        """Generate one complete lecture object without changing its framework."""
         selected_numbers = {
             int(item) for item in batch_spec.get("lecture_numbers") or []
         }
@@ -555,9 +497,9 @@ class CoursePromptComposer:
         batch_id = str(batch_spec.get("batch_id") or "")
         skeleton_revision_id = str(skeleton.get("revision_id") or "")
         lecture_count = len(selected_lectures)
-        return f"""## 讲次详情批次 V1
+        return f"""## 单讲完整大纲 V2
 
-全课框架已经确定。你只补全当前 {lecture_count} 讲的教学安排；不得修改讲数、顺序、
+课程方案已经由教师编辑并主动发起完整大纲生成。本任务只生成当前一讲的完整对象；不得修改讲数、顺序、
 标题、学习目标、内容边界、学时或课程级合同。只输出有效 JSON。
 
 ## 批次身份
@@ -581,7 +523,7 @@ class CoursePromptComposer:
 {material_context or '未上传资料；只能使用通用知识，不得伪装引用资料。'}
 
 ## 约束
-1. 严格按批次中的讲次编号返回 {lecture_count} 项，不得遗漏、增加或换序。
+1. 严格返回当前讲次的 1 个完整对象，不得遗漏、增加或换讲。
 2. `content_summary` 使用二至四句自然中文，说清实际要教的内容，不展开成教案或讲义。
 3. 重点、难点、活动、作业和达成检验必须与冻结的本讲目标一致；达成检验写清学生产出与教师判断标准。
 4. 每讲至少给出一个案例、问题、例题、实验或项目情境，以及一项课前或课后任务和可提交证据。
@@ -640,12 +582,12 @@ class CoursePromptComposer:
             f"- {clip_text(item.get('message'), 240)}"
             for item in issues[:16]
         ) or "- 上一次输出不是完整有效的讲次详情 JSON"
-        return f"""## 讲次详情批次 V1 定点修复
+        return f"""## 单讲完整大纲 V2 定点修复
 
 当前讲次详情批次存在以下问题：
 {issue_text}
 
-只重新输出当前批次的完整 JSON。必须保持批次标识、框架修订和讲次顺序；
+只重新输出当前讲次的完整 JSON。必须保持任务标识、框架修订和讲次身份；
 不得修改已冻结的讲次框架，不要输出解释或 Markdown 围栏。
 
 {clip_text(original_prompt, 12000)}

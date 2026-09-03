@@ -94,23 +94,20 @@ from slide_deck_v6 import (
 
 router = APIRouter(prefix="/teacher", tags=["teacher-lesson-authoring"])
 _background_jobs: set[asyncio.Task] = set()
-_lesson_plan_course_locks: dict[str, asyncio.Lock] = {}
 
 
-async def _run_lesson_plan_serially(
+async def _run_lesson_plan_job(
     *,
     course_id: str,
     job_id: str,
     repository: TeacherLessonAuthoringRepository,
     run: Callable[[], Awaitable[None]],
 ) -> None:
-    """Allow only one lesson-plan model run per course at a time."""
-    lock = _lesson_plan_course_locks.setdefault(course_id, asyncio.Lock())
-    async with lock:
-        job = await run_in_threadpool(repository.get_job, course_id, job_id)
-        if str(job.get("status") or "") not in {"pending", "running"}:
-            return
-        await run()
+    """Run one queued lesson; the shared service semaphore owns concurrency."""
+    job = await run_in_threadpool(repository.get_job, course_id, job_id)
+    if str(job.get("status") or "") not in {"pending", "running"}:
+        return
+    await run()
 
 
 class GenerateLessonPlanRequest(BaseModel):
@@ -561,6 +558,26 @@ def _refresh_v6_ppt_manuscript(
 def _has_teaching_structure(source: Any) -> bool:
     if not isinstance(source, dict):
         return False
+    if source.get("outline_framework_only") is True:
+        return False
+    if str(source.get("generation_status") or "") in {
+        "outline_framework_ready",
+        "outline_detail_generation",
+        "outline_detail_failed",
+    }:
+        return False
+    outline_stage = (
+        (source.get("generation_stage_artifacts") or {}).get("outline")
+        or {}
+    )
+    if str(outline_stage.get("strategy") or "") in {
+        "teacher_framework_then_detail_batches",
+        "teacher_framework_then_lecture_tasks",
+    } and str(outline_stage.get("status") or "") not in {
+        "completed",
+        "completed_with_warnings",
+    }:
+        return False
     if any(isinstance(item, dict) for item in source.get("nodes") or []):
         return True
     document = source.get("course_document")
@@ -682,6 +699,38 @@ def _course_material_evidence(
                 "source_kind": "course_material",
             })
     return selected_ids, evidence
+
+
+def _lesson_plan_material_scope(
+    course_id: str,
+    actor: str,
+    lesson_unit_id: str,
+) -> dict[str, Any]:
+    """Resolve the exact per-lesson material scope saved by the teacher."""
+    target_id = f"lesson-plan:{lesson_unit_id}"
+    material_asset_ids: list[str] = []
+    source_package_id = ""
+    source_asset_id = ""
+    for summary in teacher_course_space_repository.list_owned(actor, course_id):
+        package_id = str(summary.get("package_id") or "")
+        try:
+            package = teacher_course_space_repository.load_owned(package_id, actor)
+        except (FileNotFoundError, MaterialStorageError):
+            continue
+        for relationship in teacher_course_space_repository.relationships_for_target(
+            package, target_id
+        ):
+            material_asset_id = str(relationship.get("material_asset_id") or "")
+            if material_asset_id and material_asset_id not in material_asset_ids:
+                material_asset_ids.append(material_asset_id)
+            if relationship.get("role") == "primary" and not source_asset_id:
+                source_package_id = package_id
+                source_asset_id = str(relationship.get("source_asset_id") or "")
+    return {
+        "source_package_id": source_package_id,
+        "source_asset_id": source_asset_id,
+        "material_asset_ids": material_asset_ids,
+    }
 
 
 def _ppt_material_bundle(
@@ -3221,12 +3270,8 @@ async def generate_lesson_plan(
                 "parent_job_id": body.batch_parent_job_id,
                 "batch_position": body.batch_position,
                 "batch_size": body.batch_size,
-                "phase": "waiting_for_previous_lesson",
-                "message": (
-                    "等待上一讲生成完成"
-                    if body.batch_position > 1
-                    else "等待生成第一讲教案"
-                ),
+                "phase": "queued",
+                "message": f"第 {body.batch_position} 讲教案已入队",
             } if body.batch_parent_job_id else {}),
         )
         if source_evidence:
@@ -3312,7 +3357,7 @@ async def generate_lesson_plan(
                     planner=planner,
                 )
 
-            await _run_lesson_plan_serially(
+            await _run_lesson_plan_job(
                 course_id=course_id,
                 job_id=str(job["id"]),
                 repository=repository,
@@ -3337,7 +3382,7 @@ async def generate_all_lesson_plans(
         get_teacher_lesson_authoring_repository
     ),
 ):
-    """Queue every lecture but run at most one lesson-plan model job at a time."""
+    """Queue every lecture at once; each child reports its own real status."""
     try:
         source = _source_course(tm, course_id)
         outline_revision = _canonical_outline_revision(source)
@@ -3366,6 +3411,11 @@ async def generate_all_lesson_plans(
         prior_jobs = list((repository.view(course_id).get("jobs") or {}).values())
         for batch_position, lesson in enumerate(target_lessons, start=1):
             lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
+            material_scope = _lesson_plan_material_scope(
+                course_id,
+                actor,
+                lesson_unit_id,
+            )
             arrangement = lesson.get("arrangement")
             if not isinstance(arrangement, dict) or not arrangement.get("blocks"):
                 raise TeacherLessonAuthoringError(
@@ -3405,10 +3455,10 @@ async def generate_all_lesson_plans(
                     and item.get("type") == "teacher_lesson_plan_generation"
                     and item.get("status") in {"paused", "failed", "cancelled"}
                 ), "")),
-                source_package_id=body.source_package_id,
-                source_asset_id=body.source_asset_id,
+                source_package_id=str(material_scope["source_package_id"]),
+                source_asset_id=str(material_scope["source_asset_id"]),
                 requirements=body.requirements,
-                material_asset_ids=body.material_asset_ids,
+                material_asset_ids=list(material_scope["material_asset_ids"]),
                 batch_parent_job_id=parent_job_id,
                 batch_position=batch_position,
                 batch_size=len(target_lessons),
@@ -3441,6 +3491,16 @@ async def generate_all_lesson_plans(
             "skipped_lesson_ids": skipped_lesson_ids,
             "total": len(lessons),
             "started": len(jobs),
+            "lesson_statuses": [
+                {
+                    "lesson_id": str(item.get("lesson_id") or item.get("lesson_unit_id") or ""),
+                    "status": str(item.get("status") or "pending"),
+                    "stage": str(item.get("stage") or item.get("phase") or "queued"),
+                    "message": str(item.get("message") or ""),
+                    "job_id": str(item.get("id") or ""),
+                }
+                for item in jobs
+            ],
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         return {"parent_job": parent_job, "jobs": jobs}
@@ -3922,7 +3982,7 @@ async def generate_lesson_script(
                 error_detail = str(generation_error).strip()
                 failure_kind = (
                     "model_output_quality_failed"
-                    if error_detail.startswith("讲义未通过已确认教案的质量检查")
+                    if error_detail.startswith("讲义未通过当前教案的质量检查")
                     else type(generation_error).__name__
                 )
                 fallback_warnings.append({
@@ -4209,7 +4269,7 @@ async def rewrite_lesson_script_candidate(
             heading_path=[str(section.get("title") or "")],
             user_requirement="\n".join(filter(None, [
                 body.instruction.strip(),
-                "保持已确认教案结构和事实边界；涉及高风险事实而选定资料无法支持时标注“需核验”，不得给出无依据的绝对结论。",
+                "保持当前教案结构和事实边界；涉及高风险事实而选定资料无法支持时标注“需核验”，不得给出无依据的绝对结论。",
                 (
                     "完整保留并仅使用这些二级标题，顺序和名称均不得改变："
                     + "、".join(f"## {title}" for title in script_headings)

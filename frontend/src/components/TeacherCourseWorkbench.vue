@@ -1,13 +1,11 @@
 <template>
   <section
-    ref="workbenchRoot"
     class="teacher-workbench"
     :class="{
-      'is-ai-collaboration': aiCollaborationOpen && activeStage === 'question-bank',
       'is-question-bank-workspace': activeStage === 'question-bank',
       'is-ppt-stage': activeStage === 'ppt',
+      'is-context-collapsed': contextPaneCollapsed && activeStage !== 'question-bank',
     }"
-    :style="{ '--ai-pane-width': `${aiPaneWidth}px` }"
   >
     <aside v-show="!aiCollaborationOpen || activeStage !== 'question-bank'" class="stage-rail" :aria-label="t('courseWorkbench.stageNavigation', '课程生产阶段')">
       <header>
@@ -41,9 +39,57 @@
         'is-lesson-workspace': !['foundation', 'companion'].includes(activeStage),
       }"
     >
+      <button
+        v-if="contextPaneCollapsed && activeStage !== 'question-bank'"
+        class="context-pane-reopen"
+        type="button"
+        :title="t('courseWorkbench.contextPane.expand', '展开当前内容信息')"
+        :aria-label="t('courseWorkbench.contextPane.expand', '展开当前内容信息')"
+        @click="contextPaneCollapsed = false"
+      ><PanelRightOpen :size="17" /></button>
       <header v-if="activeStage === 'foundation'" class="center-heading">
         <div><small>{{ activeStageDefinition.step }} / 04</small><h2>{{ activeStageDefinition.label }}</h2></div>
       </header>
+
+      <nav
+        v-if="activeStage === 'foundation'"
+        class="outline-flow-steps"
+        :aria-label="t('courseWorkbench.outlineFlow.title', '大纲生成步骤')"
+        data-testid="outline-flow-steps"
+      >
+        <button
+          type="button"
+          :class="{ active: outlineFlowStep === 1, complete: outlineFlowStep > 1 }"
+          :aria-current="outlineFlowStep === 1 ? 'step' : undefined"
+          @click="emit('open-course-information')"
+        >
+          <span>1</span>
+          <strong>{{ t('courseWorkbench.outlineFlow.courseInfo', '填写课程信息') }}</strong>
+          <Check v-if="outlineFlowStep > 1" :size="14" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          :class="{ active: outlineFlowStep === 2, complete: outlineFlowStep > 2 }"
+          :aria-current="outlineFlowStep === 2 ? 'step' : undefined"
+          :disabled="outlineFlowStep < 2"
+          @click="scrollOutlineIntoView"
+        >
+          <span>2</span>
+          <strong>{{ t('courseWorkbench.outlineFlow.lightPlan', '查看与编辑课程方案') }}</strong>
+          <Check v-if="outlineFlowStep > 2" :size="14" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          :class="{ active: outlineFlowStep === 3, complete: outlineFullReady }"
+          :aria-current="outlineFlowStep === 3 && !outlineFullReady ? 'step' : undefined"
+          :disabled="outlineFlowStep < 3"
+          @click="scrollOutlineIntoView"
+        >
+          <span>3</span>
+          <strong>{{ t('courseWorkbench.outlineFlow.fullOutline', '生成完整大纲') }}</strong>
+          <Check v-if="outlineFullReady" :size="14" aria-hidden="true" />
+        </button>
+      </nav>
 
       <template v-if="showOutlineWorkspace">
         <TeacherDocumentCommandBar
@@ -60,6 +106,20 @@
           @redo="outlineEditor?.redoEdit()"
           @history="toggleDocumentHistory('outline')"
         >
+          <button
+            v-if="outlineWaitingForInput"
+            class="primary-action"
+            data-testid="outline-continue-action"
+            type="button"
+            :disabled="outlineContinuing || stageSwitching"
+            @click="continueOutlineDetails"
+          >
+            <LoaderCircle v-if="outlineContinuing" :size="15" class="spin" />
+            <Sparkles v-else :size="15" />
+            {{ outlineContinuing
+              ? t('courseWorkbench.outlineFlow.continuing', '正在生成完整大纲…')
+              : t('courseWorkbench.outlineFlow.generateFull', '生成完整大纲') }}
+          </button>
           <button
             class="outline-manual-action"
             data-testid="outline-manual-action"
@@ -101,13 +161,51 @@
             :growth="outlineGrowth"
             :nodes="outlinePreviewNodes"
           />
-          <section v-for="node in visibleStreamNodes" v-else :key="node.node_id">
-            <h3>{{ node.node_name }}</h3>
-            <MarkdownRenderer :content="nodeContent(node)" />
-            <span v-if="node.node_id === generationStore.currentGeneratingNodeId" class="stream-caret" />
+          <section
+            v-if="outlineLessonStatuses.length"
+            class="outline-detail-stream"
+            data-testid="outline-detail-stream"
+            :aria-label="t('courseWorkbench.outlineFlow.lessonProgress', '各讲生成进度')"
+          >
+            <header>
+              <strong>{{ t('courseWorkbench.outlineFlow.lessonProgress', '各讲生成进度') }}</strong>
+              <small>{{ t('courseWorkbench.outlineFlow.lessonProgressCount', '已完成 {completed}/{total} 讲')
+                .replace('{completed}', String(outlineCompletedLessonCount))
+                .replace('{total}', String(outlineLessonStatuses.length)) }}</small>
+            </header>
+            <article
+              v-for="(lessonStatus, index) in outlineLessonStatuses"
+              :key="lessonStatus.lesson_id || index"
+              :data-state="outlineLessonStatusState(lessonStatus)"
+            >
+              <div class="outline-detail-stream__heading">
+                <span aria-hidden="true">
+                  <LoaderCircle v-if="outlineLessonStatusState(lessonStatus) === 'running'" :size="15" class="spin" />
+                  <Check v-else-if="outlineLessonStatusState(lessonStatus) === 'completed'" :size="15" />
+                  <TriangleAlert v-else-if="outlineLessonStatusState(lessonStatus) === 'failed'" :size="15" />
+                  <i v-else />
+                </span>
+                <div>
+                  <strong>{{ outlineLessonStatusTitle(lessonStatus, index) }}</strong>
+                  <small>{{ lessonStatus.message || outlineLessonStatusLabel(lessonStatus) }}</small>
+                </div>
+                <em>{{ Math.max(0, Math.min(100, Math.round(Number(lessonStatus.progress || 0)))) }}%</em>
+              </div>
+              <div class="outline-detail-stream__progress" aria-hidden="true">
+                <i :style="{ transform: `scaleX(${Math.max(0, Math.min(100, Number(lessonStatus.progress || 0))) / 100})` }" />
+              </div>
+              <pre v-if="lessonStatus.stream_preview" class="outline-detail-stream__preview">{{ lessonStatus.stream_preview }}<span v-if="outlineLessonStatusState(lessonStatus) === 'running'" class="stream-caret" /></pre>
+            </article>
           </section>
-          <div v-if="!outlineGrowth && !visibleStreamNodes.length && !generationFailed" class="stream-waiting"><LoaderCircle :size="20" class="spin" />{{ t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…') }}</div>
-          <div v-else-if="!outlineGrowth && !visibleStreamNodes.length && generationFailed" class="stream-waiting stream-failed"><TriangleAlert :size="22" />{{ t('courseWorkbench.noContentGenerated', '本次没有生成课程内容，请检查提示后重试。') }}</div>
+          <template v-if="!outlineLessonStatuses.length">
+            <section v-for="node in visibleStreamNodes" :key="node.node_id">
+              <h3>{{ node.node_name }}</h3>
+              <MarkdownRenderer :content="nodeContent(node)" />
+              <span v-if="node.node_id === generationStore.currentGeneratingNodeId" class="stream-caret" />
+            </section>
+          </template>
+          <div v-if="!outlineGrowth && !outlineLessonStatuses.length && !visibleStreamNodes.length && !generationFailed" class="stream-waiting"><LoaderCircle :size="20" class="spin" />{{ t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…') }}</div>
+          <div v-else-if="!outlineGrowth && !outlineLessonStatuses.length && !visibleStreamNodes.length && generationFailed" class="stream-waiting stream-failed"><TriangleAlert :size="22" />{{ t('courseWorkbench.noContentGenerated', '本次没有生成课程内容，请检查提示后重试。') }}</div>
         </article>
         <AppErrorNotice v-if="generationErrorPresentation" class="workbench-error" :presentation="generationErrorPresentation" compact>
           <template #action><button type="button" @click="submitFoundation">{{ t('common.retry', '重试') }}</button></template>
@@ -236,8 +334,49 @@
         @saved="handleCompanionSaved"
       />
 
-      <section v-else class="lesson-stage" :class="{ 'has-lesson-outline': ['lesson', 'script'].includes(activeStage) && lessonStore.lessons.length }">
+      <section v-else class="lesson-stage" :class="{ 'has-lesson-outline': ['lesson', 'script', 'ppt'].includes(activeStage) && lessonStore.lessons.length }">
         <div class="lesson-workspace">
+          <aside
+            v-if="['lesson', 'script', 'ppt'].includes(activeStage) && lessonStore.lessons.length"
+            class="lesson-outline lesson-outline--fixed"
+            :aria-label="t('courseWorkbench.lessonOutline.title', '讲次目录')"
+            data-testid="lesson-outline-fixed"
+          >
+            <header>
+              <strong>{{ t('courseWorkbench.lessonOutline.title', '讲次目录') }}</strong>
+              <small>{{ t('courseWorkbench.lessonOutline.completedCount', '已完成 {completed}/{total}')
+                .replace('{completed}', String(lessonCompletedCount))
+                .replace('{total}', String(lessonStore.lessons.length)) }}</small>
+            </header>
+            <nav>
+              <button
+                v-for="(lesson, index) in lessonStore.lessons"
+                :key="lesson.lesson_unit_id"
+                class="lesson-outline-chapter-button"
+                type="button"
+                :class="{ active: selectedLessonId === lesson.lesson_unit_id }"
+                :disabled="aiCandidatePending && selectedLessonId !== lesson.lesson_unit_id"
+                :aria-current="selectedLessonId === lesson.lesson_unit_id ? 'page' : undefined"
+                :aria-label="`${lesson.title}，${lessonGenerationStateLabel(lesson)}`"
+                @click="selectLesson(lesson.lesson_unit_id)"
+              >
+                <span class="lesson-outline-chapter-copy">
+                  <strong>{{ lessonDisplayTitle(lesson, index) }}</strong>
+                  <small :data-state="lessonGenerationState(lesson)">{{ lessonGenerationStateLabel(lesson) }}</small>
+                </span>
+                <span
+                  class="lesson-outline-status"
+                  :data-state="lessonGenerationState(lesson)"
+                  aria-hidden="true"
+                >
+                  <LoaderCircle v-if="lessonGenerationIsRunning(lesson)" :size="14" class="spin" />
+                  <Check v-else-if="['ready', 'suggestions'].includes(lessonGenerationState(lesson))" :size="14" />
+                  <TriangleAlert v-else-if="['stale', 'failed'].includes(lessonGenerationState(lesson))" :size="14" />
+                  <i v-else />
+                </span>
+              </button>
+            </nav>
+          </aside>
           <div class="lesson-stage-content">
         <nav
           v-if="lessonStore.lessons.length"
@@ -247,53 +386,9 @@
         >
           <div class="lesson-heading-cluster">
             <div class="lesson-current-group">
-              <div ref="lessonOutlineRoot" class="lesson-outline-control">
-              <button
-                ref="lessonOutlineTrigger"
-                class="lesson-title-trigger"
-                type="button"
-                :aria-expanded="lessonOutlineOpen"
-                :aria-label="`${t('courseWorkbench.lessonOutline.trigger', '目录')}：${selectedLesson?.title || t('courseWorkbench.form.chooseLesson', '请选择课次')}，${selectedLessonPosition}/${lessonStore.lessons.length}`"
-                aria-controls="lesson-outline-navigation"
-                :disabled="aiCandidatePending"
-                @click="toggleLessonOutline"
-              >
+              <div class="lesson-current-title">
                 <strong>{{ selectedLesson?.title || t('courseWorkbench.form.chooseLesson', '请选择课次') }}</strong>
                 <small>{{ selectedLessonPosition }}/{{ lessonStore.lessons.length }}</small>
-                <ChevronDown class="lesson-title-chevron" :size="15" aria-hidden="true" />
-              </button>
-              <nav
-                v-if="lessonOutlineOpen"
-                id="lesson-outline-navigation"
-                class="lesson-outline-popover"
-                :aria-label="t('courseWorkbench.lessonOutline.title', '讲次目录')"
-                @keydown.esc.stop.prevent="closeLessonOutline(true)"
-              >
-                <button
-                  v-for="lesson in lessonStore.lessons"
-                  :key="lesson.lesson_unit_id"
-                  class="lesson-outline-chapter-button"
-                  type="button"
-                  :class="{ active: selectedLessonId === lesson.lesson_unit_id }"
-                  :disabled="aiCandidatePending && selectedLessonId !== lesson.lesson_unit_id"
-                  :aria-current="selectedLessonId === lesson.lesson_unit_id ? 'page' : undefined"
-                  :aria-label="`${lesson.title}，${lessonGenerationStateLabel(lesson)}`"
-                  @click="selectLessonFromOutline(lesson.lesson_unit_id)"
-                >
-                  <strong>{{ lesson.title }}</strong>
-                  <span
-                    class="lesson-outline-status"
-                    :data-state="lessonGenerationState(lesson)"
-                    :title="lessonGenerationStateLabel(lesson)"
-                    aria-hidden="true"
-                  >
-                    <LoaderCircle v-if="lessonGenerationIsRunning(lesson)" :size="14" class="spin" />
-                    <Check v-else-if="['ready', 'suggestions'].includes(lessonGenerationState(lesson))" :size="14" />
-                    <TriangleAlert v-else-if="['stale', 'failed'].includes(lessonGenerationState(lesson))" :size="14" />
-                    <i v-else />
-                  </span>
-                </button>
-              </nav>
               </div>
               <span v-if="selectedLessonTypeLabel" class="lesson-type-context">· {{ selectedLessonTypeLabel }}</span>
             </div>
@@ -405,8 +500,49 @@
         </template>
 
         <template v-else-if="activeStage === 'lesson'">
+          <section
+            v-if="lessonCoursePreviewVisible"
+            class="lesson-course-preview"
+            data-testid="lesson-course-preview"
+          >
+            <header>
+              <div>
+                <strong>{{ t('courseWorkbench.lessonBatch.previewTitle', '整门课程教案预览') }}</strong>
+                <span>{{ t('courseWorkbench.lessonBatch.previewDetail', '系统将按当前大纲与每讲教学结构，依次生成全部教案。') }}</span>
+              </div>
+              <button
+                class="primary-action"
+                data-testid="lesson-course-preview-generate"
+                type="button"
+                :disabled="batchStarting || !batchEligibleCount"
+                @click="generateAllLessonPlans"
+              >
+                <LoaderCircle v-if="batchStarting" :size="16" class="spin" />
+                <Sparkles v-else :size="16" />
+                {{ batchStarting
+                  ? t('courseWorkbench.lessonBatch.starting', '正在开始…')
+                  : t('courseWorkbench.lessonBatch.generateAll', '生成全部教案') }}
+              </button>
+            </header>
+            <article>
+              <section v-for="(lesson, index) in lessonStore.lessons" :key="lesson.lesson_unit_id">
+                <div class="lesson-course-preview__title">
+                  <span>{{ String(index + 1).padStart(2, '0') }}</span>
+                  <h3>{{ lessonDisplayTitle(lesson, index) }}</h3>
+                  <small>{{ lesson.arrangement?.lesson_type_label || t('courseWorkbench.lessonBatch.typePending', '课型待系统安排') }}</small>
+                </div>
+                <ol v-if="lesson.arrangement?.blocks?.length">
+                  <li v-for="block in lesson.arrangement.blocks" :key="block.block_id || block.name">
+                    <strong>{{ block.name }}</strong>
+                    <span>{{ block.purpose || block.content_summary }}</span>
+                  </li>
+                </ol>
+                <p v-else class="lesson-course-preview__pending">{{ t('courseWorkbench.lessonBatch.structurePending', '教学结构正在准备，生成时会使用最新结果。') }}</p>
+              </section>
+            </article>
+          </section>
           <TeacherLessonArrangementSummary
-            v-if="selectedLesson?.arrangement?.blocks?.length && (!workingLessonRevision || lessonGenerationActive)"
+            v-else-if="selectedLesson?.arrangement?.blocks?.length && (!workingLessonRevision || lessonGenerationActive)"
             :arrangement="selectedLesson.arrangement"
             :impact-labels="lessonArrangementImpactLabels"
             :generating="lessonGenerationActive"
@@ -472,8 +608,8 @@
           </template>
           <div v-else-if="selectedLesson && !workingLessonRevision && lessonGenerationQueued" class="lesson-queue-state" aria-live="polite">
             <LoaderCircle :size="22" />
-            <strong>{{ t('courseWorkbench.lessonBatch.waitingTitle', '等待按顺序生成') }}</strong>
-            <p>{{ t('courseWorkbench.lessonBatch.waitingDetail', '上一讲完成后，系统会自动生成本讲，不需要再次操作。') }}</p>
+            <strong>{{ t('courseWorkbench.lessonBatch.waitingTitle', '已进入生成队列') }}</strong>
+            <p>{{ t('courseWorkbench.lessonBatch.waitingDetail', '本讲已独立排队，生成位可用时自动开始，无需再次操作。') }}</p>
           </div>
           <div v-else-if="selectedLesson && !workingLessonRevision && !selectedLesson.arrangement?.blocks?.length" class="lesson-empty-canvas" aria-live="polite">
             <span>{{ t('courseWorkbench.lessonBatch.empty', '教案尚未生成') }}</span>
@@ -613,22 +749,20 @@
       @keydown="resizeAiPaneWithKeyboard"
     ><GripVertical :size="14" /></div>
 
-    <aside v-if="activeStage !== 'question-bank'" class="context-pane" :class="{ 'is-ai-tab': contextPaneTab === 'ai' }" :aria-label="t('courseWorkbench.contextPane.title', '工作台侧栏')">
-      <nav class="context-pane-tabs" role="tablist" :aria-label="t('courseWorkbench.contextPane.title', '工作台侧栏')">
+    <aside v-if="activeStage !== 'question-bank' && !contextPaneCollapsed" class="context-pane" :aria-label="t('courseWorkbench.contextPane.title', '当前内容信息')">
+      <header class="context-pane-heading" :data-phase="contextPhase">
+        <div>
+          <small>{{ contextPhaseLabel }}</small>
+          <strong>{{ contextObjectTitle }}</strong>
+          <span>{{ contextObjectDetail }}</span>
+        </div>
         <button
           type="button"
-          role="tab"
-          :aria-selected="contextPaneTab === 'ai'"
-          :disabled="!contextAiAvailable"
-          @click="openContextAiTab"
-        ><Sparkles :size="14" />{{ t('courseWorkbench.contextPane.ai', 'AI 助手') }}</button>
-        <button
-          type="button"
-          role="tab"
-          :aria-selected="contextPaneTab === 'references'"
-          @click="showReferenceTab"
-        ><FileText :size="14" />{{ t('courseWorkbench.contextPane.references', '课程资料') }}<small>{{ activeReferences.length }}</small></button>
-      </nav>
+          :title="t('courseWorkbench.contextPane.collapse', '收起当前内容信息')"
+          :aria-label="t('courseWorkbench.contextPane.collapse', '收起当前内容信息')"
+          @click="contextPaneCollapsed = true"
+        ><PanelRightClose :size="17" /></button>
+      </header>
 
       <section
         v-if="outlineQualityReviewVisible"
@@ -647,44 +781,7 @@
         </button>
       </section>
 
-      <TeacherLessonAiWorkspace
-        v-if="contextPaneTab === 'ai' && aiCollaborationOpen"
-        class="ai-workspace-panel"
-        embedded
-        :domain="aiDomain"
-        :scope-title="aiScopeTitle"
-        :scope-detail="aiScopeDetail"
-        :scope-options="aiScopeOptions"
-        :scope-value="currentAiScopeId"
-        :reference-count="aiActiveReferences.length"
-        :reference-labels="aiActiveReferences.map(item => item.source_label || item.filename)"
-        :messages="aiMessages"
-        :phase="aiPhase"
-        :busy="aiCollaborationBusy"
-        :candidate-pending="aiCandidatePending"
-        :candidate-can-apply="aiCandidateCanApply"
-        :candidate-block-reason="aiCandidateBlockReason"
-        :candidate-fields="aiCandidateFieldLabels"
-        :candidate-impacts="aiCandidateImpacts"
-        :clarification-options="aiClarificationOptions"
-        :quick-actions="aiQuickActions"
-        :placeholder="aiPlaceholder"
-        :selection-text="aiSelectionContext"
-        :can-retry="Boolean(lastAiOperation)"
-        @change-scope="changeAiScope"
-        @open-sources="showReferenceTab"
-        @clear-selection="aiSelectionContext = ''"
-        @send="handleAiRequest"
-        @clarify="handleAiClarification"
-        @retry="retryAiAction"
-        @accept="resolveAiCandidate(true)"
-        @reject="resolveAiCandidate(false)"
-        @focus-candidate="focusAiCandidate"
-        @open-course-plan="planId => emit('open-course-adjustment', { planId })"
-      />
-
       <CourseReferenceTray
-        v-else
         v-model="activeReferences"
         class="context-pane-references"
         :course-id="courseId"
@@ -694,6 +791,7 @@
         :scope-target-type="lessonReferenceTargetType"
         :scope-target-label="selectedLesson?.title || ''"
         :scope-target-position="selectedLessonPosition"
+        :lesson-targets="lessonReferenceTargets"
         :previous-scope-target-id="previousLessonReferenceTargetId"
         :refresh-token="materialRefreshToken"
         :workflow-state="referenceWorkflowState"
@@ -712,7 +810,7 @@
     </aside>
 
     <TeacherLessonAiWorkspace
-      v-else-if="aiCollaborationOpen"
+      v-if="aiCollaborationOpen && activeStage === 'question-bank'"
       class="ai-workspace-panel"
       :domain="aiDomain"
       :scope-title="aiScopeTitle"
@@ -745,6 +843,53 @@
       @focus-candidate="focusAiCandidate"
       @open-course-plan="planId => emit('open-course-adjustment', { planId })"
     />
+
+    <el-dialog
+      v-if="activeStage !== 'question-bank'"
+      v-model="aiCollaborationOpen"
+      class="teacher-ai-dialog"
+      data-testid="teacher-ai-dialog"
+      :title="t('courseWorkbench.aiCollaboration.dialogTitle', 'AI 修改')"
+      width="min(780px, 92vw)"
+      append-to-body
+      destroy-on-close
+      @closed="closeAiCollaboration"
+    >
+      <TeacherLessonAiWorkspace
+        class="teacher-ai-dialog__workspace"
+        :domain="aiDomain"
+        :scope-title="aiScopeTitle"
+        :scope-detail="aiScopeDetail"
+        :scope-options="aiScopeOptions"
+        :scope-value="currentAiScopeId"
+        :reference-count="aiActiveReferences.length"
+        :reference-labels="aiActiveReferences.map(item => item.source_label || item.filename)"
+        :messages="aiMessages"
+        :phase="aiPhase"
+        :busy="aiCollaborationBusy"
+        :candidate-pending="aiCandidatePending"
+        :candidate-can-apply="aiCandidateCanApply"
+        :candidate-block-reason="aiCandidateBlockReason"
+        :candidate-fields="aiCandidateFieldLabels"
+        :candidate-impacts="aiCandidateImpacts"
+        :clarification-options="aiClarificationOptions"
+        :quick-actions="aiQuickActions"
+        :placeholder="aiPlaceholder"
+        :selection-text="aiSelectionContext"
+        :can-retry="Boolean(lastAiOperation)"
+        @close="closeAiCollaboration"
+        @change-scope="changeAiScope"
+        @open-sources="closeAiCollaboration"
+        @clear-selection="aiSelectionContext = ''"
+        @send="handleAiRequest"
+        @clarify="handleAiClarification"
+        @retry="retryAiAction"
+        @accept="resolveAiCandidate(true)"
+        @reject="resolveAiCandidate(false)"
+        @focus-candidate="focusAiCandidate"
+        @open-course-plan="planId => emit('open-course-adjustment', { planId })"
+      />
+    </el-dialog>
 
     <el-dialog
       v-model="outlineQualityReviewDialogOpen"
@@ -790,7 +935,7 @@
 
 <script setup lang="ts">
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { BookOpenText, Check, CheckSquare2, ChevronDown, ChevronLeft, ChevronRight, ClipboardCheck, ClipboardList, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
+import { BookOpenText, Check, CheckSquare2, ChevronLeft, ChevronRight, ClipboardCheck, ClipboardList, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, PanelRightClose, PanelRightOpen, Pause, Pencil, Presentation, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
@@ -891,6 +1036,14 @@ type AiLessonPlanSection = {
   in_class_checks?: unknown[]
   teaching_modules?: AiLessonPlanModule[]
 }
+type OutlineLessonStatus = {
+  lesson_id: string
+  status: string
+  stage: string
+  message: string
+  progress: number
+  stream_preview: string
+}
 type OutlineEditorHandle = ProductionAiDocumentHandle & {
   finishEditing: () => Promise<boolean>
   requestQualityRepair: (issue: Record<string, any>) => string
@@ -915,9 +1068,6 @@ const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = r
 const activeCompanionTemplateId = ref<CompanionTemplateId>(GRADING_RUBRIC_TEMPLATE_ID)
 const stageSwitching = ref(false)
 const selectedLessonSectionId = ref('')
-const lessonOutlineOpen = ref(false)
-const lessonOutlineRoot = ref<HTMLElement | null>(null)
-const lessonOutlineTrigger = ref<HTMLButtonElement | null>(null)
 const workbenchRoot = ref<HTMLElement | null>(null)
 const workbenchCenter = ref<HTMLElement | null>(null)
 const lessonPlanDocument = ref<LessonPlanDocumentHandle | null>(null)
@@ -936,7 +1086,7 @@ const aiPaneMaxWidth = ref(AI_PANE_MAX_WIDTH)
 const aiPaneResizing = ref(false)
 const aiPhase = ref<TeacherProductionAiPhase>('ready')
 const aiCandidate = ref<Record<string, any> | null>(null)
-const contextPaneTab = ref<'ai' | 'references'>('references')
+const contextPaneCollapsed = ref(false)
 const aiSelectionContext = ref('')
 const aiMessages = ref<TeacherProductionAiMessage[]>([])
 const aiSessionScopeKey = ref('')
@@ -1035,6 +1185,7 @@ const foundationSemanticRequirement = computed(() => {
   return [`学习目的：${purpose}`, `学科类型：${subject}`, `课程教学类型：${teachingType}`].join('\n')
 })
 const batchStarting = ref(false)
+const outlineContinuing = ref(false)
 const LESSON_SYNC_RETRY_DELAYS = [0, 1200, 3200] as const
 const lessonSyncAttempt = ref(0)
 const lessonSyncRunning = ref(false)
@@ -1220,6 +1371,18 @@ const lessonReferenceTargetType = computed(() => (
           ? 'script'
           : 'lesson_plan'
 ))
+const lessonReferenceTargets = computed(() => {
+  if (!['lesson', 'script', 'ppt'].includes(activeStage.value)) return []
+  const prefix = activeStage.value === 'ppt'
+    ? 'ppt-v6'
+    : activeStage.value === 'script' ? 'script' : 'lesson-plan'
+  return lessonStore.lessons.map((lesson, index) => ({
+    id: `${prefix}:${lesson.lesson_unit_id}`,
+    lessonId: lesson.lesson_unit_id,
+    label: lessonDisplayTitle(lesson, index),
+    position: index + 1,
+  }))
+})
 const selectedLessonIndex = computed(() => lessonStore.lessons.findIndex(item => item.lesson_unit_id === selectedLessonId.value))
 const previousLesson = computed(() => selectedLessonIndex.value > 0 ? lessonStore.lessons[selectedLessonIndex.value - 1] : undefined)
 const previousLessonReferenceTargetId = computed(() => (
@@ -1261,18 +1424,6 @@ const activeAiDocument = computed<ProductionAiDocumentHandle | null>(() => {
   if (aiDomain.value === 'question-bank') return questionBankPanel.value
   if (aiDomain.value === 'script') return scriptDocument.value
   return lessonPlanDocument.value as ProductionAiDocumentHandle | null
-})
-const contextAiDomain = computed<TeacherProductionAiDomain | null>(() => {
-  if (activeStage.value === 'foundation') return 'outline'
-  if (activeStage.value === 'lesson') return 'lesson'
-  if (activeStage.value === 'script') return 'script'
-  return null
-})
-const contextAiAvailable = computed(() => {
-  if (contextAiDomain.value === 'outline') return Boolean(showOutlineWorkspace.value && outlineEditor.value)
-  if (contextAiDomain.value === 'lesson') return Boolean(selectedLesson.value && workingLessonRevision.value)
-  if (contextAiDomain.value === 'script') return Boolean(selectedLesson.value?.script.ready && scriptDocument.value)
-  return false
 })
 const aiCandidateFieldLabels = computed(() => {
   if (aiDomain.value === 'outline') {
@@ -1555,9 +1706,49 @@ const outlineGrowth = computed<Record<string, any> | null>(() => {
   const value = generationTask.value?.phaseDetail?.outline_growth
   return value && typeof value === 'object' ? value as Record<string, any> : retainedOutlineGrowth.value
 })
+const outlineLessonStatuses = computed<OutlineLessonStatus[]>(() => {
+  const raw = generationTask.value?.phaseDetail?.lesson_statuses
+  const values = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === 'object'
+      ? Object.values(raw as Record<string, unknown>)
+      : []
+  return values
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+    .map(item => ({
+      lesson_id: String(item.lesson_id || ''),
+      status: String(item.status || 'queued'),
+      stage: String(item.stage || 'queued'),
+      message: String(item.message || ''),
+      progress: Number(item.progress || 0),
+      stream_preview: String(item.stream_preview || ''),
+    }))
+    .sort((left, right) => outlineLessonNumber(left.lesson_id) - outlineLessonNumber(right.lesson_id))
+})
+const outlineCompletedLessonCount = computed(() => outlineLessonStatuses.value.filter(item => (
+  outlineLessonStatusState(item) === 'completed'
+)).length)
 const showOutlineWorkspace = computed(() => activeStage.value === 'foundation'
   && !showStreaming.value
   && (hasOutline.value || editingOutline.value))
+const outlineWaitingForInput = computed(() => taskStatus.value === 'waiting_for_input')
+const outlineDetailsGenerating = computed(() => taskInFlight.value && (
+  /outline[_-]?details|detailed[_-]?outline/.test(String(generationTask.value?.currentPhase || '').toLowerCase())
+  || ['outline_details', 'outline_detail_generation'].includes(String(generationTask.value?.phaseDetail?.generation_step || ''))
+  || String(generationTask.value?.currentPhase || '') === 'outline_detail_generation'
+))
+const outlineFullReady = computed(() => Boolean(
+  hasOutline.value
+  && !outlineWaitingForInput.value
+  && !taskInFlight.value
+  && !generationFailed.value
+  && (!generationTask.value || ['completed', 'completed_with_warnings'].includes(taskStatus.value)),
+))
+const outlineFlowStep = computed<1 | 2 | 3>(() => {
+  if (outlineDetailsGenerating.value || outlineFullReady.value) return 3
+  if (hasOutline.value || taskInFlight.value || outlineWaitingForInput.value) return 2
+  return 1
+})
 const generationProgress = computed(() => Math.max(2, Number(generationTask.value?.progress || generationStore.generationProgress || 0)))
 const currentGenerationLabel = computed(() => generationTask.value?.currentStep || generationStore.currentGeneratingNode || t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…'))
 const generationError = computed(() => generationFailed.value ? String(generationTask.value?.error || generationStore.failureReport?.failed_nodes?.[0]?.error || t('courseWorkbench.generationFailed', '生成中断，可以从当前结果重试。')) : '')
@@ -1589,6 +1780,9 @@ const batchLessonJobs = computed(() => {
 })
 const batchRunning = computed(() => batchLessonJobs.value.some(job => ['pending', 'running'].includes(job.status)))
 const batchCompletedCount = computed(() => batchLessonJobs.value.filter(job => ['completed', 'completed_with_warnings'].includes(job.status)).length)
+const lessonCompletedCount = computed(() => lessonStore.lessons.filter(lesson => (
+  ['ready', 'suggestions'].includes(lessonGenerationState(lesson))
+)).length)
 const batchPaused = computed(() => (
   batchLessonJobs.value.some(job => job.status === 'paused')
   && !batchRunning.value
@@ -1605,6 +1799,14 @@ const lessonBatchLaunchVisible = computed(() => (
   && !batchStarting.value
   && !batchPaused.value
   && !batchRecoveryAvailable.value
+))
+const lessonCoursePreviewVisible = computed(() => (
+  activeStage.value === 'lesson'
+  && lessonStore.lessons.length > 0
+  && !lessonStore.lessons.some(lesson => Boolean(lesson.plan.working_revision_id))
+  && !batchRunning.value
+  && !batchStarting.value
+  && batchEligibleCount.value > 0
 ))
 const lessonGenerationActionsVisible = computed(() => (
   activeStage.value === 'lesson'
@@ -1657,8 +1859,8 @@ const referenceWorkflowState = computed<CourseReferenceWorkflowState>(() => {
     return activeReferences.value.length ? 'ready' : 'collecting'
   }
   if (activeStage.value === 'lesson') {
-    if (batchRunning.value || batchStarting.value) return 'generating'
-    if (batchPaused.value) return 'paused'
+    if (batchRunning.value || batchStarting.value || lessonGenerationActive.value) return 'generating'
+    if (batchPaused.value || lessonJob.value?.status === 'paused') return 'paused'
     if (batchRecoveryAvailable.value && batchEligibleCount.value) return batchPaused.value ? 'paused' : 'failed'
     if (currentLessonPlanReady.value) return 'review'
     return activeReferences.value.length ? 'ready' : 'collecting'
@@ -1678,6 +1880,9 @@ const referenceWorkflowDetail = computed(() => {
     if (activeStage.value === 'foundation') return currentGenerationLabel.value
     if (activeStage.value === 'lesson') {
       const currentTitle = batchCurrentJob.value ? lessonTitleForJob(batchCurrentJob.value.lesson_unit_id) : ''
+      if (!batchRunning.value && lessonJob.value) {
+        return String(lessonJob.value.message || t('courseWorkbench.references.generatingDetail', 'AI 正在读取资料并构建内容。'))
+      }
       return t('courseWorkbench.lessonBatch.overallProgress', '已完成 {completed}/{total} 讲{current}')
         .replace('{completed}', String(batchCompletedCount.value))
         .replace('{total}', String(batchTotalCount.value || batchEligibleCount.value))
@@ -1694,24 +1899,55 @@ const referenceWorkflowDetail = computed(() => {
 })
 const referenceWorkflowProgress = computed(() => {
   if (activeStage.value === 'foundation') return generationProgress.value
-  if (activeStage.value === 'lesson') return batchRunning.value || batchLessonJobs.value.length ? batchProgress.value : 0
+  if (activeStage.value === 'lesson') return batchRunning.value || batchStarting.value
+    ? batchProgress.value
+    : lessonGenerationActive.value || lessonJob.value?.status === 'paused'
+      ? lessonGenerationProgress.value
+      : batchLessonJobs.value.length ? batchProgress.value : 0
   if (activeStage.value === 'script') return scriptGenerationProgress.value
   return referenceWorkflowState.value === 'confirmed' ? 100 : 0
 })
 const referenceWorkflowCanPause = computed(() => (
   activeStage.value === 'foundation' ? taskInFlight.value
-    : activeStage.value === 'lesson' ? batchRunning.value
+    : activeStage.value === 'lesson' ? batchRunning.value || lessonGenerationActive.value
       : activeStage.value === 'script' ? scriptGenerationActive.value
         : false
 ))
 const referenceWorkflowCanResume = computed(() => (
   activeStage.value === 'foundation' ? taskPaused.value
-    : activeStage.value === 'lesson' ? batchPaused.value
+    : activeStage.value === 'lesson' ? batchPaused.value || lessonJob.value?.status === 'paused'
       : activeStage.value === 'script' ? scriptJob.value?.status === 'paused'
         : false
 ))
 const referenceWorkflowCanCancel = computed(() => referenceWorkflowCanPause.value || referenceWorkflowCanResume.value)
 const referenceWorkflowCanRetry = computed(() => referenceWorkflowState.value === 'failed' && activeStage.value !== 'ppt')
+const contextPhase = computed<'before' | 'during' | 'after' | 'failed'>(() => {
+  if (referenceWorkflowState.value === 'failed') return 'failed'
+  if (['generating', 'paused'].includes(referenceWorkflowState.value)) return 'during'
+  if (outlineWaitingForInput.value || stageReady(activeStage.value as CoreStageId)) return 'after'
+  return 'before'
+})
+const contextPhaseLabel = computed(() => ({
+  before: t('courseWorkbench.contextPane.before', '生成前'),
+  during: t('courseWorkbench.contextPane.during', '生成中'),
+  after: t('courseWorkbench.contextPane.after', '生成后'),
+  failed: t('courseWorkbench.contextPane.failed', '需要处理'),
+}[contextPhase.value]))
+const contextObjectTitle = computed(() => (
+  ['lesson', 'script', 'ppt'].includes(activeStage.value)
+    ? selectedLesson.value?.title || activeStageDefinition.value.label
+    : props.courseTitle || activeStageDefinition.value.label
+))
+const contextObjectDetail = computed(() => {
+  if (aiCollaborationOpen.value) return t('courseWorkbench.contextPane.aiInProgress', '正在处理本次 AI 修改')
+  if (outlineWaitingForInput.value) return t('courseWorkbench.outlineFlow.lightPlanReady', '轻量课程方案已生成，可编辑后生成完整大纲')
+  if (referenceWorkflowState.value === 'generating') return referenceWorkflowDetail.value || currentGenerationLabel.value
+  if (referenceWorkflowState.value === 'paused') return t('courseWorkbench.contextPane.paused', '已暂停，资料快照和进度均已保留')
+  if (referenceWorkflowState.value === 'failed') return referenceWorkflowDetail.value || t('courseWorkbench.contextPane.retryAvailable', '当前资料仍然保留，可以重试')
+  if (activeStage.value === 'foundation' && outlineFullReady.value) return t('courseWorkbench.outlineFlow.fullReady', '完整大纲已生成并保存')
+  if (['lesson', 'script', 'ppt'].includes(activeStage.value)) return lessonHeaderStatusLabel.value
+  return t('courseWorkbench.contextPane.prepareSources', '可在下方调整本次生成使用的资料')
+})
 const readyStageCount = computed(() => stages.value.filter(item => stageReady(item.id)).length)
 const lessonStageBlocked = computed(() => (
   lessonStore.loading
@@ -1773,13 +2009,16 @@ const lessonPrerequisiteError = computed(() => (
     : null
 ))
 function stageReady(stage: CoreStageId) {
-  if (stage === 'foundation') return hasOutline.value && !generationFailed.value
+  if (stage === 'foundation') return outlineFullReady.value
   if (!lessonStore.lessons.length) return false
   if (stage === 'lesson') return lessonStore.lessons.every(item => Boolean(item.plan.working_revision_id && item.plan.source_state === 'current'))
   if (stage === 'script') return lessonStore.lessons.every(item => Boolean(item.script?.ready && item.script.current_revision_id && item.script.source_state === 'current'))
   return lessonStore.lessons.every(item => item.plan.ppt_assets.some(asset => asset.source_state === 'current'))
 }
 function nodeContent(node: any) { return generationStore.streamingContent[node.node_id] || node.node_content || '' }
+function scrollOutlineIntoView() {
+  if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0
+}
 function stopGeneration() { void generationStore.stopGeneration() }
 function cancelOutlineGeneration() { void generationStore.cancelTask(props.courseId) }
 async function pauseReferenceWorkflow() {
@@ -1792,7 +2031,10 @@ async function resumeReferenceWorkflow() {
     await generationStore.resumeTask(props.courseId, generationTask.value.id)
     return
   }
-  if (activeStage.value === 'lesson') return generateAllLessonPlans()
+  if (activeStage.value === 'lesson') {
+    if (!batchPaused.value && lessonJob.value?.status === 'paused') return generateSelectedLessonPlan()
+    return generateAllLessonPlans()
+  }
   if (activeStage.value === 'script') return generateScript()
 }
 async function cancelReferenceWorkflow() {
@@ -1802,7 +2044,10 @@ async function cancelReferenceWorkflow() {
 }
 async function retryReferenceWorkflow() {
   if (activeStage.value === 'foundation') return submitFoundation()
-  if (activeStage.value === 'lesson') return generateAllLessonPlans()
+  if (activeStage.value === 'lesson') {
+    if (!batchRecoveryAvailable.value && ['failed', 'cancelled'].includes(String(lessonJob.value?.status || ''))) return generateSelectedLessonPlan()
+    return generateAllLessonPlans()
+  }
   if (activeStage.value === 'script') return generateScript()
 }
 function appendAiMessage(
@@ -1958,7 +2203,6 @@ function openAiCollaboration(domain: TeacherProductionAiDomain, selectionText = 
     aiCandidate.value = null
   }
   aiSelectionContext.value = selectionText.trim().slice(0, 1200)
-  contextPaneTab.value = 'ai'
   aiSourcesOpen.value = false
   if (aiSessionScopeKey.value !== currentAiScopeKey.value || !aiMessages.value.length) {
     if (!restoreAiSession()) resetAiSession()
@@ -1972,27 +2216,18 @@ function openAiCollaboration(domain: TeacherProductionAiDomain, selectionText = 
 }
 function closeAiCollaboration() {
   aiCollaborationOpen.value = false
-  contextPaneTab.value = 'references'
   aiSourcesOpen.value = false
   aiSelectionContext.value = ''
 }
 function openAiFromSelection(domain: TeacherProductionAiDomain, selection: { text: string }) {
   openAiCollaboration(domain, selection.text)
 }
-function openContextAiTab() {
-  if (!contextAiDomain.value || !contextAiAvailable.value) return
-  openAiCollaboration(contextAiDomain.value, aiSelectionContext.value)
-}
-function showReferenceTab() {
-  contextPaneTab.value = 'references'
-  aiSourcesOpen.value = false
-}
 function handleAiSourcesOpen() {
   if (aiDomain.value === 'question-bank') {
     questionBankPanel.value?.focusReferenceSources?.()
     return
   }
-  showReferenceTab()
+  closeAiCollaboration()
 }
 function handleQuestionBankReferencesChange(references: CourseReferenceItem[]) {
   questionBankReferences.value = references
@@ -2497,8 +2732,13 @@ function lessonTitleForJob(lessonUnitId: string) {
 }
 async function pauseLessonJob(jobId: string) { await lessonStore.pauseJob(props.courseId, jobId).catch(() => undefined) }
 async function cancelLessonJob(jobId: string) { await lessonStore.cancelJob(props.courseId, jobId).catch(() => undefined) }
-async function pauseAllLessonGeneration() { await Promise.all(batchLessonJobs.value.filter(job => ['pending', 'running'].includes(job.status)).map(job => pauseLessonJob(job.id))) }
-async function cancelAllLessonGeneration() { await Promise.all(batchLessonJobs.value.filter(job => ['pending', 'running'].includes(job.status)).map(job => cancelLessonJob(job.id))) }
+function activeLessonGenerationJobs() {
+  const batchJobs = batchLessonJobs.value.filter(job => ['pending', 'running'].includes(job.status))
+  if (batchJobs.length) return batchJobs
+  return lessonJob.value && ['pending', 'running'].includes(lessonJob.value.status) ? [lessonJob.value] : []
+}
+async function pauseAllLessonGeneration() { await Promise.all(activeLessonGenerationJobs().map(job => pauseLessonJob(job.id))) }
+async function cancelAllLessonGeneration() { await Promise.all(activeLessonGenerationJobs().map(job => cancelLessonJob(job.id))) }
 function beginLessonPlanEditing() { lessonPlanDocument.value?.beginEditing() }
 function cancelLessonPlanEditing() { lessonPlanDocument.value?.cancelEditing() }
 async function saveLessonPlanDraft() { await lessonPlanDocument.value?.saveDraft() }
@@ -2578,44 +2818,89 @@ function preferredLessonId(lessons: typeof lessonStore.lessons): string {
   ))
   return unfinished?.lesson_unit_id || lessons[0]?.lesson_unit_id || ''
 }
-function selectLessonFromOutline(lessonId: string) {
-  selectLesson(lessonId)
-  if (selectedLessonId.value === lessonId) closeLessonOutline()
-}
-function toggleLessonOutline() {
-  lessonOutlineOpen.value = !lessonOutlineOpen.value
-}
-function closeLessonOutline(restoreFocus = false) {
-  if (!lessonOutlineOpen.value) return
-  lessonOutlineOpen.value = false
-  if (restoreFocus) lessonOutlineTrigger.value?.focus()
-}
-function closeLessonOutlineOnOutsidePointer(event: PointerEvent) {
-  if (lessonOutlineOpen.value && !lessonOutlineRoot.value?.contains(event.target as Node)) closeLessonOutline()
-}
 function selectLessonSection(lessonId: string, sectionId: string) {
   if (aiCandidatePending.value && selectedLessonSectionId.value !== sectionId) return
   if (aiCollaborationOpen.value && aiDomain.value === 'lesson' && selectedLessonSectionId.value !== sectionId) persistAiSession()
   selectedLessonId.value = lessonId
   selectedLessonSectionId.value = sectionId
 }
-function lessonGenerationState(lesson: any): 'pending' | 'generating' | 'ready' | 'suggestions' | 'stale' | 'failed' {
-  const jobStatus = String(lessonStore.latestJobByLesson(lesson.lesson_unit_id)?.status || '')
+function lessonDisplayTitle(lesson: any, index: number): string {
+  const title = String(lesson?.title || '')
+    .replace(/^第\s*[0-9一二三四五六七八九十百]+\s*[讲章节课]\s*/u, '')
+    .replace(/^0*\d+\s*[.、：:]\s*/u, '')
+    .trim()
+  const prefix = t('courseWorkbench.lessonOutline.lessonNumber', '第{number}讲')
+    .replace('{number}', String(index + 1))
+  return title ? `${prefix} ${title}` : prefix
+}
+function outlineLessonNumber(lessonId: string): number {
+  const match = String(lessonId || '').match(/(\d+)(?!.*\d)/)
+  return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER
+}
+function outlineLessonStatusState(item: OutlineLessonStatus): 'queued' | 'running' | 'completed' | 'failed' {
+  if (['completed', 'completed_with_warnings'].includes(item.status) || item.stage === 'outline_detail_completed') return 'completed'
+  if (['failed', 'retry_required', 'cancelled'].includes(item.status) || item.stage === 'outline_detail_failed') return 'failed'
+  if (item.status === 'running' || item.stage === 'outline_detail_generation') return 'running'
+  return 'queued'
+}
+function outlineLessonStatusLabel(item: OutlineLessonStatus): string {
+  const labels = {
+    queued: t('courseWorkbench.outlineFlow.lessonQueued', '等待生成'),
+    running: t('courseWorkbench.outlineFlow.lessonRunning', '正在生成'),
+    completed: t('courseWorkbench.outlineFlow.lessonCompleted', '已生成'),
+    failed: t('courseWorkbench.outlineFlow.lessonFailed', '生成失败，可单独重试'),
+  }
+  return labels[outlineLessonStatusState(item)]
+}
+function outlineLessonStatusTitle(item: OutlineLessonStatus, index: number): string {
+  const lessonNumber = outlineLessonNumber(item.lesson_id)
+  const chapters = Array.isArray(outlineGrowth.value?.chapters) ? outlineGrowth.value!.chapters as Record<string, any>[] : []
+  const chapter = chapters.find(value => Number(value.chapter_number || 0) === lessonNumber) || chapters[index]
+  const rawTitle = String(chapter?.title || '')
+    .replace(/^第\s*[0-9一二三四五六七八九十百]+\s*[讲章节课]\s*/u, '')
+    .replace(/^0*\d+\s*[.、：:]\s*/u, '')
+    .trim()
+  const prefix = t('courseWorkbench.lessonOutline.lessonNumber', '第{number}讲')
+    .replace('{number}', String(Number.isFinite(lessonNumber) ? lessonNumber : index + 1))
+  return rawTitle ? `${prefix} ${rawTitle}` : prefix
+}
+function lessonJobForStage(lesson: any): TeacherLessonJob | undefined {
+  if (activeStage.value === 'script') return lessonStore.latestScriptJobByLesson(lesson.lesson_unit_id)
+  if (activeStage.value === 'lesson') return lessonStore.latestJobByLesson(lesson.lesson_unit_id)
+  return undefined
+}
+function lessonGenerationState(lesson: any): 'pending' | 'queued' | 'generating' | 'ready' | 'suggestions' | 'stale' | 'failed' {
+  if (activeStage.value === 'ppt') {
+    const assets = Array.isArray(lesson.plan?.ppt_assets) ? lesson.plan.ppt_assets : []
+    const eligible = assets.filter((asset: any) => ['slide_deck_v6', 'uploaded_pptx'].includes(String(asset.engine || '')))
+    if (eligible.some((asset: any) => asset.source_state === 'current')) return 'ready'
+    if (eligible.length) return 'stale'
+    return 'pending'
+  }
+  const job = lessonJobForStage(lesson)
+  const jobStatus = String(job?.status || '')
   if (jobStatus === 'running') return 'generating'
-  if (['pending', 'paused'].includes(jobStatus)) return 'generating'
+  if (['pending', 'paused'].includes(jobStatus)) return 'queued'
   if (['failed', 'cancelled'].includes(jobStatus)) return 'failed'
-  if (lesson.plan?.source_state === 'stale') return 'stale'
+  if (activeStage.value === 'script' && lesson.script?.source_state === 'stale') return 'stale'
+  if (activeStage.value === 'lesson' && lesson.plan?.source_state === 'stale') return 'stale'
   if (jobStatus === 'completed_with_warnings') return 'suggestions'
-  if (lesson.plan?.working_revision_id || jobStatus === 'completed') return 'ready'
+  if (activeStage.value === 'script' && (lesson.script?.ready || lesson.script?.current_revision_id || jobStatus === 'completed')) return 'ready'
+  if (activeStage.value === 'lesson' && (lesson.plan?.working_revision_id || jobStatus === 'completed')) return 'ready'
   return 'pending'
 }
 function lessonGenerationIsRunning(lesson: any): boolean {
-  return String(lessonStore.latestJobByLesson(lesson.lesson_unit_id)?.status || '') === 'running'
+  return String(lessonJobForStage(lesson)?.status || '') === 'running'
 }
 function lessonGenerationStateLabel(lesson: any): string {
   const state = lessonGenerationState(lesson)
+  const job = lessonJobForStage(lesson)
+  if (state === 'generating' && job?.message) return job.message
+  if (state === 'queued' && job?.status === 'paused') return t('courseWorkbench.lessonBatch.status.paused', '已暂停')
+  if (state === 'queued' && job?.message) return job.message
   const labels = {
     pending: t('courseWorkbench.lessonOutline.status.pending', '未生成'),
+    queued: t('courseWorkbench.lessonBatch.status.pending', '等待生成'),
     generating: t('courseWorkbench.lessonOutline.status.generating', '生成中'),
     ready: t('courseWorkbench.lessonOutline.status.ready', '已生成'),
     suggestions: t('courseWorkbench.lessonOutline.status.suggestions', '已生成，有建议'),
@@ -2684,6 +2969,28 @@ async function toggleOutlineEditing() {
     stageSwitching.value = false
   }
 }
+async function continueOutlineDetails() {
+  if (!outlineWaitingForInput.value || outlineContinuing.value || stageSwitching.value) return
+  outlineContinuing.value = true
+  stageSwitching.value = true
+  try {
+    if (editingOutline.value && outlineEditor.value) {
+      const saved = await outlineEditor.value.finishEditing()
+      if (!saved) return
+    }
+    await saveRelationships('managed:outline', 'outline', t('courseWorkbench.stages.foundation', '课程大纲'))
+    await generationStore.continueOutlineDetails(props.courseId)
+  } catch (error: any) {
+    generationRequested.value = false
+    generationStore.addLogToTask(
+      props.courseId,
+      String(error?.response?.data?.detail || error?.message || t('courseWorkbench.outlineFlow.continueFailed', '完整大纲生成启动失败')),
+    )
+  } finally {
+    outlineContinuing.value = false
+    stageSwitching.value = false
+  }
+}
 async function requestStageChange(stage: StageId) {
   if (stage === activeStage.value || stageSwitching.value) return
   stageSwitching.value = true
@@ -2701,7 +3008,6 @@ async function openCompanionTemplate(templateId: CompanionTemplateId) {
   activeCompanionTemplateId.value = templateId
   if (activeStage.value === 'companion') {
     closeAiCollaboration()
-    closeLessonOutline()
     closeDocumentHistory()
     if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0
     return
@@ -2753,10 +3059,9 @@ watch([
   }
   scheduleLessonSyncRetry()
 }, { immediate: true })
-watch(activeStage, stage => { if (stage !== 'foundation') editingOutline.value = false; closeAiCollaboration(); closeLessonOutline(); closeDocumentHistory(); aiCandidate.value = null; if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0 }, { flush: 'post' })
+watch(activeStage, () => { closeAiCollaboration(); closeDocumentHistory(); aiCandidate.value = null; if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0 }, { flush: 'post' })
 watch(aiCollaborationOpen, open => {
-  if (open) closeLessonOutline()
-  else aiSourcesOpen.value = false
+  if (!open) aiSourcesOpen.value = false
 })
 watch([aiMessages, aiPhase, aiClarificationOptions], persistAiSession, { deep: true, flush: 'post' })
 watch(currentAiScopeKey, scopeKey => {
@@ -2766,11 +3071,6 @@ watch(currentAiScopeKey, scopeKey => {
   if (!restoreAiSession()) resetAiSession()
   transitionAi({ type: 'OPEN', candidatePending: false })
 })
-watch(lessonOutlineRoot, (root, _previousRoot, onCleanup) => {
-  if (!root) return
-  document.addEventListener('pointerdown', closeLessonOutlineOnOutsidePointer)
-  onCleanup(() => document.removeEventListener('pointerdown', closeLessonOutlineOnOutsidePointer))
-}, { flush: 'post' })
 watch(() => lessonStore.lessons, lessons => {
   if (!lessons.some(item => item.lesson_unit_id === selectedLessonId.value)) {
     selectedLessonId.value = preferredLessonId(lessons)
@@ -2978,4 +3278,105 @@ onBeforeUnmount(() => {
 .workbench-center.is-lesson-workspace :deep(.lesson-document){overflow:hidden;border:1px solid #e0e6ef;border-top:0;border-radius:0 0 14px 14px;background:#fff}
 .workbench-center.is-lesson-workspace :deep(.script-document){overflow:hidden;border:1px solid #e0e6ef;border-radius:14px;background:#fff}
 @media(max-width:900px){.lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;gap:8px}.lesson-heading-cluster{gap:8px}.lesson-type-context{display:none}.lesson-toolbar-status>span{display:none}.lesson-switch-actions button{width:34px;padding:0;justify-content:center;font-size:0}}
+
+/* The outline has one explicit three-step flow; generation never advances to another asset on its own. */
+.outline-flow-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;max-width:860px;margin:0 auto 14px;padding:3px;border:1px solid #dfe4ed;border-radius:11px;background:#eef1f6}
+.outline-flow-steps button{min-width:0;min-height:42px;display:grid;grid-template-columns:24px minmax(0,1fr) 16px;align-items:center;gap:7px;padding:0 10px;border:0;border-radius:8px;color:#69768a;background:transparent;text-align:left;cursor:pointer}
+.outline-flow-steps button>span{width:22px;height:22px;display:grid;place-items:center;border:1px solid #cbd3df;border-radius:50%;color:#69768a;font-size:13px;font-weight:800}
+.outline-flow-steps button>strong{min-width:0;overflow:hidden;font-size:14px;font-weight:700;text-overflow:ellipsis;white-space:nowrap}
+.outline-flow-steps button>svg{color:#168044}
+.outline-flow-steps button:hover:not(:disabled){color:#37348c;background:rgba(255,255,255,.7)}
+.outline-flow-steps button.active{color:#312e81;background:#fff;box-shadow:0 2px 8px rgba(30,41,59,.08)}
+.outline-flow-steps button.active>span{border-color:#6965d8;color:#fff;background:#6965d8}
+.outline-flow-steps button.complete>span{border-color:#a7d9ba;color:#168044;background:#edf9f1}
+.outline-flow-steps button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
+.outline-flow-steps button:disabled{opacity:.48;cursor:not-allowed}
+
+/* A fixed secondary rail keeps every lesson and its real state visible while the document changes. */
+.has-lesson-outline .lesson-workspace{display:grid;grid-template-columns:230px minmax(0,1fr);gap:14px;align-items:start}
+.lesson-outline--fixed{position:sticky;top:0;min-width:0;max-height:calc(100vh - 170px);display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;border:1px solid #e0e6ef;border-radius:12px;background:#fff;box-shadow:0 8px 24px rgba(30,41,59,.045)}
+.lesson-outline--fixed>header{min-height:52px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 13px;border-bottom:1px solid #e7ebf2}
+.lesson-outline--fixed>header strong{color:#2f3a4f;font-size:15px;font-weight:760}
+.lesson-outline--fixed>header small{color:#748195;font-size:14px;font-weight:650}
+.lesson-outline--fixed>nav{position:static;max-height:none;overflow:auto;padding:6px;background:#fbfcfe}
+.lesson-outline--fixed>nav::before{display:none}
+.lesson-outline--fixed .lesson-outline-chapter-button{min-height:62px;display:grid;grid-template-columns:minmax(0,1fr) 20px;align-items:center;gap:8px;padding:8px 8px 8px 10px;border-radius:8px}
+.lesson-outline--fixed .lesson-outline-chapter-copy{min-width:0;display:grid;gap:4px}
+.lesson-outline--fixed .lesson-outline-chapter-copy strong{overflow:hidden;color:#435066;font-size:14px;font-weight:700;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
+.lesson-outline--fixed .lesson-outline-chapter-copy small{color:#7b8798;font-size:14px;line-height:1.25}
+.lesson-outline--fixed .lesson-outline-status{width:20px;height:20px;display:grid;place-items:center;color:#8490a1}
+.lesson-outline--fixed .lesson-outline-status>i{width:7px;height:7px;border:1px solid #aeb8c6;border-radius:50%}
+.lesson-outline--fixed .lesson-outline-status[data-state="generating"]{color:#5b57e8}
+.lesson-outline--fixed .lesson-outline-status[data-state="ready"],.lesson-outline--fixed .lesson-outline-status[data-state="suggestions"]{color:#168044}
+.lesson-outline--fixed .lesson-outline-status[data-state="stale"],.lesson-outline--fixed .lesson-outline-status[data-state="failed"]{color:#b9404e}
+.lesson-outline--fixed .lesson-outline-chapter-button.active{background:#eef0ff}
+.lesson-outline--fixed .lesson-outline-chapter-button.active strong{color:#312e81}
+.lesson-outline--fixed .lesson-outline-chapter-button.active small{color:#625dd7}
+.lesson-current-title{min-width:0;display:flex;align-items:baseline;gap:9px}
+.lesson-current-title strong{min-width:0;color:#172033;font-size:22px;font-weight:760;line-height:1.3;letter-spacing:-.018em;text-wrap:balance}
+.lesson-current-title small{flex:none;color:#7b8798;font-size:15px;font-weight:650}
+.lesson-course-preview{overflow:hidden;border:1px solid #e0e6ef;border-radius:14px;background:#fff;box-shadow:0 10px 30px rgba(30,41,59,.05)}
+.lesson-course-preview>header{min-height:74px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:14px 20px;border-bottom:1px solid #e7ebf2}
+.lesson-course-preview>header>div{min-width:0;display:grid;gap:4px}
+.lesson-course-preview>header strong{color:#263147;font-size:17px;font-weight:760}
+.lesson-course-preview>header span{color:#748195;font-size:14px;line-height:1.45}
+.lesson-course-preview>header>button{flex:none;min-height:40px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:14px;font-weight:750;cursor:pointer;box-shadow:0 7px 18px rgba(81,75,220,.16)}
+.lesson-course-preview>header>button:hover:not(:disabled){background:#4338ca}
+.lesson-course-preview>header>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
+.lesson-course-preview>header>button:disabled{opacity:.48;cursor:not-allowed}
+.lesson-course-preview>article{padding:4px 28px 34px}
+.lesson-course-preview>article>section{padding:24px 0;border-bottom:1px solid #e9edf3}
+.lesson-course-preview>article>section:last-child{border-bottom:0}
+.lesson-course-preview__title{display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:baseline;gap:10px}
+.lesson-course-preview__title>span{color:#817dcf;font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}
+.lesson-course-preview__title h3{margin:0;color:#202b40;font-size:18px;line-height:1.4}
+.lesson-course-preview__title small{color:#69768a;font-size:14px}
+.lesson-course-preview>article>section>p{margin:10px 0 0 40px;color:#566277;font-size:15px;line-height:1.65}
+.lesson-course-preview>article ol{display:grid;gap:7px;margin:14px 0 0 40px;padding:0;list-style:none}
+.lesson-course-preview>article li{display:grid;grid-template-columns:minmax(110px,.35fr) minmax(0,1fr);gap:12px;color:#596579;font-size:15px;line-height:1.55}
+.lesson-course-preview>article li strong{color:#364156;font-weight:700}
+.lesson-course-preview__pending{color:#7b8798!important}
+@media(max-width:1320px){.has-lesson-outline .lesson-workspace{grid-template-columns:220px minmax(0,1fr);gap:12px}}
+@media(prefers-reduced-motion:reduce){.outline-flow-steps button,.lesson-outline--fixed .lesson-outline-chapter-button{transition:none}}
+
+/* The right side is contextual evidence for the selected asset, not a permanent assistant destination. */
+.teacher-workbench.is-context-collapsed{grid-template-columns:210px minmax(520px,1fr)}
+.workbench-center{position:relative}
+.context-pane-reopen{position:absolute;z-index:8;top:14px;right:14px;width:36px;height:36px;display:grid;place-items:center;border:1px solid #d8dee8;border-radius:8px;color:#596579;background:#fff;cursor:pointer;box-shadow:0 4px 14px rgba(30,41,59,.07)}
+.context-pane-reopen:hover{border-color:#aaa7e8;color:#37348c;background:#fafaff}
+.context-pane-reopen:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
+.context-pane{grid-template-rows:auto auto minmax(0,1fr)}
+.context-pane-heading{min-height:88px;display:grid;grid-template-columns:minmax(0,1fr) 34px;align-items:start;gap:10px;padding:14px 12px 12px 16px;border-bottom:1px solid #e7ebf2;background:#fff}
+.context-pane-heading>div{min-width:0;display:grid;gap:3px}
+.context-pane-heading small{color:#625dd7;font-size:13px;font-weight:760}
+.context-pane-heading strong{overflow:hidden;color:#263147;font-size:15px;font-weight:760;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
+.context-pane-heading span{color:#748195;font-size:14px;line-height:1.45}
+.context-pane-heading[data-phase="failed"] small{color:#b9404e}
+.context-pane-heading[data-phase="after"] small{color:#168044}
+.context-pane-heading>button{width:34px;height:34px;display:grid;place-items:center;border:0;border-radius:8px;color:#718096;background:transparent;cursor:pointer}
+.context-pane-heading>button:hover{color:#37348c;background:#f1f2f7}
+.context-pane-heading>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
+.context-pane>.context-pane-references{min-height:0}
+
+/* Full-outline generation exposes the backend's per-lesson queue and streamed teacher-facing text. */
+.outline-detail-stream{display:grid;gap:0;margin-top:22px;border-top:1px solid #e7ebf2}
+.outline-detail-stream>header{min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 2px}
+.outline-detail-stream>header strong{color:#303b50;font-size:15px;font-weight:760}
+.outline-detail-stream>header small{color:#6f7c90;font-size:14px;font-weight:650}
+.outline-detail-stream>article{display:grid;gap:8px;padding:14px 2px;border-top:1px solid #edf0f4}
+.outline-detail-stream__heading{min-width:0;display:grid;grid-template-columns:22px minmax(0,1fr) 42px;align-items:center;gap:9px}
+.outline-detail-stream__heading>span{width:22px;height:22px;display:grid;place-items:center;color:#98a3b3}
+.outline-detail-stream__heading>span>i{width:7px;height:7px;border:1px solid #aeb8c6;border-radius:50%;background:#fff}
+.outline-detail-stream__heading>div{min-width:0;display:grid;gap:2px}
+.outline-detail-stream__heading strong{overflow:hidden;color:#354157;font-size:15px;font-weight:720;text-overflow:ellipsis;white-space:nowrap}
+.outline-detail-stream__heading small{overflow:hidden;color:#748195;font-size:14px;line-height:1.4;text-overflow:ellipsis;white-space:nowrap}
+.outline-detail-stream__heading em{color:#748195;font-size:13px;font-style:normal;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+.outline-detail-stream>article[data-state="running"] .outline-detail-stream__heading>span{color:#5b57e8}
+.outline-detail-stream>article[data-state="completed"] .outline-detail-stream__heading>span{color:#168044}
+.outline-detail-stream>article[data-state="failed"] .outline-detail-stream__heading>span{color:#b9404e}
+.outline-detail-stream__progress{height:2px;margin-left:31px;overflow:hidden;border-radius:1px;background:#edf0f5}
+.outline-detail-stream__progress>i{width:100%;height:100%;display:block;transform-origin:left;background:#6762dc;transition:transform .2s ease-out}
+.outline-detail-stream__preview{max-height:220px;overflow:auto;margin:2px 0 0 31px;padding:12px 14px;border-radius:8px;color:#3f4b60;background:#f7f8fb;font:inherit;font-size:15px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
+.outline-detail-stream__preview .stream-caret{height:16px;margin-left:2px;vertical-align:-2px}
+@media(prefers-reduced-motion:reduce){.outline-detail-stream__progress>i{transition:none}}
 </style>

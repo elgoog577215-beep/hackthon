@@ -819,8 +819,6 @@ def validate_teacher_lesson_plan(
             issue(blocking, "lesson_plan:student_activity", "小节缺少具体的学生活动。", section_id)
         if modules and section_minutes <= 0:
             issue(blocking, "lesson_plan:timing", "小节缺少有效的时间分配。", section_id)
-        elif any(item.get("planned_minutes") in (None, "") for item in modules):
-            issue(review, "lesson_plan:module_timing", "部分教学环节未单独标注时长。", section_id)
         for module in modules:
             missing = [
                 field for field in (
@@ -860,14 +858,6 @@ def validate_teacher_lesson_plan(
                 for item in modules
             ):
                 issue(blocking, "lesson_plan:block_name", "每个教学环节都需要与内容对应的具体名称。", section_id)
-            if not str(section.get("homework_submission") or "").strip():
-                issue(
-                    review,
-                    "lesson_plan:homework_submission_teacher_confirmation",
-                    "提交渠道与截止时间需要教师确认。",
-                    section_id,
-                )
-
         public_copy = [
             objective,
             *key_points,
@@ -1941,6 +1931,7 @@ class TeacherLessonAuthoringRepository:
                 "id": job_id,
                 "course_id": course_id,
                 "lesson_unit_id": lesson_unit_id,
+                "lesson_id": lesson_unit_id,
                 "type": job_type,
                 "asset_type": (
                     "script"
@@ -1954,6 +1945,7 @@ class TeacherLessonAuthoringRepository:
                 "status": "pending",
                 "progress": 0,
                 "phase": "queued",
+                "stage": "queued",
                 "message": initial_message,
                 "stream_sequence": 0,
                 "stream_batches": {},
@@ -1978,6 +1970,8 @@ class TeacherLessonAuthoringRepository:
             if not isinstance(job, dict):
                 raise TeacherLessonAuthoringError("teacher_job_not_found", "教师讲次任务不存在。")
             job.update(deepcopy(changes))
+            if "phase" in changes:
+                job["stage"] = str(changes.get("phase") or "")
             timestamp = _now()
             job["updated_at"] = timestamp
             if str(job.get("status") or "") in {"pending", "running"}:
@@ -2029,6 +2023,7 @@ class TeacherLessonAuthoringRepository:
                 )[-200_000:]
             job.update({
                 "phase": phase,
+                "stage": phase,
                 "progress": progress,
                 "message": message,
                 "stream_sequence": int(job.get("stream_sequence") or 0) + 1,
@@ -3986,6 +3981,11 @@ class TeacherLessonAuthoringService:
                     else "model"
                 )
             )
+            if "fallback" in generation_source:
+                raise TeacherLessonAuthoringError(
+                    "lesson_plan_generation_incomplete",
+                    "本讲教案的模型生成未完整完成，请从任务检查点重试。",
+                )
             source_refs = [
                 deepcopy(item)
                 for item in result.get("source_refs") or []
@@ -4013,11 +4013,16 @@ class TeacherLessonAuthoringService:
                 source_outline_revision_id=outline_revision,
             )
             if not quality_report.get("passed"):
-                warnings.extend({
-                    **deepcopy(item),
-                    "severity": "warning",
-                    "source": "standard_lesson_plan_quality",
-                } for item in quality_report.get("blocking_issues") or [])
+                messages = "；".join(
+                    str(item.get("message") or "未知教案错误")
+                    for item in quality_report.get("blocking_issues") or []
+                    if isinstance(item, dict)
+                )
+                raise TeacherLessonAuthoringError(
+                    "lesson_plan_quality_failed",
+                    f"本讲教案未通过硬校验：{messages or '请重试'}",
+                    details={"quality_report": deepcopy(quality_report)},
+                )
             lesson = await asyncio.to_thread(
                 self.repository.save_plan_revision,
                 course_id,
@@ -4030,12 +4035,6 @@ class TeacherLessonAuthoringService:
                 source_refs=source_refs,
                 quality_report=quality_report,
             )
-            generation_failed = generation_source == "deterministic_local_fallback"
-            status = (
-                "failed"
-                if generation_failed
-                else "completed"
-            )
             current_job = await asyncio.to_thread(
                 self.repository.get_job,
                 course_id,
@@ -4045,27 +4044,15 @@ class TeacherLessonAuthoringService:
                 self.repository.update_job,
                 course_id,
                 job_id,
-                status=status,
+                status="completed",
                 phase="lesson_plan_ready",
                 progress=100,
-                message=(
-                    "模型生成失败，已保留可编辑恢复稿"
-                    if generation_failed
-                    else "本讲教案已生成"
-                ),
+                message="本讲教案已生成",
                 warnings=warnings,
                 result_revision_id=lesson.get("working_revision_id"),
                 stream_sequence=int(current_job.get("stream_sequence") or 0) + 1,
                 stream_complete=True,
-                error=(
-                    {
-                        "code": "lesson_plan_generation_incomplete",
-                        "message": "模型未完成本讲教案生成，请重试或编辑保存恢复稿。",
-                        "retryable": True,
-                    }
-                    if generation_failed
-                    else None
-                ),
+                error=None,
             )
         except Exception as exc:
             if isinstance(exc, asyncio.CancelledError):
@@ -4105,7 +4092,6 @@ class TeacherLessonAuthoringService:
         requirements: str = "",
         material_asset_ids: list[str] | None = None,
         actor: str = "teacher",
-        generation_warnings: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Generate and persist one teacher script block at a time.
 
@@ -4259,7 +4245,6 @@ class TeacherLessonAuthoringService:
             error=None,
         )
 
-        quality_warnings: list[dict[str, Any]] = []
         current_block_id = ""
         current_block_title = ""
         try:
@@ -4332,24 +4317,10 @@ class TeacherLessonAuthoringService:
                             "lesson_script_block_empty",
                             f"{current_block_title} 没有生成有效内容。",
                         )
-                    is_recovery_block = any(
-                        isinstance(item, dict)
-                        and (
-                            str(item.get("block_id") or "") in {"", current_block_id}
-                            or (
-                                total_blocks == 1
-                                and str(item.get("code") or "")
-                                == "lesson_script_block_local_fallback"
-                            )
-                        )
-                        for item in generation_warnings or []
-                    )
                     candidate = {
                         **deepcopy(module),
                         "content": content,
-                        "generation_source": (
-                            "local_recovery" if is_recovery_block else "model"
-                        ),
+                        "generation_source": "model",
                     }
                     single_contract = {
                         **deepcopy(contract),
@@ -4363,15 +4334,16 @@ class TeacherLessonAuthoringService:
                         },
                         single_contract,
                     )
-                    if not candidate_report.get("passed") and not is_recovery_block:
-                        quality_warnings.extend(
-                            {
-                                **deepcopy(item),
-                                "severity": "warning",
-                                "source": "teacher_script_quality",
-                            }
+                    if not candidate_report.get("passed"):
+                        messages = "；".join(
+                            str(item.get("message") or "未知讲义错误")
                             for item in candidate_report.get("blocking_issues") or []
                             if isinstance(item, dict)
+                        )
+                        raise TeacherLessonAuthoringError(
+                            "lesson_script_block_quality_failed",
+                            f"{current_block_title}未通过硬校验：{messages or '请重试'}",
+                            details={"quality_report": deepcopy(candidate_report)},
                         )
                     completed.append(candidate)
                     completed.sort(
@@ -4412,75 +4384,60 @@ class TeacherLessonAuthoringService:
                 )
                 section["pipeline_version"] = SCRIPT_PIPELINE_VERSION
                 if not section["quality_report"].get("passed"):
-                    quality_warnings.extend(
-                        {
-                            **deepcopy(item),
-                            "severity": "warning",
-                            "source": "teacher_script_quality",
-                        }
+                    messages = "；".join(
+                        str(item.get("message") or "未知讲义错误")
                         for item in section["quality_report"].get("blocking_issues") or []
                         if isinstance(item, dict)
                     )
+                    raise TeacherLessonAuthoringError(
+                        "lesson_script_section_quality_failed",
+                        f"{section.get('title') or section_id}未通过硬校验：{messages or '请重试'}",
+                        details={"quality_report": deepcopy(section["quality_report"])},
+                    )
                 final_sections.append(section)
 
-            fallback_warnings = [
-                deepcopy(item)
-                for item in generation_warnings or []
-                if isinstance(item, dict)
-            ]
+            revision_quality = validate_teacher_script_revision(
+                final_sections,
+                generation_source="model_block_pipeline",
+            )
+            if not revision_quality.get("passed"):
+                messages = "；".join(
+                    str(item.get("message") or "未知讲义错误")
+                    for item in revision_quality.get("blocking_issues") or []
+                    if isinstance(item, dict)
+                )
+                raise TeacherLessonAuthoringError(
+                    "lesson_script_quality_failed",
+                    f"本讲讲义未通过硬校验：{messages or '请重试'}",
+                    details={"quality_report": deepcopy(revision_quality)},
+                )
             lesson = self.repository.save_script_revision(
                 course_id,
                 lesson_unit_id,
                 final_sections,
                 source_lesson_plan_revision_id=source_plan_revision_id,
-                generation_source=(
-                    "model_block_pipeline_with_recovery_preview"
-                    if fallback_warnings
-                    else "model_block_pipeline"
-                ),
+                generation_source="model_block_pipeline",
                 requirements=requirements,
                 material_asset_ids=material_asset_ids or [],
                 actor=actor,
             )
-            warnings = [*fallback_warnings, *quality_warnings]
-            generation_failed = bool(fallback_warnings)
             current_job = self.repository.get_job(course_id, job_id)
             return self.repository.update_job(
                 course_id,
                 job_id,
-                status=(
-                    "failed"
-                    if generation_failed
-                    else "completed"
-                ),
-                phase=(
-                    "lesson_script_recovery_ready"
-                    if generation_failed
-                    else "lesson_script_ready"
-                ),
+                status="completed",
+                phase="lesson_script_ready",
                 progress=100,
-                message=(
-                    "AI 生成未完整完成，已保留可编辑恢复草稿"
-                    if generation_failed
-                    else "本讲讲义已生成"
-                ),
+                message="本讲讲义已生成",
                 completed_blocks=total_blocks,
                 result_sections=final_sections,
                 result_revision_id=str(lesson.get("working_script_revision_id") or ""),
-                warnings=warnings,
+                warnings=[],
                 current_block_id="",
                 current_block_title="",
                 stream_sequence=int(current_job.get("stream_sequence") or 0) + 1,
                 stream_complete=True,
-                error=(
-                    {
-                        "code": "lesson_script_generation_incomplete",
-                        "message": "AI 未完成全部讲义内容，请继续生成或编辑保存恢复稿。",
-                        "retryable": True,
-                    }
-                    if generation_failed
-                    else None
-                ),
+                error=None,
             )
         except Exception as exc:
             if isinstance(exc, asyncio.CancelledError):

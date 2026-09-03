@@ -410,9 +410,35 @@ def _public_representation_quality(
 
 
 def _teacher_outline_result_ready(course_data: Any) -> bool:
-    """Return whether the visible teacher outline has a usable saved structure."""
+    """Return whether every lecture of the teacher outline is complete."""
     if not isinstance(course_data, dict):
         return False
+    if course_data.get("outline_framework_only") is True:
+        return False
+    outline_stage = (
+        (course_data.get("generation_stage_artifacts") or {}).get("outline")
+        or {}
+    )
+    strategy = str(outline_stage.get("strategy") or "")
+    if strategy in {
+        "teacher_framework_then_detail_batches",
+        "teacher_framework_then_lecture_tasks",
+    }:
+        detail_records = [
+            item
+            for item in (outline_stage.get("detail_batches") or {}).values()
+            if isinstance(item, dict)
+        ]
+        if not detail_records or any(
+            str(item.get("status") or "") != "completed"
+            for item in detail_records
+        ):
+            return False
+        if str(outline_stage.get("status") or "") not in {
+            "completed",
+            "completed_with_warnings",
+        }:
+            return False
     nodes = [item for item in course_data.get("nodes") or [] if isinstance(item, dict)]
     return bool(nodes) and all(
         str(item.get("node_id") or "").strip()
@@ -1305,33 +1331,10 @@ class TaskManager:
             raise AIProviderUnavailable("outline_adjustment_not_configured")
 
         instruction = str(payload.get("instruction") or "").strip()
-        target_quality_issue_code = str(
-            payload.get("target_quality_issue_code") or ""
-        ).strip()
-        source_quality_report: dict[str, Any] = {}
-        source_quality_issue: dict[str, Any] | None = None
-        if target_quality_issue_code:
-            source_quality_report = review_course_outline_document(
-                source_draft.get("course_plan")
-                or source_draft.get("course_outline")
-                or {},
-                course_context={**course_data, **source_draft},
-            )
-            source_quality_issue = next(
-                (
-                    deepcopy(issue)
-                    for issue in source_quality_report.get("issues") or []
-                    if str(issue.get("code") or "")
-                    == target_quality_issue_code
-                ),
-                None,
-            )
         last_operations: list[dict[str, Any]] = []
         last_error: OutlineAdjustmentError | None = None
         result: dict[str, Any] | None = None
         correction: dict[str, Any] | None = None
-        candidate_quality_report: dict[str, Any] = {}
-        unresolved_quality_issue: dict[str, Any] | None = None
         for attempt in range(2):
             model_result = await self.course_service.propose_outline_adjustment(
                 draft=source_draft,
@@ -1357,35 +1360,6 @@ class TaskManager:
                     }
                 continue
 
-            if target_quality_issue_code and source_quality_issue:
-                candidate_draft = result["draft"]
-                candidate_quality_report = review_course_outline_document(
-                    candidate_draft.get("course_plan")
-                    or candidate_draft.get("course_outline")
-                    or {},
-                    course_context={**course_data, **candidate_draft},
-                )
-                unresolved_quality_issue = next(
-                    (
-                        deepcopy(issue)
-                        for issue in candidate_quality_report.get("issues") or []
-                        if str(issue.get("code") or "")
-                        == target_quality_issue_code
-                    ),
-                    None,
-                )
-                if unresolved_quality_issue and attempt == 0:
-                    correction = {
-                        "message": (
-                            "上一版候选没有解决指定的大纲审阅问题。"
-                            "请重新生成操作，确保复审后该问题代码消失。"
-                        ),
-                        "target_quality_issue": source_quality_issue,
-                        "validation_issue": unresolved_quality_issue,
-                        "previous_operations": last_operations,
-                    }
-                    result = None
-                    continue
             break
 
         proposal_id = outline_adjustment_proposal_id(
@@ -1442,24 +1416,6 @@ class TaskManager:
             }
             for item in impact.get("lock_conflicts") or []
         ]
-        if target_quality_issue_code and not source_quality_issue:
-            blocking_issues.append({
-                "code": "outline_quality_issue_stale",
-                "message": (
-                    "这项审阅建议已不属于当前大纲，"
-                    "请放弃候选并刷新后再试。"
-                ),
-            })
-        elif unresolved_quality_issue:
-            blocking_issues.append({
-                "code": "outline_quality_issue_unresolved",
-                "message": (
-                    "这版 AI 候选仍未解决目标审阅问题，"
-                    "已暂停采用；可以重试或放弃，不影响直接确认当前大纲。"
-                ),
-                "target_issue_code": target_quality_issue_code,
-                "details": deepcopy(unresolved_quality_issue),
-            })
         can_apply = bool(impact.get("can_confirm", False)) and not blocking_issues
         diff = describe_outline_diff(
             source_draft,
@@ -1507,8 +1463,6 @@ class TaskManager:
             "draft": proposed_draft,
             "impact_report": impact,
             "constraint_report": result["constraint_report"],
-            "quality_report": candidate_quality_report,
-            "target_quality_issue_code": target_quality_issue_code or None,
             "can_apply": can_apply,
             "blocking_issues": blocking_issues,
             "warnings": [],
@@ -1709,6 +1663,269 @@ class TaskManager:
                 int(item.get("section_count") or 0) for item in chapters
             ),
             "chapters": chapters,
+        }
+
+    async def _compile_teacher_outline_framework(
+        self,
+        task_id: str,
+        course_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Compile the current editable framework into the detail input."""
+        task = self.tasks.get(task_id) or {}
+        course_id = str(task.get("course_id") or course_data.get("course_id") or "")
+        draft = (
+            self._version_repository.load_draft(course_id)
+            or build_blueprint_draft(course_data)
+        )
+        if any(
+            int(node.get("node_level") or 0) == 1
+            for node in draft.get("nodes") or []
+            if isinstance(node, dict)
+        ):
+            draft = compile_outline_draft(draft)
+        compiled = merge_blueprint_draft(course_data, draft)
+        plan = compiled.get("course_plan") or compiled.get("course_outline") or {}
+        outline_stage = (
+            (compiled.get("generation_stage_artifacts") or {}).get("outline")
+            or {}
+        )
+        raw_skeleton = outline_stage.get("skeleton")
+        if not isinstance(raw_skeleton, dict):
+            raise ValueError("The editable course framework is unavailable")
+        raw_chapters = [
+            item
+            for item in raw_skeleton.get("chapters") or []
+            if isinstance(item, dict)
+        ]
+        detail_fields = (
+            "content_summary",
+            "key_points",
+            "key_difficulties",
+            "activities",
+            "homework",
+            "application_anchors",
+            "extension_resources",
+            "learning_tasks",
+            "education_objective_refs",
+            "ideology_implementation",
+            "external_mentor",
+            "assessment",
+        )
+        lectures: list[dict[str, Any]] = []
+        for index, chapter in enumerate(plan.get("chapters") or [], start=1):
+            if not isinstance(chapter, dict):
+                continue
+            raw = raw_chapters[index - 1] if index <= len(raw_chapters) else {}
+            sections = [
+                item
+                for item in chapter.get("sections") or []
+                if isinstance(item, dict)
+            ]
+            section = sections[0] if sections else {}
+            lecture = {
+                **deepcopy(raw),
+                "lecture_number": index,
+                "title": str(chapter.get("title") or raw.get("title") or ""),
+                "learning_objective": str(
+                    chapter.get("learning_objective")
+                    or chapter.get("learning_focus")
+                    or section.get("learning_objective")
+                    or raw.get("learning_objective")
+                    or ""
+                ),
+                "scope_boundary": str(
+                    section.get("scope_boundary")
+                    or chapter.get("scope_boundary")
+                    or raw.get("scope_boundary")
+                    or ""
+                ),
+                "hour_breakdown": deepcopy(
+                    section.get("hour_breakdown")
+                    or chapter.get("hour_breakdown")
+                    or raw.get("hour_breakdown")
+                    or {}
+                ),
+            }
+            for field in detail_fields:
+                for owner in (section, chapter, raw):
+                    value = owner.get(field)
+                    if value not in (None, "", [], {}):
+                        lecture[field] = deepcopy(value)
+                        break
+            lectures.append(lecture)
+
+        payload = {
+            key: deepcopy(plan.get(key, raw_skeleton.get(key)))
+            for key in (
+                "course_title",
+                "positioning",
+                "learning_objectives",
+                "prerequisites",
+                "course_intro_zh",
+                "course_intro_en",
+                "education_objectives",
+                "measurable_outcomes",
+                "outcome_alignment",
+                "teaching_methods",
+                "assessment_methods",
+                "assessment_plan",
+                "course_modules",
+                "ideology_cases",
+                "reference_books",
+                "reference_websites",
+                "course_website",
+            )
+        }
+        payload.update({
+            "authoring_structure_version": "lecture_v1",
+            "course_title": str(
+                compiled.get("course_name")
+                or plan.get("course_title")
+                or raw_skeleton.get("course_title")
+                or "课程"
+            ),
+            "lectures": lectures,
+        })
+        request_fingerprint = str(outline_stage.get("request_fingerprint") or "")
+        skeleton = normalize_outline_skeleton(
+            payload,
+            topic=str(payload["course_title"]),
+            request_fingerprint=request_fingerprint,
+        )
+        shape_constraints = deepcopy(
+            (compiled.get("course_generation_brief") or {}).get(
+                "course_shape_constraints"
+            )
+            or {}
+        )
+        shape_constraints.update({
+            "teacher_lecture_mode": True,
+            "chapter_count": len(lectures),
+            "section_count": len(lectures),
+            "lecture_count": len(lectures),
+        })
+        report = validate_outline_skeleton(
+            skeleton,
+            shape_constraints=shape_constraints,
+            request_fingerprint=request_fingerprint,
+            course_type_contract=(
+                (compiled.get("course_generation_brief") or {}).get(
+                    "course_type_contract"
+                )
+                or {}
+            ),
+        )
+        if not report.get("passed"):
+            messages = "；".join(
+                str(item.get("message") or "课程方案无效")
+                for item in report.get("issues") or []
+            )
+            raise ValueError(messages or "The editable course framework is invalid")
+
+        previous_revision = str(outline_stage.get("skeleton_revision_id") or "")
+        if previous_revision and previous_revision != skeleton.get("revision_id"):
+            outline_stage["batches"] = {}
+            outline_stage["detail_batches"] = {}
+            outline_stage["fallback_units"] = []
+        outline_stage.update({
+            "status": "framework_ready",
+            "strategy": "teacher_framework_then_lecture_tasks",
+            "skeleton": skeleton,
+            "skeleton_revision_id": skeleton.get("revision_id"),
+            "skeleton_validation_report": report,
+            "chapter_count": len(lectures),
+            "section_count": len(lectures),
+            "detail_batch_size": 1,
+        })
+        compiled.setdefault("generation_stage_artifacts", {})[
+            "outline"
+        ] = outline_stage
+        compiled["outline_framework_only"] = True
+        compiled["outline_generation_status"] = "generating"
+        compiled["outline_lifecycle_status"] = "draft"
+        compiled["generation_status"] = "outline_detail_generation"
+        await self._save_task_course(task_id, compiled)
+        return compiled
+
+    async def continue_teacher_outline_details(
+        self,
+        course_id: str,
+    ) -> dict[str, Any]:
+        """Start or retry full outline generation only on an explicit command."""
+        related = [
+            task
+            for task in self.tasks.values()
+            if task.get("course_id") == course_id
+            and task.get("type") == "teacher_outline_generation"
+        ]
+        related.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
+        if not related:
+            raise ValueError("No teacher outline job was found for this course")
+        task = related[0]
+        task_id = str(task["id"])
+        if task.get("status") in {"pending", "running"}:
+            return {
+                "status": "already_running",
+                "job_id": task_id,
+                "course_id": course_id,
+            }
+        course_data = self._load_task_course(task_id)
+        if not isinstance(course_data, dict):
+            raise ValueError("Course not found")
+        if _teacher_outline_result_ready(course_data):
+            return {
+                "status": "already_completed",
+                "job_id": task_id,
+                "course_id": course_id,
+            }
+        if task.get("status") not in {"waiting_for_input", "failed"}:
+            raise TaskStateConflict(
+                "The course framework is not ready for full outline generation",
+                status=str(task.get("status") or "unknown"),
+            )
+        course_data = await self._compile_teacher_outline_framework(
+            task_id,
+            course_data,
+        )
+        workspace_id = str(task.get("workspace_id") or "")
+        if workspace_id:
+            await asyncio.to_thread(
+                self._generation_workspace_repository.set_status,
+                workspace_id,
+                "active",
+                result={},
+            )
+        async with self._lock:
+            task = self.tasks[task_id]
+            task["status"] = "pending"
+            task["phase"] = "outline_detail_generation"
+            task["current_phase"] = "outline_detail_generation"
+            task["progress"] = max(32, int(task.get("progress") or 0))
+            task["phase_progress"] = 0
+            task["phase_detail"] = {
+                "artifact_type": "course_outline",
+                "status": "pending",
+                "stage": "outline_detail_generation",
+                "message": "已开始按讲生成完整大纲",
+            }
+            task["message"] = "已开始按讲生成完整大纲"
+            task["outline_detail_requested"] = True
+            task["error"] = None
+            task["error_detail"] = None
+            task["error_code"] = None
+            task["error_user_message"] = None
+            task["updated_at"] = datetime.now().isoformat()
+            task["heartbeat_at"] = task["updated_at"]
+            self.save_tasks(strict=True)
+        await self._task_queue.put(task_id)
+        await self._push_progress(task_id)
+        return {
+            "status": "started",
+            "job_id": task_id,
+            "course_id": course_id,
+            "outline_framework_only": bool(
+                course_data.get("outline_framework_only")
+            ),
         }
 
     async def confirm_outline_shape(
@@ -2405,10 +2622,11 @@ class TaskManager:
         status_priority = {
             "running": 0,
             "pending": 1,
-            "waiting_for_review": 2,
-            "paused": 3,
-            "failed": 4,
-            "completed": 5,
+            "waiting_for_input": 2,
+            "waiting_for_review": 3,
+            "paused": 4,
+            "failed": 5,
+            "completed": 6,
         }
         tasks_list = [self._task_summary_view(task) for task in self.tasks.values()]
         tasks_list.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
@@ -4817,7 +5035,8 @@ class TaskManager:
             if not current:
                 raise KeyError(task_id)
             if current.get("status") in {
-                "pending", "running", "paused", "waiting_for_review",
+                "pending", "running", "paused", "waiting_for_input",
+                "waiting_for_review",
             }:
                 current["status"] = "cancelled"
                 current["phase"] = "cancelled"
@@ -5265,7 +5484,11 @@ class TaskManager:
                 await self._process_task(task_id)
         except asyncio.CancelledError:
             task = self.tasks.get(task_id)
-            if task and task.get("status") not in ("paused", "cancelled"):
+            if task and task.get("status") not in (
+                "paused",
+                "cancelled",
+                "waiting_for_input",
+            ):
                 await self._update_task_status(task_id, "pending", message="任务中断，等待恢复")
             raise
         except Exception as exc:
@@ -5276,7 +5499,11 @@ class TaskManager:
             # deliberate terminal states: overwriting them with ``failed`` would
             # report the user's own cancellation back to them as a build error.
             task = self.tasks.get(task_id)
-            if task and task.get("status") in ("paused", "cancelled"):
+            if task and task.get("status") in (
+                "paused",
+                "cancelled",
+                "waiting_for_input",
+            ):
                 logger.info(
                     "Task %s ended with %s after it was %s; keeping the requested state",
                     task_id, exc, task.get("status"),
@@ -6548,6 +6775,9 @@ class TaskManager:
             and _teacher_outline_result_ready(course_data)
         ):
             course_data["generation_status"] = "teacher_outline_ready"
+            course_data["outline_framework_only"] = False
+            course_data["outline_generation_status"] = "completed"
+            course_data["outline_lifecycle_status"] = "current"
             course_data["authoring_surface"] = "teacher"
             await self._save_task_course(task_id, course_data)
             async with self._lock:
@@ -6557,6 +6787,7 @@ class TaskManager:
                 task["progress"] = 100
                 task["phase_progress"] = 100
                 task["message"] = "课程大纲已生成，可选择任一讲生成教案"
+                task["outline_detail_requested"] = False
                 task["current_nodes"] = []
                 task["current_node_name"] = ""
                 task["updated_at"] = datetime.now().isoformat()
@@ -6617,10 +6848,16 @@ class TaskManager:
                 fresh.update(checkpoint)
                 await self._save_task_course(task_id, fresh)
 
-            stop_after_skeleton = False
+            stop_after_skeleton = bool(
+                is_teacher_outline
+                and not task.get("outline_detail_requested")
+            )
             stop_after_outline = bool(
-                (is_teacher_outline or review_pending)
-                and not course_data.get("course_outline")
+                is_teacher_outline
+                or (
+                    review_pending
+                    and not course_data.get("course_outline")
+                )
             )
             course_data = await self.course_service.build_course_draft(
                 course_id=course_id,
@@ -6753,6 +6990,33 @@ class TaskManager:
                 await self._save_task_course(task_id, course_data)
 
         if is_teacher_outline:
+            if course_data.get("outline_framework_only") is True:
+                draft = build_blueprint_draft(course_data)
+                self._version_repository.save_draft(course_id, draft)
+                await self._save_task_course(task_id, course_data)
+                async with self._lock:
+                    task["status"] = "waiting_for_input"
+                    task["phase"] = "outline_framework_ready"
+                    task["current_phase"] = "outline_framework_ready"
+                    task["progress"] = 32
+                    task["phase_progress"] = 100
+                    task["phase_detail"] = {
+                        "artifact_type": "course_outline_framework",
+                        "status": "completed",
+                        "stage": "outline_framework_ready",
+                        "message": "轻量课程方案已生成",
+                    }
+                    task["message"] = (
+                        "轻量课程方案已生成，"
+                        "可编辑或主动生成完整大纲"
+                    )
+                    task["current_nodes"] = []
+                    task["current_node_name"] = ""
+                    task["updated_at"] = datetime.now().isoformat()
+                    task["heartbeat_at"] = task["updated_at"]
+                    self.save_tasks(strict=True)
+                await self._push_progress(task_id)
+                return
             if not _teacher_outline_result_ready(course_data):
                 await self._save_task_course(task_id, course_data)
                 await self._update_phase(
@@ -6777,6 +7041,9 @@ class TaskManager:
                 await self._push_progress(task_id)
                 return
             course_data["generation_status"] = "teacher_outline_ready"
+            course_data["outline_framework_only"] = False
+            course_data["outline_generation_status"] = "completed"
+            course_data["outline_lifecycle_status"] = "current"
             course_data["authoring_surface"] = "teacher"
             await self._save_task_course(task_id, course_data)
             async with self._lock:
@@ -6786,6 +7053,7 @@ class TaskManager:
                 task["progress"] = 100
                 task["phase_progress"] = 100
                 task["message"] = "课程大纲已生成，可选择任一讲生成教案"
+                task["outline_detail_requested"] = False
                 task["current_nodes"] = []
                 task["current_node_name"] = ""
                 task["updated_at"] = datetime.now().isoformat()
@@ -8106,6 +8374,46 @@ class TaskManager:
             previous_detail = task.get("phase_detail")
             next_detail = deepcopy(phase_detail or {})
             if (
+                phase.startswith("outline_detail")
+                and previous_phase.startswith("outline_detail")
+                and isinstance(previous_detail, dict)
+            ):
+                # Several lecture tasks stream concurrently. Keep their state
+                # keyed by lesson_id so a heartbeat or a faster sibling cannot
+                # erase the visible content already received for another one.
+                merged_lesson_statuses = deepcopy(
+                    previous_detail.get("lesson_statuses") or {}
+                )
+                if isinstance(next_detail.get("lesson_statuses"), dict):
+                    merged_lesson_statuses.update(
+                        deepcopy(next_detail["lesson_statuses"])
+                    )
+                lesson_id = str(next_detail.get("lesson_id") or "")
+                if lesson_id:
+                    current_lesson = deepcopy(
+                        merged_lesson_statuses.get(lesson_id) or {}
+                    )
+                    current_lesson["lesson_id"] = lesson_id
+                    for field in (
+                        "status",
+                        "stage",
+                        "message",
+                        "progress",
+                        "stream_preview",
+                    ):
+                        if field in next_detail:
+                            current_lesson[field] = deepcopy(next_detail[field])
+                    merged_lesson_statuses[lesson_id] = current_lesson
+                    if (
+                        "stream_preview" not in next_detail
+                        and current_lesson.get("stream_preview")
+                    ):
+                        next_detail["stream_preview"] = str(
+                            current_lesson["stream_preview"]
+                        )
+                if merged_lesson_statuses:
+                    next_detail["lesson_statuses"] = merged_lesson_statuses
+            if (
                 phase == previous_phase == "outline_generation"
                 and isinstance(previous_detail, dict)
                 and isinstance(previous_detail.get("outline_growth"), dict)
@@ -8172,6 +8480,7 @@ class TaskManager:
             if status in {
                 "pending",
                 "running",
+                "waiting_for_input",
                 "waiting_for_review",
                 "completed",
                 "completed_with_warnings",
@@ -9534,7 +9843,12 @@ class TaskManager:
         candidates = [
             t for t in self.tasks.values()
             if t["course_id"] == course_id
-            and t["status"] in ("pending", "running", "waiting_for_review")
+            and t["status"] in (
+                "pending",
+                "running",
+                "waiting_for_input",
+                "waiting_for_review",
+            )
         ]
         if candidates:
             candidates.sort(key=lambda x: x.get("updated_at", ""), reverse=True)

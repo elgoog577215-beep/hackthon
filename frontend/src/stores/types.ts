@@ -666,7 +666,7 @@ export interface Task {
     id: string
     courseId: string
     courseName: string
-    status: 'idle' | 'running' | 'paused' | 'completed' | 'error' | 'pending' | 'waiting_for_review' | 'completed_with_warnings' | 'conflict'
+    status: 'idle' | 'running' | 'paused' | 'completed' | 'error' | 'pending' | 'waiting_for_input' | 'waiting_for_review' | 'completed_with_warnings' | 'conflict'
     progress: number
     currentStep: string
     currentPhase?: string

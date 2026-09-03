@@ -1032,6 +1032,7 @@ function statusLabel(status: Task['status'], recovery?: Task['recovery'], taskTy
   const labels: Record<Task['status'], string> = {
     idle: t('courseLibrary.status.preparing', '正在准备课程'), pending: t('courseLibrary.status.pending', '等待生成'),
     running: t('courseLibrary.status.running', '正在生成'), paused: t('courseLibrary.status.paused', '已暂停'),
+    waiting_for_input: t('courseLibrary.status.waitingInput', '等待继续'),
     waiting_for_review: t('courseLibrary.status.waitingReview', '等待你的确认'), conflict: t('courseLibrary.status.conflict', '需要确认'),
     error: t('courseLibrary.status.error', '生成失败'), completed_with_warnings: t('courseLibrary.status.warnings', '生成完成但有警告'),
     completed: t('courseLibrary.status.ready', '可以学习'),

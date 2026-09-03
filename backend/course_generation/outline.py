@@ -327,9 +327,9 @@ class CourseOutlinePlanningBudget:
     # request with enough room instead of predictably truncating once and
     # repeating the whole outline at double headroom.
     teacher_lecture_max_output_tokens: int = 16_384
-    # Formal outlines use one compact framework request followed by a small
-    # number of bounded detail batches. This avoids both one giant response and
-    # sixteen independent requests competing for provider capacity.
+    # Kept as compatibility settings for persisted deployments. Teacher
+    # outline details now use one task per lecture and the shared planning
+    # semaphore, so neither value creates a second batching/concurrency layer.
     teacher_detail_batch_size: int = 4
     teacher_detail_concurrency: int = 2
 
@@ -462,7 +462,9 @@ def normalize_outline_skeleton(
                 720,
             ),
             "learning_objective": _clip(
-                raw.get("learning_objective") or raw.get("learning_focus"),
+                raw.get("learning_objective")
+                or raw.get("learning_focus")
+                or f"完成{topic}的第 {index} 阶段学习任务",
                 260,
             ),
             "key_points": [
@@ -629,6 +631,10 @@ def normalize_outline_skeleton(
         "reference_books": reference_books,
         "reference_websites": reference_websites,
         "course_website": _clip(payload.get("course_website"), 500),
+        "total_hours": round(
+            sum(float(item.get("planned_hours") or 0) for item in chapters),
+            2,
+        ),
         "chapters": chapters,
     }
     if not skeleton["learning_objectives"]:
@@ -743,6 +749,80 @@ def project_streamed_teacher_outline_growth(
         "streamed_content_chars": len(content),
         "chapters": chapters,
     }
+
+
+def _completed_stream_value(content: str, field: str) -> Any:
+    """Decode a completed JSON value for one field from a partial stream."""
+    match = re.search(rf'"{re.escape(field)}"\s*:\s*', content)
+    if not match:
+        return None
+    try:
+        value, _cursor = json.JSONDecoder().raw_decode(content, match.end())
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return value
+
+
+def _completed_stream_string_items(content: str, field: str) -> list[str]:
+    """Read complete string items even while a JSON array is still open."""
+    match = re.search(rf'"{re.escape(field)}"\s*:\s*\[', content)
+    if not match:
+        return []
+    decoder = json.JSONDecoder()
+    cursor = match.end()
+    values: list[str] = []
+    while cursor < len(content):
+        while cursor < len(content) and (
+            content[cursor].isspace() or content[cursor] == ","
+        ):
+            cursor += 1
+        if cursor >= len(content) or content[cursor] == "]":
+            break
+        try:
+            value, cursor = decoder.raw_decode(content, cursor)
+        except json.JSONDecodeError:
+            break
+        if isinstance(value, str) and value.strip():
+            values.append(_clip(value, 180))
+    return values
+
+
+def project_streamed_teacher_outline_detail_preview(
+    content: str,
+    *,
+    lecture_number: int,
+    max_chars: int = 1200,
+) -> str:
+    """Project visible model content into a cumulative teacher-facing preview.
+
+    The caller supplies only provider ``delta.content`` chunks. Reasoning
+    deltas travel through a separate callback and can therefore never enter
+    this projection.
+    """
+    raw = str(content or "")
+    if not raw.strip():
+        return ""
+    lines = [f"第 {max(1, int(lecture_number or 1))} 讲"]
+    summary = _completed_stream_value(raw, "content_summary")
+    if isinstance(summary, str) and summary.strip():
+        lines.append(f"内容：{_clip(summary, 480)}")
+    for field, label in (
+        ("key_points", "重点"),
+        ("key_difficulties", "难点"),
+        ("activities", "活动"),
+        ("homework", "任务"),
+        ("application_anchors", "案例"),
+        ("assessment", "达成检验"),
+    ):
+        value = _completed_stream_value(raw, field)
+        items = (
+            [_clip(item, 180) for item in value if str(item or "").strip()]
+            if isinstance(value, list)
+            else _completed_stream_string_items(raw, field)
+        )
+        if items:
+            lines.append(f"{label}：{'；'.join(items[:6])}")
+    return _clip("\n".join(lines), max(80, int(max_chars or 1200))) if len(lines) > 1 else ""
 
 
 def validate_outline_skeleton(
@@ -1028,7 +1108,11 @@ def build_teacher_outline_detail_batch_specs(
     batch_size: int,
     pending_lecture_numbers: list[int] | None = None,
 ) -> list[dict[str, Any]]:
-    """Group lecture details without changing the frozen course framework."""
+    """Build one stable detail task per lecture.
+
+    ``batch_size`` remains in the signature for compatibility with older
+    callers, but deliberately does not affect task identity or grouping.
+    """
     valid_numbers = [
         int(item.get("lecture_number") or item.get("chapter_number") or index)
         for index, item in enumerate(skeleton.get("chapters") or [], start=1)
@@ -1040,20 +1124,17 @@ def build_teacher_outline_detail_batch_specs(
         else valid_numbers
     )
     numbers = [item for item in requested if item in set(valid_numbers)]
-    size = max(1, int(batch_size or 1))
     revision_id = str(skeleton.get("revision_id") or "")
-    specs: list[dict[str, Any]] = []
-    for offset in range(0, len(numbers), size):
-        group = numbers[offset:offset + size]
-        if not group:
-            continue
-        specs.append({
-            "batch_id": f"OUT-TD-{group[0]:03d}-{group[-1]:03d}",
+    return [
+        {
+            "batch_id": f"OUT-TD-{number:03d}",
+            "lesson_id": f"L1-{number}",
             "skeleton_revision_id": revision_id,
-            "lecture_numbers": group,
-            "lecture_count": len(group),
-        })
-    return specs
+            "lecture_numbers": [number],
+            "lecture_count": 1,
+        }
+        for number in numbers
+    ]
 
 
 def normalize_teacher_outline_detail_batch(
@@ -1238,10 +1319,12 @@ def merge_teacher_outline_detail(
     lecture: dict[str, Any],
     detail: dict[str, Any],
 ) -> dict[str, Any]:
-    """Apply generated detail without letting it rename or reorder a lecture."""
+    """Fill missing detail without overwriting teacher-authored content."""
     merged = deepcopy(lecture)
     for field in _TEACHER_OUTLINE_DETAIL_FIELDS:
-        if field in detail:
+        current = merged.get(field)
+        is_empty = current is None or current == "" or current == [] or current == {}
+        if is_empty and field in detail:
             merged[field] = deepcopy(detail[field])
     return merged
 
@@ -1603,6 +1686,13 @@ def assemble_course_outline(
             skeleton.get("reference_websites") or []
         ),
         "course_website": str(skeleton.get("course_website") or ""),
+        "total_hours": round(
+            sum(
+                float(chapter.get("planned_hours") or 0)
+                for chapter in chapters
+            ),
+            2,
+        ),
         "chapters": chapters,
     }
 
@@ -2386,6 +2476,7 @@ __all__ = [
     "normalize_teacher_outline_detail_batch",
     "outline_neighbor_chapters",
     "outline_request_fingerprint",
+    "project_streamed_teacher_outline_detail_preview",
     "project_streamed_teacher_outline_growth",
     "review_course_outline_document",
     "select_chapter_evidence_hints",

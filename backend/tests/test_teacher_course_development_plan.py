@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -94,6 +95,31 @@ def test_course_preparation_status_requires_every_current_complete_asset():
     assert courses._teacher_preparation_projection(course, repository)["preparation_state"] == "preparing"
 
 
+def test_outline_review_findings_do_not_block_lesson_plan_entry():
+    source = {
+        "outline_framework_only": False,
+        "generation_status": "outline_completed",
+        "course_outline_quality_report": {
+            "passed": False,
+            "blockers": [{"code": "outline_editorial:hour_total_mismatch"}],
+        },
+        "generation_stage_artifacts": {
+            "outline": {
+                "strategy": "teacher_framework_then_lecture_tasks",
+                "status": "completed",
+            }
+        },
+        "nodes": [{"node_id": "L1-1", "node_name": "第一讲"}],
+    }
+
+    assert lesson_router._has_teaching_structure(source) is True
+    assert lesson_router._has_teaching_structure({
+        **source,
+        "outline_framework_only": True,
+        "generation_status": "outline_framework_ready",
+    }) is False
+
+
 def test_pause_keeps_checkpoint_and_marks_job_resumable(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path / "lesson-authoring")
     job = repository.create_job(
@@ -121,7 +147,7 @@ def test_pause_keeps_checkpoint_and_marks_job_resumable(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_generate_all_lesson_plans_returns_parent_and_serial_queue_metadata(monkeypatch):
+async def test_generate_all_lesson_plans_returns_parent_and_independent_queue_metadata(monkeypatch):
     source = {"course_id": "course-1"}
     projected_lessons = [
         {
@@ -141,6 +167,15 @@ async def test_generate_all_lesson_plans_returns_parent_and_serial_queue_metadat
     monkeypatch.setattr(lesson_router, "_canonical_outline_revision", lambda _source: "outline-1")
     monkeypatch.setattr(lesson_router, "_lesson_projection", lambda _source, _repository: projected_lessons)
     monkeypatch.setattr(lesson_router, "validate_lesson_arrangement", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        lesson_router,
+        "_lesson_plan_material_scope",
+        lambda _course_id, _actor, lesson_id: {
+            "source_package_id": f"package-{lesson_id}",
+            "source_asset_id": f"source-{lesson_id}",
+            "material_asset_ids": [f"material-{lesson_id}"],
+        },
+    )
 
     requested_children = []
 
@@ -188,10 +223,18 @@ async def test_generate_all_lesson_plans_returns_parent_and_serial_queue_metadat
     assert [body.batch_position for _, body in requested_children] == [1, 2]
     assert {body.batch_size for _, body in requested_children} == {2}
     assert len({body.batch_parent_job_id for _, body in requested_children}) == 1
+    assert [body.source_asset_id for _, body in requested_children] == [
+        "source-lesson-1",
+        "source-lesson-2",
+    ]
+    assert [body.material_asset_ids for _, body in requested_children] == [
+        ["material-lesson-1"],
+        ["material-lesson-2"],
+    ]
 
 
 @pytest.mark.asyncio
-async def test_lesson_plan_batch_runs_one_model_job_at_a_time():
+async def test_lesson_plan_batch_allows_independent_model_jobs_to_overlap():
     class Repository:
         def get_job(self, _course_id, job_id):
             return {"id": job_id, "status": "pending"}
@@ -199,6 +242,7 @@ async def test_lesson_plan_batch_runs_one_model_job_at_a_time():
     active = 0
     peak_active = 0
     order = []
+    both_started = asyncio.Event()
 
     def runner(label):
         async def run():
@@ -206,19 +250,21 @@ async def test_lesson_plan_batch_runs_one_model_job_at_a_time():
             active += 1
             peak_active = max(peak_active, active)
             order.append(f"start:{label}")
-            await lesson_router.asyncio.sleep(0)
+            if active == 2:
+                both_started.set()
+            await asyncio.wait_for(both_started.wait(), timeout=1)
             order.append(f"end:{label}")
             active -= 1
         return run
 
     await lesson_router.asyncio.gather(
-        lesson_router._run_lesson_plan_serially(
+        lesson_router._run_lesson_plan_job(
             course_id="course-1",
             job_id="job-1",
             repository=Repository(),
             run=runner("lesson-1"),
         ),
-        lesson_router._run_lesson_plan_serially(
+        lesson_router._run_lesson_plan_job(
             course_id="course-1",
             job_id="job-2",
             repository=Repository(),
@@ -226,5 +272,5 @@ async def test_lesson_plan_batch_runs_one_model_job_at_a_time():
         ),
     )
 
-    assert peak_active == 1
-    assert order == ["start:lesson-1", "end:lesson-1", "start:lesson-2", "end:lesson-2"]
+    assert peak_active == 2
+    assert set(order[:2]) == {"start:lesson-1", "start:lesson-2"}

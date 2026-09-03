@@ -17,7 +17,6 @@ from course_outline_adjustments import (
     compile_outline_draft,
 )
 from course_generation.outline import review_course_outline_document
-
 from course_versioning import (
     analyze_blueprint_impact,
     blueprint_draft_revision_id,
@@ -74,7 +73,6 @@ class BlueprintAdjustmentPreviewRequest(BaseModel):
     def normalize_optional_issue_code(cls, value: str | None) -> str | None:
         normalized = str(value or "").strip()
         return normalized or None
-
 
 class BlueprintAdjustmentCancelRequest(BaseModel):
     request_id: str = Field(min_length=1, max_length=120)
@@ -147,7 +145,7 @@ async def get_blueprint(course_id: str):
             )
             or {}
         ),
-        # D-1：大纲确认页就在这个端点上，覆盖度判断必须跟目录一起到达前端，
+        # D-1：大纲页就在这个端点上，覆盖度判断必须跟目录一起到达前端，
         # 否则用户要等整门课生成完才知道它没覆盖半个学科。
         "coverage": TaskManager.project_course_coverage(course),
         "quality": quality,
@@ -245,6 +243,7 @@ async def save_blueprint_draft(
         draft.get("course_plan") or draft.get("course_outline") or {},
         course_context={**course, **draft},
     )
+    # 审阅报告随修订保存供老师参考，但不参与生成完成状态或后续门禁。
     draft["course_outline_quality_report"] = quality_report
     draft["base_blueprint_revision_id"] = current_revision
     draft["draft_revision_id"] = blueprint_draft_revision_id(draft)
@@ -490,18 +489,15 @@ async def get_generation_review(
     return review
 
 
-@router.post("/generation/outline-shape/confirm", status_code=202)
-async def confirm_outline_shape(
+@router.post("/generation/outline-details/continue", status_code=202)
+async def continue_outline_details(
     course_id: str,
-    request: OutlineShapeConfirmRequest,
     tm: TaskManager = Depends(require_task_manager),
 ):
+    """Generate the full teacher outline after an explicit teacher command."""
     await get_course_or_404(course_id)
     try:
-        return await tm.confirm_outline_shape(
-            course_id,
-            request.chapter_section_counts,
-        )
+        return await tm.continue_teacher_outline_details(course_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except TaskStateConflict as exc:
@@ -513,6 +509,22 @@ async def confirm_outline_shape(
                 "status": exc.status,
             },
         ) from exc
+
+
+@router.post("/generation/outline-shape/confirm", status_code=202)
+async def confirm_outline_shape(
+    course_id: str,
+    request: OutlineShapeConfirmRequest,
+    tm: TaskManager = Depends(require_task_manager),
+):
+    await get_course_or_404(course_id)
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "code": "outline_confirmation_removed",
+            "message": "课程方案无需确认；请使用“生成完整大纲”命令。",
+        },
+    )
 
 
 @router.post("/generation/steps/{step}/confirm", status_code=202)

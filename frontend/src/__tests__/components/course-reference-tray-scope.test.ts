@@ -250,6 +250,122 @@ describe('CourseReferenceTray lesson scope', () => {
     expect(wrapper.emitted('retry-workflow')).toHaveLength(1)
   })
 
+  it('为每份资料独立保存全部讲次或指定讲次范围', async () => {
+    const lessonTargets = [
+      { id: 'lesson-plan:L1-1', lessonId: 'L1-1', label: '第一讲', position: 1 },
+      { id: 'lesson-plan:L1-2', lessonId: 'L1-2', label: '第二讲', position: 2 },
+      { id: 'lesson-plan:L1-3', lessonId: 'L1-3', label: '第三讲', position: 3 },
+    ]
+    const selected = [
+      { ...assets[0]!, role: 'reference' as const },
+      {
+        ...assets[1]!, role: 'reference' as const,
+        usages: [{ target_id: 'lesson-plan:L1-1', target_type: 'lesson_plan', role: 'reference' as const }],
+      },
+    ]
+    vi.mocked(http.get).mockImplementation((url: string) => {
+      if (url === '/api/materials') return Promise.resolve({ data: { assets: selected } } as any)
+      if (url.includes('/web-research')) return Promise.resolve({ data: { accepted_references: [] } } as any)
+      if (url === '/api/teacher-course-spaces') return Promise.resolve({ data: [{ package_id: 'package-1' }] } as any)
+      return Promise.resolve({ data: {} } as any)
+    })
+    const wrapper = mount(CourseReferenceTray, {
+      props: {
+        courseId: 'course-1', modelValue: selected, stage: 'lesson', lessonId: 'L1-1',
+        scopeTargetId: 'lesson-plan:L1-1', scopeTargetType: 'lesson_plan', scopeTargetLabel: '第一讲',
+        lessonTargets,
+      },
+      global: { stubs: { WebResearchDialog: true } },
+    })
+    await flushPromises()
+
+    const firstFile = wrapper.get('[data-asset-id="asset-1"]')
+    const secondFile = wrapper.get('[data-asset-id="asset-2"]')
+    expect(firstFile.text()).toContain('第一讲案例.docx')
+    expect(secondFile.text()).toContain('第二讲练习.pdf')
+
+    vi.mocked(http.put).mockClear()
+    await firstFile.get('select').setValue('all')
+    await firstFile.get('.reference-scope__apply').trigger('click')
+    await flushPromises()
+
+    expect(http.put).toHaveBeenCalledTimes(3)
+    for (const target of lessonTargets) {
+      expect(http.put).toHaveBeenCalledWith(
+        '/api/teacher-course-spaces/package-1/relationships',
+        expect.objectContaining({
+          target_id: target.id,
+          sources: expect.arrayContaining([expect.objectContaining({ source_asset_id: 'asset-1' })]),
+        }),
+        expect.any(Object),
+      )
+    }
+    expect(firstFile.text()).toContain('全部 3 讲')
+
+    vi.mocked(http.put).mockClear()
+    await secondFile.get('select').setValue('range')
+    const rangeTargets = secondFile.findAll('.reference-scope__range select')
+    await rangeTargets[0]!.setValue('lesson-plan:L1-2')
+    await rangeTargets[1]!.setValue('lesson-plan:L1-3')
+    await secondFile.get('.reference-scope__apply').trigger('click')
+    await flushPromises()
+
+    expect(http.put).toHaveBeenCalledTimes(3)
+    expect(http.put).toHaveBeenCalledWith(
+      '/api/teacher-course-spaces/package-1/relationships',
+      expect.objectContaining({
+        target_id: 'lesson-plan:L1-1',
+        sources: [expect.objectContaining({ source_asset_id: 'asset-1' })],
+      }),
+      expect.any(Object),
+    )
+    for (const targetId of ['lesson-plan:L1-2', 'lesson-plan:L1-3']) {
+      expect(http.put).toHaveBeenCalledWith(
+        '/api/teacher-course-spaces/package-1/relationships',
+        expect.objectContaining({
+          target_id: targetId,
+          sources: expect.arrayContaining([
+            expect.objectContaining({ source_asset_id: 'asset-1' }),
+            expect.objectContaining({ source_asset_id: 'asset-2' }),
+          ]),
+        }),
+        expect.any(Object),
+      )
+    }
+    expect(secondFile.text()).toContain('第二讲 至 第三讲')
+
+    vi.mocked(http.put).mockClear()
+    await secondFile.get('select').setValue('custom')
+    const customTargets = secondFile.findAll('.reference-scope__custom input')
+    await customTargets[2]!.setValue(true)
+    await secondFile.get('.reference-scope__apply').trigger('click')
+    await flushPromises()
+
+    expect(http.put).toHaveBeenCalledTimes(3)
+    expect(http.put).toHaveBeenCalledWith(
+      '/api/teacher-course-spaces/package-1/relationships',
+      expect.objectContaining({
+        target_id: 'lesson-plan:L1-2',
+        sources: [expect.objectContaining({ source_asset_id: 'asset-1' })],
+      }),
+      expect.any(Object),
+    )
+    for (const targetId of ['lesson-plan:L1-1', 'lesson-plan:L1-3']) {
+      expect(http.put).toHaveBeenCalledWith(
+        '/api/teacher-course-spaces/package-1/relationships',
+        expect.objectContaining({
+          target_id: targetId,
+          sources: expect.arrayContaining([
+            expect.objectContaining({ source_asset_id: 'asset-1' }),
+            expect.objectContaining({ source_asset_id: 'asset-2' }),
+          ]),
+        }),
+        expect.any(Object),
+      )
+    }
+    expect(secondFile.text()).toContain('指定 2 讲')
+  })
+
   it('内容确认后收起上传入口，只在老师主动调整时展开', async () => {
     const wrapper = mount(CourseReferenceTray, {
       props: {

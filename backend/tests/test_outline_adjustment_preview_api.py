@@ -28,22 +28,42 @@ class PreviewManager:
         }
 
 
-class OutlineShapeManager:
+class OutlineDetailsManager:
     def __init__(self):
         self.calls = []
 
-    async def confirm_outline_shape(self, course_id, chapter_section_counts):
-        self.calls.append((course_id, chapter_section_counts))
+    async def continue_teacher_outline_details(self, course_id):
+        self.calls.append(course_id)
         return {
-            "status": "resumed",
+            "status": "started",
             "job_id": "job-shape-1",
             "course_id": course_id,
-            "chapter_section_counts": chapter_section_counts,
         }
 
 
-def test_outline_shape_confirmation_endpoint_resumes_teacher_job(monkeypatch):
-    manager = OutlineShapeManager()
+def test_outline_detail_continue_endpoint_starts_teacher_job(monkeypatch):
+    manager = OutlineDetailsManager()
+
+    async def load_course(course_id):
+        return {"course_id": course_id}
+
+    monkeypatch.setattr(course_versions, "get_course_or_404", load_course)
+    app = FastAPI()
+    app.include_router(course_versions.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: manager
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/courses/course-1/generation/outline-details/continue",
+    )
+
+    assert response.status_code == 202
+    assert response.json()["job_id"] == "job-shape-1"
+    assert manager.calls == ["course-1"]
+
+
+def test_legacy_outline_confirmation_endpoint_is_removed(monkeypatch):
+    manager = OutlineDetailsManager()
 
     async def load_course(course_id):
         return {"course_id": course_id}
@@ -59,9 +79,9 @@ def test_outline_shape_confirmation_endpoint_resumes_teacher_job(monkeypatch):
         json={"chapter_section_counts": [3, 5]},
     )
 
-    assert response.status_code == 202
-    assert response.json()["job_id"] == "job-shape-1"
-    assert manager.calls == [("course-1", [3, 5])]
+    assert response.status_code == 410
+    assert response.json()["detail"]["code"] == "outline_confirmation_removed"
+    assert manager.calls == []
 
 
 def test_preview_endpoint_passes_optimistic_revisions_without_writing(monkeypatch):

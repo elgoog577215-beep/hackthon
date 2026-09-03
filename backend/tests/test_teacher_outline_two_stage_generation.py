@@ -9,6 +9,8 @@ import pytest
 
 from ai_base import AIProviderRequestError
 from course_generation.outline import CourseOutlinePlanningBudget
+from course_generation.outline import merge_teacher_outline_detail
+from course_generation.outline import normalize_outline_skeleton
 from course_generation.prompts import CoursePromptComposer
 from course_generation.service import CourseService
 from course_pedagogy import resolve_pedagogy_profile
@@ -18,60 +20,27 @@ def _teacher_framework_payload(lecture_count: int = 16) -> str:
     return json.dumps(
         {
             "course_title": "人工智能导论",
+            "learning_objectives": ["能够解释并应用人工智能核心方法"],
+            "course_modules": [
+                {
+                    "module_id": "M1",
+                    "title": "人工智能核心主题",
+                    "lecture_numbers": list(range(1, lecture_count + 1)),
+                }
+            ],
+            "total_hours": lecture_count,
             "lectures": [
                 {
                     "lecture_number": number,
                     "title": f"主题 {number}",
-                    "learning_objective": f"能够完成第 {number} 讲任务",
-                    "scope_boundary": (
-                        f"只处理第 {number} 讲范围，不提前展开后续内容"
-                    ),
                     "hour_breakdown": {
                         "classroom_lecture": 1,
                         "classroom_practice": 0,
                         "online_instruction": 0,
                     },
-                    "learning_path_role": "standard",
-                    "path_reason": "课程主路径",
                 }
                 for number in range(1, lecture_count + 1)
             ],
-            "course_intro_zh": "建立人工智能的核心概念与应用判断。",
-            "course_intro_en": "Build core AI concepts and application judgement.",
-            "positioning": "面向本科生的人工智能核心概览课",
-            "learning_objectives": ["能够解释并应用人工智能核心方法"],
-            "education_objectives": [],
-            "measurable_outcomes": ["能够完成一个可检查的人工智能分析任务"],
-            "outcome_alignment": [
-                {
-                    "outcome_number": 1,
-                    "objective_refs": ["学习目标1"],
-                    "lecture_numbers": list(range(1, lecture_count + 1)),
-                    "assessment_evidence": ["课程分析任务"],
-                    "coverage_scope": "课程核心内容",
-                }
-            ],
-            "teaching_methods": ["讲授与练习结合"],
-            "assessment_methods": ["过程任务与期末项目"],
-            "assessment_plan": [
-                {
-                    "name": "过程任务",
-                    "weight": 40,
-                    "criteria": ["结论正确且依据清楚"],
-                    "outcome_numbers": [1],
-                },
-                {
-                    "name": "期末项目",
-                    "weight": 60,
-                    "criteria": ["能够综合应用课程方法"],
-                    "outcome_numbers": [1],
-                },
-            ],
-            "course_modules": [],
-            "ideology_cases": [],
-            "reference_books": [],
-            "reference_websites": [],
-            "course_website": "",
         },
         ensure_ascii=False,
     )
@@ -161,15 +130,52 @@ def test_teacher_framework_prompt_excludes_per_lecture_details():
         coverage_verdict={},
     )
 
-    assert "本请求只形成可立即展示和审阅的全课框架" in prompt
+    assert prompt.startswith("## 轻量课程方案 V1")
+    assert "本请求只生成教师可立即看到和编辑的课程方案" in prompt
     assert '"content_summary"' not in prompt
     assert '"key_points"' not in prompt
     assert '"assessment"' not in prompt
-    assert prompt.index('"lectures"') < prompt.index('"course_intro_zh"')
+    assert '"course_intro_zh"' not in prompt
+    assert prompt.index('"learning_objectives"') < prompt.index('"lectures"')
+
+
+def test_teacher_authored_detail_is_not_overwritten_by_generated_detail():
+    merged = merge_teacher_outline_detail(
+        {
+            "lecture_number": 1,
+            "content_summary": "教师已写的内容摘要",
+            "key_points": ["教师已写重点"],
+            "activities": [],
+        },
+        {
+            "content_summary": "模型摘要",
+            "key_points": ["模型重点"],
+            "activities": ["模型补全活动"],
+        },
+    )
+
+    assert merged["content_summary"] == "教师已写的内容摘要"
+    assert merged["key_points"] == ["教师已写重点"]
+    assert merged["activities"] == ["模型补全活动"]
+
+
+def test_teacher_framework_normalization_is_idempotent_for_restart_recovery():
+    first = normalize_outline_skeleton(
+        json.loads(_teacher_framework_payload()),
+        topic="人工智能导论",
+        request_fingerprint="outline-request-1",
+    )
+    restored = normalize_outline_skeleton(
+        deepcopy(first),
+        topic="人工智能导论",
+        request_fingerprint="outline-request-1",
+    )
+
+    assert restored == first
 
 
 @pytest.mark.asyncio
-async def test_sixteen_lecture_outline_uses_four_bounded_detail_batches(
+async def test_sixteen_lecture_outline_runs_one_task_per_lecture_and_assembles_in_order(
     monkeypatch,
 ):
     service = CourseService(planning_concurrency=4)
@@ -179,6 +185,7 @@ async def test_sixteen_lecture_outline_uses_four_bounded_detail_batches(
     )
     calls: list[str] = []
     growth_states: list[str] = []
+    detail_events: list[dict[str, object]] = []
     active_details = 0
     peak_details = 0
 
@@ -192,18 +199,32 @@ async def test_sixteen_lecture_outline_uses_four_bounded_detail_batches(
         growth = phase_detail.get("outline_growth") or {}
         if growth.get("state"):
             growth_states.append(str(growth["state"]))
+        if phase_detail.get("lesson_id"):
+            detail_events.append(deepcopy(phase_detail))
 
     async def fake_call(_prompt, system_prompt="", **_kwargs):
         nonlocal active_details, peak_details
         calls.append(system_prompt)
-        if system_prompt.startswith("## 全课讲次大纲"):
+        if system_prompt.startswith("## 轻量课程方案 V1"):
             return _teacher_framework_payload()
-        if system_prompt.startswith("## 讲次详情批次 V1"):
+        if system_prompt.startswith("## 单讲完整大纲 V2"):
+            _batch_id, _revision_id, lecture_numbers = _detail_identity(
+                system_prompt
+            )
             active_details += 1
             peak_details = max(peak_details, active_details)
-            await asyncio.sleep(0.01)
+            # Later lectures finish first inside each active group. The final
+            # outline must still be assembled in the teacher's lecture order.
+            await asyncio.sleep(0.002 * (5 - ((lecture_numbers[0] - 1) % 4)))
             active_details -= 1
-            return _teacher_detail_payload(system_prompt)
+            payload = _teacher_detail_payload(system_prompt)
+            on_content_delta = _kwargs.get("on_content_delta")
+            if on_content_delta:
+                split_at = payload.index('"activities"')
+                await on_content_delta(payload[:split_at])
+                await asyncio.sleep(0)
+                await on_content_delta(payload[split_at:])
+            return payload
         raise AssertionError(system_prompt)
 
     monkeypatch.setattr(service, "_call_llm", fake_call)
@@ -217,29 +238,68 @@ async def test_sixteen_lecture_outline_uses_four_bounded_detail_batches(
     )
 
     detail_calls = [
-        item for item in calls if item.startswith("## 讲次详情批次 V1")
+        item for item in calls if item.startswith("## 单讲完整大纲 V2")
     ]
-    assert len(calls) == 5
-    assert len(detail_calls) == 4
-    assert [_detail_identity(item)[2] for item in detail_calls] == [
-        [1, 2, 3, 4],
-        [5, 6, 7, 8],
-        [9, 10, 11, 12],
-        [13, 14, 15, 16],
-    ]
-    assert peak_details == 2
+    assert len(calls) == 17
+    assert len(detail_calls) == 16
+    assert sorted(_detail_identity(item)[2][0] for item in detail_calls) == list(
+        range(1, 17)
+    )
+    assert peak_details == 4
 
     stage = result["generation_stage_artifacts"]["outline"]
-    assert stage["strategy"] == "teacher_framework_then_detail_batches"
-    assert stage["detail_batch_count"] == 4
-    assert stage["detail_completed_batch_count"] == 4
-    assert stage["observed_peak_detail_concurrency"] == 2
+    assert stage["strategy"] == "teacher_framework_then_lecture_tasks"
+    assert stage["detail_batch_count"] == 16
+    assert stage["detail_completed_batch_count"] == 16
+    assert stage["observed_peak_detail_concurrency"] == 4
+    assert set(stage["lesson_statuses"]) == {
+        f"L1-{number}" for number in range(1, 17)
+    }
+    assert all(
+        item["status"] == "completed"
+        and item["stage"] == "outline_detail_completed"
+        and item["progress"] == 100
+        and item["stream_preview"]
+        for item in stage["lesson_statuses"].values()
+    )
+    assert {
+        key: value["lesson_id"]
+        for key, value in stage["detail_batches"].items()
+    } == {
+        f"OUT-TD-{number:03d}": f"L1-{number}"
+        for number in range(1, 17)
+    }
     assert growth_states.index("framework_ready") < growth_states.index(
         "detailing"
+    )
+    visible_stream_events = [
+        item for item in detail_events if item.get("stream_preview")
+    ]
+    assert any(
+        "第 1 讲的具体教学内容" in str(item["stream_preview"])
+        for item in visible_stream_events
+    )
+    assert all(
+        {
+            "lesson_id",
+            "status",
+            "stage",
+            "message",
+            "progress",
+            "stream_preview",
+        }.issubset(item)
+        for item in visible_stream_events
+    )
+    assert any(
+        len(item.get("lesson_statuses") or {}) > 1
+        for item in visible_stream_events
     )
 
     outline = result["course_outline"]
     assert len(outline["chapters"]) == 16
+    assert [item["lecture_number"] for item in outline["chapters"]] == list(
+        range(1, 17)
+    )
     assert outline["chapters"][0]["title"] == "主题 1"
     assert outline["chapters"][0]["sections"][0]["content_summary"] == (
         "第 1 讲的具体教学内容。"
@@ -247,7 +307,7 @@ async def test_sixteen_lecture_outline_uses_four_bounded_detail_batches(
 
 
 @pytest.mark.asyncio
-async def test_teacher_outline_resume_retries_only_failed_detail_batch(
+async def test_teacher_outline_failure_keeps_successes_and_retries_only_failed_lecture(
     monkeypatch,
 ):
     first_service = CourseService(planning_concurrency=4)
@@ -256,29 +316,48 @@ async def test_teacher_outline_resume_retries_only_failed_detail_batch(
         teacher_detail_concurrency=2,
     )
 
+    first_calls: list[str] = []
+    checkpoints: list[dict[str, object]] = []
+
+    async def capture_checkpoint(checkpoint):
+        checkpoints.append(deepcopy(checkpoint))
+
     async def first_call(_prompt, system_prompt="", **_kwargs):
-        if system_prompt.startswith("## 全课讲次大纲"):
+        first_calls.append(system_prompt)
+        if system_prompt.startswith("## 轻量课程方案 V1"):
             return _teacher_framework_payload()
-        if system_prompt.startswith("## 讲次详情批次 V1"):
+        if system_prompt.startswith("## 单讲完整大纲 V2"):
             batch_id, _revision_id, _numbers = _detail_identity(system_prompt)
-            if batch_id == "OUT-TD-005-008":
+            if batch_id == "OUT-TD-005":
                 raise AIProviderRequestError("temporary provider failure")
             return _teacher_detail_payload(system_prompt)
         raise AssertionError(system_prompt)
 
     monkeypatch.setattr(first_service, "_call_llm", first_call)
-    first = await first_service.build_course_draft(
-        course_id="teacher-outline-detail-resume",
-        topic="人工智能导论",
-        requirements="形成十六讲正式课程大纲",
-        teacher_course_brief=_teacher_brief(),
-        stop_after_outline=True,
-    )
-    first_stage = first["generation_stage_artifacts"]["outline"]
-    assert first_stage["detail_batches"]["OUT-TD-005-008"]["status"] == (
+    with pytest.raises(AIProviderRequestError, match="1 个讲次生成失败"):
+        await first_service.build_course_draft(
+            course_id="teacher-outline-detail-resume",
+            topic="人工智能导论",
+            requirements="形成十六讲正式课程大纲",
+            teacher_course_brief=_teacher_brief(),
+            stop_after_outline=True,
+            on_checkpoint=capture_checkpoint,
+        )
+
+    assert len([
+        item for item in first_calls
+        if item.startswith("## 单讲完整大纲 V2")
+    ]) == 16
+    partial = checkpoints[-1]
+    first_stage = partial["generation_stage_artifacts"]["outline"]
+    assert first_stage["status"] == "detail_failed"
+    assert first_stage["detail_batches"]["OUT-TD-005"]["status"] == (
         "retry_required"
     )
-    assert first_stage["status"] == "completed_with_warnings"
+    assert sum(
+        item["status"] == "completed"
+        for item in first_stage["detail_batches"].values()
+    ) == 15
 
     resumed_calls: list[str] = []
     resumed_service = CourseService(planning_concurrency=4)
@@ -291,7 +370,7 @@ async def test_teacher_outline_resume_retries_only_failed_detail_batch(
 
     async def resumed_call(_prompt, system_prompt="", **_kwargs):
         resumed_calls.append(system_prompt)
-        assert system_prompt.startswith("## 讲次详情批次 V1")
+        assert system_prompt.startswith("## 单讲完整大纲 V2")
         return _teacher_detail_payload(system_prompt)
 
     monkeypatch.setattr(resumed_service, "_call_llm", resumed_call)
@@ -300,14 +379,14 @@ async def test_teacher_outline_resume_retries_only_failed_detail_batch(
         topic="人工智能导论",
         requirements="形成十六讲正式课程大纲",
         teacher_course_brief=_teacher_brief(),
-        existing_course_data=deepcopy(first),
+        existing_course_data=deepcopy(partial),
         stop_after_outline=True,
     )
 
     assert len(resumed_calls) == 1
-    assert _detail_identity(resumed_calls[0])[0] == "OUT-TD-005-008"
+    assert _detail_identity(resumed_calls[0])[0] == "OUT-TD-005"
     resumed_stage = resumed["generation_stage_artifacts"]["outline"]
-    assert resumed_stage["detail_batches"]["OUT-TD-005-008"]["status"] == (
+    assert resumed_stage["detail_batches"]["OUT-TD-005"]["status"] == (
         "completed"
     )
     assert resumed_stage["fallback_units"] == []

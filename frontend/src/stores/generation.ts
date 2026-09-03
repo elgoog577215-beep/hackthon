@@ -28,6 +28,7 @@ const SERVER_BACKED_TASK_STATUSES = new Set<Task['status']>([
   'pending',
   'running',
   'paused',
+  'waiting_for_input',
   'waiting_for_review',
   'conflict',
   'error',
@@ -50,6 +51,7 @@ const ACTIVE_BACKEND_TASK_STATUSES = new Set([
   'pending',
   'running',
   'paused',
+  'waiting_for_input',
   'waiting_for_review',
 ])
 const backendTaskTimestamp = (task: Record<string, any>) => (
@@ -201,8 +203,6 @@ export const useGenerationStore = defineStore('generation', {
     observedCourseId: '' as string,
     previewHydrationPending: new Set<string>(),
     lastGenerationPreviewRefreshAt: 0,
-    // --- Outline edit mode ---
-    isOutlineEditMode: false,
     // --- Failure report ---
     failureReport: null as FailureReport | null,
     // --- Streaming content accumulation ---
@@ -326,6 +326,7 @@ export const useGenerationStore = defineStore('generation', {
         else if (status === 'completed') localTask.status = 'completed'
         else if (status === 'error' || status === 'failed') localTask.status = 'error'
         else if (status === 'pending') localTask.status = 'pending'
+        else if (status === 'waiting_for_input') localTask.status = 'waiting_for_input'
         else if (status === 'waiting_for_review') localTask.status = 'waiting_for_review'
         else if (status === 'completed_with_warnings') localTask.status = 'completed_with_warnings'
         else if (status === 'conflict') localTask.status = 'conflict'
@@ -341,7 +342,9 @@ export const useGenerationStore = defineStore('generation', {
         if (phase) {
           localTask.currentPhase = phase
           localTask.phaseProgress = (payload.phase_progress as number) ?? localTask.progress
-          localTask.phaseDetail = (payload.phase_detail as Record<string, unknown>) || {}
+        }
+        if (payload.phase_detail && typeof payload.phase_detail === 'object') {
+          localTask.phaseDetail = payload.phase_detail as Record<string, unknown>
         }
         const backendMessage = payload.message as string | undefined
         const currentNodeName = payload.current_node_name as string | undefined
@@ -629,12 +632,6 @@ export const useGenerationStore = defineStore('generation', {
       }
     },
 
-    // ========== Outline Edit Actions (Req 6.2, 6.3) ==========
-
-    enterOutlineEditMode() {
-      this.isOutlineEditMode = true
-    },
-
     // ========== Existing Actions (preserved) ==========
 
     addLog(msg: string, courseId?: string) {
@@ -787,6 +784,50 @@ export const useGenerationStore = defineStore('generation', {
       const task = this.tasks.get(courseId)
       if (task?.status === 'paused') await this.resumeTask(courseId)
       else if (task?.status === 'pending' || task?.status === 'running') return
+    },
+
+    async continueOutlineDetails(courseId: string) {
+      const response = await http.post(
+        `/api/courses/${courseId}/generation/outline-details/continue`,
+        {},
+        identityRequestConfig('teacher', { silentError: true }),
+      )
+      const payload = response.data?.task || response.data || {}
+      const taskId = String(payload.id || payload.task_id || payload.job_id || this.tasks.get(courseId)?.id || '')
+      let task = this.tasks.get(courseId)
+      if (!task || (taskId && task.id !== taskId)) {
+        const course = this._courseStore().courseList.find((item: any) => item.course_id === courseId)
+        task = this.createTask(taskId, courseId, course?.course_name || '课程大纲')
+      }
+      if (taskId) task.id = taskId
+      const responseStatus = String(payload.status || '')
+      task.status = responseStatus === 'already_completed' || responseStatus === 'completed'
+        ? 'completed'
+        : responseStatus === 'already_running' || responseStatus === 'running'
+          ? 'running'
+          : 'pending'
+      task.progress = Number(payload.progress ?? task.progress ?? 0)
+      task.currentPhase = String(
+        payload.current_phase
+        || payload.phase
+        || (task.status === 'completed' ? 'completed' : 'outline_detail_generation'),
+      )
+      task.currentStep = String(
+        payload.message
+        || (task.status === 'completed'
+          ? t('courseWorkbench.outlineFlow.fullReady', '完整大纲已生成并保存')
+          : t('courseWorkbench.outlineFlow.continuing', '正在生成完整大纲…')),
+      )
+      task.phaseDetail = payload.phase_detail || task.phaseDetail || {}
+      task.shouldStop = false
+      this.syncCurrentCourseGenerationState(courseId, task.status, task.progress, task.currentStep)
+      this.persistGenerationState()
+      if (this.wsConnected) useTaskWebSocket().subscribe(courseId)
+      else this.startGlobalMonitor()
+      if (task.status === 'completed' && this._courseStore().currentCourseId === courseId) {
+        await this._courseStore().refreshGenerationPreview(courseId, 'teacher')
+      }
+      return response.data
     },
 
     async deleteTask(courseId: string, requestedTaskId?: string) {
@@ -958,7 +999,7 @@ export const useGenerationStore = defineStore('generation', {
         currentBackendTasksByCourse(this.globalTasks).forEach((backendTask: any) => {
           const courseId = backendTask.course_id
           let localTask = this.tasks.get(courseId)
-          if (!localTask && ['pending', 'running', 'paused', 'error', 'failed', 'waiting_for_review', 'completed_with_warnings', 'conflict'].includes(backendTask.status)) {
+          if (!localTask && ['pending', 'running', 'paused', 'error', 'failed', 'waiting_for_input', 'waiting_for_review', 'completed_with_warnings', 'conflict'].includes(backendTask.status)) {
             localTask = this.createTask(
               backendTask.id,
               courseId,
@@ -974,6 +1015,7 @@ export const useGenerationStore = defineStore('generation', {
             else if (backendTask.status === 'completed') localTask.status = 'completed'
             else if (backendTask.status === 'error' || backendTask.status === 'failed') localTask.status = 'error'
             else if (backendTask.status === 'pending') localTask.status = 'pending'
+            else if (backendTask.status === 'waiting_for_input') localTask.status = 'waiting_for_input'
             else if (backendTask.status === 'waiting_for_review') localTask.status = 'waiting_for_review'
             else if (backendTask.status === 'completed_with_warnings') localTask.status = 'completed_with_warnings'
             else if (backendTask.status === 'conflict') localTask.status = 'conflict'
@@ -1003,7 +1045,9 @@ export const useGenerationStore = defineStore('generation', {
             if (phase) {
               localTask.currentPhase = String(phase)
               localTask.phaseProgress = backendTask.phase_progress ?? backendTask.progress
-              localTask.phaseDetail = backendTask.phase_detail || {}
+            }
+            if (backendTask.phase_detail && typeof backendTask.phase_detail === 'object') {
+              localTask.phaseDetail = backendTask.phase_detail
             }
             if (backendTask.message) localTask.currentStep = backendTask.message
             if (backendTask.current_node_name) {
@@ -1153,11 +1197,6 @@ export const useGenerationStore = defineStore('generation', {
       options: CourseGenerationOptions = {},
       identityScope: RequestIdentityScope = 'learner',
     ) {
-      // Block generation in outline edit mode (Req 6.2)
-      if (this.isOutlineEditMode) {
-        ElMessage.warning('请先确认大纲后再启动生成任务')
-        return null
-      }
       const cs = this._courseStore()
       cs.loading = true
       this.isGenerating = true

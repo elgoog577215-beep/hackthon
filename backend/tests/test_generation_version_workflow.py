@@ -3,7 +3,9 @@ import json
 from copy import deepcopy
 
 import pytest
+from fastapi import HTTPException
 
+from course_generation.outline import normalize_outline_skeleton
 from course_repository import CourseDocumentRepository
 from course_versioning import build_blueprint_draft
 from course_versions import CourseVersionRepository
@@ -184,50 +186,162 @@ class BlueprintService:
 class SkeletonGateService(BlueprintService):
     stop_after_skeleton = None
     stop_after_outline = None
+    detail_input = None
 
     async def build_course_draft(self, **kwargs):
         self.stop_after_skeleton = kwargs.get("stop_after_skeleton")
         self.stop_after_outline = kwargs.get("stop_after_outline")
         if kwargs.get("stop_after_skeleton"):
             course = deepcopy(kwargs["existing_course_data"])
+            request_fingerprint = "outline-request-1"
+            lectures = [
+                {
+                    "lecture_number": number,
+                    "title": title,
+                    "learning_objective": objective,
+                    "scope_boundary": boundary,
+                    "hour_breakdown": {
+                        "classroom_lecture": 8,
+                        "classroom_practice": 0,
+                        "online_instruction": 0,
+                    },
+                }
+                for number, title, objective, boundary in (
+                    (1, "基础概念", "能够解释核心概念", "只处理基础概念"),
+                    (2, "综合应用", "能够完成综合应用", "使用已学概念解决问题"),
+                )
+            ]
+            skeleton = normalize_outline_skeleton(
+                {
+                    "authoring_structure_version": "lecture_v1",
+                    "course_title": "教师课程方案",
+                    "learning_objectives": ["形成课程结构"],
+                    "course_modules": [
+                        {
+                            "module_id": "M1",
+                            "title": "课程主线",
+                            "lecture_numbers": [1, 2],
+                        }
+                    ],
+                    "total_hours": 16,
+                    "lectures": lectures,
+                },
+                topic="教师课程方案",
+                request_fingerprint=request_fingerprint,
+            )
+            chapters = []
+            nodes = []
+            for lecture in skeleton["chapters"]:
+                number = int(lecture["lecture_number"])
+                l1_id = f"L1-{number}"
+                l2_id = f"L2-{number}-1"
+                section = {
+                    "node_id": l2_id,
+                    "section_number": f"{number}.1",
+                    "title": lecture["title"],
+                    "learning_objective": lecture["learning_objective"],
+                    "scope_boundary": lecture["scope_boundary"],
+                    "hour_breakdown": deepcopy(lecture["hour_breakdown"]),
+                    "planned_hours": lecture["planned_hours"],
+                    "content_summary": "",
+                    "key_points": [],
+                    "key_difficulties": [],
+                    "activities": [],
+                    "homework": [],
+                    "application_anchors": [],
+                    "extension_resources": [],
+                    "learning_tasks": [],
+                    "education_objective_refs": [],
+                    "ideology_implementation": "",
+                    "external_mentor": {},
+                    "assessment": [],
+                }
+                chapters.append({
+                    **deepcopy(lecture),
+                    "sections": [deepcopy(section)],
+                })
+                nodes.extend([
+                    {
+                        "node_id": l1_id,
+                        "parent_node_id": "root",
+                        "node_level": 1,
+                        "node_name": lecture["title"],
+                        "learning_objective": lecture["learning_objective"],
+                        "generation_status": "pending",
+                    },
+                    {
+                        **deepcopy(section),
+                        "parent_node_id": l1_id,
+                        "node_level": 2,
+                        "node_name": lecture["title"],
+                        "generation_status": "pending",
+                    },
+                ])
+            plan = {
+                "authoring_structure_version": "lecture_v1",
+                "course_title": skeleton["course_title"],
+                "learning_objectives": deepcopy(skeleton["learning_objectives"]),
+                "course_modules": deepcopy(skeleton["course_modules"]),
+                "total_hours": 16,
+                "chapters": chapters,
+            }
             course.update({
-                "generation_status": "outline_shape_ready",
+                "course_name": skeleton["course_title"],
+                "authoring_structure_version": "lecture_v1",
+                "generation_status": "outline_framework_ready",
+                "outline_framework_only": True,
+                "outline_generation_status": "framework_ready",
+                "outline_lifecycle_status": "draft",
+                "course_plan": deepcopy(plan),
+                "course_outline": deepcopy(plan),
+                "course_blueprint": {"nodes": deepcopy(nodes)},
+                "nodes": nodes,
+                "course_outline_quality_report": None,
+                "generation_quality_report": None,
                 "generation_stage_artifacts": {
                     "outline": {
-                        "status": "waiting_for_shape_review",
-                        "request_fingerprint": "outline-request-1",
-                        "skeleton": {
-                            "schema_version": "course_outline_skeleton_v2",
-                            "request_fingerprint": "outline-request-1",
-                            "revision_id": "outline-skeleton-1",
-                            "course_title": "教师章节骨架",
-                            "positioning": "先确认章节规模",
-                            "learning_objectives": ["形成课程结构"],
-                            "prerequisites": [],
-                            "chapters": [
-                                {
-                                    "chapter_number": 1,
-                                    "title": "基础概念",
-                                    "learning_focus": "建立基础",
-                                    "section_count": 2,
-                                },
-                                {
-                                    "chapter_number": 2,
-                                    "title": "综合应用",
-                                    "learning_focus": "完成应用",
-                                    "section_count": 3,
-                                },
-                            ],
-                        },
+                        "status": "waiting_for_input",
+                        "strategy": "teacher_framework_then_lecture_tasks",
+                        "request_fingerprint": request_fingerprint,
+                        "skeleton_revision_id": skeleton["revision_id"],
+                        "skeleton": skeleton,
+                        "detail_batches": {},
                     },
                 },
                 "course_generation_brief": {
-                    "course_shape_constraints": {},
+                    "course_shape_constraints": {
+                        "teacher_lecture_mode": True,
+                        "chapter_count": 2,
+                        "section_count": 2,
+                        "lecture_count": 2,
+                    },
                     "course_type_contract": {},
                 },
             })
             return course
-        return await super().build_course_draft(**kwargs)
+        course = deepcopy(kwargs["existing_course_data"])
+        self.detail_input = deepcopy(course)
+        outline_stage = course["generation_stage_artifacts"]["outline"]
+        outline_stage.update({
+            "status": "completed",
+            "strategy": "teacher_framework_then_lecture_tasks",
+            "detail_batches": {
+                f"OUT-TD-{number:03d}": {
+                    "status": "completed",
+                    "lesson_id": f"L1-{number}",
+                    "lecture_numbers": [number],
+                }
+                for number in (1, 2)
+            },
+        })
+        course.update({
+            "generation_status": "outline_completed",
+            "outline_framework_only": False,
+            "outline_generation_status": "completed",
+            "outline_lifecycle_status": "current",
+            "course_outline_quality_report": {"passed": True, "blockers": []},
+        })
+        return course
 
 
 class InvalidTeacherOutlineService:
@@ -547,7 +661,7 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_teacher_outline_skips_shape_confirmation_and_completes_directly(
+async def test_teacher_outline_waits_through_restart_and_explicit_continue_reuses_job(
     tmp_path,
     monkeypatch,
 ):
@@ -560,12 +674,14 @@ async def test_teacher_outline_skips_shape_confirmation_and_completes_directly(
     )
     storage = MemoryStorage()
     service = SkeletonGateService()
+    versions = CourseVersionRepository(tmp_path / "teacher-shape-versions")
+    workspaces = GenerationWorkspaceRepository(tmp_path / "teacher-shape-workspaces")
     manager = TaskManager(
         storage,
         service,
         None,
-        version_repository=CourseVersionRepository(tmp_path / "teacher-shape-versions"),
-        workspace_repository=GenerationWorkspaceRepository(tmp_path / "teacher-shape-workspaces"),
+        version_repository=versions,
+        workspace_repository=workspaces,
         document_repository=CourseDocumentRepository(storage),
     )
     job = await manager.create_generation_job({
@@ -579,25 +695,93 @@ async def test_teacher_outline_skips_shape_confirmation_and_completes_directly(
     assert await manager._task_queue.get() == job["job_id"]
     await manager._process_task(job["job_id"])
     task = manager.tasks[job["job_id"]]
-    assert task["status"] == "completed"
-    assert task["phase"] == "teacher_outline_ready"
+    assert task["status"] == "waiting_for_input"
+    assert task["phase"] == "outline_framework_ready"
     assert task["guided_workflow"]["review_step"] is None
-    assert service.stop_after_skeleton is False
+    assert service.stop_after_skeleton is True
     assert service.stop_after_outline is True
     checkpoint = manager.get_generation_workspace_course(job["course_id"])
-    assert checkpoint["generation_status"] == "teacher_outline_ready"
+    assert checkpoint["generation_status"] == "outline_framework_ready"
+    assert checkpoint["outline_framework_only"] is True
+    assert checkpoint["outline_generation_status"] == "framework_ready"
+    assert checkpoint["outline_lifecycle_status"] == "draft"
+    assert checkpoint["course_outline_quality_report"] is None
+    assert checkpoint["generation_quality_report"] is None
+    assert checkpoint["course_plan"]["total_hours"] == 16
+    assert len(checkpoint["course_plan"]["chapters"]) == 2
     assert all(not node.get("node_content") for node in checkpoint["nodes"])
+    assert "course_teaching_plan" not in checkpoint
+
+    # A service restart must preserve the visible framework instead of
+    # interpreting it as unfinished background work and silently continuing.
+    restored_service = SkeletonGateService()
+    restored = TaskManager(
+        storage,
+        restored_service,
+        None,
+        version_repository=CourseVersionRepository(
+            tmp_path / "teacher-shape-versions"
+        ),
+        workspace_repository=GenerationWorkspaceRepository(
+            tmp_path / "teacher-shape-workspaces"
+        ),
+        document_repository=CourseDocumentRepository(storage),
+    )
+    should_enqueue = await restored._reconcile_task_after_restart(job["job_id"])
+    assert should_enqueue is False
+    assert restored.tasks[job["job_id"]]["status"] == "waiting_for_input"
+    assert restored.tasks[job["job_id"]]["phase"] == "outline_framework_ready"
+    assert restored._task_queue.empty()
+
+    # The explicit command reads the current editor draft, not the stale model
+    # framework that existed before the teacher made changes.
+    edited = restored._version_repository.load_draft(job["course_id"])
+    edited["nodes"][0]["node_name"] = "教师修改后的第一讲"
+    restored._version_repository.save_draft(job["course_id"], edited)
+    started = await restored.continue_teacher_outline_details(job["course_id"])
+    assert started["status"] == "started"
+    assert started["job_id"] == job["job_id"]
+    assert restored.tasks[job["job_id"]]["status"] == "pending"
+    assert restored.tasks[job["job_id"]]["outline_detail_requested"] is True
+    compiled = restored.get_generation_workspace_course(job["course_id"])
+    assert compiled["generation_status"] == "outline_detail_generation"
+    assert compiled["generation_stage_artifacts"]["outline"]["skeleton"][
+        "chapters"
+    ][0]["title"] == "教师修改后的第一讲"
+
+    duplicate = await restored.continue_teacher_outline_details(job["course_id"])
+    assert duplicate["status"] == "already_running"
+    assert restored._task_queue.qsize() == 1
+    assert await restored._task_queue.get() == job["job_id"]
+    await restored._process_task(job["job_id"])
+
+    completed = restored.tasks[job["job_id"]]
+    assert completed["status"] == "completed"
+    assert completed["phase"] == "teacher_outline_ready"
+    assert restored_service.stop_after_skeleton is False
+    assert restored_service.stop_after_outline is True
+    assert restored_service.detail_input["generation_stage_artifacts"]["outline"][
+        "skeleton"
+    ]["chapters"][0]["title"] == "教师修改后的第一讲"
+    completed_course = restored.get_generation_workspace_course(job["course_id"])
+    assert completed_course["generation_status"] == "teacher_outline_ready"
+    assert completed_course["outline_framework_only"] is False
+    assert completed_course["outline_lifecycle_status"] == "current"
+    assert "course_teaching_plan" not in completed_course
 
 
 @pytest.mark.asyncio
-async def test_teacher_outline_task_completes_after_generation_without_confirmation(tmp_path, monkeypatch):
+async def test_teacher_outline_framework_is_editable_and_has_no_review_report(
+    tmp_path,
+    monkeypatch,
+):
     import jobs.manager as task_manager_module
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "teacher-tasks.json")
     storage = MemoryStorage()
     workspaces = GenerationWorkspaceRepository(tmp_path / "teacher-workspaces")
     manager = TaskManager(
         storage,
-        BlueprintService(),
+        SkeletonGateService(),
         None,
         version_repository=CourseVersionRepository(tmp_path / "teacher-versions"),
         workspace_repository=workspaces,
@@ -624,13 +808,20 @@ async def test_teacher_outline_task_completes_after_generation_without_confirmat
 
     assert await manager._task_queue.get() == job["job_id"]
     await asyncio.wait_for(manager._process_task(job["job_id"]), timeout=20)
-    completed = manager.tasks[job["job_id"]]
-    assert completed["status"] == "completed"
-    assert completed["phase"] == "teacher_outline_ready"
-    assert completed["guided_workflow"]["review_step"] is None
-    assert "已生成" in completed["message"]
+    waiting = manager.tasks[job["job_id"]]
+    assert waiting["status"] == "waiting_for_input"
+    assert waiting["phase"] == "outline_framework_ready"
+    assert waiting["guided_workflow"]["review_step"] is None
+    assert "轻量课程方案已生成" in waiting["message"]
     teacher_course = manager.get_generation_workspace_course(job["course_id"])
-    assert teacher_course["generation_status"] == "teacher_outline_ready"
+    assert teacher_course["generation_status"] == "outline_framework_ready"
+    assert teacher_course["outline_framework_only"] is True
+    assert teacher_course["course_outline_quality_report"] is None
+    assert teacher_course["generation_quality_report"] is None
+    assert teacher_course["course_plan"]
+    assert teacher_course["course_outline"]
+    assert teacher_course["course_blueprint"]
+    assert teacher_course["nodes"]
     assert "course_teaching_plan" not in teacher_course
     assert all(not node.get("node_content") for node in teacher_course["nodes"])
     scoped_teacher_course = manager.get_generation_workspace_course_for_task(

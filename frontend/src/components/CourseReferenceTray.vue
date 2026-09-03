@@ -23,6 +23,83 @@
       <ChevronRight :size="15" />
     </button>
 
+    <section
+      v-if="variant === 'default' && lessonTargets.length && selected.length"
+      class="reference-scope"
+      :class="{ 'is-locked': workflowLocked }"
+      data-testid="reference-scope"
+    >
+      <header>
+        <div>
+          <strong>{{ t('courseWorkbench.references.scopeTitle', '资料使用范围') }}</strong>
+        </div>
+        <span v-if="workflowLocked"><LockKeyhole :size="13" />{{ t('courseWorkbench.references.scopeLocked', '本轮已锁定') }}</span>
+      </header>
+      <ul class="reference-scope__list">
+        <li v-for="item in selected" :key="item.asset_id" :data-asset-id="item.asset_id">
+          <div class="reference-scope__file">
+            <strong :title="item.source_label || item.filename">{{ item.source_label || item.filename }}</strong>
+            <small>{{ appliedScopeSummary(item) }}</small>
+          </div>
+          <template v-if="!workflowLocked">
+            <label>
+              <span class="visually-hidden">{{ item.source_label || item.filename }}·{{ t('courseWorkbench.references.scopeTitle', '资料使用范围') }}</span>
+              <select
+                :value="scopeDraftFor(item).mode"
+                :disabled="loading || saving || scopeApplyingAssetId === item.asset_id"
+                @change="updateScopeMode(item.asset_id, $event)"
+              >
+                <option value="current">{{ t('courseWorkbench.references.scopeCurrent', '仅当前讲') }}</option>
+                <option value="all">{{ t('courseWorkbench.references.scopeAll', '全部讲次') }}</option>
+                <option value="range">{{ t('courseWorkbench.references.scopeRange', '连续范围') }}</option>
+                <option value="custom">{{ t('courseWorkbench.references.scopeCustom', '指定多讲') }}</option>
+              </select>
+            </label>
+            <div v-if="scopeDraftFor(item).mode === 'range'" class="reference-scope__range">
+              <select
+                :value="scopeDraftFor(item).rangeStartTargetId"
+                :aria-label="`${item.source_label || item.filename}·${t('courseWorkbench.references.scopeRangeStart', '起始讲次')}`"
+                @change="updateRangeTarget(item.asset_id, 'start', $event)"
+              >
+                <option v-for="target in lessonTargets" :key="target.id" :value="target.id">{{ target.label }}</option>
+              </select>
+              <span>—</span>
+              <select
+                :value="scopeDraftFor(item).rangeEndTargetId"
+                :aria-label="`${item.source_label || item.filename}·${t('courseWorkbench.references.scopeRangeEnd', '结束讲次')}`"
+                @change="updateRangeTarget(item.asset_id, 'end', $event)"
+              >
+                <option v-for="target in lessonTargets" :key="target.id" :value="target.id">{{ target.label }}</option>
+              </select>
+            </div>
+            <div v-else-if="scopeDraftFor(item).mode === 'custom'" class="reference-scope__custom">
+              <label v-for="target in lessonTargets" :key="target.id">
+                <input
+                  type="checkbox"
+                  :value="target.id"
+                  :checked="scopeDraftFor(item).customTargetIds.includes(target.id)"
+                  @change="toggleCustomTarget(item.asset_id, target.id, $event)"
+                />
+                <span>{{ target.label }}</span>
+              </label>
+            </div>
+            <button
+              type="button"
+              class="reference-scope__apply"
+              :disabled="!scopeSelectionTargets(item).length || loading || saving || Boolean(scopeApplyingAssetId)"
+              @click="applyReferenceScope(item)"
+            >
+              <LoaderCircle v-if="scopeApplyingAssetId === item.asset_id" :size="14" class="workflow-spinner" />
+              <Check v-else :size="14" />
+              {{ scopeApplyingAssetId === item.asset_id
+                ? t('courseWorkbench.references.scopeApplying', '正在应用…')
+                : t('courseWorkbench.references.scopeApply', '应用到所选讲次') }}
+            </button>
+          </template>
+        </li>
+      </ul>
+    </section>
+
     <Transition name="tray-mode" mode="out-in">
       <section v-if="variant === 'default' && workflowLocked" key="workflow" class="workflow-state" :class="`workflow-state--${effectiveWorkflowState}`" aria-live="polite">
         <header>
@@ -38,7 +115,7 @@
         <ul v-if="selected.length" class="workflow-source-list">
           <li v-for="item in selected" :key="item.asset_id">
             <span class="workflow-source-pulse"><Globe2 v-if="item.origin === 'web_search'" :size="15" /><FileText v-else :size="15" /></span>
-            <div><strong>{{ item.source_label || item.filename }}</strong><small>{{ sourceRoleLabel(item) }}</small></div>
+            <div><strong>{{ item.source_label || item.filename }}</strong><small>{{ sourceRoleLabel(item) }}<template v-if="sourceProcessingLabel(item)"> · {{ sourceProcessingLabel(item) }}</template></small></div>
             <em>{{ effectiveWorkflowState === 'paused' ? t('courseWorkbench.references.pausedSource', '已保留') : t('courseWorkbench.references.usingSource', '使用中') }}</em>
           </li>
         </ul>
@@ -70,7 +147,7 @@
           <ul v-if="selected.length" class="confirmed-source-list">
             <li v-for="item in selected" :key="item.asset_id">
               <span><Globe2 v-if="item.origin === 'web_search'" :size="16" /><FileText v-else :size="16" /></span>
-              <div><strong>{{ item.source_label || item.filename }}</strong><small>{{ sourceRoleLabel(item) }}</small></div>
+              <div><strong>{{ item.source_label || item.filename }}</strong><small>{{ sourceRoleLabel(item) }}<template v-if="sourceProcessingLabel(item)"> · {{ sourceProcessingLabel(item) }}</template></small></div>
               <Check :size="15" />
             </li>
           </ul>
@@ -124,7 +201,7 @@
             <div class="drop-zone" :class="{ 'has-file': primarySource, dragging: dragRole === 'primary' }" @dragover.prevent="dragRole = 'primary'" @dragleave="dragRole = ''" @drop.prevent="handleDrop($event, 'primary')">
               <template v-if="primarySource">
                 <FileText :size="19" />
-                <div><strong>{{ primarySource.filename }}</strong><small>{{ fileSize(primarySource.size_bytes) }}</small></div>
+                <div><strong>{{ primarySource.filename }}</strong><small>{{ fileSize(primarySource.size_bytes) }}<template v-if="sourceProcessingLabel(primarySource)"> · {{ sourceProcessingLabel(primarySource) }}</template></small></div>
                 <button type="button" :disabled="loading || saving" :aria-label="t('common.remove', '移除')" @click="removeSource(primarySource.asset_id)"><X :size="15" /></button>
               </template>
               <button v-else type="button" class="empty-drop" :disabled="loading || saving" @click="primaryInput?.click()"><Plus :size="18" /><span>{{ t('courseWorkbench.references.addPrimary', '上传资料文件') }}</span></button>
@@ -136,7 +213,7 @@
             <div class="group-heading"><strong>{{ t('courseWorkbench.references.supporting', '参考文件') }}</strong><small>{{ referenceSources.length }}</small></div>
             <div class="reference-list">
               <div v-for="item in referenceSources" :key="item.asset_id" class="reference-item">
-                <FileText :size="17" /><div><strong>{{ item.filename }}</strong><small>{{ fileSize(item.size_bytes) }}</small></div><button type="button" :disabled="loading || saving" :aria-label="t('common.remove', '移除')" @click="removeSource(item.asset_id)"><X :size="14" /></button>
+                <FileText :size="17" /><div><strong>{{ item.filename }}</strong><small>{{ fileSize(item.size_bytes) }}<template v-if="sourceProcessingLabel(item)"> · {{ sourceProcessingLabel(item) }}</template></small></div><button type="button" :disabled="loading || saving" :aria-label="t('common.remove', '移除')" @click="removeSource(item.asset_id)"><X :size="14" /></button>
               </div>
               <button type="button" class="reference-add" :disabled="loading || saving" :class="{ dragging: dragRole === 'reference' }" @click="referenceInput?.click()" @dragover.prevent="dragRole = 'reference'" @dragleave="dragRole = ''" @drop.prevent="handleDrop($event, 'reference')"><Plus :size="16" />{{ t('courseWorkbench.references.addSupporting', '上传参考文件') }}</button>
             </div>
@@ -194,7 +271,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { Check, CheckCircle2, ChevronRight, ChevronUp, CopyPlus, Database, ExternalLink, FileText, Globe2, LoaderCircle, Pause, Play, Plus, RotateCcw, Search, SlidersHorizontal, Sparkles, TriangleAlert, Upload, X } from 'lucide-vue-next'
+import { Check, CheckCircle2, ChevronRight, ChevronUp, CopyPlus, Database, ExternalLink, FileText, Globe2, LoaderCircle, LockKeyhole, Pause, Play, Plus, RotateCcw, Search, SlidersHorizontal, Sparkles, TriangleAlert, Upload, X } from 'lucide-vue-next'
 import WebResearchDialog from './WebResearchDialog.vue'
 import { t } from '../shared/i18n'
 import http, { teacherReadRequestConfig, teacherRequestConfig } from '../utils/http'
@@ -215,12 +292,31 @@ export type CourseReferenceItem = {
   source_metadata?: Record<string, any>
   category?: string
   document_type?: 'outline' | 'lesson_plan' | 'script' | 'ppt' | 'question_bank' | 'school_material' | 'other'
+  processing_status?: 'pending' | 'processing' | 'ready' | 'failed' | string
+  parse_status?: 'pending' | 'processing' | 'ready' | 'failed' | string
   usages?: Array<{
     target_id?: string
     target_type?: string
     target_label?: string
     role?: 'primary' | 'reference' | 'question_source'
   }>
+}
+
+export type CourseReferenceLessonTarget = {
+  id: string
+  lessonId: string
+  label: string
+  position: number
+}
+
+type ReferenceScopeMode = 'current' | 'all' | 'range' | 'custom'
+
+type ReferenceScopeDraft = {
+  mode: ReferenceScopeMode
+  rangeStartTargetId: string
+  rangeEndTargetId: string
+  customTargetIds: string[]
+  appliedTargetIds: string[]
 }
 
 export type CourseReferenceWorkflowState = 'auto' | 'collecting' | 'ready' | 'generating' | 'paused' | 'review' | 'confirmed' | 'failed'
@@ -236,6 +332,7 @@ const props = withDefaults(defineProps<{
   scopeTargetPosition?: number
   refreshToken?: number
   previousScopeTargetId?: string
+  lessonTargets?: CourseReferenceLessonTarget[]
   showClose?: boolean
   compact?: boolean
   variant?: 'default' | 'question-bank'
@@ -256,6 +353,7 @@ const props = withDefaults(defineProps<{
   scopeTargetPosition: 0,
   refreshToken: 0,
   previousScopeTargetId: '',
+  lessonTargets: () => [],
   showClose: false,
   compact: false,
   variant: 'default',
@@ -292,6 +390,8 @@ const questionSourceInput = ref<HTMLInputElement | null>(null)
 const primaryInput = ref<HTMLInputElement | null>(null)
 const referenceInput = ref<HTMLInputElement | null>(null)
 const smartInput = ref<HTMLInputElement | null>(null)
+const scopeDrafts = ref<Record<string, ReferenceScopeDraft>>({})
+const scopeApplyingAssetId = ref('')
 const primarySource = computed(() => selected.value.find(item => item.role === 'primary'))
 const referenceSources = computed(() => selected.value.filter(item => item.role === 'reference' && item.origin !== 'web_search'))
 const questionSources = computed(() => selected.value.filter(item => item.role === 'question_source'))
@@ -300,6 +400,79 @@ const availableMaterials = computed(() => {
   const chosen = new Set(selected.value.map(item => item.asset_id))
   return materials.value.filter(item => !chosen.has(item.asset_id))
 })
+function orderedLessonTargets() {
+  return [...props.lessonTargets].sort((left, right) => left.position - right.position)
+}
+function itemAppliedTargetIds(item: CourseReferenceItem) {
+  const allowed = new Set(props.lessonTargets.map(target => target.id))
+  const stored = (item.usages || [])
+    .filter(usage => (!props.scopeTargetType || usage.target_type === props.scopeTargetType) && allowed.has(String(usage.target_id || '')))
+    .map(usage => String(usage.target_id))
+  if (stored.length) return [...new Set(stored)]
+  return props.scopeTargetId ? [props.scopeTargetId] : []
+}
+function createScopeDraft(item: CourseReferenceItem): ReferenceScopeDraft {
+  const targets = orderedLessonTargets()
+  const appliedTargetIds = itemAppliedTargetIds(item)
+  const selectedTargets = targets.filter(target => appliedTargetIds.includes(target.id))
+  const isAll = targets.length > 0 && selectedTargets.length === targets.length
+  const isContinuous = selectedTargets.length > 1 && selectedTargets.every((target, index) => (
+    index === 0 || target.position === selectedTargets[index - 1]!.position + 1
+  ))
+  const mode: ReferenceScopeMode = isAll
+    ? 'all'
+    : selectedTargets.length === 1 && selectedTargets[0]!.id === props.scopeTargetId
+      ? 'current'
+      : isContinuous
+        ? 'range'
+        : 'custom'
+  return {
+    mode,
+    rangeStartTargetId: selectedTargets[0]?.id || props.scopeTargetId || targets[0]?.id || '',
+    rangeEndTargetId: selectedTargets.at(-1)?.id || props.scopeTargetId || targets.at(-1)?.id || '',
+    customTargetIds: [...appliedTargetIds],
+    appliedTargetIds: [...appliedTargetIds],
+  }
+}
+function scopeDraftFor(item: CourseReferenceItem) {
+  return scopeDrafts.value[item.asset_id] || createScopeDraft(item)
+}
+function ensureScopeDrafts() {
+  const next = { ...scopeDrafts.value }
+  for (const item of selected.value) {
+    if (!next[item.asset_id]) next[item.asset_id] = createScopeDraft(item)
+  }
+  scopeDrafts.value = next
+}
+function scopeSelectionTargets(item: CourseReferenceItem) {
+  const draft = scopeDraftFor(item)
+  const targets = [...props.lessonTargets].sort((left, right) => left.position - right.position)
+  if (!targets.length) return []
+  if (draft.mode === 'all') return targets
+  if (draft.mode === 'range') {
+    const start = targets.findIndex(target => target.id === draft.rangeStartTargetId)
+    const end = targets.findIndex(target => target.id === draft.rangeEndTargetId)
+    if (start < 0 || end < 0) return []
+    return targets.slice(Math.min(start, end), Math.max(start, end) + 1)
+  }
+  if (draft.mode === 'custom') {
+    const chosen = new Set(draft.customTargetIds)
+    return targets.filter(target => chosen.has(target.id))
+  }
+  return targets.filter(target => target.id === props.scopeTargetId)
+}
+function appliedScopeSummary(item: CourseReferenceItem) {
+  const appliedTargetIds = scopeDraftFor(item).appliedTargetIds
+  const targets = props.lessonTargets.filter(target => appliedTargetIds.includes(target.id))
+    .sort((left, right) => left.position - right.position)
+  if (!targets.length) return props.scopeTargetLabel || t('courseWorkbench.references.scopeCurrent', '仅当前讲')
+  if (targets.length === props.lessonTargets.length) return t('courseWorkbench.references.scopeAllCount', '全部 {count} 讲').replace('{count}', String(targets.length))
+  if (targets.length === 1) return targets[0]!.label
+  const continuous = targets.every((target, index) => index === 0 || target.position === targets[index - 1]!.position + 1)
+  return continuous
+    ? t('courseWorkbench.references.scopeRangeSummary', '{start} 至 {end}').replace('{start}', targets[0]!.label).replace('{end}', targets.at(-1)!.label)
+    : t('courseWorkbench.references.scopeCustomSummary', '指定 {count} 讲').replace('{count}', String(targets.length))
+}
 const trayTitle = computed(() => {
   if (props.variant === 'question-bank') {
     return t('courseWorkbench.references.questionSources', '真题资料')
@@ -364,9 +537,17 @@ const previousAvailableSources = computed(() => {
   })
 })
 
-watch(() => props.modelValue, value => { selected.value = value.map(item => ({ ...item })) }, { immediate: true, deep: true })
+watch(() => props.modelValue, value => {
+  selected.value = value.map(item => ({ ...item }))
+  ensureScopeDrafts()
+}, { immediate: true, deep: true })
+watch([() => props.scopeTargetId, () => props.lessonTargets], () => {
+  scopeDrafts.value = {}
+  ensureScopeDrafts()
+}, { immediate: true, deep: true })
 function applySelection(value: CourseReferenceItem[], persist: boolean) {
   selected.value = value
+  ensureScopeDrafts()
   emit('update:modelValue', value)
   if (persist && props.scopeTargetId && props.scopeTargetType) void persistScopedSelection(value)
 }
@@ -378,6 +559,23 @@ function sourceRoleLabel(item: CourseReferenceItem) {
     ? t('courseWorkbench.references.primaryMaterial', '原始材料')
     : t('courseWorkbench.references.referenceMaterial', '参考材料')
 }
+function sourceProcessingLabel(item: CourseReferenceItem) {
+  const status = String(
+    item.processing_status
+    || item.parse_status
+    || item.source_metadata?.processing_status
+    || item.source_metadata?.parse_status
+    || '',
+  ).toLowerCase()
+  return {
+    pending: t('courseWorkbench.references.parsePending', '等待解析'),
+    processing: t('courseWorkbench.references.parsing', '解析中'),
+    ready: t('courseWorkbench.references.parseReady', '已解析'),
+    completed: t('courseWorkbench.references.parseReady', '已解析'),
+    failed: t('courseWorkbench.references.parseFailed', '解析失败'),
+    error: t('courseWorkbench.references.parseFailed', '解析失败'),
+  }[status] || ''
+}
 
 async function resolvePackageId(value: CourseReferenceItem[]) {
   const direct = value[0]?.package_id || materials.value[0]?.package_id
@@ -386,22 +584,52 @@ async function resolvePackageId(value: CourseReferenceItem[]) {
   return String(response.data?.[0]?.package_id || '')
 }
 
+type PersistedSource = {
+  source_asset_id: string
+  role: 'primary' | 'reference' | 'question_source'
+}
+
+function replaceLocalTargetSources(target: { id: string; label: string }, sources: PersistedSource[]) {
+  const roles = new Map(sources.map(source => [source.source_asset_id, source.role]))
+  const update = (item: CourseReferenceItem): CourseReferenceItem => {
+    const usages = (item.usages || []).filter(usage => !(
+      usage.target_id === target.id
+      && (!props.scopeTargetType || usage.target_type === props.scopeTargetType)
+    ))
+    const role = roles.get(item.asset_id)
+    if (role) usages.push({
+      target_id: target.id,
+      target_type: props.scopeTargetType,
+      target_label: target.label,
+      role,
+    })
+    return { ...item, usages }
+  }
+  materials.value = materials.value.map(update)
+  selected.value = selected.value.map(update)
+}
+
 async function persistScopedSelection(value: CourseReferenceItem[], bindingMode: 'auto' | 'manual' = 'manual') {
+  const fallbackTarget = props.scopeTargetId
+    ? [{ id: props.scopeTargetId, label: props.scopeTargetLabel || props.scopeTargetId }]
+    : []
   const targetId = props.scopeTargetId
   const targetType = props.scopeTargetType
-  if (!targetId || !targetType) return
+  if (!fallbackTarget.length || !targetType) return
   saving.value = true
   error.value = ''
   try {
     const packageId = await resolvePackageId(value)
     if (!packageId) return
+    const sources = value.map(item => ({ source_asset_id: item.asset_id, role: item.role }))
     await http.put(`/api/teacher-course-spaces/${packageId}/relationships`, {
       target_id: targetId,
       target_type: targetType,
       target_label: props.scopeTargetLabel || targetId,
       binding_mode: bindingMode,
-      sources: value.map(item => ({ source_asset_id: item.asset_id, role: item.role })),
+      sources,
     }, teacherRequestConfig({ silentError: true }))
+    replaceLocalTargetSources(fallbackTarget[0]!, sources)
   } catch (reason: any) {
     const fallback = props.variant === 'question-bank'
       ? t('courseWorkbench.references.questionSourcesSaveFailed', '真题资料保存失败')
@@ -409,6 +637,98 @@ async function persistScopedSelection(value: CourseReferenceItem[], bindingMode:
     if (targetId === props.scopeTargetId) error.value = String(reason?.response?.data?.detail || reason?.message || fallback)
   } finally {
     if (targetId === props.scopeTargetId) saving.value = false
+  }
+}
+
+function updateScopeMode(assetId: string, event: Event) {
+  const draft = scopeDrafts.value[assetId]
+  if (!draft) return
+  draft.mode = (event.target as HTMLSelectElement).value as ReferenceScopeMode
+}
+
+function updateRangeTarget(assetId: string, boundary: 'start' | 'end', event: Event) {
+  const draft = scopeDrafts.value[assetId]
+  if (!draft) return
+  if (boundary === 'start') draft.rangeStartTargetId = (event.target as HTMLSelectElement).value
+  else draft.rangeEndTargetId = (event.target as HTMLSelectElement).value
+}
+
+function toggleCustomTarget(assetId: string, targetId: string, event: Event) {
+  const draft = scopeDrafts.value[assetId]
+  if (!draft) return
+  const checked = (event.target as HTMLInputElement).checked
+  draft.customTargetIds = checked
+    ? [...new Set([...draft.customTargetIds, targetId])]
+    : draft.customTargetIds.filter(id => id !== targetId)
+}
+
+function knownSources() {
+  const byId = new Map<string, CourseReferenceItem>()
+  for (const source of [...materials.value, ...selected.value]) {
+    const existing = byId.get(source.asset_id)
+    byId.set(source.asset_id, {
+      ...existing,
+      ...source,
+      usages: source.usages?.length ? source.usages : existing?.usages,
+    })
+  }
+  return [...byId.values()]
+}
+
+function sourceRoleAtTarget(source: CourseReferenceItem, targetId: string) {
+  return source.usages?.find(usage => (
+    usage.target_id === targetId
+    && (!props.scopeTargetType || usage.target_type === props.scopeTargetType)
+  ))?.role
+}
+
+function sourcesForTarget(item: CourseReferenceItem, targetId: string, desiredTargetIds: Set<string>) {
+  const sources = knownSources().flatMap(source => {
+    if (source.asset_id === item.asset_id) {
+      return desiredTargetIds.has(targetId) ? [{ source_asset_id: source.asset_id, role: item.role }] : []
+    }
+    const role = sourceRoleAtTarget(source, targetId)
+    return role ? [{ source_asset_id: source.asset_id, role }] : []
+  })
+  if (item.role === 'primary' && desiredTargetIds.has(targetId)) {
+    return sources.map(source => source.source_asset_id !== item.asset_id && source.role === 'primary'
+      ? { ...source, role: 'reference' as const }
+      : source)
+  }
+  return sources
+}
+
+async function applyReferenceScope(item: CourseReferenceItem) {
+  const targets = scopeSelectionTargets(item)
+  if (!targets.length || scopeApplyingAssetId.value || workflowLocked.value || !props.scopeTargetType) return
+  const desiredTargetIds = new Set(targets.map(target => target.id))
+  const affectedTargetIds = new Set([
+    ...itemAppliedTargetIds(item),
+    ...desiredTargetIds,
+  ])
+  const affectedTargets = orderedLessonTargets().filter(target => affectedTargetIds.has(target.id))
+  scopeApplyingAssetId.value = item.asset_id
+  error.value = ''
+  try {
+    const packageId = await resolvePackageId([item])
+    if (!packageId) return
+    for (const target of affectedTargets) {
+      const sources = sourcesForTarget(item, target.id, desiredTargetIds)
+      await http.put(`/api/teacher-course-spaces/${packageId}/relationships`, {
+        target_id: target.id,
+        target_type: props.scopeTargetType,
+        target_label: target.label || target.id,
+        binding_mode: 'manual',
+        sources,
+      }, teacherRequestConfig({ silentError: true }))
+      replaceLocalTargetSources(target, sources)
+    }
+    const draft = scopeDrafts.value[item.asset_id]
+    if (draft) draft.appliedTargetIds = [...desiredTargetIds]
+  } catch (reason: any) {
+    error.value = String(reason?.response?.data?.detail || reason?.message || t('courseWorkbench.references.saveFailed', '本讲资料保存失败'))
+  } finally {
+    scopeApplyingAssetId.value = ''
   }
 }
 
@@ -609,4 +929,27 @@ onMounted(loadAll)
 .reference-interactive{padding-bottom:18px}.source-status{display:grid;grid-template-columns:32px minmax(0,1fr);align-items:center;gap:9px;margin:12px 16px 0;padding:10px 11px;border:1px solid #dfe5ef;border-radius:10px;background:#fff}.source-status>span{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:#5651ce;background:#eef0ff}.source-status>div{min-width:0;display:grid;gap:3px}.source-status strong{color:#334155;font-size:14px}.source-status small{color:#738095;font-size:14px;line-height:1.45}.source-status--review,.source-status--confirmed{border-color:#cfe9d8;background:#f7fcf9}.source-status--review>span,.source-status--confirmed>span{color:#168044;background:#e7f7ed}.source-status--failed{border-color:#f1cdd1;background:#fff8f8}.source-status--failed>span{color:#b9404e;background:#fdebed}.reference-workflow-action{padding:12px 16px 2px}.workflow-state{display:grid;gap:14px;margin:12px 16px 18px;padding:14px;border:1px solid #dadcf6;border-radius:12px;background:linear-gradient(150deg,#fbfbff,#f4f5ff);box-shadow:0 10px 28px rgba(70,69,151,.08)}.workflow-state>header{display:grid;grid-template-columns:38px minmax(0,1fr);align-items:center;gap:10px}.workflow-state__signal{width:38px;height:38px;display:grid;place-items:center;border-radius:10px;color:#fff;background:#5955d8;box-shadow:0 7px 18px rgba(89,85,216,.22)}.workflow-state>header>div{min-width:0;display:grid;gap:4px}.workflow-state>header strong{color:#2d3650;font-size:14px}.workflow-state>header small{color:#6f7b90;font-size:14px;line-height:1.45}.workflow-state--paused{border-color:#eadfbd;background:linear-gradient(150deg,#fffdf8,#fff9e9)}.workflow-state--paused .workflow-state__signal{color:#8a5d09;background:#f6df9f;box-shadow:none}.workflow-progress{height:5px;overflow:hidden;border-radius:3px;background:#e3e5f4}.workflow-progress i{position:relative;width:100%;height:100%;display:block;transform-origin:left center;border-radius:inherit;background:#5955d8;transition:transform .25s cubic-bezier(.2,.8,.2,1)}.workflow-state--generating .workflow-progress i::after{position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.72),transparent);animation:workflow-scan 1.6s ease-in-out infinite;content:""}.workflow-state--paused .workflow-progress i{background:#d39b2f}.workflow-source-list{display:grid;gap:7px;margin:0;padding:0;list-style:none}.workflow-source-list li{min-height:52px;display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:8px;padding:7px 8px;border:1px solid rgba(213,216,239,.9);border-radius:9px;background:rgba(255,255,255,.8)}.workflow-source-pulse{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:#5551ce;background:#ececff}.workflow-state--generating .workflow-source-pulse{animation:source-usage-pulse 1.8s ease-in-out infinite}.workflow-source-list li>div{min-width:0;display:grid;gap:2px}.workflow-source-list strong{overflow:hidden;color:#354056;font-size:14px;text-overflow:ellipsis;white-space:nowrap}.workflow-source-list small{color:#7a8699;font-size:14px}.workflow-source-list em{color:#5b57c8;font-size:14px;font-style:normal;font-weight:750}.workflow-state--paused .workflow-source-list em{color:#956b19}.workflow-no-sources{margin:0;color:#6f7b90;font-size:14px;line-height:1.55}.workflow-state>footer{display:flex;align-items:center;gap:7px}.workflow-state>footer button{min-height:34px;display:flex;align-items:center;justify-content:center;gap:6px;padding:0 10px;border:1px solid #d5d9e5;border-radius:8px;color:#596579;background:#fff;font-size:14px;font-weight:700;cursor:pointer}.workflow-state>footer button:hover{border-color:#aaa7e8;color:#37348c;background:#fafaff}.workflow-state>footer .workflow-resume{border-color:#5651d1;color:#fff;background:#5651d1}.workflow-state>footer .workflow-resume:hover{border-color:#4742ba;color:#fff;background:#4742ba}.workflow-spinner{animation:spin 1s linear infinite}.tray-mode-enter-active,.tray-mode-leave-active{transition:opacity .2s ease,transform .2s cubic-bezier(.2,.8,.2,1),clip-path .2s ease}.tray-mode-enter-from{opacity:0;transform:translateY(8px);clip-path:inset(0 0 10% 0)}.tray-mode-leave-to{opacity:0;transform:translateY(-6px);clip-path:inset(0 0 10% 0)}.drop-zone button:disabled,.reference-add:disabled,.ppt-smart-actions button:disabled,.material-library>button:disabled,.web-research-open:disabled{opacity:.48;cursor:not-allowed}.drop-zone>button:not(.empty-drop):hover,.reference-item>button:hover,.web-source-item>button:hover{color:#334155;background:#eef1f6}.empty-drop:focus-visible,.reference-add:focus-visible,.material-library>button:focus-visible,.web-research-open:focus-visible,.workflow-state>footer button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}@keyframes workflow-scan{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}@keyframes source-usage-pulse{0%,100%{box-shadow:0 0 0 0 rgba(89,85,216,0)}50%{box-shadow:0 0 0 4px rgba(89,85,216,.1)}}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.workflow-spinner,.workflow-state--generating .workflow-progress i::after,.workflow-state--generating .workflow-source-pulse{animation:none}.tray-mode-enter-active,.tray-mode-leave-active,.workflow-progress i{transition:none}}
 .source-status__retry{grid-column:2;justify-self:start;min-height:30px;display:inline-flex;align-items:center;gap:5px;padding:0 9px;border:1px solid #dc9da5;border-radius:7px;color:#a73341;background:#fff;font-size:14px;font-weight:750;cursor:pointer}.source-status__retry:hover{border-color:#b9404e;background:#fff1f2}.source-status__retry:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .source-status__collapse{grid-column:2;justify-self:start;min-height:30px;display:inline-flex;align-items:center;gap:5px;padding:0 9px;border:1px solid #cfd4df;border-radius:7px;color:#596579;background:#fff;font-size:14px;font-weight:750;cursor:pointer}.source-status__collapse:hover{border-color:#aaa7e8;color:#37348c;background:#fafaff}.source-status__collapse:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.source-status--confirmed.is-editing{border-color:#dfe5ef;background:#fff}.source-status--confirmed.is-editing>span{color:#5651ce;background:#eef0ff}.confirmed-source-summary{display:grid;gap:10px;padding:16px}.confirmed-source-list{display:grid;gap:7px;margin:0;padding:0;list-style:none}.confirmed-source-list li{min-height:52px;display:grid;grid-template-columns:32px minmax(0,1fr) 18px;align-items:center;gap:8px;padding:7px 8px;border:1px solid #e2e7ef;border-radius:9px;background:#fff}.confirmed-source-list li>span{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:#5651ce;background:#eef0ff}.confirmed-source-list li>div{min-width:0;display:grid;gap:2px}.confirmed-source-list strong{overflow:hidden;color:#334155;font-size:14px;text-overflow:ellipsis;white-space:nowrap}.confirmed-source-list small{color:#738095;font-size:14px}.confirmed-source-list li>svg{color:#168044}.confirmed-source-empty{margin:0;padding:10px 0;color:#64748b;font-size:14px;line-height:1.6}.confirmed-source-adjust{min-height:38px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px solid #d7dbe6;border-radius:9px;color:#4d596e;background:#fff;font-size:14px;font-weight:700;cursor:pointer}.confirmed-source-adjust:hover{border-color:#aaa7e8;color:#37348c;background:#fafaff}.confirmed-source-adjust:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.confirmed-source-hint{color:#788497;font-size:14px;line-height:1.55}
+.reference-scope{display:grid;gap:9px;margin:12px 16px 0;padding:11px;border:1px solid #dfe5ef;border-radius:10px;background:#fff}
+.reference-scope>header{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.reference-scope>header>div{min-width:0;display:grid;gap:3px}
+.reference-scope>header strong{color:#334155;font-size:14px;font-weight:750}
+.reference-scope>header small{overflow:hidden;color:#738095;font-size:14px;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
+.reference-scope>header>span{flex:none;display:flex;align-items:center;gap:4px;color:#6965b9;font-size:13px;font-weight:700}
+.reference-scope__list{display:grid;gap:10px;margin:0;padding:0;list-style:none}
+.reference-scope__list>li{display:grid;gap:8px;padding-top:10px;border-top:1px solid #edf0f5}
+.reference-scope__file{min-width:0;display:grid;gap:2px}
+.reference-scope__file strong{overflow:hidden;color:#3f4b60;font-size:14px;text-overflow:ellipsis;white-space:nowrap}
+.reference-scope__file small{color:#738095;font-size:13px;line-height:1.35}
+.reference-scope__list>li>label>select,.reference-scope__range select{width:100%;min-height:36px;padding:0 30px 0 9px;border:1px solid #d3dae5;border-radius:8px;color:#3f4b60;background:#fff;font:inherit;font-size:14px}
+.reference-scope__range{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:6px;color:#8a96a8}
+.reference-scope__custom{max-height:188px;display:grid;gap:2px;overflow:auto;padding:3px}
+.reference-scope__custom label{min-height:34px;display:grid;grid-template-columns:18px minmax(0,1fr);align-items:center;gap:7px;padding:0 6px;border-radius:7px;color:#596579;font-size:14px;cursor:pointer}
+.reference-scope__custom label:hover{background:#f5f6fa}
+.reference-scope__custom input{accent-color:#5b57e8}
+.reference-scope__custom span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.reference-scope__apply{min-height:36px;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid #c9c7ee;border-radius:8px;color:#4338ca;background:#f7f7ff;font-size:14px;font-weight:750;cursor:pointer}
+.reference-scope__apply:hover:not(:disabled){border-color:#aaa7e8;background:#eeeeff}
+.reference-scope__apply:focus-visible,.reference-scope select:focus-visible,.reference-scope__custom input:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
+.reference-scope__apply:disabled{opacity:.48;cursor:not-allowed}
+.reference-scope.is-locked{background:#f7f8fb}
 </style>
