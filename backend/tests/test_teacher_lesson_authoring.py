@@ -2895,12 +2895,14 @@ def test_orphaned_lesson_job_expires_and_keeps_partial_stream(tmp_path):
         event="delta",
         delta='{"learning_objective":"已生成部分目标"',
     )
+    repository.flush_stream_checkpoints("course-1")
     path = tmp_path / "course-1.json"
     stored = json.loads(path.read_text(encoding="utf-8"))
     stored["jobs"][job["id"]]["updated_at"] = "2020-01-01T00:00:00+00:00"
     path.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
 
-    expired = repository.expire_stale_job("course-1", job["id"])
+    reloaded = TeacherLessonAuthoringRepository(tmp_path)
+    expired = reloaded.expire_stale_job("course-1", job["id"])
 
     assert expired["status"] == "failed"
     assert expired["phase"] == "lesson_plan_interrupted"

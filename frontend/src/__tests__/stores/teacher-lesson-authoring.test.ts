@@ -25,7 +25,7 @@ afterEach(() => {
 })
 
 describe('teacher lesson authoring store', () => {
-  it('observes only the running job or the next queued job for one course', () => {
+  it('observes up to four active jobs so parallel lessons stream independently', () => {
     const queued = [3, 1, 2].map(position => ({
       id: `job-${position}`,
       status: 'pending',
@@ -33,11 +33,11 @@ describe('teacher lesson authoring store', () => {
       created_at: `2026-09-01T00:00:0${position}Z`,
     })) as any
 
-    expect(lessonJobsToObserve(queued).map(job => job.id)).toEqual(['job-1'])
+    expect(lessonJobsToObserve(queued).map(job => job.id)).toEqual(['job-1', 'job-2', 'job-3'])
     expect(lessonJobsToObserve([
       ...queued,
       { id: 'job-running', status: 'running', batch_position: 2 },
-    ] as any).map(job => job.id)).toEqual(['job-running'])
+    ] as any).map(job => job.id)).toEqual(['job-running', 'job-1', 'job-2', 'job-3'])
   })
 
   it('observes every active script job so each lecture can stream independently', () => {

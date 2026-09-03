@@ -15,6 +15,7 @@ import os
 import re
 import tempfile
 import threading
+import time
 import uuid
 import hashlib
 from copy import deepcopy
@@ -46,6 +47,7 @@ LESSON_PLAN_FORMAL_FIELD_POLICY_VERSION = "teacher_lesson_formal_fields_v1"
 TEACHER_ASSET_JOB_SCHEMA_VERSION = "teacher_asset_job_v1"
 LESSON_JOB_STALE_SECONDS = 300
 LESSON_BATCH_QUEUED_STALE_SECONDS = 14400
+STREAM_CHECKPOINT_INTERVAL_SECONDS = 1.0
 JOB_TYPES = {
     "teacher_lesson_plan_generation",
     "teacher_lesson_script_generation",
@@ -1674,6 +1676,9 @@ class TeacherLessonAuthoringRepository:
         self.root = Path(root) if root is not None else _default_root()
         self.root.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._live_stream_jobs: dict[str, dict[str, dict[str, Any]]] = {}
+        self._live_stream_touched_at: dict[tuple[str, str], float] = {}
+        self._stream_checkpoint_at: dict[str, float] = {}
 
     def _path(self, course_id: str) -> Path:
         safe = "".join(char for char in course_id if char.isalnum() or char in {"-", "_"})
@@ -1695,11 +1700,51 @@ class TeacherLessonAuthoringRepository:
             "updated_at": _now(),
         }
 
+    def _overlay_live_stream_jobs_locked(
+        self,
+        course_id: str,
+        value: dict[str, Any],
+    ) -> dict[str, Any]:
+        live_jobs = self._live_stream_jobs.get(course_id) or {}
+        if not live_jobs:
+            return value
+        jobs = value.get("jobs")
+        if not isinstance(jobs, dict):
+            jobs = {}
+            value["jobs"] = jobs
+        for job_id, live_job in live_jobs.items():
+            jobs[job_id] = deepcopy(live_job)
+        return value
+
+    def _drop_live_stream_job_locked(self, course_id: str, job_id: str) -> None:
+        live_jobs = self._live_stream_jobs.get(course_id)
+        if live_jobs is not None:
+            live_jobs.pop(job_id, None)
+            if not live_jobs:
+                self._live_stream_jobs.pop(course_id, None)
+                self._stream_checkpoint_at.pop(course_id, None)
+        self._live_stream_touched_at.pop((course_id, job_id), None)
+
+    def _checkpoint_live_streams_locked(self, course_id: str) -> None:
+        if not self._live_stream_jobs.get(course_id):
+            return
+        value = self.load(course_id)
+        self._save(value)
+        self._stream_checkpoint_at[course_id] = time.monotonic()
+
+    def flush_stream_checkpoints(self, course_id: str) -> None:
+        """Force the latest live stream state to durable storage."""
+        with self._lock:
+            self._checkpoint_live_streams_locked(course_id)
+
     def load(self, course_id: str) -> dict[str, Any]:
         with self._lock:
             path = self._path(course_id)
             if not path.exists():
-                return self._empty(course_id)
+                return self._overlay_live_stream_jobs_locked(
+                    course_id,
+                    self._empty(course_id),
+                )
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
@@ -1707,7 +1752,8 @@ class TeacherLessonAuthoringRepository:
                     "authoring_repository_corrupt",
                     "教师讲次资产读取失败。",
                 ) from exc
-            return data if isinstance(data, dict) else self._empty(course_id)
+            value = data if isinstance(data, dict) else self._empty(course_id)
+            return self._overlay_live_stream_jobs_locked(course_id, value)
 
     def _save(self, value: dict[str, Any]) -> dict[str, Any]:
         course_id = str(value.get("course_id") or "")
@@ -1726,7 +1772,7 @@ class TeacherLessonAuthoringRepository:
         finally:
             if os.path.exists(temp_name):
                 os.unlink(temp_name)
-        return deepcopy(payload)
+        return payload
 
     def set_outline(self, course_id: str, outline_revision_id: str) -> dict[str, Any]:
         with self._lock:
@@ -1991,6 +2037,9 @@ class TeacherLessonAuthoringRepository:
                 )
             value["jobs"][job_id] = job
             self._save(value)
+            if self._live_stream_jobs.get(course_id):
+                self._stream_checkpoint_at[course_id] = time.monotonic()
+            self._drop_live_stream_job_locked(course_id, job_id)
             return deepcopy(job)
 
     def update_job_stream(
@@ -2009,10 +2058,13 @@ class TeacherLessonAuthoringRepository:
         shard_id: str = "",
         stream_mode: str = "",
     ) -> dict[str, Any]:
-        """Persist one model-stream checkpoint without losing concurrent batches."""
+        """Publish one live model delta and periodically persist a merged checkpoint."""
         with self._lock:
-            value = self.load(course_id)
-            job = (value.get("jobs") or {}).get(job_id)
+            live_jobs = self._live_stream_jobs.setdefault(course_id, {})
+            job = live_jobs.get(job_id)
+            if not isinstance(job, dict):
+                value = self.load(course_id)
+                job = (value.get("jobs") or {}).get(job_id)
             if not isinstance(job, dict):
                 raise TeacherLessonAuthoringError("teacher_job_not_found", "教师讲次任务不存在。")
             batches = deepcopy(job.get("stream_batches") or {})
@@ -2039,6 +2091,7 @@ class TeacherLessonAuthoringRepository:
             ]
             stream_events.append(stream_event)
             stream_events = stream_events[-500:]
+            timestamp = _now()
             job.update({
                 "phase": phase,
                 "stage": phase,
@@ -2050,11 +2103,15 @@ class TeacherLessonAuthoringRepository:
                 "stream_events": stream_events,
                 "last_stream_event": stream_event,
                 "stream_complete": False,
-                "heartbeat_at": _now(),
-                "updated_at": _now(),
+                "heartbeat_at": timestamp,
+                "updated_at": timestamp,
             })
-            value["jobs"][job_id] = job
-            self._save(value)
+            live_jobs[job_id] = job
+            now = time.monotonic()
+            self._live_stream_touched_at[(course_id, job_id)] = now
+            last_checkpoint = self._stream_checkpoint_at.setdefault(course_id, now)
+            if now - last_checkpoint >= STREAM_CHECKPOINT_INTERVAL_SECONDS:
+                self._checkpoint_live_streams_locked(course_id)
             return deepcopy(job)
 
     def cancel_job(self, course_id: str, job_id: str) -> dict[str, Any]:
@@ -2090,6 +2147,7 @@ class TeacherLessonAuthoringRepository:
             })
             value["jobs"][job_id] = job
             self._save(value)
+            self._drop_live_stream_job_locked(course_id, job_id)
             return deepcopy(job)
 
     def pause_job(self, course_id: str, job_id: str) -> dict[str, Any]:
@@ -2119,6 +2177,7 @@ class TeacherLessonAuthoringRepository:
             })
             value["jobs"][job_id] = job
             self._save(value)
+            self._drop_live_stream_job_locked(course_id, job_id)
             return deepcopy(job)
 
     def save_plan_revision(
@@ -2907,6 +2966,10 @@ class TeacherLessonAuthoringRepository:
             return deepcopy(candidate)
 
     def get_job(self, course_id: str, job_id: str) -> dict[str, Any]:
+        with self._lock:
+            live_job = (self._live_stream_jobs.get(course_id) or {}).get(job_id)
+            if isinstance(live_job, dict):
+                return deepcopy(live_job)
         value = self.load(course_id)
         job = (value.get("jobs") or {}).get(job_id)
         if not isinstance(job, dict):
@@ -2922,6 +2985,18 @@ class TeacherLessonAuthoringRepository:
     ) -> dict[str, Any]:
         """Close an orphaned generation job left behind by a process reload."""
         with self._lock:
+            live_job = (self._live_stream_jobs.get(course_id) or {}).get(job_id)
+            touched_at = self._live_stream_touched_at.get((course_id, job_id))
+            if isinstance(live_job, dict) and touched_at is not None:
+                effective_stale_seconds = stale_after_seconds
+                if (
+                    stale_after_seconds == LESSON_JOB_STALE_SECONDS
+                    and str(live_job.get("status") or "") == "pending"
+                    and str(live_job.get("parent_job_id") or "")
+                ):
+                    effective_stale_seconds = LESSON_BATCH_QUEUED_STALE_SECONDS
+                if time.monotonic() - touched_at < max(1, int(effective_stale_seconds)):
+                    return deepcopy(live_job)
             value = self.load(course_id)
             job = (value.get("jobs") or {}).get(job_id)
             if not isinstance(job, dict):
@@ -2978,6 +3053,7 @@ class TeacherLessonAuthoringRepository:
             })
             value["jobs"][job_id] = job
             saved = self._save(value)
+            self._drop_live_stream_job_locked(course_id, job_id)
             return deepcopy(saved["jobs"][job_id])
 
     def expire_stale_jobs(
@@ -2990,8 +3066,9 @@ class TeacherLessonAuthoringRepository:
         with self._lock:
             value = self.load(course_id)
             changed = False
+            expired_job_ids: list[str] = []
             now = datetime.now(timezone.utc)
-            for job in (value.get("jobs") or {}).values():
+            for job_id, job in (value.get("jobs") or {}).items():
                 if not isinstance(job, dict) or str(job.get("status") or "") not in {"pending", "running"}:
                     continue
                 try:
@@ -3030,7 +3107,13 @@ class TeacherLessonAuthoringRepository:
                     "updated_at": _now(),
                 })
                 changed = True
-            return self._save(value) if changed else deepcopy(value)
+                expired_job_ids.append(str(job_id))
+            if not changed:
+                return deepcopy(value)
+            saved = self._save(value)
+            for job_id in expired_job_ids:
+                self._drop_live_stream_job_locked(course_id, job_id)
+            return saved
 
     def lesson(self, course_id: str, lesson_unit_id: str) -> dict[str, Any]:
         value = self.load(course_id)

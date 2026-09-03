@@ -513,18 +513,24 @@ const fetchLessonAuthoringView = (courseId: string) => {
   return request
 }
 
+const LESSON_JOB_OBSERVER_LIMIT = 4
+
+const prioritizedActiveLessonJobs = (jobs: TeacherLessonJob[]) => [...jobs]
+  .sort((left, right) => (
+    Number(right.status === 'running') - Number(left.status === 'running')
+    || Number(left.batch_position || 0) - Number(right.batch_position || 0)
+    || String(left.id || '').localeCompare(String(right.id || ''))
+  ))
+  .slice(0, LESSON_JOB_OBSERVER_LIMIT)
+
 export const lessonJobsToObserve = (jobs: TeacherLessonJob[]) => {
   const active = jobs.filter(job => ['pending', 'running'].includes(job.status))
   const scriptJobs = active.filter(job => job.type === 'teacher_lesson_script_generation')
   const lessonPlanJobs = active.filter(job => job.type !== 'teacher_lesson_script_generation')
-  const running = lessonPlanJobs.filter(job => job.status === 'running')
-  const nextLessonPlanJobs = running.length ? running : [...lessonPlanJobs]
-    .sort((left, right) => (
-      Number(left.batch_position || 0) - Number(right.batch_position || 0)
-      || String(left.id || '').localeCompare(String(right.id || ''))
-    ))
-    .slice(0, 1)
-  return [...scriptJobs, ...nextLessonPlanJobs]
+  return [
+    ...prioritizedActiveLessonJobs(scriptJobs),
+    ...prioritizedActiveLessonJobs(lessonPlanJobs),
+  ]
 }
 
 function streamChunkContent(chunks: Record<string, string>): string {
