@@ -658,7 +658,7 @@ describe('teacher course workbench outline streaming', () => {
 
     expect(wrapper.find('.lesson-selector').exists()).toBe(false)
     expect(wrapper.find('.prerequisite').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="lesson-outline-fixed"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="lesson-outline-fixed"]').exists()).toBe(false)
     expect(wrapper.get('.lesson-current-title').text()).toContain('第一讲')
     expect(wrapper.get('.lesson-empty-canvas').text()).toContain('教案尚未生成')
     expect(wrapper.text()).not.toContain('查看并确认大纲')
@@ -748,6 +748,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(preview.text()).toContain('第1讲')
     expect(preview.text()).toContain('理论讲授')
     expect(preview.text()).toContain('概念讲解')
+    expect(wrapper.find('[data-testid="lesson-outline-fixed"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="lesson-single-start"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="lesson-batch-start"]').exists()).toBe(false)
     expect(generationButton.text()).toBe('生成全部教案')
@@ -870,6 +871,7 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
 
+    expect(wrapper.find('[data-testid="lesson-outline-fixed"]').exists()).toBe(true)
     expect(wrapper.get('.lesson-generation-status').text()).toContain('正在生成第一讲')
     expect(wrapper.get('.lesson-generation-status').text()).toContain('正在确定各节教学重点')
     expect(wrapper.get('.lesson-stream-document').text()).toContain('AI 工作稿')
@@ -949,6 +951,7 @@ describe('teacher course workbench outline streaming', () => {
         lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', confirmed_revision_id: '', source_state: 'current', ppt_assets: [],
         revisions: [{ revision_id: 'plan-1', lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', generation_source: 'model', status: 'draft', warnings: [], plan: { sections: [{ node_id: 'L2-1-1', key_points: ['编译', '运行'], teaching_modules: [{ module_id: 'core_explanation', planned_minutes: 15, teacher_activity: '演示源码如何编译运行', student_activity: '跟随完成首次运行' }] }] }, actor: 'teacher', created_at: '' }],
       },
+      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
     }] as any
     const lessonWrapper = mountWorkbench({ initialStage: 'lesson' })
 
@@ -959,6 +962,10 @@ describe('teacher course workbench outline streaming', () => {
     expect(lessonWrapper.get('.teacher-document-command-bar__status').text()).toContain('已生成')
     expect(lessonWrapper.find('.lesson-document-toolbar .primary-action').exists()).toBe(false)
     expect(lessonWrapper.find('.lesson-section-tabs').exists()).toBe(false)
+
+    const scriptWrapper = mountWorkbench({ initialStage: 'script' })
+    expect(scriptWrapper.find('[data-testid="lesson-outline-fixed"]').exists()).toBe(false)
+    scriptWrapper.unmount()
 
     const pptWrapper = mountWorkbench({ initialStage: 'ppt' })
     await flushPromises()
@@ -991,6 +998,7 @@ describe('teacher course workbench outline streaming', () => {
     }] as any
     const wrapper = mountWorkbench({ initialStage: 'script' })
 
+    expect(wrapper.find('[data-testid="lesson-outline-fixed"]').exists()).toBe(true)
     expect(wrapper.find('.center-heading').exists()).toBe(false)
     expect(wrapper.get('.lesson-current-title').text()).toContain('第一讲')
     expect(wrapper.get('.lesson-toolbar-status').text()).toContain('已生成')
@@ -1027,12 +1035,12 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.ppt-generate-primary').attributes('disabled')).toBeUndefined()
   })
 
-  it('教案、讲义和 PPT 固定显示双行讲次目录，正文不再出现小节 Tab', async () => {
+  it('教案、讲义和 PPT 开始生成后显示双行讲次目录，正文不再出现小节 Tab', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2].map(number => ({
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45,
       sections: [1, 2].map(section => ({ section_node_id: `L2-${number}-${section}`, title: `${number}.${section} 小节${section}` })),
-      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
+      script: { current_revision_id: number === 1 ? 'script-1' : '', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1', source_state: 'current', ready: number === 1, confirmed: false, confirmed_at: '', sections: [] },
       plan: { lesson_unit_id: `L1-${number}`, working_revision_id: number === 1 ? 'plan-1' : '', confirmed_revision_id: number === 2 ? 'plan-2' : '', source_state: 'current', revisions: [], ppt_assets: [] },
     })) as any
     for (const stage of ['lesson', 'script', 'ppt']) {
@@ -1065,7 +1073,7 @@ describe('teacher course workbench outline streaming', () => {
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45,
       sections: [{ section_node_id: `L2-${number}-1`, title: `${number}.1 小节` }],
       script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
-      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: number === 1 ? 'plan-1' : '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
     })) as any
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
     const firstReference = { package_id: 'package-1', asset_id: 'asset-1', material_asset_id: 'mat-1', filename: '第一讲.docx', relative_path: '', size_bytes: 100, role: 'primary' }

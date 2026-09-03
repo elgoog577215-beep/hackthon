@@ -334,10 +334,10 @@
         @saved="handleCompanionSaved"
       />
 
-      <section v-else class="lesson-stage" :class="{ 'has-lesson-outline': ['lesson', 'script', 'ppt'].includes(activeStage) && lessonStore.lessons.length }">
+      <section v-else class="lesson-stage" :class="{ 'has-lesson-outline': lessonOutlineVisible }">
         <div class="lesson-workspace">
           <aside
-            v-if="['lesson', 'script', 'ppt'].includes(activeStage) && lessonStore.lessons.length"
+            v-if="lessonOutlineVisible"
             class="lesson-outline lesson-outline--fixed"
             :aria-label="t('courseWorkbench.lessonOutline.title', '讲次目录')"
             data-testid="lesson-outline-fixed"
@@ -1840,6 +1840,16 @@ const lessonStreamSegments = computed(() => lessonPlanStreamSegments(lessonJob.v
 const scriptJob = computed(() => selectedLessonId.value ? lessonStore.latestScriptJobByLesson(selectedLessonId.value) : undefined)
 const scriptGenerationActive = computed(() => ['pending', 'running'].includes(String(scriptJob.value?.status || '')))
 const scriptGenerationBusy = computed(() => scriptGenerating.value || scriptGenerationActive.value)
+const lessonOutlineVisible = computed(() => {
+  if (!lessonStore.lessons.length) return false
+  if (activeStage.value === 'lesson') {
+    return batchStarting.value || lessonStore.lessons.some(lesson => lessonGenerationState(lesson) !== 'pending')
+  }
+  if (activeStage.value === 'script') {
+    return scriptGenerating.value || lessonStore.lessons.some(lesson => lessonGenerationState(lesson) !== 'pending')
+  }
+  return activeStage.value === 'ppt'
+})
 const scriptGenerationProgress = computed(() => Math.max(3, Number(scriptJob.value?.progress || 0)))
 const effectiveScriptGenerationError = computed(() => String(
   selectedLesson.value?.script?.ready
@@ -3294,7 +3304,8 @@ onBeforeUnmount(() => {
 
 /* A fixed secondary rail keeps every lesson and its real state visible while the document changes. */
 .has-lesson-outline .lesson-workspace{display:grid;grid-template-columns:230px minmax(0,1fr);gap:14px;align-items:start}
-.lesson-outline--fixed{position:sticky;top:0;min-width:0;max-height:calc(100vh - 170px);display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;border:1px solid #e0e6ef;border-radius:12px;background:#fff;box-shadow:0 8px 24px rgba(30,41,59,.045)}
+.lesson-outline--fixed{position:sticky;top:0;min-width:0;max-height:calc(100vh - 170px);display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);overflow:hidden;border:1px solid #e0e6ef;border-radius:12px;background:#fff;box-shadow:0 8px 24px rgba(30,41,59,.045)}
+.lesson-outline--fixed>header,.lesson-outline--fixed>nav{grid-column:1}
 .lesson-outline--fixed>header{min-height:52px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 13px;border-bottom:1px solid #e7ebf2}
 .lesson-outline--fixed>header strong{color:#2f3a4f;font-size:15px;font-weight:760}
 .lesson-outline--fixed>header small{color:#748195;font-size:14px;font-weight:650}
