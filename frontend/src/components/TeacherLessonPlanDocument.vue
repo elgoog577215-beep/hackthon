@@ -167,7 +167,7 @@
           <div class="section-heading"><h4>{{ tr('courseWorkbench.lessonDocument.homework') }}</h4><span>{{ tr('courseWorkbench.lessonDocument.afterClassTime') }}</span></div>
           <textarea v-if="editing" :value="listText(section.homework)" rows="4" @input="updateList(section, 'homework', $event)" /><ol v-else-if="stringList(section.homework).length"><li v-for="item in stringList(section.homework)" :key="item">{{ item }}</li></ol><p v-else>{{ emptyValue }}</p>
           <div class="assignment-contract">
-            <label><span>{{ tr('courseWorkbench.lessonDocument.submission') }}</span><input v-if="editing" v-model="section.homework_submission" @input="recordEditSnapshot" /><p v-else>{{ section.homework_submission || emptyValue }}</p></label>
+            <label><span>{{ tr('courseWorkbench.lessonDocument.submission') }}</span><input v-if="editing" v-model="section.homework_submission" :placeholder="tr('courseWorkbench.lessonDocument.submissionPending')" @input="recordEditSnapshot" /><p v-else>{{ section.homework_submission || tr('courseWorkbench.lessonDocument.submissionPending') }}</p></label>
             <label><span>{{ tr('courseWorkbench.lessonDocument.evaluation') }}</span><input v-if="editing" v-model="section.homework_evaluation" @input="recordEditSnapshot" /><p v-else>{{ section.homework_evaluation || emptyValue }}</p></label>
             <label><span>{{ tr('courseWorkbench.lessonDocument.nextLessonConnection') }}</span><input v-if="editing" v-model="section.next_lesson_connection" @input="recordEditSnapshot" /><p v-else>{{ section.next_lesson_connection || emptyValue }}</p></label>
           </div>
@@ -335,6 +335,7 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.lessonDocument.extensionReading': '拓展阅读',
   'courseWorkbench.lessonDocument.homework': '课后作业',
   'courseWorkbench.lessonDocument.submission': '提交方式',
+  'courseWorkbench.lessonDocument.submissionPending': '待教师确认提交渠道与截止时间',
   'courseWorkbench.lessonDocument.evaluation': '评价方式',
   'courseWorkbench.lessonDocument.nextLessonConnection': '与下一讲衔接',
   'courseWorkbench.lessonDocument.overtimeBlock': '从本教学块开始超出本讲课堂时长，请调整分钟数。',
@@ -553,8 +554,19 @@ function activateSection(section: Record<string, any>, scroll = true) {
 }
 
 function moduleTitle(module: Record<string, any>, index: number): string {
-  return moduleLabels.value[String(module.module_id || '')]
-    || tr('courseWorkbench.lessonDocument.phaseFallback').replace('{count}', String(index + 1))
+  const phase = tr('courseWorkbench.lessonDocument.phaseFallback').replace('{count}', String(index + 1))
+  const moduleId = String(module.module_id || '').trim()
+  const rawLabel = String(module.label || '').trim()
+  const placeholder = /^(?:环节|教学块|模块)\s*\d*$/u.test(rawLabel)
+    || rawLabel === moduleId
+  const purpose = String(module.teaching_purpose || module.teaching_guidance || '')
+    .split(/[，。；：]/u)[0]
+    .trim()
+    .slice(0, 24)
+  const name = (!placeholder && rawLabel)
+    || moduleLabels.value[moduleId]
+    || purpose
+  return name ? `${phase}：${name}` : phase
 }
 
 function baseSection(sectionId: string): Record<string, any> | null {

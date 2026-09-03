@@ -20,6 +20,7 @@ from teacher_lesson_authoring import (
     TeacherLessonAuthoringService,
     align_teacher_lesson_plan_to_arrangement,
     build_uploaded_ppt_review_report,
+    complete_teacher_lesson_plan_fields,
     extract_uploaded_pptx_evidence,
     extract_uploaded_pptx_review,
     lesson_scope,
@@ -109,6 +110,28 @@ def test_lesson_scope_keeps_all_sections_inside_one_lesson():
     assert scoped["lesson"]["node_name"] == "第一讲"
     assert [item["node_id"] for item in scoped["sections"]] == ["L2-1-1", "L2-1-2"]
     assert scoped["chapter"]["node_id"] == "L1-1"
+
+
+def test_generated_lesson_completes_formal_fields_and_specific_block_names():
+    source = course_data()
+    source["course_plan"]["reference_books"] = ["张三：《核心概念导论》，高等教育出版社，2025"]
+    source["course_plan"]["chapters"][1]["title"] = "第二讲 迁移应用"
+    plan = standard_lesson_plan()
+    plan["sections"][0]["teaching_modules"][0]["module_id"] = "math_formalization"
+
+    completed = complete_teacher_lesson_plan_fields(source, "L1-1", plan)
+    section = completed["sections"][0]
+
+    assert completed["formal_field_policy_version"] == "teacher_lesson_formal_fields_v1"
+    assert section["class_summary"]
+    assert section["homework_evaluation"]
+    assert "第二讲 迁移应用" in section["next_lesson_connection"]
+    assert section["resource_refs"] == [
+        "已确认来源｜课程参考资料｜张三：《核心概念导论》，高等教育出版社，2025"
+    ]
+    assert section["teaching_modules"][0]["label"] == "形式化推导"
+    assert "homework_submission" in section["teacher_confirmation_fields"]
+    assert validate_teacher_lesson_plan(completed)["passed"] is True
 
 
 def test_material_absorption_creates_unconfirmed_linked_working_drafts(tmp_path):

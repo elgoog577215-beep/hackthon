@@ -38,6 +38,7 @@ from teacher_visible_language import has_unnatural_system_language
 
 SCHEMA_VERSION = "teacher_lesson_authoring_v1"
 LESSON_PLAN_PIPELINE_VERSION = "standard_lesson_plan_v1"
+LESSON_PLAN_FORMAL_FIELD_POLICY_VERSION = "teacher_lesson_formal_fields_v1"
 TEACHER_ASSET_JOB_SCHEMA_VERSION = "teacher_asset_job_v1"
 LESSON_JOB_STALE_SECONDS = 300
 LESSON_BATCH_QUEUED_STALE_SECONDS = 14400
@@ -125,6 +126,212 @@ def _text_list(value: Any) -> list[str]:
 
 def _unique_text(values: list[str]) -> list[str]:
     return list(dict.fromkeys(item.strip() for item in values if item.strip()))
+
+
+_MODULE_LABELS = {
+    "lesson_goal": "明确本讲目标",
+    "core_explanation": "核心概念讲解",
+    "learner_action": "学生解释与练习",
+    "explained_example": "例题示范",
+    "guided_practice": "带支架练习",
+    "feedback_check": "检查与反馈",
+    "general_concept_model": "概念模型建构",
+    "general_comparison": "对比辨析",
+    "general_explained_example": "例题推演",
+    "general_application": "迁移应用",
+    "general_checklist": "课堂小结",
+    "summary_and_transfer": "总结与迁移",
+    "assessment": "学习检查",
+    "math_problem_strategy": "解题策略选择",
+    "math_worked_example": "例题推演",
+    "math_intuition": "直觉与问题导入",
+    "math_representation": "多重表征转换",
+    "math_formalization": "形式化推导",
+    "math_variation": "变式练习",
+}
+_GENERIC_MODULE_LABEL = re.compile(r"^(?:环节|教学块|模块)\s*\d*$")
+
+
+def _specific_module_label(module: dict[str, Any], index: int) -> str:
+    module_id = str(module.get("module_id") or "").strip()
+    label = str(module.get("label") or "").strip()
+    if label and label != module_id and not _GENERIC_MODULE_LABEL.fullmatch(label):
+        return label
+    known = _MODULE_LABELS.get(module_id)
+    if known:
+        return known
+    purpose = str(
+        module.get("teaching_purpose")
+        or module.get("teaching_guidance")
+        or module.get("teacher_activity")
+        or ""
+    ).strip()
+    purpose = re.split(r"[，。；：]", purpose, maxsplit=1)[0].strip()
+    if purpose:
+        return purpose[:24]
+    return f"教学环节 {index + 1}"
+
+
+def _format_recommended_reading(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if not isinstance(value, dict):
+        return ""
+    title = str(value.get("title") or value.get("name") or "").strip()
+    source_ref = str(value.get("source_ref") or "").strip()
+    if not title and not source_ref:
+        return ""
+    resource_type = {
+        "book": "教材/专著",
+        "article": "论文/文章",
+        "standard": "标准",
+        "regulation": "法规",
+        "dataset": "数据集",
+        "video": "视频",
+        "website": "网站",
+        "other": "资料",
+    }.get(str(value.get("resource_type") or value.get("type") or "").lower(), "资料")
+    citation = source_ref or title
+    extras = _unique_text([
+        str(value.get("edition") or "").strip(),
+        str(value.get("locator") or value.get("chapter") or "").strip(),
+    ])
+    status = str(value.get("verification_status") or "").strip().lower()
+    prefix = "已确认来源" if status == "verified" else "AI 推荐（待教师确认）"
+    return "｜".join([
+        prefix,
+        resource_type,
+        citation,
+        *(extras[:2]),
+    ])
+
+
+def complete_teacher_lesson_plan_fields(
+    course_data: dict[str, Any],
+    lesson_unit_id: str,
+    plan: dict[str, Any],
+) -> dict[str, Any]:
+    """Complete inferable formal fields without inventing teacher-owned facts.
+
+    The teaching-plan model owns substantive lesson content. This boundary
+    carries confirmed outline readings into the lesson and deterministically
+    completes fields that can be derived from that content. Submission channel,
+    deadline and real post-class activity records remain teacher decisions.
+    """
+    completed = normalize_teacher_lesson_plan(plan)
+    source_plan = course_data.get("course_plan") or course_data.get("course_outline") or {}
+    chapters = [
+        item for item in source_plan.get("chapters") or []
+        if isinstance(item, dict)
+    ]
+    chapter_index = next(
+        (
+            index for index, item in enumerate(chapters)
+            if str(item.get("node_id") or item.get("chapter_id") or "")
+            == lesson_unit_id
+        ),
+        -1,
+    )
+    chapter = chapters[chapter_index] if chapter_index >= 0 else {}
+    next_chapter = (
+        chapters[chapter_index + 1]
+        if 0 <= chapter_index < len(chapters) - 1
+        else None
+    )
+    source_sections = {
+        str(item.get("node_id") or ""): item
+        for item in chapter.get("sections") or []
+        if isinstance(item, dict) and str(item.get("node_id") or "")
+    }
+    course_references = _unique_text([
+        *_text_list(source_plan.get("reference_books")),
+        *_text_list(source_plan.get("reference_websites")),
+    ])
+    chapter_readings = [
+        _format_recommended_reading(item)
+        for item in chapter.get("extension_resources") or []
+    ]
+    chapter_readings = _unique_text(chapter_readings)
+    next_title = str(
+        (next_chapter or {}).get("title")
+        or (next_chapter or {}).get("learning_focus")
+        or ""
+    ).strip()
+
+    for section in completed.get("sections") or []:
+        if not isinstance(section, dict):
+            continue
+        source_section = source_sections.get(str(section.get("node_id") or "")) or {}
+        key_points = _text_list(section.get("key_points"))
+        objectives = _text_list(section.get("knowledge_objectives")) or _text_list(
+            section.get("learning_objective")
+        )
+        checks = _text_list(section.get("in_class_checks"))
+        difficulties = _text_list(section.get("key_difficulties"))
+        anchor_items = key_points[:3] or objectives[:2]
+        anchor = "、".join(anchor_items) or str(
+            source_section.get("title") or chapter.get("title") or "本讲内容"
+        ).strip()
+
+        for index, module in enumerate(section.get("teaching_modules") or []):
+            if isinstance(module, dict):
+                module["label"] = _specific_module_label(module, index)
+
+        if not _text_list(section.get("class_summary")):
+            summary = [f"回到本讲目标，梳理{anchor}之间的关系、成立条件与适用边界。"]
+            if checks:
+                summary.append(f"通过“{checks[0]}”确认学生能否独立说明关键依据。")
+            section["class_summary"] = summary
+
+        if not str(section.get("homework_evaluation") or "").strip():
+            section["homework_evaluation"] = (
+                f"重点检查{anchor}相关结论是否准确、关键步骤与依据是否完整，"
+                "以及能否在任务给定的情境中正确应用。"
+            )
+
+        if not str(section.get("next_lesson_connection") or "").strip():
+            section["next_lesson_connection"] = (
+                f"本讲形成的“{anchor}”将作为下一讲“{next_title}”的前置基础，"
+                "课后任务用于检查是否具备进入条件。"
+                if next_title
+                else f"本讲是课程收束，围绕“{anchor}”完成整课知识连接与迁移复盘。"
+            )
+
+        if not _text_list(section.get("teaching_notes")):
+            difficulty = difficulties[0] if difficulties else anchor
+            section["teaching_notes"] = [
+                f"重点观察学生在“{difficulty}”处的判断依据；出现偏差时先追问条件，"
+                "再用反例、变式或重新示范完成就近纠正。"
+            ]
+
+        if not _text_list(section.get("resource_refs")):
+            section_readings = [
+                _format_recommended_reading(item)
+                for item in source_section.get("extension_resources") or []
+            ]
+            readings = _unique_text([
+                *section_readings,
+                *chapter_readings,
+                *[f"已确认来源｜课程参考资料｜{item}" for item in course_references],
+            ])
+            if readings:
+                section["resource_refs"] = readings[:3]
+
+        teacher_confirmation_fields = _text_list(
+            section.get("teacher_confirmation_fields")
+        )
+        if not str(section.get("homework_submission") or "").strip():
+            teacher_confirmation_fields.append("homework_submission")
+        if not _text_list(section.get("teaching_activity_photos")):
+            teacher_confirmation_fields.append("teaching_activity_photos")
+        section["teacher_confirmation_fields"] = _unique_text(
+            teacher_confirmation_fields
+        )
+
+    completed["formal_field_policy_version"] = (
+        LESSON_PLAN_FORMAL_FIELD_POLICY_VERSION
+    )
+    return completed
 
 
 def teacher_lesson_section_content(section: dict[str, Any]) -> dict[str, Any]:
@@ -571,6 +778,10 @@ def validate_teacher_lesson_plan(
     total_modules = 0
     total_minutes = 0
     knowledge_point_count = 0
+    enforce_formal_fields = (
+        str(normalized.get("formal_field_policy_version") or "")
+        == LESSON_PLAN_FORMAL_FIELD_POLICY_VERSION
+    )
     for section in sections:
         section_id = str(section.get("node_id") or "")
         objective = str(section.get("learning_objective") or "").strip()
@@ -632,6 +843,30 @@ def validate_teacher_lesson_plan(
             issue(blocking, "lesson_plan:checks", "小节缺少课堂检查或可观察产出。", section_id)
         if not homework:
             issue(blocking, "lesson_plan:homework", "小节缺少课后巩固或迁移任务。", section_id)
+        if enforce_formal_fields:
+            if not _text_list(section.get("class_summary")):
+                issue(blocking, "lesson_plan:class_summary", "本讲缺少课程总结。", section_id)
+            if not _text_list(section.get("resource_refs")):
+                issue(blocking, "lesson_plan:recommended_reading", "本讲缺少可识别的推荐阅读来源。", section_id)
+            if not str(section.get("homework_evaluation") or "").strip():
+                issue(blocking, "lesson_plan:homework_evaluation", "课后作业缺少评价标准。", section_id)
+            if not str(section.get("next_lesson_connection") or "").strip():
+                issue(blocking, "lesson_plan:next_lesson_connection", "本讲缺少后续衔接或课程收束说明。", section_id)
+            if not _text_list(section.get("teaching_notes")):
+                issue(blocking, "lesson_plan:teaching_notes", "本讲缺少可执行的教学提醒。", section_id)
+            if any(
+                not str(item.get("label") or "").strip()
+                or _GENERIC_MODULE_LABEL.fullmatch(str(item.get("label") or "").strip())
+                for item in modules
+            ):
+                issue(blocking, "lesson_plan:block_name", "每个教学环节都需要与内容对应的具体名称。", section_id)
+            if not str(section.get("homework_submission") or "").strip():
+                issue(
+                    review,
+                    "lesson_plan:homework_submission_teacher_confirmation",
+                    "提交渠道与截止时间需要教师确认。",
+                    section_id,
+                )
 
         public_copy = [
             objective,
@@ -3706,6 +3941,11 @@ class TeacherLessonAuthoringService:
                 lesson_unit_id,
             )
             plan = align_teacher_lesson_plan_to_arrangement(plan, arrangement)
+            plan = complete_teacher_lesson_plan_fields(
+                course_data,
+                lesson_unit_id,
+                plan,
+            )
             warnings = list(result.get("warnings") or [])
             generation_source = str(result.get("generation_source") or ("deterministic_local_fallback" if warnings else "model"))
             source_refs = [

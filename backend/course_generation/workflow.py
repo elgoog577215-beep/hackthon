@@ -717,6 +717,9 @@ def _section_execution_payload(value: dict[str, Any]) -> dict[str, Any]:
         "practice": _unique_strings(list(value.get("practice") or [])),
         "class_summary": _unique_strings(list(value.get("class_summary") or [])),
         "extension_learning": _unique_strings(list(value.get("extension_learning") or [])),
+        "homework_submission": str(value.get("homework_submission") or "").strip(),
+        "homework_evaluation": str(value.get("homework_evaluation") or "").strip(),
+        "next_lesson_connection": str(value.get("next_lesson_connection") or "").strip(),
         # 照片是课后由教师上传或关联的证据，模型生成时只能保留已有引用。
         "teaching_activity_photos": _unique_strings(
             list(value.get("teaching_activity_photos") or [])
@@ -753,6 +756,9 @@ def normalize_course_teaching_plan(
                 continue
             teaching_modules.append({
                 "module_id": str(raw_module.get("module_id") or "").strip(),
+                "label": str(
+                    raw_module.get("label") or raw_module.get("title") or ""
+                ).strip(),
                 "teaching_purpose": str(
                     raw_module.get("teaching_purpose")
                     or raw_module.get("purpose")

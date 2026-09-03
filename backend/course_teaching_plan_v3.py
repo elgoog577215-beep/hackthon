@@ -31,12 +31,30 @@ def _section_execution(raw: dict[str, Any]) -> dict[str, Any]:
         "in_class_checks": _unique(list(raw.get("in_class_checks") or [])),
         "homework": _unique(list(raw.get("homework") or [])),
         "teaching_notes": _unique(list(raw.get("teaching_notes") or [])),
+        "pre_study": _unique(list(raw.get("pre_study") or [])),
+        "key_analysis": _unique(list(raw.get("key_analysis") or [])),
+        "case_intro": _unique(list(raw.get("case_intro") or [])),
+        "practice": _unique(list(raw.get("practice") or [])),
+        "class_summary": _unique(list(raw.get("class_summary") or [])),
+        "extension_learning": _unique(list(raw.get("extension_learning") or [])),
+        "homework_submission": str(raw.get("homework_submission") or "").strip(),
+        "homework_evaluation": str(raw.get("homework_evaluation") or "").strip(),
+        "next_lesson_connection": str(raw.get("next_lesson_connection") or "").strip(),
+        # 生成链只能透传已有的课后照片引用，不能创造课堂事实。
+        "teaching_activity_photos": _unique(
+            list(raw.get("teaching_activity_photos") or [])
+        ),
     }
-    return {key: value for key, value in fields.items() if value not in (None, [])}
+    return {
+        key: value
+        for key, value in fields.items()
+        if value not in (None, "", [])
+    }
 
 
 def _module_execution(raw: dict[str, Any]) -> dict[str, Any]:
     fields = {
+        "label": str(raw.get("label") or raw.get("title") or "").strip(),
         "planned_minutes": _optional_int(raw.get("planned_minutes")),
         "teacher_activity": str(raw.get("teacher_activity") or "").strip(),
         "student_activity": str(raw.get("student_activity") or "").strip(),
@@ -48,6 +66,10 @@ def _module_execution(raw: dict[str, Any]) -> dict[str, Any]:
         "access_support": str(raw.get("access_support") or "").strip(),
         "grouping": str(raw.get("grouping") or "").strip(),
         "transition": str(raw.get("transition") or "").strip(),
+        "handout_ppt_mapping": str(raw.get("handout_ppt_mapping") or "").strip(),
+        "resource_refs": _unique(list(raw.get("resource_refs") or [])),
+        "tools": _unique(list(raw.get("tools") or [])),
+        "safety_boundary": str(raw.get("safety_boundary") or "").strip(),
     }
     return {key: value for key, value in fields.items() if value not in (None, "", [])}
 

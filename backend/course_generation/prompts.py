@@ -1042,13 +1042,18 @@ class CoursePromptComposer:
    `education_objectives`（育人目标）三类；育人目标必须由本讲真实内容支撑，没有时保持空数组，
    不得用创新、迁移或一般课堂活动冒充。每讲同时返回 `pre_study`、
    `key_analysis`、`case_intro`、`practice`、`class_summary`、`extension_learning` 字符串数组；
-   `teaching_activity_photos` 只保留已有引用，不得生成照片、链接或描述。
+   以及 `homework_submission`、`homework_evaluation`、`next_lesson_connection` 字符串。
+   总结、评价标准和衔接必须结合本讲内容生成；提交渠道、截止时间等必须由教师决定的事实，
+   只有输入已提供时才填写，否则 `homework_submission` 留空。`teaching_activity_photos` 只保留已有引用，
+   不得生成照片、链接、课堂过程或参与情况。
 15. 正式教案外壳保持“本讲基本信息—教学目标—重点难点—本讲教学设计—教学资料与活动记录”；
    具体教学块只放在课堂教学过程中。流程必须完整承担「进入问题或任务 → 核心教学 → 学习者行动
    → 就近证据 → 反馈调整 → 迁移或收束」，但块名称和顺序由学科、目标与本讲课型决定，
    不得把所有课程强套成「案例导入—理论讲授—实践操作」同一顺序。
-16. `resource_refs` 只能使用已给定的证据名称或标识；没有已确认来源时留空，不得自行生成书目、
-   课程、案例、数据或链接。
+16. `resource_refs` 是给学生继续学习的推荐阅读，不能留空。优先使用已给定的课程资料或已确认来源，
+   写成可识别的引用；若当前没有来源，可依据可靠的学科通识推荐 1—3 项权威教材、论文、标准或
+   机构资料，并以“AI 推荐（待教师确认）”开头。引用至少包含作者或机构、题名和与本讲相关的章节
+   或主题；只有确有把握时才写版次和年份，不得编造页码、链接、DOI、ISBN 或资料中的结论。
 17. `engagement_mode` 只能取 `passive|active|constructive|interactive`。关键学习环节优先让学生
    产生解释、推导、作品、操作记录或基于证据的互动；互动必须围绕共同产物或观点修订，不能只写分组。
 18. `adaptation_options` 至少覆盖达到、部分达到和未达到三种现场结果。调整可以改变提示、表征、
@@ -1153,6 +1158,9 @@ class CoursePromptComposer:
       "resource_refs": ["已给定资源的名称或标识"],
       "in_class_checks": ["可观察的课堂检查"],
       "homework": ["课后练习或迁移任务"],
+      "homework_submission": "教师已提供时填写提交渠道与截止时间，否则留空",
+      "homework_evaluation": "结合本讲任务写清准确性、过程、依据或迁移表现的评价标准",
+      "next_lesson_connection": "本讲成果怎样支持下一讲；课程最后一讲则说明怎样完成整课收束",
       "teaching_notes": ["实施提醒"],
       "pre_study": ["课前完成的阅读、观察或小任务"],
       "key_analysis": ["对本节重点与难点的教学分析"],

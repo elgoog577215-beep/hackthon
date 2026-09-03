@@ -50,6 +50,7 @@ const lesson: TeacherLessonProjection = {
           teaching_notes: ['课堂以概念框架为主'],
           teaching_modules: [{
             module_id: 'core_explanation',
+            label: '爬虫工作流程建模',
             teaching_purpose: '建立核心概念',
             planned_minutes: 15,
             teacher_activity: '绘制爬虫工作流程图',
@@ -64,6 +65,7 @@ const lesson: TeacherLessonProjection = {
             handout_ppt_mapping: '讲义第 2 页与 PPT 第 3 页',
           }, {
             module_id: 'feedback_check',
+            label: '流程图纠错与复核',
             teaching_purpose: '检查学习结果',
             planned_minutes: 5,
             teacher_activity: '抽查流程图',
@@ -110,6 +112,8 @@ describe('统一教案页面', () => {
     expect(wrapper.text()).not.toContain('理论型')
     expect(wrapper.text()).not.toContain('实战型')
     expect(wrapper.get('.lesson-block-summary').text()).toContain('课堂活动')
+    expect(wrapper.text()).toContain('环节 1：爬虫工作流程建模')
+    expect(wrapper.text()).toContain('环节 2：流程图纠错与复核')
     expect(wrapper.get('.lesson-block-summary').text()).toContain('教师活动：绘制爬虫工作流程图')
     expect(wrapper.get('.lesson-block-summary').text()).toContain('学生活动：记录并复述流程')
     expect(wrapper.get('.lesson-block-summary').text()).toContain('达成判断')
