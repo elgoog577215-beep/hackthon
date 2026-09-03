@@ -129,6 +129,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.stage-rail nav small').exists()).toBe(false)
     expect(wrapper.find('.companion-entry button small').exists()).toBe(false)
     expect(wrapper.findAll('.companion-entry button').map(button => button.text())).toEqual(['题库', '评分细则', '考试课程材料自查清单'])
+    expect(wrapper.findAll('.companion-entry button').every(button => button.findAll('svg').length === 1)).toBe(true)
   })
 
   it('把课程信息入口事件交给课程工作区打开弹窗', async () => {
