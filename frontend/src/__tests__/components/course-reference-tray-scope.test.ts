@@ -49,7 +49,7 @@ describe('CourseReferenceTray lesson scope', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.reference-tray__header').text()).toBe('信息来源')
+    expect(wrapper.find('.reference-tray__header').exists()).toBe(false)
     expect(wrapper.find('.system-context').exists()).toBe(true)
     expect(wrapper.get('.drop-zone').text()).toContain('第一讲案例.docx')
     expect(wrapper.get('.source-group--references').text()).not.toContain('第二讲练习.pdf')
@@ -61,7 +61,7 @@ describe('CourseReferenceTray lesson scope', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.reference-tray__header').text()).toBe('信息来源')
+    expect(wrapper.find('.reference-tray__header').exists()).toBe(false)
     expect(wrapper.get('.source-group--references').text()).toContain('第二讲练习.pdf')
     expect(wrapper.get('.drop-zone').text()).toContain('第二讲主教材.docx')
 
@@ -165,6 +165,9 @@ describe('CourseReferenceTray lesson scope', () => {
       global: { stubs: { WebResearchDialog: true } },
     })
     await flushPromises()
+    expect(wrapper.find('.reference-tray__header').exists()).toBe(false)
+    expect(wrapper.find('.source-status--collecting').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('先准备本阶段资料')
     expect(wrapper.get('.empty-drop').text()).toContain('上传资料文件')
     expect(wrapper.get('.reference-add').text()).toContain('上传参考文件')
 
