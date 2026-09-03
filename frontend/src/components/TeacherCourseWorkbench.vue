@@ -326,7 +326,14 @@
         @saved="handleCompanionSaved"
       />
 
-      <section v-else class="lesson-stage" :class="{ 'has-lesson-outline': lessonOutlineVisible }">
+      <section
+        v-else
+        class="lesson-stage"
+        :class="{
+          'has-lesson-outline': lessonOutlineVisible,
+          'is-document-stage': lessonPageHeaderVisible,
+        }"
+      >
         <div class="lesson-workspace">
           <aside
             v-if="lessonOutlineVisible"
@@ -373,11 +380,10 @@
             class="lesson-stage-content"
             :class="{ 'is-course-preview': lessonCoursePreviewVisible || scriptCoursePreviewVisible }"
           >
-        <nav
+        <header
           v-if="lessonStore.lessons.length"
           class="lesson-navigator"
           :class="{ 'has-document-actions': lessonPageHeaderVisible }"
-          :aria-label="t('courseWorkbench.lessonNavigation', '课次导航')"
         >
           <div class="lesson-heading-cluster">
             <div class="lesson-current-group">
@@ -399,11 +405,11 @@
               </div>
             </div>
           </div>
-          <div class="lesson-switch-actions">
+          <nav class="lesson-switch-actions" :aria-label="t('courseWorkbench.lessonNavigation', '课次导航')">
             <button type="button" :disabled="!previousLesson || aiCandidatePending" @click="selectLesson(previousLesson?.lesson_unit_id)"><ChevronLeft :size="15" />{{ t('courseWorkbench.previousLesson', '上一讲') }}</button>
             <button type="button" :disabled="!nextLesson || aiCandidatePending" @click="selectLesson(nextLesson?.lesson_unit_id)">{{ t('courseWorkbench.nextLesson', '下一讲') }}<ChevronRight :size="15" /></button>
-          </div>
-        </nav>
+          </nav>
+        </header>
         <TeacherDocumentCommandBar
           v-if="activeStage === 'lesson' && lessonToolbarVisible"
           class="lesson-command-bar"
@@ -3453,27 +3459,29 @@ onBeforeUnmount(() => {
 @media(max-width:900px){.teacher-workbench.is-ai-collaboration{grid-template-columns:minmax(0,1fr) 14px 340px;padding:10px}.ai-workspace-resizer::after{inset-block:12px}.ai-source-drawer{top:10px;right:364px;bottom:10px;width:min(320px,calc(100% - 442px))}}
 @media(prefers-reduced-motion:reduce){.ai-workspace-resizer>svg{transition:none}.ai-source-drawer{animation:none}}
 
-/* Lesson identity lives above the document; document actions stay with the document itself. */
+/* Lesson identity lives on the page background; the document begins below it. */
 .workbench-center.is-lesson-workspace:has(.lesson-navigator.has-document-actions){padding-top:24px}
+.lesson-stage.is-document-stage{overflow:visible;border:0;border-radius:0;background:transparent;box-shadow:none}
+.lesson-stage.is-document-stage .lesson-stage-content{overflow:visible;border:0;border-radius:0;background:transparent;box-shadow:none}
 .workbench-center.is-lesson-workspace .has-lesson-outline .lesson-stage-content{overflow:visible;border:0;border-radius:0;background:transparent;box-shadow:none}
-.lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;gap:24px;min-height:76px;padding:8px 4px 18px;border:0;border-radius:0;background:transparent}
+.lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;gap:28px;min-height:82px;padding:4px 2px 20px;border:0;border-radius:0;background:transparent}
 .lesson-heading-cluster{min-width:0;display:grid;align-content:center;gap:7px}
 .lesson-navigator.has-document-actions .lesson-current-group{min-width:0;justify-content:flex-start}
 .lesson-navigator.has-document-actions .lesson-outline-control{width:min(100%,720px);justify-content:flex-start}
 .lesson-navigator.has-document-actions .lesson-title-trigger{min-height:52px;padding-left:0;text-align:left}
-.lesson-navigator.has-document-actions .lesson-title-trigger strong{overflow:visible;font-size:22px;font-weight:760;line-height:1.25;letter-spacing:-.018em;text-align:left;text-overflow:clip;text-wrap:balance;white-space:normal}
+.lesson-navigator.has-document-actions .lesson-title-trigger strong{overflow:visible;font-size:24px;font-weight:760;line-height:1.25;letter-spacing:-.018em;text-align:left;text-overflow:clip;text-wrap:balance;white-space:normal}
 .lesson-navigator.has-document-actions .lesson-title-trigger small{font-size:15px}
 .lesson-current-meta{min-width:0;display:flex;align-items:center;gap:10px;color:#687386}
 .lesson-type-context{flex:none;color:#687386;font-size:15px;font-weight:650;white-space:nowrap}
 .lesson-toolbar-status{min-height:24px;display:flex;align-items:center;gap:6px;color:#687386;font-size:15px;font-weight:620;white-space:nowrap}
 .lesson-current-meta .lesson-type-context+.lesson-toolbar-status{padding-left:10px;border-left:1px solid #dce1e9}
 .lesson-toolbar-status svg{color:#667085}
-.lesson-switch-actions{flex:none;display:flex;align-items:center;gap:6px}
-.lesson-switch-actions button{min-height:34px;display:flex;align-items:center;gap:5px;padding:0 10px;border:1px solid #dfe3eb;border-radius:7px;color:#59667a;background:#fff;font-size:15px;font-weight:700;cursor:pointer}
-.lesson-switch-actions button:hover:not(:disabled){border-color:#c9cfe0;color:#3730a3;background:#f7f7fb}
+.lesson-switch-actions{flex:none;display:flex;align-items:center;gap:2px;padding:4px;border:1px solid #dde2ea;border-radius:12px;background:rgba(255,255,255,.96);box-shadow:0 10px 26px rgba(30,41,59,.11)}
+.lesson-switch-actions button{min-height:36px;display:flex;align-items:center;gap:5px;padding:0 11px;border:0;border-radius:8px;color:#59667a;background:transparent;font-size:15px;font-weight:700;cursor:pointer;transition:color .16s ease,background-color .16s ease,transform .16s ease}
+.lesson-switch-actions button:hover:not(:disabled){color:#3730a3;background:#f1f2f8}
 .lesson-switch-actions button:active:not(:disabled){transform:translateY(1px)}
 .lesson-switch-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
-.lesson-switch-actions button:disabled{border-color:transparent;color:#a3acba;background:transparent;opacity:.55;cursor:not-allowed}
+.lesson-switch-actions button:disabled{color:#a3acba;background:transparent;opacity:.52;cursor:not-allowed}
 .workbench-center.is-lesson-workspace .lesson-command-bar{width:calc(100% - 8px);justify-content:flex-end;gap:8px;margin:0 4px 10px;background:#f3f5f9}
 .lesson-action-divider{width:1px;height:20px;margin:0 2px;background:#e1e5ec}
 .workbench-center.is-lesson-workspace .lesson-section-tabs{border:1px solid #e0e6ef;border-bottom-color:#e7ebf2;border-radius:14px 14px 0 0;background:#fff}
