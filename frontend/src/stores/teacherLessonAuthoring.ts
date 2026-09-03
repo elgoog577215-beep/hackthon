@@ -54,6 +54,7 @@ export interface TeacherLessonPlanAsset {
   working_revision_id: string
   confirmed_revision_id: string
   source_state: 'current' | 'stale'
+  ready?: boolean
   revisions: TeacherLessonPlanRevision[]
   ai_candidates?: TeacherLessonPlanCandidate[]
   script_confirmation?: {

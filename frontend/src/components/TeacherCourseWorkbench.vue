@@ -646,38 +646,72 @@
             data-testid="script-course-preview"
           >
             <header>
-              <div>
-                <strong>{{ t('courseWorkbench.scriptBatch.previewTitle', '整门课程讲义预览') }}</strong>
-                <span>{{ t('courseWorkbench.scriptBatch.previewDetail', '讲义将直接沿用已生成的教案，所有讲次同时进入生成队列。') }}</span>
+              <div class="script-course-preview__intro">
+                <ol class="script-course-steps" :aria-label="t('courseWorkbench.scriptBatch.flowLabel', '讲义生成步骤')">
+                  <li class="active">
+                    <span>1</span>
+                    <div><strong>{{ t('courseWorkbench.scriptBatch.reviewPlan', '检查教案映射') }}</strong><small>{{ t('courseWorkbench.scriptBatch.reviewPlanDetail', '核对每讲教学块') }}</small></div>
+                  </li>
+                  <li>
+                    <span>2</span>
+                    <div><strong>{{ t('courseWorkbench.scriptBatch.generateStep', '生成讲义') }}</strong><small>{{ t('courseWorkbench.scriptBatch.generateStepDetail', '按映射内容直接生成') }}</small></div>
+                  </li>
+                </ol>
+                <div>
+                  <strong>{{ t('courseWorkbench.scriptBatch.previewTitle', '整门课程教案映射') }}</strong>
+                  <span>{{ t('courseWorkbench.scriptBatch.previewDetail', '讲义直接承接教案中的教学块；核对后即可开始生成，无需再填一遍要求。') }}</span>
+                </div>
               </div>
               <button
                 class="primary-action"
                 data-testid="script-course-preview-generate"
                 type="button"
                 :disabled="scriptBatchStarting || !scriptBatchEligibleCount"
+                :title="scriptBatchEligibleCount ? '' : t('courseWorkbench.scriptBatch.planRequired', '请先完成可用教案')"
                 @click="generateAllScripts"
               >
                 <LoaderCircle v-if="scriptBatchStarting" :size="16" class="spin" />
                 <Sparkles v-else :size="16" />
                 {{ scriptBatchStarting
                   ? t('courseWorkbench.scriptBatch.starting', '正在开始…')
-                  : t('courseWorkbench.scriptBatch.generateAll', '生成全部讲义') }}
+                  : scriptBatchEligibleCount === lessonStore.lessons.length
+                    ? t('courseWorkbench.scriptBatch.generateAll', '生成全部讲义')
+                    : scriptBatchEligibleCount
+                      ? t('courseWorkbench.scriptBatch.generateReady', '生成可用讲义（{count}讲）').replace('{count}', String(scriptBatchEligibleCount))
+                      : t('courseWorkbench.scriptBatch.planRequiredAction', '请先完成教案') }}
               </button>
             </header>
             <article>
-              <section v-for="(lesson, index) in lessonStore.lessons" :key="lesson.lesson_unit_id">
-                <div class="lesson-course-preview__title">
-                  <span>{{ String(index + 1).padStart(2, '0') }}</span>
-                  <h3>{{ lessonDisplayTitle(lesson, index) }}</h3>
-                  <small>{{ lesson.duration_minutes }} {{ t('courseWorkbench.scriptBatch.minutes', '分钟') }}</small>
-                </div>
-                <ol v-if="lesson.sections?.length">
-                  <li v-for="section in lesson.sections" :key="section.section_node_id">
-                    <strong>{{ section.title }}</strong>
+              <details
+                v-for="(lesson, index) in lessonStore.lessons"
+                :key="lesson.lesson_unit_id"
+                class="script-course-preview__lesson"
+                :open="index === 0"
+              >
+                <summary>
+                  <div class="lesson-course-preview__title">
+                    <span>{{ String(index + 1).padStart(2, '0') }}</span>
+                    <h3>{{ lessonDisplayTitle(lesson, index) }}</h3>
+                    <small :data-state="lessonPlanIsReady(lesson) ? 'ready' : 'pending'">{{ lessonPlanIsReady(lesson)
+                      ? t('courseWorkbench.scriptBatch.planMapped', '教案已映射')
+                      : t('courseWorkbench.scriptBatch.planPending', '教案待生成') }}</small>
+                  </div>
+                  <div v-if="lessonPlanBlocks(lesson).length" class="script-course-preview__block-line">
+                    <span v-for="block in lessonPlanBlocks(lesson)" :key="block.id">
+                      <strong>{{ block.label }}</strong>
+                      <small v-if="block.minutes">{{ block.minutes }} {{ t('courseWorkbench.scriptBatch.minutes', '分钟') }}</small>
+                    </span>
+                  </div>
+                  <p v-else class="lesson-course-preview__pending">{{ t('courseWorkbench.scriptBatch.structurePending', '完成本讲教案后，教学块会自动映射到这里。') }}</p>
+                </summary>
+                <ol v-if="lessonPlanBlocks(lesson).length">
+                  <li v-for="block in lessonPlanBlocks(lesson)" :key="block.id">
+                    <strong>{{ block.label }}</strong>
+                    <span>{{ block.summary }}</span>
+                    <small v-if="block.minutes">{{ block.minutes }} {{ t('courseWorkbench.scriptBatch.minutes', '分钟') }}</small>
                   </li>
                 </ol>
-                <p v-else class="lesson-course-preview__pending">{{ t('courseWorkbench.scriptBatch.structurePending', '本讲将按当前教案生成完整讲义。') }}</p>
-              </section>
+              </details>
             </article>
           </section>
           <TeacherScriptDocument
@@ -1461,15 +1495,8 @@ const previousLessonReferenceTargetId = computed(() => (
 ))
 const nextLesson = computed(() => selectedLessonIndex.value >= 0 && selectedLessonIndex.value < lessonStore.lessons.length - 1 ? lessonStore.lessons[selectedLessonIndex.value + 1] : undefined)
 const workingLessonRevision = computed(() => selectedLesson.value?.plan.revisions.find(item => item.revision_id === selectedLesson.value?.plan.working_revision_id))
-const currentLessonPlanReady = computed(() => Boolean(
-  selectedLesson.value?.plan.working_revision_id
-  && selectedLesson.value.plan.source_state === 'current',
-))
-const currentScriptReady = computed(() => Boolean(
-  selectedLesson.value?.script?.ready
-  && selectedLesson.value.script.current_revision_id
-  && selectedLesson.value.script.source_state === 'current',
-))
+const currentLessonPlanReady = computed(() => lessonPlanIsReady(selectedLesson.value))
+const currentScriptReady = computed(() => lessonScriptIsReady(selectedLesson.value))
 const currentAiBaseRevision = computed(() => {
   if (aiDomain.value === 'lesson') return String(workingLessonRevision.value?.revision_id || '')
   if (aiDomain.value === 'question-bank') return String(aiCandidate.value?.base_bundle_revision_id || questionBankRevisionId.value || 'course-question-bank')
@@ -1840,7 +1867,7 @@ const lessonGenerationActive = computed(() => ['pending', 'running'].includes(St
 const lessonGenerationRunning = computed(() => lessonJob.value?.status === 'running')
 const lessonGenerationQueued = computed(() => lessonJob.value?.status === 'pending' && Boolean(lessonJob.value?.parent_job_id))
 const batchEligibleCount = computed(() => lessonStore.lessons.filter(lesson => (
-  !lesson.plan.working_revision_id || lesson.plan.source_state !== 'current'
+  !lessonPlanIsReady(lesson)
 )).length)
 const latestBatchParentId = computed(() => [...lessonStore.jobs]
   .filter(job => job.type === 'teacher_lesson_plan_generation' && job.parent_job_id)
@@ -1866,7 +1893,7 @@ const batchPaused = computed(() => (
 ))
 const batchFailed = computed(() => batchLessonJobs.value.some(job => ['failed', 'cancelled'].includes(job.status)))
 const batchRecoveryAvailable = computed(() => batchPaused.value || batchFailed.value || lessonStore.lessons.some(lesson => (
-  (!lesson.plan.working_revision_id || lesson.plan.source_state !== 'current')
+  !lessonPlanIsReady(lesson)
   && ['paused', 'failed', 'cancelled'].includes(String(lessonStore.latestJobByLesson(lesson.lesson_unit_id)?.status || ''))
 )))
 const lessonBatchLaunchVisible = computed(() => (
@@ -1880,7 +1907,7 @@ const lessonBatchLaunchVisible = computed(() => (
 const lessonCoursePreviewVisible = computed(() => (
   activeStage.value === 'lesson'
   && lessonStore.lessons.length > 0
-  && !lessonStore.lessons.some(lesson => Boolean(lesson.plan.working_revision_id))
+  && !lessonStore.lessons.some(lesson => lessonPlanIsReady(lesson))
   && !batchRunning.value
   && !batchStarting.value
   && batchEligibleCount.value > 0
@@ -1917,8 +1944,8 @@ const lessonStreamSegments = computed(() => lessonPlanStreamSegments(lessonJob.v
 const scriptJob = computed(() => selectedLessonId.value ? lessonStore.latestScriptJobByLesson(selectedLessonId.value) : undefined)
 const scriptGenerationActive = computed(() => ['pending', 'running'].includes(String(scriptJob.value?.status || '')))
 const scriptBatchEligibleCount = computed(() => lessonStore.lessons.filter(lesson => (
-  Boolean(lesson.plan?.working_revision_id && lesson.plan.source_state === 'current')
-  && (!lesson.script?.ready || !lesson.script.current_revision_id || lesson.script.source_state !== 'current')
+  lessonPlanIsReady(lesson)
+  && !lessonScriptIsReady(lesson)
 )).length)
 const latestScriptBatchParentId = computed(() => [...lessonStore.jobs]
   .reverse()
@@ -1966,10 +1993,9 @@ const scriptBatchLaunchVisible = computed(() => (
 const scriptCoursePreviewVisible = computed(() => (
   activeStage.value === 'script'
   && lessonStore.lessons.length > 0
-  && !lessonStore.lessons.some(lesson => Boolean(lesson.script?.ready || lesson.script?.current_revision_id))
+  && !lessonStore.lessons.some(lesson => lessonScriptIsReady(lesson))
   && !scriptBatchRunning.value
   && !scriptBatchStarting.value
-  && scriptBatchEligibleCount.value > 0
 ))
 const scriptGenerationBusy = computed(() => scriptGenerating.value || scriptBatchStarting.value || scriptGenerationActive.value)
 const lessonOutlineVisible = computed(() => {
@@ -2161,8 +2187,8 @@ const lessonPrerequisiteError = computed(() => (
 function stageReady(stage: CoreStageId) {
   if (stage === 'foundation') return outlineFullReady.value
   if (!lessonStore.lessons.length) return false
-  if (stage === 'lesson') return lessonStore.lessons.every(item => Boolean(item.plan.working_revision_id && item.plan.source_state === 'current'))
-  if (stage === 'script') return lessonStore.lessons.every(item => Boolean(item.script?.ready && item.script.current_revision_id && item.script.source_state === 'current'))
+  if (stage === 'lesson') return lessonStore.lessons.every(item => lessonPlanIsReady(item))
+  if (stage === 'script') return lessonStore.lessons.every(item => lessonScriptIsReady(item))
   return lessonStore.lessons.every(item => item.plan.ppt_assets.some(asset => asset.source_state === 'current'))
 }
 function teacherOutlineGenerationLabel(value: unknown) {
@@ -2971,11 +2997,8 @@ function preferredLessonId(lessons: typeof lessonStore.lessons): string {
   ))
   if (affected) return affected.lesson_unit_id
   const unfinished = lessons.find(lesson => (
-    !lesson.plan.working_revision_id
-    || lesson.plan.source_state !== 'current'
-    || !lesson.script?.ready
-    || !lesson.script?.current_revision_id
-    || lesson.script?.source_state !== 'current'
+    !lessonPlanIsReady(lesson)
+    || !lessonScriptIsReady(lesson)
     || !lesson.plan.ppt_assets?.some(asset => asset.source_state === 'current')
   ))
   return unfinished?.lesson_unit_id || lessons[0]?.lesson_unit_id || ''
@@ -3026,6 +3049,48 @@ function outlineLessonStatusTitle(item: OutlineLessonStatus, index: number): str
     .replace('{number}', String(Number.isFinite(lessonNumber) ? lessonNumber : index + 1))
   return rawTitle ? `${prefix} ${rawTitle}` : prefix
 }
+type ScriptPlanPreviewBlock = {
+  id: string
+  label: string
+  summary: string
+  minutes: number
+}
+function lessonPlanIsReady(lesson?: TeacherLessonProjection | null): boolean {
+  if (!lesson?.plan?.working_revision_id || lesson.plan.source_state !== 'current') return false
+  return typeof lesson.plan.ready === 'boolean' ? lesson.plan.ready : true
+}
+function lessonScriptIsReady(lesson?: TeacherLessonProjection | null): boolean {
+  return Boolean(
+    lesson?.script?.ready
+    && lesson.script.current_revision_id
+    && lesson.script.source_state === 'current',
+  )
+}
+function lessonPlanBlocks(lesson: TeacherLessonProjection): ScriptPlanPreviewBlock[] {
+  const revision = lesson.plan.revisions?.find(item => item.revision_id === lesson.plan.working_revision_id)
+  const sections = Array.isArray(revision?.plan?.sections) ? revision.plan.sections : []
+  const arrangementById = new Map(
+    (lesson.arrangement?.blocks || []).map(block => [block.block_id, block]),
+  )
+  const mapped = sections.flatMap((section: Record<string, any>) => (
+    (Array.isArray(section.teaching_modules) ? section.teaching_modules : []).map((module: Record<string, any>, index: number) => {
+      const arrangement = arrangementById.get(String(module.arrangement_block_id || ''))
+      return {
+        id: `${section.node_id || 'section'}:${module.arrangement_block_id || module.module_id || index}`,
+        label: String(module.label || arrangement?.name || t('courseWorkbench.scriptBatch.blockFallback', '教学块')),
+        summary: String(module.teacher_activity || module.teaching_purpose || module.teaching_guidance || arrangement?.content_summary || arrangement?.purpose || ''),
+        minutes: Number(module.planned_minutes || arrangement?.planned_minutes || 0),
+      }
+    })
+  ))
+  if (mapped.length) return mapped
+  return (lesson.arrangement?.blocks || []).map((block, index) => ({
+    id: block.block_id || `arrangement:${index}`,
+    label: block.name || t('courseWorkbench.scriptBatch.blockFallback', '教学块'),
+    summary: block.teacher_activity || block.content_summary || block.purpose || '',
+    minutes: Number(block.planned_minutes || 0),
+  }))
+}
 function lessonJobForStage(lesson: any): TeacherLessonJob | undefined {
   if (activeStage.value === 'script') return lessonStore.latestScriptJobByLesson(lesson.lesson_unit_id)
   if (activeStage.value === 'lesson') return lessonStore.latestJobByLesson(lesson.lesson_unit_id)
@@ -3046,8 +3111,8 @@ function lessonGenerationState(lesson: any): 'pending' | 'queued' | 'generating'
   if (['failed', 'cancelled'].includes(jobStatus)) return 'failed'
   if (activeStage.value === 'script' && lesson.script?.source_state === 'stale') return 'stale'
   if (activeStage.value === 'lesson' && lesson.plan?.source_state === 'stale') return 'stale'
-  if (activeStage.value === 'script' && (lesson.script?.ready || lesson.script?.current_revision_id || ['completed', 'completed_with_warnings'].includes(jobStatus))) return 'ready'
-  if (activeStage.value === 'lesson' && (lesson.plan?.working_revision_id || ['completed', 'completed_with_warnings'].includes(jobStatus))) return 'ready'
+  if (activeStage.value === 'script' && lessonScriptIsReady(lesson)) return 'ready'
+  if (activeStage.value === 'lesson' && lessonPlanIsReady(lesson)) return 'ready'
   return 'pending'
 }
 function lessonGenerationIsRunning(lesson: any): boolean {
@@ -3595,4 +3660,6 @@ onBeforeUnmount(() => {
 .outline-detail-stream__preview{max-height:220px;overflow:auto;margin:2px 0 0 31px;padding:12px 14px;border-radius:8px;color:#3f4b60;background:#f7f8fb;font:inherit;font-size:15px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
 .outline-detail-stream__preview .stream-caret{height:16px;margin-left:2px;vertical-align:-2px}
 @media(prefers-reduced-motion:reduce){.outline-detail-stream__progress>i{transition:none}}
+.script-course-preview>header{align-items:flex-start}.script-course-preview__intro{flex:1;gap:18px!important}.script-course-preview__intro>div:last-child{display:grid;gap:5px}.script-course-steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;margin:0;padding:3px;border:1px solid #dfe4ed;border-radius:11px;background:#eef1f6;list-style:none}.script-course-steps li{min-width:0;min-height:48px;display:grid;grid-template-columns:24px minmax(0,1fr);align-items:center;gap:8px;padding:5px 10px;border-radius:8px;color:#69768a}.script-course-steps li>span{width:22px;height:22px;display:grid;place-items:center;border:1px solid #cbd3df;border-radius:50%;color:#69768a;font-size:13px;font-weight:800}.script-course-steps li>div{min-width:0;display:grid;gap:1px}.script-course-steps li strong{overflow:hidden;color:inherit;font-size:14px;font-weight:750;text-overflow:ellipsis;white-space:nowrap}.script-course-steps li small{overflow:hidden;color:#7c8899;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.script-course-steps li.active{color:#312e81;background:#fff;box-shadow:0 2px 8px rgba(30,41,59,.08)}.script-course-steps li.active>span{border-color:#6965d8;color:#fff;background:#6965d8}.script-course-preview>header>button{margin-top:60px}.script-course-preview .lesson-course-preview__title small[data-state="ready"]{color:#168044;font-weight:650}.script-course-preview .lesson-course-preview__title small[data-state="pending"]{color:#9a5b14;font-weight:650}.script-course-preview>article{padding-top:0}.script-course-preview__lesson{border-bottom:1px solid #e9edf3}.script-course-preview__lesson:last-child{border-bottom:0}.script-course-preview__lesson>summary{position:relative;display:grid;gap:11px;padding:19px 34px 19px 0;list-style:none;cursor:pointer}.script-course-preview__lesson>summary::-webkit-details-marker{display:none}.script-course-preview__lesson>summary::after{position:absolute;top:25px;right:5px;width:8px;height:8px;border-right:1.5px solid #8a95a5;border-bottom:1.5px solid #8a95a5;content:"";transform:rotate(45deg);transition:transform .16s ease-out}.script-course-preview__lesson[open]>summary::after{transform:translateY(4px) rotate(225deg)}.script-course-preview__lesson>summary:hover{background:#fbfcff}.script-course-preview__lesson>summary:focus-visible{border-radius:8px;outline:2px solid #5b57e8;outline-offset:-2px}.script-course-preview__block-line{display:flex;flex-wrap:wrap;gap:5px 0;margin-left:40px;color:#68768b;font-size:14px;line-height:1.5}.script-course-preview__block-line>span{display:inline-flex;align-items:baseline;gap:5px}.script-course-preview__block-line>span:not(:last-child)::after{margin:0 9px;color:#bcc4d0;content:"·"}.script-course-preview__block-line strong{color:#4b5870;font-weight:680}.script-course-preview__block-line small{color:#8994a4;font-size:13px;white-space:nowrap}.script-course-preview__lesson[open] .script-course-preview__block-line{display:none}.script-course-preview__lesson>ol{display:grid;gap:7px;margin:0 0 20px 40px;padding:0;list-style:none}.script-course-preview__lesson>ol li{grid-template-columns:minmax(120px,.3fr) minmax(0,1fr) auto}.script-course-preview__lesson>ol li small{color:#68768b;font-size:14px;white-space:nowrap}.script-course-preview__lesson>summary>.lesson-course-preview__pending{margin:0 0 0 40px}.script-course-preview__lesson>summary:hover .lesson-course-preview__title h3{color:#312e81}
+@media(prefers-reduced-motion:reduce){.script-course-preview__lesson>summary::after{transition:none}}
 </style>

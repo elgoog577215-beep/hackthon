@@ -175,17 +175,34 @@ describe('统一讲义页面', () => {
     expect(wrapper.find('.script-body').exists()).toBe(true)
   })
 
-  it('无讲稿时先收集需求并只触发一条生成链路', async () => {
+  it('无讲稿时先映射教案教学块，核对后直接触发生成', async () => {
     const emptyLesson = structuredClone(lesson)
     emptyLesson.script = { ...emptyLesson.script, current_revision_id: '', ready: false, sections: [] }
+    emptyLesson.plan.revisions = [{
+      revision_id: 'plan-1', lesson_unit_id: 'lesson-1', source_outline_revision_id: 'outline-1',
+      generation_source: 'model', status: 'draft', warnings: [], actor: 'teacher', created_at: '',
+      plan: {
+        sections: [{
+          node_id: 'section-1',
+          teaching_modules: [{
+            module_id: 'core_explanation', label: '核心教学', planned_minutes: 20,
+            teacher_activity: '用界面实例讲清用户、任务和界面之间的关系',
+          }],
+        }],
+      },
+    }]
     const wrapper = mount(TeacherScriptDocument, {
       props: { courseId: 'course-1', lesson: emptyLesson, canGenerate: true },
     })
 
-    await wrapper.get('.script-generate textarea').setValue('增加课堂案例')
-    await wrapper.get('.script-generate').trigger('submit')
+    expect(wrapper.get('.script-source-steps').text()).toContain('检查教案映射')
+    expect(wrapper.get('.script-source-steps').text()).toContain('生成讲义')
+    expect(wrapper.get('.script-source-blocks').text()).toContain('核心教学')
+    expect(wrapper.get('.script-source-blocks').text()).toContain('用界面实例讲清')
+    expect(wrapper.find('.script-source-review textarea').exists()).toBe(false)
+    await wrapper.get('.script-source-review').trigger('submit')
 
-    expect(wrapper.emitted('generate')).toEqual([['增加课堂案例']])
+    expect(wrapper.emitted('generate')).toEqual([['']])
     expect(wrapper.find('.script-footer').exists()).toBe(false)
   })
 
@@ -214,16 +231,16 @@ describe('统一讲义页面', () => {
 
     expect(wrapper.get('.script-generation-progress').text()).toContain('1/2')
     expect(wrapper.findComponent(MarkdownRenderer).props('content')).toBe('先说明目标。')
-    expect(wrapper.get('.script-generate button').text()).toContain('继续生成剩余内容')
+    expect(wrapper.get('.script-source-review button').text()).toContain('继续生成剩余内容')
 
-    await wrapper.get('.script-generate').trigger('submit')
+    await wrapper.get('.script-source-review').trigger('submit')
     expect(wrapper.emitted('generate')).toEqual([['']])
 
     await wrapper.setProps({
       generating: true,
       generationJob: { ...generationJob, status: 'running', message: '正在生成：核心教学' },
     })
-    expect(wrapper.find('.script-generate').exists()).toBe(false)
+    expect(wrapper.find('.script-source-review').exists()).toBe(false)
     expect(wrapper.get('.script-generation-progress').text()).toContain('正在生成：核心教学')
     const generationActions = wrapper.findAll('.script-generation-progress button')
     expect(generationActions.map(button => button.text())).toEqual(['暂停', '取消'])
@@ -236,7 +253,7 @@ describe('统一讲义页面', () => {
       generating: false,
       generationJob: { ...generationJob, status: 'cancelled', message: '已停止生成，已完成内容仍然保留' },
     })
-    expect(wrapper.get('.script-generate button').text()).toContain('继续生成剩余内容')
+    expect(wrapper.get('.script-source-review button').text()).toContain('继续生成剩余内容')
   })
 
   it('按当前教学块实时渲染流式增量文本', async () => {
@@ -310,7 +327,7 @@ describe('统一讲义页面', () => {
     expect(wrapper.text()).not.toContain('恢复草稿')
     expect(wrapper.text()).not.toContain('当前稿包含本地恢复内容')
     expect(wrapper.text()).toContain('讲义生成失败')
-    expect(wrapper.get('.script-generate button').text()).toContain('生成本讲讲义')
+    expect(wrapper.get('.script-source-review button').text()).toContain('生成本讲讲义')
     expect(wrapper.find('.script-footer').exists()).toBe(false)
   })
 

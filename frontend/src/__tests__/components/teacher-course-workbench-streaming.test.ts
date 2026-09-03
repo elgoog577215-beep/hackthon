@@ -1051,7 +1051,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.stage-rail button.active').text()).toContain('讲义')
   })
 
-  it('讲义未生成时平铺全课教案范围，并一次提交全部讲义', async () => {
+  it('讲义未生成时先平铺全课教案映射，再一次提交全部讲义', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2].map(number => ({
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45,
@@ -1062,7 +1062,14 @@ describe('teacher course workbench outline streaming', () => {
         status: 'confirmed', confirmed: true, source_state: 'current', blocks: [],
       },
       script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: `plan-${number}`, source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
-      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+      plan: {
+        lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, confirmed_revision_id: '', source_state: 'current', ready: true, ppt_assets: [],
+        revisions: [{
+          revision_id: `plan-${number}`, lesson_unit_id: `L1-${number}`, source_outline_revision_id: 'outline-1',
+          generation_source: 'model', status: 'draft', warnings: [], actor: 'teacher', created_at: '',
+          plan: { sections: [{ node_id: `L2-${number}-1`, teaching_modules: [{ module_id: 'core_explanation', label: '核心教学', planned_minutes: 20, teacher_activity: `讲清第${number}讲的核心概念` }] }] },
+        }],
+      },
     })) as any
     const generateAll = vi.spyOn(lessonStore, 'generateAllScripts').mockResolvedValue({
       parent_job: { id: 'script-batch-1' }, jobs: [],
@@ -1071,14 +1078,41 @@ describe('teacher course workbench outline streaming', () => {
     const wrapper = mountWorkbench({ initialStage: 'script' })
 
     expect(wrapper.find('[data-testid="lesson-outline-fixed"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="script-course-preview"]').text()).toContain('整门课程讲义预览')
-    expect(wrapper.get('[data-testid="script-course-preview"]').text()).toContain('1.1 核心内容')
+    expect(wrapper.get('[data-testid="script-course-preview"]').text()).toContain('检查教案映射')
+    expect(wrapper.get('[data-testid="script-course-preview"]').text()).toContain('整门课程教案映射')
+    expect(wrapper.get('[data-testid="script-course-preview"]').text()).toContain('核心教学')
+    expect(wrapper.get('[data-testid="script-course-preview"]').text()).toContain('讲清第1讲的核心概念')
+    expect(wrapper.get('[data-testid="script-course-preview"]').text()).not.toContain('填写讲义生成要求')
     expect(wrapper.get('[data-testid="script-course-preview-generate"]').text()).toBe('生成全部讲义')
 
     await wrapper.get('[data-testid="script-course-preview-generate"]').trigger('click')
     await flushPromises()
 
     expect(generateAll).toHaveBeenCalledWith('course-1', '')
+  })
+
+  it('仅把真实可用的讲义计入完成，遗留修订标识不再显示勾选', () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45, sections: [],
+      arrangement: { schema_version: 'teacher_lesson_arrangement_v1', revision_id: `arrangement-${number}`, lesson_unit_id: `L1-${number}`, source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授', status: 'confirmed', confirmed: true, source_state: 'current', blocks: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, confirmed_revision_id: '', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
+      script: {
+        current_revision_id: number === 1 ? 'script-1' : 'legacy-fingerprint',
+        confirmed_revision_id: '', source_lesson_plan_revision_id: `plan-${number}`, source_state: 'current',
+        ready: number === 1, confirmed: false, confirmed_at: '', sections: [],
+      },
+    })) as any
+
+    const wrapper = mountWorkbench({ initialStage: 'script' })
+    const outline = wrapper.get('[data-testid="lesson-outline-fixed"]')
+    const lessons = outline.findAll('.lesson-outline-chapter-button')
+
+    expect(outline.get('header').text()).toContain('已完成 1/2')
+    expect(lessons[0]!.find('.lesson-outline-status').attributes('data-state')).toBe('ready')
+    expect(lessons[1]!.find('.lesson-outline-status').attributes('data-state')).toBe('pending')
+    expect(lessons[1]!.text()).toContain('未生成')
+    expect(lessons[1]!.find('.lesson-outline-status svg').exists()).toBe(false)
   })
 
   it('讲义批次同时显示逐讲状态与全课总进度', () => {

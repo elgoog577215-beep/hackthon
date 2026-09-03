@@ -53,23 +53,52 @@
     </aside>
 
     <section v-if="!lesson.script.ready" class="script-generation-panel" :class="{ 'has-partial': scriptSections.length }">
-      <form v-if="showGenerationForm" class="script-generate" @submit.prevent="requestGeneration">
-        <textarea
-          v-model="generationRequirement"
-          rows="4"
-          :disabled="generating"
-          :placeholder="tr('courseWorkbench.scriptDocument.generationPlaceholder')"
-          :aria-label="tr('courseWorkbench.scriptDocument.generationRequirement')"
-        />
-        <button
-          type="submit"
-          :disabled="generating || !canGenerate"
-          :title="!canGenerate ? tr('courseWorkbench.scriptDocument.planRequired') : ''"
-        >
-          <LoaderCircle v-if="generating" :size="16" class="spin" />
-          <Sparkles v-else :size="16" />
-          {{ generationActionLabel }}
-        </button>
+      <form v-if="showGenerationForm" class="script-source-review" @submit.prevent="requestGeneration">
+        <ol class="script-source-steps" :aria-label="tr('courseWorkbench.scriptDocument.flowLabel')">
+          <li class="active">
+            <span>1</span>
+            <div>
+              <strong>{{ tr('courseWorkbench.scriptDocument.reviewPlan') }}</strong>
+              <small>{{ tr('courseWorkbench.scriptDocument.reviewPlanDetail') }}</small>
+            </div>
+          </li>
+          <li>
+            <span>2</span>
+            <div>
+              <strong>{{ tr('courseWorkbench.scriptDocument.generateStep') }}</strong>
+              <small>{{ tr('courseWorkbench.scriptDocument.generateStepDetail') }}</small>
+            </div>
+          </li>
+        </ol>
+        <div class="script-source-review__heading">
+          <div>
+            <strong>{{ tr('courseWorkbench.scriptDocument.mappingTitle') }}</strong>
+            <span>{{ canGenerate
+              ? tr('courseWorkbench.scriptDocument.mappingReady')
+              : tr('courseWorkbench.scriptDocument.mappingBlocked') }}</span>
+          </div>
+          <button
+            type="submit"
+            :disabled="generating || !canGenerate"
+            :title="!canGenerate ? tr('courseWorkbench.scriptDocument.planRequired') : ''"
+          >
+            <LoaderCircle v-if="generating" :size="16" class="spin" />
+            <Sparkles v-else :size="16" />
+            {{ generationActionLabel }}
+          </button>
+        </div>
+        <ol v-if="mappedPlanBlocks.length" class="script-source-blocks">
+          <li v-for="(block, index) in mappedPlanBlocks" :key="block.id">
+            <span>{{ String(index + 1).padStart(2, '0') }}</span>
+            <div>
+              <strong>{{ block.label }}</strong>
+              <small v-if="block.sectionTitle">{{ block.sectionTitle }}</small>
+              <p>{{ block.summary }}</p>
+            </div>
+            <em v-if="block.minutes">{{ block.minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</em>
+          </li>
+        </ol>
+        <p v-else class="script-source-empty">{{ tr('courseWorkbench.scriptDocument.mappingEmpty') }}</p>
       </form>
       <div v-if="generationJob" class="script-generation-progress" :data-status="generationJob.status">
         <div>
@@ -211,7 +240,6 @@ const aiError = ref<unknown>(null)
 const pendingCandidate = ref<TeacherLessonScriptCandidate | null>(null)
 const candidateRef = ref<HTMLElement | null>(null)
 const documentRoot = ref<HTMLElement | null>(null)
-const generationRequirement = ref('')
 type ScriptEditSnapshot = { drafts: Record<string, string>; blockDrafts: Record<string, string> }
 const editHistory = useDocumentEditHistory<ScriptEditSnapshot>(snapshot => {
   Object.keys(drafts).forEach(key => { delete drafts[key] })
@@ -268,8 +296,15 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.scriptDocument.statusGenerated': '已生成',
   'courseWorkbench.scriptDocument.statusPreviousFailureDetail': '最近一次 AI 生成没有完成；当前展示的是已经单独保存并通过检查的正文，不是该次失败任务的输出。',
   'courseWorkbench.scriptDocument.statusGeneratedDetail': '当前修订已是页面内容稿与 PPT 的生成依据。',
-  'courseWorkbench.scriptDocument.generationRequirement': '讲义生成要求',
-  'courseWorkbench.scriptDocument.generationPlaceholder': '例如：增加一个贴近学生的课堂案例，保留教案时间安排',
+  'courseWorkbench.scriptDocument.flowLabel': '讲义生成步骤',
+  'courseWorkbench.scriptDocument.reviewPlan': '检查教案映射',
+  'courseWorkbench.scriptDocument.reviewPlanDetail': '核对本讲教学块',
+  'courseWorkbench.scriptDocument.generateStep': '生成讲义',
+  'courseWorkbench.scriptDocument.generateStepDetail': '按映射内容直接生成',
+  'courseWorkbench.scriptDocument.mappingTitle': '本讲讲义将按以下教案生成',
+  'courseWorkbench.scriptDocument.mappingReady': '教学块已映射，核对后可直接开始。',
+  'courseWorkbench.scriptDocument.mappingBlocked': '当前暂无可用教案，请先完成本讲教案。',
+  'courseWorkbench.scriptDocument.mappingEmpty': '教案中还没有可映射的教学块。',
   'courseWorkbench.scriptDocument.generate': '生成本讲讲义',
   'courseWorkbench.scriptDocument.generating': '正在生成…',
   'courseWorkbench.scriptDocument.stopGeneration': '停止',
@@ -365,6 +400,42 @@ const generationActionLabel = computed(() => {
   }
   return tr('courseWorkbench.scriptDocument.generate')
 })
+type MappedPlanBlock = {
+  id: string
+  label: string
+  sectionTitle: string
+  summary: string
+  minutes: number
+}
+const mappedPlanBlocks = computed<MappedPlanBlock[]>(() => {
+  const plan = props.lesson.plan
+  const revision = plan.revisions?.find(item => item.revision_id === plan.working_revision_id)
+  const sections = Array.isArray(revision?.plan?.sections) ? revision.plan.sections : []
+  const arrangementById = new Map(
+    (props.lesson.arrangement?.blocks || []).map(block => [block.block_id, block]),
+  )
+  const blocks = sections.flatMap((section: Record<string, any>) => {
+    const sectionTitle = props.lesson.sections.find(item => item.section_node_id === section.node_id)?.title || ''
+    return (Array.isArray(section.teaching_modules) ? section.teaching_modules : []).map((module: Record<string, any>, index: number) => {
+      const arrangement = arrangementById.get(String(module.arrangement_block_id || ''))
+      return {
+        id: String(module.arrangement_block_id || `${section.node_id || 'section'}:${module.module_id || index}`),
+        label: String(module.label || arrangement?.name || blockRoleLabel(String(module.role || arrangement?.role || ''))),
+        sectionTitle,
+        summary: String(module.teacher_activity || module.teaching_purpose || module.teaching_guidance || arrangement?.content_summary || arrangement?.purpose || ''),
+        minutes: Number(module.planned_minutes || arrangement?.planned_minutes || 0),
+      }
+    })
+  })
+  if (blocks.length) return blocks
+  return (props.lesson.arrangement?.blocks || []).map((block, index) => ({
+    id: block.block_id || `arrangement:${index}`,
+    label: block.name || blockRoleLabel(block.role),
+    sectionTitle: block.section_title || '',
+    summary: block.teacher_activity || block.content_summary || block.purpose || '',
+    minutes: Number(block.planned_minutes || 0),
+  }))
+})
 const selectedNode = computed(() => scriptSections.value.find(node => node.section_node_id === selectedNodeId.value) || scriptSections.value[0] || null)
 
 function blockIsStreaming(blockId: string): boolean {
@@ -392,7 +463,7 @@ function activateNode(node: ScriptSection, scroll = true) {
 }
 
 function requestGeneration() {
-  if (!props.generating && props.canGenerate) emit('generate', generationRequirement.value.trim())
+  if (!props.generating && props.canGenerate) emit('generate', '')
 }
 
 function beginEditing() {
@@ -529,7 +600,6 @@ watch(() => props.lesson.lesson_unit_id, () => {
   pendingCandidate.value = null
   emit('ai-candidate-change', null)
   aiError.value = null
-  generationRequirement.value = ''
   selectedNodeId.value = scriptSections.value[0]?.section_node_id || ''
 }, { immediate: true })
 
@@ -553,12 +623,6 @@ watch(scriptSections, sections => {
     selectedNodeId.value = sections[0]?.section_node_id || ''
   }
 })
-
-watch(() => props.generationJob, job => {
-  if (!generationRequirement.value && job?.requirements) {
-    generationRequirement.value = job.requirements
-  }
-}, { immediate: true })
 
 watch(selectedNode, node => emit('ai-scope-change', { id: node?.section_node_id || '', title: node?.title || '' }), { immediate: true })
 
@@ -594,4 +658,5 @@ defineExpose({
 .script-ai{background:var(--teacher-component-tint,#f7f7ff)}
 .script-actions button:hover,.script-generate textarea:disabled{background:var(--teacher-component-tint,#f7f7ff)}
 .script-streamed-block .stream-caret{width:2px;height:17px;display:inline-block;margin-left:3px;vertical-align:-2px;background:#5b57e8;animation:blink .8s steps(1) infinite}@keyframes blink{50%{opacity:0}}
+.script-source-review{display:grid;gap:22px;padding:24px 28px 30px}.script-source-steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;margin:0;padding:3px;border:1px solid #dfe4ed;border-radius:11px;background:#eef1f6;list-style:none}.script-source-steps li{min-width:0;min-height:48px;display:grid;grid-template-columns:24px minmax(0,1fr);align-items:center;gap:8px;padding:5px 10px;border-radius:8px;color:#69768a}.script-source-steps li>span{width:22px;height:22px;display:grid;place-items:center;border:1px solid #cbd3df;border-radius:50%;font-size:13px;font-weight:800}.script-source-steps li>div{min-width:0;display:grid;gap:1px}.script-source-steps strong{overflow:hidden;font-size:14px;font-weight:750;text-overflow:ellipsis;white-space:nowrap}.script-source-steps small{overflow:hidden;color:#7c8899;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.script-source-steps li.active{color:#312e81;background:#fff;box-shadow:0 2px 8px rgba(30,41,59,.08)}.script-source-steps li.active>span{border-color:#6965d8;color:#fff;background:#6965d8}.script-source-review__heading{display:flex;align-items:center;justify-content:space-between;gap:24px}.script-source-review__heading>div{min-width:0;display:grid;gap:5px}.script-source-review__heading strong{color:#263147;font-size:18px;font-weight:760}.script-source-review__heading span{color:#68768b;font-size:15px;line-height:1.5}.script-source-review__heading button{min-height:42px;flex:none;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 18px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:14px;font-weight:750;cursor:pointer}.script-source-review__heading button:hover:not(:disabled){background:#4338ca}.script-source-review__heading button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.script-source-review__heading button:disabled{opacity:.45;cursor:not-allowed}.script-source-blocks{display:grid;gap:0;margin:0;padding:0;border-top:1px solid #e8ecf2;list-style:none}.script-source-blocks li{min-height:72px;display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:start;gap:12px;padding:14px 0;border-bottom:1px solid #e8ecf2}.script-source-blocks>li>span{padding-top:2px;color:#817dcf;font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}.script-source-blocks li>div{min-width:0;display:grid;gap:3px}.script-source-blocks strong{color:#303b50;font-size:15px;font-weight:720}.script-source-blocks small{color:#68768b;font-size:14px}.script-source-blocks p{max-width:75ch;margin:2px 0 0;color:#566277;font-size:15px;line-height:1.55}.script-source-blocks em{padding-top:2px;color:#68768b;font-size:14px;font-style:normal;white-space:nowrap}.script-source-empty{margin:0;padding:18px 0;border-top:1px solid #e8ecf2;color:#68768b;font-size:15px}
 </style>
