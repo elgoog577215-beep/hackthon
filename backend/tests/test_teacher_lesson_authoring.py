@@ -358,6 +358,41 @@ def test_lesson_arrangement_adapts_legacy_node_outline_into_same_recommendation(
     ) == []
 
 
+def test_lesson_arrangement_resolves_lecture_v1_outline_by_lecture_number():
+    source = course_data()
+    source["authoring_structure_version"] = "lecture_v1"
+    source["course_plan"]["authoring_structure_version"] = "lecture_v1"
+    for lecture_number, chapter in enumerate(
+        source["course_plan"]["chapters"],
+        start=1,
+    ):
+        chapter.pop("node_id")
+        chapter["chapter_number"] = lecture_number
+        chapter["lecture_number"] = lecture_number
+
+    arrangement = recommend_lesson_arrangement(
+        source,
+        "L1-1",
+        source_outline_revision_id="lecture-outline-v1",
+    )
+
+    assert arrangement["blocks"]
+    assert {item["section_node_id"] for item in arrangement["blocks"]} == {
+        "L2-1-1",
+        "L2-1-2",
+    }
+    assert validate_lesson_arrangement(
+        arrangement,
+        expected_section_ids=["L2-1-1", "L2-1-2"],
+    ) == []
+
+    applied = apply_lesson_arrangement_to_plan(
+        source["course_plan"],
+        arrangement,
+    )
+    assert applied["chapters"][0]["sections"][0]["module_plan"]
+
+
 def test_lesson_arrangement_compacts_large_legacy_chapter_to_one_row_per_section():
     legacy = course_data()
     legacy.pop("course_plan")

@@ -84,11 +84,30 @@ def _course_plan(course_data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _lesson_chapter(plan: dict[str, Any], lesson_unit_id: str) -> dict[str, Any] | None:
-    return next(
+    direct_match = next(
         (
             item for item in plan.get("chapters") or []
             if isinstance(item, dict)
             and _text(item.get("node_id") or item.get("chapter_id")) == lesson_unit_id
+        ),
+        None,
+    )
+    if direct_match is not None:
+        return direct_match
+
+    # The teacher-facing lecture_v1 outline intentionally keeps lecture identity
+    # as an ordinal instead of exposing the internal L1 node id. Bridge that
+    # representation here so the teaching-arrangement compiler can serve both
+    # the formal lecture outline and historical node-addressed plans.
+    match = re.fullmatch(r"L1-(\d+)", lesson_unit_id)
+    if not match or plan.get("authoring_structure_version") != "lecture_v1":
+        return None
+    lecture_number = int(match.group(1))
+    return next(
+        (
+            item for item in plan.get("chapters") or []
+            if isinstance(item, dict)
+            and _text(item.get("lecture_number")) == str(lecture_number)
         ),
         None,
     )
