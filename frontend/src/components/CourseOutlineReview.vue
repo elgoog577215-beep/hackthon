@@ -547,6 +547,8 @@
               </dl>
             </header>
 
+            <slot v-if="isLectureOutline" name="lesson-type-plan" />
+
             <section v-if="!isLectureOutline" class="formal-outline__brief">
               <div>
                 <h2>{{ t('courseGeneration.outlineReview.courseOutcomes', '课程学习成果') }}</h2>

@@ -29,6 +29,7 @@
           <i aria-hidden="true" />
         </template>
         <button
+          v-if="showHistory"
           class="history-action"
           type="button"
           :class="{ active: historyOpen }"
@@ -60,6 +61,7 @@ withDefaults(defineProps<{
   disabled?: boolean
   historyOpen?: boolean
   historyCount?: number
+  showHistory?: boolean
   statusLabel?: string
   statusTone?: 'normal' | 'busy' | 'warning'
 }>(), {
@@ -69,6 +71,7 @@ withDefaults(defineProps<{
   disabled: false,
   historyOpen: false,
   historyCount: 0,
+  showHistory: true,
   statusLabel: '已保存',
   statusTone: 'normal',
 })

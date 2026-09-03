@@ -656,6 +656,28 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         this.actionLessonId = ''
       }
     },
+    async updateLessonType(
+      courseId: string,
+      lessonUnitId: string,
+      lessonType: TeacherLessonArrangement['lesson_type'],
+    ) {
+      this.actionLessonId = lessonUnitId
+      this.error = ''
+      try {
+        const response = await http.put<{ lesson: TeacherLessonProjection }>(
+          `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/arrangement/type`,
+          { lesson_type: lessonType },
+          requestConfig(),
+        )
+        this.replaceLessonProjection(lessonUnitId, response.data.lesson)
+        return response.data.lesson
+      } catch (error) {
+        this.error = errorMessage(error, '课型保存失败')
+        throw error
+      } finally {
+        this.actionLessonId = ''
+      }
+    },
     async loadKnowledgeEvidence(courseId: string, lessonUnitId: string) {
       const response = await http.get<TeacherLessonKnowledgeEvidence>(
         `/api/teacher/courses/${courseId}/knowledge-evidence`,

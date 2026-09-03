@@ -67,7 +67,7 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => mount(TeacherCou
       MarkdownRenderer: true,
       CourseOutlineReview: {
         props: ['editable', 'variant', 'requiresConfirmation'],
-        template: '<section data-testid="inline-outline-editor" :data-mode="editable ? \'edit\' : \'view\'" :data-variant="variant"><button type="button" @click="$emit(\'confirmed\')">确认</button></section>',
+        template: '<section data-testid="inline-outline-editor" :data-mode="editable ? \'edit\' : \'view\'" :data-variant="variant"><slot name="lesson-type-plan" /><button type="button" @click="$emit(\'confirmed\')">确认</button></section>',
         emits: ['confirmed'],
         setup(_props: unknown, { expose }: any) {
           expose({
@@ -244,6 +244,40 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.teacher-workbench').classes()).not.toContain('is-ai-collaboration')
     expect(wrapper.get('.stage-rail').attributes('style')).toBeUndefined()
     expect(wrapper.find('.ai-workspace-panel').exists()).toBe(true)
+  })
+
+  it('在大纲中展示并调整每一讲的课型', async () => {
+    useCourseStore().nodes = [{
+      node_id: 'L1-1', parent_node_id: 'root', node_name: '第一讲', node_level: 1,
+      node_content: '', node_type: 'original', generation_status: 'pending', generated_chars: 0,
+    }] as any
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
+      arrangement: {
+        schema_version: 'teacher_lesson_arrangement_v1', revision_id: '', lesson_unit_id: 'L1-1',
+        source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授',
+        status: 'suggested', confirmed: false, source_state: 'current', blocks: [{
+          block_id: 'block-1', module_id: 'core_explanation', section_node_id: 'L2-1-1',
+          section_title: '基础概念', name: '概念讲解', role: 'concept', purpose: '建立概念',
+          content_summary: '讲清概念边界', planned_minutes: 45, teacher_activity: '',
+          student_activity: '', expected_output: '', required: true,
+        }],
+      },
+      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+    }] as any
+    const updateLessonType = vi.spyOn(lessonStore, 'updateLessonType').mockResolvedValue(lessonStore.lessons[0]!)
+
+    const wrapper = mountWorkbench()
+    const selector = wrapper.get('.outline-lesson-type-plan select')
+    expect(wrapper.get('.outline-lesson-type-plan').text()).toContain('讲次课型')
+    expect((selector.element as HTMLSelectElement).value).toBe('theory')
+
+    await selector.setValue('project_workshop')
+    await flushPromises()
+
+    expect(updateLessonType).toHaveBeenCalledWith('course-1', 'L1-1', 'project_workshop')
   })
 
   it('离开大纲阶段前保存编辑，保存失败则停留原页', async () => {
@@ -510,7 +544,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(generateAllLessons).toHaveBeenCalledWith('course-1', undefined, '', [])
   })
 
-  it('确认本讲课型后可以只生成当前讲，不启动整课任务', async () => {
+  it('课型只在标题中显示，确认教学结构后可以只生成当前讲', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
@@ -536,6 +570,10 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
     const singleButton = wrapper.get('[data-testid="lesson-single-start"]')
+    expect(wrapper.get('.lesson-type-context').text()).toContain('讲练结合')
+    expect(wrapper.find('.lesson-command-bar select').exists()).toBe(false)
+    expect(wrapper.find('.lesson-command-bar [aria-label="历史版本"]').exists()).toBe(false)
+    expect(wrapper.findAll('.lesson-command-bar button').some(button => button.text().includes('AI 修改'))).toBe(false)
     expect(singleButton.text()).toBe('只生成本讲')
     await singleButton.trigger('click')
     await flushPromises()

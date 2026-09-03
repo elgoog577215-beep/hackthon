@@ -70,8 +70,10 @@ function mountWorkbench() {
 }
 
 async function openLessonAi(wrapper: ReturnType<typeof mountWorkbench>, label = 'AI 修改') {
-  const trigger = wrapper.findAll('.lesson-toolbar-actions button').find(button => button.text().includes(label))
-  if (!trigger) throw new Error(`未找到教案工具栏中的${label}入口`)
+  const trigger = label === 'AI 方案'
+    ? wrapper.findAll('.lesson-toolbar-actions button').find(button => button.text().includes(label))
+    : wrapper.findAll('.context-pane-tabs button').find(button => button.text().includes('AI 助手'))
+  if (!trigger) throw new Error(`未找到${label === 'AI 方案' ? '待确认方案' : '右侧 AI 助手'}入口`)
   await trigger.trigger('click')
 }
 

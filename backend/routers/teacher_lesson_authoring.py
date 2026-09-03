@@ -142,6 +142,10 @@ class ConfirmLessonArrangementRequest(BaseModel):
     blocks: list[dict[str, Any]] = Field(min_length=1, max_length=32)
 
 
+class UpdateLessonTypeRequest(BaseModel):
+    lesson_type: str
+
+
 class SaveLessonPlanDraftRequest(BaseModel):
     plan: dict[str, Any]
     source_outline_revision_id: str = ""
@@ -1469,6 +1473,62 @@ async def confirm_lesson_arrangement(
             if item["lesson_unit_id"] == lesson_unit_id
         )
         return {"lesson": lesson, "lesson_types": LESSON_TYPES}
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+
+
+@router.put("/courses/{course_id}/lessons/{lesson_unit_id}/arrangement/type")
+async def update_lesson_type(
+    course_id: str,
+    lesson_unit_id: str,
+    body: UpdateLessonTypeRequest,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(
+        get_teacher_lesson_authoring_repository
+    ),
+):
+    """Save the lecture type from the outline without confirming teaching blocks."""
+    try:
+        if body.lesson_type not in LESSON_TYPES:
+            raise TeacherLessonAuthoringError(
+                "lesson_type_invalid",
+                "请选择有效的本讲课型。",
+            )
+        source = _source_course(tm, course_id)
+        outline_revision = _canonical_outline_revision(source)
+        repository.set_outline(course_id, outline_revision)
+        projected = next(
+            item for item in _lesson_projection(source, repository)
+            if item["lesson_unit_id"] == lesson_unit_id
+        )
+        current = projected.get("arrangement") or {}
+        arrangement = normalize_lesson_arrangement(
+            {
+                "lesson_type": body.lesson_type,
+                "blocks": current.get("blocks") or [],
+            },
+            lesson_unit_id=lesson_unit_id,
+            source_outline_revision_id=outline_revision,
+        )
+        # 大纲阶段只决定这一讲采用什么课型。教学块可以尚未生成，
+        # 也可以是等待教师重新确认的旧草稿；完整性校验应留在教案的
+        # “确认教学结构”动作中，否则新课程会因为没有教学块而无法选择课型。
+        repository.save_arrangement_revision(
+            course_id,
+            lesson_unit_id,
+            arrangement,
+            source_outline_revision_id=outline_revision,
+            actor=resolve_user_id(request.headers.get("X-User-Id")),
+            confirm=False,
+        )
+        lesson = next(
+            item for item in _lesson_projection(source, repository)
+            if item["lesson_unit_id"] == lesson_unit_id
+        )
+        return {"lesson": lesson, "lesson_types": LESSON_TYPES}
+    except StopIteration as exc:
+        raise HTTPException(status_code=404, detail="未找到对应讲次。") from exc
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
 

@@ -49,6 +49,7 @@
     <AppErrorNotice v-if="documentError" :presentation="documentError" compact />
 
     <TextSelectionAiAction
+      v-if="selectionAiEnabled"
       :container="documentRoot"
       :disabled="editing || aiBusy || Boolean(pendingCandidate)"
       :label="tr('courseWorkbench.aiCollaboration.selectionModify')"
@@ -222,6 +223,7 @@ const props = withDefaults(defineProps<{
   activeSectionId?: string
   materialAssetIds?: string[]
   externalToolbar?: boolean
+  selectionAiEnabled?: boolean
 }>(), {
   confirmed: false,
   assistantOpen: false,
@@ -230,6 +232,7 @@ const props = withDefaults(defineProps<{
   activeSectionId: '',
   materialAssetIds: () => [],
   externalToolbar: false,
+  selectionAiEnabled: true,
   courseTitle: '',
 })
 

@@ -46,9 +46,9 @@ describe('本讲教学结构摘要', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('讲练结合')
+    expect(wrapper.text()).not.toContain('讲练结合')
+    expect(wrapper.find('select').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('本讲需要把原理讲解、示范和练习组织为连续学习任务')
-    expect(wrapper.get('select').attributes('title')).toBe('本讲需要把原理讲解、示范和练习组织为连续学习任务。')
     expect(wrapper.text()).not.toContain('个内容主题')
     expect(wrapper.text()).not.toContain('个教学块')
     expect(wrapper.text()).toContain('最后可用版本会保留，不会被静默覆盖')
@@ -102,7 +102,8 @@ describe('本讲教学结构摘要', () => {
     })
 
     const toolbar = wrapper.get('.arrangement-toolbar')
-    expect(toolbar.get('.arrangement-context').text()).toContain('本讲课型')
+    expect(toolbar.get('.arrangement-context').text()).toContain('已确认')
+    expect(toolbar.find('select').exists()).toBe(false)
     expect(toolbar.get('.arrangement-state').text()).toContain('已确认')
     expect(toolbar.get('[data-testid="generation-slot"]').text()).toContain('只生成本讲')
     expect(toolbar.text()).toContain('生成全部教案')

@@ -3687,6 +3687,49 @@ def test_teacher_lesson_api_ignores_empty_persisted_shell_and_uses_workspace(tmp
     assert [item["lesson_unit_id"] for item in view.json()["lessons"]] == ["L1-1", "L1-2"]
 
 
+def test_lesson_type_is_adjusted_from_outline_without_confirming_teaching_blocks(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    workspace = {**course_data(), "blueprint_revision_id": "outline-v1"}
+    repository.save_arrangement_revision(
+        "course-1",
+        "L1-1",
+        {"lesson_type": "theory", "blocks": []},
+        source_outline_revision_id="outline-v1",
+        confirm=False,
+    )
+
+    class FakeTaskManager:
+        storage = None
+
+        @staticmethod
+        def get_generation_workspace_course(course_id):
+            assert course_id == "course-1"
+            return workspace
+
+        @staticmethod
+        def get_generation_preview(_course_id):
+            return None
+
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: FakeTaskManager()
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: repository
+
+    with TestClient(app) as client:
+        response = client.put(
+            "/api/teacher/courses/course-1/lessons/L1-1/arrangement/type",
+            json={"lesson_type": "project_workshop"},
+        )
+
+    assert response.status_code == 200
+    arrangement = response.json()["lesson"]["arrangement"]
+    assert arrangement["lesson_type"] == "project_workshop"
+    assert arrangement["lesson_type_label"] == "项目工作坊"
+    assert arrangement["status"] == "draft"
+    assert arrangement["confirmed"] is False
+    assert arrangement["blocks"] == []
+
+
 def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
 

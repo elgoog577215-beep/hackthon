@@ -29,7 +29,7 @@
             <ChevronDown :size="13" aria-hidden="true" />
           </label>
           <strong v-else>{{ scopeDetail }}</strong>
-          <small>{{ scopeTitle }}</small>
+          <span v-if="showScopeTitle" class="lesson-ai-scope-caption">{{ scopeTitle }}</span>
         </span>
       </div>
       <button
@@ -54,9 +54,6 @@
 
     <main ref="messageViewport" class="lesson-ai-messages" aria-live="polite">
       <section v-if="showStarter" class="lesson-ai-starter">
-        <div class="lesson-ai-quick-heading">
-          <strong>{{ tr('quickPrompts') }}</strong>
-        </div>
         <div class="lesson-ai-quick-grid">
           <button
             v-for="action in quickActions"
@@ -357,6 +354,12 @@ function tr(key: string): string {
 const draft = ref('')
 const composer = ref<HTMLTextAreaElement | null>(null)
 const messageViewport = ref<HTMLElement | null>(null)
+const showScopeTitle = computed(() => {
+  const title = props.scopeTitle.trim()
+  const detail = props.scopeDetail.trim()
+  const normalizedTitle = title.replace(/^第\s*\d+\s*讲\s*/, '')
+  return Boolean(title && normalizedTitle !== detail)
+})
 const showStarter = computed(() => props.phase === 'ready' && !props.messages.some(message => message.role === 'user'))
 const showCompactActions = computed(() => !showStarter.value
   && !props.candidatePending
@@ -454,6 +457,11 @@ watch(() => [props.domain, props.scopeTitle, props.scopeDetail], () => nextTick(
 .lesson-ai-clarification{display:flex;flex-wrap:wrap;gap:6px;margin:-3px 0 17px;padding-inline-start:22px}.lesson-ai-clarification button{min-height:29px;padding:0 9px;border:1px solid #d9def0;border-radius:7px;color:#4f4a8d;background:#fff;font-size:10.5px;cursor:pointer}.lesson-ai-clarification button:hover{border-color:#b9bced;background:#f7f7ff}.lesson-ai-working-state{display:flex;align-items:center;gap:7px;color:#65649c;font-size:11px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .lesson-ai-composer-shell{display:grid;gap:7px;padding:10px 12px 12px;border-top:1px solid #e4e9f1;background:#fbfcfe}.lesson-ai-quick-strip{display:flex;gap:6px;overflow:auto;padding-bottom:1px}.lesson-ai-quick-strip button{flex:none;min-height:28px;display:flex;align-items:center;gap:5px;padding:0 8px;border:1px solid #dce1ec;border-radius:7px;color:#55517e;background:#fff;font:inherit;font-size:9.5px;cursor:pointer}.lesson-ai-quick-strip button:hover:not(:disabled){border-color:#c7c9ef;background:#f8f8ff}.lesson-ai-composer{position:relative}.lesson-ai-composer textarea{width:100%;min-height:64px;max-height:132px;box-sizing:border-box;padding:10px 42px 10px 11px;border:1px solid #cbd4e1;border-radius:10px;outline:0;color:#263147;background:#fff;font:inherit;font-size:11.5px;line-height:1.5;resize:none}.lesson-ai-composer textarea::placeholder{color:#6f7c90}.lesson-ai-composer textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.09)}.lesson-ai-composer>button{position:absolute;right:7px;bottom:7px;width:31px;height:31px;display:grid;place-items:center;padding:0;border:0;border-radius:8px;color:#fff;background:#514bdc;cursor:pointer}.lesson-ai-composer>button:disabled{color:#8e98aa;background:#e4e7ee;cursor:not-allowed}.lesson-ai-composer>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .lesson-ai-scope-select{width:100%}.lesson-ai-scope-select select{width:100%}
+.lesson-ai-title strong,.lesson-ai-title>div>span,.lesson-ai-scope strong,.lesson-ai-scope-select select,.lesson-ai-sources,.lesson-ai-selection strong,.lesson-ai-selection p,.lesson-ai-user-bubble,.lesson-ai-assistant-line p,.lesson-ai-assistant-line>button,.lesson-ai-review>header strong,.lesson-ai-review>header span,.lesson-ai-review-fields span,.lesson-ai-review-impact span,.lesson-ai-review button,.lesson-ai-course-plan>header strong,.lesson-ai-course-plan>header span,.lesson-ai-course-plan>p,.lesson-ai-course-plan button,.lesson-ai-clarification button,.lesson-ai-working-state,.lesson-ai-quick-strip button,.lesson-ai-composer textarea{font-size:15px}
+.lesson-ai-starter{gap:0}.lesson-ai-quick-grid{grid-template-columns:1fr;gap:6px}.lesson-ai-quick-grid button{min-height:44px;font-size:15px}
+.lesson-ai-scope>div{flex:1}.lesson-ai-scope>div>span{display:block}.lesson-ai-scope strong{display:block;line-height:1.4}.lesson-ai-scope-caption{display:block;overflow:hidden;margin-top:2px;color:#7b8799;font-size:15px;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}.lesson-ai-sources{min-height:34px}
+.lesson-ai-review-fields span{min-height:30px}.lesson-ai-review button,.lesson-ai-course-plan button,.lesson-ai-clarification button{min-height:34px}
+.lesson-ai-quick-strip button{min-height:34px}.lesson-ai-composer textarea{min-height:72px;line-height:1.55}
 @media(max-width:430px){.lesson-ai-quick-grid{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){.spin{animation:none}}
 </style>

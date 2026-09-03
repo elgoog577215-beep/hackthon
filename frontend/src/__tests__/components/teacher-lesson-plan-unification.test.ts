@@ -244,8 +244,10 @@ describe('统一教案页面', () => {
     expect(workbenchSource).not.toContain(' supporting')
     expect(workbenchSource.indexOf('data-testid="lesson-single-start"')).toBeLessThan(workbenchSource.indexOf('<TeacherLessonPlanDocument'))
     expect(workbenchSource.indexOf('data-testid="lesson-batch-start"')).toBeLessThan(workbenchSource.indexOf('<TeacherLessonPlanDocument'))
-    expect(workbenchSource).toContain('<template #context>')
-    expect(workbenchSource).toContain('class="lesson-command-context"')
+    expect(workbenchSource).toContain('class="outline-lesson-type-plan"')
+    expect(workbenchSource).toContain(':show-history="false"')
+    expect(workbenchSource).toContain(':selection-ai-enabled="false"')
+    expect(workbenchSource).not.toContain('class="lesson-command-context"')
   })
 
   it('课程文件入口回到同一教案工作区，不再打开第二套抽屉', () => {
