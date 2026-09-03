@@ -473,6 +473,7 @@ function courseStatus(courseId: string) {
     pending: t('courseLibrary.status.pending', '等待生成'),
     running: t('courseLibrary.status.running', '正在生成'),
     paused: t('courseLibrary.status.paused', '已暂停'),
+    waiting_for_input: t('courseLibrary.status.waitingInput', '等待继续'),
     waiting_for_review: t('courseLibrary.status.waitingReview', '等待处理'),
     conflict: t('courseLibrary.status.conflict', '需要确认'),
     error: t('courseLibrary.status.error', '生成失败'),
@@ -506,12 +507,12 @@ function isPublishedWarning(task: { status: string; publicationAllowed?: boolean
 
 function taskNeedsAttention(task: { status: string; publicationAllowed?: boolean; recovery?: { state: string } }) {
   if (isPublishedWarning(task)) return false
-  return ['pending', 'running', 'paused', 'waiting_for_review', 'conflict', 'error', 'completed_with_warnings'].includes(task.status)
+  return ['pending', 'running', 'paused', 'waiting_for_input', 'waiting_for_review', 'conflict', 'error', 'completed_with_warnings'].includes(task.status)
 }
 
 function taskRequiresAction(task: { status: string; publicationAllowed?: boolean; recovery?: { state: string } }) {
   if (isPublishedWarning(task)) return false
-  return ['paused', 'waiting_for_review', 'conflict', 'error', 'completed_with_warnings'].includes(task.status)
+  return ['paused', 'waiting_for_input', 'waiting_for_review', 'conflict', 'error', 'completed_with_warnings'].includes(task.status)
 }
 
 function openCourse(courseId: string, nodeId?: string) {

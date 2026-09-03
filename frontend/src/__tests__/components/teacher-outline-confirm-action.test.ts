@@ -23,20 +23,20 @@ describe('teacher outline direct workflow', () => {
     expect(workbenchSource).not.toContain('@confirmed="handleInlineOutlineConfirmed"')
   })
 
-  it('uses the stable right-side assistant instead of a duplicate outline toolbar entry', () => {
+  it('hides the right-side assistant and does not add a duplicate outline toolbar entry', () => {
     const actionsStart = workbenchSource.indexOf('<TeacherDocumentCommandBar')
     const actionsEnd = workbenchSource.indexOf('</TeacherDocumentCommandBar>', actionsStart)
     const outlineActions = workbenchSource.slice(actionsStart, actionsEnd)
 
     expect(outlineActions).not.toContain("openAiCollaboration('outline')")
-    expect(workbenchSource).toContain('@click="openContextAiTab"')
-    expect(workbenchSource).toContain("t('courseWorkbench.contextPane.ai', 'AI 助手')")
+    expect(workbenchSource).not.toContain('@click="openContextAiTab"')
+    expect(workbenchSource).not.toContain("t('courseWorkbench.contextPane.ai', 'AI 助手')")
+    expect(workbenchSource).toContain('data-testid="teacher-ai-dialog"')
   })
 
-  it('opens the non-blocking outline review from a quiet button into a dialog', () => {
+  it('keeps outline review available as a quiet, non-blocking reference action', () => {
     expect(workbenchSource).toContain('data-testid="outline-quality-review-open"')
     expect(workbenchSource).toContain('data-testid="outline-quality-review-dialog"')
-    expect(workbenchSource).toContain("t('courseWorkbench.outlineReview.open', '查看大纲审阅')")
     expect(workbenchSource).toContain("t('courseWorkbench.outlineReview.nonBlocking', '仅供参考，不影响后续生成')")
     expect(workbenchSource).toContain('@quality-review-change="handleOutlineQualityReviewChange"')
     expect(workbenchSource).not.toContain('outline-quality-review__content')

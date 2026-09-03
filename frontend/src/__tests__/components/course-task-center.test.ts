@@ -16,6 +16,7 @@ const router = createRouter({
   routes: [
     { path: '/courses', name: 'course-library', component: { template: '<div />' } },
     { path: '/course/:courseId/learn', name: 'learning', component: { template: '<div />' } },
+    { path: '/course/:courseId/workspace/:mode', name: 'course-workspace', component: { template: '<div />' } },
   ],
 })
 
@@ -156,6 +157,26 @@ describe('CourseTaskCenter', () => {
     await wrapper.get('.task-actions .secondary-button:not(.task-actions__open)').trigger('click')
     await flushPromises()
     expect(pause).toHaveBeenCalledWith('course-1', 'task-pending')
+  })
+
+  it('教师大纲等待继续时归入待处理并进入备课工作台', async () => {
+    const generation = useGenerationStore()
+    generation.globalTasks = [{
+      id: 'task-outline-waiting', course_id: 'course-1', course_name: 'UI 设计',
+      type: 'teacher_outline_generation', status: 'waiting_for_input', progress: 35,
+      current_phase: 'outline_shape_ready', message: '讲次方案已生成',
+    }]
+
+    const wrapper = mountCenter('course-1', 'teacher')
+    await flushPromises()
+
+    expect(wrapper.get('.task-row').text()).toContain('等待继续')
+    expect(wrapper.get('.task-row__state').find('.spin').exists()).toBe(false)
+    await wrapper.get('.task-actions__open').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('course-workspace')
+    expect(router.currentRoute.value.params).toMatchObject({ courseId: 'course-1', mode: 'setup' })
+    expect(router.currentRoute.value.query.stage).toBe('foundation')
   })
 
   it('用中英文产品文案显示全课教案规划与正文生成阶段', async () => {

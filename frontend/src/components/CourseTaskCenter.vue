@@ -418,6 +418,7 @@ import { useCourseWorkspaceStore } from '@/stores/courseWorkspace'
 import { useGenerationStore } from '@/stores/generation'
 import type { GuidedGenerationStepKey, Task } from '@/stores/types'
 import { activeLocale, t } from '@/shared/i18n'
+import { normalizeTaskStatus } from '@/shared/task-lifecycle'
 import {
   qualityIssueKey,
   reviewBlockingIssues,
@@ -477,7 +478,7 @@ const tasks = computed<TaskView[]>(() => {
       courseId: raw.course_id,
       courseName: raw.course_name || matchingLocal?.courseName || t('courseTasks.untitled', '新课程'),
       taskType: String(raw.type || matchingLocal?.taskType || 'course_generation'),
-      status: normalizeStatus(raw.status),
+      status: normalizeTaskStatus(raw.status),
       progress: Math.max(0, Math.min(100, Number(raw.progress || 0))),
       currentStep: taskProgressStep(raw as any, String(matchingLocal?.currentStep || '')),
       currentPhase: String(raw.current_phase || raw.phase || matchingLocal?.currentPhase || ''),
@@ -715,11 +716,6 @@ watch(
 )
 onMounted(() => generationStore.startGlobalMonitor())
 
-function normalizeStatus(status: string): Task['status'] {
-  if (status === 'failed' || status === 'cancelled') return 'error'
-  if (['idle', 'running', 'paused', 'completed', 'error', 'pending', 'waiting_for_review', 'completed_with_warnings', 'conflict'].includes(status)) return status as Task['status']
-  return 'pending'
-}
 function close() {
   emit('update:modelValue', false)
   if (!props.embedded) nextTick(() => previousFocus.value?.focus())
@@ -851,7 +847,18 @@ async function runAction(action: () => Promise<unknown>) {
   }
   finally { acting.value = false }
 }
-function openCourse(courseId: string) { close(); void router.push({ name: 'learning', params: { courseId } }) }
+function openCourse(courseId: string) {
+  close()
+  if (props.surface === 'teacher') {
+    void router.push({
+      name: 'course-workspace',
+      params: { courseId, mode: 'setup' },
+      query: selectedTask.value?.status === 'waiting_for_input' ? { stage: 'foundation' } : {},
+    })
+    return
+  }
+  void router.push({ name: 'learning', params: { courseId } })
+}
 function courseExists(courseId: string) { return courseStore.courseList.some(course => course.course_id === courseId) }
 function canPause(task: TaskView) { return ['pending', 'running'].includes(task.status) }
 function pauseContinuesDraft(task: TaskView) {
@@ -880,7 +887,7 @@ function deletePreservesCourse(task: TaskView) {
 function taskCategory(task: TaskView): TaskFilter {
   if (task.status === 'completed' || isPublishedWarning(task)) return 'completed'
   if (
-    ['paused', 'waiting_for_review', 'error', 'conflict'].includes(task.status)
+    ['paused', 'waiting_for_input', 'waiting_for_review', 'error', 'conflict'].includes(task.status)
     || (task.status === 'completed_with_warnings' && !isPublishedWarning(task))
   ) return 'attention'
   return 'active'

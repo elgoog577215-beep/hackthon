@@ -101,8 +101,8 @@
               </button>
             </th>
             <th scope="col" :aria-sort="sortAria('status')">
-              <button type="button" class="column-sort" :aria-label="sortLabel(t('teacherCourseLibrary.columns.status'))" @click="toggleSort('status')">
-                {{ t('teacherCourseLibrary.columns.status') }}<component :is="sortIcon('status')" :size="13" />
+              <button type="button" class="column-sort" :aria-label="sortLabel(t('courseTasks.nodes', '内容进度'))" @click="toggleSort('status')">
+                {{ t('courseTasks.nodes', '内容进度') }}<component :is="sortIcon('status')" :size="13" />
               </button>
             </th>
             <th scope="col" :aria-sort="sortAria('nextSession')">
@@ -124,7 +124,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="{ course, status } in courseRows" :key="course.course_id" :class="{ selected: selectedCourseIds.has(course.course_id) }">
+          <tr v-for="{ course, production } in courseRows" :key="course.course_id" :class="{ selected: selectedCourseIds.has(course.course_id) }">
             <td class="selection-column">
               <input
                 type="checkbox"
@@ -142,12 +142,10 @@
                 </span>
               </button>
             </td>
-            <td>
-              <span class="course-status" :data-tone="status.tone">
-                <span class="course-status__dot" aria-hidden="true" />
-                <span>{{ status.label }}</span>
-                <strong v-if="status.inProgress">{{ Math.round(status.progress) }}%</strong>
-              </span>
+            <td class="course-production-cell">
+              <strong class="course-production-summary" :data-tone="production.tone" role="status">
+                {{ production.label }}
+              </strong>
             </td>
             <td class="course-session">
               <strong>{{ courseNextSessionWhen(course) }}</strong>
@@ -156,17 +154,22 @@
             <td class="course-term">{{ courseTermLabel(course) }}</td>
             <td class="course-updated">{{ courseUpdatedLabel(course) }}</td>
             <td class="actions-column">
-              <button
-                type="button"
-                class="delete-course-button"
-                :data-testid="`delete-course-${course.course_id}`"
-                :aria-label="t('teacherCourseLibrary.management.deleteCourse').replace('{name}', formatCourseTitle(course.course_name))"
-                :title="t('courseLibrary.delete', '删除课程')"
-                :disabled="deleting"
-                @click="deleteCourse(course.course_id, formatCourseTitle(course.course_name))"
-              >
-                <Trash2 :size="16" />
-              </button>
+              <span class="course-actions">
+                <button type="button" class="course-action" @click="openCourse(course.course_id, production.stage)">
+                  {{ production.actionLabel }}<ChevronRight :size="14" />
+                </button>
+                <button
+                  type="button"
+                  class="delete-course-button"
+                  :data-testid="`delete-course-${course.course_id}`"
+                  :aria-label="t('teacherCourseLibrary.management.deleteCourse').replace('{name}', formatCourseTitle(course.course_name))"
+                  :title="t('courseLibrary.delete', '删除课程')"
+                  :disabled="deleting"
+                  @click="deleteCourse(course.course_id, formatCourseTitle(course.course_name))"
+                >
+                  <Trash2 :size="16" />
+                </button>
+              </span>
             </td>
           </tr>
         </tbody>
@@ -193,17 +196,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ArrowUp, ArrowUpDown, BookOpenText, ChevronLeft, ChevronRight, LoaderCircle, Search, Trash2 } from 'lucide-vue-next'
 import UiSelectMenu from '../components/UiSelectMenu.vue'
 import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCourseRuntime'
 import { activeLocale, t } from '../shared/i18n'
-import { courseProductionTaskDetail } from '../utils/course-production'
-import { coursePreparationLabel, coursePreparationState } from '../utils/course-preparation'
+import { coursePreparationState } from '../utils/course-preparation'
 import { formatCourseTitle } from '../utils/course-presentation'
 import type { Course } from '../stores/course'
+import type { Task } from '../stores/types'
 
 const router = useRouter()
 const route = useRoute()
@@ -213,6 +216,40 @@ const COURSES_PER_PAGE = 9
 type CourseStatusFilter = 'all' | 'preparing' | 'prepared'
 type CourseSortMode = 'name' | 'status' | 'nextSession' | 'term' | 'updated'
 type CourseSortDirection = 'ascending' | 'descending'
+type WorkbenchStage = 'foundation' | 'lesson' | 'script' | 'ppt'
+type CourseProductionSummary = {
+  planned_lessons?: number
+  outline_ready?: boolean
+  ready_lesson_plans?: number
+  ready_handouts?: number
+  ready_ppts?: number
+  outline_confirmed?: boolean
+  confirmed_lesson_plans?: number
+  confirmed_handouts?: number
+  confirmed_ppts?: number
+  current_production?: {
+    target?: 'lesson_plan' | 'script' | 'ppt'
+    status?: string
+    completed?: number
+    total?: number
+    failed?: number
+    progress?: number
+    message?: string
+    updated_at?: string
+  }
+}
+type ProductionTaskView = {
+  label: string
+  tone: 'active' | 'attention'
+  actionLabel: string
+  stage: WorkbenchStage
+}
+type CourseProductionView = {
+  label: string
+  tone: 'ready' | 'active' | 'attention' | 'idle'
+  actionLabel: string
+  stage?: WorkbenchStage
+}
 
 const query = ref(String(route.query.q || ''))
 const statusFilter = ref<CourseStatusFilter>(['preparing', 'prepared'].includes(String(route.query.status)) ? route.query.status as CourseStatusFilter : 'all')
@@ -222,6 +259,9 @@ const sortDirection = ref<CourseSortDirection>(route.query.dir === 'ascending' ?
 const currentPage = ref(1)
 const selectedCourseIds = ref<Set<string>>(new Set())
 const deleting = ref(false)
+const COURSE_PROGRESS_REFRESH_MS = 5000
+let progressRefreshTimer: number | null = null
+let progressRefreshPending = false
 
 const termFilterOptions = computed(() => {
   const options = new Map<string, string>()
@@ -255,7 +295,7 @@ const paginatedCourses = computed(() => {
   const start = (currentPage.value - 1) * COURSES_PER_PAGE
   return filteredCourses.value.slice(start, start + COURSES_PER_PAGE)
 })
-const courseRows = computed(() => paginatedCourses.value.map(course => ({ course, status: courseStatus(course) })))
+const courseRows = computed(() => paginatedCourses.value.map(course => ({ course, production: courseProduction(course) })))
 const visibleCourseIds = computed(() => paginatedCourses.value.map(course => course.course_id))
 const selectedCount = computed(() => selectedCourseIds.value.size)
 const allVisibleSelected = computed(() => visibleCourseIds.value.length > 0 && visibleCourseIds.value.every(id => selectedCourseIds.value.has(id)))
@@ -281,6 +321,12 @@ onMounted(async () => {
   courseStore.currentNode = null
   generationStore.restoreGenerationState()
   if (!embedded) await refreshCourses()
+  progressRefreshTimer = window.setInterval(refreshCourseProgress, COURSE_PROGRESS_REFRESH_MS)
+})
+
+onBeforeUnmount(() => {
+  if (progressRefreshTimer !== null) window.clearInterval(progressRefreshTimer)
+  progressRefreshTimer = null
 })
 
 function setStatusFilter(value: string) { statusFilter.value = value as CourseStatusFilter }
@@ -348,11 +394,89 @@ function toggleSort(key: CourseSortMode) {
 function sortIcon(key: CourseSortMode) { return sortMode.value !== key ? ArrowUpDown : sortDirection.value === 'ascending' ? ArrowUp : ArrowDown }
 function sortAria(key: CourseSortMode): 'none' | 'ascending' | 'descending' { return sortMode.value === key ? sortDirection.value : 'none' }
 function sortLabel(field: string) { return t('teacherCourseLibrary.sortBy').replace('{field}', field) }
-function courseStatus(course: Course) {
-  const task = generationStore.getTask(course.course_id)
-  const preparation = coursePreparationState(course, task)
-  const inProgress = Boolean(task && ['pending', 'running'].includes(task.status))
-  return { inProgress, tone: preparation === 'prepared' ? 'ready' : 'processing', label: coursePreparationLabel(preparation), detail: courseProductionTaskDetail(task), progress: Math.max(0, Math.min(100, task?.progress || 0)) }
+function taskTargetLabel(target: string) {
+  if (target === 'lesson_plan') return t('appError.domains.lessonPlan')
+  if (target === 'script') return t('appError.domains.script')
+  if (target === 'ppt') return t('appError.domains.ppt')
+  if (target === 'import') return t('taskObservability.kind.import')
+  return t('teacherWorkbench.nav.outline')
+}
+function globalTaskTarget(task: Task): { target: string; stage: WorkbenchStage } {
+  if (task.taskType === 'course_import') return { target: 'import', stage: 'foundation' }
+  if (task.taskType === 'teacher_outline_generation') return { target: 'outline', stage: 'foundation' }
+  const phase = String(task.currentPhase || '').toLowerCase()
+  if (/script|handout|content/.test(phase)) return { target: 'script', stage: 'script' }
+  if (/lesson|teaching/.test(phase)) return { target: 'lesson_plan', stage: 'lesson' }
+  return { target: 'outline', stage: 'foundation' }
+}
+function taskBatchCount(task: Task) {
+  const detail = task.phaseDetail || {}
+  const completed = Number(detail.completed_batches ?? task.recovery?.checkpoint?.completed_teaching_plan_batches ?? 0)
+  const total = Number(detail.total_batches ?? task.recovery?.checkpoint?.total_teaching_plan_batches ?? 0)
+  return { completed, total }
+}
+function productionTaskLabel(target: string, status: string, completed: number, total: number) {
+  const count = total > 0 ? ` ${Math.max(0, Math.min(completed, total))}/${total}` : ''
+  const key = status === 'waiting_for_input'
+    ? 'waiting'
+    : status === 'paused'
+    ? 'paused'
+    : ['failed', 'error', 'waiting_for_review', 'conflict'].includes(status) ? 'failed' : 'generating'
+  return t(`teacherCourseLibrary.production.${key}`)
+    .replace('{target}', taskTargetLabel(target))
+    .replace('{count}', count)
+}
+function globalProductionTask(task?: Task): ProductionTaskView | null {
+  if (!task || ['idle', 'completed', 'completed_with_warnings'].includes(task.status)) return null
+  const target = globalTaskTarget(task)
+  const { completed, total } = taskBatchCount(task)
+  const attention = ['paused', 'waiting_for_input', 'error', 'failed', 'waiting_for_review', 'conflict'].includes(task.status)
+  return {
+    label: productionTaskLabel(target.target, task.status, completed, total),
+    tone: attention ? 'attention' : 'active',
+    actionLabel: task.status === 'waiting_for_input'
+      ? t('teacherCourseLibrary.actions.continue')
+      : attention ? t('teacherCourseLibrary.actions.resolve') : t('teacherCourseLibrary.actions.viewProgress'),
+    stage: target.stage,
+  }
+}
+function authoringProductionTask(course: Course): ProductionTaskView | null {
+  const current = ((course.preparation_summary || {}) as CourseProductionSummary).current_production
+  if (!current?.status) return null
+  const completed = Math.max(0, Number(current.completed || 0))
+  const total = Math.max(0, Number(current.total || 0))
+  const failed = Math.max(0, Number(current.failed || 0))
+  const target = String(current.target || 'lesson_plan')
+  const attention = failed > 0 || ['paused', 'waiting_for_input', 'failed', 'error'].includes(current.status)
+  const status = failed > 0 ? 'failed' : current.status
+  return {
+    label: productionTaskLabel(target, status, completed, total),
+    tone: attention ? 'attention' : 'active',
+    actionLabel: current.status === 'waiting_for_input'
+      ? t('teacherCourseLibrary.actions.continue')
+      : attention ? t('teacherCourseLibrary.actions.resolve') : t('teacherCourseLibrary.actions.viewProgress'),
+    stage: target === 'outline'
+      ? 'foundation'
+      : target === 'script'
+        ? 'script'
+        : target === 'ppt' ? 'ppt' : 'lesson',
+  }
+}
+function courseProduction(course: Course): CourseProductionView {
+  const task = authoringProductionTask(course) || globalProductionTask(generationStore.getTask(course.course_id))
+  if (task) return task
+  const summary = (course.preparation_summary || {}) as CourseProductionSummary
+  const total = Math.max(0, Number(summary.planned_lessons || course.node_count || 0))
+  const complete = Boolean(summary.outline_ready ?? summary.outline_confirmed)
+    && total > 0
+    && Number(summary.ready_lesson_plans ?? summary.confirmed_lesson_plans ?? 0) >= total
+    && Number(summary.ready_handouts ?? summary.confirmed_handouts ?? 0) >= total
+    && Number(summary.ready_ppts ?? summary.confirmed_ppts ?? 0) >= total
+  return {
+    label: complete ? t('teacherCourseLibrary.production.complete') : t('teacherCourseLibrary.production.incomplete'),
+    tone: complete ? 'ready' : 'idle',
+    actionLabel: t('teacherCourseLibrary.actions.continue'),
+  }
 }
 function courseFilterKey(course: Course): Exclude<CourseStatusFilter, 'all'> { return coursePreparationState(course) }
 function libraryQuery() {
@@ -363,8 +487,23 @@ function returnPath() {
   if (routeName) return router.resolve({ name: routeName, query: libraryQuery() }).fullPath
   return router.resolve({ path: route.path || '/courses', query: libraryQuery() }).fullPath
 }
-function openCourse(courseId: string) { void router.push({ name: 'course-workspace', params: { courseId, mode: 'setup' }, query: { returnTo: returnPath() } }) }
+function openCourse(courseId: string, stage?: WorkbenchStage) {
+  void router.push({
+    name: 'course-workspace',
+    params: { courseId, mode: 'setup' },
+    query: { returnTo: returnPath(), ...(stage ? { stage } : {}) },
+  })
+}
 async function refreshCourses() { await courseStore.fetchCourseList({ surface: 'teacher' }) }
+async function refreshCourseProgress() {
+  if (document.visibilityState !== 'visible' || progressRefreshPending || deleting.value) return
+  progressRefreshPending = true
+  try {
+    await courseStore.fetchCourseList({ surface: 'teacher', background: true })
+  } finally {
+    progressRefreshPending = false
+  }
+}
 async function deleteCourse(courseId: string, courseName: string) {
   try {
     await ElMessageBox.confirm(t('teacherCourseLibrary.management.deleteConfirm').replace('{name}', courseName), t('courseLibrary.delete', '删除课程'), { type: 'warning', confirmButtonText: t('common.delete', '删除'), cancelButtonText: t('common.cancel', '取消') })
@@ -399,12 +538,12 @@ async function deleteSelectedCourses() {
 .library-toolbar{width:100%;max-width:1320px;min-height:42px;margin:0 auto 18px;display:flex;align-items:center;gap:10px}.library-search{height:42px;min-width:320px;flex:1 1 520px;display:flex;align-items:center;gap:9px;padding:0 13px;border:1px solid var(--lz-border);border-radius:9px;color:var(--lz-text-muted);background:var(--lz-surface)}.library-search:focus-within{border-color:var(--lz-brand);box-shadow:0 0 0 3px color-mix(in srgb,var(--lz-brand) 12%,transparent)}.library-search input{min-width:0;flex:1;border:0;outline:0;color:var(--lz-text);background:transparent;font-size:13px}.library-search input::placeholder{color:var(--lz-text-muted)}.library-toolbar :deep(.ui-select-menu){width:164px;flex:0 0 164px}.toolbar-spacer{flex:1}.toolbar-loading{display:inline-flex;align-items:center;gap:6px;color:var(--lz-text-muted);font-size:12px;white-space:nowrap}
 .library-toolbar--selecting{padding:0 2px}.selection-summary{margin:0;color:var(--lz-text-strong);font-size:14px;font-weight:750}.toolbar-button{height:36px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 12px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-secondary);background:var(--lz-surface);font-size:13px;font-weight:700;cursor:pointer}.toolbar-button:hover:not(:disabled){border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.toolbar-button--danger{border-color:color-mix(in srgb,var(--lz-danger) 32%,var(--lz-border));color:var(--lz-danger)}.toolbar-button--danger:hover:not(:disabled){border-color:var(--lz-danger);color:var(--lz-danger);background:var(--lz-danger-soft)}.toolbar-button:disabled{opacity:.55;cursor:not-allowed}
 .library-inline-error{max-width:1320px;min-height:38px;margin:-8px auto 12px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid color-mix(in srgb,var(--lz-danger) 22%,var(--lz-border));color:var(--lz-danger);font-size:12px}.library-inline-error button,.library-state button{height:32px;padding:0 11px;border:1px solid currentColor;border-radius:7px;color:inherit;background:transparent;font-size:12px;font-weight:700;cursor:pointer}
-.course-table-region{width:100%;max-width:1320px;margin:0 auto;scroll-margin-top:18px;overflow-x:auto;border-top:1px solid var(--lz-border);border-bottom:1px solid var(--lz-border);background:var(--lz-surface)}.course-table{width:100%;min-width:980px;border-collapse:collapse;table-layout:fixed;text-align:left}.course-table th{height:42px;padding:0 12px;border-bottom:1px solid var(--lz-border);color:var(--lz-text-muted);background:var(--lz-surface-subtle);font-size:11px;font-weight:750}.course-table th:nth-child(2){width:30%}.course-table th:nth-child(3){width:14%}.course-table th:nth-child(4){width:20%}.course-table th:nth-child(5){width:14%}.course-table th:nth-child(6){width:16%}.course-table th.actions-column{width:58px;text-align:center}.course-table th.selection-column{width:46px}.column-sort{height:100%;display:flex;align-items:center;gap:5px;padding:0;border:0;color:inherit;background:transparent;font:inherit;cursor:pointer}.column-sort:hover,.column-sort:focus-visible{color:var(--lz-brand-strong);outline:none}.column-sort:focus-visible{text-decoration:underline;text-underline-offset:4px}
+.course-table-region{width:100%;max-width:1320px;margin:0 auto;scroll-margin-top:18px;overflow-x:auto;border-top:1px solid var(--lz-border);border-bottom:1px solid var(--lz-border);background:var(--lz-surface)}.course-table{width:100%;min-width:1060px;border-collapse:collapse;table-layout:fixed;text-align:left}.course-table th{height:42px;padding:0 12px;border-bottom:1px solid var(--lz-border);color:var(--lz-text-muted);background:var(--lz-surface-subtle);font-size:11px;font-weight:750}.course-table th:nth-child(2){width:29%}.course-table th:nth-child(3){width:20%}.course-table th:nth-child(4){width:18%}.course-table th:nth-child(5){width:12%}.course-table th:nth-child(6){width:11%}.course-table th.actions-column{width:154px;text-align:center}.course-table th.selection-column{width:46px}.column-sort{height:100%;display:flex;align-items:center;gap:5px;padding:0;border:0;color:inherit;background:transparent;font:inherit;cursor:pointer}.column-sort:hover,.column-sort:focus-visible{color:var(--lz-brand-strong);outline:none}.column-sort:focus-visible{text-decoration:underline;text-underline-offset:4px}
 .course-table td{height:66px;padding:8px 12px;border-bottom:1px solid color-mix(in srgb,var(--lz-border) 84%,transparent);color:var(--lz-text-secondary);font-size:13px;vertical-align:middle}.course-table tbody tr:last-child td{border-bottom:0}.course-table tbody tr:hover,.course-table tbody tr.selected{background:var(--lz-surface-subtle)}.course-table tbody tr.selected{background:var(--lz-brand-soft)}.selection-column{text-align:center}.selection-column input{width:16px;height:16px;margin:0;accent-color:var(--lz-brand);cursor:pointer}.selection-column input:focus-visible{outline:2px solid var(--lz-brand);outline-offset:3px}.selection-column input:disabled{cursor:not-allowed}
 .course-cell{padding-top:6px!important;padding-bottom:6px!important}.course-main{width:100%;min-height:48px;display:block;padding:0;border:0;color:inherit;background:transparent;text-align:left;cursor:pointer}.course-main:focus-visible{outline:2px solid var(--lz-brand);outline-offset:3px;border-radius:6px}.course-identity{min-width:0;display:grid;gap:3px}.course-identity strong,.course-identity small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.course-identity strong{color:var(--lz-text-strong);font-size:14px;font-weight:760}.course-main:hover .course-identity strong{color:var(--lz-brand-strong)}.course-identity small{color:var(--lz-text-muted);font-size:11px}
-.course-status{display:inline-flex;align-items:center;gap:7px;color:var(--lz-text-secondary);white-space:nowrap}.course-status__dot{width:7px;height:7px;flex:0 0 auto;border-radius:50%;background:var(--lz-brand)}.course-status[data-tone='ready'] .course-status__dot{background:var(--lz-success)}.course-status strong{color:var(--lz-brand-strong);font-size:11px}.course-session{display:grid;align-content:center;gap:3px}.course-session strong{overflow:hidden;color:var(--lz-text-secondary);font-size:12px;font-weight:680;text-overflow:ellipsis;white-space:nowrap}.course-session small{overflow:hidden;color:var(--lz-text-muted);font-size:11px;text-overflow:ellipsis;white-space:nowrap}.course-term,.course-updated{color:var(--lz-text-secondary);font-size:12px!important;font-variant-numeric:tabular-nums}
-.actions-column{text-align:center}.delete-course-button{width:34px;height:34px;display:inline-grid;place-items:center;border:0;border-radius:7px;color:var(--lz-text-muted);background:transparent;cursor:pointer}.delete-course-button:hover:not(:disabled),.delete-course-button:focus-visible{color:var(--lz-danger);background:var(--lz-danger-soft);outline:none}.delete-course-button:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb,var(--lz-danger) 28%,transparent)}.delete-course-button:disabled{opacity:.45;cursor:not-allowed}
+.course-production-cell{padding-top:8px!important;padding-bottom:8px!important}.course-production-summary{display:block;overflow:hidden;color:var(--lz-text-secondary);font-size:13px;font-weight:750;text-overflow:ellipsis;white-space:nowrap}.course-production-summary[data-tone='ready']{color:var(--lz-success)}.course-production-summary[data-tone='active']{color:var(--lz-brand-strong)}.course-production-summary[data-tone='attention']{color:var(--lz-danger)}.course-session{display:grid;align-content:center;gap:3px}.course-session strong{overflow:hidden;color:var(--lz-text-secondary);font-size:12px;font-weight:680;text-overflow:ellipsis;white-space:nowrap}.course-session small{overflow:hidden;color:var(--lz-text-muted);font-size:11px;text-overflow:ellipsis;white-space:nowrap}.course-term,.course-updated{color:var(--lz-text-secondary);font-size:12px!important;font-variant-numeric:tabular-nums}
+.actions-column{text-align:center}.course-actions{display:flex;align-items:center;justify-content:flex-end;gap:4px}.course-action{height:32px;display:inline-flex;align-items:center;justify-content:center;gap:3px;padding:0 9px;border:1px solid var(--lz-brand-border);border-radius:7px;color:var(--lz-brand-strong);background:var(--lz-surface);font-size:11px;font-weight:750;white-space:nowrap;cursor:pointer}.course-action:hover,.course-action:focus-visible{border-color:var(--lz-brand);background:var(--lz-brand-soft);outline:none}.course-action:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb,var(--lz-brand) 24%,transparent)}.delete-course-button{width:32px;height:32px;display:inline-grid;place-items:center;border:0;border-radius:7px;color:var(--lz-text-muted);background:transparent;cursor:pointer}.delete-course-button:hover:not(:disabled),.delete-course-button:focus-visible{color:var(--lz-danger);background:var(--lz-danger-soft);outline:none}.delete-course-button:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb,var(--lz-danger) 28%,transparent)}.delete-course-button:disabled{opacity:.45;cursor:not-allowed}
 .library-pagination{min-height:54px;display:flex;align-items:center;justify-content:center;gap:8px;border-top:1px solid var(--lz-border)}.library-pagination button{height:32px;min-width:32px;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 9px;border:1px solid transparent;border-radius:7px;color:var(--lz-text-secondary);background:transparent;font-size:12px;font-weight:700;cursor:pointer}.library-pagination button:hover:not(:disabled),.library-pagination button:focus-visible{color:var(--lz-brand-strong);background:var(--lz-brand-soft);outline:none}.library-pagination button.active{color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.library-pagination button:disabled{color:var(--lz-text-muted);cursor:not-allowed;opacity:.52}.pagination-pages{display:flex;align-items:center;gap:2px}.pagination-ellipsis{width:24px;color:var(--lz-text-muted);text-align:center}.pagination-direction{min-width:78px!important}
 .library-state{min-height:360px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;color:var(--lz-text-muted);text-align:center}.library-state strong{color:var(--lz-text-strong);font-size:15px}.library-state span{max-width:420px;font-size:12px;line-height:1.55}.library-state--error{color:var(--lz-danger)}.library-state--error strong{color:var(--lz-danger)}.library-state--error button{margin-top:4px}.spin{animation:spin .85s linear infinite}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}@keyframes spin{to{transform:rotate(360deg)}}
-@media(max-width:1100px){.course-library{padding-inline:20px}.library-toolbar{align-items:stretch;flex-wrap:wrap}.library-search{min-width:100%;flex-basis:100%}.course-table-region{max-width:100%}}@media(prefers-reduced-motion:reduce){.spin{animation:none}.course-main,.delete-course-button,.toolbar-button,.library-pagination button{scroll-behavior:auto;transition:none}}
+@media(max-width:1100px){.course-library{padding-inline:20px}.library-toolbar{align-items:stretch;flex-wrap:wrap}.library-search{min-width:100%;flex-basis:100%}.course-table-region{max-width:100%}}@media(prefers-reduced-motion:reduce){.spin{animation:none}.course-main,.course-action,.delete-course-button,.toolbar-button,.library-pagination button{scroll-behavior:auto;transition:none}}
 </style>

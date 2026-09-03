@@ -17,6 +17,7 @@ import {
 } from '@/shared/prompt-config'
 import type { Node, Task, WSMessage, FailureReport } from './types'
 import { t } from '@/shared/i18n'
+import { normalizeTaskStatus, shouldApplyTaskSnapshot } from '@/shared/task-lifecycle'
 import { renderDiagnosticsFor, validateRenderedContent } from '@/utils/render-validation'
 
 // vue-tsc + Pinia Options API: re-export to suppress TS6133
@@ -320,21 +321,29 @@ export const useGenerationStore = defineStore('generation', {
       const localTask = this.tasks.get(course_id)
       if (localTask?.id && task_id && localTask.id !== task_id) return
       if (localTask) {
-        const status = (payload.status as string) || localTask.status
-        if (status === 'running') localTask.status = 'running'
-        else if (status === 'paused') localTask.status = 'paused'
-        else if (status === 'completed') localTask.status = 'completed'
-        else if (status === 'error' || status === 'failed') localTask.status = 'error'
-        else if (status === 'pending') localTask.status = 'pending'
-        else if (status === 'waiting_for_input') localTask.status = 'waiting_for_input'
-        else if (status === 'waiting_for_review') localTask.status = 'waiting_for_review'
-        else if (status === 'completed_with_warnings') localTask.status = 'completed_with_warnings'
-        else if (status === 'conflict') localTask.status = 'conflict'
+        if (!shouldApplyTaskSnapshot(
+          { status: localTask.status, updated_at: localTask.updatedAt },
+          { status: payload.status || localTask.status, updated_at: payload.updated_at },
+        )) return
+        localTask.status = normalizeTaskStatus(payload.status, localTask.status)
 
         localTask.progress = (payload.progress as number) ?? localTask.progress
         if (task_id) localTask.id = task_id
         if (payload.heartbeat_at) localTask.heartbeatAt = String(payload.heartbeat_at)
         if (payload.updated_at) localTask.updatedAt = String(payload.updated_at)
+        const listedTask = this.globalTasks.find(task => String(task?.id || '') === String(task_id || localTask.id))
+        if (listedTask) {
+          Object.assign(listedTask, {
+            status: localTask.status,
+            progress: localTask.progress,
+            updated_at: payload.updated_at || listedTask.updated_at,
+            heartbeat_at: payload.heartbeat_at || listedTask.heartbeat_at,
+            current_phase: payload.current_phase || payload.phase || listedTask.current_phase,
+            phase_progress: payload.phase_progress ?? listedTask.phase_progress,
+            phase_detail: payload.phase_detail || listedTask.phase_detail,
+            message: payload.message || listedTask.message,
+          })
+        }
         if (payload.provider_route) {
           localTask.providerRoute = payload.provider_route as Task['providerRoute']
         }
@@ -990,7 +999,12 @@ export const useGenerationStore = defineStore('generation', {
       try {
         const res = await http.get('/api/tasks?limit=100', { silentError: true })
         this.globalTasksBackoffUntil = 0
-        const listedTasks = Array.isArray(res.data) ? res.data : []
+        const incomingTasks = Array.isArray(res.data) ? res.data : []
+        const previousTasks = new Map(this.globalTasks.map(task => [String(task?.id || ''), task]))
+        const listedTasks = incomingTasks.map(incoming => {
+          const previous = previousTasks.get(String(incoming?.id || ''))
+          return previous && !shouldApplyTaskSnapshot(previous, incoming) ? previous : incoming
+        })
         const recoveredTasks = await this.reconcileMissingLocalTasks(listedTasks)
         this.globalTasks = [...listedTasks, ...recoveredTasks]
         const publishedCourseIds = new Set<string>()
@@ -999,7 +1013,7 @@ export const useGenerationStore = defineStore('generation', {
         currentBackendTasksByCourse(this.globalTasks).forEach((backendTask: any) => {
           const courseId = backendTask.course_id
           let localTask = this.tasks.get(courseId)
-          if (!localTask && ['pending', 'running', 'paused', 'error', 'failed', 'waiting_for_input', 'waiting_for_review', 'completed_with_warnings', 'conflict'].includes(backendTask.status)) {
+          if (!localTask && ['pending', 'running', 'paused', 'error', 'failed', 'cancelled', 'waiting_for_input', 'waiting_for_review', 'completed_with_warnings', 'conflict'].includes(backendTask.status)) {
             localTask = this.createTask(
               backendTask.id,
               courseId,
@@ -1009,16 +1023,12 @@ export const useGenerationStore = defineStore('generation', {
             discoveredCourseIds.add(courseId)
           }
           if (localTask) {
+            if (!shouldApplyTaskSnapshot(
+              { status: localTask.status, updated_at: localTask.updatedAt },
+              backendTask,
+            )) return
             const prevStatus = localTask.status
-            if (backendTask.status === 'running') localTask.status = 'running'
-            else if (backendTask.status === 'paused') localTask.status = 'paused'
-            else if (backendTask.status === 'completed') localTask.status = 'completed'
-            else if (backendTask.status === 'error' || backendTask.status === 'failed') localTask.status = 'error'
-            else if (backendTask.status === 'pending') localTask.status = 'pending'
-            else if (backendTask.status === 'waiting_for_input') localTask.status = 'waiting_for_input'
-            else if (backendTask.status === 'waiting_for_review') localTask.status = 'waiting_for_review'
-            else if (backendTask.status === 'completed_with_warnings') localTask.status = 'completed_with_warnings'
-            else if (backendTask.status === 'conflict') localTask.status = 'conflict'
+            localTask.status = normalizeTaskStatus(backendTask.status, localTask.status)
             localTask.progress = backendTask.progress
             localTask.id = backendTask.id
             localTask.taskType = String(backendTask.type || localTask.taskType || '') || undefined

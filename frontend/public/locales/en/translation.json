@@ -209,6 +209,14 @@
       "prepareNext": "Prepare next class",
       "continue": "Continue planning"
     },
+    "production": {
+      "complete": "Generation complete",
+      "incomplete": "Generation incomplete",
+      "generating": "Generating {target}{count}",
+      "waiting": "Continue {target}{count}",
+      "paused": "{target} generation paused{count}",
+      "failed": "{target} generation failed{count}"
+    },
     "teacherSummary": {
       "generating": "Generation {progress}% · Open the task center",
       "empty": "No teaching outline · Build the outline next",
