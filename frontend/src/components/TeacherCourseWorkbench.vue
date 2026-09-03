@@ -377,7 +377,10 @@
               </button>
             </nav>
           </aside>
-          <div class="lesson-stage-content">
+          <div
+            class="lesson-stage-content"
+            :class="{ 'is-course-preview': lessonCoursePreviewVisible || scriptCoursePreviewVisible }"
+          >
         <nav
           v-if="lessonStore.lessons.length"
           class="lesson-navigator"
@@ -390,16 +393,18 @@
                 <strong>{{ selectedLesson?.title || t('courseWorkbench.form.chooseLesson', '请选择课次') }}</strong>
                 <small>{{ selectedLessonPosition }}/{{ lessonStore.lessons.length }}</small>
               </div>
-              <span v-if="selectedLessonTypeLabel" class="lesson-type-context">· {{ selectedLessonTypeLabel }}</span>
             </div>
-            <div v-if="lessonPageHeaderVisible && !(activeStage === 'lesson' && lessonToolbarVisible)" class="lesson-toolbar-status" role="status">
-              <LoaderCircle v-if="lessonHeaderBusy" :size="14" class="spin" />
-              <Sparkles v-else-if="aiCandidatePending" :size="14" />
-              <Pencil v-else-if="lessonHeaderEditing" :size="14" />
-              <Check v-else-if="lessonHeaderReady" :size="14" />
-              <TriangleAlert v-else-if="activeStage === 'ppt' && pptNeedsRefresh" :size="14" />
-              <Presentation v-else-if="activeStage === 'ppt'" :size="14" />
-              <span>{{ lessonHeaderStatusLabel }}</span>
+            <div class="lesson-current-meta">
+              <span v-if="selectedLessonTypeLabel" class="lesson-type-context">{{ selectedLessonTypeLabel }}</span>
+              <div v-if="lessonPageHeaderVisible && !(activeStage === 'lesson' && lessonToolbarVisible)" class="lesson-toolbar-status" role="status">
+                <LoaderCircle v-if="lessonHeaderBusy" :size="14" class="spin" />
+                <Sparkles v-else-if="aiCandidatePending" :size="14" />
+                <Pencil v-else-if="lessonHeaderEditing" :size="14" />
+                <Check v-else-if="lessonHeaderReady" :size="14" />
+                <TriangleAlert v-else-if="activeStage === 'ppt' && pptNeedsRefresh" :size="14" />
+                <Presentation v-else-if="activeStage === 'ppt'" :size="14" />
+                <span>{{ lessonHeaderStatusLabel }}</span>
+              </div>
             </div>
           </div>
           <div class="lesson-switch-actions">
@@ -1743,6 +1748,7 @@ const lessonHeaderStatusLabel = computed(() => {
   if (activeStage.value === 'lesson' && selectedLesson.value?.plan.source_state === 'stale') return t('courseWorkbench.lessonOutline.status.stale', '需更新')
   if (activeStage.value === 'script' && currentScriptReady.value) return t('courseWorkbench.scriptDocument.generated', '已生成')
   if (activeStage.value === 'lesson' && currentLessonPlanReady.value) return t('courseWorkbench.lessonPlanGenerated', '已生成')
+  if (activeStage.value === 'lesson') return t('courseWorkbench.lessonBatch.empty', '教案尚未生成')
   return t('courseWorkbench.scriptPending', '待生成')
 })
 const generationTask = computed(() => generationStore.getTask(props.courseId))
@@ -3416,19 +3422,22 @@ onBeforeUnmount(() => {
 /* Lesson identity lives above the document; document actions stay with the document itself. */
 .workbench-center.is-lesson-workspace:has(.lesson-navigator.has-document-actions){padding-top:24px}
 .workbench-center.is-lesson-workspace .has-lesson-outline .lesson-stage-content{overflow:visible;border:0;border-radius:0;background:transparent;box-shadow:none}
-.lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;gap:16px;min-height:64px;padding:0 4px 12px;border:0;border-radius:0;background:transparent}
-.lesson-heading-cluster{min-width:0;display:flex;align-items:center;gap:12px}
+.lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;gap:24px;min-height:76px;padding:8px 4px 18px;border:0;border-radius:0;background:transparent}
+.lesson-heading-cluster{min-width:0;display:grid;align-content:center;gap:7px}
 .lesson-navigator.has-document-actions .lesson-current-group{min-width:0;justify-content:flex-start}
 .lesson-navigator.has-document-actions .lesson-outline-control{width:min(100%,720px);justify-content:flex-start}
 .lesson-navigator.has-document-actions .lesson-title-trigger{min-height:52px;padding-left:0;text-align:left}
 .lesson-navigator.has-document-actions .lesson-title-trigger strong{overflow:visible;font-size:22px;font-weight:760;line-height:1.25;letter-spacing:-.018em;text-align:left;text-overflow:clip;text-wrap:balance;white-space:normal}
 .lesson-navigator.has-document-actions .lesson-title-trigger small{font-size:15px}
-.lesson-type-context{flex:none;color:#667085;font-size:15px;font-weight:700;white-space:nowrap}
-.lesson-toolbar-status{flex:none;min-height:30px;display:flex;align-items:center;gap:5px;color:#687386;font-size:15px;font-weight:680;white-space:nowrap}
+.lesson-current-meta{min-width:0;display:flex;align-items:center;gap:10px;color:#687386}
+.lesson-type-context{flex:none;color:#687386;font-size:15px;font-weight:650;white-space:nowrap}
+.lesson-toolbar-status{min-height:24px;display:flex;align-items:center;gap:6px;color:#687386;font-size:15px;font-weight:620;white-space:nowrap}
+.lesson-current-meta .lesson-type-context+.lesson-toolbar-status{padding-left:10px;border-left:1px solid #dce1e9}
 .lesson-toolbar-status svg{color:#667085}
 .lesson-switch-actions{flex:none;display:flex;align-items:center;gap:6px}
 .lesson-switch-actions button{min-height:34px;display:flex;align-items:center;gap:5px;padding:0 10px;border:1px solid #dfe3eb;border-radius:7px;color:#59667a;background:#fff;font-size:15px;font-weight:700;cursor:pointer}
 .lesson-switch-actions button:hover:not(:disabled){border-color:#c9cfe0;color:#3730a3;background:#f7f7fb}
+.lesson-switch-actions button:active:not(:disabled){transform:translateY(1px)}
 .lesson-switch-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .lesson-switch-actions button:disabled{border-color:transparent;color:#a3acba;background:transparent;opacity:.55;cursor:not-allowed}
 .workbench-center.is-lesson-workspace .lesson-command-bar{width:calc(100% - 8px);justify-content:flex-end;gap:8px;margin:0 4px 10px;background:#f3f5f9}
@@ -3436,7 +3445,7 @@ onBeforeUnmount(() => {
 .workbench-center.is-lesson-workspace .lesson-section-tabs{border:1px solid #e0e6ef;border-bottom-color:#e7ebf2;border-radius:14px 14px 0 0;background:#fff}
 .workbench-center.is-lesson-workspace :deep(.lesson-document){overflow:hidden;border:1px solid #e0e6ef;border-top:0;border-radius:0 0 14px 14px;background:#fff}
 .workbench-center.is-lesson-workspace :deep(.script-document){overflow:hidden;border:1px solid #e0e6ef;border-radius:14px;background:#fff}
-@media(max-width:900px){.lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;gap:8px}.lesson-heading-cluster{gap:8px}.lesson-type-context{display:none}.lesson-toolbar-status>span{display:none}.lesson-switch-actions button{width:34px;padding:0;justify-content:center;font-size:0}}
+@media(max-width:900px){.lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;gap:8px}.lesson-heading-cluster{gap:5px}.lesson-type-context{display:none}.lesson-current-meta .lesson-type-context+.lesson-toolbar-status{padding-left:0;border-left:0}.lesson-toolbar-status>span{display:none}.lesson-switch-actions button{width:34px;padding:0;justify-content:center;font-size:0}}
 
 /* The outline has one explicit three-step flow; generation never advances to another asset on its own. */
 .outline-flow-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;max-width:860px;margin:0 auto 14px;padding:3px;border:1px solid #dfe4ed;border-radius:11px;background:#eef1f6}
@@ -3479,12 +3488,14 @@ onBeforeUnmount(() => {
 .lesson-current-title strong{min-width:0;color:#172033;font-size:22px;font-weight:760;line-height:1.3;letter-spacing:-.018em;text-wrap:balance}
 .lesson-current-title small{flex:none;color:#7b8798;font-size:15px;font-weight:650}
 .lesson-course-preview{overflow:hidden;border:1px solid #e0e6ef;border-radius:14px;background:#fff;box-shadow:0 10px 30px rgba(30,41,59,.05)}
-.lesson-course-preview>header{min-height:74px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:14px 20px;border-bottom:1px solid #e7ebf2}
-.lesson-course-preview>header>div{min-width:0;display:grid;gap:4px}
-.lesson-course-preview>header strong{color:#263147;font-size:17px;font-weight:760}
-.lesson-course-preview>header span{color:#748195;font-size:14px;line-height:1.45}
-.lesson-course-preview>header>button{flex:none;min-height:40px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:14px;font-weight:750;cursor:pointer;box-shadow:0 7px 18px rgba(81,75,220,.16)}
+.lesson-stage-content.is-course-preview{overflow:visible;border:0;background:transparent;box-shadow:none}
+.lesson-course-preview>header{min-height:88px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:18px 24px;border-bottom:1px solid #e7ebf2}
+.lesson-course-preview>header>div{min-width:0;display:grid;gap:6px}
+.lesson-course-preview>header strong{color:#263147;font-size:18px;font-weight:760}
+.lesson-course-preview>header span{max-width:70ch;color:#68768b;font-size:15px;line-height:1.5}
+.lesson-course-preview>header>button{flex:none;min-height:42px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 15px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:15px;font-weight:750;cursor:pointer;box-shadow:0 7px 18px rgba(81,75,220,.16)}
 .lesson-course-preview>header>button:hover:not(:disabled){background:#4338ca}
+.lesson-course-preview>header>button:active:not(:disabled){transform:translateY(1px)}
 .lesson-course-preview>header>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .lesson-course-preview>header>button:disabled{opacity:.48;cursor:not-allowed}
 .lesson-course-preview>article{padding:4px 28px 34px}
