@@ -55,6 +55,7 @@ export interface TeacherLessonPlanAsset {
   confirmed_revision_id: string
   source_state: 'current' | 'stale'
   ready?: boolean
+  unavailable_reason?: string
   revisions: TeacherLessonPlanRevision[]
   ai_candidates?: TeacherLessonPlanCandidate[]
   script_confirmation?: {
@@ -112,14 +113,17 @@ export interface TeacherLessonArrangement {
   status: 'suggested' | 'draft' | 'confirmed'
   confirmed: boolean
   source_state: 'current' | 'stale'
+  ready?: boolean
 }
 
 export interface TeacherLessonScriptState {
   current_revision_id: string
+  legacy_source_fingerprint?: string
   confirmed_revision_id: string
   source_lesson_plan_revision_id: string
   source_state: 'current' | 'stale'
   ready: boolean
+  unavailable_reason?: string
   confirmed: boolean
   publication_eligible?: boolean
   generation_source?: string
@@ -235,6 +239,8 @@ export interface TeacherLessonPptAsset {
   source_lesson_plan_revision_id: string
   source_script_revision_id?: string
   source_state: 'current' | 'stale'
+  ready?: boolean
+  unavailable_reason?: string
   revisions: TeacherLessonPptRevision[]
   ai_candidates: TeacherLessonPptCandidate[]
   engine?: 'slide_deck_v6' | 'uploaded_pptx'

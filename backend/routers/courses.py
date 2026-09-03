@@ -49,6 +49,11 @@ from web_material_curation import (
     normalize_exclusions,
 )
 from teacher_course_space import teacher_course_space_repository
+from teacher_asset_readiness import (
+    teacher_lesson_plan_readiness,
+    teacher_lesson_ppt_asset_readiness,
+    teacher_lesson_script_readiness,
+)
 from material_pipeline import prepare_course_materials
 from material_storage import MaterialStorageError, material_repository
 from teaching_calendar import teaching_calendar_repository
@@ -287,76 +292,23 @@ def _teacher_preparation_projection(course: dict, repository) -> dict:
     for lesson in lessons.values():
         if not isinstance(lesson, dict):
             continue
-        plan_revision_id = str(lesson.get("working_revision_id") or "")
-        plan_revision = next((
-            item for item in lesson.get("revisions") or []
-            if isinstance(item, dict)
-            and str(item.get("revision_id") or "") == plan_revision_id
-        ), None)
-        plan_sections = (
-            (plan_revision.get("plan") or {}).get("sections") or []
-            if isinstance(plan_revision, dict)
-            else []
+        plan_readiness = teacher_lesson_plan_readiness(lesson)
+        script_readiness = teacher_lesson_script_readiness(
+            lesson,
+            plan_readiness=plan_readiness,
         )
-        plan_ready = bool(
-            plan_revision_id
-            and isinstance(plan_revision, dict)
-            and str(plan_revision.get("generation_source") or "")
-            != "deterministic_local_fallback"
-            and str(lesson.get("source_state") or "current") == "current"
-            and plan_sections
-            and all(
-                isinstance(section, dict)
-                and str(section.get("node_id") or "").strip()
-                and list(section.get("teaching_modules") or [])
-                for section in plan_sections
-            )
-        )
-        if plan_ready:
+        if plan_readiness["ready"]:
             ready_plans += 1
-
-        script_revision_id = str(lesson.get("working_script_revision_id") or "")
-        script_revision = next((
-            item for item in lesson.get("script_revisions") or []
-            if isinstance(item, dict)
-            and str(item.get("revision_id") or "") == script_revision_id
-        ), None)
-        script_sections = (
-            script_revision.get("sections") or []
-            if isinstance(script_revision, dict)
-            else []
-        )
-        script_ready = bool(
-            plan_ready
-            and script_revision_id
-            and isinstance(script_revision, dict)
-            and str(script_revision.get("generation_source") or "")
-            != "model_block_pipeline_with_recovery_preview"
-            and str(script_revision.get("source_lesson_plan_revision_id") or "")
-            == plan_revision_id
-            and script_sections
-            and all(
-                isinstance(section, dict)
-                and str(section.get("section_node_id") or "").strip()
-                and str(section.get("content") or "").strip()
-                and list(section.get("blocks") or [])
-                for section in script_sections
-            )
-        )
-        if script_ready:
+        if script_readiness["ready"]:
             ready_handouts += 1
         if any(
             isinstance(asset, dict)
-            and plan_ready
-            and script_ready
-            and str(asset.get("source_state") or "current") == "current"
-            and str(asset.get("source_lesson_plan_revision_id") or "") == plan_revision_id
-            and str(asset.get("source_script_revision_id") or "") == script_revision_id
-            and bool(
-                asset.get("working_representation_id")
-                or asset.get("working_v6_revision_id")
-                or asset.get("working_revision_id")
-            )
+            and teacher_lesson_ppt_asset_readiness(
+                lesson,
+                asset,
+                plan_readiness=plan_readiness,
+                script_readiness=script_readiness,
+            )["ready"]
             for asset in lesson.get("ppt_assets") or []
         ):
             ready_ppts += 1

@@ -44,6 +44,13 @@ from teacher_lesson_authoring import (
     teacher_lesson_script_revision,
     teacher_lesson_v6_source,
 )
+from teacher_asset_readiness import (
+    teacher_lesson_plan_readiness,
+    teacher_lesson_plan_revision_has_content,
+    teacher_lesson_ppt_asset_readiness,
+    teacher_lesson_script_readiness,
+    teacher_lesson_script_revision_has_content,
+)
 from question_bank import question_bank_repository
 from teacher_script import (
     compile_teacher_script_module_contract,
@@ -1029,9 +1036,25 @@ def _lesson_projection(
             if isinstance(script_revision, dict)
             else legacy_script_sections
         )
-        current_script_revision = str(
-            (script_revision or {}).get("revision_id")
-            or teacher_lesson_script_revision(source, lesson_id)
+        current_script_revision = str((script_revision or {}).get("revision_id") or "")
+        legacy_script_fingerprint = teacher_lesson_script_revision(source, lesson_id)
+        script_quality = deepcopy((script_revision or {}).get("quality_report") or {})
+        plan_revision_id = str(plan_asset.get("working_revision_id") or "")
+        plan_readiness = teacher_lesson_plan_readiness(plan_asset)
+        script_readiness = teacher_lesson_script_readiness(
+            plan_asset,
+            plan_readiness=plan_readiness,
+        )
+        plan_ready = bool(plan_readiness["ready"])
+        script_ready = bool(script_readiness["ready"])
+        script_source_state = (
+            "stale"
+            if (
+                plan_readiness["unavailable_reason"] == "source_stale"
+                or script_readiness["unavailable_reason"]
+                in {"source_stale", "upstream_plan_mismatch"}
+            )
+            else "current"
         )
         for ppt_asset in plan_asset.get("ppt_assets") or []:
             if not isinstance(ppt_asset, dict):
@@ -1042,43 +1065,14 @@ def _lesson_projection(
                 and source_script_revision != current_script_revision
             ):
                 ppt_asset["source_state"] = "stale"
-        script_source_state = (
-            "current"
-            if not isinstance(script_revision, dict)
-            or (
-                str(plan_asset.get("source_state") or "current") == "current"
-                and script_revision.get("source_lesson_plan_revision_id")
-                == plan_asset.get("working_revision_id")
+            ppt_readiness = teacher_lesson_ppt_asset_readiness(
+                plan_asset,
+                ppt_asset,
+                plan_readiness=plan_readiness,
+                script_readiness=script_readiness,
             )
-            else "stale"
-        )
-        script_ready = bool(
-            script_source_state == "current"
-            and (
-                _script_revision_has_content(script_revision)
-                if isinstance(script_revision, dict)
-                else bool(script_sections)
-                and all(
-                    str(section.get("content") or "").strip()
-                    for section in script_sections
-                )
-            )
-        )
-        script_quality = deepcopy((script_revision or {}).get("quality_report") or {})
-        plan_revision_id = str(plan_asset.get("working_revision_id") or "")
-        plan_revision = next(
-            (
-                item for item in plan_asset.get("revisions") or []
-                if isinstance(item, dict) and item.get("revision_id") == plan_revision_id
-            ),
-            None,
-        )
-        plan_ready = bool(
-            str(plan_asset.get("source_state") or "current") == "current"
-            and isinstance(plan_revision, dict)
-            and _plan_revision_has_content(plan_revision)
-        )
-        plan_asset["ready"] = plan_ready
+            ppt_asset.update(ppt_readiness)
+        plan_asset.update(plan_readiness)
         # Compatibility fields now mirror readiness. The repository may still
         # retain historical confirmation metadata, but the read model never
         # uses it to decide whether the teacher can continue.
@@ -1101,6 +1095,7 @@ def _lesson_projection(
             "arrangement": arrangement,
             "script": {
                 "current_revision_id": current_script_revision,
+                "legacy_source_fingerprint": legacy_script_fingerprint,
                 "confirmed_revision_id": current_script_revision if script_ready else "",
                 "source_lesson_plan_revision_id": str(
                     (script_revision or {}).get("source_lesson_plan_revision_id")
@@ -1108,6 +1103,7 @@ def _lesson_projection(
                 ),
                 "source_state": script_source_state,
                 "ready": script_ready,
+                "unavailable_reason": script_readiness["unavailable_reason"],
                 "confirmed": script_ready,
                 "publication_eligible": script_ready,
                 "generation_source": str(
@@ -1187,24 +1183,7 @@ def _plan_revision(
 
 
 def _plan_revision_has_content(revision: dict[str, Any]) -> bool:
-    if str(revision.get("generation_source") or "") == "deterministic_local_fallback":
-        return False
-    quality_report = revision.get("quality_report")
-    if isinstance(quality_report, dict) and quality_report.get("passed") is False:
-        return False
-    plan = revision.get("plan") or {}
-    if str(plan.get("schema_version") or "") != "course_teaching_plan_v3":
-        return False
-    sections = [item for item in plan.get("sections") or [] if isinstance(item, dict)]
-    return bool(sections) and all(
-        str(section.get("node_id") or "").strip()
-        and any(
-            isinstance(module, dict)
-            and str(module.get("module_id") or module.get("block_id") or "").strip()
-            for module in section.get("teaching_modules") or []
-        )
-        for section in sections
-    )
+    return teacher_lesson_plan_revision_has_content(revision)
 
 
 def _current_plan_revision(
@@ -1251,26 +1230,7 @@ def _script_revision(
 
 
 def _script_revision_has_content(revision: dict[str, Any]) -> bool:
-    if (
-        str(revision.get("generation_source") or "")
-        == "model_block_pipeline_with_recovery_preview"
-    ):
-        return False
-    quality_report = revision.get("quality_report")
-    if isinstance(quality_report, dict) and quality_report.get("passed") is False:
-        return False
-    if revision.get("publication_eligible") is False:
-        return False
-    sections = [
-        item for item in revision.get("sections") or []
-        if isinstance(item, dict)
-    ]
-    return bool(sections) and all(
-        str(item.get("section_node_id") or "").strip()
-        and str(item.get("content") or "").strip()
-        and list(item.get("blocks") or [])
-        for item in sections
-    )
+    return teacher_lesson_script_revision_has_content(revision)
 
 
 def _current_script_revision(
@@ -3450,8 +3410,7 @@ async def generate_all_lesson_plans(
             for lesson in lessons
             if not body.regenerate_confirmed
             and isinstance(lesson.get("plan"), dict)
-            and lesson["plan"].get("working_revision_id")
-            and lesson["plan"].get("source_state", "current") == "current"
+            and bool(lesson["plan"].get("ready"))
         ]
         target_lessons = [
             lesson for lesson in lessons
@@ -3948,7 +3907,7 @@ async def generate_lesson_script(
             "lesson_unit_id": lesson_unit_id,
             "source_lesson_plan_revision_id": plan_revision_id,
             "requirements": body.requirements.strip(),
-            "material_asset_ids": selected_material_ids,
+            "material_asset_ids": sorted(selected_material_ids),
         }, prefix="teacher-script-input")
         seed_sections: list[dict[str, Any]] = []
         if body.resume_job_id:

@@ -20,7 +20,7 @@ def test_course_preparation_status_requires_every_current_complete_asset():
             "revisions": [{
                 "revision_id": "plan-1",
                 "generation_source": "model",
-                "plan": {"sections": [{
+                "plan": {"schema_version": "course_teaching_plan_v3", "sections": [{
                     "node_id": "section-1",
                     "teaching_modules": [{"module_id": "concept"}],
                 }]},
@@ -48,7 +48,7 @@ def test_course_preparation_status_requires_every_current_complete_asset():
             "revisions": [{
                 "revision_id": "plan-2",
                 "generation_source": "model",
-                "plan": {"sections": [{
+                "plan": {"schema_version": "course_teaching_plan_v3", "sections": [{
                     "node_id": "section-2",
                     "teaching_modules": [{"module_id": "application"}],
                 }]},

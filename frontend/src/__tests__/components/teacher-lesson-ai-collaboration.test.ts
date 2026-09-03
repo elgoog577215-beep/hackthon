@@ -29,6 +29,7 @@ const lesson: TeacherLessonProjection = {
     working_revision_id: 'revision-1',
     confirmed_revision_id: '',
     source_state: 'current',
+    ready: true,
     revisions: [{
       revision_id: 'revision-1', lesson_unit_id: 'lesson-1', source_outline_revision_id: 'outline-1',
       generation_source: 'model', status: 'draft', warnings: [], actor: 'teacher', created_at: '',

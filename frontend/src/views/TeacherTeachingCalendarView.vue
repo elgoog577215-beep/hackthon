@@ -278,6 +278,10 @@ import TeachingCalendarMonthGrid from '../components/TeachingCalendarMonthGrid.v
 import TeacherCourseCreateView from './TeacherCourseCreateView.vue'
 import TeacherCourseLibraryView from './TeacherCourseLibraryView.vue'
 import { activeLocale, t } from '../shared/i18n'
+import {
+  teacherLessonPlanIsReady,
+  teacherLessonPptAssetIsReady,
+} from '../shared/teacher-asset-readiness'
 import { useCourseStore, type Course } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import {
@@ -433,7 +437,7 @@ const lessonPlanPreparation = computed<PreparationState>(() => {
     return preparationState('missing', 'notCreated', 'planMissing')
   }
   if (lesson?.plan.source_state === 'stale') return preparationState('warning', 'needsUpdate', 'planStale')
-  if (revision.status === 'confirmed' || lesson?.plan.confirmed_revision_id === revision.revision_id) return preparationState('ready', 'confirmed', 'planReady')
+  if (teacherLessonPlanIsReady(lesson)) return preparationState('ready', 'confirmed', 'planReady')
   return preparationState('review', 'awaitingReview', 'planDraft')
 })
 const pptPreparation = computed<PreparationState>(() => {
@@ -444,12 +448,12 @@ const pptPreparation = computed<PreparationState>(() => {
   if (job && ['pending', 'running'].includes(job.status)) return preparationState('working', 'generating', 'pptWorking')
   const lesson = sessionLesson.value
   const ppt = lesson?.plan.ppt_assets.find(item => item.role === 'primary') || lesson?.plan.ppt_assets[0]
-  if (!ppt?.working_revision_id) {
+  if (!ppt || !teacherLessonPptAssetIsReady(ppt)) {
     if (job?.status === 'failed') return preparationState('error', 'failed', 'pptFailed')
-    const planReady = Boolean(lesson?.plan.working_revision_id)
+    if (ppt?.source_state === 'stale') return preparationState('warning', 'needsUpdate', 'pptStale')
+    const planReady = teacherLessonPlanIsReady(lesson)
     return preparationState('missing', 'notCreated', planReady ? 'pptMissing' : 'pptNeedsPlan')
   }
-  if (ppt.source_state === 'stale') return preparationState('warning', 'needsUpdate', 'pptStale')
   return preparationState('ready', 'generated', 'pptReady')
 })
 const preparationReadyLabel = computed(() => t('teacherHome.sessionPanel.preparationProgress')

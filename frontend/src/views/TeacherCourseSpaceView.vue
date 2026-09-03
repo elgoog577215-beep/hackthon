@@ -505,6 +505,11 @@ import {
 } from 'lucide-vue-next'
 import { activeLocale, t } from '../shared/i18n'
 import { canonicalizeCourseGenerationOptions, type CourseGenerationOptions } from '../shared/prompt-config'
+import {
+  teacherLessonPlanIsReady,
+  teacherLessonPptAssetIsReady,
+  teacherLessonScriptIsReady,
+} from '../shared/teacher-asset-readiness'
 import { useCourseStore, type Node } from '../stores/course'
 import { useTeacherLessonAuthoringStore, type TeacherLessonProjection } from '../stores/teacherLessonAuthoring'
 import { useTeachingCalendarStore } from '../stores/teachingCalendar'
@@ -858,18 +863,18 @@ const treeData = computed<WorkspaceNode[]>(() => {
     const lessonPrefix = `${String(lesson.number).padStart(2, '0')}  ${lesson.title}`
     const planNode: WorkspaceNode = {
       id: `plan:${lesson.lesson_unit_id}`, label: `${lessonPrefix} · ${t('courseFiles.names.lessonPlan')}`, kind: 'managed', type: 'lesson_plan', path: `分讲教案/${safePart(lessonPrefix)}`,
-      lessonId: lesson.lesson_unit_id, parentId: 'folder:lesson-plans', status: activeJob?.type?.includes('plan') ? 'working' : lesson.plan.source_state === 'stale' ? 'stale' : working ? (working.status === 'confirmed' ? 'ready' : 'draft') : 'missing',
+      lessonId: lesson.lesson_unit_id, parentId: 'folder:lesson-plans', status: activeJob?.type?.includes('plan') ? 'working' : lesson.plan.source_state === 'stale' ? 'stale' : teacherLessonPlanIsReady(lesson) ? 'ready' : working ? 'draft' : 'missing',
       revision: working?.revision_id || '', updatedAt: working?.created_at, sizeBytes: working ? textSize(lessonPlanMarkdown(lesson)) : undefined,
     }
     const contentNode: WorkspaceNode = {
       id: `content:${lesson.lesson_unit_id}`, label: `${lessonPrefix} · ${t('courseFiles.names.content')}`, kind: 'managed', type: 'content', path: `讲义/${safePart(lessonPrefix)}`,
-      lessonId: lesson.lesson_unit_id, parentId: 'folder:handouts', status: script.confirmed ? 'ready' : script.ready ? 'draft' : 'missing',
+      lessonId: lesson.lesson_unit_id, parentId: 'folder:handouts', status: teacherLessonScriptIsReady(lesson) ? 'ready' : script.current_revision_id ? 'draft' : 'missing',
       revision: script.current_revision_id || '', updatedAt: script.revisions?.[0]?.updated_at || script.revisions?.[0]?.created_at,
       sizeBytes: script.ready ? textSize(lessonContentMarkdown(lesson)) : undefined,
     }
     const pptNode: WorkspaceNode = {
       id: `ppt:${lesson.lesson_unit_id}`, label: `${lessonPrefix} · PPT`, kind: 'managed', type: 'ppt', path: `PPT/${safePart(lessonPrefix)}`,
-      lessonId: lesson.lesson_unit_id, parentId: 'folder:ppts', status: activeJob?.type?.includes('ppt') ? 'working' : ppt?.source_state === 'stale' ? 'stale' : ppt?.ppt_manuscript_status === 'confirmed' ? 'ready' : ppt ? 'draft' : 'missing',
+      lessonId: lesson.lesson_unit_id, parentId: 'folder:ppts', status: activeJob?.type?.includes('ppt') ? 'working' : ppt?.source_state === 'stale' ? 'stale' : teacherLessonPptAssetIsReady(ppt) ? 'ready' : ppt ? 'draft' : 'missing',
       revision: ppt?.working_revision_id || '', updatedAt: ppt?.revisions?.at(-1)?.created_at, origin: (ppt || activeJob?.type?.includes('ppt') ? 'generated' : undefined) as 'generated' | undefined,
     }
     const practiceNode: WorkspaceNode = {

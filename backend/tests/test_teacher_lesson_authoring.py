@@ -291,6 +291,19 @@ def test_lesson_projection_recommends_current_arrangement_after_outline_change(t
     } == {"L2-1-1", "L2-1-2"}
 
 
+def test_lesson_projection_keeps_legacy_fingerprint_out_of_formal_script_revision(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+
+    lesson = teacher_lesson_router._lesson_projection(
+        course_data(),
+        repository,
+    )[0]
+
+    assert lesson["script"]["current_revision_id"] == ""
+    assert lesson["script"]["legacy_source_fingerprint"].startswith("tlsr-")
+    assert lesson["script"]["ready"] is False
+
+
 def test_lesson_arrangement_projects_existing_modules_without_example_exam_collision():
     arrangement = recommend_lesson_arrangement(
         course_data(),

@@ -1066,6 +1066,11 @@ import {
 } from '../composables/useTeacherProductionAiCollaboration'
 import { t } from '../shared/i18n'
 import {
+  teacherLessonPlanIsReady,
+  teacherLessonPptIsReady,
+  teacherLessonScriptIsReady,
+} from '../shared/teacher-asset-readiness'
+import {
   canonicalizeCourseGenerationOptions,
   type CourseGenerationOptions,
   type CourseTeachingType,
@@ -1768,7 +1773,8 @@ const documentHistoryItems = computed<TeacherDocumentHistoryItem[]>(() => {
   }))
 })
 const currentPptAsset = computed(() => selectedLesson.value?.plan.ppt_assets.find(asset => (
-  ['slide_deck_v6', 'uploaded_pptx'].includes(String(asset.engine || '')) && asset.source_state === 'current'
+  ['slide_deck_v6', 'uploaded_pptx'].includes(String(asset.engine || ''))
+  && asset.ready === true
 )))
 const pptNeedsRefresh = computed(() => Boolean(
   !currentPptAsset.value && selectedLesson.value?.plan.ppt_assets.some(asset => ['slide_deck_v6', 'uploaded_pptx'].includes(String(asset.engine || ''))),
@@ -2235,7 +2241,7 @@ function stageReady(stage: CoreStageId) {
   if (!lessonStore.lessons.length) return false
   if (stage === 'lesson') return lessonStore.lessons.every(item => lessonPlanIsReady(item))
   if (stage === 'script') return lessonStore.lessons.every(item => lessonScriptIsReady(item))
-  return lessonStore.lessons.every(item => item.plan.ppt_assets.some(asset => asset.source_state === 'current'))
+  return lessonStore.lessons.every(item => teacherLessonPptIsReady(item))
 }
 function teacherOutlineGenerationLabel(value: unknown) {
   const fallback = t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…')
@@ -3072,7 +3078,7 @@ function preferredLessonId(lessons: typeof lessonStore.lessons): string {
   const unfinished = lessons.find(lesson => (
     !lessonPlanIsReady(lesson)
     || !lessonScriptIsReady(lesson)
-    || !lesson.plan.ppt_assets?.some(asset => asset.source_state === 'current')
+    || !teacherLessonPptIsReady(lesson)
   ))
   return unfinished?.lesson_unit_id || lessons[0]?.lesson_unit_id || ''
 }
@@ -3129,15 +3135,10 @@ type ScriptPlanPreviewBlock = {
   minutes: number
 }
 function lessonPlanIsReady(lesson?: TeacherLessonProjection | null): boolean {
-  if (!lesson?.plan?.working_revision_id || lesson.plan.source_state !== 'current') return false
-  return typeof lesson.plan.ready === 'boolean' ? lesson.plan.ready : true
+  return teacherLessonPlanIsReady(lesson)
 }
 function lessonScriptIsReady(lesson?: TeacherLessonProjection | null): boolean {
-  return Boolean(
-    lesson?.script?.ready
-    && lesson.script.current_revision_id
-    && lesson.script.source_state === 'current',
-  )
+  return teacherLessonScriptIsReady(lesson)
 }
 function lessonPlanBlocks(lesson: TeacherLessonProjection): ScriptPlanPreviewBlock[] {
   const revision = lesson.plan.revisions?.find(item => item.revision_id === lesson.plan.working_revision_id)
@@ -3173,7 +3174,7 @@ function lessonGenerationState(lesson: any): 'pending' | 'queued' | 'generating'
   if (activeStage.value === 'ppt') {
     const assets = Array.isArray(lesson.plan?.ppt_assets) ? lesson.plan.ppt_assets : []
     const eligible = assets.filter((asset: any) => ['slide_deck_v6', 'uploaded_pptx'].includes(String(asset.engine || '')))
-    if (eligible.some((asset: any) => asset.source_state === 'current')) return 'ready'
+    if (eligible.some((asset: any) => asset.ready === true)) return 'ready'
     if (eligible.length) return 'stale'
     return 'pending'
   }
