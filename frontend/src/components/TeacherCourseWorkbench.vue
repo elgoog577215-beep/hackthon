@@ -737,6 +737,7 @@
             :generation-job="scriptJob"
             :generation-error="effectiveScriptGenerationError"
             :can-generate="currentLessonPlanReady && !referenceGenerationBlocked"
+            :generation-blocked-reason="referenceGenerationBlocked ? referenceGenerationBlockReason : ''"
             external-toolbar
             @generate="generateScript"
             @pause-generation="pauseScriptGeneration"

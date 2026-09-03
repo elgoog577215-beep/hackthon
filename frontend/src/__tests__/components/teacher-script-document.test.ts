@@ -206,6 +206,41 @@ describe('统一讲义页面', () => {
     expect(wrapper.find('.script-footer').exists()).toBe(false)
   })
 
+  it('教案不可用时突出阻塞状态，不再显示正常生成说明', () => {
+    const emptyLesson = structuredClone(lesson)
+    emptyLesson.script = { ...emptyLesson.script, current_revision_id: '', ready: false, sections: [] }
+
+    const wrapper = mount(TeacherScriptDocument, {
+      props: { courseId: 'course-1', lesson: emptyLesson, canGenerate: false },
+    })
+
+    const blocked = wrapper.get('.script-source-review__blocked')
+    expect(blocked.attributes('role')).toBe('status')
+    expect(blocked.text()).toContain('暂无可用教案')
+    expect(blocked.text()).toContain('请先完成本讲教案，再生成讲义。')
+    expect(blocked.find('svg').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('本讲讲义将按以下教案生成')
+    expect(wrapper.text()).not.toContain('教案中还没有可映射的教学块')
+    expect(wrapper.get('.script-source-review button').attributes('disabled')).toBeDefined()
+  })
+
+  it('资料状态阻塞时展示真实原因，不误报为缺少教案', () => {
+    const emptyLesson = structuredClone(lesson)
+    emptyLesson.script = { ...emptyLesson.script, current_revision_id: '', ready: false, sections: [] }
+
+    const wrapper = mount(TeacherScriptDocument, {
+      props: {
+        courseId: 'course-1', lesson: emptyLesson, canGenerate: false,
+        generationBlockedReason: '正在更新课程资料…',
+      },
+    })
+
+    const blocked = wrapper.get('.script-source-review__blocked')
+    expect(blocked.text()).toContain('暂时无法生成讲义')
+    expect(blocked.text()).toContain('正在更新课程资料…')
+    expect(blocked.text()).not.toContain('暂无可用教案')
+  })
+
   it('生成中展示已完成教学块，失败后只提供继续剩余内容', async () => {
     const emptyLesson = structuredClone(lesson)
     emptyLesson.script = { ...emptyLesson.script, current_revision_id: '', ready: false, sections: [] }

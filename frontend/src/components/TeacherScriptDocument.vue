@@ -70,17 +70,22 @@
             </div>
           </li>
         </ol>
-        <div class="script-source-review__heading">
-          <div>
+        <div class="script-source-review__heading" :data-state="canGenerate ? 'ready' : 'blocked'">
+          <div v-if="canGenerate">
             <strong>{{ tr('courseWorkbench.scriptDocument.mappingTitle') }}</strong>
-            <span>{{ canGenerate
-              ? tr('courseWorkbench.scriptDocument.mappingReady')
-              : tr('courseWorkbench.scriptDocument.mappingBlocked') }}</span>
+            <span>{{ tr('courseWorkbench.scriptDocument.mappingReady') }}</span>
+          </div>
+          <div v-else class="script-source-review__blocked" role="status" aria-live="polite">
+            <TriangleAlert :size="22" aria-hidden="true" />
+            <div>
+              <strong>{{ scriptGenerationBlockStatus.title }}</strong>
+              <span>{{ scriptGenerationBlockStatus.detail }}</span>
+            </div>
           </div>
           <button
             type="submit"
             :disabled="generating || !canGenerate"
-            :title="!canGenerate ? tr('courseWorkbench.scriptDocument.planRequired') : ''"
+            :title="!canGenerate ? scriptGenerationBlockStatus.detail : ''"
           >
             <LoaderCircle v-if="generating" :size="16" class="spin" />
             <Sparkles v-else :size="16" />
@@ -98,7 +103,7 @@
             <em v-if="block.minutes">{{ block.minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</em>
           </li>
         </ol>
-        <p v-else class="script-source-empty">{{ tr('courseWorkbench.scriptDocument.mappingEmpty') }}</p>
+        <p v-else-if="canGenerate" class="script-source-empty">{{ tr('courseWorkbench.scriptDocument.mappingEmpty') }}</p>
       </form>
       <div v-if="generationJob" class="script-generation-progress" :data-status="generationJob.status">
         <div>
@@ -182,7 +187,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { Check, LoaderCircle, Pencil, Sparkles, X } from 'lucide-vue-next'
+import { Check, LoaderCircle, Pencil, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import TextSelectionAiAction from './TextSelectionAiAction.vue'
@@ -200,6 +205,7 @@ const props = withDefaults(defineProps<{
   generationJob?: TeacherLessonJob
   generationError?: string
   canGenerate?: boolean
+  generationBlockedReason?: string
   assistantOpen?: boolean
   materialAssetIds?: string[]
   externalToolbar?: boolean
@@ -209,6 +215,7 @@ const props = withDefaults(defineProps<{
   generationJob: undefined,
   generationError: '',
   canGenerate: false,
+  generationBlockedReason: '',
   assistantOpen: false,
   materialAssetIds: () => [],
   externalToolbar: false,
@@ -303,7 +310,9 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.scriptDocument.generateStepDetail': '按映射内容直接生成',
   'courseWorkbench.scriptDocument.mappingTitle': '本讲讲义将按以下教案生成',
   'courseWorkbench.scriptDocument.mappingReady': '教学块已映射，核对后可直接开始。',
-  'courseWorkbench.scriptDocument.mappingBlocked': '当前暂无可用教案，请先完成本讲教案。',
+  'courseWorkbench.scriptDocument.mappingBlockedTitle': '暂无可用教案',
+  'courseWorkbench.scriptDocument.mappingBlockedDetail': '请先完成本讲教案，再生成讲义。',
+  'courseWorkbench.scriptDocument.generationBlockedTitle': '暂时无法生成讲义',
   'courseWorkbench.scriptDocument.mappingEmpty': '教案中还没有可映射的教学块。',
   'courseWorkbench.scriptDocument.generate': '生成本讲讲义',
   'courseWorkbench.scriptDocument.generating': '正在生成…',
@@ -436,6 +445,17 @@ const mappedPlanBlocks = computed<MappedPlanBlock[]>(() => {
     minutes: Number(block.planned_minutes || 0),
   }))
 })
+const scriptGenerationBlockStatus = computed(() => (
+  props.generationBlockedReason
+    ? {
+        title: tr('courseWorkbench.scriptDocument.generationBlockedTitle'),
+        detail: props.generationBlockedReason,
+      }
+    : {
+        title: tr('courseWorkbench.scriptDocument.mappingBlockedTitle'),
+        detail: tr('courseWorkbench.scriptDocument.mappingBlockedDetail'),
+      }
+))
 const selectedNode = computed(() => scriptSections.value.find(node => node.section_node_id === selectedNodeId.value) || scriptSections.value[0] || null)
 
 function blockIsStreaming(blockId: string): boolean {
@@ -658,5 +678,5 @@ defineExpose({
 .script-ai{background:var(--teacher-component-tint,#f7f7ff)}
 .script-actions button:hover,.script-generate textarea:disabled{background:var(--teacher-component-tint,#f7f7ff)}
 .script-streamed-block .stream-caret{width:2px;height:17px;display:inline-block;margin-left:3px;vertical-align:-2px;background:#5b57e8;animation:blink .8s steps(1) infinite}@keyframes blink{50%{opacity:0}}
-.script-source-review{display:grid;gap:22px;padding:24px 28px 30px}.script-source-steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;margin:0;padding:3px;border:1px solid #dfe4ed;border-radius:11px;background:#eef1f6;list-style:none}.script-source-steps li{min-width:0;min-height:48px;display:grid;grid-template-columns:24px minmax(0,1fr);align-items:center;gap:8px;padding:5px 10px;border-radius:8px;color:#69768a}.script-source-steps li>span{width:22px;height:22px;display:grid;place-items:center;border:1px solid #cbd3df;border-radius:50%;font-size:13px;font-weight:800}.script-source-steps li>div{min-width:0;display:grid;gap:1px}.script-source-steps strong{overflow:hidden;font-size:14px;font-weight:750;text-overflow:ellipsis;white-space:nowrap}.script-source-steps small{overflow:hidden;color:#7c8899;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.script-source-steps li.active{color:#312e81;background:#fff;box-shadow:0 2px 8px rgba(30,41,59,.08)}.script-source-steps li.active>span{border-color:#6965d8;color:#fff;background:#6965d8}.script-source-review__heading{display:flex;align-items:center;justify-content:space-between;gap:24px}.script-source-review__heading>div{min-width:0;display:grid;gap:5px}.script-source-review__heading strong{color:#263147;font-size:18px;font-weight:760}.script-source-review__heading span{color:#68768b;font-size:15px;line-height:1.5}.script-source-review__heading button{min-height:42px;flex:none;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 18px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:14px;font-weight:750;cursor:pointer}.script-source-review__heading button:hover:not(:disabled){background:#4338ca}.script-source-review__heading button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.script-source-review__heading button:disabled{opacity:.45;cursor:not-allowed}.script-source-blocks{display:grid;gap:0;margin:0;padding:0;border-top:1px solid #e8ecf2;list-style:none}.script-source-blocks li{min-height:72px;display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:start;gap:12px;padding:14px 0;border-bottom:1px solid #e8ecf2}.script-source-blocks>li>span{padding-top:2px;color:#817dcf;font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}.script-source-blocks li>div{min-width:0;display:grid;gap:3px}.script-source-blocks strong{color:#303b50;font-size:15px;font-weight:720}.script-source-blocks small{color:#68768b;font-size:14px}.script-source-blocks p{max-width:75ch;margin:2px 0 0;color:#566277;font-size:15px;line-height:1.55}.script-source-blocks em{padding-top:2px;color:#68768b;font-size:14px;font-style:normal;white-space:nowrap}.script-source-empty{margin:0;padding:18px 0;border-top:1px solid #e8ecf2;color:#68768b;font-size:15px}
+.script-source-review{display:grid;gap:22px;padding:24px 28px 30px}.script-source-steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;margin:0;padding:3px;border:1px solid #dfe4ed;border-radius:11px;background:#eef1f6;list-style:none}.script-source-steps li{min-width:0;min-height:48px;display:grid;grid-template-columns:24px minmax(0,1fr);align-items:center;gap:8px;padding:5px 10px;border-radius:8px;color:#69768a}.script-source-steps li>span{width:22px;height:22px;display:grid;place-items:center;border:1px solid #cbd3df;border-radius:50%;font-size:13px;font-weight:800}.script-source-steps li>div{min-width:0;display:grid;gap:1px}.script-source-steps strong{overflow:hidden;font-size:14px;font-weight:750;text-overflow:ellipsis;white-space:nowrap}.script-source-steps small{overflow:hidden;color:#7c8899;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.script-source-steps li.active{color:#312e81;background:#fff;box-shadow:0 2px 8px rgba(30,41,59,.08)}.script-source-steps li.active>span{border-color:#6965d8;color:#fff;background:#6965d8}.script-source-review__heading{display:flex;align-items:center;justify-content:space-between;gap:24px}.script-source-review__heading>div{min-width:0;display:grid;gap:5px}.script-source-review__heading strong{color:#263147;font-size:18px;font-weight:760}.script-source-review__heading span{color:#68768b;font-size:15px;line-height:1.5}.script-source-review__heading>.script-source-review__blocked{grid-template-columns:22px minmax(0,1fr);align-items:start;gap:10px}.script-source-review__blocked>svg{margin-top:2px;color:#b56a18}.script-source-review__blocked>div{min-width:0;display:grid;gap:4px}.script-source-review__blocked strong{color:#7a410f;font-size:19px}.script-source-review__blocked span{color:#8a561f}.script-source-review__heading button{min-height:42px;flex:none;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 18px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:14px;font-weight:750;cursor:pointer}.script-source-review__heading button:hover:not(:disabled){background:#4338ca}.script-source-review__heading button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.script-source-review__heading button:disabled{opacity:.45;cursor:not-allowed}.script-source-blocks{display:grid;gap:0;margin:0;padding:0;border-top:1px solid #e8ecf2;list-style:none}.script-source-blocks li{min-height:72px;display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:start;gap:12px;padding:14px 0;border-bottom:1px solid #e8ecf2}.script-source-blocks>li>span{padding-top:2px;color:#817dcf;font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}.script-source-blocks li>div{min-width:0;display:grid;gap:3px}.script-source-blocks strong{color:#303b50;font-size:15px;font-weight:720}.script-source-blocks small{color:#68768b;font-size:14px}.script-source-blocks p{max-width:75ch;margin:2px 0 0;color:#566277;font-size:15px;line-height:1.55}.script-source-blocks em{padding-top:2px;color:#68768b;font-size:14px;font-style:normal;white-space:nowrap}.script-source-empty{margin:0;padding:18px 0;border-top:1px solid #e8ecf2;color:#68768b;font-size:15px}
 </style>
