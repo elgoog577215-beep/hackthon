@@ -132,6 +132,24 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.companion-entry button small').exists()).toBe(false)
     expect(wrapper.findAll('.companion-entry button').map(button => button.text())).toEqual(['题库', '评分细则', '考试课程材料自查清单'])
     expect(wrapper.findAll('.companion-entry button').every(button => button.findAll('svg').length === 1)).toBe(true)
+    expect(wrapper.find('.stage-rail > footer').exists()).toBe(false)
+    expect(wrapper.findAll('.stage-state')).toHaveLength(4)
+    expect(wrapper.findAll('.stage-state').every(state => state.attributes('data-state') === 'pending')).toBe(true)
+    expect(wrapper.findAll('.stage-state').every(state => state.attributes('data-progress') === '0')).toBe(true)
+  })
+
+  it('侧栏用绿色圆形填充表示真实生成进度，不显示数字计数', () => {
+    const task = useGenerationStore().createTask('job-progress', 'course-1', 'C 语言程序设计')
+    task.status = 'running'
+    task.progress = 40
+
+    const wrapper = mountWorkbench()
+    const outlineState = wrapper.findAll('.stage-state')[0]!
+
+    expect(outlineState.attributes('data-state')).toBe('progress')
+    expect(outlineState.attributes('data-progress')).toBe('40')
+    expect(outlineState.attributes('style')).toContain('--stage-progress-angle: 144deg')
+    expect(wrapper.find('.stage-rail > footer').exists()).toBe(false)
   })
 
   it('把课程信息入口事件交给课程工作区打开弹窗', async () => {
@@ -326,6 +344,10 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.center-heading h2').text()).toBe('大纲')
     expect(wrapper.find('[data-testid="outline-ai-action"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="outline-manual-action"]').text()).toContain('编辑大纲')
+    const completedState = wrapper.findAll('.stage-state')[0]!
+    expect(completedState.attributes('data-state')).toBe('complete')
+    expect(completedState.attributes('data-progress')).toBe('100')
+    expect(completedState.find('svg').exists()).toBe(true)
     await wrapper.get('[data-testid="outline-manual-action"]').trigger('click')
     expect(wrapper.emitted('update:outlineEditing')?.[0]).toEqual([true])
   })

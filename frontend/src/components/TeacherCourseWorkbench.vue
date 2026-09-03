@@ -13,7 +13,15 @@
       </header>
       <nav>
         <button v-for="stage in stages" :key="stage.id" type="button" :class="{ active: activeStage === stage.id }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== stage.id)" @click="requestStageChange(stage.id)">
-          <span>{{ stage.step }}</span><component :is="stage.icon" :size="18" /><strong>{{ stage.label }}</strong><Check v-if="stageReady(stage.id)" :size="15" />
+          <span>{{ stage.step }}</span><component :is="stage.icon" :size="18" /><strong>{{ stage.label }}</strong>
+          <span
+            class="stage-state"
+            :data-state="stageReady(stage.id) ? 'complete' : stageProgress(stage.id) > 0 ? 'progress' : 'pending'"
+            :data-progress="stageProgress(stage.id)"
+            :style="{ '--stage-progress-angle': `${stageProgress(stage.id) * 3.6}deg` }"
+            role="img"
+            :aria-label="stageProgressLabel(stage.id)"
+          ><Check v-if="stageReady(stage.id)" :size="12" aria-hidden="true" /></span>
         </button>
       </nav>
       <section class="companion-entry">
@@ -28,7 +36,6 @@
           <CheckSquare2 :size="18" /><strong>{{ t('courseWorkbench.supporting.materialChecklist', '考试课程材料自查清单') }}</strong>
         </button>
       </section>
-      <footer><span>{{ readyStageCount }}/4</span><div><i :style="{ width: `${readyStageCount / 4 * 100}%` }" /></div></footer>
     </aside>
 
     <main
@@ -2176,7 +2183,6 @@ const contextObjectDetail = computed(() => {
   if (['lesson', 'script', 'ppt'].includes(activeStage.value)) return lessonHeaderStatusLabel.value
   return t('courseWorkbench.contextPane.prepareSources', '可在下方调整本次生成使用的资料')
 })
-const readyStageCount = computed(() => stages.value.filter(item => stageReady(item.id)).length)
 const lessonStageBlocked = computed(() => (
   lessonStore.loading
   || !lessonStore.lessons.length
@@ -2242,6 +2248,41 @@ function stageReady(stage: CoreStageId) {
   if (stage === 'lesson') return lessonStore.lessons.every(item => lessonPlanIsReady(item))
   if (stage === 'script') return lessonStore.lessons.every(item => lessonScriptIsReady(item))
   return lessonStore.lessons.every(item => teacherLessonPptIsReady(item))
+}
+function boundedStageProgress(value: unknown): number {
+  return Math.max(0, Math.min(100, Math.round(Number(value) || 0)))
+}
+function stageProgress(stage: CoreStageId): number {
+  if (stageReady(stage)) return 100
+  if (stage === 'foundation') {
+    if (!props.generationStarting && !taskInFlight.value && !hasOutline.value && !outlineWaitingForInput.value) return 0
+    return Math.min(99, boundedStageProgress(generationProgress.value))
+  }
+  if (!lessonStore.lessons.length) return 0
+  const total = lessonStore.lessons.reduce((sum, lesson) => {
+    if (stage === 'lesson') {
+      if (lessonPlanIsReady(lesson)) return sum + 100
+      const job = lessonStore.latestJobByLesson(lesson.lesson_unit_id)
+      return sum + (['pending', 'running', 'paused'].includes(String(job?.status || '')) ? boundedStageProgress(job?.progress) : 0)
+    }
+    if (stage === 'script') {
+      if (lessonScriptIsReady(lesson)) return sum + 100
+      const job = lessonStore.latestScriptJobByLesson(lesson.lesson_unit_id)
+      return sum + (['pending', 'running', 'paused'].includes(String(job?.status || '')) ? boundedStageProgress(job?.progress) : 0)
+    }
+    if (teacherLessonPptIsReady(lesson)) return sum + 100
+    const isCurrentBuild = teachingRepresentationsStore.courseId === props.courseId
+      && teachingRepresentationsStore.teacherLessonId === lesson.lesson_unit_id
+      && (teachingRepresentationsStore.building || teachingRepresentationsStore.buildPaused)
+    return sum + (isCurrentBuild ? boundedStageProgress(teachingRepresentationsStore.buildProgress) : 0)
+  }, 0)
+  return Math.min(99, boundedStageProgress(total / lessonStore.lessons.length))
+}
+function stageProgressLabel(stage: CoreStageId): string {
+  const progress = stageProgress(stage)
+  if (progress === 100) return t('courseWorkbench.stageStatus.complete', '已生成')
+  if (progress === 0) return t('courseWorkbench.stageStatus.pending', '未生成')
+  return t('courseWorkbench.stageStatus.progress', '生成进度 {progress}%').replace('{progress}', String(progress))
 }
 function teacherOutlineGenerationLabel(value: unknown) {
   const fallback = t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…')
@@ -3469,6 +3510,16 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.stage-rail nav button{--stage-state-center:#fff}
+.stage-rail nav button:hover{--stage-state-center:#f6f7fb}
+.stage-rail nav button.active{--stage-state-center:#eef0ff}
+.stage-state{position:relative;width:16px;height:16px;display:grid;place-items:center;justify-self:center;border-radius:50%;transition:background .25s ease-out,color .2s ease-out}
+.stage-state[data-state="pending"]::after{width:7px;height:7px;border-radius:50%;background:#cbd5e1;content:""}
+.stage-state[data-state="progress"]{background:conic-gradient(from -90deg,#16a34a var(--stage-progress-angle),#dbe2ea 0)}
+.stage-state[data-state="progress"]::after{width:8px;height:8px;border-radius:50%;background:var(--stage-state-center);content:""}
+.stage-state[data-state="complete"]{color:#fff;background:#16a34a}
+.stage-rail nav button:disabled .stage-state{opacity:.58}
+@media (prefers-reduced-motion:reduce){.stage-state{transition:none}}
 .teacher-workbench{height:100%;min-height:0;display:grid;grid-template-columns:210px minmax(520px,1fr) 310px;overflow:hidden;background:#f3f5f9}.stage-rail{min-height:0;display:flex;flex-direction:column;border-right:1px solid #e4e9f1;background:#fff}.stage-rail>header{display:grid;gap:10px;padding:21px 18px 16px}.stage-rail>header strong{color:#1f2a40;font-size:15px}.course-information-entry{min-height:32px;display:flex;align-items:center;gap:7px;padding:0 9px;border:1px solid #dfe4ec;border-radius:8px;color:#566279;background:#fff;font-size:14px;font-weight:700;cursor:pointer}.course-information-entry:hover,.course-information-entry:focus-visible{border-color:#c7c9ee;color:#4338ca;background:#f7f7ff;outline:none}.stage-rail nav{display:grid;gap:4px;padding:4px 9px}.stage-rail nav button{min-height:54px;display:grid;grid-template-columns:26px 22px minmax(0,1fr) 18px;align-items:center;gap:8px;padding:8px 10px;border:0;border-radius:10px;color:#64748b;background:transparent;text-align:left;cursor:pointer}.stage-rail nav button:hover{background:#f6f7fb}.stage-rail nav button.active{color:#4338ca;background:#eef0ff}.stage-rail nav button>span{font-size:15px;font-weight:800}.stage-rail nav strong{min-width:0;color:#334155;font-size:14px}.stage-rail nav button.active strong{color:#3730a3}.stage-rail nav button>svg:last-child{color:#16a34a}.stage-rail>footer{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:9px;margin-top:auto;padding:16px 18px;color:#64748b;font-size:14px}.stage-rail>footer>div{height:4px;overflow:hidden;border-radius:2px;background:#e8ecf3}.stage-rail>footer i{height:100%;display:block;background:#5b57e8}.workbench-center{min-width:0;min-height:0;overflow:auto;padding:24px 26px 52px}.center-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;max-width:860px;margin:0 auto 18px}.center-heading>div{display:grid;gap:4px}.center-heading small{color:#6366f1;font-size:14px;font-weight:800}.center-heading h2{margin:0;color:#172033;font-size:24px;letter-spacing:-.018em}.center-heading>button,.formal-surface>header button,.generation-surface>header button{min-height:36px;display:flex;align-items:center;gap:7px;padding:0 11px;border:1px solid #d7dde7;border-radius:8px;color:#475569;background:#fff;font-size:14px;font-weight:700;cursor:pointer}.generation-header-actions{display:flex!important;align-items:center;gap:7px}.stage-form,.formal-surface,.generation-surface,.lesson-stage{max-width:860px;margin:0 auto;border:1px solid #e0e6ef;border-radius:14px;background:#fff;box-shadow:0 10px 30px rgba(30,41,59,.05)}.stage-form{display:grid;gap:20px;padding:26px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.form-field{display:grid;gap:8px}.form-field>span,.lesson-selector>span{color:#334155;font-size:14px;font-weight:700}.form-field b{color:#dc2626}.form-field input,.form-field select,.form-field textarea,.lesson-selector select{width:100%;min-height:44px;padding:10px 11px;border:1px solid #cfd7e3;border-radius:8px;outline:0;color:#172033;background:#fff;font:inherit;font-size:14px}.form-field textarea{resize:vertical;line-height:1.6}.form-field input:focus,.form-field select:focus,.form-field textarea:focus,.form-field textarea:focus,.lesson-selector select:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.stage-form>footer{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:2px}.stage-form>footer>span{color:#64748b;font-size:14px}.primary{min-height:42px;display:flex;align-items:center;gap:7px;padding:0 15px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:14px;font-weight:750;cursor:pointer;box-shadow:0 7px 18px rgba(81,75,220,.16)}.primary:disabled{opacity:.48;cursor:not-allowed}.generation-surface{overflow:hidden}.generation-surface>header,.formal-surface>header{min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 20px;border-bottom:1px solid #e7ebf2}.generation-surface>header>div{display:flex;align-items:center;gap:10px;color:#4f46e5}.generation-surface>header span,.formal-surface>header>div{display:grid;gap:3px}.generation-surface>header strong,.formal-surface>header strong{color:#263147;font-size:14px}.generation-surface>header small,.formal-surface>header small{color:#64748b;font-size:14px}.generation-progress{height:3px;background:#e8ebf5}.generation-progress i{width:100%;height:100%;display:block;transform-origin:left;background:#5b57e8;transition:transform .25s ease-out}.stream-content,.formal-surface>article{max-height:calc(100vh - 260px);overflow:auto;padding:22px 28px 42px}.stream-content section,.formal-surface article section{margin-bottom:26px}.stream-content h3,.formal-surface h3{margin:0 0 10px;color:#202b40;font-size:17px}.stream-waiting{min-height:260px;display:flex;align-items:center;justify-content:center;gap:9px;color:#64748b;font-size:14px}.stream-caret{width:2px;height:18px;display:inline-block;background:#5b57e8;animation:blink .8s steps(1) infinite}.generation-error{margin:0;padding:12px 20px;color:#b91c1c;background:#fff1f2;font-size:14px}.generation-error button{border:0;color:inherit;background:transparent;font-weight:750;text-decoration:underline;cursor:pointer}.lesson-stage{padding:0 0 24px}.lesson-selector{display:grid;grid-template-columns:110px minmax(0,1fr);align-items:center;gap:14px;padding:18px 22px;border-bottom:1px solid #e7ebf2}.stage-form--lesson{border:0;box-shadow:none}.prerequisite,.empty-asset{min-height:260px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:#64748b;font-size:14px}.prerequisite strong{color:#334155}.prerequisite button{padding:7px 10px;border:1px solid #d7dde7;border-radius:7px;color:#4f46e5;background:#fff;font-weight:700;cursor:pointer}.lesson-formal{margin:20px 20px 0;border-radius:10px;box-shadow:none}.lesson-formal>article{max-height:calc(100vh - 360px)}.formal-surface ol{display:grid;gap:8px;padding-left:22px;color:#475569;font-size:14px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@keyframes blink{50%{opacity:0}}
 .center-heading>.center-heading-actions{display:flex;align-items:center;gap:8px}
 .center-heading-actions>button{min-height:36px;display:flex;align-items:center;gap:7px;padding:0 11px;border:1px solid #d7dde7;border-radius:8px;color:#475569;background:#fff;font-size:14px;font-weight:700;cursor:pointer}
@@ -3484,9 +3535,10 @@ onBeforeUnmount(() => {
 .stage-rail>header{display:block;padding:22px 18px 18px}.stage-rail>header .stage-rail-title{color:#1f2a40;font-size:18px;line-height:1.25}
 .companion-entry{display:grid;gap:7px;margin:10px 9px 0;padding-top:14px;border-top:1px solid #e7ebf2}.companion-entry>small{padding:0 10px;color:#64748b;font-size:14px;font-weight:700}.companion-entry>button{min-height:50px;display:grid;grid-template-columns:22px minmax(0,1fr);align-items:center;gap:9px;padding:8px 10px;border:0;border-radius:10px;color:#64748b;background:transparent;text-align:left;cursor:pointer}.companion-entry>button:hover{background:#f6f7fb}.companion-entry>button.active{color:#4338ca;background:#eef0ff}.companion-entry strong{min-width:0;color:#334155;font-size:14px}.companion-entry>button.active strong{color:#3730a3}
 .question-workbench-surface{max-width:860px;margin:0 auto;padding:0}
-@media(max-width:1050px){.teacher-workbench{grid-template-columns:180px minmax(0,1fr) 280px}.workbench-center{padding-inline:18px}.stage-rail nav button{grid-template-columns:23px minmax(0,1fr)}.stage-rail nav button>svg,.stage-rail nav button>svg:last-child{display:none}}
+@media(max-width:1050px){.teacher-workbench{grid-template-columns:180px minmax(0,1fr) 280px}.workbench-center{padding-inline:18px}.stage-rail nav button{grid-template-columns:23px minmax(0,1fr) 18px}.stage-rail nav button>svg,.stage-rail nav button>svg:last-child{display:none}}
 @media(max-width:760px){.teacher-workbench{height:auto;min-height:100%;grid-template-columns:1fr;overflow:auto}.stage-rail{display:block;border-right:0;border-bottom:1px solid #e4e9f1}.stage-rail>header,.stage-rail>footer{display:none}.stage-rail nav{grid-template-columns:repeat(4,minmax(0,1fr));overflow:auto;padding:8px}.stage-rail nav button{min-width:108px;min-height:50px;grid-template-columns:22px minmax(0,1fr);padding:6px 8px}.workbench-center{overflow:visible;padding:18px 12px 30px}.center-heading h2{font-size:21px}.center-heading>button{font-size:0;width:38px;padding:0;justify-content:center}.stage-form{padding:19px 16px}.form-grid{grid-template-columns:1fr}.foundation-preset-row{grid-template-columns:1fr;gap:9px}.foundation-preset-options{grid-template-columns:1fr}.foundation-preset-options>button{min-height:52px}.stage-form>footer{align-items:stretch;flex-direction:column}.primary{justify-content:center}.lesson-selector{grid-template-columns:1fr}.stream-content,.formal-surface>article{max-height:none;padding-inline:18px}.reference-tray{border-left:0;border-top:1px solid #e4e9f1}}
 @media(max-width:760px){.foundation-semantic-row{grid-template-columns:1fr;gap:10px}.foundation-semantic-options--three,.foundation-semantic-options--six{grid-template-columns:1fr}.foundation-semantic-options>button{min-height:54px}.foundation-subject-select{grid-template-columns:1fr;gap:7px}.foundation-purpose-fields--two{grid-template-columns:1fr}}
+@media(max-width:760px){.stage-rail nav button{grid-template-columns:22px minmax(0,1fr) 18px}}
 @media(max-width:760px){.center-heading-actions>button{width:38px;padding:0;justify-content:center;font-size:0}}
 .stream-failed{color:#b91c1c;background:#fffafa}
 .workbench-error{margin:12px 20px 16px}.prerequisite-error{margin:24px}.lesson-generation-actions{display:flex;align-items:center;gap:8px}.lesson-generation-actions button{min-height:36px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 12px;border:1px solid #cfd6e3;border-radius:8px;color:#475569;background:#fff;font-size:15px;font-weight:750;cursor:pointer}.lesson-generation-actions button:hover:not(:disabled){border-color:#aaa7e8;color:#3730a3;background:#f8f8ff}.lesson-generation-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.lesson-generation-actions button:disabled{opacity:.5;cursor:not-allowed}.lesson-generation-actions .primary-action{border-color:#514bdc;color:#fff;background:#514bdc}.lesson-generation-actions .primary-action:hover:not(:disabled){border-color:#4338ca;color:#fff;background:#4338ca}.lesson-generation-toolbar-status{min-height:36px;display:flex;align-items:center;gap:9px;color:#5551c6;font-size:15px;white-space:nowrap}.lesson-generation-toolbar-status strong{color:#30394e;font-size:15px}.lesson-generation-toolbar-status em{font-size:15px;font-style:normal;font-weight:750;font-variant-numeric:tabular-nums}.lesson-generation-status{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:0 30px;border-bottom:1px solid #eceef4;background:#fafaff}.lesson-generation-status>div{min-width:0;display:flex;align-items:center;gap:10px;color:#5752d4}.lesson-generation-status span{min-width:0;display:grid;gap:2px}.lesson-generation-status strong,.lesson-generation-status small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lesson-generation-status strong{color:#30394e;font-size:15px}.lesson-generation-status small{color:#667386;font-size:15px}.lesson-generation-status em{color:#5b57d7;font-size:15px;font-style:normal;font-weight:750;font-variant-numeric:tabular-nums}.lesson-stream-document{padding:34px 50px 64px}.lesson-stream-document>small{display:block;margin-bottom:9px;color:#6366f1;font-size:15px;font-weight:800;letter-spacing:.04em}.lesson-stream-document h3{margin:0 0 22px;color:#202b40;font-size:20px}.lesson-stream-document p{max-width:75ch;margin:0 0 15px;color:#475569;font-size:15px;line-height:1.8}.lesson-stream-document .stream-caret{height:15px;margin-left:3px;vertical-align:-2px}.lesson-stream-waiting{min-height:280px;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:15px}.lesson-queue-state{min-height:330px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;color:#6f7a90;text-align:center}.lesson-queue-state svg{margin-bottom:15px;color:#7470d8}.lesson-queue-state strong{color:#354057;font-size:16px}.lesson-queue-state p{max-width:38ch;margin:8px 0 0;font-size:15px;line-height:1.65}.lesson-empty-canvas{min-height:430px;display:grid;place-items:center;color:#778397;background:#fff;font-size:15px}

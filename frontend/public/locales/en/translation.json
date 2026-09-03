@@ -385,6 +385,11 @@
     "continue": "Continue",
     "regenerate": "Regenerate",
     "stageNavigation": "Course production stages",
+    "stageStatus": {
+      "pending": "Not generated",
+      "progress": "Generation progress {progress}%",
+      "complete": "Generated"
+    },
     "progress": "Create five asset types independently",
     "editOutline": "Edit outline",
     "finishOutlineEditing": "Finish editing",

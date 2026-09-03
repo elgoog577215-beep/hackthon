@@ -385,6 +385,11 @@
     "continue": "继续",
     "regenerate": "重新生成",
     "stageNavigation": "课程生产阶段",
+    "stageStatus": {
+      "pending": "未生成",
+      "progress": "生成进度 {progress}%",
+      "complete": "已生成"
+    },
     "progress": "五类资产可独立创建",
     "editOutline": "编辑大纲",
     "finishOutlineEditing": "完成编辑",
