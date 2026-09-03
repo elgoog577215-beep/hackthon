@@ -101,7 +101,7 @@ def test_plan_conversion_keeps_existing_outline_numbering_idempotent():
     ]
 
 
-def test_teacher_course_framework_is_one_level_from_the_first_model_call():
+def test_teacher_course_light_plan_is_one_level_from_the_first_model_call():
     brief = {
         "course_shape_constraints": {
             "teacher_lecture_mode": True,
@@ -131,12 +131,12 @@ def test_teacher_course_framework_is_one_level_from_the_first_model_call():
     assert '"chapters"' not in prompt
     assert "严格返回 2 讲" in prompt
     assert "第N讲" in prompt
+    assert '"content_summary"' in prompt
     assert '"assessment"' not in prompt
-    assert '"scope_boundary"' in prompt
-    assert '"outcome_alignment"' in prompt
-    assert prompt.index('"lectures"') < prompt.index('"course_intro_zh"')
-    assert "本请求只形成可立即展示和审阅的全课框架" in prompt
-    assert "这些由后续限流并行的讲次详情批次补全" in prompt
+    assert '"scope_boundary"' not in prompt
+    assert '"outcome_alignment"' not in prompt
+    assert '"learning_objectives"' not in prompt
+    assert "只返回讲次顺序，以及每讲的标题和内容简介" in prompt
 
     skeleton = normalize_outline_skeleton(
         {

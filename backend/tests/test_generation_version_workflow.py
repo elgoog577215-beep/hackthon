@@ -198,6 +198,7 @@ class SkeletonGateService(BlueprintService):
                 {
                     "lecture_number": number,
                     "title": title,
+                    "content_summary": f"讲解{title}的核心内容与应用范围",
                     "learning_objective": objective,
                     "scope_boundary": boundary,
                     "hour_breakdown": {
@@ -243,7 +244,7 @@ class SkeletonGateService(BlueprintService):
                     "scope_boundary": lecture["scope_boundary"],
                     "hour_breakdown": deepcopy(lecture["hour_breakdown"]),
                     "planned_hours": lecture["planned_hours"],
-                    "content_summary": "",
+                    "content_summary": lecture["content_summary"],
                     "key_points": [],
                     "key_difficulties": [],
                     "activities": [],
@@ -711,6 +712,8 @@ async def test_teacher_outline_waits_through_restart_and_explicit_continue_reuse
     assert len(checkpoint["course_plan"]["chapters"]) == 2
     assert all(not node.get("node_content") for node in checkpoint["nodes"])
     assert "course_teaching_plan" not in checkpoint
+    framework_draft = manager._version_repository.load_draft(job["course_id"])
+    assert framework_draft["outline_framework_only"] is True
 
     # A service restart must preserve the visible framework instead of
     # interpreting it as unfinished background work and silently continuing.
@@ -768,6 +771,7 @@ async def test_teacher_outline_waits_through_restart_and_explicit_continue_reuse
     assert completed_course["outline_framework_only"] is False
     assert completed_course["outline_lifecycle_status"] == "current"
     assert "course_teaching_plan" not in completed_course
+    assert restored._version_repository.load_draft(job["course_id"]) is None
 
 
 @pytest.mark.asyncio

@@ -1639,6 +1639,7 @@ class TaskManager:
             {
                 "chapter_number": int(item.get("chapter_number") or index),
                 "title": str(item.get("title") or ""),
+                "content_summary": str(item.get("content_summary") or ""),
                 "learning_focus": str(item.get("learning_focus") or ""),
                 "section_count": int(item.get("section_count") or 0),
                 "completed_section_count": 0,
@@ -6780,6 +6781,7 @@ class TaskManager:
             course_data["outline_lifecycle_status"] = "current"
             course_data["authoring_surface"] = "teacher"
             await self._save_task_course(task_id, course_data)
+            self._version_repository.delete_draft(course_id)
             async with self._lock:
                 task["status"] = "completed"
                 task["phase"] = "teacher_outline_ready"
@@ -7046,6 +7048,7 @@ class TaskManager:
             course_data["outline_lifecycle_status"] = "current"
             course_data["authoring_surface"] = "teacher"
             await self._save_task_course(task_id, course_data)
+            self._version_repository.delete_draft(course_id)
             async with self._lock:
                 task["status"] = "completed"
                 task["phase"] = "teacher_outline_ready"

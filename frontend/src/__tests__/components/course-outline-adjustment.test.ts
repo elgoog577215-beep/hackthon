@@ -225,6 +225,85 @@ describe('一句话调整课程目录', () => {
     expect(wrapper.find('button[title="Markdown"]').exists()).toBe(false)
   })
 
+  it('轻量讲次方案只显示可编辑的标题和内容简介', async () => {
+    const workspace = useCourseWorkspaceStore()
+    const draft = {
+      ...currentDraft(),
+      outline_framework_only: true,
+      authoring_structure_version: 'lecture_v1',
+      course_generation_brief: {
+        course_shape_constraints: { teacher_lecture_mode: true },
+      },
+      course_plan: {
+        authoring_structure_version: 'lecture_v1',
+        course_title: '电动力学',
+        chapters: [{
+          chapter_number: 1,
+          title: '第1讲 矢量分析基础',
+          sections: [{
+            node_id: 'L2-1-1',
+            section_number: '1',
+            title: '矢量分析基础',
+            content_summary: '从散度、旋度与梯度建立场的数学语言。',
+          }],
+        }],
+      },
+      nodes: [
+        {
+          ...currentDraft().nodes[0],
+          node_name: '第1讲 矢量分析基础',
+          learning_objective: '',
+        },
+        {
+          ...currentDraft().nodes[1],
+          node_name: '矢量分析基础',
+          learning_objective: '',
+          content_summary: '从散度、旋度与梯度建立场的数学语言。',
+        },
+      ],
+    }
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({ current: draft } as any)
+
+    const wrapper = mount(CourseOutlineReview, {
+      props: {
+        courseId: 'course-light-outline',
+        courseName: '电动力学',
+        editable: true,
+        variant: 'inline',
+        surface: 'teacher',
+        task: {
+          status: 'waiting_for_input',
+          currentPhase: 'outline_framework_ready',
+        } as any,
+      },
+    })
+    await flushPromises()
+
+    const document = wrapper.get('[data-testid="formal-outline-document"]')
+    expect(document.attributes('data-outline-stage')).toBe('light')
+    expect(document.text()).toContain('讲次方案')
+    expect(document.text()).toContain('第1讲 矢量分析基础')
+    expect(document.text()).toContain('从散度、旋度与梯度建立场的数学语言。')
+    expect(document.text()).not.toContain('正式教学大纲')
+    expect(document.text()).not.toContain('课程介绍')
+    expect(document.text()).not.toContain('教学目标')
+    expect(document.text()).not.toContain('学时分配')
+    expect(document.text()).not.toContain('教学内容及教学安排')
+    expect(document.text()).not.toContain('课程教学日历')
+    expect(wrapper.get('[data-testid="outline-rich-editor"]').attributes('contenteditable')).toBe('true')
+
+    await wrapper.setProps({
+      task: {
+        status: 'completed',
+        currentPhase: 'teacher_outline_ready',
+      } as any,
+    })
+
+    expect(document.attributes('data-outline-stage')).toBe('full')
+    expect(document.text()).toContain('正式教学大纲')
+    expect(document.text()).toContain('教学内容及教学安排')
+  })
+
   it('页面内部不再复制节点 AI，整篇 AI 仍通过右侧接口生成和应用', async () => {
     const workspace = useCourseWorkspaceStore()
     vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({ current: currentDraft() } as any)

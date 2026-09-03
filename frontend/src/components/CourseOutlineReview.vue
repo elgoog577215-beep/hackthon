@@ -532,8 +532,30 @@
             </p>
           </div>
 
-          <article v-if="blueprintNodes.length" ref="chaptersRef" class="formal-outline" data-testid="formal-outline-document">
-            <header class="formal-outline__masthead">
+          <article
+            v-if="blueprintNodes.length"
+            ref="chaptersRef"
+            class="formal-outline"
+            :class="{ 'formal-outline--light': isLightOutline }"
+            :data-outline-stage="isLightOutline ? 'light' : 'full'"
+            data-testid="formal-outline-document"
+          >
+            <template v-if="isLightOutline">
+              <header class="formal-outline__masthead formal-outline__masthead--light">
+                <div class="formal-outline__kicker">
+                  <FileText :size="15" />
+                  <span>{{ t('courseGeneration.outlineReview.lightDocumentKicker', '讲次方案') }}</span>
+                </div>
+                <h1>{{ documentTitle }}</h1>
+                <p>{{ t('courseGeneration.outlineReview.lightDocumentHint', '本轮只确定每讲讲什么。可调整讲次标题与内容简介，再生成完整大纲。') }}</p>
+                <dl>
+                  <div><dt>{{ t('courseGeneration.outlineReview.documentLectures', '讲次') }}</dt><dd>{{ documentChapters.length }}</dd></div>
+                </dl>
+              </header>
+            </template>
+
+            <template v-else>
+              <header class="formal-outline__masthead">
               <div class="formal-outline__kicker">
                 <FileText :size="15" />
                 <span>{{ t('courseGeneration.outlineReview.documentKicker', '正式教学大纲') }}</span>
@@ -769,6 +791,7 @@
                   </section>
                 </div>
               </details>
+              </template>
             </template>
 
             <section
@@ -806,7 +829,7 @@
             </section>
 
             <section
-              v-if="isLectureOutline"
+              v-if="isLectureOutline && !isLightOutline"
               class="formal-outline__lecture-evidence"
               data-testid="lecture-outcome-review"
             >
@@ -851,7 +874,7 @@
               </ol>
             </section>
 
-            <template v-if="isLectureOutline">
+            <template v-if="isLectureOutline && !isLightOutline">
               <section class="formal-outline__template-section formal-outline__attachments">
                 <div class="formal-outline__attachment-heading">
                   <h3>{{ t('courseGeneration.outlineReview.templateCalendarAttachment', '附件1：课程教学日历') }}</h3>
@@ -1194,6 +1217,20 @@ const isLectureOutline = computed(() => {
   return chapters.length > 0 && chapters.every((chapter: any) => (
     Array.isArray(chapter?.sections) && chapter.sections.length === 1
   ))
+})
+const isLightOutline = computed(() => {
+  if (!isLectureOutline.value) return false
+  const taskStatus = String(props.task?.status || '')
+  const taskPhase = String(props.task?.currentPhase || '')
+  const detailStage = String(props.task?.phaseDetail?.stage || '')
+  if (
+    ['completed', 'completed_with_warnings'].includes(taskStatus)
+    || taskPhase === 'teacher_outline_ready'
+  ) return false
+  return taskStatus === 'waiting_for_input'
+    || taskPhase === 'outline_framework_ready'
+    || detailStage === 'outline_framework_ready'
+    || blueprintDraft.value?.outline_framework_only === true
 })
 const formalProfile = computed<Record<string, any>>(() => (
   blueprintDraft.value?.course_generation_brief?.formal_course_profile || {}
@@ -3820,6 +3857,8 @@ defineExpose({
 .formal-outline__masthead dd { margin:0; color:#303a50; font-size:13px; font-weight:800; }
 .formal-outline__masthead dd[data-ready="true"] { color:#087a5b; }
 .formal-outline__masthead dd[data-ready="false"] { color:#9a5b17; }
+.formal-outline--light .formal-outline__masthead { border-bottom:1px solid #e7e9ef; }
+.formal-outline--light .formal-outline__schedule { padding-top:24px; }
 .formal-outline__brief {
   display:grid;
   grid-template-columns:minmax(0,1.25fr) minmax(240px,.75fr);
@@ -4599,6 +4638,10 @@ defineExpose({
   box-shadow:none;
 }
 .outline-review[data-variant="inline"] .formal-outline__masthead::after { display:none; }
+.outline-review[data-variant="inline"] .formal-outline--light .formal-outline__masthead {
+  padding-bottom:26px;
+  border-bottom:1px solid #e7e9ef;
+}
 .outline-review[data-variant="inline"] .formal-outline__brief { padding-inline:64px; }
 .outline-review[data-variant="inline"] .outline-quality,
 .outline-review[data-variant="inline"] .formal-outline__schedule { margin-inline:64px; padding-inline:0; }

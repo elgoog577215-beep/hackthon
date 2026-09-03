@@ -20,24 +20,11 @@ def _teacher_framework_payload(lecture_count: int = 16) -> str:
     return json.dumps(
         {
             "course_title": "人工智能导论",
-            "learning_objectives": ["能够解释并应用人工智能核心方法"],
-            "course_modules": [
-                {
-                    "module_id": "M1",
-                    "title": "人工智能核心主题",
-                    "lecture_numbers": list(range(1, lecture_count + 1)),
-                }
-            ],
-            "total_hours": lecture_count,
             "lectures": [
                 {
                     "lecture_number": number,
                     "title": f"主题 {number}",
-                    "hour_breakdown": {
-                        "classroom_lecture": 1,
-                        "classroom_practice": 0,
-                        "online_instruction": 0,
-                    },
+                    "content_summary": f"第 {number} 讲主要介绍主题 {number}。",
                 }
                 for number in range(1, lecture_count + 1)
             ],
@@ -67,11 +54,16 @@ def _teacher_detail_payload(system_prompt: str) -> str:
             "lectures": [
                 {
                     "lecture_number": number,
-                    # Framework fields are deliberately hostile: the detail
-                    # normalizer must ignore them rather than rename a lecture.
+                    # The frozen title is deliberately hostile: the detail
+                    # normalizer must ignore it rather than rename the lecture.
                     "title": f"被详情篡改的主题 {number}",
-                    "scope_boundary": "被详情篡改的边界",
-                    "content_summary": f"第 {number} 讲的具体教学内容。",
+                    "learning_objective": f"能够完成主题 {number} 的可观察任务",
+                    "scope_boundary": f"只覆盖主题 {number} 的本讲内容",
+                    "hour_breakdown": {
+                        "classroom_lecture": 1,
+                        "classroom_practice": 0,
+                        "online_instruction": 0,
+                    },
                     "key_points": [f"重点 {number}"],
                     "key_difficulties": [f"难点 {number}"],
                     "activities": [f"活动 {number}"],
@@ -109,7 +101,7 @@ def _teacher_brief() -> dict[str, object]:
     }
 
 
-def test_teacher_framework_prompt_excludes_per_lecture_details():
+def test_teacher_light_plan_prompt_only_requests_titles_and_summaries():
     prompt = CoursePromptComposer().build_outline_skeleton_v2_prompt(
         subject="人工智能导论",
         audience="本科生",
@@ -132,11 +124,57 @@ def test_teacher_framework_prompt_excludes_per_lecture_details():
 
     assert prompt.startswith("## 轻量课程方案 V1")
     assert "本请求只生成教师可立即看到和编辑的课程方案" in prompt
-    assert '"content_summary"' not in prompt
+    assert '"content_summary"' in prompt
+    assert '"learning_objectives"' not in prompt
+    assert '"course_modules"' not in prompt
+    assert '"hour_breakdown"' not in prompt
     assert '"key_points"' not in prompt
     assert '"assessment"' not in prompt
     assert '"course_intro_zh"' not in prompt
-    assert prompt.index('"learning_objectives"') < prompt.index('"lectures"')
+    assert prompt.index('"title"') < prompt.index('"content_summary"')
+
+
+def test_teacher_light_plan_normalization_keeps_summary_without_fake_objectives():
+    skeleton = normalize_outline_skeleton(
+        json.loads(_teacher_framework_payload(2)),
+        topic="人工智能导论",
+        request_fingerprint="outline-request-light",
+    )
+
+    assert skeleton["learning_objectives"] == []
+    assert skeleton["course_modules"] == []
+    assert skeleton["total_hours"] == 0
+    assert skeleton["chapters"][0]["content_summary"] == "第 1 讲主要介绍主题 1。"
+    assert skeleton["chapters"][0]["learning_focus"] == ""
+    assert skeleton["chapters"][0]["learning_objective"] == ""
+
+
+def test_teacher_detail_prompt_freezes_light_plan_and_generates_formal_fields():
+    skeleton = normalize_outline_skeleton(
+        json.loads(_teacher_framework_payload(2)),
+        topic="人工智能导论",
+        request_fingerprint="outline-request-detail",
+    )
+    spec = {
+        "batch_id": "OUT-TD-001",
+        "skeleton_revision_id": skeleton["revision_id"],
+        "lecture_numbers": [1],
+    }
+
+    prompt = CoursePromptComposer().build_teacher_outline_detail_batch_v1_prompt(
+        skeleton=skeleton,
+        batch_spec=spec,
+        brief={"teacher_course_brief": _teacher_brief()},
+        material_context="",
+    )
+
+    assert "不得修改讲数、顺序、\n标题或教师编辑后的内容简介" in prompt
+    assert '"content_summary": "第 1 讲主要介绍主题 1。"' in prompt
+    assert '"learning_objective"' in prompt
+    assert '"scope_boundary"' in prompt
+    assert '"hour_breakdown"' in prompt
+    schema = prompt.split("## JSON Schema", 1)[1]
+    assert '"content_summary"' not in schema
 
 
 def test_teacher_authored_detail_is_not_overwritten_by_generated_detail():
@@ -276,7 +314,7 @@ async def test_sixteen_lecture_outline_runs_one_task_per_lecture_and_assembles_i
         item for item in detail_events if item.get("stream_preview")
     ]
     assert any(
-        "第 1 讲的具体教学内容" in str(item["stream_preview"])
+        "能够完成主题 1 的可观察任务" in str(item["stream_preview"])
         for item in visible_stream_events
     )
     assert all(
@@ -302,8 +340,12 @@ async def test_sixteen_lecture_outline_runs_one_task_per_lecture_and_assembles_i
     )
     assert outline["chapters"][0]["title"] == "主题 1"
     assert outline["chapters"][0]["sections"][0]["content_summary"] == (
-        "第 1 讲的具体教学内容。"
+        "第 1 讲主要介绍主题 1。"
     )
+    assert outline["chapters"][0]["sections"][0]["learning_objective"] == (
+        "能够完成主题 1 的可观察任务"
+    )
+    assert outline["chapters"][0]["sections"][0]["planned_hours"] == 1
 
 
 @pytest.mark.asyncio

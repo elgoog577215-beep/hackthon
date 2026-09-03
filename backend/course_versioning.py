@@ -201,6 +201,9 @@ def build_blueprint_draft(course_data: dict[str, Any]) -> dict[str, Any]:
         "course_blueprint": deepcopy(course_data.get("course_blueprint") or {}),
         "course_plan": deepcopy(course_data.get("course_plan") or {}),
         "course_outline": deepcopy(course_data.get("course_outline") or {}),
+        "outline_framework_only": bool(
+            course_data.get("outline_framework_only")
+        ),
         "nodes": [_blueprint_node(node) for node in course_data.get("nodes") or []],
         "learning_asset_plan": deepcopy(course_data.get("learning_asset_plan") or {}),
         "blueprint_locks": deepcopy(course_data.get("blueprint_locks") or {}),

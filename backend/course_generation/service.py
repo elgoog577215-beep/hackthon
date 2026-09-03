@@ -4968,8 +4968,8 @@ class CourseService(AIBase):
                 for detail_level in skeleton_levels
             }
             skeleton_user = (
-                f"为「{clip_text(topic, 160)}」规划全课"
-                f"{'讲次大纲' if teacher_lecture_mode else '章节骨架'}，只输出 JSON。"
+                f"为「{clip_text(topic, 160)}」规划"
+                f"{'轻量讲次方案' if teacher_lecture_mode else '全课章节骨架'}，只输出 JSON。"
             )
             selected_skeleton = select_budgeted_prompt(
                 (
@@ -5036,9 +5036,9 @@ class CourseService(AIBase):
                         "outline_generation",
                         32,
                         (
-                            f"已形成第 {completed}/{lecture_count} 讲框架"
+                            f"已生成第 {completed}/{lecture_count} 讲方案"
                             if completed
-                            else "AI 已开始返回大纲框架"
+                            else "AI 已开始返回讲次方案"
                         ),
                         phase_progress=int(
                             100 * completed / max(1, lecture_count)
@@ -5067,7 +5067,7 @@ class CourseService(AIBase):
                     "outline_generation",
                     32,
                     (
-                        "正在生成全课讲次大纲"
+                        "正在生成轻量讲次方案"
                         if teacher_lecture_mode
                         else "正在生成轻量章节骨架"
                     ),
@@ -5082,7 +5082,7 @@ class CourseService(AIBase):
                         system_prompt=selected_skeleton.system_prompt,
                         phase="outline_generation",
                         message=(
-                            "仍在等待 AI 生成全课讲次大纲"
+                            "仍在等待 AI 生成轻量讲次方案"
                             if teacher_lecture_mode
                             else "仍在等待 AI 生成轻量章节骨架"
                         ),
@@ -5143,7 +5143,7 @@ class CourseService(AIBase):
                 and selected_skeleton is not None
             ):
                 correction_user = (
-                    "只修复全课讲次大纲，重新输出完整 JSON。"
+                    "只修复轻量讲次方案，重新输出完整 JSON。"
                     if teacher_lecture_mode
                     else "只修复全课章节骨架，重新输出完整 JSON。"
                 )
@@ -5192,7 +5192,7 @@ class CourseService(AIBase):
                             ),
                             phase="outline_validation",
                             message=(
-                                "仍在等待 AI 修复全课讲次大纲"
+                                "仍在等待 AI 修复轻量讲次方案"
                                 if teacher_lecture_mode
                                 else "仍在等待 AI 修复轻量章节骨架"
                             ),
@@ -5276,6 +5276,9 @@ class CourseService(AIBase):
                 {
                     "chapter_number": int(item.get("chapter_number") or index),
                     "title": str(item.get("title") or ""),
+                    "content_summary": str(
+                        item.get("content_summary") or ""
+                    ),
                     "learning_focus": str(item.get("learning_focus") or ""),
                     "section_count": int(item.get("section_count") or 0),
                     "completed_section_count": 0,
@@ -5453,6 +5456,9 @@ class CourseService(AIBase):
                 chapters.append({
                     "chapter_number": chapter_number,
                     "title": str(chapter.get("title") or ""),
+                    "content_summary": str(
+                        chapter.get("content_summary") or ""
+                    ),
                     "learning_focus": str(
                         chapter.get("learning_focus") or ""
                     ),
@@ -5500,7 +5506,7 @@ class CourseService(AIBase):
             "outline_generation",
             32,
             (
-                "全课讲次已形成，正在整理教学安排"
+                "全课讲次方案已形成，正在准备完整大纲"
                 if teacher_lecture_mode
                 else "课程章节主干已形成，正在展开各章小节"
             ),
@@ -5674,7 +5680,7 @@ class CourseService(AIBase):
                 on_phase,
                 "outline_generation",
                 32,
-                "全课大纲框架已形成，正在并行补全教学安排",
+                "讲次方案已形成，正在并行生成完整大纲",
                 phase_progress=int(
                     100 * len(results) / max(1, len(batch_specs))
                 ),

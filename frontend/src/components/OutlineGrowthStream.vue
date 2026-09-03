@@ -11,10 +11,10 @@
       <div>
         <strong>{{ summaryTitle }}</strong>
       </div>
-      <span v-if="!isLectureMode || frameworkVisible">{{ progressLabel }}</span>
+      <span>{{ progressLabel }}</span>
     </header>
 
-    <div v-if="!isLectureMode || frameworkVisible" class="growth-chapters">
+    <div class="growth-chapters">
       <article
         v-for="(chapter, index) in chapters"
         :key="chapter.id"
@@ -30,7 +30,7 @@
           </span>
           <div>
             <strong>{{ chapter.title }}</strong>
-            <small v-if="chapter.focus">{{ chapter.focus }}</small>
+            <small>{{ chapterDisplayDetail(chapter) }}</small>
           </div>
           <small v-if="!isLectureMode" class="chapter-count">{{ chapter.completedCount }}/{{ chapter.sectionCount || '—' }}</small>
         </header>
@@ -76,7 +76,7 @@ type GrowthChapter = {
   id: string
   number: number
   title: string
-  focus: string
+  detail: string
   sectionCount: number
   completedCount: number
   status: 'completed' | 'growing' | 'waiting' | 'failed'
@@ -133,9 +133,9 @@ const chapters = computed<GrowthChapter[]>(() => {
         id: `chapter-${number}`,
         number,
         title: isLectureMode.value
-          ? `第${number}讲 ${plainLectureTitle(chapter.title)}`.trim()
+          ? `第${number}讲 ${plainLectureTitle(chapter.title).replace('正在生成本讲主题…', '')}`.trim()
           : String(chapter.title || t('courseGeneration.production.growthChapter', '第 {number} 章').replace('{number}', String(number))),
-        focus: String(chapter.learning_focus || ''),
+        detail: String(chapter.content_summary || chapter.learning_focus || ''),
         sectionCount,
         completedCount,
         status,
@@ -153,7 +153,7 @@ const chapters = computed<GrowthChapter[]>(() => {
       title: isLectureMode.value
         ? `第${index + 1}讲 ${plainLectureTitle(chapter.node_name)}`.trim()
         : chapter.node_name,
-      focus: chapter.learning_objective || '',
+      detail: chapter.content_summary || chapter.learning_objective || '',
       sectionCount: sections.length,
       completedCount: sections.length,
       status: 'completed',
@@ -177,33 +177,23 @@ const completedLectures = computed(() => chapters.value.filter(
   chapter => chapter.status === 'completed',
 ).length)
 const growthState = computed(() => String(props.growth?.state || ''))
-const hasCompleteNamedFramework = computed(() => {
-  if (!isLectureMode.value || !chapters.value.length) return false
-  return chapters.value.every(chapter => {
-    const title = plainLectureTitle(chapter.title)
-    return Boolean(title) && !title.includes('正在生成本讲主题')
-  })
-})
-const frameworkVisible = computed(() => props.reviewReady || [
-  'skeleton_ready',
-  'framework_ready',
-  'detailing',
-  'completed',
-].includes(growthState.value) || hasCompleteNamedFramework.value)
 const summaryTitle = computed(() => {
   if (props.reviewReady || growthState.value === 'completed') {
     return t('courseWorkbench.outlineReady', '课程大纲已生成')
   }
-  if (isLectureMode.value && frameworkVisible.value) {
+  if (isLectureMode.value && growthState.value === 'detailing') {
     return t(
-      'courseWorkbench.outlineFrameworkReady',
-      '课程框架已生成，正在补全教学安排',
+      'courseWorkbench.outlineDetailGenerating',
+      '正在生成完整课程大纲',
     )
+  }
+  if (isLectureMode.value && ['skeleton_ready', 'framework_ready'].includes(growthState.value)) {
+    return t('courseWorkbench.outlineFrameworkReady', '讲次方案已生成')
   }
   if (isLectureMode.value) {
     return t(
       'courseWorkbench.outlineFrameworkGrowing',
-      '正在生成完整课程框架',
+      '正在生成讲次方案',
     )
   }
   return t('courseWorkbench.outlineGrowing', '课程结构正在形成')
@@ -212,10 +202,39 @@ const progressLabel = computed(() => {
   if (!isLectureMode.value) {
     return `${completedSections.value} / ${totalSections.value || '—'}`
   }
+  if (!['detailing', 'completed'].includes(growthState.value)) {
+    const completed = ['skeleton_ready', 'framework_ready'].includes(growthState.value)
+      ? chapters.value.length
+      : completedLectures.value
+    return t('courseWorkbench.outlineFrameworkProgress', '已生成 {completed}/{total}')
+      .replace('{completed}', String(completed))
+      .replace('{total}', String(chapters.value.length))
+  }
   return t('courseWorkbench.outlineDetailProgress', '已补全 {completed}/{total}')
     .replace('{completed}', String(completedLectures.value))
     .replace('{total}', String(chapters.value.length))
 })
+
+function chapterStateLabel(chapter: GrowthChapter) {
+  if (chapter.status === 'growing') {
+    return t('courseWorkbench.outlineFlow.lessonRunning', '正在生成')
+  }
+  if (chapter.status === 'failed') {
+    return t('courseWorkbench.outlineFlow.lessonFailed', '生成失败，可单独重试')
+  }
+  if (chapter.status === 'completed') {
+    return t('courseWorkbench.outlineFlow.lessonCompleted', '已生成')
+  }
+  return t('courseWorkbench.outlineFlow.lessonQueued', '等待生成')
+}
+
+function chapterDisplayDetail(chapter: GrowthChapter) {
+  const lightPlanComplete = ['skeleton_ready', 'framework_ready'].includes(growthState.value)
+  if (chapter.status !== 'completed' && !lightPlanComplete) {
+    return chapterStateLabel(chapter)
+  }
+  return chapter.detail || chapterStateLabel(chapter)
+}
 
 function nextSectionNumber(chapter: GrowthChapter) {
   return `${chapter.number}.${chapter.completedCount + 1}`

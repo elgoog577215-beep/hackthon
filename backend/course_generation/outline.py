@@ -442,6 +442,32 @@ def normalize_outline_skeleton(
             if isinstance(raw.get("external_mentor"), dict)
             else {}
         )
+        raw_content_summary = _clip(
+            raw.get("content_summary")
+            or raw.get("content")
+            or (raw.get("learning_focus") if not lecture_mode else ""),
+            720,
+        )
+        raw_learning_focus = _clip(
+            raw.get("learning_focus")
+            or raw.get("learning_objective")
+            or (
+                ""
+                if lecture_mode
+                else f"完成{topic}的第 {index} 阶段学习任务"
+            ),
+            220,
+        )
+        raw_learning_objective = _clip(
+            raw.get("learning_objective")
+            or raw.get("learning_focus")
+            or (
+                ""
+                if lecture_mode
+                else f"完成{topic}的第 {index} 阶段学习任务"
+            ),
+            260,
+        )
         chapters.append({
             "chapter_number": index,
             "lecture_number": index if lecture_mode else None,
@@ -449,24 +475,9 @@ def normalize_outline_skeleton(
             "planning_stages": _planning_stages(
                 raw.get("planning_stages") or raw.get("planning_stage")
             ),
-            "learning_focus": _clip(
-                raw.get("learning_focus")
-                or raw.get("learning_objective")
-                or f"完成{topic}的第 {index} 阶段学习任务",
-                220,
-            ),
-            "content_summary": _clip(
-                raw.get("content_summary")
-                or raw.get("content")
-                or (raw.get("learning_focus") if not lecture_mode else ""),
-                720,
-            ),
-            "learning_objective": _clip(
-                raw.get("learning_objective")
-                or raw.get("learning_focus")
-                or f"完成{topic}的第 {index} 阶段学习任务",
-                260,
-            ),
+            "learning_focus": raw_learning_focus,
+            "content_summary": raw_content_summary,
+            "learning_objective": raw_learning_objective,
             "key_points": [
                 _clip(item, 160)
                 for item in raw.get("key_points") or []
@@ -524,7 +535,8 @@ def normalize_outline_skeleton(
                 raw.get("learning_path_role")
             ),
             "path_reason": _clip(
-                raw.get("path_reason") or "课程主路径",
+                raw.get("path_reason")
+                or ("" if lecture_mode else "课程主路径"),
                 240,
             ),
             "section_count": section_count or 0,
@@ -591,7 +603,11 @@ def normalize_outline_skeleton(
         "course_title": _clip(payload.get("course_title") or topic, 160),
         "positioning": _clip(
             payload.get("positioning")
-            or f"系统学习{topic}并完成可检查成果",
+            or (
+                ""
+                if lecture_mode
+                else f"系统学习{topic}并完成可检查成果"
+            ),
             280,
         ),
         "learning_objectives": [
@@ -637,7 +653,7 @@ def normalize_outline_skeleton(
         ),
         "chapters": chapters,
     }
-    if not skeleton["learning_objectives"]:
+    if not lecture_mode and not skeleton["learning_objectives"]:
         skeleton["learning_objectives"] = [
             f"能够解释并应用{topic}的核心方法",
         ]
@@ -714,6 +730,7 @@ def project_streamed_teacher_outline_growth(
         chapters.append({
             "chapter_number": index,
             "title": str(generated.get("title") or "正在生成本讲主题…"),
+            "content_summary": str(generated.get("content_summary") or ""),
             "learning_focus": str(
                 generated.get("learning_focus")
                 or generated.get("learning_objective")
@@ -807,6 +824,8 @@ def project_streamed_teacher_outline_detail_preview(
     if isinstance(summary, str) and summary.strip():
         lines.append(f"内容：{_clip(summary, 480)}")
     for field, label in (
+        ("learning_objective", "目标"),
+        ("scope_boundary", "范围"),
         ("key_points", "重点"),
         ("key_difficulties", "难点"),
         ("activities", "活动"),
@@ -818,6 +837,8 @@ def project_streamed_teacher_outline_detail_preview(
         items = (
             [_clip(item, 180) for item in value if str(item or "").strip()]
             if isinstance(value, list)
+            else [_clip(value, 180)]
+            if isinstance(value, str) and value.strip()
             else _completed_stream_string_items(raw, field)
         )
         if items:
@@ -891,6 +912,16 @@ def validate_outline_skeleton(
             issues.append(_issue(
                 "outline_skeleton:teacher_lecture_adapter_mismatch",
                 f"教师课程的每一讲只能有一个内部内容容器，异常讲次：{non_unitary}",
+            ))
+        missing_summaries = [
+            int(item.get("chapter_number") or index)
+            for index, item in enumerate(chapters, start=1)
+            if not str(item.get("content_summary") or "").strip()
+        ]
+        if missing_summaries:
+            issues.append(_issue(
+                "outline_skeleton:missing_lecture_summaries",
+                f"轻量讲次方案缺少内容简介，异常讲次：{missing_summaries}",
             ))
     if expected_chapters is None and minimum_chapters is not None and len(chapters) < minimum_chapters:
         issues.append(_issue(
@@ -1088,6 +1119,10 @@ def build_outline_batch_specs(
 
 _TEACHER_OUTLINE_DETAIL_FIELDS = (
     "content_summary",
+    "learning_objective",
+    "scope_boundary",
+    "hour_breakdown",
+    "planned_hours",
     "key_points",
     "key_difficulties",
     "activities",
@@ -1171,9 +1206,16 @@ def normalize_teacher_outline_detail_batch(
             if isinstance(raw.get("external_mentor"), dict)
             else {}
         )
+        hour_breakdown = _normalize_hour_breakdown(raw.get("hour_breakdown"))
         lectures.append({
             "lecture_number": int(lecture_number),
             "content_summary": _clip(raw.get("content_summary"), 720),
+            "learning_objective": _clip(
+                raw.get("learning_objective"), 260
+            ),
+            "scope_boundary": _clip(raw.get("scope_boundary"), 320),
+            "hour_breakdown": hour_breakdown,
+            "planned_hours": round(sum(hour_breakdown.values()), 2) or None,
             "key_points": _text_items(
                 raw.get("key_points"), max_chars=160, limit=6
             ),
@@ -1280,10 +1322,20 @@ def validate_teacher_outline_detail_batch(
     )
     for lecture in lectures:
         number = int(lecture.get("lecture_number") or 0)
-        if not str(lecture.get("content_summary") or "").strip():
+        if not str(lecture.get("learning_objective") or "").strip():
             issues.append(_issue(
-                "teacher_outline_detail:missing_content_summary",
-                f"第 {number} 讲缺少内容摘要",
+                "teacher_outline_detail:missing_learning_objective",
+                f"第 {number} 讲缺少可观察学习目标",
+            ))
+        if not str(lecture.get("scope_boundary") or "").strip():
+            issues.append(_issue(
+                "teacher_outline_detail:missing_scope_boundary",
+                f"第 {number} 讲缺少内容边界",
+            ))
+        if float(lecture.get("planned_hours") or 0) <= 0:
+            issues.append(_issue(
+                "teacher_outline_detail:missing_hour_breakdown",
+                f"第 {number} 讲缺少有效分项学时",
             ))
         for field, label in required_list_fields:
             if not list(lecture.get(field) or []):
@@ -1527,14 +1579,12 @@ def compile_teacher_lecture_outline_batch(
     title = _plain_unit_title(lecture.get("title"), f"第 {lecture_number} 讲")
     objective = _clip(
         lecture.get("learning_objective")
-        or lecture.get("learning_focus")
-        or f"完成“{title}”的学习任务",
+        or lecture.get("learning_focus"),
         260,
     )
     content_summary = _clip(
         lecture.get("content_summary")
-        or lecture.get("learning_focus")
-        or objective,
+        or lecture.get("learning_focus"),
         720,
     )
     payload = {
@@ -1568,6 +1618,8 @@ def compile_teacher_lecture_outline_batch(
     section.update({
         "title": title,
         "content_summary": content_summary,
+        "learning_objective": objective,
+        "scope_boundary": _clip(lecture.get("scope_boundary"), 240),
         "key_points": deepcopy(lecture.get("key_points") or []),
         "key_difficulties": deepcopy(lecture.get("key_difficulties") or []),
         "activities": deepcopy(lecture.get("activities") or []),
@@ -1626,7 +1678,12 @@ def assemble_course_outline(
                 chapter.get("planning_stages") or chapter.get("planning_stage")
             ),
             "learning_focus": str(
-                chapter.get("learning_focus") or chapter.get("title") or ""
+                chapter.get("learning_focus")
+                or (
+                    ""
+                    if skeleton.get("authoring_structure_version") == "lecture_v1"
+                    else chapter.get("title") or ""
+                )
             ),
             "learning_path_role": _learning_path_role(
                 chapter.get("learning_path_role")

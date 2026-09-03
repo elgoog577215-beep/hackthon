@@ -28,7 +28,7 @@ from teaching_design import (
     format_generation_teaching_guidance,
 )
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v31"
+PROMPT_CONTRACT_VERSION = "course_prompt_v32"
 
 
 def _course_planning_rules(brief: dict[str, Any]) -> str:
@@ -239,7 +239,7 @@ class CoursePromptComposer:
                 teacher_brief.get("total_class_hours")
                 or teacher_brief.get("total_hours")
                 or shape.get("total_class_hours")
-                or "按每讲学时汇总"
+                or "未填写"
             )
             return f"""## 轻量课程方案 V1
 
@@ -257,30 +257,20 @@ class CoursePromptComposer:
 {material_context or '未上传资料；只能使用通用知识，不得伪装引用资料。'}
 
 ## 约束
-1. 只返回课程目标、课程模块、讲次顺序、每讲学时和总学时。
+1. 只返回讲次顺序，以及每讲的标题和内容简介；这是供教师调整的轻量讲次方案。
 2. 严格返回 {lecture_count} 讲，不得增减。标题不带“第N讲”、章、节或数字编号。
-3. 每讲 `hour_breakdown` 三项之和是该讲学时；全课合计必须等于 `total_hours`。
-4. `course_modules` 只用于按主题对讲次分组；每讲必须且只能进入一个模块。
-5. 不输出内容摘要、重难点、活动、作业、资源、学习任务、达成检验或考核方案。
-6. 只输出有效 JSON，不输出 Markdown 或解释。
+3. `content_summary` 使用二至四句自然中文，只说清这一讲实际要讲什么，以及它与前后讲的衔接；不要展开教学活动或考核安排。
+4. 不输出课程目标、课程模块、学时、重难点、教学活动、作业、资源、学习任务、达成检验或考核方案。
+5. 只输出有效 JSON，不输出 Markdown 或解释。
 
 ## JSON Schema
 {{
   "course_title": "课程名称",
-  "learning_objectives": ["课程目标"],
-  "course_modules": [
-    {{"module_id": "M1", "title": "模块名称", "lecture_numbers": [1, 2]}}
-  ],
-  "total_hours": {json.dumps(total_hours, ensure_ascii=False)},
   "lectures": [
     {{
       "lecture_number": 1,
       "title": "本讲主题",
-      "hour_breakdown": {{
-        "classroom_lecture": 1,
-        "classroom_practice": 1,
-        "online_instruction": 0
-      }}
+      "content_summary": "本讲主要内容及其在全课中的衔接，二至四句。"
     }}
   ]
 }}""".strip()
@@ -392,12 +382,12 @@ class CoursePromptComposer:
             for item in issues[:10]
         ) or "- 上一次输出不是完整有效的章节骨架 JSON"
         if '"lectures"' in original_prompt:
-            return f"""## 全课讲次大纲修复
+            return f"""## 轻量讲次方案修复
 
-上一次讲次大纲存在以下问题：
+上一次讲次方案存在以下问题：
 {issue_text}
 
-只修复这些问题并重新输出完整 JSON。必须保持教师确认的讲数，只使用 `lectures`；
+只修复这些问题并重新输出完整 JSON。必须保持教师填写的讲数，只使用 `lectures`；
 不得改成 chapters，不得生成章、小节、1.1 或任何二级目录。
 
 {clip_text(original_prompt, 12000)}
@@ -421,7 +411,7 @@ class CoursePromptComposer:
         material_context: str,
         detail_level: str = "full",
     ) -> str:
-        """Generate one complete lecture object without changing its framework."""
+        """Generate one complete lecture object from the edited light plan."""
         selected_numbers = {
             int(item) for item in batch_spec.get("lecture_numbers") or []
         }
@@ -433,13 +423,7 @@ class CoursePromptComposer:
                     or index
                 ),
                 "title": str(item.get("title") or ""),
-                "learning_objective": str(
-                    item.get("learning_objective")
-                    or item.get("learning_focus")
-                    or ""
-                ),
-                "scope_boundary": str(item.get("scope_boundary") or ""),
-                "hour_breakdown": item.get("hour_breakdown") or {},
+                "content_summary": str(item.get("content_summary") or ""),
             }
             for index, item in enumerate(
                 skeleton.get("chapters") or [],
@@ -499,8 +483,8 @@ class CoursePromptComposer:
         lecture_count = len(selected_lectures)
         return f"""## 单讲完整大纲 V2
 
-课程方案已经由教师编辑并主动发起完整大纲生成。本任务只生成当前一讲的完整对象；不得修改讲数、顺序、
-标题、学习目标、内容边界、学时或课程级合同。只输出有效 JSON。
+讲次方案已经由教师编辑并主动发起完整大纲生成。本任务只生成当前一讲的完整对象；不得修改讲数、顺序、
+标题或教师编辑后的内容简介。只输出有效 JSON。
 
 ## 批次身份
 - 批次：{batch_id}
@@ -524,13 +508,13 @@ class CoursePromptComposer:
 
 ## 约束
 1. 严格返回当前讲次的 1 个完整对象，不得遗漏、增加或换讲。
-2. `content_summary` 使用二至四句自然中文，说清实际要教的内容，不展开成教案或讲义。
-3. 重点、难点、活动、作业和达成检验必须与冻结的本讲目标一致；达成检验写清学生产出与教师判断标准。
+2. 根据冻结的标题和 `content_summary` 生成本讲目标、内容边界和分项学时；三项 `hour_breakdown` 之和必须大于 0。
+3. 重点、难点、活动、作业和达成检验必须与本讲目标一致；达成检验写清学生产出与教师判断标准。
 4. 每讲至少给出一个案例、问题、例题、实验或项目情境，以及一项课前或课后任务和可提交证据。
 5. 在线或混合课程每讲至少一项 `mode=online` 任务；纯线下课程使用 `mode=offline`。课外任务的 `estimated_hours` 不计入课程总学时。
 6. 拓展资源只能从课程级已确认参考资料中选择，`source_ref` 必须完全一致。没有已确认来源时返回空数组，不得编造书名、版次、章节或页码。
 7. `education_objective_refs` 和 `ideology_implementation` 只在本讲确有责任、规范或价值判断时填写；`external_mentor` 只使用教师输入已提供的信息。
-8. 不输出标题、学时、范围边界、知识点树、教案、讲义、Markdown 或解释。
+8. 不输出标题、内容简介、知识点树、教案、讲义、Markdown 或解释。
 
 ## JSON Schema
 {{
@@ -539,7 +523,13 @@ class CoursePromptComposer:
   "lectures": [
     {{
       "lecture_number": 1,
-      "content_summary": "本讲具体教学内容，二至四句。",
+      "learning_objective": "本讲结束后学生能够完成的可观察目标",
+      "scope_boundary": "本讲负责讲到哪里，不提前替代哪些后续内容",
+      "hour_breakdown": {{
+        "classroom_lecture": 1,
+        "classroom_practice": 1,
+        "online_instruction": 0
+      }},
       "key_points": ["教学重点"],
       "key_difficulties": ["教学难点"],
       "activities": ["主要教学活动"],
