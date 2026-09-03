@@ -146,6 +146,97 @@ describe('课程生产内联确认', () => {
     expect(wrapper.get('[data-testid="formal-outline-document"]').text()).toContain('小节2')
   })
 
+  it('把课型控件放在对应讲次标题后，不再生成独立课型区域', async () => {
+    const workspace = useCourseWorkspaceStore()
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({
+      current: {
+        base_blueprint_revision_id: 'bp-lesson-types',
+        course_name: '统计学',
+        authoring_structure_version: 'lecture_v1',
+        nodes: [
+          { node_id: 'lecture-1', parent_node_id: 'root', node_level: 1, node_name: '第1讲 统计思维与数据探索基础' },
+          { node_id: 'lecture-2', parent_node_id: 'root', node_level: 1, node_name: '第2讲 概率空间与随机变量' },
+        ],
+      },
+    } as any)
+
+    const wrapper = mount(CourseOutlineReview, {
+      props: {
+        courseId: 'course-lesson-types',
+        courseName: '统计学',
+        editable: false,
+        lessonTypes: [
+          { lessonUnitId: 'lecture-1', value: 'theory', label: '理论讲授' },
+          { lessonUnitId: 'lecture-2', value: 'theory_practice', label: '讲练结合' },
+        ],
+        lessonTypeOptions: [
+          { value: 'theory', label: '理论讲授' },
+          { value: 'theory_practice', label: '讲练结合' },
+          { value: 'project_workshop', label: '项目工作坊' },
+        ],
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.outline-lesson-type-plan').exists()).toBe(false)
+    const headings = wrapper.get('[data-testid="outline-rich-editor"]').findAll('h2')
+    expect(headings).toHaveLength(2)
+    expect(headings[0]!.text()).toContain('第1讲 统计思维与数据探索基础')
+    expect(headings[1]!.text()).toContain('第2讲 概率空间与随机变量')
+    expect(headings.every(heading => heading.get('[data-lesson-type-control]').attributes('contenteditable') === 'false')).toBe(true)
+    const selectors = headings.map(heading => heading.get<HTMLSelectElement>('[data-lesson-type-select]'))
+    expect(selectors.map(selector => selector.element.value)).toEqual(['theory', 'theory_practice'])
+    expect(selectors.every(selector => selector.attributes('disabled') === undefined)).toBe(true)
+
+    await selectors[0]!.setValue('project_workshop')
+
+    expect(wrapper.emitted('lesson-type-change')?.[0]).toEqual([{
+      lessonUnitId: 'lecture-1',
+      lessonType: 'project_workshop',
+    }])
+  })
+
+  it('编辑讲次标题时不会把课型选项写进大纲正文', async () => {
+    const workspace = useCourseWorkspaceStore()
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({
+      current: {
+        base_blueprint_revision_id: 'bp-lesson-type-title',
+        course_name: '统计学',
+        authoring_structure_version: 'lecture_v1',
+        nodes: [
+          { node_id: 'lecture-1', parent_node_id: 'root', node_level: 1, node_name: '第1讲 统计思维与数据探索基础' },
+        ],
+      },
+    } as any)
+    const save = vi.spyOn(workspace, 'saveBlueprint').mockImplementation(async (_courseId, payload) => ({ draft: payload }) as any)
+    const wrapper = mount(CourseOutlineReview, {
+      props: {
+        courseId: 'course-lesson-type-title',
+        courseName: '统计学',
+        lessonTypes: [{ lessonUnitId: 'lecture-1', value: 'theory', label: '理论讲授' }],
+        lessonTypeOptions: [
+          { value: 'theory', label: '理论讲授' },
+          { value: 'project_workshop', label: '项目工作坊' },
+        ],
+      },
+    })
+    await flushPromises()
+
+    const editor = wrapper.get('[data-testid="outline-rich-editor"]')
+    const heading = editor.get('h2')
+    heading.element.firstChild!.textContent = '第1讲 调整后的标题'
+    await heading.trigger('input')
+    await wrapper.get('.outline-review__actions .secondary').trigger('click')
+    await flushPromises()
+
+    expect(save).toHaveBeenCalledWith('course-lesson-type-title', expect.objectContaining({
+      nodes: [expect.objectContaining({ node_name: '第1讲 调整后的标题' })],
+    }))
+    const payload = save.mock.calls[0]![1] as any
+    expect(payload.nodes[0].outline_editor_html.title_html).not.toContain('理论讲授')
+    expect(payload.nodes[0].outline_editor_html.title_html).not.toContain('项目工作坊')
+  })
+
   it('秋学期十六讲按八个教学周自动排课且不编造学时', async () => {
     const workspace = useCourseWorkspaceStore()
     vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({

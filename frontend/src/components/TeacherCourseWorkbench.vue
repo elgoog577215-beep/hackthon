@@ -152,6 +152,11 @@
           :requires-confirmation="outlineAwaitingReview"
           confirmation-placement="external"
           :assistant-open="aiCollaborationOpen && aiDomain === 'outline'"
+          :lesson-types="outlineLessonTypeControls"
+          :lesson-type-options="lessonTypeOptions"
+          :lesson-type-saving-id="outlineLessonTypeSavingId"
+          :lesson-type-error="outlineLessonTypeError"
+          :lesson-type-error-id="outlineLessonTypeErrorId"
           variant="inline"
           surface="teacher"
           @confirmed="handleInlineOutlineConfirmed"
@@ -160,32 +165,8 @@
           @ai-resolving="handleAiResolving"
           @ai-resolved="handleAiResolved"
           @ai-error="handleAiError"
-        >
-          <template #lesson-type-plan>
-            <section v-if="outlineLessonTypeLessons.length" class="outline-lesson-type-plan" aria-labelledby="outline-lesson-type-title">
-              <header>
-                <h2 id="outline-lesson-type-title">{{ t('courseWorkbench.outlineLessonTypes.title', '讲次课型') }}</h2>
-                <span v-if="outlineLessonTypeSavingId" role="status"><LoaderCircle :size="16" class="spin" />{{ t('courseWorkbench.outlineLessonTypes.saving', '正在保存') }}</span>
-              </header>
-              <ol>
-                <li v-for="lesson in outlineLessonTypeLessons" :key="lesson.lesson_unit_id">
-                  <strong>{{ lesson.title }}</strong>
-                  <label>
-                    <span class="sr-only">{{ t('courseWorkbench.outlineLessonTypes.selectLabel', '{lesson}的课型').replace('{lesson}', lesson.title) }}</span>
-                    <select
-                      :value="lesson.arrangement.lesson_type"
-                      :disabled="Boolean(outlineLessonTypeSavingId)"
-                      @change="updateOutlineLessonType(lesson, $event)"
-                    >
-                      <option v-for="option in lessonTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                    </select>
-                  </label>
-                </li>
-              </ol>
-              <p v-if="outlineLessonTypeError" class="outline-lesson-type-error" role="alert">{{ outlineLessonTypeError }}</p>
-            </section>
-          </template>
-        </CourseOutlineReview>
+          @lesson-type-change="updateOutlineLessonType"
+        />
       </section>
 
       <form v-else-if="activeStage === 'foundation'" class="stage-form" @submit.prevent="submitFoundation">
@@ -1069,6 +1050,7 @@ const arrangementConfirming = ref(false)
 const arrangementError = ref('')
 const outlineLessonTypeSavingId = ref('')
 const outlineLessonTypeError = ref('')
+const outlineLessonTypeErrorId = ref('')
 const lessonConfirming = ref(false); const lessonConfirmError = ref(''); const scriptGenerating = ref(false); const scriptGenerationError = ref(''); const scriptConfirming = ref(false); const scriptConfirmError = ref(''); const generationRequested = ref(false)
 const retainedOutlineGrowth = ref<Record<string, any> | null>(null)
 const questionBankReady = ref(false)
@@ -1373,6 +1355,11 @@ const lessonTypeOptions = computed(() => [
   { value: 'review_assessment', label: t('courseWorkbench.arrangement.lessonTypes.reviewAssessment', '复习测评') },
 ])
 const outlineLessonTypeLessons = computed(() => lessonStore.lessons.filter(lesson => Boolean(lesson.arrangement)))
+const outlineLessonTypeControls = computed(() => outlineLessonTypeLessons.value.map(lesson => ({
+  lessonUnitId: lesson.lesson_unit_id,
+  value: lesson.arrangement!.lesson_type,
+  label: lesson.arrangement!.lesson_type_label,
+})))
 const selectedLessonTypeLabel = computed(() => {
   const lessonType = selectedLesson.value?.arrangement?.lesson_type
   return selectedLesson.value?.arrangement?.lesson_type_label
@@ -2387,15 +2374,18 @@ function activeLessonGenerationSource() {
   const primary = activeReferences.value.find(item => item.role === 'primary')
   return primary ? { packageId: primary.package_id, assetId: primary.asset_id } : undefined
 }
-async function updateOutlineLessonType(lesson: TeacherLessonProjection, event: Event) {
-  const lessonType = (event.target as HTMLSelectElement).value as TeacherLessonProjection['arrangement']['lesson_type']
-  if (!lesson.arrangement || !lessonType || lessonType === lesson.arrangement.lesson_type || outlineLessonTypeSavingId.value) return
+async function updateOutlineLessonType(payload: { lessonUnitId: string; lessonType: string }) {
+  const lesson = outlineLessonTypeLessons.value.find(item => item.lesson_unit_id === payload.lessonUnitId)
+  const lessonType = payload.lessonType as TeacherLessonProjection['arrangement']['lesson_type']
+  if (!lesson?.arrangement || !lessonType || lessonType === lesson.arrangement.lesson_type || outlineLessonTypeSavingId.value) return
   outlineLessonTypeSavingId.value = lesson.lesson_unit_id
   outlineLessonTypeError.value = ''
+  outlineLessonTypeErrorId.value = ''
   try {
     await lessonStore.updateLessonType(props.courseId, lesson.lesson_unit_id, lessonType)
   } catch {
     outlineLessonTypeError.value = lessonStore.error || t('courseWorkbench.outlineLessonTypes.saveFailed', '课型保存失败，请重试。')
+    outlineLessonTypeErrorId.value = lesson.lesson_unit_id
   } finally {
     outlineLessonTypeSavingId.value = ''
   }
@@ -2953,9 +2943,8 @@ onBeforeUnmount(() => {
 .lesson-switch-actions button:disabled{border-color:transparent;color:#a3acba;background:transparent;opacity:.55;cursor:not-allowed}
 .workbench-center.is-lesson-workspace .lesson-command-bar{width:calc(100% - 8px);justify-content:flex-end;gap:8px;margin:0 4px 10px;background:#f3f5f9}
 .lesson-action-divider{width:1px;height:20px;margin:0 2px;background:#e1e5ec}
-.outline-lesson-type-plan{margin:0 64px;padding:32px 0 18px;border-bottom:1px solid #dfe3e9}.outline-lesson-type-plan>header{min-height:34px;display:flex;align-items:center;justify-content:space-between;gap:16px}.outline-lesson-type-plan h2{margin:0;color:#263047;font-size:20px;line-height:1.4}.outline-lesson-type-plan>header span{display:flex;align-items:center;gap:6px;color:#5b57d9;font-size:15px}.outline-lesson-type-plan ol{display:grid;margin:12px 0 0;padding:0;list-style:none}.outline-lesson-type-plan li{min-height:56px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:20px;border-top:1px solid #edf0f4}.outline-lesson-type-plan li strong{min-width:0;color:#303a4f;font-size:16px;line-height:1.55}.outline-lesson-type-plan label{display:block}.outline-lesson-type-plan select{min-width:136px;min-height:38px;padding:0 32px 0 11px;border:1px solid #cfd7e3;border-radius:8px;color:#303a4f;background:#fff;font:inherit;font-size:15px;font-weight:700;cursor:pointer}.outline-lesson-type-plan select:hover:not(:disabled){border-color:#aeb8c8}.outline-lesson-type-plan select:focus{border-color:#5b57e8;outline:3px solid rgba(91,87,232,.12)}.outline-lesson-type-plan select:disabled{opacity:.55;cursor:wait}.outline-lesson-type-error{margin:12px 0 0;color:#a33a31;font-size:15px;line-height:1.6}
 .workbench-center.is-lesson-workspace .lesson-section-tabs{border:1px solid #e0e6ef;border-bottom-color:#e7ebf2;border-radius:14px 14px 0 0;background:#fff}
 .workbench-center.is-lesson-workspace :deep(.lesson-document){overflow:hidden;border:1px solid #e0e6ef;border-top:0;border-radius:0 0 14px 14px;background:#fff}
 .workbench-center.is-lesson-workspace :deep(.script-document){overflow:hidden;border:1px solid #e0e6ef;border-radius:14px;background:#fff}
-@media(max-width:900px){.lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;gap:8px}.lesson-heading-cluster{gap:8px}.lesson-type-context{display:none}.lesson-toolbar-status>span{display:none}.lesson-switch-actions button{width:34px;padding:0;justify-content:center;font-size:0}.outline-lesson-type-plan{margin-inline:24px}.outline-lesson-type-plan li{grid-template-columns:1fr;gap:8px;padding:12px 0}.outline-lesson-type-plan select{width:100%}}
+@media(max-width:900px){.lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;gap:8px}.lesson-heading-cluster{gap:8px}.lesson-type-context{display:none}.lesson-toolbar-status>span{display:none}.lesson-switch-actions button{width:34px;padding:0;justify-content:center;font-size:0}}
 </style>

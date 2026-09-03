@@ -547,8 +547,6 @@
               </dl>
             </header>
 
-            <slot v-if="isLectureOutline" name="lesson-type-plan" />
-
             <section v-if="!isLectureOutline" class="formal-outline__brief">
               <div>
                 <h2>{{ t('courseGeneration.outlineReview.courseOutcomes', '课程学习成果') }}</h2>
@@ -818,6 +816,7 @@
               data-testid="outline-rich-editor"
               v-html="outlineEditorHtml"
               @input="handleRichEditorInput"
+              @change="handleLessonTypeControlChange"
               @blur="syncRichEditorToNodes"
               @paste="handleRichEditorPaste"
               @keydown="handleEditorKeydown"
@@ -998,6 +997,17 @@ import {
   zjuTeachingWeekRange,
 } from '../utils/zju-academic-calendar'
 
+type OutlineLessonType = {
+  lessonUnitId: string
+  value: string
+  label?: string
+}
+
+type OutlineLessonTypeOption = {
+  value: string
+  label: string
+}
+
 const props = withDefaults(defineProps<{
   courseId: string
   courseName?: string
@@ -1009,6 +1019,11 @@ const props = withDefaults(defineProps<{
   requiresConfirmation?: boolean
   confirmationPlacement?: 'internal' | 'external'
   assistantOpen?: boolean
+  lessonTypes?: OutlineLessonType[]
+  lessonTypeOptions?: OutlineLessonTypeOption[]
+  lessonTypeSavingId?: string
+  lessonTypeError?: string
+  lessonTypeErrorId?: string
 }>(), {
   courseName: '',
   nodes: () => [],
@@ -1019,6 +1034,11 @@ const props = withDefaults(defineProps<{
   requiresConfirmation: true,
   confirmationPlacement: 'internal',
   assistantOpen: false,
+  lessonTypes: () => [],
+  lessonTypeOptions: () => [],
+  lessonTypeSavingId: '',
+  lessonTypeError: '',
+  lessonTypeErrorId: '',
 })
 
 const emit = defineEmits<{
@@ -1028,6 +1048,7 @@ const emit = defineEmits<{
   (event: 'ai-resolving', result: { accept: boolean }): void
   (event: 'ai-resolved', result: { accept: boolean }): void
   (event: 'ai-error', message: string): void
+  (event: 'lesson-type-change', result: { lessonUnitId: string; lessonType: string }): void
 }>()
 
 const courseStore = useCourseStore()
@@ -1843,7 +1864,36 @@ function coursePlanFieldLabel(field: string) {
   }
   return labels[field] || field
 }
-const outlineEditorHtml = computed(() => documentChapters.value.map((chapter: any) => {
+function lessonTypeControlHtml(chapter: any, chapterIndex: number) {
+  if (!isLectureOutline.value || !props.lessonTypes.length) return ''
+  const nodeId = String(chapter?.node_id || chapter?._node?.node_id || '')
+  const lesson = props.lessonTypes.find(item => item.lessonUnitId === nodeId)
+    || props.lessonTypes[chapterIndex]
+  if (!lesson?.lessonUnitId || !lesson.value) return ''
+
+  const options = props.lessonTypeOptions.some(option => option.value === lesson.value)
+    ? props.lessonTypeOptions
+    : [{ value: lesson.value, label: lesson.label || lesson.value }, ...props.lessonTypeOptions]
+  const lessonTitle = String(chapter?.title || '').trim()
+  const selectLabel = t('courseWorkbench.outlineLessonTypes.selectLabel', '{lesson}的课型')
+    .replace('{lesson}', lessonTitle)
+  const saving = props.lessonTypeSavingId === lesson.lessonUnitId
+  const disabled = Boolean(props.lessonTypeSavingId)
+  const error = props.lessonTypeErrorId === lesson.lessonUnitId ? props.lessonTypeError : ''
+  const statusId = `lesson-type-status-${lesson.lessonUnitId.replace(/[^a-zA-Z0-9_-]/g, '-')}`
+  const status = saving
+    ? `<span id="${statusId}" class="outline-lesson-type-control__status" role="status">${escapeEditorText(t('courseWorkbench.outlineLessonTypes.saving', '正在保存'))}</span>`
+    : error
+      ? `<span id="${statusId}" class="outline-lesson-type-control__error" role="alert">${escapeEditorText(error)}</span>`
+      : ''
+  const optionHtml = options.map(option => (
+    `<option value="${escapeEditorAttribute(option.value)}"${option.value === lesson.value ? ' selected' : ''}>${escapeEditorText(option.label)}</option>`
+  )).join('')
+
+  return `<span class="outline-lesson-type-control${saving ? ' is-saving' : ''}${error ? ' has-error' : ''}" contenteditable="false" data-lesson-type-control="true"><select data-lesson-type-select="true" data-lesson-unit-id="${escapeEditorAttribute(lesson.lessonUnitId)}" aria-label="${escapeEditorAttribute(selectLabel)}"${status ? ` aria-describedby="${statusId}"` : ''}${disabled ? ' disabled aria-disabled="true"' : ''}>${optionHtml}</select>${status}</span>`
+}
+
+const outlineEditorHtml = computed(() => documentChapters.value.map((chapter: any, chapterIndex: number) => {
   const chapterNode = chapter._node || chapter
   const chapterId = escapeEditorAttribute(String(chapterNode.node_id || outlineNodeId('chapter')))
   const chapterTitle = editorFieldHtml(
@@ -1879,7 +1929,11 @@ const outlineEditorHtml = computed(() => documentChapters.value.map((chapter: an
   const chapterBodyVisibility = isLectureOutline.value && chapter.sections?.length
     ? ' data-lecture-meta-body="true" hidden'
     : ''
-  return `<h2 data-node-id="${chapterId}"${chapterChange}>${chapterTitle}</h2><div data-node-body="${chapterId}"${chapterChange}${chapterBodyVisibility}>${chapterBody}</div>${sections}`
+  const lessonTypeControl = lessonTypeControlHtml(chapter, chapterIndex)
+  const headingLabel = lessonTypeControl && !props.editable
+    ? ` aria-label="${escapeEditorAttribute(String(chapter.title || '').trim())}"`
+    : ''
+  return `<h2 data-node-id="${chapterId}"${chapterChange}${headingLabel}>${chapterTitle}${lessonTypeControl}</h2><div data-node-body="${chapterId}"${chapterChange}${chapterBodyVisibility}>${chapterBody}</div>${sections}`
 }).join(''))
 const documentVisibleSectionCount = computed(() => documentChapters.value.reduce(
   (total, chapter) => {
@@ -2250,7 +2304,21 @@ function handleMarkdownInput() {
   markManualChange(t('courseGeneration.outlineReview.manualChanged', '大纲已修改，保存后生效'))
 }
 
-function handleRichEditorInput() {
+function isLessonTypeControlTarget(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest('[data-lesson-type-control]'))
+}
+
+function handleLessonTypeControlChange(event: Event) {
+  const target = event.target
+  if (!(target instanceof HTMLSelectElement) || !target.matches('[data-lesson-type-select]')) return
+  const lessonUnitId = String(target.dataset.lessonUnitId || '')
+  const lessonType = String(target.value || '')
+  if (!lessonUnitId || !lessonType) return
+  emit('lesson-type-change', { lessonUnitId, lessonType })
+}
+
+function handleRichEditorInput(event?: Event) {
+  if (isLessonTypeControlTarget(event?.target || null)) return
   richEditorDirty.value = true
   refreshEditorStats()
   if (findPanelOpen.value && findQuery.value) refreshFindMatches(false)
@@ -2260,8 +2328,16 @@ function handleRichEditorInput() {
 function refreshEditorStats() {
   const value = editorMode.value === 'markdown'
     ? markdownDraft.value
-    : String(richEditorRef.value?.textContent || editorPlainText(outlineEditorHtml.value))
+    : editorTextWithoutLessonTypeControls()
   editorCharacterCount.value = value.replace(/\s/g, '').length
+}
+
+function editorTextWithoutLessonTypeControls() {
+  const editor = richEditorRef.value
+  if (!editor) return editorPlainText(outlineEditorHtml.value)
+  const snapshot = editor.cloneNode(true) as HTMLElement
+  snapshot.querySelectorAll('[data-lesson-type-control]').forEach(control => control.remove())
+  return String(snapshot.textContent || '')
 }
 
 function selectionBelongsToEditor() {
@@ -2637,6 +2713,10 @@ function collectEditorTextMatches() {
   let current = walker.nextNode()
   while (current) {
     const node = current as Text
+    if (node.parentElement?.closest('[data-lesson-type-control]')) {
+      current = walker.nextNode()
+      continue
+    }
     const value = String(node.nodeValue || '')
     const normalized = value.toLocaleLowerCase()
     let offset = 0
@@ -2710,6 +2790,7 @@ function replaceAllMatches() {
 }
 
 function handleEditorKeydown(event: KeyboardEvent) {
+  if (isLessonTypeControlTarget(event.target)) return
   const modifier = event.metaKey || event.ctrlKey
   const key = event.key.toLowerCase()
   if (modifier && key === 's') {
@@ -2768,7 +2849,9 @@ function syncRichEditorToNodes() {
     const tagName = element?.tagName.toLowerCase()
     if (tagName === 'h2' || tagName === 'h3') {
       flushBody()
-      const nodeName = String(element?.textContent || '').replace(/\s+/g, ' ').trim()
+      const titleSnapshot = element!.cloneNode(true) as HTMLElement
+      titleSnapshot.querySelectorAll('[data-lesson-type-control]').forEach(control => control.remove())
+      const nodeName = String(titleSnapshot.textContent || '').replace(/\s+/g, ' ').trim()
       if (!nodeName) {
         activeNode = null
         return
@@ -2787,7 +2870,7 @@ function syncRichEditorToNodes() {
         prerequisite_node_ids: Array.isArray(existing.prerequisite_node_ids) ? existing.prerequisite_node_ids : [],
         outline_editor_html: {
           ...(existing.outline_editor_html || {}),
-          title_html: sanitizeEditorHtml(element?.innerHTML || nodeName),
+          title_html: sanitizeEditorHtml(titleSnapshot.innerHTML || nodeName),
           body_html: '',
         },
       }
@@ -4385,6 +4468,82 @@ defineExpose({
   letter-spacing:-.015em;
 }
 .outline-rich-editor :deep(h2:first-child) { border-top:0; }
+.outline-rich-editor :deep(.outline-lesson-type-control) {
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  max-width:100%;
+  margin-left:14px;
+  color:#6661bb;
+  font-size:13px;
+  font-weight:700;
+  letter-spacing:0;
+  line-height:1;
+  vertical-align:3px;
+  white-space:nowrap;
+}
+.outline-rich-editor :deep(.outline-lesson-type-control select) {
+  min-width:112px;
+  min-height:32px;
+  padding:0 28px 0 10px;
+  border:1px solid #d7d8ee;
+  border-radius:7px;
+  color:#5551ad;
+  background:#fbfbff;
+  font:inherit;
+  cursor:pointer;
+  transition:border-color .16s ease,color .16s ease,background-color .16s ease,box-shadow .16s ease;
+}
+.outline-rich-editor :deep(.outline-lesson-type-control select:hover:not(:disabled)) {
+  border-color:#aaa7df;
+  color:#403b9d;
+  background:#f6f5ff;
+}
+.outline-rich-editor :deep(.outline-lesson-type-control select:focus-visible) {
+  border-color:#716ddb;
+  outline:0;
+  box-shadow:0 0 0 3px rgba(91,87,232,.14);
+}
+.outline-rich-editor :deep(.outline-lesson-type-control select:disabled) {
+  color:#8d8aad;
+  background:#f5f5fa;
+  opacity:.72;
+  cursor:wait;
+}
+.outline-rich-editor :deep(.outline-lesson-type-control.has-error select) {
+  border-color:#d8a09a;
+  color:#9d3d34;
+  background:#fffafa;
+}
+.outline-rich-editor :deep(.outline-lesson-type-control__status),
+.outline-rich-editor :deep(.outline-lesson-type-control__error) {
+  display:inline-flex;
+  align-items:center;
+  color:#6965b9;
+  font-size:13px;
+  font-weight:650;
+  line-height:1.35;
+}
+.outline-rich-editor :deep(.outline-lesson-type-control__status::before) {
+  width:6px;
+  height:6px;
+  margin-right:5px;
+  border-radius:50%;
+  background:#716ddb;
+  animation:lesson-type-saving 1s ease-in-out infinite alternate;
+  content:"";
+}
+.outline-rich-editor :deep(.outline-lesson-type-control__error) {
+  max-width:260px;
+  color:#a33a31;
+  white-space:normal;
+}
+@keyframes lesson-type-saving {
+  to { opacity:.35; transform:scale(.72); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .outline-rich-editor :deep(.outline-lesson-type-control__status::before) { animation:none; }
+}
 .outline-rich-editor :deep(h3) {
   margin:22px 0 7px 28px;
   padding-top:18px;

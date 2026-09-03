@@ -66,9 +66,9 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => mount(TeacherCou
       },
       MarkdownRenderer: true,
       CourseOutlineReview: {
-        props: ['editable', 'variant', 'requiresConfirmation'],
-        template: '<section data-testid="inline-outline-editor" :data-mode="editable ? \'edit\' : \'view\'" :data-variant="variant"><slot name="lesson-type-plan" /><button type="button" @click="$emit(\'confirmed\')">确认</button></section>',
-        emits: ['confirmed'],
+        props: ['editable', 'variant', 'requiresConfirmation', 'lessonTypes', 'lessonTypeOptions', 'lessonTypeSavingId', 'lessonTypeError', 'lessonTypeErrorId'],
+        template: '<section data-testid="inline-outline-editor" :data-mode="editable ? \'edit\' : \'view\'" :data-variant="variant"><label v-for="lesson in lessonTypes" :key="lesson.lessonUnitId" class="inline-lesson-type-control"><select :value="lesson.value" @change="$emit(\'lesson-type-change\', { lessonUnitId: lesson.lessonUnitId, lessonType: $event.target.value })"><option v-for="option in lessonTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></label><button type="button" @click="$emit(\'confirmed\')">确认</button></section>',
+        emits: ['confirmed', 'lesson-type-change'],
         setup(_props: unknown, { expose }: any) {
           expose({
             finishEditing: outlineFinishEditing,
@@ -270,8 +270,8 @@ describe('teacher course workbench outline streaming', () => {
     const updateLessonType = vi.spyOn(lessonStore, 'updateLessonType').mockResolvedValue(lessonStore.lessons[0]!)
 
     const wrapper = mountWorkbench()
-    const selector = wrapper.get('.outline-lesson-type-plan select')
-    expect(wrapper.get('.outline-lesson-type-plan').text()).toContain('讲次课型')
+    const selector = wrapper.get('.inline-lesson-type-control select')
+    expect(wrapper.find('.outline-lesson-type-plan').exists()).toBe(false)
     expect((selector.element as HTMLSelectElement).value).toBe('theory')
 
     await selector.setValue('project_workshop')
