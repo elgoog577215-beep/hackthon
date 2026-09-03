@@ -383,9 +383,10 @@ describe('CourseReferenceTray lesson scope', () => {
     await flushPromises()
 
     expect(wrapper.find('.system-context').exists()).toBe(true)
-    expect(wrapper.get(`.source-status--${workflowState}`).text()).toContain(workflowState === 'review' ? '生成完成，可核对来源' : '当前内容已生成')
-    expect(wrapper.get('.confirmed-source-summary').text()).toContain('本讲教案使用的资料')
+    expect(wrapper.find(`.source-status--${workflowState}`).exists()).toBe(false)
+    expect(wrapper.get('.confirmed-source-summary').text()).toContain('使用以下资料')
     expect(wrapper.get('.confirmed-source-summary').text()).toContain('第二讲主教材.docx')
+    expect(wrapper.find('.confirmed-source-hint').exists()).toBe(false)
     expect(wrapper.find('.empty-drop').exists()).toBe(false)
     expect(wrapper.find('.reference-add').exists()).toBe(false)
     expect(wrapper.find('.web-research-open').exists()).toBe(false)
@@ -406,12 +407,29 @@ describe('CourseReferenceTray lesson scope', () => {
     await wrapper.get('.source-status__collapse').trigger('click')
     expect(wrapper.find('.confirmed-source-summary').exists()).toBe(true)
     expect(wrapper.get('.confirmed-source-summary').text()).toContain('第二讲主教材.docx')
+    expect(wrapper.get('.confirmed-source-summary').text()).toContain('资料已调整，当前内容待重新生成')
     expect(wrapper.get('.confirmed-source-adjust').text()).toContain('继续调整资料')
     expect(wrapper.find('.reference-add').exists()).toBe(false)
     expect(wrapper.find('.reference-scope').exists()).toBe(false)
 
     await wrapper.get('.source-status__regenerate').trigger('click')
     expect(wrapper.emitted('regenerate-workflow')).toHaveLength(1)
+  })
+
+  it('生成完成且没有资料时只显示未使用资料', async () => {
+    const wrapper = mount(CourseReferenceTray, {
+      props: {
+        courseId: 'course-1', modelValue: [], stage: 'script', workflowState: 'review',
+        scopeTargetId: 'lecture-script:L1-9', scopeTargetType: 'lecture_script', scopeTargetLabel: '第九讲',
+      },
+      global: { stubs: { WebResearchDialog: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.source-status--review').exists()).toBe(false)
+    expect(wrapper.get('.confirmed-source-summary').text()).toContain('未使用资料')
+    expect(wrapper.find('.confirmed-source-list').exists()).toBe(false)
+    expect(wrapper.find('.confirmed-source-hint').exists()).toBe(false)
   })
 
   it('题库常驻侧栏只保留真题资料并以专用角色保存', async () => {

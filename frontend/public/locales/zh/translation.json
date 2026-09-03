@@ -1180,7 +1180,7 @@
       "pausedTitle": "生成已暂停", "pausedDetail": "资料与进度已经保留，可继续或取消。",
       "reviewTitle": "生成完成，可核对来源", "reviewDetail": "当前结果使用了以下资料；调整后需要重新生成。",
       "confirmedTitle": "当前内容已生成", "confirmedDetail": "本阶段内容及其资料关系已保存。",
-      "confirmedSourcesTitle": "{stage}使用的资料", "confirmedStageFoundation": "课程大纲", "confirmedStageLesson": "本讲教案", "confirmedStageScript": "本讲讲义", "confirmedStagePpt": "本讲 PPT", "confirmedWithoutSources": "本阶段未使用补充资料，系统依据课程信息和前序已生成内容生成。",
+      "confirmedSourcesTitle": "使用以下资料", "confirmedWithoutSources": "未使用资料",
       "adjustSources": "调整资料", "continueAdjustingSources": "继续调整资料", "adjustSourcesHint": "只有主动进入调整后才会显示上传入口；已生成内容不会被直接改动。",
       "adjustingTitle": "正在调整资料", "adjustingDetail": "新增或移除资料不会直接改动已生成内容，重新生成后才会使用。", "finishAdjusting": "收起调整",
       "adjustedSourcesPendingTitle": "资料已调整，当前内容待重新生成", "adjustedSourcesPendingDetail": "当前内容仍使用上次生成时的资料；重新生成后才会应用本次调整。", "pendingAdjustedSourcesHint": "以上仍是当前内容实际使用的资料；本次调整将在重新生成后生效。", "regenerateWithAdjustedSources": "使用新资料重新生成", "openPptToRegenerate": "前往 PPT 工作台重新生成",
