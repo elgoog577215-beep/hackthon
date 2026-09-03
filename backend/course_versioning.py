@@ -103,10 +103,24 @@ def outline_adjustment_proposal_id(
     return stable_hash(
         {
             "source_draft_revision_id": source_draft_revision_id,
-            "operations": operations,
+            "operations": _canonicalize_json_numbers(operations),
         },
         prefix="proposal-",
     )
+
+
+def _canonicalize_json_numbers(value: Any) -> Any:
+    """Keep hashes stable after JavaScript parses and serializes JSON numbers."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, list):
+        return [_canonicalize_json_numbers(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _canonicalize_json_numbers(item)
+            for key, item in value.items()
+        }
+    return value
 
 
 def content_revision_ids(course_data: dict[str, Any]) -> dict[str, str]:

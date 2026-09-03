@@ -4,7 +4,11 @@ from copy import deepcopy
 
 import pytest
 
-from course_versioning import analyze_blueprint_impact, build_blueprint_draft
+from course_versioning import (
+    analyze_blueprint_impact,
+    build_blueprint_draft,
+    outline_adjustment_proposal_id,
+)
 from course_versions import CourseVersionConflict, CourseVersionRepository
 
 
@@ -107,6 +111,31 @@ def test_lock_conflict_blocks_confirmation():
 
     assert report["can_confirm"] is False
     assert report["lock_conflicts"][0]["status"] == "locked_conflict"
+
+
+def test_outline_proposal_id_survives_javascript_number_round_trip():
+    preview_operations = [{
+        "op": "update_node",
+        "node_ref": "L1-1",
+        "hour_breakdown": {
+            "classroom_lecture": 1.0,
+            "classroom_practice": 1.5,
+            "online_instruction": 0.0,
+        },
+    }]
+    browser_operations = [{
+        "op": "update_node",
+        "node_ref": "L1-1",
+        "hour_breakdown": {
+            "classroom_lecture": 1,
+            "classroom_practice": 1.5,
+            "online_instruction": 0,
+        },
+    }]
+
+    assert outline_adjustment_proposal_id("draft-1", preview_operations) == (
+        outline_adjustment_proposal_id("draft-1", browser_operations)
+    )
 
 
 def test_repository_versions_compare_and_restore(tmp_path):

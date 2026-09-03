@@ -91,7 +91,7 @@ describe('课程生产内联确认', () => {
     expect(wrapper.emitted('confirmed')).toHaveLength(1)
   })
 
-  it('大纲存在阻断项时不留死按钮，点击后定位并说明原因', async () => {
+  it('大纲存在质量建议时仍允许教师确认，并把报告交给右侧工作区', async () => {
     const workspace = useCourseWorkspaceStore()
     const blockingIssues = [
       { code: 'outcome_alignment', message: '有 2 项成果尚未建立完整关联。', blocking: true },
@@ -110,8 +110,8 @@ describe('课程生产内联确认', () => {
         }],
       },
       quality: {
-        status: 'blocked',
-        summary: '大纲草稿已生成；仍有 2 类正式确认条件未满足。',
+        status: 'review_suggested',
+        summary: '大纲已生成；发现 2 类改进建议，不影响教师确认。',
         issues: blockingIssues,
         blocking_issues: blockingIssues,
       },
@@ -129,22 +129,21 @@ describe('课程生产内联确认', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.formal-outline__masthead').text()).toContain('2 项待完善')
-    const qualitySection = wrapper.get('.outline-quality')
-    const scrollIntoView = vi.fn()
-    Object.defineProperty(qualitySection.element, 'scrollIntoView', { value: scrollIntoView })
-    const focus = vi.spyOn(qualitySection.element as HTMLElement, 'focus')
+    expect(wrapper.get('.formal-outline__masthead').text()).not.toContain('改进建议')
+    expect(wrapper.find('.outline-quality').exists()).toBe(false)
+    expect(wrapper.emitted('quality-review-change')?.at(-1)?.[0]).toEqual(expect.objectContaining({
+      status: 'review_suggested',
+      issues: blockingIssues,
+    }))
     const action = wrapper.get('.outline-review__actions .primary')
     expect(action.attributes('disabled')).toBeUndefined()
-    expect(action.text()).toContain('查看 2 项待完善')
+    expect(action.text()).toContain('确认课程大纲')
 
     await action.trigger('click')
     await flushPromises()
 
-    expect(confirm).not.toHaveBeenCalled()
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' })
-    expect(focus).toHaveBeenCalledWith({ preventScroll: true })
-    expect(wrapper.get('.outline-review__action-error').text()).toContain('还有 2 项正式确认条件未满足')
+    expect(confirm).toHaveBeenCalledWith('course-blocked', 'outline')
+    expect(wrapper.emitted('confirmed')).toHaveLength(1)
   })
 
   it('按父子关系展示结构，单小节自动折叠且不破坏真实节点', async () => {

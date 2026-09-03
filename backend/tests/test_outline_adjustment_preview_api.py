@@ -78,6 +78,7 @@ def test_preview_endpoint_passes_optimistic_revisions_without_writing(monkeypatc
             "base_blueprint_revision_id": "bp-1",
             "expected_draft_revision_id": "draft-1",
             "instruction": "把生命周期移到工程实践章，并新增一节组件组合",
+            "target_quality_issue_code": "outline_editorial:hour_total_mismatch",
         },
     )
 
@@ -91,6 +92,7 @@ def test_preview_endpoint_passes_optimistic_revisions_without_writing(monkeypatc
                 "base_blueprint_revision_id": "bp-1",
                 "expected_draft_revision_id": "draft-1",
                 "instruction": "把生命周期移到工程实践章，并新增一节组件组合",
+                "target_quality_issue_code": "outline_editorial:hour_total_mismatch",
             },
         )
     ]
@@ -221,7 +223,7 @@ def test_apply_rejects_stale_draft_and_recompiles_instead_of_trusting_client_pla
     ]
     assert saved["course_blueprint"]["sections"] == saved["course_plan"]["chapters"]
     quality = applied.json()["quality_report"]
-    assert quality["schema_version"] == "course_outline_editorial_review_v5"
+    assert quality["schema_version"] == "course_outline_editorial_review_v6"
     assert quality["non_blocking"] is True
     assert saved["course_outline_quality_report"] == quality
 
@@ -426,7 +428,7 @@ def test_blueprint_endpoint_exposes_the_coverage_verdict(monkeypatch):
     assert coverage["uncovered_count"] == 2
     assert "中值定理" in coverage["uncovered_topics"]
     quality = response.json()["quality"]
-    assert quality["schema_version"] == "course_outline_editorial_review_v5"
+    assert quality["schema_version"] == "course_outline_editorial_review_v6"
     assert quality["passed"] is True
 
 

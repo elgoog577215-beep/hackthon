@@ -288,6 +288,43 @@ def test_formal_outline_adjustment_updates_course_and_lecture_contract_fields():
     }
 
 
+def test_lecture_contract_update_can_reference_the_user_facing_lecture_node():
+    draft = _draft()
+    draft["authoring_structure_version"] = "lecture_v1"
+    draft["course_generation_brief"]["course_shape_constraints"] = {
+        "teacher_lecture_mode": True,
+        "chapter_count": 1,
+        "section_count": 1,
+    }
+    draft["nodes"] = draft["nodes"][:2]
+
+    adjusted = apply_outline_operations(
+        draft,
+        [{
+            "op": "update_node",
+            "node_ref": "L1-1",
+            "hour_breakdown": {
+                "classroom_lecture": 1,
+                "classroom_practice": 1.5,
+                "online_instruction": 0,
+            },
+        }],
+    )["draft"]
+
+    chapter_node, content_node = adjusted["nodes"]
+    assert "hour_breakdown" not in chapter_node
+    assert content_node["hour_breakdown"] == {
+        "classroom_lecture": 1.0,
+        "classroom_practice": 1.5,
+        "online_instruction": 0.0,
+    }
+    assert content_node["planned_hours"] == 2.5
+    assert (
+        adjusted["course_plan"]["chapters"][0]["sections"][0]["hour_breakdown"]
+        == content_node["hour_breakdown"]
+    )
+
+
 def test_section_only_adjustment_preserves_chapter_learning_focus() -> None:
     draft = _draft()
     chapter = draft["nodes"][0]

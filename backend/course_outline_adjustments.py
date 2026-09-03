@@ -93,6 +93,7 @@ def apply_outline_operations(
     """Apply model operations, validate the final tree, and rebuild every projection."""
     source = deepcopy(draft)
     state = _state_from_nodes(source.get("nodes") or [])
+    lecture_mode = _is_lecture_draft(source)
     operation_list = [deepcopy(item) for item in operations]
     if not operation_list:
         raise OutlineAdjustmentError("operations_empty", "调整方案没有包含任何操作")
@@ -139,12 +140,17 @@ def apply_outline_operations(
                 categories.add("semantic")
             if "prerequisite_refs" in operation:
                 categories.add("dependency")
-            _update_node(state, ref, operation)
+            _update_node(
+                state,
+                ref,
+                operation,
+                lecture_mode=lecture_mode,
+            )
 
     _validate_lock_changes(source.get("blueprint_locks") or {}, touched)
     ordered_refs = _validate_final_state(
         state,
-        lecture_mode=_is_lecture_draft(source),
+        lecture_mode=lecture_mode,
     )
     adjusted, id_map = _compile_draft(source, state, ordered_refs)
     return {
@@ -367,8 +373,28 @@ def _move_node(state: _OutlineState, ref: str, operation: dict[str, Any]) -> Non
     node["parent_node_id"] = parent
 
 
-def _update_node(state: _OutlineState, ref: str, operation: dict[str, Any]) -> None:
+def _update_node(
+    state: _OutlineState,
+    ref: str,
+    operation: dict[str, Any],
+    *,
+    lecture_mode: bool = False,
+) -> None:
     node = _known_node(state, ref)
+    contract_node = node
+    if (
+        lecture_mode
+        and int(node.get("node_level") or 0) == 1
+        and any(field in operation for field in LECTURE_CONTRACT_FIELDS)
+    ):
+        content_refs = state.sections.get(ref) or []
+        if len(content_refs) != 1:
+            raise OutlineAdjustmentError(
+                "lecture_contract_target_invalid",
+                "讲次正式内容必须对应唯一一份内部内容记录",
+                details={"node_ref": ref, "content_count": len(content_refs)},
+            )
+        contract_node = _known_node(state, content_refs[0])
     allowed = {
         "op",
         "node_ref",
@@ -429,7 +455,7 @@ def _update_node(state: _OutlineState, ref: str, operation: dict[str, Any]) -> N
                     f"{field} 必须是文本列表",
                     details={"field": field},
                 )
-            node[field] = [
+            contract_node[field] = [
                 str(item).strip() for item in raw_value if str(item).strip()
             ][:8]
     for field in ("extension_resources", "learning_tasks"):
@@ -443,10 +469,10 @@ def _update_node(state: _OutlineState, ref: str, operation: dict[str, Any]) -> N
                     f"{field} 必须是对象列表",
                     details={"field": field},
                 )
-            node[field] = deepcopy(raw_value[:8])
+            contract_node[field] = deepcopy(raw_value[:8])
     for field in ("content_summary", "ideology_implementation"):
         if field in operation:
-            node[field] = str(operation.get(field) or "").strip()
+            contract_node[field] = str(operation.get(field) or "").strip()
     if "external_mentor" in operation:
         mentor = operation.get("external_mentor")
         if not isinstance(mentor, dict) or set(mentor) - {"name", "organization", "role"}:
@@ -455,7 +481,7 @@ def _update_node(state: _OutlineState, ref: str, operation: dict[str, Any]) -> N
                 "external_mentor 只能包含姓名、单位和角色",
                 details={"field": "external_mentor"},
             )
-        node["external_mentor"] = {
+        contract_node["external_mentor"] = {
             key: str(mentor.get(key) or "").strip()
             for key in ("name", "organization", "role")
             if str(mentor.get(key) or "").strip()
@@ -486,8 +512,8 @@ def _update_node(state: _OutlineState, ref: str, operation: dict[str, Any]) -> N
                     details={"field": "hour_breakdown"},
                 )
             normalized[key] = round(value, 2)
-        node["hour_breakdown"] = normalized
-        node["planned_hours"] = round(sum(normalized.values()), 2)
+        contract_node["hour_breakdown"] = normalized
+        contract_node["planned_hours"] = round(sum(normalized.values()), 2)
 
 
 def _update_course_plan(source: dict[str, Any], operation: dict[str, Any]) -> None:

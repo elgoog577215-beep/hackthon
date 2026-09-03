@@ -41,6 +41,10 @@ const growth = {
 }
 
 const outlineFinishEditing = vi.fn(async () => true)
+const outlineRequestAiCandidate = vi.fn(async () => null as Record<string, any> | null)
+const outlineResolveAiCandidate = vi.fn(async (_accept: boolean) => true)
+const outlineFocusQualityIssue = vi.fn(async () => true)
+let outlineResolvedQualityReport: Record<string, any> | null = null
 
 const mountWorkbench = (props: Record<string, unknown> = {}) => mount(TeacherCourseWorkbench, {
   props: {
@@ -66,15 +70,25 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => mount(TeacherCou
       },
       MarkdownRenderer: true,
       CourseOutlineReview: {
+        name: 'CourseOutlineReview',
         props: ['editable', 'variant', 'requiresConfirmation', 'lessonTypes', 'lessonTypeOptions', 'lessonTypeSavingId', 'lessonTypeError', 'lessonTypeErrorId'],
         template: '<section data-testid="inline-outline-editor" :data-mode="editable ? \'edit\' : \'view\'" :data-variant="variant"><label v-for="lesson in lessonTypes" :key="lesson.lessonUnitId" class="inline-lesson-type-control"><select :value="lesson.value" @change="$emit(\'lesson-type-change\', { lessonUnitId: lesson.lessonUnitId, lessonType: $event.target.value })"><option v-for="option in lessonTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></label><button type="button" @click="$emit(\'confirmed\')">确认</button></section>',
-        emits: ['confirmed', 'lesson-type-change'],
-        setup(_props: unknown, { expose }: any) {
+        emits: ['confirmed', 'lesson-type-change', 'ai-resolved', 'quality-review-change'],
+        setup(_props: unknown, { emit, expose }: any) {
           expose({
             finishEditing: outlineFinishEditing,
             confirmOutline: vi.fn(async () => true),
-            requestAiCandidate: vi.fn(async () => null),
-            resolveAiCandidate: vi.fn(async () => true),
+            requestAiCandidate: outlineRequestAiCandidate,
+            requestQualityRepair: (issue: Record<string, any>) => String(issue.repair_instruction || ''),
+            focusQualityIssueEditor: outlineFocusQualityIssue,
+            resolveAiCandidate: async (accept: boolean) => {
+              const resolved = await outlineResolveAiCandidate(accept)
+              if (resolved) {
+                if (accept && outlineResolvedQualityReport) emit('quality-review-change', outlineResolvedQualityReport)
+                emit('ai-resolved', { accept })
+              }
+              return resolved
+            },
             focusAiCandidate: vi.fn(async () => undefined),
           })
           return {}
@@ -90,6 +104,13 @@ describe('teacher course workbench outline streaming', () => {
     vi.restoreAllMocks()
     outlineFinishEditing.mockReset()
     outlineFinishEditing.mockResolvedValue(true)
+    outlineRequestAiCandidate.mockReset()
+    outlineRequestAiCandidate.mockResolvedValue(null)
+    outlineResolveAiCandidate.mockReset()
+    outlineResolveAiCandidate.mockResolvedValue(true)
+    outlineFocusQualityIssue.mockReset()
+    outlineFocusQualityIssue.mockResolvedValue(true)
+    outlineResolvedQualityReport = null
     vi.spyOn(http, 'get').mockResolvedValue({ data: { total: 0 } })
     vi.spyOn(http, 'post').mockResolvedValue({ data: { status: 'resumed' } })
   })
@@ -244,6 +265,127 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.teacher-workbench').classes()).not.toContain('is-ai-collaboration')
     expect(wrapper.get('.stage-rail').attributes('style')).toBeUndefined()
     expect(wrapper.find('.ai-workspace-panel').exists()).toBe(true)
+  })
+
+  it('右侧审阅建议进入统一 AI 候选链，采用后重新审读并移除已解决问题', async () => {
+    useCourseStore().nodes = [
+      {
+        node_id: 'L1-1', parent_node_id: 'root', node_name: '第1讲 统计思维', node_level: 1,
+        node_content: '', node_type: 'original', generation_status: 'pending', generated_chars: 0,
+      },
+    ] as any
+    const issues = [
+      {
+        code: 'outline_editorial:missing_outcome_alignment',
+        message: '有 1 项可测量成果尚未建立完整关联。',
+        node_ids: [],
+        repair_instruction: '补齐成果与目标、讲次和评价证据的关联。',
+      },
+      {
+        code: 'outline_editorial:unverified_extension_resources',
+        message: '有 1 讲的拓展资源尚未核验。',
+        node_ids: ['L1-1'],
+        repair_instruction: '为拓展资源补齐真实来源。',
+      },
+    ]
+    outlineRequestAiCandidate.mockResolvedValue({
+      proposal_id: 'proposal-outline-review',
+      can_apply: true,
+      diff: { course_updated: [{ field: 'outcome_alignment' }] },
+    })
+    outlineResolvedQualityReport = {
+      schema_version: 'course_outline_editorial_review_v6',
+      status: 'ready',
+      summary: '整篇大纲未发现高频专业表达问题。',
+      issues: [],
+      blocking_issues: [],
+      can_confirm: true,
+    }
+    const wrapper = mountWorkbench()
+    await flushPromises()
+    wrapper.getComponent({ name: 'CourseOutlineReview' }).vm.$emit('quality-review-change', {
+      schema_version: 'course_outline_editorial_review_v6',
+      status: 'review_suggested',
+      summary: '大纲已生成；发现 2 类改进建议，不影响教师确认。',
+      issues,
+      blocking_issues: [],
+      can_confirm: true,
+    })
+    await flushPromises()
+
+    const review = wrapper.get('[data-testid="outline-quality-review"]')
+    expect(review.text()).toContain('2 项改进建议')
+    expect(review.text()).toContain('不影响确认')
+    expect(review.text()).toContain('AI 优化')
+    expect(review.text()).toContain('手动补充')
+
+    const issueActions = review.findAll('.outline-quality-review__content li button')
+    await issueActions[1]!.trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('update:outlineEditing')?.at(-1)).toEqual([true])
+    expect(outlineFocusQualityIssue).toHaveBeenCalledWith(issues[1])
+    expect(outlineRequestAiCandidate).not.toHaveBeenCalled()
+
+    await issueActions[0]!.trigger('click')
+    await flushPromises()
+    expect(outlineRequestAiCandidate).toHaveBeenCalledWith(
+      '补齐成果与目标、讲次和评价证据的关联。',
+      'outline_editorial:missing_outcome_alignment',
+    )
+    expect(wrapper.find('.outline-quality-review__content').exists()).toBe(false)
+    expect(wrapper.find('.ai-workspace-panel').exists()).toBe(true)
+    expect(wrapper.text()).toContain('课程目标与预期成果关联表')
+
+    await wrapper.get('.lesson-ai-review button.primary').trigger('click')
+    await flushPromises()
+    expect(outlineResolveAiCandidate).toHaveBeenCalledWith(true)
+    expect(wrapper.get('[data-testid="outline-quality-review"]').text()).toContain('暂无改进建议')
+    expect(wrapper.text()).toContain('已应用并重新审读，解决 2 项，剩余 0 项')
+  })
+
+  it('目标问题未解决时禁止采用候选，但保留重试和放弃', async () => {
+    useCourseStore().nodes = [
+      {
+        node_id: 'L1-1', parent_node_id: 'root', node_name: '第1讲 统计思维', node_level: 1,
+        node_content: '', node_type: 'original', generation_status: 'pending', generated_chars: 0,
+      },
+    ] as any
+    const issue = {
+      code: 'outline_editorial:hour_total_mismatch',
+      message: '各讲学时合计与课程总学时不一致。',
+      node_ids: [],
+      repair_instruction: '调整各讲分项学时，使合计等于课程总学时。',
+    }
+    outlineRequestAiCandidate.mockResolvedValue({
+      proposal_id: 'proposal-outline-review-blocked',
+      can_apply: false,
+      diff: { updated: [{ node_name: '第1讲' }] },
+      blocking_issues: [{
+        code: 'outline_quality_issue_unresolved',
+        message: '这版 AI 候选仍未解决目标审阅问题，已暂停采用。',
+      }],
+    })
+    const wrapper = mountWorkbench()
+    await flushPromises()
+    wrapper.getComponent({ name: 'CourseOutlineReview' }).vm.$emit('quality-review-change', {
+      schema_version: 'course_outline_editorial_review_v6',
+      status: 'review_suggested',
+      issues: [issue],
+      blocking_issues: [],
+      can_confirm: true,
+    })
+    await flushPromises()
+
+    await wrapper.get('.outline-quality-review__content li button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.lesson-ai-review-block').text()).toContain('目标问题仍未解决')
+    expect(wrapper.get('.lesson-ai-review-block').text()).toContain('已暂停采用')
+    const apply = wrapper.findAll('.lesson-ai-review button').find(button => button.text().includes('采用'))
+    expect(apply?.attributes('disabled')).toBeDefined()
+    expect(wrapper.findAll('.lesson-ai-review button').some(button => button.text().includes('重试'))).toBe(true)
+    expect(wrapper.findAll('.lesson-ai-review button').some(button => button.text().includes('放弃'))).toBe(true)
+    expect(outlineResolveAiCandidate).not.toHaveBeenCalledWith(true)
   })
 
   it('在大纲中展示并调整每一讲的课型', async () => {

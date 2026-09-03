@@ -681,6 +681,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
         this.blueprint = {
           ...this.blueprint,
           draft: res.data.draft,
+          quality: res.data.quality_report || res.data.draft?.course_outline_quality_report || {},
           has_unconfirmed_draft: true,
         }
         return res.data
@@ -703,6 +704,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       this.blueprint = {
         ...this.blueprint,
         draft: res.data.draft,
+        quality: res.data.quality_report || res.data.draft?.course_outline_quality_report || {},
         has_unconfirmed_draft: true,
       }
       await this.loadBlueprintDraftVersions(courseId)

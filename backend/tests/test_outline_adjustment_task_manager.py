@@ -50,6 +50,47 @@ class CorrectingOutlineService:
         }
 
 
+class QualityRepairOutlineService:
+    def __init__(self, *, resolves_on_second_attempt: bool):
+        self.calls = []
+        self.resolves_on_second_attempt = resolves_on_second_attempt
+
+    async def propose_outline_adjustment(self, **kwargs):
+        self.calls.append(deepcopy(kwargs))
+        resolves = self.resolves_on_second_attempt and len(self.calls) == 2
+        return {
+            "operations": [{
+                "op": "update_node",
+                "node_ref": "L2-1-1",
+                "learning_objective": (
+                    "能解释并验证生命周期入口"
+                    if resolves
+                    else "选择生命周期入口"
+                ),
+                "scope_boundary": "只处理当前组件",
+            }],
+            "summary": "修改生命周期目标",
+        }
+
+
+def _targeted_quality_review(plan, *, course_context=None):
+    del course_context
+    objective = str(plan["chapters"][0]["sections"][0].get("learning_objective") or "")
+    issues = [] if "验证" in objective else [{
+        "code": "outline_editorial:target_not_resolved",
+        "message": "学习目标仍不可检查。",
+        "repair_instruction": "把学习目标改成可验证的行为。",
+        "node_ids": ["L2-1-1"],
+    }]
+    return {
+        "schema_version": "course_outline_editorial_review_v6",
+        "passed": True,
+        "can_confirm": True,
+        "blocking_issues": [],
+        "issues": issues,
+    }
+
+
 def _course() -> dict:
     return {
         "course_id": "course-outline",
@@ -165,6 +206,79 @@ async def test_preview_corrects_once_and_never_persists_the_candidate(tmp_path, 
 
 
 @pytest.mark.asyncio
+async def test_targeted_quality_preview_retries_until_the_named_issue_is_resolved(
+    tmp_path,
+    monkeypatch,
+):
+    import jobs.manager as task_manager_module
+
+    manager, _service, _storage, _versions = _manager(tmp_path, monkeypatch)
+    service = QualityRepairOutlineService(resolves_on_second_attempt=True)
+    manager.course_service = service
+    monkeypatch.setattr(
+        task_manager_module,
+        "review_course_outline_document",
+        _targeted_quality_review,
+    )
+    source = build_blueprint_draft(_course())
+
+    proposal = await manager.preview_outline_adjustment(
+        "course-outline",
+        {
+            "request_id": "request-quality-repair",
+            "base_blueprint_revision_id": source["base_blueprint_revision_id"],
+            "expected_draft_revision_id": source["draft_revision_id"],
+            "instruction": "把生命周期目标改成可检查的行为",
+            "target_quality_issue_code": "outline_editorial:target_not_resolved",
+        },
+    )
+
+    assert proposal["can_apply"] is True
+    assert proposal["target_quality_issue_code"] == "outline_editorial:target_not_resolved"
+    assert proposal["quality_report"]["issues"] == []
+    assert len(service.calls) == 2
+    assert service.calls[1]["correction"]["target_quality_issue"]["code"] == (
+        "outline_editorial:target_not_resolved"
+    )
+
+
+@pytest.mark.asyncio
+async def test_targeted_quality_preview_blocks_an_unresolved_candidate_without_blocking_outline_confirmation(
+    tmp_path,
+    monkeypatch,
+):
+    import jobs.manager as task_manager_module
+
+    manager, _service, _storage, _versions = _manager(tmp_path, monkeypatch)
+    service = QualityRepairOutlineService(resolves_on_second_attempt=False)
+    manager.course_service = service
+    monkeypatch.setattr(
+        task_manager_module,
+        "review_course_outline_document",
+        _targeted_quality_review,
+    )
+    source = build_blueprint_draft(_course())
+
+    proposal = await manager.preview_outline_adjustment(
+        "course-outline",
+        {
+            "request_id": "request-quality-unresolved",
+            "base_blueprint_revision_id": source["base_blueprint_revision_id"],
+            "expected_draft_revision_id": source["draft_revision_id"],
+            "instruction": "把生命周期目标改成可检查的行为",
+            "target_quality_issue_code": "outline_editorial:target_not_resolved",
+        },
+    )
+
+    assert proposal["can_apply"] is False
+    assert len(service.calls) == 2
+    assert proposal["blocking_issues"][0]["code"] == (
+        "outline_quality_issue_unresolved"
+    )
+    assert "不影响直接确认当前大纲" in proposal["blocking_issues"][0]["message"]
+
+
+@pytest.mark.asyncio
 async def test_preview_allows_a_reopened_outline(tmp_path, monkeypatch):
     manager, service, _storage, _versions = _manager(tmp_path, monkeypatch)
     manager.tasks["job-outline"]["guided_workflow"]["steps"][1][
@@ -246,6 +360,28 @@ async def test_confirmed_adjustment_is_the_plan_read_by_followup_generation(tmp_
     sections = storage.course["course_plan"]["chapters"][0]["sections"]
     assert [section["title"] for section in sections] == ["1.1 生命周期", "1.2 组件组合"]
     assert [section["node_id"] for section in sections] == ["L2-1-1", "L2-1-2"]
+    assert versions.load_draft("course-outline") is None
+
+
+@pytest.mark.asyncio
+async def test_formal_outline_suggestions_do_not_block_teacher_confirmation(tmp_path, monkeypatch):
+    manager, _service, storage, versions = _manager(tmp_path, monkeypatch)
+    course = deepcopy(storage.course)
+    course["course_plan"]["formal_syllabus_contract_version"] = "formal_syllabus_v2"
+    course["course_plan"]["authoring_structure_version"] = "lecture_v1"
+    storage.course = course
+    draft = build_blueprint_draft(course)
+    versions.save_draft("course-outline", draft)
+
+    review = manager.get_generation_review("course-outline")
+    assert review is not None
+    assert review["can_confirm"] is True
+    assert review["artifact"]["quality_report"]["issues"]
+    assert review["artifact"]["blocking_issues"] == []
+
+    await manager.confirm_generation_step("course-outline", "outline")
+
+    assert storage.course["generation_status"] == "outline_confirmed"
     assert versions.load_draft("course-outline") is None
 
 

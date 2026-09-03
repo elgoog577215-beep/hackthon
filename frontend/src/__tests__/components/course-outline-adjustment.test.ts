@@ -284,7 +284,7 @@ describe('一句话调整课程目录', () => {
       .toContain('能按执行顺序解释并验证生命周期回调')
   })
 
-  it('从整篇质量建议直接生成定点修复候选', async () => {
+  it('把质量建议交给右侧工作区，并只提供统一候选链需要的定点指令', async () => {
     const workspace = useCourseWorkspaceStore()
     const draft = {
       ...currentDraft(),
@@ -343,20 +343,25 @@ describe('一句话调整课程目录', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="formal-outline-document"]').text()).toContain('可确认，有改进建议')
-    expect(wrapper.get('[data-testid="formal-outline-document"]').text()).toContain('达成检验过于模板化')
+    expect(wrapper.get('[data-testid="formal-outline-document"]').text()).not.toContain('2 项改进建议')
+    expect(wrapper.get('[data-testid="formal-outline-document"]').text()).not.toContain('达成检验过于模板化')
     expect(wrapper.get('[data-testid="formal-outline-document"]').text()).toContain('生命周期')
     expect(wrapper.get('[data-testid="formal-outline-document"]').text()).toContain('理解生命周期')
-    expect(wrapper.findAll('.outline-quality li button')).toHaveLength(2)
-    await wrapper.findAll('.outline-quality li button')[1]!.trigger('click')
-    await flushPromises()
+    expect(wrapper.find('.outline-quality').exists()).toBe(false)
+    const report = wrapper.emitted('quality-review-change')?.at(-1)?.[0] as any
+    expect(report.issues).toHaveLength(2)
+    const repairInstruction = (wrapper.vm as any).requestQualityRepair(report.issues[1])
+    expect(repairInstruction).toBe(`${instruction}\n仅允许修改节点：L2-1-1。`)
+    expect(preview).not.toHaveBeenCalled()
 
-    expect(wrapper.emitted('open-ai')).toHaveLength(1)
+    await (wrapper.vm as any).requestAiCandidate(
+      repairInstruction,
+      'outline_editorial:repeated_assessment_template',
+    )
+
     expect(preview).toHaveBeenCalledWith('course-1', expect.objectContaining({
-      instruction: `${instruction}\n仅允许修改节点：L2-1-1。`,
-    }))
-    expect(wrapper.emitted('ai-candidate-change')?.[0]?.[0]).toEqual(expect.objectContaining({
-      proposal_id: 'proposal-1',
+      instruction: repairInstruction,
+      target_quality_issue_code: 'outline_editorial:repeated_assessment_template',
     }))
   })
 

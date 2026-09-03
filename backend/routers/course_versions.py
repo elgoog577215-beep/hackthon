@@ -59,6 +59,7 @@ class BlueprintAdjustmentPreviewRequest(BaseModel):
     base_blueprint_revision_id: str = Field(min_length=1, max_length=120)
     expected_draft_revision_id: str = Field(min_length=1, max_length=120)
     instruction: str = Field(min_length=1, max_length=3000)
+    target_quality_issue_code: str | None = Field(default=None, max_length=160)
 
     @field_validator("request_id", "base_blueprint_revision_id", "expected_draft_revision_id", "instruction")
     @classmethod
@@ -67,6 +68,12 @@ class BlueprintAdjustmentPreviewRequest(BaseModel):
         if not normalized:
             raise ValueError("value must not be blank")
         return normalized
+
+    @field_validator("target_quality_issue_code")
+    @classmethod
+    def normalize_optional_issue_code(cls, value: str | None) -> str | None:
+        normalized = str(value or "").strip()
+        return normalized or None
 
 
 class BlueprintAdjustmentCancelRequest(BaseModel):
@@ -273,7 +280,7 @@ async def preview_blueprint_adjustment(
     try:
         return await tm.preview_outline_adjustment(
             course_id,
-            request.model_dump(),
+            request.model_dump(exclude_none=True),
         )
     except CourseVersionConflict as exc:
         raise HTTPException(status_code=409, detail={

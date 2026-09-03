@@ -1607,7 +1607,7 @@ def assemble_course_outline(
     }
 
 
-_QUALITY_RULE_VERSION = "course_outline_editorial_v6"
+_QUALITY_RULE_VERSION = "course_outline_editorial_v7"
 _QUOTED_TOPIC = re.compile(r"[“‘「『《][^”’」』》]{1,80}[”’」』》]")
 _NUMBER_TOKEN = re.compile(r"(?:第\s*)?\d+(?:\.\d+)?(?:\s*[章节项个])?")
 _QUALITY_PUNCTUATION = re.compile(r"[\s\W_]+", re.UNICODE)
@@ -1700,7 +1700,7 @@ def review_course_outline_document(
     *,
     course_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Review a draft freely, but identify defects that block formal confirmation."""
+    """Review an outline without taking the teacher's confirmation authority."""
     source = plan if isinstance(plan, dict) else {}
     formal_contract = (
         source.get("formal_syllabus_contract_version") == "formal_syllabus_v2"
@@ -2233,7 +2233,17 @@ def review_course_outline_document(
                 blocking=True,
             ))
 
-    blocking_issues = [item for item in issues if item.get("blocking")]
+    # Editorial findings remain visible, but they never become a permission gate.
+    # Empty outlines and version or lock conflicts stay enforced by the versioned
+    # confirmation command instead of being mixed into this review report.
+    issues = [
+        {
+            **item,
+            "severity": "suggestion",
+            "blocking": False,
+        }
+        for item in issues
+    ]
     metrics = {
         "chapter_count": len(chapters),
         "section_count": len(sections),
@@ -2246,17 +2256,15 @@ def review_course_outline_document(
         }),
     }
     report = {
-        "schema_version": "course_outline_editorial_review_v5",
+        "schema_version": "course_outline_editorial_review_v6",
         "rule_version": _QUALITY_RULE_VERSION,
-        "non_blocking": not blocking_issues,
-        "passed": not blocking_issues,
-        "can_confirm": not blocking_issues,
-        "blocking_issues": blocking_issues,
-        "status": "confirmation_blocked" if blocking_issues else ("review_suggested" if issues else "ready"),
+        "non_blocking": True,
+        "passed": True,
+        "can_confirm": True,
+        "blocking_issues": [],
+        "status": "review_suggested" if issues else "ready",
         "summary": (
-            f"大纲草稿已生成；仍有 {len(blocking_issues)} 类正式确认条件未满足。"
-            if blocking_issues
-            else f"大纲已生成，可继续编辑和确认；发现 {len(issues)} 类内容建议。"
+            f"大纲已生成；发现 {len(issues)} 类改进建议，不影响教师确认。"
             if issues
             else "整篇大纲未发现高频专业表达问题。"
         ),

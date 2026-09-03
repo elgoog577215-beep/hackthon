@@ -334,12 +334,15 @@ def test_teacher_lecture_missing_evidence_is_reported_instead_of_fabricated():
     assert "outline_editorial:missing_assessments" in codes
     assert "outline_editorial:missing_scope_boundaries" in codes
     assert "outline_editorial:repeated_assessment_template" not in codes
-    assert report["passed"] is False
-    assert report["non_blocking"] is False
+    assert report["passed"] is True
+    assert report["non_blocking"] is True
+    assert report["blocking_issues"] == []
+    assert report["can_confirm"] is True
     assert "outline_editorial:missing_application_anchors" in codes
     assert "outline_editorial:missing_extension_resources" in codes
     assert "outline_editorial:missing_learning_tasks" in codes
-    assert report["summary"].startswith("大纲草稿已生成")
+    assert report["summary"].startswith("大纲已生成")
+    assert report["summary"].endswith("不影响教师确认。")
 
 
 def test_extension_resource_cannot_be_verified_without_an_exact_confirmed_source():
@@ -408,8 +411,11 @@ def test_extension_resource_cannot_be_verified_without_an_exact_confirmed_source
 
     resource = plan["chapters"][0]["sections"][0]["extension_resources"][0]
     assert resource["verification_status"] == "pending"
-    codes = {item["code"] for item in review_course_outline_document(plan)["blocking_issues"]}
+    report = review_course_outline_document(plan)
+    codes = {item["code"] for item in report["issues"]}
     assert "outline_editorial:unverified_extension_resources" in codes
+    assert report["blocking_issues"] == []
+    assert report["can_confirm"] is True
 
 
 def test_measurable_outcomes_without_alignment_are_reported_for_review():
@@ -425,7 +431,7 @@ def test_measurable_outcomes_without_alignment_are_reported_for_review():
         item for item in report["issues"]
         if item["code"] == "outline_editorial:missing_outcome_alignment"
     )
-    assert issue["rule_version"] == "course_outline_editorial_v6"
+    assert issue["rule_version"] == "course_outline_editorial_v7"
     assert issue["evidence"]["outcome_numbers"] == [1]
 
 
@@ -594,7 +600,7 @@ def test_whole_outline_review_locates_repeated_assessment_templates_without_bloc
         if issue["code"] == "outline_editorial:repeated_assessment_template"
     )
     assert repeated["node_ids"] == ["L2-1-1", "L2-1-2", "L2-1-3", "L2-1-4"]
-    assert repeated["rule_version"] == "course_outline_editorial_v6"
+    assert repeated["rule_version"] == "course_outline_editorial_v7"
     assert "范围说明" in repeated["repair_instruction"]
     assert report["metrics"]["located_section_count"] == 4
 
@@ -657,7 +663,7 @@ def test_whole_outline_review_allows_single_section_chapters_but_flags_system_re
     codes = {issue["code"] for issue in report["issues"]}
     assert "outline_editorial:flat_chapter_structure" not in codes
     assert "outline_editorial:system_register" in codes
-    assert report["schema_version"] == "course_outline_editorial_review_v5"
+    assert report["schema_version"] == "course_outline_editorial_review_v6"
     assert report["status"] == "review_suggested"
 
 

@@ -90,12 +90,28 @@
                 <GitBranch :size="13" />
                 <span v-for="impact in candidateImpacts" :key="impact">{{ impact }}</span>
               </div>
+              <div v-if="!candidateCanApply" class="lesson-ai-review-block" role="alert">
+                <CircleAlert :size="15" />
+                <div>
+                  <strong>{{ tr('candidateBlocked') }}</strong>
+                  <p>{{ candidateBlockReason || tr('candidateBlockedFallback') }}</p>
+                </div>
+              </div>
               <footer v-if="candidatePending && message.id === latestCandidateMessageId">
                 <button type="button" :disabled="busy" @click="emit('focus-candidate')">
                   <LocateFixed :size="14" />{{ tr('locate') }}
                 </button>
+                <button v-if="!candidateCanApply" type="button" :disabled="busy" @click="emit('retry')">
+                  {{ tr('retry') }}
+                </button>
                 <button type="button" :disabled="busy" @click="emit('reject')">{{ tr('reject') }}</button>
-                <button class="primary" type="button" :disabled="busy" @click="emit('accept')">
+                <button
+                  class="primary"
+                  type="button"
+                  :disabled="busy || !candidateCanApply"
+                  :title="!candidateCanApply ? tr('candidateCannotApply') : undefined"
+                  @click="emit('accept')"
+                >
                   <Check :size="14" />{{ tr('accept') }}
                 </button>
               </footer>
@@ -262,6 +278,8 @@ const props = withDefaults(defineProps<{
   phase?: TeacherProductionAiPhase
   busy?: boolean
   candidatePending?: boolean
+  candidateCanApply?: boolean
+  candidateBlockReason?: string
   candidateFields?: string[]
   candidateImpacts?: string[]
   clarificationOptions?: string[]
@@ -280,6 +298,8 @@ const props = withDefaults(defineProps<{
   phase: 'ready',
   busy: false,
   candidatePending: false,
+  candidateCanApply: true,
+  candidateBlockReason: '',
   candidateFields: () => [],
   candidateImpacts: () => [],
   clarificationOptions: () => [],
@@ -321,6 +341,9 @@ const fallbackMessages: Record<string, string> = {
   locate: '定位',
   reject: '放弃',
   accept: '采用',
+  candidateBlocked: '目标问题仍未解决',
+  candidateBlockedFallback: '这版候选未通过复审，请重试或放弃。',
+  candidateCannotApply: '候选通过目标问题校验后才能采用',
   retry: '重试',
   statusReady: '就绪',
   statusClarifying: '等待补充',
@@ -453,6 +476,7 @@ watch(() => [props.domain, props.scopeTitle, props.scopeDetail], () => nextTick(
 .lesson-ai-messages{min-height:0;overflow:auto;padding:18px 16px 28px;scrollbar-width:thin;scrollbar-color:transparent transparent}.lesson-ai-messages:hover{scrollbar-color:#cbd3df transparent}.lesson-ai-messages::-webkit-scrollbar{width:6px}.lesson-ai-messages::-webkit-scrollbar-thumb{border-radius:6px;background:transparent}.lesson-ai-messages:hover::-webkit-scrollbar-thumb{background:#cbd3df}.lesson-ai-message{margin:0 0 15px}.lesson-ai-message.is-user{display:flex;justify-content:flex-end}.lesson-ai-user-bubble{max-width:84%;padding:8px 10px;border-radius:11px 11px 3px 11px;color:#fff;background:#514bdc;font-size:12px;line-height:1.55;overflow-wrap:anywhere}.lesson-ai-assistant-line{display:grid;grid-template-columns:15px minmax(0,1fr) auto;align-items:start;gap:7px;color:#6366f1}.lesson-ai-assistant-line p{margin:0;color:#4c596d;font-size:12px;line-height:1.65;overflow-wrap:anywhere}.lesson-ai-assistant-line.is-receipt{color:#16925f}.lesson-ai-assistant-line.is-receipt p{color:#29765a}.lesson-ai-assistant-line.is-error{color:#c2414f}.lesson-ai-assistant-line.is-error p{color:#9f3c48}.lesson-ai-assistant-line>button{min-height:26px;padding:0 8px;border:1px solid #e0b5bb;border-radius:6px;color:#9f3c48;background:#fff;font-size:10px;font-weight:700;cursor:pointer}
 .lesson-ai-starter{display:grid;gap:10px;max-width:560px;margin:0 auto}.lesson-ai-quick-heading{display:flex;align-items:center;min-height:26px}.lesson-ai-quick-heading strong{color:#536176;font-size:10.5px}.lesson-ai-quick-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.lesson-ai-quick-grid button{min-width:0;min-height:42px;display:grid;grid-template-columns:18px minmax(0,1fr) 14px;align-items:center;gap:7px;padding:0 10px;border:1px solid #e1e6ee;border-radius:9px;color:#536176;background:#fff;text-align:left;font:inherit;font-size:10.5px;font-weight:650;cursor:pointer}.lesson-ai-quick-grid button>svg:first-child{color:#625dd7}.lesson-ai-quick-grid button>svg:last-child{color:#a0a9b8}.lesson-ai-quick-grid button:hover:not(:disabled){border-color:#c7c9ef;color:#383379;background:#f8f8ff}.lesson-ai-quick-grid button:hover>svg:last-child{color:#625dd7}.lesson-ai-quick-grid button:disabled{opacity:.48;cursor:not-allowed}.lesson-ai-quick-grid button:focus-visible,.lesson-ai-quick-strip button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .lesson-ai-review{border-top:1px solid #dfe2f4;border-bottom:1px solid #dfe2f4;background:#fbfbff}.lesson-ai-review>header{min-height:40px;display:flex;align-items:center;gap:7px;color:#514bdc}.lesson-ai-review>header strong{color:#353567;font-size:12px}.lesson-ai-review>header span{margin-inline-start:auto;color:#7772a8;font-size:10px;font-weight:700}.lesson-ai-review-fields{display:flex;flex-wrap:wrap;gap:5px;padding:0 0 12px}.lesson-ai-review-fields span{min-height:24px;display:inline-flex;align-items:center;padding:0 7px;border-radius:6px;color:#5b5790;background:#f0f0fb;font-size:10px;font-weight:650}.lesson-ai-review-impact{display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding:0 0 10px;color:#8a5b17}.lesson-ai-review-impact span{padding:3px 6px;border-radius:5px;background:#fff7df;font-size:10px;font-weight:700}.lesson-ai-review>footer{display:flex;align-items:center;justify-content:flex-end;gap:5px;padding:9px 0;border-top:1px solid #ececf6}.lesson-ai-review button{min-height:30px;display:flex;align-items:center;justify-content:center;gap:5px;padding:0 9px;border:1px solid transparent;border-radius:7px;color:#596579;background:transparent;font-size:10.5px;font-weight:700;cursor:pointer}.lesson-ai-review button:hover:not(:disabled){background:#f1f3f7}.lesson-ai-review button.primary{border-color:#514bdc;color:#fff;background:#514bdc}.lesson-ai-review button:disabled{opacity:.5;cursor:not-allowed}.lesson-ai-review button:focus-visible,.lesson-ai-clarification button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
+.lesson-ai-review-block{display:grid;grid-template-columns:17px minmax(0,1fr);gap:7px;margin:0 0 10px;padding:9px 10px;border-radius:8px;color:#9f3c48;background:#fff3f4}.lesson-ai-review-block>svg{margin-top:2px}.lesson-ai-review-block strong{display:block;color:#8d3340;font-size:15px;line-height:1.4}.lesson-ai-review-block p{margin:2px 0 0;color:#94404b;font-size:15px;line-height:1.5;overflow-wrap:anywhere}
 .lesson-ai-course-plan{display:grid;gap:10px;padding:12px;border:1px solid #dddff2;border-radius:10px;background:#fbfbff}.lesson-ai-course-plan>header{display:flex;align-items:center;gap:7px;color:#514bdc}.lesson-ai-course-plan>header strong{color:#353567;font-size:12px}.lesson-ai-course-plan>header span{margin-inline-start:auto;color:#7772a8;font-size:10px;font-weight:700}.lesson-ai-course-plan>p{margin:0;color:#4c596d;font-size:11.5px;line-height:1.65}.lesson-ai-course-plan>.lesson-ai-review-impact{padding:0}.lesson-ai-course-plan>footer{display:flex;justify-content:flex-end;padding-top:8px;border-top:1px solid #ececf6}.lesson-ai-course-plan button{min-height:31px;display:flex;align-items:center;gap:5px;padding:0 10px;border:1px solid #514bdc;border-radius:7px;color:#fff;background:#514bdc;font-size:10.5px;font-weight:700;cursor:pointer}.lesson-ai-course-plan button:disabled{opacity:.5;cursor:not-allowed}.lesson-ai-course-plan button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .lesson-ai-clarification{display:flex;flex-wrap:wrap;gap:6px;margin:-3px 0 17px;padding-inline-start:22px}.lesson-ai-clarification button{min-height:29px;padding:0 9px;border:1px solid #d9def0;border-radius:7px;color:#4f4a8d;background:#fff;font-size:10.5px;cursor:pointer}.lesson-ai-clarification button:hover{border-color:#b9bced;background:#f7f7ff}.lesson-ai-working-state{display:flex;align-items:center;gap:7px;color:#65649c;font-size:11px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .lesson-ai-composer-shell{display:grid;gap:7px;padding:10px 12px 12px;border-top:1px solid #e4e9f1;background:#fbfcfe}.lesson-ai-quick-strip{display:flex;gap:6px;overflow:auto;padding-bottom:1px}.lesson-ai-quick-strip button{flex:none;min-height:28px;display:flex;align-items:center;gap:5px;padding:0 8px;border:1px solid #dce1ec;border-radius:7px;color:#55517e;background:#fff;font:inherit;font-size:9.5px;cursor:pointer}.lesson-ai-quick-strip button:hover:not(:disabled){border-color:#c7c9ef;background:#f8f8ff}.lesson-ai-composer{position:relative}.lesson-ai-composer textarea{width:100%;min-height:64px;max-height:132px;box-sizing:border-box;padding:10px 42px 10px 11px;border:1px solid #cbd4e1;border-radius:10px;outline:0;color:#263147;background:#fff;font:inherit;font-size:11.5px;line-height:1.5;resize:none}.lesson-ai-composer textarea::placeholder{color:#6f7c90}.lesson-ai-composer textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.09)}.lesson-ai-composer>button{position:absolute;right:7px;bottom:7px;width:31px;height:31px;display:grid;place-items:center;padding:0;border:0;border-radius:8px;color:#fff;background:#514bdc;cursor:pointer}.lesson-ai-composer>button:disabled{color:#8e98aa;background:#e4e7ee;cursor:not-allowed}.lesson-ai-composer>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}

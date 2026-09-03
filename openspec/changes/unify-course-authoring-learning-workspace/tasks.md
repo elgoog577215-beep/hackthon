@@ -211,3 +211,11 @@
 - [x] 23.5 Project education objectives, derived teaching form, total hours and confirmed external mentor information into the teaching calendar and all DOCX/PDF/XLSX/CSV exports without creating a second syllabus truth.
 - [x] 23.6 Bundle and license a CJK font for PDF export, verify the font is embedded, and cover generation, adjustment, recovery, publication, calendar and frontend editing with focused tests.
 - [x] 23.7 Complete Chinese desktop browser acceptance, full regression, strict OpenSpec/build checks, release documentation and production verification.
+
+## 24. Non-blocking outline review and repair loop
+
+- [x] 24.1 Remove editorial findings from the outline-confirmation permission path while retaining existence, revision-conflict and lock checks.
+- [x] 24.2 Move the outline review report from the center document into a compact collapsible region below the right-side AI assistant and course-material tabs.
+- [x] 24.3 Route repairable findings through the existing outline candidate, diff, accept/reject and save chain; route source-verification findings to manual editing only.
+- [x] 24.4 Recompute and synchronize the report after manual save, candidate acceptance and history restoration so resolved findings disappear immediately.
+- [x] 24.5 Verify focused backend/frontend tests, strict OpenSpec, production build, detector output and the Chinese desktop interaction path; then update release evidence.

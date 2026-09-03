@@ -77,18 +77,15 @@
           </button>
           <button
             v-if="outlineAwaitingReview"
-            class="outline-confirm-action"
-            :class="{ 'primary-action': outlineCanConfirm, 'outline-requirements-action': !outlineCanConfirm }"
+            class="outline-confirm-action primary-action"
             data-testid="outline-confirm-action"
             type="button"
             :disabled="stageSwitching || outlineConfirming"
-            :title="!outlineCanConfirm ? outlineConfirmationBlockedMessage : undefined"
             @click="confirmInlineOutline"
           >
             <LoaderCircle v-if="outlineConfirming" :size="15" class="spin" />
-            <TriangleAlert v-else-if="!outlineCanConfirm" :size="15" />
             <Check v-else :size="15" />
-            {{ outlineConfirmationActionLabel }}
+            {{ t('courseWorkbench.confirmOutline', '确认课程大纲') }}
           </button>
         </TeacherDocumentCommandBar>
         <TeacherDocumentHistoryPanel
@@ -168,6 +165,7 @@
           @ai-resolving="handleAiResolving"
           @ai-resolved="handleAiResolved"
           @ai-error="handleAiError"
+          @quality-review-change="handleOutlineQualityReviewChange"
           @lesson-type-change="updateOutlineLessonType"
         />
       </section>
@@ -699,6 +697,53 @@
         ><FileText :size="14" />{{ t('courseWorkbench.contextPane.references', '课程资料') }}<small>{{ activeReferences.length }}</small></button>
       </nav>
 
+      <section
+        v-if="outlineQualityReviewVisible"
+        class="outline-quality-review"
+        data-testid="outline-quality-review"
+        aria-labelledby="outline-quality-review-title"
+      >
+        <button
+          type="button"
+          class="outline-quality-review__header"
+          :aria-expanded="outlineQualityReviewExpanded"
+          aria-controls="outline-quality-review-content"
+          @click="outlineQualityReviewExpanded = !outlineQualityReviewExpanded"
+        >
+          <span>
+            <strong id="outline-quality-review-title">{{ t('courseWorkbench.outlineReview.title', '大纲审阅') }}</strong>
+            <small>{{ outlineQualityReviewStatus }}</small>
+          </span>
+          <em v-if="outlineQualityIssues.length">{{ t('courseWorkbench.outlineReview.nonBlocking', '不影响确认') }}</em>
+          <ChevronDown :size="16" :class="{ 'is-expanded': outlineQualityReviewExpanded }" />
+        </button>
+        <div v-if="outlineQualityReviewExpanded" id="outline-quality-review-content" class="outline-quality-review__content">
+          <p v-if="outlineQualityIssues.length">{{ outlineQualityReview.summary }}</p>
+          <ul v-if="outlineQualityIssues.length">
+            <li v-for="issue in outlineQualityIssues" :key="issue.code || issue.message">
+              <div>
+                <strong>{{ issue.message }}</strong>
+                <small>{{ outlineQualityIssueLocation(issue) }}</small>
+              </div>
+              <button
+                type="button"
+                :disabled="outlineQualityActionBusy"
+                :title="outlineQualityActionBusy ? t('courseWorkbench.outlineReview.finishCandidateFirst', '请先处理当前 AI 候选') : undefined"
+                @click="handleOutlineQualityIssue(issue)"
+              >
+                <LoaderCircle v-if="activeOutlineQualityIssueCode === issue.code && aiCollaborationBusy" :size="14" class="spin" />
+                <Pencil v-else-if="outlineQualityIssueAction(issue) === 'manual'" :size="14" />
+                <Sparkles v-else :size="14" />
+                {{ outlineQualityIssueAction(issue) === 'manual'
+                  ? t('courseWorkbench.outlineReview.manualAction', '手动补充')
+                  : t('courseWorkbench.outlineReview.aiAction', 'AI 优化') }}
+              </button>
+            </li>
+          </ul>
+          <p v-else class="outline-quality-review__empty"><Check :size="15" />{{ t('courseWorkbench.outlineReview.empty', '当前大纲暂无改进建议') }}</p>
+        </div>
+      </section>
+
       <TeacherLessonAiWorkspace
         v-if="contextPaneTab === 'ai' && aiCollaborationOpen"
         class="ai-workspace-panel"
@@ -714,6 +759,8 @@
         :phase="aiPhase"
         :busy="aiCollaborationBusy"
         :candidate-pending="aiCandidatePending"
+        :candidate-can-apply="aiCandidateCanApply"
+        :candidate-block-reason="aiCandidateBlockReason"
         :candidate-fields="aiCandidateFieldLabels"
         :candidate-impacts="aiCandidateImpacts"
         :clarification-options="aiClarificationOptions"
@@ -776,6 +823,8 @@
       :phase="aiPhase"
       :busy="aiCollaborationBusy"
       :candidate-pending="aiCandidatePending"
+      :candidate-can-apply="aiCandidateCanApply"
+      :candidate-block-reason="aiCandidateBlockReason"
       :candidate-fields="aiCandidateFieldLabels"
       :candidate-impacts="aiCandidateImpacts"
       :clarification-options="aiClarificationOptions"
@@ -797,7 +846,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, markRaw, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { BookOpenText, Check, CheckSquare2, ChevronDown, ChevronLeft, ChevronRight, ClipboardCheck, ClipboardList, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
@@ -868,7 +917,7 @@ type LessonPlanDocumentHandle = {
   redoEdit: () => boolean
 }
 type ProductionAiDocumentHandle = {
-  requestAiCandidate: (instruction: string) => Promise<Record<string, any> | null>
+  requestAiCandidate: (instruction: string, qualityIssueCode?: string) => Promise<Record<string, any> | null>
   resolveAiCandidate: (accept: boolean) => Promise<boolean>
   focusAiCandidate?: () => void
   focusCandidate?: () => void
@@ -904,9 +953,10 @@ type AiLessonPlanSection = {
 type OutlineEditorHandle = ProductionAiDocumentHandle & {
   finishEditing: () => Promise<boolean>
   confirmOutline: () => Promise<void>
+  requestQualityRepair: (issue: Record<string, any>) => string
+  focusQualityIssueEditor: (issue: Record<string, any>) => Promise<boolean>
   dirty: boolean
-  canConfirm: boolean
-  blockingIssueCount: number
+  qualityReview: Record<string, any>
   canUndo: boolean
   canRedo: boolean
   undoEdit: () => void
@@ -958,6 +1008,11 @@ const lastAiOperation = ref<'generate' | 'course_plan' | 'accept' | 'reject' | '
 const lastAiCoursePlanRequestId = ref('')
 const replacingAiCandidate = ref(false)
 const outlineEditor = ref<OutlineEditorHandle | null>(null)
+const outlineQualityReview = ref<Record<string, any>>({})
+const outlineQualityReviewExpanded = ref(true)
+const activeOutlineQualityIssueCode = ref('')
+const activeOutlineQualityRepairInstruction = ref('')
+const outlineRepairStartingIssueCount = ref<number | null>(null)
 type TeacherHistoryDomain = 'outline' | 'lesson' | 'script'
 const historyOpen = ref(false)
 const historyDomain = ref<TeacherHistoryDomain>('outline')
@@ -1255,6 +1310,10 @@ const currentAiBaseRevision = computed(() => {
 })
 const aiCollaborationBusy = computed(() => teacherProductionAiBusy(aiPhase.value))
 const aiCandidatePending = computed(() => Boolean(aiCandidate.value))
+const aiCandidateCanApply = computed(() => aiCandidate.value?.can_apply !== false)
+const aiCandidateBlockReason = computed(() => String(
+  aiCandidate.value?.blocking_issues?.[0]?.message || '',
+))
 const activeAiDocument = computed<ProductionAiDocumentHandle | null>(() => {
   if (aiDomain.value === 'outline') return outlineEditor.value
   if (aiDomain.value === 'question-bank') return questionBankPanel.value
@@ -1276,13 +1335,28 @@ const contextAiAvailable = computed(() => {
 const aiCandidateFieldLabels = computed(() => {
   if (aiDomain.value === 'outline') {
     const diff = aiCandidate.value?.diff || {}
+    const courseFieldLabels: Record<string, string> = {
+      course_intro_zh: t('courseGeneration.outlineReview.templateChineseIntro', '中文简介'),
+      course_intro_en: t('courseGeneration.outlineReview.templateEnglishIntro', '英文简介'),
+      positioning: t('courseGeneration.outlineReview.positioning', '课程定位'),
+      learning_objectives: t('courseGeneration.outlineReview.templateLearningGoals', '学习目标'),
+      education_objectives: t('courseGeneration.outlineReview.templateEducationGoals', '育人目标'),
+      measurable_outcomes: t('courseGeneration.outlineReview.templateMeasurableResults', '可测量结果'),
+      outcome_alignment: t('courseGeneration.outlineReview.outcomeAlignmentTitle', '课程目标与预期成果关联表'),
+      teaching_methods: t('courseGeneration.outlineReview.templateTeachingMethods', '授课方式'),
+      assessment_plan: t('courseGeneration.outlineReview.templateAssessmentMethods', '考核方式'),
+      course_modules: t('courseGeneration.outlineReview.moduleGroupingTitle', '知识模块与讲次范围'),
+      reference_books: t('courseGeneration.outlineReview.referenceBooks', '参考书籍'),
+      reference_websites: t('courseGeneration.outlineReview.referenceWebsites', '网络资源'),
+    }
     const operationLabels = [
+      ...(Array.isArray(diff.course_updated) ? diff.course_updated.map((item: any) => courseFieldLabels[item.field] || item.field) : []),
       ...(Array.isArray(diff.moved) ? diff.moved.map((item: any) => `移动 ${item.node_name || '讲次'}：${item.old_position || '原位置'} → ${item.new_position || '新位置'}`) : []),
       ...(Array.isArray(diff.updated) ? diff.updated.map((item: any) => `修改 ${item.node_name || '讲次'}`) : []),
       ...(Array.isArray(diff.added) ? diff.added.map((item: any) => `新增 ${item.node_name || '讲次'}`) : []),
       ...(Array.isArray(diff.removed) ? diff.removed.map((item: any) => `删除 ${item.node_name || '讲次'}`) : []),
     ]
-    return operationLabels.length ? operationLabels : ['大纲内容']
+    return operationLabels.length ? [...new Set(operationLabels)] : ['大纲内容']
   }
   if (aiDomain.value === 'script') return [t('courseWorkbench.aiCollaboration.scriptBody', '讲义正文')]
   if (aiDomain.value === 'question-bank') return [
@@ -1397,17 +1471,29 @@ const scriptDocumentSaving = computed(() => Boolean(scriptDocument.value?.saving
 const scriptDocumentAiBusy = computed(() => Boolean(scriptDocument.value?.aiBusy))
 const outlineCanUndo = computed(() => Boolean(outlineEditor.value?.canUndo))
 const outlineCanRedo = computed(() => Boolean(outlineEditor.value?.canRedo))
-const outlineCanConfirm = computed(() => outlineEditor.value?.canConfirm !== false)
-const outlineBlockingIssueCount = computed(() => Number(outlineEditor.value?.blockingIssueCount || 0))
-const outlineConfirmationActionLabel = computed(() => (
-  outlineCanConfirm.value
-    ? t('courseWorkbench.confirmOutline', '确认课程大纲')
-    : t('courseWorkbench.reviewOutlineRequirements', '查看 {count} 项待完善')
-      .replace('{count}', String(outlineBlockingIssueCount.value))
+const outlineQualityIssues = computed<Record<string, any>[]>(() => (
+  Array.isArray(outlineQualityReview.value?.issues) ? outlineQualityReview.value.issues : []
 ))
-const outlineConfirmationBlockedMessage = computed(() => (
-  t('courseGeneration.outlineReview.confirmationBlockedCount', '还有 {count} 项正式确认条件未满足，已为你定位到整篇审读。')
-    .replace('{count}', String(outlineBlockingIssueCount.value))
+const outlineQualityReviewVisible = computed(() => (
+  activeStage.value === 'foundation'
+  && showOutlineWorkspace.value
+  && Boolean(
+    outlineQualityReview.value?.schema_version
+    || outlineQualityReview.value?.status
+    || Object.prototype.hasOwnProperty.call(outlineQualityReview.value, 'issues'),
+  )
+))
+const outlineQualityReviewStatus = computed(() => (
+  outlineQualityIssues.value.length
+    ? t('courseWorkbench.outlineReview.issueCount', '{count} 项改进建议')
+      .replace('{count}', String(outlineQualityIssues.value.length))
+    : t('courseWorkbench.outlineReview.ready', '暂无改进建议')
+))
+const outlineQualityActionBusy = computed(() => (
+  stageSwitching.value
+  || outlineConfirming.value
+  || aiCollaborationBusy.value
+  || aiCandidatePending.value
 ))
 const outlineDocumentDirty = computed(() => Boolean(outlineEditor.value?.dirty))
 const lessonCanUndo = computed(() => Boolean(lessonPlanDocument.value?.canUndo))
@@ -1908,6 +1994,65 @@ function persistAiSession() {
     }))
   } catch { /* local storage can be unavailable */ }
 }
+function handleOutlineQualityReviewChange(report: Record<string, any>) {
+  outlineQualityReview.value = report && typeof report === 'object' ? structuredClone(report) : {}
+}
+function plainOutlineQualityLocation(value: unknown) {
+  return String(value || '')
+    .replace(/^\s*第\s*\d+\s*[章讲]\s*/, '')
+    .replace(/^\s*\d+(?:\.\d+)?\s*/, '')
+    .trim()
+}
+function outlineQualityIssueLocation(issue: Record<string, any>) {
+  const nodeIds = Array.isArray(issue.node_ids)
+    ? issue.node_ids.map((item: unknown) => String(item || '').trim()).filter(Boolean)
+    : []
+  const names = nodeIds.map((nodeId: string) => {
+    const node = courseStore.nodes.find(item => String(item.node_id || '') === nodeId)
+    return plainOutlineQualityLocation(node?.node_name || nodeId)
+  }).filter(Boolean)
+  if (!names.length) return t('courseGeneration.outlineReview.qualityWholeDocument', '整篇大纲')
+  const visible = names.slice(0, 3).join('、')
+  return names.length > 3
+    ? t('courseGeneration.outlineReview.lectureQualityLocationsMore', '{names} 等 {count} 讲')
+      .replace('{names}', visible)
+      .replace('{count}', String(names.length))
+    : visible
+}
+function outlineQualityIssueAction(issue: Record<string, any>): 'ai' | 'manual' {
+  const code = String(issue.code || '')
+  const requiresVerifiedSource = code.includes('unverified_extension_resource')
+  return !String(issue.repair_instruction || '').trim() || requiresVerifiedSource ? 'manual' : 'ai'
+}
+async function handleOutlineQualityIssue(issue: Record<string, any>) {
+  if (!outlineEditor.value || outlineQualityActionBusy.value) return
+  if (outlineQualityIssueAction(issue) === 'manual') {
+    editingOutline.value = true
+    await nextTick()
+    await outlineEditor.value.focusQualityIssueEditor(issue)
+    return
+  }
+  const instruction = outlineEditor.value.requestQualityRepair(issue)
+  if (!instruction) {
+    editingOutline.value = true
+    await nextTick()
+    await outlineEditor.value.focusQualityIssueEditor(issue)
+    return
+  }
+  outlineRepairStartingIssueCount.value = outlineQualityIssues.value.length
+  activeOutlineQualityIssueCode.value = String(issue.code || '')
+  activeOutlineQualityRepairInstruction.value = instruction
+  openAiCollaboration('outline')
+  appendAiMessage(
+    'user',
+    'text',
+    t('courseWorkbench.outlineReview.aiRequest', '优化这项大纲审阅建议：{issue}')
+      .replace('{issue}', String(issue.message || '')),
+  )
+  outlineQualityReviewExpanded.value = false
+  await generateAiCandidateFromConversation(instruction)
+  if (!aiCandidatePending.value) outlineQualityReviewExpanded.value = true
+}
 function openAiCollaboration(domain: TeacherProductionAiDomain, selectionText = '') {
   if (domain === 'lesson' && (!selectedLesson.value || !workingLessonRevision.value)) return
   if (domain === 'script' && (!selectedLesson.value?.script.ready || !scriptDocument.value)) return
@@ -2004,7 +2149,7 @@ function replacePreviousCandidateMessage() {
   previousCandidate.kind = 'receipt'
   previousCandidate.text = t('courseWorkbench.aiCollaboration.replacedReceipt', '上一版候选已由本轮要求替换。')
 }
-async function generateAiCandidateFromConversation() {
+async function generateAiCandidateFromConversation(instructionOverride = '') {
   const document = activeAiDocument.value
   if (aiCollaborationBusy.value || !document) return
   lastAiOperation.value = 'generate'
@@ -2018,7 +2163,10 @@ async function generateAiCandidateFromConversation() {
     if (!discarded) return
     replacePreviousCandidateMessage()
   }
-  const candidate = await document.requestAiCandidate(buildAiInstruction())
+  const candidate = await document.requestAiCandidate(
+    instructionOverride.trim() || buildAiInstruction(),
+    aiDomain.value === 'outline' ? activeOutlineQualityIssueCode.value : '',
+  )
   if (!candidate) {
     if (aiPhase.value !== 'error') transitionAi({ type: 'FAIL' })
     return
@@ -2036,7 +2184,7 @@ async function generateAiCandidateFromConversation() {
         : t('courseWorkbench.aiCollaboration.candidateSummary', '候选已显示在左侧，请核对高亮内容。'),
   )
   transitionAi({ type: 'CANDIDATE_READY' })
-  lastAiOperation.value = ''
+  lastAiOperation.value = candidate.can_apply === false ? 'generate' : ''
   focusAiCandidate()
 }
 function coursePlanImpacts(projection: TeacherCoursePlanProjection): string[] {
@@ -2151,7 +2299,17 @@ function handleAiResolved(result: { accept: boolean }) {
       : aiDomain.value === 'script'
         ? t('courseWorkbench.aiCollaboration.assetScript', '讲义')
         : t('courseWorkbench.aiCollaboration.assetLessonPlan', '教案')
-  const receipt = t(
+  const outlineReviewReceipt = result.accept
+    && aiDomain.value === 'outline'
+    && outlineRepairStartingIssueCount.value !== null
+      ? t(
+          'courseWorkbench.outlineReview.appliedReceipt',
+          '已应用并重新审读，解决 {resolved} 项，剩余 {remaining} 项。',
+        )
+          .replace('{resolved}', String(Math.max(0, outlineRepairStartingIssueCount.value - outlineQualityIssues.value.length)))
+          .replace('{remaining}', String(outlineQualityIssues.value.length))
+      : ''
+  const receipt = outlineReviewReceipt || t(
     result.accept
       ? 'courseWorkbench.aiCollaboration.candidateReceiptApplied'
       : 'courseWorkbench.aiCollaboration.candidateReceiptDiscarded',
@@ -2166,6 +2324,12 @@ function handleAiResolved(result: { accept: boolean }) {
   } else {
     appendAiMessage('assistant', 'receipt', receipt)
   }
+  if (aiDomain.value === 'outline') {
+    outlineQualityReviewExpanded.value = true
+    outlineRepairStartingIssueCount.value = null
+    activeOutlineQualityIssueCode.value = ''
+    activeOutlineQualityRepairInstruction.value = ''
+  }
 }
 function handleAiError(error: string) {
   if (!error || aiMessages.value.at(-1)?.text === error) return
@@ -2175,6 +2339,7 @@ function handleAiError(error: string) {
 async function resolveAiCandidate(accept: boolean) {
   const document = activeAiDocument.value
   if (!document || !aiCandidatePending.value || aiCollaborationBusy.value) return
+  if (accept && !aiCandidateCanApply.value) return
   lastAiOperation.value = accept ? 'accept' : 'reject'
   transitionAi({ type: accept ? 'ACCEPT' : 'REJECT' })
   const resolved = await document.resolveAiCandidate(accept)
@@ -2194,7 +2359,9 @@ async function retryAiAction() {
     await resolveAiCandidate(false)
     return
   }
-  await generateAiCandidateFromConversation()
+  await generateAiCandidateFromConversation(
+    aiDomain.value === 'outline' ? activeOutlineQualityRepairInstruction.value : '',
+  )
 }
 function focusAiCandidate() {
   const document = activeAiDocument.value
@@ -2827,8 +2994,6 @@ onBeforeUnmount(() => {
 .center-heading-actions>.outline-manual-action[aria-pressed="true"]{border-color:#c9c8ee;color:#3730a3;background:#f4f3ff}
 .center-heading-actions>.outline-confirm-action{border-color:#454ca8;color:#fff;background:#454ca8;box-shadow:0 7px 18px rgba(69,76,168,.16)}
 .center-heading-actions>.outline-confirm-action:hover:not(:disabled){border-color:#3f4598;background:#3f4598}
-.center-heading-actions>.outline-requirements-action{border-color:#d5a15f;color:#8a4b0f;background:#fffaf2;box-shadow:none}
-.center-heading-actions>.outline-requirements-action:hover:not(:disabled){border-color:#c68b42;color:#713b0b;background:#fff5e6}
 .stage-form>footer{justify-content:flex-end}
 .foundation-presets{display:grid;margin:2px 0 0;padding:4px 0;border-top:1px solid #e8ebf2;border-bottom:1px solid #e8ebf2}.foundation-presets>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:17px 2px 14px}.foundation-presets>header>div{display:grid;gap:4px}.foundation-presets>header strong{color:#273247;font-size:14px}.foundation-presets>header span{color:#778195;font-size:14px;line-height:1.55}.foundation-presets>header>small{padding-top:2px;color:#555db6;font-size:14px;font-weight:750;white-space:nowrap}.foundation-preset-row{display:grid;grid-template-columns:150px minmax(0,1fr);align-items:center;gap:18px;padding:15px 2px;border-top:1px solid #eff1f5}.foundation-preset-row>div:first-child{display:grid;gap:3px}.foundation-preset-row>div:first-child strong{color:#354056;font-size:14px}.foundation-preset-row>div:first-child span{color:#8991a0;font-size:14px;line-height:1.45}.foundation-preset-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.foundation-preset-options>button{min-width:0;min-height:58px;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:7px;padding:8px 10px;border:1px solid #dfe3eb;border-radius:10px;color:#5e687b;background:#fff;text-align:left;cursor:pointer;transition:border-color .18s ease,background .18s ease,color .18s ease,transform .18s cubic-bezier(.16,1,.3,1)}.foundation-preset-options>button:not(.selected){grid-template-columns:minmax(0,1fr)}.foundation-preset-options>button:hover{transform:translateY(-1px);border-color:#c7cae9;background:#fafaff}.foundation-preset-options>button:focus-visible{outline:3px solid rgba(79,70,217,.14);outline-offset:1px}.foundation-preset-options>button.selected{border-color:#bfc2e8;color:#41489f;background:#f4f4ff}.foundation-preset-options>button>svg{color:#555db6}.foundation-preset-options>button>span{min-width:0;display:grid;gap:2px}.foundation-preset-options>button strong{overflow:hidden;color:inherit;font-size:14px;font-weight:800;text-overflow:ellipsis;white-space:nowrap}.foundation-preset-options>button small{overflow:hidden;color:#828b9c;font-size:14px;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}.stage-form>footer>span{max-width:520px;color:#7b8495;font-size:14px;line-height:1.5}.stage-form>footer{justify-content:space-between}
 .foundation-semantics{display:grid;margin:2px 0 0;border-block:1px solid #e8ebf2}.foundation-semantics>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:18px 2px 15px}.foundation-semantics>header>div{display:grid;gap:4px}.foundation-semantics>header strong{color:#273247;font-size:14px}.foundation-semantics>header span{max-width:68ch;color:#778195;font-size:14px;line-height:1.55}.foundation-semantics>header>small{padding-top:2px;color:#555db6;font-size:14px;font-weight:750;white-space:nowrap}.foundation-semantic-row{display:grid;grid-template-columns:145px minmax(0,1fr);align-items:center;gap:18px;padding:16px 2px;border-top:1px solid #eff1f5}.foundation-semantic-row>div:first-child{display:grid;gap:4px}.foundation-semantic-row>div:first-child strong{color:#354056;font-size:14px}.foundation-semantic-row>div:first-child span{color:#8991a0;font-size:14px;line-height:1.45}.foundation-semantic-options{display:grid;gap:8px}.foundation-semantic-options--three,.foundation-semantic-options--six{grid-template-columns:repeat(3,minmax(0,1fr))}.foundation-semantic-options>button{min-width:0;min-height:62px;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;padding:9px 11px;border:1px solid #dfe3eb;border-radius:10px;color:#5e687b;background:#fff;text-align:left;cursor:pointer;transition:border-color .18s ease,background-color .18s ease,color .18s ease,transform .18s cubic-bezier(.16,1,.3,1)}.foundation-semantic-options>button:not(.selected){grid-template-columns:minmax(0,1fr)}.foundation-semantic-options>button:hover{transform:translateY(-1px);border-color:#c7cae9;background:#fafaff}.foundation-semantic-options>button:focus-visible,.foundation-subject-select select:focus-visible{outline:3px solid rgba(79,70,217,.14);outline-offset:1px}.foundation-semantic-options>button.selected{border-color:#bfc2e8;color:#41489f;background:#f4f4ff}.foundation-semantic-options>button>svg{color:#555db6}.foundation-semantic-options>button>span{min-width:0;display:grid;gap:3px}.foundation-semantic-options>button strong{color:inherit;font-size:14px;font-weight:800;line-height:1.35}.foundation-semantic-options>button small{color:#7d8799;font-size:14px;line-height:1.4}.foundation-semantic-row--compact{align-items:start}.foundation-subject-select{display:grid;grid-template-columns:minmax(220px,300px) minmax(0,1fr);align-items:center;gap:14px}.foundation-subject-select select{width:100%;min-height:42px;padding:8px 34px 8px 11px;border:1px solid #cfd7e3;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:14px}.foundation-subject-select small{color:#7b8495;font-size:14px;line-height:1.5}.foundation-purpose-fields{display:grid;padding:16px 2px;border-top:1px solid #eff1f5}.foundation-purpose-fields--two{grid-template-columns:minmax(160px,.55fr) minmax(0,1.45fr);gap:14px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.stage-form>footer>span{max-width:520px;color:#7b8495;font-size:14px;line-height:1.5}.stage-form>footer{justify-content:space-between}
@@ -2916,7 +3081,7 @@ onBeforeUnmount(() => {
 .is-ai-collaboration>.workbench-center.is-lesson-workspace>.lesson-stage{width:100%;max-width:none;margin:0}
 .is-ai-collaboration .lesson-stage{min-height:100%;overflow:hidden}
 .ai-workspace-panel{min-height:0;overflow:hidden}
-.context-pane{min-width:0;min-height:0;display:grid;grid-template-rows:54px minmax(0,1fr);overflow:hidden;border-left:1px solid #e4e9f1;background:#fbfcfe}
+.context-pane{min-width:0;min-height:0;display:grid;grid-template-rows:54px auto minmax(0,1fr);overflow:hidden;border-left:1px solid #e4e9f1;background:#fbfcfe}
 .context-pane-tabs{display:grid;grid-template-columns:1fr 1fr;align-items:stretch;padding:0 12px;border-bottom:1px solid #e7ebf2;background:#fff}
 .context-pane-tabs button{position:relative;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;padding:0 8px;border:0;color:#758195;background:transparent;font-size:15px;font-weight:700;cursor:pointer}
 .context-pane-tabs button::after{position:absolute;right:10px;bottom:-1px;left:10px;height:2px;border-radius:2px;background:transparent;content:""}
@@ -2926,6 +3091,28 @@ onBeforeUnmount(() => {
 .context-pane-tabs button:focus-visible{z-index:1;outline:2px solid #6366f1;outline-offset:-3px}
 .context-pane-tabs button:disabled{color:#adb5c2;cursor:not-allowed}
 .context-pane-tabs small{min-width:18px;height:18px;display:grid;place-items:center;border-radius:9px;color:#6965a9;background:#f0f0fb;font-size:14px}
+.outline-quality-review{min-width:0;border-bottom:1px solid #e4e8ef;background:#fff}
+.outline-quality-review__header{width:100%;min-height:56px;display:grid;grid-template-columns:minmax(0,1fr) auto 18px;align-items:center;gap:9px;padding:10px 14px;border:0;color:#303a50;background:#fff;text-align:left;cursor:pointer}
+.outline-quality-review__header:hover{background:#fafaff}
+.outline-quality-review__header:focus-visible{outline:2px solid #6366f1;outline-offset:-3px}
+.outline-quality-review__header>span{min-width:0;display:grid;gap:2px}
+.outline-quality-review__header strong{font-size:15px;font-weight:780;line-height:1.35}
+.outline-quality-review__header small{color:#697589;font-size:14px;line-height:1.35}
+.outline-quality-review__header em{color:#087a5b;font-size:13px;font-style:normal;font-weight:740;white-space:nowrap}
+.outline-quality-review__header>svg{color:#7d8798;transition:transform .16s cubic-bezier(.16,1,.3,1)}
+.outline-quality-review__header>svg.is-expanded{transform:rotate(180deg)}
+.outline-quality-review__content{max-height:min(38vh,380px);overflow:auto;padding:0 14px 12px}
+.outline-quality-review__content>p{margin:0;padding:2px 0 10px;color:#687386;font-size:14px;line-height:1.55}
+.outline-quality-review__content>ul{margin:0;padding:0;list-style:none}
+.outline-quality-review__content li{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:10px;padding:12px 0;border-top:1px solid #edf0f4}
+.outline-quality-review__content li>div{min-width:0}
+.outline-quality-review__content li strong{display:block;overflow-wrap:anywhere;color:#344054;font-size:15px;font-weight:650;line-height:1.5}
+.outline-quality-review__content li small{display:block;margin-top:3px;color:#7b8698;font-size:13px;line-height:1.4}
+.outline-quality-review__content li button{min-height:34px;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 9px;border:1px solid #d7daed;border-radius:7px;color:#4f55a9;background:#fff;font-size:14px;font-weight:740;white-space:nowrap;cursor:pointer}
+.outline-quality-review__content li button:hover:not(:disabled){border-color:#bfc3e8;background:#f7f7ff}
+.outline-quality-review__content li button:focus-visible{outline:2px solid #6366f1;outline-offset:1px}
+.outline-quality-review__content li button:disabled{color:#a0a8b5;background:#f7f8fa;cursor:not-allowed}
+.outline-quality-review__content>.outline-quality-review__empty{display:flex;align-items:center;gap:7px;padding:4px 0 8px;color:#087a5b;font-size:14px;font-weight:700}
 .context-pane>.ai-workspace-panel{height:100%;border:0;border-radius:0;box-shadow:none}
 .context-pane>.context-pane-references{height:100%;border-left:0}
 .context-pane>:deep(.reference-tray__header){display:none}
