@@ -394,6 +394,7 @@
     "confirmOutlineAndContinue": "确认大纲，进入教案",
     "outlineConfirmed": "大纲已确认",
     "outlineReview": {
+      "open": "查看大纲审阅",
       "title": "大纲审阅",
       "issueCount": "{count} 项改进建议",
       "ready": "暂无改进建议",
@@ -408,12 +409,12 @@
     "outlineFlow": {
       "title": "大纲生成步骤",
       "courseInfo": "填写课程信息",
-      "lightPlan": "查看与编辑课程方案",
-      "fullOutline": "生成完整大纲",
+      "lightPlan": "轻量讲次方案",
+      "fullOutline": "完整大纲",
       "generateFull": "生成完整大纲",
       "continuing": "正在生成完整大纲…",
       "continueFailed": "完整大纲生成启动失败",
-      "lightPlanReady": "轻量课程方案已生成，可编辑后生成完整大纲",
+      "lightPlanReady": "轻量讲次方案已生成，可编辑后生成完整大纲",
       "fullReady": "完整大纲已生成并保存",
       "lessonProgress": "各讲生成进度",
       "lessonProgressCount": "已完成 {completed}/{total} 讲",
@@ -448,7 +449,18 @@
       "waitingTitle": "已进入生成队列",
       "waitingDetail": "本讲已独立排队，生成位可用时自动开始，无需再次操作。",
       "failed": "批量教案任务启动失败，请重试",
-      "status": { "pending": "等待生成", "running": "生成中", "paused": "已暂停", "completed": "已完成", "completed_with_warnings": "已完成，需复核", "failed": "生成失败", "cancelled": "已取消" }
+      "status": { "pending": "等待生成", "running": "生成中", "paused": "已暂停", "completed": "已完成", "completed_with_warnings": "已完成", "failed": "生成失败", "cancelled": "已取消" }
+    },
+    "scriptBatch": {
+      "previewTitle": "整门课程讲义预览",
+      "previewDetail": "讲义将直接沿用已生成的教案，所有讲次同时进入生成队列。",
+      "starting": "正在开始…",
+      "generateAll": "生成全部讲义",
+      "generateRemaining": "生成剩余讲义（{count}讲）",
+      "minutes": "分钟",
+      "structurePending": "本讲将按当前教案生成完整讲义。",
+      "overallProgress": "已完成 {completed}/{total} 讲 · 正在并行生成 {active} 讲",
+      "failed": "全部讲义任务创建失败，请重试。"
     },
     "waitingForContent": "AI 正在建立课程结构…",
     "generationInterrupted": "生成已中断",

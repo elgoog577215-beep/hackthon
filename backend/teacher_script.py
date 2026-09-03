@@ -19,6 +19,10 @@ from teacher_visible_language import has_unnatural_system_language
 SCRIPT_SCHEMA_VERSION = "teacher_script_v2"
 SCRIPT_PIPELINE_VERSION = "direct_teaching_script_v8"
 SCRIPT_QUALITY_VERSION = "teacher_script_quality_v8"
+SCRIPT_SINGLE_REQUEST_TARGET_CHARACTERS = 6400
+SCRIPT_SINGLE_REQUEST_MAX_CHARACTERS = 12000
+SCRIPT_SHARD_TARGET_CHARACTERS = 4200
+SCRIPT_SHARD_MAX_CHARACTERS = 8000
 
 _ALLOWED_ROLES = {
     "orientation",
@@ -522,6 +526,181 @@ def compile_teacher_script_module_contract(
     }
 
 
+def compile_teacher_script_shard_context(
+    contract: dict[str, Any],
+    module: dict[str, Any],
+) -> dict[str, Any]:
+    """Compile one stable block context without reading generated neighbours.
+
+    Every shard is derived only from the frozen lesson-plan contract.  Adjacent
+    identities explain the block's position and transition responsibility, but
+    their generated prose is deliberately absent so all blocks can run in the
+    same bounded-parallel wave.
+    """
+    modules = [
+        item for item in contract.get("modules") or [] if isinstance(item, dict)
+    ]
+    block_id = _text(module.get("block_id"))
+    position = next(
+        (
+            index for index, item in enumerate(modules)
+            if _text(item.get("block_id")) == block_id
+        ),
+        0,
+    )
+
+    def neighbour(index: int) -> dict[str, str] | None:
+        if index < 0 or index >= len(modules):
+            return None
+        item = modules[index]
+        return {
+            "block_id": _text(item.get("block_id")),
+            "title": _text(item.get("title")),
+            "role": _text(item.get("role")),
+            "teaching_purpose": _text(item.get("teaching_purpose")),
+        }
+
+    return {
+        "schema_version": "teacher_script_shard_context_v1",
+        "section_node_id": _text(contract.get("section_node_id")),
+        "block_id": block_id,
+        "shard_id": f"{block_id}:shard:1",
+        "sequence": position + 1,
+        "total_blocks": len(modules),
+        "previous_block": neighbour(position - 1),
+        "next_block": neighbour(position + 1),
+        "learning_objective": _text(contract.get("learning_objective")),
+        "key_points": _text_list(contract.get("key_points")),
+        "key_difficulties": _text_list(contract.get("key_difficulties")),
+        "in_class_checks": _text_list(contract.get("in_class_checks")),
+    }
+
+
+def compile_teacher_script_generation_shards(
+    lesson_unit_id: str,
+    contracts: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Pack adjacent complete teaching blocks into deterministic request shards."""
+    directory: list[dict[str, Any]] = []
+    for contract in contracts:
+        section_id = _text(contract.get("section_node_id"))
+        for module in contract.get("modules") or []:
+            if not isinstance(module, dict) or not _text(module.get("block_id")):
+                continue
+            directory.append({
+                "section_node_id": section_id,
+                "block_id": _text(module.get("block_id")),
+                "module_id": _text(module.get("module_id")),
+                "title": _text(module.get("title")),
+                "role": _text(module.get("role")),
+                "teaching_purpose": _text(module.get("teaching_purpose")),
+                "knowledge_names": _text_list(module.get("knowledge_names")),
+                "target_characters": int(module.get("target_characters") or 0),
+                "max_characters": int(module.get("max_characters") or 0),
+            })
+    if not directory:
+        return []
+
+    lesson_target = sum(item["target_characters"] for item in directory)
+    lesson_maximum = sum(item["max_characters"] for item in directory)
+    safe_single_request = (
+        lesson_target <= SCRIPT_SINGLE_REQUEST_TARGET_CHARACTERS
+        and lesson_maximum <= SCRIPT_SINGLE_REQUEST_MAX_CHARACTERS
+    )
+    groups: list[list[dict[str, Any]]] = []
+    if safe_single_request:
+        groups = [directory]
+    else:
+        current: list[dict[str, Any]] = []
+        current_target = 0
+        current_maximum = 0
+        for item in directory:
+            next_target = current_target + item["target_characters"]
+            next_maximum = current_maximum + item["max_characters"]
+            if current and (
+                next_target > SCRIPT_SHARD_TARGET_CHARACTERS
+                or next_maximum > SCRIPT_SHARD_MAX_CHARACTERS
+            ):
+                groups.append(current)
+                current = []
+                current_target = 0
+                current_maximum = 0
+            current.append(item)
+            current_target += item["target_characters"]
+            current_maximum += item["max_characters"]
+        if current:
+            groups.append(current)
+
+    lesson_objectives = [
+        {
+            "section_node_id": _text(contract.get("section_node_id")),
+            "learning_objective": _text(contract.get("learning_objective")),
+            "key_points": _text_list(contract.get("key_points")),
+            "key_difficulties": _text_list(contract.get("key_difficulties")),
+        }
+        for contract in contracts
+    ]
+    terminology = list(dict.fromkeys(
+        name
+        for item in directory
+        for name in item.get("knowledge_names") or []
+        if name
+    ))
+    result: list[dict[str, Any]] = []
+    for index, group in enumerate(groups, start=1):
+        first_position = directory.index(group[0])
+        last_position = directory.index(group[-1])
+        identity = "|".join(item["block_id"] for item in group)
+        shard_id = "tss-" + hashlib.sha1(
+            f"{lesson_unit_id}|{identity}".encode("utf-8")
+        ).hexdigest()[:12]
+        result.append({
+            "shard_id": shard_id,
+            "sequence": index,
+            "total_shards": len(groups),
+            "block_ids": [item["block_id"] for item in group],
+            "target_characters": sum(
+                item["target_characters"] for item in group
+            ),
+            "max_characters": sum(item["max_characters"] for item in group),
+            "context": {
+                "schema_version": "teacher_script_shard_context_v2",
+                "lesson_unit_id": lesson_unit_id,
+                "shard_id": shard_id,
+                "sequence": index,
+                "total_shards": len(groups),
+                "budget_mode": (
+                    "single_request" if safe_single_request else "bounded_shards"
+                ),
+                "lesson_target_characters": lesson_target,
+                "lesson_max_characters": lesson_maximum,
+                "lesson_objectives": deepcopy(lesson_objectives),
+                "block_directory": deepcopy(directory),
+                "current_block_ids": [item["block_id"] for item in group],
+                "current_responsibilities": deepcopy(group),
+                "terminology": terminology,
+                "previous_anchor": (
+                    deepcopy(directory[first_position - 1])
+                    if first_position > 0 else None
+                ),
+                "next_anchor": (
+                    deepcopy(directory[last_position + 1])
+                    if last_position + 1 < len(directory) else None
+                ),
+                "forbidden_repetition": [
+                    {
+                        "block_id": item["block_id"],
+                        "title": item["title"],
+                        "teaching_purpose": item["teaching_purpose"],
+                    }
+                    for item in directory
+                    if item["block_id"] not in {value["block_id"] for value in group}
+                ],
+            },
+        })
+    return result
+
+
 def teacher_script_blocks_to_markdown(blocks: list[dict[str, Any]]) -> str:
     return "\n\n".join(
         f"## {_text(block.get('title'))}\n\n{_text(block.get('content'))}".strip()
@@ -530,72 +709,6 @@ def teacher_script_blocks_to_markdown(blocks: list[dict[str, Any]]) -> str:
         and _text(block.get("title"))
         and _text(block.get("content"))
     )
-
-
-def compile_teacher_script_fallback_content(
-    module: dict[str, Any],
-) -> str:
-    """Compile an explicit editable baseline when the provider is unavailable.
-
-    The confirmed lesson plan already owns the teaching purpose, knowledge
-    scope, guidance and activity contract.  A quota or authentication outage
-    should therefore not leave 0/N blank blocks.  This compiler never invents
-    a new module or fact; it turns that confirmed contract into an editable
-    direct-teaching draft and is always reported as a local fallback.
-    """
-
-    def spoken(value: Any) -> str:
-        text = _text(value)
-        replacements = {
-            "教师应": "接下来要",
-            "教师需要": "接下来要",
-            "学生应": "请大家",
-            "学生需要": "请大家",
-            "学生完成": "请大家完成",
-        }
-        for source, target in replacements.items():
-            text = text.replace(source, target)
-        return text
-
-    title = spoken(module.get("title")) or "当前教学块"
-    purpose = spoken(module.get("teaching_purpose"))
-    guidance = spoken(module.get("teaching_guidance"))
-    knowledge = "、".join(_text_list(module.get("knowledge_names")))
-    source_context = module.get("source_plan_context") or {}
-    activity = spoken(source_context.get("student_activity"))
-    explanation = spoken(source_context.get("teacher_activity"))
-    expected_output = spoken(source_context.get("expected_output"))
-    feedback = spoken(source_context.get("feedback_strategy"))
-    role = _text(module.get("role"))
-    artifact = module.get("artifact_contract") or {}
-
-    paragraphs = [
-        f"现在我们进入{title}。这一段要解决的是{knowledge or '当前核心问题'}。"
-        f"{purpose or '到这里，大家需要形成一个可以当场检查的结果'}。",
-    ]
-    if guidance:
-        paragraphs.append(f"先看清这里的方法：{guidance}。")
-    if explanation:
-        paragraphs.append(f"我们一步一步来看。{explanation}。")
-    if activity or role in {"activity", "feedback", "checkpoint"}:
-        paragraphs.append(
-            f"现在请大家{activity or '根据已知条件完成当前任务'}。"
-            f"完成后我们用{expected_output or '条件、过程与结论'}逐项核对。"
-            f"如果还没有达到标准，{feedback or '先找出差距，修正后再做一次'}。"
-        )
-    if _text(artifact.get("hard_artifact")) == "formula":
-        paragraphs.append(
-            "最后用这个形式化关系检查我们的推理："
-            r"\(\mathrm{given}\Rightarrow\mathrm{derivation}"
-            r"\Rightarrow\mathrm{verified\ result}\)"
-            "。公式中的对象、条件和结论必须与当前知识范围一致。"
-        )
-
-    content = "\n\n".join(paragraphs)
-    max_characters = int(module.get("max_characters") or 0)
-    if max_characters and len(content) > max_characters:
-        content = content[: max(20, max_characters - 1)].rstrip("，、：； ") + "。"
-    return content
 
 
 def _segments(markdown: str) -> list[tuple[str, str]]:
@@ -913,37 +1026,6 @@ def validate_teacher_script_section(
                 (
                     f"“{_text(block.get('title'))}”的块级公式分隔符吞入了题目、"
                     "解法或讲解正文，无法可靠渲染或生成 PPT。"
-                ),
-            )
-        table_lines = [line for line in content.splitlines() if "|" in line]
-        if table_lines and not any(
-            re.match(r"^\s*\|?\s*:?-{3,}", line) for line in table_lines
-        ):
-            add(
-                review,
-                "teacher_script:table_not_structured",
-                f"“{_text(block.get('title'))}”包含表格式内容，但缺少完整表头分隔行。",
-            )
-        target_characters = 0
-        matching = next(
-            (
-                item for item in expected
-                if _text(item.get("block_id")) == _text(block.get("block_id"))
-            ),
-            {},
-        )
-        try:
-            target_characters = int(matching.get("target_characters") or 0)
-        except (TypeError, ValueError):
-            target_characters = 0
-        minimum_characters = max(40, min(120, int(target_characters * 0.2)))
-        if len(content) < minimum_characters:
-            add(
-                review,
-                "teacher_script:block_too_shallow",
-                (
-                    f"“{_text(block.get('title'))}”只有 {len(content)} 字，"
-                    "不足以形成可直接授课的完整讲解或任务。"
                 ),
             )
     combined_content = "\n".join(_text(block.get("content")) for block in blocks)

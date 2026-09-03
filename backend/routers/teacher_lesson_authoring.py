@@ -45,7 +45,6 @@ from teacher_lesson_authoring import (
 )
 from question_bank import question_bank_repository
 from teacher_script import (
-    compile_teacher_script_fallback_content,
     compile_teacher_script_module_contract,
     normalize_teacher_script_section,
     validate_teacher_script_section,
@@ -162,6 +161,15 @@ class GenerateLessonScriptRequest(BaseModel):
     resume_job_id: str = Field(default="", max_length=160)
     requirements: str = Field(default="", max_length=4000)
     material_asset_ids: list[str] = Field(default_factory=list, max_length=24)
+    batch_parent_job_id: str = Field(default="", max_length=160)
+    batch_position: int = Field(default=0, ge=0, le=1000)
+    batch_size: int = Field(default=0, ge=0, le=1000)
+
+
+class GenerateAllLessonScriptsRequest(BaseModel):
+    request_id: str = Field(default="", max_length=160)
+    requirements: str = Field(default="", max_length=4000)
+    regenerate_confirmed: bool = False
 
 
 class SaveLessonScriptDraftRequest(BaseModel):
@@ -733,6 +741,39 @@ def _lesson_plan_material_scope(
     }
 
 
+def _lesson_script_material_scope(
+    course_id: str,
+    actor: str,
+    lesson_unit_id: str,
+) -> dict[str, Any]:
+    """Resolve the teacher-owned material scope frozen for one script."""
+    target_id = f"script:{lesson_unit_id}"
+    material_asset_ids: list[str] = []
+    source_package_id = ""
+    source_asset_id = ""
+    for summary in teacher_course_space_repository.list_owned(actor, course_id):
+        package_id = str(summary.get("package_id") or "")
+        try:
+            package = teacher_course_space_repository.load_owned(package_id, actor)
+        except (FileNotFoundError, MaterialStorageError):
+            continue
+        for relationship in teacher_course_space_repository.relationships_for_target(
+            package,
+            target_id,
+        ):
+            material_asset_id = str(relationship.get("material_asset_id") or "")
+            if material_asset_id and material_asset_id not in material_asset_ids:
+                material_asset_ids.append(material_asset_id)
+            if relationship.get("role") == "primary" and not source_asset_id:
+                source_package_id = package_id
+                source_asset_id = str(relationship.get("source_asset_id") or "")
+    return {
+        "source_package_id": source_package_id,
+        "source_asset_id": source_asset_id,
+        "material_asset_ids": material_asset_ids,
+    }
+
+
 def _ppt_material_bundle(
     course_id: str,
     actor: str,
@@ -1147,6 +1188,9 @@ def _plan_revision(
 def _plan_revision_has_content(revision: dict[str, Any]) -> bool:
     if str(revision.get("generation_source") or "") == "deterministic_local_fallback":
         return False
+    quality_report = revision.get("quality_report")
+    if isinstance(quality_report, dict) and quality_report.get("passed") is False:
+        return False
     plan = revision.get("plan") or {}
     if str(plan.get("schema_version") or "") != "course_teaching_plan_v3":
         return False
@@ -1210,6 +1254,11 @@ def _script_revision_has_content(revision: dict[str, Any]) -> bool:
         str(revision.get("generation_source") or "")
         == "model_block_pipeline_with_recovery_preview"
     ):
+        return False
+    quality_report = revision.get("quality_report")
+    if isinstance(quality_report, dict) and quality_report.get("passed") is False:
+        return False
+    if revision.get("publication_eligible") is False:
         return False
     sections = [
         item for item in revision.get("sections") or []
@@ -3646,6 +3695,9 @@ async def stream_lesson_job(
                         "result_revision_id": str(job.get("result_revision_id") or ""),
                         "stream_sequence": sequence,
                         "stream_batches": deepcopy(job.get("stream_batches") or {}),
+                        "stream_mode": str(job.get("stream_mode") or ""),
+                        "stream_events": deepcopy(job.get("stream_events") or []),
+                        "last_stream_event": deepcopy(job.get("last_stream_event") or {}),
                         "stream_complete": bool(job.get("stream_complete")),
                         "checkpoint": deepcopy(job.get("checkpoint") or {}),
                         "cancel_requested": bool(job.get("cancel_requested")),
@@ -3665,6 +3717,26 @@ async def stream_lesson_job(
                         "updated_at": updated_at,
                     },
                 }
+                if script_job:
+                    last_stream_event = job.get("last_stream_event") or {}
+                    if isinstance(last_stream_event, dict):
+                        payload.update({
+                            "lesson_unit_id": str(
+                                last_stream_event.get("lesson_unit_id")
+                                or job.get("lesson_unit_id")
+                                or ""
+                            ),
+                            "block_id": str(
+                                last_stream_event.get("block_id") or ""
+                            ),
+                            "shard_id": str(
+                                last_stream_event.get("shard_id") or ""
+                            ),
+                            "sequence": int(
+                                last_stream_event.get("sequence") or sequence
+                            ),
+                            "delta": str(last_stream_event.get("delta") or ""),
+                        })
                 yield (
                     f"id: {sequence}\n"
                     f"event: {event}\n"
@@ -3905,9 +3977,17 @@ async def generate_lesson_script(
             str(job["id"]),
             source_lesson_plan_revision_id=plan_revision_id,
             input_fingerprint=input_fingerprint,
+            resume_from_job_id=(body.resume_job_id if seed_sections else ""),
             requirements=body.requirements,
             material_asset_ids=selected_material_ids,
             actor=actor,
+            **({
+                "parent_job_id": body.batch_parent_job_id,
+                "batch_position": body.batch_position,
+                "batch_size": body.batch_size,
+                "phase": "queued",
+                "message": f"第 {body.batch_position} 讲讲义已入队",
+            } if body.batch_parent_job_id else {}),
         )
         if job.get("status") in {"running", "completed", "completed_with_warnings"}:
             return {"job": job}
@@ -3917,13 +3997,13 @@ async def generate_lesson_script(
             str(item.get("node_name") or "") for item in scope["sections"]
         ]
 
-        fallback_warnings: list[dict[str, Any]] = []
-
         async def generate_block(
             outline_section: dict[str, Any],
             confirmed_plan: dict[str, Any],
             module: dict[str, Any],
-            completed_blocks: list[dict[str, Any]],
+            shard_context: dict[str, Any],
+            on_content_delta=None,
+            on_content_reset=None,
         ) -> str:
             module_id = str(module.get("module_id") or "")
             single_outline = deepcopy(outline_section)
@@ -3936,7 +4016,32 @@ async def generate_lesson_script(
                 **deepcopy(module),
                 "label": str(module.get("title") or module_id),
             }]
-            generation_error: Exception | None = None
+            stream_prefix = {"resolved": False, "buffer": ""}
+
+            async def forward_stream_reset():
+                stream_prefix.update({"resolved": False, "buffer": ""})
+                if on_content_reset:
+                    await on_content_reset()
+
+            async def forward_stream_delta(delta: str):
+                if not on_content_delta or not str(delta or ""):
+                    return
+                if stream_prefix["resolved"]:
+                    await on_content_delta(str(delta))
+                    return
+                stream_prefix["buffer"] += str(delta)
+                if "\n" not in stream_prefix["buffer"]:
+                    return
+                first_line, remainder = stream_prefix["buffer"].split("\n", 1)
+                stream_prefix["resolved"] = True
+                stream_prefix["buffer"] = ""
+                visible = (
+                    remainder.lstrip("\n")
+                    if first_line.strip().startswith("## ")
+                    else f"{first_line}\n{remainder}"
+                )
+                if visible:
+                    await on_content_delta(visible)
             try:
                 generated = await asyncio.wait_for(
                     tm.course_service.generate_teacher_script_section(
@@ -3952,22 +4057,14 @@ async def generate_lesson_script(
                             "title": module.get("title"),
                             "role": module.get("role"),
                         },
-                        "previous_script_blocks": [
-                            {
-                                "title": item.get("title"),
-                                # Only a short tail is needed for transition
-                                # and de-duplication. Passing several complete
-                                # blocks makes the next lightweight block copy
-                                # the earlier textbook-like exposition.
-                                "content": str(item.get("content") or "")[-900:],
-                            }
-                            for item in completed_blocks[-3:]
-                        ],
+                        "script_shard_context": deepcopy(shard_context),
                         "material_asset_ids": selected_material_ids,
                         "selected_material_evidence": prompt_evidence,
                     },
                     requirements=body.requirements,
                     user_id=actor,
+                    on_content_delta=forward_stream_delta,
+                    on_content_reset=forward_stream_reset,
                     ),
                     timeout=150,
                 )
@@ -3976,29 +4073,23 @@ async def generate_lesson_script(
                 AIProviderRequestError,
                 AIProviderUnavailable,
             ) as exc:
-                generation_error = exc
-                generated = {}
-            if generation_error is not None:
-                error_detail = str(generation_error).strip()
-                failure_kind = (
-                    "model_output_quality_failed"
-                    if error_detail.startswith("讲义未通过当前教案的质量检查")
-                    else type(generation_error).__name__
+                error_detail = str(exc).strip()
+                quality_failed = error_detail.startswith(
+                    "讲义未通过当前教案的质量检查"
                 )
-                fallback_warnings.append({
-                    "code": "lesson_script_block_local_fallback",
-                    "block_id": str(module.get("block_id") or ""),
-                    "module_id": module_id,
-                    "title": str(module.get("title") or module_id),
-                    "reason": failure_kind,
-                    "reason_detail": error_detail[:1000],
-                    "message": (
-                        "模型输出未通过当前教学块质量检查，已保留可编辑恢复草稿；该内容不能确认或进入 PPT。"
-                        if failure_kind == "model_output_quality_failed"
-                        else "提供方调用失败，已保留可编辑恢复草稿；该内容不能确认或进入 PPT。"
+                raise TeacherLessonAuthoringError(
+                    (
+                        "lesson_script_block_quality_failed"
+                        if quality_failed
+                        else "lesson_script_provider_failed"
                     ),
-                })
-                return compile_teacher_script_fallback_content(module)
+                    (
+                        f"{module.get('title') or module_id}未通过硬校验，请重试。"
+                        if quality_failed
+                        else f"{module.get('title') or module_id}生成失败，请重试。"
+                    ),
+                    details={"reason": error_detail[:1000]},
+                ) from exc
             blocks = [
                 item for item in generated.get("blocks") or [] if isinstance(item, dict)
             ]
@@ -4010,6 +4101,148 @@ async def generate_lesson_script(
                 )
             return content
 
+        async def generate_script_shard(
+            entries: list[dict[str, Any]],
+            shard_context: dict[str, Any],
+            *,
+            on_block_delta,
+            on_shard_reset,
+        ) -> dict[str, str]:
+            if not entries:
+                return {}
+            modules = [deepcopy(entry["module"]) for entry in entries]
+            shard_id = str(shard_context.get("shard_id") or uuid.uuid4().hex)
+            synthetic_node_id = f"{lesson_unit_id}:{shard_id}"
+            combined_outline = deepcopy(entries[0]["outline_section"])
+            combined_outline.update({
+                "node_id": synthetic_node_id,
+                "node_name": lesson_title or "当前讲次",
+                "learning_objective": "；".join(dict.fromkeys(
+                    str(entry["contract"].get("learning_objective") or "")
+                    for entry in entries
+                    if str(entry["contract"].get("learning_objective") or "")
+                )),
+                "module_plan": [
+                    {**module, "label": str(module.get("title") or "教学块")}
+                    for module in modules
+                ],
+            })
+            combined_plan = deepcopy(entries[0]["plan_section"])
+            combined_plan.update({
+                "node_id": synthetic_node_id,
+                "title": lesson_title or "当前讲次",
+                "learning_objective": combined_outline["learning_objective"],
+                "key_points": list(dict.fromkeys(
+                    value
+                    for entry in entries
+                    for value in entry["contract"].get("key_points") or []
+                    if value
+                )),
+                "key_difficulties": list(dict.fromkeys(
+                    value
+                    for entry in entries
+                    for value in entry["contract"].get("key_difficulties") or []
+                    if value
+                )),
+                "teaching_modules": [
+                    {**module, "label": str(module.get("title") or "教学块")}
+                    for module in modules
+                ],
+            })
+            block_ids = [str(module.get("block_id") or "") for module in modules]
+            stream_parser = {"buffer": "", "block_index": -1}
+
+            async def forward_shard_reset():
+                stream_parser.update({"buffer": "", "block_index": -1})
+                await on_shard_reset()
+
+            async def emit_current(value: str):
+                index = int(stream_parser["block_index"])
+                if value and 0 <= index < len(block_ids):
+                    await on_block_delta(block_ids[index], value)
+
+            async def forward_shard_delta(delta: str):
+                stream_parser["buffer"] += str(delta or "")
+                while stream_parser["buffer"]:
+                    buffer = str(stream_parser["buffer"])
+                    if buffer.startswith("## "):
+                        newline = buffer.find("\n")
+                        if newline < 0:
+                            return
+                        stream_parser["block_index"] = min(
+                            int(stream_parser["block_index"]) + 1,
+                            len(block_ids) - 1,
+                        )
+                        stream_parser["buffer"] = buffer[newline + 1:]
+                        continue
+                    if int(stream_parser["block_index"]) < 0:
+                        heading = buffer.find("## ")
+                        if heading < 0:
+                            return
+                        stream_parser["buffer"] = buffer[heading:]
+                        continue
+                    boundary = buffer.find("\n## ")
+                    if boundary >= 0:
+                        await emit_current(buffer[:boundary])
+                        stream_parser["buffer"] = buffer[boundary + 1:]
+                        continue
+                    last_newline = buffer.rfind("\n")
+                    if last_newline >= 0 and buffer[last_newline + 1:].startswith("#"):
+                        await emit_current(buffer[:last_newline + 1])
+                        stream_parser["buffer"] = buffer[last_newline + 1:]
+                        return
+                    await emit_current(buffer)
+                    stream_parser["buffer"] = ""
+
+            try:
+                generated = await asyncio.wait_for(
+                    tm.course_service.generate_teacher_script_section(
+                        course_id=course_id,
+                        outline_section=combined_outline,
+                        confirmed_plan_section=combined_plan,
+                        lesson_context={
+                            "lesson_title": lesson_title,
+                            "lesson_sections": lesson_section_titles,
+                            "script_shard_context": deepcopy(shard_context),
+                            "material_asset_ids": selected_material_ids,
+                            "selected_material_evidence": prompt_evidence,
+                        },
+                        requirements=body.requirements,
+                        user_id=actor,
+                        on_content_delta=forward_shard_delta,
+                        on_content_reset=forward_shard_reset,
+                    ),
+                    timeout=150,
+                )
+            except (
+                asyncio.TimeoutError,
+                AIProviderRequestError,
+                AIProviderUnavailable,
+            ) as exc:
+                error_detail = str(exc).strip()
+                raise TeacherLessonAuthoringError(
+                    (
+                        "lesson_script_block_quality_failed"
+                        if error_detail.startswith("讲义未通过当前教案的质量检查")
+                        else "lesson_script_provider_failed"
+                    ),
+                    f"讲义分片生成失败：{error_detail or '请重试'}",
+                    details={"reason": error_detail[:1000], "shard_id": shard_id},
+                ) from exc
+            generated_blocks = [
+                item for item in generated.get("blocks") or []
+                if isinstance(item, dict)
+            ]
+            if len(generated_blocks) != len(block_ids):
+                raise TeacherLessonAuthoringError(
+                    "lesson_script_shard_incomplete",
+                    "讲义分片返回的教学块数量与教案不一致。",
+                )
+            return {
+                block_id: str(generated_blocks[index].get("content") or "").strip()
+                for index, block_id in enumerate(block_ids)
+            }
+
         async def run() -> None:
             try:
                 await TeacherLessonAuthoringService(repository).run_script_job(
@@ -4020,11 +4253,11 @@ async def generate_lesson_script(
                     outline_sections=scope["sections"],
                     plan_sections=plan_sections,
                     generator=generate_block,
+                    shard_generator=generate_script_shard,
                     seed_sections=seed_sections,
                     requirements=body.requirements,
                     material_asset_ids=selected_material_ids,
                     actor=actor,
-                    generation_warnings=fallback_warnings,
                 )
             except asyncio.CancelledError:
                 raise
@@ -4052,6 +4285,129 @@ async def generate_lesson_script(
         _background_jobs.add(task)
         task.add_done_callback(_background_jobs.discard)
         return {"job": job}
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+
+
+@router.post("/courses/{course_id}/lesson-scripts/generate-all", status_code=202)
+async def generate_all_lesson_scripts(
+    course_id: str,
+    body: GenerateAllLessonScriptsRequest,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(
+        get_teacher_lesson_authoring_repository
+    ),
+):
+    """Queue all current lesson scripts while keeping each lesson independent."""
+    try:
+        source = _source_course(tm, course_id)
+        lessons = _lesson_projection(source, repository)
+        if not lessons:
+            raise TeacherLessonAuthoringError(
+                "teacher_lesson_script_batch_empty",
+                "课程大纲中还没有可生成讲义的讲次。",
+            )
+        actor = resolve_user_id(request.headers.get("X-User-Id"))
+        skipped_lesson_ids = [
+            str(lesson.get("lesson_unit_id") or "")
+            for lesson in lessons
+            if not body.regenerate_confirmed
+            and bool((lesson.get("script") or {}).get("ready"))
+        ]
+        target_lessons = [
+            lesson for lesson in lessons
+            if str(lesson.get("lesson_unit_id") or "") not in skipped_lesson_ids
+        ]
+
+        # Validate the entire launch set before creating any child.  A stale
+        # plan must not leave the teacher with a half-enqueued batch.
+        for lesson in target_lessons:
+            _current_plan_revision(
+                repository,
+                course_id,
+                str(lesson.get("lesson_unit_id") or ""),
+            )
+
+        parent_job_id = f"tls-batch-{uuid.uuid4().hex}"
+        request_prefix = body.request_id.strip() or parent_job_id
+        prior_jobs = list((repository.view(course_id).get("jobs") or {}).values())
+        jobs: list[dict[str, Any]] = []
+        for batch_position, lesson in enumerate(target_lessons, start=1):
+            lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
+            material_scope = _lesson_script_material_scope(
+                course_id,
+                actor,
+                lesson_unit_id,
+            )
+            resume_job_id = str(next((
+                item.get("id")
+                for item in reversed(prior_jobs)
+                if isinstance(item, dict)
+                and item.get("lesson_unit_id") == lesson_unit_id
+                and item.get("type") == "teacher_lesson_script_generation"
+                and item.get("status") in {"paused", "failed", "cancelled"}
+            ), ""))
+            child_body = GenerateLessonScriptRequest(
+                request_id=f"{request_prefix}-{lesson_unit_id}",
+                resume_job_id=resume_job_id,
+                requirements=body.requirements,
+                material_asset_ids=list(material_scope["material_asset_ids"]),
+                batch_parent_job_id=parent_job_id,
+                batch_position=batch_position,
+                batch_size=len(target_lessons),
+            )
+            result = await generate_lesson_script(
+                course_id,
+                lesson_unit_id,
+                child_body,
+                request,
+                tm,
+                repository,
+            )
+            job = deepcopy(result.get("job") or {})
+            if job.get("id"):
+                jobs.append(job)
+
+        parent_status = (
+            "completed"
+            if not jobs or all(
+                str(job.get("status") or "")
+                in {"completed", "completed_with_warnings"}
+                for job in jobs
+            )
+            else "running"
+        )
+        child_job_ids = [str(item.get("id") or "") for item in jobs]
+        parent_job = {
+            "id": parent_job_id,
+            "course_id": course_id,
+            "type": "teacher_lesson_script_batch",
+            "status": parent_status,
+            "child_job_ids": child_job_ids,
+            "skipped_lesson_ids": skipped_lesson_ids,
+            "total": len(lessons),
+            "started": len(jobs),
+            "lesson_statuses": [
+                {
+                    "lesson_id": str(
+                        item.get("lesson_id") or item.get("lesson_unit_id") or ""
+                    ),
+                    "status": str(item.get("status") or "pending"),
+                    "stage": str(item.get("stage") or item.get("phase") or "queued"),
+                    "message": str(item.get("message") or ""),
+                    "job_id": str(item.get("id") or ""),
+                }
+                for item in jobs
+            ],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        return {
+            "parent_job": parent_job,
+            "jobs": jobs,
+            "child_job_ids": child_job_ids,
+            "skipped_lesson_ids": skipped_lesson_ids,
+        }
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
 

@@ -9,8 +9,10 @@ import pytest
 
 from ai_base import AIProviderRequestError
 from course_generation.outline import CourseOutlinePlanningBudget
+from course_generation.outline import merge_teacher_outline_course_contract
 from course_generation.outline import merge_teacher_outline_detail
 from course_generation.outline import normalize_outline_skeleton
+from course_generation.outline import normalize_teacher_outline_course_contract
 from course_generation.prompts import CoursePromptComposer
 from course_generation.service import CourseService
 from course_pedagogy import resolve_pedagogy_profile
@@ -45,6 +47,71 @@ def _detail_identity(system_prompt: str) -> tuple[str, str, list[int]]:
     )
 
 
+def _teacher_course_contract_payload(system_prompt: str) -> str:
+    revision_match = re.search(
+        r"## 轻量方案修订\n([^\n]+)",
+        system_prompt,
+    )
+    lectures_match = re.search(
+        r"## 教师当前讲次方案\n(\[.*?\])\n\n## 教师课程信息",
+        system_prompt,
+        re.S,
+    )
+    assert revision_match and lectures_match, system_prompt
+    lecture_numbers = [
+        int(item["lecture_number"])
+        for item in json.loads(lectures_match.group(1))
+    ]
+    return json.dumps(
+        {
+            "schema_version": "teacher_outline_course_contract_v1",
+            "skeleton_revision_id": revision_match.group(1).strip(),
+            "course_intro_zh": "介绍人工智能的基本问题、方法与应用边界。",
+            "course_intro_en": "An introduction to AI problems, methods, and boundaries.",
+            "positioning": "面向本科生建立人工智能方法与应用判断能力。",
+            "learning_objectives": ["能够解释并选择人工智能基本方法"],
+            "prerequisites": ["具备基础编程能力"],
+            "education_objectives": ["形成负责任使用人工智能的意识"],
+            "measurable_outcomes": ["能够完成一个小型人工智能问题分析"],
+            "outcome_alignment": [{
+                "outcome_number": 1,
+                "objective_refs": ["能够解释并选择人工智能基本方法"],
+                "lecture_numbers": lecture_numbers,
+                "assessment_evidence": ["课程项目分析报告"],
+                "coverage_scope": "全课程方法选择与应用判断",
+            }],
+            "teaching_methods": ["讲授与案例研讨"],
+            "assessment_methods": ["过程任务与课程项目"],
+            "assessment_plan": [
+                {
+                    "item": "过程任务",
+                    "category": "formative",
+                    "weight_percent": 40,
+                    "criteria": "按方法理解与证据质量评分",
+                    "outcome_numbers": [1],
+                },
+                {
+                    "item": "课程项目",
+                    "category": "summative",
+                    "weight_percent": 60,
+                    "criteria": "按问题分析与方案论证评分",
+                    "outcome_numbers": [1],
+                },
+            ],
+            "course_modules": [{
+                "module_id": "M1",
+                "title": "人工智能方法与应用",
+                "lecture_numbers": lecture_numbers,
+            }],
+            "ideology_cases": [],
+            "reference_books": ["《人工智能：一种现代的方法》"],
+            "reference_websites": ["https://example.edu/ai"],
+            "course_website": "https://example.edu/ai-course",
+        },
+        ensure_ascii=False,
+    )
+
+
 def _teacher_detail_payload(system_prompt: str) -> str:
     batch_id, revision_id, lecture_numbers = _detail_identity(system_prompt)
     return json.dumps(
@@ -69,7 +136,16 @@ def _teacher_detail_payload(system_prompt: str) -> str:
                     "activities": [f"活动 {number}"],
                     "homework": [f"任务 {number}"],
                     "application_anchors": [f"案例 {number}"],
-                    "extension_resources": [],
+                    "extension_resources": [
+                        {
+                            "resource_type": "book",
+                            "title": "人工智能基础阅读",
+                            "edition": "",
+                            "locator": "",
+                            "source_ref": "《人工智能：一种现代的方法》",
+                            "verification_status": "verified",
+                        }
+                    ],
                     "learning_tasks": [
                         {
                             "mode": "offline",
@@ -122,8 +198,11 @@ def test_teacher_light_plan_prompt_only_requests_titles_and_summaries():
         coverage_verdict={},
     )
 
-    assert prompt.startswith("## 轻量课程方案 V1")
-    assert "本请求只生成教师可立即看到和编辑的课程方案" in prompt
+    assert prompt.startswith("## 轻量讲次方案 V1")
+    assert "这是课程大纲生成的第一轮" in prompt
+    assert "按课程推进顺序返回每讲的标题和内容简介" in prompt
+    assert "不生成完整大纲" not in prompt
+    assert "不输出课程目标" not in prompt
     assert '"content_summary"' in prompt
     assert '"learning_objectives"' not in prompt
     assert '"course_modules"' not in prompt
@@ -135,18 +214,63 @@ def test_teacher_light_plan_prompt_only_requests_titles_and_summaries():
 
 
 def test_teacher_light_plan_normalization_keeps_summary_without_fake_objectives():
+    payload = json.loads(_teacher_framework_payload(2))
+    payload.update({
+        "positioning": "模型越界返回的课程定位",
+        "learning_objectives": ["模型越界返回的课程目标"],
+        "assessment_plan": [{"item": "模型越界返回的考核"}],
+        "course_modules": [{"module_id": "M1", "lecture_numbers": [1, 2]}],
+        "reference_books": ["模型越界返回的参考书"],
+    })
+    payload["lectures"][0].update({
+        "learning_objective": "模型越界返回的本讲目标",
+        "hour_breakdown": {"classroom_lecture": 2},
+        "key_points": ["模型越界返回的重点"],
+        "external_mentor": {"name": "模型越界返回的导师"},
+    })
     skeleton = normalize_outline_skeleton(
-        json.loads(_teacher_framework_payload(2)),
+        payload,
         topic="人工智能导论",
         request_fingerprint="outline-request-light",
+        teacher_light_plan_only=True,
     )
 
     assert skeleton["learning_objectives"] == []
     assert skeleton["course_modules"] == []
+    assert skeleton["assessment_plan"] == []
+    assert skeleton["reference_books"] == []
     assert skeleton["total_hours"] == 0
     assert skeleton["chapters"][0]["content_summary"] == "第 1 讲主要介绍主题 1。"
     assert skeleton["chapters"][0]["learning_focus"] == ""
     assert skeleton["chapters"][0]["learning_objective"] == ""
+    assert skeleton["chapters"][0]["key_points"] == []
+    assert skeleton["chapters"][0]["external_mentor"] == {}
+
+
+def test_course_contract_prompt_uses_the_teacher_edited_light_plan():
+    skeleton = normalize_outline_skeleton(
+        json.loads(_teacher_framework_payload(2)),
+        topic="人工智能导论",
+        request_fingerprint="outline-request-contract",
+        teacher_light_plan_only=True,
+    )
+    skeleton["chapters"][0]["title"] = "教师改后的第一讲"
+    skeleton["chapters"][0]["content_summary"] = "教师改后的内容简介。"
+    skeleton["revision_id"] = "outline_skeleton_teacher_edited"
+
+    prompt = CoursePromptComposer().build_teacher_outline_course_contract_v1_prompt(
+        skeleton=skeleton,
+        brief={"teacher_course_brief": _teacher_brief()},
+        material_context="",
+    )
+
+    assert prompt.startswith("## 课程级完整大纲合同 V1")
+    assert "这是完整大纲生成的第二轮" in prompt
+    assert '"title": "教师改后的第一讲"' in prompt
+    assert '"content_summary": "教师改后的内容简介。"' in prompt
+    assert '"learning_objectives"' in prompt
+    assert '"course_modules"' in prompt
+    assert "不输出 lectures" not in prompt
 
 
 def test_teacher_detail_prompt_freezes_light_plan_and_generates_formal_fields():
@@ -154,6 +278,7 @@ def test_teacher_detail_prompt_freezes_light_plan_and_generates_formal_fields():
         json.loads(_teacher_framework_payload(2)),
         topic="人工智能导论",
         request_fingerprint="outline-request-detail",
+        teacher_light_plan_only=True,
     )
     spec = {
         "batch_id": "OUT-TD-001",
@@ -161,15 +286,28 @@ def test_teacher_detail_prompt_freezes_light_plan_and_generates_formal_fields():
         "lecture_numbers": [1],
     }
 
-    prompt = CoursePromptComposer().build_teacher_outline_detail_batch_v1_prompt(
+    course_contract_prompt = (
+        CoursePromptComposer().build_teacher_outline_course_contract_v1_prompt(
+            skeleton=skeleton,
+            brief={"teacher_course_brief": _teacher_brief()},
+            material_context="",
+        )
+    )
+    contract = normalize_teacher_outline_course_contract(
+        json.loads(_teacher_course_contract_payload(course_contract_prompt)),
         skeleton=skeleton,
+    )
+    assembly_skeleton = merge_teacher_outline_course_contract(skeleton, contract)
+    prompt = CoursePromptComposer().build_teacher_outline_detail_batch_v1_prompt(
+        skeleton=assembly_skeleton,
         batch_spec=spec,
         brief={"teacher_course_brief": _teacher_brief()},
         material_context="",
     )
 
-    assert "不得修改讲数、顺序、\n标题或教师编辑后的内容简介" in prompt
+    assert "这是完整大纲第二轮的逐讲生成任务" in prompt
     assert '"content_summary": "第 1 讲主要介绍主题 1。"' in prompt
+    assert "面向本科生建立人工智能方法与应用判断能力" in prompt
     assert '"learning_objective"' in prompt
     assert '"scope_boundary"' in prompt
     assert '"hour_breakdown"' in prompt
@@ -202,11 +340,13 @@ def test_teacher_framework_normalization_is_idempotent_for_restart_recovery():
         json.loads(_teacher_framework_payload()),
         topic="人工智能导论",
         request_fingerprint="outline-request-1",
+        teacher_light_plan_only=True,
     )
     restored = normalize_outline_skeleton(
         deepcopy(first),
         topic="人工智能导论",
         request_fingerprint="outline-request-1",
+        teacher_light_plan_only=True,
     )
 
     assert restored == first
@@ -243,8 +383,10 @@ async def test_sixteen_lecture_outline_runs_one_task_per_lecture_and_assembles_i
     async def fake_call(_prompt, system_prompt="", **_kwargs):
         nonlocal active_details, peak_details
         calls.append(system_prompt)
-        if system_prompt.startswith("## 轻量课程方案 V1"):
+        if system_prompt.startswith("## 轻量讲次方案 V1"):
             return _teacher_framework_payload()
+        if system_prompt.startswith("## 课程级完整大纲合同 V1"):
+            return _teacher_course_contract_payload(system_prompt)
         if system_prompt.startswith("## 单讲完整大纲 V2"):
             _batch_id, _revision_id, lecture_numbers = _detail_identity(
                 system_prompt
@@ -278,7 +420,10 @@ async def test_sixteen_lecture_outline_runs_one_task_per_lecture_and_assembles_i
     detail_calls = [
         item for item in calls if item.startswith("## 单讲完整大纲 V2")
     ]
-    assert len(calls) == 17
+    assert len(calls) == 18
+    assert sum(
+        item.startswith("## 课程级完整大纲合同 V1") for item in calls
+    ) == 1
     assert len(detail_calls) == 16
     assert sorted(_detail_identity(item)[2][0] for item in detail_calls) == list(
         range(1, 17)
@@ -287,6 +432,7 @@ async def test_sixteen_lecture_outline_runs_one_task_per_lecture_and_assembles_i
 
     stage = result["generation_stage_artifacts"]["outline"]
     assert stage["strategy"] == "teacher_framework_then_lecture_tasks"
+    assert stage["course_contract_status"] == "completed"
     assert stage["detail_batch_count"] == 16
     assert stage["detail_completed_batch_count"] == 16
     assert stage["observed_peak_detail_concurrency"] == 4
@@ -346,6 +492,13 @@ async def test_sixteen_lecture_outline_runs_one_task_per_lecture_and_assembles_i
         "能够完成主题 1 的可观察任务"
     )
     assert outline["chapters"][0]["sections"][0]["planned_hours"] == 1
+    assert outline["positioning"] == "面向本科生建立人工智能方法与应用判断能力。"
+    assert outline["learning_objectives"] == ["能够解释并选择人工智能基本方法"]
+    assert outline["course_modules"][0]["lecture_numbers"] == list(range(1, 17))
+    assert sum(
+        item["weight_percent"] for item in outline["assessment_plan"]
+    ) == 100
+    assert outline["reference_books"] == ["《人工智能：一种现代的方法》"]
 
 
 @pytest.mark.asyncio
@@ -366,8 +519,10 @@ async def test_teacher_outline_failure_keeps_successes_and_retries_only_failed_l
 
     async def first_call(_prompt, system_prompt="", **_kwargs):
         first_calls.append(system_prompt)
-        if system_prompt.startswith("## 轻量课程方案 V1"):
+        if system_prompt.startswith("## 轻量讲次方案 V1"):
             return _teacher_framework_payload()
+        if system_prompt.startswith("## 课程级完整大纲合同 V1"):
+            return _teacher_course_contract_payload(system_prompt)
         if system_prompt.startswith("## 单讲完整大纲 V2"):
             batch_id, _revision_id, _numbers = _detail_identity(system_prompt)
             if batch_id == "OUT-TD-005":

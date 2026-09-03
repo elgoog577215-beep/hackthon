@@ -7,6 +7,7 @@ import os
 from typing import Any
 
 from course_teaching_plan_v3 import normalize_teaching_plan_skeleton_v3
+from course_versioning import stable_hash
 
 DEFAULT_COURSE_PLANNING_CONCURRENCY = 4
 MAX_COURSE_PLANNING_CONCURRENCY = 8
@@ -41,6 +42,88 @@ EVIDENCE_INDEX_FIELDS = (
     "factual_allowed",
     "confidence",
 )
+
+
+def _remap_combined_teaching_plan_knowledge_ids(
+    payload: dict[str, Any],
+    *,
+    outline_revision_id: str,
+) -> dict[str, Any]:
+    """Replace model-local knowledge keys with deterministic formal IDs.
+
+    A combined lesson response needs short keys such as ``K001`` so the model
+    can reference knowledge consistently inside one JSON document.  Those keys
+    are not authoritative: the same pseudo key is reused by every lesson.  The
+    formal ID therefore binds the current outline revision, owning section and
+    normalized knowledge semantics, then every structured reference is remapped
+    before validation or persistence.
+
+    Duplicate or missing pseudo keys are intentionally left invalid.  The
+    existing validators will reject them instead of guessing which knowledge
+    item an ambiguous reference meant.
+    """
+    remapped = deepcopy(payload)
+    registry = [
+        item
+        for item in remapped.get("knowledge_registry") or []
+        if isinstance(item, dict)
+    ]
+    key_counts: dict[str, int] = {}
+    for item in registry:
+        raw_key = str(item.get("knowledge_key") or "").strip()
+        if raw_key:
+            key_counts[raw_key] = key_counts.get(raw_key, 0) + 1
+
+    key_mapping: dict[str, str] = {}
+    for item in registry:
+        raw_key = str(item.get("knowledge_key") or "").strip()
+        if not raw_key or key_counts.get(raw_key) != 1:
+            continue
+        key_mapping[raw_key] = stable_hash(
+            {
+                "contract": "teacher_lesson_knowledge_identity_v1",
+                "outline_revision_id": str(outline_revision_id or ""),
+                "owner_node_id": str(item.get("owner_node_id") or "").strip(),
+                "name": str(item.get("name") or "").strip(),
+                "statement": str(item.get("statement") or "").strip(),
+            },
+            prefix="K-",
+        )
+
+    def map_key(value: Any) -> str:
+        raw_key = str(value or "").strip()
+        return key_mapping.get(raw_key, raw_key)
+
+    def map_keys(values: Any) -> list[str]:
+        if not isinstance(values, list):
+            return []
+        return [map_key(value) for value in values]
+
+    for item in registry:
+        item["knowledge_key"] = map_key(item.get("knowledge_key"))
+        item["prerequisite_keys"] = map_keys(item.get("prerequisite_keys"))
+
+    for section in remapped.get("sections") or []:
+        if not isinstance(section, dict):
+            continue
+        section["owned_knowledge_keys"] = map_keys(
+            section.get("owned_knowledge_keys")
+        )
+        section["reused_knowledge_keys"] = map_keys(
+            section.get("reused_knowledge_keys")
+        )
+        for detail in section.get("knowledge_details") or []:
+            if isinstance(detail, dict):
+                detail["knowledge_key"] = map_key(detail.get("knowledge_key"))
+        for relation in section.get("knowledge_relations") or []:
+            if not isinstance(relation, dict):
+                continue
+            relation["source_key"] = map_key(relation.get("source_key"))
+            relation["target_key"] = map_key(relation.get("target_key"))
+        for module in section.get("teaching_modules") or []:
+            if isinstance(module, dict):
+                module["knowledge_keys"] = map_keys(module.get("knowledge_keys"))
+    return remapped
 
 
 def _compact_evidence_index(catalog: list[dict[str, Any]]) -> list[dict[str, Any]]:

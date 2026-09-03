@@ -75,7 +75,7 @@
           @click="scrollOutlineIntoView"
         >
           <span>2</span>
-          <strong>{{ t('courseWorkbench.outlineFlow.lightPlan', '查看与编辑课程方案') }}</strong>
+          <strong>{{ t('courseWorkbench.outlineFlow.lightPlan', '轻量讲次方案') }}</strong>
           <Check v-if="outlineFlowStep > 2" :size="14" aria-hidden="true" />
         </button>
         <button
@@ -86,7 +86,7 @@
           @click="scrollOutlineIntoView"
         >
           <span>3</span>
-          <strong>{{ t('courseWorkbench.outlineFlow.fullOutline', '生成完整大纲') }}</strong>
+          <strong>{{ t('courseWorkbench.outlineFlow.fullOutline', '完整大纲') }}</strong>
           <Check v-if="outlineFullReady" :size="14" aria-hidden="true" />
         </button>
       </nav>
@@ -370,7 +370,7 @@
                   aria-hidden="true"
                 >
                   <LoaderCircle v-if="lessonGenerationIsRunning(lesson)" :size="14" class="spin" />
-                  <Check v-else-if="['ready', 'suggestions'].includes(lessonGenerationState(lesson))" :size="14" />
+                  <Check v-else-if="lessonGenerationState(lesson) === 'ready'" :size="14" />
                   <TriangleAlert v-else-if="['stale', 'failed'].includes(lessonGenerationState(lesson))" :size="14" />
                   <i v-else />
                 </span>
@@ -637,8 +637,48 @@
         </template>
 
         <template v-else-if="activeStage === 'script'">
+          <section
+            v-if="scriptCoursePreviewVisible"
+            class="lesson-course-preview script-course-preview"
+            data-testid="script-course-preview"
+          >
+            <header>
+              <div>
+                <strong>{{ t('courseWorkbench.scriptBatch.previewTitle', '整门课程讲义预览') }}</strong>
+                <span>{{ t('courseWorkbench.scriptBatch.previewDetail', '讲义将直接沿用已生成的教案，所有讲次同时进入生成队列。') }}</span>
+              </div>
+              <button
+                class="primary-action"
+                data-testid="script-course-preview-generate"
+                type="button"
+                :disabled="scriptBatchStarting || !scriptBatchEligibleCount"
+                @click="generateAllScripts"
+              >
+                <LoaderCircle v-if="scriptBatchStarting" :size="16" class="spin" />
+                <Sparkles v-else :size="16" />
+                {{ scriptBatchStarting
+                  ? t('courseWorkbench.scriptBatch.starting', '正在开始…')
+                  : t('courseWorkbench.scriptBatch.generateAll', '生成全部讲义') }}
+              </button>
+            </header>
+            <article>
+              <section v-for="(lesson, index) in lessonStore.lessons" :key="lesson.lesson_unit_id">
+                <div class="lesson-course-preview__title">
+                  <span>{{ String(index + 1).padStart(2, '0') }}</span>
+                  <h3>{{ lessonDisplayTitle(lesson, index) }}</h3>
+                  <small>{{ lesson.duration_minutes }} {{ t('courseWorkbench.scriptBatch.minutes', '分钟') }}</small>
+                </div>
+                <ol v-if="lesson.sections?.length">
+                  <li v-for="section in lesson.sections" :key="section.section_node_id">
+                    <strong>{{ section.title }}</strong>
+                  </li>
+                </ol>
+                <p v-else class="lesson-course-preview__pending">{{ t('courseWorkbench.scriptBatch.structurePending', '本讲将按当前教案生成完整讲义。') }}</p>
+              </section>
+            </article>
+          </section>
           <TeacherScriptDocument
-            v-if="selectedLesson"
+            v-else-if="selectedLesson"
             ref="scriptDocument"
             :course-id="courseId"
             :lesson="selectedLesson"
@@ -698,6 +738,21 @@
                   <template v-else>
                     <button type="button" :disabled="scriptDocumentAiBusy" @click="openAiCollaboration('script')"><Sparkles :size="15" />{{ t('courseWorkbench.scriptDocument.aiImprove', 'AI 修改') }}</button>
                     <button type="button" @click="beginScriptEditing"><Pencil :size="15" />{{ t('courseWorkbench.scriptDocument.edit', '编辑讲义') }}</button>
+                    <i v-if="scriptBatchLaunchVisible" class="lesson-action-divider" aria-hidden="true" />
+                    <button
+                      v-if="scriptBatchLaunchVisible || scriptBatchStarting"
+                      class="primary-action"
+                      data-testid="script-batch-start"
+                      type="button"
+                      :disabled="scriptBatchStarting"
+                      @click="generateAllScripts"
+                    >
+                      <LoaderCircle v-if="scriptBatchStarting" :size="15" class="spin" />
+                      <Sparkles v-else :size="15" />
+                      {{ scriptBatchStarting
+                        ? t('courseWorkbench.scriptBatch.starting', '正在开始…')
+                        : t('courseWorkbench.scriptBatch.generateRemaining', '生成剩余讲义（{count}讲）').replace('{count}', String(scriptBatchEligibleCount)) }}
+                    </button>
                   </template>
               </TeacherDocumentCommandBar>
               <TeacherDocumentHistoryPanel
@@ -930,6 +985,7 @@
         <p v-else class="outline-quality-review-dialog__empty"><Check :size="15" />{{ t('courseWorkbench.outlineReview.empty', '当前大纲暂无改进建议') }}</p>
       </div>
     </el-dialog>
+
   </section>
 </template>
 
@@ -1185,6 +1241,7 @@ const foundationSemanticRequirement = computed(() => {
   return [`学习目的：${purpose}`, `学科类型：${subject}`, `课程教学类型：${teachingType}`].join('\n')
 })
 const batchStarting = ref(false)
+const scriptBatchStarting = ref(false)
 const outlineContinuing = ref(false)
 const LESSON_SYNC_RETRY_DELAYS = [0, 1200, 3200] as const
 const lessonSyncAttempt = ref(0)
@@ -1781,7 +1838,7 @@ const batchLessonJobs = computed(() => {
 const batchRunning = computed(() => batchLessonJobs.value.some(job => ['pending', 'running'].includes(job.status)))
 const batchCompletedCount = computed(() => batchLessonJobs.value.filter(job => ['completed', 'completed_with_warnings'].includes(job.status)).length)
 const lessonCompletedCount = computed(() => lessonStore.lessons.filter(lesson => (
-  ['ready', 'suggestions'].includes(lessonGenerationState(lesson))
+  lessonGenerationState(lesson) === 'ready'
 )).length)
 const batchPaused = computed(() => (
   batchLessonJobs.value.some(job => job.status === 'paused')
@@ -1839,14 +1896,69 @@ const lessonGenerationError = computed(() => lessonJob.value?.status === 'cancel
 const lessonStreamSegments = computed(() => lessonPlanStreamSegments(lessonJob.value?.stream_batches))
 const scriptJob = computed(() => selectedLessonId.value ? lessonStore.latestScriptJobByLesson(selectedLessonId.value) : undefined)
 const scriptGenerationActive = computed(() => ['pending', 'running'].includes(String(scriptJob.value?.status || '')))
-const scriptGenerationBusy = computed(() => scriptGenerating.value || scriptGenerationActive.value)
+const scriptBatchEligibleCount = computed(() => lessonStore.lessons.filter(lesson => (
+  Boolean(lesson.plan?.working_revision_id && lesson.plan.source_state === 'current')
+  && (!lesson.script?.ready || !lesson.script.current_revision_id || lesson.script.source_state !== 'current')
+)).length)
+const latestScriptBatchParentId = computed(() => [...lessonStore.jobs]
+  .reverse()
+  .find(job => job.type === 'teacher_lesson_script_generation' && job.parent_job_id)?.parent_job_id || '')
+const scriptBatchJobs = computed(() => {
+  if (!latestScriptBatchParentId.value) return []
+  const lessonIds = new Set(lessonStore.jobs
+    .filter(job => job.type === 'teacher_lesson_script_generation' && job.parent_job_id === latestScriptBatchParentId.value)
+    .map(job => job.lesson_unit_id))
+  return lessonStore.lessons
+    .filter(lesson => lessonIds.has(lesson.lesson_unit_id))
+    .map(lesson => lessonStore.latestScriptJobByLesson(lesson.lesson_unit_id))
+    .filter((job): job is TeacherLessonJob => Boolean(job))
+})
+const scriptBatchRunning = computed(() => scriptBatchJobs.value.some(job => ['pending', 'running'].includes(job.status)))
+const scriptBatchPaused = computed(() => scriptBatchJobs.value.some(job => job.status === 'paused') && !scriptBatchRunning.value)
+const scriptBatchFailed = computed(() => scriptBatchJobs.value.some(job => ['failed', 'cancelled'].includes(job.status)))
+const scriptBatchRecoveryAvailable = computed(() => scriptBatchPaused.value || scriptBatchFailed.value)
+const scriptBatchTotalCount = computed(() => Math.max(
+  ...scriptBatchJobs.value.map(job => Number(job.batch_size || 0)),
+  scriptBatchJobs.value.length,
+  0,
+))
+const scriptBatchCompletedCount = computed(() => scriptBatchJobs.value.filter(job => ['completed', 'completed_with_warnings'].includes(job.status)).length)
+const scriptBatchActiveCount = computed(() => scriptBatchJobs.value.filter(job => job.status === 'running').length)
+const scriptBatchProgress = computed(() => {
+  if (!scriptBatchTotalCount.value) return 0
+  const progress = scriptBatchJobs.value.reduce((total, job) => {
+    if (['completed', 'completed_with_warnings'].includes(job.status)) return total + 100
+    if (['running', 'paused'].includes(job.status)) return total + Math.max(0, Math.min(100, Number(job.progress || 0)))
+    return total
+  }, 0)
+  return Math.round(progress / scriptBatchTotalCount.value)
+})
+const scriptBatchError = computed(() => String(
+  [...scriptBatchJobs.value].reverse().find(job => job.status === 'failed')?.error?.message || '',
+))
+const scriptBatchLaunchVisible = computed(() => (
+  activeStage.value === 'script'
+  && scriptBatchEligibleCount.value > 0
+  && !scriptBatchRunning.value
+  && !scriptBatchPaused.value
+  && !scriptBatchRecoveryAvailable.value
+))
+const scriptCoursePreviewVisible = computed(() => (
+  activeStage.value === 'script'
+  && lessonStore.lessons.length > 0
+  && !lessonStore.lessons.some(lesson => Boolean(lesson.script?.ready || lesson.script?.current_revision_id))
+  && !scriptBatchRunning.value
+  && !scriptBatchStarting.value
+  && scriptBatchEligibleCount.value > 0
+))
+const scriptGenerationBusy = computed(() => scriptGenerating.value || scriptBatchStarting.value || scriptGenerationActive.value)
 const lessonOutlineVisible = computed(() => {
   if (!lessonStore.lessons.length) return false
   if (activeStage.value === 'lesson') {
     return batchStarting.value || lessonStore.lessons.some(lesson => lessonGenerationState(lesson) !== 'pending')
   }
   if (activeStage.value === 'script') {
-    return scriptGenerating.value || lessonStore.lessons.some(lesson => lessonGenerationState(lesson) !== 'pending')
+    return scriptBatchStarting.value || scriptGenerating.value || lessonStore.lessons.some(lesson => lessonGenerationState(lesson) !== 'pending')
   }
   return activeStage.value === 'ppt'
 })
@@ -1876,9 +1988,9 @@ const referenceWorkflowState = computed<CourseReferenceWorkflowState>(() => {
     return activeReferences.value.length ? 'ready' : 'collecting'
   }
   if (activeStage.value === 'script') {
-    if (scriptGenerationBusy.value) return 'generating'
-    if (scriptJob.value?.status === 'paused') return 'paused'
-    if (['failed', 'cancelled'].includes(String(scriptJob.value?.status || '')) || effectiveScriptGenerationError.value) return 'failed'
+    if (scriptBatchRunning.value || scriptBatchStarting.value || scriptGenerationBusy.value) return 'generating'
+    if (scriptBatchPaused.value || scriptJob.value?.status === 'paused') return 'paused'
+    if (scriptBatchRecoveryAvailable.value || ['failed', 'cancelled'].includes(String(scriptJob.value?.status || '')) || effectiveScriptGenerationError.value) return 'failed'
     if (currentScriptReady.value) return 'review'
     return activeReferences.value.length ? 'ready' : 'collecting'
   }
@@ -1898,12 +2010,18 @@ const referenceWorkflowDetail = computed(() => {
         .replace('{total}', String(batchTotalCount.value || batchEligibleCount.value))
         .replace('{current}', currentTitle ? ` · ${currentTitle}` : '')
     }
-    if (activeStage.value === 'script') return String(scriptJob.value?.message || t('courseWorkbench.references.generatingDetail', 'AI 正在读取资料并构建内容。'))
+    if (activeStage.value === 'script') {
+      if (!scriptBatchRunning.value) return String(scriptJob.value?.message || t('courseWorkbench.references.generatingDetail', 'AI 正在读取资料并构建内容。'))
+      return t('courseWorkbench.scriptBatch.overallProgress', '已完成 {completed}/{total} 讲 · 正在并行生成 {active} 讲')
+        .replace('{completed}', String(scriptBatchCompletedCount.value))
+        .replace('{total}', String(scriptBatchTotalCount.value || scriptBatchEligibleCount.value))
+        .replace('{active}', String(scriptBatchActiveCount.value))
+    }
   }
   if (referenceWorkflowState.value === 'failed') {
     if (activeStage.value === 'foundation') return generationError.value
     if (activeStage.value === 'lesson') return batchError.value || lessonGenerationError.value
-    if (activeStage.value === 'script') return effectiveScriptGenerationError.value
+    if (activeStage.value === 'script') return scriptBatchError.value || effectiveScriptGenerationError.value
   }
   return ''
 })
@@ -1914,19 +2032,21 @@ const referenceWorkflowProgress = computed(() => {
     : lessonGenerationActive.value || lessonJob.value?.status === 'paused'
       ? lessonGenerationProgress.value
       : batchLessonJobs.value.length ? batchProgress.value : 0
-  if (activeStage.value === 'script') return scriptGenerationProgress.value
+  if (activeStage.value === 'script') return scriptBatchRunning.value || scriptBatchStarting.value
+    ? scriptBatchProgress.value
+    : scriptGenerationProgress.value
   return referenceWorkflowState.value === 'confirmed' ? 100 : 0
 })
 const referenceWorkflowCanPause = computed(() => (
   activeStage.value === 'foundation' ? taskInFlight.value
     : activeStage.value === 'lesson' ? batchRunning.value || lessonGenerationActive.value
-      : activeStage.value === 'script' ? scriptGenerationActive.value
+      : activeStage.value === 'script' ? scriptBatchRunning.value || scriptGenerationActive.value
         : false
 ))
 const referenceWorkflowCanResume = computed(() => (
   activeStage.value === 'foundation' ? taskPaused.value
     : activeStage.value === 'lesson' ? batchPaused.value || lessonJob.value?.status === 'paused'
-      : activeStage.value === 'script' ? scriptJob.value?.status === 'paused'
+      : activeStage.value === 'script' ? scriptBatchPaused.value || scriptJob.value?.status === 'paused'
         : false
 ))
 const referenceWorkflowCanCancel = computed(() => referenceWorkflowCanPause.value || referenceWorkflowCanResume.value)
@@ -1950,7 +2070,7 @@ const contextObjectTitle = computed(() => (
 ))
 const contextObjectDetail = computed(() => {
   if (aiCollaborationOpen.value) return t('courseWorkbench.contextPane.aiInProgress', '正在处理本次 AI 修改')
-  if (outlineWaitingForInput.value) return t('courseWorkbench.outlineFlow.lightPlanReady', '轻量课程方案已生成，可编辑后生成完整大纲')
+  if (outlineWaitingForInput.value) return t('courseWorkbench.outlineFlow.lightPlanReady', '轻量讲次方案已生成，可编辑后生成完整大纲')
   if (referenceWorkflowState.value === 'generating') return referenceWorkflowDetail.value || currentGenerationLabel.value
   if (referenceWorkflowState.value === 'paused') return t('courseWorkbench.contextPane.paused', '已暂停，资料快照和进度均已保留')
   if (referenceWorkflowState.value === 'failed') return referenceWorkflowDetail.value || t('courseWorkbench.contextPane.retryAvailable', '当前资料仍然保留，可以重试')
@@ -2034,7 +2154,7 @@ function cancelOutlineGeneration() { void generationStore.cancelTask(props.cours
 async function pauseReferenceWorkflow() {
   if (activeStage.value === 'foundation') return generationStore.stopGeneration()
   if (activeStage.value === 'lesson') return pauseAllLessonGeneration()
-  if (activeStage.value === 'script') return pauseScriptGeneration()
+  if (activeStage.value === 'script') return scriptBatchRunning.value ? pauseAllScriptGeneration() : pauseScriptGeneration()
 }
 async function resumeReferenceWorkflow() {
   if (activeStage.value === 'foundation' && generationTask.value?.id) {
@@ -2045,12 +2165,12 @@ async function resumeReferenceWorkflow() {
     if (!batchPaused.value && lessonJob.value?.status === 'paused') return generateSelectedLessonPlan()
     return generateAllLessonPlans()
   }
-  if (activeStage.value === 'script') return generateScript()
+  if (activeStage.value === 'script') return scriptBatchPaused.value ? generateAllScripts() : generateScript()
 }
 async function cancelReferenceWorkflow() {
   if (activeStage.value === 'foundation') return generationStore.cancelTask(props.courseId)
   if (activeStage.value === 'lesson') return cancelAllLessonGeneration()
-  if (activeStage.value === 'script') return cancelScriptGeneration()
+  if (activeStage.value === 'script') return scriptBatchRunning.value || scriptBatchPaused.value ? cancelAllScriptGeneration() : cancelScriptGeneration()
 }
 async function retryReferenceWorkflow() {
   if (activeStage.value === 'foundation') return submitFoundation()
@@ -2058,7 +2178,10 @@ async function retryReferenceWorkflow() {
     if (!batchRecoveryAvailable.value && ['failed', 'cancelled'].includes(String(lessonJob.value?.status || ''))) return generateSelectedLessonPlan()
     return generateAllLessonPlans()
   }
-  if (activeStage.value === 'script') return generateScript()
+  if (activeStage.value === 'script') {
+    if (scriptBatchRecoveryAvailable.value) return generateAllScripts()
+    return generateScript()
+  }
 }
 function appendAiMessage(
   role: TeacherProductionAiMessage['role'],
@@ -2879,7 +3002,7 @@ function lessonJobForStage(lesson: any): TeacherLessonJob | undefined {
   if (activeStage.value === 'lesson') return lessonStore.latestJobByLesson(lesson.lesson_unit_id)
   return undefined
 }
-function lessonGenerationState(lesson: any): 'pending' | 'queued' | 'generating' | 'ready' | 'suggestions' | 'stale' | 'failed' {
+function lessonGenerationState(lesson: any): 'pending' | 'queued' | 'generating' | 'ready' | 'stale' | 'failed' {
   if (activeStage.value === 'ppt') {
     const assets = Array.isArray(lesson.plan?.ppt_assets) ? lesson.plan.ppt_assets : []
     const eligible = assets.filter((asset: any) => ['slide_deck_v6', 'uploaded_pptx'].includes(String(asset.engine || '')))
@@ -2894,9 +3017,8 @@ function lessonGenerationState(lesson: any): 'pending' | 'queued' | 'generating'
   if (['failed', 'cancelled'].includes(jobStatus)) return 'failed'
   if (activeStage.value === 'script' && lesson.script?.source_state === 'stale') return 'stale'
   if (activeStage.value === 'lesson' && lesson.plan?.source_state === 'stale') return 'stale'
-  if (jobStatus === 'completed_with_warnings') return 'suggestions'
-  if (activeStage.value === 'script' && (lesson.script?.ready || lesson.script?.current_revision_id || jobStatus === 'completed')) return 'ready'
-  if (activeStage.value === 'lesson' && (lesson.plan?.working_revision_id || jobStatus === 'completed')) return 'ready'
+  if (activeStage.value === 'script' && (lesson.script?.ready || lesson.script?.current_revision_id || ['completed', 'completed_with_warnings'].includes(jobStatus))) return 'ready'
+  if (activeStage.value === 'lesson' && (lesson.plan?.working_revision_id || ['completed', 'completed_with_warnings'].includes(jobStatus))) return 'ready'
   return 'pending'
 }
 function lessonGenerationIsRunning(lesson: any): boolean {
@@ -2913,7 +3035,6 @@ function lessonGenerationStateLabel(lesson: any): string {
     queued: t('courseWorkbench.lessonBatch.status.pending', '等待生成'),
     generating: t('courseWorkbench.lessonOutline.status.generating', '生成中'),
     ready: t('courseWorkbench.lessonOutline.status.ready', '已生成'),
-    suggestions: t('courseWorkbench.lessonOutline.status.suggestions', '已生成，有建议'),
     stale: t('courseWorkbench.lessonOutline.status.stale', '需更新'),
     failed: t('courseWorkbench.lessonOutline.status.failed', '失败'),
   }
@@ -2939,6 +3060,34 @@ async function generateScript(requirements = '') {
   } finally {
     scriptGenerating.value = false
   }
+}
+async function generateAllScripts() {
+  if (scriptBatchStarting.value || scriptBatchRunning.value || !scriptBatchEligibleCount.value) return
+  scriptBatchStarting.value = true
+  scriptGenerationError.value = ''
+  scriptDocumentError.value = ''
+  try {
+    await lessonStore.generateAllScripts(
+      props.courseId,
+      '',
+    )
+  } catch {
+    scriptGenerationError.value = lessonStore.error || t('courseWorkbench.scriptBatch.failed', '全部讲义任务创建失败，请重试。')
+  } finally {
+    scriptBatchStarting.value = false
+  }
+}
+function activeScriptGenerationJobs() {
+  const batchJobs = scriptBatchJobs.value.filter(job => ['pending', 'running'].includes(job.status))
+  if (batchJobs.length) return batchJobs
+  return scriptJob.value && ['pending', 'running'].includes(scriptJob.value.status) ? [scriptJob.value] : []
+}
+async function pauseAllScriptGeneration() {
+  await Promise.all(activeScriptGenerationJobs().map(job => lessonStore.pauseJob(props.courseId, job.id).catch(() => undefined)))
+}
+async function cancelAllScriptGeneration() {
+  const jobs = scriptBatchJobs.value.filter(job => ['pending', 'running', 'paused'].includes(job.status))
+  await Promise.all(jobs.map(job => lessonStore.cancelJob(props.courseId, job.id).catch(() => undefined)))
 }
 async function cancelScriptGeneration() {
   if (!scriptJob.value || !scriptGenerationActive.value) return
@@ -3192,7 +3341,7 @@ onBeforeUnmount(() => {
 .lesson-outline-chapter-button.active .lesson-outline-chapter-index{color:#6a66ce}
 .lesson-outline-chapter-button strong{min-width:0;overflow:hidden;color:inherit;font-size:14px;font-weight:620;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
 .lesson-outline-status{width:18px;height:18px;display:grid;place-items:center;justify-self:end;color:#a8b2c1}
-.lesson-outline-status[data-state="generating"],.lesson-outline-status[data-state="ready"],.lesson-outline-status[data-state="suggestions"]{color:#625dd7}
+.lesson-outline-status[data-state="generating"],.lesson-outline-status[data-state="ready"]{color:#625dd7}
 .lesson-outline-status[data-state="failed"],.lesson-outline-status[data-state="stale"]{color:#c94c5a}
 .lesson-outline-status i{width:7px;height:7px;border:1px solid #b8c2d0;border-radius:50%;background:#fff}
 .is-ai-collaboration .lesson-outline-control{display:flex;width:min(100%,420px)}
@@ -3321,7 +3470,7 @@ onBeforeUnmount(() => {
 .lesson-outline--fixed .lesson-outline-status{width:20px;height:20px;display:grid;place-items:center;color:#8490a1}
 .lesson-outline--fixed .lesson-outline-status>i{width:7px;height:7px;border:1px solid #aeb8c6;border-radius:50%}
 .lesson-outline--fixed .lesson-outline-status[data-state="generating"]{color:#5b57e8}
-.lesson-outline--fixed .lesson-outline-status[data-state="ready"],.lesson-outline--fixed .lesson-outline-status[data-state="suggestions"]{color:#168044}
+.lesson-outline--fixed .lesson-outline-status[data-state="ready"]{color:#168044}
 .lesson-outline--fixed .lesson-outline-status[data-state="stale"],.lesson-outline--fixed .lesson-outline-status[data-state="failed"]{color:#b9404e}
 .lesson-outline--fixed .lesson-outline-chapter-button.active{background:#eef0ff}
 .lesson-outline--fixed .lesson-outline-chapter-button.active strong{color:#312e81}

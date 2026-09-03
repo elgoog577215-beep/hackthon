@@ -424,6 +424,8 @@ def _teacher_outline_result_ready(course_data: Any) -> bool:
         "teacher_framework_then_detail_batches",
         "teacher_framework_then_lecture_tasks",
     }:
+        if str(outline_stage.get("course_contract_status") or "") != "completed":
+            return False
         detail_records = [
             item
             for item in (outline_stage.get("detail_batches") or {}).values()
@@ -1792,6 +1794,7 @@ class TaskManager:
             payload,
             topic=str(payload["course_title"]),
             request_fingerprint=request_fingerprint,
+            teacher_light_plan_only=True,
         )
         shape_constraints = deepcopy(
             (compiled.get("course_generation_brief") or {}).get(
@@ -1828,6 +1831,14 @@ class TaskManager:
             outline_stage["batches"] = {}
             outline_stage["detail_batches"] = {}
             outline_stage["fallback_units"] = []
+            for key in (
+                "course_contract_status",
+                "course_contract",
+                "course_contract_validation_report",
+                "course_contract_duration_ms",
+                "course_contract_failure_reason",
+            ):
+                outline_stage.pop(key, None)
         outline_stage.update({
             "status": "framework_ready",
             "strategy": "teacher_framework_then_lecture_tasks",
@@ -7006,10 +7017,10 @@ class TaskManager:
                         "artifact_type": "course_outline_framework",
                         "status": "completed",
                         "stage": "outline_framework_ready",
-                        "message": "轻量课程方案已生成",
+                        "message": "轻量讲次方案已生成",
                     }
                     task["message"] = (
-                        "轻量课程方案已生成，"
+                        "轻量讲次方案已生成，"
                         "可编辑或主动生成完整大纲"
                     )
                     task["current_nodes"] = []

@@ -11,6 +11,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import teacher_script as teacher_script_module
 from ai_base import AIProviderUnavailable
 
 from course_document import document_from_generation_draft
@@ -34,7 +35,6 @@ from teacher_lesson_authoring import (
 from teacher_script import (
     SCRIPT_PIPELINE_VERSION,
     SCRIPT_QUALITY_VERSION,
-    compile_teacher_script_fallback_content,
     compile_teacher_script_module_contract,
     compile_teacher_script_section,
     normalize_teacher_script_section,
@@ -103,6 +103,31 @@ def standard_lesson_plan():
             }],
         }],
     }
+
+
+def single_section_course_data(
+    lesson_unit_id: str = "L1-1",
+    section_node_id: str = "L2-1-1",
+):
+    source = course_data()
+    source["course_plan"]["reference_books"] = [
+        "张三：《核心概念导论》，高等教育出版社，2025"
+    ]
+    chapter = next(
+        item
+        for item in source["course_plan"]["chapters"]
+        if item["node_id"] == lesson_unit_id
+    )
+    chapter["sections"] = [
+        item for item in chapter["sections"]
+        if item["node_id"] == section_node_id
+    ]
+    source["course_plan"]["chapters"] = [chapter]
+    source["nodes"] = [
+        item for item in source["nodes"]
+        if item["node_id"] in {lesson_unit_id, section_node_id}
+    ]
+    return source
 
 
 def test_lesson_scope_keeps_all_sections_inside_one_lesson():
@@ -1406,15 +1431,23 @@ def test_teacher_script_service_compacts_length_only_failure(monkeypatch):
 def test_teacher_script_service_uses_smart_pool_after_fast_pool_failure(monkeypatch):
     service = CourseService()
     routes = []
+    stream_events = []
 
     async def fake_call(_user_prompt, _system_prompt, **kwargs):
         routes.append(kwargs["use_fast_model"])
         if kwargs["use_fast_model"]:
             raise AIProviderUnavailable("fast_pool_exhausted")
+        await kwargs["on_content_delta"]("概念必须同时说明")
         return (
             "## 核心教学\n\n"
             "概念必须同时说明定义、成立条件和适用边界，新情境可用于核对这三项标准。"
         )
+
+    async def on_reset():
+        stream_events.append("reset")
+
+    async def on_delta(delta):
+        stream_events.append(delta)
 
     monkeypatch.setattr(service, "_call_llm", fake_call)
     result = asyncio.run(service.generate_teacher_script_section(
@@ -1431,10 +1464,60 @@ def test_teacher_script_service_uses_smart_pool_after_fast_pool_failure(monkeypa
             "node_id": "L2-1-1",
             "teaching_modules": [{"module_id": "core_explanation"}],
         },
+        on_content_reset=on_reset,
+        on_content_delta=on_delta,
     ))
 
     assert routes == [True, False]
+    assert stream_events == ["reset", "reset", "概念必须同时说明"]
     assert result["quality_report"]["passed"] is True
+
+
+def test_teacher_script_requests_share_course_service_capacity(monkeypatch):
+    service = CourseService()
+    service._teaching_plan_semaphore = asyncio.Semaphore(1)
+    active = 0
+    peak = 0
+
+    async def fake_call(_user_prompt, _system_prompt, **_kwargs):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return (
+            "## 核心教学\n\n"
+            "概念必须同时说明定义、成立条件和适用边界，新情境可用于核对这三项标准。"
+        )
+
+    monkeypatch.setattr(service, "_call_llm", fake_call)
+    outline = {
+        "node_id": "L2-1-1",
+        "node_name": "轻量讲解",
+        "module_plan": [{
+            "module_id": "core_explanation",
+            "label": "核心教学",
+        }],
+    }
+    plan = {
+        "node_id": "L2-1-1",
+        "teaching_modules": [{"module_id": "core_explanation"}],
+    }
+
+    async def scenario():
+        return await asyncio.gather(*(
+            service.generate_teacher_script_section(
+                course_id=f"course-{index}",
+                outline_section=outline,
+                confirmed_plan_section=plan,
+            )
+            for index in range(2)
+        ))
+
+    results = asyncio.run(scenario())
+
+    assert all(item["quality_report"]["passed"] for item in results)
+    assert peak == 1
 
 
 def test_script_job_keeps_completed_blocks_and_resumes_only_missing_work(tmp_path):
@@ -1503,9 +1586,11 @@ def test_script_job_keeps_completed_blocks_and_resumes_only_missing_work(tmp_pat
     )
     resumed_modules = []
 
-    async def resume_generator(_outline, _plan, module, completed):
+    async def resume_generator(_outline, _plan, module, shard_context):
         resumed_modules.append(module["module_id"])
-        assert [item["module_id"] for item in completed] == ["core_explanation"]
+        assert shard_context["schema_version"] == "teacher_script_shard_context_v1"
+        assert shard_context["previous_block"]["title"] == "核心教学"
+        assert "content" not in shard_context["previous_block"]
         return "最后请大家判断一个新情境，逐项核对定义、成立条件和边界。典型错误是漏掉条件；核对标准是三项齐全，发现错误后要说明修正原因。"
 
     completed = asyncio.run(service.run_script_job(
@@ -1520,12 +1605,338 @@ def test_script_job_keeps_completed_blocks_and_resumes_only_missing_work(tmp_pat
     ))
 
     assert completed["status"] == "completed"
+    assert completed["stream_mode"] == "buffered_fallback"
     assert resumed_modules == ["feedback_check"]
     revision = repository.lesson("course-1", "L1-1")["script_revisions"][0]
     assert [item["module_id"] for item in revision["sections"][0]["blocks"]] == [
         "core_explanation",
         "feedback_check",
     ]
+
+
+def test_script_job_runs_blocks_concurrently_and_streams_real_token_shards(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    service = TeacherLessonAuthoringService(repository)
+    plan = standard_lesson_plan()
+    plan["sections"][0]["teaching_modules"].append({
+        "module_id": "feedback_check",
+        "teaching_purpose": "检查学生是否掌握判断标准",
+        "knowledge_names": ["核心概念"],
+        "planned_minutes": 8,
+        "teacher_activity": "给出新情境并追问判断依据。",
+        "student_activity": "独立判断并说明理由。",
+    })
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        plan,
+        source_outline_revision_id="outline-v1",
+        quality_report=validate_teacher_lesson_plan(plan),
+    )
+    job = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_script_generation",
+        request_id="script-parallel-blocks",
+    )
+    outline_section = {
+        "node_id": "L2-1-1",
+        "node_name": "1.1 核心概念",
+        "module_plan": [
+            {"module_id": "core_explanation", "label": "核心教学"},
+            {"module_id": "feedback_check", "label": "检查与反馈"},
+        ],
+    }
+    started: set[str] = set()
+    both_started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def generator(
+        _outline,
+        _plan,
+        module,
+        shard_context,
+        *,
+        on_content_delta,
+        on_content_reset,
+    ):
+        started.add(module["module_id"])
+        assert "previous_script_blocks" not in shard_context
+        if len(started) == 2:
+            both_started.set()
+        await release.wait()
+        if module["module_id"] == "core_explanation":
+            content = "我们先把判断框架立起来：核心概念由定义、成立条件与适用边界构成，正反例共同界定可检查的标准。"
+        else:
+            content = "现在请大家判断一个新情境。典型错误是漏掉成立条件；修正原因是边界不完整；核对标准是定义、条件和边界三项齐全。"
+        split_at = len(content) // 2
+        await on_content_reset()
+        await on_content_delta(content[:split_at])
+        await on_content_delta(content[split_at:])
+        return content
+
+    async def scenario():
+        task = asyncio.create_task(service.run_script_job(
+            course_id="course-1",
+            lesson_unit_id="L1-1",
+            job_id=job["id"],
+            source_plan_revision_id=lesson["working_revision_id"],
+            outline_sections=[outline_section],
+            plan_sections={"L2-1-1": plan["sections"][0]},
+            generator=generator,
+        ))
+        await asyncio.wait_for(both_started.wait(), timeout=0.5)
+        release.set()
+        return await task
+
+    completed = asyncio.run(scenario())
+
+    assert completed["status"] == "completed"
+    assert completed["stream_mode"] == "token_stream"
+    assert {item["event"] for item in completed["stream_events"]} == {
+        "reset",
+        "delta",
+    }
+    delta_events = [
+        item for item in completed["stream_events"] if item["event"] == "delta"
+    ]
+    assert len(delta_events) == 4
+    assert all(item["lesson_unit_id"] == "L1-1" for item in delta_events)
+    assert all(item["block_id"] in item["shard_id"] for item in delta_events)
+    assert all(item["delta"] for item in delta_events)
+    for shard_id in {item["shard_id"] for item in delta_events}:
+        streamed = "".join(
+            item["delta"] for item in delta_events if item["shard_id"] == shard_id
+        )
+        block_id = next(
+            item["block_id"] for item in delta_events if item["shard_id"] == shard_id
+        )
+        expected = next(
+            block["content"]
+            for block in completed["result_sections"][0]["blocks"]
+            if block["block_id"] == block_id
+        )
+        assert streamed == expected
+    assert [
+        item["module_id"] for item in completed["result_sections"][0]["blocks"]
+    ] == ["core_explanation", "feedback_check"]
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[
+        get_teacher_lesson_authoring_repository
+    ] = lambda: repository
+    with TestClient(app) as client:
+        with client.stream(
+            "GET",
+            f"/api/teacher/courses/course-1/lesson-jobs/{job['id']}/stream",
+        ) as response:
+            payload_text = "".join(response.iter_text())
+    data_line = next(
+        line.removeprefix("data: ")
+        for line in payload_text.splitlines()
+        if line.startswith("data: ")
+    )
+    stream_payload = json.loads(data_line)
+    assert stream_payload["lesson_unit_id"] == "L1-1"
+    assert stream_payload["block_id"]
+    assert stream_payload["shard_id"]
+    assert stream_payload["sequence"] > 0
+    assert stream_payload["delta"]
+
+
+def test_script_job_runs_bounded_shards_concurrently_and_retries_only_failed_shard(
+    tmp_path,
+    monkeypatch,
+):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    service = TeacherLessonAuthoringService(repository)
+    module_ids = [f"custom_{index}" for index in range(1, 5)]
+    plan = standard_lesson_plan()
+    plan["sections"][0]["teaching_modules"] = [
+        {
+            "module_id": module_id,
+            "teaching_purpose": f"完成第 {index} 个判断任务",
+            "knowledge_names": ["核心概念"],
+            "planned_minutes": 1,
+            "teacher_activity": f"引导学生核对第 {index} 项标准。",
+            "student_activity": f"完成第 {index} 个情境判断。",
+        }
+        for index, module_id in enumerate(module_ids, start=1)
+    ]
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        plan,
+        source_outline_revision_id="outline-v1",
+        quality_report={"passed": True},
+    )
+    plan_revision = lesson["working_revision_id"]
+    repository.confirm_plan_revision("course-1", "L1-1", plan_revision)
+    outline_section = {
+        "node_id": "L2-1-1",
+        "node_name": "1.1 核心概念",
+        "module_plan": [
+            {"module_id": module_id, "label": f"教学环节 {index}"}
+            for index, module_id in enumerate(module_ids, start=1)
+        ],
+    }
+    contract = compile_teacher_script_module_contract(
+        outline_section,
+        plan["sections"][0],
+    )
+    ordered_block_ids = [item["block_id"] for item in contract["modules"]]
+    content_values = [
+        "先看红色标本：我们把对象的定义、成立条件和排除边界分开。请给出一句可核对的判断并说明依据。",
+        "蓝色案例带来了新问题：条件都相似，但关键变量已经越界。大家用反例找出失效位置，再改写原结论。",
+        "接下来把绿色情境换成一组真实数据。先列出可观察事实，再选择匹配规则，最后检查结果是否能被数据支持。",
+        "最后处理灰色任务：它故意隐去一项前提。请找到缺口，补齐必要信息，然后用同一检查方法验证修正后的答案。",
+    ]
+    contents = dict(zip(ordered_block_ids, content_values, strict=True))
+
+    # Force four complete blocks into two adjacent two-block request shards.
+    monkeypatch.setattr(
+        teacher_script_module,
+        "SCRIPT_SINGLE_REQUEST_TARGET_CHARACTERS",
+        1,
+    )
+    monkeypatch.setattr(
+        teacher_script_module,
+        "SCRIPT_SINGLE_REQUEST_MAX_CHARACTERS",
+        1,
+    )
+    monkeypatch.setattr(
+        teacher_script_module,
+        "SCRIPT_SHARD_TARGET_CHARACTERS",
+        1800,
+    )
+    monkeypatch.setattr(
+        teacher_script_module,
+        "SCRIPT_SHARD_MAX_CHARACTERS",
+        3600,
+    )
+
+    first_job = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_script_generation",
+        request_id="script-shard-partial-failure",
+    )
+    started: list[str] = []
+    both_started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def unused_block_generator(*_args, **_kwargs):
+        raise AssertionError("shard generator must own real requests")
+
+    async def first_shard_generator(
+        entries,
+        shard_context,
+        *,
+        on_block_delta,
+        on_shard_reset,
+    ):
+        shard_id = shard_context["shard_id"]
+        started.append(shard_id)
+        assert shard_context["budget_mode"] == "bounded_shards"
+        assert all(
+            "content" not in item
+            for item in shard_context["block_directory"]
+        )
+        if len(started) == 2:
+            both_started.set()
+        await release.wait()
+        if shard_context["sequence"] == 2:
+            raise RuntimeError("second shard interrupted")
+        result = {}
+        for entry in entries:
+            block_id = entry["module"]["block_id"]
+            content = contents[block_id]
+            split_at = len(content) // 2
+            await on_shard_reset(block_id)
+            await on_block_delta(block_id, content[:split_at])
+            await on_block_delta(block_id, content[split_at:])
+            result[block_id] = content
+        return result
+
+    async def first_scenario():
+        task = asyncio.create_task(service.run_script_job(
+            course_id="course-1",
+            lesson_unit_id="L1-1",
+            job_id=first_job["id"],
+            source_plan_revision_id=plan_revision,
+            outline_sections=[outline_section],
+            plan_sections={"L2-1-1": plan["sections"][0]},
+            generator=unused_block_generator,
+            shard_generator=first_shard_generator,
+        ))
+        await asyncio.wait_for(both_started.wait(), timeout=0.5)
+        release.set()
+        return await task
+
+    failed = asyncio.run(first_scenario())
+
+    assert failed["status"] == "failed"
+    assert len(started) == 2
+    assert failed["completed_blocks"] == 2
+    assert len(failed["result_sections"][0]["blocks"]) == 2
+    assert repository.lesson("course-1", "L1-1")["script_revisions"] == []
+    failed_shard_id = failed["error"]["failed_shards"][0]["shard_id"]
+    for event in failed["stream_events"]:
+        if event["event"] != "delta":
+            continue
+        assert event["shard_id"] in failed["stream_batches"]
+        block_content = contents[event["block_id"]]
+        assert failed["stream_batches"][event["shard_id"]] == block_content
+
+    retry_job = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_script_generation",
+        request_id="script-shard-resume",
+    )
+    retry_shards: list[str] = []
+
+    async def retry_shard_generator(
+        entries,
+        shard_context,
+        *,
+        on_block_delta,
+        on_shard_reset,
+    ):
+        retry_shards.append(shard_context["shard_id"])
+        result = {}
+        for entry in entries:
+            block_id = entry["module"]["block_id"]
+            content = contents[block_id]
+            await on_shard_reset(block_id)
+            await on_block_delta(block_id, content)
+            result[block_id] = content
+        return result
+
+    completed = asyncio.run(service.run_script_job(
+        course_id="course-1",
+        lesson_unit_id="L1-1",
+        job_id=retry_job["id"],
+        source_plan_revision_id=plan_revision,
+        outline_sections=[outline_section],
+        plan_sections={"L2-1-1": plan["sections"][0]},
+        generator=unused_block_generator,
+        shard_generator=retry_shard_generator,
+        seed_sections=failed["result_sections"],
+    ))
+
+    assert completed["status"] == "completed", completed.get("error")
+    assert retry_shards == [failed_shard_id]
+    assert [
+        item["block_id"] for item in completed["result_sections"][0]["blocks"]
+    ] == ordered_block_ids
+    for event in completed["stream_events"]:
+        if event["event"] != "delta":
+            continue
+        assert event["shard_id"] in completed["stream_batches"]
+        assert completed["stream_batches"][event["shard_id"]] == contents[
+            event["block_id"]
+        ]
 
 
 def test_script_resume_discards_only_invalid_checkpoint_block(tmp_path):
@@ -1646,9 +2057,7 @@ def test_script_resume_restores_a_missing_middle_block_in_contract_order(tmp_pat
             },
             {
                 **by_module["learner_action"],
-                "content": compile_teacher_script_fallback_content(
-                    by_module["learner_action"]
-                ),
+                "content": "这是旧任务检查点中保留的本地恢复内容，恢复后必须由模型重新生成并通过硬校验。",
                 "generation_source": "local_recovery",
             },
             {
@@ -1764,13 +2173,11 @@ def test_script_resume_regenerates_repetitive_checkpoint_blocks(tmp_path):
         "feedback_check": "最后请大家先检查对象是否满足条件，再比较结论与边界；若判断错误，必须指出具体违反哪一项。",
     }
 
-    async def generator(_outline, _plan, module, completed):
+    async def generator(_outline, _plan, module, shard_context):
         generated.append(module["module_id"])
-        assert [item["module_id"] for item in completed] == [
-            item["module_id"] for item in contract["modules"]
-            if item["module_id"] == "lesson_goal"
-            or item["module_id"] in generated[:-1]
-        ]
+        assert shard_context["schema_version"] == "teacher_script_shard_context_v1"
+        assert shard_context["previous_block"] is not None
+        assert "content" not in shard_context["previous_block"]
         return replacements[module["module_id"]]
 
     completed = asyncio.run(service.run_script_job(
@@ -1785,12 +2192,12 @@ def test_script_resume_regenerates_repetitive_checkpoint_blocks(tmp_path):
     ))
 
     assert completed["status"] == "completed", completed.get("error")
-    assert generated == ["core_explanation", "feedback_check"]
+    assert set(generated) == {"core_explanation", "feedback_check"}
     revision = repository.lesson("course-1", "L1-1")["script_revisions"][0]
     assert revision["quality_report"]["passed"] is True
 
 
-def test_script_provider_fallback_finishes_complete_editable_revision(tmp_path):
+def test_script_fallback_content_is_rejected_without_formal_revision(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     service = TeacherLessonAuthoringService(repository)
     plan = standard_lesson_plan()
@@ -1817,14 +2224,11 @@ def test_script_provider_fallback_finishes_complete_editable_revision(tmp_path):
         job_type="teacher_lesson_script_generation",
         request_id="script-provider-fallback",
     )
-    warnings = [{
-        "code": "lesson_script_block_local_fallback",
-        "block_id": "block-1",
-        "reason": "AIProviderUnavailable",
-    }]
-
     async def fallback_generator(_outline, _plan, module, _completed):
-        return compile_teacher_script_fallback_content(module)
+        raise TeacherLessonAuthoringError(
+            "lesson_script_provider_failed",
+            f"{module.get('title') or '教学块'}生成失败，请重试。",
+        )
 
     completed = asyncio.run(service.run_script_job(
         course_id="course-1",
@@ -1834,31 +2238,12 @@ def test_script_provider_fallback_finishes_complete_editable_revision(tmp_path):
         outline_sections=[outline_section],
         plan_sections={"L2-1-1": plan["sections"][0]},
         generator=fallback_generator,
-        generation_warnings=warnings,
     ))
 
     assert completed["status"] == "failed"
-    assert completed["error"]["code"] == "lesson_script_generation_incomplete"
-    assert completed["completed_blocks"] == completed["total_blocks"] == 1
-    assert completed["warnings"] == warnings
-    revision = repository.lesson("course-1", "L1-1")["script_revisions"][0]
-    assert revision["generation_source"] == (
-        "model_block_pipeline_with_recovery_preview"
-    )
-    assert revision["publication_eligible"] is False
-    assert revision["quality_report"]["passed"] is False
-    assert {
-        item["code"] for item in revision["quality_report"]["blocking_issues"]
-    } >= {
-        "teacher_script:recovery_draft_not_publishable",
-    }
-    with pytest.raises(TeacherLessonAuthoringError) as exc_info:
-        repository.confirm_script_revision(
-            "course-1",
-            "L1-1",
-            revision["revision_id"],
-        )
-    assert exc_info.value.code == "lesson_script_quality_blocked"
+    assert completed["error"]["code"] == "lesson_script_provider_failed"
+    assert completed["completed_blocks"] == 0
+    assert repository.lesson("course-1", "L1-1")["script_revisions"] == []
 
 
 def test_legacy_script_adapter_keeps_the_original_body_as_one_compatibility_block():
@@ -2196,7 +2581,7 @@ def test_plan_history_restore_creates_a_new_working_revision(tmp_path):
     assert saved["plan"]["sections"][0]["learning_objective"] == "解释极限"
 
 
-def test_valid_fallback_finishes_with_warning_and_remains_editable(tmp_path):
+def test_plan_fallback_fails_without_formal_revision(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     service = TeacherLessonAuthoringService(repository)
     job = repository.create_job(
@@ -2226,11 +2611,8 @@ def test_valid_fallback_finishes_with_warning_and_remains_editable(tmp_path):
 
     assert completed["status"] == "failed"
     assert completed["error"]["code"] == "lesson_plan_generation_incomplete"
-    lesson = repository.view("course-1")["lessons"]["L1-1"]
-    assert lesson["revisions"][0]["status"] == "needs_ai_review"
-    assert lesson["revisions"][0]["plan"]["sections"][0]["node_id"] == "L2-1-1"
-    assert lesson["revisions"][0]["source_refs"][0]["asset_id"] == "asset-1"
-    assert "模型生成失败" in completed["message"]
+    assert repository.view("course-1")["lessons"] == {}
+    assert completed["message"] == "本讲教案生成失败"
 
 
 def test_plan_job_progress_never_moves_backwards(tmp_path):
@@ -2261,7 +2643,7 @@ def test_plan_job_progress_never_moves_backwards(tmp_path):
         course_id="course-1",
         lesson_unit_id="L1-1",
         job_id=job["id"],
-        course_data=course_data(),
+        course_data=single_section_course_data(),
         planner=planner,
     ))
 
@@ -2325,7 +2707,7 @@ def test_plan_job_stream_persistence_does_not_block_event_loop(tmp_path):
         course_id="course-1",
         lesson_unit_id="L1-1",
         job_id=job["id"],
-        course_data=course_data(),
+        course_data=single_section_course_data(),
         planner=planner,
     ))
 
@@ -2358,7 +2740,7 @@ def test_plan_job_keeps_formal_outline_and_planner_scope_revisions_separate(tmp_
         course_id="course-1",
         lesson_unit_id="L1-2",
         job_id=job["id"],
-        course_data=course_data(),
+        course_data=single_section_course_data("L1-2", "L2-2-1"),
         planner=planner,
     ))
 
@@ -2366,8 +2748,8 @@ def test_plan_job_keeps_formal_outline_and_planner_scope_revisions_separate(tmp_
     revision = repository.lesson("course-1", "L1-2")["revisions"][0]
     assert revision["source_outline_revision_id"] == "outline-v1"
     assert revision["source_knowledge_scope_revision_id"] == "knowledge-scope-v2"
-    assert revision["quality_report"]["passed"] is False
-    assert completed["warnings"][0]["code"] == "lesson_plan:recommended_reading"
+    assert revision["quality_report"]["passed"] is True
+    assert completed["warnings"] == []
 
 
 def test_failed_plan_job_keeps_streamed_working_copy(tmp_path):
@@ -3254,7 +3636,12 @@ def test_script_generation_edit_candidate_and_confirmation_share_one_asset_chain
                 kwargs["outline_section"], kwargs["confirmed_plan_section"]
             )
             return compile_teacher_script_section(
-                "## 核心教学\n\n这是一段严格遵循已确认教案、可直接用于课堂讲授的正式讲稿。",
+                "\n\n".join(
+                    f"## {module['title']}\n\n"
+                    f"这是第 {index} 个严格遵循已确认教案的正式讲义块，"
+                    "定义、成立条件、适用边界与课堂核对方法均已说明。"
+                    for index, module in enumerate(contract["modules"], start=1)
+                ),
                 contract,
             )
 
@@ -3385,7 +3772,15 @@ def test_script_generation_edit_candidate_and_confirmation_share_one_asset_chain
         assert restored_script["revisions"][0]["restored_from_revision_id"] == first_revision
 
     assert FakeCourseService.registered is True
-    assert len(FakeCourseService.script_calls) == 2
+    assert len(FakeCourseService.script_calls) == 1
+    assert len(
+        FakeCourseService.script_calls[0]["confirmed_plan_section"]["teaching_modules"]
+    ) == 2
+    assert (
+        FakeCourseService.script_calls[0]["lesson_context"]
+        ["script_shard_context"]["budget_mode"]
+        == "single_request"
+    )
     assert all(call["requirements"] == "增加案例" for call in FakeCourseService.script_calls)
     generation_context = FakeCourseService.script_calls[0]["lesson_context"]
     assert generation_context["selected_material_evidence"][0]["text"] == "资料中的可靠案例"
@@ -3802,13 +4197,10 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
                 },
             )
             scope = lesson_scope(course_data, lesson_unit_id)
+            plan = standard_lesson_plan()
+            plan["sections"][0]["node_id"] = scope["sections"][0]["node_id"]
             return {
-                "plan": {
-                    "sections": [
-                        {"node_id": item["node_id"], "teaching_modules": []}
-                        for item in scope["sections"]
-                    ]
-                },
+                "plan": plan,
                 "warnings": [],
                 "source_outline_revision_id": "outline-v1",
                 "generation_source": "model",
@@ -3821,7 +4213,11 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
         @staticmethod
         def get_generation_workspace_course(course_id):
             assert course_id == "course-1"
-            return {**course_data(), "blueprint_revision_id": "outline-v1"}
+            source = course_data()
+            source["course_plan"]["reference_books"] = [
+                "张三：《核心概念导论》，高等教育出版社，2025"
+            ]
+            return {**source, "blueprint_revision_id": "outline-v1"}
 
         @staticmethod
         def get_generation_preview(_course_id):
@@ -3884,5 +4280,102 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
     )
     assert generated_section["teacher_activities"]
     generated_revision = assets["L1-2"]["revisions"][0]
-    assert generated_revision["status"] == "needs_ai_review"
-    assert generated_revision["quality_report"]["passed"] is False
+    assert generated_revision["status"] == "draft"
+    assert generated_revision["quality_report"]["passed"] is True
+
+
+def test_generate_all_lesson_scripts_queues_every_lesson_with_one_parent(
+    tmp_path,
+    monkeypatch,
+):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    for lesson_unit_id, section_node_id in (
+        ("L1-1", "L2-1-1"),
+        ("L1-2", "L2-2-1"),
+    ):
+        plan = standard_lesson_plan()
+        plan["sections"][0]["node_id"] = section_node_id
+        repository.save_plan_revision(
+            "course-1",
+            lesson_unit_id,
+            plan,
+            source_outline_revision_id="outline-v1",
+            quality_report=validate_teacher_lesson_plan(plan),
+        )
+
+    class FakeTaskManager:
+        storage = None
+        course_service = object()
+
+        @staticmethod
+        def get_generation_workspace_course(course_id):
+            assert course_id == "course-1"
+            return {**course_data(), "blueprint_revision_id": "outline-v1"}
+
+        @staticmethod
+        def get_generation_preview(_course_id):
+            return None
+
+    requested_children = []
+
+    async def fake_generate_lesson_script(
+        course_id,
+        lesson_unit_id,
+        body,
+        _request,
+        _tm,
+        _repository,
+    ):
+        requested_children.append((lesson_unit_id, body))
+        return {
+            "job": {
+                "id": f"job-{lesson_unit_id}",
+                "course_id": course_id,
+                "lesson_unit_id": lesson_unit_id,
+                "lesson_id": lesson_unit_id,
+                "status": "pending",
+                "phase": "queued",
+                "message": "已入队",
+                "parent_job_id": body.batch_parent_job_id,
+                "batch_position": body.batch_position,
+                "batch_size": body.batch_size,
+            }
+        }
+
+    monkeypatch.setattr(
+        teacher_lesson_router,
+        "generate_lesson_script",
+        fake_generate_lesson_script,
+    )
+    monkeypatch.setattr(
+        teacher_lesson_router,
+        "_lesson_script_material_scope",
+        lambda _course_id, _actor, lesson_unit_id: {
+            "source_package_id": "",
+            "source_asset_id": "",
+            "material_asset_ids": [f"material-{lesson_unit_id}"],
+        },
+    )
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: FakeTaskManager()
+    app.dependency_overrides[
+        get_teacher_lesson_authoring_repository
+    ] = lambda: repository
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/teacher/courses/course-1/lesson-scripts/generate-all",
+            json={"request_id": "all-scripts", "requirements": "重视案例"},
+        )
+
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload["child_job_ids"] == ["job-L1-1", "job-L1-2"]
+    assert payload["skipped_lesson_ids"] == []
+    assert [item[0] for item in requested_children] == ["L1-1", "L1-2"]
+    parent_ids = {item[1].batch_parent_job_id for item in requested_children}
+    assert len(parent_ids) == 1
+    assert [item[1].batch_position for item in requested_children] == [1, 2]
+    assert all(item[1].batch_size == 2 for item in requested_children)
+    assert requested_children[0][1].material_asset_ids == ["material-L1-1"]

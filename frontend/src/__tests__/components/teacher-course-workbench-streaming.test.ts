@@ -61,8 +61,8 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => mount(TeacherCou
       },
       CourseReferenceTray: {
         name: 'CourseReferenceTray',
-        props: ['modelValue', 'scopeTargetId', 'scopeTargetLabel', 'previousScopeTargetId', 'workflowState', 'workflowDetail', 'workflowCanRetry'],
-        template: '<aside data-testid="reference-tray-stub"><span>{{ workflowDetail }}</span><button data-testid="open-course-information" type="button" @click="$emit(\'open-course-information\')">课程信息</button><button v-if="workflowCanRetry" data-testid="retry-workflow" type="button" @click="$emit(\'retry-workflow\')">重试生成</button><slot name="workflow-action" /></aside>',
+        props: ['modelValue', 'scopeTargetId', 'scopeTargetLabel', 'previousScopeTargetId', 'workflowState', 'workflowDetail', 'workflowProgress', 'workflowCanRetry'],
+        template: '<aside data-testid="reference-tray-stub"><span>{{ workflowDetail }}</span><i data-testid="workflow-progress">{{ workflowProgress }}</i><button data-testid="open-course-information" type="button" @click="$emit(\'open-course-information\')">课程信息</button><button v-if="workflowCanRetry" data-testid="retry-workflow" type="button" @click="$emit(\'retry-workflow\')">重试生成</button><slot name="workflow-action" /></aside>',
         emits: ['open-course-information', 'retry-workflow', 'update:modelValue'],
       },
       CompanionDocumentStudio: true,
@@ -298,8 +298,8 @@ describe('teacher course workbench outline streaming', () => {
     const steps = wrapper.findAll('[data-testid="outline-flow-steps"] button')
     expect(steps.map(step => step.text())).toEqual([
       '1填写课程信息',
-      '2查看与编辑课程方案',
-      '3生成完整大纲',
+      '2轻量讲次方案',
+      '3完整大纲',
     ])
     expect(steps[2]!.classes()).toContain('active')
     expect(wrapper.find('[data-testid="outline-ai-action"]').exists()).toBe(false)
@@ -1005,6 +1005,63 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.lesson-toolbar-status button').exists()).toBe(false)
     expect(wrapper.find('.lesson-document-toolbar .primary-action').exists()).toBe(false)
     expect(wrapper.get('.stage-rail button.active').text()).toContain('讲义')
+  })
+
+  it('讲义未生成时平铺全课教案范围，并一次提交全部讲义', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45,
+      sections: [{ section_node_id: `L2-${number}-1`, title: `${number}.1 核心内容` }],
+      arrangement: {
+        schema_version: 'teacher_lesson_arrangement_v1', revision_id: `arrangement-${number}`, lesson_unit_id: `L1-${number}`,
+        source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授',
+        status: 'confirmed', confirmed: true, source_state: 'current', blocks: [],
+      },
+      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: `plan-${number}`, source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+    })) as any
+    const generateAll = vi.spyOn(lessonStore, 'generateAllScripts').mockResolvedValue({
+      parent_job: { id: 'script-batch-1' }, jobs: [],
+    } as any)
+
+    const wrapper = mountWorkbench({ initialStage: 'script' })
+
+    expect(wrapper.find('[data-testid="lesson-outline-fixed"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="script-course-preview"]').text()).toContain('整门课程讲义预览')
+    expect(wrapper.get('[data-testid="script-course-preview"]').text()).toContain('1.1 核心内容')
+    expect(wrapper.get('[data-testid="script-course-preview-generate"]').text()).toBe('生成全部讲义')
+
+    await wrapper.get('[data-testid="script-course-preview-generate"]').trigger('click')
+    await flushPromises()
+
+    expect(generateAll).toHaveBeenCalledWith('course-1', '')
+  })
+
+  it('讲义批次同时显示逐讲状态与全课总进度', () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45, sections: [],
+      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: `plan-${number}`, source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+    })) as any
+    lessonStore.jobs = [{
+      id: 'script-job-1', course_id: 'course-1', lesson_unit_id: 'L1-1', type: 'teacher_lesson_script_generation',
+      status: 'running', progress: 50, phase: 'lesson_script_generation', message: '正在生成：概念讲解', warnings: [],
+      parent_job_id: 'script-batch-1', batch_position: 1, batch_size: 2,
+    }, {
+      id: 'script-job-2', course_id: 'course-1', lesson_unit_id: 'L1-2', type: 'teacher_lesson_script_generation',
+      status: 'pending', progress: 0, phase: 'queued', message: '等待生成', warnings: [],
+      parent_job_id: 'script-batch-1', batch_position: 2, batch_size: 2,
+    }] as any
+
+    const wrapper = mountWorkbench({ initialStage: 'script' })
+    const chapters = wrapper.findAll('.lesson-outline-chapter-button')
+
+    expect(chapters[0]!.find('.lesson-outline-status').attributes('data-state')).toBe('generating')
+    expect(chapters[0]!.find('small').text()).toContain('正在生成：概念讲解')
+    expect(chapters[1]!.find('.lesson-outline-status').attributes('data-state')).toBe('queued')
+    expect(wrapper.get('[data-testid="reference-tray-stub"]').text()).toContain('已完成 0/2 讲 · 正在并行生成 1 讲')
+    expect(wrapper.get('[data-testid="workflow-progress"]').text()).toBe('25')
   })
 
   it('旧质量报告只提供建议，不阻断从当前讲义进入 PPT', async () => {

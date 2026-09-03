@@ -2,6 +2,7 @@ import asyncio
 import json
 import re
 import time
+from copy import deepcopy
 
 import pytest
 from fastapi import FastAPI
@@ -41,6 +42,9 @@ from course_pedagogy import (
 from course_generation.budget import build_teaching_plan_batches
 from course_generation.service import CourseService
 from course_generation.outline import review_course_outline_document
+from course_generation.planning_state import (
+    _remap_combined_teaching_plan_knowledge_ids,
+)
 from course_teaching_plan_v3 import normalize_teaching_plan_skeleton_v3
 
 
@@ -329,6 +333,41 @@ def _teaching_batch_v3_response(system_prompt, labels_by_title=None):
     return json.dumps({"sections": payload}, ensure_ascii=False)
 
 
+def _combined_teacher_lesson_v4_response(system_prompt):
+    match = re.search(
+        r"## 当前小节（已去重）\n(\[.*?\])\n\n## ",
+        system_prompt,
+        re.S,
+    )
+    assert match, system_prompt
+    sections = json.loads(match.group(1))
+    skeleton = compile_fallback_teaching_skeleton(
+        sections,
+        outline_revision_id="joint-response-test",
+    )
+    batch = compile_fallback_teaching_batch(
+        batch_spec={
+            "batch_id": "TP-B01",
+            "section_ids": [item["node_id"] for item in sections],
+        },
+        skeleton=skeleton,
+        sections=sections,
+    )
+    identity_by_id = {
+        item["node_id"]: item for item in skeleton["sections"]
+    }
+    return json.dumps({
+        "knowledge_registry": skeleton["knowledge_registry"],
+        "sections": [
+            {
+                **identity_by_id[item["node_id"]],
+                **item,
+            }
+            for item in batch["sections"]
+        ],
+    }, ensure_ascii=False)
+
+
 def _multi_section_outline(labels):
     return normalize_course_outline_contract({
         "course_title": "并行生成验证课程",
@@ -351,6 +390,131 @@ def _multi_section_outline(labels):
             ],
         }],
     })
+
+
+@pytest.mark.asyncio
+async def test_teacher_lesson_plan_uses_one_joint_model_response_and_resumes(
+    monkeypatch,
+):
+    plan = _multi_section_outline(["核心定义", "条件应用"])
+    plan["chapters"][0]["node_id"] = "L1-1"
+    course = {
+        "course_id": "course-joint-lesson",
+        "course_name": "联合生成验证课程",
+        "course_plan": plan,
+        "course_outline": plan,
+    }
+    service = CourseService()
+    calls = []
+    checkpoints = []
+    model_payloads = []
+
+    async def fake_call_llm(prompt, system_prompt, **_kwargs):
+        calls.append((prompt, system_prompt))
+        assert "单讲知识责任与完整教案联合生成 V4" in system_prompt
+        assert "不要依赖任何前置知识骨架请求" in system_prompt
+        response = _combined_teacher_lesson_v4_response(system_prompt)
+        model_payloads.append(json.loads(response))
+        return response
+
+    monkeypatch.setattr(service, "_call_llm", fake_call_llm)
+    result = await service.prepare_teacher_lesson_plan(
+        course_data=course,
+        lesson_unit_id="L1-1",
+        on_checkpoint=lambda value: checkpoints.append(value),
+    )
+
+    assert len(calls) == 1
+    assert [item["node_id"] for item in result["plan"]["sections"]] == [
+        "L2-1-1",
+        "L2-1-2",
+    ]
+    final_stage = checkpoints[-1]["planner_course_data"][
+        "generation_stage_artifacts"
+    ]["course_teaching_plan"]
+    assert final_stage["strategy"] == "combined_lesson_unit_single_call"
+    assert final_stage["model_call_count"] == 1
+    assert final_stage["skeleton"]["revision_id"].startswith(
+        "teaching_skeleton_"
+    )
+    assert final_stage["batches"]["TP-B01"]["generation_source"] == "model"
+    skeleton = final_stage["skeleton"]
+    stored_batch = final_stage["batches"]["TP-B01"]["payload"]
+    formal_keys = {
+        item["knowledge_key"] for item in skeleton["knowledge_registry"]
+    }
+    assert formal_keys
+    assert all(key.startswith("K-") for key in formal_keys)
+    assert not formal_keys.intersection({"K001", "K002"})
+    assert {
+        key
+        for item in skeleton["sections"]
+        for key in [
+            *(item.get("owned_knowledge_keys") or []),
+            *(item.get("reused_knowledge_keys") or []),
+        ]
+    } <= formal_keys
+    assert all(
+        item.get("knowledge_details") for item in stored_batch["sections"]
+    )
+    for section in stored_batch["sections"]:
+        assert {
+            item["knowledge_key"]
+            for item in section.get("knowledge_details") or []
+        } <= formal_keys
+        assert {
+            key
+            for item in section.get("knowledge_relations") or []
+            for key in (item.get("source_key"), item.get("target_key"))
+        } <= formal_keys
+        assert {
+            key
+            for item in section.get("teaching_modules") or []
+            for key in item.get("knowledge_keys") or []
+        } <= formal_keys
+
+    outline_revision_id = final_stage["source_outline_revision_id"]
+    stable_again = _remap_combined_teaching_plan_knowledge_ids(
+        model_payloads[0],
+        outline_revision_id=outline_revision_id,
+    )
+    assert {
+        item["knowledge_key"]
+        for item in stable_again["knowledge_registry"]
+    } == formal_keys
+    other_lesson_payload = deepcopy(model_payloads[0])
+    for item in other_lesson_payload["knowledge_registry"]:
+        item["owner_node_id"] = item["owner_node_id"].replace("L2-1-", "L2-2-")
+    for item in other_lesson_payload["sections"]:
+        item["node_id"] = item["node_id"].replace("L2-1-", "L2-2-")
+    other_lesson = _remap_combined_teaching_plan_knowledge_ids(
+        other_lesson_payload,
+        outline_revision_id=outline_revision_id,
+    )
+    assert formal_keys.isdisjoint({
+        item["knowledge_key"]
+        for item in other_lesson["knowledge_registry"]
+    })
+
+    resumed_service = CourseService()
+    resumed_calls = []
+
+    async def unexpected_call(*_args, **_kwargs):
+        resumed_calls.append(True)
+        raise AssertionError("恢复已完成讲次时不应再次调用模型")
+
+    monkeypatch.setattr(resumed_service, "_call_llm", unexpected_call)
+    resumed = await resumed_service.prepare_teacher_lesson_plan(
+        course_data=course,
+        lesson_unit_id="L1-1",
+        resume_checkpoint=checkpoints[-1],
+    )
+
+    assert not resumed_calls
+    assert [item["node_id"] for item in resumed["plan"]["sections"]] == [
+        "L2-1-1",
+        "L2-1-2",
+    ]
 
 
 def _outline_skeleton_v2_response(plan):

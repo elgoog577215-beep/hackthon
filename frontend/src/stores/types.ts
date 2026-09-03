@@ -385,6 +385,7 @@ export interface Node {
   node_name: string
   node_level: number
   node_content: string
+  content_summary?: string
   learning_objective?: string
   learning_path_role?: 'focus' | 'standard' | 'compressed' | 'verify_in_project' | 'milestone'
   path_reason?: string

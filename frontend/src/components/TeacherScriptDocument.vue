@@ -133,7 +133,10 @@
               <div><span>{{ blockRoleLabel(block.role) }}</span><h5>{{ block.title }}</h5></div>
               <small v-if="block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
             </header>
-            <MarkdownRenderer :content="block.content" />
+            <div class="script-streamed-block" :data-streaming="blockIsStreaming(block.block_id) ? 'true' : undefined">
+              <MarkdownRenderer :key="`${block.block_id}-${block.content.length}-${generationJob?.stream_sequence || 0}`" :content="block.content" />
+              <span v-if="blockIsStreaming(block.block_id)" class="stream-caret" aria-hidden="true" />
+            </div>
           </section>
           <div v-if="!lesson.script.ready && generating && nodeIndex === scriptSections.length - 1" class="script-block-waiting">
             <LoaderCircle :size="15" class="spin" />
@@ -262,8 +265,6 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.scriptDocument.sourceModel': 'AI 生成稿',
   'courseWorkbench.scriptDocument.sourceLegacy': '旧版讲义',
   'courseWorkbench.scriptDocument.statusCurrentReady': '当前正文可用',
-  'courseWorkbench.scriptDocument.statusHasSuggestions': '有改进建议',
-  'courseWorkbench.scriptDocument.statusSuggestionDetail': '当前讲义已生成，质量检查结果仅供参考，不影响继续生成 PPT。',
   'courseWorkbench.scriptDocument.statusGenerated': '已生成',
   'courseWorkbench.scriptDocument.statusPreviousFailureDetail': '最近一次 AI 生成没有完成；当前展示的是已经单独保存并通过检查的正文，不是该次失败任务的输出。',
   'courseWorkbench.scriptDocument.statusGeneratedDetail': '当前修订已是页面内容稿与 PPT 的生成依据。',
@@ -293,18 +294,8 @@ const sourceLabel = computed(() => {
   if (source.includes('model')) return tr('courseWorkbench.scriptDocument.sourceModel')
   return tr('courseWorkbench.scriptDocument.sourceLegacy')
 })
-const qualitySuggestionMessage = computed(() => String(
-  props.lesson.script.quality_report?.blocking_issues?.[0]?.message || '',
-))
 const scriptStatusNotice = computed(() => {
   if (!props.lesson.script.ready) return null
-  if (props.lesson.script.quality_report?.passed === false) {
-    return {
-      state: 'suggestion',
-      title: `${sourceLabel.value} · ${tr('courseWorkbench.scriptDocument.statusHasSuggestions')}`,
-      detail: qualitySuggestionMessage.value || tr('courseWorkbench.scriptDocument.statusSuggestionDetail'),
-    }
-  }
   if (['failed', 'cancelled'].includes(String(props.generationJob?.status || ''))) {
     return {
       state: 'info',
@@ -319,11 +310,49 @@ const scriptStatusNotice = computed(() => {
     detail: tr('courseWorkbench.scriptDocument.statusGeneratedDetail'),
   }
 })
-const scriptSections = computed<ScriptSection[]>(() => (
-  props.lesson.script.ready
-    ? props.lesson.script.sections || []
-    : props.generationJob?.result_sections || []
-))
+const scriptSections = computed<ScriptSection[]>(() => {
+  if (props.lesson.script.ready) return props.lesson.script.sections || []
+  const sections = (props.generationJob?.result_sections || []).map(section => ({
+    ...section,
+    blocks: section.blocks?.map(block => ({ ...block })),
+  }))
+  const streamedBlocks = props.generationJob?.streamed_block_content || {}
+  Object.entries(streamedBlocks).forEach(([blockId, content]) => {
+    const arrangementBlock = props.lesson.arrangement?.blocks?.find(block => block.block_id === blockId)
+    const sectionId = arrangementBlock?.section_node_id || props.lesson.sections[0]?.section_node_id || `stream-${blockId}`
+    let section = sections.find(item => item.section_node_id === sectionId)
+    if (!section) {
+      section = {
+        section_node_id: sectionId,
+        title: arrangementBlock?.section_title
+          || props.lesson.sections.find(item => item.section_node_id === sectionId)?.title
+          || props.generationJob?.current_block_title
+          || tr('courseWorkbench.scriptDocument.generating'),
+        content: '',
+        schema_version: 'teacher_script_v2',
+        blocks: [],
+      }
+      sections.push(section)
+    }
+    const existing = section.blocks?.find(block => block.block_id === blockId)
+    if (existing) {
+      if (props.generationJob?.block_states?.[blockId] !== 'completed') existing.content = content
+      return
+    }
+    section.blocks = [
+      ...(section.blocks || []),
+      {
+        block_id: blockId,
+        module_id: arrangementBlock?.module_id || 'streaming',
+        role: arrangementBlock?.role || 'concept',
+        title: arrangementBlock?.name || props.generationJob?.current_block_title || blockId,
+        content,
+        planned_minutes: arrangementBlock?.planned_minutes,
+      },
+    ]
+  })
+  return sections
+})
 const generationProgress = computed(() => Math.max(0, Math.min(100, Number(props.generationJob?.progress || 0))))
 const showGenerationForm = computed(() => (
   !props.generating
@@ -337,6 +366,15 @@ const generationActionLabel = computed(() => {
   return tr('courseWorkbench.scriptDocument.generate')
 })
 const selectedNode = computed(() => scriptSections.value.find(node => node.section_node_id === selectedNodeId.value) || scriptSections.value[0] || null)
+
+function blockIsStreaming(blockId: string): boolean {
+  return Boolean(
+    !props.lesson.script.ready
+    && props.generating
+    && props.generationJob?.current_block_id === blockId
+    && props.generationJob?.block_states?.[blockId] !== 'completed',
+  )
+}
 
 function contentFor(node: ScriptSection): string {
   if (pendingCandidate.value?.section_node_id === node.section_node_id) return pendingCandidate.value.replacement_text
@@ -555,4 +593,5 @@ defineExpose({
 .script-document,.script-generation-panel{background:var(--teacher-component-surface,#fff)}
 .script-ai{background:var(--teacher-component-tint,#f7f7ff)}
 .script-actions button:hover,.script-generate textarea:disabled{background:var(--teacher-component-tint,#f7f7ff)}
+.script-streamed-block .stream-caret{width:2px;height:17px;display:inline-block;margin-left:3px;vertical-align:-2px;background:#5b57e8;animation:blink .8s steps(1) infinite}@keyframes blink{50%{opacity:0}}
 </style>

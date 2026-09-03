@@ -12,7 +12,7 @@ vi.mock('@/utils/http', () => ({
   teacherReadRequestConfig: (config = {}) => config,
 }))
 
-import { lessonJobsToObserve, useTeacherLessonAuthoringStore } from '@/stores/teacherLessonAuthoring'
+import { lessonJobsToObserve, mergeLessonJobStreamEvent, useTeacherLessonAuthoringStore } from '@/stores/teacherLessonAuthoring'
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -38,6 +38,141 @@ describe('teacher lesson authoring store', () => {
       ...queued,
       { id: 'job-running', status: 'running', batch_position: 2 },
     ] as any).map(job => job.id)).toEqual(['job-running'])
+  })
+
+  it('observes every active script job so each lecture can stream independently', () => {
+    const jobs = [1, 2, 3].map(position => ({
+      id: `script-job-${position}`,
+      type: 'teacher_lesson_script_generation',
+      status: position === 3 ? 'completed' : position === 1 ? 'running' : 'pending',
+      batch_position: position,
+    })) as any
+
+    expect(lessonJobsToObserve(jobs).map(job => job.id)).toEqual(['script-job-1', 'script-job-2'])
+  })
+
+  it('merges script deltas by sequence and ignores duplicate events', () => {
+    const job = {
+      id: 'script-job-1', course_id: 'course-1', lesson_unit_id: 'lesson-1',
+      type: 'teacher_lesson_script_generation', status: 'running', progress: 10,
+      phase: 'lesson_script_generation', message: '正在生成', warnings: [],
+    } as any
+    const second = mergeLessonJobStreamEvent(undefined, {
+      event: 'lesson_script_stream',
+      job: {
+        ...job,
+        progress: 20,
+        stream_events: [
+          { event: 'delta', lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'shard-1', sequence: 2, delta: '第二段' },
+          { event: 'delta', lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'shard-1', sequence: 1, delta: '第一段' },
+          { event: 'delta', lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'shard-1', sequence: 2, delta: '重复内容' },
+        ],
+      },
+    })!
+
+    expect(second.progress).toBe(20)
+    expect(second.streamed_block_content).toEqual({ 'block-1': '第一段第二段' })
+    expect(second.streamed_delta_chunks).toEqual({ 'block-1': { '1:shard-1': '第一段', '2:shard-1': '第二段' } })
+    expect(second.streamed_sequence_by_shard).toEqual({ 'block-1:shard-1': 2 })
+  })
+
+  it('consumes reset and all deltas in one snapshot without duplicating overlap', () => {
+    const baseJob = {
+      id: 'script-job-window', course_id: 'course-1', lesson_unit_id: 'lesson-1',
+      type: 'teacher_lesson_script_generation', status: 'running', progress: 30,
+      phase: 'lesson_script_generation', message: '正在生成', warnings: [],
+    } as any
+    const first = mergeLessonJobStreamEvent(undefined, {
+      event: 'lesson_script_stream',
+      job: {
+        ...baseJob,
+        stream_sequence: 13,
+        stream_batches: { 'shard-a': '快速生成' },
+        stream_events: [
+          { event: 'delta', lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'shard-a', sequence: 12, delta: '速' },
+          { event: 'reset', lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'shard-a', sequence: 10, delta: '' },
+          { event: 'delta', lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'shard-a', sequence: 11, delta: '快' },
+          { event: 'delta', lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'shard-a', sequence: 13, delta: '生成' },
+        ],
+        last_stream_event: { event: 'delta', lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'shard-a', sequence: 13, delta: '生成' },
+      },
+      lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'shard-a', sequence: 13, delta: '生成', stream_event: 'delta',
+    })!
+    const overlapped = mergeLessonJobStreamEvent(first, {
+      event: 'lesson_script_stream',
+      job: {
+        ...baseJob,
+        progress: 40,
+        stream_sequence: 14,
+        stream_batches: { 'shard-a': '快速生成完成' },
+        stream_events: [
+          { event: 'delta', lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'shard-a', sequence: 12, delta: '速' },
+          { event: 'delta', lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'shard-a', sequence: 13, delta: '生成' },
+          { event: 'delta', lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'shard-a', sequence: 14, delta: '完成' },
+        ],
+        last_stream_event: { event: 'delta', lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'shard-a', sequence: 14, delta: '完成' },
+      },
+      lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'shard-a', sequence: 14, delta: '完成', stream_event: 'delta',
+    })!
+
+    expect(first.streamed_block_content).toEqual({ 'block-1': '快速生成' })
+    expect(overlapped.streamed_block_content).toEqual({ 'block-1': '快速生成完成' })
+    expect(overlapped.streamed_delta_chunks).toEqual({ 'block-1': { '14:shard-a': '快速生成完成' } })
+    expect(overlapped.streamed_sequence_by_shard).toEqual({ 'block-1:shard-a': 14 })
+  })
+
+  it('recovers truncated stream history from cumulative shard batches with exact event mapping', () => {
+    const recovered = mergeLessonJobStreamEvent(undefined, {
+      event: 'lesson_script_stream',
+      job: {
+        id: 'script-job-truncated', course_id: 'course-1', lesson_unit_id: 'lesson-1',
+        type: 'teacher_lesson_script_generation', status: 'running', progress: 60,
+        phase: 'lesson_script_generation', message: '正在生成', warnings: [], stream_sequence: 502,
+        stream_batches: { 'lesson-1:block-1': '窗口之前的正文与结尾' },
+        stream_events: [
+          { event: 'delta', lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'lesson-1:block-1', sequence: 501, delta: '结' },
+          { event: 'delta', lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'lesson-1:block-1', sequence: 502, delta: '尾' },
+        ],
+        last_stream_event: { event: 'delta', lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'lesson-1:block-1', sequence: 502, delta: '尾' },
+      },
+    })!
+
+    expect(recovered.streamed_block_content).toEqual({ 'block-1': '窗口之前的正文与结尾' })
+    expect(recovered.streamed_sequence_by_shard).toEqual({ 'block-1:lesson-1:block-1': 502 })
+  })
+
+  it('resets one script shard even without delta and rejects its older events', () => {
+    const job = {
+      id: 'script-job-1', course_id: 'course-1', lesson_unit_id: 'lesson-1',
+      type: 'teacher_lesson_script_generation', status: 'running', progress: 30,
+      phase: 'lesson_script_generation', message: '正在生成', warnings: [],
+      streamed_block_content: { 'block-1': '旧内容保留内容' },
+      streamed_delta_chunks: {
+        'block-1': {
+          '1:shard-a': '旧内容',
+          '2:shard-b': '保留内容',
+        },
+      },
+      streamed_sequence_by_shard: { 'block-1:shard-a': 1, 'block-1:shard-b': 2 },
+    } as any
+    const reset = mergeLessonJobStreamEvent(job, {
+      event: 'lesson_script_stream', stream_event: 'reset', job_id: job.id,
+      lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'shard-a', sequence: 3, delta: '',
+    })!
+    const stale = mergeLessonJobStreamEvent(reset, {
+      event: 'lesson_script_stream', job_id: job.id,
+      lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'shard-a', sequence: 1, delta: '迟到旧内容',
+    })!
+    const resumed = mergeLessonJobStreamEvent(stale, {
+      event: 'lesson_script_stream', job_id: job.id,
+      lesson_unit_id: 'lesson-1', block_id: 'block-1', shard_id: 'shard-a', sequence: 4, delta: '新内容',
+    })!
+
+    expect(reset.streamed_delta_chunks).toEqual({ 'block-1': { '2:shard-b': '保留内容' } })
+    expect(reset.streamed_block_content).toEqual({ 'block-1': '保留内容' })
+    expect(reset.streamed_reset_sequence_by_shard).toEqual({ 'block-1:shard-a': 3 })
+    expect(stale.streamed_block_content).toEqual({ 'block-1': '保留内容' })
+    expect(resumed.streamed_block_content).toEqual({ 'block-1': '保留内容新内容' })
   })
 
   it('loads an empty lesson view without publishing a duplicate global error', async () => {
@@ -146,5 +281,36 @@ describe('teacher lesson authoring store', () => {
       { headers: { 'X-User-Id': 'teacher-test' } },
     )
     expect(store.error).toBe('')
+  })
+
+  it('starts all script jobs in one request and subscribes every child stream', async () => {
+    httpMock.post.mockResolvedValue({
+      data: {
+        parent_job: { id: 'script-batch-1', child_job_ids: ['script-job-1', 'script-job-2'], skipped_lesson_ids: [], total: 2, started: 2 },
+        jobs: [1, 2].map(position => ({
+          id: `script-job-${position}`, course_id: 'course-1', lesson_unit_id: `lesson-${position}`,
+          type: 'teacher_lesson_script_generation', status: 'pending', progress: 0,
+          phase: 'queued', message: '等待生成', warnings: [], parent_job_id: 'script-batch-1',
+          batch_position: position, batch_size: 2,
+        })),
+      },
+    })
+    const store = useTeacherLessonAuthoringStore()
+    const stream = vi.spyOn(store, 'streamJob').mockResolvedValue(undefined)
+
+    await store.generateAllScripts('course-1', '')
+
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/teacher/courses/course-1/lesson-scripts/generate-all',
+      {
+        request_id: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
+        requirements: '',
+      },
+      { headers: { 'X-User-Id': 'teacher-test' } },
+    )
+    expect(stream.mock.calls.map(call => call.slice(0, 2))).toEqual([
+      ['course-1', 'script-job-1'],
+      ['course-1', 'script-job-2'],
+    ])
   })
 })

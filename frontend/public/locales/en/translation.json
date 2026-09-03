@@ -394,6 +394,7 @@
     "confirmOutlineAndContinue": "Confirm outline and open lesson plans",
     "outlineConfirmed": "Outline confirmed",
     "outlineReview": {
+      "open": "View outline review",
       "title": "Outline review",
       "issueCount": "{count} improvement suggestions",
       "ready": "No improvement suggestions",
@@ -408,12 +409,12 @@
     "outlineFlow": {
       "title": "Outline generation steps",
       "courseInfo": "Enter course information",
-      "lightPlan": "Review and edit course plan",
-      "fullOutline": "Generate full outline",
+      "lightPlan": "Light lecture plan",
+      "fullOutline": "Full outline",
       "generateFull": "Generate full outline",
       "continuing": "Generating full outline…",
       "continueFailed": "Could not start full outline generation",
-      "lightPlanReady": "The lightweight course plan is ready. Edit it or generate the full outline.",
+      "lightPlanReady": "The light lecture plan is ready. Edit it or generate the full outline.",
       "fullReady": "The full outline is generated and saved",
       "lessonProgress": "Lesson generation progress",
       "lessonProgressCount": "{completed}/{total} lessons complete",
@@ -448,7 +449,18 @@
       "waitingTitle": "Queued for generation",
       "waitingDetail": "This lesson is queued independently and starts when capacity is available. No further action is needed.",
       "failed": "Could not start the batch lesson-plan tasks. Try again.",
-      "status": { "pending": "Waiting", "running": "Generating", "paused": "Paused", "completed": "Complete", "completed_with_warnings": "Complete, review needed", "failed": "Failed", "cancelled": "Cancelled" }
+      "status": { "pending": "Waiting", "running": "Generating", "paused": "Paused", "completed": "Complete", "completed_with_warnings": "Complete", "failed": "Failed", "cancelled": "Cancelled" }
+    },
+    "scriptBatch": {
+      "previewTitle": "Full-course lecture-note preview",
+      "previewDetail": "Lecture notes use the generated lesson plans directly, and all eligible lessons enter the queue together.",
+      "starting": "Starting…",
+      "generateAll": "Generate all lecture notes",
+      "generateRemaining": "Generate remaining lecture notes ({count})",
+      "minutes": "minutes",
+      "structurePending": "A complete lecture note will be generated from the current lesson plan.",
+      "overallProgress": "{completed}/{total} lessons complete · {active} generating in parallel",
+      "failed": "Could not create all lecture-note tasks. Try again."
     },
     "waitingForContent": "AI is building the course structure…",
     "generationInterrupted": "Generation interrupted",

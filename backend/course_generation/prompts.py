@@ -241,9 +241,9 @@ class CoursePromptComposer:
                 or shape.get("total_class_hours")
                 or "未填写"
             )
-            return f"""## 轻量课程方案 V1
+            return f"""## 轻量讲次方案 V1
 
-本请求只生成教师可立即看到和编辑的课程方案，不生成完整大纲、教案、讲义或题目。
+这是课程大纲生成的第一轮。请先形成教师可立即看到和编辑的轻量讲次方案。
 
 ## 课程输入
 - 课程名称：{subject}
@@ -254,14 +254,13 @@ class CoursePromptComposer:
 - 其他必要约束：{json.dumps(outline_input_brief, ensure_ascii=False)}
 
 ## 资料摘要
-{material_context or '未上传资料；只能使用通用知识，不得伪装引用资料。'}
+{material_context or '未上传资料；请依据课程信息和通用知识安排讲次。'}
 
-## 约束
-1. 只返回讲次顺序，以及每讲的标题和内容简介；这是供教师调整的轻量讲次方案。
-2. 严格返回 {lecture_count} 讲，不得增减。标题不带“第N讲”、章、节或数字编号。
-3. `content_summary` 使用二至四句自然中文，只说清这一讲实际要讲什么，以及它与前后讲的衔接；不要展开教学活动或考核安排。
-4. 不输出课程目标、课程模块、学时、重难点、教学活动、作业、资源、学习任务、达成检验或考核方案。
-5. 只输出有效 JSON，不输出 Markdown 或解释。
+## 生成要求
+1. 按课程推进顺序返回每讲的标题和内容简介，供教师直接调整。
+2. 讲数保持为 {lecture_count} 讲。标题使用纯主题名称，例如“监督学习基础”。
+3. `content_summary` 使用二至四句自然中文，说明这一讲实际讲什么，以及它与前后讲的衔接。
+4. 响应使用下方 JSON Schema。
 
 ## JSON Schema
 {{
@@ -387,8 +386,8 @@ class CoursePromptComposer:
 上一次讲次方案存在以下问题：
 {issue_text}
 
-只修复这些问题并重新输出完整 JSON。必须保持教师填写的讲数，只使用 `lectures`；
-不得改成 chapters，不得生成章、小节、1.1 或任何二级目录。
+请根据这些问题重新生成完整的轻量讲次方案。保持教师填写的讲数，
+并继续使用上面的 `lectures` JSON Schema。
 
 {clip_text(original_prompt, 12000)}
 """.strip()
@@ -400,6 +399,164 @@ class CoursePromptComposer:
 只修复章节骨架并重新输出完整 JSON。不得生成小节、知识点、教案、正文、题目或解释。
 
 {clip_text(original_prompt, 8500)}
+""".strip()
+
+    def build_teacher_outline_course_contract_v1_prompt(
+        self,
+        *,
+        skeleton: dict[str, Any],
+        brief: dict[str, Any],
+        material_context: str,
+        detail_level: str = "full",
+    ) -> str:
+        """Generate the course-level formal fields from the edited light plan."""
+        lectures = [
+            {
+                "lecture_number": int(
+                    item.get("lecture_number")
+                    or item.get("chapter_number")
+                    or index
+                ),
+                "title": str(item.get("title") or ""),
+                "content_summary": str(item.get("content_summary") or ""),
+            }
+            for index, item in enumerate(
+                skeleton.get("chapters") or [],
+                start=1,
+            )
+            if isinstance(item, dict)
+        ]
+        teacher_context = brief.get("teacher_course_brief") or {}
+        formal_profile = brief.get("formal_course_profile") or {}
+        formal_contract = compile_outline_prompt_contract(
+            subject=str(skeleton.get("course_title") or "课程"),
+            audience=str(
+                teacher_context.get("target_audience")
+                or brief.get("audience")
+                or "未填写"
+            ),
+            brief=brief,
+        )
+        if detail_level != "full":
+            max_text = 180 if detail_level == "compact" else 96
+            lectures = compact_value(
+                lectures,
+                max_string_chars=max_text,
+                max_list_items=36,
+                max_depth=3,
+            )
+            teacher_context = compact_value(
+                teacher_context,
+                max_string_chars=max_text,
+                max_list_items=8,
+                max_depth=3,
+            )
+            formal_profile = compact_value(
+                formal_profile,
+                max_string_chars=max_text,
+                max_list_items=8,
+                max_depth=3,
+            )
+            formal_contract = compact_value(
+                formal_contract,
+                max_string_chars=max_text,
+                max_list_items=12,
+                max_depth=4,
+            )
+            material_context = clip_text(
+                material_context,
+                4200 if detail_level == "compact" else 1800,
+            )
+        skeleton_revision_id = str(skeleton.get("revision_id") or "")
+        return f"""## 课程级完整大纲合同 V1
+
+这是完整大纲生成的第二轮。请先根据教师最新编辑的讲次方案，形成课程级正式字段。
+讲次方案作为本轮已经冻结的输入，响应使用下方课程级 JSON Schema。
+
+## 轻量方案修订
+{skeleton_revision_id}
+
+## 教师当前讲次方案
+{json.dumps(lectures, ensure_ascii=False)}
+
+## 教师课程信息
+{json.dumps(teacher_context, ensure_ascii=False)}
+
+## 已有正式课程信息
+{json.dumps(formal_profile, ensure_ascii=False)}
+
+## 资料摘要
+{material_context or '未上传资料；请依据课程信息和通用知识生成，需要来源确认的字段保持空值。'}
+
+## 正式大纲模板合同
+{json.dumps(formal_contract, ensure_ascii=False)}
+
+## 生成要求
+1. 课程定位、学习目标、可测量成果、授课方式、考核方案和知识模块必须与讲次方案一致。
+2. 每项可测量成果都必须关联课程目标、覆盖讲次、评价证据和内容范围。
+3. 知识模块用于组织讲次分组，全部讲次恰好出现一次。
+4. 考核方案同时包含过程性与终结性评价，权重合计 100，并与可测量成果关联。
+5. 参考书籍、网站、版次和网址取自教师输入或已解析资料；无法核实时保持空数组或空字符串。
+6. 育人目标与实施案例使用和真实课程内容直接相关的具体表达。
+7. 响应使用下方 JSON Schema。
+
+## JSON Schema
+{{
+  "schema_version": "teacher_outline_course_contract_v1",
+  "skeleton_revision_id": "{skeleton_revision_id}",
+  "course_intro_zh": "中文课程简介",
+  "course_intro_en": "与中文语义对应的英文简介",
+  "positioning": "学习对象、课程边界与最终能力",
+  "learning_objectives": ["可观察的学习目标"],
+  "prerequisites": ["必要先修要求"],
+  "education_objectives": ["与真实课程内容相关的育人目标"],
+  "measurable_outcomes": ["可测量学习成果"],
+  "outcome_alignment": [{{
+    "outcome_number": 1,
+    "objective_refs": ["学习目标1"],
+    "lecture_numbers": [1],
+    "assessment_evidence": ["可检查证据"],
+    "coverage_scope": "内容范围"
+  }}],
+  "teaching_methods": ["授课方式"],
+  "assessment_methods": ["考核方式摘要"],
+  "assessment_plan": [{{
+    "item": "考核项目",
+    "category": "formative|summative",
+    "weight_percent": 50,
+    "criteria": "评分标准",
+    "outcome_numbers": [1]
+  }}],
+  "course_modules": [{{
+    "module_id": "M1",
+    "title": "知识模块",
+    "lecture_numbers": [1]
+  }}],
+  "ideology_cases": [],
+  "reference_books": [],
+  "reference_websites": [],
+  "course_website": ""
+}}""".strip()
+
+    def build_teacher_outline_course_contract_v1_correction_prompt(
+        self,
+        *,
+        original_prompt: str,
+        issues: list[dict[str, Any]],
+    ) -> str:
+        issue_text = "\n".join(
+            f"- {clip_text(item.get('message'), 240)}"
+            for item in issues[:12]
+        ) or "- 上一次输出不是完整有效的课程级大纲 JSON"
+        return f"""## 课程级完整大纲合同 V1 定点修复
+
+上一次课程级大纲字段存在以下结构问题：
+{issue_text}
+
+请根据这些问题重新生成完整的课程级字段，并保持轻量方案修订标识。
+响应继续使用原请求中的课程级 JSON Schema。
+
+{clip_text(original_prompt, 14000)}
 """.strip()
 
     def build_teacher_outline_detail_batch_v1_prompt(
@@ -483,8 +640,8 @@ class CoursePromptComposer:
         lecture_count = len(selected_lectures)
         return f"""## 单讲完整大纲 V2
 
-讲次方案已经由教师编辑并主动发起完整大纲生成。本任务只生成当前一讲的完整对象；不得修改讲数、顺序、
-标题或教师编辑后的内容简介。只输出有效 JSON。
+这是完整大纲第二轮的逐讲生成任务。请根据已经冻结的讲次方案和课程级合同，
+生成当前一讲的目标、内容边界、学时、教学活动、学习任务和达成检验。
 
 ## 批次身份
 - 批次：{batch_id}
@@ -504,17 +661,17 @@ class CoursePromptComposer:
 {json.dumps(teacher_context, ensure_ascii=False)}
 
 ## 资料摘要
-{material_context or '未上传资料；只能使用通用知识，不得伪装引用资料。'}
+{material_context or '未上传资料；请依据课程信息和通用知识生成，需要来源确认的字段保持空值。'}
 
-## 约束
-1. 严格返回当前讲次的 1 个完整对象，不得遗漏、增加或换讲。
+## 生成要求
+1. 返回当前讲次的 1 个完整对象，讲次身份使用“批次身份”中的值。
 2. 根据冻结的标题和 `content_summary` 生成本讲目标、内容边界和分项学时；三项 `hour_breakdown` 之和必须大于 0。
 3. 重点、难点、活动、作业和达成检验必须与本讲目标一致；达成检验写清学生产出与教师判断标准。
 4. 每讲至少给出一个案例、问题、例题、实验或项目情境，以及一项课前或课后任务和可提交证据。
-5. 在线或混合课程每讲至少一项 `mode=online` 任务；纯线下课程使用 `mode=offline`。课外任务的 `estimated_hours` 不计入课程总学时。
-6. 拓展资源只能从课程级已确认参考资料中选择，`source_ref` 必须完全一致。没有已确认来源时返回空数组，不得编造书名、版次、章节或页码。
-7. `education_objective_refs` 和 `ideology_implementation` 只在本讲确有责任、规范或价值判断时填写；`external_mentor` 只使用教师输入已提供的信息。
-8. 不输出标题、内容简介、知识点树、教案、讲义、Markdown 或解释。
+5. 在线或混合课程每讲至少一项 `mode=online` 任务；纯线下课程使用 `mode=offline`。课外任务的 `estimated_hours` 单独记录。
+6. 拓展资源从课程级已确认参考资料中选择，`source_ref` 与确认来源完全一致；没有已确认来源时使用空数组。
+7. `education_objective_refs` 和 `ideology_implementation` 在本讲确有责任、规范或价值判断时填写；`external_mentor` 使用教师输入已提供的信息。
+8. 响应使用下方 JSON Schema。
 
 ## JSON Schema
 {{
@@ -577,8 +734,8 @@ class CoursePromptComposer:
 当前讲次详情批次存在以下问题：
 {issue_text}
 
-只重新输出当前讲次的完整 JSON。必须保持任务标识、框架修订和讲次身份；
-不得修改已冻结的讲次框架，不要输出解释或 Markdown 围栏。
+请根据这些问题重新生成当前讲次的完整 JSON。保持任务标识、框架修订和讲次身份，
+并继续使用原请求中的逐讲 JSON Schema。
 
 {clip_text(original_prompt, 12000)}
 """.strip()
@@ -963,6 +1120,7 @@ class CoursePromptComposer:
         skeleton_revision_id: str,
         overall_guidance: dict[str, Any] | None = None,
         detail_level: str = "full",
+        generate_knowledge_contract: bool = False,
     ) -> str:
         bounded = compact_batch_inputs(
             batch_sections=batch_sections,
@@ -1009,10 +1167,67 @@ class CoursePromptComposer:
                 max_list_items=8,
                 max_depth=2,
             )
-        return f"""## 详细小节教案批次 V3
+        header = (
+            "## 单讲知识责任与完整教案联合生成 V4"
+            if generate_knowledge_contract
+            else "## 详细小节教案批次 V3"
+        )
+        opening = (
+            "本讲知识责任尚未生成。请在同一次响应中确定原子知识身份、每节唯一责任，"
+            "并直接展开完整教案；不得把知识骨架与教案拆成两轮请求。"
+            if generate_knowledge_contract
+            else (
+                "全课知识身份已经确认。你只展开当前批次，不得新增、删除、改名或迁移"
+                "知识键；不得修改其他批次。"
+            )
+        )
+        knowledge_context = (
+            "由本次响应共同生成；不要依赖任何前置知识骨架请求。"
+            if generate_knowledge_contract
+            else json.dumps(knowledge_registry, ensure_ascii=False)
+        )
+        identity_context = (
+            "由本次响应共同生成；每个小节与该小节完整教案放在同一个 sections 对象中。"
+            if generate_knowledge_contract
+            else json.dumps(section_identities, ensure_ascii=False)
+        )
+        joint_constraints = (
+            "0A. `knowledge_registry` 与 `sections` 必须在同一个 JSON 中返回；"
+            "每个 section 同时包含 `owned_knowledge_keys`、`reused_knowledge_keys` 和完整教案字段。\n"
+            "0B. 响应内临时知识键按小节顺序从 `K001` 连续编号且本讲唯一，系统会在"
+            "本地将它们确定性映射为正式稳定 ID；每个知识键只有一个 `owner_node_id`。"
+            "每节通常首次负责 2-4 个可独立解释、练习和诊断的原子知识点。\n"
+            "0C. `module_ids` 只能使用对应小节 `allowed_module_ids` 中的值，至少一个。"
+            "注册表的 owner、复用位置与 sections 中的职责必须完全一致。\n"
+            "0D. `knowledge_details` 必须逐一展开本节全部 `owned_knowledge_keys`。"
+            "知识责任与详细教案必须语义一致，不能先写一套责任、再写另一套内容。"
+            if generate_knowledge_contract
+            else ""
+        )
+        registry_schema = (
+            '''"knowledge_registry": [
+    {
+      "knowledge_key": "K001",
+      "name": "原子知识规范名称",
+      "statement": "可独立成立的一句话规范陈述",
+      "owner_node_id": "L2-1-1",
+      "reused_in_node_ids": [],
+      "prerequisite_keys": [],
+      "module_ids": ["core_explanation"]
+    }
+  ],'''
+            if generate_knowledge_contract
+            else ""
+        )
+        identity_schema = (
+            '''"owned_knowledge_keys": ["K001"],
+      "reused_knowledge_keys": [],'''
+            if generate_knowledge_contract
+            else ""
+        )
+        return f"""{header}
 
-全课知识身份已经确认。你只展开当前批次，不得新增、删除、改名或迁移知识键；不得
-修改其他批次。只输出有效 JSON，不输出正文、题目、评分、解释或 Markdown 围栏。
+{opening}只输出有效 JSON，不输出正文、题目、评分、解释或 Markdown 围栏。
 
 ## 课程
 - 课程：{course_title}
@@ -1035,12 +1250,13 @@ class CoursePromptComposer:
 {json.dumps(batch_evidence, ensure_ascii=False)}
 
 ## 当前批次知识与直接依赖闭包（只读）
-{json.dumps(knowledge_registry, ensure_ascii=False)}
+{knowledge_context}
 
 ## 当前批次知识职责（只读）
-{json.dumps(section_identities, ensure_ascii=False)}
+{identity_context}
 
 ## 约束
+{joint_constraints}
 1. `sections` 必须按批次指定顺序返回，`knowledge_details` 必须按本节
    `owned_knowledge_keys` 顺序逐个展开，不能展开复用键。
 2. 每个知识详情必须给出成立条件或边界、可观察能力、至少一个可信易错点和可验证
@@ -1141,9 +1357,11 @@ class CoursePromptComposer:
 
 ## JSON Schema
 {{
+  {registry_schema}
   "sections": [
     {{
       "node_id": "L2-1-1",
+      {identity_schema}
       "knowledge_objectives": ["本讲需要理解和掌握的知识"],
       "ability_objectives": ["学生能够完成的可观察学科任务"],
       "education_objectives": [],

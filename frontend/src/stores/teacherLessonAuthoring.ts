@@ -30,7 +30,7 @@ export interface TeacherLessonPlanRevision {
   source_outline_revision_id: string
   source_arrangement_revision_id?: string
   generation_source: string
-  status: 'draft' | 'needs_ai_review' | 'confirmed'
+  status: 'draft' | 'confirmed'
   warnings: Array<Record<string, unknown>>
   source_refs?: Array<Record<string, unknown>>
   pipeline_version?: 'standard_lesson_plan_v1'
@@ -201,7 +201,7 @@ export interface TeacherLessonPptRevision {
   lesson_unit_id: string
   source_lesson_plan_revision_id: string
   generation_source: string
-  status: 'draft' | 'needs_ai_review'
+  status: 'draft'
   warnings: Array<Record<string, unknown>>
   deck: { schema_version: string; title: string; slides: TeacherLessonPptSlide[] }
   actor: string
@@ -280,6 +280,16 @@ export interface TeacherLessonProjection {
   material_drafts?: Partial<Record<'lesson_plan' | 'script' | 'ppt', TeacherMaterialWorkingDraft>>
 }
 
+export interface TeacherLessonStreamDeltaEvent {
+  event?: string
+  stream_event?: string
+  lesson_unit_id?: string
+  block_id?: string
+  shard_id?: string
+  sequence?: number
+  delta?: string
+}
+
 export interface TeacherLessonJob {
   id: string
   course_id: string
@@ -298,6 +308,8 @@ export interface TeacherLessonJob {
   pause_requested?: boolean
   stream_sequence?: number
   stream_batches?: Record<string, string>
+  stream_events?: TeacherLessonStreamDeltaEvent[]
+  last_stream_event?: TeacherLessonStreamDeltaEvent
   stream_complete?: boolean
   requirements?: string
   total_blocks?: number
@@ -306,6 +318,10 @@ export interface TeacherLessonJob {
   current_block_title?: string
   block_states?: Record<string, 'pending' | 'running' | 'completed' | 'failed'>
   result_sections?: TeacherLessonScriptSection[]
+  streamed_block_content?: Record<string, string>
+  streamed_delta_chunks?: Record<string, Record<string, string>>
+  streamed_sequence_by_shard?: Record<string, number>
+  streamed_reset_sequence_by_shard?: Record<string, number>
   updated_at?: string
 }
 
@@ -315,6 +331,12 @@ export interface TeacherLessonJobStreamEvent {
     | 'lesson_script_failed' | 'lesson_script_cancelled' | 'lesson_script_paused' | 'error'
   job?: TeacherLessonJob
   job_id?: string
+  lesson_unit_id?: string
+  block_id?: string
+  shard_id?: string
+  sequence?: number
+  delta?: string
+  stream_event?: string
   message?: string
 }
 
@@ -486,14 +508,187 @@ const fetchLessonAuthoringView = (courseId: string) => {
 
 export const lessonJobsToObserve = (jobs: TeacherLessonJob[]) => {
   const active = jobs.filter(job => ['pending', 'running'].includes(job.status))
-  const running = active.filter(job => job.status === 'running')
-  if (running.length) return running
-  return [...active]
+  const scriptJobs = active.filter(job => job.type === 'teacher_lesson_script_generation')
+  const lessonPlanJobs = active.filter(job => job.type !== 'teacher_lesson_script_generation')
+  const running = lessonPlanJobs.filter(job => job.status === 'running')
+  const nextLessonPlanJobs = running.length ? running : [...lessonPlanJobs]
     .sort((left, right) => (
       Number(left.batch_position || 0) - Number(right.batch_position || 0)
       || String(left.id || '').localeCompare(String(right.id || ''))
     ))
     .slice(0, 1)
+  return [...scriptJobs, ...nextLessonPlanJobs]
+}
+
+function streamChunkContent(chunks: Record<string, string>): string {
+  return Object.entries(chunks)
+    .sort(([left], [right]) => {
+      const [leftSequence, ...leftShardParts] = left.split(':')
+      const [rightSequence, ...rightShardParts] = right.split(':')
+      return Number(leftSequence) - Number(rightSequence)
+        || leftShardParts.join(':').localeCompare(rightShardParts.join(':'))
+    })
+    .map(([, value]) => value)
+    .join('')
+}
+
+function withoutShardChunks(chunks: Record<string, string>, shardId: string): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(chunks).filter(([key]) => key.split(':').slice(1).join(':') !== shardId),
+  )
+}
+
+function mergeSingleLessonJobStreamEvent(
+  previous: TeacherLessonJob | undefined,
+  event: TeacherLessonJobStreamEvent,
+): TeacherLessonJob | undefined {
+  const incoming = event.job
+  const jobId = String(incoming?.id || event.job_id || '')
+  if (!jobId || (!incoming && !previous)) return previous
+  const base = { ...(previous || {}), ...(incoming || {}) } as TeacherLessonJob
+  const eventLessonId = String(event.lesson_unit_id || incoming?.lesson_unit_id || '')
+  if (eventLessonId && base.lesson_unit_id && eventLessonId !== base.lesson_unit_id) return previous
+
+  const blockId = String(event.block_id || incoming?.current_block_id || '')
+  if (!blockId) return base
+  const shardId = String(event.shard_id || blockId)
+  const sequence = Number(event.sequence)
+  const sequenceKey = `${blockId}:${shardId}`
+  const previousSequences = previous?.streamed_sequence_by_shard || {}
+  const lastSequence = previousSequences[sequenceKey]
+  const blockChunks = previous?.streamed_delta_chunks?.[blockId] || {}
+  const resetSequences = previous?.streamed_reset_sequence_by_shard || {}
+  const lastResetSequence = resetSequences[sequenceKey]
+  const streamEvent = String(event.stream_event || '')
+  const isReset = streamEvent === 'reset'
+  if (Number.isFinite(sequence) && lastSequence !== undefined && sequence <= lastSequence) return base
+  const retainedChunks = isReset ? withoutShardChunks(blockChunks, shardId) : blockChunks
+  const delta = String(event.delta || '')
+  if (!isReset && !delta) return base
+  if (!isReset && Number.isFinite(sequence) && lastResetSequence !== undefined && sequence <= lastResetSequence) return base
+  const chunkKey = Number.isFinite(sequence) ? `${sequence}:${shardId}` : ''
+  if (!isReset && chunkKey && retainedChunks[chunkKey] !== undefined) return base
+  const nextBlockChunks = chunkKey && delta ? { ...retainedChunks, [chunkKey]: delta } : retainedChunks
+  const blockContent = Object.keys(nextBlockChunks).length
+    ? streamChunkContent(nextBlockChunks)
+    : chunkKey ? '' : `${isReset ? '' : previous?.streamed_block_content?.[blockId] || ''}${delta}`
+
+  return {
+    ...base,
+    current_block_id: blockId,
+    stream_sequence: Number.isFinite(sequence)
+      ? Math.max(Number(base.stream_sequence || 0), sequence)
+      : base.stream_sequence,
+    streamed_block_content: {
+      ...(previous?.streamed_block_content || {}),
+      [blockId]: blockContent,
+    },
+    streamed_delta_chunks: {
+      ...(previous?.streamed_delta_chunks || {}),
+      ...((chunkKey || isReset) ? { [blockId]: nextBlockChunks } : {}),
+    },
+    streamed_sequence_by_shard: {
+      ...previousSequences,
+      ...(Number.isFinite(sequence) ? { [sequenceKey]: Math.max(lastSequence ?? sequence, sequence) } : {}),
+    },
+    streamed_reset_sequence_by_shard: {
+      ...resetSequences,
+      ...(isReset && Number.isFinite(sequence)
+        ? { [sequenceKey]: Math.max(lastResetSequence ?? sequence, sequence) }
+        : {}),
+    },
+  }
+}
+
+function reconcileLessonScriptStreamBatches(
+  job: TeacherLessonJob,
+  event: TeacherLessonJobStreamEvent,
+): TeacherLessonJob {
+  if (job.type !== 'teacher_lesson_script_generation' || !Object.keys(job.stream_batches || {}).length) return job
+  const mappings = new Map<string, { blockId: string; lessonUnitId: string; sequence: number }>()
+  const candidates: TeacherLessonStreamDeltaEvent[] = [
+    ...(job.stream_events || []),
+    ...(job.last_stream_event ? [job.last_stream_event] : []),
+    {
+      lesson_unit_id: event.lesson_unit_id,
+      block_id: event.block_id,
+      shard_id: event.shard_id,
+      sequence: event.sequence,
+    },
+  ]
+  candidates.forEach(item => {
+    const shardId = String(item.shard_id || '')
+    const blockId = String(item.block_id || '')
+    const lessonUnitId = String(item.lesson_unit_id || job.lesson_unit_id || '')
+    if (!shardId || !blockId || (lessonUnitId && lessonUnitId !== job.lesson_unit_id)) return
+    const sequence = Number(item.sequence)
+    const current = mappings.get(shardId)
+    if (!current || !Number.isFinite(current.sequence) || (Number.isFinite(sequence) && sequence >= current.sequence)) {
+      mappings.set(shardId, { blockId, lessonUnitId, sequence })
+    }
+  })
+
+  let chunksByBlock = { ...(job.streamed_delta_chunks || {}) }
+  const sequences = { ...(job.streamed_sequence_by_shard || {}) }
+  const affectedBlocks = new Set<string>()
+  Object.entries(job.stream_batches || {}).forEach(([shardId, content]) => {
+    const mapping = mappings.get(shardId)
+    if (!mapping) return
+    const sequence = Number.isFinite(mapping.sequence) ? mapping.sequence : Number(job.stream_sequence || 0)
+    const sequenceKey = `${mapping.blockId}:${shardId}`
+    const retained = withoutShardChunks(chunksByBlock[mapping.blockId] || {}, shardId)
+    chunksByBlock = {
+      ...chunksByBlock,
+      [mapping.blockId]: content ? { ...retained, [`${sequence}:${shardId}`]: String(content) } : retained,
+    }
+    sequences[sequenceKey] = Math.max(Number(sequences[sequenceKey] || 0), sequence)
+    affectedBlocks.add(mapping.blockId)
+  })
+  if (!affectedBlocks.size) return job
+
+  const blockContent = { ...(job.streamed_block_content || {}) }
+  affectedBlocks.forEach(blockId => {
+    blockContent[blockId] = streamChunkContent(chunksByBlock[blockId] || {})
+  })
+  return {
+    ...job,
+    streamed_delta_chunks: chunksByBlock,
+    streamed_block_content: blockContent,
+    streamed_sequence_by_shard: sequences,
+  }
+}
+
+export function mergeLessonJobStreamEvent(
+  previous: TeacherLessonJob | undefined,
+  event: TeacherLessonJobStreamEvent,
+): TeacherLessonJob | undefined {
+  const jobId = String(event.job?.id || event.job_id || '')
+  let merged = mergeSingleLessonJobStreamEvent(previous, {
+    ...event,
+    stream_event: undefined,
+    delta: undefined,
+  })
+  const streamEvents = [...(event.job?.stream_events || [])].sort((left, right) => {
+    const sequenceOrder = Number(left.sequence || 0) - Number(right.sequence || 0)
+    if (sequenceOrder) return sequenceOrder
+    const leftReset = String(left.event || left.stream_event || '') === 'reset'
+    const rightReset = String(right.event || right.stream_event || '') === 'reset'
+    return Number(rightReset) - Number(leftReset)
+  })
+  streamEvents.forEach(item => {
+    merged = mergeSingleLessonJobStreamEvent(merged, {
+      event: event.event,
+      job_id: jobId,
+      lesson_unit_id: item.lesson_unit_id,
+      block_id: item.block_id,
+      shard_id: item.shard_id,
+      sequence: item.sequence,
+      delta: item.delta,
+      stream_event: item.stream_event || item.event,
+    })
+  })
+  if (merged && event.job) merged = reconcileLessonScriptStreamBatches(merged, event)
+  return mergeSingleLessonJobStreamEvent(merged, { ...event, job: undefined, job_id: jobId })
 }
 
 export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-authoring', {
@@ -716,7 +911,9 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
           },
         )
         await consumeLessonPlanStream(response, event => {
-          const job = event.job
+          const eventJobId = String(event.job?.id || event.job_id || jobId)
+          const previous = this.jobs.find(item => item.id === eventJobId)
+          const job = mergeLessonJobStreamEvent(previous, { ...event, job_id: eventJobId })
           if (!job) {
             if (event.event === 'error') this.error = event.message || '本讲生成流已中断'
             return
@@ -851,6 +1048,35 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         throw error
       } finally {
         this.actionLessonId = ''
+      }
+    },
+    async generateAllScripts(
+      courseId: string,
+      requirements = '',
+    ) {
+      this.error = ''
+      try {
+        const response = await http.post<{
+          parent_job: { id: string; child_job_ids: string[]; skipped_lesson_ids: string[]; total: number; started: number }
+          jobs: TeacherLessonJob[]
+        }>(
+          `/api/teacher/courses/${courseId}/lesson-scripts/generate-all`,
+          {
+            request_id: createUuid(),
+            requirements,
+          },
+          requestConfig(),
+        )
+        const incoming = response.data.jobs
+        const incomingIds = new Set(incoming.map(job => job.id))
+        this.jobs = [...this.jobs.filter(job => !incomingIds.has(job.id)), ...incoming]
+        incoming
+          .filter(job => ['pending', 'running'].includes(job.status))
+          .forEach(job => { void this.streamJob(courseId, job.id) })
+        return response.data
+      } catch (error) {
+        this.error = errorMessage(error, '全部讲义任务创建失败，请重试。')
+        throw error
       }
     },
     async saveScriptDraft(

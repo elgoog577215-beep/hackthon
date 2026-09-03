@@ -408,6 +408,7 @@ def normalize_outline_skeleton(
     *,
     topic: str,
     request_fingerprint: str,
+    teacher_light_plan_only: bool = False,
 ) -> dict[str, Any]:
     lecture_payload = payload.get("lectures")
     lecture_mode = bool(
@@ -419,38 +420,45 @@ def normalize_outline_skeleton(
         if isinstance(lecture_payload, list)
         else payload.get("chapters") or []
     )
+    light_teacher_plan = bool(teacher_light_plan_only and lecture_mode)
+    formal_payload = {} if light_teacher_plan else payload
     reference_books = _text_items(
-        payload.get("reference_books"), max_chars=260, limit=30
+        formal_payload.get("reference_books"), max_chars=260, limit=30
     )
     reference_websites = _text_items(
-        payload.get("reference_websites"), max_chars=260, limit=30
+        formal_payload.get("reference_websites"), max_chars=260, limit=30
     )
     confirmed_reference_labels = set(reference_books + reference_websites)
     chapters: list[dict[str, Any]] = []
     for index, raw in enumerate(raw_units, start=1):
         if not isinstance(raw, dict):
             continue
+        detail_raw = {} if light_teacher_plan else raw
         section_count = 1 if lecture_mode else _positive_int(raw.get("section_count"))
         title = _plain_unit_title(
             raw.get("title"),
             f"第 {index} 讲" if lecture_mode else f"第 {index} 章",
         )
-        hour_breakdown = _normalize_hour_breakdown(raw.get("hour_breakdown"))
+        hour_breakdown = _normalize_hour_breakdown(detail_raw.get("hour_breakdown"))
         planned_hours = round(sum(hour_breakdown.values()), 2)
         external_mentor = (
-            raw.get("external_mentor")
-            if isinstance(raw.get("external_mentor"), dict)
+            detail_raw.get("external_mentor")
+            if isinstance(detail_raw.get("external_mentor"), dict)
             else {}
         )
         raw_content_summary = _clip(
             raw.get("content_summary")
-            or raw.get("content")
-            or (raw.get("learning_focus") if not lecture_mode else ""),
+            or (
+                raw.get("content")
+                or (raw.get("learning_focus") if not lecture_mode else "")
+                if not light_teacher_plan
+                else ""
+            ),
             720,
         )
         raw_learning_focus = _clip(
-            raw.get("learning_focus")
-            or raw.get("learning_objective")
+            detail_raw.get("learning_focus")
+            or detail_raw.get("learning_objective")
             or (
                 ""
                 if lecture_mode
@@ -459,8 +467,8 @@ def normalize_outline_skeleton(
             220,
         )
         raw_learning_objective = _clip(
-            raw.get("learning_objective")
-            or raw.get("learning_focus")
+            detail_raw.get("learning_objective")
+            or detail_raw.get("learning_focus")
             or (
                 ""
                 if lecture_mode
@@ -473,50 +481,50 @@ def normalize_outline_skeleton(
             "lecture_number": index if lecture_mode else None,
             "title": title,
             "planning_stages": _planning_stages(
-                raw.get("planning_stages") or raw.get("planning_stage")
+                detail_raw.get("planning_stages") or detail_raw.get("planning_stage")
             ),
             "learning_focus": raw_learning_focus,
             "content_summary": raw_content_summary,
             "learning_objective": raw_learning_objective,
             "key_points": [
                 _clip(item, 160)
-                for item in raw.get("key_points") or []
+                for item in detail_raw.get("key_points") or []
                 if str(item or "").strip()
             ][:6],
             "key_difficulties": [
                 _clip(item, 160)
-                for item in raw.get("key_difficulties") or []
+                for item in detail_raw.get("key_difficulties") or []
                 if str(item or "").strip()
             ][:6],
             "activities": [
                 _clip(item, 180)
-                for item in raw.get("activities") or []
+                for item in detail_raw.get("activities") or []
                 if str(item or "").strip()
             ][:6],
             "homework": [
                 _clip(item, 180)
-                for item in raw.get("homework") or []
+                for item in detail_raw.get("homework") or []
                 if str(item or "").strip()
             ][:6],
             "application_anchors": _text_items(
-                raw.get("application_anchors") or raw.get("cases"),
+                detail_raw.get("application_anchors") or detail_raw.get("cases"),
                 max_chars=240,
                 limit=6,
             ),
             "extension_resources": _normalize_extension_resources(
-                raw.get("extension_resources") or raw.get("readings"),
+                detail_raw.get("extension_resources") or detail_raw.get("readings"),
                 confirmed_reference_labels=confirmed_reference_labels,
             ),
             "learning_tasks": _normalize_learning_tasks(
-                raw.get("learning_tasks") or raw.get("online_learning")
+                detail_raw.get("learning_tasks") or detail_raw.get("online_learning")
             ),
             "education_objective_refs": _text_items(
-                raw.get("education_objective_refs"),
+                detail_raw.get("education_objective_refs"),
                 max_chars=160,
                 limit=6,
             ),
             "ideology_implementation": _clip(
-                raw.get("ideology_implementation"), 260
+                detail_raw.get("ideology_implementation"), 260
             ),
             "external_mentor": {
                 key: _clip(external_mentor.get(key), 160)
@@ -526,16 +534,16 @@ def normalize_outline_skeleton(
             "hour_breakdown": hour_breakdown,
             "planned_hours": planned_hours or None,
             "assessment": _text_items(
-                raw.get("assessment"),
+                detail_raw.get("assessment"),
                 max_chars=240,
                 limit=8,
             ),
-            "scope_boundary": _clip(raw.get("scope_boundary"), 320),
+            "scope_boundary": _clip(detail_raw.get("scope_boundary"), 320),
             "learning_path_role": _learning_path_role(
-                raw.get("learning_path_role")
+                detail_raw.get("learning_path_role")
             ),
             "path_reason": _clip(
-                raw.get("path_reason")
+                detail_raw.get("path_reason")
                 or ("" if lecture_mode else "课程主路径"),
                 240,
             ),
@@ -543,11 +551,11 @@ def normalize_outline_skeleton(
         })
     measurable_outcomes = [
         _clip(item, 220)
-        for item in payload.get("measurable_outcomes") or []
+        for item in formal_payload.get("measurable_outcomes") or []
         if str(item or "").strip()
     ][:12]
     outcome_alignment_by_number: dict[int, dict[str, Any]] = {}
-    for raw in payload.get("outcome_alignment") or []:
+    for raw in formal_payload.get("outcome_alignment") or []:
         if not isinstance(raw, dict):
             continue
         outcome_number = _positive_int(
@@ -588,13 +596,13 @@ def normalize_outline_skeleton(
             existing["coverage_scope"] = candidate["coverage_scope"]
     outcome_alignment = list(outcome_alignment_by_number.values())
     assessment_plan = _normalize_assessment_plan(
-        payload.get("assessment_plan"),
+        formal_payload.get("assessment_plan"),
         outcome_count=len(measurable_outcomes),
     )
     skeleton = {
         "schema_version": "course_outline_skeleton_v2",
         "formal_syllabus_contract_version": (
-            "formal_syllabus_v2" if lecture_mode else ""
+            "formal_syllabus_v2" if lecture_mode and not light_teacher_plan else ""
         ),
         "authoring_structure_version": (
             "lecture_v1" if lecture_mode else "legacy_chapter_v1"
@@ -602,7 +610,7 @@ def normalize_outline_skeleton(
         "request_fingerprint": request_fingerprint,
         "course_title": _clip(payload.get("course_title") or topic, 160),
         "positioning": _clip(
-            payload.get("positioning")
+            formal_payload.get("positioning")
             or (
                 ""
                 if lecture_mode
@@ -612,41 +620,41 @@ def normalize_outline_skeleton(
         ),
         "learning_objectives": [
             _clip(item, 220)
-            for item in payload.get("learning_objectives") or []
+            for item in formal_payload.get("learning_objectives") or []
             if str(item or "").strip()
         ][:16],
         "prerequisites": [
             _clip(item, 160)
-            for item in payload.get("prerequisites") or []
+            for item in formal_payload.get("prerequisites") or []
             if str(item or "").strip()
         ][:16],
-        "course_intro_zh": _clip(payload.get("course_intro_zh"), 1800),
-        "course_intro_en": _clip(payload.get("course_intro_en"), 1800),
+        "course_intro_zh": _clip(formal_payload.get("course_intro_zh"), 1800),
+        "course_intro_en": _clip(formal_payload.get("course_intro_en"), 1800),
         "education_objectives": [
             _clip(item, 220)
-            for item in payload.get("education_objectives") or []
+            for item in formal_payload.get("education_objectives") or []
             if str(item or "").strip()
         ][:12],
         "measurable_outcomes": measurable_outcomes,
         "outcome_alignment": outcome_alignment,
         "teaching_methods": [
             _clip(item, 220)
-            for item in payload.get("teaching_methods") or []
+            for item in formal_payload.get("teaching_methods") or []
             if str(item or "").strip()
         ][:12],
         "assessment_methods": [
             _clip(item, 220)
-            for item in payload.get("assessment_methods") or []
+            for item in formal_payload.get("assessment_methods") or []
             if str(item or "").strip()
         ][:12],
         "assessment_plan": assessment_plan,
         "course_modules": _normalize_course_modules(
-            payload.get("course_modules"), lecture_count=len(chapters)
+            formal_payload.get("course_modules"), lecture_count=len(chapters)
         ),
-        "ideology_cases": deepcopy(payload.get("ideology_cases") or []),
+        "ideology_cases": deepcopy(formal_payload.get("ideology_cases") or []),
         "reference_books": reference_books,
         "reference_websites": reference_websites,
-        "course_website": _clip(payload.get("course_website"), 500),
+        "course_website": _clip(formal_payload.get("course_website"), 500),
         "total_hours": round(
             sum(float(item.get("planned_hours") or 0) for item in chapters),
             2,
@@ -855,6 +863,9 @@ def validate_outline_skeleton(
     coverage_verdict: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     issues: list[dict[str, Any]] = []
+    teacher_lecture_mode = bool(
+        shape_constraints.get("teacher_lecture_mode")
+    )
     chapters = [
         item
         for item in skeleton.get("chapters") or []
@@ -902,7 +913,7 @@ def validate_outline_skeleton(
             "outline_skeleton:section_count_mismatch",
             f"用户要求 {expected_sections} 节，骨架实际分配 {actual_sections} 节",
         ))
-    if shape_constraints.get("teacher_lecture_mode"):
+    if teacher_lecture_mode:
         non_unitary = [
             int(item.get("chapter_number") or index)
             for index, item in enumerate(chapters, start=1)
@@ -942,7 +953,7 @@ def validate_outline_skeleton(
             "outline_skeleton:inconsistent_shape",
             "小节总数少于章节数，无法保证每章至少包含一个可学习小节",
         ))
-    required_stages = [
+    required_stages = [] if teacher_lecture_mode else [
         str(item.get("id") or "").strip()
         for item in (course_type_contract or {}).get("required_planning_stages") or []
         if isinstance(item, dict) and str(item.get("id") or "").strip()
@@ -991,7 +1002,8 @@ def validate_outline_skeleton(
                 "outline_skeleton:planning_stage_order_mismatch",
                 "课程骨架的规划阶段顺序不符合课程类型合同",
             ))
-    issues.extend(_coverage_honesty_issues(skeleton, coverage_verdict))
+    if not teacher_lecture_mode:
+        issues.extend(_coverage_honesty_issues(skeleton, coverage_verdict))
     return {
         "schema_version": "course_outline_skeleton_validation_v2",
         "passed": not issues,
@@ -1135,6 +1147,165 @@ _TEACHER_OUTLINE_DETAIL_FIELDS = (
     "external_mentor",
     "assessment",
 )
+
+_TEACHER_OUTLINE_COURSE_FIELDS = (
+    "course_intro_zh",
+    "course_intro_en",
+    "positioning",
+    "learning_objectives",
+    "prerequisites",
+    "education_objectives",
+    "measurable_outcomes",
+    "outcome_alignment",
+    "teaching_methods",
+    "assessment_methods",
+    "assessment_plan",
+    "course_modules",
+    "ideology_cases",
+    "reference_books",
+    "reference_websites",
+    "course_website",
+)
+
+
+def normalize_teacher_outline_course_contract(
+    payload: dict[str, Any],
+    *,
+    skeleton: dict[str, Any],
+) -> dict[str, Any]:
+    """Normalize the course-level half of the full teacher outline.
+
+    The edited lightweight lecture plan remains the identity owner. The model
+    may only fill course-level formal fields and cannot rename, reorder, add or
+    remove lectures through this response.
+    """
+    lecture_plan = [
+        {
+            "lecture_number": int(
+                item.get("lecture_number")
+                or item.get("chapter_number")
+                or index
+            ),
+            "title": str(item.get("title") or ""),
+            "content_summary": str(item.get("content_summary") or ""),
+        }
+        for index, item in enumerate(skeleton.get("chapters") or [], start=1)
+        if isinstance(item, dict)
+    ]
+    normalized = normalize_outline_skeleton(
+        {
+            "authoring_structure_version": "lecture_v1",
+            "course_title": skeleton.get("course_title"),
+            "lectures": lecture_plan,
+            **{
+                field: deepcopy(payload.get(field))
+                for field in _TEACHER_OUTLINE_COURSE_FIELDS
+            },
+        },
+        topic=str(skeleton.get("course_title") or "课程"),
+        request_fingerprint=str(skeleton.get("request_fingerprint") or ""),
+    )
+    contract = {
+        "schema_version": "teacher_outline_course_contract_v1",
+        "skeleton_revision_id": str(
+            payload.get("skeleton_revision_id") or ""
+        ),
+        "formal_syllabus_contract_version": "formal_syllabus_v2",
+        **{
+            field: deepcopy(normalized.get(field))
+            for field in _TEACHER_OUTLINE_COURSE_FIELDS
+        },
+    }
+    contract["revision_id"] = stable_hash(
+        contract,
+        prefix="teacher_outline_course_contract_",
+    )
+    return contract
+
+
+def validate_teacher_outline_course_contract(
+    contract: dict[str, Any],
+    *,
+    skeleton: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate structural completeness without turning editorial advice into a gate."""
+    issues: list[dict[str, str]] = []
+    if contract.get("skeleton_revision_id") != skeleton.get("revision_id"):
+        issues.append(_issue(
+            "teacher_outline_course:stale_framework",
+            "课程级大纲字段引用了旧的轻量讲次方案",
+        ))
+    for field, label in (
+        ("positioning", "课程定位"),
+        ("learning_objectives", "课程学习目标"),
+        ("measurable_outcomes", "可测量成果"),
+        ("teaching_methods", "授课方式"),
+        ("assessment_plan", "考核方案"),
+        ("course_modules", "知识模块"),
+    ):
+        value = contract.get(field)
+        if value in (None, "", [], {}):
+            issues.append(_issue(
+                f"teacher_outline_course:missing_{field}",
+                f"完整大纲缺少{label}",
+            ))
+    measurable_outcomes = list(contract.get("measurable_outcomes") or [])
+    aligned_numbers = {
+        _positive_int(item.get("outcome_number"))
+        for item in contract.get("outcome_alignment") or []
+        if isinstance(item, dict)
+    }
+    missing_alignment = [
+        number for number in range(1, len(measurable_outcomes) + 1)
+        if number not in aligned_numbers
+    ]
+    if missing_alignment:
+        issues.append(_issue(
+            "teacher_outline_course:missing_outcome_alignment",
+            f"可测量成果 {missing_alignment} 缺少目标、讲次与评价证据关联",
+        ))
+    lecture_count = len([
+        item for item in skeleton.get("chapters") or []
+        if isinstance(item, dict)
+    ])
+    module_numbers = [
+        _positive_int(number)
+        for item in contract.get("course_modules") or []
+        if isinstance(item, dict)
+        for number in item.get("lecture_numbers") or []
+        if _positive_int(number)
+    ]
+    expected_numbers = list(range(1, lecture_count + 1))
+    if sorted(module_numbers) != expected_numbers:
+        issues.append(_issue(
+            "teacher_outline_course:module_lecture_coverage",
+            "知识模块必须完整覆盖全部讲次，且每讲只能归入一个模块",
+        ))
+    return {
+        "schema_version": "teacher_outline_course_contract_validation_v1",
+        "passed": not issues,
+        "issues": issues,
+        "actual": {
+            "lecture_count": lecture_count,
+            "module_count": len(contract.get("course_modules") or []),
+            "outcome_count": len(measurable_outcomes),
+        },
+    }
+
+
+def merge_teacher_outline_course_contract(
+    skeleton: dict[str, Any],
+    contract: dict[str, Any],
+) -> dict[str, Any]:
+    """Attach validated formal fields without changing the edited plan identity."""
+    merged = deepcopy(skeleton)
+    for field in _TEACHER_OUTLINE_COURSE_FIELDS:
+        merged[field] = deepcopy(contract.get(field))
+    merged["formal_syllabus_contract_version"] = "formal_syllabus_v2"
+    merged["course_contract_revision_id"] = str(
+        contract.get("revision_id") or ""
+    )
+    return merged
 
 
 def build_teacher_outline_detail_batch_specs(
@@ -2527,9 +2698,11 @@ __all__ = [
     "compile_fallback_outline_batch",
     "compile_teacher_lecture_outline_batch",
     "course_coverage_verdict",
+    "merge_teacher_outline_course_contract",
     "merge_teacher_outline_detail",
     "normalize_outline_batch",
     "normalize_outline_skeleton",
+    "normalize_teacher_outline_course_contract",
     "normalize_teacher_outline_detail_batch",
     "outline_neighbor_chapters",
     "outline_request_fingerprint",
@@ -2539,5 +2712,6 @@ __all__ = [
     "select_chapter_evidence_hints",
     "validate_outline_batch",
     "validate_outline_skeleton",
+    "validate_teacher_outline_course_contract",
     "validate_teacher_outline_detail_batch",
 ]

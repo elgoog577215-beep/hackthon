@@ -239,8 +239,46 @@ describe('统一讲义页面', () => {
     expect(wrapper.get('.script-generate button').text()).toContain('继续生成剩余内容')
   })
 
-  it('恢复稿的质量报告只作为建议，不阻断后续使用', () => {
+  it('按当前教学块实时渲染流式增量文本', async () => {
+    const emptyLesson = structuredClone(lesson)
+    emptyLesson.script = { ...emptyLesson.script, current_revision_id: '', ready: false, sections: [] }
+    emptyLesson.arrangement.blocks = [{
+      block_id: 'block-1', module_id: 'core_explanation', section_node_id: 'section-1',
+      section_title: '1.1 爬虫基础', name: '核心教学', role: 'concept', purpose: '讲清概念',
+      content_summary: '解释爬虫工作流程', planned_minutes: 20,
+      teacher_activity: '', student_activity: '', expected_output: '', required: true,
+    }]
+    const generationJob = {
+      id: 'script-job-stream', course_id: 'course-1', lesson_unit_id: 'lesson-1',
+      type: 'teacher_lesson_script_generation', status: 'running', progress: 20,
+      phase: 'lesson_script_generation', message: '正在生成：核心教学', warnings: [],
+      total_blocks: 1, completed_blocks: 0, current_block_id: 'block-1', current_block_title: '核心教学',
+      block_states: { 'block-1': 'running' }, streamed_block_content: { 'block-1': '爬虫会先发起请求' },
+      streamed_sequence_by_shard: { 'block-1:shard-1': 1 }, result_sections: [],
+    } as TeacherLessonJob
+    const wrapper = mount(TeacherScriptDocument, {
+      props: { courseId: 'course-1', lesson: emptyLesson, canGenerate: true, generating: true, generationJob },
+    })
+
+    expect(wrapper.get('.script-module').text()).toContain('核心教学')
+    expect(wrapper.get('.script-module').text()).toContain('爬虫会先发起请求')
+    expect(wrapper.find('.script-streamed-block .stream-caret').exists()).toBe(true)
+
+    await wrapper.setProps({
+      generationJob: {
+        ...generationJob,
+        progress: 32,
+        streamed_block_content: { 'block-1': '爬虫会先发起请求，再解析响应。' },
+        streamed_sequence_by_shard: { 'block-1:shard-1': 2 },
+      },
+    })
+
+    expect(wrapper.get('.script-module').text()).toContain('再解析响应')
+  })
+
+  it('历史恢复稿不作为生成成功结果，只允许重试', () => {
     const recoveryLesson = structuredClone(lesson)
+    recoveryLesson.script.ready = false
     recoveryLesson.script.publication_eligible = false
     recoveryLesson.script.generation_source = 'model_block_pipeline_with_recovery_preview'
     recoveryLesson.script.quality_contract_version = 'teacher_script_quality_v8'
@@ -269,9 +307,10 @@ describe('统一讲义页面', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('恢复草稿 · 有改进建议')
-    expect(wrapper.text()).toContain('当前稿包含本地恢复内容')
-    expect(wrapper.text()).not.toContain('讲稿生成失败')
+    expect(wrapper.text()).not.toContain('恢复草稿')
+    expect(wrapper.text()).not.toContain('当前稿包含本地恢复内容')
+    expect(wrapper.text()).toContain('讲义生成失败')
+    expect(wrapper.get('.script-generate button').text()).toContain('生成本讲讲义')
     expect(wrapper.find('.script-footer').exists()).toBe(false)
   })
 
