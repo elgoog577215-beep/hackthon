@@ -3576,7 +3576,7 @@ async def stream_lesson_job(
         get_teacher_lesson_authoring_repository
     ),
 ):
-    """Stream the durable lesson-plan candidate while final save stays atomic."""
+    """Stream the in-memory working copy while durable saves stay semantic."""
     try:
         await run_in_threadpool(repository.get_job, course_id, job_id)
     except TeacherLessonAuthoringError as exc:

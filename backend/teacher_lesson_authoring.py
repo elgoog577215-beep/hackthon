@@ -47,7 +47,6 @@ LESSON_PLAN_FORMAL_FIELD_POLICY_VERSION = "teacher_lesson_formal_fields_v1"
 TEACHER_ASSET_JOB_SCHEMA_VERSION = "teacher_asset_job_v1"
 LESSON_JOB_STALE_SECONDS = 300
 LESSON_BATCH_QUEUED_STALE_SECONDS = 14400
-STREAM_CHECKPOINT_INTERVAL_SECONDS = 1.0
 JOB_TYPES = {
     "teacher_lesson_plan_generation",
     "teacher_lesson_script_generation",
@@ -1678,7 +1677,6 @@ class TeacherLessonAuthoringRepository:
         self._lock = threading.RLock()
         self._live_stream_jobs: dict[str, dict[str, dict[str, Any]]] = {}
         self._live_stream_touched_at: dict[tuple[str, str], float] = {}
-        self._stream_checkpoint_at: dict[str, float] = {}
 
     def _path(self, course_id: str) -> Path:
         safe = "".join(char for char in course_id if char.isalnum() or char in {"-", "_"})
@@ -1722,20 +1720,7 @@ class TeacherLessonAuthoringRepository:
             live_jobs.pop(job_id, None)
             if not live_jobs:
                 self._live_stream_jobs.pop(course_id, None)
-                self._stream_checkpoint_at.pop(course_id, None)
         self._live_stream_touched_at.pop((course_id, job_id), None)
-
-    def _checkpoint_live_streams_locked(self, course_id: str) -> None:
-        if not self._live_stream_jobs.get(course_id):
-            return
-        value = self.load(course_id)
-        self._save(value)
-        self._stream_checkpoint_at[course_id] = time.monotonic()
-
-    def flush_stream_checkpoints(self, course_id: str) -> None:
-        """Force the latest live stream state to durable storage."""
-        with self._lock:
-            self._checkpoint_live_streams_locked(course_id)
 
     def load(self, course_id: str) -> dict[str, Any]:
         with self._lock:
@@ -1759,6 +1744,14 @@ class TeacherLessonAuthoringRepository:
         course_id = str(value.get("course_id") or "")
         path = self._path(course_id)
         payload = deepcopy(value)
+        for job in (payload.get("jobs") or {}).values():
+            if not isinstance(job, dict):
+                continue
+            # Raw model deltas are only a same-process SSE projection. Durable
+            # recovery is based on validated plan batches and teaching blocks.
+            job["stream_batches"] = {}
+            job["stream_events"] = []
+            job["last_stream_event"] = {}
         payload["schema_version"] = SCHEMA_VERSION
         payload["revision"] = int(payload.get("revision") or 0) + 1
         payload["updated_at"] = _now()
@@ -2006,40 +1999,73 @@ class TeacherLessonAuthoringRepository:
             self._save(value)
             return deepcopy(job)
 
+    def _apply_job_changes_locked(
+        self,
+        job: dict[str, Any],
+        changes: dict[str, Any],
+    ) -> dict[str, Any]:
+        job.update(deepcopy(changes))
+        if "phase" in changes:
+            job["stage"] = str(changes.get("phase") or "")
+        timestamp = _now()
+        job["updated_at"] = timestamp
+        if str(job.get("status") or "") in {"pending", "running"}:
+            job["heartbeat_at"] = timestamp
+        if "result_sections" in changes:
+            job["checkpoint"] = {
+                "result_sections": deepcopy(changes.get("result_sections") or []),
+                "completed_blocks": int(changes.get("completed_blocks") or 0),
+                "current_block_id": str(changes.get("current_block_id") or ""),
+                "saved_at": timestamp,
+            }
+        if str(job.get("status") or "") in {
+            "completed", "completed_with_warnings", "failed", "cancelled"
+        }:
+            job["completed_at"] = timestamp
+            job["retryable"] = bool(
+                (job.get("error") or {}).get("retryable")
+                if isinstance(job.get("error"), dict)
+                else False
+            )
+        return job
+
     def update_job(self, course_id: str, job_id: str, **changes: Any) -> dict[str, Any]:
+        """Persist a semantic checkpoint or a lifecycle state transition."""
         with self._lock:
             value = self.load(course_id)
             job = (value.get("jobs") or {}).get(job_id)
             if not isinstance(job, dict):
                 raise TeacherLessonAuthoringError("teacher_job_not_found", "教师讲次任务不存在。")
-            job.update(deepcopy(changes))
-            if "phase" in changes:
-                job["stage"] = str(changes.get("phase") or "")
-            timestamp = _now()
-            job["updated_at"] = timestamp
-            if str(job.get("status") or "") in {"pending", "running"}:
-                job["heartbeat_at"] = timestamp
-            if "result_sections" in changes:
-                job["checkpoint"] = {
-                    "result_sections": deepcopy(changes.get("result_sections") or []),
-                    "completed_blocks": int(changes.get("completed_blocks") or 0),
-                    "current_block_id": str(changes.get("current_block_id") or ""),
-                    "saved_at": timestamp,
-                }
+            value["jobs"][job_id] = self._apply_job_changes_locked(job, changes)
+            saved = self._save(value)
             if str(job.get("status") or "") in {
-                "completed", "completed_with_warnings", "failed", "cancelled"
+                "completed", "completed_with_warnings", "failed", "cancelled", "paused"
             }:
-                job["completed_at"] = timestamp
-                job["retryable"] = bool(
-                    (job.get("error") or {}).get("retryable")
-                    if isinstance(job.get("error"), dict)
-                    else False
-                )
-            value["jobs"][job_id] = job
-            self._save(value)
-            if self._live_stream_jobs.get(course_id):
-                self._stream_checkpoint_at[course_id] = time.monotonic()
-            self._drop_live_stream_job_locked(course_id, job_id)
+                self._drop_live_stream_job_locked(course_id, job_id)
+            elif job_id in (self._live_stream_jobs.get(course_id) or {}):
+                # A validated checkpoint must not erase token streams that are
+                # still arriving concurrently for other plan/script shards.
+                self._live_stream_jobs[course_id][job_id] = job
+            return deepcopy(saved["jobs"][job_id])
+
+    def update_job_live(
+        self,
+        course_id: str,
+        job_id: str,
+        **changes: Any,
+    ) -> dict[str, Any]:
+        """Publish progress and heartbeat changes without rewriting course JSON."""
+        with self._lock:
+            live_jobs = self._live_stream_jobs.setdefault(course_id, {})
+            job = live_jobs.get(job_id)
+            if not isinstance(job, dict):
+                value = self.load(course_id)
+                job = (value.get("jobs") or {}).get(job_id)
+            if not isinstance(job, dict):
+                raise TeacherLessonAuthoringError("teacher_job_not_found", "教师讲次任务不存在。")
+            job = self._apply_job_changes_locked(job, changes)
+            live_jobs[job_id] = job
+            self._live_stream_touched_at[(course_id, job_id)] = time.monotonic()
             return deepcopy(job)
 
     def update_job_stream(
@@ -2058,7 +2084,7 @@ class TeacherLessonAuthoringRepository:
         shard_id: str = "",
         stream_mode: str = "",
     ) -> dict[str, Any]:
-        """Publish one live model delta and periodically persist a merged checkpoint."""
+        """Publish one model delta to the same-process SSE projection only."""
         with self._lock:
             live_jobs = self._live_stream_jobs.setdefault(course_id, {})
             job = live_jobs.get(job_id)
@@ -2107,11 +2133,7 @@ class TeacherLessonAuthoringRepository:
                 "updated_at": timestamp,
             })
             live_jobs[job_id] = job
-            now = time.monotonic()
-            self._live_stream_touched_at[(course_id, job_id)] = now
-            last_checkpoint = self._stream_checkpoint_at.setdefault(course_id, now)
-            if now - last_checkpoint >= STREAM_CHECKPOINT_INTERVAL_SECONDS:
-                self._checkpoint_live_streams_locked(course_id)
+            self._live_stream_touched_at[(course_id, job_id)] = time.monotonic()
             return deepcopy(job)
 
     def cancel_job(self, course_id: str, job_id: str) -> dict[str, Any]:
@@ -2146,9 +2168,9 @@ class TeacherLessonAuthoringRepository:
                 "updated_at": timestamp,
             })
             value["jobs"][job_id] = job
-            self._save(value)
+            saved = self._save(value)
             self._drop_live_stream_job_locked(course_id, job_id)
-            return deepcopy(job)
+            return deepcopy(saved["jobs"][job_id])
 
     def pause_job(self, course_id: str, job_id: str) -> dict[str, Any]:
         """Pause one job at its next safe checkpoint without discarding progress."""
@@ -2176,9 +2198,9 @@ class TeacherLessonAuthoringRepository:
                 "updated_at": timestamp,
             })
             value["jobs"][job_id] = job
-            self._save(value)
+            saved = self._save(value)
             self._drop_live_stream_job_locked(course_id, job_id)
-            return deepcopy(job)
+            return deepcopy(saved["jobs"][job_id])
 
     def save_plan_revision(
         self,
@@ -4035,7 +4057,7 @@ class TeacherLessonAuthoringService:
                 )
                 return
             await asyncio.to_thread(
-                self.repository.update_job,
+                self.repository.update_job_live,
                 course_id,
                 job_id,
                 **changes,
@@ -4405,7 +4427,7 @@ class TeacherLessonAuthoringService:
                     block_states[block_id] = "running"
 
             if shards:
-                self.repository.update_job(
+                self.repository.update_job_live(
                     course_id,
                     job_id,
                     phase="lesson_script_block_generation",
@@ -4637,7 +4659,7 @@ class TeacherLessonAuthoringService:
                             ),
                             "message": str(error),
                         })
-                        self.repository.update_job(
+                        self.repository.update_job_live(
                             course_id,
                             job_id,
                             phase="lesson_script_block_failed",
