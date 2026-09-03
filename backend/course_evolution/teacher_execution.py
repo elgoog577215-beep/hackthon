@@ -1001,10 +1001,18 @@ def _apply_ppt_candidate(
             if not region_id or region is None:
                 raise ValueError("PPT 页面内容区域已变化")
             region["content"] = str(region_change.get("content") or "")
-    plan_revision_id = str(lesson.get("confirmed_revision_id") or "")
+    plan_revision_id = str(lesson.get("working_revision_id") or "")
     script_revision_id = str(lesson.get("working_script_revision_id") or "")
     plan_revision = _revision(lesson.get("revisions") or [], plan_revision_id)
     script_revision = _revision(lesson.get("script_revisions") or [], script_revision_id)
+    if (
+        str(lesson.get("source_state") or "current") != "current"
+        or not plan_revision_id
+        or not script_revision_id
+        or str(script_revision.get("source_lesson_plan_revision_id") or "")
+        != plan_revision_id
+    ):
+        raise ValueError("教案或讲义已变化，请基于当前内容重新生成 PPT 修改候选")
     _document, course_view, _synthetic = teacher_lesson_v6_source(
         course_data,
         lesson_unit_id=lesson_id,

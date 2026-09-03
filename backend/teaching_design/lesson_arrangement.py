@@ -520,7 +520,7 @@ def apply_lesson_arrangement_to_plan(
                 "block_role": _text(block.get("role")) or module_block_role(module_id),
                 "scope": "lesson",
                 "frequency": "lesson_required",
-                "source_mode": "teacher_confirmed",
+                "source_mode": "teacher_current",
                 "required": bool(block.get("required", True)),
                 "output_contract": _text(block.get("expected_output") or block.get("purpose") or (registry.output_contract if registry else "")),
                 "prompt_instruction": _text(block.get("content_summary") or (registry.prompt_instruction if registry else "")),
@@ -547,7 +547,7 @@ def apply_lesson_arrangement_to_plan(
             "archetype_id": f"teacher_{lesson_type}",
             "label": type_contract["label"],
             "purpose": type_contract["purpose"],
-            "source": "teacher_confirmed_arrangement",
+            "source": "teacher_current_arrangement",
         }
     result["teacher_lesson_arrangement"] = json.loads(json.dumps(arrangement, ensure_ascii=False))
     result["teacher_lesson_semantics"] = {

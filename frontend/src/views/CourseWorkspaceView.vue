@@ -78,7 +78,6 @@
             :initial-lesson-id="requestedLessonId"
             v-model:outline-editing="outlineEditing"
             @generate-outline="startOutlineGeneration"
-            @outline-confirmed="handleOutlineConfirmed"
             @open-course-information="courseInformationOpen = true"
             @open-course-adjustment="openCourseAdjustment"
           />
@@ -149,7 +148,6 @@ import TeacherCourseSpaceView from './TeacherCourseSpaceView.vue'
 import { t } from '../shared/i18n'
 import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
-import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
 import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring'
 import { coursePreparationLabel, coursePreparationState } from '../utils/course-preparation'
@@ -160,13 +158,11 @@ const props = defineProps<{ courseId: string; mode?: string }>()
 const route = useRoute()
 const router = useRouter()
 const courseStore = useCourseStore()
-const courseWorkspace = useCourseWorkspaceStore()
 const generationStore = useGenerationStore()
 const lessonStore = useTeacherLessonAuthoringStore()
 const loading = ref(true)
 const loadError = ref<AppErrorPresentation | null>(null)
 const outlineEditing = ref(false)
-const outlineRevisionOpening = ref(false)
 const calendarOpen = ref(false)
 const workbenchOpen = ref(false)
 const courseInformationOpen = ref(false)
@@ -418,34 +414,10 @@ async function handlePreparationCompleted(payload?: { openAudit?: boolean }) {
   if (payload?.openAudit) openMaterialAudit()
 }
 
-async function handleOutlineConfirmed() {
-  outlineEditing.value = false
-  await Promise.all([
-    courseStore.loadCourse(courseId.value, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true }),
-    lessonStore.load(courseId.value).catch(() => undefined),
-  ])
-  requestedWorkbenchStage.value = 'lesson'
-}
-
 watch(courseId, (value, previous) => {
   if (previous && previous !== value) generationStore.unobserveCourse(previous)
   if (value && value !== previous) void loadWorkspace()
 })
-watch(outlineEditing, async editing => {
-  if (!editing || outlineRevisionOpening.value) return
-  if (generationStore.getTask(courseId.value)?.status === 'waiting_for_review') return
-  outlineEditing.value = false
-  outlineRevisionOpening.value = true
-  try {
-    await courseWorkspace.reopenGenerationStep(courseId.value, 'outline')
-    await generationStore.fetchGlobalTasks()
-    outlineEditing.value = true
-  } catch {
-    // The shared HTTP error layer presents the structured lifecycle reason.
-  } finally {
-    outlineRevisionOpening.value = false
-  }
-}, { flush: 'sync' })
 onMounted(loadWorkspace)
 onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(courseId.value) })
 </script>

@@ -7,31 +7,65 @@ from routers import teacher_lesson_authoring as lesson_router
 from teacher_lesson_authoring import TeacherLessonAuthoringRepository
 
 
-def test_course_preparation_status_requires_every_confirmed_asset():
+def test_course_preparation_status_requires_every_current_complete_asset():
     course = {
         "course_id": "course-1",
         "generation_request": {"teacher_course_brief": {"section_count": 99}},
     }
     lessons = {
         "lesson-1": {
-            "confirmed_revision_id": "plan-1",
-            "script_confirmation": {
-                "confirmed_revision_id": "handout-1",
-                "source_state": "current",
-            },
+            "working_revision_id": "plan-1",
+            "source_state": "current",
+            "revisions": [{
+                "revision_id": "plan-1",
+                "generation_source": "model",
+                "plan": {"sections": [{
+                    "node_id": "section-1",
+                    "teaching_modules": [{"module_id": "concept"}],
+                }]},
+            }],
+            "working_script_revision_id": "handout-1",
+            "script_revisions": [{
+                "revision_id": "handout-1",
+                "source_lesson_plan_revision_id": "plan-1",
+                "sections": [{
+                    "section_node_id": "section-1",
+                    "content": "第一讲完整讲义",
+                    "blocks": [{"block_id": "script-block-1"}],
+                }],
+            }],
             "ppt_assets": [{
-                "ppt_manuscript_status": "confirmed",
+                "working_representation_id": "ppt-1",
+                "source_lesson_plan_revision_id": "plan-1",
+                "source_script_revision_id": "handout-1",
                 "source_state": "current",
             }],
         },
         "lesson-2": {
-            "confirmed_revision_id": "plan-2",
-            "script_confirmation": {
-                "confirmed_revision_id": "handout-2",
-                "source_state": "current",
-            },
+            "working_revision_id": "plan-2",
+            "source_state": "current",
+            "revisions": [{
+                "revision_id": "plan-2",
+                "generation_source": "model",
+                "plan": {"sections": [{
+                    "node_id": "section-2",
+                    "teaching_modules": [{"module_id": "application"}],
+                }]},
+            }],
+            "working_script_revision_id": "handout-2",
+            "script_revisions": [{
+                "revision_id": "handout-2",
+                "source_lesson_plan_revision_id": "plan-2",
+                "sections": [{
+                    "section_node_id": "section-2",
+                    "content": "第二讲完整讲义",
+                    "blocks": [{"block_id": "script-block-2"}],
+                }],
+            }],
             "ppt_assets": [{
-                "confirmed_at": "2026-08-30T00:00:00Z",
+                "working_representation_id": "ppt-2",
+                "source_lesson_plan_revision_id": "plan-2",
+                "source_script_revision_id": "handout-2",
                 "source_state": "current",
             }],
         },
@@ -46,13 +80,17 @@ def test_course_preparation_status_requires_every_confirmed_asset():
     assert result["preparation_state"] == "prepared"
     assert result["preparation_summary"] == {
         "planned_lessons": 2,
+        "outline_ready": True,
+        "ready_lesson_plans": 2,
+        "ready_handouts": 2,
+        "ready_ppts": 2,
         "outline_confirmed": True,
         "confirmed_lesson_plans": 2,
         "confirmed_handouts": 2,
         "confirmed_ppts": 2,
     }
 
-    lessons["lesson-2"]["script_confirmation"]["source_state"] = "stale"
+    lessons["lesson-2"]["script_revisions"][0]["source_lesson_plan_revision_id"] = "plan-old"
     assert courses._teacher_preparation_projection(course, repository)["preparation_state"] == "preparing"
 
 
@@ -102,6 +140,7 @@ async def test_generate_all_lesson_plans_returns_parent_and_serial_queue_metadat
     monkeypatch.setattr(lesson_router, "_source_course", lambda _tm, _course_id: source)
     monkeypatch.setattr(lesson_router, "_canonical_outline_revision", lambda _source: "outline-1")
     monkeypatch.setattr(lesson_router, "_lesson_projection", lambda _source, _repository: projected_lessons)
+    monkeypatch.setattr(lesson_router, "validate_lesson_arrangement", lambda *_args, **_kwargs: [])
 
     requested_children = []
 
@@ -120,6 +159,9 @@ async def test_generate_all_lesson_plans_returns_parent_and_serial_queue_metadat
     class Repository:
         def view(self, _course_id):
             return {"jobs": {}}
+
+        def current_arrangement(self, _course_id, _lesson_unit_id):
+            return {}
 
         def update_job(self, course_id, job_id, **changes):
             return {

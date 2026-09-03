@@ -409,6 +409,18 @@ def _public_representation_quality(
     }
 
 
+def _teacher_outline_result_ready(course_data: Any) -> bool:
+    """Return whether the visible teacher outline has a usable saved structure."""
+    if not isinstance(course_data, dict):
+        return False
+    nodes = [item for item in course_data.get("nodes") or [] if isinstance(item, dict)]
+    return bool(nodes) and all(
+        str(item.get("node_id") or "").strip()
+        and str(item.get("node_name") or "").strip()
+        for item in nodes
+    )
+
+
 
 
 class TaskRecoveryConflict(RuntimeError):
@@ -2460,7 +2472,7 @@ class TaskManager:
     ) -> dict[str, Any] | None:
         """Load the newest workspace owned by one generation capability.
 
-        Teacher lesson authoring must keep consuming a newly confirmed teacher
+        Teacher lesson authoring must keep consuming the newest completed teacher
         outline even when the course already has an older published document.
         Filtering by task type prevents another unfinished generation workspace
         from silently becoming that authoring source.
@@ -6527,25 +6539,24 @@ class TaskManager:
         }
         guided_workflow = task.get("guided_workflow")
         guided = isinstance(guided_workflow, dict)
-        # Teacher authoring owns everything after the confirmed outline through
-        # lesson-scoped jobs.  Finalize here before the shared guided workflow
+        # Teacher authoring owns everything after the generated outline through
+        # lesson-scoped jobs. Finalize a resumed outline task before the shared workflow
         # advances its current step to ``teaching``; otherwise a resumed queue
         # item can accidentally enter the learner full-course plan/content path.
         if (
             task.get("type") == "teacher_outline_generation"
-            and guided
-            and guided_step_confirmed(guided_workflow, "outline")
+            and _teacher_outline_result_ready(course_data)
         ):
-            course_data["generation_status"] = "teacher_outline_confirmed"
+            course_data["generation_status"] = "teacher_outline_ready"
             course_data["authoring_surface"] = "teacher"
             await self._save_task_course(task_id, course_data)
             async with self._lock:
                 task["status"] = "completed"
-                task["phase"] = "teacher_outline_confirmed"
-                task["current_phase"] = "teacher_outline_confirmed"
+                task["phase"] = "teacher_outline_ready"
+                task["current_phase"] = "teacher_outline_ready"
                 task["progress"] = 100
                 task["phase_progress"] = 100
-                task["message"] = "课程大纲已确认，可选择任一讲生成教案"
+                task["message"] = "课程大纲已生成，可选择任一讲生成教案"
                 task["current_nodes"] = []
                 task["current_node_name"] = ""
                 task["updated_at"] = datetime.now().isoformat()
@@ -6561,10 +6572,15 @@ class TaskManager:
             async with self._lock:
                 task["updated_at"] = datetime.now().isoformat()
                 self.save_tasks()
+        is_teacher_outline = task.get("type") == "teacher_outline_generation"
         request_mode = str(request.get("generation_mode") or "review_blueprint")
         review_pending = (
-            guided and not guided_step_confirmed(guided_workflow, "outline")
+            not is_teacher_outline
+            and guided
+            and not guided_step_confirmed(guided_workflow, "outline")
         ) or (
+            not is_teacher_outline
+            and
             not guided
             and request_mode == "review_blueprint"
             and not task.get("blueprint_confirmed")
@@ -6578,7 +6594,6 @@ class TaskManager:
             "course_generation",
             "teacher_outline_generation",
         }
-        is_teacher_outline = task.get("type") == "teacher_outline_generation"
         if is_outline_generation and not pipeline_ready:
 
             async def on_phase(
@@ -6602,27 +6617,10 @@ class TaskManager:
                 fresh.update(checkpoint)
                 await self._save_task_course(task_id, fresh)
 
-            outline_stage = (
-                (course_data.get("generation_stage_artifacts") or {}).get(
-                    "outline"
-                )
-                or {}
-            )
-            outline_shape_confirmed = bool(
-                task.get("outline_shape_confirmed")
-                or outline_stage.get("shape_confirmed")
-            )
-            teacher_brief = request.get("teacher_course_brief") or {}
-            if is_teacher_outline and int(teacher_brief.get("lecture_count") or 0) > 0:
-                # 讲数已经由教师确认，不再插入“逐章填写小节数”的第二次确认。
-                outline_shape_confirmed = True
-            stop_after_skeleton = bool(
-                is_teacher_outline
-                and not outline_shape_confirmed
-                and not course_data.get("course_outline")
-            )
+            stop_after_skeleton = False
             stop_after_outline = bool(
-                review_pending and not course_data.get("course_outline")
+                (is_teacher_outline or review_pending)
+                and not course_data.get("course_outline")
             )
             course_data = await self.course_service.build_course_draft(
                 course_id=course_id,
@@ -6665,41 +6663,7 @@ class TaskManager:
                 on_phase=on_phase,
                 on_checkpoint=on_checkpoint,
             )
-            if (
-                stop_after_skeleton
-                and course_data.get("generation_status")
-                == "outline_shape_ready"
-            ):
-                outline_stage = (
-                    (course_data.get("generation_stage_artifacts") or {}).get(
-                        "outline"
-                    )
-                    or {}
-                )
-                skeleton = outline_stage.get("skeleton") or {}
-                growth = self._outline_shape_growth(skeleton)
-                course_data["generation_status"] = "outline_shape_ready"
-                await self._save_task_course(task_id, course_data)
-                await self._update_phase(
-                    task_id,
-                    "outline_shape_ready",
-                    32,
-                    "大章节骨架已生成，请确认每章小节数",
-                    phase_progress=100,
-                    phase_detail={
-                        "artifact_type": "course_outline_skeleton",
-                        "skeleton_revision_id": skeleton.get("revision_id"),
-                        "outline_growth": growth,
-                    },
-                )
-                await self._update_task_status(
-                    task_id,
-                    "waiting_for_review",
-                    message="大章节骨架已生成，请确认每章小节数",
-                )
-                await self._push_progress(task_id)
-                return
-            if stop_after_outline:
+            if stop_after_outline and not is_teacher_outline:
                 course_data = await self._prepare_course_outline_research(
                     course_data,
                     request,
@@ -6777,27 +6741,51 @@ class TaskManager:
                 )
                 await self._push_progress(task_id)
                 return
-            if (
+            if not is_teacher_outline and (
                 course_data.get("course_knowledge_base") or {}
             ).get("lifecycle_status") != "active":
                 course_data = await self._prepare_subject_knowledge(task_id, course_data)
-            self._require_course_knowledge_ready(course_data)
-            frozen = self._version_repository.freeze_blueprint(course_id, course_data)
-            course_data["blueprint_revision_id"] = frozen["blueprint_revision_id"]
-            task["blueprint_revision_id"] = frozen["blueprint_revision_id"]
-            await self._save_task_course(task_id, course_data)
+            if not is_teacher_outline:
+                self._require_course_knowledge_ready(course_data)
+                frozen = self._version_repository.freeze_blueprint(course_id, course_data)
+                course_data["blueprint_revision_id"] = frozen["blueprint_revision_id"]
+                task["blueprint_revision_id"] = frozen["blueprint_revision_id"]
+                await self._save_task_course(task_id, course_data)
 
-        if is_teacher_outline and not review_pending:
-            course_data["generation_status"] = "teacher_outline_confirmed"
+        if is_teacher_outline:
+            if not _teacher_outline_result_ready(course_data):
+                await self._save_task_course(task_id, course_data)
+                await self._update_phase(
+                    task_id,
+                    "teacher_outline_failed",
+                    int(task.get("progress") or 0),
+                    "课程大纲生成结果为空或结构无效",
+                    phase_progress=100,
+                    phase_detail={"artifact_type": "course_outline"},
+                )
+                await self._update_task_status(
+                    task_id,
+                    "failed",
+                    message="课程大纲生成失败，请重试",
+                    error="模型未返回可用的课程大纲结构。",
+                    error_detail={
+                        "code": "teacher_outline_generation_invalid",
+                        "message": "模型未返回可用的课程大纲结构。",
+                        "retryable": True,
+                    },
+                )
+                await self._push_progress(task_id)
+                return
+            course_data["generation_status"] = "teacher_outline_ready"
             course_data["authoring_surface"] = "teacher"
             await self._save_task_course(task_id, course_data)
             async with self._lock:
                 task["status"] = "completed"
-                task["phase"] = "teacher_outline_confirmed"
-                task["current_phase"] = "teacher_outline_confirmed"
+                task["phase"] = "teacher_outline_ready"
+                task["current_phase"] = "teacher_outline_ready"
                 task["progress"] = 100
                 task["phase_progress"] = 100
-                task["message"] = "课程大纲已确认，可选择任一讲生成教案"
+                task["message"] = "课程大纲已生成，可选择任一讲生成教案"
                 task["current_nodes"] = []
                 task["current_node_name"] = ""
                 task["updated_at"] = datetime.now().isoformat()

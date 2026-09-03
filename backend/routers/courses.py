@@ -264,7 +264,7 @@ def _teacher_course_library_projection(owner_id: str, known_task_ids: set[str]) 
 
 
 def _teacher_preparation_projection(course: dict, repository) -> dict:
-    """Derive the course status from confirmed teacher assets, never from a job."""
+    """Derive preparation from current usable assets, never confirmation flags."""
     course_id = str(course.get("course_id") or "")
     try:
         authoring = repository.view(course_id)
@@ -280,46 +280,107 @@ def _teacher_preparation_projection(course: dict, repository) -> dict:
         or brief.get("section_count")
         or 0
     )
-    confirmed_outline = bool(str(authoring.get("outline_revision_id") or ""))
-    confirmed_plans = 0
-    confirmed_handouts = 0
-    confirmed_ppts = 0
+    outline_ready = bool(str(authoring.get("outline_revision_id") or ""))
+    ready_plans = 0
+    ready_handouts = 0
+    ready_ppts = 0
     for lesson in lessons.values():
         if not isinstance(lesson, dict):
             continue
-        if str(lesson.get("confirmed_revision_id") or ""):
-            confirmed_plans += 1
-        confirmation = lesson.get("script_confirmation") or {}
-        if (
-            str(confirmation.get("confirmed_revision_id") or "")
-            and str(confirmation.get("source_state") or "current") == "current"
-        ):
-            confirmed_handouts += 1
+        plan_revision_id = str(lesson.get("working_revision_id") or "")
+        plan_revision = next((
+            item for item in lesson.get("revisions") or []
+            if isinstance(item, dict)
+            and str(item.get("revision_id") or "") == plan_revision_id
+        ), None)
+        plan_sections = (
+            (plan_revision.get("plan") or {}).get("sections") or []
+            if isinstance(plan_revision, dict)
+            else []
+        )
+        plan_ready = bool(
+            plan_revision_id
+            and isinstance(plan_revision, dict)
+            and str(plan_revision.get("generation_source") or "")
+            != "deterministic_local_fallback"
+            and str(lesson.get("source_state") or "current") == "current"
+            and plan_sections
+            and all(
+                isinstance(section, dict)
+                and str(section.get("node_id") or "").strip()
+                and list(section.get("teaching_modules") or [])
+                for section in plan_sections
+            )
+        )
+        if plan_ready:
+            ready_plans += 1
+
+        script_revision_id = str(lesson.get("working_script_revision_id") or "")
+        script_revision = next((
+            item for item in lesson.get("script_revisions") or []
+            if isinstance(item, dict)
+            and str(item.get("revision_id") or "") == script_revision_id
+        ), None)
+        script_sections = (
+            script_revision.get("sections") or []
+            if isinstance(script_revision, dict)
+            else []
+        )
+        script_ready = bool(
+            plan_ready
+            and script_revision_id
+            and isinstance(script_revision, dict)
+            and str(script_revision.get("generation_source") or "")
+            != "model_block_pipeline_with_recovery_preview"
+            and str(script_revision.get("source_lesson_plan_revision_id") or "")
+            == plan_revision_id
+            and script_sections
+            and all(
+                isinstance(section, dict)
+                and str(section.get("section_node_id") or "").strip()
+                and str(section.get("content") or "").strip()
+                and list(section.get("blocks") or [])
+                for section in script_sections
+            )
+        )
+        if script_ready:
+            ready_handouts += 1
         if any(
             isinstance(asset, dict)
+            and plan_ready
+            and script_ready
             and str(asset.get("source_state") or "current") == "current"
-            and (
-                str(asset.get("ppt_manuscript_status") or "") == "confirmed"
-                or bool(asset.get("confirmed_at"))
+            and str(asset.get("source_lesson_plan_revision_id") or "") == plan_revision_id
+            and str(asset.get("source_script_revision_id") or "") == script_revision_id
+            and bool(
+                asset.get("working_representation_id")
+                or asset.get("working_v6_revision_id")
+                or asset.get("working_revision_id")
             )
             for asset in lesson.get("ppt_assets") or []
         ):
-            confirmed_ppts += 1
+            ready_ppts += 1
     prepared = bool(
-        confirmed_outline
+        outline_ready
         and planned > 0
-        and confirmed_plans >= planned
-        and confirmed_handouts >= planned
-        and confirmed_ppts >= planned
+        and ready_plans >= planned
+        and ready_handouts >= planned
+        and ready_ppts >= planned
     )
     return {
         "preparation_state": "prepared" if prepared else "preparing",
         "preparation_summary": {
             "planned_lessons": planned,
-            "outline_confirmed": confirmed_outline,
-            "confirmed_lesson_plans": confirmed_plans,
-            "confirmed_handouts": confirmed_handouts,
-            "confirmed_ppts": confirmed_ppts,
+            "outline_ready": outline_ready,
+            "ready_lesson_plans": ready_plans,
+            "ready_handouts": ready_handouts,
+            "ready_ppts": ready_ppts,
+            # Compatibility aliases for older clients. Their values now mean
+            # current and structurally usable, not manually confirmed.
+            "outline_confirmed": outline_ready,
+            "confirmed_lesson_plans": ready_plans,
+            "confirmed_handouts": ready_handouts,
+            "confirmed_ppts": ready_ppts,
         },
     }
 

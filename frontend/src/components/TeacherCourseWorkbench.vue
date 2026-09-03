@@ -51,7 +51,7 @@
           :editing="editingOutline"
           :can-undo="outlineCanUndo"
           :can-redo="outlineCanRedo"
-          :disabled="stageSwitching || outlineConfirming || aiCollaborationBusy"
+          :disabled="stageSwitching || aiCollaborationBusy"
           :history-open="historyOpen && historyDomain === 'outline'"
           :history-count="outlineHistoryCount"
           :status-label="outlineDocumentStatusLabel"
@@ -62,11 +62,10 @@
         >
           <button
             class="outline-manual-action"
-            :class="{ 'primary-action': !outlineAwaitingReview }"
             data-testid="outline-manual-action"
             type="button"
             :aria-pressed="editingOutline"
-            :disabled="stageSwitching || outlineConfirming"
+            :disabled="stageSwitching"
             @click="toggleOutlineEditing"
           >
             <Check v-if="editingOutline" :size="15" />
@@ -74,18 +73,6 @@
             {{ editingOutline
               ? t('courseWorkbench.finishOutlineEditing', '完成编辑')
               : t('courseWorkbench.editOutline', '编辑大纲') }}
-          </button>
-          <button
-            v-if="outlineAwaitingReview"
-            class="outline-confirm-action primary-action"
-            data-testid="outline-confirm-action"
-            type="button"
-            :disabled="stageSwitching || outlineConfirming"
-            @click="confirmInlineOutline"
-          >
-            <LoaderCircle v-if="outlineConfirming" :size="15" class="spin" />
-            <Check v-else :size="15" />
-            {{ t('courseWorkbench.confirmOutline', '确认课程大纲') }}
           </button>
         </TeacherDocumentCommandBar>
         <TeacherDocumentHistoryPanel
@@ -127,14 +114,6 @@
         </AppErrorNotice>
       </section>
 
-      <section v-else-if="activeStage === 'foundation' && outlineShapeAwaitingReview" class="formal-surface outline-shape-review" data-testid="outline-shape-review">
-        <article>
-          <LoaderCircle :size="22" class="spin" />
-          <div><strong>{{ t('courseWorkbench.shapeReview.lectureContinuing', '讲数已经确认，正在继续生成课程大纲') }}</strong><small>{{ t('courseWorkbench.shapeReview.lectureAdapterHelp', '系统正在整理每一讲的内容与前后关系，不需要再填写章或小节。') }}</small></div>
-          <AppErrorNotice v-if="shapeConfirmErrorPresentation" class="shape-confirm-error" :presentation="shapeConfirmErrorPresentation" compact />
-        </article>
-      </section>
-
       <section
         v-else-if="showOutlineWorkspace"
         class="formal-surface outline-workspace"
@@ -149,7 +128,7 @@
           :nodes="courseStore.nodes"
           :task="generationTask"
           :editable="editingOutline"
-          :requires-confirmation="outlineAwaitingReview"
+          :requires-confirmation="false"
           confirmation-placement="external"
           :assistant-open="aiCollaborationOpen && aiDomain === 'outline'"
           :lesson-types="outlineLessonTypeControls"
@@ -159,7 +138,6 @@
           :lesson-type-error-id="outlineLessonTypeErrorId"
           variant="inline"
           surface="teacher"
-          @confirmed="handleInlineOutlineConfirmed"
           @open-ai="openAiCollaboration('outline')"
           @ai-candidate-change="handleAiCandidateChange"
           @ai-resolving="handleAiResolving"
@@ -258,11 +236,11 @@
         @saved="handleCompanionSaved"
       />
 
-      <section v-else class="lesson-stage" :class="{ 'has-lesson-outline': ['lesson', 'script'].includes(activeStage) && lessonStore.lessons.length && !outlineGatePending }">
+      <section v-else class="lesson-stage" :class="{ 'has-lesson-outline': ['lesson', 'script'].includes(activeStage) && lessonStore.lessons.length }">
         <div class="lesson-workspace">
           <div class="lesson-stage-content">
         <nav
-          v-if="lessonStore.lessons.length && !outlineGatePending"
+          v-if="lessonStore.lessons.length"
           class="lesson-navigator"
           :class="{ 'has-document-actions': lessonPageHeaderVisible }"
           :aria-label="t('courseWorkbench.lessonNavigation', '课次导航')"
@@ -310,8 +288,8 @@
                     aria-hidden="true"
                   >
                     <LoaderCircle v-if="lessonGenerationIsRunning(lesson)" :size="14" class="spin" />
-                    <Check v-else-if="lessonGenerationState(lesson) === 'confirmed'" :size="14" />
-                    <TriangleAlert v-else-if="['needs_review', 'failed'].includes(lessonGenerationState(lesson))" :size="14" />
+                    <Check v-else-if="['ready', 'suggestions'].includes(lessonGenerationState(lesson))" :size="14" />
+                    <TriangleAlert v-else-if="['stale', 'failed'].includes(lessonGenerationState(lesson))" :size="14" />
                     <i v-else />
                   </span>
                 </button>
@@ -323,7 +301,7 @@
               <LoaderCircle v-if="lessonHeaderBusy" :size="14" class="spin" />
               <Sparkles v-else-if="aiCandidatePending" :size="14" />
               <Pencil v-else-if="lessonHeaderEditing" :size="14" />
-              <Check v-else-if="lessonHeaderConfirmed" :size="14" />
+              <Check v-else-if="lessonHeaderReady" :size="14" />
               <TriangleAlert v-else-if="activeStage === 'ppt' && pptNeedsRefresh" :size="14" />
               <Presentation v-else-if="activeStage === 'ppt'" :size="14" />
               <span>{{ lessonHeaderStatusLabel }}</span>
@@ -341,7 +319,7 @@
           :editing="lessonDocumentEditing"
           :can-undo="lessonCanUndo"
           :can-redo="lessonCanRedo"
-          :disabled="lessonConfirming || aiCollaborationBusy"
+          :disabled="aiCollaborationBusy"
           :history-open="historyOpen && historyDomain === 'lesson'"
           :history-count="lessonHistoryCount"
           :show-history="false"
@@ -368,40 +346,13 @@
               </button>
             </template>
             <template v-else>
-              <button type="button" :disabled="lessonConfirming" @click="beginLessonPlanEditing"><Pencil :size="15" />{{ t('courseWorkbench.lessonDocument.edit', '编辑教案') }}</button>
-              <button
-                v-if="lessonArrangementNeedsConfirmation"
-                class="arrangement-update-action"
-                type="button"
-                :disabled="arrangementConfirming || lessonConfirming"
-                @click="confirmSelectedLessonArrangement"
-              >
-                <LoaderCircle v-if="arrangementConfirming" :size="15" class="spin" />
-                <Check v-else :size="15" />
-                {{ arrangementConfirming
-                  ? t('courseWorkbench.arrangement.confirming', '正在确认…')
-                  : t('courseWorkbench.arrangement.confirmShort', '确认教学结构') }}
-              </button>
-              <button
-                v-if="!lessonPlanConfirmed"
-                class="primary-action"
-                type="button"
-                :disabled="lessonConfirming || lessonDocumentQualityBlocked"
-                :title="lessonDocumentQualityBlocked ? lessonDocumentQualityBlockMessage : ''"
-                @click="confirmLessonPlan"
-              >
-                <LoaderCircle v-if="lessonConfirming" :size="15" class="spin" />
-                <Check v-else :size="15" />
-                {{ lessonConfirming
-                  ? t('courseWorkbench.confirmingLessonPlan', '正在确认…')
-                  : t('courseWorkbench.confirmLessonPlan', '确认本讲教案') }}
-              </button>
+              <button type="button" @click="beginLessonPlanEditing"><Pencil :size="15" />{{ t('courseWorkbench.lessonDocument.edit', '编辑教案') }}</button>
               <i v-if="lessonGenerationActionsVisible" class="lesson-action-divider" aria-hidden="true" />
               <button
                 v-if="selectedLessonCanGenerate"
                 data-testid="lesson-single-start"
                 type="button"
-                :class="{ 'primary-action': lessonPlanConfirmed && !lessonBatchLaunchVisible }"
+                :class="{ 'primary-action': !lessonBatchLaunchVisible }"
                 :disabled="batchStarting"
                 @click="generateSelectedLessonPlan"
               >
@@ -412,7 +363,7 @@
                 v-if="lessonBatchLaunchVisible || batchStarting"
                 data-testid="lesson-batch-start"
                 type="button"
-                :class="{ 'primary-action': lessonPlanConfirmed }"
+                class="primary-action"
                 :disabled="batchStarting"
                 @click="generateAllLessonPlans"
               >
@@ -458,11 +409,9 @@
             v-if="selectedLesson?.arrangement?.blocks?.length && (!workingLessonRevision || lessonGenerationActive)"
             :arrangement="selectedLesson.arrangement"
             :impact-labels="lessonArrangementImpactLabels"
-            :busy="arrangementConfirming"
             :generating="lessonGenerationActive"
             :sticky-actions="!workingLessonRevision || lessonGenerationRunning"
             :error="arrangementError || lessonGenerationError"
-            @confirm="confirmSelectedLessonArrangement"
           >
             <template #generation-actions>
               <div
@@ -474,7 +423,7 @@
                   data-testid="lesson-single-start"
                   type="button"
                   :disabled="!selectedLessonCanGenerate || batchStarting"
-                  :title="selectedLessonCanGenerate ? '' : t('courseWorkbench.lessonBatch.confirmFirst', '请先确认本讲教学结构')"
+                  :title="selectedLessonCanGenerate ? '' : t('courseWorkbench.lessonBatch.structureRequired', '本讲教学结构尚未生成')"
                   @click="generateSelectedLessonPlan"
                 >
                   <Sparkles :size="16" />
@@ -535,16 +484,13 @@
             :course-id="courseId"
             :course-title="courseTitle"
             :lesson="selectedLesson"
-            :confirmed="lessonPlanConfirmed"
+            :external-error="lessonDocumentError"
             :assistant-open="aiCollaborationOpen && aiDomain === 'lesson'"
-            :confirming="lessonConfirming"
-            :confirm-error="lessonConfirmError"
             :active-section-id="selectedLessonSectionId"
             :material-asset-ids="activeReferences.map(item => item.material_asset_id)"
             external-toolbar
             :selection-ai-enabled="false"
             @update:active-section-id="selectLessonSection(selectedLesson.lesson_unit_id, $event)"
-            @confirm="confirmLessonPlan"
             @open-ai="openAiCollaboration('lesson')"
             @ai-candidate-change="handleAiCandidateChange"
             @ai-resolving="handleAiResolving"
@@ -560,21 +506,18 @@
             ref="scriptDocument"
             :course-id="courseId"
             :lesson="selectedLesson"
+            :external-error="scriptDocumentError"
             :assistant-open="aiCollaborationOpen && aiDomain === 'script'"
             :material-asset-ids="activeReferences.map(item => item.asset_id)"
-            :confirmed="scriptConfirmed"
-            :confirming="scriptConfirming"
-            :confirm-error="scriptConfirmError"
             :generating="scriptGenerationBusy"
             :generation-job="scriptJob"
             :generation-error="effectiveScriptGenerationError"
-            :can-generate="Boolean(confirmedLessonRevision)"
+            :can-generate="currentLessonPlanReady"
             external-toolbar
             @generate="generateScript"
             @pause-generation="pauseScriptGeneration"
             @cancel-generation="cancelScriptGeneration"
             @saved="handleScriptSaved"
-            @confirm="confirmScript"
             @open-ai="openAiCollaboration('script')"
             @ai-candidate-change="handleAiCandidateChange"
             @ai-resolving="handleAiResolving"
@@ -590,7 +533,7 @@
                 :editing="scriptDocumentEditing"
                 :can-undo="scriptCanUndo"
                 :can-redo="scriptCanRedo"
-                :disabled="scriptConfirming || aiCollaborationBusy"
+                :disabled="aiCollaborationBusy"
                 :history-open="historyOpen && historyDomain === 'script'"
                 :history-count="scriptHistoryCount"
                 :status-label="lessonHeaderStatusLabel"
@@ -617,18 +560,8 @@
                     </button>
                   </template>
                   <template v-else>
-                    <button type="button" :disabled="scriptDocumentAiBusy || scriptConfirming" @click="openAiCollaboration('script')"><Sparkles :size="15" />{{ t('courseWorkbench.scriptDocument.aiImprove', 'AI 修改') }}</button>
-                    <button type="button" :disabled="scriptConfirming" @click="beginScriptEditing"><Pencil :size="15" />{{ t('courseWorkbench.scriptDocument.edit', '编辑讲义') }}</button>
-                    <button v-if="!scriptConfirmed && !scriptPublicationEligible" class="primary-action" type="button" :disabled="scriptGenerationBusy || scriptConfirming" :title="scriptPublicationBlockReason" @click="generateScript()">
-                      <LoaderCircle v-if="scriptGenerationBusy" :size="15" class="spin" />
-                      <RefreshCw v-else :size="15" />
-                      {{ scriptGenerationBusy ? t('courseWorkbench.scriptGenerating', '正在生成…') : t('courseWorkbench.scriptRegenerate', '重新生成本讲讲义') }}
-                    </button>
-                    <button v-else-if="!scriptConfirmed" class="primary-action" type="button" :disabled="scriptConfirming" @click="confirmScript">
-                      <LoaderCircle v-if="scriptConfirming" :size="15" class="spin" />
-                      <Check v-else :size="15" />
-                      {{ scriptConfirming ? t('courseWorkbench.scriptDocument.confirming', '正在确认…') : t('courseWorkbench.scriptDocument.confirm', '确认本讲讲义') }}
-                    </button>
+                    <button type="button" :disabled="scriptDocumentAiBusy" @click="openAiCollaboration('script')"><Sparkles :size="15" />{{ t('courseWorkbench.scriptDocument.aiImprove', 'AI 修改') }}</button>
+                    <button type="button" @click="beginScriptEditing"><Pencil :size="15" />{{ t('courseWorkbench.scriptDocument.edit', '编辑讲义') }}</button>
                   </template>
               </TeacherDocumentCommandBar>
               <TeacherDocumentHistoryPanel
@@ -651,7 +584,7 @@
             :course-title="courseTitle"
             :lesson-id="selectedLesson.lesson_unit_id"
             :lesson-title="selectedLesson.title"
-            :can-generate="Boolean(confirmedLessonRevision && scriptConfirmed)"
+            :can-generate="currentLessonPlanReady && currentScriptReady"
             :reference-count="activeReferences.length"
             :prepare-sources="preparePptSources"
             @generate="openPptWorkspace"
@@ -699,49 +632,19 @@
 
       <section
         v-if="outlineQualityReviewVisible"
-        class="outline-quality-review"
+        class="outline-quality-review-entry"
         data-testid="outline-quality-review"
-        aria-labelledby="outline-quality-review-title"
       >
         <button
           type="button"
-          class="outline-quality-review__header"
-          :aria-expanded="outlineQualityReviewExpanded"
-          aria-controls="outline-quality-review-content"
-          @click="outlineQualityReviewExpanded = !outlineQualityReviewExpanded"
+          class="outline-quality-review-entry__button"
+          data-testid="outline-quality-review-open"
+          @click="outlineQualityReviewDialogOpen = true"
         >
-          <span>
-            <strong id="outline-quality-review-title">{{ t('courseWorkbench.outlineReview.title', '大纲审阅') }}</strong>
-            <small>{{ outlineQualityReviewStatus }}</small>
-          </span>
-          <em v-if="outlineQualityIssues.length">{{ t('courseWorkbench.outlineReview.nonBlocking', '不影响确认') }}</em>
-          <ChevronDown :size="16" :class="{ 'is-expanded': outlineQualityReviewExpanded }" />
+          <ClipboardCheck :size="15" />
+          <span>{{ t('courseWorkbench.outlineReview.open', '查看大纲审阅') }}</span>
+          <small v-if="outlineQualityIssues.length">{{ outlineQualityIssues.length }}</small>
         </button>
-        <div v-if="outlineQualityReviewExpanded" id="outline-quality-review-content" class="outline-quality-review__content">
-          <p v-if="outlineQualityIssues.length">{{ outlineQualityReview.summary }}</p>
-          <ul v-if="outlineQualityIssues.length">
-            <li v-for="issue in outlineQualityIssues" :key="issue.code || issue.message">
-              <div>
-                <strong>{{ issue.message }}</strong>
-                <small>{{ outlineQualityIssueLocation(issue) }}</small>
-              </div>
-              <button
-                type="button"
-                :disabled="outlineQualityActionBusy"
-                :title="outlineQualityActionBusy ? t('courseWorkbench.outlineReview.finishCandidateFirst', '请先处理当前 AI 候选') : undefined"
-                @click="handleOutlineQualityIssue(issue)"
-              >
-                <LoaderCircle v-if="activeOutlineQualityIssueCode === issue.code && aiCollaborationBusy" :size="14" class="spin" />
-                <Pencil v-else-if="outlineQualityIssueAction(issue) === 'manual'" :size="14" />
-                <Sparkles v-else :size="14" />
-                {{ outlineQualityIssueAction(issue) === 'manual'
-                  ? t('courseWorkbench.outlineReview.manualAction', '手动补充')
-                  : t('courseWorkbench.outlineReview.aiAction', 'AI 优化') }}
-              </button>
-            </li>
-          </ul>
-          <p v-else class="outline-quality-review__empty"><Check :size="15" />{{ t('courseWorkbench.outlineReview.empty', '当前大纲暂无改进建议') }}</p>
-        </div>
       </section>
 
       <TeacherLessonAiWorkspace
@@ -842,12 +745,52 @@
       @focus-candidate="focusAiCandidate"
       @open-course-plan="planId => emit('open-course-adjustment', { planId })"
     />
+
+    <el-dialog
+      v-model="outlineQualityReviewDialogOpen"
+      class="outline-quality-review-dialog"
+      data-testid="outline-quality-review-dialog"
+      :title="t('courseWorkbench.outlineReview.title', '大纲审阅')"
+      width="min(720px, 92vw)"
+      append-to-body
+      destroy-on-close
+    >
+      <div class="outline-quality-review-dialog__body">
+        <div class="outline-quality-review-dialog__summary">
+          <span>{{ outlineQualityReviewStatus }}</span>
+          <small>{{ t('courseWorkbench.outlineReview.nonBlocking', '仅供参考，不影响后续生成') }}</small>
+        </div>
+        <p v-if="outlineQualityIssues.length && outlineQualityReview.summary">{{ outlineQualityReview.summary }}</p>
+        <ul v-if="outlineQualityIssues.length">
+          <li v-for="issue in outlineQualityIssues" :key="issue.code || issue.message">
+            <div>
+              <strong>{{ issue.message }}</strong>
+              <small>{{ outlineQualityIssueLocation(issue) }}</small>
+            </div>
+            <button
+              type="button"
+              :disabled="outlineQualityActionBusy"
+              :title="outlineQualityActionBusy ? t('courseWorkbench.outlineReview.finishCandidateFirst', '请先处理当前 AI 候选') : undefined"
+              @click="handleOutlineQualityIssue(issue)"
+            >
+              <LoaderCircle v-if="activeOutlineQualityIssueCode === issue.code && aiCollaborationBusy" :size="14" class="spin" />
+              <Pencil v-else-if="outlineQualityIssueAction(issue) === 'manual'" :size="14" />
+              <Sparkles v-else :size="14" />
+              {{ outlineQualityIssueAction(issue) === 'manual'
+                ? t('courseWorkbench.outlineReview.manualAction', '手动补充')
+                : t('courseWorkbench.outlineReview.aiAction', 'AI 优化') }}
+            </button>
+          </li>
+        </ul>
+        <p v-else class="outline-quality-review-dialog__empty"><Check :size="15" />{{ t('courseWorkbench.outlineReview.empty', '当前大纲暂无改进建议') }}</p>
+      </div>
+    </el-dialog>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { BookOpenText, Check, CheckSquare2, ChevronDown, ChevronLeft, ChevronRight, ClipboardCheck, ClipboardList, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
+import { BookOpenText, Check, CheckSquare2, ChevronDown, ChevronLeft, ChevronRight, ClipboardCheck, ClipboardList, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
@@ -906,8 +849,6 @@ type LessonPlanDocumentHandle = {
   editing: boolean
   saving: boolean
   aiBusy: boolean
-  qualityBlocked: boolean
-  qualityBlockMessage: string
   beginEditing: () => void
   cancelEditing: () => void
   saveDraft: () => Promise<void>
@@ -952,7 +893,6 @@ type AiLessonPlanSection = {
 }
 type OutlineEditorHandle = ProductionAiDocumentHandle & {
   finishEditing: () => Promise<boolean>
-  confirmOutline: () => Promise<void>
   requestQualityRepair: (issue: Record<string, any>) => string
   focusQualityIssueEditor: (issue: Record<string, any>) => Promise<boolean>
   dirty: boolean
@@ -967,7 +907,6 @@ const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; 
 const emit = defineEmits<{
   (event: 'generateOutline', payload: { subject: string; options: CourseGenerationOptions; references: CourseReferenceItem[] }): void
   (event: 'update:outlineEditing', value: boolean): void
-  (event: 'outlineConfirmed'): void
   (event: 'open-course-information'): void
   (event: 'open-course-adjustment', payload: { planId: string }): void
 }>()
@@ -975,7 +914,6 @@ const courseStore = useCourseStore(); const courseEvolutionStore = useCourseEvol
 const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = ref(props.initialLessonId)
 const activeCompanionTemplateId = ref<CompanionTemplateId>(GRADING_RUBRIC_TEMPLATE_ID)
 const stageSwitching = ref(false)
-const outlineConfirming = ref(false)
 const selectedLessonSectionId = ref('')
 const lessonOutlineOpen = ref(false)
 const lessonOutlineRoot = ref<HTMLElement | null>(null)
@@ -1009,7 +947,7 @@ const lastAiCoursePlanRequestId = ref('')
 const replacingAiCandidate = ref(false)
 const outlineEditor = ref<OutlineEditorHandle | null>(null)
 const outlineQualityReview = ref<Record<string, any>>({})
-const outlineQualityReviewExpanded = ref(true)
+const outlineQualityReviewDialogOpen = ref(false)
 const activeOutlineQualityIssueCode = ref('')
 const activeOutlineQualityRepairInstruction = ref('')
 const outlineRepairStartingIssueCount = ref<number | null>(null)
@@ -1096,21 +1034,17 @@ const foundationSemanticRequirement = computed(() => {
   const teachingType = courseTeachingTypeOptions.value.find(option => option.value === foundation.courseTeachingType)?.label || ''
   return [`学习目的：${purpose}`, `学科类型：${subject}`, `课程教学类型：${teachingType}`].join('\n')
 })
-const loadedShapeRevision = ref('')
-const shapeConfirming = ref(false)
-const shapeConfirmError = ref<unknown>(null)
 const batchStarting = ref(false)
 const LESSON_SYNC_RETRY_DELAYS = [0, 1200, 3200] as const
 const lessonSyncAttempt = ref(0)
 const lessonSyncRunning = ref(false)
 const lessonSyncRetryScheduled = ref(false)
 let lessonSyncRetryTimer: number | null = null
-const arrangementConfirming = ref(false)
 const arrangementError = ref('')
 const outlineLessonTypeSavingId = ref('')
 const outlineLessonTypeError = ref('')
 const outlineLessonTypeErrorId = ref('')
-const lessonConfirming = ref(false); const lessonConfirmError = ref(''); const scriptGenerating = ref(false); const scriptGenerationError = ref(''); const scriptConfirming = ref(false); const scriptConfirmError = ref(''); const generationRequested = ref(false)
+const lessonGenerationRequestError = ref(''); const lessonDocumentError = ref(''); const scriptGenerating = ref(false); const scriptGenerationError = ref(''); const scriptDocumentError = ref(''); const generationRequested = ref(false)
 const retainedOutlineGrowth = ref<Record<string, any> | null>(null)
 const questionBankReady = ref(false)
 const questionBankImportMode = ref(false)
@@ -1301,7 +1235,15 @@ const previousLessonReferenceTargetId = computed(() => (
 ))
 const nextLesson = computed(() => selectedLessonIndex.value >= 0 && selectedLessonIndex.value < lessonStore.lessons.length - 1 ? lessonStore.lessons[selectedLessonIndex.value + 1] : undefined)
 const workingLessonRevision = computed(() => selectedLesson.value?.plan.revisions.find(item => item.revision_id === selectedLesson.value?.plan.working_revision_id))
-const confirmedLessonRevision = computed(() => selectedLesson.value?.plan.revisions.find(item => item.revision_id === selectedLesson.value?.plan.confirmed_revision_id))
+const currentLessonPlanReady = computed(() => Boolean(
+  selectedLesson.value?.plan.working_revision_id
+  && selectedLesson.value.plan.source_state === 'current',
+))
+const currentScriptReady = computed(() => Boolean(
+  selectedLesson.value?.script?.ready
+  && selectedLesson.value.script.current_revision_id
+  && selectedLesson.value.script.source_state === 'current',
+))
 const currentAiBaseRevision = computed(() => {
   if (aiDomain.value === 'lesson') return String(workingLessonRevision.value?.revision_id || '')
   if (aiDomain.value === 'question-bank') return String(aiCandidate.value?.base_bundle_revision_id || questionBankRevisionId.value || 'course-question-bank')
@@ -1407,7 +1349,6 @@ const aiCandidateImpacts = computed(() => {
   }
   return []
 })
-const lessonPlanConfirmed = computed(() => Boolean(workingLessonRevision.value?.revision_id && workingLessonRevision.value.revision_id === selectedLesson.value?.plan.confirmed_revision_id))
 const lessonArrangementImpactLabels = computed(() => {
   const lesson = selectedLesson.value
   if (!lesson?.arrangement) return []
@@ -1419,10 +1360,6 @@ const lessonArrangementImpactLabels = computed(() => {
   if (lesson.plan.ppt_assets?.length) labels.push(t('courseWorkbench.arrangement.impactPpt', 'PPT 需要更新'))
   return labels
 })
-const lessonArrangementNeedsConfirmation = computed(() => Boolean(
-  selectedLesson.value?.arrangement
-  && !selectedLesson.value.arrangement.confirmed
-))
 const lessonTypeOptions = computed(() => [
   { value: 'theory', label: t('courseWorkbench.arrangement.lessonTypes.theory', '理论讲授') },
   { value: 'practice', label: t('courseWorkbench.arrangement.lessonTypes.practice', '技能训练') },
@@ -1445,7 +1382,8 @@ const selectedLessonTypeLabel = computed(() => {
     || ''
 })
 const selectedLessonCanGenerate = computed(() => Boolean(
-  selectedLesson.value?.arrangement?.confirmed
+  selectedLesson.value?.arrangement?.blocks?.length
+  && selectedLesson.value.arrangement.source_state === 'current'
   && !lessonGenerationActive.value
   && (
     !workingLessonRevision.value
@@ -1457,14 +1395,6 @@ const lessonToolbarVisible = computed(() => activeStage.value === 'lesson' && Bo
 const lessonPageHeaderVisible = computed(() => ['lesson', 'script', 'ppt'].includes(activeStage.value) && Boolean(selectedLesson.value))
 const lessonDocumentEditing = computed(() => Boolean(lessonPlanDocument.value?.editing))
 const lessonDocumentSaving = computed(() => Boolean(lessonPlanDocument.value?.saving))
-const lessonDocumentQualityBlocked = computed(() => Boolean(lessonPlanDocument.value?.qualityBlocked))
-const lessonDocumentQualityBlockMessage = computed(() => String(lessonPlanDocument.value?.qualityBlockMessage || ''))
-const scriptConfirmed = computed(() => Boolean(selectedLesson.value?.script?.confirmed))
-const scriptPublicationEligible = computed(() => selectedLesson.value?.script?.publication_eligible !== false)
-const scriptPublicationBlockReason = computed(() => String(
-  selectedLesson.value?.script?.quality_report?.blocking_issues?.[0]?.message
-  || (!scriptPublicationEligible.value ? t('courseWorkbench.scriptDocument.qualityBlocked', '讲义尚未通过当前质量与来源检查') : ''),
-))
 const scriptToolbarVisible = computed(() => activeStage.value === 'script' && Boolean(selectedLesson.value?.script?.ready) && !scriptGenerationBusy.value)
 const scriptDocumentEditing = computed(() => Boolean(scriptDocument.value?.editing))
 const scriptDocumentSaving = computed(() => Boolean(scriptDocument.value?.saving))
@@ -1491,7 +1421,6 @@ const outlineQualityReviewStatus = computed(() => (
 ))
 const outlineQualityActionBusy = computed(() => (
   stageSwitching.value
-  || outlineConfirming.value
   || aiCollaborationBusy.value
   || aiCandidatePending.value
 ))
@@ -1504,20 +1433,19 @@ const outlineHistoryCount = computed(() => courseWorkspaceStore.blueprintDraftVe
 const lessonHistoryCount = computed(() => selectedLesson.value?.plan.revisions.length || 0)
 const scriptHistoryCount = computed(() => selectedLesson.value?.script.revisions?.length || 0)
 const outlineDocumentStatusLabel = computed(() => {
-  if (outlineConfirming.value) return '正在确认…'
   if (stageSwitching.value && editingOutline.value) return '正在保存…'
-  if (aiCandidatePending.value && aiDomain.value === 'outline') return 'AI 修改待确认'
+  if (aiCandidatePending.value && aiDomain.value === 'outline') return 'AI 修改待处理'
   if (editingOutline.value) return outlineDocumentDirty.value ? '编辑中·未保存' : '编辑中·已保存'
   return '已保存'
 })
 const outlineDocumentStatusTone = computed<'normal' | 'busy' | 'warning'>(() => {
-  if (outlineConfirming.value || stageSwitching.value) return 'busy'
+  if (stageSwitching.value) return 'busy'
   if ((editingOutline.value && outlineDocumentDirty.value) || (aiCandidatePending.value && aiDomain.value === 'outline')) return 'warning'
   return 'normal'
 })
 const documentStatusTone = computed<'normal' | 'busy' | 'warning'>(() => {
   if (lessonHeaderBusy.value || aiCollaborationBusy.value) return 'busy'
-  if (lessonHeaderEditing.value || aiCandidatePending.value || lessonArrangementNeedsConfirmation.value) return 'warning'
+  if (lessonHeaderEditing.value || aiCandidatePending.value) return 'warning'
   return 'normal'
 })
 const formatHistoryTime = (value: unknown) => {
@@ -1581,16 +1509,16 @@ const pptNeedsRefresh = computed(() => Boolean(
   !currentPptAsset.value && selectedLesson.value?.plan.ppt_assets.some(asset => ['slide_deck_v6', 'uploaded_pptx'].includes(String(asset.engine || ''))),
 ))
 const lessonHeaderBusy = computed(() => activeStage.value === 'script'
-  ? scriptGenerationBusy.value || scriptConfirming.value
-  : activeStage.value === 'lesson' && lessonConfirming.value)
+  ? scriptGenerationBusy.value
+  : activeStage.value === 'lesson' && lessonGenerationActive.value)
 const lessonHeaderEditing = computed(() => activeStage.value === 'script'
   ? scriptDocumentEditing.value
   : activeStage.value === 'lesson' && lessonDocumentEditing.value)
-const lessonHeaderConfirmed = computed(() => activeStage.value === 'ppt'
+const lessonHeaderReady = computed(() => activeStage.value === 'ppt'
   ? Boolean(currentPptAsset.value)
   : activeStage.value === 'script'
-    ? scriptConfirmed.value
-    : lessonPlanConfirmed.value)
+    ? currentScriptReady.value
+    : currentLessonPlanReady.value)
 const lessonHeaderStatusLabel = computed(() => {
   if (activeStage.value === 'ppt') {
     if (currentPptAsset.value) return t('courseWorkbench.pptReview.currentStatus', '已有当前 PPT')
@@ -1598,33 +1526,26 @@ const lessonHeaderStatusLabel = computed(() => {
     return t('courseWorkbench.pptReview.pendingStatus', '待生成')
   }
   if (activeStage.value === 'script' && scriptGenerationBusy.value) return t('courseWorkbench.scriptDocument.generating', '正在生成…')
-  if (activeStage.value === 'script' && scriptConfirming.value) return t('courseWorkbench.scriptDocument.confirming', '正在确认…')
-  if (activeStage.value === 'lesson' && lessonConfirming.value) return t('courseWorkbench.confirmingLessonPlan', '正在确认…')
+  if (activeStage.value === 'lesson' && lessonGenerationActive.value) return t('courseWorkbench.lessonOutline.status.generating', '生成中')
   if (activeStage.value === 'lesson' && String(lessonJob.value?.status || '') === 'failed') return t('courseWorkbench.lessonOutline.status.failed', '失败')
   if (aiCandidatePending.value) return t('courseWorkbench.lessonDocument.aiCandidatePending', 'AI 方案待处理')
   if (activeStage.value === 'script' && scriptDocumentEditing.value) return t('courseWorkbench.scriptDocument.editing', '编辑中')
   if (activeStage.value === 'lesson' && lessonDocumentEditing.value) return t('courseWorkbench.lessonDocument.editing', '编辑中')
-  if (activeStage.value === 'lesson' && lessonArrangementNeedsConfirmation.value) return t('courseWorkbench.arrangement.awaitingConfirmation', '生成前需确认')
-  if (activeStage.value === 'script' && scriptConfirmed.value) return t('courseWorkbench.scriptDocument.confirmed', '已确认')
-  if (activeStage.value === 'lesson' && selectedLesson.value?.plan.source_state === 'stale') return t('courseWorkbench.lessonOutline.status.needsReview', '需复核')
-  if (activeStage.value === 'lesson' && lessonPlanConfirmed.value) return t('courseWorkbench.lessonPlanConfirmed', '已确认')
-  if (activeStage.value === 'script' && !selectedLesson.value?.script.ready) return t('courseWorkbench.scriptPending', '待生成')
-  return t('courseWorkbench.lessonPlanPendingReview', '待确认')
+  if (activeStage.value === 'script' && selectedLesson.value?.script.source_state === 'stale') return t('courseWorkbench.lessonOutline.status.stale', '需更新')
+  if (activeStage.value === 'lesson' && selectedLesson.value?.plan.source_state === 'stale') return t('courseWorkbench.lessonOutline.status.stale', '需更新')
+  if (activeStage.value === 'script' && currentScriptReady.value) return t('courseWorkbench.scriptDocument.generated', '已生成')
+  if (activeStage.value === 'lesson' && currentLessonPlanReady.value) return t('courseWorkbench.lessonPlanGenerated', '已生成')
+  return t('courseWorkbench.scriptPending', '待生成')
 })
 const generationTask = computed(() => generationStore.getTask(props.courseId))
 const taskStatus = computed(() => String(generationTask.value?.status || ''))
 const taskInFlight = computed(() => ['pending', 'running'].includes(taskStatus.value))
 const taskPaused = computed(() => taskStatus.value === 'paused')
-const outlineShapeAwaitingReview = computed(() => taskStatus.value === 'waiting_for_review' && generationTask.value?.currentPhase === 'outline_shape_ready')
-const outlineAwaitingReview = computed(() => taskStatus.value === 'waiting_for_review' && !outlineShapeAwaitingReview.value)
-const outlineGatePending = computed(() => outlineShapeAwaitingReview.value || outlineAwaitingReview.value)
 const generationFailed = computed(() => generationTask.value
   ? ['error', 'failed', 'conflict'].includes(taskStatus.value)
   : generationStore.generationStatus === 'error')
 const generationRunning = computed(() => taskInFlight.value)
 const showStreaming = computed(() => activeStage.value === 'foundation'
-  && !outlineShapeAwaitingReview.value
-  && !outlineAwaitingReview.value
   && (generationRequested.value || taskInFlight.value || taskPaused.value || generationFailed.value))
 const hasOutline = computed(() => courseStore.nodes.some(node => Number(node.node_level || 0) <= 2))
 const outlinePreviewNodes = computed(() => courseStore.nodes.filter(node => Number(node.node_level || 0) <= 2).slice(0, 24))
@@ -1634,12 +1555,9 @@ const outlineGrowth = computed<Record<string, any> | null>(() => {
   const value = generationTask.value?.phaseDetail?.outline_growth
   return value && typeof value === 'object' ? value as Record<string, any> : retainedOutlineGrowth.value
 })
-const outlineGrowthChapters = computed<Record<string, any>[]>(() => Array.isArray(outlineGrowth.value?.chapters) ? outlineGrowth.value!.chapters as Record<string, any>[] : [])
-const outlineShapeRevision = computed(() => String(generationTask.value?.phaseDetail?.skeleton_revision_id || ''))
 const showOutlineWorkspace = computed(() => activeStage.value === 'foundation'
   && !showStreaming.value
-  && !outlineShapeAwaitingReview.value
-  && (outlineAwaitingReview.value || hasOutline.value || editingOutline.value))
+  && (hasOutline.value || editingOutline.value))
 const generationProgress = computed(() => Math.max(2, Number(generationTask.value?.progress || generationStore.generationProgress || 0)))
 const currentGenerationLabel = computed(() => generationTask.value?.currentStep || generationStore.currentGeneratingNode || t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…'))
 const generationError = computed(() => generationFailed.value ? String(generationTask.value?.error || generationStore.failureReport?.failed_nodes?.[0]?.error || t('courseWorkbench.generationFailed', '生成中断，可以从当前结果重试。')) : '')
@@ -1715,7 +1633,7 @@ const batchError = computed(() => String(
 const lessonGenerationProgress = computed(() => Math.max(3, Number(lessonJob.value?.progress || 0)))
 const lessonGenerationError = computed(() => lessonJob.value?.status === 'cancelled'
   ? ''
-  : String(lessonJob.value?.error?.message || lessonConfirmError.value || lessonStore.error || ''))
+  : String(lessonJob.value?.error?.message || lessonGenerationRequestError.value || lessonStore.error || ''))
 const lessonStreamSegments = computed(() => lessonPlanStreamSegments(lessonJob.value?.stream_batches))
 const scriptJob = computed(() => selectedLessonId.value ? lessonStore.latestScriptJobByLesson(selectedLessonId.value) : undefined)
 const scriptGenerationActive = computed(() => ['pending', 'running'].includes(String(scriptJob.value?.status || '')))
@@ -1735,26 +1653,24 @@ const referenceWorkflowState = computed<CourseReferenceWorkflowState>(() => {
     if (props.generationStarting || taskInFlight.value) return 'generating'
     if (taskPaused.value) return 'paused'
     if (generationFailed.value) return 'failed'
-    if (outlineGatePending.value || hasOutline.value) return 'review'
+    if (hasOutline.value) return 'review'
     return activeReferences.value.length ? 'ready' : 'collecting'
   }
   if (activeStage.value === 'lesson') {
     if (batchRunning.value || batchStarting.value) return 'generating'
     if (batchPaused.value) return 'paused'
     if (batchRecoveryAvailable.value && batchEligibleCount.value) return batchPaused.value ? 'paused' : 'failed'
-    if (lessonPlanConfirmed.value) return 'confirmed'
-    if (workingLessonRevision.value) return 'review'
+    if (currentLessonPlanReady.value) return 'review'
     return activeReferences.value.length ? 'ready' : 'collecting'
   }
   if (activeStage.value === 'script') {
     if (scriptGenerationBusy.value) return 'generating'
     if (scriptJob.value?.status === 'paused') return 'paused'
     if (['failed', 'cancelled'].includes(String(scriptJob.value?.status || '')) || effectiveScriptGenerationError.value) return 'failed'
-    if (scriptConfirmed.value) return 'confirmed'
-    if (selectedLesson.value?.script?.ready) return 'review'
+    if (currentScriptReady.value) return 'review'
     return activeReferences.value.length ? 'ready' : 'collecting'
   }
-  if (activeStage.value === 'ppt') return currentPptAsset.value ? 'confirmed' : activeReferences.value.length ? 'ready' : 'collecting'
+  if (activeStage.value === 'ppt') return currentPptAsset.value ? 'review' : activeReferences.value.length ? 'ready' : 'collecting'
   return activeReferences.value.length ? 'ready' : 'collecting'
 })
 const referenceWorkflowDetail = computed(() => {
@@ -1799,12 +1715,10 @@ const referenceWorkflowCanRetry = computed(() => referenceWorkflowState.value ==
 const readyStageCount = computed(() => stages.value.filter(item => stageReady(item.id)).length)
 const lessonStageBlocked = computed(() => (
   lessonStore.loading
-  || outlineGatePending.value
   || !lessonStore.lessons.length
 ))
 const lessonSyncNeedsRecovery = computed(() => (
   ['lesson', 'script', 'ppt'].includes(activeStage.value)
-  && !outlineGatePending.value
   && !lessonStore.lessons.length
   && Boolean(hasOutline.value || lessonStore.outlineRevisionId)
 ))
@@ -1831,18 +1745,6 @@ const lessonPrerequisiteState = computed(() => {
     detail: t('courseWorkbench.lessonPrerequisite.loadingHelp', '系统正在读取大纲课次，无需重复操作。'),
     action: '',
   }
-  if (outlineShapeAwaitingReview.value) return {
-    kind: 'review',
-    title: t('courseWorkbench.lessonPrerequisite.shapeReview', '课程讲数已确认，正在生成大纲'),
-    detail: t('courseWorkbench.lessonPrerequisite.shapeReviewHelp', '完成这一步后，系统会继续生成完整大纲。'),
-    action: t('courseWorkbench.lessonPrerequisite.continueOutline', '继续完善大纲'),
-  }
-  if (outlineAwaitingReview.value) return {
-    kind: 'review',
-    title: t('courseWorkbench.lessonPrerequisite.outlineReview', '课程大纲已生成，等待确认'),
-    detail: t('courseWorkbench.lessonPrerequisite.outlineReviewHelp', '确认后会直接形成可选择的课次，不需要重新生成大纲。'),
-    action: t('courseWorkbench.lessonPrerequisite.reviewOutline', '查看并确认大纲'),
-  }
   if ((lessonStore.error && !lessonStore.lessons.length) || lessonSyncExhausted.value) return {
     kind: 'error',
     title: t('courseWorkbench.lessonPrerequisite.loadFailed', '教案读取失败'),
@@ -1858,7 +1760,7 @@ const lessonPrerequisiteState = computed(() => {
   return {
     kind: 'missing',
     title: t('courseWorkbench.lessonPrerequisite.missing', '尚未生成可用的课程大纲'),
-    detail: t('courseWorkbench.lessonPrerequisite.missingHelp', '先生成大纲，再在当前页面确认后进入教案。'),
+    detail: t('courseWorkbench.lessonPrerequisite.missingHelp', '先生成完整大纲，完成后即可进入教案。'),
     action: t('courseWorkbench.lessonPrerequisite.createOutline', '生成课程大纲'),
   }
 })
@@ -1870,17 +1772,12 @@ const lessonPrerequisiteError = computed(() => (
       })
     : null
 ))
-const shapeConfirmErrorPresentation = computed(() => shapeConfirmError.value ? toAppError(shapeConfirmError.value, {
-  title: t('courseWorkbench.shapeReview.failedTitle', '课程大纲继续生成失败'),
-  fallback: t('courseWorkbench.shapeReview.failed', '无法继续生成，请稍后重试'),
-}) : null)
-
 function stageReady(stage: CoreStageId) {
-  if (stage === 'foundation') return hasOutline.value && !outlineAwaitingReview.value
+  if (stage === 'foundation') return hasOutline.value && !generationFailed.value
   if (!lessonStore.lessons.length) return false
-  if (stage === 'lesson') return lessonStore.lessons.every(item => Boolean(item.plan.confirmed_revision_id))
-  if (stage === 'script') return lessonStore.lessons.every(item => item.script?.confirmed)
-  return lessonStore.lessons.every(item => item.plan.ppt_assets.some(asset => asset.source_state === 'current' && asset.ppt_manuscript_status === 'confirmed'))
+  if (stage === 'lesson') return lessonStore.lessons.every(item => Boolean(item.plan.working_revision_id && item.plan.source_state === 'current'))
+  if (stage === 'script') return lessonStore.lessons.every(item => Boolean(item.script?.ready && item.script.current_revision_id && item.script.source_state === 'current'))
+  return lessonStore.lessons.every(item => item.plan.ppt_assets.some(asset => asset.source_state === 'current'))
 }
 function nodeContent(node: any) { return generationStore.streamingContent[node.node_id] || node.node_content || '' }
 function stopGeneration() { void generationStore.stopGeneration() }
@@ -2026,6 +1923,7 @@ function outlineQualityIssueAction(issue: Record<string, any>): 'ai' | 'manual' 
 }
 async function handleOutlineQualityIssue(issue: Record<string, any>) {
   if (!outlineEditor.value || outlineQualityActionBusy.value) return
+  outlineQualityReviewDialogOpen.value = false
   if (outlineQualityIssueAction(issue) === 'manual') {
     editingOutline.value = true
     await nextTick()
@@ -2049,9 +1947,7 @@ async function handleOutlineQualityIssue(issue: Record<string, any>) {
     t('courseWorkbench.outlineReview.aiRequest', '优化这项大纲审阅建议：{issue}')
       .replace('{issue}', String(issue.message || '')),
   )
-  outlineQualityReviewExpanded.value = false
   await generateAiCandidateFromConversation(instruction)
-  if (!aiCandidatePending.value) outlineQualityReviewExpanded.value = true
 }
 function openAiCollaboration(domain: TeacherProductionAiDomain, selectionText = '') {
   if (domain === 'lesson' && (!selectedLesson.value || !workingLessonRevision.value)) return
@@ -2325,7 +2221,6 @@ function handleAiResolved(result: { accept: boolean }) {
     appendAiMessage('assistant', 'receipt', receipt)
   }
   if (aiDomain.value === 'outline') {
-    outlineQualityReviewExpanded.value = true
     outlineRepairStartingIssueCount.value = null
     activeOutlineQualityIssueCode.value = ''
     activeOutlineQualityRepairInstruction.value = ''
@@ -2410,10 +2305,6 @@ function resizeAiPaneWithKeyboard(event: KeyboardEvent) {
   try { window.localStorage.setItem(AI_PANE_STORAGE_KEY, String(aiPaneWidth.value)) } catch { /* local storage can be unavailable */ }
 }
 function resolveLessonPrerequisite() {
-  if (outlineGatePending.value) {
-    activeStage.value = 'foundation'
-    return
-  }
   if (lessonStore.error || hasOutline.value || lessonStore.outlineRevisionId) {
     retryLessonSync()
     return
@@ -2542,16 +2433,6 @@ async function submitFoundation() {
     generationRequested.value = false
   }
 }
-async function confirmLectureOutlineShape() {
-  if (shapeConfirming.value) return
-  const count = Math.max(1, Number(foundation.lectureCount || outlineGrowthChapters.value.length || 1))
-  shapeConfirming.value = true; shapeConfirmError.value = null
-  try {
-    await courseWorkspaceStore.confirmOutlineShape(props.courseId, Array.from({ length: count }, () => 1))
-    generationRequested.value = true
-    await generationStore.fetchGlobalTasks()
-  } catch (error: any) { shapeConfirmError.value = error } finally { shapeConfirming.value = false }
-}
 function activeLessonGenerationSource() {
   const primary = activeReferences.value.find(item => item.role === 'primary')
   return primary ? { packageId: primary.package_id, assetId: primary.asset_id } : undefined
@@ -2572,36 +2453,15 @@ async function updateOutlineLessonType(payload: { lessonUnitId: string; lessonTy
     outlineLessonTypeSavingId.value = ''
   }
 }
-async function confirmSelectedLessonArrangement() {
-  const lesson = selectedLesson.value
-  if (!lesson?.arrangement || arrangementConfirming.value || lessonGenerationActive.value) return
-  arrangementConfirming.value = true
-  arrangementError.value = ''
-  try {
-    const updated = await lessonStore.confirmArrangement(
-      props.courseId,
-      lesson.lesson_unit_id,
-      {
-        lesson_type: lesson.arrangement.lesson_type,
-        blocks: lesson.arrangement.blocks,
-      },
-    )
-    void updated
-  } catch {
-    arrangementError.value = lessonStore.error || t('courseWorkbench.arrangement.confirmFailed', '教学结构确认失败，请重试。')
-  } finally {
-    arrangementConfirming.value = false
-  }
-}
 async function generateSelectedLessonPlan() {
   const lesson = selectedLesson.value
   if (!lesson || lessonGenerationActive.value) return
-  if (!lesson.arrangement?.confirmed) {
-    arrangementError.value = t('courseWorkbench.arrangement.confirmBeforeGenerate', '请先确认本讲教学结构。')
+  if (!lesson.arrangement?.blocks?.length || lesson.arrangement.source_state !== 'current') {
+    arrangementError.value = t('courseWorkbench.arrangement.structureRequired', '本讲教学结构尚未生成，请稍后重试。')
     return
   }
   arrangementError.value = ''
-  lessonConfirmError.value = ''
+  lessonGenerationRequestError.value = ''
   try {
     await lessonStore.generateLesson(
       props.courseId,
@@ -2618,7 +2478,7 @@ async function generateSelectedLessonPlan() {
 async function generateAllLessonPlans() {
   if (batchStarting.value || batchRunning.value || !batchEligibleCount.value) return
   batchStarting.value = true
-  lessonConfirmError.value = ''
+  lessonGenerationRequestError.value = ''
   try {
     await lessonStore.generateAllLessons(
       props.courseId,
@@ -2627,7 +2487,7 @@ async function generateAllLessonPlans() {
       activeReferences.value.map(item => item.material_asset_id),
     )
   } catch {
-    lessonConfirmError.value = lessonStore.error || t('courseWorkbench.lessonBatch.failed', '全部教案任务创建失败，请重试。')
+    lessonGenerationRequestError.value = lessonStore.error || t('courseWorkbench.lessonBatch.failed', '全部教案任务创建失败，请重试。')
   } finally {
     batchStarting.value = false
   }
@@ -2639,7 +2499,6 @@ async function pauseLessonJob(jobId: string) { await lessonStore.pauseJob(props.
 async function cancelLessonJob(jobId: string) { await lessonStore.cancelJob(props.courseId, jobId).catch(() => undefined) }
 async function pauseAllLessonGeneration() { await Promise.all(batchLessonJobs.value.filter(job => ['pending', 'running'].includes(job.status)).map(job => pauseLessonJob(job.id))) }
 async function cancelAllLessonGeneration() { await Promise.all(batchLessonJobs.value.filter(job => ['pending', 'running'].includes(job.status)).map(job => cancelLessonJob(job.id))) }
-async function confirmLessonPlan() { const revision = workingLessonRevision.value?.revision_id; if (!selectedLesson.value || !revision || lessonPlanConfirmed.value || lessonConfirming.value) return; lessonConfirming.value = true; lessonConfirmError.value = ''; try { await lessonStore.confirm(props.courseId, selectedLessonId.value, revision) } catch { lessonConfirmError.value = lessonStore.error || t('courseWorkbench.lessonConfirmFailed', '本讲教案确认失败，请重试。') } finally { lessonConfirming.value = false } }
 function beginLessonPlanEditing() { lessonPlanDocument.value?.beginEditing() }
 function cancelLessonPlanEditing() { lessonPlanDocument.value?.cancelEditing() }
 async function saveLessonPlanDraft() { await lessonPlanDocument.value?.saveDraft() }
@@ -2677,9 +2536,9 @@ async function restoreDocumentHistory(revisionId: string) {
     handleAiCandidateChange(null)
   } catch {
     if (historyDomain.value === 'lesson') {
-      lessonConfirmError.value = lessonStore.error || '教案历史版本恢复失败，请重试。'
+      lessonDocumentError.value = lessonStore.error || '教案历史版本恢复失败，请重试。'
     } else if (historyDomain.value === 'script') {
-      scriptConfirmError.value = lessonStore.error || t('courseWorkbench.scriptDocument.restoreFailed', '讲义历史版本恢复失败，请重试。')
+      scriptDocumentError.value = lessonStore.error || t('courseWorkbench.scriptDocument.restoreFailed', '讲义历史版本恢复失败，请重试。')
     }
   } finally {
     historyRestoringId.value = ''
@@ -2710,9 +2569,12 @@ function preferredLessonId(lessons: typeof lessonStore.lessons): string {
   ))
   if (affected) return affected.lesson_unit_id
   const unfinished = lessons.find(lesson => (
-    !lesson.plan.confirmed_revision_id
-    || !lesson.script?.confirmed
-    || !lesson.plan.ppt_assets?.some(asset => asset.source_state === 'current' && asset.ppt_manuscript_status === 'confirmed')
+    !lesson.plan.working_revision_id
+    || lesson.plan.source_state !== 'current'
+    || !lesson.script?.ready
+    || !lesson.script?.current_revision_id
+    || lesson.script?.source_state !== 'current'
+    || !lesson.plan.ppt_assets?.some(asset => asset.source_state === 'current')
   ))
   return unfinished?.lesson_unit_id || lessons[0]?.lesson_unit_id || ''
 }
@@ -2737,14 +2599,14 @@ function selectLessonSection(lessonId: string, sectionId: string) {
   selectedLessonId.value = lessonId
   selectedLessonSectionId.value = sectionId
 }
-function lessonGenerationState(lesson: any): 'pending' | 'generating' | 'review' | 'confirmed' | 'needs_review' | 'failed' {
+function lessonGenerationState(lesson: any): 'pending' | 'generating' | 'ready' | 'suggestions' | 'stale' | 'failed' {
   const jobStatus = String(lessonStore.latestJobByLesson(lesson.lesson_unit_id)?.status || '')
   if (jobStatus === 'running') return 'generating'
   if (['pending', 'paused'].includes(jobStatus)) return 'generating'
   if (['failed', 'cancelled'].includes(jobStatus)) return 'failed'
-  if (lesson.plan?.source_state === 'stale' || jobStatus === 'completed_with_warnings') return 'needs_review'
-  if (lesson.plan?.confirmed_revision_id) return 'confirmed'
-  if (lesson.plan?.working_revision_id || ['completed', 'completed_with_warnings'].includes(jobStatus)) return 'review'
+  if (lesson.plan?.source_state === 'stale') return 'stale'
+  if (jobStatus === 'completed_with_warnings') return 'suggestions'
+  if (lesson.plan?.working_revision_id || jobStatus === 'completed') return 'ready'
   return 'pending'
 }
 function lessonGenerationIsRunning(lesson: any): boolean {
@@ -2755,19 +2617,19 @@ function lessonGenerationStateLabel(lesson: any): string {
   const labels = {
     pending: t('courseWorkbench.lessonOutline.status.pending', '未生成'),
     generating: t('courseWorkbench.lessonOutline.status.generating', '生成中'),
-    review: t('courseWorkbench.lessonOutline.status.review', '待确认'),
-    confirmed: t('courseWorkbench.lessonOutline.status.confirmed', '已确认'),
-    needs_review: t('courseWorkbench.lessonOutline.status.needsReview', '需复核'),
+    ready: t('courseWorkbench.lessonOutline.status.ready', '已生成'),
+    suggestions: t('courseWorkbench.lessonOutline.status.suggestions', '已生成，有建议'),
+    stale: t('courseWorkbench.lessonOutline.status.stale', '需更新'),
     failed: t('courseWorkbench.lessonOutline.status.failed', '失败'),
   }
   return labels[state]
 }
-async function handleScriptSaved() { scriptConfirmError.value = ''; await lessonStore.load(props.courseId) }
+async function handleScriptSaved() { scriptDocumentError.value = ''; await lessonStore.load(props.courseId) }
 async function generateScript(requirements = '') {
-  if (!selectedLesson.value || !confirmedLessonRevision.value || scriptGenerationBusy.value) return
+  if (!selectedLesson.value || !currentLessonPlanReady.value || scriptGenerationBusy.value) return
   scriptGenerating.value = true
   scriptGenerationError.value = ''
-  scriptConfirmError.value = ''
+  scriptDocumentError.value = ''
   try {
     await saveRelationships(`script:${selectedLessonId.value}`, 'script', `${selectedLesson.value.title} 讲义`)
     await lessonStore.generateScript(
@@ -2793,21 +2655,8 @@ async function pauseScriptGeneration() {
   scriptGenerationError.value = ''
   await lessonStore.pauseJob(props.courseId, scriptJob.value.id).catch(() => undefined)
 }
-async function confirmScript() {
-  const revision = selectedLesson.value?.script.current_revision_id
-  if (!selectedLesson.value || !revision || scriptConfirmed.value || scriptConfirming.value || !scriptPublicationEligible.value) return
-  scriptConfirming.value = true
-  scriptConfirmError.value = ''
-  try {
-    await lessonStore.confirmScript(props.courseId, selectedLessonId.value, revision)
-  } catch {
-    scriptConfirmError.value = lessonStore.error || t('courseWorkbench.scriptConfirmFailed', '本讲讲义确认失败，请重试。')
-  } finally {
-    scriptConfirming.value = false
-  }
-}
 async function openPptWorkspace() {
-  if (!selectedLesson.value || !confirmedLessonRevision.value || !scriptConfirmed.value) return
+  if (!selectedLesson.value || !currentLessonPlanReady.value || !currentScriptReady.value) return
   await preparePptSources()
   window.location.assign(`/course/${props.courseId}/ppt?lesson=${selectedLessonId.value}`)
 }
@@ -2820,16 +2669,6 @@ async function preparePptSources() {
   )
 }
 async function handleCompanionSaved(document: { document_id: string; title: string; revision_id: string }) { await saveRelationships(`companion-document:${document.document_id}`, 'companion_document', document.title) }
-function handleInlineOutlineConfirmed() { emit('outlineConfirmed') }
-async function confirmInlineOutline() {
-  if (!outlineEditor.value || outlineConfirming.value) return
-  outlineConfirming.value = true
-  try {
-    await outlineEditor.value.confirmOutline()
-  } finally {
-    outlineConfirming.value = false
-  }
-}
 async function toggleOutlineEditing() {
   if (stageSwitching.value) return
   if (!editingOutline.value) {
@@ -2893,14 +2732,7 @@ watch(() => props.generationOptions, options => {
   foundation.lectureCount = Number(brief?.lecture_count || brief?.section_count || 16)
   foundation.requirements = String(canonical.requirements || '')
 }, { immediate: true, deep: true })
-watch([outlineShapeAwaitingReview, outlineShapeRevision], ([waiting, revision]) => {
-  if (!waiting || !revision || loadedShapeRevision.value === revision) return
-  loadedShapeRevision.value = revision
-  shapeConfirmError.value = null
-  void confirmLectureOutlineShape()
-}, { immediate: true })
 watch(() => generationTask.value?.phaseDetail?.outline_growth, value => { if (value && typeof value === 'object') retainedOutlineGrowth.value = JSON.parse(JSON.stringify(value)) as Record<string, any> }, { immediate: true, deep: true })
-watch(outlineAwaitingReview, waiting => { if (waiting) void courseStore.refreshGenerationPreview(props.courseId, 'teacher') }, { immediate: true })
 watch(() => props.initialStage, stage => { void requestStageChange(stage) })
 watch(() => props.initialLessonId, lessonId => { if (lessonId) selectedLessonId.value = lessonId })
 watch([() => props.courseId, () => lessonStore.outlineRevisionId], () => {
@@ -2909,7 +2741,6 @@ watch([() => props.courseId, () => lessonStore.outlineRevisionId], () => {
 })
 watch([
   activeStage,
-  outlineGatePending,
   hasOutline,
   () => lessonStore.outlineRevisionId,
   () => lessonStore.loading,
@@ -2953,10 +2784,11 @@ watch(() => lessonStore.lessons, lessons => {
 watch(selectedLessonId, (lessonId, previousLessonId) => {
   if (previousLessonId && lessonId !== previousLessonId) closeAiCollaboration()
   if (previousLessonId && lessonId !== previousLessonId) closeDocumentHistory()
-  lessonConfirmError.value = ''
+  lessonGenerationRequestError.value = ''
+  lessonDocumentError.value = ''
   arrangementError.value = ''
   scriptGenerationError.value = ''
-  scriptConfirmError.value = ''
+  scriptDocumentError.value = ''
   const lesson = lessonStore.lessons.find(item => item.lesson_unit_id === lessonId)
   if (!lesson) {
     selectedLessonSectionId.value = ''
@@ -2992,8 +2824,6 @@ onBeforeUnmount(() => {
 .center-heading-actions>.outline-manual-action{border-color:#d7dde7;color:#475569;background:#fff;box-shadow:none}
 .center-heading-actions>.outline-manual-action:hover:not(:disabled){border-color:#bfc7d4;color:#3730a3;background:#f8f8fc}
 .center-heading-actions>.outline-manual-action[aria-pressed="true"]{border-color:#c9c8ee;color:#3730a3;background:#f4f3ff}
-.center-heading-actions>.outline-confirm-action{border-color:#454ca8;color:#fff;background:#454ca8;box-shadow:0 7px 18px rgba(69,76,168,.16)}
-.center-heading-actions>.outline-confirm-action:hover:not(:disabled){border-color:#3f4598;background:#3f4598}
 .stage-form>footer{justify-content:flex-end}
 .foundation-presets{display:grid;margin:2px 0 0;padding:4px 0;border-top:1px solid #e8ebf2;border-bottom:1px solid #e8ebf2}.foundation-presets>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:17px 2px 14px}.foundation-presets>header>div{display:grid;gap:4px}.foundation-presets>header strong{color:#273247;font-size:14px}.foundation-presets>header span{color:#778195;font-size:14px;line-height:1.55}.foundation-presets>header>small{padding-top:2px;color:#555db6;font-size:14px;font-weight:750;white-space:nowrap}.foundation-preset-row{display:grid;grid-template-columns:150px minmax(0,1fr);align-items:center;gap:18px;padding:15px 2px;border-top:1px solid #eff1f5}.foundation-preset-row>div:first-child{display:grid;gap:3px}.foundation-preset-row>div:first-child strong{color:#354056;font-size:14px}.foundation-preset-row>div:first-child span{color:#8991a0;font-size:14px;line-height:1.45}.foundation-preset-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.foundation-preset-options>button{min-width:0;min-height:58px;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:7px;padding:8px 10px;border:1px solid #dfe3eb;border-radius:10px;color:#5e687b;background:#fff;text-align:left;cursor:pointer;transition:border-color .18s ease,background .18s ease,color .18s ease,transform .18s cubic-bezier(.16,1,.3,1)}.foundation-preset-options>button:not(.selected){grid-template-columns:minmax(0,1fr)}.foundation-preset-options>button:hover{transform:translateY(-1px);border-color:#c7cae9;background:#fafaff}.foundation-preset-options>button:focus-visible{outline:3px solid rgba(79,70,217,.14);outline-offset:1px}.foundation-preset-options>button.selected{border-color:#bfc2e8;color:#41489f;background:#f4f4ff}.foundation-preset-options>button>svg{color:#555db6}.foundation-preset-options>button>span{min-width:0;display:grid;gap:2px}.foundation-preset-options>button strong{overflow:hidden;color:inherit;font-size:14px;font-weight:800;text-overflow:ellipsis;white-space:nowrap}.foundation-preset-options>button small{overflow:hidden;color:#828b9c;font-size:14px;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}.stage-form>footer>span{max-width:520px;color:#7b8495;font-size:14px;line-height:1.5}.stage-form>footer{justify-content:space-between}
 .foundation-semantics{display:grid;margin:2px 0 0;border-block:1px solid #e8ebf2}.foundation-semantics>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:18px 2px 15px}.foundation-semantics>header>div{display:grid;gap:4px}.foundation-semantics>header strong{color:#273247;font-size:14px}.foundation-semantics>header span{max-width:68ch;color:#778195;font-size:14px;line-height:1.55}.foundation-semantics>header>small{padding-top:2px;color:#555db6;font-size:14px;font-weight:750;white-space:nowrap}.foundation-semantic-row{display:grid;grid-template-columns:145px minmax(0,1fr);align-items:center;gap:18px;padding:16px 2px;border-top:1px solid #eff1f5}.foundation-semantic-row>div:first-child{display:grid;gap:4px}.foundation-semantic-row>div:first-child strong{color:#354056;font-size:14px}.foundation-semantic-row>div:first-child span{color:#8991a0;font-size:14px;line-height:1.45}.foundation-semantic-options{display:grid;gap:8px}.foundation-semantic-options--three,.foundation-semantic-options--six{grid-template-columns:repeat(3,minmax(0,1fr))}.foundation-semantic-options>button{min-width:0;min-height:62px;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;padding:9px 11px;border:1px solid #dfe3eb;border-radius:10px;color:#5e687b;background:#fff;text-align:left;cursor:pointer;transition:border-color .18s ease,background-color .18s ease,color .18s ease,transform .18s cubic-bezier(.16,1,.3,1)}.foundation-semantic-options>button:not(.selected){grid-template-columns:minmax(0,1fr)}.foundation-semantic-options>button:hover{transform:translateY(-1px);border-color:#c7cae9;background:#fafaff}.foundation-semantic-options>button:focus-visible,.foundation-subject-select select:focus-visible{outline:3px solid rgba(79,70,217,.14);outline-offset:1px}.foundation-semantic-options>button.selected{border-color:#bfc2e8;color:#41489f;background:#f4f4ff}.foundation-semantic-options>button>svg{color:#555db6}.foundation-semantic-options>button>span{min-width:0;display:grid;gap:3px}.foundation-semantic-options>button strong{color:inherit;font-size:14px;font-weight:800;line-height:1.35}.foundation-semantic-options>button small{color:#7d8799;font-size:14px;line-height:1.4}.foundation-semantic-row--compact{align-items:start}.foundation-subject-select{display:grid;grid-template-columns:minmax(220px,300px) minmax(0,1fr);align-items:center;gap:14px}.foundation-subject-select select{width:100%;min-height:42px;padding:8px 34px 8px 11px;border:1px solid #cfd7e3;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:14px}.foundation-subject-select small{color:#7b8495;font-size:14px;line-height:1.5}.foundation-purpose-fields{display:grid;padding:16px 2px;border-top:1px solid #eff1f5}.foundation-purpose-fields--two{grid-template-columns:minmax(160px,.55fr) minmax(0,1.45fr);gap:14px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.stage-form>footer>span{max-width:520px;color:#7b8495;font-size:14px;line-height:1.5}.stage-form>footer{justify-content:space-between}
@@ -3006,7 +2836,6 @@ onBeforeUnmount(() => {
 @media(max-width:760px){.foundation-semantic-row{grid-template-columns:1fr;gap:10px}.foundation-semantic-options--three,.foundation-semantic-options--six{grid-template-columns:1fr}.foundation-semantic-options>button{min-height:54px}.foundation-subject-select{grid-template-columns:1fr;gap:7px}.foundation-purpose-fields--two{grid-template-columns:1fr}}
 @media(max-width:760px){.center-heading-actions>button{width:38px;padding:0;justify-content:center;font-size:0}}
 .stream-failed{color:#b91c1c;background:#fffafa}
-.outline-shape-review>article{padding-bottom:20px}.shape-chapter-list{display:grid;gap:0;margin:0;padding:0!important;list-style:none}.shape-chapter-list li{min-height:72px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 2px;border-bottom:1px solid #edf1f6}.shape-chapter-index{width:30px;height:30px;display:grid;place-items:center;border-radius:50%;color:#4f46e5;background:#eef2ff;font-size:14px;font-weight:800}.shape-chapter-list li>div{min-width:0;display:grid;gap:4px}.shape-chapter-list li>div strong{color:#263147;font-size:14px}.shape-chapter-list li>div small{color:#64748b;font-size:14px;line-height:1.45}.shape-chapter-list label{display:flex;align-items:center;gap:7px;color:#64748b;font-size:14px}.shape-chapter-list input{width:68px;min-height:36px;padding:6px 8px;border:1px solid #cfd7e3;border-radius:7px;outline:0;color:#172033;background:#fff;font:inherit;font-size:14px;text-align:center}.shape-chapter-list input:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.outline-shape-review>footer{min-height:66px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 20px;border-top:1px solid #e7ebf2}.outline-shape-review>footer>span{color:#64748b;font-size:14px}.shape-confirm-error{margin:12px 0 0}
 .workbench-error{margin:12px 20px 16px}.prerequisite-error{margin:24px}.lesson-generation-actions{display:flex;align-items:center;gap:8px}.lesson-generation-actions button{min-height:36px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 12px;border:1px solid #cfd6e3;border-radius:8px;color:#475569;background:#fff;font-size:15px;font-weight:750;cursor:pointer}.lesson-generation-actions button:hover:not(:disabled){border-color:#aaa7e8;color:#3730a3;background:#f8f8ff}.lesson-generation-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.lesson-generation-actions button:disabled{opacity:.5;cursor:not-allowed}.lesson-generation-actions .primary-action{border-color:#514bdc;color:#fff;background:#514bdc}.lesson-generation-actions .primary-action:hover:not(:disabled){border-color:#4338ca;color:#fff;background:#4338ca}.lesson-generation-toolbar-status{min-height:36px;display:flex;align-items:center;gap:9px;color:#5551c6;font-size:15px;white-space:nowrap}.lesson-generation-toolbar-status strong{color:#30394e;font-size:15px}.lesson-generation-toolbar-status em{font-size:15px;font-style:normal;font-weight:750;font-variant-numeric:tabular-nums}.lesson-generation-status{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:0 30px;border-bottom:1px solid #eceef4;background:#fafaff}.lesson-generation-status>div{min-width:0;display:flex;align-items:center;gap:10px;color:#5752d4}.lesson-generation-status span{min-width:0;display:grid;gap:2px}.lesson-generation-status strong,.lesson-generation-status small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lesson-generation-status strong{color:#30394e;font-size:15px}.lesson-generation-status small{color:#667386;font-size:15px}.lesson-generation-status em{color:#5b57d7;font-size:15px;font-style:normal;font-weight:750;font-variant-numeric:tabular-nums}.lesson-stream-document{padding:34px 50px 64px}.lesson-stream-document>small{display:block;margin-bottom:9px;color:#6366f1;font-size:15px;font-weight:800;letter-spacing:.04em}.lesson-stream-document h3{margin:0 0 22px;color:#202b40;font-size:20px}.lesson-stream-document p{max-width:75ch;margin:0 0 15px;color:#475569;font-size:15px;line-height:1.8}.lesson-stream-document .stream-caret{height:15px;margin-left:3px;vertical-align:-2px}.lesson-stream-waiting{min-height:280px;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:15px}.lesson-queue-state{min-height:330px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;color:#6f7a90;text-align:center}.lesson-queue-state svg{margin-bottom:15px;color:#7470d8}.lesson-queue-state strong{color:#354057;font-size:16px}.lesson-queue-state p{max-width:38ch;margin:8px 0 0;font-size:15px;line-height:1.65}.lesson-empty-canvas{min-height:430px;display:grid;place-items:center;color:#778397;background:#fff;font-size:15px}
 .workbench-center.is-outline-workspace{padding-bottom:24px}.outline-workspace{overflow:hidden}.outline-workspace.is-outline-editing{overflow:visible}.outline-workspace>.inline-outline-review{width:100%;min-height:0}
 .prerequisite{padding:28px;text-align:center}.prerequisite>span{max-width:480px;line-height:1.55}.prerequisite[data-state="review"]>svg{color:#4f46e5}.prerequisite[data-state="error"]>svg{color:#b91c1c}.prerequisite button{min-height:36px;padding:7px 11px}.prerequisite button:hover{border-color:#aaa7f4;background:#f7f7ff}.prerequisite button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.prerequisite button:disabled{opacity:.5;cursor:not-allowed}
@@ -3021,7 +2850,6 @@ onBeforeUnmount(() => {
 @media(prefers-reduced-motion:reduce){.has-lesson-outline .lesson-workspace{transition:none}.lesson-outline-chapter-marker[data-state="generating"]{animation:none}}
 
 /* Lesson navigation keeps the document full width; the course outline appears only when requested. */
-.shape-chapter-list li{grid-template-columns:minmax(0,1fr) auto;gap:16px}
 .teacher-workbench{
   --teacher-component-surface:#fff;
   --teacher-component-tint:#f7f7ff;
@@ -3054,10 +2882,9 @@ onBeforeUnmount(() => {
 .lesson-outline-chapter-button.active .lesson-outline-chapter-index{color:#6a66ce}
 .lesson-outline-chapter-button strong{min-width:0;overflow:hidden;color:inherit;font-size:14px;font-weight:620;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
 .lesson-outline-status{width:18px;height:18px;display:grid;place-items:center;justify-self:end;color:#a8b2c1}
-.lesson-outline-status[data-state="generating"],.lesson-outline-status[data-state="confirmed"]{color:#625dd7}
-.lesson-outline-status[data-state="failed"]{color:#c94c5a}
+.lesson-outline-status[data-state="generating"],.lesson-outline-status[data-state="ready"],.lesson-outline-status[data-state="suggestions"]{color:#625dd7}
+.lesson-outline-status[data-state="failed"],.lesson-outline-status[data-state="stale"]{color:#c94c5a}
 .lesson-outline-status i{width:7px;height:7px;border:1px solid #b8c2d0;border-radius:50%;background:#fff}
-.lesson-outline-status[data-state="review"] i{border-color:#8b87dc;background:#8b87dc}
 .is-ai-collaboration .lesson-outline-control{display:flex;width:min(100%,420px)}
 .is-ai-collaboration .lesson-navigator{grid-template-columns:auto minmax(0,1fr) auto;border-radius:0}
 @keyframes lesson-outline-in{from{opacity:.5;transform:translateX(-50%) translateY(-5px) scale(.985)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
@@ -3091,28 +2918,28 @@ onBeforeUnmount(() => {
 .context-pane-tabs button:focus-visible{z-index:1;outline:2px solid #6366f1;outline-offset:-3px}
 .context-pane-tabs button:disabled{color:#adb5c2;cursor:not-allowed}
 .context-pane-tabs small{min-width:18px;height:18px;display:grid;place-items:center;border-radius:9px;color:#6965a9;background:#f0f0fb;font-size:14px}
-.outline-quality-review{min-width:0;border-bottom:1px solid #e4e8ef;background:#fff}
-.outline-quality-review__header{width:100%;min-height:56px;display:grid;grid-template-columns:minmax(0,1fr) auto 18px;align-items:center;gap:9px;padding:10px 14px;border:0;color:#303a50;background:#fff;text-align:left;cursor:pointer}
-.outline-quality-review__header:hover{background:#fafaff}
-.outline-quality-review__header:focus-visible{outline:2px solid #6366f1;outline-offset:-3px}
-.outline-quality-review__header>span{min-width:0;display:grid;gap:2px}
-.outline-quality-review__header strong{font-size:15px;font-weight:780;line-height:1.35}
-.outline-quality-review__header small{color:#697589;font-size:14px;line-height:1.35}
-.outline-quality-review__header em{color:#087a5b;font-size:13px;font-style:normal;font-weight:740;white-space:nowrap}
-.outline-quality-review__header>svg{color:#7d8798;transition:transform .16s cubic-bezier(.16,1,.3,1)}
-.outline-quality-review__header>svg.is-expanded{transform:rotate(180deg)}
-.outline-quality-review__content{max-height:min(38vh,380px);overflow:auto;padding:0 14px 12px}
-.outline-quality-review__content>p{margin:0;padding:2px 0 10px;color:#687386;font-size:14px;line-height:1.55}
-.outline-quality-review__content>ul{margin:0;padding:0;list-style:none}
-.outline-quality-review__content li{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:10px;padding:12px 0;border-top:1px solid #edf0f4}
-.outline-quality-review__content li>div{min-width:0}
-.outline-quality-review__content li strong{display:block;overflow-wrap:anywhere;color:#344054;font-size:15px;font-weight:650;line-height:1.5}
-.outline-quality-review__content li small{display:block;margin-top:3px;color:#7b8698;font-size:13px;line-height:1.4}
-.outline-quality-review__content li button{min-height:34px;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 9px;border:1px solid #d7daed;border-radius:7px;color:#4f55a9;background:#fff;font-size:14px;font-weight:740;white-space:nowrap;cursor:pointer}
-.outline-quality-review__content li button:hover:not(:disabled){border-color:#bfc3e8;background:#f7f7ff}
-.outline-quality-review__content li button:focus-visible{outline:2px solid #6366f1;outline-offset:1px}
-.outline-quality-review__content li button:disabled{color:#a0a8b5;background:#f7f8fa;cursor:not-allowed}
-.outline-quality-review__content>.outline-quality-review__empty{display:flex;align-items:center;gap:7px;padding:4px 0 8px;color:#087a5b;font-size:14px;font-weight:700}
+.outline-quality-review-entry{padding:10px 14px;border-bottom:1px solid #e7ebf2;background:#fff}
+.outline-quality-review-entry__button{min-height:36px;display:inline-flex;align-items:center;gap:7px;padding:0 10px;border:1px solid #dfe3eb;border-radius:8px;color:#687386;background:#fff;font-size:14px;font-weight:700;cursor:pointer}
+.outline-quality-review-entry__button:hover{border-color:#c9c6ef;color:#45419b;background:#fafaff}
+.outline-quality-review-entry__button:focus-visible{outline:2px solid #6366f1;outline-offset:2px}
+.outline-quality-review-entry__button>svg{color:#7773bd}
+.outline-quality-review-entry__button>small{min-width:18px;height:18px;display:grid;place-items:center;border-radius:9px;color:#5d59a8;background:#f0f0fb;font-size:13px}
+.outline-quality-review-dialog__body{display:grid;gap:14px}
+.outline-quality-review-dialog__summary{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:12px;border-bottom:1px solid #edf0f4}
+.outline-quality-review-dialog__summary>span{color:#344054;font-size:15px;font-weight:750}
+.outline-quality-review-dialog__summary>small{color:#087a5b;font-size:14px;font-weight:700}
+.outline-quality-review-dialog__body>p{margin:0;color:#687386;font-size:15px;line-height:1.6}
+.outline-quality-review-dialog__body>ul{margin:0;padding:0;list-style:none}
+.outline-quality-review-dialog__body li{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:16px;padding:15px 0;border-top:1px solid #edf0f4}
+.outline-quality-review-dialog__body li:first-child{border-top:0}
+.outline-quality-review-dialog__body li>div{min-width:0}
+.outline-quality-review-dialog__body li strong{display:block;overflow-wrap:anywhere;color:#344054;font-size:15px;font-weight:650;line-height:1.55}
+.outline-quality-review-dialog__body li small{display:block;margin-top:4px;color:#7b8698;font-size:14px;line-height:1.45}
+.outline-quality-review-dialog__body li button{min-height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 10px;border:1px solid #d7daed;border-radius:8px;color:#4f55a9;background:#fff;font-size:14px;font-weight:740;white-space:nowrap;cursor:pointer}
+.outline-quality-review-dialog__body li button:hover:not(:disabled){border-color:#bfc3e8;background:#f7f7ff}
+.outline-quality-review-dialog__body li button:focus-visible{outline:2px solid #6366f1;outline-offset:2px}
+.outline-quality-review-dialog__body li button:disabled{color:#a0a8b5;background:#f7f8fa;cursor:not-allowed}
+.outline-quality-review-dialog__empty{display:flex!important;align-items:center;gap:7px;color:#087a5b!important;font-weight:700}
 .context-pane>.ai-workspace-panel{height:100%;border:0;border-radius:0;box-shadow:none}
 .context-pane>.context-pane-references{height:100%;border-left:0}
 .context-pane>:deep(.reference-tray__header){display:none}

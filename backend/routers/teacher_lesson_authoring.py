@@ -45,12 +45,9 @@ from teacher_lesson_authoring import (
 )
 from question_bank import question_bank_repository
 from teacher_script import (
-    SCRIPT_PIPELINE_VERSION,
-    SCRIPT_QUALITY_VERSION,
     compile_teacher_script_fallback_content,
     compile_teacher_script_module_contract,
     normalize_teacher_script_section,
-    teacher_script_revision_is_publishable,
     validate_teacher_script_section,
 )
 from teacher_course_space import teacher_course_space_repository
@@ -599,7 +596,7 @@ def _source_course(
         teacher_workspace_getter(
             course_id,
             task_type="teacher_outline_generation",
-            require_confirmed_outline=True,
+            require_confirmed_outline=False,
         )
         if callable(teacher_workspace_getter)
         else None
@@ -911,11 +908,12 @@ def _lesson_projection(
                 source_outline_revision_id=_canonical_outline_revision(source),
             )
         )
-        arrangement["confirmed"] = bool(
-            arrangement_revision_id
-            and arrangement_state.get("confirmed_revision_id") == arrangement_revision_id
-            and arrangement_is_current
+        arrangement["ready"] = bool(
+            arrangement_is_current and list(arrangement.get("blocks") or [])
         )
+        # Compatibility for older clients. There is no longer an arrangement
+        # confirmation gate: a current, non-empty working revision is usable.
+        arrangement["confirmed"] = arrangement["ready"]
         arrangement["source_state"] = "current" if not arrangement_is_current else str(
             arrangement_state.get("source_state") or "current"
         )
@@ -944,7 +942,6 @@ def _lesson_projection(
             (script_revision or {}).get("revision_id")
             or teacher_lesson_script_revision(source, lesson_id)
         )
-        script_confirmation = plan_asset.get("script_confirmation") or {}
         for ppt_asset in plan_asset.get("ppt_assets") or []:
             if not isinstance(ppt_asset, dict):
                 continue
@@ -957,38 +954,44 @@ def _lesson_projection(
         script_source_state = (
             "current"
             if not isinstance(script_revision, dict)
-            or script_revision.get("source_lesson_plan_revision_id")
-            == plan_asset.get("confirmed_revision_id")
+            or (
+                str(plan_asset.get("source_state") or "current") == "current"
+                and script_revision.get("source_lesson_plan_revision_id")
+                == plan_asset.get("working_revision_id")
+            )
             else "stale"
         )
-        script_ready = script_source_state == "current" and bool(script_sections) and all(
-            str(section.get("content") or "").strip()
-            for section in script_sections
+        script_ready = bool(
+            script_source_state == "current"
+            and (
+                _script_revision_has_content(script_revision)
+                if isinstance(script_revision, dict)
+                else bool(script_sections)
+                and all(
+                    str(section.get("content") or "").strip()
+                    for section in script_sections
+                )
+            )
         )
         script_quality = deepcopy((script_revision or {}).get("quality_report") or {})
-        script_publication_eligible = bool(
-            isinstance(script_revision, dict)
-            and teacher_script_revision_is_publishable(script_revision)
+        plan_revision_id = str(plan_asset.get("working_revision_id") or "")
+        plan_revision = next(
+            (
+                item for item in plan_asset.get("revisions") or []
+                if isinstance(item, dict) and item.get("revision_id") == plan_revision_id
+            ),
+            None,
         )
-        if isinstance(script_revision, dict) and not script_publication_eligible:
-            script_quality["passed"] = False
-            script_quality["publication_eligible"] = False
-            if (
-                script_quality.get("schema_version") != SCRIPT_QUALITY_VERSION
-                or script_quality.get("pipeline_version") != SCRIPT_PIPELINE_VERSION
-            ):
-                script_quality.setdefault("blocking_issues", []).insert(0, {
-                    "code": "teacher_script:quality_contract_stale",
-                    "message": "这份讲义仍使用旧质量规则，需重新编辑保存或重新生成后才能确认。",
-                })
-        script_confirmed = bool(
-            script_ready
-            and script_publication_eligible
-            and script_confirmation.get("confirmed_revision_id") == current_script_revision
-            and script_confirmation.get("source_lesson_plan_revision_id")
-            == plan_asset.get("confirmed_revision_id")
-            and script_confirmation.get("source_state", "current") == "current"
+        plan_ready = bool(
+            str(plan_asset.get("source_state") or "current") == "current"
+            and isinstance(plan_revision, dict)
+            and _plan_revision_has_content(plan_revision)
         )
+        plan_asset["ready"] = plan_ready
+        # Compatibility fields now mirror readiness. The repository may still
+        # retain historical confirmation metadata, but the read model never
+        # uses it to decide whether the teacher can continue.
+        plan_asset["confirmed_revision_id"] = plan_revision_id if plan_ready else ""
         result.append({
             "lesson_unit_id": lesson_id,
             "number": index,
@@ -1007,18 +1010,15 @@ def _lesson_projection(
             "arrangement": arrangement,
             "script": {
                 "current_revision_id": current_script_revision,
-                "confirmed_revision_id": str(
-                    script_confirmation.get("confirmed_revision_id") or ""
-                ),
+                "confirmed_revision_id": current_script_revision if script_ready else "",
                 "source_lesson_plan_revision_id": str(
                     (script_revision or {}).get("source_lesson_plan_revision_id")
-                    or script_confirmation.get("source_lesson_plan_revision_id")
                     or ""
                 ),
                 "source_state": script_source_state,
                 "ready": script_ready,
-                "confirmed": script_confirmed,
-                "publication_eligible": script_publication_eligible,
+                "confirmed": script_ready,
+                "publication_eligible": script_ready,
                 "generation_source": str(
                     (script_revision or {}).get("generation_source") or "legacy"
                 ),
@@ -1026,7 +1026,11 @@ def _lesson_projection(
                     (script_revision or {}).get("quality_contract_version") or ""
                 ),
                 "quality_report": script_quality,
-                "confirmed_at": str(script_confirmation.get("confirmed_at") or ""),
+                "confirmed_at": str(
+                    (script_revision or {}).get("updated_at")
+                    or (script_revision or {}).get("created_at")
+                    or ""
+                ),
                 "sections": script_sections,
                 "revisions": [
                     {
@@ -1091,6 +1095,45 @@ def _plan_revision(
     return revision
 
 
+def _plan_revision_has_content(revision: dict[str, Any]) -> bool:
+    if str(revision.get("generation_source") or "") == "deterministic_local_fallback":
+        return False
+    plan = revision.get("plan") or {}
+    if str(plan.get("schema_version") or "") != "course_teaching_plan_v3":
+        return False
+    sections = [item for item in plan.get("sections") or [] if isinstance(item, dict)]
+    return bool(sections) and all(
+        str(section.get("node_id") or "").strip()
+        and any(
+            isinstance(module, dict)
+            and str(module.get("module_id") or module.get("block_id") or "").strip()
+            for module in section.get("teaching_modules") or []
+        )
+        for section in sections
+    )
+
+
+def _current_plan_revision(
+    repository: TeacherLessonAuthoringRepository,
+    course_id: str,
+    lesson_unit_id: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    lesson = repository.lesson(course_id, lesson_unit_id)
+    revision_id = str(lesson.get("working_revision_id") or "")
+    if not revision_id or str(lesson.get("source_state") or "current") != "current":
+        raise TeacherLessonAuthoringError(
+            "lesson_plan_not_ready",
+            "请先生成当前大纲对应的本讲教案。",
+        )
+    revision = _plan_revision(repository, course_id, lesson_unit_id, revision_id)
+    if not _plan_revision_has_content(revision):
+        raise TeacherLessonAuthoringError(
+            "lesson_plan_incomplete",
+            "当前教案结构不完整，请重新生成或编辑保存。",
+        )
+    return lesson, revision
+
+
 def _script_revision(
     repository: TeacherLessonAuthoringRepository,
     course_id: str,
@@ -1113,6 +1156,51 @@ def _script_revision(
     return revision
 
 
+def _script_revision_has_content(revision: dict[str, Any]) -> bool:
+    if (
+        str(revision.get("generation_source") or "")
+        == "model_block_pipeline_with_recovery_preview"
+    ):
+        return False
+    sections = [
+        item for item in revision.get("sections") or []
+        if isinstance(item, dict)
+    ]
+    return bool(sections) and all(
+        str(item.get("section_node_id") or "").strip()
+        and str(item.get("content") or "").strip()
+        and list(item.get("blocks") or [])
+        for item in sections
+    )
+
+
+def _current_script_revision(
+    repository: TeacherLessonAuthoringRepository,
+    course_id: str,
+    lesson_unit_id: str,
+    *,
+    source_plan_revision_id: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    lesson = repository.lesson(course_id, lesson_unit_id)
+    revision_id = str(lesson.get("working_script_revision_id") or "")
+    if not revision_id:
+        raise TeacherLessonAuthoringError(
+            "lesson_script_not_ready",
+            "请先生成本讲讲义，再进入 PPT 工作台。",
+        )
+    revision = _script_revision(repository, course_id, lesson_unit_id, revision_id)
+    if (
+        str(revision.get("source_lesson_plan_revision_id") or "")
+        != source_plan_revision_id
+        or not _script_revision_has_content(revision)
+    ):
+        raise TeacherLessonAuthoringError(
+            "lesson_script_source_stale",
+            "当前讲义不完整或对应的教案已变化，请重新生成或编辑保存。",
+        )
+    return lesson, revision
+
+
 def _imported_ppt_review_context(
     source: dict[str, Any],
     repository: TeacherLessonAuthoringRepository,
@@ -1128,7 +1216,7 @@ def _imported_ppt_review_context(
     units: list[dict[str, Any]] = []
     revisions = {
         "outline": _canonical_outline_revision(source),
-        "plan": str(lesson.get("confirmed_revision_id") or ""),
+        "plan": str(lesson.get("working_revision_id") or ""),
         "script": "",
         "question_bank": "",
     }
@@ -1152,13 +1240,24 @@ def _imported_ppt_review_context(
             ])),
         })
 
+    plan_revision: dict[str, Any] = {}
     if revisions["plan"]:
-        plan_revision = _plan_revision(repository, course_id, lesson_unit_id, revisions["plan"])
+        candidate = _plan_revision(
+            repository, course_id, lesson_unit_id, revisions["plan"]
+        )
+        if (
+            str(lesson.get("source_state") or "current") == "current"
+            and _plan_revision_has_content(candidate)
+        ):
+            plan_revision = candidate
+        else:
+            revisions["plan"] = ""
+    if revisions["plan"]:
         sources.append({
             "kind": "lesson_plan",
-            "label": "已确认教案",
+            "label": "当前教案",
             "revision_id": revisions["plan"],
-            "status": "confirmed",
+            "status": "current",
         })
         for section in (plan_revision.get("plan") or {}).get("sections") or []:
             if not isinstance(section, dict):
@@ -1170,19 +1269,24 @@ def _imported_ppt_review_context(
                 "text": json.dumps(section, ensure_ascii=False)[:4000],
             })
 
-    confirmation = lesson.get("script_confirmation") or {}
-    confirmed_script = str(confirmation.get("confirmed_revision_id") or "")
-    if confirmed_script and confirmation.get("source_state", "current") == "current":
-        script_revision = _script_revision(repository, course_id, lesson_unit_id, confirmed_script)
-        if not teacher_script_revision_is_publishable(script_revision):
-            confirmed_script = ""
-    if confirmed_script:
-        revisions["script"] = confirmed_script
+    current_script = str(lesson.get("working_script_revision_id") or "")
+    script_revision: dict[str, Any] = {}
+    if current_script:
+        candidate = _script_revision(repository, course_id, lesson_unit_id, current_script)
+        if (
+            candidate.get("source_lesson_plan_revision_id") == revisions["plan"]
+            and _script_revision_has_content(candidate)
+        ):
+            script_revision = candidate
+        else:
+            current_script = ""
+    if current_script:
+        revisions["script"] = current_script
         sources.append({
             "kind": "script",
-            "label": "已确认讲义",
-            "revision_id": confirmed_script,
-            "status": "confirmed",
+            "label": "当前讲义",
+            "revision_id": current_script,
+            "status": "current",
         })
         for section in script_revision.get("sections") or []:
             if not isinstance(section, dict):
@@ -1190,7 +1294,7 @@ def _imported_ppt_review_context(
             units.append({
                 "kind": "script",
                 "label": str(section.get("title") or section.get("section_node_id") or "讲义小节"),
-                "revision_id": confirmed_script,
+                "revision_id": current_script,
                 "text": str(section.get("content") or "") or json.dumps(section.get("blocks") or [], ensure_ascii=False),
             })
 
@@ -1322,42 +1426,32 @@ def _teacher_v6_source(
     lesson_unit_id: str,
 ):
     source = _source_course(tm, course_id)
-    lesson = repository.lesson(course_id, lesson_unit_id)
-    revision_id = str(lesson.get("confirmed_revision_id") or "")
-    if not revision_id:
-        raise TeacherLessonAuthoringError(
-            "lesson_plan_not_confirmed",
-            "请先确认本讲教案，再进入 PPT 工作台。",
-        )
-    current_script_revision = str(lesson.get("working_script_revision_id") or "")
-    script_confirmation = lesson.get("script_confirmation") or {}
-    if not (
-        script_confirmation.get("confirmed_revision_id") == current_script_revision
-        and script_confirmation.get("source_lesson_plan_revision_id") == revision_id
-        and script_confirmation.get("source_state", "current") == "current"
-    ):
-        raise TeacherLessonAuthoringError(
-            "lesson_script_not_confirmed",
-            "请先确认本讲讲义，再进入 PPT 工作台。",
-        )
-    revision = _plan_revision(repository, course_id, lesson_unit_id, revision_id)
-    script_revision = _script_revision(
+    lesson, revision = _current_plan_revision(
         repository,
         course_id,
         lesson_unit_id,
-        current_script_revision,
     )
-    if not teacher_script_revision_is_publishable(script_revision):
+    revision_id = str(revision.get("revision_id") or "")
+    expected_section_ids = [
+        str(item.get("node_id") or "")
+        for item in lesson_scope(source, lesson_unit_id)["sections"]
+    ]
+    actual_section_ids = [
+        str(item.get("node_id") or "")
+        for item in (revision.get("plan") or {}).get("sections") or []
+        if isinstance(item, dict)
+    ]
+    if actual_section_ids != expected_section_ids:
         raise TeacherLessonAuthoringError(
-            "lesson_script_quality_blocked",
-            "当前讲义未通过最新质量与来源检查，不能生成 页面内容稿。",
-            details={
-                "quality_report": deepcopy(script_revision.get("quality_report") or {}),
-                "generation_source": str(script_revision.get("generation_source") or ""),
-                "required_quality_contract": SCRIPT_QUALITY_VERSION,
-                "required_pipeline_version": SCRIPT_PIPELINE_VERSION,
-            },
+            "lesson_plan_scope_stale",
+            "当前教案没有完整对应本讲大纲，请重新生成或编辑保存。",
         )
+    lesson, script_revision = _current_script_revision(
+        repository,
+        course_id,
+        lesson_unit_id,
+        source_plan_revision_id=revision_id,
+    )
     document, course_view, synthetic_id = teacher_lesson_v6_source(
         source,
         lesson_unit_id=lesson_unit_id,
@@ -1488,7 +1582,7 @@ async def update_lesson_type(
         get_teacher_lesson_authoring_repository
     ),
 ):
-    """Save the lecture type from the outline without confirming teaching blocks."""
+    """Save the lecture type and keep its current teaching blocks editable."""
     try:
         if body.lesson_type not in LESSON_TYPES:
             raise TeacherLessonAuthoringError(
@@ -1511,9 +1605,8 @@ async def update_lesson_type(
             lesson_unit_id=lesson_unit_id,
             source_outline_revision_id=outline_revision,
         )
-        # 大纲阶段只决定这一讲采用什么课型。教学块可以尚未生成，
-        # 也可以是等待教师重新确认的旧草稿；完整性校验应留在教案的
-        # “确认教学结构”动作中，否则新课程会因为没有教学块而无法选择课型。
+        # 大纲阶段只决定这一讲采用什么课型。教学块可以尚未生成；
+        # 生成教案时会补齐当前结构，并只对结构完整性做准入校验。
         repository.save_arrangement_revision(
             course_id,
             lesson_unit_id,
@@ -2318,7 +2411,7 @@ async def build_teacher_lesson_v6_manuscript(
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
     source_plan_revision = str(
-        revision.get("revision_id") or lesson.get("confirmed_revision_id") or ""
+        revision.get("revision_id") or lesson.get("working_revision_id") or ""
     )
     source_script_revision = str(
         (course_view.get("teacher_lesson_source") or {}).get("script_revision_id")
@@ -2367,7 +2460,6 @@ async def build_teacher_lesson_v6_manuscript(
 
         def source_revision_provider() -> str:
             current = repository.lesson(course_id, lesson_unit_id)
-            confirmation = current.get("script_confirmation") or {}
             current_script = next(
                 (
                     item for item in current.get("script_revisions") or []
@@ -2388,12 +2480,12 @@ async def build_teacher_lesson_v6_manuscript(
                 materials_current = False
             return (
                 str(document.document_revision or "")
-                if current.get("confirmed_revision_id") == source_plan_revision
+                if current.get("working_revision_id") == source_plan_revision
+                and current.get("source_state", "current") == "current"
                 and current.get("working_script_revision_id") == source_script_revision
-                and confirmation.get("confirmed_revision_id")
-                == source_script_revision
-                and confirmation.get("source_state", "current") == "current"
-                and teacher_script_revision_is_publishable(current_script)
+                and current_script.get("source_lesson_plan_revision_id")
+                == source_plan_revision
+                and _script_revision_has_content(current_script)
                 and materials_current
                 else ""
             )
@@ -2591,7 +2683,6 @@ async def build_teacher_lesson_v6(
 
         def source_revision_provider() -> str:
             current = repository.lesson(course_id, lesson_unit_id)
-            confirmation = current.get("script_confirmation") or {}
             current_script = next(
                 (
                     item for item in current.get("script_revisions") or []
@@ -2612,11 +2703,12 @@ async def build_teacher_lesson_v6(
                 materials_current = False
             return (
                 str(document.document_revision or "")
-                if current.get("confirmed_revision_id") == source_plan_revision
+                if current.get("working_revision_id") == source_plan_revision
+                and current.get("source_state", "current") == "current"
                 and current.get("working_script_revision_id") == source_script_revision
-                and confirmation.get("confirmed_revision_id") == source_script_revision
-                and confirmation.get("source_state", "current") == "current"
-                and teacher_script_revision_is_publishable(current_script)
+                and current_script.get("source_lesson_plan_revision_id")
+                == source_plan_revision
+                and _script_revision_has_content(current_script)
                 and materials_current
                 else ""
             )
@@ -3066,11 +3158,33 @@ async def generate_lesson_plan(
         source_evidence.extend(selected_evidence)
         outline_revision = _canonical_outline_revision(source)
         repository.set_outline(course_id, outline_revision)
-        arrangement = repository.confirmed_arrangement(course_id, lesson_unit_id)
-        if not arrangement:
+        arrangement = repository.current_arrangement(course_id, lesson_unit_id)
+        if arrangement is None:
+            arrangement = recommend_lesson_arrangement(
+                source,
+                lesson_unit_id,
+                source_outline_revision_id=outline_revision,
+            )
+            repository.save_arrangement_revision(
+                course_id,
+                lesson_unit_id,
+                arrangement,
+                source_outline_revision_id=outline_revision,
+                actor=actor,
+                confirm=False,
+            )
+            arrangement = repository.current_arrangement(course_id, lesson_unit_id)
+        arrangement_issues = validate_lesson_arrangement(
+            arrangement or {},
+            expected_section_ids=[
+                str(item.get("node_id") or "") for item in scope["sections"]
+            ],
+        )
+        if arrangement is None or arrangement_issues:
             raise TeacherLessonAuthoringError(
-                "lesson_arrangement_not_confirmed",
-                "请先确认本讲课型与教学块，再生成教案。",
+                "lesson_arrangement_invalid",
+                "本讲教学结构不完整，请调整后重试。",
+                details={"blocking_issues": arrangement_issues},
             )
         input_fingerprint = stable_hash({
             "lesson_unit_id": lesson_unit_id,
@@ -3242,10 +3356,7 @@ async def generate_all_lesson_plans(
             for lesson in lessons
             if not body.regenerate_confirmed
             and isinstance(lesson.get("plan"), dict)
-            and (
-                lesson["plan"].get("working_revision_id")
-                or lesson["plan"].get("confirmed_revision_id")
-            )
+            and lesson["plan"].get("working_revision_id")
             and lesson["plan"].get("source_state", "current") == "current"
         ]
         target_lessons = [
@@ -3261,7 +3372,20 @@ async def generate_all_lesson_plans(
                     "lesson_arrangement_unavailable",
                     f"{lesson.get('title') or lesson_unit_id} 暂时无法形成教学结构。",
                 )
-            if not arrangement.get("confirmed"):
+            arrangement_issues = validate_lesson_arrangement(
+                arrangement,
+                expected_section_ids=[
+                    str(item.get("section_node_id") or "")
+                    for item in lesson.get("sections") or []
+                ],
+            )
+            if arrangement_issues:
+                raise TeacherLessonAuthoringError(
+                    "lesson_arrangement_invalid",
+                    f"{lesson.get('title') or lesson_unit_id} 的教学结构不完整。",
+                    details={"blocking_issues": arrangement_issues},
+                )
+            if repository.current_arrangement(course_id, lesson_unit_id) is None:
                 await run_in_threadpool(
                     repository.save_arrangement_revision,
                     course_id,
@@ -3269,7 +3393,7 @@ async def generate_all_lesson_plans(
                     arrangement,
                     source_outline_revision_id=outline_revision,
                     actor=actor,
-                    confirm=True,
+                    confirm=False,
                 )
             child_body = GenerateLessonPlanRequest(
                 request_id=f"{request_prefix}-{lesson_unit_id}",
@@ -3615,7 +3739,7 @@ async def confirm_lesson_script(
                     course_id,
                     lesson_unit_id,
                     legacy_sections,
-                    source_lesson_plan_revision_id=str(lesson.get("confirmed_revision_id") or ""),
+                    source_lesson_plan_revision_id=str(lesson.get("working_revision_id") or ""),
                     generation_source="legacy_course_content",
                 )
                 current_revision = str(migrated.get("working_script_revision_id") or "")
@@ -3656,16 +3780,25 @@ async def generate_lesson_script(
     try:
         source = _source_course(tm, course_id)
         scope = lesson_scope(source, lesson_unit_id)
-        lesson = repository.lesson(course_id, lesson_unit_id)
-        plan_revision_id = str(lesson.get("confirmed_revision_id") or "")
-        if not plan_revision_id:
-            raise TeacherLessonAuthoringError(
-                "lesson_plan_not_confirmed",
-                "请先确认本讲教案，再生成讲义。",
-            )
-        plan_revision = _plan_revision(
-            repository, course_id, lesson_unit_id, plan_revision_id
+        lesson, plan_revision = _current_plan_revision(
+            repository,
+            course_id,
+            lesson_unit_id,
         )
+        plan_revision_id = str(plan_revision.get("revision_id") or "")
+        expected_plan_section_ids = [
+            str(item.get("node_id") or "") for item in scope["sections"]
+        ]
+        actual_plan_section_ids = [
+            str(item.get("node_id") or "")
+            for item in (plan_revision.get("plan") or {}).get("sections") or []
+            if isinstance(item, dict)
+        ]
+        if actual_plan_section_ids != expected_plan_section_ids:
+            raise TeacherLessonAuthoringError(
+                "lesson_plan_scope_stale",
+                "当前教案没有完整对应本讲大纲，请重新生成或编辑保存。",
+            )
         plan_sections = {
             str(item.get("node_id") or ""): item
             for item in (plan_revision.get("plan") or {}).get("sections") or []
@@ -3907,10 +4040,12 @@ async def save_lesson_script_draft(
                 "lesson_script_scope_conflict",
                 "讲义小节与当前大纲不一致，请重新载入。",
             )
-        plan_revision_id = str(lesson.get("confirmed_revision_id") or "")
-        plan_revision = _plan_revision(
-            repository, course_id, lesson_unit_id, plan_revision_id
+        lesson, plan_revision = _current_plan_revision(
+            repository,
+            course_id,
+            lesson_unit_id,
         )
+        plan_revision_id = str(plan_revision.get("revision_id") or "")
         plan_sections = {
             str(item.get("node_id") or ""): item
             for item in (plan_revision.get("plan") or {}).get("sections") or []

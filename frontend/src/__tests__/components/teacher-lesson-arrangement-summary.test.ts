@@ -38,7 +38,7 @@ const arrangement: TeacherLessonArrangement = {
 }
 
 describe('本讲教学结构摘要', () => {
-  it('已确认结构直接展示教师需要使用的课堂流程', () => {
+  it('已生成结构直接展示教师需要使用的课堂流程', () => {
     const wrapper = mount(TeacherLessonArrangementSummary, {
       props: {
         arrangement,
@@ -82,15 +82,16 @@ describe('本讲教学结构摘要', () => {
     expect(wrapper.text()).toContain('环节目标')
   })
 
-  it('首次生成前直接展示待确认的课堂流程', () => {
+  it('上游变更后直接展示需更新的课堂流程', () => {
     const wrapper = mount(TeacherLessonArrangementSummary, {
       props: {
-        arrangement: { ...arrangement, status: 'suggested', confirmed: false },
+        arrangement: { ...arrangement, source_state: 'stale' },
       },
     })
 
     expect(wrapper.text()).toContain('环节目标')
-    expect(wrapper.text()).toContain('生成前需确认')
+    expect(wrapper.text()).toContain('教学结构需更新')
+    expect(wrapper.find('.arrangement-confirm').exists()).toBe(false)
   })
 
   it('把生成操作放在置顶操作栏内，不再另设统计条和生成范围标题', () => {
@@ -102,9 +103,9 @@ describe('本讲教学结构摘要', () => {
     })
 
     const toolbar = wrapper.get('.arrangement-toolbar')
-    expect(toolbar.get('.arrangement-context').text()).toContain('已确认')
+    expect(toolbar.get('.arrangement-context').text()).toContain('教学结构已生成')
     expect(toolbar.find('select').exists()).toBe(false)
-    expect(toolbar.get('.arrangement-state').text()).toContain('已确认')
+    expect(toolbar.get('.arrangement-state').text()).toContain('教学结构已生成')
     expect(toolbar.get('[data-testid="generation-slot"]').text()).toContain('只生成本讲')
     expect(toolbar.text()).toContain('生成全部教案')
     expect(wrapper.get('[data-testid="lesson-arrangement-summary"]').classes()).toContain('has-sticky-actions')

@@ -285,9 +285,14 @@ def _authoring_units(authoring: dict[str, Any]) -> list[TeacherCourseChangeUnit]
             lesson.get("script_revisions") or [],
             str(lesson.get("working_script_revision_id") or ""),
         )
-        script_state = str(
-            (lesson.get("script_confirmation") or {}).get("source_state")
-            or "current"
+        script_state = (
+            "current"
+            if (
+                str(lesson.get("source_state") or "current") == "current"
+                and str(script_revision.get("source_lesson_plan_revision_id") or "")
+                == str(lesson.get("working_revision_id") or "")
+            )
+            else "stale"
         )
         for section_index, section in enumerate(script_revision.get("sections") or []):
             if not isinstance(section, dict):

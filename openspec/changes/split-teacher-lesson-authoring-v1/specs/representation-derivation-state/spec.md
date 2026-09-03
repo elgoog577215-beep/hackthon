@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: 教师表达必须形成精确修订图
-系统 MUST 记录 `confirmed lesson plan revision → confirmed script revision → slide deck revision` 的精确派生关系，并把作用域限制在一个 `LessonUnit`。上传原件、Markdown 投影和导出文件不得成为平行正式真源。
+系统 MUST 记录 `current lesson plan revision → current script revision → slide deck revision` 的精确派生关系，并把作用域限制在一个 `LessonUnit`。上传原件、Markdown 投影和导出文件不得成为平行正式真源。
 
 #### Scenario: 查询第二讲PPT来源
 - **WHEN** 系统读取第二讲 PPT 修订
@@ -9,10 +9,10 @@
 - **AND** 导出的 PPTX 不被反向登记为新的内容真源
 
 ### Requirement: 来源变化必须精确标记下游状态
-上游确认修订变化时，系统 MUST 只标记受影响的讲稿块、PPT 教学单元或页面为过期，保留最后可用版本并提供定向重建。系统 MUST NOT 因单块变化清空整门课资产。
+上游当前修订变化时，系统 MUST 只标记受影响的讲义块、PPT 教学单元或页面为过期，保留最后可用版本并提供定向重建。系统 MUST NOT 因单块变化清空整门课资产。
 
 #### Scenario: 修改第二讲操作示范块
-- **WHEN** 教师确认了第二讲教案中“操作示范”教学块的新版本
+- **WHEN** 教师保存了第二讲教案中“操作示范”教学块的新版本
 - **THEN** 系统标记对应讲稿块及其 PPT 页面需要更新
 - **AND** 其他教学块、讲次和最后可用 PPT 保持可用
 

@@ -182,7 +182,12 @@ class BlueprintService:
 
 
 class SkeletonGateService(BlueprintService):
+    stop_after_skeleton = None
+    stop_after_outline = None
+
     async def build_course_draft(self, **kwargs):
+        self.stop_after_skeleton = kwargs.get("stop_after_skeleton")
+        self.stop_after_outline = kwargs.get("stop_after_outline")
         if kwargs.get("stop_after_skeleton"):
             course = deepcopy(kwargs["existing_course_data"])
             course.update({
@@ -223,6 +228,13 @@ class SkeletonGateService(BlueprintService):
             })
             return course
         return await super().build_course_draft(**kwargs)
+
+
+class InvalidTeacherOutlineService:
+    async def build_course_draft(self, **kwargs):
+        course = deepcopy(kwargs["existing_course_data"])
+        course.update({"course_outline": {}, "nodes": []})
+        return course
 
 
 @pytest.mark.asyncio
@@ -535,7 +547,7 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_teacher_confirms_section_counts_after_named_chapter_skeleton(
+async def test_teacher_outline_skips_shape_confirmation_and_completes_directly(
     tmp_path,
     monkeypatch,
 ):
@@ -547,9 +559,10 @@ async def test_teacher_confirms_section_counts_after_named_chapter_skeleton(
         tmp_path / "teacher-shape-tasks.json",
     )
     storage = MemoryStorage()
+    service = SkeletonGateService()
     manager = TaskManager(
         storage,
-        SkeletonGateService(),
+        service,
         None,
         version_repository=CourseVersionRepository(tmp_path / "teacher-shape-versions"),
         workspace_repository=GenerationWorkspaceRepository(tmp_path / "teacher-shape-workspaces"),
@@ -566,41 +579,18 @@ async def test_teacher_confirms_section_counts_after_named_chapter_skeleton(
     assert await manager._task_queue.get() == job["job_id"]
     await manager._process_task(job["job_id"])
     task = manager.tasks[job["job_id"]]
-    assert task["status"] == "waiting_for_review"
-    assert task["phase"] == "outline_shape_ready"
+    assert task["status"] == "completed"
+    assert task["phase"] == "teacher_outline_ready"
     assert task["guided_workflow"]["review_step"] is None
-    assert [
-        chapter["title"]
-        for chapter in task["phase_detail"]["outline_growth"]["chapters"]
-    ] == ["基础概念", "综合应用"]
-
-    resumed = await manager.confirm_outline_shape(
-        job["course_id"],
-        [3, 5],
-    )
-    assert resumed["job_id"] == job["job_id"]
-    assert task["status"] == "pending"
-    assert task["outline_shape_confirmed"] is True
-    assert await manager._task_queue.get() == job["job_id"]
+    assert service.stop_after_skeleton is False
+    assert service.stop_after_outline is True
     checkpoint = manager.get_generation_workspace_course(job["course_id"])
-    outline_stage = checkpoint["generation_stage_artifacts"]["outline"]
-    assert outline_stage["confirmed_shape_constraints"] == {
-        "chapter_count": 2,
-        "section_count": 8,
-    }
-    assert [
-        chapter["section_count"]
-        for chapter in outline_stage["skeleton"]["chapters"]
-    ] == [3, 5]
-
-    await asyncio.wait_for(manager._process_task(job["job_id"]), timeout=20)
-    assert task["status"] == "waiting_for_review"
-    assert task["phase"] == "outline_ready"
-    assert task["guided_workflow"]["review_step"] == "outline"
+    assert checkpoint["generation_status"] == "teacher_outline_ready"
+    assert all(not node.get("node_content") for node in checkpoint["nodes"])
 
 
 @pytest.mark.asyncio
-async def test_teacher_outline_task_stops_after_outline_confirmation(tmp_path, monkeypatch):
+async def test_teacher_outline_task_completes_after_generation_without_confirmation(tmp_path, monkeypatch):
     import jobs.manager as task_manager_module
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "teacher-tasks.json")
     storage = MemoryStorage()
@@ -634,32 +624,57 @@ async def test_teacher_outline_task_stops_after_outline_confirmation(tmp_path, m
 
     assert await manager._task_queue.get() == job["job_id"]
     await asyncio.wait_for(manager._process_task(job["job_id"]), timeout=20)
-    assert task["status"] == "waiting_for_review"
-    assert task["guided_workflow"]["review_step"] == "outline"
-
-    async def fake_prepare_knowledge(_task_id, course):
-        prepared = deepcopy(course)
-        prepared["course_knowledge_base"] = {"lifecycle_status": "active"}
-        return prepared
-
-    monkeypatch.setattr(manager, "_prepare_subject_knowledge", fake_prepare_knowledge)
-    await manager.confirm_generation_step(job["course_id"], "outline")
-    assert await manager._task_queue.get() == job["job_id"]
-    await asyncio.wait_for(manager._process_task(job["job_id"]), timeout=20)
-
     completed = manager.tasks[job["job_id"]]
     assert completed["status"] == "completed"
-    assert completed["phase"] == "teacher_outline_confirmed"
+    assert completed["phase"] == "teacher_outline_ready"
+    assert completed["guided_workflow"]["review_step"] is None
+    assert "已生成" in completed["message"]
     teacher_course = manager.get_generation_workspace_course(job["course_id"])
-    assert teacher_course["generation_status"] == "teacher_outline_confirmed"
+    assert teacher_course["generation_status"] == "teacher_outline_ready"
     assert "course_teaching_plan" not in teacher_course
     assert all(not node.get("node_content") for node in teacher_course["nodes"])
     scoped_teacher_course = manager.get_generation_workspace_course_for_task(
         job["course_id"],
         task_type="teacher_outline_generation",
-        require_confirmed_outline=True,
+        require_confirmed_outline=False,
     )
     assert scoped_teacher_course == teacher_course
+
+
+@pytest.mark.asyncio
+async def test_teacher_outline_empty_result_fails_instead_of_unlocking_lessons(
+    tmp_path,
+    monkeypatch,
+):
+    import jobs.manager as task_manager_module
+
+    monkeypatch.setattr(
+        task_manager_module,
+        "TASKS_FILE",
+        tmp_path / "teacher-empty-outline-tasks.json",
+    )
+    manager = TaskManager(
+        MemoryStorage(),
+        InvalidTeacherOutlineService(),
+        None,
+        version_repository=CourseVersionRepository(tmp_path / "teacher-empty-outline-versions"),
+        workspace_repository=GenerationWorkspaceRepository(tmp_path / "teacher-empty-outline-workspaces"),
+        document_repository=CourseDocumentRepository(MemoryStorage()),
+    )
+    job = await manager.create_generation_job({
+        "subject": "空大纲失败样例",
+        "teacher_authoring_mode": "lesson_assets_v1",
+        "teacher_course_brief": {"lecture_count": 2},
+        "generation_mode": "review_blueprint",
+    })
+
+    assert await manager._task_queue.get() == job["job_id"]
+    await manager._process_task(job["job_id"])
+
+    failed = manager.tasks[job["job_id"]]
+    assert failed["status"] == "failed"
+    assert failed["phase"] == "teacher_outline_failed"
+    assert failed["error_detail"]["code"] == "teacher_outline_generation_invalid"
 
 
 @pytest.mark.asyncio

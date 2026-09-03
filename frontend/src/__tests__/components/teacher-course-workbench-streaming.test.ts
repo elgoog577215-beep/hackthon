@@ -55,6 +55,10 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => mount(TeacherCou
   },
   global: {
     stubs: {
+      'el-dialog': {
+        props: ['modelValue'],
+        template: '<section v-if="modelValue"><slot /></section>',
+      },
       CourseReferenceTray: {
         name: 'CourseReferenceTray',
         props: ['modelValue', 'scopeTargetId', 'scopeTargetLabel', 'previousScopeTargetId', 'workflowState', 'workflowDetail', 'workflowCanRetry'],
@@ -66,18 +70,16 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => mount(TeacherCou
       TeacherScriptDocument: {
         name: 'TeacherScriptDocument',
         template: '<section data-testid="script-document-stub"><slot name="toolbar" /></section>',
-        emits: ['confirm'],
       },
       MarkdownRenderer: true,
       CourseOutlineReview: {
         name: 'CourseOutlineReview',
         props: ['editable', 'variant', 'requiresConfirmation', 'lessonTypes', 'lessonTypeOptions', 'lessonTypeSavingId', 'lessonTypeError', 'lessonTypeErrorId'],
-        template: '<section data-testid="inline-outline-editor" :data-mode="editable ? \'edit\' : \'view\'" :data-variant="variant"><label v-for="lesson in lessonTypes" :key="lesson.lessonUnitId" class="inline-lesson-type-control"><select :value="lesson.value" @change="$emit(\'lesson-type-change\', { lessonUnitId: lesson.lessonUnitId, lessonType: $event.target.value })"><option v-for="option in lessonTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></label><button type="button" @click="$emit(\'confirmed\')">确认</button></section>',
-        emits: ['confirmed', 'lesson-type-change', 'ai-resolved', 'quality-review-change'],
+        template: '<section data-testid="inline-outline-editor" :data-mode="editable ? \'edit\' : \'view\'" :data-variant="variant"><label v-for="lesson in lessonTypes" :key="lesson.lessonUnitId" class="inline-lesson-type-control"><select :value="lesson.value" @change="$emit(\'lesson-type-change\', { lessonUnitId: lesson.lessonUnitId, lessonType: $event.target.value })"><option v-for="option in lessonTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></label></section>',
+        emits: ['lesson-type-change', 'ai-resolved', 'quality-review-change'],
         setup(_props: unknown, { emit, expose }: any) {
           expose({
             finishEditing: outlineFinishEditing,
-            confirmOutline: vi.fn(async () => true),
             requestAiCandidate: outlineRequestAiCandidate,
             requestQualityRepair: (issue: Record<string, any>) => String(issue.repair_instruction || ''),
             focusQualityIssueEditor: outlineFocusQualityIssue,
@@ -217,7 +219,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.emitted('generateOutline')).toBeUndefined()
   })
 
-  it('大纲进入待确认后先展示正式文档，由老师主动进入编辑', async () => {
+  it('大纲生成完成后直接展示文档，由老师主动进入编辑', async () => {
     useCourseStore().nodes = [
       {
         node_id: 'L1-1', parent_node_id: 'root', node_name: '第1章 程序环境与基础语法', node_level: 1,
@@ -229,7 +231,8 @@ describe('teacher course workbench outline streaming', () => {
       },
     ] as any
     const task = useGenerationStore().createTask('job-1', 'course-1', 'C 语言程序设计')
-    task.status = 'waiting_for_review'
+    task.status = 'completed'
+    task.currentPhase = 'teacher_outline_ready'
     task.progress = 35
     task.phaseDetail = { artifact_type: 'course_outline_growth', outline_growth: { ...growth, state: 'completed' } }
 
@@ -306,7 +309,7 @@ describe('teacher course workbench outline streaming', () => {
     wrapper.getComponent({ name: 'CourseOutlineReview' }).vm.$emit('quality-review-change', {
       schema_version: 'course_outline_editorial_review_v6',
       status: 'review_suggested',
-      summary: '大纲已生成；发现 2 类改进建议，不影响教师确认。',
+      summary: '大纲已生成；发现 2 类改进建议，不影响后续生成。',
       issues,
       blocking_issues: [],
       can_confirm: true,
@@ -314,12 +317,17 @@ describe('teacher course workbench outline streaming', () => {
     await flushPromises()
 
     const review = wrapper.get('[data-testid="outline-quality-review"]')
-    expect(review.text()).toContain('2 项改进建议')
-    expect(review.text()).toContain('不影响确认')
-    expect(review.text()).toContain('AI 优化')
-    expect(review.text()).toContain('手动补充')
+    expect(review.text()).toContain('查看大纲审阅')
+    expect(review.text()).toContain('2')
+    expect(review.text()).not.toContain('2 项改进建议')
+    expect(review.text()).not.toContain('AI 优化')
+    await review.get('[data-testid="outline-quality-review-open"]').trigger('click')
+    const reviewDialog = wrapper.get('[data-testid="outline-quality-review-dialog"]')
+    expect(reviewDialog.text()).toContain('仅供参考，不影响后续生成')
+    expect(reviewDialog.text()).toContain('AI 优化')
+    expect(reviewDialog.text()).toContain('手动补充')
 
-    const issueActions = review.findAll('.outline-quality-review__content li button')
+    const issueActions = reviewDialog.findAll('.outline-quality-review-dialog__body li button')
     await issueActions[1]!.trigger('click')
     await flushPromises()
     expect(wrapper.emitted('update:outlineEditing')?.at(-1)).toEqual([true])
@@ -332,14 +340,17 @@ describe('teacher course workbench outline streaming', () => {
       '补齐成果与目标、讲次和评价证据的关联。',
       'outline_editorial:missing_outcome_alignment',
     )
-    expect(wrapper.find('.outline-quality-review__content').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="outline-quality-review-dialog"]').exists()).toBe(false)
     expect(wrapper.find('.ai-workspace-panel').exists()).toBe(true)
     expect(wrapper.text()).toContain('课程目标与预期成果关联表')
 
     await wrapper.get('.lesson-ai-review button.primary').trigger('click')
     await flushPromises()
     expect(outlineResolveAiCandidate).toHaveBeenCalledWith(true)
-    expect(wrapper.get('[data-testid="outline-quality-review"]').text()).toContain('暂无改进建议')
+    const resolvedReview = wrapper.get('[data-testid="outline-quality-review"]')
+    expect(resolvedReview.find('small').exists()).toBe(false)
+    await resolvedReview.get('[data-testid="outline-quality-review-open"]').trigger('click')
+    expect(wrapper.get('[data-testid="outline-quality-review-dialog"]').text()).toContain('暂无改进建议')
     expect(wrapper.text()).toContain('已应用并重新审读，解决 2 项，剩余 0 项')
   })
 
@@ -376,7 +387,8 @@ describe('teacher course workbench outline streaming', () => {
     })
     await flushPromises()
 
-    await wrapper.get('.outline-quality-review__content li button').trigger('click')
+    await wrapper.get('[data-testid="outline-quality-review-open"]').trigger('click')
+    await wrapper.get('.outline-quality-review-dialog__body li button').trigger('click')
     await flushPromises()
 
     expect(wrapper.get('.lesson-ai-review-block').text()).toContain('目标问题仍未解决')
@@ -437,28 +449,32 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.stage-rail nav button.active').text()).toContain('大纲')
   })
 
-  it('最终检查点暂时没有投影时保留审阅状态而不退回初始表单', () => {
+  it('后端没有大纲投影时不伪装成已生成文档', () => {
     const task = useGenerationStore().createTask('job-1', 'course-1', 'C 语言程序设计')
-    task.status = 'waiting_for_review'
-    task.currentPhase = 'outline_ready'
+    task.status = 'completed'
+    task.currentPhase = 'teacher_outline_ready'
     task.phaseDetail = {}
 
     const wrapper = mountWorkbench()
 
-    expect(wrapper.find('[data-testid="outline-workspace"]').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('view')
-    expect(wrapper.find('form.stage-form').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="outline-workspace"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="inline-outline-editor"]').exists()).toBe(false)
+    expect(wrapper.find('form.stage-form').exists()).toBe(true)
   })
 
-  it('任务切换为最终审阅时保留最后一次小章节生成结果', async () => {
+  it('任务完成且后端存在大纲时直接展示当前文档', async () => {
     const task = useGenerationStore().createTask('job-1', 'course-1', 'C 语言程序设计')
     task.status = 'running'
     task.phaseDetail = { artifact_type: 'course_outline_growth', outline_growth: growth }
     const wrapper = mountWorkbench()
 
+    useCourseStore().nodes = [{
+      node_id: 'L1-1', parent_node_id: 'root', node_name: '第1讲 程序环境', node_level: 1,
+      node_content: '', node_type: 'original', generation_status: 'completed', generated_chars: 0,
+    }] as any
     const reactiveTask = useGenerationStore().getTask('course-1')!
-    reactiveTask.status = 'waiting_for_review'
-    reactiveTask.currentPhase = 'outline_ready'
+    reactiveTask.status = 'completed'
+    reactiveTask.currentPhase = 'teacher_outline_ready'
     reactiveTask.phaseDetail = { artifact_type: 'course_outline_ready' }
     await flushPromises()
 
@@ -472,12 +488,13 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.workbench-center [data-testid="inline-outline-editor"]').exists()).toBe(true)
     expect(wrapper.find('.stage-rail').exists()).toBe(true)
     expect(wrapper.findComponent({ name: 'CourseReferenceTray' }).exists()).toBe(true)
-    await wrapper.get('[data-testid="inline-outline-editor"] button').trigger('click')
-    expect(wrapper.emitted('outlineConfirmed')).toHaveLength(1)
-    expect(wrapper.emitted('update:outlineEditing')).toBeUndefined()
+    expect(wrapper.find('[data-testid="outline-confirm-action"]').exists()).toBe(false)
+    expect(wrapper.emitted('outlineConfirmed')).toBeUndefined()
+    await wrapper.get('[data-testid="outline-manual-action"]').trigger('click')
+    expect(wrapper.emitted('update:outlineEditing')?.at(-1)).toEqual([false])
   })
 
-  it('讲数已由老师确认时自动继续同一大纲任务，不再要求章和小节确认', async () => {
+  it('旧大纲检查点不再触发隐藏确认请求', async () => {
     const generation = useGenerationStore()
     const task = generation.createTask('job-1', 'course-1', 'C 语言程序设计')
     task.status = 'waiting_for_review'
@@ -491,21 +508,10 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench()
     await flushPromises()
-    const sectionInputs = wrapper.findAll('.shape-chapter-list input')
-
     expect(wrapper.find('.generation-surface').exists()).toBe(false)
-    expect(wrapper.find('.shape-chapter-index').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="outline-shape-review"]').text()).toContain('讲数已经确认')
-    expect(wrapper.get('[data-testid="outline-shape-review"]').text()).not.toContain('程序环境与基础语法')
-    expect(sectionInputs).toHaveLength(0)
-
-    expect(http.post).toHaveBeenCalledWith(
-      '/api/courses/course-1/generation/outline-shape/confirm',
-      { chapter_section_counts: expect.any(Array) },
-      expect.any(Object),
-    )
-    const shapePayload = vi.mocked(http.post).mock.calls.find(call => String(call[0]).includes('outline-shape/confirm'))?.[1] as any
-    expect(shapePayload.chapter_section_counts.every((count: number) => count === 1)).toBe(true)
+    expect(wrapper.find('[data-testid="outline-shape-review"]').exists()).toBe(false)
+    expect(wrapper.find('form.stage-form').exists()).toBe(true)
+    expect(vi.mocked(http.post).mock.calls.some(call => String(call[0]).includes('outline-shape/confirm'))).toBe(false)
   })
 
   it('生成前只展示业务输入和操作，不展示内部流程解释', async () => {
@@ -571,7 +577,7 @@ describe('teacher course workbench outline streaming', () => {
     }))
   })
 
-  it('大纲已生成待确认时阻断教案生成并恢复原有确认入口', async () => {
+  it('大纲与讲次投影完成后可直接进入教案', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
@@ -579,18 +585,16 @@ describe('teacher course workbench outline streaming', () => {
       plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
     }] as any
     const task = useGenerationStore().createTask('job-1', 'course-1', 'C 语言程序设计')
-    task.status = 'waiting_for_review'
-    task.currentPhase = 'outline_ready'
+    task.status = 'completed'
+    task.currentPhase = 'teacher_outline_ready'
 
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
 
     expect(wrapper.find('.lesson-selector').exists()).toBe(false)
-    expect(wrapper.get('.prerequisite').text()).toContain('课程大纲已生成，等待确认')
-    expect(wrapper.get('.prerequisite button').text()).toBe('查看并确认大纲')
-    await wrapper.get('.prerequisite button').trigger('click')
-
-    expect(wrapper.emitted('update:outlineEditing')).toBeUndefined()
-    expect(wrapper.get('.center-heading h2').text()).toBe('大纲')
+    expect(wrapper.find('.prerequisite').exists()).toBe(false)
+    expect(wrapper.get('.lesson-title-trigger').text()).toContain('第一讲')
+    expect(wrapper.get('.lesson-empty-canvas').text()).toContain('教案尚未生成')
+    expect(wrapper.text()).not.toContain('查看并确认大纲')
   })
 
   it('系统无法自动恢复时显示真实错误，只保留普通重试动作', async () => {
@@ -675,7 +679,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.lesson-empty-canvas').exists()).toBe(false)
     expect(wrapper.get('.arrangement-toolbar [data-testid="lesson-generation-actions"]').text()).not.toContain('生成范围')
     expect(singleButton.text()).toBe('只生成本讲')
-    expect(singleButton.attributes('disabled')).toBeDefined()
+    expect(singleButton.attributes('disabled')).toBeUndefined()
     expect(generationButton.text()).toBe('生成全部教案（1讲）')
     expect(wrapper.text()).not.toContain('统一生成要求')
     expect(wrapper.find('.lesson-batch-panel').exists()).toBe(false)
@@ -686,7 +690,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(generateAllLessons).toHaveBeenCalledWith('course-1', undefined, '', [])
   })
 
-  it('课型只在标题中显示，确认教学结构后可以只生成当前讲', async () => {
+  it('课型只在标题中显示，教学结构生成后可以只生成当前讲', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
@@ -745,7 +749,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(affectedNext.get('.lesson-title-trigger').text()).toContain('第2讲')
   })
 
-  it('讲次目录只使用六类可行动状态', async () => {
+  it('讲次目录使用生成、更新和失败状态', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2, 3, 4, 5, 6].map(number => ({
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45, sections: [],
@@ -768,8 +772,8 @@ describe('teacher course workbench outline streaming', () => {
     await wrapper.get('.lesson-title-trigger').trigger('click')
     const labels = wrapper.findAll('.lesson-outline-chapter-button').map(button => button.attributes('aria-label'))
     expect(labels).toEqual([
-      '第1讲，未生成', '第2讲，生成中', '第3讲，待确认',
-      '第4讲，已确认', '第5讲，需复核', '第6讲，失败',
+      '第1讲，未生成', '第2讲，生成中', '第3讲，已生成',
+      '第4讲，已生成', '第5讲，需更新', '第6讲，失败',
     ])
   })
 
@@ -858,7 +862,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.text()).not.toContain('重新生成本讲教案')
   })
 
-  it('教案未确认时仍可上传自有 PPT，但不能使用 AI 生成', async () => {
+  it('教案已生成但讲义未生成时仍可上传自有 PPT，但不能使用 AI 生成', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
@@ -868,18 +872,15 @@ describe('teacher course workbench outline streaming', () => {
         revisions: [{ revision_id: 'plan-1', lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', generation_source: 'model', status: 'draft', warnings: [], plan: { sections: [{ node_id: 'L2-1-1', key_points: ['编译', '运行'], teaching_modules: [{ module_id: 'core_explanation', planned_minutes: 15, teacher_activity: '演示源码如何编译运行', student_activity: '跟随完成首次运行' }] }] }, actor: 'teacher', created_at: '' }],
       },
     }] as any
-    const confirm = vi.spyOn(lessonStore, 'confirm').mockResolvedValue({} as any)
     const lessonWrapper = mountWorkbench({ initialStage: 'lesson' })
 
     await lessonWrapper.get('.lesson-title-trigger').trigger('click')
-    expect(lessonWrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('待确认')
+    expect(lessonWrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('已生成')
     expect(lessonWrapper.text()).toContain('1.1 程序运行过程')
     expect(lessonWrapper.text()).toContain('演示源码如何编译运行')
     expect(lessonWrapper.find('.lesson-toolbar-status').exists()).toBe(false)
-    expect(lessonWrapper.get('.teacher-document-command-bar__status').text()).toContain('待确认')
-    expect(lessonWrapper.get('.lesson-document-toolbar .primary-action').text()).toContain('确认本讲教案')
-    await lessonWrapper.get('.lesson-document-toolbar .primary-action').trigger('click')
-    expect(confirm).toHaveBeenCalledWith('course-1', 'L1-1', 'plan-1')
+    expect(lessonWrapper.get('.teacher-document-command-bar__status').text()).toContain('已生成')
+    expect(lessonWrapper.find('.lesson-document-toolbar .primary-action').exists()).toBe(false)
     expect(lessonWrapper.find('.lesson-section-tabs').exists()).toBe(false)
 
     const pptWrapper = mountWorkbench({ initialStage: 'ppt' })
@@ -890,7 +891,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(pptWrapper.get('.ppt-generate-primary').attributes('disabled')).toBeDefined()
   })
 
-  it('讲义确认成功后停留当前阶段，由左侧四步流程负责切换', async () => {
+  it('讲义生成完成后停留当前阶段，由左侧四步流程负责切换', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
@@ -911,22 +912,17 @@ describe('teacher course workbench outline streaming', () => {
         revisions: [{ revision_id: 'plan-1', lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', generation_source: 'model', status: 'confirmed', warnings: [], plan: {}, actor: 'teacher', created_at: '' }],
       },
     }] as any
-    const confirmScript = vi.spyOn(lessonStore, 'confirmScript').mockResolvedValue({} as any)
     const wrapper = mountWorkbench({ initialStage: 'script' })
 
     expect(wrapper.find('.center-heading').exists()).toBe(false)
     expect(wrapper.get('.lesson-title-trigger').text()).toContain('第一讲')
-    expect(wrapper.get('.lesson-toolbar-status').text()).toContain('待确认')
+    expect(wrapper.get('.lesson-toolbar-status').text()).toContain('已生成')
     expect(wrapper.find('.lesson-toolbar-status button').exists()).toBe(false)
-    expect(wrapper.get('.lesson-document-toolbar .primary-action').text()).toContain('确认本讲讲义')
-    await wrapper.get('.lesson-document-toolbar .primary-action').trigger('click')
-    await flushPromises()
-
-    expect(confirmScript).toHaveBeenCalledWith('course-1', 'L1-1', 'script-1')
+    expect(wrapper.find('.lesson-document-toolbar .primary-action').exists()).toBe(false)
     expect(wrapper.get('.stage-rail button.active').text()).toContain('讲义')
   })
 
-  it('旧质量规则阻断讲义确认时提供重新生成入口', async () => {
+  it('旧质量报告只提供建议，不阻断从当前讲义进入 PPT', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
@@ -949,15 +945,9 @@ describe('teacher course workbench outline streaming', () => {
       },
     }] as any
 
-    const generateScript = vi.spyOn(lessonStore, 'generateScript').mockResolvedValue({ id: 'script-job-new' } as any)
-    const wrapper = mountWorkbench({ initialStage: 'script' })
-
-    expect(wrapper.get('.lesson-document-toolbar .primary-action').text()).toContain('重新生成本讲讲义')
-    expect(wrapper.get('.lesson-document-toolbar .primary-action').attributes('disabled')).toBeUndefined()
-    expect(wrapper.get('.lesson-document-toolbar .primary-action').attributes('title')).toContain('旧质量规则')
-    await wrapper.get('.lesson-document-toolbar .primary-action').trigger('click')
+    const wrapper = mountWorkbench({ initialStage: 'ppt' })
     await flushPromises()
-    expect(generateScript).toHaveBeenCalledWith('course-1', 'L1-1', '', [], '')
+    expect(wrapper.get('.ppt-generate-primary').attributes('disabled')).toBeUndefined()
   })
 
   it('讲次目录以浮层按需展开，教案正文不再出现小节 Tab', async () => {
@@ -988,8 +978,8 @@ describe('teacher course workbench outline streaming', () => {
     const chapterButtons = wrapper.findAll('.lesson-outline-chapter-button')
     expect(chapterButtons).toHaveLength(2)
     expect(chapterButtons[0]!.text()).toBe('第1讲')
-    expect(chapterButtons[0]!.attributes('aria-label')).toContain('待确认')
-    expect(chapterButtons[1]!.attributes('aria-label')).toContain('已确认')
+    expect(chapterButtons[0]!.attributes('aria-label')).toContain('已生成')
+    expect(chapterButtons[1]!.attributes('aria-label')).toContain('未生成')
     expect(wrapper.find('.lesson-outline-sections').exists()).toBe(false)
 
     await chapterButtons[1]!.trigger('click')

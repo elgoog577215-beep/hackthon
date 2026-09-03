@@ -647,7 +647,7 @@ def test_teacher_script_inherits_confirmed_archetype_and_module_order():
         "lesson_goal", "general_concept_model", "feedback_check",
     ]
     assert all(
-        item["metadata"]["source_kind"] == "confirmed_teacher_script_block"
+        item["metadata"]["source_kind"] == "current_teacher_script_block"
         for item in projected_blocks
     )
     assert all(
@@ -1098,9 +1098,12 @@ def test_teacher_script_revision_blocks_repeated_canned_transitions():
     }
 
 
-def test_ppt_source_rechecks_preexisting_confirmed_script_quality(tmp_path):
+def test_ppt_source_keeps_quality_report_non_blocking_for_current_script(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     plan = standard_lesson_plan()
+    second_section = deepcopy(plan["sections"][0])
+    second_section["node_id"] = "L2-1-2"
+    plan["sections"].append(second_section)
     lesson = repository.save_plan_revision(
         "course-1",
         "L1-1",
@@ -1109,7 +1112,6 @@ def test_ppt_source_rechecks_preexisting_confirmed_script_quality(tmp_path):
         quality_report=validate_teacher_lesson_plan(plan),
     )
     plan_revision = lesson["working_revision_id"]
-    repository.confirm_plan_revision("course-1", "L1-1", plan_revision)
     lesson = repository.save_script_revision(
         "course-1",
         "L1-1",
@@ -1121,7 +1123,6 @@ def test_ppt_source_rechecks_preexisting_confirmed_script_quality(tmp_path):
         generation_source="teacher_edit",
     )
     script_revision = lesson["working_script_revision_id"]
-    repository.confirm_script_revision("course-1", "L1-1", script_revision)
 
     persisted = repository.load("course-1")
     revision = persisted["lessons"]["L1-1"]["script_revisions"][0]
@@ -1152,11 +1153,12 @@ def test_ppt_source_rechecks_preexisting_confirmed_script_quality(tmp_path):
         def get_generation_preview(_course_id):
             return None
 
-    with pytest.raises(TeacherLessonAuthoringError) as exc_info:
+    document, _course, _synthetic_id, _lesson, _plan = (
         teacher_lesson_router._teacher_v6_source(
             FakeTaskManager(), repository, "course-1", "L1-1"
         )
-    assert exc_info.value.code == "lesson_script_quality_blocked"
+    )
+    assert document.document_revision
 
 
 def test_teacher_script_rejects_mechanical_cues_plan_voice_and_truncation():
@@ -1835,7 +1837,8 @@ def test_script_provider_fallback_finishes_complete_editable_revision(tmp_path):
         generation_warnings=warnings,
     ))
 
-    assert completed["status"] == "completed_with_warnings"
+    assert completed["status"] == "failed"
+    assert completed["error"]["code"] == "lesson_script_generation_incomplete"
     assert completed["completed_blocks"] == completed["total_blocks"] == 1
     assert completed["warnings"] == warnings
     revision = repository.lesson("course-1", "L1-1")["script_revisions"][0]
@@ -2221,12 +2224,13 @@ def test_valid_fallback_finishes_with_warning_and_remains_editable(tmp_path):
         planner=planner,
     ))
 
-    assert completed["status"] == "completed_with_warnings"
+    assert completed["status"] == "failed"
+    assert completed["error"]["code"] == "lesson_plan_generation_incomplete"
     lesson = repository.view("course-1")["lessons"]["L1-1"]
     assert lesson["revisions"][0]["status"] == "needs_ai_review"
     assert lesson["revisions"][0]["plan"]["sections"][0]["node_id"] == "L2-1-1"
     assert lesson["revisions"][0]["source_refs"][0]["asset_id"] == "asset-1"
-    assert "模型内容校验未通过" in completed["message"]
+    assert "模型生成失败" in completed["message"]
 
 
 def test_plan_job_progress_never_moves_backwards(tmp_path):
@@ -2362,7 +2366,8 @@ def test_plan_job_keeps_formal_outline_and_planner_scope_revisions_separate(tmp_
     revision = repository.lesson("course-1", "L1-2")["revisions"][0]
     assert revision["source_outline_revision_id"] == "outline-v1"
     assert revision["source_knowledge_scope_revision_id"] == "knowledge-scope-v2"
-    assert revision["quality_report"]["passed"] is True
+    assert revision["quality_report"]["passed"] is False
+    assert completed["warnings"][0]["code"] == "lesson_plan:recommended_reading"
 
 
 def test_failed_plan_job_keeps_streamed_working_copy(tmp_path):
@@ -2826,7 +2831,7 @@ def test_teacher_lesson_v6_source_is_synthetic_and_covers_only_one_lesson():
     assert str(source) == source_before
 
 
-def test_teacher_preview_projects_only_current_publishable_script():
+def test_teacher_preview_projects_current_script_without_confirmation_gate():
     plan = standard_lesson_plan()
     preview = {
         "course_id": "course-1",
@@ -2860,8 +2865,10 @@ def test_teacher_preview_projects_only_current_publishable_script():
         "lessons": {
             "L1-1": {
                 "source_state": "current",
+                "working_revision_id": "plan-v1",
                 "confirmed_revision_id": "plan-v1",
                 "revisions": [{"revision_id": "plan-v1", "plan": plan}],
+                "working_script_revision_id": "script-v8",
                 "script_confirmation": {
                     "confirmed_revision_id": "script-v8",
                     "source_lesson_plan_revision_id": "plan-v1",
@@ -2869,11 +2876,13 @@ def test_teacher_preview_projects_only_current_publishable_script():
                 },
                 "script_revisions": [{
                     "revision_id": "script-v8",
+                    "source_lesson_plan_revision_id": "plan-v1",
                     "publication_eligible": True,
                     "quality_report": quality,
                     "sections": [{
                         "section_node_id": "L2-1-1",
                         "title": "1.1 核心概念",
+                        "content": "这是一段教师可以直接讲授的正式内容。",
                         "blocks": [{
                             "block_id": "block-1",
                             "module_id": "core_explanation",
@@ -3133,25 +3142,23 @@ def test_script_confirmation_versions_the_body_and_stales_bound_v6_ppt(tmp_path)
     assert stale["source_state"] == "stale"
 
 
-def test_script_confirmation_is_required_by_the_only_v6_ppt_api(tmp_path):
+def test_current_complete_script_unlocks_the_v6_ppt_api_without_confirmation(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     source = course_data()
     source["blueprint_revision_id"] = "outline-v1"
     source["nodes"][1]["node_content"] = "第一节正式讲稿"
     source["nodes"][2]["node_content"] = "第二节正式讲稿"
+    plan = standard_lesson_plan()
+    second_section = deepcopy(plan["sections"][0])
+    second_section["node_id"] = "L2-1-2"
+    plan["sections"].append(second_section)
     lesson = repository.save_plan_revision(
         "course-1",
         "L1-1",
-        standard_lesson_plan(),
+        plan,
         source_outline_revision_id="outline-v1",
-        quality_report=validate_teacher_lesson_plan(standard_lesson_plan()),
+        quality_report=validate_teacher_lesson_plan(plan),
     )
-    repository.confirm_plan_revision(
-        "course-1",
-        "L1-1",
-        lesson["working_revision_id"],
-    )
-
     class FakeStorage:
         @staticmethod
         def load_course(course_id):
@@ -3186,22 +3193,12 @@ def test_script_confirmation_is_required_by_the_only_v6_ppt_api(tmp_path):
     script_revision = saved_script["working_script_revision_id"]
 
     with TestClient(app) as client:
-        blocked = client.get("/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/source")
-        assert blocked.status_code == 409
-        assert blocked.json()["detail"]["code"] == "lesson_script_not_confirmed"
-
-        confirmed = client.post(
-            "/api/teacher/courses/course-1/lessons/L1-1/script/confirm",
-            json={"revision_id": script_revision},
-        )
-        assert confirmed.status_code == 200
-        assert confirmed.json()["lesson"]["script"]["confirmed"] is True
-
         source_response = client.get(
             "/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/source"
         )
         assert source_response.status_code == 200
         assert source_response.json()["document"]["document_revision"]
+        assert repository.lesson("course-1", "L1-1")["script_confirmation"] == {}
 
         legacy_generation = client.post(
             "/api/teacher/courses/course-1/lessons/L1-1/ppt/generate",
@@ -3775,7 +3772,7 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
             assert resume_checkpoint == {}
             assert callable(on_checkpoint)
             assert lesson_arrangement["lesson_type"] == "theory"
-            assert lesson_arrangement["status"] == "confirmed"
+            assert lesson_arrangement["status"] == "draft"
             assert {item["section_node_id"] for item in lesson_arrangement["blocks"]} == {"L2-2-1"}
             assert course_data["requirements"] == "突出课堂讨论与案例分析"
             selected = next(
@@ -3840,27 +3837,6 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
         assert view.status_code == 200
         assert [item["lesson_unit_id"] for item in view.json()["lessons"]] == ["L1-1", "L1-2"]
 
-        blocked = client.post(
-            "/api/teacher/courses/course-1/lessons/L1-2/plan/generate",
-            json={"request_id": "before-arrangement"},
-        )
-        assert blocked.status_code == 409
-        assert blocked.json()["detail"]["code"] == "lesson_arrangement_not_confirmed"
-
-        lesson_two = next(
-            item for item in view.json()["lessons"]
-            if item["lesson_unit_id"] == "L1-2"
-        )
-        arrangement_response = client.put(
-            "/api/teacher/courses/course-1/lessons/L1-2/arrangement/confirm",
-            json={
-                "lesson_type": lesson_two["arrangement"]["lesson_type"],
-                "blocks": lesson_two["arrangement"]["blocks"],
-            },
-        )
-        assert arrangement_response.status_code == 200
-        assert arrangement_response.json()["lesson"]["arrangement"]["confirmed"] is True
-
         response = client.post(
             "/api/teacher/courses/course-1/lessons/L1-2/plan/generate",
             json={
@@ -3881,7 +3857,7 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
         ) as stream_response:
             stream_payload = "".join(stream_response.iter_text())
 
-    assert job["status"] == "completed_with_warnings"
+    assert job["status"] == "completed"
     assert job["stream_complete"] is True
     assert job["stream_batches"]["TP-B01"] == (
         '{"sections":[{"learning_objective":"正在生成专业教学目标"}]}'
@@ -3898,13 +3874,13 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
         item["arrangement_block_id"]
         for item in generated_section["teaching_modules"]
     )
-    confirmed_arrangement = repository.confirmed_arrangement("course-1", "L1-2")
+    current_arrangement = repository.current_arrangement("course-1", "L1-2")
     assert sum(
         item["planned_minutes"]
         for item in generated_section["teaching_modules"]
     ) == sum(
         item["planned_minutes"]
-        for item in confirmed_arrangement["blocks"]
+        for item in current_arrangement["blocks"]
     )
     assert generated_section["teacher_activities"]
     generated_revision = assets["L1-2"]["revisions"][0]

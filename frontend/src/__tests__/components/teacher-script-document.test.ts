@@ -75,7 +75,7 @@ describe('统一讲义页面', () => {
     expect((wrapper.get('.script-body textarea').element as HTMLTextAreaElement).value).toBe('修改后的讲稿')
   })
 
-  it('按已确认教案的教学块展示和逐块编辑讲稿', async () => {
+  it('按当前教案的教学块展示和逐块编辑讲稿', async () => {
     const structuredLesson = structuredClone(lesson)
     structuredLesson.script.sections[0] = {
       section_node_id: 'section-1',
@@ -154,17 +154,13 @@ describe('统一讲义页面', () => {
     expect((wrapper.vm as any).selectAiScope('missing-section')).toBe(false)
   })
 
-  it('底部只负责确认讲稿，确认后由左侧流程切换阶段', async () => {
+  it('讲义生成后直接可用，不再出现确认操作', () => {
     const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson } })
-    const button = wrapper.get('.script-footer button')
-    expect(button.text()).toContain('确认本讲讲义')
-    await button.trigger('click')
-    expect(wrapper.emitted('confirm')).toHaveLength(1)
-
-    await wrapper.setProps({ confirmed: true })
+    expect(wrapper.find('.script-footer').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('确认本讲讲义')
+    expect(wrapper.emitted('confirm')).toBeUndefined()
     expect(wrapper.find('.script-state').exists()).toBe(false)
     expect(wrapper.find('.script-saved').exists()).toBe(false)
-    expect(wrapper.find('.script-footer').exists()).toBe(false)
   })
 
   it('允许课程工作台接管标题与操作栏，正文只保留小节和内容', () => {
@@ -243,7 +239,7 @@ describe('统一讲义页面', () => {
     expect(wrapper.get('.script-generate button').text()).toContain('继续生成剩余内容')
   })
 
-  it('区分失败任务与当前正文来源，恢复稿不再伪装成可确认结果', () => {
+  it('恢复稿的质量报告只作为建议，不阻断后续使用', () => {
     const recoveryLesson = structuredClone(lesson)
     recoveryLesson.script.publication_eligible = false
     recoveryLesson.script.generation_source = 'model_block_pipeline_with_recovery_preview'
@@ -273,10 +269,10 @@ describe('统一讲义页面', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('恢复草稿 · 尚不能确认')
+    expect(wrapper.text()).toContain('恢复草稿 · 有改进建议')
     expect(wrapper.text()).toContain('当前稿包含本地恢复内容')
     expect(wrapper.text()).not.toContain('讲稿生成失败')
-    expect(wrapper.get('.script-footer button').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.script-footer').exists()).toBe(false)
   })
 
   it('AI 失败后展示通过检查的教师编辑稿，不把失败任务冒充正文来源', () => {
@@ -305,6 +301,6 @@ describe('统一讲义页面', () => {
     expect(wrapper.text()).toContain('教师编辑稿 · 当前讲义可用')
     expect(wrapper.text()).toContain('不是该次失败任务的输出')
     expect(wrapper.text()).not.toContain('讲稿生成失败')
-    expect(wrapper.get('.script-footer button').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('.script-footer').exists()).toBe(false)
   })
 })

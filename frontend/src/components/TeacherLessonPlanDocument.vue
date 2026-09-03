@@ -181,20 +181,6 @@
 
     <div v-else class="document-empty">{{ tr('courseWorkbench.lessonPlanPreparing') }}</div>
 
-    <footer v-if="!externalToolbar && !pendingCandidate && !editing && !confirmed" class="document-footer">
-      <button
-        type="button"
-        :disabled="confirming || qualityBlocked"
-        :title="qualityBlocked ? qualityBlockMessage : ''"
-        @click="emit('confirm')"
-      >
-        <LoaderCircle v-if="confirming" :size="15" class="spin" />
-        <Check v-else :size="15" />
-        {{ confirming
-          ? tr('courseWorkbench.confirmingLessonPlan')
-          : tr('courseWorkbench.confirmLessonPlan') }}
-      </button>
-    </footer>
   </section>
 </template>
 
@@ -216,19 +202,15 @@ const props = withDefaults(defineProps<{
   courseId: string
   courseTitle?: string
   lesson: TeacherLessonProjection
-  confirmed?: boolean
+  externalError?: string
   assistantOpen?: boolean
-  confirming?: boolean
-  confirmError?: string
   activeSectionId?: string
   materialAssetIds?: string[]
   externalToolbar?: boolean
   selectionAiEnabled?: boolean
 }>(), {
-  confirmed: false,
   assistantOpen: false,
-  confirming: false,
-  confirmError: '',
+  externalError: '',
   activeSectionId: '',
   materialAssetIds: () => [],
   externalToolbar: false,
@@ -237,7 +219,6 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  (event: 'confirm'): void
   (event: 'saved'): void
   (event: 'open-ai'): void
   (event: 'open-ai-selection', value: { text: string }): void
@@ -268,9 +249,9 @@ const documentError = computed(() => {
     title: tr('courseWorkbench.lessonDocument.saveFailed').replace(/，?请重试。?$/, ''),
     fallback: tr('courseWorkbench.lessonDocument.saveFailed'),
   })
-  if (props.confirmError) return toAppError(props.confirmError, {
-    title: tr('courseWorkbench.lessonDocument.confirmFailed'),
-    fallback: props.confirmError,
+  if (props.externalError) return toAppError(props.externalError, {
+    title: tr('courseWorkbench.lessonDocument.operationFailed'),
+    fallback: props.externalError,
   })
   return null
 })
@@ -282,13 +263,13 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.lessonDocument.finishEditing': '完成编辑',
   'courseWorkbench.lessonDocument.saving': '正在保存…',
   'courseWorkbench.lessonDocument.saveFailed': '教案保存失败，请重试。',
+  'courseWorkbench.lessonDocument.operationFailed': '教案操作失败',
   'courseWorkbench.lessonDocument.aiImprove': 'AI 修改',
   'courseWorkbench.lessonDocument.aiCandidate': 'AI 方案',
   'courseWorkbench.lessonDocument.discardAi': '放弃',
   'courseWorkbench.lessonDocument.applyAi': '采用',
   'courseWorkbench.lessonDocument.applyingAi': '正在采用…',
   'courseWorkbench.lessonDocument.aiFailed': 'AI 优化失败，请重试。',
-  'courseWorkbench.lessonDocument.confirmFailed': '教案确认失败',
   'courseWorkbench.lessonDocument.candidateCanvasTitle': 'AI 候选正在左侧画布预览',
   'courseWorkbench.lessonDocument.changeMarker': 'AI 修改',
   'courseWorkbench.aiCollaboration.selectionModify': 'AI 修改',
@@ -343,10 +324,6 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.lessonDocument.theme': '内容主题',
   'courseWorkbench.lessonDocument.notes': '教学备注',
   'courseWorkbench.lessonDocument.empty': '-',
-  'courseWorkbench.confirmingLessonPlan': '正在确认…',
-  'courseWorkbench.confirmLessonPlan': '确认本讲教案',
-  'courseWorkbench.lessonPlanConfirmed': '已确认',
-  'courseWorkbench.lessonPlanPendingReview': '待确认',
   'courseWorkbench.lessonPlanPreparing': '教案内容正在整理，请稍后刷新。',
   'courseWorkbench.lessonSection': '本讲教案',
   'courseWorkbench.minutes': '分钟',
@@ -383,11 +360,6 @@ const selectedSectionId = computed({
 const basePlanSections = computed<any[]>(() => Array.isArray(workingRevision.value?.plan?.sections)
   ? workingRevision.value!.plan.sections
   : [])
-const qualityBlocked = computed(() => workingRevision.value?.quality_report?.passed === false)
-const qualityBlockMessage = computed(() => String(
-  workingRevision.value?.quality_report?.blocking_issues?.[0]?.message || '',
-))
-
 const emptyValue = computed(() => tr('courseWorkbench.lessonDocument.empty'))
 
 const moduleLabels = computed<Record<string, string>>(() => ({
@@ -714,8 +686,6 @@ defineExpose({
   editing,
   saving,
   aiBusy,
-  qualityBlocked,
-  qualityBlockMessage,
   beginEditing,
   cancelEditing,
   saveDraft,
@@ -739,8 +709,8 @@ defineExpose({
 .lesson-theme-nav{display:flex;gap:18px;overflow:auto;padding:4px 0 0;border-bottom:1px solid #e8ecf2}.lesson-theme-nav button{min-height:44px;display:flex;align-items:center;gap:6px;padding:0;border:0;border-bottom:2px solid transparent;color:#667085;background:transparent;font-size:15px;white-space:nowrap;cursor:pointer}.lesson-theme-nav button span{color:#98a2b3;font-size:15px;font-weight:800}.lesson-theme-nav button.active{border-bottom-color:#5b57e8;color:#3730a3;font-weight:750}.lesson-theme{scroll-margin-top:16px;padding:20px 0 12px;border-bottom:2px solid #e4e8ef}.lesson-theme:last-child{border-bottom:0}.lesson-theme-heading{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:9px 0 3px}.lesson-theme-heading>div{display:flex;align-items:baseline;gap:9px}.lesson-theme-heading span{color:#6366f1;font-size:15px;font-weight:800}.lesson-theme-heading h4{margin:0;color:#172033;font-size:18px}.lesson-theme-heading small{color:#667085;font-size:15px}.lesson-time-section .section-heading span{color:#667085}.teaching-block.is-overtime{border-color:#e9b98b}.overtime-warning{display:flex;align-items:center;gap:6px!important;padding:8px 14px;color:#9a4f12!important;background:#fff8ef;font-size:15px!important}.block-contingency{border-top:1px solid #e8ecf2}.block-contingency summary{width:max-content;margin:12px 14px;color:#514dc0;font-size:15px;font-weight:750;cursor:pointer}.block-contingency[open] summary{margin-bottom:0}.assignment-contract{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:16px;padding-top:15px;border-top:1px solid #edf0f4}.assignment-contract label{min-width:0;display:grid;align-content:start;gap:6px}.assignment-contract label>span{color:#64748b;font-size:15px;font-weight:750}.assignment-contract p{font-size:15px}
 .ai-change-target{position:relative}.is-ai-candidate .ai-change-target{margin-inline:-10px;padding-inline:10px;border-radius:9px;background:linear-gradient(90deg,rgba(238,242,255,.92),rgba(248,250,255,.42))}.ai-change-target::before{position:absolute;top:8px;bottom:8px;left:0;width:2px;border-radius:2px;background:#6366f1;content:""}.ai-change-marker{position:absolute;top:7px;right:9px;padding:3px 6px;border-radius:5px;color:#4338ca;background:#e0e7ff;font-size:15px;font-style:normal;font-weight:800}.flow-section.ai-change-target{padding-inline:10px}.focus-grid>div.ai-change-target,.closing-grid>div.ai-change-target{padding-top:12px;padding-bottom:12px}.focus-grid>div+div.ai-change-target,.closing-grid>div+div.ai-change-target{padding-left:36px}
 .flow-table{width:100%;max-width:100%;box-sizing:border-box;overflow:hidden;border:1px solid #dde3ec;border-radius:8px}.flow-row{display:grid;grid-template-columns:72px minmax(120px,.82fr) minmax(170px,1.2fr) minmax(150px,1fr) minmax(150px,1fr);border-top:1px solid #e3e8f0}.flow-row:first-child{border-top:0}.flow-row>div,.flow-head>span{min-width:0;padding:13px 12px;border-left:1px solid #e3e8f0}.flow-row>div:first-child,.flow-head>span:first-child{border-left:0}.flow-head{color:#64748b;background:#f6f8fb;font-size:15px;font-weight:750}.flow-row p{font-size:16px;line-height:1.75}.flow-row ul{gap:6px;padding-left:16px;font-size:16px;line-height:1.7}.duration-cell{color:#475569;font-size:15px;text-align:center}.duration-cell input{height:34px;padding:6px;text-align:center}.phase-cell{display:grid;align-content:start;gap:8px}.phase-cell strong{color:#334155;font-size:15px}.phase-cell p{color:#667386;font-size:16px}.flow-row textarea{min-height:116px;font-size:16px}.flow-empty{padding:28px;color:#7a8699;font-size:15px;text-align:center}
-.document-empty{min-height:280px;display:grid;place-items:center;color:#7a8699;font-size:15px}.document-footer{min-height:64px;display:flex;align-items:center;justify-content:flex-end;gap:18px;padding:12px 28px;border-top:1px solid #e8ecf2;background:#fbfcfe}.document-footer button{min-height:38px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 15px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:15px;font-weight:750;cursor:pointer}.document-footer button:hover{border-color:#4338ca;background:#4338ca}.document-footer button:disabled{opacity:.45;cursor:not-allowed}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+.document-empty{min-height:280px;display:grid;place-items:center;color:#7a8699;font-size:15px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:1050px){.document-body{padding-inline:20px}.objective-grid,.assignment-contract{grid-template-columns:1fr}}
-@media(max-width:760px){.document-header{align-items:flex-start;flex-direction:column;padding-inline:18px}.document-actions{width:100%;justify-content:flex-end}.focus-grid,.closing-grid,.block-fields,.lesson-block-summary{grid-template-columns:1fr}.focus-grid>div,.closing-grid>div{padding-right:0}.focus-grid>div+div,.closing-grid>div+div{margin-top:20px;padding:20px 0 0;border-top:1px solid #e8ecf2;border-left:0}.block-fields>label,.lesson-block-summary>section{border-right:0;border-bottom:1px solid #e8ecf2}.lesson-block-summary>section:last-child{border-bottom:0}.document-footer{padding-inline:18px}}
-.document-footer,.document-actions button:hover{background:var(--teacher-component-tint,#f7f7ff)}
+@media(max-width:760px){.document-header{align-items:flex-start;flex-direction:column;padding-inline:18px}.document-actions{width:100%;justify-content:flex-end}.focus-grid,.closing-grid,.block-fields,.lesson-block-summary{grid-template-columns:1fr}.focus-grid>div,.closing-grid>div{padding-right:0}.focus-grid>div+div,.closing-grid>div+div{margin-top:20px;padding:20px 0 0;border-top:1px solid #e8ecf2;border-left:0}.block-fields>label,.lesson-block-summary>section{border-right:0;border-bottom:1px solid #e8ecf2}.lesson-block-summary>section:last-child{border-bottom:0}}
+.document-actions button:hover{background:var(--teacher-component-tint,#f7f7ff)}
 </style>
