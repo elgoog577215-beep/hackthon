@@ -15,6 +15,7 @@ describe('teacher outline confirmation placement', () => {
   it('places the pending confirmation beside the outline edit action', () => {
     const actionsStart = workbenchSource.indexOf('<TeacherDocumentCommandBar')
     const editAction = workbenchSource.indexOf('data-testid="outline-manual-action"', actionsStart)
+    const editActionEnd = workbenchSource.indexOf('</button>', editAction)
     const confirmAction = workbenchSource.indexOf('data-testid="outline-confirm-action"', actionsStart)
     const actionsEnd = workbenchSource.indexOf('</TeacherDocumentCommandBar>', confirmAction)
 
@@ -24,8 +25,10 @@ describe('teacher outline confirmation placement', () => {
     expect(confirmAction).toBeLessThan(actionsEnd)
     expect(workbenchSource.slice(editAction, actionsEnd)).toContain('v-if="outlineAwaitingReview"')
     expect(workbenchSource.slice(confirmAction, actionsEnd)).toContain('@click="confirmInlineOutline"')
-    expect(workbenchSource.slice(editAction, confirmAction)).not.toContain('!outlineCanConfirm')
-    expect(workbenchSource.slice(confirmAction, actionsEnd)).toContain('!outlineCanConfirm')
+    expect(workbenchSource.slice(editAction, editActionEnd)).not.toContain('!outlineCanConfirm')
+    expect(workbenchSource.slice(confirmAction, actionsEnd)).toContain(':disabled="stageSwitching || outlineConfirming"')
+    expect(workbenchSource.slice(confirmAction, actionsEnd)).toContain('outlineConfirmationActionLabel')
+    expect(workbenchSource.slice(confirmAction, actionsEnd)).toContain('TriangleAlert v-else-if="!outlineCanConfirm"')
   })
 
   it('uses the stable right-side assistant instead of a duplicate outline toolbar entry', () => {
@@ -50,5 +53,7 @@ describe('teacher outline confirmation placement', () => {
     expect(outlineSource).toMatch(
       /defineExpose\(\{[\s\S]*finishEditing,[\s\S]*confirmOutline,/,
     )
+    expect(outlineSource).toContain('qualitySectionRef.value?.scrollIntoView?.')
+    expect(outlineSource).toContain('blockingIssueCount: computed(() => qualityBlockingIssues.value.length)')
   })
 })

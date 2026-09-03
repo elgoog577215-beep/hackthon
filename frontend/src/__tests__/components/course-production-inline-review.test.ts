@@ -91,6 +91,62 @@ describe('课程生产内联确认', () => {
     expect(wrapper.emitted('confirmed')).toHaveLength(1)
   })
 
+  it('大纲存在阻断项时不留死按钮，点击后定位并说明原因', async () => {
+    const workspace = useCourseWorkspaceStore()
+    const blockingIssues = [
+      { code: 'outcome_alignment', message: '有 2 项成果尚未建立完整关联。', blocking: true },
+      { code: 'reference_verification', message: '有 16 讲的拓展资源尚未核验。', blocking: true },
+    ]
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({
+      current: {
+        base_blueprint_revision_id: 'bp-blocked',
+        course_name: '统计学',
+        nodes: [{
+          node_id: 'lecture-1',
+          parent_node_id: 'root',
+          node_level: 1,
+          node_name: '第1讲 统计思维',
+          learning_objective: '理解统计思维',
+        }],
+      },
+      quality: {
+        status: 'blocked',
+        summary: '大纲草稿已生成；仍有 2 类正式确认条件未满足。',
+        issues: blockingIssues,
+        blocking_issues: blockingIssues,
+      },
+    } as any)
+    const confirm = vi.spyOn(workspace, 'confirmGenerationStep').mockResolvedValue({} as any)
+
+    const wrapper = mount(CourseOutlineReview, {
+      props: {
+        courseId: 'course-blocked',
+        courseName: '统计学',
+        editable: false,
+        variant: 'inline',
+        surface: 'teacher',
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('.formal-outline__masthead').text()).toContain('2 项待完善')
+    const qualitySection = wrapper.get('.outline-quality')
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(qualitySection.element, 'scrollIntoView', { value: scrollIntoView })
+    const focus = vi.spyOn(qualitySection.element as HTMLElement, 'focus')
+    const action = wrapper.get('.outline-review__actions .primary')
+    expect(action.attributes('disabled')).toBeUndefined()
+    expect(action.text()).toContain('查看 2 项待完善')
+
+    await action.trigger('click')
+    await flushPromises()
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' })
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true })
+    expect(wrapper.get('.outline-review__action-error').text()).toContain('还有 2 项正式确认条件未满足')
+  })
+
   it('按父子关系展示结构，单小节自动折叠且不破坏真实节点', async () => {
     const workspace = useCourseWorkspaceStore()
     vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({

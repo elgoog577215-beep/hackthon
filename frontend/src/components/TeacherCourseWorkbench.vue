@@ -77,15 +77,18 @@
           </button>
           <button
             v-if="outlineAwaitingReview"
-            class="primary-action outline-confirm-action"
+            class="outline-confirm-action"
+            :class="{ 'primary-action': outlineCanConfirm, 'outline-requirements-action': !outlineCanConfirm }"
             data-testid="outline-confirm-action"
             type="button"
-            :disabled="stageSwitching || outlineConfirming || !outlineCanConfirm"
+            :disabled="stageSwitching || outlineConfirming"
+            :title="!outlineCanConfirm ? outlineConfirmationBlockedMessage : undefined"
             @click="confirmInlineOutline"
           >
             <LoaderCircle v-if="outlineConfirming" :size="15" class="spin" />
+            <TriangleAlert v-else-if="!outlineCanConfirm" :size="15" />
             <Check v-else :size="15" />
-            {{ t('courseWorkbench.confirmOutline', '确认课程大纲') }}
+            {{ outlineConfirmationActionLabel }}
           </button>
         </TeacherDocumentCommandBar>
         <TeacherDocumentHistoryPanel
@@ -903,6 +906,7 @@ type OutlineEditorHandle = ProductionAiDocumentHandle & {
   confirmOutline: () => Promise<void>
   dirty: boolean
   canConfirm: boolean
+  blockingIssueCount: number
   canUndo: boolean
   canRedo: boolean
   undoEdit: () => void
@@ -1394,6 +1398,17 @@ const scriptDocumentAiBusy = computed(() => Boolean(scriptDocument.value?.aiBusy
 const outlineCanUndo = computed(() => Boolean(outlineEditor.value?.canUndo))
 const outlineCanRedo = computed(() => Boolean(outlineEditor.value?.canRedo))
 const outlineCanConfirm = computed(() => outlineEditor.value?.canConfirm !== false)
+const outlineBlockingIssueCount = computed(() => Number(outlineEditor.value?.blockingIssueCount || 0))
+const outlineConfirmationActionLabel = computed(() => (
+  outlineCanConfirm.value
+    ? t('courseWorkbench.confirmOutline', '确认课程大纲')
+    : t('courseWorkbench.reviewOutlineRequirements', '查看 {count} 项待完善')
+      .replace('{count}', String(outlineBlockingIssueCount.value))
+))
+const outlineConfirmationBlockedMessage = computed(() => (
+  t('courseGeneration.outlineReview.confirmationBlockedCount', '还有 {count} 项正式确认条件未满足，已为你定位到整篇审读。')
+    .replace('{count}', String(outlineBlockingIssueCount.value))
+))
 const outlineDocumentDirty = computed(() => Boolean(outlineEditor.value?.dirty))
 const lessonCanUndo = computed(() => Boolean(lessonPlanDocument.value?.canUndo))
 const lessonCanRedo = computed(() => Boolean(lessonPlanDocument.value?.canRedo))
@@ -2812,6 +2827,8 @@ onBeforeUnmount(() => {
 .center-heading-actions>.outline-manual-action[aria-pressed="true"]{border-color:#c9c8ee;color:#3730a3;background:#f4f3ff}
 .center-heading-actions>.outline-confirm-action{border-color:#454ca8;color:#fff;background:#454ca8;box-shadow:0 7px 18px rgba(69,76,168,.16)}
 .center-heading-actions>.outline-confirm-action:hover:not(:disabled){border-color:#3f4598;background:#3f4598}
+.center-heading-actions>.outline-requirements-action{border-color:#d5a15f;color:#8a4b0f;background:#fffaf2;box-shadow:none}
+.center-heading-actions>.outline-requirements-action:hover:not(:disabled){border-color:#c68b42;color:#713b0b;background:#fff5e6}
 .stage-form>footer{justify-content:flex-end}
 .foundation-presets{display:grid;margin:2px 0 0;padding:4px 0;border-top:1px solid #e8ebf2;border-bottom:1px solid #e8ebf2}.foundation-presets>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:17px 2px 14px}.foundation-presets>header>div{display:grid;gap:4px}.foundation-presets>header strong{color:#273247;font-size:14px}.foundation-presets>header span{color:#778195;font-size:14px;line-height:1.55}.foundation-presets>header>small{padding-top:2px;color:#555db6;font-size:14px;font-weight:750;white-space:nowrap}.foundation-preset-row{display:grid;grid-template-columns:150px minmax(0,1fr);align-items:center;gap:18px;padding:15px 2px;border-top:1px solid #eff1f5}.foundation-preset-row>div:first-child{display:grid;gap:3px}.foundation-preset-row>div:first-child strong{color:#354056;font-size:14px}.foundation-preset-row>div:first-child span{color:#8991a0;font-size:14px;line-height:1.45}.foundation-preset-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.foundation-preset-options>button{min-width:0;min-height:58px;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:7px;padding:8px 10px;border:1px solid #dfe3eb;border-radius:10px;color:#5e687b;background:#fff;text-align:left;cursor:pointer;transition:border-color .18s ease,background .18s ease,color .18s ease,transform .18s cubic-bezier(.16,1,.3,1)}.foundation-preset-options>button:not(.selected){grid-template-columns:minmax(0,1fr)}.foundation-preset-options>button:hover{transform:translateY(-1px);border-color:#c7cae9;background:#fafaff}.foundation-preset-options>button:focus-visible{outline:3px solid rgba(79,70,217,.14);outline-offset:1px}.foundation-preset-options>button.selected{border-color:#bfc2e8;color:#41489f;background:#f4f4ff}.foundation-preset-options>button>svg{color:#555db6}.foundation-preset-options>button>span{min-width:0;display:grid;gap:2px}.foundation-preset-options>button strong{overflow:hidden;color:inherit;font-size:14px;font-weight:800;text-overflow:ellipsis;white-space:nowrap}.foundation-preset-options>button small{overflow:hidden;color:#828b9c;font-size:14px;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}.stage-form>footer>span{max-width:520px;color:#7b8495;font-size:14px;line-height:1.5}.stage-form>footer{justify-content:space-between}
 .foundation-semantics{display:grid;margin:2px 0 0;border-block:1px solid #e8ebf2}.foundation-semantics>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:18px 2px 15px}.foundation-semantics>header>div{display:grid;gap:4px}.foundation-semantics>header strong{color:#273247;font-size:14px}.foundation-semantics>header span{max-width:68ch;color:#778195;font-size:14px;line-height:1.55}.foundation-semantics>header>small{padding-top:2px;color:#555db6;font-size:14px;font-weight:750;white-space:nowrap}.foundation-semantic-row{display:grid;grid-template-columns:145px minmax(0,1fr);align-items:center;gap:18px;padding:16px 2px;border-top:1px solid #eff1f5}.foundation-semantic-row>div:first-child{display:grid;gap:4px}.foundation-semantic-row>div:first-child strong{color:#354056;font-size:14px}.foundation-semantic-row>div:first-child span{color:#8991a0;font-size:14px;line-height:1.45}.foundation-semantic-options{display:grid;gap:8px}.foundation-semantic-options--three,.foundation-semantic-options--six{grid-template-columns:repeat(3,minmax(0,1fr))}.foundation-semantic-options>button{min-width:0;min-height:62px;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;padding:9px 11px;border:1px solid #dfe3eb;border-radius:10px;color:#5e687b;background:#fff;text-align:left;cursor:pointer;transition:border-color .18s ease,background-color .18s ease,color .18s ease,transform .18s cubic-bezier(.16,1,.3,1)}.foundation-semantic-options>button:not(.selected){grid-template-columns:minmax(0,1fr)}.foundation-semantic-options>button:hover{transform:translateY(-1px);border-color:#c7cae9;background:#fafaff}.foundation-semantic-options>button:focus-visible,.foundation-subject-select select:focus-visible{outline:3px solid rgba(79,70,217,.14);outline-offset:1px}.foundation-semantic-options>button.selected{border-color:#bfc2e8;color:#41489f;background:#f4f4ff}.foundation-semantic-options>button>svg{color:#555db6}.foundation-semantic-options>button>span{min-width:0;display:grid;gap:3px}.foundation-semantic-options>button strong{color:inherit;font-size:14px;font-weight:800;line-height:1.35}.foundation-semantic-options>button small{color:#7d8799;font-size:14px;line-height:1.4}.foundation-semantic-row--compact{align-items:start}.foundation-subject-select{display:grid;grid-template-columns:minmax(220px,300px) minmax(0,1fr);align-items:center;gap:14px}.foundation-subject-select select{width:100%;min-height:42px;padding:8px 34px 8px 11px;border:1px solid #cfd7e3;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:14px}.foundation-subject-select small{color:#7b8495;font-size:14px;line-height:1.5}.foundation-purpose-fields{display:grid;padding:16px 2px;border-top:1px solid #eff1f5}.foundation-purpose-fields--two{grid-template-columns:minmax(160px,.55fr) minmax(0,1.45fr);gap:14px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.stage-form>footer>span{max-width:520px;color:#7b8495;font-size:14px;line-height:1.5}.stage-form>footer{justify-content:space-between}

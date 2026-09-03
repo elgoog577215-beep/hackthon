@@ -543,7 +543,7 @@
               <dl>
                 <div><dt>{{ isLectureOutline ? t('courseGeneration.outlineReview.documentLectures', '讲次') : t('courseGeneration.outlineReview.documentChapters', '章节') }}</dt><dd>{{ documentChapters.length }}</dd></div>
                 <div v-if="!isLectureOutline && documentVisibleSectionCount"><dt>{{ t('courseGeneration.outlineReview.documentSections', '小节') }}</dt><dd>{{ documentVisibleSectionCount }}</dd></div>
-                <div><dt>{{ t('courseGeneration.outlineReview.documentQuality', '整篇审读') }}</dt><dd :data-ready="qualityReady">{{ qualityReady ? t('courseGeneration.outlineReview.qualityReady', '表达清晰') : t('courseGeneration.outlineReview.qualitySuggested', '建议优化') }}</dd></div>
+                <div><dt>{{ t('courseGeneration.outlineReview.documentQuality', '整篇审读') }}</dt><dd :data-ready="qualityReady">{{ outlineQualityStatusLabel }}</dd></div>
               </dl>
             </header>
 
@@ -773,7 +773,13 @@
               </details>
             </template>
 
-            <section v-if="qualityIssues.length" class="outline-quality" aria-labelledby="outline-quality-title">
+            <section
+              v-if="qualityIssues.length"
+              ref="qualitySectionRef"
+              class="outline-quality"
+              aria-labelledby="outline-quality-title"
+              tabindex="-1"
+            >
               <header>
                 <div>
                   <span>{{ t('courseGeneration.outlineReview.qualityEyebrow', '整篇审读') }}</span>
@@ -960,14 +966,14 @@
             v-if="!isInline || (confirmationPlacement === 'internal' && requiresConfirmation)"
             type="button"
             class="primary"
-            :disabled="loading || acting || !!adjustmentProposal || !blueprintNodes.length || !outlineConfirmationReady"
+            :disabled="loading || acting || !!adjustmentProposal || !blueprintNodes.length"
+            :title="!outlineConfirmationReady ? confirmationBlockedMessage : undefined"
             @click="confirmOutline"
           >
             <LoaderCircle v-if="confirming" :size="15" />
+            <TriangleAlert v-else-if="!outlineConfirmationReady" :size="15" />
             <CircleCheck v-else :size="15" />
-            {{ surface === 'teacher'
-              ? t('courseWorkbench.confirmOutline', '确认课程大纲')
-              : t('courseGeneration.gate.confirmOutline', '确认目录并继续') }}
+            {{ confirmationActionLabel }}
           </button>
         </div>
       </footer>
@@ -1103,6 +1109,7 @@ const retryingRetrieval = ref(false)
 const proposalNotice = ref('')
 const liveStatus = ref('')
 const proposalSummaryRef = ref<HTMLElement | null>(null)
+const qualitySectionRef = ref<HTMLElement | null>(null)
 const chaptersRef = ref<HTMLElement | null>(null)
 const richEditorRef = ref<HTMLElement | null>(null)
 const insertControlRef = ref<HTMLElement | null>(null)
@@ -1952,6 +1959,28 @@ const qualityBlockingIssues = computed<any[]>(() => (
 ))
 const outlineConfirmationReady = computed(() => !qualityBlockingIssues.value.length)
 const qualityReady = computed(() => outlineConfirmationReady.value && (qualityArtifact.value?.status === 'ready' || !qualityIssues.value.length))
+const outlineQualityStatusLabel = computed(() => {
+  if (!outlineConfirmationReady.value) {
+    return t('courseGeneration.outlineReview.qualityBlockedStatus', '{count} 项待完善')
+      .replace('{count}', String(qualityBlockingIssues.value.length))
+  }
+  return qualityReady.value
+    ? t('courseGeneration.outlineReview.qualityReady', '表达清晰')
+    : t('courseGeneration.outlineReview.qualitySuggested', '可确认，有改进建议')
+})
+const confirmationBlockedMessage = computed(() => (
+  t('courseGeneration.outlineReview.confirmationBlockedCount', '还有 {count} 项正式确认条件未满足，已为你定位到整篇审读。')
+    .replace('{count}', String(qualityBlockingIssues.value.length))
+))
+const confirmationActionLabel = computed(() => {
+  if (!outlineConfirmationReady.value) {
+    return t('courseGeneration.outlineReview.reviewBlockingRequirements', '查看 {count} 项待完善')
+      .replace('{count}', String(qualityBlockingIssues.value.length))
+  }
+  return props.surface === 'teacher'
+    ? t('courseWorkbench.confirmOutline', '确认课程大纲')
+    : t('courseGeneration.gate.confirmOutline', '确认目录并继续')
+})
 const courseType = computed(() => String(blueprintDraft.value?.course_type || props.task?.courseType || 'systematic'))
 const isProjectCourse = computed(() => courseType.value === 'project')
 const courseIntent = computed<Record<string, any>>(() => blueprintDraft.value?.course_intent || {})
@@ -3404,7 +3433,11 @@ async function restoreHistoryVersion(historyEntryId: string) {
 async function confirmOutline() {
   if (!blueprintNodes.value.length || acting.value || !outlineConfirmationReady.value) {
     if (!outlineConfirmationReady.value) {
-      actionError.value = t('courseGeneration.outlineReview.confirmationBlocked', '请先完成整篇审读中的正式确认条件。')
+      actionError.value = confirmationBlockedMessage.value
+      liveStatus.value = actionError.value
+      await nextTick()
+      qualitySectionRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+      qualitySectionRef.value?.focus({ preventScroll: true })
     }
     return
   }
@@ -3440,6 +3473,7 @@ defineExpose({
   resolveAiCandidate,
   focusAiCandidate,
   canConfirm: outlineConfirmationReady,
+  blockingIssueCount: computed(() => qualityBlockingIssues.value.length),
   dirty,
   canUndo,
   canRedo,
