@@ -272,36 +272,19 @@ class CoursePromptComposer:
 5. `assessment_plan` 是唯一结构化考核分配：至少包含一项过程性评价和一项终结性评价，
    权重合计必须为 100%，每项写清评分标准并关联可测量成果。已确认的考核方式和比例必须原样保留；
    只有方式没有比例时，可以提出供教师确认的候选比例。`assessment_methods` 只用于兼容原有文字说明。
-6. 每讲 `content_summary` 使用二至四句自然中文，既说清实际要教的内容，又不过度展开成教案或讲义。
-7. 每讲标题只写主题，不带“第N讲”、章、节或数字编号；系统会统一加上“第N讲”。
-8. 每讲必须同时回答三类问题，但形式随学科变化：
-   - `application_anchors`：案例、问题情境、实验现象、例题、项目节点或真实任务，至少一项；
-   - `extension_resources`：书籍、论文、标准、法规、数据集、视频或网站，至少一项；
-   - `learning_tasks`：课前或课后任务及可提交证据，至少一项。
-   在线或混合课程每讲至少一项 `mode=online` 的任务；纯线下课程允许使用 `mode=offline`。
-   书籍只有确认版次后才能给页码；`source_ref` 必须与课程已确认参考资料完全一致，无法核验时
-   `verification_status` 写 `pending`，严禁编造书名、版次、章节或页码。
-9. 每讲 `hour_breakdown` 分别填写线下讲授、线下实践和计入总学时的在线教学；三项之和是本讲
+6. 本请求只形成可立即展示和审阅的全课框架，不生成每讲的内容摘要、重难点、活动、作业、案例、资源、学习任务或达成检验；这些由后续限流并行的讲次详情批次补全。
+7. 每讲框架只保留主题、可观察学习目标、内容边界、学时和在整课中的推进作用。标题不带“第N讲”、章、节或数字编号；系统会统一加上“第N讲”。
+8. 每讲 `hour_breakdown` 分别填写线下讲授、线下实践和计入总学时的在线教学；三项之和是本讲
    `planned_hours`，全课各讲合计必须等于已确认总学时。`learning_tasks.estimated_hours` 是课外学习负担，
    不计入课程总学时。
-10. `course_modules` 只按主题把讲次分组；每讲必须且只能进入一个模块。模块不是课程层级，
+9. `course_modules` 只按主题把讲次分组；每讲必须且只能进入一个模块。模块不是课程层级，
     不得产生模块节点、小节或独立生成任务；模块学时由所含讲次自动汇总。
-11. 每讲目标、重点、难点、活动和作业要与本讲内容对应；案例、讨论、实验、实践按学科需要选择，不强行套同一顺序。
-   每讲 `assessment` 必须写清学生要提交、解释、判断、设计、实作或迁移出什么具体成果，
-   以及教师根据什么标准判断达成；不同讲次应随真实内容使用不同成果和判断标准，
-   不得只替换讲次标题。达成检验只能使用本讲内容或前序讲次已经形成的成果，
-   不得要求学生使用后续讲次才会完成的内容。`scope_boundary` 必须写清本讲负责的内容，
-   以及明确不提前展开什么。
-12. `education_objective_refs` 和 `ideology_implementation` 只在本讲内容确有责任、规范或价值判断时填写；
-    没有真实联系时保持空白。`external_mentor` 只在教师输入已提供姓名、单位或角色时填写，不得虚构。
-13. 参考书籍、网站资料与课程网站只有在教师资料或已确认输入中有依据时才填写，否则保持空数组或空字符串。
-14. 中文字数、目标条数、书目数量和模块数量只有在学校模板或教师输入明确指定时才是硬约束；
+10. 参考书籍、网站资料与课程网站只有在教师资料或已确认输入中有依据时才填写，否则保持空数组或空字符串。
+11. 中文字数、目标条数、书目数量和模块数量只有在学校模板或教师输入明确指定时才是硬约束；
     未指定时按课程实际需要生成，不得套用固定的 300 字、5—8 条、8—12 本等数字。
-15. 教师输入的课程核心特点必须反映到现有 `positioning`、`teaching_methods`、讲次活动和
-    `assessment_plan` 中，不得另建重复字段。
-16. 为了让教师逐讲看到生成过程，JSON 字段顺序必须以 `course_title`、`lectures` 开头；
-    `lectures` 必须严格按讲次顺序输出，完成一讲对象后再开始下一讲。
-17. 只输出有效 JSON，不输出 Markdown、解释、知识点树、教案、讲义或题目。
+12. 教师输入的课程核心特点必须反映到现有 `positioning`、`teaching_methods`与 `assessment_plan` 中，不得另建重复字段。
+13. 为了让教师立即看到完整课程框架，JSON 字段顺序必须以 `course_title`、`lectures` 开头；`lectures` 严格按讲次顺序输出。
+14. 只输出有效 JSON，不输出 Markdown、解释、知识点树、教案、讲义或题目。
 {coverage_rules}
 {planning_rules}
 
@@ -312,41 +295,12 @@ class CoursePromptComposer:
     {{
       "lecture_number": 1,
       "title": "本讲主题",
-      "content_summary": "本讲具体教学内容，二至四句。",
       "learning_objective": "本讲完成后学生能够做到什么",
-      "key_points": ["教学重点"],
-      "key_difficulties": ["教学难点"],
-      "activities": ["按需安排的主要教学活动"],
-      "homework": ["课后任务"],
-      "application_anchors": ["案例、问题、例题、实验或项目情境"],
-      "extension_resources": [
-        {{
-          "resource_type": "book|article|standard|regulation|dataset|video|website|other",
-          "title": "资源名称",
-          "edition": "已确认的版本；不适用则留空",
-          "locator": "章、节或已核验页码",
-          "source_ref": "与课程参考资料完全一致的来源",
-          "verification_status": "verified|pending"
-        }}
-      ],
-      "learning_tasks": [
-        {{
-          "mode": "online|offline",
-          "stage": "before_class|after_class",
-          "task": "学习任务",
-          "evidence": "学生提交或留下的证据",
-          "estimated_hours": 1
-        }}
-      ],
       "hour_breakdown": {{
         "classroom_lecture": 1,
         "classroom_practice": 1,
         "online_instruction": 0
       }},
-      "education_objective_refs": [],
-      "ideology_implementation": "仅在真实相关时填写",
-      "external_mentor": {{"name": "", "organization": "", "role": ""}},
-      "assessment": ["学生提交的具体成果，以及教师判断达成的标准"],
       "scope_boundary": "本讲负责的内容，以及明确不提前展开什么",
       "planning_stages": [],
       "learning_path_role": "focus|standard|compressed|verify_in_project|milestone",
@@ -514,6 +468,187 @@ class CoursePromptComposer:
 只修复章节骨架并重新输出完整 JSON。不得生成小节、知识点、教案、正文、题目或解释。
 
 {clip_text(original_prompt, 8500)}
+""".strip()
+
+    def build_teacher_outline_detail_batch_v1_prompt(
+        self,
+        *,
+        skeleton: dict[str, Any],
+        batch_spec: dict[str, Any],
+        brief: dict[str, Any],
+        material_context: str,
+        detail_level: str = "full",
+    ) -> str:
+        """Expand a few frozen lectures without regenerating their framework."""
+        selected_numbers = {
+            int(item) for item in batch_spec.get("lecture_numbers") or []
+        }
+        all_lectures = [
+            {
+                "lecture_number": int(
+                    item.get("lecture_number")
+                    or item.get("chapter_number")
+                    or index
+                ),
+                "title": str(item.get("title") or ""),
+                "learning_objective": str(
+                    item.get("learning_objective")
+                    or item.get("learning_focus")
+                    or ""
+                ),
+                "scope_boundary": str(item.get("scope_boundary") or ""),
+                "hour_breakdown": item.get("hour_breakdown") or {},
+            }
+            for index, item in enumerate(
+                skeleton.get("chapters") or [],
+                start=1,
+            )
+            if isinstance(item, dict)
+        ]
+        selected_lectures = [
+            item for item in all_lectures
+            if item["lecture_number"] in selected_numbers
+        ]
+        course_contract = {
+            "course_title": skeleton.get("course_title"),
+            "positioning": skeleton.get("positioning"),
+            "learning_objectives": skeleton.get("learning_objectives") or [],
+            "education_objectives": skeleton.get("education_objectives") or [],
+            "measurable_outcomes": skeleton.get("measurable_outcomes") or [],
+            "outcome_alignment": skeleton.get("outcome_alignment") or [],
+            "teaching_methods": skeleton.get("teaching_methods") or [],
+            "assessment_plan": skeleton.get("assessment_plan") or [],
+            "reference_books": skeleton.get("reference_books") or [],
+            "reference_websites": skeleton.get("reference_websites") or [],
+        }
+        teacher_context = brief.get("teacher_course_brief") or {}
+        if detail_level != "full":
+            max_text = 180 if detail_level == "compact" else 96
+            course_contract = compact_value(
+                course_contract,
+                max_string_chars=max_text,
+                max_list_items=8 if detail_level == "compact" else 4,
+                max_depth=4,
+            )
+            all_lectures = compact_value(
+                all_lectures,
+                max_string_chars=max_text,
+                max_list_items=24,
+                max_depth=3,
+            )
+            selected_lectures = compact_value(
+                selected_lectures,
+                max_string_chars=max_text,
+                max_list_items=8,
+                max_depth=3,
+            )
+            material_context = clip_text(
+                material_context,
+                3600 if detail_level == "compact" else 1600,
+            )
+            teacher_context = compact_value(
+                teacher_context,
+                max_string_chars=max_text,
+                max_list_items=6,
+                max_depth=3,
+            )
+        batch_id = str(batch_spec.get("batch_id") or "")
+        skeleton_revision_id = str(skeleton.get("revision_id") or "")
+        lecture_count = len(selected_lectures)
+        return f"""## 讲次详情批次 V1
+
+全课框架已经确定。你只补全当前 {lecture_count} 讲的教学安排；不得修改讲数、顺序、
+标题、学习目标、内容边界、学时或课程级合同。只输出有效 JSON。
+
+## 批次身份
+- 批次：{batch_id}
+- 框架修订：{skeleton_revision_id}
+- 讲次：{json.dumps(list(batch_spec.get('lecture_numbers') or []), ensure_ascii=False)}
+
+## 课程级合同
+{json.dumps(course_contract, ensure_ascii=False)}
+
+## 全课讲次边界
+{json.dumps(all_lectures, ensure_ascii=False)}
+
+## 当前要补全的讲次
+{json.dumps(selected_lectures, ensure_ascii=False)}
+
+## 授课与教师输入
+{json.dumps(teacher_context, ensure_ascii=False)}
+
+## 资料摘要
+{material_context or '未上传资料；只能使用通用知识，不得伪装引用资料。'}
+
+## 约束
+1. 严格按批次中的讲次编号返回 {lecture_count} 项，不得遗漏、增加或换序。
+2. `content_summary` 使用二至四句自然中文，说清实际要教的内容，不展开成教案或讲义。
+3. 重点、难点、活动、作业和达成检验必须与冻结的本讲目标一致；达成检验写清学生产出与教师判断标准。
+4. 每讲至少给出一个案例、问题、例题、实验或项目情境，以及一项课前或课后任务和可提交证据。
+5. 在线或混合课程每讲至少一项 `mode=online` 任务；纯线下课程使用 `mode=offline`。课外任务的 `estimated_hours` 不计入课程总学时。
+6. 拓展资源只能从课程级已确认参考资料中选择，`source_ref` 必须完全一致。没有已确认来源时返回空数组，不得编造书名、版次、章节或页码。
+7. `education_objective_refs` 和 `ideology_implementation` 只在本讲确有责任、规范或价值判断时填写；`external_mentor` 只使用教师输入已提供的信息。
+8. 不输出标题、学时、范围边界、知识点树、教案、讲义、Markdown 或解释。
+
+## JSON Schema
+{{
+  "batch_id": "{batch_id}",
+  "skeleton_revision_id": "{skeleton_revision_id}",
+  "lectures": [
+    {{
+      "lecture_number": 1,
+      "content_summary": "本讲具体教学内容，二至四句。",
+      "key_points": ["教学重点"],
+      "key_difficulties": ["教学难点"],
+      "activities": ["主要教学活动"],
+      "homework": ["课后任务"],
+      "application_anchors": ["案例、问题、例题、实验或项目情境"],
+      "extension_resources": [
+        {{
+          "resource_type": "book|article|standard|regulation|dataset|video|website|other",
+          "title": "资源名称",
+          "edition": "已确认的版本；不适用则留空",
+          "locator": "章、节或已核验页码",
+          "source_ref": "与课程参考资料完全一致的来源",
+          "verification_status": "verified|pending"
+        }}
+      ],
+      "learning_tasks": [
+        {{
+          "mode": "online|offline",
+          "stage": "before_class|after_class",
+          "task": "学习任务",
+          "evidence": "学生提交或留下的证据",
+          "estimated_hours": 1
+        }}
+      ],
+      "education_objective_refs": [],
+      "ideology_implementation": "仅在真实相关时填写",
+      "external_mentor": {{"name": "", "organization": "", "role": ""}},
+      "assessment": ["学生产出和判断达成的标准"]
+    }}
+  ]
+}}""".strip()
+
+    def build_teacher_outline_detail_batch_v1_correction_prompt(
+        self,
+        *,
+        original_prompt: str,
+        issues: list[dict[str, Any]],
+    ) -> str:
+        issue_text = "\n".join(
+            f"- {clip_text(item.get('message'), 240)}"
+            for item in issues[:16]
+        ) or "- 上一次输出不是完整有效的讲次详情 JSON"
+        return f"""## 讲次详情批次 V1 定点修复
+
+当前讲次详情批次存在以下问题：
+{issue_text}
+
+只重新输出当前批次的完整 JSON。必须保持批次标识、框架修订和讲次顺序；
+不得修改已冻结的讲次框架，不要输出解释或 Markdown 围栏。
+
+{clip_text(original_prompt, 12000)}
 """.strip()
 
     def build_outline_batch_v2_prompt(

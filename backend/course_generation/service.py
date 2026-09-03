@@ -111,11 +111,14 @@ from course_generation.outline import (
     CourseOutlinePlanningBudget,
     assemble_course_outline,
     build_outline_batch_specs,
+    build_teacher_outline_detail_batch_specs,
     compile_fallback_outline_batch,
     compile_teacher_lecture_outline_batch,
     course_coverage_verdict,
+    merge_teacher_outline_detail,
     normalize_outline_batch,
     normalize_outline_skeleton,
+    normalize_teacher_outline_detail_batch,
     outline_neighbor_chapters,
     outline_request_fingerprint,
     project_streamed_teacher_outline_growth,
@@ -123,6 +126,7 @@ from course_generation.outline import (
     select_chapter_evidence_hints,
     validate_outline_batch,
     validate_outline_skeleton,
+    validate_teacher_outline_detail_batch,
 )
 from course_pedagogy import (
     SubjectPedagogyProfile,
@@ -799,6 +803,12 @@ class CourseService(AIBase):
                 self._outline_budget.batch_timeout_seconds
             ),
             "outline_concurrency": self._planning_concurrency,
+            "teacher_outline_detail_batch_size": (
+                self._outline_budget.teacher_detail_batch_size
+            ),
+            "teacher_outline_detail_concurrency": (
+                self._outline_budget.teacher_detail_concurrency
+            ),
             "teaching_plan_max_input_tokens": (
                 self._teaching_plan_budget.max_input_tokens
             ),
@@ -928,19 +938,32 @@ class CourseService(AIBase):
             existing_outline_stage.get("prompt_detail_levels") or []
         )
         outline_was_generated = not plan_constraint_report.get("passed")
-        outline_stage_uses_complete_pipeline = (
-            existing_outline_stage.get("strategy")
-            == "hierarchical_chapter_batches"
+        outline_strategy = str(existing_outline_stage.get("strategy") or "")
+        teacher_detail_retry_pending = bool(
+            outline_strategy == "teacher_framework_then_detail_batches"
+            and any(
+                str(item.get("status") or "") != "completed"
+                for item in (
+                    existing_outline_stage.get("detail_batches") or {}
+                ).values()
+                if isinstance(item, dict)
+            )
+        )
+        outline_stage_uses_complete_pipeline = bool(
+            outline_strategy == "hierarchical_chapter_batches"
+            or (
+                outline_strategy == "teacher_framework_then_detail_batches"
+                and not teacher_detail_retry_pending
+            )
         )
         if (
             plan is not None
             and plan_constraint_report.get("passed")
             and not outline_stage_uses_complete_pipeline
         ):
-            # V16 removes both course-level compact paths. Old compact
-            # checkpoints are intentionally invalidated so resuming or
-            # reopening a course cannot preserve a six-section fast-path
-            # outline as if it came from the complete pipeline.
+            # Old compact checkpoints and teacher outlines with unfinished
+            # detail batches are intentionally sent back through the current
+            # pipeline. Completed two-stage teacher outlines remain reusable.
             plan = None
             plan_constraint_report = validate_course_outline_constraints(
                 {},
@@ -4630,17 +4653,39 @@ class CourseService(AIBase):
         ]
         counter_lock = asyncio.Lock()
         state_lock = asyncio.Lock()
+        teacher_detail_batch_size = max(
+            1,
+            min(
+                8,
+                int(
+                    stage.get("detail_batch_size")
+                    or self._outline_budget.teacher_detail_batch_size
+                ),
+            ),
+        )
         stage.update({
             "status": "in_progress",
             "schema_version": "course_outline_execution_v2",
             "strategy": (
-                "teacher_lecture_sequence"
+                "teacher_framework_then_detail_batches"
                 if teacher_lecture_mode
                 else "hierarchical_chapter_batches"
             ),
             "request_fingerprint": request_fingerprint,
             "batch_max_sections": self._outline_budget.batch_max_sections,
-            "max_concurrency": self._planning_concurrency,
+            "max_concurrency": (
+                min(
+                    self._planning_concurrency,
+                    self._outline_budget.teacher_detail_concurrency,
+                )
+                if teacher_lecture_mode
+                else self._planning_concurrency
+            ),
+            "detail_batch_size": (
+                teacher_detail_batch_size
+                if teacher_lecture_mode
+                else None
+            ),
             "inactivity_timeout_seconds": (
                 self._outline_budget.batch_timeout_seconds
             ),
@@ -4673,6 +4718,13 @@ class CourseService(AIBase):
                 "reason": reason,
                 "section_ids": list(section_ids or []),
             })
+
+        def clear_fallback(unit: str) -> None:
+            fallback_units[:] = [
+                item
+                for item in fallback_units
+                if str(item.get("unit") or "") != unit
+            ]
 
         async def persist_stage() -> None:
             stage.update({
@@ -4783,6 +4835,7 @@ class CourseService(AIBase):
             isinstance(raw_skeleton, dict)
             and skeleton_report.get("passed")
         )
+        framework_started_at = time.monotonic()
         skeleton_error: Exception | None = None
         skeleton_failure_reason = ""
         if not skeleton_is_current:
@@ -4885,9 +4938,9 @@ class CourseService(AIBase):
                         "outline_generation",
                         32,
                         (
-                            f"已接收第 {completed}/{lecture_count} 讲，正在继续生成"
+                            f"已形成第 {completed}/{lecture_count} 讲框架"
                             if completed
-                            else "AI 已开始返回大纲，正在形成第 1 讲"
+                            else "AI 已开始返回大纲框架"
                         ),
                         phase_progress=int(
                             100 * completed / max(1, lecture_count)
@@ -5102,6 +5155,10 @@ class CourseService(AIBase):
                 if isinstance(item, dict)
             ),
         })
+        if not skeleton_is_current:
+            stage["framework_duration_ms"] = int(
+                (time.monotonic() - framework_started_at) * 1000
+            )
         await persist_stage()
         if not skeleton_report.get("passed"):
             failed_report = validate_course_outline_constraints({}, brief)
@@ -5225,55 +5282,18 @@ class CourseService(AIBase):
             ):
                 results[batch_id] = candidate
 
-        if teacher_lecture_mode:
-            # The model already returned each complete lecture in the one-level
-            # skeleton. Project it into the legacy inner container locally;
-            # asking a second model pass for a "1.1" child would recreate the
-            # hierarchy the teacher explicitly removed.
-            for spec in batch_specs:
-                batch_id = str(spec.get("batch_id") or "")
-                lecture = chapter_by_number.get(
-                    int(spec.get("chapter_number") or 0)
-                ) or {}
-                batch = compile_teacher_lecture_outline_batch(
-                    spec=spec,
-                    lecture=lecture,
-                    skeleton_revision_id=str(
-                        skeleton.get("revision_id") or ""
-                    ),
-                )
-                report = validate_outline_batch(
-                    batch,
-                    spec=spec,
-                    skeleton_revision_id=str(
-                        skeleton.get("revision_id") or ""
-                    ),
-                )
-                if not report.get("passed"):
-                    raise AIProviderRequestError(
-                        f"第 {spec.get('chapter_number')} 讲的本地投影失败；"
-                        "这是生成编排器错误"
-                    )
-                results[batch_id] = batch
-                stored_batches[batch_id] = {
-                    "status": "completed",
-                    "skeleton_revision_id": skeleton.get("revision_id"),
-                    "section_ids": list(
-                        spec.get("expected_node_ids") or []
-                    ),
-                    "payload": deepcopy(batch),
-                    "validation_report": deepcopy(report),
-                    "generation_source": "lecture_outline_projection",
-                    "fallback_reason": None,
-                    "prompt_detail_level": "local_projection",
-                }
-
         def outline_growth_detail(
             *,
             active_spec: dict[str, Any] | None = None,
+            active_specs: list[dict[str, Any]] | None = None,
             state: str = "growing",
         ) -> dict[str, Any]:
             """Project persisted outline checkpoints into a user-safe live tree."""
+            active_chapter_numbers = {
+                int(item.get("chapter_number") or 0)
+                for item in [*(active_specs or []), *([active_spec] if active_spec else [])]
+                if isinstance(item, dict)
+            }
             completed_sections = 0
             chapters: list[dict[str, Any]] = []
             for chapter in skeleton.get("chapters") or []:
@@ -5281,6 +5301,7 @@ class CourseService(AIBase):
                     continue
                 chapter_number = int(chapter.get("chapter_number") or 0)
                 sections: list[dict[str, Any]] = []
+                chapter_retry_required = False
                 for spec in sorted(
                     (
                         item
@@ -5292,7 +5313,16 @@ class CourseService(AIBase):
                         item.get("start_section_index") or 0
                     ),
                 ):
-                    batch = results.get(str(spec.get("batch_id") or "")) or {}
+                    batch_id = str(spec.get("batch_id") or "")
+                    stored = stored_batches.get(batch_id)
+                    if (
+                        teacher_lecture_mode
+                        and isinstance(stored, dict)
+                        and stored.get("status") == "retry_required"
+                    ):
+                        chapter_retry_required = True
+                        continue
+                    batch = results.get(batch_id) or {}
                     sections.extend(
                         {
                             "node_id": str(item.get("node_id") or ""),
@@ -5309,11 +5339,7 @@ class CourseService(AIBase):
                     )
                 completed_sections += len(sections)
                 section_count = int(chapter.get("section_count") or 0)
-                is_active = bool(
-                    active_spec
-                    and int(active_spec.get("chapter_number") or 0)
-                    == chapter_number
-                )
+                is_active = chapter_number in active_chapter_numbers
                 chapters.append({
                     "chapter_number": chapter_number,
                     "title": str(chapter.get("title") or ""),
@@ -5325,6 +5351,8 @@ class CourseService(AIBase):
                     "status": (
                         "completed"
                         if section_count > 0 and len(sections) >= section_count
+                        else "failed"
+                        if chapter_retry_required
                         else "growing"
                         if is_active
                         else "waiting"
@@ -5345,6 +5373,7 @@ class CourseService(AIBase):
                 "active_chapter_number": int(
                     (active_spec or {}).get("chapter_number") or 0
                 ),
+                "active_chapter_numbers": sorted(active_chapter_numbers),
                 "completed_batches": len(results),
                 "total_batches": len(batch_specs),
                 "completed_sections": completed_sections,
@@ -5373,6 +5402,563 @@ class CourseService(AIBase):
                 "outline_growth": outline_growth_detail(state="skeleton_ready"),
             },
         )
+
+        if teacher_lecture_mode:
+            detail_started_at = time.monotonic()
+            detail_records = (
+                deepcopy(stage.get("detail_batches"))
+                if isinstance(stage.get("detail_batches"), dict)
+                else {}
+            )
+            specs_by_lecture = {
+                int(spec.get("chapter_number") or 0): spec
+                for spec in batch_specs
+            }
+
+            def framework_contains_legacy_details(
+                lecture: dict[str, Any],
+            ) -> bool:
+                return bool(
+                    str(lecture.get("content_summary") or "").strip()
+                    and list(lecture.get("key_points") or [])
+                    and list(lecture.get("key_difficulties") or [])
+                    and list(lecture.get("activities") or [])
+                    and list(lecture.get("homework") or [])
+                    and list(lecture.get("application_anchors") or [])
+                    and list(lecture.get("learning_tasks") or [])
+                    and list(lecture.get("assessment") or [])
+                )
+
+            pending_specs = [
+                spec for spec in batch_specs
+                if str(spec.get("batch_id") or "") not in results
+            ]
+            legacy_detail_specs = [
+                spec for spec in pending_specs
+                if framework_contains_legacy_details(
+                    chapter_by_number.get(
+                        int(spec.get("chapter_number") or 0)
+                    ) or {}
+                )
+            ]
+            # A checkpoint produced before the two-stage contract can already
+            # contain every detail field. Preserve it locally instead of
+            # spending new model calls after an upgrade or process restart.
+            for spec in legacy_detail_specs:
+                batch_id = str(spec.get("batch_id") or "")
+                lecture = chapter_by_number.get(
+                    int(spec.get("chapter_number") or 0)
+                ) or {}
+                batch = compile_teacher_lecture_outline_batch(
+                    spec=spec,
+                    lecture=lecture,
+                    skeleton_revision_id=str(
+                        skeleton.get("revision_id") or ""
+                    ),
+                )
+                report = validate_outline_batch(
+                    batch,
+                    spec=spec,
+                    skeleton_revision_id=str(
+                        skeleton.get("revision_id") or ""
+                    ),
+                )
+                if not report.get("passed"):
+                    raise AIProviderRequestError(
+                        f"第 {spec.get('chapter_number')} 讲的兼容投影失败；"
+                        "这是生成编排器错误"
+                    )
+                results[batch_id] = batch
+                stored_batches[batch_id] = {
+                    "status": "completed",
+                    "skeleton_revision_id": skeleton.get("revision_id"),
+                    "section_ids": list(
+                        spec.get("expected_node_ids") or []
+                    ),
+                    "payload": deepcopy(batch),
+                    "validation_report": deepcopy(report),
+                    "generation_source": "legacy_full_framework_projection",
+                    "fallback_reason": None,
+                    "prompt_detail_level": "local_projection",
+                }
+
+            pending_specs = [
+                spec for spec in batch_specs
+                if str(spec.get("batch_id") or "") not in results
+            ]
+            all_detail_specs = build_teacher_outline_detail_batch_specs(
+                skeleton,
+                batch_size=teacher_detail_batch_size,
+            )
+            pending_lecture_numbers = {
+                int(spec.get("chapter_number") or 0)
+                for spec in pending_specs
+            }
+            # Retry the original detail batch that owns a missing lecture.
+            # Stable batch identities keep checkpoints and failure recovery
+            # from silently regrouping lectures after a restart.
+            detail_specs = [
+                spec
+                for spec in all_detail_specs
+                if any(
+                    int(number) in pending_lecture_numbers
+                    for number in spec.get("lecture_numbers") or []
+                )
+            ]
+            detail_limit = max(
+                1,
+                min(
+                    self._planning_concurrency,
+                    self._outline_budget.teacher_detail_concurrency,
+                ),
+            )
+            detail_semaphore = asyncio.Semaphore(detail_limit)
+            detail_runtime_lock = asyncio.Lock()
+            active_detail_numbers: set[int] = set()
+            active_detail_count = 0
+            peak_detail_count = int(
+                stage.get("observed_peak_detail_concurrency") or 0
+            )
+
+            await self._notify_phase(
+                on_phase,
+                "outline_generation",
+                32,
+                "全课大纲框架已形成，正在并行补全教学安排",
+                phase_progress=int(
+                    100 * len(results) / max(1, len(batch_specs))
+                ),
+                phase_detail={
+                    "artifact_type": "course_outline_growth",
+                    "outline_growth": outline_growth_detail(
+                        state="framework_ready",
+                    ),
+                },
+            )
+
+            def build_detail_prompt_options(
+                detail_spec: dict[str, Any],
+            ) -> tuple[Any, dict[str, str]]:
+                levels = prompt_detail_levels_for_source(
+                    {
+                        "skeleton": skeleton,
+                        "brief": brief,
+                        "material_cards": artifacts.get("material_cards") or [],
+                    },
+                    max_input_chars=self._generation_budget.max_input_chars,
+                )
+                material_contexts = {
+                    detail_level: build_outline_generation_context(
+                        artifacts,
+                        detail_level=detail_level,
+                    )
+                    for detail_level in levels
+                }
+                prompts = {
+                    detail_level: (
+                        self._prompt_composer
+                        .build_teacher_outline_detail_batch_v1_prompt(
+                            skeleton=skeleton,
+                            batch_spec=detail_spec,
+                            brief=brief,
+                            material_context=material_contexts[detail_level],
+                            detail_level=detail_level,
+                        )
+                    )
+                    for detail_level in levels
+                }
+                user_prompt = (
+                    f"补全讲次详情批次 "
+                    f"{detail_spec.get('batch_id')}，只输出 JSON。"
+                )
+                selected = select_budgeted_prompt(
+                    (
+                        PromptCandidate(
+                            detail_level=detail_level,
+                            user_prompt=user_prompt,
+                            system_prompt=prompts[detail_level],
+                        )
+                        for detail_level in levels
+                    ),
+                    max_input_chars=self._generation_budget.max_input_chars,
+                    max_input_tokens=self._generation_budget.max_input_tokens,
+                    token_estimator=self.estimate_request_tokens,
+                )
+                return selected, prompts
+
+            async def generate_teacher_detail_batch(
+                detail_spec: dict[str, Any],
+            ) -> None:
+                nonlocal active_detail_count
+                nonlocal peak_detail_count
+                detail_batch_id = str(detail_spec.get("batch_id") or "")
+                lecture_numbers = [
+                    int(item)
+                    for item in detail_spec.get("lecture_numbers") or []
+                ]
+                selected, prompts = build_detail_prompt_options(detail_spec)
+                failure_reason = ""
+                parsed: dict[str, Any] | None = None
+                batch_started_at = time.monotonic()
+                selected_level = (
+                    selected.detail_level if selected is not None else "local"
+                )
+                async with (
+                    detail_semaphore,
+                    contextlib.AsyncExitStack() as activity_stack,
+                ):
+                    async with detail_runtime_lock:
+                        active_detail_count += 1
+                        peak_detail_count = max(
+                            peak_detail_count,
+                            active_detail_count,
+                        )
+                        active_detail_numbers.update(lecture_numbers)
+                        active_specs = [
+                            specs_by_lecture[number]
+                            for number in sorted(active_detail_numbers)
+                            if number in specs_by_lecture
+                        ]
+
+                    async def release_detail_activity() -> None:
+                        nonlocal active_detail_count
+                        async with detail_runtime_lock:
+                            active_detail_count = max(
+                                0,
+                                active_detail_count - 1,
+                            )
+                            active_detail_numbers.difference_update(
+                                lecture_numbers
+                            )
+
+                    # AsyncExitStack runs this on success, provider failure,
+                    # callback failure, or task cancellation.
+                    activity_stack.push_async_callback(
+                        release_detail_activity
+                    )
+                    await self._notify_phase(
+                        on_phase,
+                        "outline_generation",
+                        33,
+                        (
+                            f"正在并行补全第 {lecture_numbers[0]}-"
+                            f"{lecture_numbers[-1]} 讲教学安排"
+                        ),
+                        phase_progress=int(
+                            100 * len(results) / max(1, len(batch_specs))
+                        ),
+                        phase_detail={
+                            "artifact_type": "course_outline_detail_batch",
+                            "batch_id": detail_batch_id,
+                            "active_lecture_numbers": sorted(
+                                active_detail_numbers
+                            ),
+                            "outline_growth": outline_growth_detail(
+                                active_specs=active_specs,
+                                state="detailing",
+                            ),
+                        },
+                    )
+                    try:
+                        if selected is None:
+                            failure_reason = "detail_prompt_did_not_fit"
+                            response = ""
+                        else:
+                            prompt_detail_levels.append(selected.detail_level)
+                            response = await request_model(
+                                user_prompt=selected.user_prompt,
+                                system_prompt=selected.system_prompt,
+                                phase="outline_generation",
+                                message=(
+                                    f"仍在等待 AI 补全讲次详情 "
+                                    f"{detail_batch_id}"
+                                ),
+                                phase_detail={
+                                    "artifact_type": (
+                                        "course_outline_detail_batch"
+                                    ),
+                                    "batch_id": detail_batch_id,
+                                    "lecture_numbers": lecture_numbers,
+                                },
+                            )
+                    except (
+                        AIProviderRequestError,
+                        CourseGenerationDeadlineExceeded,
+                    ) as exc:
+                        response = ""
+                        failure_reason = (
+                            f"provider_error:{type(exc).__name__}"
+                        )
+                    candidate = (
+                        self._extract_json(response) if response else None
+                    )
+                    parsed = candidate if isinstance(candidate, dict) else None
+                    detail_batch = normalize_teacher_outline_detail_batch(
+                        parsed or {},
+                        spec=detail_spec,
+                        skeleton=skeleton,
+                    )
+                    detail_report = validate_teacher_outline_detail_batch(
+                        detail_batch,
+                        spec=detail_spec,
+                        skeleton=skeleton,
+                    )
+                    if (
+                        not detail_report.get("passed")
+                        and not failure_reason
+                        and selected is not None
+                    ):
+                        correction_prompt = (
+                            self._prompt_composer
+                            .build_teacher_outline_detail_batch_v1_correction_prompt(
+                                original_prompt=prompts[selected.detail_level],
+                                issues=detail_report.get("issues") or [],
+                            )
+                        )
+                        selected_correction = select_budgeted_prompt(
+                            [
+                                PromptCandidate(
+                                    detail_level=selected.detail_level,
+                                    user_prompt=(
+                                        f"修复讲次详情批次 "
+                                        f"{detail_batch_id}，只输出 JSON。"
+                                    ),
+                                    system_prompt=correction_prompt,
+                                ),
+                            ],
+                            max_input_chars=(
+                                self._generation_budget.max_input_chars
+                            ),
+                            max_input_tokens=(
+                                self._generation_budget.max_input_tokens
+                            ),
+                            token_estimator=self.estimate_request_tokens,
+                        )
+                        if selected_correction is None:
+                            failure_reason = (
+                                "detail_correction_prompt_did_not_fit"
+                            )
+                        else:
+                            prompt_detail_levels.append(
+                                selected_correction.detail_level
+                            )
+                            try:
+                                corrected = await request_model(
+                                    user_prompt=(
+                                        selected_correction.user_prompt
+                                    ),
+                                    system_prompt=(
+                                        selected_correction.system_prompt
+                                    ),
+                                    phase="outline_validation",
+                                    message=(
+                                        f"仍在等待 AI 修复讲次详情 "
+                                        f"{detail_batch_id}"
+                                    ),
+                                    phase_detail={
+                                        "artifact_type": (
+                                            "course_outline_detail_batch"
+                                        ),
+                                        "batch_id": detail_batch_id,
+                                    },
+                                )
+                            except (
+                                AIProviderRequestError,
+                                CourseGenerationDeadlineExceeded,
+                            ) as exc:
+                                corrected = ""
+                                failure_reason = (
+                                    "correction_provider_error:"
+                                    f"{type(exc).__name__}"
+                                )
+                            candidate = (
+                                self._extract_json(corrected)
+                                if corrected
+                                else None
+                            )
+                            detail_batch = (
+                                normalize_teacher_outline_detail_batch(
+                                    (
+                                        candidate
+                                        if isinstance(candidate, dict)
+                                        else {}
+                                    ),
+                                    spec=detail_spec,
+                                    skeleton=skeleton,
+                                )
+                            )
+                            detail_report = (
+                                validate_teacher_outline_detail_batch(
+                                    detail_batch,
+                                    spec=detail_spec,
+                                    skeleton=skeleton,
+                                )
+                            )
+                detail_by_number = {
+                    int(item.get("lecture_number") or 0): item
+                    for item in detail_batch.get("lectures") or []
+                    if isinstance(item, dict)
+                }
+                generation_source = "model"
+                if not detail_report.get("passed"):
+                    generation_source = "deterministic_local_fallback"
+                    failure_reason = (
+                        failure_reason
+                        or "model_output_failed_validation"
+                    )
+
+                async with state_lock:
+                    for lecture_number in lecture_numbers:
+                        lecture_spec = specs_by_lecture[lecture_number]
+                        lecture = chapter_by_number.get(lecture_number) or {}
+                        detail = (
+                            detail_by_number.get(lecture_number) or {}
+                            if generation_source == "model"
+                            else {}
+                        )
+                        enriched = merge_teacher_outline_detail(
+                            lecture,
+                            detail,
+                        )
+                        batch = compile_teacher_lecture_outline_batch(
+                            spec=lecture_spec,
+                            lecture=enriched,
+                            skeleton_revision_id=str(
+                                skeleton.get("revision_id") or ""
+                            ),
+                        )
+                        report = validate_outline_batch(
+                            batch,
+                            spec=lecture_spec,
+                            skeleton_revision_id=str(
+                                skeleton.get("revision_id") or ""
+                            ),
+                        )
+                        if not report.get("passed"):
+                            raise AIProviderRequestError(
+                                f"第 {lecture_number} 讲的本地详情投影失败；"
+                                "这是生成编排器错误"
+                            )
+                        batch_id = str(
+                            lecture_spec.get("batch_id") or ""
+                        )
+                        results[batch_id] = batch
+                        stored_batches[batch_id] = {
+                            "status": (
+                                "completed"
+                                if generation_source == "model"
+                                else "retry_required"
+                            ),
+                            "skeleton_revision_id": (
+                                skeleton.get("revision_id")
+                            ),
+                            "section_ids": list(
+                                lecture_spec.get("expected_node_ids") or []
+                            ),
+                            "payload": deepcopy(batch),
+                            "validation_report": deepcopy(report),
+                            "generation_source": generation_source,
+                            "fallback_reason": (
+                                failure_reason
+                                if generation_source != "model"
+                                else None
+                            ),
+                            "prompt_detail_level": selected_level,
+                            "detail_batch_id": detail_batch_id,
+                        }
+                    if generation_source != "model":
+                        add_fallback(
+                            unit=detail_batch_id,
+                            reason=failure_reason,
+                            section_ids=[
+                                node_id
+                                for number in lecture_numbers
+                                for node_id in (
+                                    specs_by_lecture[number].get(
+                                        "expected_node_ids"
+                                    ) or []
+                                )
+                            ],
+                        )
+                    else:
+                        clear_fallback(detail_batch_id)
+                    detail_records[detail_batch_id] = {
+                        "status": (
+                            "completed"
+                            if generation_source == "model"
+                            else "retry_required"
+                        ),
+                        "lecture_numbers": lecture_numbers,
+                        "duration_ms": int(
+                            (time.monotonic() - batch_started_at) * 1000
+                        ),
+                        "generation_source": generation_source,
+                        "fallback_reason": (
+                            failure_reason
+                            if generation_source != "model"
+                            else None
+                        ),
+                        "validation_report": deepcopy(detail_report),
+                    }
+                    stage.update({
+                        "batch_count": len(batch_specs),
+                        "completed_batch_count": len(results),
+                        "completed_section_count": len(results),
+                        "batches": stored_batches,
+                        "detail_batches": detail_records,
+                        "detail_batch_count": len(all_detail_specs),
+                        "detail_completed_batch_count": sum(
+                            1
+                            for item in detail_records.values()
+                            if item.get("status") == "completed"
+                        ),
+                        "observed_peak_detail_concurrency": (
+                            peak_detail_count
+                        ),
+                    })
+                    await persist_stage()
+                    active_specs = [
+                        specs_by_lecture[number]
+                        for number in sorted(active_detail_numbers)
+                        if number in specs_by_lecture
+                    ]
+                    growth_detail = outline_growth_detail(
+                        active_specs=active_specs,
+                        state="detailing",
+                    )
+                await self._notify_phase(
+                    on_phase,
+                    "outline_generation",
+                    33,
+                    (
+                        f"已补全 {growth_detail['completed_sections']}/"
+                        f"{growth_detail['total_sections']} 讲教学安排"
+                    ),
+                    phase_progress=int(
+                        100
+                        * int(growth_detail["completed_sections"])
+                        / max(1, int(growth_detail["total_sections"]))
+                    ),
+                    phase_detail={
+                        "artifact_type": "course_outline_growth",
+                        "batch_id": detail_batch_id,
+                        "outline_growth": growth_detail,
+                    },
+                )
+
+            if detail_specs:
+                await asyncio.gather(*[
+                    asyncio.create_task(
+                        generate_teacher_detail_batch(detail_spec)
+                    )
+                    for detail_spec in detail_specs
+                ])
+            stage.update({
+                "detail_duration_ms": int(
+                    (time.monotonic() - detail_started_at) * 1000
+                ),
+                "observed_peak_detail_concurrency": peak_detail_count,
+            })
 
         specs_by_chapter: dict[int, list[dict[str, Any]]] = {}
         for spec in batch_specs:

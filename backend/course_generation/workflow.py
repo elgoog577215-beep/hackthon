@@ -155,13 +155,20 @@ def apply_teacher_course_brief(
         if constraint not in brief.setdefault("hard_constraints", []):
             brief["hard_constraints"].append(constraint)
     if teacher.get("academic_term"):
-        brief["hard_constraints"].append(f"教学学期为 {teacher['academic_term']}")
+        constraint = f"教学学期为 {teacher['academic_term']}"
+        if constraint not in brief["hard_constraints"]:
+            brief["hard_constraints"].append(constraint)
     if shape.get("teacher_lecture_mode"):
-        brief["hard_constraints"].append(
-            f"教师已确认全课共 {lecture_count} 讲；每讲是正式最小单元，内部兼容层必须一讲一容器"
+        constraint = (
+            f"教师已确认全课共 {lecture_count} 讲；"
+            "每讲是正式最小单元，内部兼容层必须一讲一容器"
         )
+        if constraint not in brief["hard_constraints"]:
+            brief["hard_constraints"].append(constraint)
     if teacher.get("additional_requirements"):
-        brief["hard_constraints"].append("遵守教师补充要求")
+        constraint = "遵守教师补充要求"
+        if constraint not in brief["hard_constraints"]:
+            brief["hard_constraints"].append(constraint)
     return brief
 
 

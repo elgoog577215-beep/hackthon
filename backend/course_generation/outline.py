@@ -318,16 +318,20 @@ class CourseOutlinePlanningBudget:
     # the per-unit value means continuous stream inactivity.
     batch_timeout_seconds: int = 90
     total_timeout_seconds: int = 0
-    # A formal teacher syllabus is currently returned by one model request.
-    # Bound that individual request even while hidden reasoning keeps emitting
-    # activity, otherwise an overloaded reasoning model can occupy the job
-    # forever without producing teacher-visible outline text.
+    # Each formal teacher-outline request is bounded even while hidden
+    # reasoning keeps emitting activity, otherwise an overloaded model can
+    # occupy the job forever without producing teacher-visible text.
     teacher_lecture_request_timeout_seconds: int = 600
     # Sixteen formal lectures plus the course-level alignment fields exceed
     # the generic 8K outline ceiling in real provider runs. Start the teacher
     # request with enough room instead of predictably truncating once and
     # repeating the whole outline at double headroom.
     teacher_lecture_max_output_tokens: int = 16_384
+    # Formal outlines use one compact framework request followed by a small
+    # number of bounded detail batches. This avoids both one giant response and
+    # sixteen independent requests competing for provider capacity.
+    teacher_detail_batch_size: int = 4
+    teacher_detail_concurrency: int = 2
 
     @classmethod
     def from_env(cls) -> CourseOutlinePlanningBudget:
@@ -356,6 +360,18 @@ class CourseOutlinePlanningBudget:
                 16_384,
                 minimum=8192,
                 maximum=32_768,
+            ),
+            teacher_detail_batch_size=_env_int(
+                "COURSE_TEACHER_OUTLINE_DETAIL_BATCH_SIZE",
+                4,
+                minimum=2,
+                maximum=8,
+            ),
+            teacher_detail_concurrency=_env_int(
+                "COURSE_TEACHER_OUTLINE_DETAIL_CONCURRENCY",
+                2,
+                minimum=1,
+                maximum=4,
             ),
         )
 
@@ -442,7 +458,7 @@ def normalize_outline_skeleton(
             "content_summary": _clip(
                 raw.get("content_summary")
                 or raw.get("content")
-                or raw.get("learning_focus"),
+                or (raw.get("learning_focus") if not lecture_mode else ""),
                 720,
             ),
             "learning_objective": _clip(
@@ -988,6 +1004,246 @@ def build_outline_batch_specs(
                 ),
             })
     return specs
+
+
+_TEACHER_OUTLINE_DETAIL_FIELDS = (
+    "content_summary",
+    "key_points",
+    "key_difficulties",
+    "activities",
+    "homework",
+    "application_anchors",
+    "extension_resources",
+    "learning_tasks",
+    "education_objective_refs",
+    "ideology_implementation",
+    "external_mentor",
+    "assessment",
+)
+
+
+def build_teacher_outline_detail_batch_specs(
+    skeleton: dict[str, Any],
+    *,
+    batch_size: int,
+    pending_lecture_numbers: list[int] | None = None,
+) -> list[dict[str, Any]]:
+    """Group lecture details without changing the frozen course framework."""
+    valid_numbers = [
+        int(item.get("lecture_number") or item.get("chapter_number") or index)
+        for index, item in enumerate(skeleton.get("chapters") or [], start=1)
+        if isinstance(item, dict)
+    ]
+    requested = (
+        [int(item) for item in pending_lecture_numbers]
+        if pending_lecture_numbers is not None
+        else valid_numbers
+    )
+    numbers = [item for item in requested if item in set(valid_numbers)]
+    size = max(1, int(batch_size or 1))
+    revision_id = str(skeleton.get("revision_id") or "")
+    specs: list[dict[str, Any]] = []
+    for offset in range(0, len(numbers), size):
+        group = numbers[offset:offset + size]
+        if not group:
+            continue
+        specs.append({
+            "batch_id": f"OUT-TD-{group[0]:03d}-{group[-1]:03d}",
+            "skeleton_revision_id": revision_id,
+            "lecture_numbers": group,
+            "lecture_count": len(group),
+        })
+    return specs
+
+
+def normalize_teacher_outline_detail_batch(
+    payload: dict[str, Any],
+    *,
+    spec: dict[str, Any],
+    skeleton: dict[str, Any],
+) -> dict[str, Any]:
+    """Normalize one detail response while keeping framework fields immutable."""
+    raw_lectures = [
+        item for item in payload.get("lectures") or []
+        if isinstance(item, dict)
+    ]
+    raw_by_number = {
+        number: item
+        for item in raw_lectures
+        if (number := _positive_int(item.get("lecture_number")))
+    }
+    confirmed_reference_labels = {
+        str(item).strip()
+        for item in [
+            *(skeleton.get("reference_books") or []),
+            *(skeleton.get("reference_websites") or []),
+        ]
+        if str(item).strip()
+    }
+    lectures: list[dict[str, Any]] = []
+    for lecture_number in spec.get("lecture_numbers") or []:
+        raw = raw_by_number.get(int(lecture_number))
+        if raw is None:
+            continue
+        external_mentor = (
+            raw.get("external_mentor")
+            if isinstance(raw.get("external_mentor"), dict)
+            else {}
+        )
+        lectures.append({
+            "lecture_number": int(lecture_number),
+            "content_summary": _clip(raw.get("content_summary"), 720),
+            "key_points": _text_items(
+                raw.get("key_points"), max_chars=160, limit=6
+            ),
+            "key_difficulties": _text_items(
+                raw.get("key_difficulties"), max_chars=160, limit=6
+            ),
+            "activities": _text_items(
+                raw.get("activities"), max_chars=180, limit=6
+            ),
+            "homework": _text_items(
+                raw.get("homework"), max_chars=180, limit=6
+            ),
+            "application_anchors": _text_items(
+                raw.get("application_anchors"), max_chars=240, limit=6
+            ),
+            "extension_resources": _normalize_extension_resources(
+                raw.get("extension_resources"),
+                confirmed_reference_labels=confirmed_reference_labels,
+            ),
+            "learning_tasks": _normalize_learning_tasks(
+                raw.get("learning_tasks")
+            ),
+            "education_objective_refs": _text_items(
+                raw.get("education_objective_refs"),
+                max_chars=160,
+                limit=6,
+            ),
+            "ideology_implementation": _clip(
+                raw.get("ideology_implementation"), 260
+            ),
+            "external_mentor": {
+                key: _clip(external_mentor.get(key), 160)
+                for key in ("name", "organization", "role")
+                if _clip(external_mentor.get(key), 160)
+            },
+            "assessment": _text_items(
+                raw.get("assessment"), max_chars=240, limit=8
+            ),
+        })
+    batch = {
+        "schema_version": "teacher_outline_detail_batch_v1",
+        "batch_id": str(payload.get("batch_id") or ""),
+        "skeleton_revision_id": str(
+            payload.get("skeleton_revision_id") or ""
+        ),
+        "lectures": lectures,
+    }
+    batch["revision_id"] = stable_hash(
+        batch,
+        prefix="teacher_outline_detail_",
+    )
+    return batch
+
+
+def validate_teacher_outline_detail_batch(
+    batch: dict[str, Any],
+    *,
+    spec: dict[str, Any],
+    skeleton: dict[str, Any],
+) -> dict[str, Any]:
+    """Reject an incomplete detail batch without invalidating other batches."""
+    issues: list[dict[str, str]] = []
+    if batch.get("batch_id") != spec.get("batch_id"):
+        issues.append(_issue(
+            "teacher_outline_detail:batch_id_mismatch",
+            "讲次详情批次标识与请求不一致",
+        ))
+    if batch.get("skeleton_revision_id") != skeleton.get("revision_id"):
+        issues.append(_issue(
+            "teacher_outline_detail:stale_framework",
+            "讲次详情引用了旧课程框架",
+        ))
+    expected_numbers = [
+        int(item) for item in spec.get("lecture_numbers") or []
+    ]
+    lectures = [
+        item for item in batch.get("lectures") or []
+        if isinstance(item, dict)
+    ]
+    actual_numbers = [
+        int(item.get("lecture_number") or 0) for item in lectures
+    ]
+    if actual_numbers != expected_numbers:
+        issues.append(_issue(
+            "teacher_outline_detail:lecture_order_mismatch",
+            f"讲次详情应返回 {expected_numbers}，实际为 {actual_numbers}",
+        ))
+    confirmed_references = {
+        str(item).strip()
+        for item in [
+            *(skeleton.get("reference_books") or []),
+            *(skeleton.get("reference_websites") or []),
+        ]
+        if str(item).strip()
+    }
+    required_list_fields = (
+        ("key_points", "教学重点"),
+        ("key_difficulties", "教学难点"),
+        ("activities", "教学活动"),
+        ("homework", "课后任务"),
+        ("application_anchors", "应用情境"),
+        ("learning_tasks", "学习任务"),
+        ("assessment", "达成检验"),
+    )
+    for lecture in lectures:
+        number = int(lecture.get("lecture_number") or 0)
+        if not str(lecture.get("content_summary") or "").strip():
+            issues.append(_issue(
+                "teacher_outline_detail:missing_content_summary",
+                f"第 {number} 讲缺少内容摘要",
+            ))
+        for field, label in required_list_fields:
+            if not list(lecture.get(field) or []):
+                issues.append(_issue(
+                    f"teacher_outline_detail:missing_{field}",
+                    f"第 {number} 讲缺少{label}",
+                ))
+        tasks = [
+            item for item in lecture.get("learning_tasks") or []
+            if isinstance(item, dict)
+        ]
+        if tasks and any(not str(item.get("evidence") or "").strip() for item in tasks):
+            issues.append(_issue(
+                "teacher_outline_detail:missing_task_evidence",
+                f"第 {number} 讲的学习任务缺少可提交证据",
+            ))
+        if confirmed_references and not list(
+            lecture.get("extension_resources") or []
+        ):
+            issues.append(_issue(
+                "teacher_outline_detail:missing_extension_resources",
+                f"第 {number} 讲未从已确认参考资料中选择拓展资源",
+            ))
+    return {
+        "schema_version": "teacher_outline_detail_validation_v1",
+        "passed": not issues,
+        "issues": issues,
+        "actual": {"lecture_count": len(lectures)},
+    }
+
+
+def merge_teacher_outline_detail(
+    lecture: dict[str, Any],
+    detail: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply generated detail without letting it rename or reorder a lecture."""
+    merged = deepcopy(lecture)
+    for field in _TEACHER_OUTLINE_DETAIL_FIELDS:
+        if field in detail:
+            merged[field] = deepcopy(detail[field])
+    return merged
 
 
 def normalize_outline_batch(
@@ -2112,14 +2368,20 @@ __all__ = [
     "CourseOutlinePlanningBudget",
     "assemble_course_outline",
     "build_outline_batch_specs",
+    "build_teacher_outline_detail_batch_specs",
     "compile_fallback_outline_batch",
+    "compile_teacher_lecture_outline_batch",
     "course_coverage_verdict",
+    "merge_teacher_outline_detail",
     "normalize_outline_batch",
     "normalize_outline_skeleton",
+    "normalize_teacher_outline_detail_batch",
     "outline_neighbor_chapters",
     "outline_request_fingerprint",
+    "project_streamed_teacher_outline_growth",
     "review_course_outline_document",
     "select_chapter_evidence_hints",
     "validate_outline_batch",
     "validate_outline_skeleton",
+    "validate_teacher_outline_detail_batch",
 ]

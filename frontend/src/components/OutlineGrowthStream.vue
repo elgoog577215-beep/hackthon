@@ -9,14 +9,12 @@
   >
     <header class="growth-summary">
       <div>
-        <strong>{{ reviewReady
-          ? t('courseWorkbench.outlineReady', '课程大纲已生成')
-          : t('courseWorkbench.outlineGrowing', '课程结构正在形成') }}</strong>
+        <strong>{{ summaryTitle }}</strong>
       </div>
-      <span>{{ isLectureMode ? completedLectures : completedSections }} / {{ isLectureMode ? chapters.length : (totalSections || '—') }}</span>
+      <span v-if="!isLectureMode || frameworkVisible">{{ progressLabel }}</span>
     </header>
 
-    <div class="growth-chapters">
+    <div v-if="!isLectureMode || frameworkVisible" class="growth-chapters">
       <article
         v-for="(chapter, index) in chapters"
         :key="chapter.id"
@@ -178,6 +176,46 @@ const totalSections = computed(() => props.growth
 const completedLectures = computed(() => chapters.value.filter(
   chapter => chapter.status === 'completed',
 ).length)
+const growthState = computed(() => String(props.growth?.state || ''))
+const hasCompleteNamedFramework = computed(() => {
+  if (!isLectureMode.value || !chapters.value.length) return false
+  return chapters.value.every(chapter => {
+    const title = plainLectureTitle(chapter.title)
+    return Boolean(title) && !title.includes('正在生成本讲主题')
+  })
+})
+const frameworkVisible = computed(() => props.reviewReady || [
+  'skeleton_ready',
+  'framework_ready',
+  'detailing',
+  'completed',
+].includes(growthState.value) || hasCompleteNamedFramework.value)
+const summaryTitle = computed(() => {
+  if (props.reviewReady || growthState.value === 'completed') {
+    return t('courseWorkbench.outlineReady', '课程大纲已生成')
+  }
+  if (isLectureMode.value && frameworkVisible.value) {
+    return t(
+      'courseWorkbench.outlineFrameworkReady',
+      '课程框架已生成，正在补全教学安排',
+    )
+  }
+  if (isLectureMode.value) {
+    return t(
+      'courseWorkbench.outlineFrameworkGrowing',
+      '正在生成完整课程框架',
+    )
+  }
+  return t('courseWorkbench.outlineGrowing', '课程结构正在形成')
+})
+const progressLabel = computed(() => {
+  if (!isLectureMode.value) {
+    return `${completedSections.value} / ${totalSections.value || '—'}`
+  }
+  return t('courseWorkbench.outlineDetailProgress', '已补全 {completed}/{total}')
+    .replace('{completed}', String(completedLectures.value))
+    .replace('{total}', String(chapters.value.length))
+})
 
 function nextSectionNumber(chapter: GrowthChapter) {
   return `${chapter.number}.${chapter.completedCount + 1}`
