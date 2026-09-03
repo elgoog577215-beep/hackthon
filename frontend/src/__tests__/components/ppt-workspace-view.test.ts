@@ -9,6 +9,7 @@ import { useTeachingRepresentationsStore } from '@/stores/teachingRepresentation
 
 const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
 const routeState = vi.hoisted(() => ({ route: null as any }))
+const routerMock = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }))
 
 vi.mock('@/utils/http', () => ({
   default: httpMock,
@@ -18,13 +19,17 @@ vi.mock('@/utils/http', () => ({
 
 vi.mock('vue-router', () => ({
   useRoute: () => (routeState.route ||= reactive({ params: { courseId: 'course-1' } })),
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => routerMock,
 }))
 
 beforeEach(() => {
   setActivePinia(createPinia())
   httpMock.get.mockReset()
   httpMock.post.mockReset()
+  routerMock.push.mockReset()
+  routerMock.replace.mockReset()
+  routerMock.push.mockResolvedValue(undefined)
+  routerMock.replace.mockResolvedValue(undefined)
   routeState.route = null
   httpMock.get.mockResolvedValue({ data: courseEnvelope('canonical') })
 })
@@ -73,6 +78,51 @@ describe('PptWorkspaceView', () => {
       loadSelectedSpec: false,
       handleMissingRepresentations: false,
     })
+  })
+
+  it('一次性重建参数只打开真实生成设置，教师确认前不自动启动任务', async () => {
+    routeState.route = reactive({
+      params: { courseId: 'course-1' },
+      query: { lesson: 'L1-1', regenerate: '1', returnTo: '/courses/course-1?stage=ppt' },
+      path: '/course/course-1/ppt',
+      hash: '',
+      meta: { identityScope: 'teacher' },
+    })
+    httpMock.get.mockImplementation((url: string) => Promise.resolve({
+      data: url.endsWith('/ppt-v6/manuscript')
+        ? { ppt_manuscript_state: null }
+        : courseEnvelope('canonical'),
+    }))
+    const store = useTeachingRepresentationsStore()
+    vi.spyOn(store, 'ensure').mockImplementation(async () => {
+      store.courseId = 'course-1'
+      store.registry = { slide_deck_target_schema: 'slide_deck_v6', representations: [] }
+    })
+    vi.spyOn(store, 'recoverDurableBuild').mockResolvedValue(null as any)
+    const build = vi.spyOn(store, 'buildSlideDeckVariant').mockResolvedValue(undefined as any)
+
+    const wrapper = mount(PptWorkspaceView, { global: { stubs: { SideAIPanel: true } } })
+    await flushPromises()
+
+    const generator = wrapper.getComponent({ name: 'SlideDeckGeneratorDialog' })
+    expect(generator.props('open')).toBe(true)
+    expect(build).not.toHaveBeenCalled()
+    expect(routerMock.replace).toHaveBeenCalledWith({
+      path: '/course/course-1/ppt',
+      query: { lesson: 'L1-1', returnTo: '/courses/course-1?stage=ppt' },
+      hash: '',
+    })
+
+    generator.vm.$emit('confirm', {
+      mode: 'teaching',
+      theme: 'academic-editorial',
+      webImageRetrieval: { enabled: false, mode: 'wide_safe' },
+    })
+    await flushPromises()
+    expect(build).toHaveBeenCalledWith('course-1', expect.objectContaining({
+      forceRebuild: true,
+      manuscriptOnly: true,
+    }))
   })
 
   it('在独立 PPT 工作区把跨资产要求交给同一个整课修改方案', async () => {

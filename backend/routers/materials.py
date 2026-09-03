@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 
+from material_parser import parse_material_asset
 from material_storage import MaterialStorageError, material_repository
 from teacher_course_space import (
     classify_document_type,
@@ -83,7 +84,27 @@ async def upload_material(
         )
     except MaterialStorageError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    parsed_document = None
+    try:
+        parsed_document = await parse_material_asset(material_repository, asset)
+    except Exception as exc:
+        logger.warning("资料 %s 上传成功但解析失败", asset.asset_id, exc_info=True)
+        try:
+            asset = material_repository.update_status(
+                asset.asset_id,
+                "failed",
+                error=str(exc),
+            )
+        except MaterialStorageError:
+            pass
+    asset = material_repository.get_asset(asset.asset_id) or asset
     payload = material_repository.public_asset(asset)
+    if parsed_document is not None:
+        payload.update({
+            "parse_status": parsed_document.parse_status,
+            "parse_error": str(parsed_document.error or ""),
+            "parse_warnings": list(parsed_document.warnings or []),
+        })
     reference = _register_in_course_space(
         _optional_owner(x_user_id),
         asset,
@@ -117,15 +138,30 @@ def list_materials(
     if not owner_id:
         return {"assets": [], "owner_scoped": False}
     assets: list[dict[str, Any]] = []
-    for summary in teacher_course_space_repository.list_owned(owner_id, course_id):
+    summaries = teacher_course_space_repository.list_owned(owner_id, course_id)
+    generation_source_snapshots: dict[str, dict[str, Any]] = {}
+    for summary in summaries:
         package_id = str(summary.get("package_id") or "")
         try:
             package = teacher_course_space_repository.load_owned(package_id, owner_id)
         except (FileNotFoundError, MaterialStorageError):
             continue
+        for target_id, snapshot in (package.get("generation_source_snapshots") or {}).items():
+            if not isinstance(snapshot, dict):
+                continue
+            existing = generation_source_snapshots.get(str(target_id))
+            if existing and str(existing.get("captured_at") or "") >= str(snapshot.get("captured_at") or ""):
+                continue
+            generation_source_snapshots[str(target_id)] = {
+                **snapshot,
+                "package_id": package_id,
+            }
         for item in package.get("assets") or []:
             if not item.get("material_asset_id"):
                 continue
+            material_asset_id = str(item.get("material_asset_id") or "")
+            material = material_repository.get_asset(material_asset_id)
+            parsed = material_repository.load_parsed_document(material_asset_id)
             document_type = str(item.get("document_type") or "").strip()
             if not document_type:
                 document_type, _ = classify_document_type(
@@ -134,13 +170,17 @@ def list_materials(
             assets.append({
                 "package_id": package_id,
                 "asset_id": item.get("asset_id", ""),
-                "material_asset_id": item.get("material_asset_id", ""),
+                "material_asset_id": material_asset_id,
                 "filename": item.get("filename", ""),
                 "relative_path": item.get("relative_path", ""),
                 "size_bytes": item.get("size_bytes", 0),
                 "uploaded_at": item.get("uploaded_at", ""),
                 "category": item.get("category", ""),
                 "document_type": document_type,
+                "processing_status": str(getattr(material, "status", "") or item.get("parse_status") or ""),
+                "parse_status": str(getattr(parsed, "parse_status", "") or item.get("parse_status") or ""),
+                "parse_error": str(getattr(parsed, "error", "") or item.get("parse_error") or getattr(material, "error", "") or ""),
+                "parse_warnings": list(getattr(parsed, "warnings", None) or item.get("parse_warnings") or getattr(material, "warnings", None) or []),
                 "usages": teacher_course_space_repository.relationships_for_source(
                     package, str(item.get("asset_id") or "")
                 ),
@@ -148,13 +188,14 @@ def list_materials(
     assets.sort(key=lambda item: str(item.get("uploaded_at") or ""), reverse=True)
     configured_target_ids = sorted({
         str(target_id)
-        for summary in teacher_course_space_repository.list_owned(owner_id, course_id)
+        for summary in summaries
         for target_id in summary.get("configured_source_target_ids", [])
         if target_id
     })
     return {
         "assets": assets,
         "configured_source_target_ids": configured_target_ids,
+        "generation_source_snapshots": generation_source_snapshots,
         "owner_scoped": True,
     }
 

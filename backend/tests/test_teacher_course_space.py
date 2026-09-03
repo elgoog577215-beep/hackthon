@@ -458,6 +458,86 @@ class TeacherCourseSpaceTests(unittest.IsolatedAsyncioTestCase):
                 }],
             )
 
+    async def test_generation_source_snapshot_survives_next_run_relationship_changes(self):
+        repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))
+        created = repository.create_package(
+            "teacher-a", "数据结构", "2025-2026", "春季", course_id="course-1"
+        )
+        package = repository.load_owned(created["package_id"], "teacher-a")
+        first = await repository.import_file(
+            package, FakeUpload(), "原始资料/第一版教案.pdf", "batch-1"
+        )
+        second = await repository.import_file(
+            package, FakeUpload(), "原始资料/第二版教案.pdf", "batch-1"
+        )
+        repository.save(package)
+        repository.replace_formal_relationships(
+            package,
+            target_id="lesson-plan:lesson-1",
+            target_type="lesson_plan",
+            target_label="第 1 讲教案",
+            sources=[{"source_asset_id": first["asset_id"], "role": "primary"}],
+        )
+
+        frozen = repository.capture_generation_source_snapshot(
+            package,
+            target_id="lesson-plan:lesson-1",
+            target_type="lesson_plan",
+            target_label="第 1 讲教案",
+            task_id="job-1",
+        )
+        repository.replace_formal_relationships(
+            package,
+            target_id="lesson-plan:lesson-1",
+            target_type="lesson_plan",
+            target_label="第 1 讲教案",
+            sources=[{"source_asset_id": second["asset_id"], "role": "primary"}],
+        )
+
+        self.assertEqual(frozen["task_id"], "job-1")
+        self.assertEqual(frozen["sources"][0]["source_asset_id"], first["asset_id"])
+        self.assertEqual(
+            repository.generation_source_snapshot(package, "lesson-plan:lesson-1"),
+            frozen,
+        )
+        self.assertEqual(
+            repository.relationships_for_target(package, "lesson-plan:lesson-1")[0]["source_asset_id"],
+            second["asset_id"],
+        )
+
+    async def test_generated_content_source_cannot_be_deleted_after_relationship_is_removed(self):
+        repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))
+        created = repository.create_package("teacher-a", "数据结构", "2025-2026", "春季")
+        package = repository.load_owned(created["package_id"], "teacher-a")
+        source = await repository.import_file(
+            package, FakeUpload(), "原始资料/旧教案.pdf", "batch-1"
+        )
+        repository.save(package)
+        repository.replace_formal_relationships(
+            package,
+            target_id="managed:outline",
+            target_type="outline",
+            target_label="课程大纲",
+            sources=[{"source_asset_id": source["asset_id"], "role": "primary"}],
+        )
+        repository.capture_generation_source_snapshot(
+            package,
+            target_id="managed:outline",
+            target_type="outline",
+            target_label="课程大纲",
+            task_id="outline-job",
+        )
+        repository.replace_formal_relationships(
+            package,
+            target_id="managed:outline",
+            target_type="outline",
+            target_label="课程大纲",
+            sources=[],
+        )
+
+        with self.assertRaisesRegex(MaterialStorageError, "仍被正式文件引用"):
+            repository.delete_asset(package, source["asset_id"])
+
     async def test_deleting_referenced_source_asset_is_blocked(self):
         repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))
         created = repository.create_package("teacher-a", "数据结构", "2025-2026", "春季")

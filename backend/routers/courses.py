@@ -665,7 +665,17 @@ async def create_course_generation_job(
             raise HTTPException(status_code=409, detail="课程大纲已存在或正在生成")
     request_snapshot = req.model_dump(mode="json")
     request_snapshot["_retrieval_actor_id"] = actor_id
-    return await tm.create_generation_job(request_snapshot)
+    job = await tm.create_generation_job(request_snapshot)
+    if req.target_course_id:
+        teacher_course_space_repository.capture_owned_generation_source_snapshot(
+            actor_id,
+            req.target_course_id,
+            target_id="managed:outline",
+            target_type="outline",
+            target_label="课程大纲",
+            task_id=str(job.get("id") or job.get("task_id") or ""),
+        )
+    return job
 
 
 @router.post("/courses/{course_id}/locate")

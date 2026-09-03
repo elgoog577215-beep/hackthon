@@ -5,7 +5,9 @@ import TeacherCourseWorkbench from '@/components/TeacherCourseWorkbench.vue'
 import { useCourseStore } from '@/stores/course'
 import { useGenerationStore } from '@/stores/generation'
 import { lessonPlanStreamSegments, useTeacherLessonAuthoringStore } from '@/stores/teacherLessonAuthoring'
+import { useTeachingRepresentationsStore } from '@/stores/teachingRepresentations'
 import http from '@/utils/http'
+import router from '@/router'
 
 const growth = {
   schema_version: 'course_outline_growth_v1',
@@ -63,7 +65,7 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => mount(TeacherCou
         name: 'CourseReferenceTray',
         props: ['modelValue', 'scopeTargetId', 'scopeTargetLabel', 'previousScopeTargetId', 'workflowState', 'workflowDetail', 'workflowProgress', 'workflowCanRetry'],
         template: '<aside data-testid="reference-tray-stub"><span>{{ workflowDetail }}</span><i data-testid="workflow-progress">{{ workflowProgress }}</i><button data-testid="open-course-information" type="button" @click="$emit(\'open-course-information\')">课程信息</button><button v-if="workflowCanRetry" data-testid="retry-workflow" type="button" @click="$emit(\'retry-workflow\')">重试生成</button><slot name="workflow-action" /></aside>',
-        emits: ['open-course-information', 'retry-workflow', 'update:modelValue'],
+        emits: ['open-course-information', 'retry-workflow', 'regenerate-workflow', 'source-state-change', 'update:modelValue'],
       },
       CompanionDocumentStudio: true,
       QuestionBankReviewPanel: true,
@@ -833,8 +835,15 @@ describe('teacher course workbench outline streaming', () => {
     }] as any
     const generateLesson = vi.spyOn(lessonStore, 'generateLesson').mockResolvedValue({ id: 'lesson-job-1' } as any)
     const generateAllLessons = vi.spyOn(lessonStore, 'generateAllLessons')
+    const saveRelationships = vi.spyOn(http, 'put').mockResolvedValue({ data: { relationships: [] } } as any)
 
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
+    wrapper.findComponent({ name: 'CourseReferenceTray' }).vm.$emit('update:modelValue', [{
+      package_id: 'package-1', asset_id: 'asset-3', material_asset_id: 'mat-3',
+      filename: '第一讲主教材.docx', relative_path: '生成资料/第一讲主教材.docx',
+      size_bytes: 1800, role: 'primary',
+    }])
+    await flushPromises()
     const singleButton = wrapper.get('[data-testid="lesson-single-start"]')
     expect(wrapper.get('.lesson-type-context').text()).toContain('讲练结合')
     expect(wrapper.find('[data-testid="lesson-course-preview"]').exists()).toBe(false)
@@ -845,7 +854,18 @@ describe('teacher course workbench outline streaming', () => {
     await singleButton.trigger('click')
     await flushPromises()
 
-    expect(generateLesson).toHaveBeenCalledWith('course-1', 'L1-1', undefined, '', [], '')
+    expect(saveRelationships).toHaveBeenCalledWith(
+      '/api/teacher-course-spaces/package-1/relationships',
+      expect.objectContaining({
+        target_id: 'lesson-plan:L1-1',
+        sources: [{ source_asset_id: 'asset-3', role: 'primary' }],
+      }),
+      expect.any(Object),
+    )
+    expect(generateLesson).toHaveBeenCalledWith(
+      'course-1', 'L1-1', { packageId: 'package-1', assetId: 'asset-3' }, '', ['mat-3'], '',
+    )
+    expect(saveRelationships.mock.invocationCallOrder[0]).toBeLessThan(generateLesson.mock.invocationCallOrder[0]!)
     expect(generateAllLessons).not.toHaveBeenCalled()
   })
 
@@ -1096,7 +1116,7 @@ describe('teacher course workbench outline streaming', () => {
     lessonStore.lessons = [1, 2].map(number => ({
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45, sections: [],
       arrangement: { schema_version: 'teacher_lesson_arrangement_v1', revision_id: `arrangement-${number}`, lesson_unit_id: `L1-${number}`, source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授', status: 'confirmed', confirmed: true, source_state: 'current', blocks: [] },
-      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, confirmed_revision_id: '', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
       script: {
         current_revision_id: number === 1 ? 'script-1' : 'legacy-fingerprint',
         confirmed_revision_id: '', source_lesson_plan_revision_id: `plan-${number}`, source_state: 'current',
@@ -1120,7 +1140,7 @@ describe('teacher course workbench outline streaming', () => {
     lessonStore.lessons = [1, 2].map(number => ({
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45, sections: [],
       script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: `plan-${number}`, source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
-      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, confirmed_revision_id: '', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
     })) as any
     lessonStore.jobs = [{
       id: 'script-job-1', course_id: 'course-1', lesson_unit_id: 'L1-1', type: 'teacher_lesson_script_generation',
@@ -1232,5 +1252,104 @@ describe('teacher course workbench outline streaming', () => {
     tray = wrapper.findComponent({ name: 'CourseReferenceTray' })
     expect(tray.props('scopeTargetId')).toBe('lesson-plan:L1-1')
     expect(tray.props('modelValue')).toEqual([firstReference])
+  })
+
+  it('资料未就绪时同时禁用教案与 PPT 生成，事件也不能绕过阻断', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
+      title: '第一讲', duration_minutes: 45, sections: [],
+      arrangement: {
+        schema_version: 'teacher_lesson_arrangement_v1', revision_id: 'arrangement-1', lesson_unit_id: 'L1-1',
+        source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授',
+        status: 'confirmed', confirmed: true, source_state: 'current',
+        blocks: [{ block_id: 'block-1', module_id: 'core_explanation', section_node_id: 'L2-1-1', section_title: '基础概念', name: '概念讲解', role: 'concept', purpose: '建立概念', content_summary: '讲清边界', planned_minutes: 45, teacher_activity: '', student_activity: '', expected_output: '', required: true }],
+      },
+      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+    }, {
+      lesson_unit_id: 'L1-2', source_outline_revision_id: 'outline-1', number: 2,
+      title: '第二讲', duration_minutes: 45, sections: [],
+      plan: { lesson_unit_id: 'L1-2', working_revision_id: 'plan-2', confirmed_revision_id: '', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
+    }] as any
+    const generateLesson = vi.spyOn(lessonStore, 'generateLesson')
+    const lessonWrapper = mountWorkbench({ initialStage: 'lesson' })
+    lessonWrapper.findComponent({ name: 'CourseReferenceTray' }).vm.$emit('source-state-change', {
+      busy: false, blocked: true, reason: '资料正在解析，完成后即可生成。',
+    })
+    await flushPromises()
+
+    const lessonButton = lessonWrapper.get('[data-testid="lesson-single-start"]')
+    expect(lessonButton.attributes('disabled')).toBeDefined()
+    expect(lessonButton.attributes('title')).toContain('资料正在解析')
+    await lessonButton.trigger('click')
+    expect(generateLesson).not.toHaveBeenCalled()
+    lessonWrapper.unmount()
+
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
+      title: '第一讲', duration_minutes: 45, sections: [],
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', confirmed_revision_id: 'plan-1', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
+      script: { current_revision_id: 'script-1', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1', source_state: 'current', ready: true, confirmed: false, confirmed_at: '', sections: [] },
+    }] as any
+    const routePush = vi.spyOn(router, 'push').mockResolvedValue(undefined as any)
+    const pptWrapper = mountWorkbench({ initialStage: 'ppt' })
+    pptWrapper.findComponent({ name: 'CourseReferenceTray' }).vm.$emit('source-state-change', {
+      busy: true, blocked: true, reason: '正在更新资料…',
+    })
+    await flushPromises()
+
+    expect(pptWrapper.get('.ppt-generate-primary').attributes('disabled')).toBeDefined()
+    pptWrapper.findComponent({ name: 'CourseReferenceTray' }).vm.$emit('regenerate-workflow')
+    await flushPromises()
+    expect(routePush).not.toHaveBeenCalled()
+  })
+
+  it('PPT 任务状态只投影到同一课程的当前讲次', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', confirmed_revision_id: 'plan-1', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
+      script: { current_revision_id: 'script-1', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1', source_state: 'current', ready: true, confirmed: false, confirmed_at: '', sections: [] },
+    }] as any
+    const pptStore = useTeachingRepresentationsStore()
+    pptStore.courseId = 'course-1'
+    pptStore.teacherLessonId = 'L1-2'
+    pptStore.building = true
+    pptStore.buildProgress = 47
+
+    const wrapper = mountWorkbench({ initialStage: 'ppt' })
+    let tray = wrapper.findComponent({ name: 'CourseReferenceTray' })
+    expect(tray.props('workflowState')).not.toBe('generating')
+
+    pptStore.teacherLessonId = 'L1-1'
+    await flushPromises()
+    tray = wrapper.findComponent({ name: 'CourseReferenceTray' })
+    expect(tray.props('workflowState')).toBe('generating')
+    expect(tray.props('workflowProgress')).toBe(47)
+  })
+
+  it('从资料栏重新生成时经 SPA 返回 PPT 工作台，并携带一次性重建意图', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', confirmed_revision_id: 'plan-1', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
+      script: { current_revision_id: 'script-1', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1', source_state: 'current', ready: true, confirmed: false, confirmed_at: '', sections: [] },
+    }] as any
+    const routePush = vi.spyOn(router, 'push').mockResolvedValue(undefined as any)
+    const wrapper = mountWorkbench({ initialStage: 'ppt' })
+
+    wrapper.findComponent({ name: 'CourseReferenceTray' }).vm.$emit('regenerate-workflow')
+    await flushPromises()
+
+    expect(routePush).toHaveBeenCalledWith({
+      name: 'ppt-workspace',
+      params: { courseId: 'course-1' },
+      query: expect.objectContaining({
+        lesson: 'L1-1',
+        returnTo: expect.any(String),
+        regenerate: '1',
+      }),
+    })
   })
 })

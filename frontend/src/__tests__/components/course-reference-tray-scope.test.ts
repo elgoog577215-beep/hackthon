@@ -366,34 +366,52 @@ describe('CourseReferenceTray lesson scope', () => {
     expect(secondFile.text()).toContain('指定 2 讲')
   })
 
-  it('内容确认后收起上传入口，只在老师主动调整时展开', async () => {
+  it.each(['review', 'confirmed'] as const)('内容生成后（%s）收起上传入口，只在老师主动调整时展开', async (workflowState) => {
     const wrapper = mount(CourseReferenceTray, {
       props: {
         courseId: 'course-1', modelValue: [{ ...assets[2]!, role: 'primary' }], stage: 'lesson',
-        workflowState: 'confirmed',
+        workflowState,
+        scopeTargetId: 'lesson-plan:L1-2', scopeTargetType: 'lesson_plan',
+        scopeTargetLabel: '第二讲',
+        lessonTargets: [
+          { id: 'lesson-plan:L1-1', lessonId: 'L1-1', label: '第一讲', position: 1 },
+          { id: 'lesson-plan:L1-2', lessonId: 'L1-2', label: '第二讲', position: 2 },
+        ],
       },
       global: { stubs: { WebResearchDialog: true } },
     })
     await flushPromises()
 
     expect(wrapper.find('.system-context').exists()).toBe(true)
-    expect(wrapper.get('.source-status--confirmed').text()).toContain('当前内容已确认')
+    expect(wrapper.get(`.source-status--${workflowState}`).text()).toContain(workflowState === 'review' ? '生成完成，可核对来源' : '当前内容已生成')
     expect(wrapper.get('.confirmed-source-summary').text()).toContain('本讲教案使用的资料')
     expect(wrapper.get('.confirmed-source-summary').text()).toContain('第二讲主教材.docx')
     expect(wrapper.find('.empty-drop').exists()).toBe(false)
     expect(wrapper.find('.reference-add').exists()).toBe(false)
     expect(wrapper.find('.web-research-open').exists()).toBe(false)
+    expect(wrapper.find('.reference-scope').exists()).toBe(false)
 
     await wrapper.get('.confirmed-source-adjust').trigger('click')
-    expect(wrapper.get('.source-status--confirmed').text()).toContain('正在调整资料')
+    expect(wrapper.get(`.source-status--${workflowState}`).text()).toContain('正在调整资料')
     expect(wrapper.find('.confirmed-source-summary').exists()).toBe(false)
     expect(wrapper.find('.empty-drop').exists()).toBe(false)
     expect(wrapper.get('.source-group--primary').text()).toContain('第二讲主教材.docx')
     expect(wrapper.get('.reference-add').text()).toContain('上传参考文件')
+    expect(wrapper.find('.reference-scope').exists()).toBe(true)
+
+    await wrapper.get('.drop-zone > button').trigger('click')
+    expect(wrapper.get(`.source-status--${workflowState}`).text()).toContain('资料已调整，当前内容待重新生成')
+    expect(wrapper.get('.source-status__regenerate').text()).toContain('使用新资料重新生成')
 
     await wrapper.get('.source-status__collapse').trigger('click')
     expect(wrapper.find('.confirmed-source-summary').exists()).toBe(true)
+    expect(wrapper.get('.confirmed-source-summary').text()).toContain('第二讲主教材.docx')
+    expect(wrapper.get('.confirmed-source-adjust').text()).toContain('继续调整资料')
     expect(wrapper.find('.reference-add').exists()).toBe(false)
+    expect(wrapper.find('.reference-scope').exists()).toBe(false)
+
+    await wrapper.get('.source-status__regenerate').trigger('click')
+    expect(wrapper.emitted('regenerate-workflow')).toHaveLength(1)
   })
 
   it('题库常驻侧栏只保留真题资料并以专用角色保存', async () => {

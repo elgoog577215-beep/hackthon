@@ -200,7 +200,7 @@
           <div v-else-if="!outlineGrowth && !outlineLessonStatuses.length && generationFailed" class="stream-waiting stream-failed"><TriangleAlert :size="22" />{{ t('courseWorkbench.noContentGenerated', '本次没有生成课程内容，请检查提示后重试。') }}</div>
         </article>
         <AppErrorNotice v-if="generationErrorPresentation" class="workbench-error" :presentation="generationErrorPresentation" compact>
-          <template #action><button type="button" @click="submitFoundation">{{ t('common.retry', '重试') }}</button></template>
+          <template #action><button type="button" :disabled="referenceGenerationBlocked" :title="referenceGenerationBlocked ? referenceGenerationBlockReason : undefined" @click="submitFoundation">{{ t('common.retry', '重试') }}</button></template>
         </AppErrorNotice>
       </section>
 
@@ -314,7 +314,7 @@
         <label class="form-field form-field--wide"><span>{{ t('courseWorkbench.form.requirements', '补充要求') }}</span><textarea v-model.trim="foundation.requirements" rows="4" :placeholder="t('courseWorkbench.form.requirementsPlaceholder', '例如：部分讲次安排案例讨论，兼顾理论与实践')" /></label>
         <footer>
           <span>{{ t('courseWorkbench.form.semanticHint', '系统先规划整课的课型分布，再为每一讲编排可调整的教学块。') }}</span>
-          <button class="primary" type="submit" :disabled="generationStarting || !foundationReady"><Sparkles :size="16" />{{ t('courseWorkbench.generateOutline', '生成课程大纲') }}</button>
+          <button class="primary" type="submit" :disabled="generationStarting || !foundationReady || referenceGenerationBlocked" :title="referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"><Sparkles :size="16" />{{ t('courseWorkbench.generateOutline', '生成课程大纲') }}</button>
         </footer>
       </form>
 
@@ -451,7 +451,8 @@
                 data-testid="lesson-single-start"
                 type="button"
                 :class="{ 'primary-action': !lessonBatchLaunchVisible }"
-                :disabled="batchStarting"
+                :disabled="batchStarting || referenceGenerationBlocked"
+                :title="referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"
                 @click="generateSelectedLessonPlan"
               >
                 <Sparkles :size="15" />
@@ -462,7 +463,8 @@
                 data-testid="lesson-batch-start"
                 type="button"
                 class="primary-action"
-                :disabled="batchStarting"
+                :disabled="batchStarting || referenceGenerationBlocked"
+                :title="referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"
                 @click="generateAllLessonPlans"
               >
                 <LoaderCircle v-if="batchStarting" :size="15" class="spin" />
@@ -517,7 +519,8 @@
                 class="primary-action"
                 data-testid="lesson-course-preview-generate"
                 type="button"
-                :disabled="batchStarting || !batchEligibleCount"
+                :disabled="batchStarting || !batchEligibleCount || referenceGenerationBlocked"
+                :title="referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"
                 @click="generateAllLessonPlans"
               >
                 <LoaderCircle v-if="batchStarting" :size="16" class="spin" />
@@ -561,8 +564,8 @@
                 <button
                   data-testid="lesson-single-start"
                   type="button"
-                  :disabled="!selectedLessonCanGenerate || batchStarting"
-                  :title="selectedLessonCanGenerate ? '' : t('courseWorkbench.lessonBatch.structureRequired', '本讲教学结构尚未生成')"
+                  :disabled="!selectedLessonCanGenerate || batchStarting || referenceGenerationBlocked"
+                  :title="referenceGenerationBlocked ? referenceGenerationBlockReason : selectedLessonCanGenerate ? '' : t('courseWorkbench.lessonBatch.structureRequired', '本讲教学结构尚未生成')"
                   @click="generateSelectedLessonPlan"
                 >
                   <Sparkles :size="16" />
@@ -573,7 +576,8 @@
                   class="primary-action"
                   data-testid="lesson-batch-start"
                   type="button"
-                  :disabled="batchStarting"
+                  :disabled="batchStarting || referenceGenerationBlocked"
+                  :title="referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"
                   @click="generateAllLessonPlans"
                 >
                   <LoaderCircle v-if="batchStarting" :size="16" class="spin" />
@@ -725,7 +729,7 @@
             :generating="scriptGenerationBusy"
             :generation-job="scriptJob"
             :generation-error="effectiveScriptGenerationError"
-            :can-generate="currentLessonPlanReady"
+            :can-generate="currentLessonPlanReady && !referenceGenerationBlocked"
             external-toolbar
             @generate="generateScript"
             @pause-generation="pauseScriptGeneration"
@@ -781,7 +785,8 @@
                       class="primary-action"
                       data-testid="script-batch-start"
                       type="button"
-                      :disabled="scriptBatchStarting"
+                      :disabled="scriptBatchStarting || referenceGenerationBlocked"
+                      :title="referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"
                       @click="generateAllScripts"
                     >
                       <LoaderCircle v-if="scriptBatchStarting" :size="15" class="spin" />
@@ -812,7 +817,7 @@
             :course-title="courseTitle"
             :lesson-id="selectedLesson.lesson_unit_id"
             :lesson-title="selectedLesson.title"
-            :can-generate="currentLessonPlanReady && currentScriptReady"
+            :can-generate="currentLessonPlanReady && currentScriptReady && !referenceGenerationBlocked"
             :reference-count="activeReferences.length"
             :prepare-sources="preparePptSources"
             @generate="openPptWorkspace"
@@ -898,6 +903,8 @@
         @resume-workflow="resumeReferenceWorkflow"
         @cancel-workflow="cancelReferenceWorkflow"
         @retry-workflow="retryReferenceWorkflow"
+        @regenerate-workflow="regenerateReferenceWorkflow"
+        @source-state-change="handleReferenceSourceState"
       />
     </aside>
 
@@ -1032,7 +1039,7 @@ import { BookOpenText, Check, CheckSquare2, ChevronLeft, ChevronRight, Clipboard
 import AppErrorNotice from './AppErrorNotice.vue'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
-import CourseReferenceTray, { type CourseReferenceItem, type CourseReferenceWorkflowState } from './CourseReferenceTray.vue'
+import CourseReferenceTray, { type CourseReferenceItem, type CourseReferenceSourceState, type CourseReferenceWorkflowState } from './CourseReferenceTray.vue'
 import OutlineGrowthStream from './OutlineGrowthStream.vue'
 import QuestionBankReviewPanel from './QuestionBankReviewPanel.vue'
 import TeacherLessonAiWorkspace, { type TeacherAiQuickAction, type TeacherAiScopeOption } from './TeacherLessonAiWorkspace.vue'
@@ -1070,9 +1077,11 @@ import { useCourseEvolutionStore } from '../stores/courseEvolution'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
 import { lessonPlanStreamSegments, useTeacherLessonAuthoringStore, type TeacherLessonJob, type TeacherLessonPlanCandidate, type TeacherLessonProjection } from '../stores/teacherLessonAuthoring'
+import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
 import { toAppError } from '../utils/app-error'
 import http, { teacherReadRequestConfig, teacherRequestConfig } from '../utils/http'
 import { createUuid } from '../utils/client-id'
+import router from '../router'
 
 type CoreStageId = 'foundation' | 'lesson' | 'script' | 'ppt'
 type StageId = CoreStageId | 'question-bank' | 'companion'
@@ -1155,7 +1164,7 @@ const emit = defineEmits<{
   (event: 'open-course-information'): void
   (event: 'open-course-adjustment', payload: { planId: string }): void
 }>()
-const courseStore = useCourseStore(); const courseEvolutionStore = useCourseEvolutionStore(); const courseWorkspaceStore = useCourseWorkspaceStore(); const generationStore = useGenerationStore(); const lessonStore = useTeacherLessonAuthoringStore()
+const courseStore = useCourseStore(); const courseEvolutionStore = useCourseEvolutionStore(); const courseWorkspaceStore = useCourseWorkspaceStore(); const generationStore = useGenerationStore(); const lessonStore = useTeacherLessonAuthoringStore(); const teachingRepresentationsStore = useTeachingRepresentationsStore()
 const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = ref(props.initialLessonId)
 const activeCompanionTemplateId = ref<CompanionTemplateId>(GRADING_RUBRIC_TEMPLATE_ID)
 const stageSwitching = ref(false)
@@ -1202,6 +1211,21 @@ const editingOutline = computed({
   set: value => emit('update:outlineEditing', value),
 })
 const referencesByScope = reactive<Record<string, CourseReferenceItem[]>>({})
+const referenceSourceState = reactive<CourseReferenceSourceState>({ busy: false, blocked: false, reason: '' })
+const referenceRelationshipSaving = ref(false)
+const referenceGenerationBlocked = computed(() => (
+  referenceRelationshipSaving.value || referenceSourceState.busy || referenceSourceState.blocked
+))
+const referenceGenerationBlockReason = computed(() => (
+  referenceRelationshipSaving.value
+    ? t('courseWorkbench.references.sourcesUpdating', '正在更新资料…')
+    : referenceSourceState.reason
+))
+function handleReferenceSourceState(value: CourseReferenceSourceState) {
+  referenceSourceState.busy = value.busy
+  referenceSourceState.blocked = value.blocked
+  referenceSourceState.reason = value.reason
+}
 const activeReferenceScope = computed(() => (
   ['lesson', 'script', 'ppt'].includes(activeStage.value) && selectedLessonId.value
     ? `${activeStage.value}:${selectedLessonId.value}`
@@ -2018,6 +2042,11 @@ const effectiveScriptGenerationError = computed(() => String(
     ? scriptJob.value.error?.message || scriptGenerationError.value
     : scriptGenerationError.value,
 ))
+const pptBuildMatchesSelection = computed(() => Boolean(
+  selectedLessonId.value
+  && teachingRepresentationsStore.courseId === props.courseId
+  && teachingRepresentationsStore.teacherLessonId === selectedLessonId.value
+))
 const referenceWorkflowState = computed<CourseReferenceWorkflowState>(() => {
   if (activeStage.value === 'foundation') {
     if (props.generationStarting || taskInFlight.value) return 'generating'
@@ -2040,7 +2069,12 @@ const referenceWorkflowState = computed<CourseReferenceWorkflowState>(() => {
     if (currentScriptReady.value) return 'review'
     return activeReferences.value.length ? 'ready' : 'collecting'
   }
-  if (activeStage.value === 'ppt') return currentPptAsset.value ? 'review' : activeReferences.value.length ? 'ready' : 'collecting'
+  if (activeStage.value === 'ppt') {
+    if (pptBuildMatchesSelection.value && teachingRepresentationsStore.building) return 'generating'
+    if (pptBuildMatchesSelection.value && teachingRepresentationsStore.buildPaused) return 'paused'
+    if (pptBuildMatchesSelection.value && (teachingRepresentationsStore.buildFailure || teachingRepresentationsStore.buildError)) return 'failed'
+    return currentPptAsset.value ? 'review' : activeReferences.value.length ? 'ready' : 'collecting'
+  }
   return activeReferences.value.length ? 'ready' : 'collecting'
 })
 const referenceWorkflowDetail = computed(() => {
@@ -2063,11 +2097,20 @@ const referenceWorkflowDetail = computed(() => {
         .replace('{total}', String(scriptBatchTotalCount.value || scriptBatchEligibleCount.value))
         .replace('{active}', String(scriptBatchActiveCount.value))
     }
+    if (activeStage.value === 'ppt') {
+      return teachingRepresentationsStore.buildDetail?.message
+        || t('courseWorkbench.references.pptGeneratingDetail', 'PPT 工作台正在生成本讲内容。')
+    }
   }
   if (referenceWorkflowState.value === 'failed') {
     if (activeStage.value === 'foundation') return generationError.value
     if (activeStage.value === 'lesson') return batchError.value || lessonGenerationError.value
     if (activeStage.value === 'script') return scriptBatchError.value || effectiveScriptGenerationError.value
+    if (activeStage.value === 'ppt') {
+      return teachingRepresentationsStore.buildFailure?.message
+        || teachingRepresentationsStore.buildError
+        || t('courseWorkbench.references.pptGenerationFailed', 'PPT 生成失败，请返回工作台重试。')
+    }
   }
   return ''
 })
@@ -2079,24 +2122,27 @@ const referenceWorkflowProgress = computed(() => {
       ? lessonGenerationProgress.value
       : batchLessonJobs.value.length ? batchProgress.value : 0
   if (activeStage.value === 'script') return scriptBatchRunning.value || scriptBatchStarting.value
-    ? scriptBatchProgress.value
-    : scriptGenerationProgress.value
+      ? scriptBatchProgress.value
+      : scriptGenerationProgress.value
+  if (activeStage.value === 'ppt' && pptBuildMatchesSelection.value) return teachingRepresentationsStore.buildProgress
   return referenceWorkflowState.value === 'confirmed' ? 100 : 0
 })
 const referenceWorkflowCanPause = computed(() => (
   activeStage.value === 'foundation' ? taskInFlight.value
     : activeStage.value === 'lesson' ? batchRunning.value || lessonGenerationActive.value
       : activeStage.value === 'script' ? scriptBatchRunning.value || scriptGenerationActive.value
+        : activeStage.value === 'ppt' ? pptBuildMatchesSelection.value && teachingRepresentationsStore.building && Boolean(teachingRepresentationsStore.buildTaskId)
         : false
 ))
 const referenceWorkflowCanResume = computed(() => (
   activeStage.value === 'foundation' ? taskPaused.value
     : activeStage.value === 'lesson' ? batchPaused.value || lessonJob.value?.status === 'paused'
       : activeStage.value === 'script' ? scriptBatchPaused.value || scriptJob.value?.status === 'paused'
+        : activeStage.value === 'ppt' ? pptBuildMatchesSelection.value && teachingRepresentationsStore.buildPaused
         : false
 ))
 const referenceWorkflowCanCancel = computed(() => referenceWorkflowCanPause.value || referenceWorkflowCanResume.value)
-const referenceWorkflowCanRetry = computed(() => referenceWorkflowState.value === 'failed' && activeStage.value !== 'ppt')
+const referenceWorkflowCanRetry = computed(() => referenceWorkflowState.value === 'failed')
 const contextPhase = computed<'before' | 'during' | 'after' | 'failed'>(() => {
   if (referenceWorkflowState.value === 'failed') return 'failed'
   if (['generating', 'paused'].includes(referenceWorkflowState.value)) return 'during'
@@ -2210,6 +2256,7 @@ async function pauseReferenceWorkflow() {
   if (activeStage.value === 'foundation') return generationStore.stopGeneration()
   if (activeStage.value === 'lesson') return pauseAllLessonGeneration()
   if (activeStage.value === 'script') return scriptBatchRunning.value ? pauseAllScriptGeneration() : pauseScriptGeneration()
+  if (activeStage.value === 'ppt') return teachingRepresentationsStore.pauseBuild()
 }
 async function resumeReferenceWorkflow() {
   if (activeStage.value === 'foundation' && generationTask.value?.id) {
@@ -2221,11 +2268,13 @@ async function resumeReferenceWorkflow() {
     return generateAllLessonPlans()
   }
   if (activeStage.value === 'script') return scriptBatchPaused.value ? generateAllScripts() : generateScript()
+  if (activeStage.value === 'ppt') return teachingRepresentationsStore.resumeBuild()
 }
 async function cancelReferenceWorkflow() {
   if (activeStage.value === 'foundation') return generationStore.cancelTask(props.courseId)
   if (activeStage.value === 'lesson') return cancelAllLessonGeneration()
   if (activeStage.value === 'script') return scriptBatchRunning.value || scriptBatchPaused.value ? cancelAllScriptGeneration() : cancelScriptGeneration()
+  if (activeStage.value === 'ppt') return teachingRepresentationsStore.cancelBuild()
 }
 async function retryReferenceWorkflow() {
   if (activeStage.value === 'foundation') return submitFoundation()
@@ -2237,6 +2286,13 @@ async function retryReferenceWorkflow() {
     if (scriptBatchRecoveryAvailable.value) return generateAllScripts()
     return generateScript()
   }
+  if (activeStage.value === 'ppt') return openPptWorkspace(true)
+}
+async function regenerateReferenceWorkflow() {
+  if (activeStage.value === 'foundation') return submitFoundation()
+  if (activeStage.value === 'lesson') return generateSelectedLessonPlan()
+  if (activeStage.value === 'script') return generateScript()
+  if (activeStage.value === 'ppt') return openPptWorkspace(true)
 }
 function appendAiMessage(
   role: TeacherProductionAiMessage['role'],
@@ -2782,8 +2838,24 @@ function generationBindings(references: CourseReferenceItem[]) { return referenc
 function currentGenerationOptions() {
   return canonicalizeCourseGenerationOptions(props.generationOptions)
 }
-async function saveRelationships(targetId: string, targetType: string, label: string) { const refs = activeReferences.value; const packageId = refs[0]?.package_id || String((await http.get('/api/teacher-course-spaces', teacherReadRequestConfig({ params: { course_id: props.courseId }, silentError: true }))).data?.[0]?.package_id || ''); if (!packageId) return; await http.put(`/api/teacher-course-spaces/${packageId}/relationships`, { target_id: targetId, target_type: targetType, target_label: label, sources: refs.map(item => ({ source_asset_id: item.asset_id, role: item.role })) }, teacherRequestConfig({ silentError: true })) }
+async function saveRelationships(targetId: string, targetType: string, label: string) {
+  const refs = activeReferences.value.map(item => ({ ...item }))
+  referenceRelationshipSaving.value = true
+  try {
+    const packageId = refs[0]?.package_id || String((await http.get('/api/teacher-course-spaces', teacherReadRequestConfig({ params: { course_id: props.courseId }, silentError: true }))).data?.[0]?.package_id || '')
+    if (!packageId) return
+    await http.put(`/api/teacher-course-spaces/${packageId}/relationships`, {
+      target_id: targetId,
+      target_type: targetType,
+      target_label: label,
+      sources: refs.map(item => ({ source_asset_id: item.asset_id, role: item.role })),
+    }, teacherRequestConfig({ silentError: true }))
+  } finally {
+    referenceRelationshipSaving.value = false
+  }
+}
 async function submitFoundation() {
+  if (referenceGenerationBlocked.value) return
   generationRequested.value = true
   try {
     if (generationFailed.value && generationTask.value?.id) {
@@ -2878,7 +2950,7 @@ async function updateOutlineLessonType(payload: { lessonUnitId: string; lessonTy
 }
 async function generateSelectedLessonPlan() {
   const lesson = selectedLesson.value
-  if (!lesson || lessonGenerationActive.value) return
+  if (!lesson || lessonGenerationActive.value || referenceGenerationBlocked.value) return
   if (!lesson.arrangement?.blocks?.length || lesson.arrangement.source_state !== 'current') {
     arrangementError.value = t('courseWorkbench.arrangement.structureRequired', '本讲教学结构尚未生成，请稍后重试。')
     return
@@ -2886,6 +2958,7 @@ async function generateSelectedLessonPlan() {
   arrangementError.value = ''
   lessonGenerationRequestError.value = ''
   try {
+    await saveRelationships(`lesson-plan:${lesson.lesson_unit_id}`, 'lesson_plan', `${lesson.title} 教案`)
     await lessonStore.generateLesson(
       props.courseId,
       lesson.lesson_unit_id,
@@ -2899,7 +2972,7 @@ async function generateSelectedLessonPlan() {
   }
 }
 async function generateAllLessonPlans() {
-  if (batchStarting.value || batchRunning.value || !batchEligibleCount.value) return
+  if (batchStarting.value || batchRunning.value || !batchEligibleCount.value || referenceGenerationBlocked.value) return
   batchStarting.value = true
   lessonGenerationRequestError.value = ''
   try {
@@ -3136,7 +3209,7 @@ function lessonGenerationStateLabel(lesson: any): string {
 }
 async function handleScriptSaved() { scriptDocumentError.value = ''; await lessonStore.load(props.courseId) }
 async function generateScript(requirements = '') {
-  if (!selectedLesson.value || !currentLessonPlanReady.value || scriptGenerationBusy.value) return
+  if (!selectedLesson.value || !currentLessonPlanReady.value || scriptGenerationBusy.value || referenceGenerationBlocked.value) return
   scriptGenerating.value = true
   scriptGenerationError.value = ''
   scriptDocumentError.value = ''
@@ -3156,7 +3229,7 @@ async function generateScript(requirements = '') {
   }
 }
 async function generateAllScripts() {
-  if (scriptBatchStarting.value || scriptBatchRunning.value || !scriptBatchEligibleCount.value) return
+  if (scriptBatchStarting.value || scriptBatchRunning.value || !scriptBatchEligibleCount.value || referenceGenerationBlocked.value) return
   scriptBatchStarting.value = true
   scriptGenerationError.value = ''
   scriptDocumentError.value = ''
@@ -3193,10 +3266,19 @@ async function pauseScriptGeneration() {
   scriptGenerationError.value = ''
   await lessonStore.pauseJob(props.courseId, scriptJob.value.id).catch(() => undefined)
 }
-async function openPptWorkspace() {
-  if (!selectedLesson.value || !currentLessonPlanReady.value || !currentScriptReady.value) return
+async function openPptWorkspace(regenerate = false) {
+  if (!selectedLesson.value || !currentLessonPlanReady.value || !currentScriptReady.value || referenceGenerationBlocked.value) return
   await preparePptSources()
-  window.location.assign(`/course/${props.courseId}/ppt?lesson=${selectedLessonId.value}`)
+  const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`
+  await router.push({
+    name: 'ppt-workspace',
+    params: { courseId: props.courseId },
+    query: {
+      lesson: selectedLessonId.value,
+      returnTo,
+      ...(regenerate ? { regenerate: '1' } : {}),
+    },
+  })
 }
 async function preparePptSources() {
   if (!selectedLesson.value) return

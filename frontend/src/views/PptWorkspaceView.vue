@@ -703,6 +703,12 @@ async function loadWorkspace() {
     ) {
       generatorOpen.value = true
     }
+    if (route.query?.regenerate === '1') {
+      openGenerator(true)
+      const query = { ...route.query }
+      delete query.regenerate
+      await router.replace({ path: route.path, query, hash: route.hash })
+    }
   } catch {
     if (isCurrentAttempt(id, attempt)) {
       documentLoadError.value = t('pptWorkspace.documentLoadFailed', '加载课程源失败，请重试')

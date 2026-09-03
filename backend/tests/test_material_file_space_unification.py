@@ -235,6 +235,61 @@ async def test_upload_can_register_directly_in_the_current_course(stores, monkey
     assert len(space.list_owned("teacher-a", "course-1")) == 1
 
 
+@pytest.mark.asyncio
+async def test_material_list_exposes_parse_state_and_generation_snapshot(stores, monkeypatch):
+    """The sidebar must compare editable sources with the exact last-run snapshot."""
+    from routers import materials as materials_router
+
+    materials, space = stores
+    package = space.create_package(
+        "teacher-a", "设计思维", "2026-2027", "秋季", course_id="course-1"
+    )
+    monkeypatch.setattr(materials_router, "material_repository", materials)
+    monkeypatch.setattr(materials_router, "teacher_course_space_repository", space)
+
+    uploaded = await materials_router.upload_material(
+        file=_Upload("第一讲教案.md", b"# lesson plan\n\nA usable source."),
+        upload_batch_id="batch-parse",
+        course_id="course-1",
+        x_user_id="teacher-a",
+    )
+    current = space.load_owned(package["package_id"], "teacher-a")
+    space.replace_formal_relationships(
+        current,
+        target_id="lesson-plan:L1-1",
+        target_type="lesson_plan",
+        target_label="第一讲教案",
+        sources=[{
+            "source_asset_id": uploaded["course_space"]["course_asset_id"],
+            "role": "primary",
+        }],
+    )
+    space.capture_generation_source_snapshot(
+        current,
+        target_id="lesson-plan:L1-1",
+        target_type="lesson_plan",
+        target_label="第一讲教案",
+        task_id="lesson-job-1",
+    )
+
+    listed = materials_router.list_materials(
+        course_id="course-1",
+        x_user_id="teacher-a",
+    )
+
+    assert listed["assets"][0]["processing_status"] == "parsed"
+    assert listed["assets"][0]["parse_status"] == "parsed"
+    snapshot = listed["generation_source_snapshots"]["lesson-plan:L1-1"]
+    assert snapshot["package_id"] == package["package_id"]
+    assert snapshot["task_id"] == "lesson-job-1"
+    assert snapshot["sources"] == [{
+        "source_asset_id": uploaded["course_space"]["course_asset_id"],
+        "material_asset_id": uploaded["asset_id"],
+        "source_label": "第一讲教案.md",
+        "role": "primary",
+    }]
+
+
 # --- 引用的双向可查 ---------------------------------------------------------
 # 引用只有单向可用是不够的：资料出问题时，得能从解析产物反查"教师在文件空间的
 # 哪个位置能看到它"，否则只能全量翻包。

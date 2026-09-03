@@ -181,7 +181,7 @@ class TeacherCourseSpaceRepository:
         package = {"package_id": package_id, "owner_id": owner_id, "course_id": normalized_course_id, "course_name": name, "academic_year": year,
                    "term": term.strip(), "template": template, "status": "active", "created_at": _now(), "updated_at": _now(), "assets": [], "trash": [], "imports": [],
                    "entries": entries, "relationships": [], "asset_relationships": [], "material_understanding": {},
-                   "material_absorption": {}, "preparation_status": "pending"}
+                   "material_absorption": {}, "generation_source_snapshots": {}, "preparation_status": "pending"}
         package_path = self._path(package_id)
         package_path.mkdir(parents=True, exist_ok=False)
         (package_path / "files").mkdir(exist_ok=True)  # immutable source copies for download/history
@@ -641,15 +641,34 @@ class TeacherCourseSpaceRepository:
             raise FileNotFoundError(asset_id)
         return asset
 
-    def _assert_assets_unreferenced(self, package: dict[str, Any], asset_ids: set[str], *, folder: bool = False) -> None:
+    def _referenced_target_labels(
+        self,
+        package: dict[str, Any],
+        asset_ids: set[str],
+    ) -> list[str]:
         referenced_targets = [
             str(item.get("target_label") or item.get("target_id") or "")
             for item in package.get("relationships", [])
             if item.get("source_asset_id") in asset_ids
         ]
+        for snapshot in (package.get("generation_source_snapshots") or {}).values():
+            if not isinstance(snapshot, dict):
+                continue
+            if any(
+                str(source.get("source_asset_id") or "") in asset_ids
+                for source in snapshot.get("sources") or []
+                if isinstance(source, dict)
+            ):
+                referenced_targets.append(
+                    str(snapshot.get("target_label") or snapshot.get("target_id") or "")
+                )
+        return list(dict.fromkeys(filter(None, referenced_targets)))
+
+    def _assert_assets_unreferenced(self, package: dict[str, Any], asset_ids: set[str], *, folder: bool = False) -> None:
+        referenced_targets = self._referenced_target_labels(package, asset_ids)
         if not referenced_targets:
             return
-        target_summary = "、".join(dict.fromkeys(filter(None, referenced_targets)))
+        target_summary = "、".join(referenced_targets)
         prefix = "文件夹中有原件" if folder else "该原件"
         raise MaterialStorageError(f"{prefix}仍被正式文件引用（{target_summary}），请先解除引用后再操作")
 
@@ -924,11 +943,7 @@ class TeacherCourseSpaceRepository:
         asset = next((item for item in package.get("assets", []) if item.get("asset_id") == asset_id), None)
         if not asset:
             raise FileNotFoundError(asset_id)
-        referenced_targets = [
-            str(item.get("target_label") or item.get("target_id") or "")
-            for item in package.get("relationships", [])
-            if item.get("source_asset_id") == asset_id
-        ]
+        referenced_targets = self._referenced_target_labels(package, {asset_id})
         if referenced_targets:
             target_summary = "、".join(dict.fromkeys(filter(None, referenced_targets)))
             raise MaterialStorageError(
@@ -962,11 +977,7 @@ class TeacherCourseSpaceRepository:
         if not destination.is_dir() and not affected_assets and not affected_entries:
             raise FileNotFoundError(normalized)
         affected_ids = {item["asset_id"] for item in affected_assets}
-        referenced_targets = [
-            str(item.get("target_label") or item.get("target_id") or "")
-            for item in package.get("relationships", [])
-            if item.get("source_asset_id") in affected_ids
-        ]
+        referenced_targets = self._referenced_target_labels(package, affected_ids)
         if referenced_targets:
             target_summary = "、".join(dict.fromkeys(filter(None, referenced_targets)))
             raise MaterialStorageError(
@@ -1236,5 +1247,94 @@ class TeacherCourseSpaceRepository:
             dict(item) for item in package.get("relationships", [])
             if str(item.get("source_asset_id") or "") == str(source_asset_id or "")
         ]
+
+    def capture_generation_source_snapshot(
+        self,
+        package: dict[str, Any],
+        *,
+        target_id: str,
+        target_type: str,
+        target_label: str,
+        target_revision: str = "",
+        task_id: str = "",
+    ) -> dict[str, Any]:
+        """Freeze the exact source relationships used by one generation attempt.
+
+        ``relationships`` remains the editable input for the next run.  This
+        snapshot is deliberately independent so a later source adjustment does
+        not rewrite the provenance shown for already generated content.
+        """
+        normalized_target_id = str(target_id or "").strip()
+        normalized_target_type = str(target_type or "").strip()
+        if not normalized_target_id or len(normalized_target_id) > 240:
+            raise MaterialStorageError("正式文件标识不合法")
+        if normalized_target_type not in FORMAL_FILE_TYPES:
+            raise MaterialStorageError("正式文件类型不合法")
+        now = _now()
+        sources = [
+            {
+                "source_asset_id": str(item.get("source_asset_id") or ""),
+                "material_asset_id": str(item.get("material_asset_id") or ""),
+                "source_label": str(item.get("source_label") or ""),
+                "role": str(item.get("role") or "reference"),
+            }
+            for item in self.relationships_for_target(package, normalized_target_id)
+        ]
+        snapshot = {
+            "snapshot_id": f"tcss-{uuid.uuid4().hex}",
+            "target_id": normalized_target_id,
+            "target_type": normalized_target_type,
+            "target_label": str(target_label or normalized_target_id).strip(),
+            "target_revision": str(target_revision or "").strip(),
+            "task_id": str(task_id or "").strip(),
+            "sources": sources,
+            "captured_at": now,
+        }
+        package.setdefault("generation_source_snapshots", {})[normalized_target_id] = snapshot
+        self.save(package)
+        return dict(snapshot)
+
+    def generation_source_snapshot(
+        self,
+        package: dict[str, Any],
+        target_id: str,
+    ) -> dict[str, Any] | None:
+        snapshot = (package.get("generation_source_snapshots") or {}).get(str(target_id or ""))
+        return dict(snapshot) if isinstance(snapshot, dict) else None
+
+    def capture_owned_generation_source_snapshot(
+        self,
+        owner_id: str,
+        course_id: str,
+        *,
+        target_id: str,
+        target_type: str,
+        target_label: str,
+        target_revision: str = "",
+        task_id: str = "",
+    ) -> dict[str, Any] | None:
+        summaries = self.list_owned(owner_id, course_id)
+        if not summaries:
+            return None
+        package: dict[str, Any] | None = None
+        for summary in summaries:
+            candidate = self.load_owned(str(summary.get("package_id") or ""), owner_id)
+            configured = candidate.get("source_binding_targets") or {}
+            if target_id in configured or self.relationships_for_target(candidate, target_id):
+                package = candidate
+                break
+            if package is None:
+                package = candidate
+        if package is None:
+            return None
+        snapshot = self.capture_generation_source_snapshot(
+            package,
+            target_id=target_id,
+            target_type=target_type,
+            target_label=target_label,
+            target_revision=target_revision,
+            task_id=task_id,
+        )
+        return {**snapshot, "package_id": str(package.get("package_id") or "")}
 
 teacher_course_space_repository = TeacherCourseSpaceRepository()

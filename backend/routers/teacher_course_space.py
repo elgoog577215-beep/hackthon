@@ -47,6 +47,7 @@ class RelationshipUpdate(BaseModel):
     target_revision: str = ""
     sources: list[RelationshipSource] = Field(default_factory=list)
     binding_mode: Literal["auto", "manual"] = "manual"
+    preserve_generation_snapshot_if_missing: bool = False
 class AbsorptionDecisionUpdate(BaseModel):
     action: Literal["absorb", "reference_only", "ignore"] | None = None
     role: Literal["primary", "reference"] | None = None
@@ -129,6 +130,18 @@ def update_preparation(package_id: str, body: PreparationUpdate, request: Reques
 def replace_relationships(package_id: str, body: RelationshipUpdate, request: Request):
     try:
         package = repository.load_owned(package_id, owner(request))
+        if (
+            body.preserve_generation_snapshot_if_missing
+            and repository.generation_source_snapshot(package, body.target_id) is None
+        ):
+            repository.capture_generation_source_snapshot(
+                package,
+                target_id=body.target_id,
+                target_type=body.target_type,
+                target_label=body.target_label,
+                target_revision=body.target_revision,
+                task_id="legacy-generated-content",
+            )
         relationships = repository.replace_formal_relationships(
             package,
             target_id=body.target_id,
