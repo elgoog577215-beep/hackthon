@@ -209,6 +209,14 @@
       "prepareNext": "准备下次课",
       "continue": "继续备课"
     },
+    "production": {
+      "complete": "已生成完成",
+      "incomplete": "未生成完成",
+      "generating": "正在生成{target}{count}",
+      "waiting": "{target}等待继续{count}",
+      "paused": "{target}生成已暂停{count}",
+      "failed": "{target}生成失败{count}"
+    },
     "teacherSummary": {
       "generating": "生成进度 {progress}% · 进入任务中心查看",
       "empty": "尚无教学大纲 · 下一步建立课程大纲",
@@ -385,6 +393,11 @@
     "continue": "继续",
     "regenerate": "重新生成",
     "stageNavigation": "课程生产阶段",
+    "stageStatus": {
+      "pending": "未生成",
+      "progress": "生成进度 {progress}%",
+      "complete": "已生成"
+    },
     "progress": "五类资产可独立创建",
     "editOutline": "编辑大纲",
     "finishOutlineEditing": "完成编辑",

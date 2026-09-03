@@ -18,6 +18,7 @@ import { useGenerationStore } from './generation'
 import logger from '../utils/logger'
 import { courseDocumentToNodes } from '../utils/course-document'
 import { t } from '@/shared/i18n'
+import { normalizeTaskStatus, shouldApplyTaskSnapshot } from '@/shared/task-lifecycle'
 import type {
     BlockRegenerationApplyResult,
     BlockRegenerationCandidate,
@@ -103,16 +104,8 @@ type GenerationPreviewEnvelope = {
 }
 
 const GENERATION_PREVIEW_STATUSES = new Set([
-    'pending', 'running', 'paused', 'waiting_for_review', 'conflict', 'failed', 'error', 'completed_with_warnings',
+    'pending', 'running', 'paused', 'waiting_for_input', 'waiting_for_review', 'conflict', 'failed', 'cancelled', 'error', 'completed_with_warnings',
 ])
-
-const normalizeTaskStatus = (status: string): Task['status'] => {
-    if (status === 'failed') return 'error'
-    if (['idle', 'running', 'paused', 'completed', 'error', 'pending', 'waiting_for_review', 'completed_with_warnings', 'conflict'].includes(status)) {
-        return status as Task['status']
-    }
-    return 'pending'
-}
 
 // --- 类型重新导出（向后兼容） ---
 export type { ContentBlock, Node, Annotation, Note, Course, SelectionRewritePayload, SelectionRewriteResult } from './types'
@@ -247,9 +240,11 @@ export const useCourseStore = defineStore('course', {
         } catch (error) { logger.error(error); throw error }
     },
 
-    async fetchCourseList(options: { surface?: 'student' | 'teacher' } = {}) {
-        this.loading = true
-        this.courseListError = null
+    async fetchCourseList(options: { surface?: 'student' | 'teacher'; background?: boolean } = {}) {
+        if (!options.background) {
+            this.loading = true
+            this.courseListError = null
+        }
         try {
             const surface = options.surface || 'student'
             const endpoint = surface === 'teacher' ? '/api/teacher/courses' : '/api/courses'
@@ -257,12 +252,13 @@ export const useCourseStore = defineStore('course', {
                 surface === 'teacher' ? 'teacher' : 'learner',
             ))
             this.courseList = res.data
+            this.courseListError = null
         } catch (error) {
             logger.error(error)
             this.courseListError = error instanceof Error ? error.message : String(error)
             // Keep the last successful list so offline task actions do not disappear.
         }
-        finally { this.loading = false }
+        finally { if (!options.background) this.loading = false }
     },
 
     async loadCourse(courseId: string, options: {
@@ -305,19 +301,22 @@ export const useCourseStore = defineStore('course', {
                     if (!localTask) {
                         localTask = genStore.createTask(taskData.id, courseId, '后台生成任务')
                     }
-                    localTask.id = taskData.id
-                    localTask.taskType = String(taskData.type || options.taskType || localTask.taskType || '') || undefined
-                    localTask.status = normalizeTaskStatus(String(taskData.status || 'pending'))
-                    localTask.progress = taskData.progress
-                    const phase = taskData.current_phase || taskData.phase
-                    if (phase) localTask.currentPhase = String(phase)
-                    localTask.phaseProgress = taskData.phase_progress ?? taskData.progress
-                    localTask.phaseDetail = taskData.phase_detail || {}
-                    localTask.error = taskData.error ? String(taskData.error) : undefined
-                    localTask.recovery = taskData.recovery || undefined
-                    localTask.guidedWorkflow = taskData.guided_workflow || undefined
-                    if (typeof taskData.publication_allowed === 'boolean') {
-                        localTask.publicationAllowed = taskData.publication_allowed
+                    if (shouldApplyTaskSnapshot(localTask, taskData)) {
+                        localTask.id = taskData.id
+                        localTask.taskType = String(taskData.type || options.taskType || localTask.taskType || '') || undefined
+                        localTask.status = normalizeTaskStatus(String(taskData.status || 'pending'), localTask.status)
+                        localTask.progress = taskData.progress
+                        const phase = taskData.current_phase || taskData.phase
+                        if (phase) localTask.currentPhase = String(phase)
+                        localTask.phaseProgress = taskData.phase_progress ?? taskData.progress
+                        localTask.phaseDetail = taskData.phase_detail || {}
+                        localTask.error = taskData.error ? String(taskData.error) : undefined
+                        localTask.recovery = taskData.recovery || undefined
+                        localTask.guidedWorkflow = taskData.guided_workflow || undefined
+                        localTask.updatedAt = String(taskData.updated_at || taskData.created_at || localTask.updatedAt || '') || undefined
+                        if (typeof taskData.publication_allowed === 'boolean') {
+                            localTask.publicationAllowed = taskData.publication_allowed
+                        }
                     }
                     if (
                         options.monitorTask !== false
@@ -338,11 +337,12 @@ export const useCourseStore = defineStore('course', {
                 )
                 && await this.refreshGenerationPreview(courseId, options.previewSurface)
             ) {
+                const reconciledTask = genStore.tasks.get(courseId)
                 genStore.syncCurrentCourseGenerationState(
                     courseId,
-                    normalizeTaskStatus(String(backendTask?.status || 'pending')),
-                    Number(backendTask?.progress || 0),
-                    taskProgressStep(backendTask || {}),
+                    reconciledTask?.status || normalizeTaskStatus(String(backendTask?.status || 'pending')),
+                    Number(reconciledTask?.progress ?? backendTask?.progress ?? 0),
+                    reconciledTask?.currentStep || taskProgressStep(backendTask || {}),
                 )
                 return
             }
@@ -547,6 +547,14 @@ export const useCourseStore = defineStore('course', {
                 identityReadRequestConfig(surface === 'teacher' ? 'teacher' : 'learner', { silentError: true }),
             )
             const preview = response.data
+            const currentPreviewTimestamp = Date.parse(this.currentGenerationPreviewUpdatedAt) || 0
+            const incomingPreviewTimestamp = Date.parse(String(preview.updated_at || '')) || 0
+            if (
+                this.currentCourseProjection === 'generation_preview'
+                && currentPreviewTimestamp
+                && incomingPreviewTimestamp
+                && incomingPreviewTimestamp < currentPreviewTimestamp
+            ) return true
             const previousById = new Map(this.nodes.map(node => [node.node_id, node]))
             const currentNodeId = this.currentNode?.node_id
             const nodes = (preview.nodes || []).map((raw): Node => {
@@ -595,20 +603,24 @@ export const useCourseStore = defineStore('course', {
             const task = preview.task || {}
             let localTask = genStore.tasks.get(courseId)
             if (!localTask) localTask = genStore.createTask(String(task.id || ''), courseId, preview.course_name || '后台生成任务')
-            localTask.id = String(task.id || localTask.id)
-            localTask.courseName = preview.course_name || localTask.courseName
-            localTask.status = normalizeTaskStatus(String(task.status || 'pending'))
-            localTask.progress = Number(task.progress || 0)
-            localTask.currentStep = taskProgressStep(task as any)
-            localTask.currentPhase = String(task.current_phase || task.phase || '')
-            localTask.phaseDetail = task.phase_detail || {}
-            localTask.error = task.error ? String(task.error) : undefined
-            localTask.phaseProgress = Number(task.phase_progress || 0)
-            localTask.currentNodes = (task.current_nodes || []) as Task['currentNodes']
-            localTask.guidedWorkflow = task.guided_workflow || undefined
-            localTask.completedNodes = Number(task.completed_nodes || 0)
-            localTask.totalNodes = Number(task.total_nodes || 0)
-            localTask.recovery = task.recovery || undefined
+            const incomingTask = { ...task, updated_at: task.updated_at || preview.updated_at }
+            if (shouldApplyTaskSnapshot(localTask, incomingTask)) {
+                localTask.id = String(task.id || localTask.id)
+                localTask.courseName = preview.course_name || localTask.courseName
+                localTask.status = normalizeTaskStatus(String(task.status || 'pending'), localTask.status)
+                localTask.progress = Number(task.progress || 0)
+                localTask.currentStep = taskProgressStep(task as any)
+                localTask.currentPhase = String(task.current_phase || task.phase || '')
+                localTask.phaseDetail = task.phase_detail || {}
+                localTask.error = task.error ? String(task.error) : undefined
+                localTask.phaseProgress = Number(task.phase_progress || 0)
+                localTask.currentNodes = (task.current_nodes || []) as Task['currentNodes']
+                localTask.guidedWorkflow = task.guided_workflow || undefined
+                localTask.completedNodes = Number(task.completed_nodes || 0)
+                localTask.totalNodes = Number(task.total_nodes || 0)
+                localTask.recovery = task.recovery || undefined
+                localTask.updatedAt = String(incomingTask.updated_at || localTask.updatedAt || '') || undefined
+            }
             return true
         } catch (error: any) {
             if (error?.response?.status !== 404) logger.warn('Failed to refresh generation preview', error)

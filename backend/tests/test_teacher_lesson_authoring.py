@@ -1727,6 +1727,7 @@ def test_script_job_runs_blocks_concurrently_and_streams_real_token_shards(tmp_p
         ],
     }
     started: set[str] = set()
+    observed_live_blocks: set[str] = set()
     both_started = asyncio.Event()
     release = asyncio.Event()
 
@@ -1752,6 +1753,13 @@ def test_script_job_runs_blocks_concurrently_and_streams_real_token_shards(tmp_p
         await on_content_reset()
         await on_content_delta(content[:split_at])
         await on_content_delta(content[split_at:])
+        live_job = repository.get_job("course-1", job["id"])
+        assert any(
+            streamed == content
+            for shard_id, streamed in live_job["stream_batches"].items()
+            if shard_id.endswith(f":{module['block_id']}")
+        )
+        observed_live_blocks.add(module["module_id"])
         return content
 
     async def scenario():
@@ -1772,30 +1780,9 @@ def test_script_job_runs_blocks_concurrently_and_streams_real_token_shards(tmp_p
 
     assert completed["status"] == "completed"
     assert completed["stream_mode"] == "token_stream"
-    assert {item["event"] for item in completed["stream_events"]} == {
-        "reset",
-        "delta",
-    }
-    delta_events = [
-        item for item in completed["stream_events"] if item["event"] == "delta"
-    ]
-    assert len(delta_events) == 4
-    assert all(item["lesson_unit_id"] == "L1-1" for item in delta_events)
-    assert all(item["block_id"] in item["shard_id"] for item in delta_events)
-    assert all(item["delta"] for item in delta_events)
-    for shard_id in {item["shard_id"] for item in delta_events}:
-        streamed = "".join(
-            item["delta"] for item in delta_events if item["shard_id"] == shard_id
-        )
-        block_id = next(
-            item["block_id"] for item in delta_events if item["shard_id"] == shard_id
-        )
-        expected = next(
-            block["content"]
-            for block in completed["result_sections"][0]["blocks"]
-            if block["block_id"] == block_id
-        )
-        assert streamed == expected
+    assert completed["stream_events"] == []
+    assert completed["stream_batches"] == {}
+    assert observed_live_blocks == {"core_explanation", "feedback_check"}
     assert [
         item["module_id"] for item in completed["result_sections"][0]["blocks"]
     ] == ["core_explanation", "feedback_check"]
@@ -1960,12 +1947,8 @@ def test_script_job_runs_bounded_shards_concurrently_and_retries_only_failed_sha
     assert len(failed["result_sections"][0]["blocks"]) == 2
     assert repository.lesson("course-1", "L1-1")["script_revisions"] == []
     failed_shard_id = failed["error"]["failed_shards"][0]["shard_id"]
-    for event in failed["stream_events"]:
-        if event["event"] != "delta":
-            continue
-        assert event["shard_id"] in failed["stream_batches"]
-        block_content = contents[event["block_id"]]
-        assert failed["stream_batches"][event["shard_id"]] == block_content
+    assert failed["stream_events"] == []
+    assert failed["stream_batches"] == {}
 
     retry_job = repository.create_job(
         "course-1",
@@ -2009,13 +1992,8 @@ def test_script_job_runs_bounded_shards_concurrently_and_retries_only_failed_sha
     assert [
         item["block_id"] for item in completed["result_sections"][0]["blocks"]
     ] == ordered_block_ids
-    for event in completed["stream_events"]:
-        if event["event"] != "delta":
-            continue
-        assert event["shard_id"] in completed["stream_batches"]
-        assert completed["stream_batches"][event["shard_id"]] == contents[
-            event["block_id"]
-        ]
+    assert completed["stream_events"] == []
+    assert completed["stream_batches"] == {}
 
 
 def test_script_resume_discards_only_invalid_checkpoint_block(tmp_path):
@@ -2730,7 +2708,7 @@ def test_plan_job_progress_never_moves_backwards(tmp_path):
     assert completed["progress"] == 100
 
 
-def test_plan_job_stream_persistence_does_not_block_event_loop(tmp_path):
+def test_plan_job_stream_updates_do_not_block_event_loop(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     repository.set_outline("course-1", "outline-v1")
     service = TeacherLessonAuthoringService(repository)
@@ -2831,7 +2809,7 @@ def test_plan_job_keeps_formal_outline_and_planner_scope_revisions_separate(tmp_
     assert completed["warnings"] == []
 
 
-def test_failed_plan_job_keeps_streamed_working_copy(tmp_path):
+def test_failed_plan_job_discards_unvalidated_streamed_working_copy(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     service = TeacherLessonAuthoringService(repository)
     job = repository.create_job(
@@ -2872,12 +2850,11 @@ def test_failed_plan_job_keeps_streamed_working_copy(tmp_path):
 
     assert failed["status"] == "failed"
     assert failed["stream_complete"] is True
-    assert set(failed["stream_batches"]) == {"TP-B01", "TP-B02"}
-    assert "第一批已生成" in failed["stream_batches"]["TP-B01"]
-    assert "第二批已生成" in failed["stream_batches"]["TP-B02"]
+    assert failed["stream_batches"] == {}
+    assert failed["stream_events"] == []
 
 
-def test_orphaned_lesson_job_expires_and_keeps_partial_stream(tmp_path):
+def test_orphaned_lesson_job_recovers_only_last_semantic_checkpoint(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     job = repository.create_job(
         "course-1",
@@ -2895,17 +2872,38 @@ def test_orphaned_lesson_job_expires_and_keeps_partial_stream(tmp_path):
         event="delta",
         delta='{"learning_objective":"已生成部分目标"',
     )
+    live = repository.get_job("course-1", job["id"])
+    assert "已生成部分目标" in live["stream_batches"]["TP-B01"]
+
+    before_checkpoint = TeacherLessonAuthoringRepository(tmp_path).get_job(
+        "course-1",
+        job["id"],
+    )
+    assert before_checkpoint["stream_batches"] == {}
+
+    repository.update_job(
+        "course-1",
+        job["id"],
+        phase="course_teaching_plan_batch_saved",
+        progress=60,
+        checkpoint={
+            "schema_version": "teacher_lesson_plan_checkpoint_v1",
+            "validated_batch_ids": ["TP-B01"],
+        },
+    )
     path = tmp_path / "course-1.json"
     stored = json.loads(path.read_text(encoding="utf-8"))
     stored["jobs"][job["id"]]["updated_at"] = "2020-01-01T00:00:00+00:00"
     path.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
 
-    expired = repository.expire_stale_job("course-1", job["id"])
+    reloaded = TeacherLessonAuthoringRepository(tmp_path)
+    expired = reloaded.expire_stale_job("course-1", job["id"])
 
     assert expired["status"] == "failed"
     assert expired["phase"] == "lesson_plan_interrupted"
     assert expired["error"]["retryable"] is True
-    assert "已生成部分目标" in expired["stream_batches"]["TP-B01"]
+    assert expired["stream_batches"] == {}
+    assert expired["checkpoint"]["validated_batch_ids"] == ["TP-B01"]
 
 
 def test_plan_v3_projection_is_editable_and_never_serializes_module_json():
@@ -4334,11 +4332,9 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
 
     assert job["status"] == "completed"
     assert job["stream_complete"] is True
-    assert job["stream_batches"]["TP-B01"] == (
-        '{"sections":[{"learning_objective":"正在生成专业教学目标"}]}'
-    )
+    assert job["stream_batches"] == {}
     assert "lesson_plan_complete" in stream_payload
-    assert "正在生成专业教学目标" in stream_payload
+    assert "正在生成专业教学目标" not in stream_payload
     assert FakeTaskManager.course_service.calls == ["L1-2"]
     assets = repository.view("course-1")["lessons"]
     assert set(assets) == {"L1-2"}

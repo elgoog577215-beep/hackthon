@@ -58,6 +58,13 @@ describe('teacher course library management', () => {
       course_name: '矩阵与线性变换',
       course_code: 'MATH-221',
       preparation_state: 'prepared',
+      preparation_summary: {
+        planned_lessons: 8,
+        outline_confirmed: true,
+        confirmed_lesson_plans: 8,
+        confirmed_handouts: 8,
+        confirmed_ppts: 8,
+      },
       next_session: {
         session_id: 'session-7', sequence: 7, date: '2026-09-08', start_time: '14:00:00',
         end_time: '15:35:00', content_summary: '特征向量', location: '理科楼 A108',
@@ -73,19 +80,136 @@ describe('teacher course library management', () => {
     expect(wrapper.find('.library-view-control').exists()).toBe(false)
     expect(wrapper.find('[aria-haspopup="menu"]').exists()).toBe(false)
     expect(wrapper.get('thead').text()).toContain('课程')
-    expect(wrapper.get('thead').text()).toContain('备课状态')
+    expect(wrapper.get('thead').text()).toContain('内容进度')
     expect(wrapper.get('thead').text()).toContain('上课时间')
     expect(wrapper.get('thead').text()).toContain('学年学期')
     expect(wrapper.get('thead').text()).toContain('最后编辑')
     expect(wrapper.findAll('.column-sort').map(node => node.attributes('aria-label'))).toEqual([
-      '按课程排序', '按备课状态排序', '按上课时间排序', '按学年学期排序', '按最后编辑排序',
+      '按课程排序', '按内容进度排序', '按上课时间排序', '按学年学期排序', '按最后编辑排序',
     ])
     expect(wrapper.get('tbody').text()).toContain('《矩阵与线性变换》')
-    expect(wrapper.get('tbody').text()).toContain('备课完成')
+    expect(wrapper.get('.course-production-summary').text()).toBe('已生成完成')
+    expect(wrapper.find('.asset-progress').exists()).toBe(false)
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
+    expect(wrapper.get('tbody').text()).not.toContain('备课完成')
     expect(wrapper.get('tbody').text()).toContain('14:00')
     expect(wrapper.get('tbody').text()).toContain('理科楼 A108')
     expect(wrapper.get('tbody').text()).toContain('2026-2027 秋季')
     expect(wrapper.get('[data-testid="delete-course-math"]').attributes('title')).toBe('删除课程')
+  })
+
+  it('在课程行内显示真实生成任务，并直接进入对应生产阶段', async () => {
+    const courses = useCourseStore()
+    courses.courseList = [course('active', {
+      course_name: '线性代数',
+      preparation_summary: {
+        planned_lessons: 3,
+        outline_confirmed: true,
+        confirmed_lesson_plans: 1,
+        confirmed_handouts: 0,
+        confirmed_ppts: 0,
+        current_production: {
+          target: 'lesson_plan',
+          status: 'running',
+          completed: 1,
+          total: 3,
+          failed: 0,
+          progress: 50,
+          message: '正在生成第 2 讲教案',
+        },
+      },
+    }) as any]
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+
+    const wrapper = mountLibrary()
+    await flushPromises()
+
+    expect(wrapper.get('.course-production-summary').text()).toBe('正在生成教案 1/3')
+    expect(wrapper.find('.course-task').exists()).toBe(false)
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
+    expect(wrapper.get('.course-action').text()).toContain('查看进度')
+
+    await wrapper.get('.course-action').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('course-workspace')
+    expect(router.currentRoute.value.params.courseId).toBe('active')
+    expect(router.currentRoute.value.query.stage).toBe('lesson')
+  })
+
+  it('大纲讲次方案完成后显示等待继续而不是正在生成', async () => {
+    const courses = useCourseStore()
+    courses.courseList = [course('outline-waiting', { course_name: 'UI 设计' }) as any]
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    const task = useGenerationStore().createTask('job-outline-waiting', 'outline-waiting', 'UI 设计')
+    task.taskType = 'teacher_outline_generation'
+    task.status = 'waiting_for_input'
+    task.currentPhase = 'outline_shape_ready'
+
+    const wrapper = mountLibrary()
+    await flushPromises()
+
+    expect(wrapper.get('.course-production-summary').text()).toBe('教学大纲等待继续')
+    expect(wrapper.get('.course-production-summary').attributes('data-tone')).toBe('attention')
+    expect(wrapper.get('.course-action').text()).toContain('继续备课')
+    await wrapper.get('.course-action').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.stage).toBe('foundation')
+  })
+
+  it('课程汇总中的大纲等待状态也进入大纲阶段', async () => {
+    const courses = useCourseStore()
+    courses.courseList = [course('outline-summary-waiting', {
+      course_name: 'UI 设计',
+      preparation_summary: {
+        planned_lessons: 16,
+        current_production: {
+          target: 'outline',
+          status: 'waiting_for_input',
+          completed: 16,
+          total: 16,
+          failed: 0,
+          progress: 35,
+          message: '轻量讲次方案已生成',
+        },
+      },
+    }) as any]
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+
+    const wrapper = mountLibrary()
+    await flushPromises()
+
+    expect(wrapper.get('.course-production-summary').text()).toBe('教学大纲等待继续 16/16')
+    expect(wrapper.get('.course-action').text()).toContain('继续备课')
+    await wrapper.get('.course-action').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.stage).toBe('foundation')
+  })
+
+  it('停留在我的课程时静默刷新生成进度，离开页面后停止', async () => {
+    vi.useFakeTimers()
+    let wrapper: VueWrapper | null = null
+    try {
+      vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+      const courses = useCourseStore()
+      courses.courseList = [course('active') as any]
+      const fetchCourses = vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+      wrapper = mountLibrary()
+      await flushPromises()
+
+      expect(fetchCourses).toHaveBeenCalledWith({ surface: 'teacher' })
+      await vi.advanceTimersByTimeAsync(5000)
+      await flushPromises()
+      expect(fetchCourses).toHaveBeenLastCalledWith({ surface: 'teacher', background: true })
+
+      wrapper.unmount()
+      wrapper = null
+      const callsAfterUnmount = fetchCourses.mock.calls.length
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(fetchCourses).toHaveBeenCalledTimes(callsAfterUnmount)
+    } finally {
+      wrapper?.unmount()
+      vi.useRealTimers()
+    }
   })
 
   it('支持搜索、表头排序，并把当前筛选和排序带回课程入口', async () => {

@@ -355,6 +355,43 @@ describe('course generation lifecycle reconciliation', () => {
     expect(get).not.toHaveBeenCalledWith('/api/courses/course-teacher-current/document')
   })
 
+  it('刷新后保留大纲等待继续状态并读取可编辑投影', async () => {
+    const courses = useCourseStore()
+    const generation = useGenerationStore()
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    const get = vi.spyOn(http, 'get').mockImplementation(async (url: string) => {
+      if (url === '/api/courses/course-outline-waiting/task?task_type=teacher_outline_generation') {
+        return { data: {
+          id: 'job-outline-waiting', type: 'teacher_outline_generation', status: 'waiting_for_input',
+          progress: 35, phase: 'outline_shape_ready', updated_at: '2026-09-04T10:00:00Z',
+        } } as never
+      }
+      if (url === '/api/teacher/courses/course-outline-waiting/generation-preview') {
+        return { data: {
+          schema_version: 'generation_preview_v2', projection: 'generation_workspace',
+          course_id: 'course-outline-waiting', course_name: 'UI 设计', workspace_id: 'job-outline-waiting', workspace_status: 'active',
+          task: { id: 'job-outline-waiting', status: 'waiting_for_input', progress: 35, phase: 'outline_shape_ready' },
+          nodes: [{
+            node_id: 'L1-1', parent_node_id: 'root', node_name: '第1讲 设计导论', node_level: 1,
+            node_content: '', content_blocks: [], generation_status: 'completed', content_state: 'draft',
+          }],
+        } } as never
+      }
+      throw new Error(`unexpected request: ${url}`)
+    })
+
+    await courses.loadCourse('course-outline-waiting', {
+      includeLearningRecords: false,
+      taskType: 'teacher_outline_generation',
+      previewSurface: 'teacher',
+    })
+
+    expect(courses.currentCourseProjection).toBe('generation_preview')
+    expect(courses.nodes[0]?.node_name).toBe('第1讲 设计导论')
+    expect(generation.getTask('course-outline-waiting')?.status).toBe('waiting_for_input')
+    expect(get).not.toHaveBeenCalledWith('/api/courses/course-outline-waiting/document')
+  })
+
   it('任务轮询暂时失败时仍从空发布壳恢复失败任务现场', async () => {
     const generation = useGenerationStore()
     const courses = useCourseStore()
@@ -428,6 +465,38 @@ describe('course generation lifecycle reconciliation', () => {
     await courses.refreshGenerationPreview('course-live')
 
     expect(courses.nodes[0]?.node_content).toBe('已检查点正文 + 刚收到的增量')
+  })
+
+  it('较旧大纲投影不覆盖已到达的等待继续状态和讲次方案', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    courses.currentCourseId = 'course-outline-preview-race'
+    courses.currentCourseProjection = 'generation_preview'
+    courses.currentGenerationPreviewUpdatedAt = '2026-09-04T10:00:05Z'
+    courses.nodes = [{
+      node_id: 'L1-1', parent_node_id: 'root', node_name: '第1讲 最新讲次方案', node_level: 1,
+      node_content: '', node_type: 'original', generation_status: 'completed', generated_chars: 0,
+    }]
+    const task = generation.createTask('job-outline-preview-race', 'course-outline-preview-race', 'UI 设计')
+    task.status = 'waiting_for_input'
+    task.progress = 35
+    task.updatedAt = '2026-09-04T10:00:05Z'
+    vi.spyOn(http, 'get').mockResolvedValue({ data: {
+      schema_version: 'generation_preview_v2', projection: 'generation_workspace',
+      course_id: 'course-outline-preview-race', course_name: 'UI 设计',
+      workspace_id: 'job-outline-preview-race', workspace_status: 'active',
+      updated_at: '2026-09-04T10:00:01Z',
+      task: { id: 'job-outline-preview-race', status: 'running', progress: 30, updated_at: '2026-09-04T10:00:01Z' },
+      nodes: [{
+        node_id: 'L1-1', parent_node_id: 'root', node_name: '旧的生成中方案', node_level: 1,
+        node_content: '', node_type: 'original', generation_status: 'generating', generated_chars: 0,
+      }],
+    } })
+
+    await courses.refreshGenerationPreview('course-outline-preview-race', 'teacher')
+
+    expect(courses.nodes[0]?.node_name).toBe('第1讲 最新讲次方案')
+    expect(task).toMatchObject({ status: 'waiting_for_input', progress: 35 })
   })
 
   it('带质量建议发布后也从草稿投影切换到正式课程', async () => {
@@ -758,6 +827,72 @@ describe('course generation lifecycle reconciliation', () => {
     const task = generation.getTask('course-beat')
     expect(task?.heartbeatAt).toBe('2026-08-05T10:00:00')
     expect(task?.updatedAt).toBe('2026-08-05T10:00:05')
+  })
+
+  it('较旧轮询快照不会把大纲等待继续覆盖回生成中', async () => {
+    const generation = useGenerationStore()
+    const localTask = generation.createTask('job-outline-race', 'course-outline-race', 'UI 设计')
+    localTask.taskType = 'teacher_outline_generation'
+    localTask.status = 'waiting_for_input'
+    localTask.progress = 35
+    localTask.updatedAt = '2026-09-04T10:00:05Z'
+    generation.globalTasks = [{
+      id: 'job-outline-race', course_id: 'course-outline-race', type: 'teacher_outline_generation',
+      status: 'waiting_for_input', progress: 35, updated_at: '2026-09-04T10:00:05Z',
+    }]
+    vi.spyOn(http, 'get').mockResolvedValue({ data: [{
+      id: 'job-outline-race', course_id: 'course-outline-race', type: 'teacher_outline_generation',
+      status: 'running', progress: 30, updated_at: '2026-09-04T10:00:01Z',
+    }] })
+
+    await generation.fetchGlobalTasks()
+
+    expect(generation.getTask('course-outline-race')).toMatchObject({ status: 'waiting_for_input', progress: 35 })
+    expect(generation.globalTasks[0]).toMatchObject({ status: 'waiting_for_input', progress: 35 })
+  })
+
+  it('同一更新时间下也不接受从等待操作倒退到生成中', () => {
+    const generation = useGenerationStore()
+    const localTask = generation.createTask('job-outline-same-time', 'course-outline-same-time', 'UI 设计')
+    localTask.status = 'waiting_for_input'
+    localTask.progress = 35
+    localTask.updatedAt = '2026-09-04T10:00:05Z'
+
+    generation.handleWSProgressUpdate({
+      type: 'progress_update', course_id: 'course-outline-same-time', task_id: 'job-outline-same-time',
+      payload: { status: 'running', progress: 30, updated_at: '2026-09-04T10:00:05Z' },
+    } as any)
+
+    expect(localTask).toMatchObject({ status: 'waiting_for_input', progress: 35 })
+  })
+
+  it('更晚的恢复快照可以让大纲任务重新进入运行', async () => {
+    const generation = useGenerationStore()
+    const localTask = generation.createTask('job-outline-resume', 'course-outline-resume', 'UI 设计')
+    localTask.taskType = 'teacher_outline_generation'
+    localTask.status = 'waiting_for_input'
+    localTask.progress = 35
+    localTask.updatedAt = '2026-09-04T10:00:01Z'
+    vi.spyOn(http, 'get').mockResolvedValue({ data: [{
+      id: 'job-outline-resume', course_id: 'course-outline-resume', type: 'teacher_outline_generation',
+      status: 'running', progress: 36, updated_at: '2026-09-04T10:00:05Z',
+    }] })
+
+    await generation.fetchGlobalTasks()
+
+    expect(generation.getTask('course-outline-resume')).toMatchObject({ status: 'running', progress: 36 })
+  })
+
+  it('刷新后仍能恢复已取消任务并显示为错误而不是等待', async () => {
+    const generation = useGenerationStore()
+    vi.spyOn(http, 'get').mockResolvedValue({ data: [{
+      id: 'job-cancelled', course_id: 'course-cancelled', type: 'teacher_outline_generation',
+      status: 'cancelled', progress: 35, updated_at: '2026-09-04T10:00:05Z',
+    }] })
+
+    await generation.fetchGlobalTasks()
+
+    expect(generation.getTask('course-cancelled')).toMatchObject({ status: 'error', progress: 35 })
   })
 
   it('任务错误事件保留后端错误码与可读原因，不只留技术堆栈', () => {

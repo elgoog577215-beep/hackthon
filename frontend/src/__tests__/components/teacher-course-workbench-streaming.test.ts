@@ -132,6 +132,24 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.companion-entry button small').exists()).toBe(false)
     expect(wrapper.findAll('.companion-entry button').map(button => button.text())).toEqual(['题库', '评分细则', '考试课程材料自查清单'])
     expect(wrapper.findAll('.companion-entry button').every(button => button.findAll('svg').length === 1)).toBe(true)
+    expect(wrapper.find('.stage-rail > footer').exists()).toBe(false)
+    expect(wrapper.findAll('.stage-state')).toHaveLength(4)
+    expect(wrapper.findAll('.stage-state').every(state => state.attributes('data-state') === 'pending')).toBe(true)
+    expect(wrapper.findAll('.stage-state').every(state => state.attributes('data-progress') === '0')).toBe(true)
+  })
+
+  it('侧栏用绿色圆形填充表示真实生成进度，不显示数字计数', () => {
+    const task = useGenerationStore().createTask('job-progress', 'course-1', 'C 语言程序设计')
+    task.status = 'running'
+    task.progress = 40
+
+    const wrapper = mountWorkbench()
+    const outlineState = wrapper.findAll('.stage-state')[0]!
+
+    expect(outlineState.attributes('data-state')).toBe('progress')
+    expect(outlineState.attributes('data-progress')).toBe('40')
+    expect(outlineState.attributes('style')).toContain('--stage-progress-angle: 144deg')
+    expect(wrapper.find('.stage-rail > footer').exists()).toBe(false)
   })
 
   it('把课程信息入口事件交给课程工作区打开弹窗', async () => {
@@ -326,8 +344,31 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.center-heading h2').text()).toBe('大纲')
     expect(wrapper.find('[data-testid="outline-ai-action"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="outline-manual-action"]').text()).toContain('编辑大纲')
+    const completedState = wrapper.findAll('.stage-state')[0]!
+    expect(completedState.attributes('data-state')).toBe('complete')
+    expect(completedState.attributes('data-progress')).toBe('100')
+    expect(completedState.find('svg').exists()).toBe(true)
     await wrapper.get('[data-testid="outline-manual-action"]').trigger('click')
     expect(wrapper.emitted('update:outlineEditing')?.[0]).toEqual([true])
+  })
+
+  it('讲次方案生成后退出转圈并提供编辑与继续入口', () => {
+    useCourseStore().nodes = [{
+      node_id: 'L1-1', parent_node_id: 'root', node_name: '第1讲 设计导论', node_level: 1,
+      node_content: '', node_type: 'original', generation_status: 'completed', generated_chars: 0,
+    }] as any
+    const task = useGenerationStore().createTask('job-waiting', 'course-1', 'UI 设计')
+    task.status = 'waiting_for_input'
+    task.currentPhase = 'outline_shape_ready'
+    task.progress = 35
+
+    const wrapper = mountWorkbench({ courseTitle: 'UI 设计' })
+
+    expect(wrapper.find('.generation-surface').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="outline-workspace"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="outline-continue-action"]').text()).toContain('生成完整大纲')
+    expect(wrapper.get('[data-testid="outline-manual-action"]').text()).toContain('编辑大纲')
+    expect(wrapper.find('.spin').exists()).toBe(false)
   })
 
   it('正式大纲隐藏右栏 AI 助手，保留三步导航和生成后状态', async () => {
@@ -1116,7 +1157,7 @@ describe('teacher course workbench outline streaming', () => {
     lessonStore.lessons = [1, 2].map(number => ({
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45, sections: [],
       arrangement: { schema_version: 'teacher_lesson_arrangement_v1', revision_id: `arrangement-${number}`, lesson_unit_id: `L1-${number}`, source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授', status: 'confirmed', confirmed: true, source_state: 'current', blocks: [] },
-      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, confirmed_revision_id: '', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
       script: {
         current_revision_id: number === 1 ? 'script-1' : 'legacy-fingerprint',
         confirmed_revision_id: '', source_lesson_plan_revision_id: `plan-${number}`, source_state: 'current',

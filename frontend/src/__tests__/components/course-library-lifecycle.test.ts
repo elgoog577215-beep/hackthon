@@ -138,6 +138,40 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.find('.generation-progress').exists()).toBe(false)
   })
 
+  it('等待教师继续的大纲不会被误显示为可以学习', async () => {
+    const courses = useCourseStore()
+    const generation = useGenerationStore()
+    courses.courseList = [{ course_id: 'course-outline', course_name: 'UI 设计', node_count: 16 }]
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
+    const task = generation.createTask('job-outline', 'course-outline', 'UI 设计')
+    task.taskType = 'teacher_outline_generation'
+    task.status = 'waiting_for_input'
+    task.progress = 35
+
+    const wrapper = mount(CourseLibraryView, {
+      global: {
+        plugins: [router],
+        stubs: {
+          CourseGenerationDialog: true,
+          CourseWorkbench: true,
+          CourseTaskCenter: true,
+          QuestionBankReviewCenter: true,
+          Teleport: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('.course-status').text()).toContain('等待继续')
+    expect(wrapper.get('.course-item').attributes('data-state')).toBe('processing')
+    expect(wrapper.find('.generation-progress').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('可以学习')
+    expect(wrapper.get('.library-global-actions .action-count').text()).toBe('1')
+  })
+
   it('课程更多操作不再暴露独立题库管理页', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()

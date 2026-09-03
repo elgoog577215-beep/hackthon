@@ -12,7 +12,12 @@ vi.mock('@/utils/http', () => ({
   teacherReadRequestConfig: (config = {}) => config,
 }))
 
-import { lessonJobsToObserve, mergeLessonJobStreamEvent, useTeacherLessonAuthoringStore } from '@/stores/teacherLessonAuthoring'
+import {
+  lessonJobsToObserve,
+  mergeLessonJobSnapshot,
+  mergeLessonJobStreamEvent,
+  useTeacherLessonAuthoringStore,
+} from '@/stores/teacherLessonAuthoring'
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -25,7 +30,7 @@ afterEach(() => {
 })
 
 describe('teacher lesson authoring store', () => {
-  it('observes only the running job or the next queued job for one course', () => {
+  it('observes up to four active jobs so parallel lessons stream independently', () => {
     const queued = [3, 1, 2].map(position => ({
       id: `job-${position}`,
       status: 'pending',
@@ -33,11 +38,11 @@ describe('teacher lesson authoring store', () => {
       created_at: `2026-09-01T00:00:0${position}Z`,
     })) as any
 
-    expect(lessonJobsToObserve(queued).map(job => job.id)).toEqual(['job-1'])
+    expect(lessonJobsToObserve(queued).map(job => job.id)).toEqual(['job-1', 'job-2', 'job-3'])
     expect(lessonJobsToObserve([
       ...queued,
       { id: 'job-running', status: 'running', batch_position: 2 },
-    ] as any).map(job => job.id)).toEqual(['job-running'])
+    ] as any).map(job => job.id)).toEqual(['job-running', 'job-1', 'job-2', 'job-3'])
   })
 
   it('observes every active script job so each lecture can stream independently', () => {
@@ -49,6 +54,43 @@ describe('teacher lesson authoring store', () => {
     })) as any
 
     expect(lessonJobsToObserve(jobs).map(job => job.id)).toEqual(['script-job-1', 'script-job-2'])
+  })
+
+  it('拒绝较旧刷新快照把已完成教案或讲义覆盖回生成中', () => {
+    const completed = {
+      id: 'job-1', status: 'completed', updated_at: '2026-09-04T10:00:05Z', progress: 100,
+    } as any
+    const staleRunning = {
+      id: 'job-1', status: 'running', updated_at: '2026-09-04T10:00:01Z', progress: 72,
+    } as any
+
+    expect(mergeLessonJobSnapshot(completed, staleRunning)).toBe(completed)
+  })
+
+  it('允许更新时间更晚的恢复任务从暂停重新进入运行', () => {
+    const paused = {
+      id: 'job-1', status: 'paused', updated_at: '2026-09-04T10:00:01Z', progress: 72,
+    } as any
+    const resumed = {
+      id: 'job-1', status: 'running', updated_at: '2026-09-04T10:00:05Z', progress: 73,
+    } as any
+
+    expect(mergeLessonJobSnapshot(paused, resumed)).toMatchObject({ status: 'running', progress: 73 })
+  })
+
+  it('轮询收到较旧运行快照时使用合并后终态结束观察', async () => {
+    httpMock.get.mockResolvedValue({
+      data: { job: { id: 'job-1', status: 'running', updated_at: '2026-09-04T10:00:01Z', progress: 72 } },
+    })
+    const store = useTeacherLessonAuthoringStore()
+    store.jobs = [{ id: 'job-1', status: 'completed', updated_at: '2026-09-04T10:00:05Z', progress: 100 }] as any
+    const load = vi.spyOn(store, 'load').mockResolvedValue({} as any)
+
+    const result = await store.pollJob('course-1', 'job-1')
+
+    expect(result).toMatchObject({ status: 'completed', progress: 100 })
+    expect(load).toHaveBeenCalledWith('course-1', { afterCurrent: true })
+    expect(httpMock.get).toHaveBeenCalledTimes(1)
   })
 
   it('merges script deltas by sequence and ignores duplicate events', () => {
@@ -247,6 +289,40 @@ describe('teacher lesson authoring store', () => {
     expect(store.error).toBe('')
     expect(store.refreshError).toBe('读取时间过长，请重新尝试。已生成的内容仍然保留。')
     expect(store.refreshing).toBe(false)
+  })
+
+  it('任务终态到达后等待旧请求结束并重新读取最终可编辑内容', async () => {
+    let resolveStale!: (value: any) => void
+    httpMock.get
+      .mockImplementationOnce(() => new Promise(resolve => { resolveStale = resolve }))
+      .mockResolvedValueOnce({
+        data: {
+          schema_version: 'teacher_lesson_authoring_view_v1',
+          course_id: 'course-1',
+          outline_revision_id: 'outline-1',
+          lessons: [{ lesson_unit_id: 'lesson-1', title: '最终可编辑教案' }],
+          jobs: [{ id: 'job-1', status: 'completed', updated_at: '2026-09-04T10:00:05Z', progress: 100 }],
+        },
+      })
+    const store = useTeacherLessonAuthoringStore()
+    const staleRefresh = store.load('course-1')
+    store.jobs = [{ id: 'job-1', status: 'completed', updated_at: '2026-09-04T10:00:05Z', progress: 100 }] as any
+    const terminalRefresh = store.load('course-1', { afterCurrent: true })
+
+    resolveStale({
+      data: {
+        schema_version: 'teacher_lesson_authoring_view_v1',
+        course_id: 'course-1',
+        outline_revision_id: 'outline-1',
+        lessons: [{ lesson_unit_id: 'lesson-1', title: '旧的生成中快照' }],
+        jobs: [{ id: 'job-1', status: 'running', updated_at: '2026-09-04T10:00:01Z', progress: 72 }],
+      },
+    })
+    await Promise.all([staleRefresh, terminalRefresh])
+
+    expect(httpMock.get).toHaveBeenCalledTimes(2)
+    expect(store.jobs[0]).toMatchObject({ status: 'completed', progress: 100 })
+    expect(store.lessons[0]?.title).toBe('最终可编辑教案')
   })
 
   it('starts lesson-plan generation when HTTP does not expose crypto.randomUUID', async () => {
