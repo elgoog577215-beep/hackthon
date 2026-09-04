@@ -50,6 +50,7 @@ from slide_deck_v6 import (
     _presentation_summary_text,
     _protected_tokens,
     _semantic_grounding_ratio,
+    _story_teaching_protected_tokens_by_field,
     _title_is_incomplete,
     _title_protected_tokens,
     _title_semantic_source_text,
@@ -2253,6 +2254,7 @@ def _story_model_request(request: dict[str, Any]) -> dict[str, Any]:
             "conflicting_page_ids",
             "forbidden_titles",
             "current_summary",
+            "current_teaching_fields",
             "unsupported_protected_tokens",
             "summary_min_chars",
             "summary_max_chars",
@@ -2290,11 +2292,11 @@ def _story_model_request(request: dict[str, Any]) -> dict[str, Any]:
                 if isinstance(target, dict)
             ],
             "instruction": (
-                "Only repair the listed teaching units. Choose one complete "
-                "safe_partition_options entry; bind multiple related block IDs "
-                "to the same page when that entry requires it. Copy every "
-                "source_block_ids list exactly, choose one listed layout, and "
-                "prefer a title candidate from the bound blocks."
+                "Repair listed units. Choose one safe_partition_options entry, bind "
+                "multiple related block IDs to the same page, copy source_block_ids, and "
+                "choose a listed layout. Rewrite current_teaching_fields containing "
+                "unsupported_protected_tokens from bound source_text; remove unsupported "
+                "tokens."
             )
         }
 
@@ -2460,6 +2462,20 @@ def _story_repair_targets(
         } if repartition_required else set()
         current_title = str((current_page or {}).get("title") or "")
         current_summary = str((current_page or {}).get("summary") or "")
+        current_teaching_fields = {
+            field: (current_page or {}).get(field)
+            for field in (
+                "page_goal",
+                "primary_claim",
+                "audience_question",
+                "audience_action",
+                "expected_response",
+                "observable_evidence",
+                "transition",
+                "reveal_steps",
+            )
+            if (current_page or {}).get(field)
+        }
         normalized_current_title = re.sub(r"\s+", "", current_title).casefold()
         conflicting_page_ids = [
             str(page.get("page_id") or "")
@@ -2634,8 +2650,18 @@ def _story_repair_targets(
             )
             if str(token)
         })
+        current_teaching_text = "\n".join(
+            "\n".join(str(item) for item in value)
+            if isinstance(value, list)
+            else str(value)
+            for value in current_teaching_fields.values()
+        )
         unsupported_protected_tokens = sorted(
-            _protected_tokens(current_summary) - set(allowed_protected_tokens)
+            _protected_tokens("\n".join(filter(None, [
+                current_summary,
+                current_teaching_text,
+            ])))
+            - set(allowed_protected_tokens)
         )
         required_summary = ""
         if summary_repair_required and (summary_min_chars or summary_max_chars):
@@ -2790,6 +2816,7 @@ def _story_repair_targets(
             "conflicting_page_ids": conflicting_page_ids,
             "forbidden_titles": forbidden_titles,
             "current_summary": current_summary,
+            "current_teaching_fields": current_teaching_fields,
             "allowed_protected_tokens": allowed_protected_tokens,
             "unsupported_protected_tokens": unsupported_protected_tokens,
             "summary_min_chars": summary_min_chars,
@@ -2855,6 +2882,7 @@ def _story_repair_targets(
     if error.failure.code in {
         "story_unsupported_fact",
         "story_unsupported_semantic_claim",
+        "story_unsupported_teaching_content",
     }:
         grounding_targets: list[dict[str, Any]] = []
         for page in pages:
@@ -2863,21 +2891,47 @@ def _story_repair_targets(
             page_id = str(page.get("page_id") or "")
             unit = units.get(str(page.get("teaching_unit_id") or ""))
             summary = str(page.get("summary") or "")
-            if not page_id or unit is None or not summary:
+            if not page_id or unit is None:
                 continue
             unit_source_text = str(unit.get("source_text") or "")
-            needs_repair = (
-                bool(
+            if error.failure.code == "story_unsupported_teaching_content":
+                try:
+                    story_page = SlideStoryPageV3.model_validate({
+                        **page,
+                        "page_ordinal": 0,
+                    })
+                except ValidationError:
+                    continue
+                teaching_tokens = set().union(
+                    *_story_teaching_protected_tokens_by_field(
+                        story_page
+                    ).values(),
+                    _protected_tokens(story_page.transition),
+                )
+                needs_repair = bool(
+                    teaching_tokens - _protected_tokens(unit_source_text)
+                )
+            elif error.failure.code == "story_unsupported_fact":
+                needs_repair = bool(
                     _protected_tokens(summary)
                     - _protected_tokens(unit_source_text)
                 )
-                if error.failure.code == "story_unsupported_fact"
-                else _semantic_grounding_ratio(summary, unit_source_text) < 0.12
-            )
+            else:
+                needs_repair = bool(
+                    summary
+                    and _semantic_grounding_ratio(
+                        summary,
+                        unit_source_text,
+                    ) < 0.12
+                )
             if not needs_repair:
                 continue
             target = target_for(unit, page_id=page_id)
-            if target.get("required_summary") or target.get("clear_summary"):
+            if (
+                error.failure.code == "story_unsupported_teaching_content"
+                or target.get("required_summary")
+                or target.get("clear_summary")
+            ):
                 grounding_targets.append(target)
         if grounding_targets:
             return grounding_targets
@@ -5258,7 +5312,10 @@ def build_ai_base_story_planner_v6() -> Planner:
                 "and must not introduce visible claims absent from the bound source_text. Copy every "
                 "identifier and number exactly from the "
                 "allowed_protected_tokens of its bound primary_blocks; never shorten, approximate, "
-                "autocorrect or synthesize a protected token. Every page must contain exactly the fields "
+                "autocorrect or synthesize a protected token. If a teaching field can be written without "
+                "a number or English identifier, omit that marker; never introduce shorthand such as "
+                "2D, 3D, Step 1, or a new symbol unless that exact protected token is supplied for the "
+                "page's bound primary_blocks. Every page must contain exactly the fields "
                 "listed in response_contract.required_page_fields at the page level; never emit a nested "
                  "content object. Copy a complete title from candidates "
                  "supplied by the primary_blocks bound to that page, keep it within title_max_chars, "

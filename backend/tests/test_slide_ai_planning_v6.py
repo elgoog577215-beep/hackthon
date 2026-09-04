@@ -5675,6 +5675,66 @@ async def test_story_batch_reports_the_exact_contract_error_after_bounded_repair
 
 
 @pytest.mark.asyncio
+async def test_story_repairs_untraceable_teaching_tokens_before_manuscript() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls: list[dict] = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        invalid = len(calls) == 1
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "teaching-token-page",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": _layout_for_request_blocks(
+                    unit,
+                    unit["primary_block_ids"],
+                ),
+                "title": unit["title_candidates"][0],
+                "summary": "",
+                "visible_copy": ["先界定输入，再执行动作，最后核对结果。"],
+                "page_goal": (
+                    "解释 fabricatedMetric9001 的作用"
+                    if invalid
+                    else "解释可靠流程怎样形成闭环"
+                ),
+                "primary_claim": "可靠流程必须核对完成条件和异常原因。",
+                "audience_question": "怎样判断流程已经完成？",
+                "audience_action": "",
+                "expected_response": "同时检查完成条件和异常原因。",
+                "observable_evidence": "",
+                "transition": "从输入条件进入执行与核对。",
+                "reveal_steps": ["界定输入", "执行动作", "核对结果"],
+                "composition_notes": "按流程顺序呈现",
+                "question_bank_item_ids": [],
+                "shared_visual_expression_ids": [],
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=planner,
+    )
+
+    assert len(calls) == 2
+    repair_target = calls[1]["repair_feedback"]["repair_targets"][0]
+    assert repair_target["unsupported_protected_tokens"] == [
+        "fabricatedmetric9001"
+    ]
+    assert repair_target["current_teaching_fields"]["page_goal"] == (
+        "解释 fabricatedMetric9001 的作用"
+    )
+    assert story.pages[0].page_goal == "解释可靠流程怎样形成闭环"
+
+
+@pytest.mark.asyncio
 async def test_visual_ai_failure_degrades_optional_page_but_not_required_code() -> None:
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
 

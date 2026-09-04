@@ -116,6 +116,7 @@ V6_FAILURE_ROOT_CAUSE_BY_CODE: dict[str, str] = {
     "source_artifact_visible_fidelity_incomplete": "source_fidelity",
     "source_prose_visible_fidelity_incomplete": "source_fidelity",
     "ordered_step_visible_fidelity_incomplete": "source_fidelity",
+    "story_unsupported_teaching_content": "source_fidelity",
     "v6_recovery_contract_mismatch": "checkpoint_contract",
     "ppt_manuscript_narrative_job_missing": "manuscript_narrative",
     "ppt_manuscript_visible_copy_missing": "manuscript_narrative",
@@ -126,6 +127,7 @@ V6_FAILURE_ROOT_CAUSE_BY_CODE: dict[str, str] = {
     "ppt_manuscript_lesson_path_missing": "manuscript_narrative",
     "ppt_manuscript_lesson_closure_missing": "manuscript_narrative",
     "ppt_manuscript_ai_story_unavailable": "manuscript_planning",
+    "ppt_manuscript_teaching_content_untraceable": "source_fidelity",
     "ppt_manuscript_quality_blocked": "manuscript_narrative",
     "ppt_manuscript_page_spec_incomplete": "manuscript_contract",
     "ppt_manuscript_source_revision_mismatch": "manuscript_contract",
@@ -1013,10 +1015,24 @@ def _ppt_manuscript_quality_issues(
                 _protected_tokens(page.transition) - _protected_tokens(adjacent_note_text)
             )
             if unsupported or transition_unsupported:
+                diagnostic_parts = []
+                if unsupported:
+                    diagnostic_parts.append(
+                        "teaching=" + ",".join(sorted(unsupported))
+                    )
+                if transition_unsupported:
+                    diagnostic_parts.append(
+                        "transition=" + ",".join(
+                            sorted(transition_unsupported)
+                        )
+                    )
                 issues.append(V6Failure(
                     stage="manuscript",
                     code="ppt_manuscript_teaching_content_untraceable",
-                    message="页面教学字段包含无法追溯到当前讲义或相邻页面来源的事实标记。",
+                    message=(
+                        "页面教学字段包含无法追溯到当前讲义或相邻页面"
+                        "来源的事实标记：" + "；".join(diagnostic_parts)
+                    ),
                     page_id=page.page_id,
                 ))
         if not page.visible_copy:
@@ -1833,6 +1849,27 @@ def _protected_tokens(text: str) -> set[str]:
     }
 
 
+def _story_teaching_protected_tokens_by_field(
+    page: SlideStoryPageV3,
+) -> dict[str, set[str]]:
+    """Return the factual markers carried by Story-owned teaching fields."""
+
+    values: dict[str, str] = {
+        "page_goal": page.page_goal,
+        "primary_claim": page.primary_claim,
+        "audience_question": page.audience_question,
+        "audience_action": page.audience_action,
+        "expected_response": page.expected_response,
+        "observable_evidence": page.observable_evidence,
+        "reveal_steps": "\n".join(page.reveal_steps),
+    }
+    return {
+        field: tokens
+        for field, value in values.items()
+        if value and (tokens := _protected_tokens(value))
+    }
+
+
 def _identifier_token_variants(value: str) -> set[str]:
     """Keep dotted identifiers strict while accepting a source-backed prefix.
 
@@ -2167,6 +2204,7 @@ def validate_slide_story_plan_v3(
     page_count_by_unit: Counter[str] = Counter()
     title_owners: dict[str, str] = {}
     page_id_owners: set[str] = set()
+    previous_page_source_context = ""
     for page in sorted(plan.pages, key=lambda item: item.page_ordinal):
         if not page.page_id.strip():
             raise V6BuildError(
@@ -2371,6 +2409,45 @@ def validate_slide_story_plan_v3(
         unsupported = _protected_tokens(page.summary) - _protected_tokens(unit.source_text)
         if unsupported:
             raise V6BuildError(stage="story", code="story_unsupported_fact", message=f"Unsupported factual tokens: {', '.join(sorted(unsupported))}", page_id=page.page_id)
+        page_source_context = "\n".join(filter(None, [
+            page.title,
+            *page.visible_copy,
+            page_source_text,
+        ]))
+        source_tokens = _protected_tokens(page_source_context)
+        unsupported_teaching_tokens = {
+            field: sorted(tokens - source_tokens)
+            for field, tokens in _story_teaching_protected_tokens_by_field(
+                page
+            ).items()
+            if tokens - source_tokens
+        }
+        transition_source_context = "\n".join(filter(None, [
+            previous_page_source_context,
+            page_source_context,
+        ]))
+        unsupported_transition_tokens = sorted(
+            _protected_tokens(page.transition)
+            - _protected_tokens(transition_source_context)
+        )
+        if unsupported_teaching_tokens or unsupported_transition_tokens:
+            diagnostic_parts = [
+                f"{field}={','.join(tokens)}"
+                for field, tokens in unsupported_teaching_tokens.items()
+            ]
+            if unsupported_transition_tokens:
+                diagnostic_parts.append(
+                    "transition=" + ",".join(unsupported_transition_tokens)
+                )
+            raise V6BuildError(
+                stage="story",
+                code="story_unsupported_teaching_content",
+                message=(
+                    "Unsupported factual tokens in page teaching fields: "
+                    + "; ".join(diagnostic_parts)
+                ),
+                page_id=page.page_id,
+            )
         if not _ellipsis_maps_to_frozen_source(page.summary, page_source_text):
             raise V6BuildError(
                 stage="story",
@@ -2388,6 +2465,7 @@ def validate_slide_story_plan_v3(
                 message="Story summary has insufficient lexical grounding in its frozen source unit",
                 page_id=page.page_id,
             )
+        previous_page_source_context = page_source_context
         observed_blocks.extend(page.source_block_ids)
     for unit in graph.units:
         maximum_pages = story_page_count_range(unit, template)[1]

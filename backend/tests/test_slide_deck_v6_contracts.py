@@ -77,6 +77,12 @@ from template_layout_contract import compile_builtin_template_layout_contract_v1
         ("template", "template_slot_capacity_exceeded", "pagination_capacity"),
         ("quality", "continuation_title_unavailable", "source_slot_binding"),
         ("quality", "duplicate_final_page_title", "source_fidelity"),
+        ("story", "story_unsupported_teaching_content", "source_fidelity"),
+        (
+            "manuscript",
+            "ppt_manuscript_teaching_content_untraceable",
+            "source_fidelity",
+        ),
         ("recovery", "v6_recovery_contract_mismatch", "checkpoint_contract"),
     ],
 )
@@ -1592,6 +1598,29 @@ def test_strict_manuscript_rejects_slot_reveals_and_generic_transitions() -> Non
     codes = {item.code for item in issues if item.page_id == page.page_id}
     assert "ppt_manuscript_reveal_sequence_not_semantic" in codes
     assert "ppt_manuscript_transition_not_specific" in codes
+
+
+def test_strict_manuscript_reports_untraceable_teaching_tokens() -> None:
+    document = _cross_subject_document()
+    _graph, _template, _story, _visual, manuscript = (
+        _strict_manuscript_fixture(document)
+    )
+    invalid_pages = [item.model_copy(deep=True) for item in manuscript.pages]
+    invalid_pages[0].page_goal = "解释 fabricatedMetric9001 的作用"
+
+    issues = _ppt_manuscript_quality_issues(
+        invalid_pages,
+        require_teaching_content=True,
+        narrative_brief=manuscript.narrative_brief,
+    )
+
+    issue = next(
+        item
+        for item in issues
+        if item.code == "ppt_manuscript_teaching_content_untraceable"
+    )
+    assert issue.page_id == invalid_pages[0].page_id
+    assert "teaching=fabricatedmetric9001" in issue.message
 
 
 def test_teacher_manuscript_edit_syncs_visible_regions_and_preserves_frozen_contracts() -> None:
