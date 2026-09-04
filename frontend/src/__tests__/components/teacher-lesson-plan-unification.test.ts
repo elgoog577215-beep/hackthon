@@ -148,6 +148,26 @@ describe('统一教案页面', () => {
     expect(wrapper.find('.lesson-document').exists()).toBe(true)
   })
 
+  it('正式教案的结构化字段统一渲染公式，编辑态保留 LaTeX 源码', async () => {
+    const formulaLesson = structuredClone(lesson)
+    const section = formulaLesson.plan.revisions[0]!.plan.sections[0]!
+    section.learning_objective = String.raw`能计算 $\nabla^2(x^2y+z)$`
+    section.teaching_modules![0]!.teacher_activity = String.raw`板书 $\varphi(0)=1$ 并说明边界条件`
+
+    const wrapper = mount(TeacherLessonPlanDocument, {
+      props: { courseId: 'course-1', lesson: formulaLesson, confirmed: true },
+    })
+
+    expect(wrapper.findAll('.katex').length).toBeGreaterThanOrEqual(2)
+    expect(wrapper.text()).not.toContain('\\nabla')
+    expect(wrapper.text()).not.toContain('\\varphi')
+
+    ;(wrapper.vm as any).beginEditing()
+    await flushPromises()
+    expect((wrapper.get('.objective-section textarea').element as HTMLTextAreaElement).value)
+      .toContain(String.raw`\nabla^2`)
+  })
+
   it('编辑多个字段时可以统一撤销和重做', async () => {
     const wrapper = mount(TeacherLessonPlanDocument, {
       props: { courseId: 'course-1', lesson, confirmed: true },

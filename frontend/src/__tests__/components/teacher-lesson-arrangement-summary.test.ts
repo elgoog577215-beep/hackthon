@@ -72,6 +72,19 @@ describe('本讲教学结构摘要', () => {
     expect(wrapper.text()).not.toContain('生成依据')
   })
 
+  it('教学结构摘要中的公式通过 KaTeX 显示', () => {
+    const formulaArrangement = structuredClone(arrangement)
+    formulaArrangement.blocks[0]!.content_summary = String.raw`比较 $\nabla^2 f$ 与 $\varphi(0)=1$。`
+
+    const wrapper = mount(TeacherLessonArrangementSummary, {
+      props: { arrangement: formulaArrangement },
+    })
+
+    expect(wrapper.findAll('.katex')).toHaveLength(2)
+    expect(wrapper.text()).not.toContain('\\nabla')
+    expect(wrapper.text()).not.toContain('\\varphi')
+  })
+
   it('不再用解释性标题或展开按钮重复说明区域用途', () => {
     const wrapper = mount(TeacherLessonArrangementSummary, {
       props: { arrangement },

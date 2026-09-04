@@ -25,7 +25,7 @@
           <Pause v-if="isPlaying" :size="14" /><Play v-else :size="14" />
         </button>
       </header>
-      <strong>{{ animationSpec.title }}</strong>
+      <strong><MathText :content="animationSpec.title" /></strong>
       <div class="course-evolution-animation__frame" :class="{ 'is-composition': isLinearCompositionAnimation }">
         <template v-if="isLinearCompositionAnimation">
           <div class="composition-formula" aria-hidden="true">
@@ -52,16 +52,16 @@
             </svg>
             <div class="composition-copy">
               <small>{{ activeKeyframe.index }} / {{ animationSpec.keyframes.length }}</small>
-              <b>{{ activeKeyframe.state?.formula || activeKeyframe.label }}</b>
-              <strong>{{ activeKeyframe.label }}</strong>
-              <p>{{ activeKeyframeDescription }}</p>
+              <b><MathText :content="activeKeyframe.state?.formula || activeKeyframe.label" /></b>
+              <strong><MathText :content="activeKeyframe.label" /></strong>
+              <MathText tag="p" :content="activeKeyframeDescription" />
             </div>
           </div>
         </template>
         <template v-else>
           <small>{{ activeKeyframe.index }} / {{ animationSpec.keyframes.length }}</small>
-          <b>{{ activeKeyframe.label }}</b>
-          <p>{{ activeKeyframeDescription }}</p>
+          <b><MathText :content="activeKeyframe.label" /></b>
+          <MathText tag="p" :content="activeKeyframeDescription" />
         </template>
       </div>
       <div class="course-evolution-animation__timeline">
@@ -141,6 +141,7 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { ArrowRight, CheckCircle2, CircleX, ClipboardCheck, GitBranchPlus, Pause, Play, SquarePlay, ThumbsDown, ThumbsUp } from 'lucide-vue-next'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import MathText from './MathText.vue'
 import { useCourseStore } from '../stores/course'
 import {
   useLearningProgressStore,

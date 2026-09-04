@@ -2,7 +2,7 @@
   <aside class="teacher-course-sidebar" aria-label="课程功能">
     <div class="course-identity">
       <span>{{ title.slice(0, 1) }}</span>
-      <div><strong>{{ title }}</strong><small>{{ meta }}</small></div>
+      <div><strong><MathText :content="title" /></strong><small>{{ meta }}</small></div>
     </div>
     <nav>
       <button type="button" :title="t('teacherWorkbench.nav.overview', '课程概览')" :class="{ active: active === 'overview' }" @click="open('teacher-course-overview')">
@@ -34,6 +34,7 @@
 import { useRouter } from 'vue-router'
 import { ArrowLeft, BookOpenText, CalendarDays, FileCheck2, FolderOpen, LayoutGrid, Workflow } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
+import MathText from './MathText.vue'
 
 const props = defineProps<{
   courseId: string

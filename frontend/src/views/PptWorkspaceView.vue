@@ -7,7 +7,7 @@
   >
     <div v-if="initializing || (!slideRepresentation && store.building && !store.liveSlides.length)" class="ppt-workspace-state">
       <div class="ppt-workspace-state__mark"><Presentation :size="34" /></div>
-      <h1>{{ courseTitle }}</h1>
+      <h1><MathText :content="courseTitle" /></h1>
       <p v-if="!store.building">{{ t('pptWorkspace.loading', '正在读取同源课件与页面结构') }}</p>
       <SlideDeckBuildProgress
         v-if="store.building"
@@ -29,7 +29,7 @@
     <div v-else-if="documentLoadError" class="ppt-workspace-state is-empty">
       <button type="button" class="ppt-workspace-state__back" @click="backToCourse"><ArrowLeft :size="18" /></button>
       <div class="ppt-workspace-state__mark"><Presentation :size="34" /></div>
-      <h1>{{ courseTitle }}</h1>
+      <h1><MathText :content="courseTitle" /></h1>
       <p>{{ documentLoadError }}</p>
     </div>
 
@@ -51,7 +51,7 @@
     <div v-else-if="documentEnvelope?.source_format !== 'legacy_projection' && !slideRepresentation && !store.liveSlides.length" class="ppt-workspace-state is-empty">
       <button type="button" class="ppt-workspace-state__back" @click="backToCourse"><ArrowLeft :size="18" /></button>
       <div class="ppt-workspace-state__mark"><Presentation :size="34" /></div>
-      <h1>{{ courseTitle }}</h1>
+      <h1><MathText :content="courseTitle" /></h1>
       <small
         class="ppt-workspace-state__engine"
         data-testid="ppt-engine-status"
@@ -240,6 +240,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, GripVertical, Presentation, Sparkles } from 'lucide-vue-next'
 import SideAIPanel from '../components/SideAIPanel.vue'
+import MathText from '../components/MathText.vue'
 import TeacherLessonAiWorkspace, { type TeacherAiQuickAction } from '../components/TeacherLessonAiWorkspace.vue'
 import SlideDeckBuildProgress from '../components/SlideDeckBuildProgress.vue'
 import SlideDeckWorkbench from '../components/SlideDeckWorkbench.vue'

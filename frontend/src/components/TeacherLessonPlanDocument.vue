@@ -2,7 +2,7 @@
   <section ref="documentRoot" class="lesson-document" :class="{ 'is-ai-candidate': pendingCandidate }">
     <header v-if="!externalToolbar" class="document-header">
       <div class="document-title">
-        <h3>{{ lesson.title }}</h3>
+        <h3><MathText :content="lesson.title" /></h3>
       </div>
       <div v-if="!pendingCandidate || !assistantOpen" class="document-actions">
         <template v-if="pendingCandidate">
@@ -86,16 +86,16 @@
       <section class="document-section lesson-identity">
         <div>
           <span>{{ tr('courseWorkbench.lessonDocument.courseName') }}</span>
-          <strong>{{ courseTitle || emptyValue }}</strong>
+          <strong><MathText :content="courseTitle || emptyValue" /></strong>
         </div>
         <div>
           <span>{{ tr('courseWorkbench.lessonDocument.lessonName') }}</span>
-          <strong>{{ lesson.title }}</strong>
+          <strong><MathText :content="lesson.title" /></strong>
         </div>
       </section>
       <nav v-if="planSections.length > 1" class="lesson-theme-nav" :aria-label="tr('courseWorkbench.lessonDocument.themeNavigation')">
         <button v-for="(section, index) in planSections" :key="section.node_id" type="button" :class="{ active: String(section.node_id || '') === selectedSectionId }" @click="activateSection(section)">
-          <span>{{ String(index + 1).padStart(2, '0') }}</span>{{ sectionTitle(section) }}
+          <span>{{ String(index + 1).padStart(2, '0') }}</span><MathText :content="sectionTitle(section)" />
         </button>
       </nav>
 
@@ -108,7 +108,7 @@
         @focusin="activateSection(section, false)"
       >
         <header class="lesson-theme-heading">
-          <div><span>{{ tr('courseWorkbench.lessonDocument.theme') }} {{ sectionIndex + 1 }}</span><h4>{{ sectionTitle(section) }}</h4></div>
+          <div><span>{{ tr('courseWorkbench.lessonDocument.theme') }} {{ sectionIndex + 1 }}</span><h4><MathText :content="sectionTitle(section)" /></h4></div>
           <small>{{ sectionMinutes(section) }} {{ tr('courseWorkbench.minutes') }}</small>
         </header>
 
@@ -116,23 +116,23 @@
           <i v-if="objectiveCandidateChangedFor(section)" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i>
           <h4>{{ tr('courseWorkbench.lessonDocument.objectives') }}</h4>
           <div class="objective-grid">
-            <div><h5>{{ tr('courseWorkbench.lessonDocument.knowledgeObjective') }}</h5><textarea v-if="editing" :value="listText(section.knowledge_objectives)" rows="3" @input="updateList(section, 'knowledge_objectives', $event)" /><ul v-else-if="sectionKnowledgeObjectives(section).length"><li v-for="item in sectionKnowledgeObjectives(section)" :key="item">{{ item }}</li></ul><p v-else>{{ emptyValue }}</p></div>
-            <div><h5>{{ tr('courseWorkbench.lessonDocument.abilityObjective') }}</h5><textarea v-if="editing" :value="listText(section.ability_objectives)" rows="3" @input="updateList(section, 'ability_objectives', $event)" /><ul v-else-if="sectionAbilityObjectives(section).length"><li v-for="item in sectionAbilityObjectives(section)" :key="item">{{ item }}</li></ul><p v-else>{{ emptyValue }}</p></div>
-            <div><h5>{{ tr('courseWorkbench.lessonDocument.educationObjective') }}</h5><textarea v-if="editing" :value="listText(section.education_objectives)" rows="3" @input="updateList(section, 'education_objectives', $event)" /><ul v-else-if="stringList(section.education_objectives).length"><li v-for="item in stringList(section.education_objectives)" :key="item">{{ item }}</li></ul><p v-else>{{ emptyValue }}</p></div>
+            <div><h5>{{ tr('courseWorkbench.lessonDocument.knowledgeObjective') }}</h5><textarea v-if="editing" :value="listText(section.knowledge_objectives)" rows="3" @input="updateList(section, 'knowledge_objectives', $event)" /><ul v-else-if="sectionKnowledgeObjectives(section).length"><li v-for="item in sectionKnowledgeObjectives(section)" :key="item"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></div>
+            <div><h5>{{ tr('courseWorkbench.lessonDocument.abilityObjective') }}</h5><textarea v-if="editing" :value="listText(section.ability_objectives)" rows="3" @input="updateList(section, 'ability_objectives', $event)" /><ul v-else-if="sectionAbilityObjectives(section).length"><li v-for="item in sectionAbilityObjectives(section)" :key="item"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></div>
+            <div><h5>{{ tr('courseWorkbench.lessonDocument.educationObjective') }}</h5><textarea v-if="editing" :value="listText(section.education_objectives)" rows="3" @input="updateList(section, 'education_objectives', $event)" /><ul v-else-if="stringList(section.education_objectives).length"><li v-for="item in stringList(section.education_objectives)" :key="item"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></div>
           </div>
         </section>
 
         <section v-if="editing || stringList(section.pre_study).length" class="document-section lesson-time-section" data-period="before">
           <div class="section-heading"><h4>{{ tr('courseWorkbench.lessonDocument.preClassPreparation') }}</h4><span>{{ tr('courseWorkbench.lessonDocument.outsideClassTime') }}</span></div>
           <textarea v-if="editing" :value="listText(section.pre_study)" rows="3" @input="updateList(section, 'pre_study', $event)" />
-          <ul v-else><li v-for="item in stringList(section.pre_study)" :key="item">{{ item }}</li></ul>
+          <ul v-else><li v-for="item in stringList(section.pre_study)" :key="item"><MathText :content="item" /></li></ul>
         </section>
 
         <section class="document-section">
           <h4>{{ tr('courseWorkbench.lessonDocument.keyAndDifficult') }}</h4>
           <div class="focus-grid">
-            <div :class="{ 'ai-change-target': candidateChanged(section, 'key_points') }"><i v-if="candidateChanged(section, 'key_points')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i><h4>{{ tr('courseWorkbench.lessonDocument.keyPoints') }}</h4><textarea v-if="editing" :value="listText(section.key_points)" rows="3" @input="updateList(section, 'key_points', $event)" /><ul v-else-if="stringList(section.key_points).length"><li v-for="item in stringList(section.key_points)" :key="item">{{ item }}</li></ul><p v-else>{{ emptyValue }}</p></div>
-            <div :class="{ 'ai-change-target': candidateChanged(section, 'key_difficulties') }"><i v-if="candidateChanged(section, 'key_difficulties')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i><h4>{{ tr('courseWorkbench.lessonDocument.difficulties') }}</h4><textarea v-if="editing" :value="listText(section.key_difficulties)" rows="3" @input="updateList(section, 'key_difficulties', $event)" /><ul v-else-if="stringList(section.key_difficulties).length"><li v-for="item in stringList(section.key_difficulties)" :key="item">{{ item }}</li></ul><p v-else>{{ emptyValue }}</p></div>
+            <div :class="{ 'ai-change-target': candidateChanged(section, 'key_points') }"><i v-if="candidateChanged(section, 'key_points')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i><h4>{{ tr('courseWorkbench.lessonDocument.keyPoints') }}</h4><textarea v-if="editing" :value="listText(section.key_points)" rows="3" @input="updateList(section, 'key_points', $event)" /><ul v-else-if="stringList(section.key_points).length"><li v-for="item in stringList(section.key_points)" :key="item"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></div>
+            <div :class="{ 'ai-change-target': candidateChanged(section, 'key_difficulties') }"><i v-if="candidateChanged(section, 'key_difficulties')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i><h4>{{ tr('courseWorkbench.lessonDocument.difficulties') }}</h4><textarea v-if="editing" :value="listText(section.key_difficulties)" rows="3" @input="updateList(section, 'key_difficulties', $event)" /><ul v-else-if="stringList(section.key_difficulties).length"><li v-for="item in stringList(section.key_difficulties)" :key="item"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></div>
           </div>
         </section>
 
@@ -141,45 +141,45 @@
           <div class="section-heading"><h4>{{ tr('courseWorkbench.lessonDocument.classroomProcess') }}</h4><span>{{ sectionMinutes(section) }} {{ tr('courseWorkbench.minutes') }}</span></div>
           <div class="teaching-block-list">
             <article v-for="(module, index) in sectionModules(section)" :key="module.arrangement_block_id || module.module_id || index" class="teaching-block" :class="{ 'is-overtime': isOvertimeModule(section, module, index) }">
-              <header><strong>{{ moduleTitle(module, index) }}</strong><label class="block-duration"><span>{{ tr('courseWorkbench.lessonDocument.duration') }}</span><input v-if="editing" v-model.number="module.planned_minutes" type="number" min="0" max="300" @input="recordEditSnapshot" /><b v-else>{{ normalizedMinutes(module.planned_minutes) || emptyValue }} {{ tr('courseWorkbench.minutes') }}</b></label></header>
+              <header><strong><MathText :content="moduleTitle(module, index)" /></strong><label class="block-duration"><span>{{ tr('courseWorkbench.lessonDocument.duration') }}</span><input v-if="editing" v-model.number="module.planned_minutes" type="number" min="0" max="300" @input="recordEditSnapshot" /><b v-else>{{ normalizedMinutes(module.planned_minutes) || emptyValue }} {{ tr('courseWorkbench.minutes') }}</b></label></header>
               <p v-if="isOvertimeModule(section, module, index)" class="overtime-warning"><TriangleAlert :size="13" />{{ tr('courseWorkbench.lessonDocument.overtimeBlock') }}</p>
               <div v-if="editing" class="block-fields block-fields--primary">
-                <label><span>{{ tr('courseWorkbench.lessonDocument.blockGoalContent') }}</span><textarea v-if="editing" v-model="module.teaching_purpose" rows="3" @input="recordEditSnapshot" /><p v-else>{{ module.teaching_purpose || emptyValue }}</p></label>
-                <label><span>{{ tr('courseWorkbench.lessonDocument.resourcesTools') }}</span><textarea v-if="editing" :value="listText(resourceItems(section, module))" rows="3" @input="updateResourcesAndTools(module, $event)" /><ul v-else-if="resourceItems(section, module).length"><li v-for="item in resourceItems(section, module)" :key="item">{{ item }}</li></ul><p v-else>{{ emptyValue }}</p></label>
-                <label><span>{{ tr('courseWorkbench.lessonDocument.teacherActivity') }}</span><textarea v-if="editing" v-model="module.teacher_activity" rows="3" @input="recordEditSnapshot" /><p v-else>{{ module.teacher_activity || module.teaching_guidance || emptyValue }}</p></label>
-                <label><span>{{ tr('courseWorkbench.lessonDocument.studentActivity') }}</span><textarea v-if="editing" v-model="module.student_activity" rows="3" @input="recordEditSnapshot" /><p v-else>{{ module.student_activity || emptyValue }}</p></label>
-                <label><span>{{ tr('courseWorkbench.lessonDocument.expectedOutput') }}</span><textarea v-if="editing" v-model="module.expected_output" rows="3" @input="recordEditSnapshot" /><p v-else>{{ module.expected_output || emptyValue }}</p></label>
-                <label><span>{{ tr('courseWorkbench.lessonDocument.attainmentCheck') }}</span><textarea v-if="editing" v-model="module.check_method" rows="3" @input="recordEditSnapshot" /><p v-else>{{ module.check_method || emptyValue }}</p></label>
+                <label><span>{{ tr('courseWorkbench.lessonDocument.blockGoalContent') }}</span><textarea v-if="editing" v-model="module.teaching_purpose" rows="3" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="module.teaching_purpose || emptyValue" /></label>
+                <label><span>{{ tr('courseWorkbench.lessonDocument.resourcesTools') }}</span><textarea v-if="editing" :value="listText(resourceItems(section, module))" rows="3" @input="updateResourcesAndTools(module, $event)" /><ul v-else-if="resourceItems(section, module).length"><li v-for="item in resourceItems(section, module)" :key="item"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></label>
+                <label><span>{{ tr('courseWorkbench.lessonDocument.teacherActivity') }}</span><textarea v-if="editing" v-model="module.teacher_activity" rows="3" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="module.teacher_activity || module.teaching_guidance || emptyValue" /></label>
+                <label><span>{{ tr('courseWorkbench.lessonDocument.studentActivity') }}</span><textarea v-if="editing" v-model="module.student_activity" rows="3" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="module.student_activity || emptyValue" /></label>
+                <label><span>{{ tr('courseWorkbench.lessonDocument.expectedOutput') }}</span><textarea v-if="editing" v-model="module.expected_output" rows="3" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="module.expected_output || emptyValue" /></label>
+                <label><span>{{ tr('courseWorkbench.lessonDocument.attainmentCheck') }}</span><textarea v-if="editing" v-model="module.check_method" rows="3" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="module.check_method || emptyValue" /></label>
               </div>
               <div v-else class="lesson-block-summary">
                 <section>
                   <strong>{{ tr('courseWorkbench.lessonDocument.blockGoalContent') }}</strong>
-                  <p>{{ module.teaching_purpose || module.teaching_guidance || emptyValue }}</p>
+                  <MathText tag="p" :content="module.teaching_purpose || module.teaching_guidance || emptyValue" />
                 </section>
                 <section v-if="resourceItems(section, module).length">
                   <strong>{{ tr('courseWorkbench.lessonDocument.resourcesTools') }}</strong>
-                  <ul><li v-for="item in resourceItems(section, module)" :key="item">{{ item }}</li></ul>
+                  <ul><li v-for="item in resourceItems(section, module)" :key="item"><MathText :content="item" /></li></ul>
                 </section>
                 <section>
                   <strong>{{ tr('courseWorkbench.lessonDocument.classroomActivity') }}</strong>
-                  <ul v-if="classroomActivityItems(module).length"><li v-for="item in classroomActivityItems(module)" :key="item">{{ item }}</li></ul>
+                  <ul v-if="classroomActivityItems(module).length"><li v-for="item in classroomActivityItems(module)" :key="item"><MathText :content="item" /></li></ul>
                   <p v-else>{{ emptyValue }}</p>
                 </section>
                 <section>
                   <strong>{{ tr('courseWorkbench.lessonDocument.attainmentJudgement') }}</strong>
-                  <ul v-if="attainmentJudgementItems(module).length"><li v-for="item in attainmentJudgementItems(module)" :key="item">{{ item }}</li></ul>
+                  <ul v-if="attainmentJudgementItems(module).length"><li v-for="item in attainmentJudgementItems(module)" :key="item"><MathText :content="item" /></li></ul>
                   <p v-else>{{ emptyValue }}</p>
                 </section>
               </div>
               <details v-if="editing" class="block-contingency">
                 <summary>{{ tr('courseWorkbench.lessonDocument.implementationPlan') }}</summary>
                 <div class="block-fields">
-                  <label><span>{{ tr('courseWorkbench.lessonDocument.feedbackAdjustment') }}</span><textarea v-if="editing" v-model="module.feedback_strategy" rows="3" @input="recordEditSnapshot" /><p v-else>{{ module.feedback_strategy || emptyValue }}</p></label>
-                  <label><span>{{ tr('courseWorkbench.lessonDocument.adaptationOptions') }}</span><textarea v-if="editing" :value="listText(module.adaptation_options)" rows="4" @input="updateList(module, 'adaptation_options', $event)" /><ul v-else-if="stringList(module.adaptation_options).length"><li v-for="item in stringList(module.adaptation_options)" :key="item">{{ item }}</li></ul><p v-else>{{ emptyValue }}</p></label>
-                  <label><span>{{ tr('courseWorkbench.lessonDocument.accessSupport') }}</span><textarea v-if="editing" v-model="module.access_support" rows="3" @input="recordEditSnapshot" /><p v-else>{{ module.access_support || emptyValue }}</p></label>
-                  <label><span>{{ tr('courseWorkbench.lessonDocument.grouping') }}</span><textarea v-if="editing" v-model="module.grouping" rows="3" @input="recordEditSnapshot" /><p v-else>{{ module.grouping || emptyValue }}</p></label>
-                  <label><span>{{ tr('courseWorkbench.lessonDocument.transition') }}</span><textarea v-if="editing" v-model="module.transition" rows="3" @input="recordEditSnapshot" /><p v-else>{{ module.transition || emptyValue }}</p></label>
-                  <label><span>{{ tr('courseWorkbench.lessonDocument.handoutPptMapping') }}</span><textarea v-if="editing" v-model="module.handout_ppt_mapping" rows="3" @input="recordEditSnapshot" /><p v-else>{{ module.handout_ppt_mapping || emptyValue }}</p></label>
+                  <label><span>{{ tr('courseWorkbench.lessonDocument.feedbackAdjustment') }}</span><textarea v-if="editing" v-model="module.feedback_strategy" rows="3" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="module.feedback_strategy || emptyValue" /></label>
+                  <label><span>{{ tr('courseWorkbench.lessonDocument.adaptationOptions') }}</span><textarea v-if="editing" :value="listText(module.adaptation_options)" rows="4" @input="updateList(module, 'adaptation_options', $event)" /><ul v-else-if="stringList(module.adaptation_options).length"><li v-for="item in stringList(module.adaptation_options)" :key="item"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></label>
+                  <label><span>{{ tr('courseWorkbench.lessonDocument.accessSupport') }}</span><textarea v-if="editing" v-model="module.access_support" rows="3" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="module.access_support || emptyValue" /></label>
+                  <label><span>{{ tr('courseWorkbench.lessonDocument.grouping') }}</span><textarea v-if="editing" v-model="module.grouping" rows="3" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="module.grouping || emptyValue" /></label>
+                  <label><span>{{ tr('courseWorkbench.lessonDocument.transition') }}</span><textarea v-if="editing" v-model="module.transition" rows="3" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="module.transition || emptyValue" /></label>
+                  <label><span>{{ tr('courseWorkbench.lessonDocument.handoutPptMapping') }}</span><textarea v-if="editing" v-model="module.handout_ppt_mapping" rows="3" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="module.handout_ppt_mapping || emptyValue" /></label>
                 </div>
               </details>
             </article>
@@ -187,21 +187,21 @@
           </div>
         </section>
 
-        <section class="document-section"><h4>{{ tr('courseWorkbench.lessonDocument.classSummary') }}</h4><textarea v-if="editing" :value="listText(section.class_summary)" rows="4" @input="updateList(section, 'class_summary', $event)" /><ul v-else-if="sectionSummaryItems(section).length"><li v-for="item in sectionSummaryItems(section)" :key="item">{{ item }}</li></ul><p v-else>{{ emptyValue }}</p></section>
+        <section class="document-section"><h4>{{ tr('courseWorkbench.lessonDocument.classSummary') }}</h4><textarea v-if="editing" :value="listText(section.class_summary)" rows="4" @input="updateList(section, 'class_summary', $event)" /><ul v-else-if="sectionSummaryItems(section).length"><li v-for="item in sectionSummaryItems(section)" :key="item"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></section>
 
         <section class="document-section lesson-time-section" data-period="after">
           <div class="section-heading"><h4>{{ tr('courseWorkbench.lessonDocument.homework') }}</h4><span>{{ tr('courseWorkbench.lessonDocument.afterClassTime') }}</span></div>
-          <textarea v-if="editing" :value="listText(section.homework)" rows="4" @input="updateList(section, 'homework', $event)" /><ol v-else-if="stringList(section.homework).length"><li v-for="item in stringList(section.homework)" :key="item">{{ item }}</li></ol><p v-else>{{ emptyValue }}</p>
+          <textarea v-if="editing" :value="listText(section.homework)" rows="4" @input="updateList(section, 'homework', $event)" /><ol v-else-if="stringList(section.homework).length"><li v-for="item in stringList(section.homework)" :key="item"><MathText :content="item" /></li></ol><p v-else>{{ emptyValue }}</p>
           <div class="assignment-contract">
-            <label><span>{{ tr('courseWorkbench.lessonDocument.submission') }}</span><input v-if="editing" v-model="section.homework_submission" :placeholder="tr('courseWorkbench.lessonDocument.submissionPending')" @input="recordEditSnapshot" /><p v-else>{{ section.homework_submission || tr('courseWorkbench.lessonDocument.submissionPending') }}</p></label>
-            <label><span>{{ tr('courseWorkbench.lessonDocument.evaluation') }}</span><input v-if="editing" v-model="section.homework_evaluation" @input="recordEditSnapshot" /><p v-else>{{ section.homework_evaluation || emptyValue }}</p></label>
-            <label><span>{{ tr('courseWorkbench.lessonDocument.nextLessonConnection') }}</span><input v-if="editing" v-model="section.next_lesson_connection" @input="recordEditSnapshot" /><p v-else>{{ section.next_lesson_connection || emptyValue }}</p></label>
+            <label><span>{{ tr('courseWorkbench.lessonDocument.submission') }}</span><input v-if="editing" v-model="section.homework_submission" :placeholder="tr('courseWorkbench.lessonDocument.submissionPending')" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="section.homework_submission || tr('courseWorkbench.lessonDocument.submissionPending')" /></label>
+            <label><span>{{ tr('courseWorkbench.lessonDocument.evaluation') }}</span><input v-if="editing" v-model="section.homework_evaluation" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="section.homework_evaluation || emptyValue" /></label>
+            <label><span>{{ tr('courseWorkbench.lessonDocument.nextLessonConnection') }}</span><input v-if="editing" v-model="section.next_lesson_connection" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="section.next_lesson_connection || emptyValue" /></label>
           </div>
         </section>
 
-        <section class="document-section materials-record"><h4>{{ tr('courseWorkbench.lessonDocument.materialsAndRecords') }}</h4><div class="closing-grid"><div><h4>{{ tr('courseWorkbench.lessonDocument.extensionReading') }}</h4><textarea v-if="editing" :value="listText(section.resource_refs)" rows="4" @input="updateList(section, 'resource_refs', $event)" /><ul v-else-if="stringList(section.resource_refs).length"><li v-for="item in stringList(section.resource_refs)" :key="item">{{ item }}</li></ul><p v-else>{{ emptyValue }}</p></div><div><h4>{{ tr('courseWorkbench.lessonDocument.activityPhotos') }}</h4><p>{{ tr('courseWorkbench.lessonDocument.activityPhotosPending') }}</p></div></div></section>
+        <section class="document-section materials-record"><h4>{{ tr('courseWorkbench.lessonDocument.materialsAndRecords') }}</h4><div class="closing-grid"><div><h4>{{ tr('courseWorkbench.lessonDocument.extensionReading') }}</h4><textarea v-if="editing" :value="listText(section.resource_refs)" rows="4" @input="updateList(section, 'resource_refs', $event)" /><ul v-else-if="stringList(section.resource_refs).length"><li v-for="item in stringList(section.resource_refs)" :key="item"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></div><div><h4>{{ tr('courseWorkbench.lessonDocument.activityPhotos') }}</h4><p>{{ tr('courseWorkbench.lessonDocument.activityPhotosPending') }}</p></div></div></section>
 
-        <section class="document-section" :class="{ 'ai-change-target': candidateChanged(section, 'teaching_notes') }"><i v-if="candidateChanged(section, 'teaching_notes')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i><h4>{{ tr('courseWorkbench.lessonDocument.notes') }}</h4><textarea v-if="editing" :value="listText(section.teaching_notes)" rows="4" @input="updateList(section, 'teaching_notes', $event)" /><ul v-else-if="stringList(section.teaching_notes).length"><li v-for="item in stringList(section.teaching_notes)" :key="item">{{ item }}</li></ul><p v-else>{{ emptyValue }}</p></section>
+        <section class="document-section" :class="{ 'ai-change-target': candidateChanged(section, 'teaching_notes') }"><i v-if="candidateChanged(section, 'teaching_notes')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i><h4>{{ tr('courseWorkbench.lessonDocument.notes') }}</h4><textarea v-if="editing" :value="listText(section.teaching_notes)" rows="4" @input="updateList(section, 'teaching_notes', $event)" /><ul v-else-if="stringList(section.teaching_notes).length"><li v-for="item in stringList(section.teaching_notes)" :key="item"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></section>
       </section>
     </article>
 
@@ -214,6 +214,7 @@
 import { computed, ref, watch } from 'vue'
 import { Check, LoaderCircle, Pencil, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
+import MathText from './MathText.vue'
 import TextSelectionAiAction, { type TeacherInlineAiRequest } from './TextSelectionAiAction.vue'
 import { useDocumentEditHistory } from '../composables/useDocumentEditHistory'
 import { t } from '../shared/i18n'

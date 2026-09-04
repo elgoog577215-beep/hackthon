@@ -58,19 +58,19 @@
                 <Pencil :size="15" />{{ t('common.edit', '编辑') }}
               </button>
             </header>
-            <h3>{{ selectedQuestion.prompt }}</h3>
+            <h3><MathText :content="selectedQuestion.prompt" /></h3>
             <ol v-if="isChoiceQuestion" class="question-view__options">
               <li v-for="option in selectedQuestion.options" :key="option.id" :class="{ 'is-answer': selectedAnswers.includes(option.id) }">
-                <b>{{ option.id }}</b><span>{{ option.text }}</span><Check v-if="selectedAnswers.includes(option.id)" :size="15" />
+                <b>{{ option.id }}</b><MathText :content="option.text" /><Check v-if="selectedAnswers.includes(option.id)" :size="15" />
               </li>
             </ol>
             <section v-else class="question-view__answer">
               <strong>{{ t('questionBank.importFlow.answer', '参考答案') }}</strong>
-              <p>{{ selectedQuestion.answer || '—' }}</p>
+              <MathText tag="p" :content="selectedQuestion.answer || '—'" />
             </section>
             <section class="question-view__answer">
               <strong>{{ t('questionBank.importFlow.explanation', '答案解析') }}</strong>
-              <p>{{ selectedQuestion.explanation || '—' }}</p>
+              <MathText tag="p" :content="selectedQuestion.explanation || '—'" />
             </section>
             <footer v-if="!sessionCommitted && !selectedQuestion.confirmed">
               <button type="button" class="primary-action" data-testid="confirm-import-question" :disabled="saving" @click="saveQuestion(true)">
@@ -217,7 +217,7 @@
             </nav>
           </header>
           <div class="source-preview__paper">
-            <pre>{{ activeSourcePage?.text || t('questionBank.importFlow.noSourceText', '本页没有可显示的文字') }}</pre>
+            <MathText tag="pre" :content="activeSourcePage?.text || t('questionBank.importFlow.noSourceText', '本页没有可显示的文字')" />
           </div>
         </section>
       </div>
@@ -242,6 +242,7 @@ import {
   TriangleAlert,
   Upload,
 } from 'lucide-vue-next'
+import MathText from './MathText.vue'
 import http, { teacherRequestConfig } from '@/utils/http'
 import { t } from '@/shared/i18n'
 

@@ -45,7 +45,7 @@
     <section v-if="selectionText" class="lesson-ai-selection" aria-live="polite">
       <div>
         <strong>{{ tr('selectionContext') }}</strong>
-        <p>“{{ selectionText }}”</p>
+        <p>“<MathText :content="selectionText" />”</p>
       </div>
       <button type="button" :aria-label="tr('clearSelection')" :title="tr('clearSelection')" @click="emit('clear-selection')">
         <X :size="14" />
@@ -74,7 +74,7 @@
         <article
           :class="['lesson-ai-message', `is-${message.role}`, `is-${message.kind}`]"
         >
-          <div v-if="message.role === 'user'" class="lesson-ai-user-bubble">{{ message.text }}</div>
+          <div v-if="message.role === 'user'" class="lesson-ai-user-bubble"><MathText :content="message.text" /></div>
           <template v-else-if="message.kind === 'candidate'">
             <section class="lesson-ai-review">
               <header>
@@ -84,11 +84,11 @@
               </header>
               <div class="lesson-ai-review-fields">
                 <span v-for="field in candidateFields" :key="field">{{ field }}</span>
-                <span v-if="!candidateFields.length">{{ candidateFieldSummary || message.text }}</span>
+                <span v-if="!candidateFields.length"><MathText :content="candidateFieldSummary || message.text" /></span>
               </div>
               <div v-if="candidateImpacts.length" class="lesson-ai-review-impact">
                 <GitBranch :size="13" />
-                <span v-for="impact in candidateImpacts" :key="impact">{{ impact }}</span>
+                <span v-for="impact in candidateImpacts" :key="impact"><MathText :content="impact" /></span>
               </div>
               <div v-if="!candidateCanApply" class="lesson-ai-review-block" role="alert">
                 <CircleAlert :size="15" />
@@ -124,9 +124,9 @@
                 <strong>{{ tr('coursePlanReady') }}</strong>
                 <span>{{ message.planStatus === 'needs_clarification' ? tr('coursePlanNeedsDetail') : tr('coursePlanReview') }}</span>
               </header>
-              <p>{{ message.text }}</p>
+              <MathText tag="p" :content="message.text" />
               <div v-if="message.impacts?.length" class="lesson-ai-review-impact">
-                <span v-for="impact in message.impacts" :key="impact">{{ impact }}</span>
+                <span v-for="impact in message.impacts" :key="impact"><MathText :content="impact" /></span>
               </div>
               <footer>
                 <button class="primary" type="button" :disabled="busy" @click="emit('open-course-plan', message.planId || '')">
@@ -139,7 +139,7 @@
             <CheckCircle2 v-if="message.kind === 'receipt'" :size="14" />
             <CircleAlert v-else-if="message.kind === 'error'" :size="14" />
             <Sparkles v-else :size="13" />
-            <p>{{ message.text }}</p>
+            <MathText tag="p" :content="message.text" />
             <button
               v-if="message.kind === 'error' && canRetry && message.id === latestErrorMessageId"
               type="button"
@@ -156,7 +156,7 @@
           :key="option"
           type="button"
           @click="emit('clarify', option)"
-        >{{ option }}</button>
+        ><MathText :content="option" /></button>
       </div>
 
       <div v-if="busy" class="lesson-ai-working-state" aria-busy="true">
@@ -233,6 +233,7 @@ import type {
   TeacherProductionAiPhase,
 } from '../composables/useTeacherProductionAiCollaboration'
 import { t } from '../shared/i18n'
+import MathText from './MathText.vue'
 
 export type { TeacherProductionAiMessage } from '../composables/useTeacherProductionAiCollaboration'
 

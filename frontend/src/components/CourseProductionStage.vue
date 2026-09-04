@@ -98,8 +98,8 @@
               </span>
               <span class="growth-chapter__copy">
                 <small>{{ t('courseGeneration.production.growthChapter', '第 {number} 章').replace('{number}', String(chapter.chapterNumber)) }}</small>
-                <strong>{{ chapter.title }}</strong>
-                <span v-if="chapter.focus">{{ chapter.focus }}</span>
+                <strong><MathText :content="chapter.title" /></strong>
+                <MathText v-if="chapter.focus" :content="chapter.focus" />
               </span>
               <span class="growth-chapter__progress">
                 <i><b :style="{ width: `${chapter.progress}%` }"></b></i>
@@ -122,8 +122,8 @@
                 <span class="growth-section__joint" aria-hidden="true"></span>
                 <span class="growth-section__number">{{ section.number }}</span>
                 <div>
-                  <strong>{{ section.title }}</strong>
-                  <p v-if="section.objective">{{ section.objective }}</p>
+                  <strong><MathText :content="section.title" /></strong>
+                  <MathText v-if="section.objective" tag="p" :content="section.objective" />
                 </div>
                 <span class="growth-section__state">
                   <LoaderCircle v-if="section.status === 'generating'" :size="12" />
@@ -229,6 +229,7 @@ import {
   Check, ChevronDown, CircleDashed, CirclePause, Clock3, Database, GitBranch,
   GitCompareArrows, LoaderCircle, RotateCw, Route, Sprout, TriangleAlert,
 } from 'lucide-vue-next'
+import MathText from './MathText.vue'
 import type { Node, Task } from '../stores/types'
 import { t } from '../shared/i18n'
 import {

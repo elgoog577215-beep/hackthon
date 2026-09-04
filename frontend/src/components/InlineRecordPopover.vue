@@ -18,7 +18,7 @@
           <small :data-state="saveState">{{ saveLabel }}</small>
           <button v-if="interactive" type="button" :title="t('common.close', '关闭')" @click="emit('close')"><X :size="14" /></button>
         </header>
-        <blockquote v-if="note.quote">{{ note.quote }}</blockquote>
+        <blockquote v-if="note.quote"><MathText :content="note.quote" /></blockquote>
         <textarea
           v-if="interactive && editable"
           ref="editorRef"
@@ -26,7 +26,7 @@
           :placeholder="t('inlineRecords.placeholder', '在原文旁写下你的理解')"
           @input="queueSave"
         />
-        <div v-else class="inline-record-content">{{ note.content || note.summary || t('inlineRecords.empty', '这条记录还没有正文') }}</div>
+        <div v-else class="inline-record-content"><MathText :content="note.content || note.summary || t('inlineRecords.empty', '这条记录还没有正文')" /></div>
         <footer v-if="interactive">
           <button type="button" @click="emit('askAi', note)"><MessageSquareText :size="14" />{{ t('courseWorkspace.records.ask', '问 AI') }}</button>
           <button v-if="saveState === 'local_only'" type="button" @click="emit('retry', note)"><RefreshCw :size="14" />{{ t('inlineRecords.retry', '重试保存') }}</button>
@@ -43,6 +43,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { MessageSquareText, NotebookTabs, RefreshCw, Trash2, Undo2, X } from 'lucide-vue-next'
 import type { Note } from '@/stores/types'
 import { t } from '@/shared/i18n'
+import MathText from './MathText.vue'
 
 const props = withDefaults(defineProps<{
   visible: boolean

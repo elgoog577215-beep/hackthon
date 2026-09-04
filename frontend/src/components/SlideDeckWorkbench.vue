@@ -6,7 +6,7 @@
           <ArrowLeft :size="18" />
         </button>
         <div>
-          <strong>{{ deckTitle }}</strong>
+          <strong><MathText :content="deckTitle" /></strong>
         </div>
         <span class="slide-workbench__status" :data-state="generationBlocked ? 'blocked' : error ? 'error' : building ? 'building' : qualityPassed ? 'ready' : 'warning'">
           <LoaderCircle v-if="building" :size="13" class="spinning" />
@@ -102,23 +102,23 @@
             >
               <li v-for="page in resolvedPptManuscript.pages" :key="page.page_id">
                 <b>{{ Number(page.page_number || 0) || Number(page.page_ordinal || 0) + 1 }}</b>
-                <span>{{ page.title }}</span>
+                <MathText :content="page.title" />
                 <small>{{ page.source_script_block_ids?.length || page.source_block_count || 0 }} {{ t('pptWorkspace.scriptSourceBlockUnit', '个讲义来源块') }}</small>
                 <div
                   v-if="page.page_goal || page.primary_claim || page.visible_copy?.length || page.composition_notes"
                   class="slide-workbench__manuscript-page"
                 >
                   <p><strong>{{ t('pptWorkspace.pageContract', '页面合同') }}：</strong>{{ page.page_type || '—' }} · {{ page.layout_id || '—' }}</p>
-                  <p v-if="page.page_goal"><strong>{{ t('pptWorkspace.pageGoal', '页面任务') }}：</strong>{{ page.page_goal }}</p>
-                  <p v-if="page.primary_claim"><strong>{{ t('pptWorkspace.primaryClaim', '核心结论') }}：</strong>{{ page.primary_claim }}</p>
-                  <p v-if="page.audience_question"><strong>{{ t('pptWorkspace.audienceQuestion', '学生问题') }}：</strong>{{ page.audience_question }}</p>
+                  <p v-if="page.page_goal"><strong>{{ t('pptWorkspace.pageGoal', '页面任务') }}：</strong><MathText :content="page.page_goal" /></p>
+                  <p v-if="page.primary_claim"><strong>{{ t('pptWorkspace.primaryClaim', '核心结论') }}：</strong><MathText :content="page.primary_claim" /></p>
+                  <p v-if="page.audience_question"><strong>{{ t('pptWorkspace.audienceQuestion', '学生问题') }}：</strong><MathText :content="page.audience_question" /></p>
                   <div v-if="page.visible_copy?.length" class="slide-workbench__manuscript-copy">
                     <strong>{{ t('pptWorkspace.visibleCopy', '台上可见内容') }}：</strong>
-                    <span v-for="(copy, copyIndex) in page.visible_copy" :key="`${page.page_id}-copy-${copyIndex}`">{{ copy }}</span>
+                    <MathText v-for="(copy, copyIndex) in page.visible_copy" :key="`${page.page_id}-copy-${copyIndex}`" :content="copy" />
                   </div>
-                  <p v-if="page.reveal_steps?.length"><strong>{{ t('pptWorkspace.revealSteps', '呈现顺序') }}：</strong>{{ page.reveal_steps.join(' → ') }}</p>
-                  <p v-if="page.transition"><strong>{{ t('pptWorkspace.transition', '页间过渡') }}：</strong>{{ page.transition }}</p>
-                  <p v-if="page.composition_notes"><strong>{{ t('pptWorkspace.compositionNotes', '构图') }}：</strong>{{ page.composition_notes }}</p>
+                  <p v-if="page.reveal_steps?.length"><strong>{{ t('pptWorkspace.revealSteps', '呈现顺序') }}：</strong><MathText :content="page.reveal_steps.join(' → ')" /></p>
+                  <p v-if="page.transition"><strong>{{ t('pptWorkspace.transition', '页间过渡') }}：</strong><MathText :content="page.transition" /></p>
+                  <p v-if="page.composition_notes"><strong>{{ t('pptWorkspace.compositionNotes', '构图') }}：</strong><MathText :content="page.composition_notes" /></p>
                   <p v-if="page.source_script_block_ids?.length" class="slide-workbench__source-ids"><strong>{{ t('pptWorkspace.sourceScriptBlockIds', '讲义来源块') }}：</strong><code v-for="sourceId in page.source_script_block_ids" :key="sourceId">{{ sourceId }}</code></p>
                   <p v-if="page.source_section_ids?.length" class="slide-workbench__source-ids"><strong>{{ t('pptWorkspace.sourceSectionIds', '教案小节') }}：</strong><code v-for="sourceId in page.source_section_ids" :key="sourceId">{{ sourceId }}</code></p>
                   <p v-if="page.source_material_evidence_ids?.length" class="slide-workbench__source-ids"><strong>{{ t('pptWorkspace.sourceMaterialEvidenceIds', '资料证据') }}：</strong><code v-for="sourceId in page.source_material_evidence_ids" :key="sourceId">{{ sourceId }}</code></p>
@@ -137,7 +137,7 @@
             >
               <li v-for="page in resolvedLegacyStoryboard.pages" :key="page.page_id">
                 <b>{{ Number(page.page_ordinal || 0) + 1 }}</b>
-                <span>{{ page.title }}</span>
+                <MathText :content="page.title" />
                 <small>{{ page.source_block_count || 0 }} {{ t('pptWorkspace.contentSourceBlockUnit', '个内容来源块') }}</small>
               </li>
             </ol>
@@ -234,7 +234,7 @@
           <span>{{ index + 1 }}</span>
           <div class="slide-thumbnail" :data-layout="effectiveSlideLayout(slide)">
             <i></i>
-            <strong>{{ slide.title }}</strong>
+            <strong><MathText :content="slide.title" /></strong>
             <small>{{ layoutLabel(effectiveSlideLayout(slide)) }}</small>
           </div>
         </button>
@@ -338,15 +338,15 @@
               <div v-if="activeSlide.chapter_id"><dt>章节</dt><dd>{{ activeSlide.chapter_id }}</dd></div>
               <div><dt>{{ t('teachingRepresentations.slides.textLoad', '文字负载') }}</dt><dd>{{ activeSlide.quality?.character_count || 0 }}</dd></div>
             </dl>
-            <p v-if="activeSlide.teaching_job">{{ activeSlide.teaching_job }}</p>
-            <p v-if="activeSlide.layout_selection_reason">{{ activeSlide.layout_selection_reason }}</p>
+            <MathText v-if="activeSlide.teaching_job" tag="p" :content="activeSlide.teaching_job" />
+            <MathText v-if="activeSlide.layout_selection_reason" tag="p" :content="activeSlide.layout_selection_reason" />
           </section>
 
           <section>
             <header><span>{{ t('teachingRepresentations.slides.source', '同源依据') }}</span><b>{{ sourceCount }}</b></header>
             <div class="slide-inspector__refs">
-              <span v-for="label in activeSlide.knowledge_labels || []" :key="label">{{ label }}</span>
-              <span v-for="label in activeSlide.ability_labels || []" :key="label" data-kind="ability">{{ label }}</span>
+              <MathText v-for="label in activeSlide.knowledge_labels || []" :key="label" :content="label" />
+              <MathText v-for="label in activeSlide.ability_labels || []" :key="label" :content="label" data-kind="ability" />
               <small v-if="!sourceCount">{{ t('teachingRepresentations.slides.noSource', '等待来源绑定') }}</small>
             </div>
             <p v-if="activeSlide.misconception_refs?.length"><TriangleAlert :size="13" />{{ t('teachingRepresentations.slides.misconceptionCount', '{count} 个易错点').replace('{count}', String(activeSlide.misconception_refs.length)) }}</p>
@@ -402,11 +402,11 @@
             <div v-if="pendingInlineItem" class="slide-inspector__confirmation" data-state="pending">
               <strong><Sparkles :size="13" />{{ t('teachingRepresentations.confirmCourseChange', '确认课程语义变化') }}</strong>
               <div class="objective-diff">
-                <span>{{ proposalContent(pendingInlineItem.before) }}</span>
+                <MathText :content="proposalContent(pendingInlineItem.before)" />
                 <i>→</i>
-                <b>{{ proposalContent(pendingInlineItem.after) }}</b>
+                <b><MathText :content="proposalContent(pendingInlineItem.after)" /></b>
               </div>
-              <p>{{ pendingInlineItem.reason }}</p>
+              <MathText tag="p" :content="pendingInlineItem.reason" />
               <div class="slide-inspector__edit-actions">
                 <button type="button" class="semantic" :disabled="editBusy" @click="confirmInlineChange"><CircleCheck :size="13" />{{ t('teachingRepresentations.confirmSync', '确认并同步相关内容') }}</button>
                 <button type="button" :disabled="editBusy" @click="rejectInlineChange"><X :size="13" />{{ t('teachingRepresentations.rejectChange', '不应用') }}</button>
@@ -463,7 +463,7 @@
 
           <details v-if="activeSlide.speaker_notes">
             <summary>{{ t('teachingRepresentations.slides.speakerNotes', '讲者备注') }}</summary>
-            <p>{{ activeSlide.speaker_notes }}</p>
+            <MathText tag="p" :content="activeSlide.speaker_notes" />
           </details>
         </template>
       </aside>
@@ -548,6 +548,7 @@ import type { ChangeProposal, ChangeProposalContent, ChangeProposalItem } from '
 import type { SlideVisual } from '../types/slideVisual'
 import { writePptSameSourceHighlight } from '../utils/ppt-same-source'
 import type { PptSameSourceHighlightState } from '../utils/ppt-same-source'
+import MathText from './MathText.vue'
 import SlideCanvas from './SlideCanvas.vue'
 import SlideDeckBuildProgress from './SlideDeckBuildProgress.vue'
 import TeachingImpactDialog from './TeachingImpactDialog.vue'

@@ -33,7 +33,11 @@
           :data-kind="node.kind"
         >
           <rect :x="node.x" :y="node.y" :width="NODE_WIDTH" :height="NODE_HEIGHT" rx="10" ry="10" />
-          <text class="diagram-node-label" :x="node.textX" :y="node.textY">{{ node.label }}</text>
+          <foreignObject :x="node.x + 12" :y="node.y + 8" :width="NODE_WIDTH - 24" :height="NODE_HEIGHT - 16">
+            <div xmlns="http://www.w3.org/1999/xhtml" class="diagram-node-label">
+              <MathText :content="node.label" />
+            </div>
+          </foreignObject>
         </g>
       </g>
     </svg>
@@ -44,7 +48,7 @@
         {{ reasonText(layout.reason) }}
       </span>
       <ul v-if="layout.items.length" class="diagram-fallback-list" data-testid="diagram-fallback-list">
-        <li v-for="item in layout.items" :key="item.key">{{ item.text }}</li>
+        <li v-for="item in layout.items" :key="item.key"><MathText :content="item.text" /></li>
       </ul>
     </div>
   </div>
@@ -52,6 +56,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import MathText from './MathText.vue'
 import { t } from '../shared/i18n'
 
 /** Rendering limits; exceeding them degrades instead of producing an unreadable graph. */
@@ -267,7 +272,8 @@ const layout = computed<Layout>(() => {
 .diagram-svg { width:100%; height:auto; max-height:440px; padding:12px; border:1px solid #e8eaf2; border-radius:12px; background:#fbfcff; }
 .diagram-node rect { fill:#fff; stroke:#c7d2fe; stroke-width:1.5; }
 .diagram-node[data-kind='objective'] rect { fill:#eef2ff; stroke:#818cf8; }
-.diagram-node-label { font:12px/1.4 ui-sans-serif,system-ui,sans-serif; fill:#1f2937; text-anchor:middle; }
+.diagram-node-label { width:100%; height:100%; display:flex; align-items:center; justify-content:center; overflow:hidden; color:#1f2937; font:12px/1.4 ui-sans-serif,system-ui,sans-serif; text-align:center; }
+.diagram-node-label :deep(.math-text) { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .diagram-edge line { stroke:#cbd5e1; stroke-width:1.5; }
 .diagram-edge-label { font:10px/1.4 ui-sans-serif,system-ui,sans-serif; fill:#94a3b8; text-anchor:middle; }
 .diagram-fallback { display:grid; gap:7px; padding:14px; border:1px dashed #f3c878; border-radius:10px; color:#92400e; background:#fffbeb; }

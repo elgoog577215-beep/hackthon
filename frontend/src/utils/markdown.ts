@@ -1443,3 +1443,17 @@ export const renderMarkdown = (content: string) => {
     
     return sanitized;
 };
+
+/**
+ * Render one structured-content field without introducing an extra paragraph.
+ *
+ * Course plans, outlines, questions and feedback often store prose and LaTeX in
+ * separate JSON fields instead of one Markdown document.  Those fields still
+ * need the exact same repair, sanitisation and KaTeX path as course Markdown,
+ * but their host element already owns the paragraph/list/table semantics.
+ */
+export const renderInlineMarkdown = (content: string) => {
+    const html = renderMarkdown(content).trim();
+    const singleParagraph = html.match(/^<p>([\s\S]*)<\/p>$/);
+    return singleParagraph ? singleParagraph[1] || '' : html;
+};

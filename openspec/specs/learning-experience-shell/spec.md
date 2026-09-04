@@ -166,6 +166,8 @@ TBD - created by archiving change rebuild-learning-ui-around-course-flow. Update
 
 The frontend MUST render valid inline and display LaTeX through the shared sanitized Markdown renderer. It MUST NOT leak math delimiters, placeholder tokens, or partial KaTeX error output for supported input forms.
 
+This requirement applies to every user-visible structured academic-content field, not only Markdown documents. Course outlines, lesson arrangements, lesson plans, scripts, questions, options, answers, explanations, feedback, knowledge nodes and relations, practice history, companion documents, diagrams, slide manuscripts, slide canvases and PPT review surfaces MUST reuse the same sanitized Markdown/KaTeX path. Editing controls MUST preserve the original LaTeX source instead of replacing it with rendered HTML.
+
 #### Scenario: Multiline display formula
 
 - **WHEN** course Markdown contains a valid multiline `$$ ... $$` formula
@@ -183,3 +185,16 @@ The frontend MUST render valid inline and display LaTeX through the shared sanit
 - **WHEN** course content or an inline learning-record summary contains Markdown and mathematics
 - **THEN** both surfaces MUST use the shared Markdown/KaTeX renderer
 - **AND** HTML sanitization and existing code and Mermaid behavior MUST remain enabled
+
+#### Scenario: Formula in a structured academic field
+
+- **WHEN** a structured academic field contains delimited or recoverable delimiter-free LaTeX
+- **THEN** every read-only projection of that field MUST render the formula through the shared KaTeX path
+- **AND** ordinary text, currency and code labels MUST remain plain text
+- **AND** unsupported formula input MUST degrade to readable source rather than disappear
+
+#### Scenario: Edit a structured field containing LaTeX
+
+- **WHEN** a user enters edit mode for a structured academic field that contains LaTeX
+- **THEN** the input MUST contain the original editable LaTeX source
+- **AND** saving and reopening the read-only projection MUST render that source without storing generated KaTeX HTML

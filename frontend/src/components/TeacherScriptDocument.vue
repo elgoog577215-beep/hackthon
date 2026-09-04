@@ -2,7 +2,7 @@
   <section ref="documentRoot" class="script-document" :class="{ 'is-ai-candidate': pendingCandidate }">
     <header v-if="!externalToolbar" class="script-header">
       <div class="script-title">
-        <h3>{{ lesson.title }}</h3>
+        <h3><MathText :content="lesson.title" /></h3>
       </div>
       <div class="script-actions">
         <template v-if="pendingCandidate">
@@ -132,9 +132,9 @@
           <li v-for="(block, index) in mappedPlanBlocks" :key="block.id">
             <span>{{ String(index + 1).padStart(2, '0') }}</span>
             <div>
-              <strong>{{ block.label }}</strong>
-              <small v-if="block.sectionTitle">{{ block.sectionTitle }}</small>
-              <p>{{ block.summary }}</p>
+              <strong><MathText :content="block.label" /></strong>
+              <MathText v-if="block.sectionTitle" tag="small" :content="block.sectionTitle" />
+              <MathText tag="p" :content="block.summary" />
             </div>
             <em v-if="block.minutes">{{ block.minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</em>
           </li>
@@ -164,7 +164,7 @@
         @click="activateNode(node)"
       >
         <span>{{ String(index + 1).padStart(2, '0') }}</span>
-        {{ node.title }}
+        <MathText :content="node.title" />
       </button>
     </nav>
 
@@ -181,12 +181,12 @@
       >
         <header>
           <span>{{ String(nodeIndex + 1).padStart(2, '0') }}</span>
-          <h4>{{ node.title }}</h4>
+          <h4><MathText :content="node.title" /></h4>
         </header>
         <div v-if="editing && node.blocks?.length" class="script-block-editor">
           <section v-for="block in node.blocks" :key="block.block_id">
             <header>
-              <div><span>{{ blockRoleLabel(block.role) }}</span><h5>{{ block.title }}</h5></div>
+              <div><span>{{ blockRoleLabel(block.role) }}</span><h5><MathText :content="block.title" /></h5></div>
               <small v-if="block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
             </header>
             <textarea v-model="blockDrafts[block.block_id]" rows="10" :aria-label="block.title" @input="recordEditSnapshot" />
@@ -194,13 +194,13 @@
         </div>
         <textarea v-else-if="editing" v-model="drafts[node.section_node_id]" rows="24" :aria-label="node.title" @input="recordEditSnapshot" />
         <div v-else-if="pendingCandidate?.section_node_id === node.section_node_id && contentFor(node)" ref="candidateRef" class="script-content" data-state="candidate" tabindex="-1">
-          <aside class="script-ai-change-bubble"><Sparkles :size="13" /><strong>{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</strong><span>{{ node.title }}</span></aside>
+          <aside class="script-ai-change-bubble"><Sparkles :size="13" /><strong>{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</strong><MathText :content="node.title" /></aside>
           <MarkdownRenderer :key="`candidate-${pendingCandidate.candidate_id || pendingCandidate.section_node_id}`" :content="contentFor(node)" />
         </div>
         <div v-else-if="node.blocks?.length" class="script-modules">
           <section v-for="block in node.blocks" :key="block.block_id" class="script-module">
             <header>
-              <div><span>{{ blockRoleLabel(block.role) }}</span><h5>{{ block.title }}</h5></div>
+              <div><span>{{ blockRoleLabel(block.role) }}</span><h5><MathText :content="block.title" /></h5></div>
               <small v-if="block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
             </header>
             <div class="script-streamed-block" :data-streaming="blockIsStreaming(block.block_id) ? 'true' : undefined">
@@ -226,6 +226,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { Check, LoaderCircle, Pencil, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import MathText from './MathText.vue'
 import TextSelectionAiAction, { type TeacherInlineAiRequest } from './TextSelectionAiAction.vue'
 import { useDocumentEditHistory } from '../composables/useDocumentEditHistory'
 import { t } from '../shared/i18n'

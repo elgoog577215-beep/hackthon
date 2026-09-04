@@ -18,8 +18,8 @@
     </header>
 
     <div v-if="!collapsed" class="adaptive-block__body">
-      <p>{{ block.payload.body }}</p>
-      <p v-if="block.payload.contrast" class="adaptive-block__contrast">{{ block.payload.contrast }}</p>
+      <MathText tag="p" :content="block.payload.body" />
+      <MathText v-if="block.payload.contrast" tag="p" class="adaptive-block__contrast" :content="block.payload.contrast" />
       <div v-if="structuredAnimation" class="structured-animation" :aria-label="structuredAnimation.accessibility_text">
         <div class="structured-animation__header">
           <span><SquarePlay :size="14" />{{ t('adaptiveBlocks.structuredAnimation', '结构化动画') }}</span>
@@ -50,12 +50,12 @@
             ><ChevronRight :size="14" /></button>
           </div>
         </div>
-        <strong>{{ structuredAnimation.title }}</strong>
+        <strong><MathText :content="structuredAnimation.title" /></strong>
         <Transition name="frame-shift" mode="out-in">
           <div :key="activeKeyframe.index" class="structured-animation__frame" aria-live="polite">
             <small>{{ activeKeyframe.index }} / {{ structuredAnimation.keyframes.length }}</small>
-            <b>{{ activeKeyframe.label }}</b>
-            <p>{{ activeKeyframe.state.description }}</p>
+            <b><MathText :content="activeKeyframe.label" /></b>
+            <MathText tag="p" :content="activeKeyframe.state.description" />
           </div>
         </Transition>
         <ol class="structured-animation__timeline" :aria-label="t('adaptiveBlocks.animationTimeline', '动画步骤')">
@@ -70,7 +70,7 @@
         </ol>
       </div>
       <ol v-else-if="block.payload.steps?.length" class="adaptive-block__steps">
-        <li v-for="step in block.payload.steps" :key="step.index"><span>{{ step.index }}</span>{{ step.label }}</li>
+        <li v-for="step in block.payload.steps" :key="step.index"><span>{{ step.index }}</span><MathText :content="step.label" /></li>
       </ol>
       <p v-if="structuredAnimation" class="adaptive-block__fallback">
         {{ t('adaptiveBlocks.animationFallbackAvailable', '每个关键帧都可暂停；动态渲染失败时自动保留为静态步骤。') }}
@@ -81,7 +81,7 @@
       <div v-if="block.kind === 'understanding_check' && block.payload.prompt" class="adaptive-block__check">
         <CircleHelp :size="16" />
         <span>
-          {{ block.payload.prompt }}
+          <MathText :content="block.payload.prompt" />
           <small>{{ t('adaptiveBlocks.informal', '先自查，不计入掌握判断') }}</small>
         </span>
         <button
@@ -115,6 +115,7 @@ import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleHe
 import { useCourseStore } from '../stores/course'
 import { useLearningProgressStore, type AdaptiveBlockFeedback, type AdaptiveLearningBlock } from '../stores/learningProgress'
 import { t } from '../shared/i18n'
+import MathText from './MathText.vue'
 
 const props = withDefaults(defineProps<{
   block: AdaptiveLearningBlock

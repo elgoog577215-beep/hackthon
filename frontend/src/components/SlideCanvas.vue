@@ -25,9 +25,9 @@
       </div>
       <div class="deck-cover__content">
         <small v-if="coverHeadingLabel">{{ coverHeadingLabel }}</small>
-        <h2>{{ slide.title }}</h2>
-        <p v-if="slide.subtitle">{{ slide.subtitle }}</p>
-        <blockquote v-if="slide.key_message">{{ slide.key_message }}</blockquote>
+        <h2><MathText :content="slide.title" /></h2>
+        <MathText v-if="slide.subtitle" tag="p" :content="slide.subtitle" />
+        <MathText v-if="slide.key_message" tag="blockquote" :content="slide.key_message" />
       </div>
       <footer><span>{{ t('teachingRepresentations.slides.sameSourceDeck', '同源课程课件') }}</span><span>{{ pageNumber }} / {{ pageCount }}</span></footer>
     </template>
@@ -39,9 +39,9 @@
       </div>
       <div class="deck-chapter__content">
         <small v-if="audienceHeadingLabel">{{ audienceHeadingLabel }}</small>
-        <h2>{{ slide.title }}</h2>
+        <h2><MathText :content="slide.title" /></h2>
         <i></i>
-        <blockquote>{{ slide.key_message || slide.teaching_job || slide.takeaway }}</blockquote>
+        <MathText tag="blockquote" :content="slide.key_message || slide.teaching_job || slide.takeaway" />
       </div>
       <footer><span>{{ deckTitle }}</span><span>{{ pageNumber }} / {{ pageCount }}</span></footer>
     </template>
@@ -50,7 +50,7 @@
       <header class="deck-canvas__heading">
         <div>
           <small v-if="audienceHeadingLabel">{{ audienceHeadingLabel }}</small>
-          <h2 v-if="headingMode !== 'hidden'">{{ displayHeading }}</h2>
+          <h2 v-if="headingMode !== 'hidden'"><MathText :content="displayHeading" /></h2>
         </div>
         <span>{{ String(pageNumber).padStart(2, '0') }}</span>
       </header>
@@ -59,7 +59,7 @@
         v-if="showsStandaloneMessage"
         class="deck-canvas__message"
       >
-        {{ slide.key_message }}
+        <MathText :content="slide.key_message" />
       </blockquote>
 
       <div
@@ -112,10 +112,10 @@
             :enable-code-run="false"
           />
           <table v-else-if="practiceArtifactKind === 'table'">
-            <thead><tr><th v-for="header in practiceArtifactTable.headers" :key="header">{{ header }}</th></tr></thead>
+            <thead><tr><th v-for="header in practiceArtifactTable.headers" :key="header"><MathText :content="header" /></th></tr></thead>
             <tbody>
               <tr v-for="(row, rowIndex) in practiceArtifactTable.rows" :key="rowIndex">
-                <td v-for="(cell, cellIndex) in row" :key="`${rowIndex}-${cellIndex}`">{{ cell }}</td>
+                <td v-for="(cell, cellIndex) in row" :key="`${rowIndex}-${cellIndex}`"><MathText :content="cell" /></td>
               </tr>
             </tbody>
           </table>
@@ -137,9 +137,9 @@
           :representation-id="representationId"
         />
         <div v-if="sourceBlocks.length" class="deck-canvas__source">
-          <small>{{ slide.teaching_job }}</small>
+          <MathText tag="small" :content="slide.teaching_job" />
           <section v-for="block in sourceBlocks" :key="block.block_id" :data-type="block.type">
-            <b v-if="block.title">{{ block.title }}</b>
+            <b v-if="block.title"><MathText :content="block.title" /></b>
             <SlideCodeFrame
               v-if="block.type === 'code'"
               :code="block.content || ''"
@@ -179,8 +179,8 @@
             class="deck-agenda__item"
           >
             <b>{{ String(entry.index).padStart(2, '0') }}</b>
-            <strong>{{ entry.title }}</strong>
-            <p v-if="entry.description">{{ entry.description }}</p>
+            <strong><MathText :content="entry.title" /></strong>
+            <MathText v-if="entry.description" tag="p" :content="entry.description" />
           </li>
         </ol>
       </div>
@@ -190,7 +190,7 @@
         class="deck-hero-claim"
       >
         <i></i>
-        <strong>{{ semanticItems[0] || slide.key_message || slide.takeaway || slide.title }}</strong>
+        <strong><MathText :content="semanticItems[0] || slide.key_message || slide.takeaway || slide.title" /></strong>
       </div>
 
       <div
@@ -198,7 +198,7 @@
         class="deck-claim-only"
       >
         <i></i>
-        <small>{{ slide.teaching_job || slide.eyebrow || '核心判断' }}</small>
+        <small><MathText :content="slide.teaching_job || slide.eyebrow || '核心判断'" /></small>
       </div>
 
       <div
@@ -237,7 +237,7 @@
           <li v-for="(step, index) in practiceSequenceItems" :key="`${index}-${step.title}`">
             <b>{{ String(index + 1).padStart(2, '0') }}</b>
             <div :data-has-detail="step.detail ? 'true' : 'false'">
-              <strong>{{ step.title }}</strong>
+              <strong><MathText :content="step.title" /></strong>
               <MarkdownRenderer
                 v-if="step.detail"
                 :content="step.detail"
@@ -326,7 +326,7 @@
       >
         <aside>
           <small>课程主线</small>
-          <strong>{{ slide.key_message || slide.takeaway || slide.title }}</strong>
+          <strong><MathText :content="slide.key_message || slide.takeaway || slide.title" /></strong>
         </aside>
         <ol>
           <li v-for="(item, index) in semanticItems.slice(0, 6)" :key="`${index}-${item}`">
@@ -348,7 +348,7 @@
           class="deck-editorial-body__group"
           :data-type="block.type"
         >
-          <small v-if="block.title && (slide.blocks?.length || 0) > 1">{{ block.title }}</small>
+          <small v-if="block.title && (slide.blocks?.length || 0) > 1"><MathText :content="block.title" /></small>
           <SlideCodeFrame
             v-if="block.type === 'code'"
             :code="block.content || ''"
@@ -381,7 +381,7 @@
         <section v-for="(block, blockIndex) in slide.blocks" :key="block.block_id" :data-type="block.type">
           <header v-if="block.title">
             <b>{{ String(blockIndex + 1).padStart(2, '0') }}</b>
-            <span>{{ block.title }}</span>
+            <MathText :content="block.title" />
           </header>
           <SlideCodeFrame
             v-if="block.type === 'code'"
@@ -392,11 +392,11 @@
           />
           <table v-else-if="block.type === 'comparison' && block.metadata?.rows?.length">
             <thead>
-              <tr><th v-for="header in block.metadata.headers || []" :key="header">{{ header }}</th></tr>
+              <tr><th v-for="header in block.metadata.headers || []" :key="header"><MathText :content="header" /></th></tr>
             </thead>
             <tbody>
               <tr v-for="(row, rowIndex) in block.metadata.rows" :key="rowIndex">
-                <td v-for="cell in row" :key="cell">{{ cell }}</td>
+                <td v-for="cell in row" :key="cell"><MathText :content="cell" /></td>
               </tr>
             </tbody>
           </table>
@@ -436,12 +436,12 @@
       <div v-else class="deck-canvas__navigation">
         <i></i>
         <small>{{ navigationPrefix }}</small>
-        <strong>{{ navigationDetail }}</strong>
+        <strong><MathText :content="navigationDetail" /></strong>
         <p>先明确问题，再连接概念、方法与检验。</p>
       </div>
 
       <footer>
-        <span>{{ slide.section_id || deckTitle }}</span>
+        <MathText :content="slide.section_id || deckTitle" />
         <span>{{ pageNumber }} / {{ pageCount }}</span>
       </footer>
     </template>
@@ -455,6 +455,7 @@ import type { SlideDeckTheme } from '../stores/teachingRepresentations'
 import SlideVisualRenderer from './SlideVisualRenderer.vue'
 import SlideCodeFrame from './SlideCodeFrame.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import MathText from './MathText.vue'
 import themePack from '../data/slide-themes.json'
 import layoutContract from '../../../shared/slide-layout-contract-v5.json'
 import type { SlideVisual } from '../types/slideVisual'

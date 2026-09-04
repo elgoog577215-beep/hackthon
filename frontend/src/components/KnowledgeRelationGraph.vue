@@ -117,9 +117,11 @@
               <text class="knowledge-relation-graph__node-type" x="31" y="24">
                 {{ nodeTypeLabel(item.node.node_type) }}
               </text>
-              <text class="knowledge-relation-graph__node-name" x="16" y="48">
-                {{ compactName(item.node.name) }}
-              </text>
+              <foreignObject x="16" y="30" :width="NODE_WIDTH - 32" height="26">
+                <div xmlns="http://www.w3.org/1999/xhtml" class="knowledge-relation-graph__node-name">
+                  <MathText :content="compactName(item.node.name)" />
+                </div>
+              </foreignObject>
               <path
                 v-if="item.node.covered_by_course"
                 class="knowledge-relation-graph__covered"
@@ -135,8 +137,8 @@
           <span class="knowledge-relation-graph__eyebrow">
             {{ nodeTypeLabel(selectedGraphNode.node_type) }}
           </span>
-          <h2>{{ selectedGraphNode.name }}</h2>
-          <p v-if="selectedGraphNode.description">{{ selectedGraphNode.description }}</p>
+          <h2><MathText :content="selectedGraphNode.name" /></h2>
+          <MathText v-if="selectedGraphNode.description" tag="p" :content="selectedGraphNode.description" />
 
           <!-- 来源状态要跟着知识点走：模型凭通用知识写的和有教材依据的，
                在图上必须一眼分得出，否则教师会把前者当成后者。 -->
@@ -151,14 +153,14 @@
           <template v-if="selectedGraphNode.learning_actions?.length">
             <h3>{{ t('knowledgeLibrary.learningActions', '学会后应该能做到') }}</h3>
             <ul class="knowledge-relation-graph__points" data-testid="knowledge-graph-actions">
-              <li v-for="action in selectedGraphNode.learning_actions" :key="action">{{ action }}</li>
+              <li v-for="action in selectedGraphNode.learning_actions" :key="action"><MathText :content="action" /></li>
             </ul>
           </template>
 
           <template v-if="selectedGraphNode.typical_problems?.length">
             <h3>{{ t('knowledgeLibrary.typicalProblems', '典型易错') }}</h3>
             <ul class="knowledge-relation-graph__points is-pitfall" data-testid="knowledge-graph-pitfalls">
-              <li v-for="problem in selectedGraphNode.typical_problems" :key="problem">{{ problem }}</li>
+              <li v-for="problem in selectedGraphNode.typical_problems" :key="problem"><MathText :content="problem" /></li>
             </ul>
           </template>
 
@@ -166,8 +168,8 @@
           <div v-if="selectedConnections.length" class="knowledge-relation-graph__connections">
             <article v-for="entry in selectedConnections" :key="entry.relation.relation_id">
               <span>{{ relationTypeLabel(entry.relation.relation_type) }}</span>
-              <strong>{{ entry.otherNode.name }}</strong>
-              <p v-if="entry.relation.reason">{{ entry.relation.reason }}</p>
+              <strong><MathText :content="entry.otherNode.name" /></strong>
+              <MathText v-if="entry.relation.reason" tag="p" :content="entry.relation.reason" />
             </article>
           </div>
           <p v-else class="knowledge-relation-graph__no-connections">
@@ -193,6 +195,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { LockKeyhole, Maximize2, Minus, MousePointerClick, Network, Plus } from 'lucide-vue-next'
+import MathText from './MathText.vue'
 import { t } from '../shared/i18n'
 import { knowledgeSourceLabel } from '../utils/knowledge-source'
 import type {
@@ -470,7 +473,8 @@ function relationTypeLabel(type: KnowledgeRelation['relation_type']): string {
 .knowledge-relation-graph__node rect { fill:#fff; stroke:#dfe2ec; stroke-width:1.5; filter:drop-shadow(0 5px 10px rgba(54,59,91,.08)); transition:fill .15s ease, stroke .15s ease, stroke-width .15s ease; }
 .knowledge-relation-graph__node circle { fill:#a8aebe; }
 .knowledge-relation-graph__node-type { fill:#858ba0; font-size:10px; font-weight:650; }
-.knowledge-relation-graph__node-name { fill:#3b4158; font-size:13px; font-weight:750; }
+.knowledge-relation-graph__node-name { height:100%; display:flex; align-items:center; overflow:hidden; color:#3b4158; font-size:13px; font-weight:750; line-height:1.25; }
+.knowledge-relation-graph__node-name :deep(.math-text) { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .knowledge-relation-graph__node:hover rect, .knowledge-relation-graph__node:focus-visible rect { fill:#f7f5ff; stroke:#9e90ef; }
 .knowledge-relation-graph__node:focus-visible rect { stroke-width:3; }
 .knowledge-relation-graph__node.is-covered circle { fill:#4b9a75; }

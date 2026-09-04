@@ -68,7 +68,7 @@
             @click="selectSlide(slide.slide_id)"
           >
             <span>{{ String(slide.slide_number).padStart(2, '0') }}</span>
-            <strong>{{ slide.title || t('courseWorkbench.pptReview.untitled', '未命名页面') }}</strong>
+            <strong><MathText :content="slide.title || t('courseWorkbench.pptReview.untitled', '未命名页面')" /></strong>
             <i v-if="findingCount(slide.slide_id)">{{ findingCount(slide.slide_id) }}</i>
             <Check v-else :size="13" />
           </button>
@@ -97,9 +97,9 @@
               </footer>
             </template>
             <template v-else>
-              <h3>{{ selectedSlide.title || t('courseWorkbench.pptReview.untitled', '未命名页面') }}</h3>
+              <h3><MathText :content="selectedSlide.title || t('courseWorkbench.pptReview.untitled', '未命名页面')" /></h3>
               <div v-for="block in bodyBlocks" :key="block.block_id" :data-kind="block.kind">
-                <p v-for="(line, index) in block.text.split('\n')" :key="`${block.block_id}-${index}`">{{ line }}</p>
+                <MathText v-for="(line, index) in block.text.split('\n')" :key="`${block.block_id}-${index}`" tag="p" :content="line" />
               </div>
               <span v-if="!selectedSlide.blocks.length" class="ppt-slide-empty">{{ t('courseWorkbench.pptReview.noText', '该页未识别到文字，请回到原 PPT 检查视觉内容。') }}</span>
             </template>
@@ -109,8 +109,8 @@
             <header><Sparkles :size="15" /><strong>{{ t('courseWorkbench.pptReview.aiCandidate', 'AI 修改候选') }}</strong><span>{{ t('courseWorkbench.pptReview.notApplied', '尚未应用') }}</span></header>
             <div>
               <p v-for="block in changedCandidateBlocks" :key="block.block_id">
-                <del>{{ originalBlockText(block.block_id) }}</del>
-                <ins>{{ block.text }}</ins>
+                <del><MathText :content="originalBlockText(block.block_id)" /></del>
+                <ins><MathText :content="block.text" /></ins>
               </p>
             </div>
             <footer>
@@ -133,15 +133,15 @@
             <p v-if="!review.report.sources.length">{{ t('courseWorkbench.pptReview.noBasis', '当前仅做 PPT 内部检查，未读取到已确认的教学内容。') }}</p>
             <ul v-else>
               <li v-for="source in review.report.sources" :key="`${source.kind}-${source.revision_id}`">
-                <CheckCircle2 :size="13" /><span>{{ source.label }}</span><small>{{ source.status === 'confirmed' ? t('courseWorkbench.pptReview.sourceConfirmed', '已确认') : t('courseWorkbench.pptReview.sourceCurrent', '当前版') }}</small>
+                <CheckCircle2 :size="13" /><span><MathText :content="source.label" /></span><small>{{ source.status === 'confirmed' ? t('courseWorkbench.pptReview.sourceConfirmed', '已确认') : t('courseWorkbench.pptReview.sourceCurrent', '当前版') }}</small>
               </li>
             </ul>
           </section>
           <div v-if="selectedFindings.length" class="ppt-finding-list">
             <article v-for="finding in selectedFindings" :key="finding.finding_id">
               <header><span>{{ confidenceLabel(finding.confidence) }}</span><small>{{ finding.slide_number ? t('courseWorkbench.pptReview.slide', '第 {number} 页').replace('{number}', String(finding.slide_number)) : t('courseWorkbench.pptReview.wholeDeck', '整份 PPT') }}</small></header>
-              <strong>{{ finding.title }}</strong>
-              <p>{{ finding.detail }}</p>
+              <strong><MathText :content="finding.title" /></strong>
+              <MathText tag="p" :content="finding.detail" />
               <footer>
                 <button type="button" :disabled="busy || pendingCandidate?.slide_id === selectedSlideId" @click="requestAiFix(finding)"><Sparkles :size="13" />{{ t('courseWorkbench.pptReview.aiFix', 'AI 修改') }}</button>
                 <button type="button" :disabled="!editableBlocks.length" @click="startEditing"><Pencil :size="13" />{{ t('courseWorkbench.pptReview.manualEdit', '手动编辑') }}</button>
@@ -161,6 +161,7 @@ import { Check, CheckCircle2, Download, FileSearch, LoaderCircle, Pencil, Refres
 import { t } from '../shared/i18n'
 import http, { teacherIdentityHeaders, teacherReadRequestConfig, teacherRequestConfig } from '../utils/http'
 import { postGenerationStream } from '../shared/generation-stream'
+import MathText from './MathText.vue'
 
 type PptBlock = { block_id: string; shape_index: number; kind: 'title' | 'text' | 'table'; text: string; original_text: string; editable: boolean }
 type PptSlide = { slide_id: string; slide_number: number; title: string; blocks: PptBlock[]; content_hash: string }

@@ -3,8 +3,8 @@
     <template v-if="node.node_level === 1">
       <header class="course-opening">
         <span>{{ t('courseBlocks.courseUnit', '课程单元') }}</span>
-        <h1>{{ cleanName }}</h1>
-        <p v-if="node.learning_objective">{{ node.learning_objective }}</p>
+        <h1><MathText :content="cleanName" /></h1>
+        <MathText v-if="node.learning_objective" tag="p" :content="node.learning_objective" />
       </header>
       <div v-if="node.node_content" class="opening-content" :style="contentStyle">
         <CourseBlockStream :node="node" :content="node.node_content" :records="readOnly ? [] : records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" :read-only="readOnly" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" @start-practice="emit('startPractice', node, $event)" />
@@ -36,11 +36,11 @@
           </template>
         </div>
         <div class="chapter-copy">
-          <h2>{{ node.node_name }}</h2>
+          <h2><MathText :content="node.node_name" /></h2>
           <div class="chapter-divider" aria-hidden="true">
             <span></span><i></i><b></b>
           </div>
-          <p v-if="node.learning_objective">{{ node.learning_objective }}</p>
+          <MathText v-if="node.learning_objective" tag="p" :content="node.learning_objective" />
         </div>
       </header>
 
@@ -68,7 +68,7 @@
           <span class="task-meta">
             {{ t('courseBlocks.chapterPractice', '章节练习') }} · {{ practiceCountLabel }}
           </span>
-          <strong>{{ practicePreview || node.node_name }}</strong>
+          <strong><MathText :content="practicePreview || node.node_name" /></strong>
           <small>{{ t('courseBlocks.practiceHint', '从正式题目进入，作答进度会自动保存') }}</small>
         </span>
         <span class="task-action">
@@ -81,7 +81,7 @@
     <template v-else>
       <header class="section-heading">
         <span></span>
-        <h3>{{ node.node_name }}</h3>
+        <h3><MathText :content="node.node_name" /></h3>
         <small v-if="generationPreview" class="section-generation-status" :data-state="generationState">
           <component :is="generationIcon" :size="12" :class="{ spinning: generationState === 'generating' }" />
           {{ generationLabel }}
@@ -104,6 +104,7 @@ import { computed } from 'vue'
 import { ArrowRight, BookOpenText, CheckCircle2, ClipboardCheck, Clock3, LoaderCircle, TriangleAlert } from 'lucide-vue-next'
 import AdaptiveLearningBlock from './AdaptiveLearningBlock.vue'
 import CourseBlockStream from './CourseBlockStream.vue'
+import MathText from './MathText.vue'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useLearningProgressStore } from '../stores/learningProgress'
 import type { CourseBlockEditTarget, Node, Note } from '../stores/types'

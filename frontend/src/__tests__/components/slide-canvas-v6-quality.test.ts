@@ -33,8 +33,10 @@ describe('SlideCanvas V6 sample-quality compositions', () => {
 
     const heading = wrapper.get('h2').text()
     expect(heading).toContain('复合函数定义域要求内层输出落入外层定义域')
-    expect(heading).toContain('(f∘ g)(x)=ln(1-x^2)')
+    expect(wrapper.get('h2').find('.katex').exists()).toBe(true)
+    expect(heading).toContain('(f∘g)(x)=ln(1−x2)')
     expect(heading).not.toContain('\\circ')
+    expect(heading).not.toContain('$')
   })
 
   it('renders agenda entries with chapter title and source-derived description', () => {

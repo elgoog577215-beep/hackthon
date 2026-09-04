@@ -301,7 +301,7 @@
             · {{ Math.round(Number(assessmentProfile.confidence || 0) * 100) }}%
           </small>
         </header>
-        <p v-if="profileCapabilities">{{ profileCapabilities }}</p>
+        <MathText v-if="profileCapabilities" tag="p" :content="profileCapabilities" />
       </section>
 
       <section class="assessment-matrix" data-testid="assessment-coverage-matrix">
@@ -337,7 +337,7 @@
               data-testid="objective-issue-row"
             >
               <div>
-                <strong>{{ row.objective }}</strong>
+                <strong><MathText :content="row.objective" /></strong>
                 <small>{{ row.archetype }} · {{ row.validator }}</small>
               </div>
               <span :data-status="row.status">{{ objectiveStatusLabel(row.status) }}</span>
@@ -396,7 +396,7 @@
                 data-testid="objective-covered-row"
               >
                 <div>
-                  <strong>{{ row.objective }}</strong>
+                  <strong><MathText :content="row.objective" /></strong>
                 </div>
                 <span :data-status="row.status">{{ objectiveStatusLabel(row.status) }}</span>
                 <details class="assessment-matrix__menu">
@@ -490,7 +490,7 @@
               >
                 <span class="question-review-item__number">{{ questionNumber(item) }}</span>
                 <span class="question-review-item__question">
-                  <strong class="question-review-item__preview">{{ questionPreview(item) }}</strong>
+                  <strong class="question-review-item__preview"><MathText :content="questionPreview(item)" /></strong>
                   <small>{{ questionTypeLabel(item) }} · {{ validationModeLabel(item.validation_mode) }}</small>
                 </span>
                 <span class="question-review-item__status" :data-status="item.lifecycle_status">
@@ -568,9 +568,9 @@
 
               <div v-if="questionDeliverable(selectedQuestion) || questionConstraints(selectedQuestion).length" class="question-sheet__requirements">
                 <strong>{{ t('questionBank.answerRequirements', '作答要求') }}</strong>
-                <p v-if="questionDeliverable(selectedQuestion)">{{ questionDeliverable(selectedQuestion) }}</p>
+                <MathText v-if="questionDeliverable(selectedQuestion)" tag="p" :content="questionDeliverable(selectedQuestion)" />
                 <ul v-if="questionConstraints(selectedQuestion).length">
-                  <li v-for="constraint in questionConstraints(selectedQuestion)" :key="constraint">{{ constraint }}</li>
+                  <li v-for="constraint in questionConstraints(selectedQuestion)" :key="constraint"><MathText :content="constraint" /></li>
                 </ul>
               </div>
             </section>
@@ -602,39 +602,41 @@
               <section v-else class="question-solution-diff">
                 <div class="question-solution-diff__worked">
                   <strong>{{ t('questionBank.workedSolution', '完整解析') }}</strong>
-                  <p v-if="solutionSpec(solutions[selectedQuestion.revision_id] || {}).summary">
-                    {{ solutionSpec(solutions[selectedQuestion.revision_id] || {}).summary }}
-                  </p>
+                  <MathText
+                    v-if="solutionSpec(solutions[selectedQuestion.revision_id] || {}).summary"
+                    tag="p"
+                    :content="solutionSpec(solutions[selectedQuestion.revision_id] || {}).summary"
+                  />
                   <ol v-if="solutionSpec(solutions[selectedQuestion.revision_id] || {}).steps?.length">
                     <li v-for="(step, stepIndex) in solutionSpec(solutions[selectedQuestion.revision_id] || {}).steps" :key="`${selectedQuestion.revision_id}-solution-step-${stepIndex}`">
-                      {{ formatSolutionStep(step) }}
+                      <MathText :content="formatSolutionStep(step)" />
                     </li>
                   </ol>
                   <strong>{{ t('questionBank.canonicalAnswer', '标准答案') }}</strong>
-                  <pre>{{ formatValue(solutionSpec(solutions[selectedQuestion.revision_id] || {}).final_answer ?? '-') }}</pre>
+                  <pre><MathText :content="formatValue(solutionSpec(solutions[selectedQuestion.revision_id] || {}).final_answer ?? '-')" /></pre>
                   <section v-if="solutionSpec(solutions[selectedQuestion.revision_id] || {}).option_analysis?.length" class="question-solution-diff__analysis">
                     <strong>{{ t('questionBank.optionAnalysis', '选项解析') }}</strong>
                     <ul>
                       <li v-for="analysis in solutionSpec(solutions[selectedQuestion.revision_id] || {}).option_analysis" :key="`${selectedQuestion.revision_id}-option-${analysis.option_id}`">
-                        <b>{{ analysis.option_id }}</b>：{{ analysis.explanation }}
+                        <b>{{ analysis.option_id }}</b>：<MathText :content="analysis.explanation" />
                       </li>
                     </ul>
                   </section>
                   <section v-if="solutionSpec(solutions[selectedQuestion.revision_id] || {}).checks?.length" class="question-solution-diff__analysis">
                     <strong>{{ t('questionBank.solutionChecks', '结果检查') }}</strong>
-                    <ul><li v-for="check in solutionSpec(solutions[selectedQuestion.revision_id] || {}).checks" :key="`${selectedQuestion.revision_id}-check-${check}`">{{ check }}</li></ul>
+                    <ul><li v-for="check in solutionSpec(solutions[selectedQuestion.revision_id] || {}).checks" :key="`${selectedQuestion.revision_id}-check-${check}`"><MathText :content="check" /></li></ul>
                   </section>
                   <section v-if="solutionSpec(solutions[selectedQuestion.revision_id] || {}).common_errors?.length" class="question-solution-diff__analysis">
                     <strong>{{ t('questionBank.commonErrors', '常见错误') }}</strong>
-                    <ul><li v-for="error in solutionSpec(solutions[selectedQuestion.revision_id] || {}).common_errors" :key="`${selectedQuestion.revision_id}-error-${error}`">{{ error }}</li></ul>
+                    <ul><li v-for="error in solutionSpec(solutions[selectedQuestion.revision_id] || {}).common_errors" :key="`${selectedQuestion.revision_id}-error-${error}`"><MathText :content="error" /></li></ul>
                   </section>
                 </div>
                 <details class="question-solution-diff__validation">
                   <summary>{{ t('questionBank.independentValidation', '独立验证详情') }}</summary>
                   <strong>{{ t('questionBank.canonicalAnswer', '标准答案或量规') }}</strong>
-                  <pre>{{ solutionAnswer(solutions[selectedQuestion.revision_id] || {}) }}</pre>
+                  <pre><MathText :content="solutionAnswer(solutions[selectedQuestion.revision_id] || {})" /></pre>
                   <strong>{{ t('questionBank.independentValidation', '独立求解与验证') }}</strong>
-                  <pre>{{ solutionValidation(solutions[selectedQuestion.revision_id] || {}) }}</pre>
+                  <pre><MathText :content="solutionValidation(solutions[selectedQuestion.revision_id] || {})" /></pre>
                 </details>
               </section>
             </section>
@@ -776,6 +778,7 @@ import ExamPaperComposer from './ExamPaperComposer.vue'
 import CompactPagination from './CompactPagination.vue'
 import CourseReferenceTray, { type CourseReferenceItem } from './CourseReferenceTray.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import MathText from './MathText.vue'
 import QuestionBankImportWorkspace from './QuestionBankImportWorkspace.vue'
 import http, { teacherReadRequestConfig } from '@/utils/http'
 import { t } from '@/shared/i18n'

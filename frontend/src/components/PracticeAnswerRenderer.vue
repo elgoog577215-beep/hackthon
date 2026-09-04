@@ -69,13 +69,13 @@
           @change="selectOption(option, $event)"
         >
         <strong class="option-id">{{ optionId(option) }}</strong>
-        <span>{{ optionLabel(option) }}</span>
+        <MathText :content="optionLabel(option)" />
       </label>
     </div>
 
     <div v-else-if="mode === 'numeric_unit'" class="field-grid numeric-grid">
       <label v-for="field in fields" :key="field.field_id">
-        <span>{{ field.label }}</span>
+        <span><MathText :content="field.label" /></span>
         <textarea
           v-if="field.kind === 'rich_text'"
           :value="draft[field.field_id] || ''"
@@ -131,7 +131,7 @@
 
     <div v-else-if="mode === 'structured_fields'" class="field-grid">
       <label v-for="field in fields" :key="field.field_id">
-        <span>{{ field.label }}<b v-if="field.required" v-bind:aria-label="t('courseWorkspace.practice.requiredField', '必填')">*</b></span>
+        <span><MathText :content="field.label" /><b v-if="field.required" v-bind:aria-label="t('courseWorkspace.practice.requiredField', '必填')">*</b></span>
         <textarea
           v-if="field.kind === 'rich_text' || field.kind === 'code'"
           :class="{ 'code-editor': field.kind === 'code' }"
@@ -164,6 +164,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import MathText from './MathText.vue'
 import http from '../utils/http'
 import { t } from '../shared/i18n'
 

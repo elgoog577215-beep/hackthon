@@ -6,7 +6,7 @@
       </button>
       <div>
         <small>{{ t('pptWorkspace.manuscriptWorkflowEyebrow', 'PPT 生成') }}</small>
-        <h1>{{ title }}</h1>
+        <h1><MathText :content="title" /></h1>
         <p>{{ t('pptWorkspace.manuscriptWorkflowDescription', '先确认逐页页面内容稿，再生成可编辑 PPT。') }}</p>
       </div>
     </header>
@@ -67,14 +67,14 @@
             <div class="ppt-manuscript-workflow__page-number">{{ String(page.page_number).padStart(2, '0') }}</div>
             <div class="ppt-manuscript-workflow__page-copy">
               <small>{{ pageTypeLabel(page.page_type) }} · {{ page.layout_id }}</small>
-              <h3>{{ page.title }}</h3>
-              <p v-if="page.page_goal"><b>{{ t('pptWorkspace.pageGoal', '页面目标') }}：</b>{{ page.page_goal }}</p>
-              <p v-if="page.primary_claim"><b>{{ t('pptWorkspace.primaryClaim', '核心结论') }}：</b>{{ page.primary_claim }}</p>
+              <h3><MathText :content="page.title" /></h3>
+              <p v-if="page.page_goal"><b>{{ t('pptWorkspace.pageGoal', '页面目标') }}：</b><MathText :content="page.page_goal" /></p>
+              <p v-if="page.primary_claim"><b>{{ t('pptWorkspace.primaryClaim', '核心结论') }}：</b><MathText :content="page.primary_claim" /></p>
               <ul v-if="page.visible_copy?.length">
-                <li v-for="(line, index) in page.visible_copy" :key="`${page.page_id}-${index}`">{{ line }}</li>
+                <li v-for="(line, index) in page.visible_copy" :key="`${page.page_id}-${index}`"><MathText :content="line" /></li>
               </ul>
               <p v-if="page.transition" class="ppt-manuscript-workflow__transition">
-                <b>{{ t('pptWorkspace.pageTransition', '衔接') }}：</b>{{ page.transition }}
+                <b>{{ t('pptWorkspace.pageTransition', '衔接') }}：</b><MathText :content="page.transition" />
               </p>
               <dl v-if="hasSourceRefs(page)" class="ppt-manuscript-workflow__sources">
                 <div v-if="sourceIds(page, 'source_script_block_ids').length">
@@ -160,6 +160,7 @@
 import { computed } from 'vue'
 import { ArrowLeft, Check, FileCheck2, Presentation, ScrollText, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
+import MathText from './MathText.vue'
 
 const props = defineProps<{
   title: string

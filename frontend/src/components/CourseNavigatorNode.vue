@@ -23,7 +23,7 @@
       <span v-else class="node-spacer"></span>
       <span v-if="isChapter" class="node-kind chapter-kind"><BookOpenText :size="14" /></span>
       <span v-else class="node-kind leaf-kind" :class="[{ active: isNodeActive, learned: isLearned }, generationState]"></span>
-      <span class="node-label" :title="node.node_name">{{ node.node_name }}</span>
+      <span class="node-label" :title="node.node_name"><MathText :content="node.node_name" /></span>
       <span v-if="adaptationMarker" class="adaptation-marker" :data-state="adaptationMarker.state" :title="adaptationMarker.title">
         {{ adaptationMarker.label }}<b>{{ adaptationMarker.count }}</b>
       </span>
@@ -57,7 +57,7 @@
           @click.stop="emit('selectBlock', { node: selectionNode, blockId: entry.block.block_id })"
         >
           <span class="course-block-role">{{ entry.roleLabel }}</span>
-          <span class="course-block-title">{{ entry.title }}</span>
+          <span class="course-block-title"><MathText :content="entry.title" /></span>
         </button>
       </li>
     </ol>
@@ -65,8 +65,8 @@
       <li v-for="step in growthTrail" :key="step.key">
         <span></span>
         <div>
-          <b>{{ step.label }}</b>
-          <small>{{ step.detail }}</small>
+          <b><MathText :content="step.label" /></b>
+          <small><MathText :content="step.detail" /></small>
         </div>
       </li>
     </ol>
@@ -94,6 +94,7 @@ import { useLearningProgressStore } from '../stores/learningProgress'
 import { useCourseStore } from '../stores/course'
 import { useCourseEvolutionStore } from '../stores/courseEvolution'
 import { t } from '../shared/i18n'
+import MathText from './MathText.vue'
 
 defineOptions({ name: 'CourseNavigatorNode' })
 const props = withDefaults(defineProps<{

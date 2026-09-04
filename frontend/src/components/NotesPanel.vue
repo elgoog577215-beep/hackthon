@@ -34,7 +34,7 @@
         <span>
           <strong>{{ t('quickNote.title', '随手记') }}</strong>
           <small v-if="courseStore.currentNode">
-            {{ t('quickNote.currentNode', '记录到当前章节') }}: {{ courseStore.currentNode.node_name }}
+            {{ t('quickNote.currentNode', '记录到当前章节') }}: <MathText :content="courseStore.currentNode.node_name" />
           </small>
           <small v-else>{{ t('quickNote.noNode', '请先选择一个课程章节') }}</small>
         </span>
@@ -51,7 +51,7 @@
           <NotebookPen :size="17" />
           <div>
             <strong>{{ t('quickNote.title', '随手记') }}</strong>
-            <small>{{ t('quickNote.currentNode', '记录到当前章节') }}: {{ courseStore.currentNode?.node_name }}</small>
+            <small>{{ t('quickNote.currentNode', '记录到当前章节') }}: <MathText :content="courseStore.currentNode?.node_name" /></small>
           </div>
           <button type="button" :title="t('quickNote.cancel', '取消')" @click="cancelQuickNote">
             <X :size="15" />
@@ -90,9 +90,9 @@
       <article v-for="record in filteredRecords" :key="record.id" class="record-row">
         <button class="record-main" @click="emit('viewDetail', record)">
           <span class="record-type" :data-type="recordType(record)">{{ typeLabel(recordType(record)) }}</span>
-          <strong>{{ record.summary || record.quote || record.content || typeLabel(recordType(record)) }}</strong>
-          <p v-if="record.quote && record.quote !== record.summary">{{ record.quote }}</p>
-          <small>{{ recordNodeName(record) || t('courseWorkspace.records.unknownNode', '课程位置') }} · {{ formatTime(record.createdAt) }}</small>
+          <strong><MathText :content="record.summary || record.quote || record.content || typeLabel(recordType(record))" /></strong>
+          <MathText v-if="record.quote && record.quote !== record.summary" tag="p" :content="record.quote" />
+          <small><MathText :content="recordNodeName(record) || t('courseWorkspace.records.unknownNode', '课程位置')" /> · {{ formatTime(record.createdAt) }}</small>
         </button>
         <div class="record-actions">
           <span class="record-status">{{ statusLabel(record.status || '') }}</span>
@@ -125,6 +125,7 @@ import { useNoteStore } from '../stores/notes'
 import { useCourseStore } from '../stores/course'
 import { t } from '../shared/i18n'
 import { createUuid } from '../utils/client-id'
+import MathText from './MathText.vue'
 
 type RecordTab = 'all' | 'note' | 'issue' | 'review_task' | 'bookmark'
 const emit = defineEmits<{

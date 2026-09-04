@@ -42,7 +42,7 @@
           </dl>
         </aside>
           <span>{{ blockLabel(item.block.type) }}</span>
-          <h4 v-if="shouldShowBlockTitle(item.block, index)">{{ item.block.title }}</h4>
+          <h4 v-if="shouldShowBlockTitle(item.block, index)"><MathText :content="item.block.title" /></h4>
         </header>
         <button
           v-if="canImproveBlock(item.block.block_id)"
@@ -107,7 +107,7 @@
           rel="noopener noreferrer"
         >
           <span>{{ sourceCitationLabel(source.source_id) }}</span>
-          <strong>{{ source.title || source.domain || source.source_id }}</strong>
+          <strong><MathText :content="source.title || source.domain || source.source_id" /></strong>
           <small>{{ source.domain }}<template v-if="source.published_date"> · {{ source.published_date }}</template></small>
         </a>
       </div>
@@ -143,6 +143,7 @@ import CourseEvolutionContentBlock from './CourseEvolutionContentBlock.vue'
 import FeedbackReviewBlock from './FeedbackReviewBlock.vue'
 import MarkdownDocumentEditor from './MarkdownDocumentEditor.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import MathText from './MathText.vue'
 import type { ContentBlock, CourseBlockEditTarget, Node, Note } from '../stores/types'
 import { useNoteStore } from '../stores/notes'
 import { useCourseEvolutionStore } from '../stores/courseEvolution'

@@ -50,7 +50,7 @@
       >
         <rect :width="node.width" :height="node.height" rx="20" />
         <foreignObject x="18" y="14" :width="node.width - 36" :height="node.height - 28">
-          <div xmlns="http://www.w3.org/1999/xhtml">{{ node.label }}</div>
+          <div xmlns="http://www.w3.org/1999/xhtml"><MathText :content="node.rawLabel" /></div>
         </foreignObject>
       </g>
     </svg>
@@ -82,12 +82,12 @@
         :key="`${point.label}-${index}`"
       >
         <circle :cx="point.x" :cy="point.y" r="11" />
-        <text :x="point.x + 18" :y="point.y - 16" class="slide-visual__point-label">
-          {{ point.label }}
-        </text>
+        <foreignObject :x="point.x + 18" :y="point.y - 48" width="210" height="42">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="slide-visual__coordinate-label"><MathText :content="point.label" /></div>
+        </foreignObject>
       </g>
-      <text x="928" y="267" class="slide-visual__axis-label">{{ axisLabels[0] }}</text>
-      <text x="516" y="70" class="slide-visual__axis-label">{{ axisLabels[1] }}</text>
+      <foreignObject x="920" y="230" width="70" height="42"><div xmlns="http://www.w3.org/1999/xhtml" class="slide-visual__coordinate-label"><MathText :content="axisLabels[0]" /></div></foreignObject>
+      <foreignObject x="516" y="50" width="70" height="42"><div xmlns="http://www.w3.org/1999/xhtml" class="slide-visual__coordinate-label"><MathText :content="axisLabels[1]" /></div></foreignObject>
     </svg>
 
     <div v-else-if="visual.kind === 'chart'" class="slide-visual__chart">
@@ -97,7 +97,7 @@
         class="slide-visual__bar"
         :style="{ height: `${Math.max(8, value.ratio * 100)}%` }"
       >
-        <b>{{ value.value }}</b><span>{{ value.label }}</span>
+        <b>{{ value.value }}</b><span><MathText :content="value.label" /></span>
       </div>
     </div>
 
@@ -107,11 +107,11 @@
     <div v-else-if="visual.kind === 'table'" class="slide-visual__table-wrap">
       <table>
         <thead>
-          <tr><th v-for="header in tableHeaders" :key="header">{{ header }}</th></tr>
+          <tr><th v-for="header in tableHeaders" :key="header"><MathText :content="header" /></th></tr>
         </thead>
         <tbody>
           <tr v-for="(row, rowIndex) in tableRows" :key="rowIndex">
-            <td v-for="(cell, cellIndex) in row" :key="cellIndex">{{ formatVisualText(cell) }}</td>
+            <td v-for="(cell, cellIndex) in row" :key="cellIndex"><MathText :content="String(cell ?? '')" /></td>
           </tr>
         </tbody>
       </table>
@@ -127,6 +127,7 @@ import http from '../utils/http'
 import type { SlideVisual } from '../types/slideVisual'
 import { isRenderableSlideVisual } from '../utils/slideVisual'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import MathText from './MathText.vue'
 
 const props = withDefaults(defineProps<{
   visuals: SlideVisual[]
@@ -169,6 +170,7 @@ const diagramNodes = computed(() => {
     return nodes.map((node, index) => ({
       ...node,
       label: formatVisualText(node.label),
+      rawLabel: String(node.label || ''),
       x: 150,
       y: 55 + index * (height + 22),
       width: 700,
@@ -180,6 +182,7 @@ const diagramNodes = computed(() => {
   return nodes.map((node, index) => ({
     ...node,
     label: formatVisualText(node.label),
+    rawLabel: String(node.label || ''),
     x: columns === 1 ? 140 : 95 + (index % 2) * 450,
     y: columns === 1 ? 210 : 65 + Math.floor(index / 2) * 170,
     width,
@@ -336,6 +339,12 @@ onBeforeUnmount(revokeImage)
   font-weight: 720;
   line-height: 1.25;
   text-align: center;
+}
+.slide-visual svg foreignObject .slide-visual__coordinate-label {
+  justify-content: flex-start;
+  font-size: 24px;
+  font-weight: 760;
+  white-space: nowrap;
 }
 .slide-visual__point-label,
 .slide-visual__axis-label,

@@ -29,8 +29,8 @@
             <span v-else>{{ String(lesson.number).padStart(2, '0') }}</span>
           </span>
           <div>
-            <strong>{{ lesson.title }}</strong>
-            <small>{{ lessonDisplayDetail(lesson) }}</small>
+            <strong><MathText :content="lesson.title" /></strong>
+            <small><MathText :content="lessonDisplayDetail(lesson)" /></small>
           </div>
         </header>
       </article>
@@ -42,6 +42,7 @@
 import { computed } from 'vue'
 import { Check, LoaderCircle } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
+import MathText from './MathText.vue'
 
 type GrowthLesson = {
   id: string

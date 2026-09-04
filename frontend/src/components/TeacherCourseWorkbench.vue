@@ -205,7 +205,7 @@
                   <i v-else />
                 </span>
                 <div>
-                  <strong>{{ outlineLessonStatusTitle(lessonStatus, index) }}</strong>
+                  <strong><MathText :content="outlineLessonStatusTitle(lessonStatus, index)" /></strong>
                   <small>{{ lessonStatus.message || outlineLessonStatusLabel(lessonStatus) }}</small>
                 </div>
                 <em>{{ Math.max(0, Math.min(100, Math.round(Number(lessonStatus.progress || 0)))) }}%</em>
@@ -213,7 +213,7 @@
               <div class="outline-detail-stream__progress" aria-hidden="true">
                 <i :style="{ transform: `scaleX(${Math.max(0, Math.min(100, Number(lessonStatus.progress || 0))) / 100})` }" />
               </div>
-              <pre v-if="lessonStatus.stream_preview" class="outline-detail-stream__preview">{{ lessonStatus.stream_preview }}<span v-if="outlineLessonStatusState(lessonStatus) === 'running'" class="stream-caret" /></pre>
+              <pre v-if="lessonStatus.stream_preview" class="outline-detail-stream__preview"><MathText :content="lessonStatus.stream_preview" /><span v-if="outlineLessonStatusState(lessonStatus) === 'running'" class="stream-caret" /></pre>
             </article>
           </section>
           <div v-if="!outlineGrowth && !outlineLessonStatuses.length && !generationFailed" class="stream-waiting"><LoaderCircle :size="20" class="spin" />{{ t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…') }}</div>
@@ -392,7 +392,7 @@
                 @click="selectLesson(lesson.lesson_unit_id)"
               >
                 <span class="lesson-outline-chapter-copy">
-                  <strong>{{ lessonDisplayTitle(lesson, index) }}</strong>
+                  <strong><MathText :content="lessonDisplayTitle(lesson, index)" /></strong>
                   <small :data-state="lessonGenerationState(lesson)">{{ lessonGenerationStateLabel(lesson) }}</small>
                 </span>
                 <span
@@ -420,7 +420,7 @@
           <div class="lesson-heading-cluster">
             <div class="lesson-current-group">
               <div class="lesson-current-title">
-                <strong>{{ selectedLesson?.title || t('courseWorkbench.form.chooseLesson', '请选择课次') }}</strong>
+                <strong><MathText :content="selectedLesson?.title || t('courseWorkbench.form.chooseLesson', '请选择课次')" /></strong>
                 <small>{{ selectedLessonPosition }}/{{ lessonStore.lessons.length }}</small>
               </div>
             </div>
@@ -575,13 +575,13 @@
               <section v-for="(lesson, index) in lessonStore.lessons" :key="lesson.lesson_unit_id">
                 <div class="lesson-course-preview__title">
                   <span>{{ String(index + 1).padStart(2, '0') }}</span>
-                  <h3>{{ lessonDisplayTitle(lesson, index) }}</h3>
+                  <h3><MathText :content="lessonDisplayTitle(lesson, index)" /></h3>
                   <small>{{ lesson.arrangement?.lesson_type_label || t('courseWorkbench.lessonBatch.typePending', '课型待系统安排') }}</small>
                 </div>
                 <ol v-if="lesson.arrangement?.blocks?.length">
                   <li v-for="block in lesson.arrangement.blocks" :key="block.block_id || block.name">
-                    <strong>{{ block.name }}</strong>
-                    <span>{{ block.purpose || block.content_summary }}</span>
+                    <strong><MathText :content="block.name" /></strong>
+                    <MathText :content="block.purpose || block.content_summary" />
                   </li>
                 </ol>
                 <p v-else class="lesson-course-preview__pending">{{ t('courseWorkbench.lessonBatch.structurePending', '教学结构正在准备，生成时会使用最新结果。') }}</p>
@@ -649,7 +649,7 @@
             <article v-if="lessonStreamSegments.length" class="lesson-stream-document" :aria-label="t('courseWorkbench.lessonStreamDraft', 'AI 工作稿')">
               <small>{{ t('courseWorkbench.lessonStreamDraft', 'AI 工作稿') }}</small>
               <p v-for="(segment, index) in lessonStreamSegments" :key="`${index}-${segment}`">
-                {{ segment }}<span v-if="index === lessonStreamSegments.length - 1" class="stream-caret" />
+                <MathText :content="segment" /><span v-if="index === lessonStreamSegments.length - 1" class="stream-caret" />
               </p>
             </article>
             <div v-else class="lesson-stream-waiting">{{ t('courseWorkbench.lessonStreamWaiting', '正在组织教案结构…') }}</div>
@@ -746,14 +746,14 @@
                 <summary>
                   <div class="lesson-course-preview__title">
                     <span>{{ String(index + 1).padStart(2, '0') }}</span>
-                    <h3>{{ lessonDisplayTitle(lesson, index) }}</h3>
+                    <h3><MathText :content="lessonDisplayTitle(lesson, index)" /></h3>
                     <small :data-state="lessonPlanIsReady(lesson) ? 'ready' : 'pending'">{{ lessonPlanIsReady(lesson)
                       ? t('courseWorkbench.scriptBatch.planMapped', '教案已映射')
                       : t('courseWorkbench.scriptBatch.planPending', '教案待生成') }}</small>
                   </div>
                   <div v-if="lessonPlanBlocks(lesson).length" class="script-course-preview__block-line">
                     <span v-for="block in lessonPlanBlocks(lesson)" :key="block.id">
-                      <strong>{{ block.label }}</strong>
+                      <strong><MathText :content="block.label" /></strong>
                       <small v-if="block.minutes">{{ block.minutes }} {{ t('courseWorkbench.scriptBatch.minutes', '分钟') }}</small>
                     </span>
                   </div>
@@ -761,8 +761,8 @@
                 </summary>
                 <ol v-if="lessonPlanBlocks(lesson).length">
                   <li v-for="block in lessonPlanBlocks(lesson)" :key="block.id">
-                    <strong>{{ block.label }}</strong>
-                    <span>{{ block.summary }}</span>
+                    <strong><MathText :content="block.label" /></strong>
+                    <MathText :content="block.summary" />
                     <small v-if="block.minutes">{{ block.minutes }} {{ t('courseWorkbench.scriptBatch.minutes', '分钟') }}</small>
                   </li>
                 </ol>
@@ -903,8 +903,8 @@
       <header class="context-pane-heading" :data-phase="contextPhase">
         <div>
           <small>{{ contextPhaseLabel }}</small>
-          <strong>{{ contextObjectTitle }}</strong>
-          <span>{{ contextObjectDetail }}</span>
+          <strong><MathText :content="contextObjectTitle" /></strong>
+          <MathText :content="contextObjectDetail" />
         </div>
         <button
           type="button"
@@ -1010,11 +1010,11 @@
           <span>{{ outlineQualityReviewStatus }}</span>
           <small>{{ t('courseWorkbench.outlineReview.nonBlocking', '仅供参考，不影响后续生成') }}</small>
         </div>
-        <p v-if="outlineQualityIssues.length && outlineQualityReview.summary">{{ outlineQualityReview.summary }}</p>
+        <MathText v-if="outlineQualityIssues.length && outlineQualityReview.summary" tag="p" :content="outlineQualityReview.summary" />
         <ul v-if="outlineQualityIssues.length">
           <li v-for="issue in outlineQualityIssues" :key="issue.code || issue.message">
             <div>
-              <strong>{{ issue.message }}</strong>
+              <strong><MathText :content="issue.message" /></strong>
               <small>{{ outlineQualityIssueLocation(issue) }}</small>
             </div>
             <button
@@ -1046,6 +1046,7 @@ import AppErrorNotice from './AppErrorNotice.vue'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
 import CourseReferenceTray, { type CourseReferenceItem, type CourseReferenceSourceState, type CourseReferenceWorkflowState } from './CourseReferenceTray.vue'
+import MathText from './MathText.vue'
 import OutlineGrowthStream from './OutlineGrowthStream.vue'
 import QuestionBankReviewPanel from './QuestionBankReviewPanel.vue'
 import TeacherLessonAiWorkspace, { type TeacherAiQuickAction, type TeacherAiScopeOption } from './TeacherLessonAiWorkspace.vue'

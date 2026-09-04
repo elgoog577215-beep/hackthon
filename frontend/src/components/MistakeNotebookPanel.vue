@@ -54,16 +54,14 @@
         <span class="mistake-notebook__index">{{ index + 1 }}</span>
         <div class="mistake-notebook__copy">
           <div class="mistake-notebook__item-heading">
-            <strong>{{ attemptTitle(attempt) }}</strong>
+            <strong><MathText :content="attemptTitle(attempt)" /></strong>
             <span :data-status="attemptStatus(attempt)">{{ attemptStatusLabel(attempt) }}</span>
           </div>
           <p class="mistake-notebook__meta">
-            {{ attempt.node_name || t('mistakeNotebook.unknownNode', '课程练习') }}
+            <MathText :content="attempt.node_name || t('mistakeNotebook.unknownNode', '课程练习')" />
             <template v-if="attemptTime(attempt)">· {{ attemptTime(attempt) }}</template>
           </p>
-          <p class="mistake-notebook__feedback">
-            {{ attemptFeedback(attempt) || t('mistakeNotebook.saved', '本次作答与判断依据已保留') }}
-          </p>
+          <MathText tag="p" class="mistake-notebook__feedback" :content="attemptFeedback(attempt) || t('mistakeNotebook.saved', '本次作答与判断依据已保留')" />
         </div>
         <button
           v-if="canRetry(attempt)"
@@ -88,6 +86,7 @@ import { ElMessage } from 'element-plus'
 import { BookX, CircleAlert, CircleCheck, LoaderCircle, RefreshCw, RotateCcw, X } from 'lucide-vue-next'
 import { useCourseWorkspaceStore, type PracticeAttempt } from '../stores/courseWorkspace'
 import { t } from '../shared/i18n'
+import MathText from './MathText.vue'
 
 const props = defineProps<{ courseId: string }>()
 const emit = defineEmits<{

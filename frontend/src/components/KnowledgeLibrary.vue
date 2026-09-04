@@ -226,7 +226,7 @@
                         @click="selectNode(row.node, row.hasChildren)"
                       >
                         <component :is="nodeIcon(row.node.node_type)" :size="15" aria-hidden="true" />
-                        <span class="knowledge-tree-node-name">{{ row.node.name }}</span>
+                        <span class="knowledge-tree-node-name"><MathText :content="row.node.name" /></span>
                         <BookOpenCheck
                           v-if="row.node.covered_by_course"
                           :size="13"
@@ -252,7 +252,7 @@
                 <template v-if="selectedNode">
                   <nav class="knowledge-tree-breadcrumb" :aria-label="t('knowledgeLibrary.path', '知识路径')">
                     <template v-for="(name, index) in selectedNode.path_names" :key="`${name}-${index}`">
-                      <span>{{ name }}</span>
+                      <MathText :content="name" />
                       <ChevronRight v-if="index < selectedNode.path_names.length - 1" :size="12" aria-hidden="true" />
                     </template>
                   </nav>
@@ -268,13 +268,15 @@
                           {{ t('knowledgeLibrary.coveredByCourse', '本课程已覆盖') }}
                         </span>
                       </div>
-                      <h2>{{ selectedNode.name }}</h2>
+                      <h2><MathText :content="selectedNode.name" /></h2>
                     </div>
                   </div>
 
-                  <p class="knowledge-tree-description">
-                    {{ selectedNode.description || descriptionFallback(selectedNode) }}
-                  </p>
+                  <MathText
+                    tag="p"
+                    class="knowledge-tree-description"
+                    :content="selectedNode.description || descriptionFallback(selectedNode)"
+                  />
 
                   <div v-if="selectedNode.covered_by_course" class="knowledge-tree-bindings" :aria-label="t('knowledgeLibrary.bindingSummary', '本课绑定概况')">
                     <span><FileText :size="15" />{{ selectedNode.block_ids.length }} {{ t('knowledgeLibrary.contentBlocks', '处正文') }}</span>
@@ -285,7 +287,7 @@
                   <section v-if="selectedNode.learning_actions.length" class="knowledge-tree-section">
                     <h3><Target :size="17" />{{ t('knowledgeLibrary.learningActions', '学会后应该能做到') }}</h3>
                     <ul class="knowledge-tree-action-list">
-                      <li v-for="action in selectedNode.learning_actions" :key="action">{{ action }}</li>
+                      <li v-for="action in selectedNode.learning_actions" :key="action"><MathText :content="action" /></li>
                     </ul>
                   </section>
 
@@ -295,15 +297,15 @@
                       <article v-for="group in selectedSkillGroups" :key="group.skill.skill_unit_id" class="knowledge-tree-skill-group">
                         <div class="knowledge-tree-skill-head">
                           <span>{{ t('knowledgeLibrary.skill', '能力点') }}</span>
-                          <strong>{{ group.skill.name }}</strong>
-                          <p>{{ group.skill.learning_goal }}</p>
+                          <strong><MathText :content="group.skill.name" /></strong>
+                          <MathText tag="p" :content="group.skill.learning_goal" />
                         </div>
                         <div v-if="group.mistakes.length" class="knowledge-tree-skill-children">
                           <div v-if="group.mistakes.length" class="knowledge-tree-skill-branch is-mistake">
                             <h4><AlertTriangle :size="14" />{{ t('knowledgeLibrary.mistakePoints', '易错点') }}</h4>
                             <div v-for="item in group.mistakes" :key="item.mistake_point_id">
-                              <strong>{{ item.name }}</strong>
-                              <p>{{ item.repair_strategy || item.discrimination }}</p>
+                              <strong><MathText :content="item.name" /></strong>
+                              <MathText tag="p" :content="item.repair_strategy || item.discrimination" />
                             </div>
                           </div>
                         </div>
@@ -315,8 +317,8 @@
                     <h3><CheckCircle2 :size="17" />{{ t('knowledgeLibrary.masteryCriteria', '掌握标准') }}</h3>
                     <ul class="knowledge-tree-evidence-list">
                       <li v-for="criterion in selectedMasteryCriteria" :key="criterion.criterion_id">
-                        {{ criterion.observable_performance }}
-                        <span v-if="criterion.verification_method"> · {{ criterion.verification_method }}</span>
+                        <MathText :content="criterion.observable_performance" />
+                        <span v-if="criterion.verification_method"> · <MathText :content="criterion.verification_method" /></span>
                       </li>
                     </ul>
                   </section>
@@ -331,7 +333,7 @@
                         @click="selectNode(child, hasChildren(child.knowledge_id))"
                       >
                         <component :is="nodeIcon(child.node_type)" :size="15" />
-                        <span>{{ child.name }}</span>
+                        <MathText :content="child.name" />
                         <ChevronRight :size="14" />
                       </button>
                     </div>
@@ -341,10 +343,10 @@
                     <h3><CheckCircle2 :size="17" />{{ t('knowledgeLibrary.assessment', '练习与验收') }}</h3>
                     <ul class="knowledge-tree-evidence-list">
                       <li v-for="criterion in selectedCriteria" :key="criterion.asset_id">
-                        {{ criterion.observable_performance || t('knowledgeLibrary.criterionFallback', '完成本知识点的掌握检查') }}
+                        <MathText :content="criterion.observable_performance || t('knowledgeLibrary.criterionFallback', '完成本知识点的掌握检查')" />
                       </li>
                       <li v-for="question in selectedQuestions.slice(0, 3)" :key="question.asset_id">
-                        {{ question.prompt || t('knowledgeLibrary.questionFallback', '已有正式练习') }}
+                        <MathText :content="question.prompt || t('knowledgeLibrary.questionFallback', '已有正式练习')" />
                       </li>
                     </ul>
                   </section>
@@ -353,8 +355,8 @@
                     <h3><AlertTriangle :size="17" />{{ t('knowledgeLibrary.courseMisconceptions', '本课特别提醒') }}</h3>
                     <div class="knowledge-tree-misconceptions">
                       <div v-for="item in selectedMisconceptions" :key="item.asset_id">
-                        <strong>{{ item.error_pattern || t('knowledgeLibrary.misconceptionFallback', '需要辨析的误区') }}</strong>
-                        <p v-if="item.discrimination">{{ item.discrimination }}</p>
+                        <strong><MathText :content="item.error_pattern || t('knowledgeLibrary.misconceptionFallback', '需要辨析的误区')" /></strong>
+                        <MathText v-if="item.discrimination" tag="p" :content="item.discrimination" />
                       </div>
                     </div>
                   </section>
@@ -370,8 +372,8 @@
                       >
                         <span>{{ relationLabel(entry.relation, entry.direction) }}</span>
                         <span class="knowledge-tree-relation-copy">
-                          <strong>{{ entry.node.name }}</strong>
-                          <small v-if="entry.relation.reason">{{ entry.relation.reason }}</small>
+                          <strong><MathText :content="entry.node.name" /></strong>
+                          <MathText v-if="entry.relation.reason" tag="small" :content="entry.relation.reason" />
                         </span>
                         <ChevronRight :size="14" />
                       </button>
@@ -442,6 +444,7 @@ import {
 import { useCourseStore } from '../stores/course'
 import KnowledgeCommandPanel from './KnowledgeCommandPanel.vue'
 import KnowledgeRelationGraph from './KnowledgeRelationGraph.vue'
+import MathText from './MathText.vue'
 import { knowledgeSourceLabel } from '@/utils/knowledge-source'
 import { t } from '../shared/i18n'
 import http from '../utils/http'

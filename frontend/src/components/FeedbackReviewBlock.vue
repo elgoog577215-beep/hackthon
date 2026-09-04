@@ -22,8 +22,8 @@
         <summary>
           <span class="feedback-review__index">{{ String(index + 1).padStart(2, '0') }}</span>
           <span class="feedback-review__copy">
-            <strong>{{ section.title }}</strong>
-            <small>{{ section.summary }}</small>
+            <strong><MathText :content="section.title" /></strong>
+            <MathText tag="small" :content="section.summary" />
           </span>
           <span class="feedback-review__action" aria-hidden="true">
             <span class="expand-label">{{ t('courseBlocks.feedbackReview.expand', '展开参考') }}</span>
@@ -44,6 +44,7 @@
 import { computed } from 'vue'
 import { ChevronDown, ListChecks } from 'lucide-vue-next'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import MathText from './MathText.vue'
 import { t } from '../shared/i18n'
 import { normalizeLegacyFeedbackMath, resolveFeedbackSections } from '../utils/feedback-structure'
 

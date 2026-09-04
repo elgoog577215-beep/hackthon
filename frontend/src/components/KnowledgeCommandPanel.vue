@@ -17,7 +17,7 @@
     <template v-else>
       <p class="knowledge-command-target">
         {{ t('knowledgeCommands.target', '当前知识点') }}
-        <strong>{{ point.name }}</strong>
+        <strong><MathText :content="point.name" /></strong>
       </p>
 
       <label class="knowledge-command-field">
@@ -68,15 +68,15 @@
         </button>
       </div>
 
-      <p v-if="splitVerdict" class="knowledge-command-note">{{ splitVerdict }}</p>
+      <MathText v-if="splitVerdict" tag="p" class="knowledge-command-note" :content="splitVerdict" />
 
       <ul v-if="splitParts.length" class="knowledge-command-detail-list">
         <li v-for="part in splitParts" :key="part.knowledge_id">
           <span class="knowledge-command-detail-kind is-ok">
             {{ t('knowledgeCommands.newNode', '新知识点') }}
           </span>
-          <span class="knowledge-command-detail-title">{{ part.name }}</span>
-          <span class="knowledge-command-detail-excerpt">{{ part.statement }}</span>
+          <span class="knowledge-command-detail-title"><MathText :content="part.name" /></span>
+          <span class="knowledge-command-detail-excerpt"><MathText :content="part.statement" /></span>
         </li>
       </ul>
 
@@ -165,9 +165,9 @@
             <ul class="knowledge-command-detail-list">
               <li v-for="row in detailRows" :key="`${row.type}:${row.id}`">
                 <span class="knowledge-command-detail-kind">{{ typeLabel(row) }}</span>
-                <span class="knowledge-command-detail-title">{{ row.title }}</span>
-                <span v-if="row.location" class="knowledge-command-detail-loc">{{ row.location }}</span>
-                <span v-if="row.excerpt" class="knowledge-command-detail-excerpt">{{ row.excerpt }}</span>
+                <span class="knowledge-command-detail-title"><MathText :content="row.title" /></span>
+                <span v-if="row.location" class="knowledge-command-detail-loc"><MathText :content="row.location" /></span>
+                <span v-if="row.excerpt" class="knowledge-command-detail-excerpt"><MathText :content="row.excerpt" /></span>
                 <span v-if="row.missing" class="knowledge-command-detail-missing">
                   {{ t('knowledgeCommands.objectMissing', '该对象已不在当前课程中') }}
                 </span>
@@ -185,7 +185,7 @@
         </p>
 
         <ul v-if="blockingIssues.length" class="knowledge-command-issues">
-          <li v-for="(issue, index) in blockingIssues" :key="index">{{ issue }}</li>
+          <li v-for="(issue, index) in blockingIssues" :key="index"><MathText :content="issue" /></li>
         </ul>
 
         <div class="knowledge-command-actions">
@@ -231,7 +231,7 @@
               {{ outcomeLabel(row.outcome) }}
             </span>
             <span class="knowledge-command-detail-title">{{ row.id }}</span>
-            <span v-if="row.detail" class="knowledge-command-detail-excerpt">{{ row.detail }}</span>
+            <span v-if="row.detail" class="knowledge-command-detail-excerpt"><MathText :content="row.detail" /></span>
           </li>
         </ul>
         <ul v-else-if="rebuildTargets.length" class="knowledge-command-detail-list">
@@ -266,7 +266,7 @@
             <li v-for="(entry, index) in historyRows" :key="entry.command_id || index">
               <span class="knowledge-command-history-op">{{ operationLabelOf(entry.operation) }}</span>
               <span class="knowledge-command-history-actor">{{ entry.actor }}</span>
-              <span class="knowledge-command-history-reason">{{ entry.reason }}</span>
+              <span class="knowledge-command-history-reason"><MathText :content="entry.reason" /></span>
             </li>
           </ul>
         </template>
@@ -291,6 +291,7 @@ import {
 import { t } from '../shared/i18n'
 import http from '../utils/http'
 import logger from '../utils/logger'
+import MathText from './MathText.vue'
 
 interface KnowledgePointLike {
   knowledge_id: string

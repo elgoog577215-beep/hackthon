@@ -79,7 +79,7 @@
                 {{ t('courseGeneration.outlineReview.coverageHours', '{hours} 课时').replace('{hours}', String(coverageVerdict.class_hours)) }}
               </small>
             </header>
-            <p v-if="coverageVerdict.coverage_promise">{{ coverageVerdict.coverage_promise }}</p>
+            <MathText v-if="coverageVerdict.coverage_promise" tag="p" :content="coverageVerdict.coverage_promise" />
             <div
               v-if="coverageUncovered.length"
               class="outline-coverage__uncovered"
@@ -87,11 +87,11 @@
             >
               <span>{{ t('courseGeneration.outlineReview.coverageUncovered', '本次不覆盖') }}</span>
               <ul>
-                <li v-for="topic in coverageUncovered" :key="topic">{{ topic }}</li>
+                <li v-for="topic in coverageUncovered" :key="topic"><MathText :content="topic" /></li>
               </ul>
             </div>
             <ul v-if="coverageAdvisories.length" class="outline-coverage__advisories">
-              <li v-for="item in coverageAdvisories" :key="item">{{ item }}</li>
+              <li v-for="item in coverageAdvisories" :key="item"><MathText :content="item" /></li>
             </ul>
           </section>
 
@@ -107,7 +107,7 @@
               </div>
               <span>{{ t('courseGeneration.outlineReview.retrievalPending', '确认目录后生效') }}</span>
             </header>
-            <p>{{ retrievalProposal.reason || t('courseGeneration.outlineReview.retrievalReasonFallback', '外部资料建议调整当前课程结构。') }}</p>
+            <MathText tag="p" :content="retrievalProposal.reason || t('courseGeneration.outlineReview.retrievalReasonFallback', '外部资料建议调整当前课程结构。')" />
             <div class="outline-retrieval__shape">
               <span>{{ shapeSummary(retrievalProposal.diff?.before) }}</span>
               <ArrowRight :size="13" />
@@ -115,10 +115,10 @@
             </div>
             <div class="outline-retrieval__diff">
               <section v-for="group in retrievalDiffGroups" :key="group.key" v-show="group.items.length">
-                <h3>{{ group.label }}</h3>
+                <h3><MathText :content="group.label" /></h3>
                 <ul>
                   <li v-for="item in group.items" :key="`${group.key}-${item.node_id || item.node_name}`">
-                    <span>{{ item.node_name || item.title }}</span>
+                    <MathText :content="item.node_name || item.title" />
                     <small>{{ item.old_position && item.new_position
                       ? `${item.old_position} → ${item.new_position}`
                       : item.new_position || item.old_position || changedFieldSummary(item.changes) }}</small>
@@ -136,7 +136,7 @@
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                <strong>{{ source.title || source.domain }}</strong>
+                <strong><MathText :content="source.title || source.domain" /></strong>
                 <small>{{ source.domain }} · {{ source.trust_tier }}<template v-if="source.published_date"> · {{ source.published_date }}</template></small>
               </a>
             </div>
@@ -172,15 +172,15 @@
             <div>
               <p>
                 <small>{{ t('courseGeneration.outlineReview.deliverable', '最终交付物') }}</small>
-                <span>{{ projectDeliverable || t('courseGeneration.outlineReview.deliverablePending', '按项目目标确定') }}</span>
+                <MathText :content="projectDeliverable || t('courseGeneration.outlineReview.deliverablePending', '按项目目标确定')" />
               </p>
               <p>
                 <small>{{ t('courseGeneration.outlineReview.experience', '已有经验') }}</small>
-                <span>{{ startingStrengths || t('courseGeneration.outlineReview.notProvided', '暂未提供') }}</span>
+                <MathText :content="startingStrengths || t('courseGeneration.outlineReview.notProvided', '暂未提供')" />
               </p>
               <p>
                 <small>{{ t('courseGeneration.outlineReview.focusAreas', '重点补充') }}</small>
-                <span>{{ startingFocus || t('courseGeneration.outlineReview.discoverInProject', '将在项目过程中继续识别') }}</span>
+                <MathText :content="startingFocus || t('courseGeneration.outlineReview.discoverInProject', '将在项目过程中继续识别')" />
               </p>
             </div>
           </section>
@@ -192,15 +192,15 @@
             <div>
               <p>
                 <small>{{ t('courseGeneration.outlineReview.coreQuestion', '核心问题') }}</small>
-                <span>{{ courseIntent.core_question }}</span>
+                <MathText :content="courseIntent.core_question" />
               </p>
               <p>
                 <small>{{ t('courseGeneration.outlineReview.evidenceScope', '证据范围') }}</small>
-                <span>{{ courseIntent.evidence_scope || t('courseGeneration.outlineReview.notProvided', '暂未提供') }}</span>
+                <MathText :content="courseIntent.evidence_scope || t('courseGeneration.outlineReview.notProvided', '暂未提供')" />
               </p>
               <p>
                 <small>{{ t('courseGeneration.outlineReview.desiredOutput', '结论形态') }}</small>
-                <span>{{ courseIntent.desired_output }}</span>
+                <MathText :content="courseIntent.desired_output" />
               </p>
             </div>
           </section>
@@ -213,15 +213,15 @@
             <div>
               <p>
                 <small>{{ t('courseGeneration.outlineReview.examName', '考试') }}</small>
-                <span>{{ courseIntent.exam_name }}</span>
+                <MathText :content="courseIntent.exam_name" />
               </p>
               <p>
                 <small>{{ t('courseGeneration.outlineReview.examScope', '考纲范围') }}</small>
-                <span>{{ courseIntent.exam_scope }}</span>
+                <MathText :content="courseIntent.exam_scope" />
               </p>
               <p>
                 <small>{{ t('courseGeneration.outlineReview.currentPreparation', '当前准备度') }}</small>
-                <span>{{ courseIntent.current_preparation || t('courseGeneration.outlineReview.notProvided', '暂未提供') }}</span>
+                <MathText :content="courseIntent.current_preparation || t('courseGeneration.outlineReview.notProvided', '暂未提供')" />
               </p>
             </div>
           </section>
@@ -274,14 +274,14 @@
                   {{ shapeSummary(adjustmentProposal.diff?.after) }}
                 </strong>
               </summary>
-              <p class="outline-review__proposal-summary">{{ adjustmentProposal.summary }}</p>
+              <MathText tag="p" class="outline-review__proposal-summary" :content="adjustmentProposal.summary" />
 
               <div class="outline-review__diff-groups">
                 <section v-if="adjustmentProposal.diff?.added?.length">
                   <h3>{{ t('courseGeneration.outlineReview.diffAdded', '新增') }}</h3>
                   <ul>
                     <li v-for="item in adjustmentProposal.diff.added" :key="`added-${item.node_id || item.node_name}`">
-                      <span>{{ item.node_name }}</span><small>{{ item.new_position }}</small>
+                      <MathText :content="item.node_name" /><small>{{ item.new_position }}</small>
                     </li>
                   </ul>
                 </section>
@@ -289,7 +289,7 @@
                   <h3>{{ t('courseGeneration.outlineReview.diffRemoved', '删除') }}</h3>
                   <ul>
                     <li v-for="item in adjustmentProposal.diff.removed" :key="`removed-${item.node_id || item.node_name}`">
-                      <span>{{ item.node_name }}</span><small>{{ item.old_position }}</small>
+                      <MathText :content="item.node_name" /><small>{{ item.old_position }}</small>
                     </li>
                   </ul>
                 </section>
@@ -297,7 +297,7 @@
                   <h3>{{ t('courseGeneration.outlineReview.diffMoved', '移动') }}</h3>
                   <ul>
                     <li v-for="item in adjustmentProposal.diff.moved" :key="`moved-${item.node_id || item.node_name}`">
-                      <span>{{ item.node_name }}</span>
+                      <MathText :content="item.node_name" />
                       <small>{{ item.old_position }} → {{ item.new_position }}</small>
                     </li>
                   </ul>
@@ -306,7 +306,7 @@
                   <h3>{{ t('courseGeneration.outlineReview.diffUpdated', '内容修改') }}</h3>
                   <ul>
                     <li v-for="item in adjustmentProposal.diff.updated" :key="`updated-${item.node_id || item.node_name}`">
-                      <span>{{ item.node_name }}</span>
+                      <MathText :content="item.node_name" />
                       <small>{{ changedFieldSummary(item.changes) }}</small>
                     </li>
                   </ul>
@@ -591,7 +591,7 @@
                   <FileText :size="15" />
                   <span>{{ t('courseGeneration.outlineReview.lightDocumentKicker', '讲次方案') }}</span>
                 </div>
-                <h1>{{ documentTitle }}</h1>
+                <h1><MathText :content="documentTitle" /></h1>
                 <p>{{ t('courseGeneration.outlineReview.lightDocumentHint', '本轮只确定每讲讲什么。可调整讲次标题与内容简介，再生成完整大纲。') }}</p>
                 <dl>
                   <div><dt>{{ t('courseGeneration.outlineReview.documentLectures', '讲次') }}</dt><dd>{{ documentChapters.length }}</dd></div>
@@ -605,8 +605,8 @@
                 <FileText :size="15" />
                 <span>{{ t('courseGeneration.outlineReview.documentKicker', '正式教学大纲') }}</span>
               </div>
-              <h1>{{ documentTitle }}</h1>
-              <p>{{ documentPositioning || t('courseGeneration.outlineReview.lecturePositioningPending', '课程定位将在教学目标与讲次安排中继续明确。') }}</p>
+              <h1><MathText :content="documentTitle" /></h1>
+              <MathText tag="p" :content="documentPositioning || t('courseGeneration.outlineReview.lecturePositioningPending', '课程定位将在教学目标与讲次安排中继续明确。')" />
               <dl>
                 <div><dt>{{ isLectureOutline ? t('courseGeneration.outlineReview.documentLectures', '讲次') : t('courseGeneration.outlineReview.documentChapters', '章节') }}</dt><dd>{{ documentChapters.length }}</dd></div>
                 <div v-if="!isLectureOutline && documentVisibleSectionCount"><dt>{{ t('courseGeneration.outlineReview.documentSections', '小节') }}</dt><dd>{{ documentVisibleSectionCount }}</dd></div>
@@ -617,14 +617,14 @@
               <div>
                 <h2>{{ t('courseGeneration.outlineReview.courseOutcomes', '课程学习成果') }}</h2>
                 <ol v-if="documentObjectives.length">
-                  <li v-for="(objective, index) in documentObjectives" :key="`${index}-${objective}`">{{ objective }}</li>
+                  <li v-for="(objective, index) in documentObjectives" :key="`${index}-${objective}`"><MathText :content="objective" /></li>
                 </ol>
                 <p v-else>{{ t('courseGeneration.outlineReview.outcomesPending', '暂未形成独立的全课成果条目。') }}</p>
               </div>
               <div>
                 <h2>{{ t('courseGeneration.outlineReview.prerequisites', '先修要求') }}</h2>
                 <ul v-if="documentPrerequisites.length">
-                  <li v-for="(item, index) in documentPrerequisites" :key="`${index}-${item}`">{{ item }}</li>
+                  <li v-for="(item, index) in documentPrerequisites" :key="`${index}-${item}`"><MathText :content="item" /></li>
                 </ul>
                 <p v-else>{{ t('courseGeneration.outlineReview.noPrerequisites', '无明确先修要求；按课程内学习路径逐步建立基础。') }}</p>
               </div>
@@ -634,16 +634,16 @@
               <section class="formal-outline__template-section">
                 <h2>{{ t('courseGeneration.outlineReview.templateCourseIntro', '一、课程介绍') }}</h2>
                 <h3>{{ t('courseGeneration.outlineReview.templateChineseIntro', '中文简介') }}</h3>
-                <p>{{ documentIntroZh || t('courseGeneration.outlineReview.introPending', '尚未确认中文课程简介。') }}</p>
+                <MathText tag="p" :content="documentIntroZh || t('courseGeneration.outlineReview.introPending', '尚未确认中文课程简介。')" />
                 <h3>{{ t('courseGeneration.outlineReview.templateEnglishIntro', '英文简介') }}</h3>
-                <p>{{ documentIntroEn || t('courseGeneration.outlineReview.englishIntroPending', '尚未确认英文课程简介。') }}</p>
+                <MathText tag="p" :content="documentIntroEn || t('courseGeneration.outlineReview.englishIntroPending', '尚未确认英文课程简介。')" />
               </section>
 
               <section class="formal-outline__template-section">
                 <h2>{{ t('courseGeneration.outlineReview.templateObjectives', '二、教学目标') }}</h2>
                 <template v-for="group in formalObjectiveGroups" :key="group.label">
                   <h3>{{ group.label }}</h3>
-                  <ul v-if="group.items.length"><li v-for="item in group.items" :key="item">{{ item }}</li></ul>
+                  <ul v-if="group.items.length"><li v-for="item in group.items" :key="item"><MathText :content="item" /></li></ul>
                   <p v-else>{{ t('courseGeneration.outlineReview.templatePending', '尚未确认。') }}</p>
                 </template>
                 <h3>{{ t('courseGeneration.outlineReview.outcomeAlignmentTitle', '课程目标与预期成果关联表') }}</h3>
@@ -663,11 +663,11 @@
                         <td colspan="5">{{ t('courseGeneration.outlineReview.outcomeAlignmentPending', '尚未建立目标与成果关联。') }}</td>
                       </tr>
                       <tr v-for="item in documentOutcomeAlignment" :key="`${item.outcomeNumber}-${item.outcome}`">
-                        <td>{{ item.outcome }}</td>
-                        <td>{{ item.objectiveRefs.join('、') || '—' }}</td>
-                        <td>{{ item.lectureLabels.join('、') || '—' }}</td>
-                        <td>{{ item.assessmentEvidence.join('；') || '—' }}</td>
-                        <td>{{ item.coverageScope || '—' }}</td>
+                        <td><MathText :content="item.outcome" /></td>
+                        <td><MathText :content="item.objectiveRefs.join('、') || '—'" /></td>
+                        <td><MathText :content="item.lectureLabels.join('、') || '—'" /></td>
+                        <td><MathText :content="item.assessmentEvidence.join('；') || '—'" /></td>
+                        <td><MathText :content="item.coverageScope || '—'" /></td>
                       </tr>
                     </tbody>
                   </table>
@@ -677,7 +677,7 @@
               <section class="formal-outline__template-section">
                 <h2>{{ t('courseGeneration.outlineReview.templateRequirements', '三、课程要求') }}</h2>
                 <h3>{{ t('courseGeneration.outlineReview.templateTeachingMethods', '授课方式') }}</h3>
-                <ul v-if="documentTeachingMethods.length"><li v-for="item in documentTeachingMethods" :key="item">{{ item }}</li></ul>
+                <ul v-if="documentTeachingMethods.length"><li v-for="item in documentTeachingMethods" :key="item"><MathText :content="item" /></li></ul>
                 <p v-else>{{ t('courseGeneration.outlineReview.templatePending', '尚未确认。') }}</p>
                 <h3>{{ t('courseGeneration.outlineReview.hourAllocationTitle', '学时分配') }}</h3>
                 <div class="formal-outline__table-wrap">
@@ -692,11 +692,11 @@
                 <div v-if="documentAssessmentPlan.length" class="formal-outline__table-wrap">
                   <table data-testid="outline-assessment-plan">
                     <thead><tr><th>{{ t('courseGeneration.outlineReview.assessmentItem', '考核项目') }}</th><th>{{ t('courseGeneration.outlineReview.assessmentCategory', '性质') }}</th><th>{{ t('courseGeneration.outlineReview.assessmentWeight', '权重') }}</th><th>{{ t('courseGeneration.outlineReview.assessmentCriteria', '评分标准') }}</th><th>{{ t('courseGeneration.outlineReview.assessmentOutcomes', '对应成果') }}</th></tr></thead>
-                    <tbody><tr v-for="(item, index) in documentAssessmentPlan" :key="`${index}-${item.item}`"><td>{{ item.item }}</td><td>{{ item.categoryLabel }}</td><td>{{ item.weight }}%</td><td>{{ item.criteria || '—' }}</td><td>{{ item.outcomes.join('、') || '—' }}</td></tr></tbody>
+                    <tbody><tr v-for="(item, index) in documentAssessmentPlan" :key="`${index}-${item.item}`"><td><MathText :content="item.item" /></td><td>{{ item.categoryLabel }}</td><td>{{ item.weight }}%</td><td><MathText :content="item.criteria || '—'" /></td><td><MathText :content="item.outcomes.join('、') || '—'" /></td></tr></tbody>
                   </table>
                 </div>
                 <template v-else>
-                  <ul v-if="documentAssessmentMethods.length"><li v-for="item in documentAssessmentMethods" :key="item">{{ item }}</li></ul>
+                  <ul v-if="documentAssessmentMethods.length"><li v-for="item in documentAssessmentMethods" :key="item"><MathText :content="item" /></li></ul>
                   <p v-else>{{ t('courseGeneration.outlineReview.templatePending', '尚未确认。') }}</p>
                 </template>
               </section>
@@ -711,7 +711,7 @@
                     <thead><tr><th>{{ t('courseGeneration.outlineReview.moduleName', '知识模块') }}</th><th>{{ t('courseGeneration.outlineReview.outcomeAlignmentLectures', '覆盖讲次') }}</th><th>{{ t('courseGeneration.outlineReview.calendarHours', '学时') }}</th></tr></thead>
                     <tbody>
                       <tr v-if="!documentCourseModules.length"><td colspan="3">{{ t('courseGeneration.outlineReview.moduleGroupingPending', '尚未完成讲次分组。') }}</td></tr>
-                      <tr v-for="item in documentCourseModules" :key="item.id"><td>{{ item.title }}</td><td>{{ item.lectures.join('、') }}</td><td>{{ item.hours || '—' }}</td></tr>
+                      <tr v-for="item in documentCourseModules" :key="item.id"><td><MathText :content="item.title" /></td><td><MathText :content="item.lectures.join('、')" /></td><td>{{ item.hours || '—' }}</td></tr>
                     </tbody>
                   </table>
                 </div>
@@ -755,7 +755,7 @@
                     <h3>{{ t('courseGeneration.outlineReview.outcomeAlignmentTitle', '课程目标与预期成果关联表') }}</h3>
                     <div class="formal-contract-editor__rows" data-outline-field="outcome_alignment">
                       <div v-for="(outcome, index) in documentMeasurableOutcomes" :key="`alignment-${index}`" class="formal-contract-editor__row formal-contract-editor__row--alignment">
-                        <strong>{{ index + 1 }}. {{ outcome }}</strong>
+                        <strong>{{ index + 1 }}. <MathText :content="outcome" /></strong>
                         <input :value="outcomeAlignmentText(index, 'objective_refs')" :placeholder="t('courseGeneration.outlineReview.alignmentObjectivesPlaceholder', '对应目标，换行分隔')" @input="setOutcomeAlignment(index, 'objective_refs', $event)" />
                         <input :value="outcomeAlignmentText(index, 'lecture_numbers')" :placeholder="t('courseGeneration.outlineReview.alignmentLecturesPlaceholder', '讲次，如 1,2,3')" @input="setOutcomeAlignment(index, 'lecture_numbers', $event)" />
                         <input :value="outcomeAlignmentText(index, 'assessment_evidence')" :placeholder="t('courseGeneration.outlineReview.alignmentEvidencePlaceholder', '评价证据，换行分隔')" @input="setOutcomeAlignment(index, 'assessment_evidence', $event)" />
@@ -798,7 +798,7 @@
                   <section>
                     <h3>{{ t('courseGeneration.outlineReview.contractLectureFields', '每讲必备内容') }}</h3>
                     <details v-for="(chapter, lectureIndex) in documentChapters" :key="`contract-${chapter.node_id || lectureIndex}`" class="formal-contract-editor__lecture" :data-outline-node-id="chapter.sections?.[0]?.node_id || chapter.node_id || ''" :open="lectureIndex === 0">
-                      <summary><strong>{{ t('courseGeneration.outlineReview.lectureNumber', '第{number}讲').replace('{number}', String(lectureIndex + 1)) }} · {{ plainLectureTitle(chapter.title) }}</strong></summary>
+                      <summary><strong>{{ t('courseGeneration.outlineReview.lectureNumber', '第{number}讲').replace('{number}', String(lectureIndex + 1)) }} · <MathText :content="plainLectureTitle(chapter.title)" /></strong></summary>
                       <div>
                         <label class="wide" data-outline-field="node_name"><span>{{ t('courseGeneration.outlineReview.lectureHeading', '讲次标题') }}</span><input :value="plainLectureTitle(chapter.title)" @input="setLectureTitle(lectureIndex, $event)" /></label>
                         <label class="wide" data-outline-field="content_summary"><span>{{ t('courseGeneration.outlineReview.lectureSummaryLabel', '内容简介') }}</span><textarea :value="lectureScalar(lectureIndex, 'content_summary')" rows="4" @input="setLectureScalar(lectureIndex, 'content_summary', $event)" /></label>
@@ -897,32 +897,32 @@
                 <li v-for="(chapter, index) in documentChapters" :key="String(chapter.node_id || index)">
                   <header>
                     <span>{{ t('courseGeneration.outlineReview.lectureNumber', '第{number}讲').replace('{number}', String(index + 1)) }}</span>
-                    <strong>{{ plainLectureTitle(chapter.title) }}</strong>
+                    <strong><MathText :content="plainLectureTitle(chapter.title)" /></strong>
                   </header>
                   <dl>
                     <div>
                       <dt>{{ t('courseGeneration.outlineReview.lectureObjectiveLabel', '学习目标') }}</dt>
-                      <dd>{{ lectureEvidence(chapter).objective || t('courseGeneration.outlineReview.lectureEvidencePending', '尚未明确，建议补充后再确认。') }}</dd>
+                      <dd><MathText :content="lectureEvidence(chapter).objective || t('courseGeneration.outlineReview.lectureEvidencePending', '尚未明确，建议补充后再确认。')" /></dd>
                     </div>
                     <div>
                       <dt>{{ t('courseGeneration.outlineReview.lectureScopeLabel', '本讲范围') }}</dt>
-                      <dd>{{ lectureEvidence(chapter).scope || t('courseGeneration.outlineReview.lectureEvidencePending', '尚未明确，建议补充后再确认。') }}</dd>
+                      <dd><MathText :content="lectureEvidence(chapter).scope || t('courseGeneration.outlineReview.lectureEvidencePending', '尚未明确，建议补充后再确认。')" /></dd>
                     </div>
                     <div>
                       <dt>{{ t('courseGeneration.outlineReview.lectureAssessmentLabel', '达成检验') }}</dt>
-                      <dd>{{ lectureEvidence(chapter).assessments.join('；') || t('courseGeneration.outlineReview.lectureEvidencePending', '尚未明确，建议补充后再确认。') }}</dd>
+                      <dd><MathText :content="lectureEvidence(chapter).assessments.join('；') || t('courseGeneration.outlineReview.lectureEvidencePending', '尚未明确，建议补充后再确认。')" /></dd>
                     </div>
                     <div>
                       <dt>{{ t('courseGeneration.outlineReview.applicationAnchorLabel', '应用载体') }}</dt>
-                      <dd>{{ lectureContract(chapter).anchors.join('；') || t('courseGeneration.outlineReview.lectureEvidencePending', '尚未明确，建议补充后再确认。') }}</dd>
+                      <dd><MathText :content="lectureContract(chapter).anchors.join('；') || t('courseGeneration.outlineReview.lectureEvidencePending', '尚未明确，建议补充后再确认。')" /></dd>
                     </div>
                     <div>
                       <dt>{{ t('courseGeneration.outlineReview.extensionResourceLabel', '拓展资源') }}</dt>
-                      <dd>{{ lectureContract(chapter).resources.join('；') || t('courseGeneration.outlineReview.lectureEvidencePending', '尚未明确，建议补充后再确认。') }}</dd>
+                      <dd><MathText :content="lectureContract(chapter).resources.join('；') || t('courseGeneration.outlineReview.lectureEvidencePending', '尚未明确，建议补充后再确认。')" /></dd>
                     </div>
                     <div>
                       <dt>{{ t('courseGeneration.outlineReview.learningTaskLabel', '学习任务') }}</dt>
-                      <dd>{{ lectureContract(chapter).tasks.join('；') || t('courseGeneration.outlineReview.lectureEvidencePending', '尚未明确，建议补充后再确认。') }}</dd>
+                      <dd><MathText :content="lectureContract(chapter).tasks.join('；') || t('courseGeneration.outlineReview.lectureEvidencePending', '尚未明确，建议补充后再确认。')" /></dd>
                     </div>
                     <div>
                       <dt>{{ t('courseGeneration.outlineReview.hourBreakdownLabel', '讲授 / 实践 / 在线') }}</dt>
@@ -937,12 +937,12 @@
               <section class="formal-outline__template-section formal-outline__attachments">
                 <div class="formal-outline__attachment-heading">
                   <h3>{{ t('courseGeneration.outlineReview.templateCalendarAttachment', '附件1：课程教学日历') }}</h3>
-                  <small v-if="documentCalendarBasis">{{ documentCalendarBasis }}</small>
+                  <MathText v-if="documentCalendarBasis" tag="small" :content="documentCalendarBasis" />
                 </div>
                 <div class="formal-outline__table-wrap">
                   <table>
                     <thead><tr><th>{{ t('courseGeneration.outlineReview.calendarWeek', '周次') }}</th><th>{{ t('courseGeneration.outlineReview.calendarLecture', '讲次') }}</th><th>{{ t('courseGeneration.outlineReview.calendarTopic', '教学主题') }}</th><th>{{ t('courseGeneration.outlineReview.ideologyGoal', '育人目标') }}</th><th>{{ t('courseGeneration.outlineReview.teachingForm', '教学形式') }}</th><th>{{ t('courseGeneration.outlineReview.externalMentor', '校外导师') }}</th><th>{{ t('courseGeneration.outlineReview.calendarHours', '学时') }}</th></tr></thead>
-                    <tbody><tr v-for="item in documentLectureSchedule" :key="item.number"><td>{{ item.week }}</td><td>{{ item.number }}</td><td>{{ item.title }}</td><td>{{ item.education || '—' }}</td><td>{{ item.teachingForm }}</td><td>{{ item.mentor || '—' }}</td><td>{{ item.hours }}</td></tr></tbody>
+                    <tbody><tr v-for="item in documentLectureSchedule" :key="item.number"><td>{{ item.week }}</td><td>{{ item.number }}</td><td><MathText :content="item.title" /></td><td><MathText :content="item.education || '—'" /></td><td><MathText :content="item.teachingForm" /></td><td><MathText :content="item.mentor || '—'" /></td><td>{{ item.hours }}</td></tr></tbody>
                   </table>
                 </div>
                 <h3>{{ t('courseGeneration.outlineReview.templateIdeologyAttachment', '附件2：思政融合案例') }}</h3>
@@ -951,7 +951,7 @@
                     <thead><tr><th>{{ t('courseGeneration.outlineReview.calendarLecture', '讲次') }}</th><th>{{ t('courseGeneration.outlineReview.ideologyContent', '课程内容') }}</th><th>{{ t('courseGeneration.outlineReview.ideologyGoal', '育人目标') }}</th><th>{{ t('courseGeneration.outlineReview.ideologyMethod', '案例与实施方式') }}</th></tr></thead>
                     <tbody>
                       <tr v-if="!documentIdeologyCases.length"><td colspan="4">{{ t('courseGeneration.outlineReview.ideologyPending', '待教师结合具体讲次补充。') }}</td></tr>
-                      <tr v-for="(item, index) in documentIdeologyCases" :key="index"><td>{{ item.lecture || item.lesson || '—' }}</td><td>{{ item.course_content || item.content || '—' }}</td><td>{{ item.education_objective || item.objective || '—' }}</td><td>{{ item.case || item.implementation || '—' }}</td></tr>
+                      <tr v-for="(item, index) in documentIdeologyCases" :key="index"><td><MathText :content="item.lecture || item.lesson || '—'" /></td><td><MathText :content="item.course_content || item.content || '—'" /></td><td><MathText :content="item.education_objective || item.objective || '—'" /></td><td><MathText :content="item.case || item.implementation || '—'" /></td></tr>
                     </tbody>
                   </table>
                 </div>
@@ -960,16 +960,16 @@
               <section class="formal-outline__template-section">
                 <h2>{{ t('courseGeneration.outlineReview.templateReferences', '五、参考资料') }}</h2>
                 <h3>{{ t('courseGeneration.outlineReview.templateReferenceBooks', '参考书籍') }}</h3>
-                <ul v-if="documentReferenceBooks.length"><li v-for="item in documentReferenceBooks" :key="item">{{ item }}</li></ul>
+                <ul v-if="documentReferenceBooks.length"><li v-for="item in documentReferenceBooks" :key="item"><MathText :content="item" /></li></ul>
                 <p v-else>{{ t('courseGeneration.outlineReview.referencesPending', '暂无已确认参考书籍。') }}</p>
                 <h3>{{ t('courseGeneration.outlineReview.templateWebResources', '网站资料') }}</h3>
-                <ul v-if="documentReferenceWebsites.length"><li v-for="item in documentReferenceWebsites" :key="item">{{ item }}</li></ul>
+                <ul v-if="documentReferenceWebsites.length"><li v-for="item in documentReferenceWebsites" :key="item"><MathText :content="item" /></li></ul>
                 <p v-else>{{ t('courseGeneration.outlineReview.webReferencesPending', '暂无已确认网站资料。') }}</p>
               </section>
 
               <section class="formal-outline__template-section">
                 <h2>{{ t('courseGeneration.outlineReview.templateCourseWebsite', '六、课程教学网站') }}</h2>
-                <p>{{ documentCourseWebsite || t('courseGeneration.outlineReview.courseWebsitePending', '暂未确认课程教学网站。') }}</p>
+                <MathText tag="p" :content="documentCourseWebsite || t('courseGeneration.outlineReview.courseWebsitePending', '暂未确认课程教学网站。')" />
               </section>
             </template>
           </article>
@@ -1029,6 +1029,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { AlignCenter, AlignJustify, AlignLeft, AlignRight, ArrowRight, Bold, Braces, ChartNoAxesCombined, ChevronDown, ChevronUp, CircleCheck, Code2, FileText, FileType2, Heading2, Heading3, Highlighter, ImagePlus, IndentDecrease, IndentIncrease, Italic, Link2, List, ListOrdered, LoaderCircle, Minus, MoreHorizontal, Plus, Quote, Redo2, RemoveFormatting, Replace, Save, Search, Sigma, Sparkles, Strikethrough, Subscript, Superscript, Table2, TriangleAlert, Underline, Undo2, X } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import MathText from './MathText.vue'
 import TextSelectionAiAction, { type TeacherInlineAiRequest } from './TextSelectionAiAction.vue'
 import type { Node, Task } from '../stores/types'
 import { useCourseStore } from '../stores/course'

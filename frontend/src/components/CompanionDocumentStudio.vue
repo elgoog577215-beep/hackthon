@@ -27,7 +27,7 @@
     <template v-else-if="mode === 'preview' && activeDocument">
       <header class="document-toolbar" :class="{ 'is-direct-template': !showTemplatePicker }">
         <button v-if="showTemplatePicker" type="button" class="back-action" @click="backToTemplates"><ArrowLeft :size="16" />{{ t('companionDocuments.allTemplates', '全部模板') }}</button>
-        <div><strong>{{ activeDocument.title }}</strong><small>{{ t('companionDocuments.savedRevision', '已保存为正式文件 · 第 {revision} 版').replace('{revision}', String(activeDocument.revision_number)) }}</small></div>
+        <div><strong><MathText :content="activeDocument.title" /></strong><small>{{ t('companionDocuments.savedRevision', '已保存为正式文件 · 第 {revision} 版').replace('{revision}', String(activeDocument.revision_number)) }}</small></div>
         <div class="toolbar-actions"><button type="button" @click="mode = 'edit'"><Pencil :size="15" />{{ t('common.edit', '编辑') }}</button><button type="button" class="primary-action" @click="exportDocument(activeDocument)"><Download :size="15" />{{ t('courseFiles.exportFile', '导出') }}</button></div>
       </header>
       <p v-if="submitError" class="submit-error submit-error--preview" role="alert">{{ submitError }}</p>
@@ -109,6 +109,7 @@ import { ArrowLeft, CheckSquare2, ChevronRight, ClipboardCheck, Download, Eye, F
 import { activeLocale, t } from '../shared/i18n'
 import http, { teacherReadRequestConfig, teacherRequestConfig } from '../utils/http'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import MathText from './MathText.vue'
 
 type Template = { template_id: string; template_version: number; document_type: string; name: string; name_en: string; description: string; description_en: string; institution: string; form_kind: 'grading_rubric' | 'material_checklist'; default_inputs: Record<string, any> }
 type CompanionDocument = { document_id: string; template_id: string; document_type: string; title: string; status: string; revision_id: string; revision_number: number; inputs: Record<string, any>; rendered_markdown: string; updated_at: string }

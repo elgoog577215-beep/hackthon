@@ -7,7 +7,7 @@
     <header v-if="!props.hideViewSwitch" class="question-book-context">
       <div class="question-book-context__copy">
         <span>{{ practiceScopeLabel }}</span>
-        <strong>{{ currentQuestion?.learning_objective || currentNodeLabel }}</strong>
+        <strong><MathText :content="currentQuestion?.learning_objective || currentNodeLabel" /></strong>
       </div>
 
       <nav class="question-book-views" :aria-label="t('courseWorkspace.practice.views', '练习视图')">
@@ -36,9 +36,9 @@
     <section v-if="workflowActive" class="workflow-band" :data-phase="workflowPhase">
       <div>
         <span>{{ workflowPhaseLabel }}</span>
-        <strong>{{ workflowHeadline }}</strong>
+        <strong><MathText :content="workflowHeadline" /></strong>
       </div>
-      <p v-if="workflowHypothesis">{{ workflowHypothesis }}</p>
+      <MathText v-if="workflowHypothesis" tag="p" :content="workflowHypothesis" />
     </section>
 
     <div v-if="workspace.loading" class="practice-empty">
@@ -152,9 +152,9 @@
             </div>
           </section>
           <section v-if="workflowPhase === 'remediation' && remediationUnit" class="remediation-context">
-            <strong>{{ remediationUnit.remediation_objective }}</strong>
-            <p>{{ remediationUnit.micro_explanation }}</p>
-            <small>{{ remediationUnit.worked_contrast }}</small>
+            <strong><MathText :content="remediationUnit.remediation_objective" /></strong>
+            <MathText tag="p" :content="remediationUnit.micro_explanation" />
+            <MathText tag="small" :content="remediationUnit.worked_contrast" />
           </section>
           <div class="question-meta">
             <div>
@@ -266,7 +266,7 @@
               <span>{{ t('courseWorkspace.practice.hintLevel', '{level} 级提示').replace('{level}', String(hint.level)) }}</span>
               <p>
                 <LoaderCircle v-if="hint.loading" :size="15" class="animate-spin hint-loading-icon" aria-hidden="true" />
-                {{ hint.content }}
+                <MathText :content="hint.content" />
               </p>
             </div>
           </section>
@@ -294,7 +294,7 @@
                   ? t('courseWorkspace.practice.guidanceYou', '你')
                   : t('courseWorkspace.practice.guidanceTeacher', 'AI 老师') }}
               </span>
-              <p>{{ turn.text }}</p>
+              <MathText tag="p" :content="turn.text" />
               <small
                 v-if="turn.role === 'assistant' && turn.status && turn.status !== 'ok'"
                 class="guidance-degraded"
@@ -338,12 +338,12 @@
               <strong>{{ feedbackTitle }}</strong>
               <span v-if="workspace.practiceResult.score !== null && workspace.practiceResult.score !== undefined">{{ workspace.practiceResult.score }}</span>
             </div>
-            <p>{{ workspace.practiceResult.feedback }}</p>
+            <MathText tag="p" :content="workspace.practiceResult.feedback" />
             <div v-if="workspace.practiceResult.rubric_results?.length" class="rubric-list">
               <div v-for="item in workspace.practiceResult.rubric_results" :key="item.criterion">
                 <component :is="item.met ? CheckCircle2 : Circle" :size="15" />
-                <span>{{ item.criterion }}</span>
-                <small>{{ item.feedback }}</small>
+                <MathText :content="item.criterion" />
+                <MathText tag="small" :content="item.feedback" />
               </div>
             </div>
             <section
@@ -371,7 +371,7 @@
                   {{ t('courseWorkspace.practice.stepLabel', '第 {index} 步').replace('{index}', String(step.step_index)) }}
                 </span>
                 <span class="verdict-tag">{{ stepVerdictLabel(step.verdict) }}</span>
-                <small v-if="step.comment">{{ step.comment }}</small>
+                <MathText v-if="step.comment" tag="small" :content="step.comment" />
               </div>
             </section>
             <section v-if="answerDiagnosis" class="answer-diagnosis">
@@ -384,15 +384,15 @@
               <dl>
                 <div>
                   <dt>{{ t('courseWorkspace.practiceAnalysis.taskGoal', '这道题在考什么') }}</dt>
-                  <dd>{{ answerDiagnosis.question_understanding?.task_goal }}</dd>
+                  <dd><MathText :content="answerDiagnosis.question_understanding?.task_goal" /></dd>
                 </div>
                 <div v-if="answerDiagnosis.student_response?.approach">
                   <dt>{{ studentResponseEvidenceLabel }}</dt>
-                  <dd>{{ answerDiagnosis.student_response.approach }}</dd>
+                  <dd><MathText :content="answerDiagnosis.student_response.approach" /></dd>
                 </div>
                 <div v-if="answerDiagnosis.student_response?.behavior_gap">
                   <dt>{{ t('courseWorkspace.practiceAnalysis.behaviorGap', '当前最关键的差距') }}</dt>
-                  <dd>{{ answerDiagnosis.student_response.behavior_gap }}</dd>
+                  <dd><MathText :content="answerDiagnosis.student_response.behavior_gap" /></dd>
                 </div>
               </dl>
               <div v-if="diagnosisTags.length" class="diagnosis-tags">
@@ -402,14 +402,14 @@
               </div>
               <ul v-if="answerDiagnosis.diagnosis?.issues?.length" class="diagnosis-issues">
                 <li v-for="issue in answerDiagnosis.diagnosis.issues" :key="issue.issue_id">
-                  <strong>{{ issue.title }}</strong>
-                  <span>{{ issue.what_happened }}</span>
+                  <strong><MathText :content="issue.title" /></strong>
+                  <MathText :content="issue.what_happened" />
                 </li>
               </ul>
-              <p class="diagnosis-summary">{{ answerDiagnosis.student_feedback?.summary }}</p>
+              <MathText tag="p" class="diagnosis-summary" :content="answerDiagnosis.student_feedback?.summary" />
               <div class="diagnosis-next">
                 <span>{{ t('courseWorkspace.practiceAnalysis.nextAction', '下一步只做这一件事') }}</span>
-                <strong>{{ answerDiagnosis.student_feedback?.next_action }}</strong>
+                <strong><MathText :content="answerDiagnosis.student_feedback?.next_action" /></strong>
               </div>
             </section>
             <small>{{ evidenceLabel }}</small>
@@ -417,14 +417,16 @@
 
           <section v-if="workspace.revealedSolution" class="solution-result">
             <strong>{{ t('courseWorkspace.practice.solutionTitle', '完整解析') }}</strong>
-            <p v-if="workspace.revealedSolution.summary || workspace.revealedSolution.guidance">
-              {{ workspace.revealedSolution.summary || workspace.revealedSolution.guidance }}
-            </p>
+            <MathText
+              v-if="workspace.revealedSolution.summary || workspace.revealedSolution.guidance"
+              tag="p"
+              :content="workspace.revealedSolution.summary || workspace.revealedSolution.guidance"
+            />
             <div v-if="workspace.revealedSolution.steps?.length" class="solution-steps">
               <h4>{{ t('courseWorkspace.practice.solutionSteps', '解题步骤') }}</h4>
               <ol>
                 <li v-for="(step, index) in workspace.revealedSolution.steps" :key="`${index}-${step}`">
-                  {{ step }}
+                  <MathText :content="step" />
                 </li>
               </ol>
             </div>
@@ -436,19 +438,19 @@
               class="solution-representation"
             >
               <h4>{{ t('courseWorkspace.practice.referenceImplementation', '参考实现或结构') }}</h4>
-              <pre>{{ formatSolutionValue(workspace.revealedSolution.representation.content) }}</pre>
+              <pre><MathText :content="formatSolutionValue(workspace.revealedSolution.representation.content)" /></pre>
             </div>
             <div
               v-if="workspace.revealedSolution.final_answer !== null && workspace.revealedSolution.final_answer !== undefined"
               class="solution-final-answer"
             >
               <h4>{{ t('courseWorkspace.practice.referenceAnswer', '参考答案') }}</h4>
-              <pre>{{ formatSolutionValue(workspace.revealedSolution.final_answer) }}</pre>
+              <pre><MathText :content="formatSolutionValue(workspace.revealedSolution.final_answer)" /></pre>
             </div>
             <div v-if="workspace.revealedSolution.checks?.length" class="solution-checks">
               <h4>{{ t('courseWorkspace.practice.resultChecks', '结果检查') }}</h4>
               <ul>
-                <li v-for="check in workspace.revealedSolution.checks" :key="check">{{ check }}</li>
+                <li v-for="check in workspace.revealedSolution.checks" :key="check"><MathText :content="check" /></li>
               </ul>
             </div>
             <div v-if="workspace.revealedSolution.option_analysis?.length" class="solution-option-analysis">
@@ -458,30 +460,30 @@
                   v-for="analysis in workspace.revealedSolution.option_analysis"
                   :key="analysis.option_id"
                 >
-                  <strong>{{ analysis.option_id }}</strong>：{{ analysis.explanation }}
+                  <strong>{{ analysis.option_id }}</strong>：<MathText :content="analysis.explanation" />
                 </li>
               </ul>
             </div>
             <div v-if="workspace.revealedSolution.common_errors?.length" class="solution-common-errors">
               <h4>{{ t('courseWorkspace.practice.commonErrors', '常见错误') }}</h4>
               <ul>
-                <li v-for="error in workspace.revealedSolution.common_errors" :key="error">{{ error }}</li>
+                <li v-for="error in workspace.revealedSolution.common_errors" :key="error"><MathText :content="error" /></li>
               </ul>
             </div>
             <p
               v-else-if="workspace.revealedSolution.correct_answer !== null && workspace.revealedSolution.correct_answer !== undefined"
             >
               {{ t('courseWorkspace.practice.referenceAnswer', '参考答案') }}：
-              {{ formatSolutionValue(workspace.revealedSolution.correct_answer) }}
+              <MathText :content="formatSolutionValue(workspace.revealedSolution.correct_answer)" />
             </p>
             <ul v-if="workspace.revealedSolution.criteria?.length">
-              <li v-for="criterion in workspace.revealedSolution.criteria" :key="criterion">{{ criterion }}</li>
+              <li v-for="criterion in workspace.revealedSolution.criteria" :key="criterion"><MathText :content="criterion" /></li>
             </ul>
             <ol v-if="workspace.revealedSolution.key_steps?.length">
-              <li v-for="step in workspace.revealedSolution.key_steps" :key="step">{{ step }}</li>
+              <li v-for="step in workspace.revealedSolution.key_steps" :key="step"><MathText :content="step" /></li>
             </ol>
             <p v-if="workspace.revealedSolution.self_check">
-              {{ t('courseWorkspace.practiceAnalysis.selfCheck', '自查方法') }}：{{ workspace.revealedSolution.self_check }}
+              {{ t('courseWorkspace.practiceAnalysis.selfCheck', '自查方法') }}：<MathText :content="workspace.revealedSolution.self_check" />
             </p>
           </section>
         </article>
@@ -542,7 +544,7 @@
       </div>
       <article v-for="attempt in historyAttempts" :key="attempt.attempt_id" class="history-row">
         <div>
-          <strong>{{ attempt.node_name || t('courseWorkspace.practice.unknownNode', '课程练习') }}</strong>
+          <strong><MathText :content="attempt.node_name || t('courseWorkspace.practice.unknownNode', '课程练习')" /></strong>
           <div class="history-row-actions">
             <span>{{ statusLabel(attempt) }}</span>
             <button
@@ -558,11 +560,11 @@
             </button>
           </div>
         </div>
-        <small>{{ attempt.result?.feedback || t('courseWorkspace.practice.savedAttempt', '作答历史已保留') }}</small>
+        <MathText tag="small" :content="attempt.result?.feedback || t('courseWorkspace.practice.savedAttempt', '作答历史已保留')" />
       </article>
       <article v-for="event in legacyEvents" :key="event.event_id" class="history-row legacy">
         <div>
-          <strong>{{ event.node_name || t('courseWorkspace.practice.legacy', '历史导入') }}</strong>
+          <strong><MathText :content="event.node_name || t('courseWorkspace.practice.legacy', '历史导入')" /></strong>
           <span>{{ t('courseWorkspace.practice.lowConfidence', '低置信历史') }}</span>
         </div>
         <small>{{ t('courseWorkspace.practice.notMasteryEvidence', '不参与当前掌握判断') }}</small>
@@ -579,6 +581,7 @@ import {
   Lightbulb, LoaderCircle, MessageCircleQuestion, RefreshCw, RotateCcw, Send, Sparkles,
 } from 'lucide-vue-next'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import MathText from './MathText.vue'
 import PracticeAnswerRenderer from './PracticeAnswerRenderer.vue'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { t } from '../shared/i18n'

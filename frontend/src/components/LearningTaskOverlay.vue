@@ -28,8 +28,8 @@
           <div>
             <strong :id="dialogTitleId">{{ t('questionBook.title', '题库本') }}</strong>
             <span :id="dialogDescriptionId">
-              {{ t('questionBook.currentTarget', '当前目标 · {target}')
-                .replace('{target}', nodeLabel || t('courseWorkspace.allCourse', '全课程')) }}
+              <MathText :content="t('questionBook.currentTarget', '当前目标 · {target}')
+                .replace('{target}', nodeLabel || t('courseWorkspace.allCourse', '全课程'))" />
             </span>
           </div>
         </div>
@@ -83,6 +83,7 @@
 import { nextTick, onMounted, ref } from 'vue'
 import { BookOpenCheck, X } from 'lucide-vue-next'
 import PracticeWorkspace from './PracticeWorkspace.vue'
+import MathText from './MathText.vue'
 import { t } from '../shared/i18n'
 
 withDefaults(defineProps<{

@@ -31,13 +31,13 @@
         <article v-for="(block, index) in arrangement.blocks" :key="block.block_id">
           <header>
             <span>{{ String(index + 1).padStart(2, '0') }}</span>
-            <div><strong>{{ block.name }}</strong><span>{{ block.section_title }}</span></div>
+            <div><strong><MathText :content="block.name" /></strong><MathText :content="block.section_title" /></div>
             <b>{{ block.planned_minutes }} {{ t('courseWorkbench.arrangement.minutes', '分钟') }}</b>
           </header>
           <dl>
-            <div><dt>{{ t('courseWorkbench.arrangement.blockGoal', '环节目标') }}</dt><dd>{{ block.purpose }}</dd></div>
-            <div><dt>{{ t('courseWorkbench.arrangement.classroomActivity', '课堂活动') }}</dt><dd>{{ blockActivity(block) }}</dd></div>
-            <div><dt>{{ t('courseWorkbench.arrangement.attainmentJudgement', '达成判断') }}</dt><dd>{{ blockAttainment(block) }}</dd></div>
+            <div><dt>{{ t('courseWorkbench.arrangement.blockGoal', '环节目标') }}</dt><dd><MathText :content="block.purpose" /></dd></div>
+            <div><dt>{{ t('courseWorkbench.arrangement.classroomActivity', '课堂活动') }}</dt><dd><MathText :content="blockActivity(block)" /></dd></div>
+            <div><dt>{{ t('courseWorkbench.arrangement.attainmentJudgement', '达成判断') }}</dt><dd><MathText :content="blockAttainment(block)" /></dd></div>
           </dl>
         </article>
       </div>
@@ -55,6 +55,7 @@
 
 <script setup lang="ts">
 import { Check, TriangleAlert } from 'lucide-vue-next'
+import MathText from './MathText.vue'
 import { t } from '../shared/i18n'
 import type { TeacherLessonArrangement } from '../stores/teacherLessonAuthoring'
 

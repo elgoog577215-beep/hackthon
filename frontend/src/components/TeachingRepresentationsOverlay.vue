@@ -59,7 +59,7 @@
           <div class="preview-heading">
             <div>
               <small>{{ typeLabel(selected.representation_type) }}</small>
-              <h3>{{ content.title || typeLabel(selected.representation_type) }}</h3>
+              <h3><MathText :content="content.title || typeLabel(selected.representation_type)" /></h3>
               <p>{{ sourceSummary }}</p>
             </div>
             <span class="representation-status" :data-status="selected.status">{{ statusLabel(selected) }}</span>
@@ -122,7 +122,7 @@
             <article v-for="unit in content.units || []" :key="unit.unit_id" :class="{ stale: isStale(unit.unit_id) }">
               <header>
                 <div>
-                  <strong>{{ unit.title }}</strong>
+                  <strong><MathText :content="unit.title" /></strong>
                   <small>{{ diagramBindingSummary(unit) }}</small>
                 </div>
                 <span>{{ unit.diagram_kind === 'learning_path' ? t('teachingRepresentations.diagram.learningPath', '学习路径') : t('teachingRepresentations.diagram.conceptMap', '概念图') }}</span>
@@ -135,8 +135,8 @@
             <article v-for="unit in content.sections || []" :key="unit.unit_id" :class="{ stale: isStale(unit.unit_id) }">
               <span>{{ String(unit.position + 1).padStart(2, '0') }}</span>
               <div>
-                <strong>{{ unit.title }}</strong>
-                <p>{{ unit.learning_objective }}</p>
+                <strong><MathText :content="unit.title" /></strong>
+                <MathText tag="p" :content="unit.learning_objective" />
               </div>
               <button
                 type="button"
@@ -153,7 +153,7 @@
           <div v-else class="units-preview">
             <article v-for="unit in content.units || []" :key="unit.unit_id" :class="{ stale: isStale(unit.unit_id) }">
               <header>
-                <strong>{{ unit.title || unit.section_title || unit.prompt }}</strong>
+                <strong><MathText :content="unit.title || unit.section_title || unit.prompt" /></strong>
                 <div>
                   <span v-if="unit.duration_minutes">{{ unit.duration_minutes }} min</span>
                   <button
@@ -168,13 +168,16 @@
                   </button>
                 </div>
               </header>
-              <p v-if="unit.learning_objective">{{ unit.learning_objective }}</p>
-              <p v-if="selected.representation_type === 'handout' && unit.blocks?.[0]?.markdown" class="handout-body">
-                {{ unit.blocks[0].markdown }}
-              </p>
+              <MathText v-if="unit.learning_objective" tag="p" :content="unit.learning_objective" />
+              <MarkdownRenderer
+                v-if="selected.representation_type === 'handout' && unit.blocks?.[0]?.markdown"
+                class="handout-body"
+                :content="unit.blocks[0].markdown"
+                :enable-code-run="false"
+              />
               <ol v-if="unit.activities">
                 <li v-for="activity in unit.activities" :key="activity.phase">
-                  <b>{{ activity.phase }}</b>{{ activity.prompt }}
+                  <b><MathText :content="activity.phase" /></b><MathText :content="activity.prompt" />
                 </li>
               </ol>
             </article>
@@ -207,7 +210,7 @@
           <div class="material-editor__body">
             <article>
               <small>{{ t('teachingRepresentations.materialEdit.before', '当前内容') }}</small>
-              <p>{{ materialEditBefore }}</p>
+              <MathText tag="p" :content="materialEditBefore" />
             </article>
             <label>
               <span>{{ t('teachingRepresentations.materialEdit.after', '修改后的内容') }}</span>
@@ -270,6 +273,8 @@ import type { ChangeProposal, ChangeProposalItem } from '../types/changeProposal
 import { t } from '../shared/i18n'
 import CourseWorkspaceTabs from './CourseWorkspaceTabs.vue'
 import DiagramSpecRenderer from './DiagramSpecRenderer.vue'
+import MarkdownRenderer from './MarkdownRenderer.vue'
+import MathText from './MathText.vue'
 import TeachingImpactDialog from './TeachingImpactDialog.vue'
 const props = withDefaults(defineProps<{
   visible: boolean
