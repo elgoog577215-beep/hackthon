@@ -98,6 +98,7 @@ from course_document import (
     refresh_document_revision,
     stable_hash,
 )
+from course_knowledge_base import course_knowledge_base_prompt_context
 from slide_deck_v6 import (
     PptManuscriptV1,
     SlideDeckV6,
@@ -222,6 +223,9 @@ class ResolveLessonScriptVisualRequest(BaseModel):
 class CreateLessonPlanCandidateRequest(BaseModel):
     instruction: str = Field(min_length=1, max_length=2000)
     section_node_id: str = ""
+    target_field: str = Field(default="", max_length=80)
+    target_item_id: str = Field(default="", max_length=200)
+    selected_text: str = Field(default="", max_length=1200)
     base_revision_id: str
     material_asset_ids: list[str] = Field(default_factory=list, max_length=24)
 
@@ -4697,16 +4701,27 @@ async def create_lesson_script_visual(
                 "lesson_script_visual_block_not_found",
                 "当前讲义教学块不存在，请重新载入。",
             )
-        item = await run_in_threadpool(
-            visual_service.create_candidate,
-            course_id=course_id,
-            lesson_unit_id=lesson_unit_id,
-            script_revision_id=revision_id,
-            section_node_id=body.section_node_id,
-            block=block,
-            expression_type=body.expression_type,
-            instruction=body.instruction,
-        )
+        if body.expression_type == "animation":
+            item = await visual_service.create_candidate_with_ai_animation(
+                provider=tm.course_service,
+                course_id=course_id,
+                lesson_unit_id=lesson_unit_id,
+                script_revision_id=revision_id,
+                section_node_id=body.section_node_id,
+                block=block,
+                instruction=body.instruction,
+            )
+        else:
+            item = await run_in_threadpool(
+                visual_service.create_candidate,
+                course_id=course_id,
+                lesson_unit_id=lesson_unit_id,
+                script_revision_id=revision_id,
+                section_node_id=body.section_node_id,
+                block=block,
+                expression_type=body.expression_type,
+                instruction=body.instruction,
+            )
         return {"item": item}
     except (TeacherLessonAuthoringError, RepresentationConflict, ValueError) as exc:
         if isinstance(exc, TeacherLessonAuthoringError):
@@ -5182,11 +5197,40 @@ async def create_lesson_plan_candidate(
         )
         if not isinstance(revision, dict):
             raise TeacherLessonAuthoringError("lesson_plan_revision_not_found", "教案草稿不存在。")
+        source = _source_course(tm, course_id)
+        scope = lesson_scope(source, lesson_unit_id)
+        arrangement = repository.current_arrangement(course_id, lesson_unit_id) or {}
+        lesson_node = scope.get("lesson") or {}
+        knowledge_context = (
+            course_knowledge_base_prompt_context(
+                source.get("course_knowledge_base") or {},
+                body.section_node_id,
+            )
+            if body.section_node_id
+            else ""
+        )
         optimized = await tm.course_service.optimize_teacher_lesson_plan(
             plan=deepcopy(revision.get("plan") or {}),
             instruction=body.instruction,
             section_node_id=body.section_node_id,
-            material_evidence=_prompt_material_evidence(source_evidence),
+            target_field=body.target_field,
+            target_item_id=body.target_item_id,
+            selected_text=body.selected_text,
+            lesson_context={
+                "lesson_unit_id": lesson_unit_id,
+                "title": str(lesson_node.get("node_name") or lesson_node.get("title") or ""),
+                "lesson_type": str(arrangement.get("lesson_type") or ""),
+                "duration_minutes": int(float(
+                    lesson_node.get("duration_minutes")
+                    or arrangement.get("total_minutes")
+                    or 0
+                )),
+            },
+            knowledge_context=knowledge_context,
+            material_evidence=_prompt_material_evidence(
+                source_evidence,
+                character_budget=8000,
+            ),
         )
         candidate = repository.save_ai_candidate(
             course_id,
@@ -5194,6 +5238,9 @@ async def create_lesson_plan_candidate(
             base_revision_id=body.base_revision_id,
             instruction=body.instruction,
             section_node_id=body.section_node_id,
+            target_field=body.target_field,
+            target_item_id=body.target_item_id,
+            selected_text=body.selected_text,
             plan=optimized["plan"],
             material_asset_ids=selected_material_ids,
         )

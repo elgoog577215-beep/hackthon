@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import http, { getTeacherIdentity, teacherIdentityHeaders, teacherReadRequestConfig, withApiBase } from '../utils/http'
 import { createUuid } from '../utils/client-id'
-import { postGenerationStream } from '../shared/generation-stream'
+import { postGenerationStream, type GenerationProgress } from '../shared/generation-stream'
 import { t } from '../shared/i18n'
 
 export type TeacherLessonJobStatus = 'pending' | 'running' | 'paused' | 'completed' | 'completed_with_warnings' | 'failed' | 'cancelled'
@@ -274,9 +274,19 @@ export interface TeacherLessonPlanCandidate {
   base_revision_id: string
   instruction: string
   section_node_id: string
+  target_field?: string
+  target_item_id?: string
+  selected_text?: string
   plan: Record<string, any>
   status: 'pending' | 'accepted' | 'rejected'
   created_at: string
+}
+
+export interface TeacherLessonPlanAiTarget {
+  sectionNodeId?: string
+  field?: string
+  itemId?: string
+  selectedText?: string
 }
 
 export interface TeacherLessonProjection {
@@ -1282,6 +1292,8 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       instruction: string,
       sectionNodeId = '',
       materialAssetIds: string[] = [],
+      target: TeacherLessonPlanAiTarget = {},
+      onProgress?: (progress: GenerationProgress) => void,
     ) {
       this.actionLessonId = lessonUnitId
       this.error = ''
@@ -1290,11 +1302,14 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
           `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/plan/ai-candidates`,
           {
             instruction,
-            section_node_id: sectionNodeId,
+            section_node_id: target.sectionNodeId || sectionNodeId,
+            target_field: target.field || '',
+            target_item_id: target.itemId || '',
+            selected_text: target.selectedText || '',
             base_revision_id: baseRevisionId,
             material_asset_ids: Array.from(new Set(materialAssetIds.filter(Boolean))),
           },
-          { headers: teacherIdentityHeaders() },
+          { headers: teacherIdentityHeaders(), onProgress },
         )
         return data.candidate
       } catch (error) {

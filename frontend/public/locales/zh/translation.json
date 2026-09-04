@@ -820,6 +820,7 @@
       "inlineComposerTitle": "告诉 AI 怎么改",
       "inlineGenerate": "生成修改",
       "inlineWorking": "正在生成候选…",
+      "inlineElapsed": "已等待 {seconds} 秒",
       "inlineSelectionScope": "修改选中内容",
       "inlineBlockScope": "修改当前段落",
       "inlineDocumentScope": "修改当前内容",

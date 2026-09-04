@@ -39,7 +39,7 @@
       </div>
     </header>
 
-    <div v-if="pendingCandidate" class="candidate-canvas-notice" role="status">
+    <div v-if="pendingCandidate && !inlineCandidateInPlace" class="candidate-canvas-notice" role="status">
       <div>
         <Sparkles :size="16" />
         <span>
@@ -79,7 +79,16 @@
       :block-label="tr('courseWorkbench.aiCollaboration.inlineBlockScope')"
       :document-label="tr('courseWorkbench.aiCollaboration.inlineDocumentScope')"
       :boundary-label="tr('courseWorkbench.aiCollaboration.inlineBoundary')"
-      @invoke="emit('open-ai-selection', $event)"
+      target-selector="[data-ai-field]"
+      :candidate-pending="Boolean(pendingCandidate)"
+      :candidate-title="tr('courseWorkbench.aiCollaboration.candidateReady')"
+      :candidate-hint="tr('courseWorkbench.aiCollaboration.inlineCandidateBoundary')"
+      :apply-label="tr('courseWorkbench.aiCollaboration.applyCandidate')"
+      :discard-label="tr('courseWorkbench.aiCollaboration.keepOriginal')"
+      :progress-label="inlineAiProgressLabel"
+      :error-message="inlineAiErrorMessage"
+      @invoke="requestInlineAiCandidate"
+      @resolve="resolveInlineAiCandidate"
     />
 
     <article v-if="planSections.length" class="document-body">
@@ -105,43 +114,43 @@
         :key="section.node_id || sectionIndex"
         class="lesson-theme"
         :class="{ active: String(section.node_id || '') === selectedSectionId }"
+        :data-ai-section-id="String(section.node_id || '')"
         @focusin="activateSection(section, false)"
       >
         <header class="lesson-theme-heading">
           <div><span>{{ tr('courseWorkbench.lessonDocument.theme') }} {{ sectionIndex + 1 }}</span><h4><MathText :content="sectionTitle(section)" /></h4></div>
           <small>{{ sectionMinutes(section) }} {{ tr('courseWorkbench.minutes') }}</small>
         </header>
+        <div v-if="String(section.node_id || '') === selectedSectionId" data-ai-document-anchor class="lesson-theme-ai-anchor" />
 
-        <section :class="['document-section', 'objective-section', { 'ai-change-target': objectiveCandidateChangedFor(section) }]">
-          <i v-if="objectiveCandidateChangedFor(section)" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i>
+        <section class="document-section objective-section">
           <h4>{{ tr('courseWorkbench.lessonDocument.objectives') }}</h4>
-          <div class="objective-grid">
-            <div><h5>{{ tr('courseWorkbench.lessonDocument.knowledgeObjective') }}</h5><textarea v-if="editing" :value="listText(section.knowledge_objectives)" rows="3" @input="updateList(section, 'knowledge_objectives', $event)" /><ul v-else-if="sectionKnowledgeObjectives(section).length"><li v-for="item in sectionKnowledgeObjectives(section)" :key="item"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></div>
-            <div><h5>{{ tr('courseWorkbench.lessonDocument.abilityObjective') }}</h5><textarea v-if="editing" :value="listText(section.ability_objectives)" rows="3" @input="updateList(section, 'ability_objectives', $event)" /><ul v-else-if="sectionAbilityObjectives(section).length"><li v-for="item in sectionAbilityObjectives(section)" :key="item"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></div>
-            <div><h5>{{ tr('courseWorkbench.lessonDocument.educationObjective') }}</h5><textarea v-if="editing" :value="listText(section.education_objectives)" rows="3" @input="updateList(section, 'education_objectives', $event)" /><ul v-else-if="stringList(section.education_objectives).length"><li v-for="item in stringList(section.education_objectives)" :key="item"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></div>
+          <div class="objective-grid" data-ai-inline-anchor>
+            <div data-ai-field="knowledge_objectives" :data-ai-label="tr('courseWorkbench.lessonDocument.knowledgeObjective')" :class="{ 'ai-change-target': candidateChanged(section, 'knowledge_objectives') }"><i v-if="candidateChanged(section, 'knowledge_objectives')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i><h5>{{ tr('courseWorkbench.lessonDocument.knowledgeObjective') }}</h5><textarea v-if="editing" :value="listText(section.knowledge_objectives)" rows="3" @input="updateList(section, 'knowledge_objectives', $event)" /><ul v-else-if="sectionKnowledgeObjectives(section).length"><li v-for="(item, itemIndex) in sectionKnowledgeObjectives(section)" :key="`${itemIndex}-${item}`" data-ai-field="knowledge_objectives" :data-ai-item-id="String(itemIndex)" :data-ai-label="tr('courseWorkbench.lessonDocument.knowledgeObjective')" :class="{ 'ai-change-target': candidateListItemChanged(section, 'knowledge_objectives', itemIndex) }"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></div>
+            <div data-ai-field="ability_objectives" :data-ai-label="tr('courseWorkbench.lessonDocument.abilityObjective')" :class="{ 'ai-change-target': candidateChanged(section, 'ability_objectives') }"><i v-if="candidateChanged(section, 'ability_objectives')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i><h5>{{ tr('courseWorkbench.lessonDocument.abilityObjective') }}</h5><textarea v-if="editing" :value="listText(section.ability_objectives)" rows="3" @input="updateList(section, 'ability_objectives', $event)" /><ul v-else-if="sectionAbilityObjectives(section).length"><li v-for="(item, itemIndex) in sectionAbilityObjectives(section)" :key="`${itemIndex}-${item}`" data-ai-field="ability_objectives" :data-ai-item-id="String(itemIndex)" :data-ai-label="tr('courseWorkbench.lessonDocument.abilityObjective')" :class="{ 'ai-change-target': candidateListItemChanged(section, 'ability_objectives', itemIndex) }"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></div>
+            <div data-ai-field="education_objectives" :data-ai-label="tr('courseWorkbench.lessonDocument.educationObjective')" :class="{ 'ai-change-target': candidateChanged(section, 'education_objectives') }"><i v-if="candidateChanged(section, 'education_objectives')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i><h5>{{ tr('courseWorkbench.lessonDocument.educationObjective') }}</h5><textarea v-if="editing" :value="listText(section.education_objectives)" rows="3" @input="updateList(section, 'education_objectives', $event)" /><ul v-else-if="stringList(section.education_objectives).length"><li v-for="(item, itemIndex) in stringList(section.education_objectives)" :key="`${itemIndex}-${item}`" data-ai-field="education_objectives" :data-ai-item-id="String(itemIndex)" :data-ai-label="tr('courseWorkbench.lessonDocument.educationObjective')" :class="{ 'ai-change-target': candidateListItemChanged(section, 'education_objectives', itemIndex) }"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></div>
           </div>
         </section>
 
-        <section v-if="editing || stringList(section.pre_study).length" class="document-section lesson-time-section" data-period="before">
+        <section v-if="editing || stringList(section.pre_study).length" class="document-section lesson-time-section" data-period="before" data-ai-field="pre_study" data-ai-inline-anchor :data-ai-label="tr('courseWorkbench.lessonDocument.preClassPreparation')" :class="{ 'ai-change-target': candidateChanged(section, 'pre_study') }">
           <div class="section-heading"><h4>{{ tr('courseWorkbench.lessonDocument.preClassPreparation') }}</h4><span>{{ tr('courseWorkbench.lessonDocument.outsideClassTime') }}</span></div>
           <textarea v-if="editing" :value="listText(section.pre_study)" rows="3" @input="updateList(section, 'pre_study', $event)" />
-          <ul v-else><li v-for="item in stringList(section.pre_study)" :key="item"><MathText :content="item" /></li></ul>
+          <ul v-else><li v-for="(item, itemIndex) in stringList(section.pre_study)" :key="`${itemIndex}-${item}`" data-ai-field="pre_study" :data-ai-item-id="String(itemIndex)" :data-ai-label="tr('courseWorkbench.lessonDocument.preClassPreparation')" :class="{ 'ai-change-target': candidateListItemChanged(section, 'pre_study', itemIndex) }"><MathText :content="item" /></li></ul>
         </section>
 
         <section class="document-section">
           <h4>{{ tr('courseWorkbench.lessonDocument.keyAndDifficult') }}</h4>
-          <div class="focus-grid">
-            <div :class="{ 'ai-change-target': candidateChanged(section, 'key_points') }"><i v-if="candidateChanged(section, 'key_points')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i><h4>{{ tr('courseWorkbench.lessonDocument.keyPoints') }}</h4><textarea v-if="editing" :value="listText(section.key_points)" rows="3" @input="updateList(section, 'key_points', $event)" /><ul v-else-if="stringList(section.key_points).length"><li v-for="item in stringList(section.key_points)" :key="item"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></div>
-            <div :class="{ 'ai-change-target': candidateChanged(section, 'key_difficulties') }"><i v-if="candidateChanged(section, 'key_difficulties')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i><h4>{{ tr('courseWorkbench.lessonDocument.difficulties') }}</h4><textarea v-if="editing" :value="listText(section.key_difficulties)" rows="3" @input="updateList(section, 'key_difficulties', $event)" /><ul v-else-if="stringList(section.key_difficulties).length"><li v-for="item in stringList(section.key_difficulties)" :key="item"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></div>
+          <div class="focus-grid" data-ai-inline-anchor>
+            <div data-ai-field="key_points" :data-ai-label="tr('courseWorkbench.lessonDocument.keyPoints')" :class="{ 'ai-change-target': candidateChanged(section, 'key_points') }"><i v-if="candidateChanged(section, 'key_points')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i><h4>{{ tr('courseWorkbench.lessonDocument.keyPoints') }}</h4><textarea v-if="editing" :value="listText(section.key_points)" rows="3" @input="updateList(section, 'key_points', $event)" /><ul v-else-if="stringList(section.key_points).length"><li v-for="(item, itemIndex) in stringList(section.key_points)" :key="`${itemIndex}-${item}`" data-ai-field="key_points" :data-ai-item-id="String(itemIndex)" :data-ai-label="tr('courseWorkbench.lessonDocument.keyPoints')" :class="{ 'ai-change-target': candidateListItemChanged(section, 'key_points', itemIndex) }"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></div>
+            <div data-ai-field="key_difficulties" :data-ai-label="tr('courseWorkbench.lessonDocument.difficulties')" :class="{ 'ai-change-target': candidateChanged(section, 'key_difficulties') }"><i v-if="candidateChanged(section, 'key_difficulties')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i><h4>{{ tr('courseWorkbench.lessonDocument.difficulties') }}</h4><textarea v-if="editing" :value="listText(section.key_difficulties)" rows="3" @input="updateList(section, 'key_difficulties', $event)" /><ul v-else-if="stringList(section.key_difficulties).length"><li v-for="(item, itemIndex) in stringList(section.key_difficulties)" :key="`${itemIndex}-${item}`" data-ai-field="key_difficulties" :data-ai-item-id="String(itemIndex)" :data-ai-label="tr('courseWorkbench.lessonDocument.difficulties')" :class="{ 'ai-change-target': candidateListItemChanged(section, 'key_difficulties', itemIndex) }"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></div>
           </div>
         </section>
 
-        <section :class="['document-section', 'flow-section', { 'ai-change-target': candidateChanged(section, 'teaching_modules') }]">
-          <i v-if="candidateChanged(section, 'teaching_modules')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i>
+        <section class="document-section flow-section">
           <div class="section-heading"><h4>{{ tr('courseWorkbench.lessonDocument.classroomProcess') }}</h4><span>{{ sectionMinutes(section) }} {{ tr('courseWorkbench.minutes') }}</span></div>
           <div class="teaching-block-list">
-            <article v-for="(module, index) in sectionModules(section)" :key="module.arrangement_block_id || module.module_id || index" class="teaching-block" :class="{ 'is-overtime': isOvertimeModule(section, module, index) }">
-              <header><strong><MathText :content="moduleTitle(module, index)" /></strong><label class="block-duration"><span>{{ tr('courseWorkbench.lessonDocument.duration') }}</span><input v-if="editing" v-model.number="module.planned_minutes" type="number" min="0" max="300" @input="recordEditSnapshot" /><b v-else>{{ normalizedMinutes(module.planned_minutes) || emptyValue }} {{ tr('courseWorkbench.minutes') }}</b></label></header>
+            <article v-for="(module, index) in sectionModules(section)" :key="module.arrangement_block_id || module.module_id || index" class="teaching-block" data-ai-inline-anchor :class="{ 'is-overtime': isOvertimeModule(section, module, index) }">
+              <header><strong><MathText :content="moduleTitle(module, index)" /></strong><label class="block-duration" data-ai-field="planned_minutes" :data-ai-item-id="moduleTargetId(module, index)" :data-ai-label="tr('courseWorkbench.lessonDocument.duration')" :class="{ 'ai-change-target': candidateModuleChanged(section, module, 'planned_minutes') }"><span>{{ tr('courseWorkbench.lessonDocument.duration') }}</span><input v-if="editing" v-model.number="module.planned_minutes" type="number" min="0" max="300" @input="recordEditSnapshot" /><b v-else>{{ normalizedMinutes(module.planned_minutes) || emptyValue }} {{ tr('courseWorkbench.minutes') }}</b></label></header>
               <p v-if="isOvertimeModule(section, module, index)" class="overtime-warning"><TriangleAlert :size="13" />{{ tr('courseWorkbench.lessonDocument.overtimeBlock') }}</p>
               <div v-if="editing" class="block-fields block-fields--primary">
                 <label><span>{{ tr('courseWorkbench.lessonDocument.blockGoalContent') }}</span><textarea v-if="editing" v-model="module.teaching_purpose" rows="3" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="module.teaching_purpose || emptyValue" /></label>
@@ -151,23 +160,31 @@
                 <label><span>{{ tr('courseWorkbench.lessonDocument.expectedOutput') }}</span><textarea v-if="editing" v-model="module.expected_output" rows="3" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="module.expected_output || emptyValue" /></label>
                 <label><span>{{ tr('courseWorkbench.lessonDocument.attainmentCheck') }}</span><textarea v-if="editing" v-model="module.check_method" rows="3" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="module.check_method || emptyValue" /></label>
               </div>
-              <div v-else class="lesson-block-summary">
-                <section>
+              <div v-else class="lesson-block-summary" data-ai-inline-anchor>
+                <section data-ai-field="teaching_purpose" :data-ai-item-id="moduleTargetId(module, index)" :data-ai-label="tr('courseWorkbench.lessonDocument.blockGoalContent')" :class="{ 'ai-change-target': candidateModuleChanged(section, module, 'teaching_purpose') }">
+                  <i v-if="candidateModuleChanged(section, module, 'teaching_purpose')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i>
                   <strong>{{ tr('courseWorkbench.lessonDocument.blockGoalContent') }}</strong>
                   <MathText tag="p" :content="module.teaching_purpose || module.teaching_guidance || emptyValue" />
                 </section>
-                <section v-if="resourceItems(section, module).length">
+                <section v-if="resourceItems(section, module).length" data-ai-field="resource_refs" :data-ai-item-id="moduleTargetId(module, index)" :data-ai-label="tr('courseWorkbench.lessonDocument.resourcesTools')" :class="{ 'ai-change-target': candidateModuleChanged(section, module, 'resource_refs') || candidateModuleChanged(section, module, 'tools') }">
+                  <i v-if="candidateModuleChanged(section, module, 'resource_refs') || candidateModuleChanged(section, module, 'tools')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i>
                   <strong>{{ tr('courseWorkbench.lessonDocument.resourcesTools') }}</strong>
                   <ul><li v-for="item in resourceItems(section, module)" :key="item"><MathText :content="item" /></li></ul>
                 </section>
                 <section>
                   <strong>{{ tr('courseWorkbench.lessonDocument.classroomActivity') }}</strong>
-                  <ul v-if="classroomActivityItems(module).length"><li v-for="item in classroomActivityItems(module)" :key="item"><MathText :content="item" /></li></ul>
+                  <ul v-if="classroomActivityItems(module).length">
+                    <li v-if="module.teacher_activity" data-ai-field="teacher_activity" :data-ai-item-id="moduleTargetId(module, index)" :data-ai-label="tr('courseWorkbench.lessonDocument.teacherActivity')" :class="{ 'ai-change-target': candidateModuleChanged(section, module, 'teacher_activity') }"><MathText :content="`${tr('courseWorkbench.lessonDocument.teacherActivity')}：${module.teacher_activity}`" /></li>
+                    <li v-if="module.student_activity" data-ai-field="student_activity" :data-ai-item-id="moduleTargetId(module, index)" :data-ai-label="tr('courseWorkbench.lessonDocument.studentActivity')" :class="{ 'ai-change-target': candidateModuleChanged(section, module, 'student_activity') }"><MathText :content="`${tr('courseWorkbench.lessonDocument.studentActivity')}：${module.student_activity}`" /></li>
+                  </ul>
                   <p v-else>{{ emptyValue }}</p>
                 </section>
                 <section>
                   <strong>{{ tr('courseWorkbench.lessonDocument.attainmentJudgement') }}</strong>
-                  <ul v-if="attainmentJudgementItems(module).length"><li v-for="item in attainmentJudgementItems(module)" :key="item"><MathText :content="item" /></li></ul>
+                  <ul v-if="attainmentJudgementItems(module).length">
+                    <li v-if="module.expected_output" data-ai-field="expected_output" :data-ai-item-id="moduleTargetId(module, index)" :data-ai-label="tr('courseWorkbench.lessonDocument.expectedOutput')" :class="{ 'ai-change-target': candidateModuleChanged(section, module, 'expected_output') }"><MathText :content="`${tr('courseWorkbench.lessonDocument.expectedOutput')}：${module.expected_output}`" /></li>
+                    <li v-if="module.check_method" data-ai-field="check_method" :data-ai-item-id="moduleTargetId(module, index)" :data-ai-label="tr('courseWorkbench.lessonDocument.attainmentCheck')" :class="{ 'ai-change-target': candidateModuleChanged(section, module, 'check_method') }"><MathText :content="`${tr('courseWorkbench.lessonDocument.attainmentCheck')}：${module.check_method}`" /></li>
+                  </ul>
                   <p v-else>{{ emptyValue }}</p>
                 </section>
               </div>
@@ -187,21 +204,21 @@
           </div>
         </section>
 
-        <section class="document-section"><h4>{{ tr('courseWorkbench.lessonDocument.classSummary') }}</h4><textarea v-if="editing" :value="listText(section.class_summary)" rows="4" @input="updateList(section, 'class_summary', $event)" /><ul v-else-if="sectionSummaryItems(section).length"><li v-for="item in sectionSummaryItems(section)" :key="item"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></section>
+        <section class="document-section" data-ai-field="class_summary" data-ai-inline-anchor :data-ai-label="tr('courseWorkbench.lessonDocument.classSummary')" :class="{ 'ai-change-target': candidateFieldChanged(section, 'class_summary') }"><i v-if="candidateFieldChanged(section, 'class_summary')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i><h4>{{ tr('courseWorkbench.lessonDocument.classSummary') }}</h4><textarea v-if="editing" :value="listText(section.class_summary)" rows="4" @input="updateList(section, 'class_summary', $event)" /><ul v-else-if="sectionSummaryItems(section).length"><li v-for="(item, itemIndex) in sectionSummaryItems(section)" :key="`${itemIndex}-${item}`" data-ai-field="class_summary" :data-ai-item-id="String(itemIndex)" :data-ai-label="tr('courseWorkbench.lessonDocument.classSummary')" :class="{ 'ai-change-target': candidateListItemChanged(section, 'class_summary', itemIndex) }"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></section>
 
-        <section class="document-section lesson-time-section" data-period="after">
+        <section class="document-section lesson-time-section" data-period="after" data-ai-field="homework" data-ai-inline-anchor :data-ai-label="tr('courseWorkbench.lessonDocument.homework')" :class="{ 'ai-change-target': candidateFieldChanged(section, 'homework') }">
           <div class="section-heading"><h4>{{ tr('courseWorkbench.lessonDocument.homework') }}</h4><span>{{ tr('courseWorkbench.lessonDocument.afterClassTime') }}</span></div>
-          <textarea v-if="editing" :value="listText(section.homework)" rows="4" @input="updateList(section, 'homework', $event)" /><ol v-else-if="stringList(section.homework).length"><li v-for="item in stringList(section.homework)" :key="item"><MathText :content="item" /></li></ol><p v-else>{{ emptyValue }}</p>
-          <div class="assignment-contract">
-            <label><span>{{ tr('courseWorkbench.lessonDocument.submission') }}</span><input v-if="editing" v-model="section.homework_submission" :placeholder="tr('courseWorkbench.lessonDocument.submissionPending')" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="section.homework_submission || tr('courseWorkbench.lessonDocument.submissionPending')" /></label>
-            <label><span>{{ tr('courseWorkbench.lessonDocument.evaluation') }}</span><input v-if="editing" v-model="section.homework_evaluation" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="section.homework_evaluation || emptyValue" /></label>
-            <label><span>{{ tr('courseWorkbench.lessonDocument.nextLessonConnection') }}</span><input v-if="editing" v-model="section.next_lesson_connection" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="section.next_lesson_connection || emptyValue" /></label>
+          <textarea v-if="editing" :value="listText(section.homework)" rows="4" @input="updateList(section, 'homework', $event)" /><ol v-else-if="stringList(section.homework).length"><li v-for="(item, itemIndex) in stringList(section.homework)" :key="`${itemIndex}-${item}`" data-ai-field="homework" :data-ai-item-id="String(itemIndex)" :data-ai-label="tr('courseWorkbench.lessonDocument.homework')" :class="{ 'ai-change-target': candidateListItemChanged(section, 'homework', itemIndex) }"><MathText :content="item" /></li></ol><p v-else>{{ emptyValue }}</p>
+          <div class="assignment-contract" data-ai-inline-anchor>
+            <label data-ai-field="homework_submission" :data-ai-label="tr('courseWorkbench.lessonDocument.submission')" :class="{ 'ai-change-target': candidateChanged(section, 'homework_submission') }"><span>{{ tr('courseWorkbench.lessonDocument.submission') }}</span><input v-if="editing" v-model="section.homework_submission" :placeholder="tr('courseWorkbench.lessonDocument.submissionPending')" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="section.homework_submission || tr('courseWorkbench.lessonDocument.submissionPending')" /></label>
+            <label data-ai-field="homework_evaluation" :data-ai-label="tr('courseWorkbench.lessonDocument.evaluation')" :class="{ 'ai-change-target': candidateChanged(section, 'homework_evaluation') }"><span>{{ tr('courseWorkbench.lessonDocument.evaluation') }}</span><input v-if="editing" v-model="section.homework_evaluation" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="section.homework_evaluation || emptyValue" /></label>
+            <label data-ai-field="next_lesson_connection" :data-ai-label="tr('courseWorkbench.lessonDocument.nextLessonConnection')" :class="{ 'ai-change-target': candidateChanged(section, 'next_lesson_connection') }"><span>{{ tr('courseWorkbench.lessonDocument.nextLessonConnection') }}</span><input v-if="editing" v-model="section.next_lesson_connection" @input="recordEditSnapshot" /><MathText v-else tag="p" :content="section.next_lesson_connection || emptyValue" /></label>
           </div>
         </section>
 
-        <section class="document-section materials-record"><h4>{{ tr('courseWorkbench.lessonDocument.materialsAndRecords') }}</h4><div class="closing-grid"><div><h4>{{ tr('courseWorkbench.lessonDocument.extensionReading') }}</h4><textarea v-if="editing" :value="listText(section.resource_refs)" rows="4" @input="updateList(section, 'resource_refs', $event)" /><ul v-else-if="stringList(section.resource_refs).length"><li v-for="item in stringList(section.resource_refs)" :key="item"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></div><div><h4>{{ tr('courseWorkbench.lessonDocument.activityPhotos') }}</h4><p>{{ tr('courseWorkbench.lessonDocument.activityPhotosPending') }}</p></div></div></section>
+        <section class="document-section materials-record"><h4>{{ tr('courseWorkbench.lessonDocument.materialsAndRecords') }}</h4><div class="closing-grid" data-ai-inline-anchor><div data-ai-field="resource_refs" :data-ai-label="tr('courseWorkbench.lessonDocument.extensionReading')" :class="{ 'ai-change-target': candidateFieldChanged(section, 'resource_refs') }"><i v-if="candidateFieldChanged(section, 'resource_refs')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i><h4>{{ tr('courseWorkbench.lessonDocument.extensionReading') }}</h4><textarea v-if="editing" :value="listText(section.resource_refs)" rows="4" @input="updateList(section, 'resource_refs', $event)" /><ul v-else-if="stringList(section.resource_refs).length"><li v-for="(item, itemIndex) in stringList(section.resource_refs)" :key="`${itemIndex}-${item}`" data-ai-field="resource_refs" :data-ai-item-id="String(itemIndex)" :data-ai-label="tr('courseWorkbench.lessonDocument.extensionReading')" :class="{ 'ai-change-target': candidateListItemChanged(section, 'resource_refs', itemIndex) }"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></div><div><h4>{{ tr('courseWorkbench.lessonDocument.activityPhotos') }}</h4><p>{{ tr('courseWorkbench.lessonDocument.activityPhotosPending') }}</p></div></div></section>
 
-        <section class="document-section" :class="{ 'ai-change-target': candidateChanged(section, 'teaching_notes') }"><i v-if="candidateChanged(section, 'teaching_notes')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i><h4>{{ tr('courseWorkbench.lessonDocument.notes') }}</h4><textarea v-if="editing" :value="listText(section.teaching_notes)" rows="4" @input="updateList(section, 'teaching_notes', $event)" /><ul v-else-if="stringList(section.teaching_notes).length"><li v-for="item in stringList(section.teaching_notes)" :key="item"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></section>
+        <section class="document-section" data-ai-field="teaching_notes" data-ai-inline-anchor :data-ai-label="tr('courseWorkbench.lessonDocument.notes')" :class="{ 'ai-change-target': candidateFieldChanged(section, 'teaching_notes') }"><i v-if="candidateFieldChanged(section, 'teaching_notes')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i><h4>{{ tr('courseWorkbench.lessonDocument.notes') }}</h4><textarea v-if="editing" :value="listText(section.teaching_notes)" rows="4" @input="updateList(section, 'teaching_notes', $event)" /><ul v-else-if="stringList(section.teaching_notes).length"><li v-for="(item, itemIndex) in stringList(section.teaching_notes)" :key="`${itemIndex}-${item}`" data-ai-field="teaching_notes" :data-ai-item-id="String(itemIndex)" :data-ai-label="tr('courseWorkbench.lessonDocument.notes')" :class="{ 'ai-change-target': candidateListItemChanged(section, 'teaching_notes', itemIndex) }"><MathText :content="item" /></li></ul><p v-else>{{ emptyValue }}</p></section>
       </section>
     </article>
 
@@ -215,7 +232,7 @@ import { computed, ref, watch } from 'vue'
 import { Check, LoaderCircle, Pencil, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import MathText from './MathText.vue'
-import TextSelectionAiAction, { type TeacherInlineAiRequest } from './TextSelectionAiAction.vue'
+import TextSelectionAiAction, { type TeacherInlineAiRequest, type TeacherInlineAiTarget } from './TextSelectionAiAction.vue'
 import { useDocumentEditHistory } from '../composables/useDocumentEditHistory'
 import { t } from '../shared/i18n'
 import {
@@ -224,6 +241,7 @@ import {
   type TeacherLessonProjection,
 } from '../stores/teacherLessonAuthoring'
 import { toAppError } from '../utils/app-error'
+import type { GenerationProgress } from '../shared/generation-stream'
 
 const props = withDefaults(defineProps<{
   courseId: string
@@ -269,6 +287,8 @@ const localSectionId = ref('')
 const aiBusy = ref(false)
 const aiError = ref<unknown>(null)
 const pendingCandidate = ref<TeacherLessonPlanCandidate | null>(null)
+const inlineCandidateInPlace = ref(false)
+const inlineAiProgress = ref<GenerationProgress | null>(null)
 const documentRoot = ref<HTMLElement | null>(null)
 const editHistory = useDocumentEditHistory<Record<string, any>>(snapshot => {
   draftPlan.value = clonePlan(snapshot)
@@ -310,6 +330,8 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.aiCollaboration.inlineComposerTitle': '告诉 AI 怎么改',
   'courseWorkbench.aiCollaboration.inlineGenerate': '生成修改',
   'courseWorkbench.aiCollaboration.inlineWorking': '正在生成候选…',
+  'courseWorkbench.aiCollaboration.inlineElapsed': '已等待 {seconds} 秒',
+  'courseWorkbench.aiCollaboration.candidateReady': '修改候选已生成',
   'courseWorkbench.aiCollaboration.inlineSelectionScope': '修改选中内容',
   'courseWorkbench.aiCollaboration.inlineBlockScope': '修改当前段落',
   'courseWorkbench.aiCollaboration.inlineDocumentScope': '修改当前教案',
@@ -407,6 +429,14 @@ const basePlanSections = computed<any[]>(() => Array.isArray(workingRevision.val
   ? workingRevision.value!.plan.sections
   : [])
 const emptyValue = computed(() => tr('courseWorkbench.lessonDocument.empty'))
+const inlineAiErrorMessage = computed(() => aiError.value ? documentError.value?.summary || tr('courseWorkbench.lessonDocument.aiFailed') : '')
+const inlineAiProgressLabel = computed(() => {
+  const elapsedSeconds = Math.max(0, Math.floor(Number(inlineAiProgress.value?.elapsed_ms || 0) / 1000))
+  const message = String(inlineAiProgress.value?.message || tr('courseWorkbench.aiCollaboration.inlineWorking'))
+  return elapsedSeconds
+    ? `${message} · ${tr('courseWorkbench.aiCollaboration.inlineElapsed').replace('{seconds}', String(elapsedSeconds))}`
+    : message
+})
 
 const moduleLabels = computed<Record<string, string>>(() => ({
   lesson_goal: tr('courseWorkbench.lessonModules.goal'),
@@ -591,16 +621,54 @@ function baseSection(sectionId: string): Record<string, any> | null {
   return basePlanSections.value.find(section => String(section.node_id || '') === sectionId) || null
 }
 
-function candidateChanged(section: Record<string, any>, key: string): boolean {
+function rawCandidateChanged(section: Record<string, any>, key: string): boolean {
   if (!pendingCandidate.value) return false
   const original = baseSection(String(section.node_id || ''))
   if (!original) return true
+  if (key === 'knowledge_objectives') {
+    return JSON.stringify(sectionKnowledgeObjectives(section)) !== JSON.stringify(sectionKnowledgeObjectives(original))
+  }
+  if (key === 'ability_objectives') {
+    return JSON.stringify(sectionAbilityObjectives(section)) !== JSON.stringify(sectionAbilityObjectives(original))
+  }
   return JSON.stringify(section[key] ?? null) !== JSON.stringify(original[key] ?? null)
 }
 
-function objectiveCandidateChangedFor(section: Record<string, any>): boolean {
-  return ['learning_objective', 'knowledge_objectives', 'ability_objectives', 'education_objectives']
-    .some(key => candidateChanged(section, key))
+function candidateChanged(section: Record<string, any>, key: string): boolean {
+  const targetsOneListItem = pendingCandidate.value?.target_field === key
+    && /^\d+$/.test(String(pendingCandidate.value?.target_item_id || ''))
+  return !targetsOneListItem && rawCandidateChanged(section, key)
+}
+
+function candidateFieldChanged(section: Record<string, any>, key: string): boolean {
+  return candidateChanged(section, key)
+}
+
+function candidateListItemChanged(section: Record<string, any>, key: string, index: number): boolean {
+  if (!pendingCandidate.value) return false
+  const original = baseSection(String(section.node_id || ''))
+  if (!original) return true
+  return stringList(section[key])[index] !== stringList(original[key])[index]
+}
+
+function moduleTargetId(module: Record<string, any>, index: number): string {
+  return String(module.module_id || module.arrangement_block_id || index)
+}
+
+function candidateModuleChanged(
+  section: Record<string, any>,
+  module: Record<string, any>,
+  key: string,
+): boolean {
+  if (!pendingCandidate.value) return false
+  const originalSection = baseSection(String(section.node_id || ''))
+  if (!originalSection) return true
+  const targetId = String(module.module_id || module.arrangement_block_id || '')
+  const original = sectionModules(originalSection).find(item => (
+    String(item.module_id || item.arrangement_block_id || '') === targetId
+  ))
+  if (!original) return true
+  return JSON.stringify(module[key] ?? null) !== JSON.stringify(original[key] ?? null)
 }
 
 function beginEditing() {
@@ -612,19 +680,31 @@ function beginEditing() {
   saveError.value = null
 }
 
-async function requestAiCandidate(instructionValue: string): Promise<TeacherLessonPlanCandidate | null> {
+async function requestAiCandidate(
+  instructionValue: string,
+  target: TeacherInlineAiTarget = {},
+  selectedText = '',
+): Promise<TeacherLessonPlanCandidate | null> {
   const instruction = instructionValue.trim()
   if (!instruction || aiBusy.value || !workingRevision.value?.revision_id) return null
   aiBusy.value = true
   aiError.value = null
+  inlineAiProgress.value = null
   try {
     pendingCandidate.value = await lessonStore.createAiCandidate(
       props.courseId,
       props.lesson.lesson_unit_id,
       workingRevision.value.revision_id,
       instruction,
-      selectedSectionId.value,
+      target.sectionNodeId || selectedSectionId.value,
       props.materialAssetIds,
+      {
+        sectionNodeId: target.sectionNodeId || selectedSectionId.value,
+        field: target.field,
+        itemId: target.itemId,
+        selectedText,
+      },
+      progress => { inlineAiProgress.value = progress },
     )
     return pendingCandidate.value
   } catch (error: any) {
@@ -633,6 +713,25 @@ async function requestAiCandidate(instructionValue: string): Promise<TeacherLess
   } finally {
     aiBusy.value = false
   }
+}
+
+async function requestInlineAiCandidate(payload: TeacherInlineAiRequest) {
+  if (!payload.target?.field) {
+    inlineCandidateInPlace.value = false
+    emit('open-ai-selection', payload)
+    return
+  }
+  inlineCandidateInPlace.value = true
+  if (pendingCandidate.value) {
+    const discarded = await resolveAiCandidate(false)
+    if (!discarded) return
+  }
+  await requestAiCandidate(payload.instruction, payload.target, payload.text)
+}
+
+async function resolveInlineAiCandidate(accept: boolean) {
+  const resolved = await resolveAiCandidate(accept)
+  if (resolved) inlineCandidateInPlace.value = false
 }
 
 async function resolveAiCandidate(accept: boolean): Promise<boolean> {
@@ -703,6 +802,8 @@ watch(() => [
 ], () => {
   cancelEditing()
   aiError.value = null
+  inlineCandidateInPlace.value = false
+  inlineAiProgress.value = null
   pendingCandidate.value = [...(props.lesson.plan.ai_candidates || [])]
     .reverse()
     .find(candidate => (

@@ -176,8 +176,55 @@ describe('教案 AI 协作编辑模式', () => {
     expect(wrapper.get('.candidate-canvas-notice').text()).toContain('继续调整')
     expect(wrapper.get('.candidate-canvas-notice').text()).toContain('保留原文')
     expect(wrapper.get('.candidate-canvas-notice').text()).toContain('采用修改')
-    expect(wrapper.get('.objective-section').classes()).toContain('ai-change-target')
+    expect(wrapper.get('[data-ai-field="knowledge_objectives"]').classes()).toContain('ai-change-target')
+    expect(wrapper.get('.objective-section').classes()).not.toContain('ai-change-target')
     expect(wrapper.text()).toContain('能用流程图准确解释爬虫四步流程')
+  })
+
+  it('精确字段在对象下方生成，携带对象身份并显示真实等待时间', async () => {
+    const store = useTeacherLessonAuthoringStore()
+    store.lessons = [structuredClone(lesson)]
+    const candidatePlan = structuredClone(lesson.plan.revisions[0]!.plan)
+    candidatePlan.sections[0].teaching_modules[0].teacher_activity = '先让学生预测，再讲解四步流程'
+    let finishCandidate: ((candidate: TeacherLessonPlanCandidate) => void) | undefined
+    const createCandidate = vi.spyOn(store, 'createAiCandidate').mockImplementation(async (...args) => {
+      const onProgress = args[7]
+      onProgress?.({ status: 'running', message: '正在读取局部上下文', elapsed_ms: 2200 })
+      return await new Promise<TeacherLessonPlanCandidate>((resolve) => { finishCandidate = resolve })
+    })
+    vi.spyOn(store, 'resolveAiCandidate').mockResolvedValue(lesson.plan)
+    const wrapper = mountWorkbench()
+    await flushPromises()
+
+    const field = wrapper.get('[data-ai-field="teacher_activity"]')
+    await field.trigger('pointerover')
+    await wrapper.get('.text-selection-ai__trigger').trigger('click')
+    const composer = wrapper.get('.text-selection-ai__composer')
+    await composer.get('textarea').setValue('增加学生预测环节')
+    await composer.trigger('submit')
+    await flushPromises()
+
+    expect(createCandidate.mock.calls[0]![6]).toEqual({
+      sectionNodeId: 'section-1',
+      field: 'teacher_activity',
+      itemId: 'core_explanation',
+      selectedText: '教师活动：讲解四步流程',
+    })
+    expect(wrapper.get('.text-selection-ai__status').text()).toContain('已等待 2 秒')
+    expect(wrapper.classes()).not.toContain('is-ai-collaboration')
+
+    finishCandidate?.({
+      candidate_id: 'candidate-field', lesson_unit_id: 'lesson-1', base_revision_id: 'revision-1',
+      instruction: '增加学生预测环节', section_node_id: 'section-1', target_field: 'teacher_activity',
+      target_item_id: 'core_explanation', selected_text: '教师活动：讲解四步流程',
+      plan: candidatePlan, status: 'pending', created_at: '',
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.candidate-canvas-notice').exists()).toBe(false)
+    expect(wrapper.get('.text-selection-ai__composer').text()).toContain('采用修改')
+    expect(wrapper.get('[data-ai-field="teacher_activity"]').classes()).toContain('ai-change-target')
+    expect(wrapper.get('.flow-section').classes()).not.toContain('ai-change-target')
   })
 
   it('题库 AI 固定使用整门课程范围和题库内部资料', async () => {
@@ -378,7 +425,8 @@ describe('教案 AI 协作编辑模式', () => {
     const wrapper = mountWorkbench()
     await flushPromises()
 
-    expect(wrapper.get('.objective-section').classes()).toContain('ai-change-target')
+    expect(wrapper.get('[data-ai-field="knowledge_objectives"]').classes()).toContain('ai-change-target')
+    expect(wrapper.get('.objective-section').classes()).not.toContain('ai-change-target')
     expect(wrapper.get('.candidate-canvas-notice').text()).toContain('AI 候选已嵌入教案正文')
     await wrapper.findAll('.candidate-canvas-notice button').find(button => button.text().includes('保留原文'))!.trigger('click')
     await flushPromises()

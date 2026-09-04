@@ -3652,6 +3652,9 @@ class TeacherLessonAuthoringRepository:
         instruction: str,
         plan: dict[str, Any],
         section_node_id: str = "",
+        target_field: str = "",
+        target_item_id: str = "",
+        selected_text: str = "",
         material_asset_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         with self._lock:
@@ -3667,6 +3670,9 @@ class TeacherLessonAuthoringRepository:
                 "base_revision_id": base_revision_id,
                 "instruction": instruction,
                 "section_node_id": section_node_id,
+                "target_field": target_field,
+                "target_item_id": target_item_id,
+                "selected_text": selected_text,
                 "material_asset_ids": sorted({
                     str(value).strip()
                     for value in (material_asset_ids or [])

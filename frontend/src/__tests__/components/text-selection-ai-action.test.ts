@@ -50,9 +50,12 @@ describe('文中选区 AI 快捷操作', () => {
 
     expect(wrapper.get('button').text()).toContain('AI 修改')
     await wrapper.get('button').trigger('click')
-    expect(wrapper.get('blockquote').text()).toContain('理解函数模型并确定定义域')
-    await wrapper.get('textarea').setValue('改成可观察、可检查的学习行为')
-    await wrapper.get('form').trigger('submit')
+    expect(host.querySelector('blockquote')?.textContent).toContain('理解函数模型并确定定义域')
+    const textarea = host.querySelector('textarea') as HTMLTextAreaElement
+    textarea.value = '改成可观察、可检查的学习行为'
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await nextTick()
     expect(wrapper.emitted('invoke')).toEqual([[
       {
         text: '理解函数模型并确定定义域',
@@ -93,7 +96,64 @@ describe('文中选区 AI 快捷操作', () => {
 
     expect(wrapper.get('.text-selection-ai__trigger').text()).toContain('AI 修改')
     await wrapper.get('.text-selection-ai__trigger').trigger('click')
-    expect(wrapper.get('blockquote').text()).toContain('以真实任务理解函数模型')
-    expect(wrapper.text()).toContain('修改当前段落')
+    expect(host.querySelector('blockquote')?.textContent).toContain('以真实任务理解函数模型')
+    expect(host.querySelector('.text-selection-ai__composer')?.textContent).toContain('修改当前段落')
+  })
+
+  it('把精确对象身份随请求发送，并把输入框追加在对象下方', async () => {
+    const host = document.createElement('section')
+    const section = document.createElement('section')
+    section.dataset.aiSectionId = 'section-1'
+    const inlineAnchor = document.createElement('div')
+    inlineAnchor.dataset.aiInlineAnchor = 'true'
+    const field = document.createElement('p')
+    field.dataset.aiField = 'teacher_activity'
+    field.dataset.aiItemId = 'module-1'
+    field.dataset.aiLabel = '教师活动'
+    field.textContent = '教师演示转换过程'
+    inlineAnchor.appendChild(field)
+    section.appendChild(inlineAnchor)
+    host.appendChild(section)
+    document.body.appendChild(host)
+    Object.defineProperty(host, 'clientWidth', { configurable: true, value: 640 })
+    host.getBoundingClientRect = () => ({
+      x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 400, width: 640, height: 400,
+      toJSON: () => ({}),
+    })
+    field.getBoundingClientRect = () => ({
+      x: 20, y: 40, left: 20, top: 40, right: 420, bottom: 80, width: 400, height: 40,
+      toJSON: () => ({}),
+    })
+    const wrapper = mount(TextSelectionAiAction, {
+      attachTo: host,
+      props: { container: host, targetSelector: '[data-ai-field]' },
+    })
+
+    field.dispatchEvent(new Event('pointerover', { bubbles: true }))
+    await nextTick()
+    await wrapper.get('.text-selection-ai__trigger').trigger('click')
+    expect(inlineAnchor.nextElementSibling?.classList.contains('text-selection-ai-host')).toBe(true)
+    expect(field.querySelector('.text-selection-ai-host')).toBeNull()
+    expect(section.textContent).toContain('教师活动 · 修改当前段落')
+
+    const textarea = section.querySelector('textarea') as HTMLTextAreaElement
+    textarea.value = '增加学生预测'
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    section.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await nextTick()
+
+    expect(wrapper.emitted('invoke')).toEqual([[
+      {
+        text: '教师演示转换过程',
+        instruction: '增加学生预测',
+        source: 'block',
+        target: {
+          sectionNodeId: 'section-1',
+          field: 'teacher_activity',
+          itemId: 'module-1',
+          label: '教师活动',
+        },
+      },
+    ]])
   })
 })

@@ -3627,6 +3627,94 @@ def test_ai_optimizer_uses_compact_editable_contract_and_merges_one_section():
     assert "保持原有总时长" in fake.captured_prompt
 
 
+def test_ai_optimizer_field_request_sends_minimum_context_and_changes_only_target():
+    plan = {
+        "schema_version": "course_teaching_plan_v3",
+        "sections": [
+            {
+                "node_id": "L2-1-1",
+                "title": "进制转换",
+                "knowledge_objectives": ["理解位权展开"],
+                "ability_objectives": ["独立完成进制转换"],
+                "key_points": ["位权展开"],
+                "key_difficulties": ["余数倒序"],
+                "in_class_checks": ["完成一道转换题"],
+                "teaching_modules": [
+                    {
+                        "module_id": "orientation",
+                        "teaching_purpose": "回顾十进制位权",
+                        "planned_minutes": 5,
+                        "teacher_activity": "展示十进制数位表。",
+                        "student_activity": "说出每一位的权值。",
+                        "expected_output": "正确说出权值。",
+                        "check_method": "随机点名。",
+                    },
+                    {
+                        "module_id": "core_explanation",
+                        "teaching_purpose": "讲清二进制转换",
+                        "planned_minutes": 15,
+                        "teacher_activity": "演示一次转换。",
+                        "student_activity": "跟随记录步骤。",
+                        "expected_output": "得到正确结果。",
+                        "check_method": "核对答案。",
+                    },
+                    {
+                        "module_id": "practice",
+                        "teaching_purpose": "独立练习",
+                        "planned_minutes": 10,
+                        "teacher_activity": "巡视并记录错误。",
+                        "student_activity": "独立完成练习。",
+                        "expected_output": "写出完整过程。",
+                        "check_method": "展示两种答案。",
+                    },
+                ],
+            },
+            {"node_id": "L2-1-2", "learning_objective": "兄弟小节保持不变"},
+        ],
+    }
+
+    class FakeOptimizer:
+        captured_prompt = ""
+        captured_kwargs: dict = {}
+
+        async def _call_llm(self, prompt, **kwargs):
+            self.captured_prompt = prompt
+            self.captured_kwargs = kwargs
+            return json.dumps({"value": "先演示位权展开，再让学生预测余数倒序结果。"}, ensure_ascii=False)
+
+        @staticmethod
+        def _extract_json(value):
+            return json.loads(value)
+
+    fake = FakeOptimizer()
+    result = asyncio.run(CourseService.optimize_teacher_lesson_plan(
+        fake,
+        plan=plan,
+        instruction="把教师活动改成先预测再演示",
+        section_node_id="L2-1-1",
+        target_field="teacher_activity",
+        target_item_id="core_explanation",
+        selected_text="演示一次转换",
+        lesson_context={"title": "第一讲", "lesson_type": "讲授练习课", "duration_minutes": 30},
+        knowledge_context="位权展开 --prerequisite--> 余数倒序：先理解位权再解释转换过程",
+        material_evidence=[
+            {"asset_id": "related", "unit_id": "p2", "text": "位权展开后，让学生预测余数倒序，再演示转换过程。"},
+            {"asset_id": "unrelated", "unit_id": "p9", "text": "大学英语写作课程评分标准。"},
+        ],
+    ))
+
+    expected = deepcopy(plan)
+    expected["sections"][0]["teaching_modules"][1]["teacher_activity"] = "先演示位权展开，再让学生预测余数倒序结果。"
+    assert result["plan"] == expected
+    assert "讲授练习课" in fake.captured_prompt
+    assert "prerequisite" in fake.captured_prompt
+    assert '"asset_id": "related"' in fake.captured_prompt
+    assert '"asset_id": "unrelated"' not in fake.captured_prompt
+    assert '"student_activity": "跟随记录步骤。"' in fake.captured_prompt
+    assert fake.captured_kwargs["max_tokens"] == 800
+    assert fake.captured_kwargs["max_attempts"] == 1
+
+
 def test_v6_ppt_binds_exact_plan_and_script_revisions_and_becomes_stale(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     lesson = repository.save_plan_revision(

@@ -820,6 +820,7 @@
       "inlineComposerTitle": "Tell AI how to revise it",
       "inlineGenerate": "Generate edit",
       "inlineWorking": "Generating an option…",
+      "inlineElapsed": "Waiting {seconds}s",
       "inlineSelectionScope": "Edit selected text",
       "inlineBlockScope": "Edit this paragraph",
       "inlineDocumentScope": "Edit this content",
