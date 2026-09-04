@@ -1186,6 +1186,76 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.text()).not.toContain('重新生成本讲教案')
   })
 
+  it('深链失败按课程摘要、正文状态和右栏原因分层且不重复具体错误', () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    const issue = {
+      issue_id: 'issue-lesson-plan-2',
+      stage: 'lesson_plan',
+      lesson_unit_id: 'L1-2',
+      task_id: 'lesson-job-2',
+      code: 'lesson_plan_generation_failed',
+      summary: '知识骨架汇编失败',
+      recovery: { action: 'retry_generation', automatic: false, requires_confirmation: true },
+    }
+    const productionStage = (overrides: Record<string, unknown> = {}) => ({
+      display_state: 'not_generated', task_state: 'idle', availability: 'missing', source_state: 'missing',
+      latest_attempt_failed: false, update_required: false,
+      counts: { total: 2, available: 0, generating: 0, failed: 0, stale: 0 }, issues: [],
+      ...overrides,
+    })
+    lessonStore.productionState = {
+      schema_version: 'course_production_state_v1',
+      course_id: 'course-1',
+      preparation_state: 'preparing',
+      stages: {
+        outline: productionStage({ display_state: 'available', task_state: 'completed', availability: 'usable', source_state: 'current', counts: { total: 1, available: 1, generating: 0, failed: 0, stale: 0 } }),
+        lesson_plan: productionStage({ display_state: 'available', task_state: 'failed', availability: 'usable', source_state: 'current', latest_attempt_failed: true, counts: { total: 2, available: 1, generating: 0, failed: 1, stale: 0 }, issues: [issue] }),
+        script: productionStage(),
+        ppt: productionStage(),
+      },
+      lessons: [],
+      issues: [issue],
+    } as any
+    lessonStore.lessons = [
+      {
+        lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
+        title: '第一讲', duration_minutes: 45, sections: [],
+        arrangement: { lesson_unit_id: 'L1-1', ready: true, source_state: 'current', blocks: [] },
+        plan: { lesson_unit_id: 'L1-1', ready: true, working_revision_id: 'plan-1', source_state: 'current', current_revision: { revision_id: 'plan-1' }, ppt_assets: [] },
+        script: { ready: false, sections: [] },
+      },
+      {
+        lesson_unit_id: 'L1-2', source_outline_revision_id: 'outline-1', number: 2,
+        title: '第二讲', duration_minutes: 45, sections: [],
+        arrangement: {
+          lesson_unit_id: 'L1-2', ready: true, source_state: 'current',
+          blocks: [{ block_id: 'block-2', name: '概念建模', section_title: '核心概念', planned_minutes: 20, purpose: '建立概念关系', content_summary: '讲解概念关系' }],
+        },
+        plan: { lesson_unit_id: 'L1-2', ready: false, can_generate: true, working_revision_id: '', source_state: 'current', current_revision: null, ppt_assets: [] },
+        script: { ready: false, sections: [] },
+      },
+    ] as any
+    lessonStore.jobs = [{
+      id: 'lesson-job-2', course_id: 'course-1', lesson_unit_id: 'L1-2', type: 'teacher_lesson_plan_generation',
+      status: 'failed', progress: 36, phase: 'lesson_plan_failed', message: '本讲教案生成失败', warnings: [],
+      error: { code: 'lesson_plan_generation_failed', message: '知识骨架汇编失败', retryable: true },
+    }] as any
+
+    const wrapper = mountWorkbench({
+      initialStage: 'lesson', initialLessonId: 'L1-2', initialIssueId: issue.issue_id, expandIssue: true,
+    })
+
+    const banner = wrapper.get('[data-testid="production-issue-detail"]')
+    expect(banner.text()).toContain('课程生成问题')
+    expect(banner.text()).toContain('本课程有 1 项内容生成失败')
+    expect(banner.text()).not.toContain('知识骨架汇编失败')
+    expect(wrapper.get('.arrangement-error').text()).toContain('本讲教案生成失败')
+    expect(wrapper.get('.arrangement-error').text()).not.toContain('知识骨架汇编失败')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('知识骨架汇编失败')
+    expect(wrapper.text().match(/知识骨架汇编失败/g)).toHaveLength(1)
+    expect(wrapper.get('[data-testid="lesson-batch-start"]').text()).toBe('重新生成')
+  })
+
   it('教案已生成但讲义未生成时仍可上传自有 PPT，但不能使用 AI 生成', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{

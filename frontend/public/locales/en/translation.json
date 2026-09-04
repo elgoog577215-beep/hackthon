@@ -236,6 +236,10 @@
   },
   "teacherProductionState": {
     "issueTitle": "Generation issue",
+    "courseIssueTitle": "Course generation issue",
+    "courseFailureSummary": "{count} course item(s) failed to generate. The affected item is now in view.",
+    "courseIssueSummary": "{count} course item(s) need attention. The affected item is now in view.",
+    "localFailure": { "lesson_plan": "This lesson plan failed to generate" },
     "states": { "not_generated": "Not generated", "generating": "Generating", "available": "Available", "failed": "Generation failed" },
     "stages": { "outline": "Outline", "lesson_plan": "Lesson plan", "script": "Lecture notes", "ppt": "PPT" },
     "auxiliary": { "idle": "Not started", "queued": "Queued", "running": "Generating", "paused": "Paused", "failed": "Generation failed", "completed": "Completed", "stale": "Source updated", "pendingReview": "Pending review", "recentFailure": "Most recent generation failed" }

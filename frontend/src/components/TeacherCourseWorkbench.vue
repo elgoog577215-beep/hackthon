@@ -60,8 +60,8 @@
       <section v-if="activeProductionIssue" class="production-issue-detail" role="alert" data-testid="production-issue-detail">
         <TriangleAlert :size="17" />
         <div>
-          <strong>{{ t('teacherProductionState.issueTitle', '生成问题') }}</strong>
-          <p>{{ activeProductionIssue.summary }}</p>
+          <strong>{{ t('teacherProductionState.courseIssueTitle', '课程生成问题') }}</strong>
+          <p>{{ activeProductionIssueBannerText }}</p>
         </div>
       </section>
       <header v-if="activeStage === 'foundation'" class="center-heading">
@@ -572,7 +572,7 @@
             :impact-labels="lessonArrangementImpactLabels"
             :generating="lessonGenerationActive"
             :sticky-actions="!workingLessonRevision || lessonGenerationRunning"
-            :error="arrangementError || lessonGenerationError"
+            :error="lessonArrangementError"
           >
             <template #generation-actions>
               <div
@@ -1213,6 +1213,22 @@ const productionState = computed(() => (
 const activeProductionIssue = computed(() => {
   if (!props.expandIssue || !props.initialIssueId) return null
   return productionState.value?.issues.find(issue => issue.issue_id === props.initialIssueId) || null
+})
+const activeProductionIssueBannerText = computed(() => {
+  const issue = activeProductionIssue.value
+  if (!issue) return ''
+  const allIssues = productionState.value?.issues || []
+  const isGenerationFailure = Boolean(issue.task_id)
+  const count = Math.max(1, isGenerationFailure
+    ? allIssues.filter(item => Boolean(item.task_id)).length
+    : allIssues.length)
+  const key = isGenerationFailure
+    ? 'teacherProductionState.courseFailureSummary'
+    : 'teacherProductionState.courseIssueSummary'
+  const fallback = isGenerationFailure
+    ? '本课程有 {count} 项内容生成失败，已定位到当前对象。'
+    : '本课程有 {count} 项内容需要处理，已定位到当前对象。'
+  return t(key, fallback).replace('{count}', String(count))
 })
 const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = ref(props.initialLessonId)
 const activeCompanionTemplateId = ref<CompanionTemplateId>(GRADING_RUBRIC_TEMPLATE_ID)
@@ -1965,6 +1981,11 @@ const lessonGenerationProgress = computed(() => Math.max(3, Number(lessonJob.val
 const lessonGenerationError = computed(() => lessonJob.value?.status === 'cancelled'
   ? ''
   : String(lessonJob.value?.error?.message || lessonStore.error || ''))
+const lessonArrangementError = computed(() => arrangementError.value || (
+  lessonGenerationError.value
+    ? t('teacherProductionState.localFailure.lesson_plan', '本讲教案生成失败')
+    : ''
+))
 const lessonStreamSegments = computed(() => lessonPlanStreamSegments(lessonJob.value?.stream_batches))
 const scriptJob = computed(() => selectedLessonId.value ? lessonStore.latestScriptJobByLesson(selectedLessonId.value) : undefined)
 const scriptGenerationActive = computed(() => ['pending', 'running'].includes(String(scriptJob.value?.status || '')))
@@ -3867,7 +3888,7 @@ onBeforeUnmount(() => {
 .context-pane-heading__signal{width:30px;height:30px;display:grid;place-items:center;border-radius:8px;color:#5b60a5;background:#f0f1f6}
 .context-pane-heading__status>div{min-width:0;display:grid;gap:2px}
 .context-pane-heading__status strong{overflow:hidden;color:#2f394a;font-size:15px;font-weight:760;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
-.context-pane-heading__status>div>span{overflow:hidden;color:#758093;font-size:13px;line-height:1.4;text-overflow:ellipsis;white-space:nowrap}
+.context-pane-heading__status>div>span{color:#758093;font-size:13px;line-height:1.4;overflow-wrap:anywhere;white-space:normal}
 .context-pane-heading[data-phase="failed"] .context-pane-heading__signal{color:#a83c49;background:#fbecee}
 .context-pane-heading[data-phase="after"] .context-pane-heading__signal{color:#187a4b;background:#eaf5ee}
 .context-pane-heading[data-phase="during"] .context-pane-heading__signal{color:#5559b1;background:#eeeefb}
