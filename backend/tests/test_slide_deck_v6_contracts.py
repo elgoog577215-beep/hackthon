@@ -63,6 +63,7 @@ from slide_deck_v6 import (
 from slide_ai_planning_v6 import regenerate_ppt_manuscript_pages_v1
 from slide_deck_renderer import audit_exported_pptx
 from slide_deck_v6_renderer import adapt_v6_page_to_slide_spec, export_slide_deck_v6_pptx
+from slide_layout_geometry import capacity_profile_text_fits
 from template_layout_contract import compile_builtin_template_layout_contract_v1
 
 
@@ -1237,6 +1238,71 @@ def test_story_page_count_range_keeps_every_template_safe_partition_available() 
     assert story_page_count_range(graph.units[0], template) == [1, 5]
 
 
+def test_story_visible_copy_rejects_narrow_formula_panel_overflow_before_render() -> None:
+    visible_copy = (
+        "主对角线元素相乘得到行列式，非对角元素不改变该结构判断。"
+        * 8
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="formula-story-capacity",
+        title="三角矩阵",
+        sections=[CourseSection(
+            section_id="formula",
+            title="三角矩阵的行列式",
+            position=0,
+        )],
+        blocks=[_block(
+            "triangular-determinant",
+            "formula",
+            0,
+            role="reasoning",
+            text=(
+                f"三角矩阵的行列式可以直接计算。{visible_copy}\n\n"
+                "$$\\det(A)=a_{11}a_{22}a_{33}$$"
+            ),
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("evidence-formula"))
+    assert layout is not None
+    body_slot = next(slot for slot in layout.slots if slot.slot_kind == "body")
+    assert len(visible_copy) < body_slot.max_chars
+    assert not capacity_profile_text_fits(
+        body_slot.capacity_profile,
+        visible_copy,
+    )
+    unit = graph.units[0]
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="formula-capacity",
+            chapter_id="formula",
+            provider="fixture-provider",
+            model="fixture-model",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[SlideStoryPageV3(
+                page_id="formula-capacity-page",
+                teaching_unit_id=unit.teaching_unit_id,
+                template_layout_id=layout.template_layout_id,
+                title="三角矩阵的行列式",
+                visible_copy=[visible_copy],
+                source_block_ids=unit.primary_block_ids,
+                page_ordinal=0,
+            )],
+        )],
+    )
+
+    with pytest.raises(V6BuildError) as captured:
+        validate_slide_story_plan_v3(story, graph, template)
+
+    assert captured.value.failure.code == "story_visible_copy_capacity_exceeded"
+    assert captured.value.failure.page_id == "formula-capacity-page"
+
+
 def test_shadow_chapter_freezes_only_the_selected_section_subtree() -> None:
     document = refresh_document_revision(CourseDocument(
         course_id="generic-shadow-course",
@@ -1704,6 +1770,35 @@ def test_teacher_manuscript_edit_syncs_visible_regions_and_preserves_frozen_cont
         }])
 
 
+def test_manuscript_quality_rejects_visible_prose_cut_inside_a_source_phrase() -> None:
+    document = _cross_subject_document()
+    _graph, _template, _story, _visual, manuscript = (
+        _strict_manuscript_fixture(document)
+    )
+    target = next(
+        page for page in manuscript.pages
+        if any(region.content_kind == "body" for region in page.regions)
+        and page.speaker_notes
+        and page.speaker_notes.source_blocks
+    ).model_copy(deep=True)
+    body = next(region for region in target.regions if region.content_kind == "body")
+    body.content = "结论：主对角线元素相"
+    target.visible_copy = [
+        region.content.strip()
+        for region in target.regions
+        if region.content_kind != "notes" and region.content.strip()
+    ]
+    target.speaker_notes.source_blocks[0].full_text = (
+        "主对角线元素相等时，矩阵表示等比缩放。"
+    )
+
+    issues = _ppt_manuscript_quality_issues([target])
+
+    assert "ppt_manuscript_visible_copy_incomplete" in {
+        issue.code for issue in issues
+    }
+
+
 def test_source_impact_keeps_unbound_pages_and_exposes_locked_conflicts() -> None:
     document = _cross_subject_document()
     _graph, _template, _story, _visual, manuscript = (
@@ -1950,6 +2045,67 @@ async def test_targeted_manuscript_regeneration_preserves_other_pages_and_record
         page.model_dump(mode="json") for page in manuscript.pages
         if page.page_id != target.page_id
     ]
+
+
+@pytest.mark.asyncio
+async def test_targeted_regeneration_normalizes_provider_brief_and_preserves_artifact_regions() -> None:
+    document = _cross_subject_document()
+    _graph, _template, _story, _visual, manuscript = (
+        _strict_manuscript_fixture(document)
+    )
+    target = next(
+        page for page in manuscript.pages
+        if any(region.content_kind == "table" for region in page.regions)
+        and sum(region.content_kind == "body" for region in page.regions) == 1
+    )
+    original_table = next(
+        region.content for region in target.regions if region.content_kind == "table"
+    )
+    original_body = next(
+        region.content for region in target.regions if region.content_kind == "body"
+    )
+    body_parts = original_body.split("\n\n")
+    requests = []
+
+    async def planner(request):
+        requests.append(request)
+        response = _regenerated_page_response(target)
+        response["narrative_brief"] = {
+            "schema_version": "slide_narrative_brief_v1",
+            "central_question": "怎样依据现场证据形成结论？",
+            "learning_path": [
+                {"step": 1, "content": "先区分观察与推断"},
+                {"step": 2, "content": "再核对采样条件"},
+            ],
+            "observable_checkpoints": [
+                {"checkpoint": "能够指出记录中的观察事实"},
+            ],
+            "chapter_time_budget_minutes": 20,
+            "must_include_source_block_ids": list(target.source_script_block_ids),
+        }
+        response["pages"][0]["visible_copy"] = body_parts
+        return response
+
+    revised = await regenerate_ppt_manuscript_pages_v1(
+        manuscript,
+        target_page_ids=[target.page_id],
+        ai_planner=planner,
+    )
+
+    revised_target = next(
+        page for page in revised.pages if page.page_id == target.page_id
+    )
+    assert requests[0]["constraints"]["editable_visible_region_count"] == 1
+    assert next(
+        region.content
+        for region in revised_target.regions
+        if region.content_kind == "table"
+    ) == original_table
+    assert next(
+        region.content
+        for region in revised_target.regions
+        if region.content_kind == "body"
+    ) == "\n\n".join(body_parts)
 
 
 @pytest.mark.asyncio

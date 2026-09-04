@@ -5780,6 +5780,183 @@ async def test_story_repairs_untraceable_teaching_tokens_before_manuscript() -> 
 
 
 @pytest.mark.asyncio
+async def test_live_story_response_repairs_missing_teaching_contract_before_manuscript() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls: list[dict] = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        repaired = len(calls) > 1
+        payload = {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "provider": "shared-ai-pool",
+            "model": "qwen3.8-27b",
+            "attempts": 1,
+            "narrative_brief": {
+                "schema_version": "slide_narrative_brief_v1",
+                "central_question": "怎样形成可靠工作流？",
+                "learning_path": ["界定输入", "执行动作", "核对结果"],
+                "observable_checkpoints": ["能说明完成条件和异常原因"],
+                "time_budget_minutes": 15,
+                "must_include_source_block_ids": unit["primary_block_ids"],
+            },
+            "pages": [{
+                "page_id": "live-teaching-contract",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": _layout_for_request_blocks(
+                    unit,
+                    unit["primary_block_ids"],
+                ),
+                "title": unit["title_candidates"][0],
+                "summary": "",
+                "visible_copy": (
+                    ["先界定输入，再执行动作，最后核对结果。"]
+                    if repaired else []
+                ),
+                "page_goal": "解释可靠流程怎样形成闭环" if repaired else "",
+                "primary_claim": (
+                    "可靠流程必须完成输入、动作与结果核对。"
+                    if repaired else ""
+                ),
+                "audience_question": "怎样判断流程已经完成？" if repaired else "",
+                "audience_action": "",
+                "expected_response": (
+                    "同时检查完成条件和异常原因。" if repaired else ""
+                ),
+                "observable_evidence": "",
+                "transition": "从界定输入推进到结果核对。" if repaired else "",
+                "reveal_steps": (
+                    ["界定输入", "执行动作", "核对结果"] if repaired else []
+                ),
+                "composition_notes": "按工作顺序呈现三个动作" if repaired else "",
+                "question_bank_item_ids": [],
+                "shared_visual_expression_ids": [],
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+        return planning_module._AIPlannerResponse(payload)
+
+    story = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=planner,
+    )
+
+    assert len(calls) == 2
+    assert calls[1]["repair_feedback"]["code"] == (
+        "story_teaching_contract_incomplete"
+    )
+    assert story.pages[0].visible_copy
+    assert story.pages[0].page_goal == "解释可靠流程怎样形成闭环"
+    assert story.pages[0].primary_claim
+    assert story.pages[0].reveal_steps
+    assert story.pages[0].composition_notes
+
+
+@pytest.mark.asyncio
+async def test_live_story_repairs_visible_copy_that_overflows_formula_panel() -> None:
+    long_copy = (
+        "主对角线元素相乘得到行列式，非对角元素不改变该结构判断。"
+        * 8
+    )
+    short_copy = "三角矩阵的行列式等于主对角线元素的乘积。"
+    document = refresh_document_revision(CourseDocument(
+        course_id="formula-live-capacity",
+        title="三角矩阵",
+        sections=[CourseSection(
+            section_id="formula",
+            title="三角矩阵的行列式",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="triangular-determinant",
+            section_id="formula",
+            position=0,
+            role="reasoning",
+            payload={
+                "title": "三角矩阵的行列式",
+                "markdown": (
+                    f"三角矩阵的行列式可以直接计算。{long_copy}\n\n"
+                    "$$\\det(A)=a_{11}a_{22}a_{33}$$"
+                ),
+            },
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls: list[dict] = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        repaired = len(calls) > 1
+        layout = next(
+            layout_id
+            for layout_id in unit["allowed_template_layout_ids"]
+            if layout_id.endswith("/evidence-formula")
+        )
+        return planning_module._AIPlannerResponse({
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "provider": "shared-ai-pool",
+            "model": "qwen3.8-27b",
+            "attempts": 1,
+            "narrative_brief": {
+                "schema_version": "slide_narrative_brief_v1",
+                "central_question": "怎样直接计算三角矩阵的行列式？",
+                "learning_path": ["识别三角结构", "读取主对角线元素"],
+                "observable_checkpoints": ["能写出主对角线元素的乘积"],
+                "time_budget_minutes": 8,
+                "must_include_source_block_ids": unit["primary_block_ids"],
+            },
+            "pages": [{
+                "page_id": "formula-live-page",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": layout,
+                "title": _title_for_request_blocks(
+                    unit,
+                    unit["primary_block_ids"],
+                ),
+                "summary": "",
+                "visible_copy": [short_copy if repaired else long_copy],
+                "page_goal": "说明三角矩阵的行列式计算规则",
+                "primary_claim": short_copy,
+                "audience_question": "行列式由哪些元素决定？",
+                "audience_action": "",
+                "expected_response": "主对角线元素的乘积。",
+                "observable_evidence": "",
+                "transition": "从三角结构进入行列式计算。",
+                "reveal_steps": ["识别三角结构", "读取主对角线", "计算元素乘积"],
+                "composition_notes": "公式与简短解释并列",
+                "question_bank_item_ids": [],
+                "shared_visual_expression_ids": [],
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        })
+
+    story = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=planner,
+    )
+
+    assert len(calls) == 2
+    assert calls[1]["repair_feedback"]["code"] == (
+        "story_visible_copy_capacity_exceeded"
+    )
+    repair_target = calls[1]["repair_feedback"]["repair_targets"][0]
+    assert repair_target["visible_copy_capacity"]["max_chars"] == 360
+    assert repair_target["visible_copy_capacity"]["capacity_profile"] == (
+        "formula-source-panel-v1"
+    )
+    assert story.pages[0].visible_copy == [short_copy]
+
+
+@pytest.mark.asyncio
 async def test_visual_ai_failure_degrades_optional_page_but_not_required_code() -> None:
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
 

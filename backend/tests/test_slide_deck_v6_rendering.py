@@ -1,10 +1,12 @@
 from copy import deepcopy
 from pathlib import Path
+import subprocess
 from types import SimpleNamespace
 
 import pytest
 from pptx import Presentation
 from pptx.enum.text import MSO_ANCHOR
+from pptx.util import Inches, Pt
 from pydantic import ValidationError
 
 import slide_deck_renderer
@@ -73,9 +75,150 @@ def test_formula_renderer_formats_row_operation_chain_without_command_leaks() ->
 
     rendered = slide_deck_renderer._format_formula_text(source)
 
-    assert rendered == "R₃← R₃-(3)⁄(2)R₂ ⟶[R₁↔ R₂] R₁"
+    assert rendered == "R₃← R₃-(3)/(2)R₂ ⟶[R₁↔ R₂] R₁"
     assert "frac" not in rendered
     assert "rightarrow" not in rendered
+
+
+def test_formula_and_heading_sizes_avoid_tiny_short_math_and_orphan_titles() -> None:
+    formula = "⎛ 2 0 ⎞\n⎝ 0 1/2 ⎠"
+    assert slide_deck_renderer._formula_font_size(formula, width_inches=10.78) >= 30
+
+    title = "换句话说，横轴方向和纵轴方向各自独立伸缩，互不干扰"
+    title_size = slide_deck_renderer._heading_font_size(
+        title,
+        width_inches=11.72,
+        max_lines=2,
+    )
+    assert title_size < 35
+    assert not slide_deck_renderer._wrapped_text_has_orphan_last_line(
+        title,
+        width_pt=(11.72 - 0.02) * 72,
+        font_size_pt=title_size,
+    )
+
+
+def test_export_audit_blocks_nonportable_formula_glyphs_and_can_require_pixels(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    shape = slide.shapes.add_textbox(Inches(1), Inches(2), Inches(10), Inches(1))
+    shape.text = "F(x)=(x+1)⁄(x-1)"
+    shape.text_frame.paragraphs[0].font.size = Pt(28)
+    output = tmp_path / "nonportable-formula.pptx"
+    presentation.save(output)
+
+    report = audit_exported_pptx(
+        output,
+        expected_slide_count=1,
+        require_pixel_audit=False,
+    )
+    assert "exported_formula_glyph_not_portable" in {
+        item["code"] for item in report["blockers"]
+    }
+
+    calls = []
+    monkeypatch.setattr(
+        slide_deck_renderer,
+        "_libreoffice_render_audit",
+        lambda path, deck: calls.append((path, deck)) or {
+            "passed": True,
+            "page_count": 1,
+            "checked_pages": 1,
+            "issues": [],
+            "blockers": [],
+        },
+    )
+    pixel_report = audit_exported_pptx(
+        output,
+        expected_slide_count=1,
+        require_pixel_audit=True,
+    )
+    assert calls
+    assert pixel_report["pixel_audit"]["checked_pages"] == 1
+
+
+def test_libreoffice_pixel_audit_loads_the_bundled_cjk_font(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "cjk-audit.pptx"
+    source.write_bytes(b"pptx")
+    calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        slide_deck_renderer.shutil,
+        "which",
+        lambda name: f"/tools/{name}",
+    )
+
+    def fake_run(args, **kwargs):
+        calls.append({"args": args, **kwargs})
+        if "--convert-to" in args:
+            output_dir = Path(args[args.index("--outdir") + 1])
+            (output_dir / "cjk-audit.pdf").write_bytes(b"pdf")
+            fontconfig = Path(kwargs["env"]["FONTCONFIG_FILE"])
+            config_text = fontconfig.read_text(encoding="utf-8")
+            assert "backend/assets/fonts" in config_text
+            assert "<cachedir>" in config_text
+        else:
+            prefix = Path(args[-1])
+            prefix.with_name(f"{prefix.name}-1.png").write_bytes(b"png")
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(slide_deck_renderer.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        slide_deck_renderer,
+        "audit_rendered_slide_images",
+        lambda presentation, image_paths: {
+            "passed": True,
+            "page_count": len(presentation.slides),
+            "checked_pages": len(image_paths),
+            "issues": [],
+            "blockers": [],
+        },
+    )
+
+    report = slide_deck_renderer._libreoffice_render_audit(
+        source,
+        SimpleNamespace(slides=[object()]),
+    )
+
+    assert report["passed"] is True
+    assert report["checked_pages"] == 1
+    assert len(calls) == 2
+    soffice_env = calls[0]["env"]
+    assert isinstance(soffice_env, dict)
+    assert soffice_env["FONTCONFIG_FILE"].endswith("fonts.conf")
+    assert soffice_env["FONTCONFIG_PATH"]
+    assert soffice_env["XDG_CACHE_HOME"].endswith("font-cache")
+
+
+def test_rendered_page_ocr_accepts_multicolumn_reading_order(
+    tmp_path: Path,
+) -> None:
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    slide.shapes.add_textbox(
+        Inches(0.5), Inches(0.5), Inches(5), Inches(2)
+    ).text = "abcdefghijklmnopqrst"
+    slide.shapes.add_textbox(
+        Inches(6.5), Inches(0.5), Inches(5), Inches(2)
+    ).text = "uvwxyz0123456789"
+    image = tmp_path / "page-1.png"
+    image.touch()
+
+    report = slide_deck_renderer.audit_rendered_slide_images(
+        presentation,
+        [image],
+        ocr_runner=lambda _path: "uvwxyz0123456789abcdefghijklmnopqrst",
+    )
+
+    assert report["passed"] is True
 
 
 def _code_deck(code_source: str = "function onEvent(value) {\n  return validate(value);\n}"):

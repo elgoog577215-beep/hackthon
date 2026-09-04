@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from collections import Counter
 from copy import deepcopy
 from difflib import SequenceMatcher
 from functools import lru_cache
@@ -345,6 +346,41 @@ def _wrapped_line_count(
     )
 
 
+def _wrapped_text_has_orphan_last_line(
+    text: str,
+    *,
+    width_pt: float,
+    font_size_pt: float,
+    max_orphan_chars: int = 2,
+) -> bool:
+    """Return whether wrapping leaves only a tiny final title fragment."""
+
+    value = str(text or "").strip()
+    if not value:
+        return False
+    explicit_last_line = value.rsplit("\n", 1)[-1].strip()
+    if "\n" in value and 0 < len(explicit_last_line) <= max_orphan_chars:
+        return True
+    wrapped_lines = _wrapped_line_count(
+        value,
+        width_pt=width_pt,
+        font_size_pt=font_size_pt,
+    )
+    if wrapped_lines <= 1:
+        return False
+    for suffix_length in range(1, min(max_orphan_chars, len(value)) + 1):
+        prefix = value[:-suffix_length].rstrip()
+        if not prefix:
+            break
+        if _wrapped_line_count(
+            prefix,
+            width_pt=width_pt,
+            font_size_pt=font_size_pt,
+        ) < wrapped_lines:
+            return True
+    return False
+
+
 def _text_frame_audit(shape: Any) -> dict[str, Any]:
     frame = shape.text_frame
     width_pt = max(
@@ -487,6 +523,20 @@ def _rapidocr_page_text(path: Path) -> str:
     )
 
 
+def _ocr_character_recall(expected: str, recognized: str) -> float:
+    """Measure visible character coverage without assuming one-column OCR order."""
+
+    if not expected:
+        return 1.0
+    expected_counts = Counter(expected)
+    recognized_counts = Counter(recognized)
+    matched = sum(
+        min(count, recognized_counts[character])
+        for character, count in expected_counts.items()
+    )
+    return matched / len(expected)
+
+
 def audit_rendered_slide_images(
     presentation: Any,
     image_paths: list[Path],
@@ -528,18 +578,22 @@ def audit_rendered_slide_images(
                 "message": str(exc),
             })
             continue
-        coverage = SequenceMatcher(
+        ordered_coverage = SequenceMatcher(
             None,
             expected,
             recognized,
             autojunk=False,
         ).ratio()
+        character_recall = _ocr_character_recall(expected, recognized)
+        coverage = max(ordered_coverage, character_recall)
         if coverage < 0.68:
             issues.append({
                 "severity": "critical",
                 "code": "exported_ocr_text_missing_or_clipped",
                 "page": page_number,
                 "coverage": round(coverage, 4),
+                "ordered_coverage": round(ordered_coverage, 4),
+                "character_recall": round(character_recall, 4),
                 "expected_character_count": len(expected),
                 "recognized_character_count": len(recognized),
             })
@@ -578,6 +632,11 @@ def _libreoffice_render_audit(
         }
     with tempfile.TemporaryDirectory(prefix="lingzhi-slide-pixel-audit-") as temp_dir:
         output_dir = Path(temp_dir)
+        fontconfig_path = _write_libreoffice_fontconfig(output_dir)
+        soffice_env = os.environ.copy()
+        soffice_env["FONTCONFIG_FILE"] = str(fontconfig_path)
+        soffice_env["FONTCONFIG_PATH"] = str(fontconfig_path.parent)
+        soffice_env["XDG_CACHE_HOME"] = str(output_dir / "font-cache")
         subprocess.run(
             [
                 soffice,
@@ -591,6 +650,7 @@ def _libreoffice_render_audit(
             check=True,
             capture_output=True,
             timeout=90,
+            env=soffice_env,
         )
         pdf_path = output_dir / f"{path.stem}.pdf"
         if not pdf_path.is_file():
@@ -609,10 +669,70 @@ def _libreoffice_render_audit(
         return audit_rendered_slide_images(presentation, image_paths)
 
 
+def _write_libreoffice_fontconfig(output_dir: Path) -> Path:
+    """Give the isolated renderer a real CJK fallback without changing PPTX fonts."""
+
+    from xml.sax.saxutils import escape
+
+    project_font_dir = Path(__file__).resolve().parent / "assets" / "fonts"
+    portable_cjk_font = project_font_dir / "WenQuanYiMicroHei.ttc"
+    if not portable_cjk_font.is_file():
+        raise RuntimeError(
+            "LibreOffice pixel audit requires the bundled CJK fallback font"
+        )
+
+    candidates = [
+        project_font_dir,
+        Path("/System/Library/Fonts"),
+        Path("/System/Library/Fonts/Supplemental"),
+        Path("/Library/Fonts"),
+        Path.home() / "Library" / "Fonts",
+        Path("/usr/share/fonts"),
+        Path("/usr/local/share/fonts"),
+    ]
+    configured = os.getenv("SLIDE_AUDIT_FONT_DIRS", "")
+    candidates.extend(
+        Path(item).expanduser()
+        for item in configured.split(os.pathsep)
+        if item.strip()
+    )
+    font_dirs: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if not candidate.is_dir():
+            continue
+        resolved = str(candidate.resolve())
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        font_dirs.append(Path(resolved))
+
+    cache_dir = output_dir / "font-cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    fontconfig_path = output_dir / "fonts.conf"
+    directories = "\n".join(
+        f"  <dir>{escape(str(directory))}</dir>" for directory in font_dirs
+    )
+    fontconfig_path.write_text(
+        "\n".join([
+            '<?xml version="1.0"?>',
+            '<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">',
+            "<fontconfig>",
+            directories,
+            f"  <cachedir>{escape(str(cache_dir))}</cachedir>",
+            "</fontconfig>",
+            "",
+        ]),
+        encoding="utf-8",
+    )
+    return fontconfig_path
+
+
 def audit_exported_pptx(
     path: str | Path,
     *,
     expected_slide_count: int | None = None,
+    require_pixel_audit: bool | None = None,
 ) -> dict[str, Any]:
     """Audit exported objects, then optionally render and OCR every page."""
     from pptx import Presentation
@@ -663,6 +783,16 @@ def audit_exported_pptx(
                     issues.append({
                         "severity": "critical",
                         "code": "exported_raw_latex_visible",
+                        "page": slide_index,
+                        "shape_name": str(shape.name or ""),
+                    })
+                if "⁄" in raw_text or (
+                    any(symbol in raw_text for symbol in "⎡⎢⎣⎤⎥⎦")
+                    and any(symbol in raw_text for symbol in "()⎛⎜⎝⎞⎟⎠")
+                ):
+                    issues.append({
+                        "severity": "critical",
+                        "code": "exported_formula_glyph_not_portable",
                         "page": slide_index,
                         "shape_name": str(shape.name or ""),
                     })
@@ -734,6 +864,30 @@ def audit_exported_pptx(
                         "maximum_wrapped_lines": text_audit["maximum_wrapped_lines"],
                         "allowed_wrapped_lines": title_line_limit,
                     })
+                if is_title:
+                    frame = shape.text_frame
+                    width_pt = max(
+                        1.0,
+                        (
+                            int(shape.width)
+                            - int(frame.margin_left or 0)
+                            - int(frame.margin_right or 0)
+                        ) / 12700,
+                    )
+                    if any(
+                        _wrapped_text_has_orphan_last_line(
+                            paragraph.text or "",
+                            width_pt=width_pt,
+                            font_size_pt=_paragraph_font_size_pt(paragraph),
+                        )
+                        for paragraph in frame.paragraphs
+                    ):
+                        issues.append({
+                            "severity": "critical",
+                            "code": "exported_title_orphan_line",
+                            "page": slide_index,
+                            "shape_name": str(shape.name or ""),
+                        })
                 if (
                     not is_footer
                     and not is_eyebrow
@@ -812,12 +966,13 @@ def audit_exported_pptx(
                 "page": slide_index,
             })
     pixel_audit: dict[str, Any] | None = None
-    if os.getenv("SLIDE_LIBREOFFICE_AUDIT_ENABLED", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }:
+    pixel_audit_enabled = (
+        require_pixel_audit
+        if require_pixel_audit is not None
+        else os.getenv("SLIDE_LIBREOFFICE_AUDIT_ENABLED", "").strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+    if pixel_audit_enabled:
         try:
             pixel_audit = _libreoffice_render_audit(Path(path), presentation)
         except Exception as exc:
@@ -1180,6 +1335,23 @@ def _render_relational_visual(
         )
 
 
+def _formula_font_size(value: str, *, width_inches: float) -> int:
+    """Keep short editable formulae prominent without overflowing long chains."""
+
+    lines = [line.strip() for line in str(value or "").splitlines() if line.strip()]
+    if not lines:
+        return 25
+    line_count = len(lines)
+    longest_line = max(len(line) for line in lines)
+    if line_count <= 3 and longest_line <= 32:
+        return 32 if width_inches >= 9 else 30
+    if line_count <= 4 and longest_line <= 40:
+        return 29 if width_inches >= 6 else 27
+    if line_count <= 6 and longest_line <= 54:
+        return 25
+    return 22
+
+
 def _render_formula_visual(
     slide: Any,
     unit: SlideSpec,
@@ -1215,6 +1387,10 @@ def _render_formula_visual(
     _text(slide, "公式与推导", 1.18, 2.03, 1.5, 0.3, 11, theme["accent"], bold=True)
     display_formula = _format_formula_text(formula)
     display_formula = re.sub(r"\n\s*\n", "\n", display_formula)
+    formula_size = _formula_font_size(
+        display_formula,
+        width_inches=formula_width - 0.42,
+    )
     _text(
         slide,
         display_formula,
@@ -1222,7 +1398,7 @@ def _render_formula_visual(
         2.62 if "\n" in display_formula else 2.94,
         formula_width - 0.42,
         3.05 if "\n" in display_formula else 1.7,
-        25 if "\n" in display_formula else (30 if len(display_formula) < 72 else 23),
+        formula_size,
         theme["title"],
         bold=False,
         align="center",
@@ -1491,7 +1667,7 @@ def _format_formula_text(value: str) -> str:
         expression,
         r"\frac",
         2,
-        lambda numerator, denominator: f"({numerator})⁄({denominator})",
+        lambda numerator, denominator: f"({numerator})/({denominator})",
     )
     expression = _replace_group_command(
         expression,
@@ -1507,7 +1683,7 @@ def _format_formula_text(value: str) -> str:
     )
     expression = re.sub(
         r"\\frac\s*([A-Za-z0-9])\s*([A-Za-z0-9])",
-        lambda match: f"({match.group(1)})⁄({match.group(2)})",
+        lambda match: f"({match.group(1)})/({match.group(2)})",
         expression,
     )
     expression = re.sub(
@@ -1562,7 +1738,7 @@ def _format_formula_text(value: str) -> str:
     )
     expression = re.sub(
         r"\\frac\{([^{}]+)\}\{([^{}]+)\}",
-        lambda match: f"({match.group(1)})⁄({match.group(2)})",
+        lambda match: f"({match.group(1)})/({match.group(2)})",
         expression,
     )
     for command, symbol in sorted(_FORMULA_SYMBOLS.items(), key=lambda item: -len(item[0])):
@@ -1574,7 +1750,7 @@ def _format_formula_text(value: str) -> str:
     expression = re.sub(r"(?<=\w)leftarrow(?=\w)", "←", expression)
     expression = re.sub(
         r"(?<![A-Za-z])frac\s*([A-Za-z0-9])\s*([A-Za-z0-9])",
-        lambda match: f"({match.group(1)})⁄({match.group(2)})",
+        lambda match: f"({match.group(1)})/({match.group(2)})",
         expression,
     )
     expression = expression.replace(r"\{", "⦃").replace(r"\}", "⦄")
@@ -1653,10 +1829,17 @@ def _format_formula_matrix(body: str, kind: str) -> str:
     brackets = ("(", ")") if kind == "pmatrix" else ("⎡", "⎤")
     if len(rows) == 1:
         return f"{brackets[0]} {rows[0]} {brackets[1]}"
+    if kind == "pmatrix":
+        left_brackets = ("⎛", "⎜", "⎝")
+        right_brackets = ("⎞", "⎟", "⎠")
+    else:
+        left_brackets = ("⎡", "⎢", "⎣")
+        right_brackets = ("⎤", "⎥", "⎦")
     lines: list[str] = []
     for index, row in enumerate(rows):
-        left = brackets[0] if index == 0 else ("⎣" if index == len(rows) - 1 else "⎢")
-        right = brackets[1] if index == 0 else ("⎦" if index == len(rows) - 1 else "⎥")
+        position = 0 if index == 0 else 2 if index == len(rows) - 1 else 1
+        left = left_brackets[position]
+        right = right_brackets[position]
         lines.append(f"{left} {row} {right}")
     return "\n".join(lines)
 
@@ -4329,6 +4512,33 @@ def _balanced_text_columns(value: str) -> tuple[str, str]:
     return "\n\n".join(left), "\n\n".join(right)
 
 
+def _heading_font_size(
+    value: str,
+    *,
+    width_inches: float,
+    max_lines: int,
+) -> int:
+    """Choose the largest title size that fits without a tiny final line."""
+
+    width_pt = max(1.0, (width_inches - 0.02) * 72)
+    allowed_lines = max(1, int(max_lines or 1))
+    for size in (35, 33, 31, 29):
+        if _wrapped_line_count(
+            value,
+            width_pt=width_pt,
+            font_size_pt=size,
+        ) > allowed_lines:
+            continue
+        if _wrapped_text_has_orphan_last_line(
+            value,
+            width_pt=width_pt,
+            font_size_pt=size,
+        ):
+            continue
+        return size
+    return 29
+
+
 def _heading(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     heading_mode = str(unit.quality.get("heading_mode") or "full")
     section_label = str(unit.quality.get("section_label") or "").strip()
@@ -4341,7 +4551,11 @@ def _heading(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
             else unit.eyebrow or unit.slide_purpose
         )
     heading = _display_heading(unit)
-    heading_size = 35
+    heading_size = _heading_font_size(
+        heading,
+        width_inches=11.72,
+        max_lines=max(1, int(unit.quality.get("v6_title_max_lines") or 2)),
+    )
     if eyebrow:
         _text(slide, eyebrow, 0.78, 0.42, 8.8, 0.22, 11, theme["accent"], bold=True)
     _text(

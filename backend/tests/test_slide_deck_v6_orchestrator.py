@@ -195,8 +195,25 @@ def _orchestrator(tmp_path: Path) -> tuple[SlideDeckV6Orchestrator, TeachingRepr
         representation_repository=representations,
         candidate_repository=candidates,
         progress_root=tmp_path / "progress",
+        require_pixel_audit=False,
     )
     return orchestrator, representations, candidates
+
+
+def test_v6_orchestrator_requires_rendered_pixel_audit_by_default(
+    tmp_path: Path,
+) -> None:
+    orchestrator = SlideDeckV6Orchestrator(
+        representation_repository=TeachingRepresentationRepository(
+            tmp_path / "representations"
+        ),
+        candidate_repository=SlideDeckV6CandidateRepository(
+            tmp_path / "candidates"
+        ),
+        progress_root=tmp_path / "progress",
+    )
+
+    assert orchestrator.require_pixel_audit is True
 
 
 @pytest.mark.asyncio

@@ -412,10 +412,12 @@ class SlideDeckV6Orchestrator:
         representation_repository: TeachingRepresentationRepository,
         candidate_repository: SlideDeckV6CandidateRepository,
         progress_root: str | Path,
+        require_pixel_audit: bool = True,
     ) -> None:
         self.representations = representation_repository
         self.candidates = candidate_repository
         self.progress_repository = SlideBuildProgressRepositoryV2(progress_root)
+        self.require_pixel_audit = require_pixel_audit
 
     async def repair_visuals(
         self,
@@ -1124,6 +1126,7 @@ class SlideDeckV6Orchestrator:
                             audit_exported_pptx,
                             review_path,
                             expected_slide_count=len(deck.pages),
+                            require_pixel_audit=self.require_pixel_audit,
                         ),
                         tracker=tracker,
                         callback=progress_callback,

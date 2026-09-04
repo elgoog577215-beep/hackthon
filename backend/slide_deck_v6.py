@@ -117,6 +117,8 @@ V6_FAILURE_ROOT_CAUSE_BY_CODE: dict[str, str] = {
     "source_prose_visible_fidelity_incomplete": "source_fidelity",
     "ordered_step_visible_fidelity_incomplete": "source_fidelity",
     "story_unsupported_teaching_content": "source_fidelity",
+    "story_visible_copy_capacity_exceeded": "pagination_capacity",
+    "story_teaching_contract_incomplete": "manuscript_narrative",
     "v6_recovery_contract_mismatch": "checkpoint_contract",
     "ppt_manuscript_narrative_job_missing": "manuscript_narrative",
     "ppt_manuscript_visible_copy_missing": "manuscript_narrative",
@@ -817,6 +819,52 @@ def _ppt_manuscript_transition(
     return f"{relation}「{current.title}」（承接「{previous.title}」）"
 
 
+def _visible_prose_fragment_is_incomplete(
+    value: str,
+    source_texts: list[str],
+) -> bool:
+    """Detect a visible prose fragment that stops inside a frozen source phrase."""
+
+    fragments = [
+        line.strip()
+        for paragraph in re.split(r"\n\s*\n", str(value or ""))
+        for line in paragraph.splitlines()
+        if line.strip()
+    ]
+    if not fragments:
+        return False
+    fragment = re.sub(
+        r"^(?:[-*•]\s*|\d+[.)、]\s*|"
+        r"(?:结论|判断|要点|说明|含义|结果|依据|提示)\s*[:：]\s*)",
+        "",
+        fragments[-1],
+    ).strip()
+    if len(_canonical_visible_semantic_text(fragment)) < 6:
+        return False
+    if re.search(r"(?:，|、|；|,|;|\band\b|\bor\b|\bthe\b|\bof\b|\bto\b)$", fragment, re.I):
+        return True
+    compact_fragment = re.sub(r"\s+", "", fragment)
+    for source in source_texts:
+        # Keep sentence and clause boundaries.  Collapsing the whole source into
+        # one string makes an otherwise complete sentence look truncated merely
+        # because the next paragraph starts with a letter.
+        source_phrases = [
+            re.sub(r"\s+", "", phrase)
+            for phrase in re.split(r"[\n。！？!?；;，,：:]", str(source or ""))
+            if phrase.strip()
+        ]
+        for phrase in source_phrases:
+            if not phrase.startswith(compact_fragment):
+                continue
+            following_index = len(compact_fragment)
+            if following_index >= len(phrase):
+                continue
+            following = phrase[following_index]
+            if re.match(r"[0-9A-Za-z\u3400-\u9fff]", following):
+                return True
+    return False
+
+
 def _ppt_manuscript_quality_issues(
     pages: list[PptManuscriptPageV1],
     *,
@@ -1047,6 +1095,25 @@ def _ppt_manuscript_quality_issues(
                 stage="manuscript",
                 code="ppt_manuscript_delivery_cue_visible",
                 message="页面内容稿的台上文案不得混入板书、巡视或口头组织语。",
+                page_id=page.page_id,
+            ))
+        source_texts = [
+            note.full_text
+            for note in (
+                page.speaker_notes.source_blocks
+                if page.speaker_notes else []
+            )
+            if note.full_text
+        ]
+        if page.continuation_count <= 1 and source_texts and any(
+            region.content_kind in {"body", "items", "steps", "subtitle"}
+            and _visible_prose_fragment_is_incomplete(region.content, source_texts)
+            for region in page.regions
+        ):
+            issues.append(V6Failure(
+                stage="manuscript",
+                code="ppt_manuscript_visible_copy_incomplete",
+                message="页面可见正文停在来源短语中间，必须补全后才能确认或渲染。",
                 page_id=page.page_id,
             ))
         if (
@@ -2348,12 +2415,33 @@ def validate_slide_story_plan_v3(
                     ),
                     page_id=page.page_id,
                 )
+        visible_copy_text = _story_visible_copy_text(page.visible_copy)
+        projection_text = visible_copy_text or page.summary
+        projection_slot = _single_story_projection_slot(layout)
+        if (
+            visible_copy_text
+            and projection_slot is not None
+            and not _story_projection_fits_slot(
+                visible_copy_text,
+                projection_slot,
+            )
+        ):
+            raise V6BuildError(
+                stage="story",
+                code="story_visible_copy_capacity_exceeded",
+                message=(
+                    "Story visible copy exceeds the selected template slot "
+                    f"{projection_slot.slot_id} after wrapped-line geometry"
+                ),
+                retryable=True,
+                page_id=page.page_id,
+            )
         validate_story_template_text_slots(
             page_id=page.page_id,
             template=template,
             layout=layout,
             source_blocks=graph_page_source_blocks(unit, page.source_block_ids),
-            story_summary=page.summary,
+            story_summary=projection_text,
         )
         if unit.source_ordinal < previous_unit_ordinal:
             raise V6BuildError(stage="story", code="story_dependency_order_invalid", message="Story reverses course teaching-unit order", page_id=page.page_id)
@@ -2572,7 +2660,9 @@ def validate_slide_visual_plan_v2(
             template=template,
             layout=layout,
             source_blocks=source_blocks,
-            story_summary=page.summary,
+            story_summary=(
+                _story_visible_copy_text(page.visible_copy) or page.summary
+            ),
         )
         story_layout = template.get_layout(page.template_layout_id)
         safe_degraded_rebind = bool(
@@ -4383,6 +4473,54 @@ def _prose_fits_slot(
             not capacity_profile
             or capacity_profile_text_fits(capacity_profile, value)
         )
+    )
+
+
+def _story_visible_copy_text(visible_copy: list[str]) -> str:
+    """Return the exact learner-facing copy passed to final materialization."""
+
+    return "\n".join(
+        str(item).strip()
+        for item in visible_copy
+        if str(item).strip()
+    )
+
+
+def _single_story_projection_slot(layout: Any) -> Any | None:
+    """Return the sole slot that can own a Story-authored text projection."""
+
+    text_slots = [
+        slot
+        for slot in layout.slots
+        if slot.slot_kind in {"body", "items", "steps"}
+    ]
+    return text_slots[0] if len(text_slots) == 1 else None
+
+
+def _story_projection_fits_slot(value: str, slot: Any) -> bool:
+    """Measure Story copy with the same slot contract used by the renderer."""
+
+    content = _visible_prose_text(value)
+    if not content:
+        return False
+    max_chars = int(getattr(slot, "max_chars", 0) or 0)
+    max_lines = int(getattr(slot, "max_lines", 0) or 0)
+    max_items = int(getattr(slot, "max_items", 0) or 0)
+    if max_chars and len(content) > max_chars:
+        return False
+    if max_lines and _prose_wrapped_line_cost(content) > max_lines:
+        return False
+    items = [line.strip() for line in content.splitlines() if line.strip()]
+    if slot.slot_kind in {"items", "steps"}:
+        if max_items and len(items) > max_items:
+            return False
+        return capacity_profile_items_fit(
+            str(getattr(slot, "capacity_profile", "") or ""),
+            items,
+        )
+    return capacity_profile_text_fits(
+        str(getattr(slot, "capacity_profile", "") or ""),
+        content,
     )
 
 
@@ -7234,6 +7372,16 @@ def _materialize_template_regions(
         )
     ):
         candidate_slot = text_slots[0]
+        if not _story_projection_fits_slot(summary_content, candidate_slot):
+            raise V6BuildError(
+                stage="template",
+                code="template_slot_capacity_exceeded",
+                message=(
+                    "Story projection exceeds template slot "
+                    f"{candidate_slot.slot_id} after wrapped-line geometry"
+                ),
+                page_id=page_id,
+            )
         summary_slot_id = candidate_slot.slot_id
 
     regions: list[SlideRegionV6] = []
@@ -7279,17 +7427,7 @@ def _materialize_template_regions(
                 # truncation ellipsis that is not present in the source.
                 content = ""
             elif slot.slot_id == summary_slot_id:
-                if slot.max_chars and len(summary_content) > slot.max_chars:
-                    raise ValueError("template_slot_capacity_exceeded")
-                if (
-                    slot.slot_kind in {"items", "steps"}
-                    and slot.max_items
-                    and len([
-                        line
-                        for line in summary_content.splitlines()
-                        if line.strip()
-                    ]) > int(slot.max_items)
-                ):
+                if not _story_projection_fits_slot(summary_content, slot):
                     raise ValueError("template_slot_capacity_exceeded")
                 content = summary_content
                 slot_blocks = list(projection_source_blocks)

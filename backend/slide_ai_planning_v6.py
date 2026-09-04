@@ -389,6 +389,88 @@ def _normalize_versioned_response(
     return payload
 
 
+def _normalize_narrative_text_list(value: Any, *, field: str) -> Any:
+    """Project common provider object lists onto the declared string lists."""
+
+    if isinstance(value, dict):
+        wrapper_fields = (
+            ("steps", "items", "path")
+            if field == "learning_path"
+            else ("checkpoints", "items", "evidence")
+        )
+        wrapped = next(
+            (value[key] for key in wrapper_fields if isinstance(value.get(key), list)),
+            None,
+        )
+        value = wrapped if wrapped is not None else list(value.values())
+    if not isinstance(value, list):
+        return value
+    preferred_fields = (
+        (
+            "content",
+            "text",
+            "title",
+            "label",
+            "name",
+            "goal",
+            "learning_goal",
+            "description",
+        )
+        if field == "learning_path"
+        else (
+            "checkpoint",
+            "observable_evidence",
+            "evidence",
+            "criterion",
+            "success_criterion",
+            "content",
+            "text",
+            "description",
+            "label",
+            "title",
+        )
+    )
+    normalized: list[str] = []
+    for item in value:
+        if isinstance(item, str):
+            text = item.strip()
+        elif isinstance(item, dict):
+            text = next(
+                (
+                    str(item[key]).strip()
+                    for key in preferred_fields
+                    if isinstance(item.get(key), str) and str(item[key]).strip()
+                ),
+                "",
+            )
+        else:
+            return value
+        if text:
+            normalized.append(text)
+    return normalized
+
+
+def _normalize_story_narrative_brief(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize explicit narrative aliases without inventing teaching content."""
+
+    normalized = dict(payload)
+    raw_brief = normalized.get("narrative_brief")
+    if not isinstance(raw_brief, dict):
+        return normalized
+    brief = dict(raw_brief)
+    chapter_budget = brief.pop("chapter_time_budget_minutes", None)
+    if "time_budget_minutes" not in brief and chapter_budget is not None:
+        brief["time_budget_minutes"] = chapter_budget
+    for field in ("learning_path", "observable_checkpoints"):
+        if field in brief:
+            brief[field] = _normalize_narrative_text_list(
+                brief[field],
+                field=field,
+            )
+    normalized["narrative_brief"] = brief
+    return normalized
+
+
 def _request_title_candidates_for_blocks(
     unit: dict[str, Any],
     source_block_ids: list[str],
@@ -863,12 +945,12 @@ def _normalize_story_batch_response(
     graph: CoursePresentationGraphV1,
     template: TemplateLayoutPackContractV1,
 ) -> dict[str, Any]:
-    payload = _normalize_versioned_response(
+    payload = _normalize_story_narrative_brief(_normalize_versioned_response(
         raw,
         schema_version="slide_story_batch_response_v3",
         collection_field="pages",
         collection_aliases=("slides",),
-    )
+    ))
     units = {
         str(unit.get("teaching_unit_id") or ""): unit
         for unit in request.get("teaching_units") or []
@@ -1695,6 +1777,7 @@ def _story_unit_request(
     title_max_chars = min(title_capacities) if title_capacities else 72
     summary_max_chars_by_layout_id = {}
     summary_min_chars_by_layout_id = {}
+    visible_copy_capacity_by_layout_id = {}
     for layout in allowed_layouts:
         body_slots = [
             slot
@@ -1710,6 +1793,26 @@ def _story_unit_request(
             int(body_slots[0].get("min_chars") or 0)
             if len(body_slots) == 1
             else 0
+        )
+        projection_slots = [
+            slot
+            for slot in layout["slots"]
+            if slot.get("slot_kind") in {"body", "items", "steps"}
+        ]
+        visible_copy_capacity_by_layout_id[layout["template_layout_id"]] = (
+            {
+                key: projection_slots[0].get(key)
+                for key in (
+                    "slot_id",
+                    "slot_kind",
+                    "max_chars",
+                    "max_lines",
+                    "max_items",
+                    "capacity_profile",
+                )
+            }
+            if len(projection_slots) == 1
+            else {}
         )
     safe_page_slices = story_safe_page_slices(unit, template)
     allowed_page_count_range = story_page_count_range(
@@ -1881,6 +1984,9 @@ def _story_unit_request(
         ]),
         "summary_max_chars_by_layout_id": summary_max_chars_by_layout_id,
         "summary_min_chars_by_layout_id": summary_min_chars_by_layout_id,
+        "visible_copy_capacity_by_layout_id": (
+            visible_copy_capacity_by_layout_id
+        ),
         "allowed_page_count_range": allowed_page_count_range,
         "safe_page_slices": safe_page_slices,
         "safe_partition_options": safe_partition_options,
@@ -1925,6 +2031,9 @@ def _story_requests(
                 "summary_policy": (
                     "source_grounded_semantic_closure_for_all_bound_blocks_"
                     "complete_sentence_no_markdown"
+                ),
+                "visible_copy_policy": (
+                    "joined_visible_copy_must_fit_selected_layout_capacity"
                 ),
                 "page_count_policy": (
                     "use_each_teaching_unit_allowed_page_count_range"
@@ -2016,6 +2125,7 @@ def _story_model_request(request: dict[str, Any]) -> dict[str, Any]:
         "title_candidates",
         "summary_max_chars_by_layout_id",
         "summary_min_chars_by_layout_id",
+        "visible_copy_capacity_by_layout_id",
         "allowed_page_count_range",
         "safe_partition_options",
         "allowed_template_layout_ids",
@@ -2203,6 +2313,13 @@ def _story_model_request(request: dict[str, Any]) -> dict[str, Any]:
                 ).items()
                 if str(layout_id) in retained_layout_ids
             },
+            "visible_copy_capacity_by_layout_id": {
+                str(layout_id): value
+                for layout_id, value in (
+                    unit.get("visible_copy_capacity_by_layout_id") or {}
+                ).items()
+                if str(layout_id) in retained_layout_ids
+            },
         })
         return compacted
 
@@ -2269,6 +2386,8 @@ def _story_model_request(request: dict[str, Any]) -> dict[str, Any]:
             "forbidden_titles",
             "current_summary",
             "current_teaching_fields",
+            "visible_copy_capacity",
+            "visible_copy_policy",
             "unsupported_protected_tokens",
             "summary_min_chars",
             "summary_max_chars",
@@ -2306,11 +2425,11 @@ def _story_model_request(request: dict[str, Any]) -> dict[str, Any]:
                 if isinstance(target, dict)
             ],
             "instruction": (
-                "Repair listed units. Choose one safe_partition_options entry, bind "
-                "multiple related block IDs to the same page, copy source_block_ids, and "
-                "choose a listed layout. Rewrite current_teaching_fields containing "
-                "unsupported_protected_tokens from bound source_text; remove unsupported "
-                "tokens."
+                "Repair listed units from one safe_partition_options entry; bind "
+                "multiple related block IDs to the same page, copy source_block_ids, "
+                "and choose a listed layout. Rewrite unsupported current_teaching_fields "
+                "from bound source_text. Keep joined visible_copy within "
+                "visible_copy_capacity."
             )
         }
 
@@ -2397,6 +2516,44 @@ def _validate_story_batch_candidate(
     )
 
 
+def _validate_live_story_teaching_contract(batch: SlideStoryBatchV3) -> None:
+    """Reject provider pages that deferred the learner-facing teaching job."""
+
+    for page in batch.pages:
+        missing: list[str] = []
+        if not any(str(item).strip() for item in page.visible_copy):
+            missing.append("visible_copy")
+        if not page.page_goal.strip():
+            missing.append("page_goal")
+        if not page.primary_claim.strip():
+            missing.append("primary_claim")
+        if not page.transition.strip():
+            missing.append("transition")
+        if not any(str(item).strip() for item in page.reveal_steps):
+            missing.append("reveal_steps")
+        if not page.composition_notes.strip():
+            missing.append("composition_notes")
+        interaction = bool(
+            page.audience_question.strip() or page.audience_action.strip()
+        )
+        expected = bool(
+            page.expected_response.strip() or page.observable_evidence.strip()
+        )
+        if interaction and not expected:
+            missing.append("expected_response_or_observable_evidence")
+        if missing:
+            raise V6BuildError(
+                stage="story",
+                code="story_teaching_contract_incomplete",
+                message=(
+                    "The live story planner omitted required learner-facing teaching "
+                    f"fields: {', '.join(missing)}"
+                ),
+                retryable=True,
+                page_id=page.page_id,
+            )
+
+
 def _story_repair_targets(
     request: dict[str, Any],
     response_payload: dict[str, Any] | None,
@@ -2479,6 +2636,7 @@ def _story_repair_targets(
         current_teaching_fields = {
             field: (current_page or {}).get(field)
             for field in (
+                "visible_copy",
                 "page_goal",
                 "primary_claim",
                 "audience_question",
@@ -2487,6 +2645,7 @@ def _story_repair_targets(
                 "observable_evidence",
                 "transition",
                 "reveal_steps",
+                "composition_notes",
             )
             if (current_page or {}).get(field)
         }
@@ -2647,6 +2806,13 @@ def _story_repair_targets(
                 0,
             )
             or 0
+        )
+        visible_copy_capacity = dict(
+            (unit.get("visible_copy_capacity_by_layout_id") or {}).get(
+                current_layout_id,
+                {},
+            )
+            or {}
         )
         summary_repair_required = error.failure.code in {
             "story_page_underfilled",
@@ -2831,6 +2997,12 @@ def _story_repair_targets(
             "forbidden_titles": forbidden_titles,
             "current_summary": current_summary,
             "current_teaching_fields": current_teaching_fields,
+            "visible_copy_capacity": visible_copy_capacity,
+            "visible_copy_policy": (
+                "join visible_copy with newlines; keep the complete learner-facing "
+                "copy within max_chars, max_lines, max_items and capacity_profile "
+                "for the selected layout"
+            ),
             "allowed_protected_tokens": allowed_protected_tokens,
             "unsupported_protected_tokens": unsupported_protected_tokens,
             "summary_min_chars": summary_min_chars,
@@ -3386,7 +3558,16 @@ async def plan_slide_story_v3(
                                 "request; all other teaching units are locked and will be merged "
                                 "from the accepted first response. Return a fresh response that "
                                 "exactly follows response_contract, "
-                                "derives each page's intent from its bound primary_blocks and uses "
+                                "with non-empty visible_copy, page_goal, primary_claim, transition, "
+                                "reveal_steps, and composition_notes on every returned page. When "
+                                "audience_question or audience_action is present, also provide "
+                                "expected_response or observable_evidence. Join visible_copy items "
+                                "with newlines and keep the result within the selected layout's "
+                                "visible_copy_capacity_by_layout_id contract, including max_chars, "
+                                "max_lines, max_items, and capacity_profile; shorten a complete "
+                                "source-grounded explanation or choose a safe partition instead of "
+                                "overflowing the slot. Derive each page's "
+                                "intent from its bound primary_blocks and use "
                                 "only that intent's allowed_template_layout_ids_by_page_intent, and "
                                 "contains only source IDs supplied for that unit. Partition every "
                                 "unit's primary_block_ids by choosing exactly one complete entry from "
@@ -3516,6 +3697,10 @@ async def plan_slide_story_v3(
                     )[0]
                     local_pages = list(candidate_batch.pages)
                     try:
+                        if isinstance(raw, _AIPlannerResponse):
+                            _validate_live_story_teaching_contract(
+                                candidate_batch
+                            )
                         _validate_story_batch_candidate(
                             graph=graph,
                             template=template,
@@ -3782,6 +3967,63 @@ async def regenerate_ppt_manuscript_pages_v1(
         str(item["representation_id"]) for item in visuals
     }
 
+    def merge_visible_copy(page: Any, generated: _StoryResponsePage) -> list[str] | None:
+        visible_regions = [
+            region for region in page.regions if region.content_kind != "notes"
+        ]
+        editable_kinds = {"title", "subtitle", "body", "items", "steps"}
+        editable_indexes = [
+            index for index, region in enumerate(visible_regions)
+            if region.content_kind in editable_kinds
+        ]
+        non_title_editable_indexes = [
+            index for index in editable_indexes
+            if visible_regions[index].content_kind != "title"
+        ]
+        immutable_indexes = [
+            index for index in range(len(visible_regions))
+            if index not in editable_indexes
+        ]
+        supplied = [str(item).strip() for item in generated.visible_copy]
+        merged = [region.content.strip() for region in visible_regions]
+        full_region_shape = bool(
+            len(supplied) == len(visible_regions)
+            and all(
+                supplied[index] == merged[index]
+                for index in immutable_indexes
+            )
+        )
+        if full_region_shape:
+            for index in editable_indexes:
+                merged[index] = supplied[index]
+        elif len(supplied) == len(editable_indexes):
+            for index, content in zip(editable_indexes, supplied):
+                merged[index] = content
+        elif len(supplied) == len(non_title_editable_indexes):
+            for index, content in zip(non_title_editable_indexes, supplied):
+                merged[index] = content
+        elif len(non_title_editable_indexes) == 1:
+            immutable_values = {
+                merged[index] for index in immutable_indexes if merged[index]
+            }
+            title_value = generated.title.strip()
+            body_parts = [
+                content
+                for content in supplied
+                if content and content != title_value and content not in immutable_values
+            ]
+            if not body_parts:
+                return None
+            merged[non_title_editable_indexes[0]] = "\n\n".join(body_parts)
+        else:
+            return None
+        for index, region in enumerate(visible_regions):
+            if region.content_kind == "title":
+                merged[index] = generated.title.strip()
+            elif region.content_kind not in editable_kinds:
+                merged[index] = region.content.strip()
+        return merged
+
     async def regenerate(page_id: str) -> dict[str, Any]:
         page = pages_by_id[page_id]
         page_index = pages.index(page)
@@ -3820,6 +4062,22 @@ async def regenerate_ppt_manuscript_pages_v1(
                     region for region in page.regions
                     if region.content_kind != "notes"
                 ]),
+                "editable_visible_region_count": len([
+                    region for region in page.regions
+                    if region.content_kind in {
+                        "title", "subtitle", "body", "items", "steps"
+                    }
+                ]),
+                "visible_region_contract": [
+                    {
+                        "content_kind": region.content_kind,
+                        "editable": region.content_kind in {
+                            "title", "subtitle", "body", "items", "steps"
+                        },
+                    }
+                    for region in page.regions
+                    if region.content_kind != "notes"
+                ],
                 "allow_new_facts": False,
             },
             "neighbor_context": {
@@ -3866,12 +4124,12 @@ async def regenerate_ppt_manuscript_pages_v1(
         }
         try:
             raw = await _invoke(ai_planner, request, timeout_seconds)
-            payload = _normalize_versioned_response(
+            payload = _normalize_story_narrative_brief(_normalize_versioned_response(
                 raw,
                 schema_version="slide_story_batch_response_v3",
                 collection_field="pages",
                 collection_aliases=("slides",),
-            )
+            ))
             response = _StoryBatchResponse.model_validate(payload)
         except V6BuildError:
             raise
@@ -3906,7 +4164,8 @@ async def regenerate_ppt_manuscript_pages_v1(
         visible_regions = [
             region for region in page.regions if region.content_kind != "notes"
         ]
-        if len(generated.visible_copy) != len(visible_regions):
+        merged_visible_copy = merge_visible_copy(page, generated)
+        if merged_visible_copy is None:
             raise V6BuildError(
                 stage="manuscript",
                 code="ppt_manuscript_visible_region_count_mismatch",
@@ -3918,7 +4177,7 @@ async def regenerate_ppt_manuscript_pages_v1(
             if region.content_kind == "title"
         ]
         if any(
-            generated.visible_copy[index].strip() != generated.title.strip()
+            merged_visible_copy[index].strip() != generated.title.strip()
             for index in title_indexes
         ):
             raise V6BuildError(
@@ -3964,7 +4223,7 @@ async def regenerate_ppt_manuscript_pages_v1(
         ]))
         generated_text = "\n".join([
             generated.title,
-            *generated.visible_copy,
+            *merged_visible_copy,
             generated.page_goal,
             generated.primary_claim,
             generated.audience_question,
@@ -3985,7 +4244,7 @@ async def regenerate_ppt_manuscript_pages_v1(
         return {
             "page_id": page_id,
             "title": generated.title,
-            "visible_copy": generated.visible_copy,
+            "visible_copy": merged_visible_copy,
             "page_goal": generated.page_goal,
             "primary_claim": generated.primary_claim,
             "audience_question": generated.audience_question,
