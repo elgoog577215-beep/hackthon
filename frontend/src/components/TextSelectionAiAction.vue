@@ -223,9 +223,14 @@ function positionForRect(
   anchorRect.value = rect;
   const containerRect = container.getBoundingClientRect();
   const edgeInset = 16;
+  const targetRight =
+    rect.right - containerRect.left + container.scrollLeft;
   anchor.x = Math.max(
     edgeInset,
-    container.scrollLeft + container.clientWidth - edgeInset,
+    Math.min(
+      targetRight,
+      container.scrollLeft + container.clientWidth - edgeInset,
+    ),
   );
   anchor.y = Math.max(
     8,

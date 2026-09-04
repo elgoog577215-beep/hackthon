@@ -53,7 +53,7 @@ describe('文中选区 AI 快捷操作', () => {
     await nextTick()
 
     expect(wrapper.get('button').text()).toContain('AI 修改')
-    expect(wrapper.get('.text-selection-ai').attributes('style')).toContain('left: 624px')
+    expect(wrapper.get('.text-selection-ai').attributes('style')).toContain('left: 520px')
     expect(wrapper.get('.text-selection-ai').attributes('style')).toContain('top: 124px')
     await wrapper.get('button').trigger('click')
     expect(host.querySelector('blockquote')?.textContent).toContain('理解函数模型并确定定义域')
@@ -161,5 +161,61 @@ describe('文中选区 AI 快捷操作', () => {
         },
       },
     ]])
+  })
+
+  it('三栏目标中的入口跟随当前栏右侧，并只提交当前栏身份', async () => {
+    const host = document.createElement('section')
+    const section = document.createElement('section')
+    section.dataset.aiSectionId = 'section-1'
+    const objectiveGrid = document.createElement('div')
+    const fields = [
+      ['knowledge_objectives', '知识目标', 20, 200],
+      ['ability_objectives', '能力目标', 220, 400],
+      ['education_objectives', '育人目标', 420, 600],
+    ] as const
+    for (const [fieldName, label, left, right] of fields) {
+      const field = document.createElement('div')
+      field.dataset.aiField = fieldName
+      field.dataset.aiLabel = label
+      field.textContent = `${label}内容`
+      field.getBoundingClientRect = () => ({
+        x: left, y: 40, left, top: 40, right, bottom: 120, width: right - left, height: 80,
+        toJSON: () => ({}),
+      })
+      objectiveGrid.appendChild(field)
+    }
+    section.appendChild(objectiveGrid)
+    host.appendChild(section)
+    document.body.appendChild(host)
+    Object.defineProperty(host, 'clientWidth', { configurable: true, value: 640 })
+    host.getBoundingClientRect = () => ({
+      x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 400, width: 640, height: 400,
+      toJSON: () => ({}),
+    })
+    const wrapper = mount(TextSelectionAiAction, {
+      attachTo: host,
+      props: { container: host, targetSelector: '[data-ai-field]' },
+    })
+
+    const knowledgeField = objectiveGrid.children[0] as HTMLElement
+    knowledgeField.dispatchEvent(new Event('pointerover', { bubbles: true }))
+    await nextTick()
+
+    expect(wrapper.get('.text-selection-ai').attributes('style')).toContain('left: 200px')
+    await wrapper.get('.text-selection-ai__trigger').trigger('click')
+    const textarea = section.querySelector('textarea') as HTMLTextAreaElement
+    textarea.value = '改成可检查的知识目标'
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    section.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await nextTick()
+
+    expect(wrapper.emitted('invoke')?.[0]?.[0]).toMatchObject({
+      text: '知识目标内容',
+      target: {
+        sectionNodeId: 'section-1',
+        field: 'knowledge_objectives',
+        label: '知识目标',
+      },
+    })
   })
 })
