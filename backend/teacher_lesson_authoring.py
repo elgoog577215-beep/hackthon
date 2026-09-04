@@ -50,6 +50,8 @@ LESSON_BATCH_QUEUED_STALE_SECONDS = 14400
 JOB_TYPES = {
     "teacher_lesson_plan_generation",
     "teacher_lesson_script_generation",
+    "teacher_lesson_ppt_manuscript_generation",
+    "teacher_lesson_ppt_generation",
 }
 _PLAN_INTERNAL_REGISTER_PATTERN = re.compile(
     r"全课知识地图|先修链定位|学习路径角色|可观察成果证据|证据闭环|"
@@ -1801,6 +1803,37 @@ TEACHER_JOB_FROZEN_STATUSES = frozenset({
 })
 
 
+def _interrupted_teacher_job_fields(job: dict[str, Any]) -> dict[str, Any]:
+    job_type = str(job.get("type") or "")
+    if job_type == "teacher_lesson_script_generation":
+        return {
+            "phase": "lesson_script_interrupted",
+            "message": "讲义生成进程已中断",
+            "code": "lesson_script_generation_interrupted",
+            "detail": "生成进程已中断，已完成的讲义块仍然保留，可以继续生成。",
+        }
+    if job_type == "teacher_lesson_ppt_manuscript_generation":
+        return {
+            "phase": "ppt_manuscript_interrupted",
+            "message": "页面内容稿生成进程已中断",
+            "code": "teacher_lesson_ppt_manuscript_generation_interrupted",
+            "detail": "生成进程已中断，可以从已保存的 PPT 检查点继续。",
+        }
+    if job_type == "teacher_lesson_ppt_generation":
+        return {
+            "phase": "ppt_interrupted",
+            "message": "PPT 生成进程已中断",
+            "code": "teacher_lesson_ppt_generation_interrupted",
+            "detail": "PPT 生成进程已中断，可以从已保存的检查点继续。",
+        }
+    return {
+        "phase": "lesson_plan_interrupted",
+        "message": "教案生成进程已中断",
+        "code": "lesson_plan_generation_interrupted",
+        "detail": "生成进程已中断，请重新生成本讲教案。",
+    }
+
+
 class TeacherLessonAuthoringRepository:
     def __init__(self, root: str | Path | None = None):
         self.root = Path(root) if root is not None else _default_root()
@@ -2296,11 +2329,21 @@ class TeacherLessonAuthoringRepository:
                 if existing:
                     return deepcopy(existing)
             job_id = f"tlj-{uuid.uuid4().hex}"
-            initial_message = (
-                "等待生成本讲讲义"
+            asset_type = (
+                "script"
                 if job_type == "teacher_lesson_script_generation"
-                else "等待生成本讲教案"
+                else "ppt"
+                if job_type in {
+                    "teacher_lesson_ppt_manuscript_generation",
+                    "teacher_lesson_ppt_generation",
+                }
+                else "lesson_plan"
             )
+            initial_message = {
+                "teacher_lesson_script_generation": "等待生成本讲讲义",
+                "teacher_lesson_ppt_manuscript_generation": "等待生成本讲页面内容稿",
+                "teacher_lesson_ppt_generation": "等待生成本讲 PPT",
+            }.get(job_type, "等待生成本讲教案")
             job = {
                 "schema_version": TEACHER_ASSET_JOB_SCHEMA_VERSION,
                 "id": job_id,
@@ -2308,11 +2351,7 @@ class TeacherLessonAuthoringRepository:
                 "lesson_unit_id": lesson_unit_id,
                 "lesson_id": lesson_unit_id,
                 "type": job_type,
-                "asset_type": (
-                    "script"
-                    if job_type == "teacher_lesson_script_generation"
-                    else "lesson_plan"
-                ),
+                "asset_type": asset_type,
                 "state_owner": "teacher_lesson_authoring",
                 "request_id": request_id,
                 "idempotency_key": request_id,
@@ -2493,7 +2532,8 @@ class TeacherLessonAuthoringRepository:
                     "teacher_job_not_found",
                     "教师讲次任务不存在。",
                 )
-            if str(job.get("status") or "") in TEACHER_JOB_FROZEN_STATUSES:
+            status = str(job.get("status") or "")
+            if status in TEACHER_JOB_FROZEN_STATUSES and status != "paused":
                 return deepcopy(job)
             timestamp = _now()
             job.update({
@@ -2503,11 +2543,11 @@ class TeacherLessonAuthoringRepository:
                 "cancel_requested": True,
                 "stream_sequence": int(job.get("stream_sequence") or 0) + 1,
                 "stream_complete": True,
-                "retryable": True,
+                "retryable": False,
                 "error": {
                     "code": "teacher_asset_job_cancelled",
-                    "message": "生成已由教师停止，可以从已保存进度继续。",
-                    "retryable": True,
+                    "message": "生成已由教师取消，需要时可以重新发起生成。",
+                    "retryable": False,
                 },
                 "completed_at": timestamp,
                 "updated_at": timestamp,
@@ -3530,32 +3570,16 @@ class TeacherLessonAuthoringRepository:
                 effective_stale_seconds = LESSON_BATCH_QUEUED_STALE_SECONDS
             if age_seconds < max(1, int(effective_stale_seconds)):
                 return deepcopy(job)
-            script_job = str(job.get("type") or "") == "teacher_lesson_script_generation"
+            interrupted = _interrupted_teacher_job_fields(job)
             job.update({
                 "status": "failed",
-                "phase": (
-                    "lesson_script_interrupted"
-                    if script_job
-                    else "lesson_plan_interrupted"
-                ),
-                "message": (
-                    "讲义生成进程已中断"
-                    if script_job
-                    else "教案生成进程已中断"
-                ),
+                "phase": interrupted["phase"],
+                "message": interrupted["message"],
                 "stream_sequence": int(job.get("stream_sequence") or 0) + 1,
                 "stream_complete": True,
                 "error": {
-                    "code": (
-                        "lesson_script_generation_interrupted"
-                        if script_job
-                        else "lesson_plan_generation_interrupted"
-                    ),
-                    "message": (
-                        "生成进程已中断，已完成的讲义块仍然保留，可以继续生成。"
-                        if script_job
-                        else "生成进程已中断，请重新生成本讲教案。"
-                    ),
+                    "code": interrupted["code"],
+                    "message": interrupted["detail"],
                     "retryable": True,
                 },
                 "updated_at": _now(),
@@ -3597,20 +3621,16 @@ class TeacherLessonAuthoringRepository:
                     effective_stale_seconds = LESSON_BATCH_QUEUED_STALE_SECONDS
                 if (now - updated_at).total_seconds() < max(1, int(effective_stale_seconds)):
                     continue
-                script_job = str(job.get("type") or "") == "teacher_lesson_script_generation"
+                interrupted = _interrupted_teacher_job_fields(job)
                 job.update({
                     "status": "failed",
-                    "phase": "lesson_script_interrupted" if script_job else "lesson_plan_interrupted",
-                    "message": "讲义生成进程已中断" if script_job else "教案生成进程已中断",
+                    "phase": interrupted["phase"],
+                    "message": interrupted["message"],
                     "stream_sequence": int(job.get("stream_sequence") or 0) + 1,
                     "stream_complete": True,
                     "error": {
-                        "code": "lesson_script_generation_interrupted" if script_job else "lesson_plan_generation_interrupted",
-                        "message": (
-                            "生成进程已中断，已完成的讲义块仍然保留，可以继续生成。"
-                            if script_job
-                            else "生成进程已中断，请重新生成本讲教案。"
-                        ),
+                        "code": interrupted["code"],
+                        "message": interrupted["detail"],
                         "retryable": True,
                     },
                     "updated_at": _now(),

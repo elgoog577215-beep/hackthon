@@ -18,6 +18,11 @@
 - **THEN** 服务端 MUST 记录有界差异而不改变活动任务
 - **AND** 前端 MUST 优先读取新投影，只在新投影缺失时读取旧字段
 
+#### Scenario: 刷新逐讲 PPT 生成页
+- **WHEN** 教师在某讲页面内容稿或 PPT 生成期间刷新页面
+- **THEN** 页面 MUST 从教师资产任务仓库恢复同一任务身份、进度和控制状态
+- **AND** 暂停、取消与继续 MUST 指向该任务的真实所有者，不得调用不存在的 TaskManager 任务
+
 ### Requirement: 兼容状态路径必须通过观察门才能退场
 
 旧状态字段和前端 fallback MAY 在迁移期保留，但 MUST NOT 成为新状态权威。系统 MUST 在删除旧推导前完成至少一个完整生产观察周期，并证明新旧投影差异归零。观察门未通过时 MUST 保留兼容路径、活动任务和最后可用资产。
@@ -39,6 +44,112 @@
 #### Scenario: 没有可用版本且任务失败
 - **WHEN** 资产没有最后可用修订且最近任务失败
 - **THEN** 资产主状态 MUST 为“生成失败”
+
+#### Scenario: 用户主动取消生成
+- **WHEN** 用户取消生成且资产没有最后可用修订
+- **THEN** 资产主状态 MUST 回到“未生成”，辅助状态 MUST 为“已取消”
+- **AND** 取消 MUST NOT 计入最近生成失败或失败数量
+
+#### Scenario: 历史任务状态必须安全归一
+- **WHEN** 正式任务记录使用历史 `canceled`、`error` 或 `conflict` 状态
+- **THEN** `canceled` MUST 归一为 `cancelled` 且不得计入失败
+- **AND** `error` MUST 归一为 `failed`，只有明确可重试时才提供重新生成
+- **AND** `conflict` MUST 归一为不可直接恢复的失败辅助态，只允许查看并处理冲突，不得错误提供“继续”
+- **AND** 三种状态 MUST 保留原真实 task ID
+
+### Requirement: 显示状态不得代替动作授权
+
+服务端投影 MUST 保留会改变下一步命令的控制状态，并为每个阶段与资产显式返回允许动作。前端 MUST NOT 从四态显示、本地布尔值、检查点是否存在或压缩后的任务状态反推写操作权限。`waiting_for_input`、`waiting_for_review`、质量阻断和未知状态 MUST 分别处理；未知状态 MUST 默认禁止写操作。
+
+需要已有任务身份的动作 MUST 同时在 `action_targets` 中返回它获得授权的精确 task ID 子集。阶段上的动作并集 MUST NOT 把一个可恢复任务的权限扩大到同批未知、不可恢复或缺身份任务。
+
+#### Scenario: 混合批次中只有一个任务可重试
+- **WHEN** 同一批次包含一个明确可重试任务和一个未知或不可恢复任务
+- **THEN** `allowed_actions` MAY 包含重试与查看原因
+- **AND** `action_targets.retry_generation` MUST 只包含明确可重试任务的 ID
+
+#### Scenario: 未确认大纲草稿请求重新生成
+- **WHEN** 正式版本仓库存在未确认 blueprint draft
+- **THEN** 投影 MUST 返回该草稿事实，并仅在存在真实已完成 outline task ID 时授权重新生成完整大纲
+- **AND** 草稿缺少可继续任务 ID 时 MUST 只允许查看原因
+
+#### Scenario: 大纲等待补充输入
+- **WHEN** 正式任务状态为 `waiting_for_input`
+- **THEN** 投影 MUST 只允许进入补充输入并调用大纲详情继续命令
+- **AND** 页面 MUST NOT 显示或调用通用任务恢复
+
+#### Scenario: 大纲等待审阅
+- **WHEN** 正式任务状态为 `waiting_for_review`
+- **THEN** 投影 MUST 只允许进入审阅或确认流程
+- **AND** 页面 MUST NOT 显示通用继续或重新生成
+
+#### Scenario: 检查点存在但恢复合同拒绝
+- **WHEN** 任务带有检查点身份但正式恢复合同返回 `can_resume=false`
+- **THEN** 投影 MUST NOT 提供继续或重新生成
+- **AND** 页面 MUST 只允许查看并处理原因
+
+#### Scenario: 检查点状态没有正式命令所有者
+- **WHEN** PPT checkpoint 或历史记录直接使用 `active`、`queued` 等状态，但没有匹配的正式任务所有者与命令合同
+- **THEN** 投影 MAY 保留对应的生成中显示和进度证据，但 MUST 只允许查看原因
+- **AND** 页面 MUST NOT 从状态名称推导暂停、取消、继续或重试权限
+
+#### Scenario: 正式任务与检查点使用同一任务 ID
+- **WHEN** TaskManager 或教师资产仓库的正式任务与 PPT checkpoint 使用同一个任务 ID
+- **THEN** 投影 MUST 以正式任务记录的所有者、类型、状态和恢复合同决定动作
+- **AND** checkpoint MUST NOT 覆盖或扩张正式任务的动作权限
+
+#### Scenario: 任务类型与命令所有者不一致
+- **WHEN** 一个任务的类型属于教师资产仓库，但记录来自 TaskManager，或反之
+- **THEN** 投影 MUST 返回稳定的所有者不匹配问题并只允许查看原因
+- **AND** `action_targets` MUST NOT 绑定该任务 ID
+
+#### Scenario: 未发布的带警告完成任务
+- **WHEN** 任务状态为 `completed_with_warnings` 且 `publication_allowed=false` 或阶段为 `quality_failed`
+- **THEN** 投影 MUST 表达质量阻断而不是已完成
+- **AND** 只有正式恢复合同明确允许时才能提供恢复动作
+
+#### Scenario: 遇到未知正式任务状态
+- **WHEN** 服务端读到非空且不认识的任务状态
+- **THEN** 投影 MUST 返回可观察的未知控制状态与稳定问题码
+- **AND** 前端 MUST 禁止生成、继续、重试、暂停和取消等写操作
+
+### Requirement: 状态真源读取失败不得被解释为空状态
+
+投影读取 TaskManager、教师资产仓库或大纲草稿真源失败时，MUST 把受影响阶段标记为可观察的 `unknown`，MUST NOT 把“未知”当成“没有任务”、“没有资产”或“可以新建”。已经能够证明的 last-good 内容 MAY 继续显示“可使用”，但受影响阶段只能返回 `inspect_failure`，不得返回任何写操作或动作目标。
+
+#### Scenario: 任务管理器暂时不可用
+- **WHEN** 读取路径没有可用 TaskManager，或无法读取该课程的任务集合
+- **THEN** 四个生产阶段 MUST 禁止生成、继续、重试、暂停和取消
+- **AND** 投影 MUST 保留已知的 last-good 可用性并返回稳定读取失败问题码
+
+#### Scenario: 教师资产仓库读取失败
+- **WHEN** 投影无法读取教案、讲义和 PPT 的正式资产与 job
+- **THEN** 教案、讲义和 PPT 阶段 MUST 返回 `unknown` 与 `inspect_failure`
+- **AND** 页面 MUST NOT 因为资产集合暂时读不到而显示“生成全部”
+
+### Requirement: 状态迁移必须保留任务身份语义
+
+页面 MUST NOT 直接改写任务状态。每次状态迁移 MUST 通过投影授权的后端命令发生，并由正式任务所有者先持久化、再对外确认。需要继续原任务的动作 MUST 携带 `action_targets[action]` 中的精确 ID；重新生成一个新 attempt 时，MUST 保留旧 ID 为授权和溯源依据，但不得把新旧任务冒充为同一条记录。
+
+#### Scenario: 暂停任务继续执行
+- **WHEN** 投影对一个暂停任务授权 `resume_generation`
+- **THEN** 页面 MUST 提交该动作绑定的精确 task ID
+- **AND** 后端 MUST 从该任务的已保存输入和检查点继续，不得按 course ID 猜测 latest
+
+#### Scenario: 教案或讲义批量重试
+- **WHEN** 投影对失败教师资产 job 授权 `retry_generation`
+- **THEN** 批量请求 MUST 将旧失败 job ID 作为 `resume_job_ids` 提交并校验
+- **AND** 新 job MUST 记录 `resume_from_job_id`，其自身使用新稳定 ID，不覆盖旧失败事实
+
+#### Scenario: 取消后再次生成
+- **WHEN** 任务已经进入 `cancelled`
+- **THEN** 投影 MUST NOT 授权继续或重试该任务
+- **AND** 用户重新发起时 MUST 创建新任务 ID，已取消任务仅保留为历史事实
+
+#### Scenario: 未知状态不得迁移
+- **WHEN** 投影的控制状态为 `unknown`
+- **THEN** 页面只能导航到原因与恢复说明
+- **AND** 后端 MUST NOT 根据检查点、本地缓存或 latest 记录自动迁移任务
 
 ### Requirement: 整课状态必须以当前讲次全集为范围
 

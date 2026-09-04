@@ -4,6 +4,7 @@ import { createUuid } from '../utils/client-id'
 import { postGenerationStream, type GenerationProgress } from '../shared/generation-stream'
 import { t } from '../shared/i18n'
 import type { CourseProductionState } from '../shared/teacher-production-state'
+import { useCourseStore } from './course'
 
 export type TeacherLessonJobStatus = 'pending' | 'running' | 'paused' | 'completed' | 'completed_with_warnings' | 'failed' | 'cancelled'
 
@@ -816,6 +817,9 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         this.lessons = response.lessons
         this.jobs = mergeLessonJobSnapshots(this.jobs, response.jobs)
         this.productionState = response.course_production_state || this.productionState
+        if (response.course_production_state) {
+          useCourseStore().setTeacherProductionState(courseId, response.course_production_state)
+        }
         this.loadedCourseId = courseId
         this.error = ''
         lessonJobsToObserve(this.jobs)
@@ -877,6 +881,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       source?: { packageId: string; assetId: string },
       requirements = '',
       materialAssetIds: string[] = [],
+      options: { regenerateReady?: boolean; resumeJobIds?: string[] } = {},
     ) {
       if (!this.courseId) this.courseId = courseId
       this.error = ''
@@ -892,6 +897,10 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
             source_asset_id: source?.assetId || '',
             requirements,
             material_asset_ids: Array.from(new Set(materialAssetIds.filter(Boolean))),
+            ...(options.regenerateReady ? { regenerate_ready: true } : {}),
+            ...(options.resumeJobIds?.length
+              ? { resume_job_ids: Array.from(new Set(options.resumeJobIds.filter(Boolean))) }
+              : {}),
           },
           { ...requestConfig(), silentError: true },
         )
@@ -1076,6 +1085,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
     async generateAllScripts(
       courseId: string,
       requirements = '',
+      options: { regenerateReady?: boolean; resumeJobIds?: string[] } = {},
     ) {
       if (!this.courseId) this.courseId = courseId
       this.error = ''
@@ -1088,6 +1098,10 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
           {
             request_id: createUuid(),
             requirements,
+            ...(options.regenerateReady ? { regenerate_ready: true } : {}),
+            ...(options.resumeJobIds?.length
+              ? { resume_job_ids: Array.from(new Set(options.resumeJobIds.filter(Boolean))) }
+              : {}),
           },
           { ...requestConfig(), silentError: true },
         )

@@ -88,6 +88,8 @@
       <span>{{ scriptStatusNotice.detail }}</span>
     </aside>
 
+    <slot v-if="externalToolbar" name="toolbar" />
+
     <section v-if="!lesson.script.ready" class="script-generation-panel" :class="{ 'has-partial': scriptSections.length }">
       <form v-if="showGenerationForm" class="script-source-review" @submit.prevent="requestGeneration">
         <ol v-if="!externalToolbar" class="script-source-steps" :aria-label="tr('courseWorkbench.scriptDocument.flowLabel')">
@@ -168,8 +170,6 @@
         <MathText :content="node.title" />
       </button>
     </nav>
-
-    <slot v-if="externalToolbar" name="toolbar" />
 
     <div v-if="scriptSections.length" class="script-continuous" :data-state="lesson.script.ready ? 'ready' : 'partial'">
       <article

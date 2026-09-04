@@ -177,6 +177,43 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.get('.file-layout')).toBeTruthy()
   })
 
+  it('可使用资产保留四态主状态，同时显示最近失败辅助状态', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const projectedStage = (overrides: Record<string, unknown> = {}) => ({
+      display_state: 'not_generated', task_state: 'idle', availability: 'missing', source_state: 'missing',
+      latest_attempt_failed: false, update_required: false, task_ids: [], allowed_actions: [],
+      counts: { total: 1, available: 0, generating: 0, failed: 0, stale: 0 }, issues: [], ...overrides,
+    })
+    const productionState = {
+      schema_version: 'course_production_state_v1', course_id: 'course-1', preparation_state: 'preparing',
+      stages: {
+        outline: projectedStage({ display_state: 'available', availability: 'usable', source_state: 'current', latest_attempt_failed: true, counts: { total: 1, available: 1, generating: 0, failed: 1, stale: 0 } }),
+        lesson_plan: projectedStage(), script: projectedStage(), ppt: projectedStage(),
+      },
+      lessons: [], issues: [],
+    }
+    httpMock.get.mockImplementation((url: string) => {
+      if (url === '/api/teacher-course-spaces') return Promise.resolve({ data: [coursePackage] })
+      if (url === '/api/teacher-course-spaces/package-1') return Promise.resolve({ data: coursePackage })
+      if (url === '/api/courses/course-1/teaching-calendar') return Promise.resolve({ data: { ...emptyTeachingCalendar, course_production_state: { ...productionState, stages: { ...productionState.stages, outline: projectedStage() } } } })
+      if (url === '/api/teacher/courses/course-1/lesson-authoring') return Promise.resolve({ data: { schema_version: 'teacher_lesson_authoring_view_v1', course_id: 'course-1', outline_revision_id: '', lessons: [], jobs: [], course_production_state: productionState } })
+      if (url === '/api/courses/course-1/question-bank') return Promise.resolve({ data: { items: [] } })
+      if (url === '/api/courses/course-1/companion-documents') return Promise.resolve({ data: { templates: [], documents: [] } })
+      return Promise.resolve({ data: {} })
+    })
+    const wrapper = mount(TeacherCourseSpaceView, {
+      props: { courseId: 'course-1', courseTitle: '数据结构' },
+      global: { plugins: [pinia, router], stubs: { ElDialog: true } },
+    })
+    mountedWrappers.push(wrapper)
+    await flushPromises()
+
+    await wrapper.findAll('.file-row').find(row => row.text().includes('教学大纲'))!.trigger('click')
+    const outlineRow = wrapper.findAll('.file-row').find(row => row.text().includes('在线教学大纲'))!
+    expect(outlineRow.text()).toContain('可使用 · 最近一次生成失败')
+  })
+
   it('按对象类型提供文件夹、固定资产和上传文件的安全操作', async () => {
     const pinia = createPinia()
     const packageWithAsset = {
@@ -553,6 +590,9 @@ describe('TeacherCourseSpaceView', () => {
     expect(source).toContain("node.status === 'missing' ? t('courseFiles.createContent')")
     expect(source).not.toContain("emit('openTasks')")
     expect(source).toContain("emit('openScript', node.lessonId || '')")
+    expect(source).toContain("if (node.type === 'lesson_plan') { emit('openTeachingPlan', node.lessonId || ''); return }")
+    expect(source).not.toContain("await lessonStore.generateLesson(props.courseId, createForm.value.lessonId)\n")
+    expect(source).toContain('if (lessonPlanNewAttemptAllowed(createForm.value.lessonId))')
     expect(source).toContain("id: `ppt:${lesson.lesson_unit_id}`")
     expect(source).toContain("id: 'managed:teaching-calendar'")
     expect(source).not.toContain('ppt || !uploadedPpts.length')

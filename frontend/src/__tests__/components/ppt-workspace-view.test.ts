@@ -126,6 +126,43 @@ describe('PptWorkspaceView', () => {
     }))
   })
 
+  it('失败重试参数只恢复投影指定的 PPT job ID，并在执行前清除一次性参数', async () => {
+    routeState.route = reactive({
+      params: { courseId: 'course-1' },
+      query: { lesson: 'L1-1', resumeTaskId: 'ppt-failed', returnTo: '/courses/course-1?stage=ppt' },
+      path: '/course/course-1/ppt',
+      hash: '',
+      meta: { identityScope: 'teacher' },
+    })
+    httpMock.get.mockImplementation((url: string) => Promise.resolve({
+      data: url.endsWith('/ppt-v6/manuscript')
+        ? { ppt_manuscript_state: null }
+        : courseEnvelope('canonical'),
+    }))
+    const store = useTeachingRepresentationsStore()
+    vi.spyOn(store, 'ensure').mockImplementation(async () => {
+      store.courseId = 'course-1'
+      store.registry = { slide_deck_target_schema: 'slide_deck_v6', representations: [] }
+    })
+    const recover = vi.spyOn(store, 'recoverDurableBuild').mockImplementation(async (_courseId, expectedTaskId) => {
+      store.buildTaskId = String(expectedTaskId || '')
+      store.buildPaused = true
+      return { id: expectedTaskId } as any
+    })
+    const resume = vi.spyOn(store, 'resumeBuild').mockResolvedValue(undefined as any)
+
+    mount(PptWorkspaceView, { global: { stubs: { SideAIPanel: true } } })
+    await flushPromises()
+
+    expect(recover).toHaveBeenCalledWith('course-1', 'ppt-failed')
+    expect(routerMock.replace).toHaveBeenCalledWith({
+      path: '/course/course-1/ppt',
+      query: { lesson: 'L1-1', returnTo: '/courses/course-1?stage=ppt' },
+      hash: '',
+    })
+    expect(resume).toHaveBeenCalledOnce()
+  })
+
   it('在独立 PPT 工作区把跨资产要求交给同一个整课修改方案', async () => {
     routeState.route = reactive({
       params: { courseId: 'course-1' },

@@ -8,8 +8,8 @@ from fastapi.testclient import TestClient
 
 from course_repository import CourseDocumentRepository
 from dependencies import require_task_manager
+from jobs.manager import TaskManager, TaskRecoveryConflict
 from routers import markdown_import
-from jobs.manager import TaskManager
 
 
 class ImportStorage:
@@ -120,6 +120,38 @@ async def test_markdown_import_validation_failure_is_visible_and_requests_replac
     assert summary['phase_history'][-1]['status'] == 'error'
     assert summary['recovery']['can_resume'] is False
     assert summary['recovery']['reason_code'] == 'replace_source_required'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('cancelled_status', ['cancelled', 'canceled'])
+async def test_cancelled_import_cannot_resume_even_with_reusable_source(
+    tmp_path,
+    monkeypatch,
+    cancelled_status,
+):
+    manager, _storage = import_manager(tmp_path, monkeypatch)
+    task_id = f'{cancelled_status}-import'
+    manager.tasks[task_id] = {
+        'id': task_id,
+        'job_id': task_id,
+        'course_id': 'course-1',
+        'type': 'course_import',
+        'status': cancelled_status,
+        'phase': 'material_parsing',
+        'import_retryable': True,
+    }
+    source_path = manager.import_source_path(task_id)
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    source_path.write_bytes(b'# preserved import source')
+
+    recovery = manager.get_task_summary(task_id)['recovery']
+
+    assert recovery['state'] == 'cancelled'
+    assert recovery['can_resume'] is False
+    assert recovery['reason_code'] == 'job_cancelled'
+    with pytest.raises(TaskRecoveryConflict):
+        await manager.resume_task(task_id)
+    assert manager.tasks[task_id]['status'] == cancelled_status
 
 
 @pytest.mark.asyncio

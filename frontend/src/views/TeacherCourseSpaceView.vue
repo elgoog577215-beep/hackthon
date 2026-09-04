@@ -508,6 +508,7 @@ import { activeLocale, t } from '../shared/i18n'
 import {
   lessonProductionState,
   productionDisplayStateLabel,
+  productionStagePrimaryIssue,
   readCourseProductionState,
   type AssetProductionState,
   type CourseProductionIssue,
@@ -537,7 +538,7 @@ type NodeType = 'root' | 'trash' | 'trash_file' | 'trash_folder' | 'deliverables
 type NodeStatus = 'ready' | 'draft' | 'missing' | 'working' | 'failed' | 'stale' | 'uploaded' | 'trashed' | 'empty'
 type WorkspaceNode = {
   id: string; label: string; kind: NodeKind; type: NodeType; path: string; status: NodeStatus;
-  lessonId?: string; revision?: string; updatedAt?: string; sizeBytes?: number; asset?: Asset; trashItem?: TrashItem; companionDocument?: CompanionDocument; children?: WorkspaceNode[]; parentId?: string; origin?: 'generated' | 'uploaded'; order?: number; description?: string; issue?: CourseProductionIssue
+  lessonId?: string; revision?: string; updatedAt?: string; sizeBytes?: number; asset?: Asset; trashItem?: TrashItem; companionDocument?: CompanionDocument; children?: WorkspaceNode[]; parentId?: string; origin?: 'generated' | 'uploaded'; order?: number; description?: string; issue?: CourseProductionIssue; production?: AssetProductionState | null
 }
 type WorkspaceFolderTreeItem = { id: string; label: string; attention?: boolean; children?: WorkspaceFolderTreeItem[] }
 type CreateType = 'outline' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 'folder'
@@ -645,9 +646,8 @@ const fileDragDepth = ref(0)
 const fileContextMenuElement = ref<HTMLElement>()
 const fileContextMenu = ref<{ node: WorkspaceNode | null; x: number; y: number }>({ node: null, x: 0, y: 0 })
 const productionState = computed(() => (
-  readCourseProductionState(calendarStore.calendar)
-  || readCourseProductionState(lessonStore.productionState)
-  || readCourseProductionState(courseStore.teacherProductionStates[props.courseId])
+  readCourseProductionState(courseStore.teacherProductionStates[props.courseId])
+  || readCourseProductionState(calendarStore.calendar)
   || readCourseProductionState(courseStore.courseList.find(course => course.course_id === props.courseId))
 ))
 
@@ -656,6 +656,19 @@ function nodeStatusFromProduction(state: AssetProductionState): NodeStatus {
   if (state.display_state === 'generating') return 'working'
   if (state.display_state === 'failed') return 'failed'
   return 'missing'
+}
+
+function productionAuxiliaryLabel(state?: AssetProductionState | null): string {
+  if (!state) return ''
+  if (state.task_state === 'waiting_for_input') return t('teacherProductionState.auxiliary.waitingForInput', '待补充信息')
+  if (state.task_state === 'waiting_for_review') return t('teacherProductionState.auxiliary.waitingForReview', '待审阅确认')
+  if (state.task_state === 'unknown') return t('teacherProductionState.auxiliary.unknown', '状态待处理')
+  if (state.task_state === 'paused') return t('teacherProductionState.auxiliary.paused', '已暂停')
+  if (state.issues.some(issue => issue.code.includes('quality'))) return t('teacherProductionState.auxiliary.qualityBlocked', '质量检查未通过')
+  if (state.latest_attempt_failed) return t('teacherProductionState.auxiliary.recentFailure', '最近一次生成失败')
+  if (state.update_required || state.availability === 'stale' || state.source_state === 'stale') return t('teacherProductionState.auxiliary.stale', '来源已更新')
+  const issue = productionStagePrimaryIssue(state)
+  return issue ? issue.summary : ''
 }
 
 const lessons = computed<TeacherLessonProjection[]>(() => {
@@ -824,11 +837,11 @@ const treeData = computed<WorkspaceNode[]>(() => {
   const outlineSize = courseStore.nodes.length ? textSize(outlineMarkdown()) : undefined
   const logicOutline: WorkspaceNode = {
     id: 'managed:outline', label: t('courseFiles.names.onlineOutline'), kind: 'managed', type: 'outline', path: '教学大纲/在线教学大纲',
-    status: outlineStatus, revision: outlineRevision, parentId: 'folder:outlines', sizeBytes: outlineSize, order: 1, issue: projectedOutline?.issues[0],
+    status: outlineStatus, revision: outlineRevision, parentId: 'folder:outlines', sizeBytes: outlineSize, order: 1, issue: productionStagePrimaryIssue(projectedOutline), production: projectedOutline,
   }
   const outlineDeliverable: WorkspaceNode = {
     id: 'deliverable:outline', label: t('courseFiles.names.exportableOutline'), kind: 'managed', type: 'outline_export', path: '教学大纲/可导出教学大纲',
-    status: outlineStatus, revision: outlineRevision, parentId: 'folder:outlines', sizeBytes: outlineSize, order: 2, issue: projectedOutline?.issues[0],
+    status: outlineStatus, revision: outlineRevision, parentId: 'folder:outlines', sizeBytes: outlineSize, order: 2, issue: productionStagePrimaryIssue(projectedOutline), production: projectedOutline,
     description: t('courseFiles.descriptions.outlineDeliverable'),
   }
   const calendar = calendarStore.calendar?.course_id === props.courseId ? calendarStore.calendar : null
@@ -888,18 +901,18 @@ const treeData = computed<WorkspaceNode[]>(() => {
     const lessonPrefix = `${String(lesson.number).padStart(2, '0')}  ${lesson.title}`
     const planNode: WorkspaceNode = {
       id: `plan:${lesson.lesson_unit_id}`, label: `${lessonPrefix} · ${t('courseFiles.names.lessonPlan')}`, kind: 'managed', type: 'lesson_plan', path: `分讲教案/${safePart(lessonPrefix)}`,
-      lessonId: lesson.lesson_unit_id, parentId: 'folder:lesson-plans', status: projectedPlan ? nodeStatusFromProduction(projectedPlan) : activeJob?.type?.includes('plan') ? 'working' : lesson.plan.source_state === 'stale' ? 'stale' : teacherLessonPlanIsReady(lesson) ? 'ready' : working ? 'draft' : 'missing', issue: projectedPlan?.issues[0],
+      lessonId: lesson.lesson_unit_id, parentId: 'folder:lesson-plans', status: projectedPlan ? nodeStatusFromProduction(projectedPlan) : activeJob?.type?.includes('plan') ? 'working' : lesson.plan.source_state === 'stale' ? 'stale' : teacherLessonPlanIsReady(lesson) ? 'ready' : working ? 'draft' : 'missing', issue: productionStagePrimaryIssue(projectedPlan), production: projectedPlan,
       revision: working?.revision_id || '', updatedAt: working?.created_at, sizeBytes: working ? textSize(lessonPlanMarkdown(lesson)) : undefined,
     }
     const contentNode: WorkspaceNode = {
       id: `content:${lesson.lesson_unit_id}`, label: `${lessonPrefix} · ${t('courseFiles.names.content')}`, kind: 'managed', type: 'content', path: `讲义/${safePart(lessonPrefix)}`,
-      lessonId: lesson.lesson_unit_id, parentId: 'folder:handouts', status: projectedScript ? nodeStatusFromProduction(projectedScript) : teacherLessonScriptIsReady(lesson) ? 'ready' : script.current_revision_id ? 'draft' : 'missing', issue: projectedScript?.issues[0],
+      lessonId: lesson.lesson_unit_id, parentId: 'folder:handouts', status: projectedScript ? nodeStatusFromProduction(projectedScript) : teacherLessonScriptIsReady(lesson) ? 'ready' : script.current_revision_id ? 'draft' : 'missing', issue: productionStagePrimaryIssue(projectedScript), production: projectedScript,
       revision: script.current_revision_id || '', updatedAt: script.updated_at,
       sizeBytes: script.ready ? textSize(lessonContentMarkdown(lesson)) : undefined,
     }
     const pptNode: WorkspaceNode = {
       id: `ppt:${lesson.lesson_unit_id}`, label: `${lessonPrefix} · PPT`, kind: 'managed', type: 'ppt', path: `PPT/${safePart(lessonPrefix)}`,
-      lessonId: lesson.lesson_unit_id, parentId: 'folder:ppts', status: projectedPpt ? nodeStatusFromProduction(projectedPpt) : activeJob?.type?.includes('ppt') ? 'working' : ppt?.source_state === 'stale' ? 'stale' : teacherLessonPptAssetIsReady(ppt) ? 'ready' : ppt ? 'draft' : 'missing', issue: projectedPpt?.issues[0],
+      lessonId: lesson.lesson_unit_id, parentId: 'folder:ppts', status: projectedPpt ? nodeStatusFromProduction(projectedPpt) : activeJob?.type?.includes('ppt') ? 'working' : ppt?.source_state === 'stale' ? 'stale' : teacherLessonPptAssetIsReady(ppt) ? 'ready' : ppt ? 'draft' : 'missing', issue: productionStagePrimaryIssue(projectedPpt), production: projectedPpt,
       revision: ppt?.working_revision_id || '', updatedAt: ppt?.revisions?.at(-1)?.created_at, origin: (ppt || activeJob?.type?.includes('ppt') ? 'generated' : undefined) as 'generated' | undefined,
     }
     const practiceNode: WorkspaceNode = {
@@ -1313,10 +1326,15 @@ function fileSourceLabel(node: WorkspaceNode) {
 }
 const statusLabel = (node: WorkspaceNode) => {
   if (productionState.value && node.kind === 'managed' && ['outline', 'outline_export', 'lesson_plan', 'content', 'ppt'].includes(node.type)) {
-    if (node.status === 'ready') return productionDisplayStateLabel('available')
-    if (node.status === 'working') return productionDisplayStateLabel('generating')
-    if (node.status === 'failed') return productionDisplayStateLabel('failed')
-    if (node.status === 'missing') return productionDisplayStateLabel('not_generated')
+    const main = node.status === 'ready'
+      ? productionDisplayStateLabel('available')
+      : node.status === 'working'
+        ? productionDisplayStateLabel('generating')
+        : node.status === 'failed'
+          ? productionDisplayStateLabel('failed')
+          : productionDisplayStateLabel('not_generated')
+    const auxiliary = productionAuxiliaryLabel(node.production)
+    return auxiliary ? `${main} · ${auxiliary}` : main
   }
   return t(`courseFiles.status.${node.status}`)
 }
@@ -1707,6 +1725,13 @@ function primaryLabel(node: WorkspaceNode) {
 function primaryIcon(node: WorkspaceNode) { return markRaw(node.trashItem ? RotateCcw : node.kind === 'folder' ? FolderOpen : node.asset ? Eye : node.type === 'outline_export' && node.status !== 'missing' ? Download : node.status === 'missing' ? Sparkles : Pencil) }
 function primaryDisabled(_node: WorkspaceNode) { return false }
 function lessonPlanRevision(lessonId: string) { return lessons.value.find(item => item.lesson_unit_id === lessonId)?.plan.working_revision_id || '' }
+function lessonPlanNewAttemptAllowed(lessonId: string) {
+  if (!productionState.value) return true
+  const projected = lessonProductionState(productionState.value, lessonId, 'lesson_plan')
+  return Boolean(projected?.allowed_actions.some(action => (
+    action === 'generate' || action === 'regenerate_from_latest_source'
+  )))
+}
 
 async function primaryAction(node: WorkspaceNode) {
   selectNode(node)
@@ -1720,7 +1745,7 @@ async function primaryAction(node: WorkspaceNode) {
   }
   if (node.type === 'outline') { node.status === 'missing' ? openCreateDialog('outline') : emit('openOutline'); return }
   if (node.type === 'teaching_calendar') { emit('openTeachingCalendar'); return }
-  if (node.type === 'lesson_plan') { node.status === 'missing' ? openCreateDialog('lesson_plan', node.lessonId) : emit('openTeachingPlan', node.lessonId || ''); return }
+  if (node.type === 'lesson_plan') { emit('openTeachingPlan', node.lessonId || ''); return }
   if (node.type === 'content') {
     emit('openScript', node.lessonId || '')
     return
@@ -2024,7 +2049,7 @@ function resetCreateForm() {
 function createLessonPlanFirst() {
   const lessonId = createForm.value.lessonId
   closeCreateDialog()
-  openCreateDialog('lesson_plan', lessonId)
+  emit('openTeachingPlan', lessonId)
 }
 
 function targetPath(type: CreateType, _lessonId: string) {
@@ -2196,10 +2221,17 @@ async function submitCreate() {
         if (createForm.value.pptImportAction === 'derive_plan' && uploaded) {
           const lesson = lessons.value.find(item => item.lesson_unit_id === createForm.value.lessonId)
           await attachAssetToFormal(uploaded, `lesson-plan:${createForm.value.lessonId}`, 'lesson_plan', `${lesson?.title || createForm.value.lessonId} · ${t('courseFiles.names.lessonPlan')}`, 'primary')
-          await lessonStore.generateLesson(props.courseId, createForm.value.lessonId, {
-            packageId: selected.value.package_id,
-            assetId: uploaded.asset_id,
-          })
+          if (lessonPlanNewAttemptAllowed(createForm.value.lessonId)) {
+            await lessonStore.generateLesson(props.courseId, createForm.value.lessonId, {
+              packageId: selected.value.package_id,
+              assetId: uploaded.asset_id,
+            })
+          } else {
+            const lessonId = createForm.value.lessonId
+            closeCreateDialog()
+            emit('openTeachingPlan', lessonId)
+            return
+          }
         } else if (uploaded) {
           const lesson = lessons.value.find(item => item.lesson_unit_id === createForm.value.lessonId)
           await attachAssetToFormal(uploaded, `ppt:${createForm.value.lessonId}`, 'ppt', `${lesson?.title || createForm.value.lessonId} · ${t('courseFiles.names.ppt')}`, 'primary')
@@ -2231,7 +2263,10 @@ async function submitCreate() {
     } else if (createType.value === 'outline') {
       emit('openOutline')
     } else if (createType.value === 'lesson_plan') {
-      await lessonStore.generateLesson(props.courseId, createForm.value.lessonId)
+      const lessonId = createForm.value.lessonId
+      closeCreateDialog()
+      emit('openTeachingPlan', lessonId)
+      return
     } else if (createType.value === 'practice') {
       const lessonId = createForm.value.lessonId
       const lesson = lessons.value.find(item => item.lesson_unit_id === lessonId)

@@ -893,6 +893,132 @@ describe('teaching representation progressive build', () => {
     expect(store.buildStage).toBe('cancelled')
   })
 
+  it('uses the teacher asset job owner for per-lesson PPT pause and cancel', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse([
+      { event: 'planner_started', progress: 1, task_id: 'teacher-ppt-job-1' },
+      { event: 'build_paused', progress: 36, task_id: 'teacher-ppt-job-1' },
+    ])))
+    httpMock.post.mockResolvedValue({ data: { job: { status: 'paused' } } })
+    httpMock.delete.mockResolvedValue({ data: { job: { status: 'cancelled' } } })
+    const store = useTeachingRepresentationsStore()
+    store.setTeacherLessonScope('L1-2')
+
+    await store.buildProgressive('course-1', {
+      mode: 'teaching', theme: 'academic-editorial', engineVersion: 'v6',
+    })
+
+    expect(store.buildTaskId).toBe('teacher-ppt-job-1')
+    store.building = true
+    await store.pauseBuild()
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/teacher/courses/course-1/lesson-jobs/teacher-ppt-job-1/pause',
+    )
+    await store.cancelBuild()
+    expect(httpMock.delete).toHaveBeenCalledWith(
+      '/api/teacher/courses/course-1/lesson-jobs/teacher-ppt-job-1',
+    )
+  })
+
+  it('recovers and resumes a per-lesson PPT from the same persisted job snapshot', async () => {
+    httpMock.get.mockResolvedValueOnce({ data: { jobs: [{
+      id: 'teacher-ppt-manuscript-paused',
+      course_id: 'course-1',
+      lesson_unit_id: 'L1-2',
+      type: 'teacher_lesson_ppt_manuscript_generation',
+      asset_type: 'ppt',
+      status: 'paused',
+      progress: 42,
+      phase: 'visual_plan',
+      updated_at: '2026-09-05T10:00:00Z',
+      request_snapshot: {
+        mode: 'teaching', theme: 'academic-editorial', template_pack_id: 'pack-1', template_version: 3,
+      },
+    }] } })
+    const fetchMock = vi.fn().mockResolvedValue(streamResponse([{
+      event: 'build_complete', progress: 100, task_id: 'teacher-ppt-manuscript-resumed',
+      ppt_manuscript_state: { status: 'draft' },
+    }]))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useTeachingRepresentationsStore()
+    store.setTeacherLessonScope('L1-2')
+
+    const recovered = await store.recoverDurableBuild('course-1')
+    expect(recovered?.id).toBe('teacher-ppt-manuscript-paused')
+    expect(store.buildPaused).toBe(true)
+    expect(store.buildTaskId).toBe('teacher-ppt-manuscript-paused')
+
+    await store.resumeBuild()
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/teacher/courses/course-1/lessons/L1-2/ppt-v6/manuscript/build/stream',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          mode: 'teaching',
+          theme: 'academic-editorial',
+          engine_version: 'v6',
+          template_pack_id: 'pack-1',
+          template_version: 3,
+          force_rebuild: false,
+          resume_task_id: 'teacher-ppt-manuscript-paused',
+        }),
+      }),
+    )
+    expect(store.buildTaskId).toBe('teacher-ppt-manuscript-resumed')
+    expect(store.buildStage).toBe('manuscript_complete')
+  })
+
+  it('recovers the exact projected PPT job instead of guessing the latest lesson job', async () => {
+    httpMock.get.mockResolvedValueOnce({ data: { jobs: [{
+      id: 'ppt-target', course_id: 'course-1', lesson_unit_id: 'L1-2',
+      type: 'teacher_lesson_ppt_manuscript_generation', status: 'failed',
+      updated_at: '2026-09-05T09:00:00Z', retryable: true, error: { retryable: true },
+      request_snapshot: { mode: 'teaching', theme: 'academic-editorial' },
+    }, {
+      id: 'ppt-newer-unrelated', course_id: 'course-1', lesson_unit_id: 'L1-2',
+      type: 'teacher_lesson_ppt_generation', status: 'completed',
+      updated_at: '2026-09-05T10:00:00Z', request_snapshot: {},
+    }] } })
+    const store = useTeachingRepresentationsStore()
+    store.setTeacherLessonScope('L1-2')
+
+    const recovered = await store.recoverDurableBuild('course-1', 'ppt-target')
+
+    expect(recovered?.id).toBe('ppt-target')
+    expect(store.buildTaskId).toBe('ppt-target')
+    expect(store.buildPaused).toBe(true)
+  })
+
+  it('reconciles a running per-lesson PPT through its teacher job after refresh', async () => {
+    vi.useFakeTimers()
+    httpMock.get
+      .mockResolvedValueOnce({ data: { jobs: [{
+        id: 'teacher-ppt-running', course_id: 'course-1', lesson_unit_id: 'L1-2',
+        type: 'teacher_lesson_ppt_generation', asset_type: 'ppt', status: 'running',
+        progress: 38, phase: 'visual_plan', updated_at: '2026-09-05T10:00:00Z',
+        request_snapshot: { mode: 'teaching', theme: 'academic-editorial' },
+      }] } })
+      .mockResolvedValueOnce({ data: { job: {
+        id: 'teacher-ppt-running', status: 'failed', progress: 100, phase: 'build_blocked',
+        error: { code: 'teacher_lesson_v6_failed', message: '生成中断', retryable: true },
+      } } })
+    const store = useTeachingRepresentationsStore()
+    store.setTeacherLessonScope('L1-2')
+
+    await store.recoverDurableBuild('course-1')
+    expect(store.building).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(httpMock.get).toHaveBeenLastCalledWith(
+      '/api/teacher/courses/course-1/lesson-jobs/teacher-ppt-running',
+    )
+    expect(store.building).toBe(false)
+    expect(store.buildError).toBe('teacher_lesson_v6_failed')
+    expect(store.buildFailure?.message).toBe('生成中断')
+    vi.useRealTimers()
+  })
+
   it('reconciles a failed durable task when its SSE stream never reaches a terminal event', async () => {
     vi.useFakeTimers()
     const encoder = new TextEncoder()

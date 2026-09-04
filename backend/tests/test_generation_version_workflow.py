@@ -11,8 +11,7 @@ from course_versioning import build_blueprint_draft
 from course_versions import CourseVersionRepository
 from generation_workspace import GenerationWorkspaceRepository
 from guided_generation import step_state as guided_step_state
-from jobs.manager import TaskManager
-from jobs.manager import _teacher_outline_result_ready
+from jobs.manager import TaskManager, TaskStateConflict, _teacher_outline_result_ready
 
 
 class MemoryStorage:
@@ -755,7 +754,26 @@ async def test_teacher_outline_waits_through_restart_and_explicit_continue_reuse
     edited = restored._version_repository.load_draft(job["course_id"])
     edited["nodes"][0]["node_name"] = "教师修改后的第一讲"
     restored._version_repository.save_draft(job["course_id"], edited)
-    started = await restored.continue_teacher_outline_details(job["course_id"])
+    restored.tasks["newer-unrelated-outline-job"] = {
+        "id": "newer-unrelated-outline-job",
+        "course_id": job["course_id"],
+        "type": "teacher_outline_generation",
+        "status": "running",
+        "updated_at": "2999-01-01T00:00:00",
+    }
+    restored.tasks["other-course-outline-job"] = {
+        "id": "other-course-outline-job",
+        "course_id": "another-course",
+        "type": "teacher_outline_generation",
+        "status": "waiting_for_input",
+    }
+    with pytest.raises(TaskStateConflict):
+        await restored.continue_teacher_outline_details(
+            job["course_id"], "other-course-outline-job"
+        )
+    started = await restored.continue_teacher_outline_details(
+        job["course_id"], job["job_id"]
+    )
     assert started["status"] == "started"
     assert started["job_id"] == job["job_id"]
     assert restored.tasks[job["job_id"]]["status"] == "pending"
@@ -771,7 +789,9 @@ async def test_teacher_outline_waits_through_restart_and_explicit_continue_reuse
     assert "course_contract" not in compiled_stage
     assert "course_contract_validation_report" not in compiled_stage
 
-    duplicate = await restored.continue_teacher_outline_details(job["course_id"])
+    duplicate = await restored.continue_teacher_outline_details(
+        job["course_id"], job["job_id"]
+    )
     assert duplicate["status"] == "already_running"
     assert restored._task_queue.qsize() == 1
     assert await restored._task_queue.get() == job["job_id"]
@@ -792,13 +812,17 @@ async def test_teacher_outline_waits_through_restart_and_explicit_continue_reuse
     assert "course_teaching_plan" not in completed_course
     assert restored._version_repository.load_draft(job["course_id"]) is None
 
-    unchanged = await restored.continue_teacher_outline_details(job["course_id"])
+    unchanged = await restored.continue_teacher_outline_details(
+        job["course_id"], job["job_id"]
+    )
     assert unchanged["status"] == "already_completed"
 
     regenerated_draft = build_blueprint_draft(completed_course)
     regenerated_draft["nodes"][0]["node_name"] = "教师再次修改后的第一讲"
     restored._version_repository.save_draft(job["course_id"], regenerated_draft)
-    regenerated = await restored.continue_teacher_outline_details(job["course_id"])
+    regenerated = await restored.continue_teacher_outline_details(
+        job["course_id"], job["job_id"]
+    )
 
     assert regenerated["status"] == "started"
     assert regenerated["job_id"] == job["job_id"]

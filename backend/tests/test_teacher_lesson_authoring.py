@@ -3604,7 +3604,293 @@ def test_teacher_job_contract_preserves_checkpoint_when_cancelled(tmp_path):
     assert cancelled["stream_complete"] is True
     assert cancelled["checkpoint"]["completed_blocks"] == 1
     assert cancelled["checkpoint"]["result_sections"][0]["content"] == "已完成内容"
-    assert cancelled["error"]["retryable"] is True
+    assert cancelled["error"]["retryable"] is False
+
+
+def test_paused_teacher_job_can_be_cancelled_instead_of_silently_ignored(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    job = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_script_generation",
+        request_id="pause-then-cancel",
+    )
+    paused = repository.pause_job("course-1", job["id"])
+
+    cancelled = repository.cancel_job("course-1", paused["id"])
+
+    assert paused["status"] == "paused"
+    assert cancelled["status"] == "cancelled"
+    assert cancelled["error"] == {
+        "code": "teacher_asset_job_cancelled",
+        "message": "生成已由教师取消，需要时可以重新发起生成。",
+        "retryable": False,
+    }
+
+
+def _ppt_resume_job(
+    repository: TeacherLessonAuthoringRepository,
+    *,
+    request_id: str,
+    status: str,
+    source_plan_revision: str = "plan-v1",
+) -> dict:
+    job = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_ppt_generation",
+        request_id=request_id,
+    )
+    repository.update_job(
+        "course-1",
+        job["id"],
+        source_lesson_plan_revision_id=source_plan_revision,
+        source_script_revision_id="script-v1",
+        source_material_revision="materials-v1",
+    )
+    if status == "paused":
+        return repository.pause_job("course-1", job["id"])
+    if status == "cancelled":
+        return repository.cancel_job("course-1", job["id"])
+    return repository.update_job(
+        "course-1",
+        job["id"],
+        status=status,
+        error={"code": "ppt_failed", "retryable": True},
+    )
+
+
+def test_teacher_ppt_resume_requires_exact_formal_resumable_job(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    paused = _ppt_resume_job(
+        repository,
+        request_id="ppt-paused",
+        status="paused",
+    )
+
+    resolved = teacher_lesson_router._teacher_ppt_resume_job_id(
+        repository,
+        "course-1",
+        "L1-1",
+        paused["id"],
+        job_type="teacher_lesson_ppt_generation",
+        source_lesson_plan_revision_id="plan-v1",
+        source_lesson_script_revision_id="script-v1",
+        source_material_revision="materials-v1",
+    )
+
+    assert resolved == paused["id"]
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_reason"),
+    [
+        ("missing", "job_not_found"),
+        ("cancelled", "resume_not_allowed"),
+        ("waiting_for_input", "resume_not_allowed"),
+        ("stale_source", "lesson_plan_revision_changed"),
+    ],
+)
+def test_teacher_ppt_resume_rejects_identity_state_and_source_bypasses(
+    tmp_path,
+    case,
+    expected_reason,
+):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    if case == "missing":
+        job_id = "legacy-checkpoint-without-formal-job"
+    else:
+        job = _ppt_resume_job(
+            repository,
+            request_id=f"ppt-{case}",
+            status="paused" if case == "stale_source" else case,
+            source_plan_revision="plan-old" if case == "stale_source" else "plan-v1",
+        )
+        job_id = job["id"]
+
+    with pytest.raises(TeacherLessonAuthoringError) as caught:
+        teacher_lesson_router._teacher_ppt_resume_job_id(
+            repository,
+            "course-1",
+            "L1-1",
+            job_id,
+            job_type="teacher_lesson_ppt_generation",
+            source_lesson_plan_revision_id="plan-v1",
+            source_lesson_script_revision_id="script-v1",
+            source_material_revision="materials-v1",
+        )
+
+    assert caught.value.code == "teacher_lesson_ppt_resume_job_mismatch"
+    assert caught.value.details == {
+        "resume_job_id": job_id,
+        "reason": expected_reason,
+    }
+
+
+def test_teacher_ppt_v6_jobs_persist_identity_snapshot_and_lifecycle(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    snapshot = {
+        "lesson_unit_id": "L1-1",
+        "mode": "teaching",
+        "theme": "academic-editorial",
+        "source_lesson_plan_revision_id": "plan-1",
+        "source_script_revision_id": "script-1",
+    }
+    first = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_ppt_manuscript_generation",
+        request_id="ppt-manuscript-first",
+    )
+    first = repository.update_job(
+        "course-1",
+        first["id"],
+        status="running",
+        phase="ppt_manuscript_building",
+        request_snapshot=snapshot,
+        resume_from_job_id="",
+    )
+
+    assert first["schema_version"] == "teacher_asset_job_v1"
+    assert first["course_id"] == "course-1"
+    assert first["lesson_unit_id"] == "L1-1"
+    assert first["asset_type"] == "ppt"
+    assert first["type"] == "teacher_lesson_ppt_manuscript_generation"
+    assert first["request_snapshot"] == snapshot
+
+    repository.update_job_live(
+        "course-1",
+        first["id"],
+        progress=48,
+        phase="story",
+    )
+    paused = repository.pause_job("course-1", first["id"])
+    persisted = TeacherLessonAuthoringRepository(tmp_path).get_job(
+        "course-1", first["id"]
+    )
+    assert paused["status"] == persisted["status"] == "paused"
+    assert persisted["request_snapshot"] == snapshot
+
+    resumed = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_ppt_manuscript_generation",
+        request_id="ppt-manuscript-resumed",
+    )
+    resumed = repository.update_job(
+        "course-1",
+        resumed["id"],
+        status="running",
+        request_snapshot=snapshot,
+        resume_from_job_id=first["id"],
+    )
+    failed = repository.update_job(
+        "course-1",
+        resumed["id"],
+        status="failed",
+        phase="story",
+        stream_complete=True,
+        error={
+            "code": "provider_unavailable",
+            "message": "模型暂时不可用",
+            "retryable": True,
+        },
+    )
+    assert failed["resume_from_job_id"] == first["id"]
+    assert failed["status"] == "failed"
+    assert failed["retryable"] is True
+
+    final = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_ppt_generation",
+        request_id="ppt-final",
+    )
+    final = repository.update_job(
+        "course-1",
+        final["id"],
+        status="running",
+        request_snapshot={**snapshot, "ppt_manuscript_task_id": resumed["id"]},
+    )
+    final = repository.update_job(
+        "course-1",
+        final["id"],
+        status="completed",
+        phase="ppt_complete",
+        progress=100,
+        stream_complete=True,
+        result_revision_id="representation-1",
+    )
+    persisted_final = TeacherLessonAuthoringRepository(tmp_path).get_job(
+        "course-1", final["id"]
+    )
+    assert persisted_final["status"] == "completed"
+    assert persisted_final["asset_type"] == "ppt"
+    assert persisted_final["result_revision_id"] == "representation-1"
+
+
+def test_teacher_ppt_queued_event_exposes_durable_job_id_before_progress():
+    job = {
+        "id": "tlj-ppt-queued",
+        "status": "pending",
+        "phase": "queued",
+        "progress": 0,
+    }
+
+    event = teacher_lesson_router._teacher_ppt_queued_event(
+        job,
+        target_schema="slide_deck_v6",
+    )
+
+    assert event["event"] == "build_queued"
+    assert event["task_id"] == job["id"]
+    assert event["job"] == job
+    assert event["target_schema"] == "slide_deck_v6"
+
+
+@pytest.mark.parametrize(
+    ("job_type", "phase", "code"),
+    [
+        (
+            "teacher_lesson_ppt_manuscript_generation",
+            "ppt_manuscript_interrupted",
+            "teacher_lesson_ppt_manuscript_generation_interrupted",
+        ),
+        (
+            "teacher_lesson_ppt_generation",
+            "ppt_interrupted",
+            "teacher_lesson_ppt_generation_interrupted",
+        ),
+    ],
+)
+def test_orphaned_teacher_ppt_job_expires_with_ppt_specific_failure(
+    tmp_path,
+    job_type,
+    phase,
+    code,
+):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    job = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type=job_type,
+        request_id=f"orphaned-{job_type}",
+    )
+    path = tmp_path / "course-1.json"
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored["jobs"][job["id"]]["updated_at"] = "2020-01-01T00:00:00+00:00"
+    path.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
+
+    expired = TeacherLessonAuthoringRepository(tmp_path).expire_stale_job(
+        "course-1",
+        job["id"],
+    )
+
+    assert expired["status"] == "failed"
+    assert expired["phase"] == phase
+    assert expired["error"]["code"] == code
+    assert expired["error"]["retryable"] is True
+    assert "PPT" in expired["error"]["message"] or "页面内容稿" in expired["message"]
 
 
 @pytest.mark.parametrize(
@@ -5003,6 +5289,8 @@ def test_teacher_lesson_api_projects_sessions_from_canonical_course_document(tmp
     assert view.json()["outline_revision_id"] == "outline-v2"
     assert [item["lesson_unit_id"] for item in view.json()["lessons"]] == ["L1-1", "L1-2"]
     assert [item["section_node_id"] for item in view.json()["lessons"][0]["sections"]] == ["L2-1-1", "L2-1-2"]
+    assert view.json()["course_production_state"]["schema_version"] == "course_production_state_v1"
+    assert view.json()["course_production_state"]["course_id"] == "course-1"
 
 
 def test_teacher_lesson_view_expires_orphaned_jobs_before_frontend_recovery(tmp_path):
@@ -5431,6 +5719,295 @@ def test_generate_all_lesson_plans_queues_lecture_v1_lessons(
     assert repository.current_arrangement("course-1", "L1-2")["blocks"]
 
 
+def test_generate_all_plans_retries_only_ready_lesson_with_failed_attempt(
+    tmp_path,
+    monkeypatch,
+):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    failed = repository.create_job(
+        "course-1",
+        "L1-1",
+        request_id="failed-ready-plan",
+        source_outline_revision_id="outline-v1",
+    )
+    repository.update_job(
+        "course-1",
+        failed["id"],
+        status="failed",
+        error={
+            "code": "lesson_plan_generation_failed",
+            "message": "教案生成失败",
+            "retryable": True,
+        },
+    )
+    cancelled = repository.create_job(
+        "course-1",
+        "L1-2",
+        request_id="cancelled-ready-plan",
+        source_outline_revision_id="outline-v1",
+    )
+    repository.update_job(
+        "course-1",
+        cancelled["id"],
+        status="cancelled",
+        error={"retryable": True},
+    )
+    source = {**lecture_course_data(), "blueprint_revision_id": "outline-v1"}
+
+    class FakeTaskManager:
+        storage = None
+
+        @staticmethod
+        def get_generation_workspace_course(course_id):
+            assert course_id == "course-1"
+            return source
+
+        @staticmethod
+        def get_generation_preview(_course_id):
+            return None
+
+    def projected_lesson(lesson_unit_id):
+        arrangement = recommend_lesson_arrangement(
+            source,
+            lesson_unit_id,
+            source_outline_revision_id="outline-v1",
+        )
+        return {
+            "lesson_unit_id": lesson_unit_id,
+            "title": lesson_unit_id,
+            "sections": [
+                {"section_node_id": section_node_id}
+                for section_node_id in dict.fromkeys(
+                    item["section_node_id"] for item in arrangement["blocks"]
+                )
+            ],
+            "arrangement": arrangement,
+            "plan": {
+                "ready": lesson_unit_id == "L1-2",
+                "can_generate": True,
+            },
+        }
+
+    monkeypatch.setattr(
+        teacher_lesson_router,
+        "_lesson_projection",
+        lambda *_args, **_kwargs: [
+            projected_lesson("L1-1"),
+            projected_lesson("L1-2"),
+        ],
+    )
+    monkeypatch.setattr(
+        teacher_lesson_router,
+        "_lesson_plan_material_scope",
+        lambda *_args, **_kwargs: {
+            "source_package_id": "",
+            "source_asset_id": "",
+            "material_asset_ids": [],
+        },
+    )
+    requested_children = []
+
+    async def fake_generate_lesson_plan(
+        course_id,
+        lesson_unit_id,
+        body,
+        _request,
+        _tm,
+        child_repository,
+    ):
+        requested_children.append((lesson_unit_id, body))
+        job = child_repository.create_job(
+            course_id,
+            lesson_unit_id,
+            request_id=body.request_id,
+            source_outline_revision_id="outline-v1",
+        )
+        return {"job": job}
+
+    monkeypatch.setattr(
+        teacher_lesson_router,
+        "generate_lesson_plan",
+        fake_generate_lesson_plan,
+    )
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: FakeTaskManager()
+    app.dependency_overrides[
+        get_teacher_lesson_authoring_repository
+    ] = lambda: repository
+
+    with TestClient(app) as client:
+        invalid_response = client.post(
+            "/api/teacher/courses/course-1/lesson-plans/generate-all",
+            json={
+                "request_id": "invalid-retry-ready-plans",
+                "resume_job_ids": [failed["id"], cancelled["id"]],
+            },
+        )
+        assert invalid_response.status_code == 409, invalid_response.json()
+        assert invalid_response.json()["detail"]["code"] == (
+            "teacher_asset_resume_conflict"
+        )
+        assert requested_children == []
+
+        implicit_response = client.post(
+            "/api/teacher/courses/course-1/lesson-plans/generate-all",
+            json={"request_id": "legacy-retry-ready-plans", "regenerate_ready": True},
+        )
+        assert implicit_response.status_code == 202, implicit_response.json()
+        assert requested_children == []
+
+        response = client.post(
+            "/api/teacher/courses/course-1/lesson-plans/generate-all",
+            json={
+                "request_id": "retry-ready-plans",
+                "regenerate_ready": True,
+                "resume_job_ids": [failed["id"]],
+            },
+        )
+
+    assert response.status_code == 202, response.json()
+    assert [item[0] for item in requested_children] == ["L1-1"]
+    assert requested_children[0][1].resume_job_id == failed["id"]
+    assert response.json()["skipped_lesson_ids"] == ["L1-2"]
+
+
+def test_batch_retry_uses_latest_attempt_and_rejects_explicit_non_retryable_job():
+    jobs = [
+        {
+            "id": "newer-created-but-older-update",
+            "lesson_unit_id": "L1-1",
+            "type": "teacher_lesson_script_generation",
+            "status": "failed",
+            "updated_at": "2026-09-05T01:00:00+00:00",
+            "error": {"retryable": True},
+        },
+        {
+            "id": "latest-projected-attempt",
+            "lesson_unit_id": "L1-1",
+            "type": "teacher_lesson_script_generation",
+            "status": "failed",
+            "updated_at": "2026-09-05T02:00:00+00:00",
+            "error": {"retryable": False},
+        },
+    ]
+
+    latest = teacher_lesson_router._latest_teacher_asset_job(
+        jobs,
+        "L1-1",
+        "teacher_lesson_script_generation",
+    )
+
+    assert latest is jobs[1]
+    assert teacher_lesson_router._teacher_asset_job_can_resume(latest) is False
+    assert teacher_lesson_router._teacher_asset_job_can_resume({
+        "id": "paused-job",
+        "status": "paused",
+        "error": {"retryable": False},
+    }) is True
+    assert teacher_lesson_router._teacher_asset_job_can_resume({
+        "id": "failed-without-authority",
+        "status": "failed",
+    }) is False
+    assert teacher_lesson_router._teacher_asset_job_can_resume({
+        "id": "cancelled-job",
+        "status": "cancelled",
+        "error": {"retryable": True},
+    }) is False
+
+
+@pytest.mark.parametrize(
+    (
+        "lesson_unit_id",
+        "job_type",
+        "status",
+        "source_revision_id",
+        "error",
+        "expected_reason",
+    ),
+    [
+        (
+            "L1-1",
+            "teacher_lesson_plan_generation",
+            "cancelled",
+            "outline-v1",
+            {"retryable": True},
+            "resume_not_allowed",
+        ),
+        (
+            "L1-1",
+            "teacher_lesson_plan_generation",
+            "failed",
+            "outline-v1",
+            None,
+            "resume_not_allowed",
+        ),
+        (
+            "L1-1",
+            "teacher_lesson_plan_generation",
+            "failed",
+            "outline-old",
+            {"retryable": True},
+            "source_revision_changed",
+        ),
+        (
+            "L1-1",
+            "teacher_lesson_script_generation",
+            "failed",
+            "outline-v1",
+            {"retryable": True},
+            "job_type_mismatch",
+        ),
+        (
+            "L1-2",
+            "teacher_lesson_plan_generation",
+            "failed",
+            "outline-v1",
+            {"retryable": True},
+            "lesson_mismatch",
+        ),
+    ],
+)
+def test_explicit_resume_validation_matches_projection_and_rejects_conflicts(
+    tmp_path,
+    lesson_unit_id,
+    job_type,
+    status,
+    source_revision_id,
+    error,
+    expected_reason,
+):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    job = repository.create_job(
+        "course-1",
+        lesson_unit_id,
+        job_type=job_type,
+        request_id=f"resume-{expected_reason}",
+        source_outline_revision_id=source_revision_id,
+    )
+    changes = {"status": status}
+    if error is not None:
+        changes["error"] = error
+    repository.update_job("course-1", job["id"], **changes)
+
+    with pytest.raises(TeacherLessonAuthoringError) as caught:
+        teacher_lesson_router._validated_teacher_asset_resume_job(
+            repository,
+            course_id="course-1",
+            resume_job_id=job["id"],
+            lesson_unit_id="L1-1",
+            job_type="teacher_lesson_plan_generation",
+            source_revision_field="source_outline_revision_id",
+            source_revision_id="outline-v1",
+        )
+
+    assert caught.value.code == "teacher_asset_resume_conflict"
+    assert caught.value.details == {
+        "resume_job_id": job["id"],
+        "reason": expected_reason,
+    }
+
+
 def test_generate_all_lesson_plans_skips_lessons_without_teaching_structure(
     tmp_path,
     monkeypatch,
@@ -5608,6 +6185,128 @@ def test_generate_all_lesson_scripts_queues_every_lesson_with_one_parent(
     assert [item[1].batch_position for item in requested_children] == [1, 2]
     assert all(item[1].batch_size == 2 for item in requested_children)
     assert requested_children[0][1].material_asset_ids == ["material-L1-1"]
+
+
+def test_generate_all_scripts_retries_only_ready_lesson_with_failed_attempt(
+    tmp_path,
+    monkeypatch,
+):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    for lesson_unit_id, section_node_id in (
+        ("L1-1", "L2-1-1"),
+        ("L1-2", "L2-2-1"),
+    ):
+        plan = standard_lesson_plan()
+        plan["sections"][0]["node_id"] = section_node_id
+        repository.save_plan_revision(
+            "course-1",
+            lesson_unit_id,
+            plan,
+            source_outline_revision_id="outline-v1",
+            quality_report=validate_teacher_lesson_plan(plan),
+        )
+    failed = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_script_generation",
+        request_id="failed-ready-script",
+        source_outline_revision_id="outline-v1",
+    )
+    repository.update_job(
+        "course-1",
+        failed["id"],
+        status="failed",
+        source_lesson_plan_revision_id=str(
+            repository.lesson("course-1", "L1-1")["working_revision_id"]
+        ),
+        error={
+            "code": "lesson_script_shard_incomplete",
+            "message": "一个教学块失败",
+            "retryable": True,
+        },
+    )
+
+    class FakeTaskManager:
+        storage = None
+        course_service = object()
+
+        @staticmethod
+        def get_generation_workspace_course(course_id):
+            assert course_id == "course-1"
+            return {**course_data(), "blueprint_revision_id": "outline-v1"}
+
+        @staticmethod
+        def get_generation_preview(_course_id):
+            return None
+
+    monkeypatch.setattr(
+        teacher_lesson_router,
+        "_lesson_projection",
+        lambda *_args, **_kwargs: [
+            {
+                "lesson_unit_id": lesson_unit_id,
+                "title": lesson_unit_id,
+                "script": {"ready": True, "can_generate": True},
+            }
+            for lesson_unit_id in ("L1-1", "L1-2")
+        ],
+    )
+    monkeypatch.setattr(
+        teacher_lesson_router,
+        "_lesson_script_material_scope",
+        lambda *_args, **_kwargs: {
+            "source_package_id": "",
+            "source_asset_id": "",
+            "material_asset_ids": [],
+        },
+    )
+    requested_children = []
+
+    async def fake_generate_lesson_script(
+        course_id,
+        lesson_unit_id,
+        body,
+        _request,
+        _tm,
+        _repository,
+    ):
+        requested_children.append((lesson_unit_id, body))
+        return {
+            "job": {
+                "id": f"retry-{lesson_unit_id}",
+                "course_id": course_id,
+                "lesson_unit_id": lesson_unit_id,
+                "status": "pending",
+                "parent_job_id": body.batch_parent_job_id,
+            },
+        }
+
+    monkeypatch.setattr(
+        teacher_lesson_router,
+        "generate_lesson_script",
+        fake_generate_lesson_script,
+    )
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: FakeTaskManager()
+    app.dependency_overrides[
+        get_teacher_lesson_authoring_repository
+    ] = lambda: repository
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/teacher/courses/course-1/lesson-scripts/generate-all",
+            json={
+                "request_id": "retry-ready-scripts",
+                "regenerate_ready": True,
+                "resume_job_ids": [failed["id"]],
+            },
+        )
+
+    assert response.status_code == 202
+    assert [item[0] for item in requested_children] == ["L1-1"]
+    assert requested_children[0][1].resume_job_id == failed["id"]
+    assert response.json()["skipped_lesson_ids"] == ["L1-2"]
 
 
 def test_generate_all_lesson_scripts_skips_lessons_without_ready_plan(

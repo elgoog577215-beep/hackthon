@@ -187,6 +187,11 @@ async def test_build_stream_awaits_injected_planner_before_sync_compile(tmp_path
         lambda: injected_planner,
         raising=False,
     )
+    monkeypatch.setattr(
+        representation_router,
+        "get_task_manager_optional",
+        lambda: None,
+    )
 
     async def existing_course(_course_id: str):
         return course_repository.load_course_view("advanced-python")

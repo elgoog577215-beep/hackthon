@@ -9,6 +9,11 @@
 - **THEN** 页面 MUST 只显示“生成全部教案”主操作
 - **AND** MUST NOT 显示“只生成本讲”操作
 
+#### Scenario: 可用讲次不得换名保留单讲重生成
+- **WHEN** 教案或讲义已有可用内容且当前没有失败恢复动作
+- **THEN** 默认页面 MUST NOT 以“重新生成”或其他名称提供等价的单讲生成入口
+- **AND** 教案与讲义的新生成和失败恢复 MUST 继续由正文上方的整课批量按钮承载
+
 #### Scenario: 部分讲义生成失败
 - **WHEN** 批量讲义生成部分失败
 - **THEN** 原生成按钮 MUST 原位变为“重新生成”
@@ -27,6 +32,12 @@
 - **WHEN** 用户在批量生成期间刷新页面
 - **THEN** 页面 MUST 从同一任务与生产状态投影恢复按钮、进度和失败范围
 - **AND** MUST NOT 自动创建新任务
+
+#### Scenario: 批量重试只恢复服务端授权任务
+- **WHEN** 前端请求重新生成教案或讲义
+- **THEN** 请求 MUST 携带投影 `action_targets.retry_generation` 中的 `resume_job_ids`
+- **AND** 后端 MUST 在创建任何子任务前验证全部 ID 的课程、资产类型、讲次、来源修订与恢复资格
+- **AND** 空 `resume_job_ids` MUST NOT 自动恢复 latest 或已取消任务
 
 ### Requirement: 教案知识前置顺序不得阻断生成
 

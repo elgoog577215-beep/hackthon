@@ -239,10 +239,11 @@
     "courseIssueTitle": "Course generation issue",
     "courseFailureSummary": "{count} course item(s) failed to generate. The affected item is now in view.",
     "courseIssueSummary": "{count} course item(s) need attention. The affected item is now in view.",
+    "pendingSourceReviewSummary": "Available · {count} source item(s) pending review",
     "localFailure": { "lesson_plan": "This lesson plan failed to generate" },
     "states": { "not_generated": "Not generated", "generating": "Generating", "available": "Available", "failed": "Generation failed" },
     "stages": { "outline": "Outline", "lesson_plan": "Lesson plan", "script": "Lecture notes", "ppt": "PPT" },
-    "auxiliary": { "idle": "Not started", "queued": "Queued", "running": "Generating", "paused": "Paused", "failed": "Generation failed", "completed": "Completed", "stale": "Source updated", "pendingReview": "Pending review", "recentFailure": "Most recent generation failed" }
+    "auxiliary": { "idle": "Not started", "queued": "Queued", "running": "Generating", "waitingForInput": "More information required", "waitingForReview": "Review required", "paused": "Paused", "cancelled": "Cancelled", "failed": "Generation failed", "completed": "Completed", "unknown": "State requires attention", "qualityBlocked": "Quality check failed", "stale": "Source updated", "pendingReview": "Pending review", "recentFailure": "Most recent generation failed" }
   },
   "teacherWorkbench": {
     "courseWorkbench": "Course workbench",
@@ -1658,6 +1659,7 @@
     "failureCode": "Issue code",
     "buildDetails": "Build details",
     "documentLoadFailed": "Could not load the slide content draft",
+    "resumeTargetUnavailable": "The PPT task selected for recovery has changed. Return to the course workspace and refresh its status.",
     "retryDegradedPages": "Retry degraded slides",
     "repairDegradedVisuals": "Repair degraded visuals",
     "manuscriptNotGenerated": "No slide content draft yet",

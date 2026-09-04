@@ -27,6 +27,25 @@ from teacher_asset_readiness import (
 SCHEMA_VERSION = "course_production_state_v1"
 STAGE_KEYS = ("outline", "lesson_plan", "script", "ppt")
 
+_PROJECTION_READ_FAILURES = {
+    "teacher_asset_state_read_failed": (
+        "教师资产状态暂时无法读取，已禁止生成和恢复操作以避免重复任务。",
+        ("lesson_plan", "script", "ppt"),
+    ),
+    "task_state_unavailable": (
+        "任务管理器尚未就绪，已禁止生成和恢复操作以避免重复任务。",
+        STAGE_KEYS,
+    ),
+    "task_state_read_failed": (
+        "任务状态暂时无法读取，已禁止生成和恢复操作以避免操作错误任务。",
+        STAGE_KEYS,
+    ),
+    "blueprint_draft_read_failed": (
+        "未确认大纲草稿暂时无法读取，已禁止重新生成以避免覆盖待审阅内容。",
+        ("outline",),
+    ),
+}
+
 
 class DisplayState(StrEnum):
     NOT_GENERATED = "not_generated"
@@ -52,8 +71,24 @@ class TaskState(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
     PAUSED = "paused"
+    WAITING_FOR_INPUT = "waiting_for_input"
+    WAITING_FOR_REVIEW = "waiting_for_review"
+    CANCELLED = "cancelled"
     FAILED = "failed"
     COMPLETED = "completed"
+    UNKNOWN = "unknown"
+
+
+class ProductionAction(StrEnum):
+    GENERATE = "generate"
+    PAUSE_GENERATION = "pause_generation"
+    CANCEL_GENERATION = "cancel_generation"
+    RESUME_GENERATION = "resume_generation"
+    PROVIDE_INPUT = "provide_input"
+    REVIEW_GENERATION = "review_generation"
+    RETRY_GENERATION = "retry_generation"
+    INSPECT_FAILURE = "inspect_failure"
+    REGENERATE_FROM_LATEST_SOURCE = "regenerate_from_latest_source"
 
 
 class Availability(StrEnum):
@@ -143,12 +178,16 @@ class AssetProductionState(BaseModel):
     source_state: SourceState
     latest_attempt_failed: bool = False
     update_required: bool = False
+    task_ids: list[str] = Field(default_factory=list)
+    allowed_actions: list[ProductionAction] = Field(default_factory=list)
+    action_targets: dict[ProductionAction, list[str]] = Field(default_factory=dict)
     issues: list[ProductionIssue] = Field(default_factory=list)
 
 
 class StageProductionState(AssetProductionState):
     counts: ProductionCounts
     latest_attempt: LatestAttempt | None = None
+    has_unconfirmed_draft: bool = False
     blocking_issues: list[ProductionIssue] = Field(default_factory=list)
     review_issues: list[ProductionIssue] = Field(default_factory=list)
 
@@ -175,11 +214,15 @@ _TASK_STATE_MAP = {
     "pending": TaskState.QUEUED,
     "queued": TaskState.QUEUED,
     "running": TaskState.RUNNING,
+    "active": TaskState.RUNNING,
     "paused": TaskState.PAUSED,
-    "waiting_for_input": TaskState.PAUSED,
-    "waiting_for_review": TaskState.PAUSED,
+    "waiting_for_input": TaskState.WAITING_FOR_INPUT,
+    "waiting_for_review": TaskState.WAITING_FOR_REVIEW,
     "failed": TaskState.FAILED,
-    "cancelled": TaskState.FAILED,
+    "error": TaskState.FAILED,
+    "conflict": TaskState.FAILED,
+    "cancelled": TaskState.CANCELLED,
+    "canceled": TaskState.CANCELLED,
     "completed": TaskState.COMPLETED,
     "completed_with_warnings": TaskState.COMPLETED,
 }
@@ -187,18 +230,56 @@ _TASK_STATE_MAP = {
 _TASK_PRIORITY = {
     TaskState.RUNNING: 0,
     TaskState.QUEUED: 1,
-    TaskState.PAUSED: 2,
-    TaskState.FAILED: 3,
-    TaskState.COMPLETED: 4,
-    TaskState.IDLE: 5,
+    TaskState.WAITING_FOR_INPUT: 2,
+    TaskState.WAITING_FOR_REVIEW: 3,
+    TaskState.PAUSED: 4,
+    TaskState.UNKNOWN: 5,
+    TaskState.FAILED: 6,
+    TaskState.CANCELLED: 7,
+    TaskState.COMPLETED: 8,
+    TaskState.IDLE: 9,
+}
+
+_ACTION_PRIORITY = {
+    ProductionAction.PROVIDE_INPUT: 0,
+    ProductionAction.REVIEW_GENERATION: 1,
+    ProductionAction.PAUSE_GENERATION: 2,
+    ProductionAction.CANCEL_GENERATION: 3,
+    ProductionAction.RESUME_GENERATION: 4,
+    ProductionAction.RETRY_GENERATION: 5,
+    ProductionAction.REGENERATE_FROM_LATEST_SOURCE: 6,
+    ProductionAction.GENERATE: 7,
+    ProductionAction.INSPECT_FAILURE: 8,
+}
+
+_TASK_TARGET_ACTIONS = {
+    ProductionAction.PAUSE_GENERATION,
+    ProductionAction.CANCEL_GENERATION,
+    ProductionAction.RESUME_GENERATION,
+    ProductionAction.PROVIDE_INPUT,
+    ProductionAction.REVIEW_GENERATION,
+    ProductionAction.RETRY_GENERATION,
+    ProductionAction.REGENERATE_FROM_LATEST_SOURCE,
 }
 
 _TASK_STAGE_MAP = {
     "teacher_outline_generation": "outline",
     "teacher_lesson_plan_generation": "lesson_plan",
     "teacher_lesson_script_generation": "script",
+    "teacher_lesson_ppt_manuscript_generation": "ppt",
+    "teacher_lesson_ppt_generation": "ppt",
     "teaching_representation_build": "ppt",
     "slide_deck_variant_build": "ppt",
+}
+
+_TASK_COMMAND_OWNER_BY_TYPE = {
+    "teacher_outline_generation": "task_manager",
+    "teacher_lesson_plan_generation": "teacher_asset",
+    "teacher_lesson_script_generation": "teacher_asset",
+    "teacher_lesson_ppt_manuscript_generation": "teacher_asset",
+    "teacher_lesson_ppt_generation": "teacher_asset",
+    "teaching_representation_build": "task_manager",
+    "slide_deck_variant_build": "task_manager",
 }
 
 _NON_BLOCKING_OUTLINE_CODE_SUFFIXES = {
@@ -229,10 +310,236 @@ _SOURCE_PENDING_STATES = {
 }
 
 
+def _task_recovery(task: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(task, dict):
+        return {}
+    recovery = task.get("recovery")
+    return recovery if isinstance(recovery, dict) else {}
+
+
+def _quality_report_values(task: dict[str, Any]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for owner in (task, task.get("result")):
+        if not isinstance(owner, dict):
+            continue
+        for key in ("quality_report", "generation_quality_report", "quality"):
+            value = owner.get(key)
+            if isinstance(value, dict):
+                result.append(value)
+    return result
+
+
+def _quality_blocked(task: dict[str, Any]) -> bool:
+    phase = str(task.get("phase") or task.get("current_phase") or "").lower()
+    if phase == "quality_failed" or task.get("publication_allowed") is False:
+        return True
+    recovery = _task_recovery(task)
+    if str(recovery.get("state") or "") == "quality_blocked":
+        return True
+    for report in _quality_report_values(task):
+        if report.get("publication_allowed") is False:
+            return True
+        if str(report.get("final_status") or report.get("status") or "").lower() in {
+            "failed",
+            "quality_failed",
+        }:
+            return True
+    return False
+
+
+def _completed_with_warnings_is_published(task: dict[str, Any]) -> bool:
+    if _quality_blocked(task):
+        return False
+    recovery = _task_recovery(task)
+    if str(recovery.get("state") or "") == "completed":
+        return True
+    if task.get("publication_allowed") is True:
+        return True
+    for report in _quality_report_values(task):
+        blocking = report.get("blocking_issues") or report.get("blockers") or []
+        status = str(report.get("final_status") or report.get("status") or "").lower()
+        if not blocking and (
+            report.get("passed") is True
+            or status in {"passed", "completed", "completed_with_warnings"}
+        ):
+            return True
+    return False
+
+
 def _task_state(task: dict[str, Any] | None) -> TaskState:
     if not isinstance(task, dict):
         return TaskState.IDLE
-    return _TASK_STATE_MAP.get(str(task.get("status") or ""), TaskState.IDLE)
+    status = str(task.get("status") or "").strip().lower()
+    if not status:
+        return TaskState.IDLE
+    if status == "completed_with_warnings":
+        return (
+            TaskState.COMPLETED
+            if _completed_with_warnings_is_published(task)
+            else TaskState.FAILED
+        )
+    return _TASK_STATE_MAP.get(status, TaskState.UNKNOWN)
+
+
+def _task_id(task: dict[str, Any] | None) -> str:
+    if not isinstance(task, dict):
+        return ""
+    return str(task.get("id") or task.get("task_id") or "")
+
+
+def _explicit_retryability(task: dict[str, Any]) -> bool | None:
+    error = task.get("error")
+    error = error if isinstance(error, dict) else {}
+    detail = task.get("error_detail")
+    detail = detail if isinstance(detail, dict) else {}
+    for owner in (error, detail, task):
+        if owner.get("retryable") is True:
+            return True
+        if owner.get("retryable") is False:
+            return False
+    return None
+
+
+def _ordered_actions(actions: Iterable[ProductionAction]) -> list[ProductionAction]:
+    return sorted(set(actions), key=lambda action: _ACTION_PRIORITY[action])
+
+
+def _task_action_targets(
+    task: dict[str, Any] | None,
+) -> dict[ProductionAction, list[str]]:
+    task_id = _task_id(task)
+    if not task_id:
+        return {}
+    return {
+        action: [task_id]
+        for action in _task_allowed_actions(task)
+        if action in _TASK_TARGET_ACTIONS
+    }
+
+
+def _merge_action_targets(
+    values: Iterable[dict[ProductionAction, list[str]]],
+) -> dict[ProductionAction, list[str]]:
+    merged: dict[ProductionAction, list[str]] = {}
+    for value in values:
+        for action, task_ids in value.items():
+            target_ids = merged.setdefault(action, [])
+            for task_id in task_ids:
+                if task_id and task_id not in target_ids:
+                    target_ids.append(task_id)
+    return {
+        action: merged[action]
+        for action in _ordered_actions(merged)
+    }
+
+
+def teacher_asset_job_can_resume(job: dict[str, Any] | None) -> bool:
+    """Return the same resume decision used by the production projection."""
+
+    if not isinstance(job, dict):
+        return False
+    owned_job = {
+        **job,
+        "type": str(job.get("type") or "teacher_lesson_plan_generation"),
+        "__production_owner": "teacher_asset",
+    }
+    return any(
+        action in {
+            ProductionAction.RESUME_GENERATION,
+            ProductionAction.RETRY_GENERATION,
+        }
+        for action in _task_allowed_actions(owned_job)
+    )
+
+
+def _task_allowed_actions(task: dict[str, Any] | None) -> list[ProductionAction]:
+    if not isinstance(task, dict):
+        return []
+    state = _task_state(task)
+    raw_status = str(task.get("status") or "").strip().lower()
+    owner = str(task.get("__production_owner") or "")
+    task_type = str(task.get("type") or task.get("asset_type") or "")
+    expected_owner = _TASK_COMMAND_OWNER_BY_TYPE.get(task_type)
+    if owner == "ppt_checkpoint" or (
+        owner and expected_owner and owner != expected_owner
+    ):
+        return [ProductionAction.INSPECT_FAILURE]
+    if raw_status in {"active", "queued"}:
+        return [ProductionAction.INSPECT_FAILURE]
+    if state in {TaskState.WAITING_FOR_INPUT, TaskState.WAITING_FOR_REVIEW} and (
+        owner != "task_manager" or task_type != "teacher_outline_generation"
+    ):
+        return [ProductionAction.INSPECT_FAILURE]
+    if not _task_id(task) and state in {
+        TaskState.QUEUED,
+        TaskState.RUNNING,
+        TaskState.PAUSED,
+        TaskState.WAITING_FOR_INPUT,
+        TaskState.WAITING_FOR_REVIEW,
+        TaskState.FAILED,
+        TaskState.UNKNOWN,
+    }:
+        return [ProductionAction.INSPECT_FAILURE]
+    recovery = _task_recovery(task)
+    recovery_state = str(recovery.get("state") or "")
+    if recovery and (
+        recovery_state in {"conflict", "unavailable"}
+        or recovery.get("can_resume") is False
+        and state in {TaskState.PAUSED, TaskState.FAILED, TaskState.UNKNOWN}
+    ):
+        return [ProductionAction.INSPECT_FAILURE]
+    if state in {TaskState.QUEUED, TaskState.RUNNING}:
+        return [
+            ProductionAction.PAUSE_GENERATION,
+            ProductionAction.CANCEL_GENERATION,
+        ]
+    if state == TaskState.WAITING_FOR_INPUT:
+        return [ProductionAction.PROVIDE_INPUT]
+    if state == TaskState.WAITING_FOR_REVIEW:
+        return [ProductionAction.REVIEW_GENERATION]
+    if state == TaskState.PAUSED:
+        if recovery.get("can_resume") is True or (
+            not recovery
+            and str(task.get("__production_owner") or "") == "teacher_asset"
+        ):
+            return [
+                ProductionAction.RESUME_GENERATION,
+                ProductionAction.CANCEL_GENERATION,
+            ]
+        return [ProductionAction.INSPECT_FAILURE]
+    if state == TaskState.CANCELLED:
+        return [ProductionAction.GENERATE]
+    if state == TaskState.UNKNOWN:
+        return [ProductionAction.INSPECT_FAILURE]
+    if state == TaskState.FAILED:
+        if recovery:
+            return [
+                ProductionAction.RETRY_GENERATION
+                if recovery.get("can_resume") is True
+                and recovery_state in {"manual_resume", "quality_blocked"}
+                else ProductionAction.INSPECT_FAILURE
+            ]
+        retryable = _explicit_retryability(task)
+        if str(task.get("__production_owner") or "") == "teacher_asset":
+            return [
+                ProductionAction.RETRY_GENERATION
+                if retryable is True
+                else ProductionAction.INSPECT_FAILURE
+            ]
+        if raw_status in {"conflict", "completed_with_warnings"}:
+            return [ProductionAction.INSPECT_FAILURE]
+        if raw_status == "error":
+            return [
+                ProductionAction.RETRY_GENERATION
+                if retryable is True
+                else ProductionAction.INSPECT_FAILURE
+            ]
+        return [
+            ProductionAction.INSPECT_FAILURE
+            if retryable is False or _quality_blocked(task)
+            else ProductionAction.RETRY_GENERATION
+        ]
+    return []
 
 
 def _latest(items: Iterable[dict[str, Any]]) -> dict[str, Any] | None:
@@ -336,16 +643,20 @@ def _attempt_groups(tasks: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     return list(groups.values())
 
 
-def _latest_attempt(tasks: list[dict[str, Any]]) -> LatestAttempt | None:
+def _latest_attempt_group(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     groups = _attempt_groups(tasks)
-    latest_group = max(
+    return max(
         groups,
         key=lambda group: max(
             str(item.get("updated_at") or item.get("created_at") or "")
             for item in group
         ),
-        default=None,
+        default=[],
     )
+
+
+def _latest_attempt(tasks: list[dict[str, Any]]) -> LatestAttempt | None:
+    latest_group = _latest_attempt_group(tasks)
     if not latest_group:
         return None
     task_states = [_task_state(item) for item in latest_group]
@@ -396,18 +707,31 @@ def _safe_failure(task: dict[str, Any]) -> tuple[str, str]:
     detail = task.get("error_detail")
     error = error if isinstance(error, dict) else {}
     detail = detail if isinstance(detail, dict) else {}
+    recovery = _task_recovery(task)
+    unknown_state = _task_state(task) == TaskState.UNKNOWN
+    quality_blocked = _quality_blocked(task)
     code = str(
         error.get("code")
         or detail.get("code")
         or task.get("error_code")
+        or recovery.get("reason_code")
+        or ("quality_blocked" if quality_blocked else "")
+        or ("unknown_task_state" if unknown_state else "")
         or ("generation_cancelled" if task.get("status") == "cancelled" else "generation_failed")
     )
     summary = str(
         error.get("message")
         or detail.get("message")
         or task.get("error_user_message")
+        or recovery.get("reason")
         or task.get("message")
-        or "生成失败，可保留现有内容后重试。"
+        or (
+            "任务返回了无法识别的状态，请查看详情。"
+            if unknown_state
+            else "质量检查未通过，现有内容已保留。"
+            if quality_blocked
+            else "生成失败，现有内容已保留。"
+        )
     )
     return code, summary
 
@@ -450,6 +774,18 @@ def _task_issue(stage: str, task: dict[str, Any]) -> ProductionIssue:
     code, summary = _safe_failure(task)
     checkpoint = task.get("checkpoint")
     checkpoint = checkpoint if isinstance(checkpoint, dict) else {}
+    allowed_actions = _task_allowed_actions(task)
+    action = next(
+        (
+            item for item in allowed_actions
+            if item in {
+                ProductionAction.RESUME_GENERATION,
+                ProductionAction.RETRY_GENERATION,
+                ProductionAction.INSPECT_FAILURE,
+            }
+        ),
+        ProductionAction.INSPECT_FAILURE,
+    )
     return _issue(
         stage=stage,
         lesson_unit_id=_lesson_id(task),
@@ -457,7 +793,7 @@ def _task_issue(stage: str, task: dict[str, Any]) -> ProductionIssue:
         task_id=str(task.get("id") or task.get("task_id") or ""),
         code=code,
         summary=summary,
-        action=("resume_generation" if _task_state(task) == TaskState.PAUSED else "retry_generation"),
+        action=action,
     )
 
 
@@ -714,6 +1050,24 @@ def _attach_stage_issues(
     if blocking_issues or review_issues:
         stage.update_required = True
     if blocking_issues:
+        stage.allowed_actions = _ordered_actions([
+            *(
+                action for action in stage.allowed_actions
+                if action in {
+                    ProductionAction.PAUSE_GENERATION,
+                    ProductionAction.CANCEL_GENERATION,
+                }
+            ),
+            ProductionAction.INSPECT_FAILURE,
+        ])
+        stage.action_targets = {
+            action: task_ids
+            for action, task_ids in stage.action_targets.items()
+            if action in {
+                ProductionAction.PAUSE_GENERATION,
+                ProductionAction.CANCEL_GENERATION,
+            }
+        }
         if stage.source_state == SourceState.CURRENT:
             stage.source_state = SourceState.MIXED
         elif stage.source_state == SourceState.MISSING:
@@ -723,6 +1077,38 @@ def _attach_stage_issues(
             and stage.task_state not in {TaskState.QUEUED, TaskState.RUNNING, TaskState.PAUSED}
         ):
             stage.display_state = DisplayState.FAILED
+
+
+def _apply_projection_read_failure(
+    state: AssetProductionState,
+    *,
+    stage: str,
+    code: str,
+    summary: str,
+    lesson_unit_id: str = "",
+) -> ProductionIssue:
+    """Keep last-good readable while denying writes when an owner was unreadable."""
+
+    issue = _issue(
+        stage=stage,
+        lesson_unit_id=lesson_unit_id,
+        code=code,
+        summary=summary,
+        action="inspect_failure",
+        blocking=True,
+        category="state_read",
+    )
+    state.task_state = TaskState.UNKNOWN
+    if state.availability == Availability.MISSING:
+        state.display_state = DisplayState.FAILED
+    state.update_required = True
+    state.allowed_actions = [ProductionAction.INSPECT_FAILURE]
+    state.action_targets = {}
+    state.issues = list({
+        item.issue_id: item
+        for item in [*state.issues, issue]
+    }.values())
+    return issue
 
 
 def _working_revision(items: object, revision_id: str) -> dict[str, Any] | None:
@@ -795,9 +1181,73 @@ def _asset_state(
 ) -> AssetProductionState:
     task_state = _task_state(task)
     latest_failed = task_state == TaskState.FAILED
+    task_actions = _task_allowed_actions(task)
+    raw_status = str((task or {}).get("status") or "").strip().lower()
+    owner = str((task or {}).get("__production_owner") or "")
+    task_type = str((task or {}).get("type") or (task or {}).get("asset_type") or "")
+    expected_owner = _TASK_COMMAND_OWNER_BY_TYPE.get(task_type)
+    control_issue_code = (
+        "checkpoint_without_task_owner"
+        if owner == "ppt_checkpoint"
+        else "task_command_owner_mismatch"
+        if owner and expected_owner and owner != expected_owner
+        else "task_status_has_no_command_owner"
+        if raw_status in {"active", "queued"}
+        or _task_state(task) in {
+            TaskState.WAITING_FOR_INPUT,
+            TaskState.WAITING_FOR_REVIEW,
+        }
+        and (owner != "task_manager" or task_type != "teacher_outline_generation")
+        else ""
+    )
     issues: list[ProductionIssue] = []
-    if latest_failed and isinstance(task, dict):
+    task_without_identity = (
+        isinstance(task, dict)
+        and not _task_id(task)
+        and task_state in {
+            TaskState.QUEUED,
+            TaskState.RUNNING,
+            TaskState.PAUSED,
+            TaskState.WAITING_FOR_INPUT,
+            TaskState.WAITING_FOR_REVIEW,
+            TaskState.FAILED,
+            TaskState.UNKNOWN,
+        }
+    )
+    if task_without_identity:
+        issues.append(_issue(
+            stage=stage,
+            lesson_unit_id=_lesson_id(task),
+            code="missing_task_id",
+            summary="任务缺少可操作的任务 ID，请查看详情。",
+            action="inspect_failure",
+        ))
+    elif task_state in {TaskState.FAILED, TaskState.UNKNOWN} and isinstance(task, dict):
         issues.append(_task_issue(stage, task))
+    if control_issue_code:
+        issues.append(_issue(
+            stage=stage,
+            lesson_unit_id=_lesson_id(task or {}),
+            task_id=_task_id(task),
+            code=control_issue_code,
+            summary=(
+                "PPT 检查点没有可操作的正式任务所有者，请查看详情。"
+                if owner == "ppt_checkpoint"
+                else "任务记录与命令所有者不一致，请查看详情。"
+                if control_issue_code == "task_command_owner_mismatch"
+                else "该历史任务状态没有对应的后端命令，请查看详情。"
+            ),
+            action="inspect_failure",
+        ))
+    if task_state == TaskState.COMPLETED and not last_good and isinstance(task, dict):
+        issues.append(_issue(
+            stage=stage,
+            lesson_unit_id=_lesson_id(task),
+            task_id=_task_id(task),
+            code="completed_without_asset",
+            summary="任务已完成，但没有找到对应的正式资产，请查看详情。",
+            action="inspect_failure",
+        ))
     if stale:
         issues.append(_issue(
             stage=stage,
@@ -806,14 +1256,36 @@ def _asset_state(
             summary="上游内容已经变化，当前版本仍保留，可按最新来源重新生成。",
             action="regenerate_from_latest_source",
         ))
+    active_states = {
+        TaskState.QUEUED,
+        TaskState.RUNNING,
+        TaskState.PAUSED,
+        TaskState.WAITING_FOR_INPUT,
+        TaskState.WAITING_FOR_REVIEW,
+    }
     if last_good:
         display = DisplayState.AVAILABLE
-    elif task_state in {TaskState.QUEUED, TaskState.RUNNING, TaskState.PAUSED}:
+    elif task_state in active_states:
         display = DisplayState.GENERATING
-    elif latest_failed:
+    elif task_state in {TaskState.FAILED, TaskState.UNKNOWN, TaskState.COMPLETED}:
         display = DisplayState.FAILED
     else:
         display = DisplayState.NOT_GENERATED
+    if control_issue_code:
+        allowed_actions = [ProductionAction.INSPECT_FAILURE]
+    elif task_state in active_states or task_state in {
+        TaskState.FAILED,
+        TaskState.UNKNOWN,
+    }:
+        allowed_actions = task_actions
+    elif task_state == TaskState.COMPLETED and not last_good:
+        allowed_actions = [ProductionAction.INSPECT_FAILURE]
+    elif stale:
+        allowed_actions = [ProductionAction.REGENERATE_FROM_LATEST_SOURCE]
+    elif not last_good:
+        allowed_actions = [ProductionAction.GENERATE]
+    else:
+        allowed_actions = []
     return AssetProductionState(
         display_state=display,
         task_state=task_state,
@@ -821,6 +1293,9 @@ def _asset_state(
         source_state=source_state,
         latest_attempt_failed=latest_failed,
         update_required=stale,
+        task_ids=[task_id] if (task_id := _task_id(task)) else [],
+        allowed_actions=allowed_actions,
+        action_targets=_task_action_targets(task),
         issues=issues,
     )
 
@@ -832,8 +1307,14 @@ def _aggregate_stage(
     *,
     total: int,
 ) -> StageProductionState:
+    latest_group = _latest_attempt_group(tasks)
     latest_attempt = _latest_attempt(tasks)
-    task_state = latest_attempt.task_state if latest_attempt else TaskState.IDLE
+    latest_task = _latest(tasks)
+    task_state = (
+        latest_attempt.task_state
+        if latest_attempt
+        else _task_state(latest_task)
+    )
     usable = sum(item.availability == Availability.USABLE for item in states)
     stale = sum(item.availability == Availability.STALE for item in states)
     generating = sum(
@@ -845,9 +1326,17 @@ def _aggregate_stage(
     last_good_count = usable + stale
     if total > 0 and last_good_count >= total:
         display = DisplayState.AVAILABLE
-    elif task_state in {TaskState.QUEUED, TaskState.RUNNING, TaskState.PAUSED}:
+    elif generating:
         display = DisplayState.GENERATING
-    elif failed:
+    elif task_state in {
+        TaskState.QUEUED,
+        TaskState.RUNNING,
+        TaskState.PAUSED,
+        TaskState.WAITING_FOR_INPUT,
+        TaskState.WAITING_FOR_REVIEW,
+    }:
+        display = DisplayState.GENERATING
+    elif failed or task_state == TaskState.UNKNOWN:
         display = DisplayState.FAILED
     elif last_good_count:
         display = DisplayState.AVAILABLE
@@ -867,15 +1356,73 @@ def _aggregate_stage(
         source_state = SourceState.MISSING
     issues = [issue for item in states for issue in item.issues]
     if stage == "outline" and latest_attempt and latest_attempt.task_state == TaskState.FAILED:
-        latest_group = next(
+        failed_group = next(
             (group for group in _attempt_groups(tasks) if latest_attempt.attempt_id in {
                 str(item.get("parent_job_id") or item.get("attempt_id") or item.get("id") or item.get("task_id") or "")
                 for item in group
             }),
             [],
         )
-        issues.extend(_task_issue(stage, item) for item in latest_group if _task_state(item) == TaskState.FAILED)
+        issues.extend(_task_issue(stage, item) for item in failed_group if _task_state(item) == TaskState.FAILED)
+    if stage == "outline" and latest_attempt and latest_attempt.task_state == TaskState.UNKNOWN:
+        issues.extend(
+            _task_issue(stage, item)
+            for item in latest_group
+            if _task_state(item) == TaskState.UNKNOWN
+        )
     unique_issues = {item.issue_id: item for item in issues}
+    anonymous_actionable = [
+        task
+        for task in tasks
+        if not _task_id(task)
+        and _task_state(task) in {
+            TaskState.QUEUED,
+            TaskState.RUNNING,
+            TaskState.PAUSED,
+            TaskState.WAITING_FOR_INPUT,
+            TaskState.WAITING_FOR_REVIEW,
+            TaskState.FAILED,
+            TaskState.UNKNOWN,
+        }
+    ]
+    for task in anonymous_actionable:
+        issue = _asset_state(
+            stage=stage,
+            last_good=False,
+            availability=Availability.MISSING,
+            source_state=SourceState.MISSING,
+            stale=False,
+            task=task,
+        ).issues[0]
+        unique_issues[issue.issue_id] = issue
+    controlling_states = {
+        TaskState.QUEUED,
+        TaskState.RUNNING,
+        TaskState.PAUSED,
+        TaskState.WAITING_FOR_INPUT,
+        TaskState.WAITING_FOR_REVIEW,
+        TaskState.FAILED,
+        TaskState.UNKNOWN,
+    }
+    if anonymous_actionable:
+        allowed_actions = [ProductionAction.INSPECT_FAILURE]
+        action_targets: dict[ProductionAction, list[str]] = {}
+    elif latest_attempt and task_state in controlling_states:
+        allowed_actions = _ordered_actions(
+            action
+            for task in latest_group
+            for action in _task_allowed_actions(task)
+        )
+        action_targets = _merge_action_targets(
+            _task_action_targets(task) for task in latest_group
+        )
+    else:
+        allowed_actions = _ordered_actions(
+            action for item in states for action in item.allowed_actions
+        )
+        action_targets = _merge_action_targets(
+            item.action_targets for item in states
+        )
     return StageProductionState(
         display_state=display,
         task_state=task_state,
@@ -883,6 +1430,9 @@ def _aggregate_stage(
         source_state=source_state,
         latest_attempt_failed=bool(latest_attempt and latest_attempt.failed > 0),
         update_required=stale > 0,
+        task_ids=list(latest_attempt.task_ids) if latest_attempt else [],
+        allowed_actions=allowed_actions,
+        action_targets=action_targets,
         counts=ProductionCounts(
             total=total,
             available=usable,
@@ -903,18 +1453,65 @@ def compile_course_production_state(
     authoring_state: dict[str, Any] | None = None,
     tasks: Iterable[dict[str, Any]] | None = None,
     ppt_checkpoints: Iterable[dict[str, Any]] | None = None,
+    blueprint_draft: dict[str, Any] | None = None,
+    read_failures: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     """Compile the versioned state without mutating any supplied snapshot."""
 
     authoring = deepcopy(authoring_state or {})
-    task_values = [deepcopy(item) for item in tasks or [] if isinstance(item, dict)]
+    authoring_jobs = authoring.get("jobs")
+    if isinstance(authoring_jobs, dict):
+        authoring_jobs = authoring_jobs.values()
+    elif not isinstance(authoring_jobs, list):
+        authoring_jobs = []
+    task_snapshots = [
+        {**deepcopy(item), "__production_owner": owner}
+        for source, owner in (
+            (tasks or [], "task_manager"),
+            (authoring_jobs, "teacher_asset"),
+        )
+        for item in source
+        if isinstance(item, dict)
+    ]
     for checkpoint in ppt_checkpoints or []:
         if not isinstance(checkpoint, dict):
             continue
-        task_values.append({
+        task_snapshots.append({
             **deepcopy(checkpoint),
             "type": str(checkpoint.get("type") or "slide_deck_variant_build"),
+            "__production_owner": "ppt_checkpoint",
         })
+
+    # A task may be visible through more than one owner during migration. One
+    # stable task identity must contribute only once to counts and attempts.
+    # A checkpoint is execution progress, never the lifecycle owner, so a
+    # formal TaskManager or teacher-asset snapshot always wins that collision.
+    # Between formal owners, keep the latest snapshot as during migration.
+    task_values_by_id: dict[str, dict[str, Any]] = {}
+    anonymous_task_values: list[dict[str, Any]] = []
+    for task in task_snapshots:
+        task_id = str(task.get("id") or task.get("task_id") or "")
+        if not task_id:
+            anonymous_task_values.append(task)
+            continue
+        previous = task_values_by_id.get(task_id)
+        previous_updated_at = str(
+            (previous or {}).get("updated_at")
+            or (previous or {}).get("created_at")
+            or ""
+        )
+        task_updated_at = str(task.get("updated_at") or task.get("created_at") or "")
+        previous_owner = str((previous or {}).get("__production_owner") or "")
+        task_owner = str(task.get("__production_owner") or "")
+        if previous is None:
+            task_values_by_id[task_id] = task
+        elif previous_owner == "ppt_checkpoint" and task_owner != "ppt_checkpoint":
+            task_values_by_id[task_id] = task
+        elif previous_owner != "ppt_checkpoint" and task_owner == "ppt_checkpoint":
+            continue
+        elif task_updated_at >= previous_updated_at:
+            task_values_by_id[task_id] = task
+    task_values = [*anonymous_task_values, *task_values_by_id.values()]
     tasks_by_stage: dict[str, list[dict[str, Any]]] = {key: [] for key in STAGE_KEYS}
     for task in task_values:
         stage = _TASK_STAGE_MAP.get(str(task.get("type") or task.get("asset_type") or ""))
@@ -987,6 +1584,30 @@ def compile_course_production_state(
     stages: dict[str, StageProductionState] = {
         "outline": _aggregate_stage("outline", [outline_state], tasks_by_stage["outline"], total=1),
     }
+    stages["outline"].has_unconfirmed_draft = isinstance(blueprint_draft, dict)
+    if stages["outline"].has_unconfirmed_draft:
+        outline_task_id = _task_id(outline_task)
+        if outline_task_id and _task_state(outline_task) == TaskState.COMPLETED:
+            stages["outline"].allowed_actions = _ordered_actions([
+                *stages["outline"].allowed_actions,
+                ProductionAction.REGENERATE_FROM_LATEST_SOURCE,
+            ])
+            stages["outline"].action_targets[
+                ProductionAction.REGENERATE_FROM_LATEST_SOURCE
+            ] = [outline_task_id]
+        elif not outline_task_id:
+            issue = _issue(
+                stage="outline",
+                code="outline_draft_missing_task_id",
+                summary="未确认的大纲草稿缺少可继续的任务 ID，请查看详情。",
+                action="inspect_failure",
+            )
+            stages["outline"].issues = list({
+                item.issue_id: item
+                for item in [*stages["outline"].issues, issue]
+            }.values())
+            stages["outline"].allowed_actions = [ProductionAction.INSPECT_FAILURE]
+            stages["outline"].action_targets = {}
     for stage in ("lesson_plan", "script", "ppt"):
         stages[stage] = _aggregate_stage(
             stage,
@@ -1007,6 +1628,33 @@ def compile_course_production_state(
         blocking_issues=source_blocking,
         review_issues=source_review,
     )
+
+    for code in dict.fromkeys(read_failures or []):
+        failure = _PROJECTION_READ_FAILURES.get(str(code))
+        if failure is None:
+            continue
+        summary, affected_stages = failure
+        for stage_name in affected_stages:
+            for lesson_state in unit_states:
+                if stage_name == "outline":
+                    continue
+                _apply_projection_read_failure(
+                    lesson_state.stages[stage_name],
+                    stage=stage_name,
+                    code=str(code),
+                    summary=summary,
+                    lesson_unit_id=lesson_state.lesson_unit_id,
+                )
+            issue = _apply_projection_read_failure(
+                stages[stage_name],
+                stage=stage_name,
+                code=str(code),
+                summary=summary,
+            )
+            stages[stage_name].blocking_issues = list({
+                item.issue_id: item
+                for item in [*stages[stage_name].blocking_issues, issue]
+            }.values())
 
     prepared = bool(
         stages["outline"].availability == Availability.USABLE
@@ -1033,22 +1681,50 @@ def read_course_production_state(
     course: dict[str, Any],
     authoring_repository: Any,
     task_manager: Any | None = None,
+    *,
+    authoring_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Read current owners once and delegate all interpretation to the compiler."""
 
     course_id = str(course.get("course_id") or "")
-    try:
-        authoring = authoring_repository.view(course_id)
-    except Exception:
-        authoring = {}
+    read_failures: list[str] = []
+    if authoring_state is not None:
+        authoring = deepcopy(authoring_state)
+    else:
+        try:
+            authoring = authoring_repository.view(course_id)
+            if not isinstance(authoring, dict):
+                raise TypeError("teacher asset state must be an object")
+        except Exception:
+            authoring = {}
+            read_failures.append("teacher_asset_state_read_failed")
     tasks: list[dict[str, Any]] = []
+    blueprint_draft: dict[str, Any] | None = None
     if task_manager is not None:
         try:
-            tasks = list(task_manager.get_tasks_by_course(course_id))
+            task_values = list(task_manager.get_tasks_by_course(course_id))
+            if any(not isinstance(task, dict) for task in task_values):
+                raise TypeError("task state collection must contain objects")
+            tasks = task_values
         except Exception:
             tasks = []
+            read_failures.append("task_state_read_failed")
+        try:
+            read_blueprint_draft = getattr(task_manager, "get_blueprint_draft", None)
+            if callable(read_blueprint_draft):
+                candidate = read_blueprint_draft(course_id)
+                if candidate is not None and not isinstance(candidate, dict):
+                    raise TypeError("blueprint draft must be an object or null")
+                blueprint_draft = candidate
+        except Exception:
+            blueprint_draft = None
+            read_failures.append("blueprint_draft_read_failed")
+    else:
+        read_failures.append("task_state_unavailable")
     return compile_course_production_state(
         course,
         authoring_state=authoring,
         tasks=tasks,
+        blueprint_draft=blueprint_draft,
+        read_failures=read_failures,
     )

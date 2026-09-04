@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import json
+from pathlib import Path
 
 import pytest
 
@@ -115,30 +115,36 @@ def test_model_configuration_check_is_fail_closed_and_never_needs_network(tmp_pa
 
 @pytest.mark.asyncio
 async def test_liveness_stays_successful_when_readiness_is_degraded(monkeypatch):
-    import main
+    import dependencies
 
-    monkeypatch.setattr(
-        main,
-        "compile_runtime_readiness",
-        lambda **_kwargs: {
-            "status": "degraded",
-            "ready": False,
-            "version": "test",
-            "checks": {},
-        },
-    )
-    monkeypatch.setattr(
-        main,
-        "retrieval_feature_state",
-        lambda: {
-            "enabled": False,
-            "mode": "disabled",
-            "provider": "none",
-            "provider_configured": False,
-        },
-    )
+    previous_task_manager = dependencies.get_task_manager_optional()
+    try:
+        import main
 
-    assert (await main.health_check())["status"] == "ok"
-    readiness_response = main.read_root()
-    assert readiness_response.status_code == 503
-    assert json.loads(readiness_response.body)["status"] == "degraded"
+        monkeypatch.setattr(
+            main,
+            "compile_runtime_readiness",
+            lambda **_kwargs: {
+                "status": "degraded",
+                "ready": False,
+                "version": "test",
+                "checks": {},
+            },
+        )
+        monkeypatch.setattr(
+            main,
+            "retrieval_feature_state",
+            lambda: {
+                "enabled": False,
+                "mode": "disabled",
+                "provider": "none",
+                "provider_configured": False,
+            },
+        )
+
+        assert (await main.health_check())["status"] == "ok"
+        readiness_response = main.read_root()
+        assert readiness_response.status_code == 503
+        assert json.loads(readiness_response.body)["status"] == "degraded"
+    finally:
+        dependencies.init_task_manager(previous_task_manager)

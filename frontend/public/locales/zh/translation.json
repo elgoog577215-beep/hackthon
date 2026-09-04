@@ -239,10 +239,11 @@
     "courseIssueTitle": "课程生成问题",
     "courseFailureSummary": "本课程有 {count} 项内容生成失败，已定位到当前对象。",
     "courseIssueSummary": "本课程有 {count} 项内容需要处理，已定位到当前对象。",
+    "pendingSourceReviewSummary": "可使用 · {count} 项资料待核对",
     "localFailure": { "lesson_plan": "本讲教案生成失败" },
     "states": { "not_generated": "未生成", "generating": "生成中", "available": "可使用", "failed": "生成失败" },
     "stages": { "outline": "大纲", "lesson_plan": "教案", "script": "讲义", "ppt": "PPT" },
-    "auxiliary": { "idle": "尚未开始", "queued": "等待生成", "running": "生成中", "paused": "已暂停", "failed": "生成失败", "completed": "已完成", "stale": "来源已更新", "pendingReview": "待核对", "recentFailure": "最近一次生成失败" }
+    "auxiliary": { "idle": "尚未开始", "queued": "等待生成", "running": "生成中", "waitingForInput": "待补充信息", "waitingForReview": "待审阅确认", "paused": "已暂停", "cancelled": "已取消", "failed": "生成失败", "completed": "已完成", "unknown": "状态待处理", "qualityBlocked": "质量检查未通过", "stale": "来源已更新", "pendingReview": "待核对", "recentFailure": "最近一次生成失败" }
   },
   "teacherWorkbench": {
     "courseWorkbench": "课程工作台",
@@ -1658,6 +1659,7 @@
     "failureCode": "问题代码",
     "buildDetails": "生成详情",
     "documentLoadFailed": "页面内容稿读取失败",
+    "resumeTargetUnavailable": "要恢复的 PPT 任务已经变化，请返回课程工作台刷新状态。",
     "retryDegradedPages": "重试降级页面",
     "repairDegradedVisuals": "修复降级视觉",
     "manuscriptNotGenerated": "尚未生成页面内容稿",

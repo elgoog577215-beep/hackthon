@@ -462,4 +462,33 @@ describe('teacher lesson authoring store', () => {
       ['course-1', 'script-job-2'],
     ])
   })
+
+  it('passes only explicit resume job ids to batch generation APIs', async () => {
+    httpMock.post.mockResolvedValue({
+      data: { parent_job: { id: 'batch-resume', child_job_ids: [], skipped_lesson_ids: [], total: 0, started: 0 }, jobs: [] },
+    })
+    const store = useTeacherLessonAuthoringStore()
+
+    await store.generateAllLessons('course-1', undefined, '', [], {
+      regenerateReady: true,
+      resumeJobIds: ['plan-b', 'plan-a', 'plan-b', ''],
+    })
+    await store.generateAllScripts('course-1', '', {
+      regenerateReady: true,
+      resumeJobIds: ['script-b', 'script-a', 'script-b', ''],
+    })
+
+    expect(httpMock.post).toHaveBeenNthCalledWith(
+      1,
+      '/api/teacher/courses/course-1/lesson-plans/generate-all',
+      expect.objectContaining({ resume_job_ids: ['plan-b', 'plan-a'] }),
+      expect.any(Object),
+    )
+    expect(httpMock.post).toHaveBeenNthCalledWith(
+      2,
+      '/api/teacher/courses/course-1/lesson-scripts/generate-all',
+      expect.objectContaining({ resume_job_ids: ['script-b', 'script-a'] }),
+      expect.any(Object),
+    )
+  })
 })

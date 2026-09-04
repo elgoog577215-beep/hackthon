@@ -165,6 +165,54 @@ async def test_failed_v6_progress_event_atomically_terminates_the_outer_task(
 
 
 @pytest.mark.asyncio
+async def test_v6_exception_preserves_its_public_failure_contract(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import jobs.manager as task_manager_module
+    from jobs.manager import TaskManager
+    from slide_deck_v6 import V6BuildError
+
+    course = _canonical_course()
+    storage = MemoryStorage(course, tmp_path)
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "jobs.json")
+    manager = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    task_id = await manager.create_task(
+        course["course_id"],
+        "slide_deck_variant_build",
+        enqueue=False,
+        request_snapshot={"target_schema": "slide_deck_v6"},
+    )
+
+    async def fail_with_v6_contract(_task_id: str) -> None:
+        raise V6BuildError(
+            stage="render",
+            code="render_quality_gate_failed",
+            message="rendered_page_ocr_failed",
+            retryable=False,
+            page_id="page-1",
+        )
+
+    monkeypatch.setattr(manager, "_process_task", fail_with_v6_contract)
+    await manager._run_job(task_id)
+
+    task = manager.get_task(task_id)
+    assert task["status"] == "failed"
+    assert task["error_detail"] == {
+        "stage": "render",
+        "code": "render_quality_gate_failed",
+        "message": "rendered_page_ocr_failed",
+        "retryable": False,
+        "page_id": "page-1",
+    }
+
+
+@pytest.mark.asyncio
 async def test_restart_recovers_only_the_newest_equivalent_v6_build(
     tmp_path,
     monkeypatch,
@@ -556,6 +604,7 @@ async def test_v6_task_uses_shared_ai_planners_and_publishes_the_v6_contract(
     monkeypatch,
 ) -> None:
     import jobs.manager as task_manager_module
+    import slide_deck_v6_orchestrator as orchestrator_module
     from jobs.manager import TaskManager
 
     course = _canonical_course()
@@ -567,16 +616,41 @@ async def test_v6_task_uses_shared_ai_planners_and_publishes_the_v6_contract(
         "teaching_representation_repository",
         representations,
     )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "audit_exported_pptx",
+        lambda *_args, **_kwargs: {"passed": True, "blockers": [], "warnings": []},
+    )
 
     async def story_planner(request: dict) -> dict:
         pages = []
+        source_block_ids = [
+            str(block_id)
+            for unit in request["teaching_units"]
+            for block_id in unit["primary_block_ids"]
+        ]
         for index, unit in enumerate(request["teaching_units"], start=1):
+            source_text = "\n".join(
+                str(block.get("source_text") or "")
+                for block in unit.get("primary_blocks") or []
+            ).strip()
+            visible_copy = source_text or "Record a complete observation"
             pages.append({
                 "page_id": f"page-{index}",
                 "teaching_unit_id": unit["teaching_unit_id"],
                 "template_layout_id": unit["allowed_template_layout_ids"][0],
                 "title": "Record a complete observation",
                 "summary": "",
+                "visible_copy": [visible_copy],
+                "page_goal": "Record the object, time, context, and observation",
+                "primary_claim": visible_copy,
+                "audience_question": "Object, time, context, and observation?",
+                "audience_action": "Record the object and time",
+                "expected_response": "Record the object, time, context, and observation",
+                "observable_evidence": "Object, time, context, and observation",
+                "transition": "Record the context",
+                "reveal_steps": ["Record the object", "Record the time"],
+                "composition_notes": "Object, time, context, observation",
                 "source_block_ids": unit["primary_block_ids"],
             })
         return {
@@ -585,6 +659,14 @@ async def test_v6_task_uses_shared_ai_planners_and_publishes_the_v6_contract(
             "provider": "shared-pool-fixture",
             "model": "story-fixture",
             "attempts": 1,
+            "narrative_brief": {
+                "schema_version": "slide_narrative_brief_v1",
+                "central_question": "How can an observation become trustworthy evidence?",
+                "learning_path": ["Record the observation", "Check the evidence"],
+                "observable_checkpoints": ["The record includes object, time, and context"],
+                "time_budget_minutes": 15,
+                "must_include_source_block_ids": source_block_ids,
+            },
             "pages": pages,
         }
 

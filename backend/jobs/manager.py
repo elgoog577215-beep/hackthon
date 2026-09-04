@@ -1997,19 +1997,23 @@ class TaskManager:
     async def continue_teacher_outline_details(
         self,
         course_id: str,
+        task_id: str,
     ) -> dict[str, Any]:
         """Start or retry full outline generation only on an explicit command."""
-        related = [
-            task
-            for task in self.tasks.values()
-            if task.get("course_id") == course_id
-            and task.get("type") == "teacher_outline_generation"
-        ]
-        related.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
-        if not related:
+        requested_task_id = str(task_id or "").strip()
+        task_record = self.tasks.get(requested_task_id)
+        if not isinstance(task_record, dict):
             raise ValueError("No teacher outline job was found for this course")
-        task = deepcopy(related[0])
-        task_id = str(task["id"])
+        if (
+            str(task_record.get("course_id") or "") != course_id
+            or task_record.get("type") != "teacher_outline_generation"
+        ):
+            raise TaskStateConflict(
+                "The requested task is not the authorized outline job for this course",
+                status=str(task_record.get("status") or "unknown"),
+            )
+        task = deepcopy(task_record)
+        task_id = requested_task_id
         if task.get("status") in {"pending", "running"}:
             return {
                 "status": "already_running",
@@ -2829,6 +2833,12 @@ class TaskManager:
             if task["course_id"] == course_id
         ]
 
+    def get_blueprint_draft(self, course_id: str) -> dict[str, Any] | None:
+        """Read the formal unconfirmed blueprint draft without mutating it."""
+
+        draft = self._version_repository.load_draft(course_id)
+        return deepcopy(draft) if isinstance(draft, dict) else None
+
     def get_latest_task_by_course(
         self,
         course_id: str,
@@ -3523,7 +3533,19 @@ class TaskManager:
                     "reason": "课程已经完成导入",
                     "checkpoint": checkpoint,
                 }
-            retryable = bool(task.get("import_retryable")) and source_ready
+            if status in {"cancelled", "canceled"}:
+                return {
+                    "state": "cancelled",
+                    "can_resume": False,
+                    "reason_code": "job_cancelled",
+                    "reason": "导入任务已取消，不会恢复原任务",
+                    "checkpoint": checkpoint,
+                }
+            retryable = (
+                status in {"paused", "failed", "error"}
+                and bool(task.get("import_retryable"))
+                and source_ready
+            )
             if status in {"failed", "error"} and not retryable:
                 return {
                     "state": "unavailable",
@@ -4165,7 +4187,18 @@ class TaskManager:
                     "reason_code": "already_imported", "reason": "课程已经完成导入",
                     "checkpoint": checkpoint,
                 }
-            retryable = bool(task.get("import_retryable")) and source_ready
+            if status in {"cancelled", "canceled"}:
+                return {
+                    "state": "cancelled", "can_resume": False,
+                    "reason_code": "job_cancelled",
+                    "reason": "导入任务已取消，不会恢复原任务",
+                    "checkpoint": checkpoint,
+                }
+            retryable = (
+                status in {"paused", "failed", "error"}
+                and bool(task.get("import_retryable"))
+                and source_ready
+            )
             if status in {"failed", "error"} and not retryable:
                 return {
                     "state": "unavailable", "can_resume": False,

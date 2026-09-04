@@ -5,14 +5,19 @@ from unittest.mock import AsyncMock
 import pytest
 
 from course_context import CourseContextManager
+from course_generation_budget import CourseGenerationDeadlineExceeded
 from course_pedagogy import PedagogyMode
 from course_repository import CourseDocumentRepository
 from course_versions import CourseVersionRepository
 from generation_workspace import GenerationWorkspaceNotFound, GenerationWorkspaceRepository
+from jobs.manager import (
+    DEFAULT_MAX_CONCURRENCY,
+    TaskManager,
+    TaskRecoveryConflict,
+    TaskStateConflict,
+)
 from learning_asset_storage import LearningAssetRepository
 from material_storage import MaterialRepository
-from course_generation_budget import CourseGenerationDeadlineExceeded
-from jobs.manager import DEFAULT_MAX_CONCURRENCY, TaskManager, TaskStateConflict
 from websocket_service import WebSocketService
 
 
@@ -182,6 +187,34 @@ async def test_pause_rejects_missing_and_terminal_tasks():
     with pytest.raises(TaskStateConflict) as exc_info:
         await manager.pause_task("done")
     assert exc_info.value.status == "completed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status",
+    [
+        "waiting_for_input",
+        "waiting_for_review",
+        "cancelled",
+        "canceled",
+        "provider_half_closed",
+    ],
+)
+async def test_generic_resume_rejects_dedicated_cancelled_and_unknown_states(
+    tmp_path,
+    monkeypatch,
+    status,
+):
+    manager = await _durable_generation_manager(
+        tmp_path,
+        monkeypatch,
+        status=status,
+    )
+
+    with pytest.raises(TaskRecoveryConflict):
+        await manager.resume_task("t1")
+
+    assert manager.tasks["t1"]["status"] == status
 
 
 def test_find_active_task_never_falls_back_to_terminal_history():

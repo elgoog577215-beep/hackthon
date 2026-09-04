@@ -214,12 +214,16 @@ describe('统一讲义页面', () => {
         courseId: 'course-1', lesson: emptyLesson, canGenerate: true,
         generationJob, externalToolbar: true,
       },
+      slots: { toolbar: '<div class="external-script-toolbar">重新生成</div>' },
     })
 
     expect(wrapper.find('.script-source-steps').exists()).toBe(false)
     expect(wrapper.find('.script-source-review__heading').exists()).toBe(false)
     expect(wrapper.find('.script-generation-progress').exists()).toBe(false)
     expect(wrapper.find('.script-source-blocks').exists()).toBe(true)
+    const directChildren = Array.from(wrapper.element.children)
+    expect(directChildren.indexOf(wrapper.get('.external-script-toolbar').element))
+      .toBeLessThan(directChildren.indexOf(wrapper.get('.script-generation-panel').element))
   })
 
   it('无讲稿时先映射教案教学块，核对后直接触发生成', async () => {

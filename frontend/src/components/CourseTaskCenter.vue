@@ -687,8 +687,8 @@ watch(() => props.modelValue, async open => {
   await nextTick()
   if (!props.embedded) panelRef.value?.focus()
 }, { immediate: true })
-watch(() => props.courseId, value => {
-  if (value) selectedTaskId.value = preferredTaskId(value)
+watch(() => props.courseId, courseId => {
+  if (courseId) selectedTaskId.value = preferredTaskId(courseId)
 })
 watch(tasks, currentTasks => {
   if (currentTasks.some(task => taskCategory(task) === taskFilter.value)) return

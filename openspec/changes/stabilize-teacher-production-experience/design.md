@@ -39,7 +39,13 @@ course_id
 preparation_state: preparing | prepared
 stages[outline|lesson_plan|script|ppt]
   display_state: not_generated | generating | available | failed
-  task_state: idle | queued | running | paused | failed | completed
+  task_state: idle | queued | running | waiting_for_input | waiting_for_review |
+              paused | cancelled | failed | completed | unknown
+  allowed_actions: generate | pause_generation | cancel_generation |
+                   resume_generation | provide_input | review_generation |
+                   retry_generation | inspect_failure | regenerate_from_latest_source
+  action_targets[action]: task_id[]
+  has_unconfirmed_draft?  # outline only; read from the formal version repository
   availability: missing | usable | stale
   counts: total | available | generating | failed | stale
   latest_attempt
@@ -48,6 +54,12 @@ lessons[]
 ```
 
 选择纯投影而不是新状态表，是为了保持“任务记录执行、资产记录结果、投影负责解释”的单向关系。`generation.ts` 继续合并任务传输事件，`teacherLessonAuthoring.ts` 继续管理资产编辑，但二者不再决定最终显示状态。
+
+`task_state` 还必须保留会改变命令的 `waiting_for_input / waiting_for_review / unknown`；四态 `display_state` 可以为了阅读而压缩，`allowed_actions` 不得压缩。每个需要已有任务的写动作还必须在 `action_targets` 中绑定它真正允许操作的 task ID，混合批次不得因 `allowed_actions` 的并集把可重试权限扩大到未知或不可恢复任务。动作权限优先读取 TaskManager 已有的 `recovery.state / recovery.can_resume / reason_code`、发布回执与质量门，教师资产 job 只在其正式生命周期和显式 `retryable` 范围内补充授权。未知状态、缺失真实 task ID、幽灵检查点和恢复合同拒绝均默认只允许查看原因。
+
+大纲未确认草稿由正式 CourseVersionRepository 保存，TaskManager 只暴露只读边界给投影。投影只在草稿存在且有真实已完成 outline task ID 时，授权 `regenerate_from_latest_source` 并绑定该 ID；草稿缺任务身份时 fail closed。
+
+教师逐讲 PPT V6 不得再只创建进程内 SSE task ID。它的页面内容稿与最终 PPT attempt 由 `TeacherLessonAuthoringRepository.jobs` 统一持久化，至少保存 `course_id / lesson_unit_id / asset_type / type / status / request_snapshot / resume_from_job_id`；V6 progress/checkpoint 只保存可恢复的执行进度，SSE 只传输事件。列表、刷新恢复、暂停、取消、继续和投影必须全部使用同一教师资产 job ID，不得把它误当成 TaskManager ID。进程中断后由持久 job 进入可恢复失败，不假装仍在运行。
 
 ### 2. 资产四态使用 last-good 优先规则
 
@@ -68,7 +80,68 @@ lessons[]
 
 ### 4. 生成入口收成批量按钮，恢复范围仍是最小单元
 
-教案和讲义正文上方各保留一个主按钮：未生成/部分缺失时显示“生成全部…”，失败时原位显示“重新生成”。按钮始终调用现有批量入口，后端继续以 `regenerate_ready=false` 跳过可用讲次，并从失败讲次或教学块检查点恢复。右栏保留状态和完整错误，但不再重复提供教案/讲义重试按钮。
+教案和讲义正文上方各保留一个主按钮：未生成/部分缺失时显示“生成全部…”，失败时原位显示“重新生成”。按钮始终调用现有批量入口：普通缺失不携带恢复 ID，服务端跳过全部可用讲次；失败恢复必须携带投影 `action_targets.retry_generation` 明确授权的 `resume_job_ids`，后端在创建任何子任务前一次性校验这些 ID 的课程、类型、讲次、来源修订和恢复资格，并且只恢复它们。空 `resume_job_ids` 不得再猜 latest，`cancelled` 不得隐式恢复。恢复路径从原任务检查点续办，不覆盖其他可用内容。右栏保留状态和完整错误，但不再重复提供教案/讲义重试按钮。
+
+状态、显示、动作和命令固定为同一张表；页面不得再从本地 jobs 或 `can_generate` 重写有投影时的结论：
+
+| 正式事实 | 投影 | 页面主显示 | 主动作 | 后端链路 |
+| --- | --- | --- | --- | --- |
+| 无可用资产、无活动任务 | `not_generated / idle` | 未生成 | 生成全部 | 批量生成，服务端只选择当前可生成的缺失讲次 |
+| 无可用资产、正式所有者记录任务排队或运行 | `generating / queued|running` | 生成中 | 暂停或取消 | 只有任务类型、正式所有者和命令能力一致时，才使用投影中的真实 task ID |
+| 历史记录或检查点直接使用 `active / queued` | `generating / running|queued` + `inspect_failure` | 生成中 + 状态待处理 | 查看原因 | 原始状态没有对应的正式后端命令时 fail closed，不把状态名称直接换算成写权限 |
+| 正式任务与 PPT checkpoint 使用同一 ID | 以正式任务记录为准 | 按正式任务状态显示 | 按正式所有者授权 | checkpoint 只提供进度证据，不能覆盖 TaskManager 或教师资产 job 的命令语义 |
+| 大纲任务等待补充输入 | `generating / waiting_for_input` + `provide_input` | 生成中 + 待补充 | 补充并继续 | 只调用大纲详情继续命令，不调用通用 resume |
+| 大纲任务等待审阅 | `generating / waiting_for_review` + `review_generation` | 生成中 + 待审阅 | 查看并确认 | 进入正式审阅/确认流程，不调用通用 resume |
+| 无可用资产、任务暂停 | `generating / paused` | 生成中 + 已暂停 | 继续 | 批量恢复并复用暂停任务的输入与检查点 |
+| 无可用资产、任务已取消 | `not_generated / cancelled` | 未生成 + 已取消 | 生成全部 | 创建新的批量任务，不把用户取消伪装成失败 |
+| 历史任务使用 `canceled` 拼写 | `not_generated / cancelled` | 未生成 + 已取消 | 生成全部 | 只做兼容归一，不计入失败，也不恢复旧任务 |
+| 无可用资产、最新失败且可重试 | `failed / failed` + `retry_generation` | 生成失败 | 重新生成 | 批量恢复，只重试失败或缺失单元 |
+| 历史任务使用 `error` 且明确可重试 | `failed / failed` + `retry_generation` | 生成失败 | 重新生成 | 复用真实 task ID 和检查点；未明确可重试时只查看原因 |
+| 任务因修订冲突进入 `conflict` | `failed / failed` + `inspect_failure` | 生成失败 + 内容已变化 | 处理冲突 | 不显示继续或重新生成，不向失败任务发送恢复命令 |
+| 有 last-good、最新重生成失败且可重试 | `available / failed` + `latest_attempt_failed` + `retry_generation` | 可使用 + 最近失败 | 重新生成 | `regenerate_ready=true`，只纳入带失败 attempt 的可用讲次 |
+| 最新失败明确不可重试 | `failed|available / failed` + `inspect_failure` | 生成失败或可使用 + 失败说明 | 查看并处理原因 | 不显示重新生成，不发生成请求 |
+| `completed_with_warnings` 且已发布 | `available / completed` + review issue | 可使用 + 待修正 | 查看建议 | 发布回执为真源，不重复生成 |
+| `completed_with_warnings` 但质量门阻断 | `failed|available / failed` + 显式恢复合同 | 生成失败或可使用 + 质量阻断 | 重新生成或查看原因 | 仅 `recovery.can_resume=true` 时开放恢复 |
+| 非空未知任务状态 | `failed|available / unknown` + `inspect_failure` | 生成失败或可使用 + 状态待处理 | 查看原因 | 所有写操作 fail closed，并记录稳定问题码 |
+| 任务或资产真源读取失败 | `failed|available / unknown` + 读取失败 issue | 生成状态暂时无法确认 | 查看原因 | “未知”不得当成“空”；last-good 可读，任何写动作关闭 |
+| 全部当前资产可用、无失败 attempt | `available / completed|idle` | 可使用 | 无恢复动作 | 不创建任务；主动重生成继续走独立确认流程 |
+
+前端共享适配器直接消费投影的 `allowed_actions` 并选择页面主动作；业务组件只负责显示已获授权的按钮并路由到既有命令。旧 jobs 仅在整份新投影缺失时做 fail-closed 兜底，不能与新投影共同投票，也不能仅凭状态名或检查点存在猜测恢复能力。
+
+动作授权是 `任务状态 × 正式所有者 × 任务类型 × 恢复合同 × 精确任务 ID` 的联合结果。任何一项缺失或不一致时只能查看原因；显示层可以继续表达“生成中”或 last-good“可使用”，但不得因此开放暂停、取消、继续或重试。
+
+状态迁移只由正式任务所有者执行，投影与页面都不直接写状态：
+
+| 当前控制态 | 合法命令 | 身份处理 | 非法捷径 |
+| --- | --- | --- | --- |
+| `idle / cancelled` | 新建生成 | 创建新 task/job ID | 不恢复已取消 ID，不猜 latest |
+| `queued / running` | 暂停或取消 | 使用对应 action target 中的原 ID | 不用阶段任务 ID 并集扩大范围 |
+| `waiting_for_input` | 补充输入 | 沿用原大纲 task ID 进入专用继续命令 | 不调通用 resume、cancel 或 retry |
+| `waiting_for_review` | 进入正式审阅/确认 | 沿用原 task ID | 不调通用 resume、cancel 或 retry |
+| `paused` | 继续 | TaskManager 沿用原 ID；教师资产批量恢复以原 job ID 授权并创建可溯源新 job | 不用 course ID 或选中讲次猜测 |
+| `failed` 且明确可恢复 | 重试 | TaskManager 使用原 ID；教师资产新 job 记录 `resume_from_job_id` | 不重放其他已成功单元 |
+| `completed` | 无恢复命令 | 原 ID 终态保留；主动重生成另走确认并新建 | 不把完成任务改回运行态 |
+| `unknown` 或真源不可读 | 仅查看原因 | 不产生新 ID，不改原记录 | 不根据缓存、检查点或页面布尔值迁移 |
+
+动作路由也固定到正式所有者，不能只在页面层统一按钮名称：
+
+| 阶段与动作 | 前端命令 | 后端正式所有者与校验 | 任务身份结果 |
+| --- | --- | --- | --- |
+| 大纲新建 | 提交课程信息并创建大纲任务 | `TaskManager.create_task` 校验课程与活动任务冲突 | 创建新 task ID |
+| 大纲暂停、取消 | `/tasks/{task_id}/pause`、`DELETE /tasks/{task_id}` | `TaskManager` 按投影目标 ID 校验当前状态并严格持久化 | 沿用原 ID 进入 `paused/cancelled` |
+| 大纲等待补充 | `/generation/outline-details/continue` 携带 `task_id` | `continue_teacher_outline_details(course_id, task_id)` 同时校验课程、类型和 `waiting_for_input` | 沿用原 ID，不调用通用 resume |
+| 大纲失败重试或暂停继续 | `/tasks/{task_id}/resume` | `TaskManager.resume_task(task_id)` 复核 recovery、来源和检查点 | 沿用原 ID |
+| 教案、讲义新建 | `lesson-plans/generate-all`、`lesson-scripts/generate-all` | 教师资产仓库只选择当前缺失且满足上游条件的讲次 | 每讲创建新 job ID |
+| 教案、讲义暂停、取消 | `lesson-jobs/{job_id}/pause`、`DELETE lesson-jobs/{job_id}` | 教师资产仓库按精确 job ID 校验课程、类型和当前状态 | 原 job 进入 `paused/cancelled` |
+| 教案、讲义继续或重试 | 同一批量入口携带 `resume_job_ids` | 在创建任务前一次性校验课程、资产类型、讲次、来源修订和恢复资格 | 每讲创建新 job ID，并保存 `resume_from_job_id` |
+| PPT 新建或主动重生成 | 进入 PPT 工作区后调用 V6 build stream | 教师 PPT job 所有者校验课程、讲次、来源与页面内容稿 | 创建新 job ID |
+| PPT 暂停、取消 | 教师 `lesson-jobs` 的 pause/delete | 教师资产仓库按投影目标 ID 校验当前状态 | 原 job 进入 `paused/cancelled` |
+| PPT 暂停继续或失败重试 | V6 build stream 携带 `resume_task_id` | 只接受同课程、同讲次、同 PPT 类型且正式可恢复的教师资产 job | 创建新 job ID，并保存 `resume_from_job_id` |
+| 查看原因、处理问题 | 只导航 stage、lesson、block、task、issue | 不进入任务所有者，不执行写命令 | 不创建或修改任何 ID |
+
+服务端投影、前端解析器和后端命令入口共同遵守以下不变量：任务型写动作没有 `action_targets[action]` 就不得显示或执行；`waiting_for_input / waiting_for_review / unknown` 不得被通用继续或重试吸收；`cancelled` 只能新建；恢复新 attempt 必须保留旧 ID 作为授权与溯源，不能覆盖旧失败或取消事实。
+
+全局 `CourseTaskCenter` 是 TaskManager 的管理面，不是课程生产状态的第二权威。它可以依据所选任务详情和 `recovery` 对导入、旧整课生成等任务执行暂停、恢复、审阅或确认删除，但每次都必须使用当前 `selectedTask.id`，不得按 course ID 猜任务；课程库、工作台、日历和文件空间仍只以 `course_production_state_v1` 决定生产状态与主操作。
 
 底层单讲端点暂不删除，因为它仍可作为批量执行器内部能力和旧客户端兼容。加入调用观测，确认无外部调用并完成合同迁移后再单独决定退场。
 

@@ -279,6 +279,7 @@ import { activeLocale, t } from '../shared/i18n'
 import {
   lessonProductionState,
   productionDisplayStateLabel,
+  productionStagePrimaryIssue,
   readCourseProductionState,
   type AssetProductionState,
   type CourseProductionState,
@@ -482,13 +483,15 @@ const preparationReadyLabel = computed(() => t('teacherHome.sessionPanel.prepara
   .replace('{total}', '4'))
 const preparationPrimaryLabel = computed(() => {
   if (!selectedSession.value?.lesson_unit_id) return t('teacherHome.sessionPanel.linkOutline')
+  if (outlinePreparation.value.tone !== 'ready') return t('teacherHome.continuePreparing')
   if (lessonPlanPreparation.value.tone === 'missing') return t('teacherHome.sessionPanel.startLessonPlan')
   if (['review', 'warning', 'error', 'working'].includes(lessonPlanPreparation.value.tone)) return t('teacherHome.sessionPanel.reviewLessonPlan')
   if (scriptPreparation.value.tone !== 'ready') return t('teacherHome.sessionPanel.prepareScript', '准备讲义')
   if (pptPreparation.value.tone !== 'ready') return t('teacherHome.sessionPanel.preparePpt')
   return t('teacherHome.continuePreparing')
 })
-const preparationNextStage = computed<'lesson' | 'script' | 'ppt'>(() => {
+const preparationNextStage = computed<'foundation' | 'lesson' | 'script' | 'ppt'>(() => {
+  if (outlinePreparation.value.tone !== 'ready') return 'foundation'
   if (lessonPlanPreparation.value.tone !== 'ready') return 'lesson'
   if (scriptPreparation.value.tone !== 'ready') return 'script'
   return 'ppt'
@@ -556,15 +559,34 @@ function preparationState(tone: PreparationTone, labelKey: string, detailKey: st
   }
 }
 function projectedPreparation(state: AssetProductionState, readyDetailKey: string): PreparationState {
-  const issue = state.issues[0]
-  const tone: PreparationTone = state.display_state === 'available'
+  const issue = productionStagePrimaryIssue(state)
+  const auxiliaryTone: PreparationTone | null = ['paused', 'waiting_for_input', 'waiting_for_review'].includes(state.task_state)
+    ? 'working'
+    : state.task_state === 'unknown' || state.latest_attempt_failed
+      ? 'error'
+      : state.update_required || state.availability === 'stale' || state.source_state === 'stale'
+        ? 'warning'
+        : issue
+          ? issue.blocking === false ? 'review' : 'error'
+          : null
+  const tone: PreparationTone = auxiliaryTone || (state.display_state === 'available'
     ? 'ready'
-    : state.display_state === 'generating' ? 'working' : state.display_state === 'failed' ? 'error' : 'missing'
-  const detail = issue?.summary || (state.update_required
-    ? t('teacherProductionState.auxiliary.stale', '来源已更新')
-    : state.latest_attempt_failed
+    : state.display_state === 'generating' ? 'working' : state.display_state === 'failed' ? 'error' : 'missing')
+  const detail = state.task_state === 'waiting_for_input'
+    ? t('teacherProductionState.auxiliary.waitingForInput', '待补充信息')
+    : state.task_state === 'waiting_for_review'
+      ? t('teacherProductionState.auxiliary.waitingForReview', '待审阅确认')
+      : state.task_state === 'unknown'
+        ? t('teacherProductionState.auxiliary.unknown', '状态待处理')
+        : state.task_state === 'paused'
+    ? t('teacherProductionState.auxiliary.paused', '已暂停')
+    : state.issues.some(item => item.code.includes('quality'))
+      ? t('teacherProductionState.auxiliary.qualityBlocked', '质量检查未通过')
+      : state.latest_attempt_failed
       ? t('teacherProductionState.auxiliary.recentFailure', '最近一次生成失败')
-      : t(`teacherHome.sessionPanel.details.${readyDetailKey}`))
+      : state.update_required || state.availability === 'stale' || state.source_state === 'stale'
+        ? t('teacherProductionState.auxiliary.stale', '来源已更新')
+        : issue?.summary || t(`teacherHome.sessionPanel.details.${readyDetailKey}`)
   return { tone, label: productionDisplayStateLabel(state.display_state), detail }
 }
 function latestSessionJob(kind: 'plan' | 'ppt'): TeacherLessonJob | undefined {
@@ -636,7 +658,7 @@ async function loadSessionPreparation(session: ClassSession | null) {
   }
   sessionPreparationLoading.value = true
   try {
-    const [authoringResponse, calendarResponse] = await Promise.all([
+    const [authoringResult] = await Promise.allSettled([
       http.get<TeacherLessonAuthoringView>(
         `/api/teacher/courses/${session.course_id}/lesson-authoring`,
         teacherRequestConfig({ silentError: true }),
@@ -646,9 +668,10 @@ async function loadSessionPreparation(session: ClassSession | null) {
         teacherRequestConfig({ silentError: true }),
       ),
     ])
+    if (authoringResult.status === 'rejected') throw authoringResult.reason
     if (request === sessionPreparationRequest) {
-      sessionAuthoringView.value = authoringResponse.data
-      sessionProductionState.value = readCourseProductionState(calendarResponse.data)
+      sessionAuthoringView.value = authoringResult.value.data
+      sessionProductionState.value = readCourseProductionState(authoringResult.value.data.course_production_state)
     }
   } catch (error: any) {
     if (request === sessionPreparationRequest) sessionPreparationError.value = String(error?.response?.data?.detail?.message || error?.message || t('teacherHome.sessionPanel.details.statusUnavailable'))

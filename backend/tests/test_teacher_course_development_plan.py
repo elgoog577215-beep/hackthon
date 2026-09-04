@@ -208,6 +208,34 @@ def test_pause_keeps_checkpoint_and_marks_job_resumable(tmp_path):
     assert paused["checkpoint"]["result_sections"][0]["content"] == "已完成"
 
 
+@pytest.mark.parametrize(
+    ("job", "expected"),
+    [
+        ({"id": "paused-job", "status": "paused"}, True),
+        (
+            {
+                "id": "failed-job",
+                "status": "failed",
+                "error": {"retryable": True},
+            },
+            True,
+        ),
+        (
+            {
+                "id": "cancelled-job",
+                "status": "cancelled",
+                "error": {"retryable": True},
+            },
+            False,
+        ),
+        ({"id": "non-retryable-job", "status": "failed"}, False),
+        ({"status": "paused"}, False),
+    ],
+)
+def test_batch_resume_requires_explicit_authorized_job_identity(job, expected):
+    assert lesson_router._teacher_asset_job_can_resume(job) is expected
+
+
 @pytest.mark.asyncio
 async def test_generate_all_lesson_plans_returns_parent_and_independent_queue_metadata(monkeypatch):
     source = {"course_id": "course-1"}
@@ -310,15 +338,20 @@ async def test_lesson_plan_batch_resumes_only_paused_and_failed_lessons(monkeypa
     prior_jobs = {
         "paused-job": {
             "id": "paused-job",
+            "course_id": "course-1",
             "lesson_unit_id": "lesson-11",
             "type": "teacher_lesson_plan_generation",
             "status": "paused",
+            "source_outline_revision_id": "outline-1",
         },
         "failed-job": {
             "id": "failed-job",
+            "course_id": "course-1",
             "lesson_unit_id": "lesson-12",
             "type": "teacher_lesson_plan_generation",
             "status": "failed",
+            "source_outline_revision_id": "outline-1",
+            "error": {"retryable": True},
         },
     }
     monkeypatch.setattr(lesson_router, "_source_course", lambda *_args: {"course_id": "course-1"})
@@ -342,6 +375,9 @@ async def test_lesson_plan_batch_resumes_only_paused_and_failed_lessons(monkeypa
         def view(self, _course_id):
             return {"jobs": prior_jobs}
 
+        def get_job(self, _course_id, job_id):
+            return prior_jobs[job_id]
+
         def current_arrangement(self, _course_id, lesson_unit_id):
             return lessons[int(lesson_unit_id.split("-")[-1]) - 1]["arrangement"]
 
@@ -351,7 +387,10 @@ async def test_lesson_plan_batch_resumes_only_paused_and_failed_lessons(monkeypa
 
     result = await lesson_router.generate_all_lesson_plans(
         "course-1",
-        lesson_router.GenerateAllLessonPlansRequest(request_id="resume-plans"),
+        lesson_router.GenerateAllLessonPlansRequest(
+            request_id="resume-plans",
+            resume_job_ids=["paused-job", "failed-job"],
+        ),
         SimpleNamespace(headers={"X-User-Id": "teacher-1"}),
         SimpleNamespace(),
         Repository(),
@@ -381,15 +420,20 @@ async def test_lesson_script_batch_resumes_only_paused_and_failed_lessons(monkey
     prior_jobs = {
         "paused-script": {
             "id": "paused-script",
+            "course_id": "course-1",
             "lesson_unit_id": "lesson-11",
             "type": "teacher_lesson_script_generation",
             "status": "paused",
+            "source_lesson_plan_revision_id": "plan-lesson-11",
         },
         "failed-script": {
             "id": "failed-script",
+            "course_id": "course-1",
             "lesson_unit_id": "lesson-12",
             "type": "teacher_lesson_script_generation",
             "status": "failed",
+            "source_lesson_plan_revision_id": "plan-lesson-12",
+            "error": {"retryable": True},
         },
     }
     monkeypatch.setattr(lesson_router, "_source_course", lambda *_args: {"course_id": "course-1"})
@@ -416,9 +460,15 @@ async def test_lesson_script_batch_resumes_only_paused_and_failed_lessons(monkey
         def view(self, _course_id):
             return {"jobs": prior_jobs}
 
+        def get_job(self, _course_id, job_id):
+            return prior_jobs[job_id]
+
     result = await lesson_router.generate_all_lesson_scripts(
         "course-1",
-        lesson_router.GenerateAllLessonScriptsRequest(request_id="resume-scripts"),
+        lesson_router.GenerateAllLessonScriptsRequest(
+            request_id="resume-scripts",
+            resume_job_ids=["paused-script", "failed-script"],
+        ),
         SimpleNamespace(headers={"X-User-Id": "teacher-1"}),
         SimpleNamespace(),
         Repository(),

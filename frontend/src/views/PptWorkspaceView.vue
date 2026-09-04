@@ -662,6 +662,7 @@ const buildErrorLabel = computed(() => (
 async function loadWorkspace() {
   const id = courseId.value
   if (!id) return
+  const requestedResumeTaskId = String(route.query?.resumeTaskId || '')
   store.setTeacherLessonScope(teacherLessonId.value)
   if (isTeacherSurface.value && !teacherLessonId.value) {
     documentLoadError.value = '请先从课程生产页选择一讲，再进入 PPT 工作台。'
@@ -692,7 +693,20 @@ async function loadWorkspace() {
       manuscriptPromise,
     ])
     if (!envelope || !isCurrentAttempt(id, attempt) || envelope.source_format !== 'canonical') return
-    if (store.courseId === id && !store.representations.length) {
+    if (requestedResumeTaskId) {
+      const recovered = await store.recoverDurableBuild(id, requestedResumeTaskId)
+      if (
+        String(recovered?.id || '') !== requestedResumeTaskId
+        || store.buildTaskId !== requestedResumeTaskId
+        || !store.buildPaused
+      ) {
+        documentLoadError.value = t(
+          'pptWorkspace.resumeTargetUnavailable',
+          '要恢复的 PPT 任务已经变化，请返回课程工作台刷新状态。',
+        )
+        return
+      }
+    } else if (store.courseId === id && !store.representations.length) {
       await store.recoverDurableBuild(id)
     }
     if (!isCurrentAttempt(id, attempt)) return
@@ -715,6 +729,12 @@ async function loadWorkspace() {
       const query = { ...route.query }
       delete query.regenerate
       await router.replace({ path: route.path, query, hash: route.hash })
+    }
+    if (requestedResumeTaskId) {
+      const query = { ...route.query }
+      delete query.resumeTaskId
+      await router.replace({ path: route.path, query, hash: route.hash })
+      void store.resumeBuild().catch(() => undefined)
     }
   } catch {
     if (isCurrentAttempt(id, attempt)) {

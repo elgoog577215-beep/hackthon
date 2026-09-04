@@ -17,7 +17,7 @@
           @click="emit('generate')"
         >
           <Sparkles :size="19" />
-          {{ t('courseWorkbench.pptReview.aiGenerate', 'AI 生成') }}
+          {{ generateLabel || t('courseWorkbench.pptReview.aiGenerate', 'AI 生成') }}
         </button>
         <button class="ppt-upload-secondary" type="button" :disabled="busy" @click="fileInput?.click()">
           <LoaderCircle v-if="busy" :size="19" class="spin" />
@@ -179,7 +179,8 @@ type PptReview = {
   ai_candidates: AiCandidate[]
 }
 
-const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; lessonId: string; lessonTitle: string; canGenerate: boolean; referenceCount?: number; prepareSources?: () => Promise<void> }>(), {
+const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; lessonId: string; lessonTitle: string; canGenerate: boolean; generateLabel?: string; referenceCount?: number; prepareSources?: () => Promise<void> }>(), {
+  generateLabel: '',
   referenceCount: 0,
 })
 const emit = defineEmits<{ generate: []; confirmed: [] }>()

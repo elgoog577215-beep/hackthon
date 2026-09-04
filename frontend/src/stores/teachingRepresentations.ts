@@ -33,6 +33,7 @@ export interface SlideDeckBuildOptions {
   templatePackVersion?: number
   forceRebuild?: boolean
   manuscriptOnly?: boolean
+  resumeTaskId?: string
   webImageRetrieval?: {
     enabled: boolean
     mode?: 'wide_safe'
@@ -470,6 +471,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     buildError: '',
     buildFailure: null as TeachingRepresentationBuildFailure | null,
     buildTaskId: '',
+    buildResumeOptions: null as SlideDeckBuildOptions | null,
     buildPaused: false,
     buildStreamActive: false,
     loading: false,
@@ -534,6 +536,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.buildError = ''
       this.buildFailure = null
       this.buildTaskId = ''
+      this.buildResumeOptions = null
       this.buildPaused = false
       this.buildStreamActive = false
       this.loading = false
@@ -633,6 +636,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       )
       this.slideCandidateSchema = ''
       this.slideCandidateStatus = ''
+      if (options) this.buildResumeOptions = { ...options }
       let durableMonitorStarted = false
       try {
         const response = await fetch(
@@ -657,6 +661,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
                 ...(options.templatePackId ? { template_pack_id: options.templatePackId } : {}),
                 ...(options.templatePackVersion == null ? {} : { template_version: options.templatePackVersion }),
                 force_rebuild: options.forceRebuild === true,
+                ...(options.resumeTaskId ? { resume_task_id: options.resumeTaskId } : {}),
                 ...(options.webImageRetrieval ? {
                   web_image_retrieval: {
                     enabled: options.webImageRetrieval.enabled,
@@ -680,7 +685,17 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             this.buildTaskId = event.task_id
             if (!durableMonitorStarted) {
               durableMonitorStarted = true
-              this.monitorDurableBuild(courseId, event.task_id, courseToken, attemptToken)
+              if (this.teacherLessonId) {
+                this.monitorTeacherLessonBuild(
+                  courseId,
+                  this.teacherLessonId,
+                  event.task_id,
+                  courseToken,
+                  attemptToken,
+                )
+              } else {
+                this.monitorDurableBuild(courseId, event.task_id, courseToken, attemptToken)
+              }
             }
           }
           this.buildProgress = Math.max(this.buildProgress, Number(event.progress || 0))
@@ -808,7 +823,13 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             this.buildFailure = failure
             this.buildError = failure.code
           }
-          if (event.event === 'paused') this.buildPaused = true
+          if (['paused', 'build_paused'].includes(event.event)) this.buildPaused = true
+          if (['cancelled', 'build_cancelled'].includes(event.event)) {
+            this.buildPaused = false
+            this.buildError = ''
+            this.buildFailure = null
+            this.buildStage = 'cancelled'
+          }
           if (!progressV2) {
             this.buildDisplayStep = advanceSlideBuildStep(
               this.buildDisplayStep,
@@ -824,7 +845,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         })
         if (isCurrentAttempt()) this.buildStreamActive = false
         if (!isCurrentAttempt()) return completedRef.value
-        if (this.buildPaused) return completedRef.value
+        if (this.buildPaused || this.buildStage === 'cancelled') return completedRef.value
         if (this.buildError) throw new Error(this.buildError)
         const completed = completedRef.value
         if (options?.manuscriptOnly && completed?.ppt_manuscript_state) {
@@ -943,6 +964,55 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         }
       }, 1_000)
     },
+    monitorTeacherLessonBuild(
+      courseId: string,
+      lessonUnitId: string,
+      taskId: string,
+      courseToken: number,
+      attemptToken: number,
+    ) {
+      const isCurrentAttempt = () => (
+        this.courseId === courseId
+        && this.teacherLessonId === lessonUnitId
+        && this.courseRequestToken === courseToken
+        && this.buildAttemptToken === attemptToken
+        && this.buildTaskId === taskId
+      )
+      window.setTimeout(async () => {
+        if (!isCurrentAttempt() || !this.building) return
+        try {
+          const response = await http.get(
+            `/api/teacher/courses/${courseId}/lesson-jobs/${taskId}`,
+          )
+          if (!isCurrentAttempt()) return
+          const task = response.data?.job || response.data || {}
+          this.applyDurableBuildTask(task)
+          const status = String(task.status || '')
+          if (['failed', 'completed', 'completed_with_warnings', 'cancelled', 'paused'].includes(status)) {
+            this.buildStreamActive = false
+            this.buildAttemptToken += 1
+            if (['completed', 'completed_with_warnings'].includes(status)) {
+              await this.load(courseId)
+              if (this.courseId === courseId && this.teacherLessonId === lessonUnitId) {
+                this.settleCompletedSlideBuild()
+              }
+            }
+            return
+          }
+        } catch {
+          // A transient poll failure must not override the active SSE stream.
+        }
+        if (isCurrentAttempt() && this.building) {
+          this.monitorTeacherLessonBuild(
+            courseId,
+            lessonUnitId,
+            taskId,
+            courseToken,
+            attemptToken,
+          )
+        }
+      }, 1_000)
+    },
     applySlideBuildProgressV2(payload: SlideBuildProgressV2) {
       if (payload?.schema_version !== 'slide_build_progress_v2') return
       const normalized = {
@@ -986,6 +1056,12 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         this.buildStage = String(task.phase || task.current_phase || this.buildStage)
       }
       if (status === 'failed') {
+        const isTeacherPptJob = [
+          'teacher_lesson_ppt_manuscript_generation',
+          'teacher_lesson_ppt_generation',
+        ].includes(String(task.type || ''))
+        const canResume = task.recovery?.can_resume === true
+          || (isTeacherPptJob && task.retryable === true)
         const failure = normalizedBuildFailure(
           task.error_detail || task.error || task.message,
           task.result?.quality || task.quality,
@@ -997,7 +1073,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         )
         this.settleFailedSlideDraft(quality)
         this.building = false
-        this.buildPaused = Boolean(task.recovery?.can_resume)
+        this.buildPaused = canResume
         this.buildProgress = Math.max(
           this.buildProgress,
           this.buildPaused ? Number(task.progress || 0) : 100,
@@ -1034,9 +1110,51 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         )
       }
     },
-    async recoverDurableBuild(courseId: string) {
+    async recoverDurableBuild(courseId: string, expectedTaskId = '') {
       this.switchCourse(courseId)
-      if (this.teacherLessonId) return null
+      if (this.teacherLessonId) {
+        const lessonUnitId = this.teacherLessonId
+        const response = await http.get(
+          `/api/teacher/courses/${courseId}/lesson-authoring`,
+        )
+        if (this.courseId !== courseId || this.teacherLessonId !== lessonUnitId) return null
+        const jobs = Array.isArray(response.data?.jobs) ? response.data.jobs : []
+        const task = jobs
+          .filter((item: Record<string, any>) => (
+            String(item.lesson_unit_id || '') === lessonUnitId
+            && ['teacher_lesson_ppt_manuscript_generation', 'teacher_lesson_ppt_generation']
+              .includes(String(item.type || ''))
+            && (!expectedTaskId || String(item.id || '') === expectedTaskId)
+          ))
+          .sort((left: Record<string, any>, right: Record<string, any>) => (
+            String(right.updated_at || right.created_at || '')
+              .localeCompare(String(left.updated_at || left.created_at || ''))
+          ))[0]
+        if (!task) return null
+        this.applyDurableBuildTask(task)
+        const snapshot = task.request_snapshot || {}
+        this.buildResumeOptions = {
+          mode: snapshot.mode || 'teaching',
+          theme: snapshot.theme || 'academic-editorial',
+          engineVersion: 'v6',
+          manuscriptOnly: task.type === 'teacher_lesson_ppt_manuscript_generation',
+          templatePackId: snapshot.template_pack_id || undefined,
+          templatePackVersion: snapshot.template_version || undefined,
+          forceRebuild: Boolean(snapshot.force_rebuild),
+        }
+        if (['pending', 'running'].includes(String(task.status || ''))) {
+          const courseToken = this.courseRequestToken
+          const attemptToken = ++this.buildAttemptToken
+          this.monitorTeacherLessonBuild(
+            courseId,
+            lessonUnitId,
+            String(task.id || ''),
+            courseToken,
+            attemptToken,
+          )
+        }
+        return task
+      }
       const response = await http.get(`/api/courses/${courseId}/task`)
       if (this.courseId !== courseId) return null
       const task = response.data || {}
@@ -1181,7 +1299,9 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     },
     async pauseBuild() {
       if (!this.buildTaskId || !this.building) return
-      await http.post(`/api/tasks/${this.buildTaskId}/pause`)
+      await http.post(this.teacherLessonId
+        ? `/api/teacher/courses/${this.courseId}/lesson-jobs/${this.buildTaskId}/pause`
+        : `/api/tasks/${this.buildTaskId}/pause`)
       this.buildPaused = true
       this.building = false
       this.buildStreamActive = false
@@ -1190,6 +1310,14 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     async resumeBuild() {
       if (!this.buildTaskId || !this.courseId) return
       const courseId = this.courseId
+      if (this.teacherLessonId) {
+        const options = this.buildResumeOptions
+        if (!options) throw new Error('teacher_lesson_ppt_resume_context_missing')
+        return this.buildProgressive(courseId, {
+          ...options,
+          resumeTaskId: this.buildTaskId,
+        })
+      }
       await http.post(`/api/tasks/${this.buildTaskId}/resume`)
       this.buildPaused = false
       this.building = true
@@ -1246,7 +1374,9 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.buildAttemptToken += 1
       this.buildError = ''
       this.buildFailure = null
-      await http.delete(`/api/tasks/${this.buildTaskId}`)
+      await http.delete(this.teacherLessonId
+        ? `/api/teacher/courses/${this.courseId}/lesson-jobs/${this.buildTaskId}`
+        : `/api/tasks/${this.buildTaskId}`)
       this.buildTaskId = ''
       this.buildPaused = false
       this.building = false

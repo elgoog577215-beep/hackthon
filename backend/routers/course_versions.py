@@ -108,6 +108,18 @@ class OutlineShapeConfirmRequest(BaseModel):
         return value
 
 
+class OutlineDetailsContinueRequest(BaseModel):
+    task_id: str = Field(min_length=1, max_length=160)
+
+    @field_validator("task_id")
+    @classmethod
+    def task_id_must_not_be_blank(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("task_id must not be blank")
+        return normalized
+
+
 GenerationStep = Literal[
     "outline",
     "knowledge",
@@ -426,12 +438,13 @@ async def get_generation_review(
 @router.post("/generation/outline-details/continue", status_code=202)
 async def continue_outline_details(
     course_id: str,
+    payload: OutlineDetailsContinueRequest,
     tm: TaskManager = Depends(require_task_manager),
 ):
     """Generate the full teacher outline after an explicit teacher command."""
     await get_course_or_404(course_id)
     try:
-        return await tm.continue_teacher_outline_details(course_id)
+        return await tm.continue_teacher_outline_details(course_id, payload.task_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except TaskStateConflict as exc:

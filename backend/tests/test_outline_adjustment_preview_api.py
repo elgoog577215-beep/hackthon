@@ -32,8 +32,8 @@ class OutlineDetailsManager:
     def __init__(self):
         self.calls = []
 
-    async def continue_teacher_outline_details(self, course_id):
-        self.calls.append(course_id)
+    async def continue_teacher_outline_details(self, course_id, task_id):
+        self.calls.append((course_id, task_id))
         return {
             "status": "started",
             "job_id": "job-shape-1",
@@ -55,11 +55,33 @@ def test_outline_detail_continue_endpoint_starts_teacher_job(monkeypatch):
 
     response = client.post(
         "/api/courses/course-1/generation/outline-details/continue",
+        json={"task_id": "job-shape-1"},
     )
 
     assert response.status_code == 202
     assert response.json()["job_id"] == "job-shape-1"
-    assert manager.calls == ["course-1"]
+    assert manager.calls == [("course-1", "job-shape-1")]
+
+
+def test_outline_detail_continue_endpoint_rejects_missing_task_id(monkeypatch):
+    manager = OutlineDetailsManager()
+
+    async def load_course(course_id):
+        return {"course_id": course_id}
+
+    monkeypatch.setattr(course_versions, "get_course_or_404", load_course)
+    app = FastAPI()
+    app.include_router(course_versions.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: manager
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/courses/course-1/generation/outline-details/continue",
+        json={},
+    )
+
+    assert response.status_code == 422
+    assert manager.calls == []
 
 
 def test_legacy_outline_confirmation_endpoint_is_removed(monkeypatch):

@@ -15,6 +15,10 @@ from pydantic import BaseModel, Field
 
 from ai_base import AIProviderRequestError, AIProviderUnavailable
 from course_generation_budget import TeacherScriptGenerationTimeout
+from course_production_state import (
+    read_course_production_state,
+    teacher_asset_job_can_resume,
+)
 from dependencies import (
     get_teacher_lesson_authoring_repository,
     require_task_manager,
@@ -133,6 +137,73 @@ async def _run_lesson_plan_job(
     await run()
 
 
+def _latest_teacher_asset_job(
+    jobs: list[dict[str, Any]],
+    lesson_unit_id: str,
+    job_type: str,
+) -> dict[str, Any] | None:
+    """Select the same latest asset attempt that the production projection sees."""
+
+    candidates = [
+        (index, item)
+        for index, item in enumerate(jobs)
+        if isinstance(item, dict)
+        and str(item.get("lesson_unit_id") or "") == lesson_unit_id
+        and str(item.get("type") or "") == job_type
+    ]
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda pair: (
+            str(pair[1].get("updated_at") or pair[1].get("created_at") or ""),
+            pair[0],
+        ),
+    )[1]
+
+
+def _teacher_asset_job_can_resume(job: dict[str, Any] | None) -> bool:
+    return teacher_asset_job_can_resume(job)
+
+
+def _validated_teacher_asset_resume_job(
+    repository: TeacherLessonAuthoringRepository,
+    *,
+    course_id: str,
+    resume_job_id: str,
+    lesson_unit_id: str,
+    job_type: str,
+    source_revision_field: str,
+    source_revision_id: str,
+) -> dict[str, Any]:
+    try:
+        candidate = repository.get_job(course_id, resume_job_id)
+    except TeacherLessonAuthoringError as exc:
+        raise TeacherLessonAuthoringError(
+            "teacher_asset_resume_conflict",
+            "要恢复的生成任务不存在或已不属于当前课程，请刷新状态后重试。",
+            details={"resume_job_id": resume_job_id, "reason": "job_not_found"},
+        ) from exc
+    reason = ""
+    if str(candidate.get("course_id") or "") != course_id:
+        reason = "course_mismatch"
+    elif str(candidate.get("lesson_unit_id") or "") != lesson_unit_id:
+        reason = "lesson_mismatch"
+    elif str(candidate.get("type") or "") != job_type:
+        reason = "job_type_mismatch"
+    elif str(candidate.get(source_revision_field) or "") != source_revision_id:
+        reason = "source_revision_changed"
+    elif not _teacher_asset_job_can_resume(candidate):
+        reason = "resume_not_allowed"
+    if reason:
+        raise TeacherLessonAuthoringError(
+            "teacher_asset_resume_conflict",
+            "要恢复的生成任务与当前内容或恢复状态不一致，请刷新状态后重试。",
+            details={"resume_job_id": resume_job_id, "reason": reason},
+        )
+    return candidate
+
+
 class GenerateLessonPlanRequest(BaseModel):
     request_id: str = Field(default="", max_length=160)
     resume_job_id: str = Field(default="", max_length=160)
@@ -153,6 +224,7 @@ class GenerateAllLessonPlansRequest(BaseModel):
     requirements: str = Field(default="", max_length=4000)
     material_asset_ids: list[str] = Field(default_factory=list, max_length=24)
     regenerate_ready: bool = False
+    resume_job_ids: list[str] = Field(default_factory=list, max_length=1000)
 
 
 class UpdateLessonTypeRequest(BaseModel):
@@ -180,6 +252,7 @@ class GenerateAllLessonScriptsRequest(BaseModel):
     request_id: str = Field(default="", max_length=160)
     requirements: str = Field(default="", max_length=4000)
     regenerate_ready: bool = False
+    resume_job_ids: list[str] = Field(default_factory=list, max_length=1000)
 
 
 class SaveLessonScriptDraftRequest(BaseModel):
@@ -233,6 +306,133 @@ class TeacherLessonV6BuildRequest(BaseModel):
     template_pack_version: int | None = Field(default=None, ge=1)
     force_rebuild: bool = False
     resume_task_id: str = Field(default="", max_length=200)
+
+
+class _TeacherPptV6JobStopped(RuntimeError):
+    def __init__(self, job: dict[str, Any]) -> None:
+        self.job = deepcopy(job)
+        super().__init__(str(job.get("status") or "stopped"))
+
+
+def _teacher_ppt_resume_job_id(
+    repository: TeacherLessonAuthoringRepository,
+    course_id: str,
+    lesson_unit_id: str,
+    resume_task_id: str,
+    *,
+    job_type: str,
+    source_lesson_plan_revision_id: str,
+    source_lesson_script_revision_id: str,
+    source_material_revision: str,
+) -> str:
+    """Validate the exact formal PPT attempt before reusing its checkpoint."""
+
+    candidate_id = str(resume_task_id or "").strip()
+    if not candidate_id:
+        return ""
+    try:
+        candidate = repository.get_job(course_id, candidate_id)
+    except TeacherLessonAuthoringError as exc:
+        if exc.code != "teacher_job_not_found":
+            raise
+        raise TeacherLessonAuthoringError(
+            "teacher_lesson_ppt_resume_job_mismatch",
+            "要恢复的 PPT 任务不存在，请刷新状态后重试。",
+            details={"resume_job_id": candidate_id, "reason": "job_not_found"},
+        ) from exc
+    reason = ""
+    if str(candidate.get("course_id") or "") != course_id:
+        reason = "course_mismatch"
+    elif str(candidate.get("lesson_unit_id") or "") != lesson_unit_id:
+        reason = "lesson_mismatch"
+    elif str(candidate.get("type") or "") != job_type:
+        reason = "job_type_mismatch"
+    elif not _teacher_asset_job_can_resume(candidate):
+        reason = "resume_not_allowed"
+    elif (
+        str(candidate.get("source_lesson_plan_revision_id") or "")
+        != source_lesson_plan_revision_id
+    ):
+        reason = "lesson_plan_revision_changed"
+    elif (
+        str(candidate.get("source_script_revision_id") or "")
+        != source_lesson_script_revision_id
+    ):
+        reason = "lesson_script_revision_changed"
+    elif (
+        str(candidate.get("source_material_revision") or "")
+        != source_material_revision
+    ):
+        reason = "source_material_revision_changed"
+    if reason:
+        raise TeacherLessonAuthoringError(
+            "teacher_lesson_ppt_resume_job_mismatch",
+            "要恢复的 PPT 任务与当前内容或恢复状态不一致，请刷新状态后重试。",
+            details={"resume_job_id": candidate_id, "reason": reason},
+        )
+    return candidate_id
+
+
+def _teacher_ppt_job_must_be_active(
+    repository: TeacherLessonAuthoringRepository,
+    course_id: str,
+    job_id: str,
+) -> dict[str, Any]:
+    job = repository.get_job(course_id, job_id)
+    if str(job.get("status") or "") not in {"pending", "running"}:
+        raise _TeacherPptV6JobStopped(job)
+    return job
+
+
+def _teacher_ppt_stopped_event(job: dict[str, Any]) -> dict[str, Any]:
+    status = str(job.get("status") or "cancelled")
+    return {
+        "event": "build_paused" if status == "paused" else "build_cancelled",
+        "task_id": str(job.get("id") or ""),
+        "progress": int(job.get("progress") or 0),
+        "stage": str(job.get("phase") or status),
+        "status": status,
+        "message": str(job.get("message") or ""),
+    }
+
+
+def _teacher_ppt_queued_event(
+    job: dict[str, Any],
+    *,
+    target_schema: str,
+) -> dict[str, Any]:
+    return {
+        "event": "build_queued",
+        "task_id": str(job.get("id") or ""),
+        "job": deepcopy(job),
+        "progress": int(job.get("progress") or 0),
+        "stage": str(job.get("phase") or "queued"),
+        "target_schema": target_schema,
+    }
+
+
+def _fail_teacher_ppt_job(
+    repository: TeacherLessonAuthoringRepository,
+    course_id: str,
+    job_id: str,
+    *,
+    code: str,
+    message: str,
+    retryable: bool,
+    phase: str,
+) -> dict[str, Any]:
+    current = repository.get_job(course_id, job_id)
+    if str(current.get("status") or "") in {"paused", "cancelled"}:
+        return current
+    return repository.update_job(
+        course_id,
+        job_id,
+        status="failed",
+        phase=phase,
+        message=message,
+        stream_complete=True,
+        error={"code": code, "message": message, "retryable": retryable},
+    )
 
 
 def _requested_template_version(body: TeacherLessonV6BuildRequest) -> int | None:
@@ -1740,6 +1940,12 @@ async def get_lesson_authoring_view(
             "outline_material_draft": outline_material_draft,
             "lessons": _lesson_projection(source, repository, authoring_state),
             "jobs": list((authoring_state.get("jobs") or {}).values()),
+            "course_production_state": read_course_production_state(
+                source,
+                repository,
+                tm,
+                authoring_state=authoring_state,
+            ),
         }
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
@@ -2919,7 +3125,45 @@ async def build_teacher_lesson_v6_manuscript(
         or ""
     )
     source_material_revision = stable_hash(material_bindings, prefix="pptrefs_")
-    task_id = f"teacher-v6-manuscript-{uuid.uuid4().hex}"
+    resume_from_job_id = _teacher_ppt_resume_job_id(
+        repository,
+        course_id,
+        lesson_unit_id,
+        body.resume_task_id,
+        job_type="teacher_lesson_ppt_manuscript_generation",
+        source_lesson_plan_revision_id=source_plan_revision,
+        source_lesson_script_revision_id=source_script_revision,
+        source_material_revision=source_material_revision,
+    )
+    request_snapshot = {
+        "lesson_unit_id": lesson_unit_id,
+        "mode": body.mode,
+        "theme": body.theme,
+        "template_pack_id": body.template_pack_id,
+        "template_version": _requested_template_version(body),
+        "force_rebuild": body.force_rebuild,
+        "source_lesson_plan_revision_id": source_plan_revision,
+        "source_script_revision_id": source_script_revision,
+        "source_material_revision": source_material_revision,
+    }
+    job = repository.create_job(
+        course_id,
+        lesson_unit_id,
+        job_type="teacher_lesson_ppt_manuscript_generation",
+        request_id=f"teacher-ppt-manuscript-{uuid.uuid4().hex}",
+        source_outline_revision_id=str(document.document_revision or ""),
+    )
+    task_id = str(job["id"])
+    job = repository.update_job(
+        course_id,
+        task_id,
+        request_snapshot=request_snapshot,
+        input_fingerprint=stable_hash(request_snapshot, prefix="teacher-ppt-manuscript-input"),
+        resume_from_job_id=resume_from_job_id,
+        source_lesson_plan_revision_id=source_plan_revision,
+        source_script_revision_id=source_script_revision,
+        source_material_revision=source_material_revision,
+    )
     _capture_generation_source_snapshot(
         course_id=course_id,
         actor=actor,
@@ -2939,6 +3183,15 @@ async def build_teacher_lesson_v6_manuscript(
                 task_id,
             )
         except (FileNotFoundError, ValueError) as exc:
+            _fail_teacher_ppt_job(
+                repository,
+                course_id,
+                task_id,
+                code="lesson_ppt_manuscript_resume_checkpoint_missing",
+                message="页面内容稿的恢复检查点不可用，请重新生成。",
+                retryable=False,
+                phase="ppt_manuscript_resume_blocked",
+            )
             raise HTTPException(
                 status_code=409,
                 detail={
@@ -2959,8 +3212,18 @@ async def build_teacher_lesson_v6_manuscript(
         sequence = 0
 
         async def progress(payload: dict[str, object]) -> None:
+            _teacher_ppt_job_must_be_active(repository, course_id, task_id)
+            repository.update_job_live(
+                course_id,
+                task_id,
+                status="running",
+                phase=str(payload.get("stage") or "building"),
+                progress=int(payload.get("percent") or 0),
+                message="正在生成可逐页审阅的 页面内容稿",
+            )
             await queue.put({
                 "event": "slide_build_progress_v2",
+                "task_id": task_id,
                 "progress": int(payload.get("percent") or 0),
                 "stage": str(payload.get("stage") or "building"),
                 "message": "正在生成可逐页审阅的 页面内容稿",
@@ -2969,6 +3232,7 @@ async def build_teacher_lesson_v6_manuscript(
             })
 
         def source_revision_provider() -> str:
+            _teacher_ppt_job_must_be_active(repository, course_id, task_id)
             current = repository.lesson(course_id, lesson_unit_id)
             current_script = next(
                 (
@@ -3002,6 +3266,15 @@ async def build_teacher_lesson_v6_manuscript(
 
         async def run() -> None:
             try:
+                started = repository.update_job(
+                    course_id,
+                    task_id,
+                    status="running",
+                    phase="ppt_manuscript_building",
+                    message="正在生成可逐页审阅的 页面内容稿",
+                )
+                if str(started.get("status") or "") != "running":
+                    raise _TeacherPptV6JobStopped(started)
                 result = await orchestrator.build(
                     task_id=task_id,
                     document=document,
@@ -3017,6 +3290,7 @@ async def build_teacher_lesson_v6_manuscript(
                     manuscript_only=True,
                     progress_callback=progress,
                 )
+                _teacher_ppt_job_must_be_active(repository, course_id, task_id)
                 state = repository.save_v6_ppt_manuscript(
                     course_id,
                     lesson_unit_id,
@@ -3034,8 +3308,20 @@ async def build_teacher_lesson_v6_manuscript(
                     ),
                     manuscript=dict(result.get("ppt_manuscript") or {}),
                 )
+                completed = repository.update_job(
+                    course_id,
+                    task_id,
+                    status="completed",
+                    phase="ppt_manuscript_complete",
+                    progress=100,
+                    message="页面内容稿已生成",
+                    stream_complete=True,
+                    result_revision_id=str(state.get("revision") or ""),
+                )
                 await queue.put({
                     "event": "build_complete",
+                    "task_id": task_id,
+                    "job": completed,
                     "progress": 100,
                     "stage": "manuscript_complete",
                     "target_schema": "ppt_manuscript_v1",
@@ -3048,15 +3334,47 @@ async def build_teacher_lesson_v6_manuscript(
                 })
             except V6BuildError as exc:
                 failure = exc.failure.model_dump(mode="json")
+                current = repository.get_job(course_id, task_id)
+                if str(current.get("status") or "") in {"paused", "cancelled"}:
+                    await queue.put(_teacher_ppt_stopped_event(current))
+                    return
+                failed = _fail_teacher_ppt_job(
+                    repository,
+                    course_id,
+                    task_id,
+                    code=str(failure.get("code") or "teacher_lesson_v6_manuscript_failed"),
+                    message=str(failure.get("message") or "页面内容稿生成失败"),
+                    retryable=bool(failure.get("retryable")),
+                    phase=str(failure.get("stage") or "ppt_manuscript_failed"),
+                )
                 await queue.put({
                     "event": "build_failed",
+                    "task_id": task_id,
+                    "job": failed,
                     "progress": 100,
                     "stage": failure.get("stage") or "failed",
                     **failure,
                 })
+            except _TeacherPptV6JobStopped as exc:
+                await queue.put(_teacher_ppt_stopped_event(exc.job))
             except Exception as exc:
+                current = repository.get_job(course_id, task_id)
+                if str(current.get("status") or "") in {"paused", "cancelled"}:
+                    await queue.put(_teacher_ppt_stopped_event(current))
+                    return
+                failed = _fail_teacher_ppt_job(
+                    repository,
+                    course_id,
+                    task_id,
+                    code="teacher_lesson_v6_manuscript_failed",
+                    message=str(exc),
+                    retryable=True,
+                    phase="ppt_manuscript_failed",
+                )
                 await queue.put({
                     "event": "build_failed",
+                    "task_id": task_id,
+                    "job": failed,
                     "progress": 100,
                     "stage": "failed",
                     "code": "teacher_lesson_v6_manuscript_failed",
@@ -3066,6 +3384,15 @@ async def build_teacher_lesson_v6_manuscript(
             finally:
                 await queue.put(None)
 
+        sequence += 1
+        queued_event = _teacher_ppt_queued_event(
+            job,
+            target_schema="ppt_manuscript_v1",
+        )
+        yield (
+            f"id: {sequence}\nevent: build_queued\ndata: "
+            f"{json.dumps({**queued_event, 'sequence': sequence}, ensure_ascii=False)}\n\n"
+        )
         worker = asyncio.create_task(run())
         while True:
             payload = await queue.get()
@@ -3152,7 +3479,50 @@ async def build_teacher_lesson_v6(
     manuscript_theme = str(
         manuscript_state.get("theme") or "academic-editorial"
     )
-    task_id = f"teacher-v6-{uuid.uuid4().hex}"
+    template = _resolve_locked_teacher_v6_template(manuscript_state, actor)
+    resume_from_job_id = _teacher_ppt_resume_job_id(
+        repository,
+        course_id,
+        lesson_unit_id,
+        body.resume_task_id,
+        job_type="teacher_lesson_ppt_generation",
+        source_lesson_plan_revision_id=source_plan_revision,
+        source_lesson_script_revision_id=source_script_revision,
+        source_material_revision=source_material_revision,
+    )
+    request_snapshot = {
+        "lesson_unit_id": lesson_unit_id,
+        "mode": manuscript_mode,
+        "theme": manuscript_theme,
+        "source_lesson_plan_revision_id": source_plan_revision,
+        "source_script_revision_id": source_script_revision,
+        "source_material_revision": source_material_revision,
+        "force_rebuild": body.force_rebuild,
+        "ppt_manuscript_task_id": str(manuscript_state.get("task_id") or ""),
+        "ppt_manuscript_revision": str(
+            manuscript_state.get("revision")
+            or confirmed_manuscript.manuscript_revision
+            or ""
+        ),
+    }
+    job = repository.create_job(
+        course_id,
+        lesson_unit_id,
+        job_type="teacher_lesson_ppt_generation",
+        request_id=f"teacher-ppt-{uuid.uuid4().hex}",
+        source_outline_revision_id=str(document.document_revision or ""),
+    )
+    task_id = str(job["id"])
+    job = repository.update_job(
+        course_id,
+        task_id,
+        request_snapshot=request_snapshot,
+        input_fingerprint=stable_hash(request_snapshot, prefix="teacher-ppt-input"),
+        resume_from_job_id=resume_from_job_id,
+        source_lesson_plan_revision_id=source_plan_revision,
+        source_script_revision_id=source_script_revision,
+        source_material_revision=source_material_revision,
+    )
     _capture_generation_source_snapshot(
         course_id=course_id,
         actor=actor,
@@ -3162,15 +3532,24 @@ async def build_teacher_lesson_v6(
         target_revision=source_script_revision or source_plan_revision,
         task_id=task_id,
     )
-    template = _resolve_locked_teacher_v6_template(manuscript_state, actor)
     candidate_repository = SlideDeckV6CandidateRepository(
         repository.root / "v6_candidates"
     )
+    checkpoint_task_id = body.resume_task_id or str(manuscript_state.get("task_id") or "")
     try:
         candidate_repository.clone_checkpoint(
-            str(manuscript_state.get("task_id") or ""), task_id
+            checkpoint_task_id, task_id
         )
     except (FileNotFoundError, ValueError) as exc:
+        _fail_teacher_ppt_job(
+            repository,
+            course_id,
+            task_id,
+            code="lesson_ppt_manuscript_checkpoint_missing",
+            message="页面内容稿的生成检查点不可用，请重新生成页面内容稿。",
+            retryable=False,
+            phase="ppt_resume_blocked",
+        )
         raise HTTPException(
             status_code=409,
             detail={
@@ -3191,8 +3570,18 @@ async def build_teacher_lesson_v6(
         sequence = 0
 
         async def progress(payload: dict[str, object]) -> None:
+            _teacher_ppt_job_must_be_active(repository, course_id, task_id)
+            repository.update_job_live(
+                course_id,
+                task_id,
+                status="running",
+                phase=str(payload.get("stage") or "building"),
+                progress=int(payload.get("percent") or 0),
+                message="正在从已确认的 页面内容稿编译可编辑页面",
+            )
             await queue.put({
                 "event": "slide_build_progress_v2",
+                "task_id": task_id,
                 "progress": int(payload.get("percent") or 0),
                 "stage": str(payload.get("stage") or "building"),
                 "message": "正在从已确认的 页面内容稿编译可编辑页面",
@@ -3201,6 +3590,7 @@ async def build_teacher_lesson_v6(
             })
 
         def source_revision_provider() -> str:
+            _teacher_ppt_job_must_be_active(repository, course_id, task_id)
             current = repository.lesson(course_id, lesson_unit_id)
             current_script = next(
                 (
@@ -3234,6 +3624,15 @@ async def build_teacher_lesson_v6(
 
         async def run() -> None:
             try:
+                started = repository.update_job(
+                    course_id,
+                    task_id,
+                    status="running",
+                    phase="ppt_building",
+                    message="正在从已确认的 页面内容稿编译可编辑页面",
+                )
+                if str(started.get("status") or "") != "running":
+                    raise _TeacherPptV6JobStopped(started)
                 result = await orchestrator.build(
                     task_id=task_id,
                     document=document,
@@ -3249,6 +3648,7 @@ async def build_teacher_lesson_v6(
                     confirmed_manuscript=confirmed_manuscript,
                     progress_callback=progress,
                 )
+                _teacher_ppt_job_must_be_active(repository, course_id, task_id)
                 repository.bind_v6_ppt_revision(
                     course_id,
                     lesson_unit_id,
@@ -3269,8 +3669,20 @@ async def build_teacher_lesson_v6(
                     manuscript_revision=confirmed_manuscript.manuscript_revision,
                     representation_id=str(result.get("representation_id") or ""),
                 )
+                completed = repository.update_job(
+                    course_id,
+                    task_id,
+                    status="completed",
+                    phase="ppt_complete",
+                    progress=100,
+                    message="PPT 已生成",
+                    stream_complete=True,
+                    result_revision_id=str(result.get("representation_id") or ""),
+                )
                 await queue.put({
                     "event": "build_complete",
+                    "task_id": task_id,
+                    "job": completed,
                     "progress": 100,
                     "stage": "complete",
                     "target_schema": "slide_deck_v6",
@@ -3280,15 +3692,47 @@ async def build_teacher_lesson_v6(
                 })
             except V6BuildError as exc:
                 failure = exc.failure.model_dump(mode="json")
+                current = repository.get_job(course_id, task_id)
+                if str(current.get("status") or "") in {"paused", "cancelled"}:
+                    await queue.put(_teacher_ppt_stopped_event(current))
+                    return
+                failed = _fail_teacher_ppt_job(
+                    repository,
+                    course_id,
+                    task_id,
+                    code=str(failure.get("code") or "teacher_lesson_v6_failed"),
+                    message=str(failure.get("message") or "PPT 生成失败"),
+                    retryable=bool(failure.get("retryable")),
+                    phase=str(failure.get("stage") or "ppt_failed"),
+                )
                 await queue.put({
                     "event": "build_failed",
+                    "task_id": task_id,
+                    "job": failed,
                     "progress": 100,
                     "stage": failure.get("stage") or "failed",
                     **failure,
                 })
+            except _TeacherPptV6JobStopped as exc:
+                await queue.put(_teacher_ppt_stopped_event(exc.job))
             except Exception as exc:
+                current = repository.get_job(course_id, task_id)
+                if str(current.get("status") or "") in {"paused", "cancelled"}:
+                    await queue.put(_teacher_ppt_stopped_event(current))
+                    return
+                failed = _fail_teacher_ppt_job(
+                    repository,
+                    course_id,
+                    task_id,
+                    code="teacher_lesson_v6_failed",
+                    message=str(exc),
+                    retryable=True,
+                    phase="ppt_failed",
+                )
                 await queue.put({
                     "event": "build_failed",
+                    "task_id": task_id,
+                    "job": failed,
                     "progress": 100,
                     "stage": "failed",
                     "code": "teacher_lesson_v6_failed",
@@ -3298,6 +3742,15 @@ async def build_teacher_lesson_v6(
             finally:
                 await queue.put(None)
 
+        sequence += 1
+        queued_event = _teacher_ppt_queued_event(
+            job,
+            target_schema="slide_deck_v6",
+        )
+        yield (
+            f"id: {sequence}\nevent: build_queued\ndata: "
+            f"{json.dumps({**queued_event, 'sequence': sequence}, ensure_ascii=False)}\n\n"
+        )
         worker = asyncio.create_task(run())
         while True:
             payload = await queue.get()
@@ -3607,33 +4060,31 @@ async def generate_lesson_plan(
         effective_requirements = body.requirements.strip()
         effective_material_asset_ids = list(body.material_asset_ids)
         if body.resume_job_id:
-            resume_candidate = repository.get_job(course_id, body.resume_job_id)
-            if (
-                resume_candidate.get("lesson_unit_id") == lesson_unit_id
-                and resume_candidate.get("type")
-                == "teacher_lesson_plan_generation"
-                and resume_candidate.get("source_outline_revision_id")
-                == outline_revision
-                and resume_candidate.get("status")
-                in {"paused", "failed", "cancelled"}
-            ):
-                previous = resume_candidate
-                snapshot = previous.get("request_snapshot")
-                snapshot = snapshot if isinstance(snapshot, dict) else previous
-                effective_source_package_id = str(
-                    snapshot.get("source_package_id") or ""
-                )
-                effective_source_asset_id = str(
-                    snapshot.get("source_asset_id") or ""
-                )
-                effective_requirements = str(
-                    snapshot.get("requirements") or ""
-                ).strip()
-                effective_material_asset_ids = [
-                    str(item)
-                    for item in snapshot.get("material_asset_ids") or []
-                    if str(item)
-                ]
+            previous = _validated_teacher_asset_resume_job(
+                repository,
+                course_id=course_id,
+                resume_job_id=body.resume_job_id,
+                lesson_unit_id=lesson_unit_id,
+                job_type="teacher_lesson_plan_generation",
+                source_revision_field="source_outline_revision_id",
+                source_revision_id=outline_revision,
+            )
+            snapshot = previous.get("request_snapshot")
+            snapshot = snapshot if isinstance(snapshot, dict) else previous
+            effective_source_package_id = str(
+                snapshot.get("source_package_id") or ""
+            )
+            effective_source_asset_id = str(
+                snapshot.get("source_asset_id") or ""
+            )
+            effective_requirements = str(
+                snapshot.get("requirements") or ""
+            ).strip()
+            effective_material_asset_ids = [
+                str(item)
+                for item in snapshot.get("material_asset_ids") or []
+                if str(item)
+            ]
         if bool(effective_source_package_id) != bool(effective_source_asset_id):
             raise TeacherLessonAuthoringError(
                 "lesson_primary_source_incomplete",
@@ -3916,13 +4367,80 @@ async def generate_all_lesson_plans(
         actor = resolve_user_id(request.headers.get("X-User-Id"))
         skipped_lessons: list[dict[str, str]] = []
         target_lessons: list[dict[str, Any]] = []
+        lesson_ids = {
+            str(lesson.get("lesson_unit_id") or "")
+            for lesson in lessons
+            if str(lesson.get("lesson_unit_id") or "")
+        }
+        prior_jobs = list((repository.view(course_id).get("jobs") or {}).values())
+        resume_jobs_by_lesson: dict[str, dict[str, Any]] = {}
+        for resume_job_id in dict.fromkeys(body.resume_job_ids):
+            try:
+                candidate = repository.get_job(course_id, resume_job_id)
+            except TeacherLessonAuthoringError as exc:
+                raise TeacherLessonAuthoringError(
+                    "teacher_asset_resume_conflict",
+                    "要恢复的教案任务不存在，请刷新状态后重试。",
+                    details={"resume_job_id": resume_job_id, "reason": "job_not_found"},
+                ) from exc
+            lesson_unit_id = str(candidate.get("lesson_unit_id") or "")
+            if lesson_unit_id not in lesson_ids:
+                raise TeacherLessonAuthoringError(
+                    "teacher_asset_resume_conflict",
+                    "要恢复的教案任务已不属于当前课程讲次，请刷新状态后重试。",
+                    details={"resume_job_id": resume_job_id, "reason": "lesson_mismatch"},
+                )
+            validated = _validated_teacher_asset_resume_job(
+                repository,
+                course_id=course_id,
+                resume_job_id=resume_job_id,
+                lesson_unit_id=lesson_unit_id,
+                job_type="teacher_lesson_plan_generation",
+                source_revision_field="source_outline_revision_id",
+                source_revision_id=outline_revision,
+            )
+            if lesson_unit_id in resume_jobs_by_lesson:
+                raise TeacherLessonAuthoringError(
+                    "teacher_asset_resume_conflict",
+                    "同一讲次不能同时恢复多个教案任务。",
+                    details={"resume_job_id": resume_job_id, "reason": "duplicate_lesson"},
+                )
+            resume_jobs_by_lesson[lesson_unit_id] = validated
         for lesson in lessons:
             lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
             plan = lesson.get("plan") or {}
-            if not body.regenerate_ready and bool(plan.get("ready")):
+            latest_plan_job = _latest_teacher_asset_job(
+                prior_jobs,
+                lesson_unit_id,
+                "teacher_lesson_plan_generation",
+            )
+            latest_plan_status = str((latest_plan_job or {}).get("status") or "")
+            if resume_jobs_by_lesson:
+                if lesson_unit_id in resume_jobs_by_lesson:
+                    if not bool(plan.get("can_generate")):
+                        raise TeacherLessonAuthoringError(
+                            "teacher_asset_resume_conflict",
+                            "要恢复的教案任务当前不再满足生成条件，请刷新状态后重试。",
+                            details={
+                                "resume_job_id": resume_jobs_by_lesson[lesson_unit_id]["id"],
+                                "reason": "generation_unavailable",
+                            },
+                        )
+                    target_lessons.append(lesson)
+                else:
+                    skipped_lessons.append({
+                        "lesson_unit_id": lesson_unit_id,
+                        "reason": "not_selected_for_resume",
+                    })
+            elif bool(plan.get("ready")):
                 skipped_lessons.append({
                     "lesson_unit_id": lesson_unit_id,
                     "reason": "already_ready",
+                })
+            elif latest_plan_status not in {"", "cancelled", "canceled"}:
+                skipped_lessons.append({
+                    "lesson_unit_id": lesson_unit_id,
+                    "reason": "existing_job_requires_explicit_action",
                 })
             elif bool(plan.get("can_generate")):
                 target_lessons.append(lesson)
@@ -3979,21 +4497,16 @@ async def generate_all_lesson_plans(
         parent_job_id = f"tlj-batch-{uuid.uuid4().hex}"
         request_prefix = body.request_id.strip() or parent_job_id
         jobs: list[dict[str, Any]] = []
-        prior_jobs = list((repository.view(course_id).get("jobs") or {}).values())
         for batch_position, lesson in enumerate(target_lessons, start=1):
             lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
             material_scope = material_scopes[lesson_unit_id]
             arrangement = arrangements[lesson_unit_id]
             child_body = GenerateLessonPlanRequest(
                 request_id=f"{request_prefix}-{lesson_unit_id}",
-                resume_job_id=str(next((
-                    item.get("id")
-                    for item in reversed(prior_jobs)
-                    if isinstance(item, dict)
-                    and item.get("lesson_unit_id") == lesson_unit_id
-                    and item.get("type") == "teacher_lesson_plan_generation"
-                    and item.get("status") in {"paused", "failed", "cancelled"}
-                ), "")),
+                resume_job_id=str(
+                    (resume_jobs_by_lesson.get(lesson_unit_id) or {}).get("id")
+                    or ""
+                ),
                 source_package_id=str(material_scope["source_package_id"]),
                 source_asset_id=str(material_scope["source_asset_id"]),
                 requirements=body.requirements,
@@ -4336,30 +4849,28 @@ async def generate_lesson_script(
         effective_requirements = body.requirements.strip()
         effective_material_asset_ids = list(body.material_asset_ids)
         if body.resume_job_id:
-            resume_candidate = repository.get_job(course_id, body.resume_job_id)
-            if (
-                resume_candidate.get("lesson_unit_id") == lesson_unit_id
-                and resume_candidate.get("type")
-                == "teacher_lesson_script_generation"
-                and resume_candidate.get("source_lesson_plan_revision_id")
-                == plan_revision_id
-                and resume_candidate.get("status")
-                in {"paused", "failed", "cancelled"}
-            ):
-                previous = resume_candidate
-                # Resume means continue the frozen task.  A temporary failure
-                # while reloading the source tray must not silently change the
-                # prompt, sources, fingerprint, or reusable checkpoint.
-                snapshot = previous.get("request_snapshot")
-                snapshot = snapshot if isinstance(snapshot, dict) else previous
-                effective_requirements = str(
-                    snapshot.get("requirements") or ""
-                ).strip()
-                effective_material_asset_ids = [
-                    str(item)
-                    for item in snapshot.get("material_asset_ids") or []
-                    if str(item)
-                ]
+            previous = _validated_teacher_asset_resume_job(
+                repository,
+                course_id=course_id,
+                resume_job_id=body.resume_job_id,
+                lesson_unit_id=lesson_unit_id,
+                job_type="teacher_lesson_script_generation",
+                source_revision_field="source_lesson_plan_revision_id",
+                source_revision_id=plan_revision_id,
+            )
+            # Resume means continue the frozen task.  A temporary failure
+            # while reloading the source tray must not silently change the
+            # prompt, sources, fingerprint, or reusable checkpoint.
+            snapshot = previous.get("request_snapshot")
+            snapshot = snapshot if isinstance(snapshot, dict) else previous
+            effective_requirements = str(
+                snapshot.get("requirements") or ""
+            ).strip()
+            effective_material_asset_ids = [
+                str(item)
+                for item in snapshot.get("material_asset_ids") or []
+                if str(item)
+            ]
         selected_material_ids, source_evidence = _course_material_evidence(
             course_id, actor, effective_material_asset_ids
         )
@@ -4769,13 +5280,90 @@ async def generate_all_lesson_scripts(
         actor = resolve_user_id(request.headers.get("X-User-Id"))
         skipped_lessons: list[dict[str, str]] = []
         target_lessons: list[dict[str, Any]] = []
+        lessons_by_id = {
+            str(lesson.get("lesson_unit_id") or ""): lesson
+            for lesson in lessons
+            if str(lesson.get("lesson_unit_id") or "")
+        }
+        prior_jobs = list((repository.view(course_id).get("jobs") or {}).values())
+        resume_jobs_by_lesson: dict[str, dict[str, Any]] = {}
+        plan_revision_ids: dict[str, str] = {}
+        for resume_job_id in dict.fromkeys(body.resume_job_ids):
+            try:
+                candidate = repository.get_job(course_id, resume_job_id)
+            except TeacherLessonAuthoringError as exc:
+                raise TeacherLessonAuthoringError(
+                    "teacher_asset_resume_conflict",
+                    "要恢复的讲义任务不存在，请刷新状态后重试。",
+                    details={"resume_job_id": resume_job_id, "reason": "job_not_found"},
+                ) from exc
+            lesson_unit_id = str(candidate.get("lesson_unit_id") or "")
+            if lesson_unit_id not in lessons_by_id:
+                raise TeacherLessonAuthoringError(
+                    "teacher_asset_resume_conflict",
+                    "要恢复的讲义任务已不属于当前课程讲次，请刷新状态后重试。",
+                    details={"resume_job_id": resume_job_id, "reason": "lesson_mismatch"},
+                )
+            _lesson, plan_revision = _current_plan_revision(
+                repository,
+                course_id,
+                lesson_unit_id,
+            )
+            plan_revision_id = str(plan_revision.get("revision_id") or "")
+            validated = _validated_teacher_asset_resume_job(
+                repository,
+                course_id=course_id,
+                resume_job_id=resume_job_id,
+                lesson_unit_id=lesson_unit_id,
+                job_type="teacher_lesson_script_generation",
+                source_revision_field="source_lesson_plan_revision_id",
+                source_revision_id=plan_revision_id,
+            )
+            if lesson_unit_id in resume_jobs_by_lesson:
+                raise TeacherLessonAuthoringError(
+                    "teacher_asset_resume_conflict",
+                    "同一讲次不能同时恢复多个讲义任务。",
+                    details={"resume_job_id": resume_job_id, "reason": "duplicate_lesson"},
+                )
+            resume_jobs_by_lesson[lesson_unit_id] = validated
+            plan_revision_ids[lesson_unit_id] = plan_revision_id
         for lesson in lessons:
             lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
             script = lesson.get("script") or {}
-            if not body.regenerate_ready and bool(script.get("ready")):
+            latest_script_job = _latest_teacher_asset_job(
+                prior_jobs,
+                lesson_unit_id,
+                "teacher_lesson_script_generation",
+            )
+            latest_script_status = str(
+                (latest_script_job or {}).get("status") or ""
+            )
+            if resume_jobs_by_lesson:
+                if lesson_unit_id in resume_jobs_by_lesson:
+                    if not bool(script.get("can_generate")):
+                        raise TeacherLessonAuthoringError(
+                            "teacher_asset_resume_conflict",
+                            "要恢复的讲义任务当前不再满足生成条件，请刷新状态后重试。",
+                            details={
+                                "resume_job_id": resume_jobs_by_lesson[lesson_unit_id]["id"],
+                                "reason": "generation_unavailable",
+                            },
+                        )
+                    target_lessons.append(lesson)
+                else:
+                    skipped_lessons.append({
+                        "lesson_unit_id": lesson_unit_id,
+                        "reason": "not_selected_for_resume",
+                    })
+            elif bool(script.get("ready")):
                 skipped_lessons.append({
                     "lesson_unit_id": lesson_unit_id,
                     "reason": "already_ready",
+                })
+            elif latest_script_status not in {"", "cancelled", "canceled"}:
+                skipped_lessons.append({
+                    "lesson_unit_id": lesson_unit_id,
+                    "reason": "existing_job_requires_explicit_action",
                 })
             elif bool(script.get("can_generate")):
                 target_lessons.append(lesson)
@@ -4793,18 +5381,18 @@ async def generate_all_lesson_scripts(
 
         # Validate the entire launch set before creating any child.  A stale
         # plan must not leave the teacher with a half-enqueued batch.
-        plan_revision_ids: dict[str, str] = {}
         material_scopes: dict[str, dict[str, Any]] = {}
         for lesson in target_lessons:
             lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
-            _lesson, plan_revision = _current_plan_revision(
-                repository,
-                course_id,
-                lesson_unit_id,
-            )
-            plan_revision_ids[lesson_unit_id] = str(
-                plan_revision.get("revision_id") or ""
-            )
+            if lesson_unit_id not in plan_revision_ids:
+                _lesson, plan_revision = _current_plan_revision(
+                    repository,
+                    course_id,
+                    lesson_unit_id,
+                )
+                plan_revision_ids[lesson_unit_id] = str(
+                    plan_revision.get("revision_id") or ""
+                )
             material_scopes[lesson_unit_id] = _lesson_script_material_scope(
                 course_id,
                 actor,
@@ -4813,19 +5401,14 @@ async def generate_all_lesson_scripts(
 
         parent_job_id = f"tls-batch-{uuid.uuid4().hex}"
         request_prefix = body.request_id.strip() or parent_job_id
-        prior_jobs = list((repository.view(course_id).get("jobs") or {}).values())
         jobs: list[dict[str, Any]] = []
         for batch_position, lesson in enumerate(target_lessons, start=1):
             lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
             material_scope = material_scopes[lesson_unit_id]
-            resume_job_id = str(next((
-                item.get("id")
-                for item in reversed(prior_jobs)
-                if isinstance(item, dict)
-                and item.get("lesson_unit_id") == lesson_unit_id
-                and item.get("type") == "teacher_lesson_script_generation"
-                and item.get("status") in {"paused", "failed", "cancelled"}
-            ), ""))
+            resume_job_id = str(
+                (resume_jobs_by_lesson.get(lesson_unit_id) or {}).get("id")
+                or ""
+            )
             child_body = GenerateLessonScriptRequest(
                 request_id=f"{request_prefix}-{lesson_unit_id}",
                 resume_job_id=resume_job_id,

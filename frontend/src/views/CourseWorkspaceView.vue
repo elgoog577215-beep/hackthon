@@ -152,7 +152,6 @@ import TeacherCourseCalendarView from './TeacherCourseCalendarView.vue'
 import TeacherCourseSpaceView from './TeacherCourseSpaceView.vue'
 import { t } from '../shared/i18n'
 import type { CourseGenerationOptions } from '../shared/prompt-config'
-import { readCourseProductionState } from '../shared/teacher-production-state'
 import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring'
@@ -250,13 +249,10 @@ async function loadWorkspace() {
       courseStore.loadCourse(requestedCourseId, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true }),
     ])
     if (courseId.value !== requestedCourseId || loadToken !== workspaceLoadToken) return
-    const production = readCourseProductionState(courseResponse.data)
-    if (production) {
-      courseStore.teacherProductionStates = {
-        ...courseStore.teacherProductionStates,
-        [requestedCourseId]: production,
-      }
-    }
+    courseStore.setTeacherProductionState(
+      requestedCourseId,
+      courseResponse.data?.course_production_state,
+    )
     stableCourseTitle.value = courseStore.courseList.find(
       item => item.course_id === requestedCourseId,
     )?.course_name || String(courseResponse.data?.course_name || stableCourseTitle.value)

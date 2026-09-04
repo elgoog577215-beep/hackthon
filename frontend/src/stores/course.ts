@@ -18,7 +18,11 @@ import { useGenerationStore } from './generation'
 import logger from '../utils/logger'
 import { courseDocumentToNodes } from '../utils/course-document'
 import { t } from '@/shared/i18n'
-import { readCourseProductionState, type CourseProductionState } from '@/shared/teacher-production-state'
+import {
+    readCourseProductionState,
+    readCourseProductionStateWithLegacy,
+    type CourseProductionState,
+} from '@/shared/teacher-production-state'
 import { normalizeTaskStatus, shouldApplyTaskSnapshot } from '@/shared/task-lifecycle'
 import type {
     BlockRegenerationApplyResult,
@@ -259,8 +263,11 @@ export const useCourseStore = defineStore('course', {
             if (surface === 'teacher') {
                 const next = { ...this.teacherProductionStates }
                 this.courseList.forEach(course => {
-                    const production = readCourseProductionState(course)
-                    if (production) next[course.course_id] = production
+                    if (course.course_production_state != null) {
+                        next[course.course_id] = readCourseProductionStateWithLegacy(course)
+                    } else {
+                        delete next[course.course_id]
+                    }
                 })
                 this.teacherProductionStates = next
             }
@@ -278,13 +285,33 @@ export const useCourseStore = defineStore('course', {
             `/api/courses/${courseId}`,
             identityReadRequestConfig('teacher', { silentError: true }),
         )
-        const production = readCourseProductionState(response.data)
-        if (!production) return null
-        this.teacherProductionStates = { ...this.teacherProductionStates, [courseId]: production }
+        if (response.data.course_production_state == null) {
+            const next = { ...this.teacherProductionStates }
+            delete next[courseId]
+            this.teacherProductionStates = next
+            return null
+        }
+        const production = readCourseProductionStateWithLegacy(response.data)
+        this.setTeacherProductionState(courseId, production)
+        return production
+    },
+
+    setTeacherProductionState(courseId: string, production: unknown) {
+        if (production == null) {
+            const next = { ...this.teacherProductionStates }
+            delete next[courseId]
+            this.teacherProductionStates = next
+            const index = this.courseList.findIndex(item => item.course_id === courseId)
+            const existing = this.courseList[index]
+            if (existing) this.courseList[index] = { ...existing, course_production_state: undefined }
+            return
+        }
+        const normalized = readCourseProductionState(production)
+            || readCourseProductionStateWithLegacy({ course_id: courseId, course_production_state: production })
+        this.teacherProductionStates = { ...this.teacherProductionStates, [courseId]: normalized }
         const index = this.courseList.findIndex(item => item.course_id === courseId)
         const existing = this.courseList[index]
-        if (existing) this.courseList[index] = { ...existing, course_production_state: production }
-        return production
+        if (existing) this.courseList[index] = { ...existing, course_production_state: normalized }
     },
 
     async loadCourse(courseId: string, options: {

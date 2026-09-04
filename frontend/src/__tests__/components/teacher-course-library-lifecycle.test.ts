@@ -187,6 +187,46 @@ describe('teacher course library management', () => {
     expect(router.currentRoute.value.query.stage).toBe('foundation')
   })
 
+  it.each([
+    ['waiting_for_input', 'provide_input'],
+    ['waiting_for_review', 'review_generation'],
+  ] as const)('优先定位保留 last-good 的 %s 阶段', async (taskState, action) => {
+    const courses = useCourseStore()
+    const stage = (overrides: Record<string, unknown> = {}) => ({
+      display_state: 'available', task_state: 'completed', availability: 'usable', source_state: 'current',
+      latest_attempt_failed: false, update_required: false, task_ids: [], action_targets: {}, allowed_actions: [],
+      counts: { total: 2, available: 2, generating: 0, failed: 0, stale: 0 }, issues: [],
+      ...overrides,
+    })
+    courses.courseList = [course(`script-${taskState}`, {
+      course_production_state: {
+        schema_version: 'course_production_state_v1', course_id: `script-${taskState}`, preparation_state: 'preparing',
+        stages: {
+          outline: stage({ counts: { total: 1, available: 1, generating: 0, failed: 0, stale: 0 } }),
+          lesson_plan: stage(),
+          script: stage({
+            task_state: taskState,
+            task_ids: ['script-waiting'],
+            action_targets: { [action]: ['script-waiting'] },
+            allowed_actions: [action],
+          }),
+          ppt: stage({ display_state: 'not_generated', task_state: 'idle', availability: 'missing', source_state: 'missing', counts: { total: 2, available: 0, generating: 0, failed: 0, stale: 0 } }),
+        },
+        lessons: [], issues: [],
+      },
+    }) as any]
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+
+    const wrapper = mountLibrary()
+    await flushPromises()
+
+    expect(wrapper.get('.course-production-detail').text()).toBe('讲义 2/2')
+    expect(wrapper.get('.course-action').text()).toContain('查看进度')
+    await wrapper.get('.course-action').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.stage).toBe('script')
+  })
+
   it('新投影优先保留整课 15/16，last-good 失败只导航定位且不发写请求', async () => {
     const courses = useCourseStore()
     const stage = (display_state: string, total: number, available: number, extra: Record<string, unknown> = {}) => ({
@@ -250,6 +290,45 @@ describe('teacher course library management', () => {
       .map(([, options]) => String(options?.method || 'GET').toUpperCase())
       .filter(method => ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method))
     expect(writeMethods).toEqual([])
+  })
+
+  it('不把 issues 数组顺序当优先级，优先定位可重试问题', async () => {
+    const courses = useCourseStore()
+    const stage = (display_state: string, total: number, available: number, issues: any[] = []) => ({
+      display_state, task_state: 'idle', availability: available > 0 ? 'usable' : 'missing', source_state: 'current',
+      latest_attempt_failed: false, update_required: false,
+      counts: { total, available, generating: 0, failed: 0, stale: 0 }, issues,
+    })
+    const inspectIssue = {
+      issue_id: 'inspect-first', stage: 'outline', lesson_unit_id: '', blocking: false, code: 'review_source', summary: '先检查来源',
+      recovery: { action: 'inspect_failure', automatic: false, requires_confirmation: true },
+    }
+    const retryIssue = {
+      issue_id: 'retry-second', stage: 'lesson_plan', lesson_unit_id: 'L1-2', task_id: 'task-2', blocking: true, code: 'generation_failed', summary: '第 2 讲可重试',
+      recovery: { action: 'retry_generation', automatic: false, requires_confirmation: true },
+    }
+    courses.courseList = [course('priority', {
+      course_production_state: {
+        schema_version: 'course_production_state_v1', course_id: 'priority', preparation_state: 'preparing',
+        stages: {
+          outline: stage('available', 1, 1, [inspectIssue]),
+          lesson_plan: stage('available', 2, 1, [retryIssue]),
+          script: stage('not_generated', 2, 0),
+          ppt: stage('not_generated', 2, 0),
+        },
+        lessons: [], issues: [inspectIssue, retryIssue],
+      },
+    }) as any]
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+
+    const wrapper = mountLibrary()
+    await flushPromises()
+    await wrapper.get('.course-action').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.query).toMatchObject({
+      stage: 'lesson', lesson: 'L1-2', task: 'task-2', issue: 'retry-second', expandIssue: '1',
+    })
   })
 
   it('停留在我的课程时静默刷新生成进度，离开页面后停止', async () => {

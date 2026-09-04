@@ -206,6 +206,7 @@ import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCo
 import { activeLocale, t } from '../shared/i18n'
 import {
   COURSE_PRODUCTION_STAGE_KEYS,
+  courseProductionPrimaryIssue,
   issueNavigationQuery,
   productionStageLabel,
   readCourseProductionStateWithLegacy,
@@ -378,19 +379,22 @@ function sortLabel(field: string) { return t('teacherCourseLibrary.sortBy').repl
 function primaryProductionStage(course: Course, issue?: CourseProductionIssue): CourseProductionStageKey {
   if (issue) return issue.stage
   const state = readCourseProductionStateWithLegacy(course, generationStore.getTask(course.course_id))
-  const active = COURSE_PRODUCTION_STAGE_KEYS.find(key => ['queued', 'running', 'paused'].includes(state.stages[key].task_state))
+  const active = COURSE_PRODUCTION_STAGE_KEYS.find(key => (
+    ['queued', 'running', 'paused', 'waiting_for_input', 'waiting_for_review'].includes(state.stages[key].task_state)
+  ))
   if (active) return active
   return COURSE_PRODUCTION_STAGE_KEYS.find(key => state.stages[key].display_state !== 'available') || 'outline'
 }
 function courseProduction(course: Course): CourseProductionView {
   const state = readCourseProductionStateWithLegacy(course, generationStore.getTask(course.course_id))
-  const issue = state.issues[0]
+  const issue = courseProductionPrimaryIssue(state)
   const stageKey = primaryProductionStage(course, issue)
   const stage = state.stages[stageKey]
   const total = Math.max(0, Number(stage.counts.total || 0))
   const available = Math.max(0, Math.min(Number(stage.counts.available || 0), total))
   const complete = state.preparation_state === 'prepared'
-  const generating = stage.display_state === 'generating' || ['queued', 'running', 'paused'].includes(stage.task_state)
+  const generating = stage.display_state === 'generating'
+    || ['queued', 'running', 'paused', 'waiting_for_input', 'waiting_for_review'].includes(stage.task_state)
   return {
     label: complete ? t('teacherCourseLibrary.production.complete') : t('teacherCourseLibrary.production.incomplete'),
     detail: total > 0

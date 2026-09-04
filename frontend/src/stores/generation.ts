@@ -806,20 +806,23 @@ export const useGenerationStore = defineStore('generation', {
       else if (task?.status === 'pending' || task?.status === 'running') return
     },
 
-    async continueOutlineDetails(courseId: string) {
+    async continueOutlineDetails(courseId: string, taskId: string) {
+      const requestedTaskId = String(taskId || '').trim()
+      if (!requestedTaskId) throw new Error('outline_task_id_required')
       const response = await http.post(
         `/api/courses/${courseId}/generation/outline-details/continue`,
-        {},
+        { task_id: requestedTaskId },
         identityRequestConfig('teacher', { silentError: true }),
       )
       const payload = response.data?.task || response.data || {}
-      const taskId = String(payload.id || payload.task_id || payload.job_id || this.tasks.get(courseId)?.id || '')
+      const responseTaskId = String(payload.id || payload.task_id || payload.job_id || '')
+      if (responseTaskId && responseTaskId !== requestedTaskId) throw new Error('outline_task_id_mismatch')
       let task = this.tasks.get(courseId)
-      if (!task || (taskId && task.id !== taskId)) {
+      if (!task || task.id !== requestedTaskId) {
         const course = this._courseStore().courseList.find((item: any) => item.course_id === courseId)
-        task = this.createTask(taskId, courseId, course?.course_name || '课程大纲')
+        task = this.createTask(requestedTaskId, courseId, course?.course_name || '课程大纲')
       }
-      if (taskId) task.id = taskId
+      task.id = requestedTaskId
       const responseStatus = String(payload.status || '')
       task.status = responseStatus === 'already_completed' || responseStatus === 'completed'
         ? 'completed'

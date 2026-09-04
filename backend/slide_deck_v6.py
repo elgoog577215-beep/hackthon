@@ -210,6 +210,23 @@ class V6BuildError(ValueError):
         )
         super().__init__(f"{code}: {message}")
 
+    def public_detail(self) -> dict[str, Any]:
+        """Return the stable, user-safe failure contract used by task recovery."""
+
+        return {
+            **self.failure.model_dump(
+                mode="json",
+                exclude={"chapter_id", "page_id", "batch_id"},
+            ),
+            **(
+                {"chapter_id": self.failure.chapter_id}
+                if self.failure.chapter_id else {}
+            ),
+            **({"page_id": self.failure.page_id} if self.failure.page_id else {}),
+            **({"batch_id": self.failure.batch_id} if self.failure.batch_id else {}),
+            **({"node_id": self.node_id} if self.node_id else {}),
+        }
+
 
 class PptSourceContractV2(_StrictModel):
     schema_version: Literal["ppt_source_contract_v2"] = "ppt_source_contract_v2"
