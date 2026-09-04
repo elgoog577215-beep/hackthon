@@ -453,6 +453,7 @@
           :history-open="historyOpen && historyDomain === 'lesson'"
           :history-count="lessonHistoryCount"
           :show-history="false"
+          :show-status="false"
           :status-label="lessonHeaderStatusLabel"
           :status-tone="documentStatusTone"
           @undo="lessonPlanDocument?.undoEdit()"
@@ -476,7 +477,6 @@
               </button>
             </template>
             <template v-else>
-              <button type="button" :disabled="aiCollaborationBusy" @click="lessonPlanDocument?.openInlineAi()"><Sparkles :size="15" />{{ t('courseWorkbench.lessonDocument.aiImprove', 'AI 修改') }}</button>
               <button type="button" @click="beginLessonPlanEditing"><Pencil :size="15" />{{ t('courseWorkbench.lessonDocument.edit', '编辑教案') }}</button>
               <i v-if="lessonGenerationActionsVisible" class="lesson-action-divider" aria-hidden="true" />
               <button
@@ -3742,7 +3742,7 @@ onBeforeUnmount(() => {
 .lesson-switch-actions button:active:not(:disabled){transform:translateY(1px)}
 .lesson-switch-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .lesson-switch-actions button:disabled{color:#a3acba;background:transparent;opacity:.52;cursor:not-allowed}
-.workbench-center.is-lesson-workspace .lesson-command-bar{width:calc(100% - 8px);justify-content:flex-end;gap:8px;margin:0 4px 10px;background:#f3f5f9}
+.workbench-center.is-lesson-workspace .lesson-command-bar{width:calc(100% - 8px);justify-content:flex-end;gap:8px;margin:0 4px 10px;background:transparent}
 .lesson-action-divider{width:1px;height:20px;margin:0 2px;background:#e1e5ec}
 .workbench-center.is-lesson-workspace .lesson-section-tabs{border:1px solid #e0e6ef;border-bottom-color:#e7ebf2;border-radius:14px 14px 0 0;background:#fff}
 .workbench-center.is-lesson-workspace :deep(.lesson-document){overflow:hidden;border:1px solid #e0e6ef;border-top:0;border-radius:0 0 14px 14px;background:#fff}

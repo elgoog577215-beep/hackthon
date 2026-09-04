@@ -1117,7 +1117,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(lessonWrapper.text()).toContain('1.1 程序运行过程')
     expect(lessonWrapper.text()).toContain('演示源码如何编译运行')
     expect(lessonWrapper.find('.lesson-toolbar-status').exists()).toBe(false)
-    expect(lessonWrapper.get('.teacher-document-command-bar__status').text()).toContain('已生成')
+    expect(lessonWrapper.find('.teacher-document-command-bar__status').exists()).toBe(false)
     expect(lessonWrapper.find('.lesson-document-toolbar .primary-action').exists()).toBe(false)
     expect(lessonWrapper.find('.lesson-section-tabs').exists()).toBe(false)
 

@@ -36,4 +36,14 @@ describe('TeacherDocumentCommandBar', () => {
     expect(wrapper.emitted('undo')).toHaveLength(1)
     expect(wrapper.emitted('redo')).toHaveLength(1)
   })
+
+  it('can omit a status already shown by surrounding navigation', () => {
+    const wrapper = mount(TeacherDocumentCommandBar, {
+      props: { label: '教案操作', showStatus: false },
+      slots: { default: '<button>编辑教案</button>' },
+    })
+
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    expect(wrapper.get('[role="toolbar"]').text()).toContain('编辑教案')
+  })
 })

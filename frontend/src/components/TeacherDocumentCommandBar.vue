@@ -1,8 +1,8 @@
 <template>
   <div class="teacher-document-command-bar-row">
-    <div class="teacher-document-command-bar__context">
+    <div v-if="showStatus || $slots.context" class="teacher-document-command-bar__context">
       <slot name="context" />
-      <span class="teacher-document-command-bar__status" :data-tone="statusTone" role="status">
+      <span v-if="showStatus" class="teacher-document-command-bar__status" :data-tone="statusTone" role="status">
         <LoaderCircle v-if="statusTone === 'busy'" :size="15" class="spin" />
         <CircleAlert v-else-if="statusTone === 'warning'" :size="15" />
         <CircleCheck v-else :size="15" />
@@ -62,6 +62,7 @@ withDefaults(defineProps<{
   historyOpen?: boolean
   historyCount?: number
   showHistory?: boolean
+  showStatus?: boolean
   statusLabel?: string
   statusTone?: 'normal' | 'busy' | 'warning'
 }>(), {
@@ -72,6 +73,7 @@ withDefaults(defineProps<{
   historyOpen: false,
   historyCount: 0,
   showHistory: true,
+  showStatus: true,
   statusLabel: '已保存',
   statusTone: 'normal',
 })
