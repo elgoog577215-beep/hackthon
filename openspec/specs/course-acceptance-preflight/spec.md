@@ -1,7 +1,7 @@
 # course-acceptance-preflight Specification
 
 ## Purpose
-TBD - created by archiving change add-course-acceptance-preflight. Update Purpose after archive.
+定义课程进入正式使用前的只读验收，确保版本、目标、内容、练习、补救和推进关系完整且可机器检查。预检只报告问题和证据，不修改课程、资产、任务或学习状态。
 ## Requirements
 ### Requirement: 预检必须只读并检查六项课程使用契约
 

@@ -61,9 +61,7 @@ from routers import (
     question_bank_imports,
     course_acceptance, block_regeneration, learner_model, change_proposals,
     knowledge_libraries, teaching_representations, course_evolution,
-    teaching_plan_workbench,
     teacher_course_space,
-    teacher_authoring,
     teacher_lesson_authoring,
     teaching_calendar,
     companion_documents,
@@ -222,9 +220,7 @@ app.include_router(knowledge_libraries.router, prefix="/api")
 app.include_router(teaching_representations.router, prefix="/api")
 app.include_router(course_evolution.router, prefix="/api")
 app.include_router(course_evolution.personal_router, prefix="/api")
-app.include_router(teaching_plan_workbench.router, prefix="/api")
 app.include_router(teacher_course_space.router, prefix="/api")
-app.include_router(teacher_authoring.router, prefix="/api")
 app.include_router(teacher_lesson_authoring.router, prefix="/api")
 app.include_router(teaching_calendar.router, prefix="/api")
 app.include_router(companion_documents.router, prefix="/api")

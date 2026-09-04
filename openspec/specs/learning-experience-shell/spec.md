@@ -1,7 +1,7 @@
 # learning-experience-shell Specification
 
 ## Purpose
-TBD - created by archiving change rebuild-learning-ui-around-course-flow. Update Purpose after archive.
+定义课程库与学习现场的职责边界，以及学习现场中目录、正文、任务和 AI 协作的稳定交互骨架。大型工具只能按需介入并准确返回，桌面与窄屏都要优先保护正文和当前主任务。
 ## Requirements
 ### Requirement: 产品必须只有课程库与学习现场两个主空间
 

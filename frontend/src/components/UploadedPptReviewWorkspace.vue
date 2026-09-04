@@ -25,7 +25,7 @@
           {{ busy ? t('courseWorkbench.pptReview.analyzing', '正在解析与建立索引…') : t('courseWorkbench.pptReview.uploadReview', '上传并审阅') }}
         </button>
       </div>
-      <small v-if="!canGenerate" id="ppt-generate-disabled-hint">{{ t('courseWorkbench.pptReview.generateDisabled', '上传自有 PPT 不受限制；AI 生成需先确认教案和讲义。') }}</small>
+      <small v-if="!canGenerate" id="ppt-generate-disabled-hint">{{ t('courseWorkbench.pptReview.generateDisabled', '上传自有 PPT 不受限制；AI 生成需要当前、结构可用且来源未过期的教案和讲义。') }}</small>
       <p v-if="error" class="ppt-review-error"><TriangleAlert :size="15" />{{ error }}</p>
     </div>
 
@@ -130,7 +130,7 @@
           </header>
           <section class="ppt-review-sources">
             <small>{{ t('courseWorkbench.pptReview.basis', '本次对照依据') }}</small>
-            <p v-if="!review.report.sources.length">{{ t('courseWorkbench.pptReview.noBasis', '当前仅做 PPT 内部检查，未读取到已确认的教学内容。') }}</p>
+            <p v-if="!review.report.sources.length">{{ t('courseWorkbench.pptReview.noBasis', '当前仅做 PPT 内部检查，未读取到可用的当前教学内容。') }}</p>
             <ul v-else>
               <li v-for="source in review.report.sources" :key="`${source.kind}-${source.revision_id}`">
                 <CheckCircle2 :size="13" /><span><MathText :content="source.label" /></span><small>{{ source.status === 'confirmed' ? t('courseWorkbench.pptReview.sourceConfirmed', '已确认') : t('courseWorkbench.pptReview.sourceCurrent', '当前版') }}</small>

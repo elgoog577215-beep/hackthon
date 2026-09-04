@@ -108,14 +108,11 @@
           :can-undo="outlineCanUndo"
           :can-redo="outlineCanRedo"
           :disabled="stageSwitching || aiCollaborationBusy || outlineWorkspaceHydrating"
-          :history-open="historyOpen && historyDomain === 'outline'"
-          :history-count="outlineHistoryCount"
           :show-status="editingOutline"
           :status-label="outlineDocumentStatusLabel"
           :status-tone="outlineDocumentStatusTone"
           @undo="outlineEditor?.undoEdit()"
           @redo="outlineEditor?.redoEdit()"
-          @history="toggleDocumentHistory('outline')"
         >
           <button
             v-if="outlineWaitingForInput"
@@ -146,15 +143,6 @@
               : t('courseWorkbench.editOutline', '编辑大纲') }}
           </button>
         </TeacherDocumentCommandBar>
-        <TeacherDocumentHistoryPanel
-          v-if="historyOpen && historyDomain === 'outline'"
-          title="大纲历史版本"
-          :items="documentHistoryItems"
-          :restoring-id="historyRestoringId"
-          :restore-disabled="editingOutline"
-          @close="closeDocumentHistory"
-          @restore="restoreDocumentHistory"
-        />
       </template>
 
       <section v-if="showStreaming" class="generation-surface" aria-live="polite">
@@ -430,12 +418,7 @@
           :can-undo="lessonCanUndo"
           :can-redo="lessonCanRedo"
           :disabled="aiCollaborationBusy"
-          :history-open="historyOpen && historyDomain === 'lesson'"
-          :history-count="lessonHistoryCount"
-          :show-history="false"
           :show-status="false"
-          :status-label="lessonHeaderStatusLabel"
-          :status-tone="documentStatusTone"
           @undo="lessonPlanDocument?.undoEdit()"
           @redo="lessonPlanDocument?.redoEdit()"
         >
@@ -485,91 +468,14 @@
               </button>
             </template>
         </TeacherDocumentCommandBar>
-        <TeacherDocumentCommandBar
-          v-else-if="activeStage === 'script' && scriptToolbarVisible && !aiCandidatePending"
-          class="script-command-bar"
-          :label="t('courseWorkbench.scriptDocument.actions', '讲义操作')"
-          :editing="scriptDocumentEditing"
-          :can-undo="scriptCanUndo"
-          :can-redo="scriptCanRedo"
-          :disabled="aiCollaborationBusy"
-          :history-open="historyOpen && historyDomain === 'script'"
-          :history-count="scriptHistoryCount"
-          :show-history="scriptHistoryCount > 0"
-          :show-status="scriptDocumentEditing"
-          :status-label="lessonHeaderStatusLabel"
-          :status-tone="documentStatusTone"
-          @undo="scriptDocument?.undoEdit()"
-          @redo="scriptDocument?.redoEdit()"
-          @history="toggleDocumentHistory('script')"
-        >
-          <template #context>
-            <nav class="lesson-switch-actions lesson-switch-actions--compact" :aria-label="t('courseWorkbench.lessonNavigation', '课次导航')">
-              <button type="button" :disabled="!previousLesson || aiCandidatePending" @click="selectLesson(previousLesson?.lesson_unit_id)"><ChevronLeft :size="15" />{{ t('courseWorkbench.previousLesson', '上一讲') }}</button>
-              <button type="button" :disabled="!nextLesson || aiCandidatePending" @click="selectLesson(nextLesson?.lesson_unit_id)">{{ t('courseWorkbench.nextLesson', '下一讲') }}<ChevronRight :size="15" /></button>
-            </nav>
-          </template>
-          <template v-if="scriptDocumentEditing">
-            <button type="button" :disabled="scriptDocumentSaving" @click="cancelScriptEditing"><X :size="15" />{{ t('courseWorkbench.scriptDocument.cancel', '取消') }}</button>
-            <button class="primary-action" type="button" :disabled="scriptDocumentSaving" @click="saveScriptDraft">
-              <LoaderCircle v-if="scriptDocumentSaving" :size="15" class="spin" />
-              <Check v-else :size="15" />
-              {{ scriptDocumentSaving ? t('courseWorkbench.scriptDocument.saving', '正在保存…') : t('courseWorkbench.scriptDocument.finishEditing', '完成编辑') }}
-            </button>
-          </template>
-          <template v-else>
-            <button v-if="currentScriptReady" type="button" @click="beginScriptEditing"><Pencil :size="15" />{{ t('courseWorkbench.scriptDocument.edit', '编辑讲义') }}</button>
-            <button
-              v-else
-              data-testid="script-single-start"
-              type="button"
-              :class="{ 'primary-action': !scriptBatchLaunchVisible }"
-              :disabled="scriptBatchStarting || !currentScriptCanGenerate || referenceGenerationBlocked"
-              :title="referenceGenerationBlocked
-                ? referenceGenerationBlockReason
-                : currentScriptCanGenerate
-                  ? ''
-                  : t('courseWorkbench.scriptBatch.planRequired', '请先完成可用教案')"
-              @click="generateScript()"
-            >
-              <Sparkles :size="15" />
-              {{ t('courseWorkbench.scriptDocument.generate', '生成本讲讲义') }}
-            </button>
-            <i v-if="scriptBatchLaunchVisible" class="lesson-action-divider" aria-hidden="true" />
-            <button
-              v-if="scriptBatchLaunchVisible || scriptBatchStarting"
-              class="primary-action"
-              data-testid="script-batch-start"
-              type="button"
-              :disabled="scriptBatchStarting || referenceGenerationBlocked"
-              :title="referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"
-              @click="generateAllScripts"
-            >
-              <LoaderCircle v-if="scriptBatchStarting" :size="15" class="spin" />
-              <Sparkles v-else :size="15" />
-              {{ scriptBatchStarting
-                ? t('courseWorkbench.scriptBatch.starting', '正在开始…')
-                : t('courseWorkbench.scriptBatch.generateRemaining', '生成剩余讲义（{count}讲）').replace('{count}', String(scriptBatchEligibleCount)) }}
-            </button>
-          </template>
-        </TeacherDocumentCommandBar>
         <nav
-          v-else-if="lessonStore.lessons.length"
+          v-else-if="lessonStore.lessons.length && activeStage !== 'script'"
           class="lesson-switch-actions lesson-switch-actions--standalone"
           :aria-label="t('courseWorkbench.lessonNavigation', '课次导航')"
         >
           <button type="button" :disabled="!previousLesson || aiCandidatePending" @click="selectLesson(previousLesson?.lesson_unit_id)"><ChevronLeft :size="15" />{{ t('courseWorkbench.previousLesson', '上一讲') }}</button>
           <button type="button" :disabled="!nextLesson || aiCandidatePending" @click="selectLesson(nextLesson?.lesson_unit_id)">{{ t('courseWorkbench.nextLesson', '下一讲') }}<ChevronRight :size="15" /></button>
         </nav>
-        <TeacherDocumentHistoryPanel
-          v-if="historyOpen && historyDomain === 'script'"
-          :title="t('courseWorkbench.scriptDocument.historyTitle', '讲义历史版本')"
-          :items="documentHistoryItems"
-          :restoring-id="historyRestoringId"
-          :restore-disabled="scriptDocumentEditing"
-          @close="closeDocumentHistory"
-          @restore="restoreDocumentHistory"
-        />
         <AppErrorNotice v-if="lessonStageBlocked && lessonPrerequisiteError" class="prerequisite-error" :presentation="lessonPrerequisiteError" compact>
           <template #action><button type="button" :disabled="lessonStore.loading" @click="resolveLessonPrerequisite">{{ lessonPrerequisiteState.action }}</button></template>
         </AppErrorNotice>
@@ -845,7 +751,56 @@
             @ai-error="handleAiError"
             @ai-scope-change="handleScriptAiScopeChange"
             @open-ai-selection="openAiFromSelection('script', $event)"
-          />
+          >
+            <template #toolbar>
+              <TeacherDocumentCommandBar
+                v-if="scriptToolbarVisible && !aiCandidatePending"
+                class="script-command-bar"
+                :label="t('courseWorkbench.scriptDocument.actions', '讲义操作')"
+                :editing="scriptDocumentEditing"
+                :can-undo="scriptCanUndo"
+                :can-redo="scriptCanRedo"
+                :disabled="aiCollaborationBusy"
+                :show-status="false"
+                @undo="scriptDocument?.undoEdit()"
+                @redo="scriptDocument?.redoEdit()"
+              >
+                  <template #context>
+                    <nav class="lesson-switch-actions lesson-switch-actions--compact" :aria-label="t('courseWorkbench.lessonNavigation', '课次导航')">
+                      <button type="button" :disabled="!previousLesson || aiCandidatePending" @click="selectLesson(previousLesson?.lesson_unit_id)"><ChevronLeft :size="15" />{{ t('courseWorkbench.previousLesson', '上一讲') }}</button>
+                      <button type="button" :disabled="!nextLesson || aiCandidatePending" @click="selectLesson(nextLesson?.lesson_unit_id)">{{ t('courseWorkbench.nextLesson', '下一讲') }}<ChevronRight :size="15" /></button>
+                    </nav>
+                  </template>
+                  <template v-if="scriptDocumentEditing">
+                    <button type="button" :disabled="scriptDocumentSaving" @click="cancelScriptEditing"><X :size="15" />{{ t('courseWorkbench.scriptDocument.cancel', '取消') }}</button>
+                    <button class="primary-action" type="button" :disabled="scriptDocumentSaving" @click="saveScriptDraft">
+                      <LoaderCircle v-if="scriptDocumentSaving" :size="15" class="spin" />
+                      <Check v-else :size="15" />
+                      {{ scriptDocumentSaving ? t('courseWorkbench.scriptDocument.saving', '正在保存…') : t('courseWorkbench.scriptDocument.finishEditing', '完成编辑') }}
+                    </button>
+                  </template>
+                  <template v-else>
+                    <button type="button" @click="beginScriptEditing"><Pencil :size="15" />{{ t('courseWorkbench.scriptDocument.edit', '编辑讲义') }}</button>
+                    <i v-if="scriptBatchLaunchVisible" class="lesson-action-divider" aria-hidden="true" />
+                    <button
+                      v-if="scriptBatchLaunchVisible || scriptBatchStarting"
+                      class="primary-action"
+                      data-testid="script-batch-start"
+                      type="button"
+                      :disabled="scriptBatchStarting || referenceGenerationBlocked"
+                      :title="referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"
+                      @click="generateAllScripts"
+                    >
+                      <LoaderCircle v-if="scriptBatchStarting" :size="15" class="spin" />
+                      <Sparkles v-else :size="15" />
+                      {{ scriptBatchStarting
+                        ? t('courseWorkbench.scriptBatch.starting', '正在开始…')
+                        : t('courseWorkbench.scriptBatch.generateRemaining', '生成剩余讲义（{count}讲）').replace('{count}', String(scriptBatchEligibleCount)) }}
+                    </button>
+                  </template>
+              </TeacherDocumentCommandBar>
+            </template>
+          </TeacherScriptDocument>
         </template>
 
         <template v-else-if="activeStage === 'ppt'">
@@ -1056,7 +1011,6 @@ import QuestionBankReviewPanel from './QuestionBankReviewPanel.vue'
 import TeacherLessonAiWorkspace, { type TeacherAiQuickAction, type TeacherAiScopeOption } from './TeacherLessonAiWorkspace.vue'
 import TeacherLessonArrangementSummary from './TeacherLessonArrangementSummary.vue'
 import TeacherDocumentCommandBar from './TeacherDocumentCommandBar.vue'
-import TeacherDocumentHistoryPanel, { type TeacherDocumentHistoryItem } from './TeacherDocumentHistoryPanel.vue'
 import TeacherLessonPlanDocument from './TeacherLessonPlanDocument.vue'
 import TeacherScriptDocument from './TeacherScriptDocument.vue'
 import UploadedPptReviewWorkspace from './UploadedPptReviewWorkspace.vue'
@@ -1092,7 +1046,6 @@ import {
 } from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
 import { useCourseEvolutionStore } from '../stores/courseEvolution'
-import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
 import { lessonPlanStreamSegments, useTeacherLessonAuthoringStore, type TeacherLessonJob, type TeacherLessonPlanCandidate, type TeacherLessonProjection } from '../stores/teacherLessonAuthoring'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
@@ -1173,7 +1126,6 @@ type OutlineEditorHandle = ProductionAiDocumentHandle & {
   canRedo: boolean
   undoEdit: () => void
   redoEdit: () => void
-  restoreHistoryVersion: (historyEntryId: string) => Promise<boolean>
 }
 const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; generationOptions: CourseGenerationOptions & { subject?: string }; generationStarting?: boolean; materialRefreshToken?: number; initialStage?: StageId; initialLessonId?: string; outlineEditing?: boolean }>(), { materialRefreshToken: 0, initialStage: 'foundation', initialLessonId: '', outlineEditing: false })
 const emit = defineEmits<{
@@ -1182,7 +1134,7 @@ const emit = defineEmits<{
   (event: 'open-course-information'): void
   (event: 'open-course-adjustment', payload: { planId: string }): void
 }>()
-const courseStore = useCourseStore(); const courseEvolutionStore = useCourseEvolutionStore(); const courseWorkspaceStore = useCourseWorkspaceStore(); const generationStore = useGenerationStore(); const lessonStore = useTeacherLessonAuthoringStore(); const teachingRepresentationsStore = useTeachingRepresentationsStore()
+const courseStore = useCourseStore(); const courseEvolutionStore = useCourseEvolutionStore(); const generationStore = useGenerationStore(); const lessonStore = useTeacherLessonAuthoringStore(); const teachingRepresentationsStore = useTeachingRepresentationsStore()
 const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = ref(props.initialLessonId)
 const activeCompanionTemplateId = ref<CompanionTemplateId>(GRADING_RUBRIC_TEMPLATE_ID)
 const stageSwitching = ref(false)
@@ -1220,10 +1172,6 @@ const outlineQualityReviewDialogOpen = ref(false)
 const activeOutlineQualityIssueCode = ref('')
 const activeOutlineQualityRepairInstruction = ref('')
 const outlineRepairStartingIssueCount = ref<number | null>(null)
-type TeacherHistoryDomain = 'outline' | 'lesson' | 'script'
-const historyOpen = ref(false)
-const historyDomain = ref<TeacherHistoryDomain>('outline')
-const historyRestoringId = ref('')
 const editingOutline = computed({
   get: () => props.outlineEditing,
   set: value => emit('update:outlineEditing', value),
@@ -1460,7 +1408,7 @@ const aiQuickActions = computed<TeacherAiQuickAction[]>(() => {
     { id: 'lesson-focus', icon: 'focus', label: t('courseWorkbench.aiCollaboration.quickFocus', '突出重点难点'), prompt: t('courseWorkbench.aiCollaboration.quickFocusPrompt', '突出本节教学重点和难点，并让教学活动与之对应') },
     { id: 'lesson-example', icon: 'example', label: t('courseWorkbench.aiCollaboration.quickLessonExample', '加入课堂案例'), prompt: t('courseWorkbench.aiCollaboration.quickLessonExamplePrompt', '加入一个贴合当前知识点、适合学生理解的课堂案例') },
   ]
-  const revision = selectedLesson.value?.plan.revisions.find(item => item.revision_id === selectedLesson.value?.plan.working_revision_id)
+  const revision = selectedLesson.value?.plan.current_revision
   const sections = revision?.plan.sections as AiLessonPlanSection[] | undefined
   const section = sections?.find(item => item.node_id === selectedLessonSectionId.value)
   if (!section) return actions
@@ -1536,7 +1484,7 @@ const previousLessonReferenceTargetId = computed(() => (
         : ''
 ))
 const nextLesson = computed(() => selectedLessonIndex.value >= 0 && selectedLessonIndex.value < lessonStore.lessons.length - 1 ? lessonStore.lessons[selectedLessonIndex.value + 1] : undefined)
-const workingLessonRevision = computed(() => selectedLesson.value?.plan.revisions.find(item => item.revision_id === selectedLesson.value?.plan.working_revision_id))
+const workingLessonRevision = computed(() => selectedLesson.value?.plan.current_revision || undefined)
 const currentLessonPlanReady = computed(() => lessonPlanIsReady(selectedLesson.value))
 const currentScriptCanGenerate = computed(() => teacherLessonScriptCanGenerate(selectedLesson.value))
 const currentScriptReady = computed(() => lessonScriptIsReady(selectedLesson.value))
@@ -1711,9 +1659,6 @@ const lessonCanUndo = computed(() => Boolean(lessonPlanDocument.value?.canUndo))
 const lessonCanRedo = computed(() => Boolean(lessonPlanDocument.value?.canRedo))
 const scriptCanUndo = computed(() => Boolean(scriptDocument.value?.canUndo))
 const scriptCanRedo = computed(() => Boolean(scriptDocument.value?.canRedo))
-const outlineHistoryCount = computed(() => courseWorkspaceStore.blueprintDraftVersions.length)
-const lessonHistoryCount = computed(() => selectedLesson.value?.plan.revisions.length || 0)
-const scriptHistoryCount = computed(() => selectedLesson.value?.script.revisions?.length || 0)
 const outlineDocumentStatusLabel = computed(() => {
   if (stageSwitching.value && editingOutline.value) return '正在保存…'
   if (aiCandidatePending.value && aiDomain.value === 'outline') return 'AI 修改待处理'
@@ -1725,65 +1670,6 @@ const outlineDocumentStatusTone = computed<'normal' | 'busy' | 'warning'>(() => 
   if ((editingOutline.value && outlineDocumentDirty.value) || (aiCandidatePending.value && aiDomain.value === 'outline')) return 'warning'
   return 'normal'
 })
-const documentStatusTone = computed<'normal' | 'busy' | 'warning'>(() => {
-  if (lessonHeaderBusy.value || aiCollaborationBusy.value) return 'busy'
-  if (lessonHeaderEditing.value || aiCandidatePending.value) return 'warning'
-  return 'normal'
-})
-const formatHistoryTime = (value: unknown) => {
-  const date = new Date(String(value || ''))
-  if (Number.isNaN(date.getTime())) return '时间未记录'
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  }).format(date)
-}
-const historySourceLabel = (value: unknown) => {
-  const source = String(value || '')
-  if (source === 'history_restore' || source === 'restore') return '恢复的版本'
-  if (source === 'ai_apply' || source === 'ai_optimization') return 'AI 修改'
-  if (source.includes('model')) return 'AI 生成'
-  if (source.includes('fallback') || source.includes('recovery')) return '恢复草稿'
-  if (source.startsWith('legacy')) return '旧版内容'
-  return '手动编辑'
-}
-const documentHistoryItems = computed<TeacherDocumentHistoryItem[]>(() => {
-  if (historyDomain.value === 'outline') {
-    const currentRevision = String(courseWorkspaceStore.blueprint?.draft?.draft_revision_id || '')
-    let currentMarked = false
-    return courseWorkspaceStore.blueprintDraftVersions.map((item: any) => {
-      const current = !currentMarked && String(item.draft_revision_id || '') === currentRevision
-      if (current) currentMarked = true
-      return {
-        id: String(item.history_entry_id || ''),
-        title: historySourceLabel(item.operation),
-        time: formatHistoryTime(item.created_at),
-        actor: String(item.actor || ''),
-        detail: `${Number(item.section_count || item.chapter_count || 0)} 讲`,
-        current,
-      }
-    })
-  }
-  if (historyDomain.value === 'lesson') {
-    const currentRevision = String(selectedLesson.value?.plan.working_revision_id || '')
-    return [...(selectedLesson.value?.plan.revisions || [])].reverse().map(item => ({
-      id: item.revision_id,
-      title: historySourceLabel(item.generation_source),
-      time: formatHistoryTime(item.created_at),
-      actor: item.actor,
-      detail: item.restored_from_revision_id ? '从历史版本恢复' : '',
-      current: item.revision_id === currentRevision,
-    }))
-  }
-  const currentRevision = String(selectedLesson.value?.script.current_revision_id || '')
-  return (selectedLesson.value?.script.revisions || []).map(item => ({
-    id: item.revision_id,
-    title: historySourceLabel(item.generation_source),
-    time: formatHistoryTime(item.created_at || item.updated_at),
-    actor: item.actor,
-    detail: item.restored_from_revision_id ? '从历史版本恢复' : '',
-    current: item.revision_id === currentRevision,
-  }))
-})
 const currentPptAsset = computed(() => selectedLesson.value?.plan.ppt_assets.find(asset => (
   ['slide_deck_v6', 'uploaded_pptx'].includes(String(asset.engine || ''))
   && asset.ready === true
@@ -1791,12 +1677,6 @@ const currentPptAsset = computed(() => selectedLesson.value?.plan.ppt_assets.fin
 const pptNeedsRefresh = computed(() => Boolean(
   !currentPptAsset.value && selectedLesson.value?.plan.ppt_assets.some(asset => ['slide_deck_v6', 'uploaded_pptx'].includes(String(asset.engine || ''))),
 ))
-const lessonHeaderBusy = computed(() => activeStage.value === 'script'
-  ? scriptGenerationBusy.value
-  : activeStage.value === 'lesson' && lessonGenerationActive.value)
-const lessonHeaderEditing = computed(() => activeStage.value === 'script'
-  ? scriptDocumentEditing.value
-  : activeStage.value === 'lesson' && lessonDocumentEditing.value)
 const lessonHeaderStatusLabel = computed(() => {
   if (activeStage.value === 'ppt') {
     if (currentPptAsset.value) return t('courseWorkbench.pptReview.currentStatus', '已有当前 PPT')
@@ -2090,28 +1970,28 @@ const referenceWorkflowState = computed<CourseReferenceWorkflowState>(() => {
     if (props.generationStarting || taskInFlight.value) return 'generating'
     if (taskPaused.value) return 'paused'
     if (generationFailed.value) return 'failed'
-    if (hasOutline.value) return 'review'
+    if (hasOutline.value) return 'completed'
     return activeReferences.value.length ? 'ready' : 'collecting'
   }
   if (activeStage.value === 'lesson') {
     if (batchRunning.value || batchStarting.value || lessonGenerationActive.value) return 'generating'
     if (batchPaused.value || lessonJob.value?.status === 'paused') return 'paused'
     if ((batchRecoveryAvailable.value && batchEligibleCount.value) || lessonGenerationRequestError.value) return batchPaused.value ? 'paused' : 'failed'
-    if (currentLessonPlanReady.value) return 'review'
+    if (currentLessonPlanReady.value) return 'completed'
     return activeReferences.value.length ? 'ready' : 'collecting'
   }
   if (activeStage.value === 'script') {
     if (scriptBatchRunning.value || scriptBatchStarting.value || scriptGenerationBusy.value) return 'generating'
     if (scriptBatchPaused.value || scriptJob.value?.status === 'paused') return 'paused'
     if (scriptBatchRecoveryAvailable.value || ['failed', 'cancelled'].includes(String(scriptJob.value?.status || '')) || scriptBatchStartError.value || effectiveScriptGenerationError.value) return 'failed'
-    if (currentScriptReady.value) return 'review'
+    if (currentScriptReady.value) return 'completed'
     return activeReferences.value.length ? 'ready' : 'collecting'
   }
   if (activeStage.value === 'ppt') {
     if (pptBuildMatchesSelection.value && teachingRepresentationsStore.building) return 'generating'
     if (pptBuildMatchesSelection.value && teachingRepresentationsStore.buildPaused) return 'paused'
     if (pptBuildMatchesSelection.value && (teachingRepresentationsStore.buildFailure || teachingRepresentationsStore.buildError)) return 'failed'
-    return currentPptAsset.value ? 'review' : activeReferences.value.length ? 'ready' : 'collecting'
+    return currentPptAsset.value ? 'completed' : activeReferences.value.length ? 'ready' : 'collecting'
   }
   return activeReferences.value.length ? 'ready' : 'collecting'
 })
@@ -2163,7 +2043,7 @@ const referenceWorkflowProgress = computed(() => {
       ? scriptBatchProgress.value
       : scriptGenerationProgress.value
   if (activeStage.value === 'ppt' && pptBuildMatchesSelection.value) return teachingRepresentationsStore.buildProgress
-  return referenceWorkflowState.value === 'confirmed' ? 100 : 0
+  return referenceWorkflowState.value === 'completed' ? 100 : 0
 })
 const referenceWorkflowCanPause = computed(() => (
   activeStage.value === 'foundation' ? taskInFlight.value
@@ -3102,45 +2982,6 @@ async function saveLessonPlanDraft() { await lessonPlanDocument.value?.saveDraft
 function beginScriptEditing() { scriptDocument.value?.beginEditing() }
 function cancelScriptEditing() { scriptDocument.value?.cancelEditing() }
 async function saveScriptDraft() { await scriptDocument.value?.saveDraft() }
-async function toggleDocumentHistory(domain: TeacherHistoryDomain) {
-  if (historyOpen.value && historyDomain.value === domain) {
-    closeDocumentHistory()
-    return
-  }
-  historyDomain.value = domain
-  historyOpen.value = true
-  if (domain === 'outline') {
-    await courseWorkspaceStore.loadBlueprintDraftVersions(props.courseId).catch(() => undefined)
-  }
-}
-function closeDocumentHistory() {
-  historyOpen.value = false
-  historyRestoringId.value = ''
-}
-async function restoreDocumentHistory(revisionId: string) {
-  if (!revisionId || historyRestoringId.value) return
-  if (editingOutline.value || lessonDocumentEditing.value || scriptDocumentEditing.value) return
-  historyRestoringId.value = revisionId
-  try {
-    if (historyDomain.value === 'outline') {
-      await outlineEditor.value?.restoreHistoryVersion(revisionId)
-      await courseWorkspaceStore.loadBlueprintDraftVersions(props.courseId)
-    } else if (historyDomain.value === 'lesson' && selectedLessonId.value) {
-      await lessonStore.restorePlanRevision(props.courseId, selectedLessonId.value, revisionId)
-    } else if (historyDomain.value === 'script' && selectedLessonId.value) {
-      await lessonStore.restoreScriptRevision(props.courseId, selectedLessonId.value, revisionId)
-    }
-    handleAiCandidateChange(null)
-  } catch {
-    if (historyDomain.value === 'lesson') {
-      lessonDocumentError.value = lessonStore.error || '教案历史版本恢复失败，请重试。'
-    } else if (historyDomain.value === 'script') {
-      scriptDocumentError.value = lessonStore.error || t('courseWorkbench.scriptDocument.restoreFailed', '讲义历史版本恢复失败，请重试。')
-    }
-  } finally {
-    historyRestoringId.value = ''
-  }
-}
 function selectLesson(lessonId?: string) {
   if (!lessonId) return
   if (aiCandidatePending.value && selectedLessonId.value !== lessonId) return
@@ -3234,7 +3075,7 @@ function lessonScriptIsReady(lesson?: TeacherLessonProjection | null): boolean {
   return teacherLessonScriptIsReady(lesson)
 }
 function lessonPlanBlocks(lesson: TeacherLessonProjection): ScriptPlanPreviewBlock[] {
-  const revision = lesson.plan.revisions?.find(item => item.revision_id === lesson.plan.working_revision_id)
+  const revision = lesson.plan.current_revision
   const sections = Array.isArray(revision?.plan?.sections) ? revision.plan.sections : []
   const arrangementById = new Map(
     (lesson.arrangement?.blocks || []).map(block => [block.block_id, block]),
@@ -3443,7 +3284,6 @@ async function openCompanionTemplate(templateId: CompanionTemplateId) {
   activeCompanionTemplateId.value = templateId
   if (activeStage.value === 'companion') {
     closeAiCollaboration()
-    closeDocumentHistory()
     if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0
     return
   }
@@ -3511,7 +3351,7 @@ watch([
   }
   scheduleLessonSyncRetry()
 }, { immediate: true })
-watch(activeStage, () => { closeAiCollaboration(); closeDocumentHistory(); aiCandidate.value = null; lessonGenerationRequestError.value = ''; scriptBatchStartError.value = ''; if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0 }, { flush: 'post' })
+watch(activeStage, () => { closeAiCollaboration(); aiCandidate.value = null; lessonGenerationRequestError.value = ''; scriptBatchStartError.value = ''; if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0 }, { flush: 'post' })
 watch(aiCollaborationOpen, open => {
   if (!open) aiSourcesOpen.value = false
 })
@@ -3535,7 +3375,6 @@ watch(() => lessonStore.lessons, lessons => {
 }, { immediate: true, deep: true })
 watch(selectedLessonId, (lessonId, previousLessonId) => {
   if (previousLessonId && lessonId !== previousLessonId) closeAiCollaboration()
-  if (previousLessonId && lessonId !== previousLessonId) closeDocumentHistory()
   lessonDocumentError.value = ''
   arrangementError.value = ''
   scriptGenerationError.value = ''
@@ -3730,9 +3569,6 @@ onBeforeUnmount(() => {
 .lesson-navigator.has-document-actions .lesson-title-trigger small{font-size:15px}
 .lesson-current-meta{min-width:0;display:flex;align-items:center;gap:10px;color:#687386}
 .lesson-type-context{flex:none;color:#687386;font-size:15px;font-weight:650;white-space:nowrap}
-.lesson-toolbar-status{min-height:24px;display:flex;align-items:center;gap:6px;color:#687386;font-size:15px;font-weight:620;white-space:nowrap}
-.lesson-current-meta .lesson-type-context+.lesson-toolbar-status{padding-left:10px;border-left:1px solid #dce1e9}
-.lesson-toolbar-status svg{color:#667085}
 .lesson-switch-actions{flex:none;display:flex;align-items:center;gap:2px;padding:2px;border:1px solid #dde2ea;border-radius:10px;background:#fff;box-shadow:none}
 .lesson-switch-actions button{min-height:36px;display:flex;align-items:center;gap:5px;padding:0 11px;border:0;border-radius:8px;color:#59667a;background:transparent;font-size:15px;font-weight:700;cursor:pointer;transition:color .16s ease,background-color .16s ease,transform .16s ease}
 .lesson-switch-actions button:hover:not(:disabled){color:#3730a3;background:#f1f2f8}

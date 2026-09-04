@@ -991,8 +991,6 @@ function phaseLabel(phase: string | undefined, status: Task['status'], taskType?
     course_knowledge_blueprint: t('courseTasks.phases.knowledgeMapping', '编译全课知识关系'),
     knowledge_ready: t('courseTasks.phases.knowledgeReady', '迁移旧版知识确认点'),
     knowledge_confirmed: t('courseTasks.phases.knowledgeConfirmed', '旧版知识确认点已迁移'),
-    teaching_ready: t('courseTasks.phases.teachingReady', '迁移旧版教案确认点'),
-    teaching_confirmed: t('courseTasks.phases.teachingConfirmed', '旧版教案确认点已迁移'),
     blueprint_generation: t('courseTasks.phases.blueprintGeneration', '生成课程蓝图'),
     blueprint_validation: t('courseTasks.phases.blueprintValidation', '检查课程蓝图'),
     blueprint_ready: t('courseTasks.phases.blueprintReady', '等待确认课程蓝图'),

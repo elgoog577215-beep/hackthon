@@ -85,10 +85,6 @@ def test_course_preparation_status_requires_every_current_complete_asset():
         "ready_lesson_plans": 2,
         "ready_handouts": 2,
         "ready_ppts": 2,
-        "outline_confirmed": True,
-        "confirmed_lesson_plans": 2,
-        "confirmed_handouts": 2,
-        "confirmed_ppts": 2,
     }
 
     lessons["lesson-2"]["script_revisions"][0]["source_lesson_plan_revision_id"] = "plan-old"

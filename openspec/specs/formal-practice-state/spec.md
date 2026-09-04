@@ -1,7 +1,7 @@
 # formal-practice-state Specification
 
 ## Purpose
-TBD - created by archiving change upgrade-formal-practice. Update Purpose after archive.
+定义正式练习 Attempt 的创建、草稿恢复、评分和证据强度，使每次作答不可覆盖且可独立追踪。提示、AI 帮助、重试和并发编辑必须留下清楚边界，避免把受助答案误算为独立掌握。
 ## Requirements
 ### Requirement: 每次正式作答必须拥有独立 Attempt
 

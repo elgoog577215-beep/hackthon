@@ -1,7 +1,7 @@
 # learning-runtime-coordination Specification
 
 ## Purpose
-TBD - created by archiving change integrate-learning-runtime-contract. Update Purpose after archive.
+定义学习现场各模块怎样共享同一批课程、目标、任务和内容修订，形成一致的运行时投影与下一步。它约束进度、记录、练习、诊断和章节连续性使用同一身份合同，防止跨批次拼接状态。
 ## Requirements
 ### Requirement: 前六步必须共享稳定身份契约
 

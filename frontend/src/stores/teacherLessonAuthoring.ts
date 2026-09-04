@@ -18,7 +18,6 @@ export interface TeacherMaterialWorkingDraft {
   title: string
   status: 'working_draft' | 'superseded'
   source_state: 'current' | 'stale'
-  confirmation_required: true
   structured_document: Record<string, any>
   source_refs: Array<Record<string, any>>
   created_at: string
@@ -30,7 +29,6 @@ export interface TeacherLessonPlanRevision {
   source_outline_revision_id: string
   source_arrangement_revision_id?: string
   generation_source: string
-  status: 'draft' | 'confirmed'
   warnings: Array<Record<string, unknown>>
   source_refs?: Array<Record<string, unknown>>
   pipeline_version?: 'standard_lesson_plan_v1'
@@ -45,27 +43,18 @@ export interface TeacherLessonPlanRevision {
   plan: Record<string, any>
   actor: string
   created_at: string
-  confirmed_at?: string
-  restored_from_revision_id?: string
 }
 
 export interface TeacherLessonPlanAsset {
   lesson_unit_id: string
   working_revision_id: string
-  confirmed_revision_id: string
   source_state: 'current' | 'stale'
   ready?: boolean
   unavailable_reason?: string
   can_generate?: boolean
   generation_unavailable_reason?: string
-  revisions: TeacherLessonPlanRevision[]
-  ai_candidates?: TeacherLessonPlanCandidate[]
-  script_confirmation?: {
-    confirmed_revision_id?: string
-    source_lesson_plan_revision_id?: string
-    source_state?: 'current' | 'stale'
-    confirmed_at?: string
-  }
+  current_revision?: TeacherLessonPlanRevision | null
+  ai_candidate?: TeacherLessonPlanCandidate | null
   ppt_assets: TeacherLessonPptAsset[]
   material_drafts?: Record<string, TeacherMaterialWorkingDraft[]>
   current_material_draft_ids?: Record<string, string>
@@ -112,8 +101,6 @@ export interface TeacherLessonArrangement {
   classroom_constraints?: Record<string, unknown>
   quality_rules?: string[]
   blocks: TeacherLessonArrangementBlock[]
-  status: 'suggested' | 'draft' | 'confirmed'
-  confirmed: boolean
   source_state: 'current' | 'stale'
   ready?: boolean
 }
@@ -121,14 +108,12 @@ export interface TeacherLessonArrangement {
 export interface TeacherLessonScriptState {
   current_revision_id: string
   legacy_source_fingerprint?: string
-  confirmed_revision_id: string
   source_lesson_plan_revision_id: string
   source_state: 'current' | 'stale'
   ready: boolean
   unavailable_reason?: string
   can_generate?: boolean
   generation_unavailable_reason?: string
-  confirmed: boolean
   publication_eligible?: boolean
   generation_source?: string
   quality_contract_version?: string
@@ -141,21 +126,10 @@ export interface TeacherLessonScriptState {
     review_issues: Array<{ code: string; message: string; section_node_id?: string }>
     metrics: Record<string, number>
   }
-  confirmed_at: string
   sections: TeacherLessonScriptSection[]
-  revisions?: TeacherLessonScriptRevisionSummary[]
-  ai_candidate?: TeacherLessonScriptCandidate | null
-}
-
-export interface TeacherLessonScriptRevisionSummary {
-  revision_id: string
-  source_lesson_plan_revision_id: string
-  generation_source: string
-  actor: string
-  created_at?: string
+  actor?: string
   updated_at?: string
-  restored_from_revision_id?: string
-  publication_eligible?: boolean
+  ai_candidate?: TeacherLessonScriptCandidate | null
 }
 
 export interface TeacherLessonScriptCandidate {
@@ -928,31 +902,6 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         throw error
       }
     },
-    async confirmArrangement(
-      courseId: string,
-      lessonUnitId: string,
-      arrangement: Pick<TeacherLessonArrangement, 'lesson_type' | 'blocks'>,
-    ) {
-      this.actionLessonId = lessonUnitId
-      this.error = ''
-      try {
-        const response = await http.put<{ lesson: TeacherLessonProjection }>(
-          `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/arrangement/confirm`,
-          {
-            lesson_type: arrangement.lesson_type,
-            blocks: arrangement.blocks,
-          },
-          requestConfig(),
-        )
-        if (this.courseId === courseId) this.replaceLessonProjection(lessonUnitId, response.data.lesson)
-        return response.data.lesson
-      } catch (error) {
-        if (this.courseId === courseId) this.error = errorMessage(error, '本讲课型与教学块确认失败')
-        throw error
-      } finally {
-        if (this.courseId === courseId) this.actionLessonId = ''
-      }
-    },
     async updateLessonType(
       courseId: string,
       lessonUnitId: string,
@@ -1068,72 +1017,23 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       if (this.courseId === courseId) this.jobs = mergeLessonJobSnapshots(this.jobs, [job])
       return job
     },
-    async saveDraft(courseId: string, lessonUnitId: string, plan: Record<string, any>) {
-      const response = await http.patch<{ lesson: TeacherLessonPlanAsset }>(
+    async saveDraft(
+      courseId: string,
+      lessonUnitId: string,
+      plan: Record<string, any>,
+      expectedCurrentRevisionId: string,
+    ) {
+      const response = await http.patch<{ lesson: TeacherLessonProjection }>(
         `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/plan/draft`,
-        { plan, source_outline_revision_id: this.outlineRevisionId },
+        {
+          plan,
+          source_outline_revision_id: this.outlineRevisionId,
+          expected_current_revision_id: expectedCurrentRevisionId,
+        },
         requestConfig(),
       )
-      if (this.courseId === courseId) this.replaceLessonAsset(lessonUnitId, response.data.lesson)
+      if (this.courseId === courseId) this.replaceLessonProjection(lessonUnitId, response.data.lesson)
       return response.data.lesson
-    },
-    async confirm(courseId: string, lessonUnitId: string, revisionId: string) {
-      this.actionLessonId = lessonUnitId
-      this.error = ''
-      try {
-        const response = await http.post<{ lesson: TeacherLessonPlanAsset }>(
-          `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/plan/confirm`,
-          { revision_id: revisionId },
-          requestConfig(),
-        )
-        if (this.courseId === courseId) {
-          this.replaceLessonAsset(lessonUnitId, response.data.lesson)
-          await this.load(courseId)
-        }
-        return response.data.lesson
-      } catch (error) {
-        if (this.courseId === courseId) this.error = errorMessage(error, '本讲教案确认失败')
-        throw error
-      } finally {
-        if (this.courseId === courseId) this.actionLessonId = ''
-      }
-    },
-    async restorePlanRevision(courseId: string, lessonUnitId: string, revisionId: string) {
-      this.actionLessonId = lessonUnitId
-      this.error = ''
-      try {
-        const current = this.lessonById(lessonUnitId)?.plan.working_revision_id || ''
-        const response = await http.post<{ lesson: TeacherLessonProjection }>(
-          `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/plan/revisions/${revisionId}/restore`,
-          { expected_current_revision_id: current },
-          requestConfig(),
-        )
-        if (this.courseId === courseId) this.replaceLessonProjection(lessonUnitId, response.data.lesson)
-        return response.data.lesson
-      } catch (error) {
-        if (this.courseId === courseId) this.error = errorMessage(error, '教案历史版本恢复失败')
-        throw error
-      } finally {
-        if (this.courseId === courseId) this.actionLessonId = ''
-      }
-    },
-    async confirmScript(courseId: string, lessonUnitId: string, revisionId: string) {
-      this.actionLessonId = lessonUnitId
-      this.error = ''
-      try {
-        const response = await http.post<{ lesson: TeacherLessonProjection }>(
-          `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/script/confirm`,
-          { revision_id: revisionId },
-          requestConfig(),
-        )
-        if (this.courseId === courseId) this.replaceLessonProjection(lessonUnitId, response.data.lesson)
-        return response.data.lesson
-      } catch (error) {
-        if (this.courseId === courseId) this.error = errorMessage(error, '本讲讲义确认失败')
-        throw error
-      } finally {
-        if (this.courseId === courseId) this.actionLessonId = ''
-      }
     },
     async generateScript(
       courseId: string,
@@ -1223,25 +1123,6 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         throw error
       }
     },
-    async restoreScriptRevision(courseId: string, lessonUnitId: string, revisionId: string) {
-      this.actionLessonId = lessonUnitId
-      this.error = ''
-      try {
-        const current = this.lessonById(lessonUnitId)?.script.current_revision_id || ''
-        const response = await http.post<{ lesson: TeacherLessonProjection }>(
-          `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/script/revisions/${revisionId}/restore`,
-          { expected_current_revision_id: current },
-          requestConfig(),
-        )
-        if (this.courseId === courseId) this.replaceLessonProjection(lessonUnitId, response.data.lesson)
-        return response.data.lesson
-      } catch (error) {
-        if (this.courseId === courseId) this.error = errorMessage(error, '讲义历史版本恢复失败')
-        throw error
-      } finally {
-        if (this.courseId === courseId) this.actionLessonId = ''
-      }
-    },
     async rewriteScriptSection(
       courseId: string,
       lessonUnitId: string,
@@ -1325,12 +1206,12 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       candidateId: string,
       accept: boolean,
     ) {
-      const response = await http.post<{ lesson: TeacherLessonPlanAsset }>(
+      const response = await http.post<{ lesson: TeacherLessonProjection }>(
         `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/plan/ai-candidates/${candidateId}/resolve`,
         { accept },
         requestConfig(),
       )
-      if (this.courseId === courseId) this.replaceLessonAsset(lessonUnitId, response.data.lesson)
+      if (this.courseId === courseId) this.replaceLessonProjection(lessonUnitId, response.data.lesson)
       return response.data.lesson
     },
     replaceLessonAsset(lessonUnitId: string, plan: TeacherLessonPlanAsset) {

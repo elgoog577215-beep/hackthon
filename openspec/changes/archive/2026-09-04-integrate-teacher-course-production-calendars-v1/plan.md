@@ -3,7 +3,8 @@
 ## 1. Contract
 
 - Change: `integrate-teacher-course-production-calendars-v1`
-- Product truth: `docs/product/启智教师课程工作台_完整规划与开发图.md`
+- Current product truth: `docs/产品蓝图.md`, `openspec/changes/ship-teacher-course-authoring-v1/` and `openspec/changes/split-teacher-lesson-authoring-v1/`
+- Historical planning evidence only: `docs/归档/启智教师课程工作台_完整规划与开发图_2026-08-12.md`
 - Stable work packages: `tasks.md`
 - Evaluation: `eval-contract.md`
 - Strategy: existing isolated worktree, serial integration on top of existing course/generation/PPT contracts
@@ -155,7 +156,7 @@ Directly inherit existing:
 - color/type/radius/shadow tokens (`--lz-*`, `--space-*`);
 - buttons, icon buttons, Badge, inputs, selects, tables, Tooltip;
 - Drawer, Dialog, Toast/Message, Confirm and focus/error behavior;
-- `CourseOutlineReview`, `GenerationLessonPlan`, `CourseGenerationGate`, `CourseTaskCenter`, PPT workspace and existing AI panels.
+- `CourseOutlineReview`, `TeacherCourseWorkbench`, `TeacherLessonPlanDocument`, `CourseTaskCenter`, PPT workspace and existing AI panels.
 
 ### 4.2 Recompose by function
 
@@ -337,7 +338,7 @@ Exit:
 | production real store/API wiring | `loadCourse` + `observeCourse/unobserveCourse` | published maintenance path, real AI candidate and real PPT streaming build pass; active generation review fixture still required |
 | production overview | compact tabs + immediate lesson table | Markdown/KaTeX preview, persistent next action and PPT registry state pass at 1440/680 |
 | quick preview | large lesson preview from real nodes | opens and continues into teaching/PPT; previous/next and focus restoration remain |
-| immersive lesson workspace | real `GenerationLessonPlan` + lesson rail | AI creates a real draft and field-level candidate; accepted-candidate confirmation path still requires a disposable fixture |
+| immersive lesson workspace | real `TeacherCourseWorkbench` + lesson rail | AI creates a field-level candidate; current-revision save, candidate adoption and conflict paths use disposable fixtures |
 | course calendar persistence | backend/frontend tests + browser save/reload | functional alpha plus truthful CSV exchange; formal recognized import and DOCX/PDF remain release work |
 | total calendar aggregation | browser/API pass with three courses/five sessions | month/week/list and session-focused route-back pass; dense same-day overflow still required |
 | 680 responsive | horizontal course-function navigation | overview/production browser pass; no vertical Chinese observed |
@@ -431,8 +432,8 @@ Viewports: 1440, 1180, 880 and 680. Every viewport checks navigation readability
 | Gate | PASS condition | Failure/rollback condition |
 | --- | --- | --- |
 | G1 Domain consistency | The same test course is 10 lectures in overview, production and calendar; one lecture may contain N knowledge nodes and N schedule records. | Any page derives lecture count directly from leaf/content node count. |
-| G2 Authoring continuity | Outline confirmation opens per-lecture lesson-plan work; a confirmed lesson plan can open the unchanged PPT workspace before student release. | PPT requires `is_published`, or the adapter writes a fake release. |
-| G3 Version isolation | Working draft, teacher-confirmed version and student-published snapshot are separately named and projected. | Saving/previewing a teacher draft changes learner-visible state. |
+| G2 Authoring continuity | A current valid outline opens per-lecture lesson-plan work; a current valid lesson plan opens script generation, and a current valid script opens the unchanged PPT workspace. | Any artificial lesson-plan confirmation or student `is_published` gate is reintroduced. |
+| G3 Version isolation | Current revisions, AI candidates, source state and student-visible projection are separately named and projected. | Saving or previewing a teacher asset changes learner-visible state or an AI candidate overwrites the current revision before adoption. |
 | G4 Calendar integrity | Outline derivation is a visible candidate diff; manual schedule fields survive; only complete sessions appear as scheduled. | Candidate silently overwrites saved data or incomplete sessions enter the official total calendar. |
 | G5 Read-only preview | Teacher preview performs GET-only learner rendering and returns to the originating teacher page. | Any learning record, AI conversation, progress or practice mutation is observed. |
 | G6 UI contract | Existing components/tokens are reused; status is concentrated at the top; categories stay in the left rail; body content appears in the first viewport; four target widths remain usable. | New visual system, explanatory-card sprawl, hidden core navigation or clipped controls. |
@@ -484,10 +485,10 @@ Unresolved items are not hidden requirements: second school template, calendar-f
 - [x] M2 Add route-contract tests first, then complete the `/teacher` namespace while restoring `/course/:courseId` to the learner route.
 - [x] M3 Preserve the teacher library in `TeacherCourseLibraryView` and restore `CourseLibraryView` to upstream student behavior; split tests by surface.
 - [x] M4 Replace direct teacher-page store imports with `useTeacherCourseRuntime`; add an architectural test that teacher views do not import student stores directly.
-- [x] M5 Move confirm-generation-preview and future teacher commands to a teacher authoring router; update the teacher workbench client and cover 400/404/409/422/success.
+- [x] M5 Move teacher course commands out of the shared course router; current per-lesson commands are owned by `teacher_lesson_authoring` and cover 400/404/409/422/success.
 - [x] M6 Compare every shared-file modification with `origin/main`; restore upstream-owned strategy changes, retain only minimal compatibility extensions, and document any unavoidable overlap.
 - [x] M7 Rebase or merge the current upstream snapshot only after M2–M6 produce a narrow diff; resolve shared engines in favor of upstream and reconnect through adapters.
-- [x] M8 Run focused and full-enough regression: router contracts, student course library/lifecycle, teacher library/workflow, teacher preview write guard, backend teacher authoring, calendars, frontend build and real browser flows.
+- [x] M8 Run focused and full-enough regression: router contracts, student course library/lifecycle, teacher library/workflow, teacher preview write guard, backend lesson authoring, calendars, frontend build and real browser flows.
 - [x] M9 Run `git diff --check`, secret/runtime-artifact scan, changed-file ownership report and conflict forecast; create one local merge-ready commit only after all hard gates pass.
 
 ### 11.3 Hard gates

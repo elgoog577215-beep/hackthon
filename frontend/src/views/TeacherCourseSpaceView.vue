@@ -653,20 +653,17 @@ const lessons = computed<TeacherLessonProjection[]>(() => {
         lesson_type: 'theory',
         lesson_type_label: '理论讲授',
         blocks: [],
-        status: 'suggested',
-        confirmed: false,
         source_state: 'current',
       },
       script: {
-        current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '',
-        source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [],
+        current_revision_id: '', source_lesson_plan_revision_id: '',
+        source_state: 'current', ready: false, sections: [],
       },
       plan: {
         lesson_unit_id: node.node_id,
         working_revision_id: '',
-        confirmed_revision_id: '',
         source_state: 'current',
-        revisions: [],
+        current_revision: null,
         ppt_assets: [],
       },
     }))
@@ -853,10 +850,10 @@ const treeData = computed<WorkspaceNode[]>(() => {
   const practiceNodes: WorkspaceNode[] = []
   lessons.value.forEach(lesson => {
     const script = lesson.script || {
-      current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '',
-      source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [],
+      current_revision_id: '', source_lesson_plan_revision_id: '',
+      source_state: 'current', ready: false, sections: [],
     }
-    const working = lesson.plan.revisions.find(item => item.revision_id === lesson.plan.working_revision_id)
+    const working = lesson.plan.current_revision
     const ppt = lesson.plan.ppt_assets.find(item => item.role === 'primary') || lesson.plan.ppt_assets[0]
     const activeJob = lessonStore.activeJobByLesson(lesson.lesson_unit_id)
     const lessonPrefix = `${String(lesson.number).padStart(2, '0')}  ${lesson.title}`
@@ -868,7 +865,7 @@ const treeData = computed<WorkspaceNode[]>(() => {
     const contentNode: WorkspaceNode = {
       id: `content:${lesson.lesson_unit_id}`, label: `${lessonPrefix} · ${t('courseFiles.names.content')}`, kind: 'managed', type: 'content', path: `讲义/${safePart(lessonPrefix)}`,
       lessonId: lesson.lesson_unit_id, parentId: 'folder:handouts', status: teacherLessonScriptIsReady(lesson) ? 'ready' : script.current_revision_id ? 'draft' : 'missing',
-      revision: script.current_revision_id || '', updatedAt: script.revisions?.[0]?.updated_at || script.revisions?.[0]?.created_at,
+      revision: script.current_revision_id || '', updatedAt: script.updated_at,
       sizeBytes: script.ready ? textSize(lessonContentMarkdown(lesson)) : undefined,
     }
     const pptNode: WorkspaceNode = {
@@ -1757,7 +1754,7 @@ function planValueMarkdown(value: unknown, depth = 2): string {
 }
 
 function lessonPlanMarkdown(lesson: TeacherLessonProjection) {
-  const revision = lesson.plan.revisions.find(item => item.revision_id === lesson.plan.working_revision_id)
+  const revision = lesson.plan.current_revision
   return `# ${lesson.title} · ${t('courseFiles.names.lessonPlan')}\n\n${planValueMarkdown(revision?.plan || {})}`.trimEnd() + '\n'
 }
 

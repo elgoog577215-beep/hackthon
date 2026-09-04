@@ -405,12 +405,6 @@ def _teacher_preparation_projection(course: dict, repository) -> dict:
         "ready_lesson_plans": ready_plans,
         "ready_handouts": ready_handouts,
         "ready_ppts": ready_ppts,
-        # Compatibility aliases for older clients. Their values now mean
-        # current and structurally usable, not manually confirmed.
-        "outline_confirmed": outline_ready,
-        "confirmed_lesson_plans": ready_plans,
-        "confirmed_handouts": ready_handouts,
-        "confirmed_ppts": ready_ppts,
     }
     current_production = _teacher_current_production(authoring.get("jobs"))
     if current_production:

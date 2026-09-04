@@ -1,7 +1,7 @@
 # chapter-learning-continuation Specification
 
 ## Purpose
-TBD - created by archiving change orchestrate-chapter-learning-continuation. Update Purpose after archive.
+定义系统怎样从现有学习事实投影章节进度、恢复未完成任务，并为学习者给出唯一且可解释的下一步。它防止各模块分别推导状态、重复启动任务或让旧现场覆盖当前学习事实。
 ## Requirements
 ### Requirement: 章节状态必须由现有学习事实投影
 

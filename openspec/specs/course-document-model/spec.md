@@ -1,7 +1,7 @@
 # course-document-model Specification
 
 ## Purpose
-TBD - created by archiving change converge-canonical-course-document. Update Purpose after archive.
+定义 `CourseDocument + ordered CourseBlock[]` 作为课程正文唯一持久真源，并约束迁移、兼容读取和版本化修改。
 ## Requirements
 ### Requirement: 已迁移课程必须只有一个持久课程正文真源
 

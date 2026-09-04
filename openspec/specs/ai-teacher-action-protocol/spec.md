@@ -1,7 +1,7 @@
 # ai-teacher-action-protocol Specification
 
 ## Purpose
-TBD - created by archiving change unify-ai-teacher-action-protocol. Update Purpose after archive.
+定义 AI 老师怎样从统一学习运行时装配最小上下文、保护答案边界，并把建议转成可审阅、可追踪的正式动作。
 ## Requirements
 ### Requirement: AI 老师必须读取统一运行时且不得拥有平行状态
 
@@ -242,4 +242,3 @@ AI 老师构建回答、主动触发或提案时 MUST NOT 读取旧 AI profile�
 - **WHEN** 系统装配当前 AI 上下文
 - **THEN** MUST 忽略该 AI 生成画像
 - **AND** MUST NOT 根据其调整回答或下一步
-

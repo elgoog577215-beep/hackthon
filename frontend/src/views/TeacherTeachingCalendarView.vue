@@ -421,7 +421,7 @@ const lessonPlanPreparation = computed<PreparationState>(() => {
   const lesson = sessionLesson.value
   const job = latestSessionJob('plan')
   if (job && ['pending', 'running'].includes(job.status)) return preparationState('working', 'generating', 'planWorking')
-  const revision = lesson?.plan.revisions.find(item => item.revision_id === lesson.plan.working_revision_id)
+  const revision = lesson?.plan.current_revision
   if (!revision) {
     if (job?.status === 'failed') return preparationState('error', 'failed', 'planFailed')
     return preparationState('missing', 'notCreated', 'planMissing')

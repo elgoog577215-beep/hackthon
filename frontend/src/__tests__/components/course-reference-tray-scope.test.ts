@@ -384,11 +384,11 @@ describe('CourseReferenceTray lesson scope', () => {
     expect(secondFile.text()).toContain('指定 2 讲')
   })
 
-  it.each(['review', 'confirmed'] as const)('内容生成后（%s）收起上传入口，只在老师主动调整时展开', async (workflowState) => {
+  it('内容生成完成后收起上传入口，只在老师主动调整时展开', async () => {
     const wrapper = mount(CourseReferenceTray, {
       props: {
         courseId: 'course-1', modelValue: [{ ...assets[2]!, role: 'primary' }], stage: 'lesson',
-        workflowState,
+        workflowState: 'completed',
         scopeTargetId: 'lesson-plan:L1-2', scopeTargetType: 'lesson_plan',
         scopeTargetLabel: '第二讲',
         lessonTargets: [
@@ -401,32 +401,32 @@ describe('CourseReferenceTray lesson scope', () => {
     await flushPromises()
 
     expect(wrapper.find('.system-context').exists()).toBe(true)
-    expect(wrapper.find(`.source-status--${workflowState}`).exists()).toBe(false)
-    expect(wrapper.get('.confirmed-source-summary').text()).toContain('使用以下资料')
-    expect(wrapper.get('.confirmed-source-summary').text()).toContain('第二讲主教材.docx')
-    expect(wrapper.find('.confirmed-source-hint').exists()).toBe(false)
+    expect(wrapper.find('.source-status--completed').exists()).toBe(false)
+    expect(wrapper.get('.current-source-summary').text()).toContain('使用以下资料')
+    expect(wrapper.get('.current-source-summary').text()).toContain('第二讲主教材.docx')
+    expect(wrapper.find('.current-source-hint').exists()).toBe(false)
     expect(wrapper.find('.empty-drop').exists()).toBe(false)
     expect(wrapper.find('.reference-add').exists()).toBe(false)
     expect(wrapper.find('.web-research-open').exists()).toBe(false)
     expect(wrapper.find('.reference-scope').exists()).toBe(false)
 
-    await wrapper.get('.confirmed-source-adjust').trigger('click')
-    expect(wrapper.get(`.source-status--${workflowState}`).text()).toContain('正在调整资料')
-    expect(wrapper.find('.confirmed-source-summary').exists()).toBe(false)
+    await wrapper.get('.current-source-adjust').trigger('click')
+    expect(wrapper.get('.source-status--completed').text()).toContain('正在调整资料')
+    expect(wrapper.find('.current-source-summary').exists()).toBe(false)
     expect(wrapper.find('.empty-drop').exists()).toBe(false)
     expect(wrapper.get('.source-group--primary').text()).toContain('第二讲主教材.docx')
     expect(wrapper.get('.reference-add').text()).toContain('上传参考文件')
     expect(wrapper.find('.reference-scope').exists()).toBe(true)
 
     await wrapper.get('.drop-zone > button').trigger('click')
-    expect(wrapper.get(`.source-status--${workflowState}`).text()).toContain('资料已调整，当前内容待重新生成')
+    expect(wrapper.get('.source-status--completed').text()).toContain('资料已调整，当前内容待重新生成')
     expect(wrapper.get('.source-status__regenerate').text()).toContain('使用新资料重新生成')
 
     await wrapper.get('.source-status__collapse').trigger('click')
-    expect(wrapper.find('.confirmed-source-summary').exists()).toBe(true)
-    expect(wrapper.get('.confirmed-source-summary').text()).toContain('第二讲主教材.docx')
-    expect(wrapper.get('.confirmed-source-summary').text()).toContain('资料已调整，当前内容待重新生成')
-    expect(wrapper.get('.confirmed-source-adjust').text()).toContain('继续调整资料')
+    expect(wrapper.find('.current-source-summary').exists()).toBe(true)
+    expect(wrapper.get('.current-source-summary').text()).toContain('第二讲主教材.docx')
+    expect(wrapper.get('.current-source-summary').text()).toContain('资料已调整，当前内容待重新生成')
+    expect(wrapper.get('.current-source-adjust').text()).toContain('继续调整资料')
     expect(wrapper.find('.reference-add').exists()).toBe(false)
     expect(wrapper.find('.reference-scope').exists()).toBe(false)
 
@@ -437,17 +437,17 @@ describe('CourseReferenceTray lesson scope', () => {
   it('生成完成且没有资料时只显示未使用资料', async () => {
     const wrapper = mount(CourseReferenceTray, {
       props: {
-        courseId: 'course-1', modelValue: [], stage: 'script', workflowState: 'review',
+        courseId: 'course-1', modelValue: [], stage: 'script', workflowState: 'completed',
         scopeTargetId: 'lecture-script:L1-9', scopeTargetType: 'lecture_script', scopeTargetLabel: '第九讲',
       },
       global: { stubs: { WebResearchDialog: true } },
     })
     await flushPromises()
 
-    expect(wrapper.find('.source-status--review').exists()).toBe(false)
-    expect(wrapper.get('.confirmed-source-summary').text()).toContain('未使用资料')
-    expect(wrapper.find('.confirmed-source-list').exists()).toBe(false)
-    expect(wrapper.find('.confirmed-source-hint').exists()).toBe(false)
+    expect(wrapper.find('.source-status--completed').exists()).toBe(false)
+    expect(wrapper.get('.current-source-summary').text()).toContain('未使用资料')
+    expect(wrapper.find('.current-source-list').exists()).toBe(false)
+    expect(wrapper.find('.current-source-hint').exists()).toBe(false)
   })
 
   it('题库常驻侧栏只保留真题资料并以专用角色保存', async () => {

@@ -194,7 +194,7 @@ const failureView = computed(() => {
     return {
       code,
       title: t('pptWorkspace.manuscriptTitleRecoveryTitle', '页面标题候选不足'),
-      message: t('pptWorkspace.manuscriptTitleRecoveryMessage', '系统会优先使用已确认讲义块标题重新规划，不会发布重复或残缺标题页。'),
+      message: t('pptWorkspace.manuscriptTitleRecoveryMessage', '系统会优先使用当前可用讲义块标题重新规划，不会发布重复或残缺标题页。'),
     }
   }
   if (code.endsWith('_rate_limited')) {

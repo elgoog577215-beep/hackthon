@@ -1,7 +1,7 @@
 # teaching-representation-model Specification
 
 ## Purpose
-TBD - created by archiving change build-same-source-teaching-representations. Update Purpose after archive.
+定义教案、讲义、PPT、图解、动画和题目导出怎样引用同一课程语义，并作为可追溯派生表达而非第二真源。
 ## Requirements
 ### Requirement: 所有教学表达必须引用同一课程语义
 

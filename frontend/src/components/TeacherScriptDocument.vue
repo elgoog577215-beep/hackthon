@@ -361,10 +361,10 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.scriptDocument.applyingAi': '正在采用…',
   'courseWorkbench.scriptDocument.aiFailed': 'AI 优化失败，请重试。',
   'courseWorkbench.scriptDocument.sectionNavigation': '讲义小节',
-  'courseWorkbench.scriptDocument.sourceRecovery': '恢复草稿',
-  'courseWorkbench.scriptDocument.sourceTeacherEdit': '教师编辑稿',
-  'courseWorkbench.scriptDocument.sourceAiOptimization': 'AI 优化稿',
-  'courseWorkbench.scriptDocument.sourceModel': 'AI 生成稿',
+  'courseWorkbench.scriptDocument.sourceRecovery': '续写补全稿',
+  'courseWorkbench.scriptDocument.sourceTeacherEdit': '教师编辑',
+  'courseWorkbench.scriptDocument.sourceAiOptimization': 'AI 优化',
+  'courseWorkbench.scriptDocument.sourceModel': 'AI 生成',
   'courseWorkbench.scriptDocument.sourceLegacy': '旧版讲义',
   'courseWorkbench.scriptDocument.statusCurrentReady': '当前正文可用',
   'courseWorkbench.scriptDocument.statusGenerated': '已生成',
@@ -485,7 +485,7 @@ type MappedPlanBlock = {
 }
 const mappedPlanBlocks = computed<MappedPlanBlock[]>(() => {
   const plan = props.lesson.plan
-  const revision = plan.revisions?.find(item => item.revision_id === plan.working_revision_id)
+  const revision = plan.current_revision
   const sections = Array.isArray(revision?.plan?.sections) ? revision.plan.sections : []
   const arrangementById = new Map(
     (props.lesson.arrangement?.blocks || []).map(block => [block.block_id, block]),

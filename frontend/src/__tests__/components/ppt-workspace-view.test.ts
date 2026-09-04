@@ -56,7 +56,7 @@ function courseEnvelope(
 }
 
 describe('PptWorkspaceView', () => {
-  it('带课次参数时直接读取已确认教案与讲稿的 V6 源', async () => {
+  it('带课次参数时直接读取当前可用教案与讲义的 V6 源', async () => {
     routeState.route = reactive({
       params: { courseId: 'course-1' },
       query: { lesson: 'L1-1' },

@@ -60,10 +60,10 @@ describe('teacher course library management', () => {
       preparation_state: 'prepared',
       preparation_summary: {
         planned_lessons: 8,
-        outline_confirmed: true,
-        confirmed_lesson_plans: 8,
-        confirmed_handouts: 8,
-        confirmed_ppts: 8,
+        outline_ready: true,
+        ready_lesson_plans: 8,
+        ready_handouts: 8,
+        ready_ppts: 8,
       },
       next_session: {
         session_id: 'session-7', sequence: 7, date: '2026-09-08', start_time: '14:00:00',
@@ -104,10 +104,10 @@ describe('teacher course library management', () => {
       course_name: '线性代数',
       preparation_summary: {
         planned_lessons: 3,
-        outline_confirmed: true,
-        confirmed_lesson_plans: 1,
-        confirmed_handouts: 0,
-        confirmed_ppts: 0,
+        outline_ready: true,
+        ready_lesson_plans: 1,
+        ready_handouts: 0,
+        ready_ppts: 0,
         current_production: {
           target: 'lesson_plan',
           status: 'running',

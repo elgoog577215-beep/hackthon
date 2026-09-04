@@ -68,7 +68,6 @@ def authoring() -> dict:
                     }]},
                 }],
                 "working_script_revision_id": "script-r1",
-                "script_confirmation": {"source_state": "current"},
                 "script_revisions": [{
                     "revision_id": "script-r1",
                     "sections": [{

@@ -16,7 +16,6 @@ from content_blocks import set_node_content_blocks
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
 from course_knowledge_base import compile_course_knowledge_base
 from course_knowledge_map import compile_course_knowledge_map
-from course_repository import CourseDocumentRepository
 from teaching_plan_impact import (
     KnowledgeReferenceIndex,
     build_downstream_state,
@@ -27,23 +26,11 @@ from teaching_plan_impact import (
     impact_matrix_snapshot,
     record_rebuild_outcome,
 )
-from teaching_plan_workbench import TeachingPlanWorkbenchService
 from teaching_representations import (
     SourceBinding,
     TeachingRepresentation,
     TeachingRepresentationRepository,
 )
-
-
-class MemoryStorage:
-    def __init__(self, course: dict) -> None:
-        self.course = deepcopy(course)
-
-    def load_course(self, _course_id: str) -> dict:
-        return deepcopy(self.course)
-
-    async def save_course(self, _course_id: str, data: dict) -> None:
-        self.course = deepcopy(data)
 
 
 def _knowledge_points() -> list[dict]:
@@ -962,78 +949,3 @@ def test_successful_rebuild_advances_the_readable_version(tmp_path) -> None:
     )
     assert final["state"] == "current"
     assert final["last_available"]["revision"] == "rev-final"
-
-
-@pytest.mark.asyncio
-async def test_applying_a_plan_revision_records_downstream_state_without_touching_artifacts(
-    tmp_path,
-) -> None:
-    """影响分析是只读的：应用教案修订不得改写正文块或 PPT 产物。"""
-    storage = MemoryStorage(_course(with_knowledge_base=True))
-    now = datetime.now(timezone.utc).isoformat()
-    binding = SourceBinding(
-        course_id="course-1",
-        source_revisions={"course_teaching_plan": "teaching-initial"},
-    )
-    representation_repository = TeachingRepresentationRepository(tmp_path / "representations")
-    representation_repository.register_representation(TeachingRepresentation(
-        representation_id="deck-1",
-        course_id="course-1",
-        representation_type="slide_deck",
-        source_bindings=[binding],
-        source_revision_vector=binding.source_revisions,
-        spec_id="spec-deck-1",
-        artifact_ids=["artifact-deck-1"],
-        semantic_fingerprint="fp-deck-1",
-        revision="rev-deck-1",
-        status="ready",
-        created_at=now,
-        updated_at=now,
-    ))
-    service = TeachingPlanWorkbenchService(
-        CourseDocumentRepository(storage),
-        representation_repository=representation_repository,
-    )
-    blocks_before = deepcopy(storage.course["course_document"]["blocks"])
-
-    view = service.view("course-1", actor="teacher-1")
-    created = await service.create_draft(
-        "course-1",
-        actor="teacher-1",
-        idempotency_key="create-1",
-        base_plan_revision_id=view["current_plan_revision_id"],
-        base_course_document_revision=view["course_document_revision"],
-    )
-    patched = await service.patch_draft(
-        "course-1",
-        actor="teacher-1",
-        draft_id=created["draft"]["draft_id"],
-        path="sections/section-1/learning_objective",
-        value="能够实现倍增扩容并用复制次数解释摊还复杂度",
-        expected_value_hash="",
-        base_plan_revision_id=view["current_plan_revision_id"],
-        idempotency_key="patch-1",
-    )
-    reviewed = await service.create_change_set(
-        "course-1",
-        actor="teacher-1",
-        draft_id=patched["draft"]["draft_id"],
-        idempotency_key="review-1",
-    )
-    change_set = next(item for item in reviewed["change_sets"] if item["status"] == "ready")
-    applied = await service.apply_change_set(
-        "course-1",
-        actor="teacher-1",
-        change_set_id=change_set["change_set_id"],
-        idempotency_key="apply-1",
-    )
-
-    downstream = applied["workbench"]["downstream"]
-    assert downstream["schema_version"] == "teaching_plan_downstream_state_v1"
-    states = downstream_state_snapshot(downstream)["states"]
-    assert states["section_content:section-1"] == "rebuild_required"
-    # PPT 来源已过期，但旧产物仍被记录为可读的最后可用版本。
-    deck = next(item for item in downstream["items"] if item["id"] == "deck-1")
-    assert deck["last_available"]["revision"] == "rev-deck-1"
-    # 只读分析：课程正文块没有被影响分析改写。
-    assert storage.course["course_document"]["blocks"] == blocks_before

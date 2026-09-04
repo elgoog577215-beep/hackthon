@@ -753,7 +753,7 @@ class TaskManager:
                     SLIDE_DECK_V6_BUILD_CONTRACT_VERSION
                 )
         if (
-            task_type in {"course_generation", "teacher_outline_generation"}
+            task_type == "course_generation"
             and workspace_id
             and task["operation"] == "generate"
         ):
@@ -1264,63 +1264,15 @@ class TaskManager:
         """Generate and validate a non-persistent reviewable outline proposal."""
         started_at = time.monotonic()
         request_id = str(payload.get("request_id") or "")
-        related = [
-            task
-            for task in self.tasks.values()
-            if task.get("course_id") == course_id
-            and task.get("type") in {"course_generation", "teacher_outline_generation"}
-            and isinstance(task.get("guided_workflow"), dict)
-        ]
-        related.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
-        if not related:
-            raise TaskStateConflict(
-                "课程当前没有可修订的大纲任务",
-                status="outline_review_required",
-            )
-        task = related[0]
-        workflow = task["guided_workflow"]
-        outline_state = guided_step_state(workflow, "outline")
-        review_ready = (
-            task.get("status") == "waiting_for_review"
-            and str(workflow.get("review_step") or "") == "outline"
-            and str(outline_state.get("status") or "")
-            == "waiting_for_confirmation"
+        course_data = self.get_generation_workspace_course_for_task(
+            course_id,
+            task_type="teacher_outline_generation",
+            require_usable_outline=True,
         )
-        lifecycle_reopened = False
-        if not review_ready:
-            try:
-                reopened = await self.reopen_generation_step(course_id, "outline")
-            except (ValueError, CourseVersionConflict) as exc:
-                raise TaskStateConflict(
-                    "当前大纲不在可调整阶段",
-                    status="outline_review_required",
-                ) from exc
-            task = self.tasks[str(reopened["job_id"])]
-            workflow = task["guided_workflow"]
-            outline_state = guided_step_state(workflow, "outline")
-            lifecycle_reopened = reopened.get("status") == "reopened"
-        if (
-            str(workflow.get("review_step") or "") != "outline"
-            or str(outline_state.get("status") or "") != "waiting_for_confirmation"
-        ):
-            raise TaskStateConflict(
-                "当前大纲不在可调整阶段",
-                status=str(outline_state.get("status") or "not_available"),
-            )
-        course_data = self._load_task_course(str(task["id"]))
+        if not isinstance(course_data, dict) and self.storage:
+            course_data = self.storage.load_course(course_id)
         if not isinstance(course_data, dict):
             raise ValueError("Course not found")
-        reopened_revision = str(
-            outline_state.get("previous_confirmed_revision") or ""
-        )
-        if (
-            not reopened_revision
-            and self._has_downstream_outline_artifacts(course_data)
-        ):
-            raise TaskStateConflict(
-                "课程已经生成下游正式产物，不能再调整首次目录",
-                status="downstream_artifacts_exist",
-            )
 
         current_blueprint_revision = blueprint_revision_id(course_data)
         expected_base = str(payload.get("base_blueprint_revision_id") or "")
@@ -1446,7 +1398,6 @@ class TaskManager:
             )
             return {
                 "proposal_id": proposal_id,
-                "lifecycle_reopened": lifecycle_reopened,
                 "source_draft_revision_id": source_draft["draft_revision_id"],
                 "operations": last_operations,
                 "summary": "AI 暂时无法把这句话转换为安全的目录调整，请换一种说法后重试。",
@@ -1489,10 +1440,10 @@ class TaskManager:
         elif unresolved_quality_issue:
             blocking_issues.append({
                 "code": "outline_quality_issue_unresolved",
-                "message": (
-                    "这版 AI 候选仍未解决目标审阅问题，"
-                    "已暂停采用；可以重试或放弃，不影响直接确认当前大纲。"
-                ),
+                        "message": (
+                            "这版 AI 候选仍未解决目标审阅问题，"
+                            "已暂停采用；可以重试或放弃，不影响继续编辑当前大纲。"
+                        ),
                 "target_issue_code": target_quality_issue_code,
                 "details": deepcopy(unresolved_quality_issue),
             })
@@ -1535,7 +1486,6 @@ class TaskManager:
         )
         return {
             "proposal_id": proposal_id,
-            "lifecycle_reopened": lifecycle_reopened,
             "source_draft_revision_id": source_draft["draft_revision_id"],
             "operations": last_operations,
             "summary": summary,
@@ -2173,18 +2123,18 @@ class TaskManager:
         course_id: str,
         step: str,
     ) -> dict[str, Any]:
-        """Confirm the current user-facing artifact and resume the same job."""
+        """Confirm a legacy whole-course artifact and resume the same job."""
         waiting = [
             task for task in self.tasks.values()
             if task.get("course_id") == course_id
             and task.get("status") == "waiting_for_review"
-            and task.get("type") in {"course_generation", "teacher_outline_generation"}
+            and task.get("type") == "course_generation"
         ]
         if not waiting:
             related = [
                 task for task in self.tasks.values()
                 if task.get("course_id") == course_id
-                and task.get("type") in {"course_generation", "teacher_outline_generation"}
+                and task.get("type") == "course_generation"
                 and isinstance(task.get("guided_workflow"), dict)
             ]
             related.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
@@ -2380,8 +2330,7 @@ class TaskManager:
                 task
                 for task in self.tasks.values()
                 if task.get("course_id") == course_id
-                and task.get("type")
-                in {"course_generation", "teacher_outline_generation"}
+                and task.get("type") == "course_generation"
                 and isinstance(task.get("guided_workflow"), dict)
             ]
             related.sort(
@@ -2414,27 +2363,18 @@ class TaskManager:
                     "task": self._task_view(task),
                 }
 
-            task_type = str(task.get("type") or "")
             task_status = str(task.get("status") or "")
-            if task_type == "course_generation":
-                if task_status != "waiting_for_review" or not current_review:
-                    raise ValueError(
-                        "The generation job must be waiting for a later review"
-                    )
-                if (
-                    GUIDED_STEP_KEYS.index(current_review)
-                    <= GUIDED_STEP_KEYS.index(step)
-                ):
-                    raise ValueError(
-                        "The requested step is not upstream of the current review"
-                    )
-            elif task_type == "teacher_outline_generation":
-                if task_status not in {"completed", "completed_with_warnings"}:
-                    raise ValueError(
-                        "The teacher outline job is not ready for a new revision"
-                    )
-            else:
-                raise ValueError("This generation job cannot reopen the outline")
+            if task_status != "waiting_for_review" or not current_review:
+                raise ValueError(
+                    "The generation job must be waiting for a later review"
+                )
+            if (
+                GUIDED_STEP_KEYS.index(current_review)
+                <= GUIDED_STEP_KEYS.index(step)
+            ):
+                raise ValueError(
+                    "The requested step is not upstream of the current review"
+                )
             if state.get("status") != "confirmed":
                 raise ValueError("The requested upstream step has not been confirmed")
 
@@ -2779,6 +2719,7 @@ class TaskManager:
         *,
         task_type: str,
         require_confirmed_outline: bool = False,
+        require_usable_outline: bool = False,
     ) -> dict[str, Any] | None:
         """Load the newest workspace owned by one generation capability.
 
@@ -2807,7 +2748,14 @@ class TaskManager:
                 workspace = self._generation_workspace_repository.load(workspace_id)
                 if workspace.get("status") == "published":
                     continue
-                return self._generation_workspace_repository.load_course(workspace_id)
+                course = self._generation_workspace_repository.load_course(workspace_id)
+                if require_usable_outline and (
+                    str(task.get("status") or "")
+                    not in {"completed", "completed_with_warnings"}
+                    or not _teacher_outline_result_ready(course)
+                ):
+                    continue
+                return course
             except GenerationWorkspaceNotFound:
                 continue
         return None
@@ -8064,6 +8012,7 @@ class TaskManager:
                 raise ValueError("Generation job index must contain an object")
             self.tasks = loaded
             migrated_slide_contract = False
+            migrated_teacher_lifecycle = False
             for task_id, task in self.tasks.items():
                 task.setdefault("id", task_id)
                 task.setdefault("type", "legacy_content_generation")
@@ -8210,12 +8159,53 @@ class TaskManager:
                 task.setdefault("operation", "generate")
                 task.setdefault("candidate_id", None)
                 task.setdefault("base_version_id", None)
-                task.setdefault("blueprint_confirmed", False)
-                task.setdefault("blueprint_revision_id", None)
+                if task.get("type") != "teacher_outline_generation":
+                    task.setdefault("blueprint_confirmed", False)
+                    task.setdefault("blueprint_revision_id", None)
                 task.setdefault("workspace_id", None)
                 task.setdefault("base_document_revision", None)
                 workflow = task.get("guided_workflow")
-                if isinstance(workflow, dict):
+                if task.get("type") == "teacher_outline_generation":
+                    for retired_field in (
+                        "guided_workflow",
+                        "blueprint_confirmed",
+                        "blueprint_revision_id",
+                    ):
+                        if retired_field in task:
+                            task.pop(retired_field, None)
+                            migrated_teacher_lifecycle = True
+                    if task.get("status") == "waiting_for_review":
+                        course_data = self._load_task_course(task_id)
+                        if _teacher_outline_result_ready(course_data):
+                            task.update({
+                                "status": "completed",
+                                "phase": "teacher_outline_ready",
+                                "current_phase": "teacher_outline_ready",
+                                "progress": 100,
+                                "phase_progress": 100,
+                                "message": "课程大纲已生成，可选择任一讲生成教案",
+                                "outline_detail_requested": False,
+                                "current_nodes": [],
+                                "current_node_name": "",
+                            })
+                            migrated_teacher_lifecycle = True
+                        elif isinstance(course_data, dict) and (
+                            course_data.get("outline_framework_only") is True
+                            or bool(course_data.get("nodes"))
+                            or bool(course_data.get("course_outline"))
+                        ):
+                            task.update({
+                                "status": "waiting_for_input",
+                                "phase": "outline_framework_ready",
+                                "current_phase": "outline_framework_ready",
+                                "phase_progress": 100,
+                                "message": "轻量讲次方案已生成，可修改后继续生成完整大纲",
+                                "outline_detail_requested": False,
+                                "current_nodes": [],
+                                "current_node_name": "",
+                            })
+                            migrated_teacher_lifecycle = True
+                elif isinstance(workflow, dict):
                     legacy_review = str(
                         workflow.get("review_step") or ""
                     )
@@ -8243,7 +8233,11 @@ class TaskManager:
                         task["status"] = "completed"
                         task["phase"] = "legacy_read_only"
                         task["message"] = "旧版任务仅供历史查看"
-            if source == LEGACY_TASKS_FILE or migrated_slide_contract:
+            if (
+                source == LEGACY_TASKS_FILE
+                or migrated_slide_contract
+                or migrated_teacher_lifecycle
+            ):
                 self.save_tasks(strict=True)
         except Exception as e:
             logger.error("Failed to load tasks: %s", e)

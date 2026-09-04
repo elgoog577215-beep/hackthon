@@ -5,7 +5,6 @@ import { createUuid } from '../utils/client-id'
 import { t } from '../shared/i18n'
 import { useLearningSessionStore } from './learningSession'
 import { useLearningProgressStore, type LearningTaskRef, type NextLearningAction } from './learningProgress'
-import { useGenerationStore } from './generation'
 
 export type CourseWorkspaceMode = 'reading' | 'overview' | 'practice' | 'mastery' | 'blueprint' | 'versions'
 
@@ -132,7 +131,6 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     practiceScope: 'node' as 'node' | 'final' | 'all',
     assets: null as LearningAssetsResponse | null,
     blueprint: null as any,
-    blueprintDraftVersions: [] as any[],
     generationReview: null as any,
     versions: [] as any[],
     currentVersionId: '' as string,
@@ -689,27 +687,6 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
         this.saving = false
       }
     },
-    async loadBlueprintDraftVersions(courseId: string) {
-      const res = await http.get(`/api/courses/${courseId}/blueprint/draft/versions`, teacherReadRequestConfig())
-      this.blueprintDraftVersions = res.data.versions || []
-      return this.blueprintDraftVersions
-    },
-    async restoreBlueprintDraftVersion(courseId: string, historyEntryId: string) {
-      const currentRevisionId = String(this.blueprint?.draft?.draft_revision_id || '')
-      const res = await http.post(
-        `/api/courses/${courseId}/blueprint/draft/versions/${historyEntryId}/restore`,
-        { expected_draft_revision_id: currentRevisionId },
-        teacherRequestConfig(),
-      )
-      this.blueprint = {
-        ...this.blueprint,
-        draft: res.data.draft,
-        quality: res.data.quality_report || res.data.draft?.course_outline_quality_report || {},
-        has_unconfirmed_draft: true,
-      }
-      await this.loadBlueprintDraftVersions(courseId)
-      return res.data
-    },
     async retryBlueprintRetrieval(courseId: string) {
       const res = await http.post(`/api/courses/${courseId}/blueprint/retrieval/retry`)
       this.blueprint = {
@@ -723,9 +700,6 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
         `/api/courses/${courseId}/blueprint/adjustments/preview`,
         payload,
       )
-      if (res.data?.lifecycle_reopened) {
-        await useGenerationStore().fetchGlobalTasks()
-      }
       return res.data
     },
     async cancelBlueprintAdjustment(courseId: string, proposalId: string, requestId: string) {

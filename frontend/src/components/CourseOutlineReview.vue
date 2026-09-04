@@ -825,7 +825,7 @@
                         <label class="wide"><span>{{ t('courseGeneration.outlineReview.extensionResourceLabel', '拓展资源') }}</span></label>
                         <div class="formal-contract-editor__rows wide" data-outline-field="extension_resources">
                           <div v-for="(resource, resourceIndex) in lectureResources(lectureIndex)" :key="`resource-${resourceIndex}`" class="formal-contract-editor__row formal-contract-editor__row--resource">
-                            <select :value="resource.source_ref || ''" @change="selectLectureResource(lectureIndex, resourceIndex, $event)"><option value="">{{ t('courseGeneration.outlineReview.selectVerifiedReference', '选择已确认来源') }}</option><option v-for="option in confirmedReferenceOptions" :key="option.label" :value="option.label">{{ option.label }}</option></select>
+                            <select :value="resource.source_ref || ''" @change="selectLectureResource(lectureIndex, resourceIndex, $event)"><option value="">{{ t('courseGeneration.outlineReview.selectVerifiedReference', '选择已核实来源') }}</option><option v-for="option in confirmedReferenceOptions" :key="option.label" :value="option.label">{{ option.label }}</option></select>
                             <input :value="resource.edition || ''" :placeholder="t('courseGeneration.outlineReview.resourceEdition', '版次（书籍必填）')" @input="setLectureResourceField(lectureIndex, resourceIndex, 'edition', $event)" />
                             <input :value="resource.locator || ''" :placeholder="t('courseGeneration.outlineReview.resourceLocator', '章节或页码')" @input="setLectureResourceField(lectureIndex, resourceIndex, 'locator', $event)" />
                             <button type="button" :aria-label="t('common.delete', '删除')" @click="removeLectureResource(lectureIndex, resourceIndex)">×</button>
@@ -3348,13 +3348,6 @@ function invalidateProposal() {
 
 function outlineAdjustmentFailureMessage(error: any) {
   const status = Number(error?.response?.status || 0)
-  const code = String(error?.response?.data?.detail?.code || '')
-  if (code === 'outline_adjustment_lifecycle_conflict') {
-    return t(
-      'courseGeneration.outlineReview.proposalLifecycleConflict',
-      '当前大纲不在可调整阶段，请重新进入编辑后再试。',
-    )
-  }
   if (status === 409) {
     return t('courseGeneration.outlineReview.proposalConflict', '目录版本已变化，请重新载入后生成方案。')
   }
@@ -3594,32 +3587,6 @@ async function finishEditing() {
   }
 }
 
-async function restoreHistoryVersion(historyEntryId: string) {
-  if (!historyEntryId || acting.value || dirty.value) return false
-  actionError.value = ''
-  try {
-    const result = await workspace.restoreBlueprintDraftVersion(props.courseId, historyEntryId)
-    blueprintDraft.value = clone(result.draft || {})
-    setQualityReview(result.quality_report || blueprintDraft.value.course_outline_quality_report || {})
-    richEditorDirty.value = false
-    editorMode.value = 'visual'
-    markdownDraft.value = ''
-    rememberedEditorRange = null
-    syncNavigationFromDraft()
-    baseline.value = draftSignature.value
-    resetEditHistory()
-    adjustmentProposal.value = null
-    await nextTick()
-    refreshEditorStats()
-    ElMessage.success(t('courseGeneration.outlineReview.historyRestored', '已恢复大纲历史版本'))
-    return true
-  } catch (error: any) {
-    actionError.value = error?.response?.data?.detail?.message
-      || t('courseGeneration.outlineReview.historyRestoreFailed', '大纲历史版本恢复失败，请重试。')
-    return false
-  }
-}
-
 async function confirmOutline() {
   if (!blueprintNodes.value.length || acting.value) return
   confirming.value = true
@@ -3663,7 +3630,6 @@ defineExpose({
   canRedo,
   undoEdit,
   redoEdit,
-  restoreHistoryVersion,
 })
 </script>
 

@@ -57,8 +57,8 @@ Education-agent integration, student publication, calendars/files migration, old
 - `frontend/src/stores/teacherLessonAuthoring.ts`
 - `frontend/src/views/TeacherCourseCreateView.vue`
 - `frontend/src/components/CourseGenerationDialog.vue`
-- `frontend/src/views/TeacherCourseProductionView.vue`
-- `frontend/src/components/GenerationLessonPlan.vue`
+- `frontend/src/components/TeacherCourseWorkbench.vue`
+- `frontend/src/components/TeacherLessonPlanDocument.vue`
 - teacher-focused Vitest files and locale keys
 
 ## Verification Commands
@@ -75,7 +75,7 @@ Education-agent integration, student publication, calendars/files migration, old
 - If teacher PPT requires writing student content, stop at P6 and report P7 blocked.
 - If per-lesson generation cannot reuse current planner without cross-lesson state, isolate the planner in a new teacher service; do not mutate student jobs.
 - If any student regression appears, revert the smallest shared extension and keep teacher route hidden.
-- No push or merge is part of this plan.
+- The isolated cleanup branch may be pushed after scoped and full regression pass; merging and production deployment remain separate actions.
 
 ## Progress Truth
 

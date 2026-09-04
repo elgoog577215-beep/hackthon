@@ -561,10 +561,6 @@ export interface Course {
         ready_lesson_plans?: number
         ready_handouts?: number
         ready_ppts?: number
-        outline_confirmed?: boolean
-        confirmed_lesson_plans?: number
-        confirmed_handouts?: number
-        confirmed_ppts?: number
         current_production?: {
             target?: 'lesson_plan' | 'script' | 'ppt'
             status?: string

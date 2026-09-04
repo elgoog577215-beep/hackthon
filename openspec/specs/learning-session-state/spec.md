@@ -1,7 +1,7 @@
 # learning-session-state Specification
 
 ## Purpose
-TBD - created by archiving change persist-semantic-learning-snapshots. Update Purpose after archive.
+定义学习会话、语义位置和跨设备快照的持久化边界，使恢复现场与历史事件彼此分离。内容块使用稳定身份和不可变修订，恢复时不得只依赖标题、滚动距离或浏览器缓存。
 ## Requirements
 ### Requirement: 内容块必须拥有稳定身份和不可变修订
 

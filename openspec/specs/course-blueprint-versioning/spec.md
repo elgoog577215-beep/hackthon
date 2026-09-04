@@ -1,7 +1,7 @@
 # course-blueprint-versioning Specification
 
 ## Purpose
-TBD - created by archiving change unify-course-blueprint-and-learning-assets. Update Purpose after archive.
+定义课程蓝图草稿、不可变修订、来源绑定和并发保护，使课程结构变化可审阅、可追踪且不会静默覆盖正式内容。
 ## Requirements
 ### Requirement: 蓝图必须拥有可审阅草稿和不可变修订
 

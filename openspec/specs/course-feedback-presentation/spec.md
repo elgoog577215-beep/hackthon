@@ -1,7 +1,7 @@
 # course-feedback-presentation Specification
 
 ## Purpose
-TBD - created by archiving change structure-course-feedback-rendering. Update Purpose after archive.
+定义课程检查、任务反馈和个性化反馈的边界与呈现结构，防止静态内容冒充基于真实作答的学习反馈。它同时约束多任务层级、数学表达和代码内容的可靠呈现。
 ## Requirements
 ### Requirement: 静态课程检查不得冒充个性化反馈
 

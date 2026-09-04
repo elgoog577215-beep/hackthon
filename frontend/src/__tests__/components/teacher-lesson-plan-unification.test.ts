@@ -18,25 +18,23 @@ const lesson: TeacherLessonProjection = {
     schema_version: 'teacher_lesson_arrangement_v1', revision_id: 'arrangement-1',
     lesson_unit_id: 'lesson-1', source_outline_revision_id: 'outline-1',
     lesson_type: 'theory', lesson_type_label: '理论讲授', blocks: [],
-    status: 'confirmed', confirmed: true, source_state: 'current',
+    source_state: 'current',
   },
   script: {
-    current_revision_id: 'script-1', confirmed_revision_id: 'script-1',
+    current_revision_id: 'script-1',
     source_lesson_plan_revision_id: 'revision-1', source_state: 'current',
-    ready: true, confirmed: true, confirmed_at: '2026-08-24T10:00:00Z',
+    ready: true,
     sections: [{ section_node_id: 'section-1', title: '1.1 爬虫的定义、原理与应用场景', content: '讲稿正文' }],
   },
   plan: {
     lesson_unit_id: 'lesson-1',
     working_revision_id: 'revision-1',
-    confirmed_revision_id: 'revision-1',
     source_state: 'current',
-    revisions: [{
+    current_revision: {
       revision_id: 'revision-1',
       lesson_unit_id: 'lesson-1',
       source_outline_revision_id: 'outline-1',
       generation_source: 'model',
-      status: 'confirmed',
       warnings: [],
       plan: {
         schema_version: 'course_teaching_plan_v3',
@@ -75,7 +73,7 @@ const lesson: TeacherLessonProjection = {
       },
       actor: 'teacher',
       created_at: '2026-08-24T10:00:00Z',
-    }],
+    },
     ppt_assets: [],
   },
 }
@@ -92,9 +90,9 @@ describe('统一教案页面', () => {
 
   it('用同一份标准模板展示并原位编辑', async () => {
     const store = useTeacherLessonAuthoringStore()
-    const saveDraft = vi.spyOn(store, 'saveDraft').mockResolvedValue(lesson.plan)
+    const saveDraft = vi.spyOn(store, 'saveDraft').mockResolvedValue(lesson)
     const wrapper = mount(TeacherLessonPlanDocument, {
-      props: { courseId: 'course-1', courseTitle: '网络爬虫', lesson, confirmed: true },
+      props: { courseId: 'course-1', courseTitle: '网络爬虫', lesson },
     })
 
     expect(wrapper.get('.document-title h3').text()).toBe('第1讲 爬虫概述与HTTP基础')
@@ -145,6 +143,7 @@ describe('统一教案页面', () => {
           education_objectives: [],
         })],
       }),
+      'revision-1',
     )
     expect(wrapper.find('.objective-section textarea').exists()).toBe(false)
     expect(wrapper.find('.lesson-document').exists()).toBe(true)
@@ -164,12 +163,12 @@ describe('统一教案页面', () => {
 
   it('正式教案的结构化字段统一渲染公式，编辑态保留 LaTeX 源码', async () => {
     const formulaLesson = structuredClone(lesson)
-    const section = formulaLesson.plan.revisions[0]!.plan.sections[0]!
+    const section = formulaLesson.plan.current_revision!.plan.sections[0]!
     section.learning_objective = String.raw`能计算 $\nabla^2(x^2y+z)$`
     section.teaching_modules![0]!.teacher_activity = String.raw`板书 $\varphi(0)=1$ 并说明边界条件`
 
     const wrapper = mount(TeacherLessonPlanDocument, {
-      props: { courseId: 'course-1', lesson: formulaLesson, confirmed: true },
+      props: { courseId: 'course-1', lesson: formulaLesson },
     })
 
     expect(wrapper.findAll('.katex').length).toBeGreaterThanOrEqual(2)
@@ -184,7 +183,7 @@ describe('统一教案页面', () => {
 
   it('编辑多个字段时可以统一撤销和重做', async () => {
     const wrapper = mount(TeacherLessonPlanDocument, {
-      props: { courseId: 'course-1', lesson, confirmed: true },
+      props: { courseId: 'course-1', lesson },
     })
     ;(wrapper.vm as any).beginEditing()
     await flushPromises()
@@ -207,7 +206,7 @@ describe('统一教案页面', () => {
 
   it('AI 候选在同一份教案中预览并采用', async () => {
     const store = useTeacherLessonAuthoringStore()
-    const candidatePlan = JSON.parse(JSON.stringify(lesson.plan.revisions[0]!.plan))
+    const candidatePlan = JSON.parse(JSON.stringify(lesson.plan.current_revision!.plan))
     candidatePlan.sections[0].learning_objective = 'AI 优化后的可观察目标'
     vi.spyOn(store, 'createAiCandidate').mockResolvedValue({
       candidate_id: 'candidate-1',
@@ -219,9 +218,9 @@ describe('统一教案页面', () => {
       status: 'pending',
       created_at: '2026-08-24T10:00:00Z',
     })
-    const resolveCandidate = vi.spyOn(store, 'resolveAiCandidate').mockResolvedValue(lesson.plan)
+    const resolveCandidate = vi.spyOn(store, 'resolveAiCandidate').mockResolvedValue(lesson)
     const wrapper = mount(TeacherLessonPlanDocument, {
-      props: { courseId: 'course-1', lesson, confirmed: true },
+      props: { courseId: 'course-1', lesson },
     })
 
     await flushPromises()
@@ -248,7 +247,7 @@ describe('统一教案页面', () => {
   it('讲内主题目录只负责定位，教案始终连续展示全部主题', async () => {
     const multiSectionLesson = structuredClone(lesson)
     multiSectionLesson.sections.push({ section_node_id: 'section-2', title: '1.2 请求与响应' })
-    multiSectionLesson.plan.revisions[0]!.plan.sections.push({
+    multiSectionLesson.plan.current_revision!.plan.sections.push({
       node_id: 'section-2',
       learning_objective: '能判断一次请求与响应的边界',
       key_points: ['请求', '响应'],
@@ -259,7 +258,7 @@ describe('统一教案页面', () => {
       teaching_modules: [],
     })
     const wrapper = mount(TeacherLessonPlanDocument, {
-      props: { courseId: 'course-1', lesson: multiSectionLesson, confirmed: true, activeSectionId: 'section-2' },
+      props: { courseId: 'course-1', lesson: multiSectionLesson, activeSectionId: 'section-2' },
     })
 
     expect(wrapper.find('.section-tabs').exists()).toBe(false)
@@ -286,7 +285,9 @@ describe('统一教案页面', () => {
     expect(workbenchSource).toContain(':lesson-types="outlineLessonTypeControls"')
     expect(workbenchSource).toContain('@lesson-type-change="updateOutlineLessonType"')
     expect(workbenchSource).not.toContain('class="outline-lesson-type-plan"')
-    expect(workbenchSource).toContain(':show-history="false"')
+    expect(workbenchSource).not.toContain('show-history')
+    expect(workbenchSource).not.toContain("@history=\"toggleDocumentHistory('lesson')\"")
+    expect(workbenchSource).not.toContain("historyOpen && historyDomain === 'lesson'")
     expect(workbenchSource).not.toContain(':selection-ai-enabled="false"')
     expect(workbenchSource).toContain('@open-ai-selection="openAiFromSelection(\'lesson\', $event)"')
     expect(workbenchSource).not.toContain('class="lesson-command-context"')

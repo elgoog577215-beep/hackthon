@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: 教师备课空间与正式学习现场必须共享课程真源
 
