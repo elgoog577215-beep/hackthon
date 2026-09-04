@@ -5,6 +5,7 @@ Storage 原子写入、并发锁和版本管理单元测试。
 
 import asyncio
 import json
+import multiprocessing
 import os
 import sys
 from pathlib import Path
@@ -21,6 +22,17 @@ sys.path.insert(0, _project_root)
 
 import storage as storage_module
 from storage import Storage
+
+
+def _increment_generic_ledger(data_dir: str, iterations: int) -> None:
+    worker_storage = Storage(data_dir=data_dir)
+    for _ in range(iterations):
+        worker_storage.update_data(
+            "counter.json",
+            lambda current: {
+                "count": int((current or {}).get("count", 0)) + 1,
+            },
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +97,56 @@ class TestAtomicWrite:
 
         tmp_file = filepath.with_suffix(".json.tmp")
         assert not tmp_file.exists()
+
+
+class TestGenericDataAtomicWrite:
+    """通用 JSON 账本只能在成功替换后发布缓存，并支持跨进程读改写。"""
+
+    def test_replace_failure_preserves_disk_and_cache(
+        self,
+        tmp_storage: Storage,
+        tmp_path: Path,
+    ) -> None:
+        tmp_storage.save_data("ledger.json", {"version": "old"})
+
+        with patch.object(storage_module.os, "replace", side_effect=OSError("disk full")):
+            with pytest.raises(OSError, match="disk full"):
+                tmp_storage.save_data("ledger.json", {"version": "new"})
+
+        with open(tmp_path / "ledger.json", encoding="utf-8") as handle:
+            assert json.load(handle) == {"version": "old"}
+        assert tmp_storage.load_data("ledger.json") == {"version": "old"}
+        assert not list(tmp_path.glob(".ledger.json.*.tmp"))
+
+    def test_load_returns_copy_instead_of_mutable_cache(
+        self,
+        tmp_storage: Storage,
+    ) -> None:
+        tmp_storage.save_data("ledger.json", {"items": ["stable"]})
+
+        loaded = tmp_storage.load_data("ledger.json")
+        loaded["items"].append("uncommitted")
+
+        assert tmp_storage.load_data("ledger.json") == {"items": ["stable"]}
+
+    def test_update_data_keeps_both_process_updates(self, tmp_path: Path) -> None:
+        Storage(data_dir=str(tmp_path)).save_data("counter.json", {"count": 0})
+        context = multiprocessing.get_context("spawn")
+        workers = [
+            context.Process(
+                target=_increment_generic_ledger,
+                args=(str(tmp_path), 25),
+            )
+            for _ in range(2)
+        ]
+
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=20)
+            assert worker.exitcode == 0
+
+        assert Storage(data_dir=str(tmp_path)).load_data("counter.json") == {"count": 50}
 
     @pytest.mark.asyncio
     async def test_atomic_write_preserves_old_on_failure(self, tmp_storage: Storage, tmp_path: Path):

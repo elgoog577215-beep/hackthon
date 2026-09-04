@@ -367,12 +367,13 @@ class BlockRegenerationService:
                 expected_block_revision=str(candidate.get("expected_block_revision") or ""),
             )
         except (BlockRegenerationConflict, BlockRegenerationNotFound) as exc:
+            failure_reason = str(exc)
             stale = self.candidate_repository.update(candidate_id, lambda current: {
                 **current,
                 "status": "stale",
                 "retryable": False,
                 "failure_code": "revision_conflict",
-                "failure_reason": str(exc),
+                "failure_reason": failure_reason,
             })
             raise BlockRegenerationConflict(str(exc), candidate=stale) from exc
 
@@ -499,6 +500,7 @@ class BlockRegenerationService:
             )
             return latest
         except (BlockRegenerationConflict, BlockRegenerationNotFound) as exc:
+            failure_reason = str(exc)
             stale, _updated = self.candidate_repository.update_if(
                 candidate_id,
                 lambda current: (
@@ -510,7 +512,7 @@ class BlockRegenerationService:
                     "status": "stale",
                     "retryable": False,
                     "failure_code": "revision_conflict",
-                    "failure_reason": str(exc),
+                    "failure_reason": failure_reason,
                     "generation_completed_at": datetime.now(timezone.utc).isoformat(),
                 },
             )
@@ -632,10 +634,11 @@ class BlockRegenerationService:
                 actor=actor,
             )
         except CourseDocumentConflict as exc:
+            failure_reason = str(exc)
             stale = self.candidate_repository.update(candidate_id, lambda current: {
                 **current,
                 "status": "stale",
-                "failure_reason": str(exc),
+                "failure_reason": failure_reason,
             })
             raise BlockRegenerationConflict(str(exc), candidate=stale) from exc
 

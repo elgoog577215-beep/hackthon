@@ -155,7 +155,7 @@ VITE_USAGE_TRACKING_ENABLED=true
 ```bash
 backend/.venv/bin/python -m pytest backend/tests
 backend/.venv/bin/python -m pytest tests
-backend/.venv/bin/python -m ruff check backend tests
+backend/.venv/bin/python -m ruff check backend tests --select E9,F63,F7,F82
 ```
 
 前端测试、类型检查和生产构建：
@@ -169,7 +169,7 @@ npm run build
 规格和仓库卫生：
 
 ```bash
-openspec validate --all
+openspec validate --all --strict --no-interactive
 scripts/check-tracked-ignored.sh
 git diff --check
 ```

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from task_manager import TaskStateConflict
+from jobs.manager import TaskStateConflict
 
 
 @pytest.fixture
@@ -13,6 +13,7 @@ def task_manager(monkeypatch):
     import dependencies
 
     manager = MagicMock()
+    manager.tasks = {}
     manager.pause_task = AsyncMock()
     manager.resume_task = AsyncMock()
     manager.delete_task = AsyncMock()
@@ -25,10 +26,13 @@ def task_manager(monkeypatch):
 @pytest.fixture
 async def client(task_manager):
     from main import app
+    from routers.tasks import require_task_manager
 
+    app.dependency_overrides[require_task_manager] = lambda: task_manager
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as api:
         yield api
+    app.dependency_overrides.pop(require_task_manager, None)
 
 
 @pytest.mark.asyncio
@@ -42,6 +46,11 @@ async def test_pause_missing_task_returns_404(client, task_manager):
 
 @pytest.mark.asyncio
 async def test_pause_terminal_task_returns_state_conflict(client, task_manager):
+    task_manager.tasks["done"] = {
+        "id": "done",
+        "status": "completed",
+        "owner_id": "",
+    }
     task_manager.pause_task.side_effect = TaskStateConflict(
         "Task cannot be paused in its current state",
         status="completed",
@@ -49,7 +58,7 @@ async def test_pause_terminal_task_returns_state_conflict(client, task_manager):
 
     response = await client.post("/api/tasks/done/pause")
 
-    assert response.status_code == 409
+    assert response.status_code == 409, response.text
     assert response.json()["detail"]["code"] == "task_state_conflict"
     assert response.json()["detail"]["status"] == "completed"
 
@@ -92,4 +101,5 @@ async def test_clear_invalid_task_records_can_be_scoped_to_course(client, task_m
     task_manager.clear_task_records.assert_awaited_once_with(
         "invalid",
         course_id="course-1",
+        owner_id="default_user",
     )

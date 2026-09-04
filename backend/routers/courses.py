@@ -3,19 +3,24 @@
 # 课程 CRUD、课程生成、节点级操作、大纲编辑、生成配置
 # =============================================================================
 
+import logging
+import os
+import sys
+import uuid
+from collections import Counter
+from datetime import date, datetime, timezone
+from typing import Literal, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
-from typing import Literal, Optional
-import sys
-import os
-import uuid
-from datetime import date, datetime, timezone
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from models import CourseGenerationRequest, LocateNodeRequest, NodeGenerationConfig
 from course_baseline import confirmed_generation_request
+from course_generation.service import get_course_service
+from course_production_state import read_course_production_state
+from course_repository import CourseDocumentConflict, CourseDocumentNotFound, CourseMigrationConflict
 from course_schedule import (
     COURSE_PERIOD_MINUTES,
     legacy_schedule_labels,
@@ -23,40 +28,11 @@ from course_schedule import (
     resolve_active_week_range,
     suggested_lecture_count,
 )
-from storage import storage
-from course_generation.service import get_course_service
 from course_space_publication import (
     MISSING_TEACHER_IDENTITY,
     SKIP_MESSAGES,
     publish_course_artifacts,
 )
-from learning_progress import project_learning_objective_bindings
-from dependencies import (
-    get_course_document_repository,
-    get_course_or_404,
-    get_teacher_lesson_authoring_repository,
-    require_task_manager,
-    get_node_or_404,
-)
-from course_repository import CourseMigrationConflict
-from storage_utils import save_course_compat
-from jobs.manager import TaskManager
-from learner_context import DEFAULT_USER_ID, require_actor_id, resolve_user_id
-from learning_snapshots import learning_snapshot_repository
-from web_material_curation import (
-    CURATION_METADATA_KEY,
-    load_course_exclusions,
-    normalize_exclusions,
-)
-from teacher_course_space import teacher_course_space_repository
-from teacher_asset_readiness import (
-    teacher_lesson_plan_readiness,
-    teacher_lesson_ppt_asset_readiness,
-    teacher_lesson_script_readiness,
-)
-from material_pipeline import prepare_course_materials
-from material_storage import MaterialStorageError, material_repository
-from teaching_calendar import teaching_calendar_repository
 from course_web_research import (
     MAX_RESULTS_PER_SESSION,
     WEB_RESEARCH_METADATA_KEY,
@@ -70,19 +46,51 @@ from course_web_research_policy import (
     COURSE_WEB_RESEARCH_ENABLED,
     COURSE_WEB_RESEARCH_FROZEN_DETAIL,
 )
-from web_material_search import (
-    candidate_from_source,
-    derive_search_queries,
-    safe_query_term,
+from dependencies import (
+    get_course_document_repository,
+    get_course_or_404,
+    get_node_or_404,
+    get_task_manager_optional,
+    get_teacher_lesson_authoring_repository,
+    require_task_manager,
 )
+from jobs.manager import TaskManager
+from learner_context import DEFAULT_USER_ID, require_actor_id, resolve_user_id
+from learning_progress import project_learning_objective_bindings
+from learning_snapshots import learning_snapshot_repository
+from material_pipeline import prepare_course_materials
+from material_storage import MaterialStorageError, material_repository
+from models import CourseGenerationRequest, LocateNodeRequest
+from storage import storage
+from storage_utils import save_course_compat
+from teacher_asset_readiness import (
+    teacher_lesson_plan_readiness,
+    teacher_lesson_ppt_asset_readiness,
+    teacher_lesson_script_readiness,
+)
+from teacher_course_space import teacher_course_space_repository
+from teacher_course_upgrade import TeacherCourseUpgradeError, TeacherCourseUpgradeService
+from teaching_calendar import teaching_calendar_repository
 from web_document_reader import (
     build_research_summary,
     diversify_retrieval_sources,
     enrich_web_candidates,
 )
+from web_material_curation import (
+    CURATION_METADATA_KEY,
+    load_course_exclusions,
+    normalize_exclusions,
+)
+from web_material_search import (
+    candidate_from_source,
+    derive_search_queries,
+    safe_query_term,
+)
 from web_retrieval import RetrievalRequest, configured_retrieval_gateway
 
 router = APIRouter(tags=["courses"])
+logger = logging.getLogger(__name__)
+_PRODUCTION_PROJECTION_DIFFS: Counter[str] = Counter()
 
 
 def _require_course_web_research_enabled() -> None:
@@ -154,6 +162,12 @@ class TeacherCourseCreateRequest(BaseModel):
     course_intro: str = Field(default="", max_length=3000)
     teaching_goals: str = Field(default="", max_length=3000)
     generation_request: Optional[CourseGenerationRequest] = None
+
+
+class TeacherCourseUpgradeRequest(BaseModel):
+    source_checksum: str = Field(min_length=1, max_length=128)
+    upgrade_key: str = Field(default="default", min_length=1, max_length=160)
+    confirm: bool = False
 
 
 class WebMaterialCurationRequest(BaseModel):
@@ -249,7 +263,49 @@ def _list_teacher_courses(
     return courses
 
 
-def _teacher_course_library_projection(owner_id: str, known_task_ids: set[str]) -> list[dict]:
+def _record_production_projection_diff(legacy: dict, current: dict) -> None:
+    """Record only bounded dimensions; never log course or task identities."""
+    summary = legacy.get("preparation_summary") or {}
+    comparisons = {
+        "preparation_state": (
+            str(legacy.get("preparation_state") or ""),
+            str(current.get("preparation_state") or ""),
+        ),
+        "lesson_total": (
+            int(summary.get("planned_lessons") or 0),
+            int(((current.get("stages") or {}).get("lesson_plan") or {}).get("counts", {}).get("total") or 0),
+        ),
+        "lesson_plan_available": (
+            int(summary.get("ready_lesson_plans") or 0),
+            int(((current.get("stages") or {}).get("lesson_plan") or {}).get("counts", {}).get("available") or 0),
+        ),
+        "script_available": (
+            int(summary.get("ready_handouts") or 0),
+            int(((current.get("stages") or {}).get("script") or {}).get("counts", {}).get("available") or 0),
+        ),
+        "ppt_available": (
+            int(summary.get("ready_ppts") or 0),
+            int(((current.get("stages") or {}).get("ppt") or {}).get("counts", {}).get("available") or 0),
+        ),
+    }
+    for dimension, (old_value, new_value) in comparisons.items():
+        if old_value == new_value:
+            continue
+        _PRODUCTION_PROJECTION_DIFFS[dimension] += 1
+        logger.info(
+            "course_production_projection_diff dimension=%s legacy=%s current=%s total=%d",
+            dimension,
+            old_value,
+            new_value,
+            _PRODUCTION_PROJECTION_DIFFS[dimension],
+        )
+
+
+def _teacher_course_library_projection(
+    owner_id: str,
+    known_task_ids: set[str],
+    task_manager: TaskManager | None = None,
+) -> list[dict]:
     sessions = teaching_calendar_repository.list_sessions(owner_id, date_from=date.today())
     next_sessions_by_course_id: dict[str, dict] = {}
     for session in sessions:
@@ -276,7 +332,11 @@ def _teacher_course_library_projection(owner_id: str, known_task_ids: set[str]) 
     )
     repository = get_teacher_lesson_authoring_repository()
     for course in courses:
-        course.update(_teacher_preparation_projection(course, repository))
+        legacy = _teacher_preparation_projection(course, repository)
+        current = read_course_production_state(course, repository, task_manager)
+        course.update(legacy)
+        course["course_production_state"] = current
+        _record_production_projection_diff(legacy, current)
     return courses
 
 
@@ -449,8 +509,6 @@ def _require_unpublished_teacher_course_access(course: dict, request: Request) -
 
 def _require_teacher_course_write_access(course: dict, request: Request) -> None:
     """Require the owner for every mutation, including published courses."""
-    if course.get("authoring_surface") != "teacher":
-        return
     owner_id = str(course.get("owner_id") or "").strip()
     if not owner_id:
         return
@@ -492,7 +550,12 @@ async def list_teacher_courses(
 ):
     known_task_ids = {str(task_id) for task_id in tm.tasks}
     owner_id = require_actor_id(request.headers.get("X-User-Id"))
-    return await run_in_threadpool(_teacher_course_library_projection, owner_id, known_task_ids)
+    return await run_in_threadpool(
+        _teacher_course_library_projection,
+        owner_id,
+        known_task_ids,
+        tm,
+    )
 
 
 @router.post("/teacher/courses", status_code=201)
@@ -623,7 +686,25 @@ async def create_teacher_course(
 async def get_course(course_id: str, request: Request):
     course = await get_course_or_404(course_id)
     _require_unpublished_teacher_course_access(course, request)
-    return project_learning_objective_bindings(course)
+    projected = project_learning_objective_bindings(course)
+    if projected.get("authoring_surface") != "teacher":
+        return projected
+    repository = get_teacher_lesson_authoring_repository()
+    legacy = await run_in_threadpool(
+        _teacher_preparation_projection,
+        projected,
+        repository,
+    )
+    current = await run_in_threadpool(
+        read_course_production_state,
+        projected,
+        repository,
+        get_task_manager_optional(),
+    )
+    projected.update(legacy)
+    projected["course_production_state"] = current
+    _record_production_projection_diff(legacy, current)
+    return projected
 
 
 @router.get("/courses/{course_id}/document")
@@ -637,6 +718,70 @@ async def get_course_document(course_id: str, request: Request):
             prepared_legacy_course=course,
         )
     )
+
+
+@router.get("/teacher/courses/{course_id}/upgrade-preview")
+async def preview_teacher_course_upgrade(
+    course_id: str,
+    request: Request,
+    upgrade_key: str = "default",
+) -> dict:
+    """Read-only preview for copying one historical course into lecture form."""
+    repository = get_course_document_repository()
+    try:
+        source = await run_in_threadpool(repository.load_raw, course_id)
+    except CourseDocumentNotFound as exc:
+        raise HTTPException(status_code=404, detail="Course not found") from exc
+    _require_teacher_course_write_access(source, request)
+    owner_id = require_actor_id(request.headers.get("X-User-Id"))
+    service = TeacherCourseUpgradeService(repository.storage)
+    return await run_in_threadpool(
+        lambda: service.preview(
+            course_id,
+            owner_id=owner_id,
+            upgrade_key=upgrade_key,
+        ),
+    )
+
+
+@router.post("/teacher/courses/{course_id}/upgrade", status_code=201)
+async def publish_teacher_course_upgrade(
+    course_id: str,
+    body: TeacherCourseUpgradeRequest,
+    request: Request,
+) -> dict:
+    """Publish a validated copy; the historical course is never mutated."""
+    if not body.confirm:
+        raise HTTPException(status_code=400, detail="Explicit upgrade confirmation is required")
+    repository = get_course_document_repository()
+    try:
+        source = await run_in_threadpool(repository.load_raw, course_id)
+    except CourseDocumentNotFound as exc:
+        raise HTTPException(status_code=404, detail="Course not found") from exc
+    _require_teacher_course_write_access(source, request)
+    owner_id = require_actor_id(request.headers.get("X-User-Id"))
+    service = TeacherCourseUpgradeService(repository.storage)
+    try:
+        return await service.publish(
+            course_id,
+            expected_source_checksum=body.source_checksum,
+            owner_id=owner_id,
+            upgrade_key=body.upgrade_key,
+        )
+    except TeacherCourseUpgradeError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": exc.code,
+                "message": str(exc),
+                "migration_report": exc.report,
+            },
+        ) from exc
+    except CourseDocumentConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "upgrade_course_conflict", "message": str(exc)},
+        ) from exc
 
 
 @router.post("/courses/{course_id}/document/migrate")

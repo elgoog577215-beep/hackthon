@@ -16,6 +16,12 @@ def build_app() -> FastAPI:
     def unexpected_error():
         raise RuntimeError("database password must never reach the browser")
 
+    @app.post("/degraded-task-index")
+    def degraded_task_index():
+        error = RuntimeError("internal index detail")
+        error.code = "generation_job_index_degraded"
+        raise error
+
     return app
 
 
@@ -38,3 +44,13 @@ def test_unhandled_error_returns_safe_code_and_request_id() -> None:
     assert payload["request_id"] == response.headers[REQUEST_ID_HEADER]
     assert "password" not in response.text
     assert "RuntimeError" not in response.text
+
+
+def test_degraded_task_index_returns_stable_safe_read_only_error() -> None:
+    client = TestClient(build_app(), raise_server_exceptions=False)
+
+    response = client.post("/degraded-task-index")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "generation_job_index_degraded"
+    assert "internal index detail" not in response.text

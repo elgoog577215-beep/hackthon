@@ -141,7 +141,7 @@ def test_course_generation_strategy_reads_formal_teaching_guidance():
 
 def test_course_service_prompt_contains_model_revision_not_legacy_state(monkeypatch):
     import ai_learning_context
-    import course_service
+    from course_generation import service as course_service
 
     monkeypatch.setattr(
         ai_learning_context,
@@ -179,7 +179,7 @@ def test_course_service_prompt_contains_model_revision_not_legacy_state(monkeypa
 
 
 def test_course_service_quality_check_does_not_append_learner_event(monkeypatch):
-    import course_service
+    from course_generation import service as course_service
     import learning_events
 
     class MemoryStorage:

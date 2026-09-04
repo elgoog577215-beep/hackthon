@@ -13,8 +13,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-import pytest
-
 from downstream_rebuild import execute_rebuild, pipeline_for
 from practice_targeted_rebuild import (
     PRACTICE_REBUILD_RECEIPT_SCHEMA,
@@ -24,7 +22,7 @@ from practice_targeted_rebuild import (
     question_bank_job_enqueue,
     resolve_question_revisions,
 )
-from question_bank import approved_formal_tasks
+from question_bank import approved_formal_tasks, reconcile_item_question_bank
 from teaching_plan_impact import build_downstream_state
 
 
@@ -121,6 +119,37 @@ def test_asset_question_id_falls_back_to_section_scope() -> None:
         bundle, object_id="q_abc123", section_id="L2-1-1",
     )
     assert resolved == ["qbr_1", "qbr_2"]
+
+
+def test_question_group_expands_to_one_atomic_rebuild_unit() -> None:
+    """A selected member cannot leave the rest of its formal group stale."""
+    first = _bank_item(item_id="qbi_1", revision_id="qbr_1", node_id="L2-1-1")
+    second = _bank_item(item_id="qbi_2", revision_id="qbr_2", node_id="L2-1-1")
+    independent = _bank_item(item_id="qbi_3", revision_id="qbr_3", node_id="L2-1-1")
+    first["question_group_id"] = "group-1"
+    second["question_group_id"] = "group-1"
+
+    assert resolve_question_revisions(
+        _bundle(first, second, independent),
+        object_id="qbr_1",
+    ) == ["qbr_1", "qbr_2"]
+
+
+def test_shared_stimulus_expands_to_one_atomic_rebuild_unit() -> None:
+    first = _bank_item(item_id="qbi_1", revision_id="qbr_1", node_id="L2-1-1")
+    second = _bank_item(item_id="qbi_2", revision_id="qbr_2", node_id="L2-1-1")
+    for item in (first, second):
+        item["question_spec"] = {
+            "stimulus": {
+                "rendered_text": "共同材料",
+                "shared_material_id": "material-1",
+            },
+        }
+
+    assert resolve_question_revisions(
+        _bundle(first, second),
+        object_id="qbr_2",
+    ) == ["qbr_1", "qbr_2"]
 
 
 def test_retired_questions_are_not_rebuilt() -> None:
@@ -424,6 +453,64 @@ def test_enqueue_creates_a_real_item_scoped_job(tmp_path) -> None:
     assert job["job_id"].startswith("qbr_")
     # 作业带完整的 10 阶段，交给既有出题管线接手。
     assert len(job["stages"]) == 10
+
+
+def test_new_real_job_is_submitted_to_the_existing_executor(tmp_path) -> None:
+    from question_bank_jobs import QuestionBankRebuildJobRepository
+
+    class RecordingExecutor:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def submit(self, **kwargs):
+            self.calls.append(kwargs)
+
+    class Payload(dict):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.__dict__.update(kwargs)
+
+    repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
+    executor = RecordingExecutor()
+    course = {"course_id": "c1", "nodes": [{"node_id": "L2-1-1"}]}
+    enqueue = question_bank_job_enqueue(
+        job_repository=repository,
+        job_executor=executor,
+        payload_factory=Payload,
+        course_data=course,
+        actor_id="teacher-1",
+        knowledge_revision_id="ckb_rev_7",
+    )
+
+    job = enqueue(course_id="c1", revision_ids=["qbr_1"])
+    assert len(executor.calls) == 1
+    submitted = executor.calls[0]
+    assert submitted["job_id"] == job["job_id"]
+    assert submitted["payload"].scope == "items"
+    assert submitted["payload"].revision_ids == ["qbr_1"]
+    assert submitted["course"] == course
+
+
+def test_reconcile_expands_question_group_before_atomic_publish() -> None:
+    first = _bank_item(item_id="qbi_1", revision_id="qbr_1", node_id="L2-1-1")
+    second = _bank_item(item_id="qbi_2", revision_id="qbr_2", node_id="L2-1-1")
+    first["question_group_id"] = "group-1"
+    second["question_group_id"] = "group-1"
+    replacement_first = deepcopy(first)
+    replacement_second = deepcopy(second)
+    replacement_first["revision_id"] = "qbr_1_new"
+    replacement_second["revision_id"] = "qbr_2_new"
+
+    merged = reconcile_item_question_bank(
+        _bundle(first, second),
+        _bundle(replacement_first, replacement_second),
+        revision_ids=["qbr_1"],
+    )
+    revisions = {
+        item["item_id"]: item["revision_id"]
+        for item in merged["items"]
+    }
+    assert revisions == {"qbi_1": "qbr_1_new", "qbi_2": "qbr_2_new"}
 
 
 def test_same_knowledge_revision_does_not_create_duplicate_jobs(tmp_path) -> None:

@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 import json
 import logging
@@ -30,6 +31,11 @@ from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - production runs on Linux.
+    fcntl = None
 
 from ai_base import AIProviderRequestError, AIProviderUnavailable
 from assessment_blueprint import compile_course_assessment_blueprint
@@ -54,12 +60,17 @@ from course_coherence import (
 from course_composition import compile_composition_profile
 from course_difficulty import repair_compiled_difficulty_double_spikes
 from course_document import document_from_generation_draft
+from course_generation.outline import (
+    normalize_outline_skeleton,
+    review_course_outline_document,
+    validate_outline_skeleton,
+)
+from course_generation.workflow import PIPELINE_VERSION
 from course_generation_budget import (
     CourseGenerationBudget,
     CourseGenerationDeadlineExceeded,
 )
 from course_generation_errors import classify_generation_failure
-from course_generation.workflow import PIPELINE_VERSION
 from course_knowledge_base import (
     bind_course_knowledge_base_to_map,
     compile_course_knowledge_base,
@@ -70,11 +81,6 @@ from course_outline_adjustments import (
     apply_outline_operations,
     compile_outline_draft,
     describe_outline_diff,
-)
-from course_generation.outline import (
-    normalize_outline_skeleton,
-    review_course_outline_document,
-    validate_outline_skeleton,
 )
 from course_quality import (
     build_final_course_quality_report,
@@ -91,22 +97,13 @@ from course_retrieval import (
     build_outline_research_instruction,
     build_outline_research_proposal,
 )
-from course_teaching_plan_projection import project_course_teaching_plan
-from teaching_design import (
-    compatible_course_purpose,
-    course_purpose_for_type,
-    default_composition_style,
-    ensure_course_type_enabled,
-    resolve_course_type,
-    resolve_course_teaching_type,
-    resolve_learning_purpose,
-)
 from course_space_publication import (
     MISSING_TEACHER_IDENTITY,
     PUBLISH_SCHEMA_VERSION,
     SKIP_MESSAGES,
     publish_course_artifacts,
 )
+from course_teaching_plan_projection import project_course_teaching_plan
 from course_versioning import (
     analyze_blueprint_impact,
     blueprint_draft_revision_id,
@@ -116,14 +113,14 @@ from course_versioning import (
     outline_adjustment_proposal_id,
     stable_hash,
 )
-from course_web_research_policy import (
-    COURSE_WEB_RESEARCH_ENABLED,
-    course_generation_view,
-)
 from course_versions import (
     CourseVersionConflict,
     CourseVersionRepository,
     course_version_repository,
+)
+from course_web_research_policy import (
+    COURSE_WEB_RESEARCH_ENABLED,
+    course_generation_view,
 )
 from generation_workspace import (
     GenerationWorkspaceNotFound,
@@ -158,6 +155,17 @@ from guided_generation import (
 from guided_generation import (
     step_state as guided_step_state,
 )
+from jobs.content_processing import (
+    _remap_assessment_revision_references,  # noqa: F401 - compatibility import
+    fix_latex_content,
+)
+from jobs.node_progress import build_node_locations
+from jobs.slide_build import (
+    _rebuild_slide_variant_with_quality_fallback,
+    _source_first_slide_ai_workers,
+    _source_first_slide_visual_ai_worker,
+    _source_first_story_ai_worker,
+)
 from learning_asset_storage import LearningAssetRepository, learning_asset_repository
 from learning_assets import (
     assessment_assets,
@@ -173,17 +181,6 @@ from models import (
     NodeStatus,
     TaskLogEntry,
 )
-from jobs.content_processing import (
-    _remap_assessment_revision_references,
-    fix_latex_content,
-)
-from jobs.node_progress import build_node_locations
-from jobs.slide_build import (
-    _rebuild_slide_variant_with_quality_fallback,
-    _source_first_slide_ai_workers,
-    _source_first_slide_visual_ai_worker,
-    _source_first_story_ai_worker,
-)
 from ppt_template_packs import ppt_template_pack_repository
 from question_bank import (
     QuestionBankRepository,
@@ -195,6 +192,12 @@ from representation_compiler import (
     compile_core_representations,
     rebuild_core_representations_safely,
     validate_compiled_representations,
+)
+from runtime_metrics import (
+    record_model_error,
+    record_persistence_failure,
+    record_recovery_result,
+    record_task_wait,
 )
 from slide_ai_planning_v6 import (
     build_ai_base_story_planner_v6,
@@ -240,6 +243,15 @@ from slide_visuals import (
     plan_slide_visuals,
 )
 from storage import DATA_DIR
+from teaching_design import (
+    compatible_course_purpose,
+    course_purpose_for_type,
+    default_composition_style,
+    ensure_course_type_enabled,
+    resolve_course_teaching_type,
+    resolve_course_type,
+    resolve_learning_purpose,
+)
 from teaching_representations import teaching_representation_repository
 from template_layout_contract import (
     TemplateLayoutPackContractV1,
@@ -400,6 +412,7 @@ MAX_TASK_INDEX_BYTES = max(
     1024 * 1024,
     int(os.getenv("GENERATION_JOB_INDEX_MAX_BYTES", str(96 * 1024 * 1024))),
 )
+TASK_INDEX_LAST_GOOD_SCHEMA = "generation_job_index_last_good_v1"
 
 
 def _public_representation_quality(
@@ -475,6 +488,18 @@ class TaskStateConflict(RuntimeError):
         self.status = status
 
 
+class TaskIndexDegradedError(RuntimeError):
+    """Raised when task writes are unsafe because no valid index is available."""
+
+    code = "generation_job_index_degraded"
+
+
+class TaskLeaderConflictError(RuntimeError):
+    """Raised before task loading when another process owns the data directory."""
+
+    code = "generation_job_leader_unavailable"
+
+
 
 
 class TaskManager:
@@ -503,6 +528,7 @@ class TaskManager:
         document_repository: CourseDocumentRepository | None = None,
         question_bank_repository_override: QuestionBankRepository | None = None,
         assessment_orchestrator_override: AssessmentGenerationOrchestrator | None = None,
+        runtime_mode: str | None = None,
     ) -> None:
         self.storage = storage
         self.course_service = course_service
@@ -537,8 +563,29 @@ class TaskManager:
             getattr(storage, "_data_dir", Path(TASKS_FILE).parent)
         )
         self._storage_data_dir = storage_data_dir
+        self._runtime_mode = str(
+            runtime_mode
+            or os.getenv("LINGZHI_TASK_RUNTIME_MODE")
+            or "leader"
+        ).strip().lower()
+        if self._runtime_mode not in {"leader", "isolated_test", "read_only"}:
+            raise ValueError(
+                "LINGZHI_TASK_RUNTIME_MODE must be leader, isolated_test, or read_only"
+            )
+        self._leader_lock_path = storage_data_dir / "generation_jobs.leader.lock"
+        self._leader_lock_handle: Any | None = None
+        self._leader_state = (
+            "not_required"
+            if self._runtime_mode == "isolated_test"
+            else "read_only"
+            if self._runtime_mode == "read_only"
+            else "acquiring"
+        )
+        if self._runtime_mode == "leader":
+            self._acquire_leader_lock()
         self._import_sources_dir = storage_data_dir / "course_import_sources"
-        self._import_sources_dir.mkdir(parents=True, exist_ok=True)
+        if self._runtime_mode != "read_only":
+            self._import_sources_dir.mkdir(parents=True, exist_ok=True)
         self._version_repository = version_repository or course_version_repository
         self._learning_asset_repository = asset_repository or learning_asset_repository
         self._question_bank_repository = (
@@ -554,6 +601,9 @@ class TaskManager:
 
         # Task state
         self.tasks: dict[str, dict[str, Any]] = {}
+        self._task_index_state = "loading"
+        self._task_index_recovery = "none"
+        self._task_index_error_code: str | None = None
         self._lock: asyncio.Lock = asyncio.Lock()
         self._creation_lock: asyncio.Lock = asyncio.Lock()
 
@@ -594,12 +644,49 @@ class TaskManager:
         """
         if self._running:
             return
+        if self._runtime_mode == "read_only":
+            raise TaskLeaderConflictError(
+                "Read-only TaskManager cannot start a task consumer"
+            )
+        if self._runtime_mode == "leader" and self._leader_state != "acquired":
+            raise TaskLeaderConflictError(
+                "Task consumer requires the data-directory leader lock"
+            )
+
+        original_tasks = self.tasks
+        self.tasks = deepcopy(self.tasks)
+        resumable_task_ids: list[str] = []
+        try:
+            for task_id in list(self.tasks):
+                task_before = deepcopy(self.tasks.get(task_id) or {})
+                resumable = await self._reconcile_task_after_restart(task_id)
+                if resumable:
+                    resumable_task_ids.append(task_id)
+                if str(task_before.get("status") or "") in {"pending", "running"}:
+                    task_after = self.tasks.get(task_id) or {}
+                    after_status = str(task_after.get("status") or "")
+                    recovery_result = (
+                        "resumed"
+                        if resumable
+                        else "completed"
+                        if after_status == "completed"
+                        else "unavailable"
+                        if after_status in {"failed", "cancelled"}
+                        else "skipped"
+                    )
+                    record_recovery_result(
+                        task_type=task_before.get("type"),
+                        trigger="service_restart",
+                        result=recovery_result,
+                    )
+            self._save_tasks_strict()
+        except BaseException:
+            self.tasks = original_tasks
+            raise
+        for task_id in resumable_task_ids:
+            await self._task_queue.put(task_id)
         self._running = True
         self._consumer_task = asyncio.create_task(self._consumer_loop())
-        for task_id in list(self.tasks):
-            if await self._reconcile_task_after_restart(task_id):
-                await self._task_queue.put(task_id)
-        self.save_tasks()
         logger.info("TaskManager started (max_concurrency=%d)", self.max_concurrency)
 
     async def shutdown(self, timeout: float = 30.0) -> None:
@@ -643,7 +730,11 @@ class TaskManager:
                     task.cancel()
                 await asyncio.gather(*pending, return_exceptions=True)
 
-        self.save_tasks()
+        try:
+            if self._runtime_mode != "read_only":
+                self.save_tasks()
+        finally:
+            self._release_leader_lock()
         logger.info("TaskManager shutdown complete")
 
     # -------------------------------------------------------------------------
@@ -673,6 +764,7 @@ class TaskManager:
         Returns:
             新创建的 task_id
         """
+        self._ensure_task_index_writable()
         task_id = task_id or str(uuid.uuid4())
         now = datetime.now().isoformat()
         normalized_request_snapshot = deepcopy(request_snapshot or {})
@@ -763,26 +855,22 @@ class TaskManager:
         ):
             task["guided_workflow"] = create_guided_workflow(task["request_snapshot"])
         async with self._lock:
-            self.tasks[task_id] = task
+            task = self._commit_task_draft(
+                task_id,
+                task,
+                allow_create=True,
+            )
             self._task_logs[task_id] = []
             self._node_retries[task_id] = {}
-            try:
-                self.save_tasks(strict=True)
-            except Exception:
-                self.tasks.pop(task_id, None)
-                self._task_logs.pop(task_id, None)
-                self._node_retries.pop(task_id, None)
-                raise
 
         if enqueue:
             try:
                 await self._task_queue.put(task_id)
             except BaseException:
                 async with self._lock:
-                    self.tasks.pop(task_id, None)
+                    self._remove_task_strict(task_id)
                     self._task_logs.pop(task_id, None)
                     self._node_retries.pop(task_id, None)
-                    self.save_tasks(strict=True)
                 raise
         logger.info("Created task %s for course %s", task_id, course_id)
         return task_id
@@ -853,10 +941,9 @@ class TaskManager:
                 await self._task_queue.put(task_id)
         except BaseException:
             async with self._lock:
-                self.tasks.pop(task_id, None)
+                self._remove_task_strict(task_id)
                 self._task_logs.pop(task_id, None)
                 self._node_retries.pop(task_id, None)
-                self.save_tasks(strict=True)
             self.import_source_path(task_id).unlink(missing_ok=True)
             raise
         return {"job_id": task_id, "course_id": course_id}
@@ -1921,7 +2008,7 @@ class TaskManager:
         related.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
         if not related:
             raise ValueError("No teacher outline job was found for this course")
-        task = related[0]
+        task = deepcopy(related[0])
         task_id = str(task["id"])
         if task.get("status") in {"pending", "running"}:
             return {
@@ -1976,7 +2063,15 @@ class TaskManager:
                 "active",
             )
         async with self._lock:
-            task = self.tasks[task_id]
+            current = self.tasks.get(task_id)
+            if current is None:
+                raise KeyError(task_id)
+            if current.get("status") not in allowed_statuses:
+                raise TaskStateConflict(
+                    "Task changed while continuing outline generation",
+                    status=str(current.get("status") or "unknown"),
+                )
+            task = deepcopy(current)
             task["status"] = "pending"
             task["phase"] = "outline_detail_generation"
             task["current_phase"] = "outline_detail_generation"
@@ -1996,7 +2091,7 @@ class TaskManager:
             task["error_user_message"] = None
             task["updated_at"] = datetime.now().isoformat()
             task["heartbeat_at"] = task["updated_at"]
-            self.save_tasks(strict=True)
+            task = self._commit_task_draft(task_id, task)
         await self._task_queue.put(task_id)
         await self._push_progress(task_id)
         return {
@@ -2130,6 +2225,17 @@ class TaskManager:
             state="shape_confirmed",
         )
         async with self._lock:
+            current = self.tasks.get(task_id)
+            if (
+                current is None
+                or current.get("status") != "waiting_for_review"
+                or str(current.get("phase") or current.get("current_phase") or "")
+                != "outline_shape_ready"
+            ):
+                raise TaskStateConflict(
+                    "Task changed while confirming the outline shape",
+                    status=str((current or {}).get("status") or "missing"),
+                )
             task["outline_shape_confirmed"] = True
             task["status"] = "pending"
             task["phase"] = "outline_shape_confirmed"
@@ -2142,7 +2248,7 @@ class TaskManager:
             }
             task["message"] = "大章节与逐章小节数已确认，开始生成小章节"
             task["updated_at"] = datetime.now().isoformat()
-            self.save_tasks(strict=True)
+            task = self._commit_task_draft(task_id, task)
         await self._task_queue.put(task_id)
         await self._push_progress(task_id)
         return {
@@ -2196,7 +2302,7 @@ class TaskManager:
                     }
             raise ValueError("No course generation job is waiting for review")
         waiting.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
-        task = waiting[0]
+        task = deepcopy(waiting[0])
         task_id = str(task["id"])
         workflow = task.get("guided_workflow")
         if not isinstance(workflow, dict):
@@ -2328,6 +2434,17 @@ class TaskManager:
 
         confirm_waiting_step(workflow, step, revision=revision)
         async with self._lock:
+            current = self.tasks.get(task_id)
+            current_workflow = (current or {}).get("guided_workflow") or {}
+            if (
+                current is None
+                or current.get("status") != "waiting_for_review"
+                or str(current_workflow.get("review_step") or "") != step
+            ):
+                raise TaskStateConflict(
+                    "Task changed while confirming the generation step",
+                    status=str((current or {}).get("status") or "missing"),
+                )
             task["status"] = "pending"
             task["phase"] = f"{step}_confirmed"
             task["current_phase"] = task["phase"]
@@ -2339,7 +2456,7 @@ class TaskManager:
                 "release": "确认发布已完成，正在发布课程",
             }.get(step, "当前步骤已确认，继续生成")
             task["updated_at"] = datetime.now().isoformat()
-            self.save_tasks()
+            task = self._commit_task_draft(task_id, task)
         await self._task_queue.put(task_id)
         await self._push_progress(task_id)
         return {
@@ -2377,7 +2494,7 @@ class TaskManager:
             )
             if not related:
                 raise ValueError("No guided outline job was found for this course")
-            task = related[0]
+            task = deepcopy(related[0])
             task_id = str(task["id"])
             workflow = task["guided_workflow"]
             state = guided_step_state(workflow, step)
@@ -2451,7 +2568,7 @@ class TaskManager:
                 "下游教学资产将按影响结果重新核对"
             )
             task["updated_at"] = datetime.now().isoformat()
-            self.save_tasks()
+            task = self._commit_task_draft(task_id, task)
         await self._push_progress(task_id)
         return {
             "status": "reopened",
@@ -2661,10 +2778,9 @@ class TaskManager:
         except BaseException:
             if task_id and task_id in self.tasks:
                 async with self._lock:
-                    self.tasks.pop(task_id, None)
+                    self._remove_task_strict(task_id)
                     self._task_logs.pop(task_id, None)
                     self._node_retries.pop(task_id, None)
-                    self.save_tasks(strict=True)
             self._version_repository.delete_candidate(course_id, candidate["candidate_id"])
             raise
         return {
@@ -4880,10 +4996,11 @@ class TaskManager:
                     "Task cannot be paused in its current state",
                     status=str(current.get("status") or "unknown"),
                 )
-            current["status"] = "paused"
-            current["message"] = "已暂停"
-            current["updated_at"] = datetime.now().isoformat()
-            self.save_tasks()
+            draft = deepcopy(current)
+            draft["status"] = "paused"
+            draft["message"] = "已暂停"
+            draft["updated_at"] = datetime.now().isoformat()
+            task = self._commit_task_draft(task_id, draft)
         await self._cancel_runtime_tasks(task_id)
         await self._push_progress(task_id)
 
@@ -4892,19 +5009,48 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if not task:
             raise KeyError(task_id)
+        recovery_task_type = task.get("type")
+
+        def observe(
+            payload: dict[str, Any],
+            result: str,
+            *,
+            trigger: str = "manual_resume",
+        ) -> dict[str, Any]:
+            record_recovery_result(
+                task_type=recovery_task_type,
+                trigger=trigger,
+                result=result,
+            )
+            return payload
 
         if task.get("type") == "course_import":
             recovery = self.describe_task_recovery(task_id)
             if task.get("status") in {"pending", "running"}:
-                return {"status": "already_active", "task": self._task_view(task)}
+                return observe(
+                    {"status": "already_active", "task": self._task_view(task)},
+                    "skipped",
+                )
             if task.get("status") == "completed":
-                return {"status": "completed", "task": self._task_view(task)}
+                return observe(
+                    {"status": "completed", "task": self._task_view(task)},
+                    "completed",
+                )
             if not recovery.get("can_resume"):
+                record_recovery_result(
+                    task_type=recovery_task_type,
+                    trigger="manual_resume",
+                    result="unavailable",
+                )
                 raise TaskRecoveryConflict(
                     str(recovery.get("reason") or "当前导入任务无法继续"),
                     recovery=recovery,
                 )
             async with self._lock:
+                current = self.tasks.get(task_id)
+                if current is None:
+                    raise KeyError(task_id)
+                task = deepcopy(current)
                 parsed_ready = bool((recovery.get("checkpoint") or {}).get("parsed_ready"))
                 task["status"] = "pending"
                 task["phase"] = "resuming"
@@ -4919,23 +5065,41 @@ class TaskManager:
                 task["retry_count"] = int(task.get("retry_count") or 0) + 1
                 task["updated_at"] = datetime.now().isoformat()
                 task["heartbeat_at"] = task["updated_at"]
-                self.save_tasks()
+                task = self._commit_task_draft(task_id, task)
             await self._task_queue.put(task_id)
             await self._push_progress(task_id)
-            return {"status": "resumed", "task": self._task_view(task)}
+            return observe(
+                {"status": "resumed", "task": self._task_view(task)},
+                "resumed",
+            )
 
         if task.get("type") in {"teaching_representation_build", "slide_deck_variant_build"}:
             recovery = self.describe_task_recovery(task_id)
             if task.get("status") in {"pending", "running"}:
-                return {"status": "already_active", "task": self._task_view(task)}
+                return observe(
+                    {"status": "already_active", "task": self._task_view(task)},
+                    "skipped",
+                )
             if task.get("status") == "completed":
-                return {"status": "completed", "task": self._task_view(task)}
+                return observe(
+                    {"status": "completed", "task": self._task_view(task)},
+                    "completed",
+                )
             if not recovery.get("can_resume"):
+                record_recovery_result(
+                    task_type=recovery_task_type,
+                    trigger="manual_resume",
+                    result="unavailable",
+                )
                 raise TaskRecoveryConflict(
                     str(recovery.get("reason") or "当前同源产物任务无法继续"),
                     recovery=recovery,
                 )
             async with self._lock:
+                current = self.tasks.get(task_id)
+                if current is None:
+                    raise KeyError(task_id)
+                task = deepcopy(current)
                 task["status"] = "pending"
                 task["phase"] = "resuming"
                 task["current_phase"] = "resuming"
@@ -4954,20 +5118,39 @@ class TaskManager:
                     task["slide_build_progress_v2"] = slide_progress
                 task["retry_count"] = int(task.get("retry_count") or 0) + 1
                 task["updated_at"] = datetime.now().isoformat()
-                self.save_tasks()
+                task = self._commit_task_draft(task_id, task)
             await self._task_queue.put(task_id)
             await self._push_progress(task_id)
-            return {"status": "resumed", "task": self._task_view(task)}
+            return observe(
+                {"status": "resumed", "task": self._task_view(task)},
+                "resumed",
+            )
 
         recovery = self.describe_task_recovery(task_id)
         quality_repair = recovery.get("state") == "quality_blocked"
         quality_failure = recovery.get("quality_failure") or {}
         repair_scopes = set(quality_failure.get("repair_scopes") or [])
+        recovery_trigger = (
+            "quality_gate_repair" if quality_repair else "manual_resume"
+        )
         if task.get("status") in {"pending", "running"}:
-            return {"status": "already_active", "task": self._task_view(task)}
+            return observe(
+                {"status": "already_active", "task": self._task_view(task)},
+                "skipped",
+                trigger=recovery_trigger,
+            )
         if recovery.get("state") == "completed":
-            return {"status": "completed", "task": self._task_view(task)}
+            return observe(
+                {"status": "completed", "task": self._task_view(task)},
+                "completed",
+                trigger=recovery_trigger,
+            )
         if not recovery.get("can_resume"):
+            record_recovery_result(
+                task_type=recovery_task_type,
+                trigger=recovery_trigger,
+                result="unavailable",
+            )
             raise TaskRecoveryConflict(
                 str(recovery.get("reason") or "当前任务无法从原检查点继续"),
                 recovery=recovery,
@@ -4976,8 +5159,19 @@ class TaskManager:
         checkpoint_course = self._load_task_course(task_id) or {}
         checkpoint_request = checkpoint_course.get("generation_request") or {}
         async with self._lock:
-            if task.get("status") in {"pending", "running"}:
-                return {"status": "already_active", "task": self._task_view(task)}
+            current = self.tasks.get(task_id)
+            if current is None:
+                raise KeyError(task_id)
+            if current.get("status") in {"pending", "running"}:
+                return observe(
+                    {
+                        "status": "already_active",
+                        "task": self._task_view(current),
+                    },
+                    "skipped",
+                    trigger=recovery_trigger,
+                )
+            task = deepcopy(current)
             # Terminal task summaries intentionally omit the large request
             # snapshot.  A resumed generation task must hydrate that request
             # from its isolated workspace before it becomes active again;
@@ -5011,7 +5205,7 @@ class TaskManager:
                 if "learning_assets" in repair_scopes:
                     task["asset_repair_requested"] = True
             task["updated_at"] = datetime.now().isoformat()
-            self.save_tasks()
+            task = self._commit_task_draft(task_id, task)
 
         workspace_id = str(task.get("workspace_id") or "")
         try:
@@ -5041,23 +5235,41 @@ class TaskManager:
                 "reason": "课程生成外壳不可用，无法安全继续原任务",
             }
             async with self._lock:
-                task["status"] = "failed"
-                task["phase"] = "recovery_unavailable"
-                task["current_phase"] = "recovery_unavailable"
-                task["message"] = unavailable["reason"]
-                task["error"] = unavailable["reason"]
-                task["updated_at"] = datetime.now().isoformat()
-                self.save_tasks()
+                current = self.tasks.get(task_id)
+                if current is None:
+                    raise KeyError(task_id)
+                draft = deepcopy(current)
+                draft["status"] = "failed"
+                draft["phase"] = "recovery_unavailable"
+                draft["current_phase"] = "recovery_unavailable"
+                draft["message"] = unavailable["reason"]
+                draft["error"] = unavailable["reason"]
+                draft["updated_at"] = datetime.now().isoformat()
+                task = self._commit_task_draft(task_id, draft)
+            record_recovery_result(
+                task_type=recovery_task_type,
+                trigger=recovery_trigger,
+                result="unavailable",
+            )
             raise TaskRecoveryConflict(str(unavailable["reason"]), recovery=unavailable) from exc
         except Exception:
             async with self._lock:
-                task["status"] = "failed"
-                task["phase"] = "recovery_failed"
-                task["current_phase"] = "recovery_failed"
-                task["message"] = "恢复检查点时发生错误，原内容未被重新生成"
-                task["error"] = task["message"]
-                task["updated_at"] = datetime.now().isoformat()
-                self.save_tasks()
+                current = self.tasks.get(task_id)
+                if current is None:
+                    raise KeyError(task_id)
+                draft = deepcopy(current)
+                draft["status"] = "failed"
+                draft["phase"] = "recovery_failed"
+                draft["current_phase"] = "recovery_failed"
+                draft["message"] = "恢复检查点时发生错误，原内容未被重新生成"
+                draft["error"] = draft["message"]
+                draft["updated_at"] = datetime.now().isoformat()
+                task = self._commit_task_draft(task_id, draft)
+            record_recovery_result(
+                task_type=recovery_task_type,
+                trigger=recovery_trigger,
+                result="failed",
+            )
             raise
 
         course_data = self._load_task_course(task_id) or {}
@@ -5090,31 +5302,39 @@ class TaskManager:
             else 0
         )
         async with self._lock:
-            task["status"] = "pending"
-            task["phase"] = phase
-            task["current_phase"] = phase
-            task["progress"] = min(int(task.get("progress") or 0), progress_cap)
-            task["phase_progress"] = 0
-            task["message"] = (
+            current = self.tasks.get(task_id)
+            if current is None:
+                raise KeyError(task_id)
+            draft = deepcopy(current)
+            draft["status"] = "pending"
+            draft["phase"] = phase
+            draft["current_phase"] = phase
+            draft["progress"] = min(int(draft.get("progress") or 0), progress_cap)
+            draft["phase_progress"] = 0
+            draft["message"] = (
                 "已保留全部课程内容，等待定向修复质量阻断"
                 if quality_repair
                 else "已从保存点恢复，等待继续"
             )
-            task["error"] = None
-            task["current_nodes"] = []
-            task["current_node_name"] = ""
-            task["recovery_count"] = int(task.get("recovery_count") or 0) + 1
-            task["last_recovery_reason"] = (
+            draft["error"] = None
+            draft["current_nodes"] = []
+            draft["current_node_name"] = ""
+            draft["recovery_count"] = int(draft.get("recovery_count") or 0) + 1
+            draft["last_recovery_reason"] = (
                 "quality_gate_repair"
                 if quality_repair
                 else "manual_resume"
             )
-            task["updated_at"] = datetime.now().isoformat()
+            draft["updated_at"] = datetime.now().isoformat()
             self._node_retries[task_id] = {}
-            self.save_tasks()
+            task = self._commit_task_draft(task_id, draft)
         await self._task_queue.put(task_id)
         await self._push_progress(task_id)
-        return {"status": "resumed", "task": self._task_view(task)}
+        return observe(
+            {"status": "resumed", "task": self._task_view(task)},
+            "resumed",
+            trigger=recovery_trigger,
+        )
 
     async def delete_task(self, task_id: str) -> None:
         """Cancel one job, wait for writes to stop, then remove task-owned artifacts."""
@@ -5130,21 +5350,21 @@ class TaskManager:
                 "pending", "running", "paused", "waiting_for_input",
                 "waiting_for_review",
             }:
-                current["status"] = "cancelled"
-                current["phase"] = "cancelled"
-                current["current_phase"] = "cancelled"
-                current["message"] = "任务已取消，正在清理生成状态"
-                current["updated_at"] = datetime.now().isoformat()
-                self.save_tasks(strict=True)
+                draft = deepcopy(current)
+                draft["status"] = "cancelled"
+                draft["phase"] = "cancelled"
+                draft["current_phase"] = "cancelled"
+                draft["message"] = "任务已取消，正在清理生成状态"
+                draft["updated_at"] = datetime.now().isoformat()
+                self._commit_task_draft(task_id, draft)
         await self._cancel_runtime_tasks(task_id)
         await self._cleanup_task_artifacts(task_snapshot)
         async with self._lock:
-            self.tasks.pop(task_id, None)
+            self._remove_task_strict(task_id)
             self._task_logs.pop(task_id, None)
             self._node_retries.pop(task_id, None)
             self._running_node_tasks.pop(task_id, None)
             self._running_job_tasks.pop(task_id, None)
-            self.save_tasks(strict=True)
 
     async def clear_failed_tasks(self, *, owner_id: str | None = None) -> int:
         """清理失败任务，返回清理数量。"""
@@ -5579,6 +5799,11 @@ class TaskManager:
     async def _run_job(self, task_id: str) -> None:
         try:
             async with self._course_semaphore:
+                task = self.tasks.get(task_id) or {}
+                record_task_wait(
+                    task_type=task.get("type"),
+                    queued_at=task.get("updated_at") or task.get("created_at"),
+                )
                 await self._process_task(task_id)
         except asyncio.CancelledError:
             task = self.tasks.get(task_id)
@@ -5608,6 +5833,10 @@ class TaskManager:
                 )
             else:
                 failure = classify_generation_failure(exc)
+                record_model_error(
+                    error_code=failure["code"],
+                    retryable=failure["retryable"],
+                )
                 error_detail = (
                     exc.public_detail()
                     if isinstance(
@@ -5620,17 +5849,6 @@ class TaskManager:
                         "retryable": failure["retryable"],
                     }
                 )
-                async with self._lock:
-                    current = self.tasks.get(task_id)
-                    if current is not None:
-                        current["error_code"] = str(
-                            error_detail.get("code") or failure["code"]
-                        )
-                        # The backend emits a code, not prose: user-facing copy
-                        # is resolved through the frontend i18n layer so it stays
-                        # bilingual. Clear any message left by an earlier run.
-                        current["error_user_message"] = None
-                        self.save_tasks()
                 await self._update_task_status(
                     task_id,
                     "failed",
@@ -6549,9 +6767,11 @@ class TaskManager:
         payload: dict[str, Any],
     ) -> None:
         async with self._lock:
-            task = self.tasks.get(task_id)
-            if not task or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
+            current = self.tasks.get(task_id)
+            if not current or str(current.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
                 return
+            task = deepcopy(current)
+            previous_status = str(current.get("status") or "")
             sequence = int(task.get("event_sequence") or 0) + 1
             event = {**deepcopy(payload), "sequence": sequence}
             task["event_sequence"] = sequence
@@ -6570,6 +6790,9 @@ class TaskManager:
                     if isinstance(failure, dict):
                         task["status"] = "failed"
                         task["error_detail"] = deepcopy(failure)
+                        task["error_code"] = str(
+                            failure.get("code") or "slide_build_failed"
+                        )
                         task["error"] = str(
                             failure.get("message")
                             or payload.get("message")
@@ -6593,7 +6816,15 @@ class TaskManager:
             task["current_phase"] = task["phase"]
             task["message"] = str(payload.get("message") or task.get("message") or "正在生成同源教学产物")
             task["updated_at"] = datetime.now().isoformat()
-            self.save_tasks()
+            if (
+                str(task.get("status") or "") != previous_status
+                and str(task.get("status") or "") in {"failed", "error"}
+            ):
+                self._commit_task_draft(task_id, task)
+            else:
+                current.clear()
+                current.update(task)
+                self.save_tasks()
         await self._push_progress(task_id)
 
     async def _fail_course_import(
@@ -6605,15 +6836,33 @@ class TaskManager:
         retryable: bool,
     ) -> None:
         async with self._lock:
-            task = self.tasks.get(task_id)
-            if not task or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
+            current = self.tasks.get(task_id)
+            if not current or str(current.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
                 return
+            task = deepcopy(current)
+            now = datetime.now().isoformat()
+            task["status"] = "failed"
             task["error_code"] = code
             task["error_user_message"] = message
+            task["error"] = code
+            task["error_detail"] = {
+                "code": code,
+                "message": message,
+                "retryable": retryable,
+            }
             task["import_retryable"] = retryable
             task["message"] = message
-            self.save_tasks()
-        await self._update_task_status(task_id, "failed", message=message, error=code)
+            task["updated_at"] = now
+            task["heartbeat_at"] = now
+            self._record_phase_history(
+                task,
+                str(task.get("current_phase") or task.get("phase") or "failed"),
+                "error",
+                progress=int(task.get("progress") or 0),
+                message=message,
+                timestamp=now,
+            )
+            self._commit_task_draft(task_id, task)
         await self._push_progress(task_id)
 
     async def _process_course_import_task(self, task_id: str) -> None:
@@ -6857,6 +7106,16 @@ class TaskManager:
             phase_progress=int(task.get("phase_progress") or 0),
             phase_detail=task.get("phase_detail") or {},
         )
+        # Lifecycle updates are copy-on-write: refresh the execution snapshot
+        # after publishing ``running``/phase state instead of continuing with
+        # the detached pre-transition dict.  Otherwise guided confirmations can
+        # be read from the stale object and the job can skip its next review gate.
+        task = self.tasks.get(task_id)
+        if (
+            not task
+            or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES
+        ):
+            return
 
         course_data = self._load_task_course(task_id)
         if not course_data:
@@ -6894,9 +7153,10 @@ class TaskManager:
                 )
             self._version_repository.delete_draft(course_id)
             async with self._lock:
-                task = self.tasks.get(task_id)
-                if not task or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
+                current = self.tasks.get(task_id)
+                if not current or str(current.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
                     return
+                task = deepcopy(current)
                 task["status"] = "completed"
                 task["phase"] = "teacher_outline_ready"
                 task["current_phase"] = "teacher_outline_ready"
@@ -6908,7 +7168,7 @@ class TaskManager:
                 task["current_node_name"] = ""
                 task["updated_at"] = datetime.now().isoformat()
                 task["heartbeat_at"] = task["updated_at"]
-                self.save_tasks(strict=True)
+                task = self._commit_task_draft(task_id, task)
             await self._push_progress(task_id)
             return
         if guided and not guided_workflow.get("review_step"):
@@ -7117,9 +7377,10 @@ class TaskManager:
                 self._version_repository.save_draft(course_id, draft)
                 await self._save_task_course(task_id, course_data)
                 async with self._lock:
-                    task = self.tasks.get(task_id)
-                    if not task or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
+                    current = self.tasks.get(task_id)
+                    if not current or str(current.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
                         return
+                    task = deepcopy(current)
                     task["status"] = "waiting_for_input"
                     task["phase"] = "outline_framework_ready"
                     task["current_phase"] = "outline_framework_ready"
@@ -7139,7 +7400,7 @@ class TaskManager:
                     task["current_node_name"] = ""
                     task["updated_at"] = datetime.now().isoformat()
                     task["heartbeat_at"] = task["updated_at"]
-                    self.save_tasks(strict=True)
+                    task = self._commit_task_draft(task_id, task)
                 await self._push_progress(task_id)
                 return
             if not _teacher_outline_result_ready(course_data):
@@ -7180,9 +7441,10 @@ class TaskManager:
                 )
             self._version_repository.delete_draft(course_id)
             async with self._lock:
-                task = self.tasks.get(task_id)
-                if not task or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
+                current = self.tasks.get(task_id)
+                if not current or str(current.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
                     return
+                task = deepcopy(current)
                 task["status"] = "completed"
                 task["phase"] = "teacher_outline_ready"
                 task["current_phase"] = "teacher_outline_ready"
@@ -7194,7 +7456,7 @@ class TaskManager:
                 task["current_node_name"] = ""
                 task["updated_at"] = datetime.now().isoformat()
                 task["heartbeat_at"] = task["updated_at"]
-                self.save_tasks(strict=True)
+                task = self._commit_task_draft(task_id, task)
             await self._push_progress(task_id)
             return
 
@@ -8003,6 +8265,236 @@ class TaskManager:
     # Persistence
     # -------------------------------------------------------------------------
 
+    @staticmethod
+    def _task_index_last_good_path() -> Path:
+        return TASKS_FILE.with_name(f"{TASKS_FILE.stem}.last-good.json")
+
+    @staticmethod
+    def _task_index_digest(tasks: dict[str, Any]) -> str:
+        payload = json.dumps(
+            tasks,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
+    @classmethod
+    def _task_index_last_good_envelope(
+        cls,
+        tasks: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "schema_version": TASK_INDEX_LAST_GOOD_SCHEMA,
+            "checksum": cls._task_index_digest(tasks),
+            "tasks": tasks,
+        }
+
+    @classmethod
+    def _read_task_index(cls, path: Path) -> dict[str, Any]:
+        if path.stat().st_size > MAX_TASK_INDEX_BYTES:
+            raise ValueError("generation_job_index_oversized")
+        with path.open(encoding="utf-8") as handle:
+            loaded = json.load(handle)
+        if not isinstance(loaded, dict):
+            raise ValueError("generation_job_index_not_object")
+        return loaded
+
+    @classmethod
+    def _read_last_good_task_index(cls) -> dict[str, Any] | None:
+        path = cls._task_index_last_good_path()
+        if not path.exists():
+            return None
+        if path.stat().st_size > MAX_TASK_INDEX_BYTES:
+            raise ValueError("generation_job_last_good_oversized")
+        with path.open(encoding="utf-8") as handle:
+            envelope = json.load(handle)
+        if not isinstance(envelope, dict):
+            raise ValueError("generation_job_last_good_not_object")
+        if envelope.get("schema_version") != TASK_INDEX_LAST_GOOD_SCHEMA:
+            raise ValueError("generation_job_last_good_schema_invalid")
+        tasks = envelope.get("tasks")
+        if not isinstance(tasks, dict):
+            raise ValueError("generation_job_last_good_tasks_invalid")
+        checksum = str(envelope.get("checksum") or "")
+        if checksum != cls._task_index_digest(tasks):
+            raise ValueError("generation_job_last_good_checksum_invalid")
+        return tasks
+
+    @staticmethod
+    def _write_task_index_atomic(path: Path, payload: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(
+            f".{path.name}.{uuid.uuid4().hex}.tmp"
+        )
+        try:
+            with temporary.open("w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2, ensure_ascii=False)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
+    @staticmethod
+    def _quarantine_task_index(source: Path, *, reason: str) -> Path:
+        archive = source.with_name(
+            f"{source.stem}.{reason}-"
+            f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-"
+            f"{uuid.uuid4().hex[:8]}{source.suffix}"
+        )
+        os.replace(source, archive)
+        return archive
+
+    def _acquire_leader_lock(self) -> None:
+        """Acquire the process lock before reading or recovering task state."""
+        if fcntl is None:
+            raise TaskLeaderConflictError(
+                "Task scheduling requires an operating-system file lock"
+            )
+        self._leader_lock_path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor = os.open(
+            self._leader_lock_path,
+            os.O_RDWR | os.O_CREAT,
+            0o600,
+        )
+        handle = os.fdopen(descriptor, "r+", encoding="utf-8")
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            handle.close()
+            self._leader_state = "conflict"
+            raise TaskLeaderConflictError(
+                "Another TaskManager owns this data directory"
+            ) from exc
+        try:
+            handle.seek(0)
+            handle.truncate()
+            json.dump(
+                {
+                    "pid": os.getpid(),
+                    "acquired_at": datetime.now().isoformat(),
+                },
+                handle,
+                ensure_ascii=False,
+            )
+            handle.flush()
+            os.fsync(handle.fileno())
+        except BaseException:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            handle.close()
+            self._leader_state = "failed"
+            raise
+        self._leader_lock_handle = handle
+        self._leader_state = "acquired"
+
+    def _release_leader_lock(self) -> None:
+        handle = self._leader_lock_handle
+        if handle is None:
+            return
+        self._leader_lock_handle = None
+        try:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
+            self._leader_state = "released"
+
+    def leader_health(self) -> dict[str, Any]:
+        return {
+            "mode": self._runtime_mode,
+            "state": self._leader_state,
+            "ready": (
+                self._runtime_mode == "isolated_test"
+                or (
+                    self._runtime_mode == "leader"
+                    and self._leader_state == "acquired"
+                )
+            ),
+        }
+
+    def _ensure_task_index_writable(self) -> None:
+        if self._runtime_mode == "read_only":
+            raise TaskLeaderConflictError(
+                "Read-only TaskManager cannot modify task state"
+            )
+        if self._runtime_mode == "leader" and self._leader_state != "acquired":
+            raise TaskLeaderConflictError(
+                "Task writes require the data-directory leader lock"
+            )
+        if self._task_index_state == "degraded":
+            raise TaskIndexDegradedError(
+                "任务索引不可恢复，当前仅允许读取课程；请先修复任务索引"
+            )
+
+    def _commit_task_draft(
+        self,
+        task_id: str,
+        draft: dict[str, Any],
+        *,
+        allow_create: bool = False,
+    ) -> dict[str, Any]:
+        """Persist a detached task draft before publishing it to readers."""
+        self._ensure_task_index_writable()
+        current = self.tasks.get(task_id)
+        if current is None and not allow_create:
+            raise KeyError(task_id)
+        # Always persist a detached snapshot. Some legacy callers still pass the
+        # currently published dict; assigning that object directly and then
+        # clearing ``current`` after the save would otherwise erase the draft.
+        published = deepcopy(draft)
+        self.tasks[task_id] = published
+        try:
+            self._save_tasks_strict()
+        except BaseException:
+            if current is None:
+                self.tasks.pop(task_id, None)
+            else:
+                self.tasks[task_id] = current
+            raise
+        if current is not None:
+            # Long-running generation keeps references to both the task and its
+            # guided workflow. Publish the durable snapshot through those same
+            # objects so later review gates cannot mutate a detached workflow.
+            current_workflow = current.get("guided_workflow")
+            published_workflow = published.get("guided_workflow")
+            current.clear()
+            current.update(published)
+            if isinstance(current_workflow, dict) and isinstance(
+                published_workflow,
+                dict,
+            ):
+                current_workflow.clear()
+                current_workflow.update(published_workflow)
+                current["guided_workflow"] = current_workflow
+            self.tasks[task_id] = current
+            return current
+        return published
+
+    def _remove_task_strict(self, task_id: str) -> dict[str, Any]:
+        """Persist task removal, restoring the in-memory task on failure."""
+        self._ensure_task_index_writable()
+        current = self.tasks.pop(task_id, None)
+        if current is None:
+            raise KeyError(task_id)
+        try:
+            self._save_tasks_strict()
+        except BaseException:
+            self.tasks[task_id] = current
+            raise
+        return current
+
+    def task_index_health(self) -> dict[str, Any]:
+        return {
+            "state": self._task_index_state,
+            "ready": self._task_index_state == "ready",
+            "recovery": self._task_index_recovery,
+            "error_code": self._task_index_error_code,
+        }
+
     def _tasks_for_persistence(self) -> dict[str, dict[str, Any]]:
         terminal = sorted(
             (
@@ -8049,26 +8541,53 @@ class TaskManager:
             source = LEGACY_TASKS_FILE
         try:
             if not source.exists():
-                self.tasks = {}
-                return
-            if source.stat().st_size > MAX_TASK_INDEX_BYTES:
-                archive = source.with_name(
-                    f"{source.stem}.oversized-"
-                    f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-"
-                    f"{uuid.uuid4().hex[:8]}{source.suffix}"
-                )
-                os.replace(source, archive)
-                logger.error(
-                    "Archived oversized generation job index (%d bytes) to %s",
-                    archive.stat().st_size,
-                    archive,
-                )
-                self.tasks = {}
-                return
-            with source.open(encoding="utf-8") as handle:
-                loaded = json.load(handle)
-            if not isinstance(loaded, dict):
-                raise ValueError("Generation job index must contain an object")
+                recovered = self._read_last_good_task_index()
+                if recovered is None:
+                    self.tasks = {}
+                    self._task_index_state = "ready"
+                    return
+                loaded = recovered
+                self._task_index_recovery = "last_good"
+            else:
+                try:
+                    loaded = self._read_task_index(source)
+                except Exception as primary_error:
+                    reason = (
+                        "oversized"
+                        if str(primary_error) == "generation_job_index_oversized"
+                        else "corrupt"
+                    )
+                    if self._runtime_mode == "read_only":
+                        logger.error(
+                            "Read-only task index check failed at %s: %s",
+                            source,
+                            primary_error,
+                        )
+                    else:
+                        archive = self._quarantine_task_index(source, reason=reason)
+                        logger.error(
+                            "Quarantined invalid generation job index at %s: %s",
+                            archive,
+                            primary_error,
+                        )
+                    try:
+                        recovered = self._read_last_good_task_index()
+                    except Exception as backup_error:
+                        recovered = None
+                        logger.error(
+                            "Generation job last-good index is invalid: %s",
+                            backup_error,
+                        )
+                    if recovered is None:
+                        self.tasks = {}
+                        self._task_index_state = "degraded"
+                        self._task_index_recovery = "unavailable"
+                        self._task_index_error_code = (
+                            "generation_job_index_unrecoverable"
+                        )
+                        return
+                    loaded = recovered
+                    self._task_index_recovery = "last_good"
             self.tasks = loaded
             migrated_slide_contract = False
             migrated_teacher_lifecycle = False
@@ -8296,30 +8815,65 @@ class TaskManager:
                 source == LEGACY_TASKS_FILE
                 or migrated_slide_contract
                 or migrated_teacher_lifecycle
-            ):
-                self.save_tasks(strict=True)
+                or self._task_index_recovery == "last_good"
+            ) and self._runtime_mode != "read_only":
+                self._save_tasks_strict()
+            self._task_index_state = "ready"
+            self._task_index_error_code = None
         except Exception as e:
             logger.error("Failed to load tasks: %s", e)
             self.tasks = {}
+            self._task_index_state = "degraded"
+            self._task_index_recovery = "unavailable"
+            self._task_index_error_code = "generation_job_index_unrecoverable"
+
+    def _save_tasks_strict(self) -> None:
+        """Invoke the persistence hook in strict mode without assuming its signature."""
+        save_tasks = self.save_tasks
+        try:
+            parameters = inspect.signature(save_tasks).parameters.values()
+        except (TypeError, ValueError):
+            save_tasks(strict=True)
+            return
+        supports_strict = any(
+            parameter.name == "strict"
+            or parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters
+        )
+        if supports_strict:
+            save_tasks(strict=True)
+            return
+        # Some test and integration adapters replace the historical no-argument
+        # persistence hook. Their own exceptions must still propagate so the
+        # copy-on-write caller can restore the previous in-memory state.
+        save_tasks()
 
     def save_tasks(self, *, strict: bool = False) -> None:
         """Atomically persist jobs to the deployment-persistent data root."""
+        self._ensure_task_index_writable()
         try:
             TASKS_FILE.parent.mkdir(parents=True, exist_ok=True)
-            temp_path = TASKS_FILE.with_suffix(".tmp")
             persisted_tasks = self._tasks_for_persistence()
-            with temp_path.open("w", encoding="utf-8") as handle:
-                json.dump(
-                    persisted_tasks,
-                    handle,
-                    indent=2,
-                    ensure_ascii=False,
+            last_good_path = self._task_index_last_good_path()
+            if TASKS_FILE.exists():
+                previous = self._read_task_index(TASKS_FILE)
+                self._write_task_index_atomic(
+                    last_good_path,
+                    self._task_index_last_good_envelope(previous),
                 )
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temp_path, TASKS_FILE)
+            elif not last_good_path.exists():
+                self._write_task_index_atomic(
+                    last_good_path,
+                    self._task_index_last_good_envelope({}),
+                )
+            self._write_task_index_atomic(TASKS_FILE, persisted_tasks)
         except Exception as e:
             logger.error("Failed to save tasks: %s", e)
+            record_persistence_failure(
+                component="task_index",
+                operation="lifecycle_save" if strict else "save",
+                error=e,
+            )
             if strict:
                 raise
 
@@ -8657,15 +9211,16 @@ class TaskManager:
     ) -> bool:
         """更新任务状态，并阻止迟到后台协程覆盖人工或终态决定。"""
         async with self._lock:
-            task = self.tasks.get(task_id)
-            if not task:
+            current = self.tasks.get(task_id)
+            if not current:
                 return False
-            current_status = str(task.get("status") or "")
+            current_status = str(current.get("status") or "")
             if (
                 current_status in BACKGROUND_FROZEN_TASK_STATUSES
                 and not allow_reactivation
             ):
                 return False
+            task = deepcopy(current)
             task["status"] = status
             if status in {
                 "pending",
@@ -8682,12 +9237,17 @@ class TaskManager:
                 task["error_detail"] = None
                 task["error_code"] = None
                 task["error_user_message"] = None
+            elif status in {"failed", "error"}:
+                task["error_user_message"] = None
             if message is not None:
                 task["message"] = message
             if error is not None:
                 task["error"] = error
             if error_detail is not None:
                 task["error_detail"] = deepcopy(error_detail)
+                detail_code = str(error_detail.get("code") or "")
+                if detail_code:
+                    task["error_code"] = detail_code
             if completed_nodes is not None:
                 task["completed_nodes"] = completed_nodes
             if total_nodes is not None:
@@ -8711,7 +9271,7 @@ class TaskManager:
                     message=str(task.get("message") or error or ""),
                     timestamp=now,
                 )
-            self.save_tasks()
+            self._commit_task_draft(task_id, task)
             return True
 
     async def _update_progress(

@@ -39,6 +39,24 @@ def install_application_error_contract(
     @app.exception_handler(Exception)
     async def unhandled_application_error(request: Request, exc: Exception):
         request_id = str(getattr(request.state, "request_id", "") or _request_id(request))
+        if getattr(exc, "code", None) == "generation_job_index_degraded":
+            error_logger.error(
+                "task_index_degraded request_id=%s method=%s path=%s",
+                request_id,
+                request.method,
+                request.url.path,
+            )
+            return JSONResponse(
+                status_code=503,
+                headers={REQUEST_ID_HEADER: request_id},
+                content={
+                    "detail": {
+                        "code": "generation_job_index_degraded",
+                        "message": "任务状态暂不可写，现有课程仍可查看。请稍后重试。",
+                        "request_id": request_id,
+                    }
+                },
+            )
         error_logger.exception(
             "unhandled_request_error request_id=%s method=%s path=%s",
             request_id,

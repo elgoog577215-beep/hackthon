@@ -296,6 +296,145 @@ async def test_generate_all_lesson_plans_returns_parent_and_independent_queue_me
 
 
 @pytest.mark.asyncio
+async def test_lesson_plan_batch_resumes_only_paused_and_failed_lessons(monkeypatch):
+    lessons = [
+        {
+            "lesson_unit_id": f"lesson-{index}",
+            "title": f"第 {index} 讲",
+            "sections": [{"section_node_id": f"section-{index}"}],
+            "arrangement": {"confirmed": True, "blocks": [{"block_id": f"b-{index}"}]},
+            "plan": {"ready": index <= 10, "can_generate": True},
+        }
+        for index in range(1, 13)
+    ]
+    prior_jobs = {
+        "paused-job": {
+            "id": "paused-job",
+            "lesson_unit_id": "lesson-11",
+            "type": "teacher_lesson_plan_generation",
+            "status": "paused",
+        },
+        "failed-job": {
+            "id": "failed-job",
+            "lesson_unit_id": "lesson-12",
+            "type": "teacher_lesson_plan_generation",
+            "status": "failed",
+        },
+    }
+    monkeypatch.setattr(lesson_router, "_source_course", lambda *_args: {"course_id": "course-1"})
+    monkeypatch.setattr(lesson_router, "_canonical_outline_revision", lambda _source: "outline-1")
+    monkeypatch.setattr(lesson_router, "_lesson_projection", lambda *_args: lessons)
+    monkeypatch.setattr(lesson_router, "validate_lesson_arrangement", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        lesson_router,
+        "_lesson_plan_material_scope",
+        lambda *_args: {"source_package_id": "", "source_asset_id": "", "material_asset_ids": []},
+    )
+    requested_children = []
+
+    async def fake_generate(course_id, lesson_id, body, *_args):
+        requested_children.append((lesson_id, body))
+        return {"job": {"id": f"new-{lesson_id}", "lesson_unit_id": lesson_id, "status": "pending"}}
+
+    monkeypatch.setattr(lesson_router, "generate_lesson_plan", fake_generate)
+
+    class Repository:
+        def view(self, _course_id):
+            return {"jobs": prior_jobs}
+
+        def current_arrangement(self, _course_id, lesson_unit_id):
+            return lessons[int(lesson_unit_id.split("-")[-1]) - 1]["arrangement"]
+
+        def update_job(self, _course_id, job_id, **changes):
+            lesson_id = job_id.removeprefix("new-")
+            return {"id": job_id, "lesson_unit_id": lesson_id, "status": "pending", **changes}
+
+    result = await lesson_router.generate_all_lesson_plans(
+        "course-1",
+        lesson_router.GenerateAllLessonPlansRequest(request_id="resume-plans"),
+        SimpleNamespace(headers={"X-User-Id": "teacher-1"}),
+        SimpleNamespace(),
+        Repository(),
+    )
+
+    assert [lesson_id for lesson_id, _body in requested_children] == ["lesson-11", "lesson-12"]
+    assert [body.resume_job_id for _lesson_id, body in requested_children] == [
+        "paused-job",
+        "failed-job",
+    ]
+    assert {body.batch_size for _lesson_id, body in requested_children} == {2}
+    assert result["parent_job"]["started"] == 2
+    assert result["parent_job"]["skipped_lesson_ids"] == [
+        f"lesson-{index}" for index in range(1, 11)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_lesson_script_batch_resumes_only_paused_and_failed_lessons(monkeypatch):
+    lessons = [
+        {
+            "lesson_unit_id": f"lesson-{index}",
+            "script": {"ready": index <= 10, "can_generate": True},
+        }
+        for index in range(1, 13)
+    ]
+    prior_jobs = {
+        "paused-script": {
+            "id": "paused-script",
+            "lesson_unit_id": "lesson-11",
+            "type": "teacher_lesson_script_generation",
+            "status": "paused",
+        },
+        "failed-script": {
+            "id": "failed-script",
+            "lesson_unit_id": "lesson-12",
+            "type": "teacher_lesson_script_generation",
+            "status": "failed",
+        },
+    }
+    monkeypatch.setattr(lesson_router, "_source_course", lambda *_args: {"course_id": "course-1"})
+    monkeypatch.setattr(lesson_router, "_lesson_projection", lambda *_args: lessons)
+    monkeypatch.setattr(
+        lesson_router,
+        "_current_plan_revision",
+        lambda _repository, _course_id, lesson_id: ({}, {"revision_id": f"plan-{lesson_id}"}),
+    )
+    monkeypatch.setattr(
+        lesson_router,
+        "_lesson_script_material_scope",
+        lambda *_args: {"material_asset_ids": []},
+    )
+    requested_children = []
+
+    async def fake_generate(course_id, lesson_id, body, *_args):
+        requested_children.append((lesson_id, body))
+        return {"job": {"id": f"new-{lesson_id}", "lesson_unit_id": lesson_id, "status": "pending"}}
+
+    monkeypatch.setattr(lesson_router, "generate_lesson_script", fake_generate)
+
+    class Repository:
+        def view(self, _course_id):
+            return {"jobs": prior_jobs}
+
+    result = await lesson_router.generate_all_lesson_scripts(
+        "course-1",
+        lesson_router.GenerateAllLessonScriptsRequest(request_id="resume-scripts"),
+        SimpleNamespace(headers={"X-User-Id": "teacher-1"}),
+        SimpleNamespace(),
+        Repository(),
+    )
+
+    assert [lesson_id for lesson_id, _body in requested_children] == ["lesson-11", "lesson-12"]
+    assert [body.resume_job_id for _lesson_id, body in requested_children] == [
+        "paused-script",
+        "failed-script",
+    ]
+    assert {body.batch_size for _lesson_id, body in requested_children} == {2}
+    assert result["parent_job"]["started"] == 2
+    assert result["skipped_lesson_ids"] == [f"lesson-{index}" for index in range(1, 11)]
+
+
+@pytest.mark.asyncio
 async def test_lesson_plan_batch_allows_independent_model_jobs_to_overlap():
     class Repository:
         def get_job(self, _course_id, job_id):

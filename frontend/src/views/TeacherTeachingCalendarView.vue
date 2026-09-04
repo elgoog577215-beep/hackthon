@@ -209,6 +209,11 @@
                   <span class="preparation-state" :data-tone="lessonPlanPreparation.tone">{{ lessonPlanPreparation.label }}</span>
                 </article>
                 <article>
+                  <span class="preparation-icon" :data-tone="scriptPreparation.tone"><BookOpenText :size="16" /></span>
+                  <div><strong>{{ t('teacherProductionState.stages.script', '讲义') }}</strong><small>{{ scriptPreparation.detail }}</small></div>
+                  <span class="preparation-state" :data-tone="scriptPreparation.tone">{{ scriptPreparation.label }}</span>
+                </article>
+                <article>
                   <span class="preparation-icon" :data-tone="pptPreparation.tone"><Presentation :size="16" /></span>
                   <div><strong>PPT</strong><small>{{ pptPreparation.detail }}</small></div>
                   <span class="preparation-state" :data-tone="pptPreparation.tone">{{ pptPreparation.label }}</span>
@@ -262,7 +267,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  ArrowUpRight, BookOpen, CalendarDays, CalendarRange, CheckCircle2, ChevronLeft, ChevronRight,
+  ArrowUpRight, BookOpen, BookOpenText, CalendarDays, CalendarRange, CheckCircle2, ChevronLeft, ChevronRight,
   ClipboardCheck, Clock3, Columns3, LibraryBig, ListTree, LoaderCircle, MapPin,
   Plus, Presentation, RefreshCw, UserRound, X,
 } from 'lucide-vue-next'
@@ -272,8 +277,16 @@ import TeacherCourseCreateView from './TeacherCourseCreateView.vue'
 import TeacherCourseLibraryView from './TeacherCourseLibraryView.vue'
 import { activeLocale, t } from '../shared/i18n'
 import {
+  lessonProductionState,
+  productionDisplayStateLabel,
+  readCourseProductionState,
+  type AssetProductionState,
+  type CourseProductionState,
+} from '../shared/teacher-production-state'
+import {
   teacherLessonPlanIsReady,
   teacherLessonPptAssetIsReady,
+  teacherLessonScriptIsReady,
 } from '../shared/teacher-asset-readiness'
 import { useCourseStore, type Course } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
@@ -301,6 +314,7 @@ const selectedCourseId = ref('')
 const selectedSession = ref<ClassSession | null>(null)
 const selectedDate = ref<string | null>(null)
 const sessionAuthoringView = ref<TeacherLessonAuthoringView | null>(null)
+const sessionProductionState = ref<CourseProductionState | null>(null)
 const sessionPreparationLoading = ref(false)
 const sessionPreparationError = ref('')
 let sessionPreparationRequest = 0
@@ -412,12 +426,16 @@ const sessionLesson = computed(() => {
 const outlinePreparation = computed<PreparationState>(() => {
   const session = selectedSession.value
   if (!session?.lesson_unit_id) return preparationState('missing', 'notLinked', 'outlineMissing')
+  const projected = sessionProductionState.value?.stages.outline
+  if (projected) return projectedPreparation(projected, 'outlineLinked')
   return preparationState('ready', 'linked', 'outlineLinked')
 })
 const lessonPlanPreparation = computed<PreparationState>(() => {
   if (!selectedSession.value?.lesson_unit_id) return preparationState('missing', 'notCreated', 'planNeedsOutline')
   if (sessionPreparationLoading.value) return preparationState('working', 'syncing', 'statusSyncing')
   if (sessionPreparationError.value) return preparationState('error', 'readFailed', 'statusUnavailable')
+  const projected = lessonProductionState(sessionProductionState.value, selectedSession.value.lesson_unit_id, 'lesson_plan')
+  if (projected) return projectedPreparation(projected, 'planReady')
   const lesson = sessionLesson.value
   const job = latestSessionJob('plan')
   if (job && ['pending', 'running'].includes(job.status)) return preparationState('working', 'generating', 'planWorking')
@@ -430,10 +448,23 @@ const lessonPlanPreparation = computed<PreparationState>(() => {
   if (teacherLessonPlanIsReady(lesson)) return preparationState('ready', 'confirmed', 'planReady')
   return preparationState('review', 'awaitingReview', 'planDraft')
 })
+const scriptPreparation = computed<PreparationState>(() => {
+  if (!selectedSession.value?.lesson_unit_id) return preparationState('missing', 'notCreated', 'scriptNeedsPlan')
+  if (sessionPreparationLoading.value) return preparationState('working', 'syncing', 'statusSyncing')
+  if (sessionPreparationError.value) return preparationState('error', 'readFailed', 'statusUnavailable')
+  const projected = lessonProductionState(sessionProductionState.value, selectedSession.value.lesson_unit_id, 'script')
+  if (projected) return projectedPreparation(projected, 'scriptReady')
+  const lesson = sessionLesson.value
+  if (teacherLessonScriptIsReady(lesson)) return preparationState('ready', 'available', 'scriptReady')
+  if (lesson?.script?.source_state === 'stale') return preparationState('warning', 'available', 'scriptStale')
+  return preparationState('missing', 'notCreated', teacherLessonPlanIsReady(lesson) ? 'scriptMissing' : 'scriptNeedsPlan')
+})
 const pptPreparation = computed<PreparationState>(() => {
   if (!selectedSession.value?.lesson_unit_id) return preparationState('missing', 'notCreated', 'pptNeedsOutline')
   if (sessionPreparationLoading.value) return preparationState('working', 'syncing', 'statusSyncing')
   if (sessionPreparationError.value) return preparationState('error', 'readFailed', 'statusUnavailable')
+  const projected = lessonProductionState(sessionProductionState.value, selectedSession.value.lesson_unit_id, 'ppt')
+  if (projected) return projectedPreparation(projected, 'pptReady')
   const job = latestSessionJob('ppt')
   if (job && ['pending', 'running'].includes(job.status)) return preparationState('working', 'generating', 'pptWorking')
   const lesson = sessionLesson.value
@@ -447,15 +478,21 @@ const pptPreparation = computed<PreparationState>(() => {
   return preparationState('ready', 'generated', 'pptReady')
 })
 const preparationReadyLabel = computed(() => t('teacherHome.sessionPanel.preparationProgress')
-  .replace('{ready}', String([outlinePreparation.value, lessonPlanPreparation.value, pptPreparation.value].filter(item => item.tone === 'ready').length)))
+  .replace('{ready}', String([outlinePreparation.value, lessonPlanPreparation.value, scriptPreparation.value, pptPreparation.value].filter(item => item.tone === 'ready').length))
+  .replace('{total}', '4'))
 const preparationPrimaryLabel = computed(() => {
   if (!selectedSession.value?.lesson_unit_id) return t('teacherHome.sessionPanel.linkOutline')
   if (lessonPlanPreparation.value.tone === 'missing') return t('teacherHome.sessionPanel.startLessonPlan')
   if (['review', 'warning', 'error', 'working'].includes(lessonPlanPreparation.value.tone)) return t('teacherHome.sessionPanel.reviewLessonPlan')
+  if (scriptPreparation.value.tone !== 'ready') return t('teacherHome.sessionPanel.prepareScript', '准备讲义')
   if (pptPreparation.value.tone !== 'ready') return t('teacherHome.sessionPanel.preparePpt')
   return t('teacherHome.continuePreparing')
 })
-const preparationNextStage = computed<'lesson' | 'ppt'>(() => lessonPlanPreparation.value.tone === 'ready' && pptPreparation.value.tone !== 'ready' ? 'ppt' : 'lesson')
+const preparationNextStage = computed<'lesson' | 'script' | 'ppt'>(() => {
+  if (lessonPlanPreparation.value.tone !== 'ready') return 'lesson'
+  if (scriptPreparation.value.tone !== 'ready') return 'script'
+  return 'ppt'
+})
 
 function loadRange() {
   if (view.value === 'week') return { from: iso(weekStart.value), to: iso(weekEnd.value) }
@@ -518,6 +555,18 @@ function preparationState(tone: PreparationTone, labelKey: string, detailKey: st
     detail: t(`teacherHome.sessionPanel.details.${detailKey}`),
   }
 }
+function projectedPreparation(state: AssetProductionState, readyDetailKey: string): PreparationState {
+  const issue = state.issues[0]
+  const tone: PreparationTone = state.display_state === 'available'
+    ? 'ready'
+    : state.display_state === 'generating' ? 'working' : state.display_state === 'failed' ? 'error' : 'missing'
+  const detail = issue?.summary || (state.update_required
+    ? t('teacherProductionState.auxiliary.stale', '来源已更新')
+    : state.latest_attempt_failed
+      ? t('teacherProductionState.auxiliary.recentFailure', '最近一次生成失败')
+      : t(`teacherHome.sessionPanel.details.${readyDetailKey}`))
+  return { tone, label: productionDisplayStateLabel(state.display_state), detail }
+}
 function latestSessionJob(kind: 'plan' | 'ppt'): TeacherLessonJob | undefined {
   const lessonId = selectedSession.value?.lesson_unit_id
   if (!lessonId) return undefined
@@ -579,6 +628,7 @@ function courseShortcutStatus(course: Course) {
 async function loadSessionPreparation(session: ClassSession | null) {
   const request = ++sessionPreparationRequest
   sessionAuthoringView.value = null
+  sessionProductionState.value = null
   sessionPreparationError.value = ''
   if (!session?.course_id || !session.lesson_unit_id) {
     sessionPreparationLoading.value = false
@@ -586,11 +636,20 @@ async function loadSessionPreparation(session: ClassSession | null) {
   }
   sessionPreparationLoading.value = true
   try {
-    const response = await http.get<TeacherLessonAuthoringView>(
-      `/api/teacher/courses/${session.course_id}/lesson-authoring`,
-      teacherRequestConfig({ silentError: true }),
-    )
-    if (request === sessionPreparationRequest) sessionAuthoringView.value = response.data
+    const [authoringResponse, calendarResponse] = await Promise.all([
+      http.get<TeacherLessonAuthoringView>(
+        `/api/teacher/courses/${session.course_id}/lesson-authoring`,
+        teacherRequestConfig({ silentError: true }),
+      ),
+      http.get(
+        `/api/courses/${session.course_id}/teaching-calendar`,
+        teacherRequestConfig({ silentError: true }),
+      ),
+    ])
+    if (request === sessionPreparationRequest) {
+      sessionAuthoringView.value = authoringResponse.data
+      sessionProductionState.value = readCourseProductionState(calendarResponse.data)
+    }
   } catch (error: any) {
     if (request === sessionPreparationRequest) sessionPreparationError.value = String(error?.response?.data?.detail?.message || error?.message || t('teacherHome.sessionPanel.details.statusUnavailable'))
   } finally {

@@ -548,7 +548,7 @@ def test_batch_registry_contains_only_current_and_direct_prerequisite_keys():
     assert [item["knowledge_key"] for item in selected] == ["K19", "K20"]
 
 
-def test_skeleton_rejects_prerequisite_reserved_for_a_future_section():
+def test_skeleton_allows_prerequisite_reserved_for_a_future_section():
     sections = [_section(1), _section(2)]
     skeleton = normalize_teaching_plan_skeleton_v3({
         "knowledge_registry": [
@@ -579,10 +579,162 @@ def test_skeleton_rejects_prerequisite_reserved_for_a_future_section():
 
     report = validate_teaching_plan_skeleton_v3(skeleton, sections=sections)
 
-    assert not report["passed"]
-    assert "teaching_skeleton:future_prerequisite" in {
-        issue["code"] for issue in report["blocking_issues"]
+    assert report["passed"]
+    assert report["blocking_issues"] == []
+
+
+def test_batch_prerequisite_order_is_non_blocking_but_unknown_keys_are_not():
+    sections = [_section(1)]
+    skeleton = normalize_teaching_plan_skeleton_v3({
+        "knowledge_registry": [
+            {
+                "knowledge_key": "K1",
+                "name": "先列出的知识",
+                "statement": "先列出的知识陈述",
+                "owner_node_id": "L2-1-1",
+                "reused_in_node_ids": [],
+                "prerequisite_keys": [],
+                "module_ids": ["core_explanation"],
+            },
+            {
+                "knowledge_key": "K2",
+                "name": "后列出的知识",
+                "statement": "后列出的知识陈述",
+                "owner_node_id": "L2-1-1",
+                "reused_in_node_ids": [],
+                "prerequisite_keys": [],
+                "module_ids": ["core_explanation"],
+            },
+        ],
+        "sections": [{
+            "node_id": "L2-1-1",
+            "owned_knowledge_keys": ["K1", "K2"],
+            "reused_knowledge_keys": [],
+        }],
+    }, outline_revision_id="outline-1")
+    details = [
+        {
+            "knowledge_key": key,
+            "capability_points": [{"observable_behavior": f"能解释{key}"}],
+            "misconceptions": [{
+                "observable_error_pattern": f"混淆{key}",
+                "discrimination": f"辨别{key}",
+                "repair_strategy": f"重新解释{key}",
+            }],
+            "mastery_criteria": [{
+                "observable_performance": f"独立完成{key}任务",
+                "verification_method": f"检查{key}任务",
+            }],
+        }
+        for key in ("K1", "K2")
+    ]
+
+    def validate_relation(source_key: str, target_key: str):
+        batch = normalize_teaching_plan_batch_v3({
+            "sections": [{
+                "node_id": "L2-1-1",
+                "knowledge_details": details,
+                "knowledge_relations": [{
+                    "source_key": source_key,
+                    "target_key": target_key,
+                    "relation_type": "prerequisite",
+                }],
+                "teaching_modules": [],
+            }],
+        }, batch_id="TP-B01", skeleton_revision_id=skeleton["revision_id"])
+        return validate_teaching_plan_batch_v3(
+            batch,
+            batch_spec={"batch_id": "TP-B01", "section_ids": ["L2-1-1"]},
+            skeleton=skeleton,
+            sections=sections,
+        )
+
+    reversed_report = validate_relation("K2", "K1")
+    assert reversed_report["passed"]
+
+    unknown_report = validate_relation("K2", "K999")
+    assert not unknown_report["passed"]
+    assert "teaching_batch:unknown_relation_endpoint" in {
+        issue["code"] for issue in unknown_report["blocking_issues"]
     }
+
+
+def test_cross_section_prerequisite_order_is_non_blocking():
+    sections = [_section(1), _section(2)]
+    skeleton = normalize_teaching_plan_skeleton_v3({
+        "knowledge_registry": [
+            {
+                "knowledge_key": "K1",
+                "name": "前节知识",
+                "statement": "前节知识陈述",
+                "owner_node_id": "L2-1-1",
+                "reused_in_node_ids": [],
+                "prerequisite_keys": [],
+                "module_ids": ["core_explanation"],
+            },
+            {
+                "knowledge_key": "K2",
+                "name": "后节知识",
+                "statement": "后节知识陈述",
+                "owner_node_id": "L2-1-2",
+                "reused_in_node_ids": [],
+                "prerequisite_keys": [],
+                "module_ids": ["core_explanation"],
+            },
+        ],
+        "sections": [
+            {"node_id": "L2-1-1", "owned_knowledge_keys": ["K1"], "reused_knowledge_keys": []},
+            {"node_id": "L2-1-2", "owned_knowledge_keys": ["K2"], "reused_knowledge_keys": []},
+        ],
+    }, outline_revision_id="outline-1")
+
+    def detail(key: str):
+        return {
+            "knowledge_key": key,
+            "capability_points": [{"observable_behavior": f"能解释{key}"}],
+            "misconceptions": [{
+                "observable_error_pattern": f"混淆{key}",
+                "discrimination": f"辨别{key}",
+                "repair_strategy": f"重新解释{key}",
+            }],
+            "mastery_criteria": [{
+                "observable_performance": f"独立完成{key}任务",
+                "verification_method": f"检查{key}任务",
+            }],
+        }
+
+    batch = normalize_teaching_plan_batch_v3({
+        "sections": [
+            {
+                "node_id": "L2-1-1",
+                "knowledge_details": [detail("K1")],
+                "knowledge_relations": [],
+                "teaching_modules": [],
+            },
+            {
+                "node_id": "L2-1-2",
+                "knowledge_details": [detail("K2")],
+                "knowledge_relations": [{
+                    "source_key": "K2",
+                    "target_key": "K1",
+                    "relation_type": "prerequisite",
+                }],
+                "teaching_modules": [],
+            },
+        ],
+    }, batch_id="TP-B01", skeleton_revision_id=skeleton["revision_id"])
+
+    report = validate_teaching_plan_batch_v3(
+        batch,
+        batch_spec={
+            "batch_id": "TP-B01",
+            "section_ids": ["L2-1-1", "L2-1-2"],
+        },
+        skeleton=skeleton,
+        sections=sections,
+    )
+
+    assert report["passed"]
 
 
 def test_batch_requires_a_credible_misconception_for_each_owned_knowledge():

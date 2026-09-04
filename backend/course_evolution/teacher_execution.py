@@ -9,22 +9,22 @@ then lets the existing change-set accept/undo endpoints apply those candidates.
 from __future__ import annotations
 
 import asyncio
+import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
-import uuid
 
 from course_document import stable_hash
-from .core import (
-    CourseEvolutionOperation,
-    CourseEvolutionPlan,
-    CourseEvolutionRepository,
-)
 from course_repository import CourseDocumentRepository
 from question_bank import (
     QuestionBankRepository,
+    refresh_question_bank_bundle,
     review_question_bank_item,
     revise_question_bank_item,
+)
+from runtime_metrics import (
+    record_cross_asset_partial,
+    record_persistence_failure,
 )
 from slide_deck_v6 import SlideDeckV6, project_ppt_manuscript_from_deck_v1
 from teacher_lesson_authoring import (
@@ -45,6 +45,13 @@ from teaching_representations import (
     TeachingRepresentationSpec,
 )
 
+from .core import (
+    CourseEvolutionJournalPersistenceError,
+    CourseEvolutionOperation,
+    CourseEvolutionOperationJournalEntry,
+    CourseEvolutionPlan,
+    CourseEvolutionRepository,
+)
 
 DOMAIN_OPERATION_TYPE = "APPLY_DOMAIN_CANDIDATE"
 CANDIDATE_BUNDLE_SCHEMA = "teacher_course_domain_candidates_v1"
@@ -58,6 +65,133 @@ def _now() -> str:
 def _compact(value: Any, limit: int = 360) -> str:
     text = " ".join(str(value or "").split())
     return text if len(text) <= limit else f"{text[: limit - 1]}…"
+
+
+def _journal_entry(
+    plan: CourseEvolutionPlan,
+    operation_id: str,
+) -> CourseEvolutionOperationJournalEntry:
+    entry = next(
+        (item for item in plan.operation_journal if item.operation_id == operation_id),
+        None,
+    )
+    if entry is None:
+        operation = next(
+            (item for item in plan.operations if item.operation_id == operation_id),
+            None,
+        )
+        payload = operation.payload if operation is not None else {}
+        now = _now()
+        entry = CourseEvolutionOperationJournalEntry(
+            operation_id=operation_id,
+            domain=str((payload or {}).get("domain") or ""),
+            previous_revision_id=str(
+                (payload or {}).get("previous_revision_id")
+                or (payload or {}).get("previous_spec_id")
+                or ""
+            ),
+            created_at=now,
+            updated_at=now,
+        )
+        plan.operation_journal.append(entry)
+    return entry
+
+
+def _persist_journal_entry(
+    plan: CourseEvolutionPlan,
+    entry: CourseEvolutionOperationJournalEntry,
+    *,
+    repository: CourseEvolutionRepository,
+) -> None:
+    snapshot = entry.model_copy(deep=True)
+
+    def update(current: Any) -> Any:
+        stored_plan = next(
+            (
+                item for item in current.change_sets
+                if item.change_set_id == plan.change_set_id
+            ),
+            None,
+        )
+        if stored_plan is None:
+            raise KeyError(plan.change_set_id)
+        index = next(
+            (
+                index
+                for index, item in enumerate(stored_plan.operation_journal)
+                if item.operation_id == snapshot.operation_id
+            ),
+            None,
+        )
+        if index is None:
+            stored_plan.operation_journal.append(snapshot.model_copy(deep=True))
+        else:
+            stored_plan.operation_journal[index] = snapshot.model_copy(deep=True)
+        stored_plan.updated_at = snapshot.updated_at
+        current.updated_at = snapshot.updated_at
+        return current
+
+    try:
+        repository.update(plan.user_id, plan.course_id, update)
+    except Exception as exc:  # noqa: BLE001 - preserve applying for reconciliation
+        record_persistence_failure(
+            component="course_evolution_journal",
+            operation="update",
+            error=exc,
+            reason_code="journal_save_failed",
+        )
+        raise CourseEvolutionJournalPersistenceError(
+            f"课程修改操作日志保存失败：{snapshot.operation_id}"
+        ) from exc
+    index = next(
+        (
+            index
+            for index, item in enumerate(plan.operation_journal)
+            if item.operation_id == snapshot.operation_id
+        ),
+        None,
+    )
+    if index is None:
+        plan.operation_journal.append(snapshot)
+    else:
+        plan.operation_journal[index] = snapshot
+
+
+def _base_operation_receipt(
+    operation: CourseEvolutionOperation,
+) -> dict[str, Any]:
+    payload = operation.payload or {}
+    return {
+        "operation_id": operation.operation_id,
+        "domain": str(payload.get("domain") or ""),
+        "migration_ids": list(payload.get("migration_ids") or []),
+        "unit_ids": list(payload.get("unit_ids") or []),
+        "status": "failed",
+        "detail": "",
+        "previous_revision_id": str(
+            payload.get("previous_revision_id")
+            or payload.get("previous_spec_id")
+            or ""
+        ),
+        "result_revision_id": "",
+    }
+
+
+def _stable_operation_revision(
+    plan: CourseEvolutionPlan,
+    operation: CourseEvolutionOperation,
+    *,
+    prefix: str,
+) -> str:
+    return stable_hash(
+        {
+            "course_id": plan.course_id,
+            "change_set_id": plan.change_set_id,
+            "operation_id": operation.operation_id,
+            "candidate_id": str((operation.payload or {}).get("candidate_id") or ""),
+        },
+        prefix=prefix,
+    )
 
 
 def _revision(values: list[dict[str, Any]], revision_id: str) -> dict[str, Any]:
@@ -292,7 +426,15 @@ async def _generate_script_candidates(
                 for section_id in item.dependency_ids
                 if section_id
             ))
-            replacements: dict[str, str] = {}
+            target_block_ids = list(dict.fromkeys(
+                parts[2]
+                for item in items
+                if len(parts := _migration_unit_id(item).split(":", 2)) == 3
+                and parts[0] == "script"
+                and parts[2]
+            ))
+            section_replacements: dict[str, str] = {}
+            block_replacements: dict[str, dict[str, Any]] = {}
             literal = _literal_terms(items)
             for section_id in target_section_ids:
                 section = next(
@@ -304,14 +446,77 @@ async def _generate_script_candidates(
                 )
                 if not isinstance(section, dict):
                     continue
+                section_blocks = [
+                    block
+                    for block in section.get("blocks") or []
+                    if isinstance(block, dict)
+                ]
+                targeted_blocks = [
+                    block
+                    for block in section_blocks
+                    if str(block.get("block_id") or "") in set(target_block_ids)
+                ]
+                if target_block_ids:
+                    for block in targeted_blocks:
+                        block_id = str(block.get("block_id") or "")
+                        source_content = (
+                            str(block.get("content") or "").strip()
+                            or teacher_script_blocks_to_markdown([block])
+                        )
+                        if literal:
+                            before, after = literal
+                            replaced, count = _replace_human_text(
+                                block,
+                                before,
+                                after,
+                            )
+                            if not count:
+                                continue
+                            block_replacements[block_id] = replaced
+                            continue
+                        result = await course_service.rewrite_selection(
+                            course_id=course_id,
+                            node=(
+                                outline_by_id.get(section_id)
+                                or {"node_id": section_id, "title": section.get("title")}
+                            ),
+                            selected_text=source_content,
+                            node_content=source_content,
+                            heading_path=[
+                                str(section.get("title") or ""),
+                                str(block.get("title") or ""),
+                            ],
+                            user_requirement="\n".join(filter(None, [
+                                plan.request_text,
+                                "只改写当前讲义块，保留它的职责、稳定标识和同小节其他讲义块。",
+                                "改成教师可以直接在课堂上说出口的自然表达，不写系统内部语言，不虚构资料或课堂事实。",
+                            ])),
+                            action_type="rewrite",
+                            course_context=str({
+                                "lesson_sections": [
+                                    item.get("title") for item in scope["sections"]
+                                ],
+                                "teacher_requirements": revision.get("requirements") or "",
+                                "script_block_id": block_id,
+                                "script_block_role": block.get("role") or "",
+                            }),
+                            user_id=user_id,
+                        )
+                        replacement = str(result.get("replacement_text") or "").strip()
+                        if not replacement:
+                            raise ValueError("讲义块候选为空")
+                        candidate_block = deepcopy(block)
+                        candidate_block["content"] = replacement
+                        block_replacements[block_id] = candidate_block
+                    continue
                 source_content = str(section.get("content") or "").strip() or teacher_script_blocks_to_markdown(
-                    [item for item in section.get("blocks") or [] if isinstance(item, dict)]
+                    section_blocks
                 )
                 if literal:
                     before, after = literal
                     if before not in source_content:
                         continue
-                    replacements[section_id] = source_content.replace(before, after)
+                    section_replacements[section_id] = source_content.replace(before, after)
                     continue
                 headings = [
                     str(block.get("title") or "").strip()
@@ -342,24 +547,47 @@ async def _generate_script_candidates(
                 replacement = str(result.get("replacement_text") or "").strip()
                 if not replacement:
                     raise ValueError("讲义候选为空")
-                replacements[section_id] = replacement
-            if not replacements:
-                raise ValueError("没有找到可修改的讲义小节")
-            first_section_id = next(iter(replacements))
+                section_replacements[section_id] = replacement
+            if not section_replacements and not block_replacements:
+                raise ValueError("没有找到可修改的讲义块")
+            first_section_id = (
+                next(iter(section_replacements))
+                if section_replacements
+                else target_section_ids[0]
+            )
+            first_replacement = (
+                section_replacements[first_section_id]
+                if section_replacements
+                else str(next(iter(block_replacements.values())).get("content") or "")
+            )
             candidate = repository.save_script_ai_candidate(
                 course_id,
                 lesson_id,
                 base_revision_id=base_revision_id,
                 section_node_id=first_section_id,
                 instruction=plan.request_text,
-                replacement_text=replacements[first_section_id],
-                section_replacements=replacements,
+                replacement_text=first_replacement,
+                section_replacements=section_replacements,
+                block_replacements=block_replacements,
                 source_lesson_plan_revision_id=str(revision.get("source_lesson_plan_revision_id") or ""),
                 material_asset_ids=[],
             )
             for item in items:
-                section_id = next((value for value in item.dependency_ids if value in replacements), first_section_id)
-                item.metadata["after_preview"] = _compact(replacements[section_id])
+                parts = _migration_unit_id(item).split(":", 2)
+                block_id = parts[2] if len(parts) == 3 and parts[0] == "script" else ""
+                section_id = next(
+                    (
+                        value
+                        for value in item.dependency_ids
+                        if value in section_replacements
+                    ),
+                    first_section_id,
+                )
+                item.metadata["after_preview"] = _compact(
+                    block_replacements.get(block_id)
+                    or section_replacements.get(section_id)
+                    or ""
+                )
                 item.metadata["change_count"] = 1
             operations.append(_operation(
                 plan=plan,
@@ -639,6 +867,138 @@ async def _generate_question_bank_candidate(
         return []
 
 
+async def _generate_teacher_asset_candidates_through_shared_executor(
+    *,
+    course_data: dict[str, Any],
+    course_id: str,
+    user_id: str,
+    plan: CourseEvolutionPlan,
+    migrations: list[Any],
+    repository: TeacherLessonAuthoringRepository,
+    course_service: Any,
+) -> tuple[list[CourseEvolutionOperation], dict[str, Any]]:
+    """Create lesson-plan/script candidates under the shared rebuild contract.
+
+    The shared executor remains the single owner of selection, per-object
+    receipts and last-good lifecycle state. The existing teacher-course
+    candidate builders remain the only writers of authoring candidates.
+    """
+    from downstream_rebuild import execute_rebuild, plan_rebuild
+
+    selected = [
+        item
+        for item in migrations
+        if item.asset_type in {"lesson_plan", "script"}
+    ]
+    downstream = {
+        "schema_version": "teaching_plan_downstream_v1",
+        "source_plan_revision_id": plan.change_set_id,
+        "items": [
+            {
+                "type": (
+                    "lesson_plan_section"
+                    if item.asset_type == "lesson_plan"
+                    else "script_block"
+                ),
+                "id": _migration_unit_id(item),
+                "section_id": str((item.dependency_ids or [""])[0]),
+                "state": "rebuild_required",
+                "impact_group": "needs_regeneration",
+                "reason": item.reason,
+                "last_available": (
+                    {
+                        "type": item.unit_type,
+                        "id": _migration_unit_id(item),
+                        "revision": str(
+                            item.base_revisions.get(_migration_unit_id(item)) or ""
+                        ),
+                        "readable": True,
+                    }
+                    if item.base_revisions.get(_migration_unit_id(item))
+                    else None
+                ),
+            }
+            for item in selected
+        ],
+    }
+    work_ids = {
+        str(item.get("id") or "")
+        for item in plan_rebuild(downstream)
+    }
+    actionable = [
+        item for item in selected if _migration_unit_id(item) in work_ids
+    ]
+    operations: list[CourseEvolutionOperation] = []
+    results: dict[tuple[str, str], dict[str, Any]] = {}
+
+    async def generate_group(asset_type: str, grouped: list[Any]) -> None:
+        generated = (
+            await _generate_lesson_plan_candidates(
+                course_id=course_id,
+                plan=plan,
+                migrations=grouped,
+                repository=repository,
+                course_service=course_service,
+            )
+            if asset_type == "lesson_plan"
+            else await _generate_script_candidates(
+                course_data=course_data,
+                course_id=course_id,
+                user_id=user_id,
+                plan=plan,
+                migrations=grouped,
+                repository=repository,
+                course_service=course_service,
+            )
+        )
+        operation = generated[0] if generated else None
+        if operation is not None:
+            operations.extend(generated)
+        for migration in grouped:
+            item_type = (
+                "lesson_plan_section"
+                if asset_type == "lesson_plan"
+                else "script_block"
+            )
+            results[(item_type, _migration_unit_id(migration))] = (
+                {
+                    "status": "succeeded",
+                    "revision": str(
+                        (operation.payload or {}).get("candidate_id") or ""
+                    ),
+                }
+                if operation is not None
+                else {
+                    "status": "failed",
+                    "error": str(
+                        migration.metadata.get("candidate_error")
+                        or "教师资产候选生成失败"
+                    ),
+                }
+            )
+
+    for grouped in _group(actionable, "lesson_plan").values():
+        await generate_group("lesson_plan", grouped)
+    for grouped in _group(actionable, "script").values():
+        await generate_group("script", grouped)
+
+    def cached(entry: dict[str, Any]) -> dict[str, Any]:
+        return deepcopy(
+            results.get(
+                (str(entry.get("type") or ""), str(entry.get("id") or "")),
+                {"status": "failed", "error": "定向重建结果未生成"},
+            )
+        )
+
+    execution = execute_rebuild(
+        downstream,
+        runners={"lesson_plan": cached, "script": cached},
+        only_ids=sorted(work_ids),
+        candidate_only=True,
+    )
+    return operations, execution
+
+
 async def generate_teacher_course_change_candidates(
     *,
     course_data: dict[str, Any],
@@ -686,22 +1046,19 @@ async def generate_teacher_course_change_candidates(
 
     operations: list[CourseEvolutionOperation] = []
     actionable = [item for item in migrations if item.candidate_status == "not_started"]
-    operations.extend(await _generate_lesson_plan_candidates(
-        course_id=course_id,
-        plan=plan,
-        migrations=actionable,
-        repository=authoring_repository,
-        course_service=course_service,
-    ))
-    operations.extend(await _generate_script_candidates(
-        course_data=course_data,
-        course_id=course_id,
-        user_id=user_id,
-        plan=plan,
-        migrations=actionable,
-        repository=authoring_repository,
-        course_service=course_service,
-    ))
+    teacher_asset_operations, teacher_asset_rebuild = (
+        await _generate_teacher_asset_candidates_through_shared_executor(
+            course_data=course_data,
+            course_id=course_id,
+            user_id=user_id,
+            plan=plan,
+            migrations=actionable,
+            repository=authoring_repository,
+            course_service=course_service,
+        )
+    )
+    operations.extend(teacher_asset_operations)
+    plan.impact_summary["teacher_asset_targeted_rebuild"] = teacher_asset_rebuild
     operations.extend(await _generate_ppt_candidates(
         course_id=course_id,
         plan=plan,
@@ -723,7 +1080,11 @@ async def generate_teacher_course_change_candidates(
     # Exact course-document operations were already compiled during analysis.
     preserved = [
         operation for operation in plan.operations
-        if operation.operation_type != DOMAIN_OPERATION_TYPE
+        if (
+            operation.operation_type != DOMAIN_OPERATION_TYPE
+            or str((operation.payload or {}).get("action") or "")
+            == "rebind_section_references"
+        )
     ]
     plan.operations = [*preserved, *operations]
     plan.allowed_scopes = ["current"] if plan.operations else []
@@ -740,7 +1101,14 @@ async def generate_teacher_course_change_candidates(
         reviewed_operation_ids.extend(
             item.operation_id
             for item in plan.operations
-            if item.operation_type in {"RESEQUENCE_COURSE_PATH", "REBUILD_COURSE_OUTLINE"}
+            if (
+                item.operation_type in {
+                    "RESEQUENCE_COURSE_PATH",
+                    "REBUILD_COURSE_OUTLINE",
+                }
+                or str((item.payload or {}).get("action") or "")
+                == "rebind_section_references"
+            )
         )
     reviewed_operation_ids = list(dict.fromkeys(reviewed_operation_ids))
     plan.selected_operation_ids = reviewed_operation_ids
@@ -827,6 +1195,7 @@ def _apply_script_candidate(
     lesson_id: str,
     candidate_id: str,
     repository: TeacherLessonAuthoringRepository,
+    result_revision_id_override: str = "",
 ) -> str:
     lesson = repository.lesson(course_id, lesson_id)
     candidate = repository.script_ai_candidate(course_id, lesson_id, candidate_id)
@@ -847,7 +1216,12 @@ def _apply_script_candidate(
         str(item.get("node_id") or ""): item for item in lesson_scope(course_data, lesson_id)["sections"]
     }
     replacements = dict(candidate.get("section_replacements") or {})
-    if not replacements:
+    block_replacements = {
+        str(block_id): deepcopy(block)
+        for block_id, block in (candidate.get("block_replacements") or {}).items()
+        if str(block_id) and isinstance(block, dict)
+    }
+    if not replacements and not block_replacements:
         replacements[str(candidate.get("section_node_id") or "")] = str(candidate.get("replacement_text") or "")
     normalized_sections: list[dict[str, Any]] = []
     for section in base.get("sections") or []:
@@ -855,7 +1229,16 @@ def _apply_script_candidate(
             continue
         section_id = str(section.get("section_node_id") or "")
         candidate_section = deepcopy(section)
-        if section_id in replacements:
+        if block_replacements:
+            candidate_section["blocks"] = [
+                deepcopy(
+                    block_replacements.get(str(block.get("block_id") or ""))
+                    or block
+                )
+                for block in section.get("blocks") or []
+                if isinstance(block, dict)
+            ]
+        elif section_id in replacements:
             candidate_section.pop("blocks", None)
             candidate_section["content"] = str(replacements[section_id]).strip()
         contract = compile_teacher_script_module_contract(
@@ -875,6 +1258,7 @@ def _apply_script_candidate(
         material_asset_ids=list(candidate.get("material_asset_ids") or base.get("material_asset_ids") or []),
         actor=user_id,
         expected_working_revision_id=base_revision_id,
+        revision_id_override=result_revision_id_override,
     )
     result_revision_id = str(saved.get("working_script_revision_id") or "")
     repository.mark_script_ai_candidate(
@@ -1084,6 +1468,442 @@ def _apply_ppt_candidate(
     )
 
 
+def _prepare_question_bank_candidate(
+    *,
+    plan: CourseEvolutionPlan,
+    payload: dict[str, Any],
+    user_id: str,
+    course_id: str,
+    repository: QuestionBankRepository,
+) -> dict[str, Any]:
+    candidate = repository.load_bundle(
+        course_id,
+        str(payload.get("candidate_revision_id") or ""),
+    )
+    if not candidate:
+        raise ValueError("题库候选已不存在")
+    approved = deepcopy(candidate)
+    for revision_id in payload.get("changed_item_revision_ids") or []:
+        approved = review_question_bank_item(
+            approved,
+            str(revision_id),
+            decision="approved",
+            reviewer_id=user_id,
+            note=f"确认全课修改方案 {plan.change_set_id}",
+        )
+    return refresh_question_bank_bundle(approved)
+
+
+_STRUCTURE_REFERENCE_SCALAR_FIELDS = {
+    "node_id",
+    "section_id",
+    "section_node_id",
+    "lesson_unit_id",
+    "parent_section_id",
+    "parent_node_id",
+}
+_STRUCTURE_REFERENCE_LIST_FIELDS = {
+    "node_ids",
+    "section_ids",
+    "section_node_ids",
+    "lesson_unit_ids",
+}
+
+
+def _structure_affected_migrations(
+    payload: dict[str, Any],
+) -> list[dict[str, Any]]:
+    return [
+        deepcopy(item)
+        for item in payload.get("reference_migrations") or []
+        if isinstance(item, dict)
+        and item.get("source_section_id")
+        and (
+            list(item.get("target_section_ids") or [])
+            != [str(item.get("source_section_id") or "")]
+            or str(item.get("resolution") or "")
+            in {"merge_primary", "primary_preserved"}
+        )
+    ]
+
+
+def _contains_structure_reference(
+    value: Any,
+    affected_section_ids: set[str],
+) -> bool:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if (
+                key in _STRUCTURE_REFERENCE_SCALAR_FIELDS
+                and str(item or "") in affected_section_ids
+            ):
+                return True
+            if (
+                key in _STRUCTURE_REFERENCE_LIST_FIELDS
+                and isinstance(item, list)
+                and affected_section_ids.intersection(str(entry) for entry in item)
+            ):
+                return True
+            if _contains_structure_reference(item, affected_section_ids):
+                return True
+    elif isinstance(value, list):
+        return any(
+            _contains_structure_reference(item, affected_section_ids)
+            for item in value
+        )
+    return False
+
+
+def _rebind_structure_references(
+    value: Any,
+    primary_by_source: dict[str, str],
+) -> None:
+    if isinstance(value, dict):
+        for key in list(value):
+            item = value[key]
+            if (
+                key in _STRUCTURE_REFERENCE_SCALAR_FIELDS
+                and isinstance(item, str)
+                and primary_by_source.get(item)
+                and primary_by_source[item] != item
+            ):
+                value[key] = primary_by_source[item]
+                continue
+            if key in _STRUCTURE_REFERENCE_LIST_FIELDS and isinstance(item, list):
+                value[key] = list(dict.fromkeys(
+                    primary_by_source.get(str(entry), str(entry))
+                    for entry in item
+                ))
+                continue
+            _rebind_structure_references(item, primary_by_source)
+    elif isinstance(value, list):
+        for item in value:
+            _rebind_structure_references(item, primary_by_source)
+
+
+def _prepare_question_bank_structure_rebind(
+    *,
+    active: dict[str, Any],
+    operation: CourseEvolutionOperation,
+) -> dict[str, Any]:
+    payload = operation.payload or {}
+    affected = _structure_affected_migrations(payload)
+    affected_ids = {
+        str(item.get("source_section_id") or "") for item in affected
+    }
+    primary_by_source = {
+        str(item.get("source_section_id") or ""): str(
+            item.get("primary_target_section_id") or ""
+        )
+        for item in affected
+    }
+    result = deepcopy(active)
+    generation_audit = result.setdefault("generation_audit", {})
+    previous_records = deepcopy(
+        generation_audit.pop("structure_reference_rebinds", [])
+    )
+    affected_item_ids = [
+        str(item.get("item_id") or item.get("revision_id") or "")
+        for item in result.get("items") or []
+        if isinstance(item, dict)
+        and _contains_structure_reference(item, affected_ids)
+    ]
+    _rebind_structure_references(result, primary_by_source)
+    for item in result.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get("item_id") or item.get("revision_id") or "")
+        if item_id not in affected_item_ids:
+            continue
+        item["source_state"] = "stale"
+        item["rebuild_required"] = True
+        item["structure_reference_rebind"] = {
+            "operation_id": operation.operation_id,
+            "mapping_revision": str(payload.get("mapping_revision") or ""),
+        }
+    generation_audit = result.setdefault("generation_audit", {})
+    records = previous_records
+    records = [
+        item
+        for item in records
+        if isinstance(item, dict)
+        and item.get("operation_id") != operation.operation_id
+    ]
+    records.append({
+        "operation_id": operation.operation_id,
+        "mapping_revision": str(payload.get("mapping_revision") or ""),
+        "affected_section_ids": sorted(affected_ids),
+        "affected_item_ids": sorted(affected_item_ids),
+        "section_tombstones": deepcopy(payload.get("section_tombstones") or []),
+    })
+    generation_audit["structure_reference_rebinds"] = records
+    result["generation_audit"] = generation_audit
+    return refresh_question_bank_bundle(result)
+
+
+def _structure_ppt_registry_ids(
+    *,
+    authoring_repository: TeacherLessonAuthoringRepository,
+    course_id: str,
+    payload: dict[str, Any],
+) -> list[str]:
+    affected_ids = {
+        str(item.get("source_section_id") or "")
+        for item in _structure_affected_migrations(payload)
+    }
+    state = authoring_repository.load(course_id)
+    registry_ids: list[str] = []
+    for lesson_id, lesson in (state.get("lessons") or {}).items():
+        if not isinstance(lesson, dict):
+            continue
+        reference = lesson.get("structure_reference") or {}
+        reference_matches = (
+            reference.get("mapping_revision") == payload.get("mapping_revision")
+        )
+        if lesson_id not in affected_ids and not reference_matches:
+            continue
+        for asset in lesson.get("ppt_assets") or []:
+            if not isinstance(asset, dict):
+                continue
+            registry_id = str(asset.get("synthetic_course_id") or "")
+            if registry_id:
+                registry_ids.append(registry_id)
+    return sorted(set(registry_ids))
+
+
+def _reconciled_operation_receipt(
+    *,
+    operation: CourseEvolutionOperation,
+    entry: CourseEvolutionOperationJournalEntry,
+    course_id: str,
+    authoring_repository: TeacherLessonAuthoringRepository,
+    representation_repository: TeachingRepresentationRepository,
+    question_bank_repository: QuestionBankRepository,
+    document_repository: CourseDocumentRepository,
+) -> dict[str, Any] | None:
+    """Return durable proof that an interrupted asset operation already landed."""
+    payload = operation.payload or {}
+    domain = str(payload.get("domain") or "")
+    lesson_id = str(payload.get("lesson_unit_id") or "")
+    expected = str(
+        entry.result_revision_id or entry.expected_result_revision_id or ""
+    )
+    receipt = _base_operation_receipt(operation)
+
+    if domain == "authoring_structure_refs":
+        record = authoring_repository.structure_reference_rebind(
+            course_id,
+            operation.operation_id,
+        )
+        if (
+            isinstance(record, dict)
+            and record.get("status") == "applied"
+            and record.get("mapping_revision") == payload.get("mapping_revision")
+        ):
+            receipt.update({
+                "status": "applied",
+                "detail": "已与教案讲义结构引用回执对账，无需重复应用",
+                "previous_revision_id": str(
+                    record.get("previous_repository_revision") or ""
+                ),
+                "result_revision_id": str(
+                    record.get("result_repository_revision") or ""
+                ),
+                "mapping_revision": str(payload.get("mapping_revision") or ""),
+                "affected_section_ids": list(
+                    record.get("affected_section_ids") or []
+                ),
+                "retryable": False,
+            })
+            return receipt
+        return None
+
+    if domain == "ppt_structure_refs":
+        registry_ids = list(
+            entry.result_receipt.get("target_registry_ids") or []
+        )
+        reconciled_registries: list[dict[str, Any]] = []
+        for registry_id in registry_ids:
+            result = representation_repository.structure_reference_rebind(
+                str(registry_id),
+                operation.operation_id,
+            )
+            record = (result or {}).get("record") or {}
+            if (
+                record.get("status") != "applied"
+                or record.get("mapping_revision") != payload.get("mapping_revision")
+            ):
+                return None
+            reconciled_registries.append({
+                "registry_id": str(registry_id),
+                "registry_revision": str(
+                    (result or {}).get("registry_revision") or ""
+                ),
+            })
+        result_revision_id = stable_hash(
+            {
+                "operation_id": operation.operation_id,
+                "mapping_revision": payload.get("mapping_revision"),
+                "target_registry_ids": registry_ids,
+            },
+            prefix="ppt-structure-ref-",
+        )
+        receipt.update({
+            "status": "applied",
+            "detail": "已与 PPT 结构引用回执对账，无需重复应用",
+            "result_revision_id": result_revision_id,
+            "mapping_revision": str(payload.get("mapping_revision") or ""),
+            "target_registry_ids": registry_ids,
+            "registries": reconciled_registries,
+            "retryable": False,
+        })
+        return receipt
+
+    if domain == "question_bank_structure_refs" and expected:
+        active = question_bank_repository.load_bundle(course_id)
+        raw = document_repository.load_raw(course_id)
+        active_revision_id = str((active or {}).get("bundle_revision_id") or "")
+        metadata_revision_id = str(
+            raw.get("question_bank_bundle_revision_id") or ""
+        )
+        no_asset = expected.startswith("question-bank-none:")
+        if (
+            (no_asset and not active_revision_id and not metadata_revision_id)
+            or (
+                active_revision_id == expected
+                and metadata_revision_id == expected
+            )
+        ):
+            receipt.update({
+                "status": "applied",
+                "detail": "已与题库结构引用修订对账，无需重复应用",
+                "previous_revision_id": entry.previous_revision_id,
+                "result_revision_id": expected,
+                "mapping_revision": str(payload.get("mapping_revision") or ""),
+                "retryable": False,
+            })
+            return receipt
+        return None
+
+    if domain in {"lesson_plan", "script"}:
+        lesson = authoring_repository.lesson(course_id, lesson_id)
+        candidates_key = "ai_candidates" if domain == "lesson_plan" else "script_ai_candidates"
+        candidate = next(
+            (
+                item for item in lesson.get(candidates_key) or []
+                if isinstance(item, dict)
+                and item.get("candidate_id") == payload.get("candidate_id")
+            ),
+            None,
+        )
+        candidate_result = str((candidate or {}).get("result_revision_id") or "")
+        result_revision_id = candidate_result or expected
+        revisions_key = "revisions" if domain == "lesson_plan" else "script_revisions"
+        working_key = (
+            "working_revision_id"
+            if domain == "lesson_plan"
+            else "working_script_revision_id"
+        )
+        result_exists = any(
+            isinstance(item, dict)
+            and str(item.get("revision_id") or "") == result_revision_id
+            for item in lesson.get(revisions_key) or []
+        )
+        if result_revision_id and (
+            str(lesson.get(working_key) or "") == result_revision_id
+            or (candidate_result and result_exists)
+        ):
+            receipt.update({
+                "status": "applied",
+                "detail": "已与正式修订对账，无需重复应用",
+                "result_revision_id": result_revision_id,
+                "retryable": False,
+            })
+            return receipt
+        return None
+
+    if domain == "ppt":
+        lesson = authoring_repository.lesson(course_id, lesson_id)
+        asset = next(
+            (
+                item for item in lesson.get("ppt_assets") or []
+                if isinstance(item, dict)
+                and item.get("role") == "primary"
+                and item.get("engine") == "slide_deck_v6"
+            ),
+            None,
+        )
+        if not isinstance(asset, dict):
+            return None
+        candidate = next(
+            (
+                candidate
+                for candidate in asset.get("v6_ai_candidates") or []
+                if isinstance(candidate, dict)
+                and candidate.get("candidate_id") == payload.get("candidate_id")
+            ),
+            None,
+        )
+        result_spec_id = str((candidate or {}).get("result_spec_id") or expected)
+        working_binding_id = str(asset.get("working_v6_revision_id") or "")
+        binding = next(
+            (
+                item for item in asset.get("v6_revisions") or []
+                if isinstance(item, dict)
+                and item.get("revision_id") == working_binding_id
+            ),
+            None,
+        )
+        result_binding = next(
+            (
+                item for item in asset.get("v6_revisions") or []
+                if isinstance(item, dict) and item.get("spec_id") == result_spec_id
+            ),
+            None,
+        )
+        if result_spec_id and (
+                str((binding or {}).get("spec_id") or "") == result_spec_id
+                or (
+                    str((candidate or {}).get("status") or "") == "accepted"
+                    and result_binding is not None
+                )
+        ):
+            receipt.update({
+                "status": "applied",
+                "detail": "已与正式修订对账，无需重复应用",
+                "result_revision_id": result_spec_id,
+                "result_binding_id": str(
+                    (result_binding or {}).get("revision_id") or working_binding_id
+                ),
+                "previous_binding_id": entry.result_receipt.get("previous_binding_id", ""),
+                "representation_id": str(payload.get("representation_id") or ""),
+                "synthetic_course_id": str(payload.get("synthetic_course_id") or ""),
+                "lesson_unit_id": lesson_id,
+                "retryable": False,
+            })
+            return receipt
+        return None
+
+    if domain == "question_bank" and expected:
+        active = question_bank_repository.load_bundle(course_id)
+        raw = document_repository.load_raw(course_id)
+        metadata_revision_id = str(
+            raw.get("question_bank_bundle_revision_id") or ""
+        )
+        if (
+            str((active or {}).get("bundle_revision_id") or "") == expected
+            and metadata_revision_id == expected
+        ):
+            receipt.update({
+                "status": "applied",
+                "detail": "已与正式修订对账，无需重复应用",
+                "result_revision_id": expected,
+                "retryable": False,
+            })
+            return receipt
+    return None
+
+
 def build_domain_candidate_applier(
     *,
     course_data: dict[str, Any],
@@ -1092,10 +1912,21 @@ def build_domain_candidate_applier(
     representation_repository: TeachingRepresentationRepository,
     question_bank_repository: QuestionBankRepository,
     document_repository: CourseDocumentRepository,
+    evolution_repository: CourseEvolutionRepository | None = None,
 ) -> Any:
     course_id = str(course_data.get("course_id") or "")
 
-    def apply(plan: CourseEvolutionPlan, operation_ids: list[str]) -> dict[str, Any]:
+    def apply(
+        plan: CourseEvolutionPlan,
+        operation_ids: list[str],
+        *,
+        evolution_repository_override: CourseEvolutionRepository | None = None,
+    ) -> dict[str, Any]:
+        journal_repository = evolution_repository_override or evolution_repository
+        if journal_repository is None:
+            raise CourseEvolutionJournalPersistenceError(
+                "课程修改操作日志未连接正式仓储"
+            )
         selected = set(operation_ids)
         items: list[dict[str, Any]] = []
         for operation in plan.operations:
@@ -1103,16 +1934,149 @@ def build_domain_candidate_applier(
                 continue
             payload = operation.payload or {}
             domain = str(payload.get("domain") or "")
-            receipt = {
-                "operation_id": operation.operation_id,
-                "domain": domain,
-                "migration_ids": list(payload.get("migration_ids") or []),
-                "unit_ids": list(payload.get("unit_ids") or []),
-                "status": "failed",
-                "detail": "",
-                "previous_revision_id": str(payload.get("previous_revision_id") or payload.get("previous_spec_id") or ""),
-                "result_revision_id": "",
-            }
+            action = str(payload.get("action") or "")
+            receipt = _base_operation_receipt(operation)
+            entry = _journal_entry(plan, operation.operation_id)
+            if entry.status == "applied":
+                durable_receipt = deepcopy(entry.result_receipt) or receipt
+                durable_receipt.update({
+                    "operation_id": operation.operation_id,
+                    "domain": domain,
+                    "status": "applied",
+                    "previous_revision_id": entry.previous_revision_id,
+                    "result_revision_id": entry.result_revision_id,
+                    "detail": entry.detail or "已写入该资产的正式工作版",
+                    "retryable": False,
+                })
+                items.append(durable_receipt)
+                continue
+            if entry.status == "failed":
+                failed_receipt = deepcopy(entry.result_receipt) or receipt
+                failed_receipt.update({
+                    "operation_id": operation.operation_id,
+                    "domain": domain,
+                    "status": "failed",
+                    "previous_revision_id": entry.previous_revision_id,
+                    "result_revision_id": entry.result_revision_id,
+                    "detail": entry.detail or "应用失败，已保留原版本",
+                    "error_code": entry.error_code or "domain_candidate_apply_failed",
+                    "retryable": entry.retryable,
+                })
+                items.append(failed_receipt)
+                continue
+            if entry.status == "applying":
+                reconciled = _reconciled_operation_receipt(
+                    operation=operation,
+                    entry=entry,
+                    course_id=course_id,
+                    authoring_repository=authoring_repository,
+                    representation_repository=representation_repository,
+                    question_bank_repository=question_bank_repository,
+                    document_repository=document_repository,
+                )
+                if reconciled is not None:
+                    completed_at = _now()
+                    entry.status = "applied"
+                    entry.result_revision_id = str(
+                        reconciled.get("result_revision_id") or ""
+                    )
+                    entry.result_receipt = deepcopy(reconciled)
+                    entry.error_code = ""
+                    entry.detail = str(reconciled.get("detail") or "")
+                    entry.retryable = False
+                    entry.completed_at = completed_at
+                    entry.updated_at = completed_at
+                    _persist_journal_entry(
+                        plan,
+                        entry,
+                        repository=journal_repository,
+                    )
+                    items.append(reconciled)
+                    continue
+            else:
+                entry.status = "applying"
+                entry.attempt += 1
+                entry.expected_result_revision_id = (
+                    _stable_operation_revision(
+                        plan,
+                        operation,
+                        prefix="tlpr-cev_",
+                    )
+                    if domain == "lesson_plan"
+                    else _stable_operation_revision(
+                        plan,
+                        operation,
+                        prefix="tlsr-cev_",
+                    )
+                    if domain == "script"
+                    else ""
+                )
+                if domain == "ppt":
+                    lesson = authoring_repository.lesson(
+                        course_id,
+                        str(payload.get("lesson_unit_id") or ""),
+                    )
+                    asset = next(
+                        (
+                            item for item in lesson.get("ppt_assets") or []
+                            if isinstance(item, dict)
+                            and item.get("role") == "primary"
+                            and item.get("engine") == "slide_deck_v6"
+                        ),
+                        None,
+                    )
+                    entry.result_receipt = {
+                        "previous_binding_id": str(
+                            (asset or {}).get("working_v6_revision_id") or ""
+                        ),
+                    }
+                elif action == "rebind_section_references":
+                    if domain == "authoring_structure_refs":
+                        authoring_state = authoring_repository.load(course_id)
+                        entry.previous_revision_id = str(
+                            authoring_state.get("revision") or 0
+                        )
+                    elif domain == "ppt_structure_refs":
+                        entry.result_receipt = {
+                            "target_registry_ids": _structure_ppt_registry_ids(
+                                authoring_repository=authoring_repository,
+                                course_id=course_id,
+                                payload=payload,
+                            ),
+                        }
+                    elif domain == "question_bank_structure_refs":
+                        active_question_bank = question_bank_repository.load_bundle(
+                            course_id
+                        )
+                        entry.previous_revision_id = str(
+                            (active_question_bank or {}).get(
+                                "bundle_revision_id"
+                            )
+                            or ""
+                        )
+                        entry.expected_result_revision_id = (
+                            str(_prepare_question_bank_structure_rebind(
+                                active=active_question_bank,
+                                operation=operation,
+                            ).get("bundle_revision_id") or "")
+                            if active_question_bank
+                            else (
+                                "question-bank-none:"
+                                f"{payload.get('mapping_revision') or ''}"
+                            )
+                        )
+                entry.error_code = ""
+                entry.detail = ""
+                entry.retryable = False
+                entry.started_at = _now()
+                entry.completed_at = None
+                entry.updated_at = entry.started_at
+                _persist_journal_entry(
+                    plan,
+                    entry,
+                    repository=journal_repository,
+                )
+            prepared_question_bank: dict[str, Any] | None = None
             try:
                 lesson_id = str(payload.get("lesson_unit_id") or "")
                 if domain == "lesson_plan":
@@ -1124,6 +2088,9 @@ def build_domain_candidate_applier(
                         candidate_id=str(payload.get("candidate_id") or ""),
                         accept=True,
                         actor=user_id,
+                        result_revision_id_override=(
+                            entry.expected_result_revision_id
+                        ),
                     )
                     receipt["result_revision_id"] = str(lesson.get("working_revision_id") or "")
                 elif domain == "script":
@@ -1134,6 +2101,9 @@ def build_domain_candidate_applier(
                         lesson_id=lesson_id,
                         candidate_id=str(payload.get("candidate_id") or ""),
                         repository=authoring_repository,
+                        result_revision_id_override=(
+                            entry.expected_result_revision_id
+                        ),
                     )
                 elif domain == "ppt":
                     result_spec_id, result_binding_id, previous_binding_id = _apply_ppt_candidate(
@@ -1151,22 +2121,27 @@ def build_domain_candidate_applier(
                     receipt["synthetic_course_id"] = str(payload.get("synthetic_course_id") or "")
                     receipt["lesson_unit_id"] = lesson_id
                 elif domain == "question_bank":
-                    candidate = question_bank_repository.load_bundle(
-                        course_id,
-                        str(payload.get("candidate_revision_id") or ""),
+                    prepared_question_bank = _prepare_question_bank_candidate(
+                        plan=plan,
+                        payload=payload,
+                        user_id=user_id,
+                        course_id=course_id,
+                        repository=question_bank_repository,
                     )
-                    if not candidate:
-                        raise ValueError("题库候选已不存在")
-                    approved = deepcopy(candidate)
-                    for revision_id in payload.get("changed_item_revision_ids") or []:
-                        approved = review_question_bank_item(
-                            approved,
-                            str(revision_id),
-                            decision="approved",
-                            reviewer_id=user_id,
-                            note=f"确认全课修改方案 {plan.change_set_id}",
-                        )
-                    final = question_bank_repository.save_bundle(course_id, approved, activate=False)
+                    entry.expected_result_revision_id = str(
+                        prepared_question_bank.get("bundle_revision_id") or ""
+                    )
+                    entry.updated_at = _now()
+                    _persist_journal_entry(
+                        plan,
+                        entry,
+                        repository=journal_repository,
+                    )
+                    final = question_bank_repository.save_bundle(
+                        course_id,
+                        prepared_question_bank,
+                        activate=False,
+                    )
                     previous_id = str(payload.get("previous_revision_id") or "")
                     question_bank_repository.activate_bundle(course_id, final["bundle_revision_id"])
                     try:
@@ -1181,14 +2156,207 @@ def build_domain_candidate_applier(
                             question_bank_repository.activate_bundle(course_id, previous_id)
                         raise
                     receipt["result_revision_id"] = str(final["bundle_revision_id"])
+                elif domain == "authoring_structure_refs":
+                    record = authoring_repository.apply_structure_reference_rebind(
+                        course_id,
+                        operation_id=operation.operation_id,
+                        mapping_revision=str(payload.get("mapping_revision") or ""),
+                        reference_migrations=list(
+                            payload.get("reference_migrations") or []
+                        ),
+                        section_tombstones=list(
+                            payload.get("section_tombstones") or []
+                        ),
+                    )
+                    receipt.update({
+                        "previous_revision_id": str(
+                            record.get("previous_repository_revision") or ""
+                        ),
+                        "result_revision_id": str(
+                            record.get("result_repository_revision") or ""
+                        ),
+                        "mapping_revision": str(
+                            payload.get("mapping_revision") or ""
+                        ),
+                        "affected_section_ids": list(
+                            record.get("affected_section_ids") or []
+                        ),
+                    })
+                elif domain == "ppt_structure_refs":
+                    registry_ids = list(
+                        entry.result_receipt.get("target_registry_ids") or []
+                    )
+                    affected_section_ids = sorted({
+                        str(item.get("source_section_id") or "")
+                        for item in _structure_affected_migrations(payload)
+                    })
+                    registry_receipts: list[dict[str, Any]] = []
+                    for registry_id in registry_ids:
+                        result = (
+                            representation_repository
+                            .apply_structure_reference_rebind(
+                                str(registry_id),
+                                operation_id=operation.operation_id,
+                                mapping_revision=str(
+                                    payload.get("mapping_revision") or ""
+                                ),
+                                reference_migrations=list(
+                                    payload.get("reference_migrations") or []
+                                ),
+                                section_tombstones=list(
+                                    payload.get("section_tombstones") or []
+                                ),
+                                affected_section_ids=affected_section_ids,
+                            )
+                        )
+                        registry_receipts.append({
+                            "registry_id": str(registry_id),
+                            "registry_revision": str(
+                                result.get("registry_revision") or ""
+                            ),
+                        })
+                    receipt.update({
+                        "result_revision_id": stable_hash(
+                            {
+                                "operation_id": operation.operation_id,
+                                "mapping_revision": payload.get(
+                                    "mapping_revision"
+                                ),
+                                "target_registry_ids": registry_ids,
+                            },
+                            prefix="ppt-structure-ref-",
+                        ),
+                        "mapping_revision": str(
+                            payload.get("mapping_revision") or ""
+                        ),
+                        "target_registry_ids": registry_ids,
+                        "registries": registry_receipts,
+                    })
+                elif domain == "question_bank_structure_refs":
+                    active_question_bank = question_bank_repository.load_bundle(
+                        course_id
+                    )
+                    previous_id = str(entry.previous_revision_id or "")
+                    if active_question_bank:
+                        if str(
+                            active_question_bank.get("bundle_revision_id") or ""
+                        ) != previous_id:
+                            raise ValueError(
+                                "question_bank_structure_rebind_conflict"
+                            )
+                        prepared_question_bank = (
+                            _prepare_question_bank_structure_rebind(
+                                active=active_question_bank,
+                                operation=operation,
+                            )
+                        )
+                        entry.expected_result_revision_id = str(
+                            prepared_question_bank.get("bundle_revision_id") or ""
+                        )
+                        entry.updated_at = _now()
+                        _persist_journal_entry(
+                            plan,
+                            entry,
+                            repository=journal_repository,
+                        )
+                        final = question_bank_repository.save_bundle(
+                            course_id,
+                            prepared_question_bank,
+                            activate=False,
+                        )
+                        question_bank_repository.activate_bundle(
+                            course_id,
+                            str(final["bundle_revision_id"]),
+                            expected_current_revision_id=previous_id,
+                        )
+                        try:
+                            asyncio.run(document_repository.update_metadata(
+                                course_id,
+                                {
+                                    "question_bank_bundle_revision_id": final[
+                                        "bundle_revision_id"
+                                    ],
+                                    "question_bank_coverage": deepcopy(
+                                        final.get("coverage") or {}
+                                    ),
+                                    "question_bank_review_queue": deepcopy(
+                                        final.get("review_queue") or []
+                                    ),
+                                    "web_question_enrichment": deepcopy(
+                                        final.get("web_enrichment") or {}
+                                    ),
+                                },
+                            ))
+                        except Exception:
+                            question_bank_repository.activate_bundle(
+                                course_id,
+                                previous_id,
+                                expected_current_revision_id=str(
+                                    final["bundle_revision_id"]
+                                ),
+                            )
+                            raise
+                        receipt["result_revision_id"] = str(
+                            final["bundle_revision_id"]
+                        )
+                    else:
+                        receipt["result_revision_id"] = str(
+                            entry.expected_result_revision_id
+                        )
+                    receipt.update({
+                        "previous_revision_id": previous_id,
+                        "mapping_revision": str(
+                            payload.get("mapping_revision") or ""
+                        ),
+                    })
                 else:
                     raise ValueError(f"不支持的候选类型：{domain}")
                 receipt["status"] = "applied"
                 receipt["detail"] = "已写入该资产的正式工作版"
+                receipt["retryable"] = False
+            except CourseEvolutionJournalPersistenceError:
+                raise
             except Exception as error:  # noqa: BLE001 - preserve last-good per asset
                 receipt["detail"] = _compact(error, 500) or "应用失败，已保留原版本"
+                receipt["error_code"] = str(
+                    getattr(error, "code", "") or f"{domain or 'unknown'}_candidate_apply_failed"
+                )
+                receipt["retryable"] = not any(
+                    token in receipt["error_code"]
+                    for token in ("conflict", "not_found", "unsupported")
+                )
+                completed_at = _now()
+                entry.status = "failed"
+                entry.result_receipt = deepcopy(receipt)
+                entry.error_code = receipt["error_code"]
+                entry.detail = receipt["detail"]
+                entry.retryable = bool(receipt["retryable"])
+                entry.completed_at = completed_at
+                entry.updated_at = completed_at
+                _persist_journal_entry(
+                    plan,
+                    entry,
+                    repository=journal_repository,
+                )
+            else:
+                completed_at = _now()
+                entry.status = "applied"
+                entry.result_revision_id = str(
+                    receipt.get("result_revision_id") or ""
+                )
+                entry.result_receipt = deepcopy(receipt)
+                entry.error_code = ""
+                entry.detail = receipt["detail"]
+                entry.retryable = False
+                entry.completed_at = completed_at
+                entry.updated_at = completed_at
+                _persist_journal_entry(
+                    plan,
+                    entry,
+                    repository=journal_repository,
+                )
             items.append(receipt)
-        return {
+        result = {
             "schema_version": RECEIPT_SCHEMA,
             "status": "applied" if items and all(item["status"] == "applied" for item in items) else "partial",
             "applied_count": sum(item["status"] == "applied" for item in items),
@@ -1196,7 +2364,14 @@ def build_domain_candidate_applier(
             "items": items,
             "updated_at": _now(),
         }
+        if result["status"] == "partial" and items:
+            record_cross_asset_partial(
+                operation_count=len(items),
+                failed_count=result["failed_count"],
+            )
+        return result
 
+    apply.operation_journal_aware = True
     return apply
 
 
@@ -1346,6 +2521,92 @@ def build_domain_candidate_undoer(
                         "question_bank_review_queue": deepcopy(restored.get("review_queue") or []),
                         "web_question_enrichment": deepcopy(restored.get("web_enrichment") or {}),
                     }))
+                elif domain == "authoring_structure_refs":
+                    record = authoring_repository.undo_structure_reference_rebind(
+                        course_id,
+                        operation_id=operation_id,
+                        expected_mapping_revision=str(
+                            payload.get("mapping_revision") or ""
+                        ),
+                    )
+                    item["result_revision_id"] = str(
+                        record.get("undo_repository_revision") or ""
+                    )
+                elif domain == "ppt_structure_refs":
+                    registry_ids = list(
+                        source.get("target_registry_ids") or []
+                    )
+                    restored_registries: list[dict[str, Any]] = []
+                    for registry_id in registry_ids:
+                        restored_registry = (
+                            representation_repository
+                            .undo_structure_reference_rebind(
+                                str(registry_id),
+                                operation_id=operation_id,
+                                expected_mapping_revision=str(
+                                    payload.get("mapping_revision") or ""
+                                ),
+                            )
+                        )
+                        restored_registries.append({
+                            "registry_id": str(registry_id),
+                            "registry_revision": str(
+                                restored_registry.get("registry_revision") or ""
+                            ),
+                        })
+                    item["registries"] = restored_registries
+                elif domain == "question_bank_structure_refs":
+                    if result.startswith("question-bank-none:"):
+                        if question_bank_repository.load_bundle(course_id):
+                            raise ValueError(
+                                "question_bank_structure_rebind_conflict"
+                            )
+                    else:
+                        active = question_bank_repository.load_bundle(course_id)
+                        if (
+                            not active
+                            or str(active.get("bundle_revision_id") or "")
+                            != result
+                        ):
+                            raise ValueError(
+                                "question_bank_structure_rebind_conflict"
+                            )
+                        restored = question_bank_repository.load_bundle(
+                            course_id,
+                            previous,
+                        )
+                        if not restored:
+                            raise ValueError("题库原版本不存在")
+                        question_bank_repository.activate_bundle(
+                            course_id,
+                            previous,
+                            expected_current_revision_id=result,
+                        )
+                        try:
+                            asyncio.run(document_repository.update_metadata(
+                                course_id,
+                                {
+                                    "question_bank_bundle_revision_id": previous,
+                                    "question_bank_coverage": deepcopy(
+                                        restored.get("coverage") or {}
+                                    ),
+                                    "question_bank_review_queue": deepcopy(
+                                        restored.get("review_queue") or []
+                                    ),
+                                    "web_question_enrichment": deepcopy(
+                                        restored.get("web_enrichment") or {}
+                                    ),
+                                },
+                            ))
+                        except Exception:
+                            question_bank_repository.activate_bundle(
+                                course_id,
+                                result,
+                                expected_current_revision_id=previous,
+                            )
+                            raise
+                else:
+                    raise ValueError(f"不支持的撤销候选类型：{domain}")
                 item["status"] = "undone"
                 item["detail"] = "已恢复到本次修改前的版本"
             except Exception as error:  # noqa: BLE001

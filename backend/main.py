@@ -4,6 +4,7 @@
 # =============================================================================
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
@@ -107,6 +108,7 @@ try:
         course_service,
         ws_service,
         document_repository=course_repository,
+        runtime_mode="leader",
     )
     ws_service.set_command_handler(task_manager.handle_command)
     init_task_manager(task_manager)
@@ -161,6 +163,7 @@ app.add_middleware(QizhiIdentityMiddleware, verifier=qizhi_identity_verifier)
 # ============================================================================
 
 from datetime import datetime
+from runtime_readiness import compile_runtime_readiness
 from web_retrieval import retrieval_feature_state
 
 @app.get("/health")
@@ -170,7 +173,12 @@ async def health_check():
 @app.get("/api/health")
 def read_root():
     retrieval = retrieval_feature_state()
-    return {
+    readiness = compile_runtime_readiness(
+        task_manager=task_manager,
+        storage=storage,
+    )
+    payload = {
+        **readiness,
         "message": "KnowledgeMap AI API",
         "web_retrieval_v2": {
             "enabled": retrieval["enabled"],
@@ -181,6 +189,10 @@ def read_root():
             ],
         },
     }
+    return JSONResponse(
+        status_code=200 if readiness["ready"] else 503,
+        content=payload,
+    )
 
 
 # ============================================================================

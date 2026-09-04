@@ -76,6 +76,10 @@
             :material-refresh-token="materialRefreshToken"
             :initial-stage="requestedWorkbenchStage"
             :initial-lesson-id="requestedLessonId"
+            :initial-issue-id="requestedIssueId"
+            :initial-block-id="requestedBlockId"
+            :initial-task-id="requestedTaskId"
+            :expand-issue="expandRequestedIssue"
             v-model:outline-editing="outlineEditing"
             @generate-outline="startOutlineGeneration"
             @open-course-information="courseInformationOpen = true"
@@ -148,6 +152,7 @@ import TeacherCourseCalendarView from './TeacherCourseCalendarView.vue'
 import TeacherCourseSpaceView from './TeacherCourseSpaceView.vue'
 import { t } from '../shared/i18n'
 import type { CourseGenerationOptions } from '../shared/prompt-config'
+import { readCourseProductionState } from '../shared/teacher-production-state'
 import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring'
@@ -177,6 +182,10 @@ const workspaceView = ref<'files' | 'categories'>(
 )
 const requestedWorkbenchStage = ref<'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt' | 'companion'>('foundation')
 const requestedLessonId = ref('')
+const requestedIssueId = computed(() => String(route.query.issue || ''))
+const requestedBlockId = computed(() => String(route.query.block || ''))
+const requestedTaskId = computed(() => String(route.query.task || ''))
+const expandRequestedIssue = computed(() => route.query.expandIssue === '1')
 const searchQuery = ref('')
 const courseGenerationOptions = ref<CourseGenerationOptions & { subject?: string }>({})
 const courseInformationEnvelope = ref<any | null>(null)
@@ -241,6 +250,13 @@ async function loadWorkspace() {
       courseStore.loadCourse(requestedCourseId, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true }),
     ])
     if (courseId.value !== requestedCourseId || loadToken !== workspaceLoadToken) return
+    const production = readCourseProductionState(courseResponse.data)
+    if (production) {
+      courseStore.teacherProductionStates = {
+        ...courseStore.teacherProductionStates,
+        [requestedCourseId]: production,
+      }
+    }
     stableCourseTitle.value = courseStore.courseList.find(
       item => item.course_id === requestedCourseId,
     )?.course_name || String(courseResponse.data?.course_name || stableCourseTitle.value)
@@ -334,6 +350,7 @@ function handleCourseAdjustmentApplied() {
   void Promise.allSettled([
     courseStore.loadCourse(courseId.value, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true }),
     lessonStore.load(courseId.value),
+    courseStore.fetchTeacherCourseProductionState(courseId.value),
   ])
 }
 
@@ -418,6 +435,17 @@ watch(courseId, (value, previous) => {
   if (previous && previous !== value) generationStore.unobserveCourse(previous)
   if (value && value !== previous) void loadWorkspace()
 })
+watch(
+  () => [
+    courseId.value,
+    generationStore.getTask(courseId.value)?.status || '',
+    lessonStore.jobs.map(job => `${job.id}:${job.status}`).join('|'),
+  ],
+  ([currentCourseId], previous) => {
+    if (!currentCourseId || currentCourseId !== previous?.[0]) return
+    void courseStore.fetchTeacherCourseProductionState(currentCourseId).catch(() => undefined)
+  },
+)
 onMounted(loadWorkspace)
 onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(courseId.value) })
 </script>

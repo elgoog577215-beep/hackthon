@@ -18,6 +18,7 @@ import { useGenerationStore } from './generation'
 import logger from '../utils/logger'
 import { courseDocumentToNodes } from '../utils/course-document'
 import { t } from '@/shared/i18n'
+import { readCourseProductionState, type CourseProductionState } from '@/shared/teacher-production-state'
 import { normalizeTaskStatus, shouldApplyTaskSnapshot } from '@/shared/task-lifecycle'
 import type {
     BlockRegenerationApplyResult,
@@ -114,6 +115,7 @@ export const useCourseStore = defineStore('course', {
   state: () => ({
     // --- 核心课程状态 ---
     courseList: [] as Course[],
+    teacherProductionStates: {} as Record<string, CourseProductionState>,
     currentCourseId: '' as string,
     currentCourseVersionId: '' as string,
     currentDocumentRevision: '' as string,
@@ -254,6 +256,14 @@ export const useCourseStore = defineStore('course', {
                 surface === 'teacher' ? 'teacher' : 'learner',
             ))
             this.courseList = res.data
+            if (surface === 'teacher') {
+                const next = { ...this.teacherProductionStates }
+                this.courseList.forEach(course => {
+                    const production = readCourseProductionState(course)
+                    if (production) next[course.course_id] = production
+                })
+                this.teacherProductionStates = next
+            }
             this.courseListError = null
         } catch (error) {
             logger.error(error)
@@ -261,6 +271,20 @@ export const useCourseStore = defineStore('course', {
             // Keep the last successful list so offline task actions do not disappear.
         }
         finally { if (!options.background) this.loading = false }
+    },
+
+    async fetchTeacherCourseProductionState(courseId: string) {
+        const response = await http.get<Course>(
+            `/api/courses/${courseId}`,
+            identityReadRequestConfig('teacher', { silentError: true }),
+        )
+        const production = readCourseProductionState(response.data)
+        if (!production) return null
+        this.teacherProductionStates = { ...this.teacherProductionStates, [courseId]: production }
+        const index = this.courseList.findIndex(item => item.course_id === courseId)
+        const existing = this.courseList[index]
+        if (existing) this.courseList[index] = { ...existing, course_production_state: production }
+        return production
     },
 
     async loadCourse(courseId: string, options: {

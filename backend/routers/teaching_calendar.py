@@ -12,7 +12,12 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, model_validator
 
-from dependencies import get_course_or_404, get_task_manager_optional
+from course_production_state import read_course_production_state
+from dependencies import (
+    get_course_or_404,
+    get_task_manager_optional,
+    get_teacher_lesson_authoring_repository,
+)
 from learner_context import require_user_id
 from teaching_calendar import (
     TeachingCalendarConflict,
@@ -21,7 +26,6 @@ from teaching_calendar import (
     teaching_calendar_repository,
 )
 from teaching_calendar_export import EXPORTERS, build_csv
-
 
 router = APIRouter(tags=["teaching_calendar"])
 
@@ -299,10 +303,16 @@ def _outline_revision(course: dict[str, Any]) -> str:
 async def get_teaching_calendar(course_id: str, request: Request):
     course = await get_course_or_404(course_id)
     try:
-        return _apply_calendar_defaults(
+        result = _apply_calendar_defaults(
             teaching_calendar_repository.load(_identity(request), course_id, _course_title(course)),
             course,
         )
+        result["course_production_state"] = read_course_production_state(
+            course,
+            get_teacher_lesson_authoring_repository(),
+            get_task_manager_optional(),
+        )
+        return result
     except (TeachingCalendarError, TeachingCalendarValidationError) as exc:
         raise HTTPException(status_code=500, detail={"code": "teaching_calendar_read_failed", "message": str(exc)}) from exc
 

@@ -156,9 +156,9 @@ async def test_delete_course(client, mock_storage):
 
 @pytest.mark.asyncio
 async def test_delete_nonexistent_course(client, mock_storage):
-    """删除不存在的课程不应报错"""
+    """删除不存在的课程必须明确返回 404，避免误报已删除。"""
     resp = await client.delete("/api/courses/nonexistent")
-    assert resp.status_code == 200
+    assert resp.status_code == 404
 
 
 @pytest.mark.asyncio

@@ -3,6 +3,7 @@ import http, { getTeacherIdentity, teacherIdentityHeaders, teacherReadRequestCon
 import { createUuid } from '../utils/client-id'
 import { postGenerationStream, type GenerationProgress } from '../shared/generation-stream'
 import { t } from '../shared/i18n'
+import type { CourseProductionState } from '../shared/teacher-production-state'
 
 export type TeacherLessonJobStatus = 'pending' | 'running' | 'paused' | 'completed' | 'completed_with_warnings' | 'failed' | 'cancelled'
 
@@ -344,6 +345,7 @@ export interface TeacherLessonAuthoringView {
   outline_material_draft?: TeacherMaterialWorkingDraft | null
   lessons: TeacherLessonProjection[]
   jobs: TeacherLessonJob[]
+  course_production_state?: CourseProductionState
 }
 
 export interface TeacherLessonKnowledgeEvidence {
@@ -754,6 +756,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
     outlineRevisionId: '',
     lessons: [] as TeacherLessonProjection[],
     jobs: [] as TeacherLessonJob[],
+    productionState: null as CourseProductionState | null,
     loading: false,
     refreshing: false,
     loadedCourseId: '',
@@ -794,6 +797,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         this.outlineRevisionId = ''
         this.lessons = []
         this.jobs = []
+        this.productionState = null
         this.streamingJobIds = {}
         this.loadedCourseId = ''
         this.actionLessonId = ''
@@ -811,6 +815,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         this.outlineRevisionId = response.outline_revision_id
         this.lessons = response.lessons
         this.jobs = mergeLessonJobSnapshots(this.jobs, response.jobs)
+        this.productionState = response.course_production_state || this.productionState
         this.loadedCourseId = courseId
         this.error = ''
         lessonJobsToObserve(this.jobs)

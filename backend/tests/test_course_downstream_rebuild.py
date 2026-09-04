@@ -250,12 +250,41 @@ def test_content_runner_refuses_a_block_outside_the_document() -> None:
     assert "不在当前课程文档中" in result["error"]
 
 
-def test_practice_runner_stays_unsupported_on_purpose() -> None:
-    """题库最小生成单元是节点、ID 空间不同、且直接发布——不做假的逐题重建。"""
+def test_practice_runner_uses_formal_item_job_and_existing_executor(tmp_path) -> None:
+    """知识修订通过共享 runner 提交到现有题库执行器。"""
     from course_downstream_rebuild import build_knowledge_rebuild_runners
+    from question_bank_jobs import QuestionBankRebuildJobRepository
 
-    runners = build_knowledge_rebuild_runners({})
-    result = runners["practice"]({"type": "practice", "id": "q-1"})
+    class RecordingExecutor:
+        def __init__(self) -> None:
+            self.calls = []
 
-    assert result["status"] == "failed"
-    assert "没有可用于定向重建的管线入口" in result["error"]
+        def submit(self, **kwargs):
+            self.calls.append(kwargs)
+
+    class Payload(dict):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.__dict__.update(kwargs)
+
+    item = {
+        "item_id": "qbi_1",
+        "revision_id": "qbr_1",
+        "node_id": "L2-1-1",
+        "node_ids": ["L2-1-1"],
+    }
+    executor = RecordingExecutor()
+
+    runners = build_knowledge_rebuild_runners(
+        {"course_id": "course-1", "nodes": [{"node_id": "L2-1-1"}]},
+        question_bundle={"course_id": "course-1", "items": [item]},
+        question_job_repository=QuestionBankRebuildJobRepository(tmp_path / "jobs"),
+        question_job_executor=executor,
+        question_payload_factory=Payload,
+        actor="teacher-1",
+        request_id="knowledge-revision-1",
+    )
+    result = runners["practice"]({"type": "practice", "id": "qbr_1"})
+
+    assert result["status"] == "candidate_ready"
+    assert len(executor.calls) == 1

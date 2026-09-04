@@ -14,7 +14,6 @@ ARTIFACT_PATH="${LINGZHI_ARTIFACT_PATH:-}"
 ARTIFACT_SHA256="${LINGZHI_ARTIFACT_SHA256:-}"
 HEALTH_URL="${LINGZHI_HEALTH_URL:-http://127.0.0.1:7862/api/health}"
 STATIC_BASE_URL="${LINGZHI_STATIC_BASE_URL:-${HEALTH_URL%/api/health}}"
-TASKS_URL="${LINGZHI_TASKS_URL:-${HEALTH_URL%/health}/tasks?limit=100}"
 SERVICE_NAME="${LINGZHI_SERVICE_NAME:-lingzhi}"
 LOCK_FILE="${LINGZHI_DEPLOY_LOCK:-/var/lock/lingzhi-deploy.lock}"
 KEEP_RELEASES="${LINGZHI_KEEP_RELEASES:-2}"
@@ -140,6 +139,7 @@ cleanup_backups() {
     for ((index = keep_count; index < ${#backups[@]}; index++)); do
         log "清理旧数据备份：${backups[index]}"
         rm -f -- "${backups[index]}"
+        rm -f -- "${backups[index]}.sha256"
     done
 }
 
@@ -380,37 +380,45 @@ if payload.get("teacherHome", {}).get("myCalendar") != expected:
     done
 }
 
-active_generation_task_ids() {
-    local payload
-    if ! payload="$(curl --fail --silent --show-error --max-time 5 "$TASKS_URL")"; then
-        return 1
-    fi
-    printf '%s' "$payload" | "$VENV/bin/python" -c '
-import json
-import sys
+assert_no_unsafe_active_tasks() {
+    local checker="$release_path/scripts/check_deploy_task_safety.py"
+    local result=""
+    local status=0
+    local task_index="$STATE_DIR/backend-data/generation_jobs.json"
 
-tasks = json.load(sys.stdin)
-if not isinstance(tasks, list):
-    raise SystemExit("task list response must be an array")
-print(" ".join(sorted(
-    str(task.get("id") or "")
-    for task in tasks
-    if str(task.get("status") or "") in {"pending", "running"}
-)))
-'
+    if [ ! -f "$task_index" ] && [ -f "$CURRENT_LINK/backend/tasks.json" ]; then
+        task_index="$CURRENT_LINK/backend/tasks.json"
+    fi
+    if [ ! -f "$checker" ]; then
+        log "发布包缺少只读活动任务检查器；无法证明停止服务安全"
+        return 75
+    fi
+    if result="$("$VENV/bin/python" "$checker" "$task_index")"; then
+        log "活动任务检查通过：$result"
+        return 0
+    fi
+    status=$?
+    log "发布延迟：存在不可安全中断的任务，或任务索引无法核验：$result"
+    return "$status"
 }
 
-log_generation_task_recovery_plan() {
-    local active_task_ids=""
-    if ! active_task_ids="$(active_generation_task_ids)"; then
-        log "无法读取任务状态；继续依赖持久检查点与启动对账完成安全发布：$TASKS_URL"
-        return 0
+create_verified_data_backup() {
+    local source_dir="$1"
+    local backup_path="$BACKUP_DIR/data-$timestamp.tgz"
+    local backup_tool="$release_path/scripts/create_verified_data_backup.py"
+    local source_release_version=""
+
+    source_release_version="$(cat "$CURRENT_LINK/.release-commit" 2>/dev/null || true)"
+    source_release_version="${source_release_version:-legacy-$timestamp}"
+    if [ ! -f "$backup_tool" ]; then
+        log "发布包缺少数据备份校验工具"
+        return 1
     fi
-    if [ -n "$active_task_ids" ]; then
-        log "检测到正在生成的任务；将优雅停止服务，并由新版本从检查点恢复：$active_task_ids"
-        return 0
-    fi
-    log "未检测到正在生成的任务；继续切换版本"
+    log "创建带清单和校验和的数据备份，并在隔离目录验证恢复"
+    "$VENV/bin/python" "$backup_tool" create \
+        --source "$source_dir" \
+        --output "$backup_path" \
+        --release-version "$source_release_version"
 }
 
 deployment_env_value() {
@@ -657,7 +665,13 @@ preflight_release_runtime
 preflight_retrieval_runtime
 
 if systemctl is-active --quiet "$SERVICE_NAME"; then
-    log_generation_task_recovery_plan
+    if assert_no_unsafe_active_tasks; then
+        :
+    else
+        task_safety_status=$?
+        trap - ERR
+        exit "$task_safety_status"
+    fi
 fi
 
 if [ -d "$CURRENT_LINK/backend/data" ] && [ ! "$CURRENT_LINK/backend/data" -ef "$STATE_DIR/backend-data" ]; then
@@ -665,7 +679,7 @@ if [ -d "$CURRENT_LINK/backend/data" ] && [ ! "$CURRENT_LINK/backend/data" -ef "
     systemctl stop "$SERVICE_NAME"
     service_stopped=1
 
-    tar -C "$CURRENT_LINK" -czf "$BACKUP_DIR/data-$timestamp.tgz" backend/data
+    create_verified_data_backup "$CURRENT_LINK/backend/data"
     rsync -a "$CURRENT_LINK/backend/data/" "$STATE_DIR/backend-data/"
 
     if [ -f "$CURRENT_LINK/.env" ] && [ ! -f "$STATE_DIR/.env" ]; then
@@ -676,7 +690,7 @@ else
     log "停止服务并切换版本"
     systemctl stop "$SERVICE_NAME"
     service_stopped=1
-    tar -C "$STATE_DIR" -czf "$BACKUP_DIR/data-$timestamp.tgz" backend-data
+    create_verified_data_backup "$STATE_DIR/backend-data"
 fi
 
 if [ ! -f "$STATE_DIR/backend-data/generation_jobs.json" ] \

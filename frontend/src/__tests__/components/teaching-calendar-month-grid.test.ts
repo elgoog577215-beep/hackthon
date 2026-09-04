@@ -10,6 +10,7 @@ const ElPopoverStub = defineComponent({
 
 const session: ClassSession = {
   session_id: 'session-1',
+  lesson_unit_id: 'L1-1',
   course_id: 'course-1',
   course_title: '高等数学：导数与极值判定',
   sequence: 1,
@@ -25,6 +26,9 @@ const session: ClassSession = {
   notes: '',
   status: 'scheduled',
   source: 'outline',
+  lesson_plan_status: '可使用',
+  script_status: '未生成',
+  ppt_status: '未生成',
 }
 
 describe('TeachingCalendarMonthGrid', () => {
@@ -40,6 +44,10 @@ describe('TeachingCalendarMonthGrid', () => {
     expect(wrapper.get('.popover-content').text()).toContain('第 1 课次')
     expect(wrapper.get('.popover-content').text()).toContain('2026/08/20 · 13:30–15:05')
     expect(wrapper.get('.popover-content').text()).toContain('紫金港西2-105')
+    expect(wrapper.get('.preparation-status').text()).toContain('大纲 已关联讲次')
+    expect(wrapper.get('.preparation-status').text()).toContain('教案 可使用')
+    expect(wrapper.get('.preparation-status').text()).toContain('讲义 未生成')
+    expect(wrapper.get('.preparation-status').text()).toContain('PPT 未生成')
 
     await event.trigger('click')
     expect(wrapper.emitted('select')?.[0]).toEqual([session])

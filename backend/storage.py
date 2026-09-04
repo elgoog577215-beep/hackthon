@@ -1,17 +1,27 @@
 import asyncio
+import fcntl
 import json
 import logging
 import os
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from copy import deepcopy
 from pathlib import Path
+from typing import Any, TypeVar
 
 from models import ValidationReport
+from runtime_metrics import record_persistence_failure
 
 logger = logging.getLogger(__name__)
+
+_DataT = TypeVar("_DataT")
+_generic_data_thread_lock = threading.RLock()
 
 # 运行时数据根目录。默认是仓库内的 `backend/data`；`LINGZHI_DATA_DIR` 可以把
 # 整棵数据树重定向到别处。所有派生仓库（learning_records、practice_attempts、
@@ -372,6 +382,68 @@ class Storage:
                 logger.error(f"Failed to save course {course_id}: {e}")
                 raise
 
+    @staticmethod
+    def _create_course_file_if_absent(
+        filepath: Path,
+        data: dict,
+    ) -> tuple[bool, dict]:
+        """Atomically publish a complete JSON file only when the ID is free."""
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=filepath.parent,
+                prefix=f".{filepath.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temporary_path = handle.name
+                json.dump(data, handle, ensure_ascii=False, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            try:
+                os.link(temporary_path, filepath)
+            except FileExistsError:
+                with open(filepath, encoding="utf-8") as handle:
+                    return False, json.load(handle)
+            directory_fd = os.open(filepath.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+            return True, deepcopy(data)
+        finally:
+            if temporary_path:
+                try:
+                    os.unlink(temporary_path)
+                except FileNotFoundError:
+                    pass
+
+    async def create_course_if_absent(self, course_id: str, data: dict) -> bool:
+        """Create one course without overwriting a concurrent writer.
+
+        The hard-link publication is an OS-level compare-and-set: the target
+        path is created atomically, and an existing course always wins.  The
+        in-memory cache is refreshed with that winning value in either case.
+        """
+        lock = await self._get_lock(course_id)
+        async with lock:
+            filepath = Path(self._courses_dir) / f"{course_id}.json"
+            loop = asyncio.get_running_loop()
+            created, persisted = await loop.run_in_executor(
+                None,
+                self._create_course_file_if_absent,
+                filepath,
+                deepcopy(data),
+            )
+            self._ensure_cache()
+            self.courses_cache[course_id] = persisted
+            if created:
+                self._mark_dirty()
+            return created
+
     def save_course_sync(self, course_id: str, data: dict) -> None:
         """同步版本的课程保存，供尚未迁移到 async 的调用方使用。
 
@@ -683,10 +755,74 @@ class Storage:
         return updated
 
     # =========================================================================
-    # 通用数据存储接口（保留原有逻辑）
+    # 通用数据存储接口
     # =========================================================================
 
-    def load_data(self, filename: str) -> any:
+    def _generic_data_path(self, filename: str) -> Path:
+        """Return a validated path inside the configured data directory."""
+        data_root = Path(self._data_dir).resolve()
+        filepath = (data_root / filename).resolve()
+        if filepath.parent != data_root:
+            raise ValueError("通用数据文件必须直接位于数据目录中")
+        return filepath
+
+    @contextmanager
+    def _lock_generic_data(self, filename: str) -> Iterator[None]:
+        """Serialize one generic ledger across threads and processes.
+
+        A module-level thread lock covers multiple ``Storage`` instances in the
+        same process. ``flock`` covers other application processes that share
+        the same data directory.
+        """
+        filepath = self._generic_data_path(filename)
+        lock_path = filepath.with_name(f".{filepath.name}.lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with _generic_data_thread_lock:
+            with open(lock_path, "a+", encoding="utf-8") as lock_handle:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+    def _read_generic_data_from_disk(self, filepath: Path) -> Any:
+        if not filepath.exists():
+            return None
+        with open(filepath, encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def _atomic_save_generic_data(self, filepath: Path, data: Any) -> None:
+        """Durably replace one generic JSON file without exposing a partial file."""
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=filepath.parent,
+                prefix=f".{filepath.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temporary_path = handle.name
+                json.dump(data, handle, ensure_ascii=False, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, filepath)
+            temporary_path = None
+            directory_fd = os.open(filepath.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            if temporary_path:
+                try:
+                    os.unlink(temporary_path)
+                except FileNotFoundError:
+                    pass
+
+    def load_data(self, filename: str) -> Any:
         """
         从数据目录加载通用数据文件
 
@@ -696,18 +832,19 @@ class Storage:
         Returns:
             解析后的数据对象，如果文件不存在则返回None
         """
-        if filename in self._data_cache:
-            return self._data_cache[filename]
+        with _generic_data_thread_lock:
+            if filename in self._data_cache:
+                return deepcopy(self._data_cache[filename])
 
-        filepath = os.path.join(self._data_dir, filename)
-        if not os.path.exists(filepath):
+        filepath = self._generic_data_path(filename)
+        if not filepath.exists():
             return None
 
         try:
-            with open(filepath, encoding='utf-8') as f:
-                data = json.load(f)
-                self._data_cache[filename] = data
-                return data
+            data = self._read_generic_data_from_disk(filepath)
+            with _generic_data_thread_lock:
+                self._data_cache[filename] = deepcopy(data)
+            return deepcopy(data)
         except json.JSONDecodeError:
             logger.warning(f"Failed to parse JSON from {filename}")
             return None
@@ -715,7 +852,7 @@ class Storage:
             logger.error(f"Failed to load data from {filename}: {e}")
             return None
 
-    def save_data(self, filename: str, data: any) -> None:
+    def save_data(self, filename: str, data: Any) -> None:
         """
         保存通用数据到数据目录
 
@@ -723,15 +860,48 @@ class Storage:
             filename: 数据文件名
             data: 要保存的数据对象
         """
-        self._data_cache[filename] = data
-
-        filepath = os.path.join(self._data_dir, filename)
+        filepath = self._generic_data_path(filename)
         try:
-            with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            self._mark_dirty()
+            with self._lock_generic_data(filename):
+                self._atomic_save_generic_data(filepath, data)
+                self._data_cache[filename] = deepcopy(data)
+                self._mark_dirty()
         except Exception as e:
             logger.error(f"Failed to save data to {filename}: {e}")
+            record_persistence_failure(
+                component="generic_data",
+                operation="save",
+                error=e,
+            )
+            raise
+
+    def update_data(
+        self,
+        filename: str,
+        updater: Callable[[Any], _DataT],
+    ) -> _DataT:
+        """Atomically read, transform, and replace a generic JSON ledger.
+
+        The disk value is re-read while holding the cross-process lock, so a
+        stale in-memory cache can never overwrite another process' committed
+        update. The cache changes only after the atomic replacement succeeds.
+        """
+        filepath = self._generic_data_path(filename)
+        try:
+            with self._lock_generic_data(filename):
+                current = self._read_generic_data_from_disk(filepath)
+                updated = updater(deepcopy(current))
+                self._atomic_save_generic_data(filepath, updated)
+                self._data_cache[filename] = deepcopy(updated)
+                self._mark_dirty()
+                return deepcopy(updated)
+        except Exception as e:
+            logger.error(f"Failed to update data in {filename}: {e}")
+            record_persistence_failure(
+                component="generic_data",
+                operation="update",
+                error=e,
+            )
             raise
 
 

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 import re
-import threading
 import uuid
 from collections import Counter, defaultdict
 from collections.abc import Iterable
@@ -49,9 +48,6 @@ _NAVIGATION_KINDS = {"initial", "route"}
 _ERROR_KINDS = {"window_error", "unhandled_rejection", "router_error"}
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9_.:-]{1,160}$")
 _SAFE_ROUTE_TEMPLATE = re.compile(r"^/api/[A-Za-z0-9_{}:./-]{1,235}$")
-_usage_lock = threading.RLock()
-
-
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -221,8 +217,14 @@ def append_usage_events(
     received_at = (now or _now()).astimezone(timezone.utc)
     cutoff = received_at - timedelta(days=retention_days())
 
-    with _usage_lock:
-        stored = [item for item in _load_all() if _within_retention(item, cutoff)]
+    outcome: dict[str, Any] = {}
+
+    def update_ledger(current: Any) -> list[dict[str, Any]]:
+        stored = [
+            dict(item)
+            for item in (current if isinstance(current, list) else [])
+            if _within_retention(item, cutoff)
+        ]
         existing = {
             (str(item.get("user_id") or ""), str(item.get("client_event_id") or "")): item
             for item in stored
@@ -260,13 +262,16 @@ def append_usage_events(
         capacity = maximum_records()
         if len(stored) > capacity:
             stored = stored[-capacity:]
-        storage.save_data(USAGE_EVENTS_FILE, stored)
-    return {
-        "accepted": accepted,
-        "duplicates": duplicates,
-        "items": results,
-        "retention_days": retention_days(),
-    }
+        outcome.update({
+            "accepted": accepted,
+            "duplicates": duplicates,
+            "items": results,
+            "retention_days": retention_days(),
+        })
+        return stored
+
+    storage.update_data(USAGE_EVENTS_FILE, update_ledger)
+    return outcome
 
 
 def load_usage_events(
@@ -285,13 +290,16 @@ def load_usage_events(
 
 
 def delete_usage_events(*, user_id: str) -> dict[str, Any]:
-    with _usage_lock:
-        events = _load_all()
+    outcome = {"status": "deleted", "deleted_event_count": 0}
+
+    def update_ledger(current: Any) -> list[dict[str, Any]]:
+        events = [dict(item) for item in current] if isinstance(current, list) else []
         remaining = [item for item in events if item.get("user_id") != user_id]
-        deleted = len(events) - len(remaining)
-        if deleted:
-            storage.save_data(USAGE_EVENTS_FILE, remaining)
-    return {"status": "deleted", "deleted_event_count": deleted}
+        outcome["deleted_event_count"] = len(events) - len(remaining)
+        return remaining
+
+    storage.update_data(USAGE_EVENTS_FILE, update_ledger)
+    return outcome
 
 
 def export_usage_events(*, user_id: str) -> dict[str, Any]:

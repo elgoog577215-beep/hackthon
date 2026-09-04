@@ -48,6 +48,37 @@ describe('course list offline continuity', () => {
     expect(http.get).toHaveBeenCalledWith('/api/teacher/courses', expect.any(Object))
   })
 
+  it('任务事件后只读刷新服务端生产投影，不创建新任务', async () => {
+    const store = useCourseStore()
+    store.courseList = [{ course_id: 'course-1', course_name: '线性代数', node_count: 16 }]
+    const emptyStage = {
+      display_state: 'not_generated', task_state: 'idle', availability: 'missing', source_state: 'missing',
+      latest_attempt_failed: false, update_required: false,
+      counts: { total: 16, available: 0, generating: 0, failed: 0, stale: 0 }, issues: [],
+    }
+    const production = {
+      schema_version: 'course_production_state_v1', course_id: 'course-1', preparation_state: 'preparing',
+      stages: { outline: { ...emptyStage, counts: { ...emptyStage.counts, total: 1 } }, lesson_plan: emptyStage, script: emptyStage, ppt: emptyStage },
+      lessons: [], issues: [],
+    }
+    const get = vi.spyOn(http, 'get').mockResolvedValue({ data: { course_id: 'course-1', course_production_state: production } } as any)
+    const post = vi.spyOn(http, 'post')
+    const put = vi.spyOn(http, 'put')
+    const patch = vi.spyOn(http, 'patch')
+    const remove = vi.spyOn(http, 'delete')
+
+    await store.fetchTeacherCourseProductionState('course-1')
+
+    expect(get).toHaveBeenCalledOnce()
+    expect(get).toHaveBeenCalledWith('/api/courses/course-1', expect.any(Object))
+    expect(store.teacherProductionStates['course-1']).toMatchObject({ schema_version: 'course_production_state_v1', course_id: 'course-1' })
+    expect(store.courseList[0]?.course_production_state).toMatchObject({ course_id: 'course-1' })
+    expect(post).not.toHaveBeenCalled()
+    expect(put).not.toHaveBeenCalled()
+    expect(patch).not.toHaveBeenCalled()
+    expect(remove).not.toHaveBeenCalled()
+  })
+
   it('批量删除并行执行、只刷新一次，并保留失败课程', async () => {
     const store = useCourseStore()
     store.courseList = [

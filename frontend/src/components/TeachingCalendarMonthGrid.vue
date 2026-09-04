@@ -43,7 +43,12 @@
               <div><dt><MapPin :size="14" />{{ t('teacherHome.location', '地点') }}</dt><dd>{{ session.location || t('teacherHome.locationPending', '地点未定') }}</dd></div>
               <div v-if="session.teacher_name"><dt><UserRound :size="14" />{{ t('teacherHome.calendarPopover.teacher', '教师') }}</dt><dd>{{ session.teacher_name }}</dd></div>
             </dl>
-            <div class="preparation-status"><span>{{ t('teacherHome.lessonPlan', '教案') }} {{ session.lesson_plan_status || (session.lesson_unit_id ? t('teacherHome.calendarPopover.linked', '已关联讲次') : t('teacherHome.calendarPopover.unlinked', '待关联')) }}</span><span>PPT {{ session.ppt_status || t('teacherHome.calendarPopover.openToCheck', '进入备课查看') }}</span></div>
+            <div class="preparation-status">
+              <span>{{ t('teacherProductionState.stages.outline', '大纲') }} {{ session.lesson_unit_id ? t('teacherHome.calendarPopover.linked', '已关联讲次') : t('teacherHome.calendarPopover.unlinked', '待关联') }}</span>
+              <span>{{ t('teacherHome.lessonPlan', '教案') }} {{ session.lesson_plan_status || t('teacherHome.calendarPopover.openToCheck', '进入备课查看') }}</span>
+              <span>{{ t('teacherProductionState.stages.script', '讲义') }} {{ session.script_status || t('teacherHome.calendarPopover.openToCheck', '进入备课查看') }}</span>
+              <span>PPT {{ session.ppt_status || t('teacherHome.calendarPopover.openToCheck', '进入备课查看') }}</span>
+            </div>
             <footer v-if="showCourse"><button type="button" @click="$emit('select', session)">{{ t('teacherHome.calendarPopover.viewSchedule', '查看排期') }}</button><button type="button" @click="$emit('prepare', session)">{{ t('teacherHome.calendarPopover.prepare', '进入备课') }} <ArrowUpRight :size="13" /></button></footer>
             <footer v-else>{{ t('teacherHome.calendarPopover.editSession', '点击课次进入编辑') }} <ArrowUpRight :size="13" /></footer>
           </div>

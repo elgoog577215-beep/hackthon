@@ -143,6 +143,7 @@ class GenerateLessonPlanRequest(BaseModel):
     batch_parent_job_id: str = Field(default="", max_length=160)
     batch_position: int = Field(default=0, ge=0, le=1000)
     batch_size: int = Field(default=0, ge=0, le=1000)
+    batch_source_revision_id: str = Field(default="", max_length=160)
 
 
 class GenerateAllLessonPlansRequest(BaseModel):
@@ -172,6 +173,7 @@ class GenerateLessonScriptRequest(BaseModel):
     batch_parent_job_id: str = Field(default="", max_length=160)
     batch_position: int = Field(default=0, ge=0, le=1000)
     batch_size: int = Field(default=0, ge=0, le=1000)
+    batch_source_revision_id: str = Field(default="", max_length=160)
 
 
 class GenerateAllLessonScriptsRequest(BaseModel):
@@ -3585,25 +3587,67 @@ async def generate_lesson_plan(
     try:
         source = _source_course(tm, course_id)
         scope = lesson_scope(source, lesson_unit_id)
+        outline_revision = _canonical_outline_revision(source)
+        if (
+            body.batch_source_revision_id
+            and body.batch_source_revision_id != outline_revision
+        ):
+            raise TeacherLessonAuthoringError(
+                "lesson_plan_batch_source_changed",
+                "批量生成期间课程大纲已变化，请重新发起生成。",
+            )
         source_evidence: list[dict[str, Any]] = []
         source_filename = ""
         primary_source_kind = ""
         primary_material_asset_id = ""
         actor = resolve_user_id(request.headers.get("X-User-Id"))
-        if bool(body.source_package_id) != bool(body.source_asset_id):
+        previous: dict[str, Any] | None = None
+        effective_source_package_id = body.source_package_id
+        effective_source_asset_id = body.source_asset_id
+        effective_requirements = body.requirements.strip()
+        effective_material_asset_ids = list(body.material_asset_ids)
+        if body.resume_job_id:
+            resume_candidate = repository.get_job(course_id, body.resume_job_id)
+            if (
+                resume_candidate.get("lesson_unit_id") == lesson_unit_id
+                and resume_candidate.get("type")
+                == "teacher_lesson_plan_generation"
+                and resume_candidate.get("source_outline_revision_id")
+                == outline_revision
+                and resume_candidate.get("status")
+                in {"paused", "failed", "cancelled"}
+            ):
+                previous = resume_candidate
+                snapshot = previous.get("request_snapshot")
+                snapshot = snapshot if isinstance(snapshot, dict) else previous
+                effective_source_package_id = str(
+                    snapshot.get("source_package_id") or ""
+                )
+                effective_source_asset_id = str(
+                    snapshot.get("source_asset_id") or ""
+                )
+                effective_requirements = str(
+                    snapshot.get("requirements") or ""
+                ).strip()
+                effective_material_asset_ids = [
+                    str(item)
+                    for item in snapshot.get("material_asset_ids") or []
+                    if str(item)
+                ]
+        if bool(effective_source_package_id) != bool(effective_source_asset_id):
             raise TeacherLessonAuthoringError(
                 "lesson_primary_source_incomplete",
                 "主来源信息不完整。",
             )
-        if body.source_package_id and body.source_asset_id:
+        if effective_source_package_id and effective_source_asset_id:
             try:
                 package = teacher_course_space_repository.load_owned(
-                    body.source_package_id,
+                    effective_source_package_id,
                     actor,
                 )
                 source_asset, source_path = teacher_course_space_repository.source_file(
                     package,
-                    body.source_asset_id,
+                    effective_source_asset_id,
                 )
             except (FileNotFoundError, MaterialStorageError) as exc:
                 raise TeacherLessonAuthoringError(
@@ -3626,7 +3670,7 @@ async def generate_lesson_plan(
                 source_evidence = await run_in_threadpool(
                     extract_uploaded_pptx_evidence,
                     source_path,
-                    asset_id=body.source_asset_id,
+                    asset_id=effective_source_asset_id,
                 )
             elif extension in {".docx", ".pdf", ".md", ".markdown", ".txt"}:
                 primary_source_kind = "uploaded_lesson_plan"
@@ -3644,7 +3688,7 @@ async def generate_lesson_plan(
                         if material is not None
                         else await parse_document_path(
                             source_path,
-                            asset_id=body.source_asset_id,
+                            asset_id=effective_source_asset_id,
                             filename=source_filename or source_path.name,
                         )
                     )
@@ -3660,7 +3704,7 @@ async def generate_lesson_plan(
                     )
                 source_evidence = compile_original_lesson_plan_evidence(
                     document,
-                    asset_id=(primary_material_asset_id or body.source_asset_id),
+                    asset_id=(primary_material_asset_id or effective_source_asset_id),
                     filename=source_filename or source_path.name,
                     sections=scope["sections"],
                 )
@@ -3670,10 +3714,9 @@ async def generate_lesson_plan(
                     "主来源暂时支持 DOCX、PDF、Markdown、TXT 或 PPTX。",
                 )
         selected_material_ids, selected_evidence = _course_material_evidence(
-            course_id, actor, body.material_asset_ids
+            course_id, actor, effective_material_asset_ids
         )
         source_evidence.extend(selected_evidence)
-        outline_revision = _canonical_outline_revision(source)
         repository.set_outline(course_id, outline_revision)
         arrangement = repository.current_arrangement(course_id, lesson_unit_id)
         if arrangement is None:
@@ -3705,20 +3748,15 @@ async def generate_lesson_plan(
         input_fingerprint = stable_hash({
             "lesson_unit_id": lesson_unit_id,
             "source_outline_revision_id": outline_revision,
-            "source_package_id": body.source_package_id,
-            "source_asset_id": body.source_asset_id,
-            "requirements": body.requirements.strip(),
+            "source_package_id": effective_source_package_id,
+            "source_asset_id": effective_source_asset_id,
+            "requirements": effective_requirements,
             "material_asset_ids": sorted(selected_material_ids),
             "arrangement": arrangement,
         }, prefix="teacher-lesson-plan-input")
         resume_checkpoint: dict[str, Any] = {}
-        if body.resume_job_id:
-            previous = repository.get_job(course_id, body.resume_job_id)
-            if (
-                previous.get("lesson_unit_id") == lesson_unit_id
-                and previous.get("type") == "teacher_lesson_plan_generation"
-                and previous.get("input_fingerprint") == input_fingerprint
-            ):
+        if previous:
+            if previous.get("input_fingerprint") == input_fingerprint:
                 resume_checkpoint = deepcopy(previous.get("checkpoint") or {})
         job = repository.create_job(
             course_id,
@@ -3731,8 +3769,15 @@ async def generate_lesson_plan(
             str(job["id"]),
             input_fingerprint=input_fingerprint,
             resume_from_job_id=(body.resume_job_id if resume_checkpoint else ""),
-            requirements=body.requirements,
+            requirements=effective_requirements,
             material_asset_ids=selected_material_ids,
+            request_snapshot={
+                "source_outline_revision_id": outline_revision,
+                "source_package_id": effective_source_package_id,
+                "source_asset_id": effective_source_asset_id,
+                "requirements": effective_requirements,
+                "material_asset_ids": selected_material_ids,
+            },
             **({
                 "parent_job_id": body.batch_parent_job_id,
                 "batch_position": body.batch_position,
@@ -3744,16 +3789,16 @@ async def generate_lesson_plan(
         if source_evidence:
             job_source_kind = (
                 "mixed_course_sources"
-                if body.source_asset_id and selected_material_ids
+                if effective_source_asset_id and selected_material_ids
                 else primary_source_kind
-                if body.source_asset_id
+                if effective_source_asset_id
                 else "course_materials"
             )
             job = repository.update_job(
                 course_id,
                 str(job["id"]),
-                source_asset_id=(body.source_asset_id or selected_material_ids[0]),
-                source_package_id=body.source_package_id,
+                source_asset_id=(effective_source_asset_id or selected_material_ids[0]),
+                source_package_id=effective_source_package_id,
                 source_filename=(
                     source_filename
                     or f"{len(selected_material_ids)} 份课程资料"
@@ -3782,7 +3827,7 @@ async def generate_lesson_plan(
             on_progress,
         ) -> dict[str, Any]:
             scoped_course = deepcopy(course)
-            normalized_requirements = body.requirements.strip()
+            normalized_requirements = effective_requirements
             if normalized_requirements:
                 scoped_course["requirements"] = normalized_requirements
                 scoped_course.setdefault("metadata", {}).setdefault(
@@ -3892,13 +3937,12 @@ async def generate_all_lesson_plans(
         skipped_lesson_ids = [
             item["lesson_unit_id"] for item in skipped_lessons
         ]
-        parent_job_id = f"tlj-batch-{uuid.uuid4().hex}"
-        request_prefix = body.request_id.strip() or parent_job_id
-        jobs: list[dict[str, Any]] = []
-        prior_jobs = list((repository.view(course_id).get("jobs") or {}).values())
-        for batch_position, lesson in enumerate(target_lessons, start=1):
+        material_scopes: dict[str, dict[str, Any]] = {}
+        arrangements: dict[str, dict[str, Any]] = {}
+        # Freeze and validate the whole launch set before any child job exists.
+        for lesson in target_lessons:
             lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
-            material_scope = _lesson_plan_material_scope(
+            material_scopes[lesson_unit_id] = _lesson_plan_material_scope(
                 course_id,
                 actor,
                 lesson_unit_id,
@@ -3931,6 +3975,15 @@ async def generate_all_lesson_plans(
                     source_outline_revision_id=outline_revision,
                     actor=actor,
                 )
+            arrangements[lesson_unit_id] = deepcopy(arrangement)
+        parent_job_id = f"tlj-batch-{uuid.uuid4().hex}"
+        request_prefix = body.request_id.strip() or parent_job_id
+        jobs: list[dict[str, Any]] = []
+        prior_jobs = list((repository.view(course_id).get("jobs") or {}).values())
+        for batch_position, lesson in enumerate(target_lessons, start=1):
+            lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
+            material_scope = material_scopes[lesson_unit_id]
+            arrangement = arrangements[lesson_unit_id]
             child_body = GenerateLessonPlanRequest(
                 request_id=f"{request_prefix}-{lesson_unit_id}",
                 resume_job_id=str(next((
@@ -3948,6 +4001,7 @@ async def generate_all_lesson_plans(
                 batch_parent_job_id=parent_job_id,
                 batch_position=batch_position,
                 batch_size=len(target_lessons),
+                batch_source_revision_id=outline_revision,
             )
             result = await generate_lesson_plan(
                 course_id,
@@ -4253,6 +4307,14 @@ async def generate_lesson_script(
             lesson_unit_id,
         )
         plan_revision_id = str(plan_revision.get("revision_id") or "")
+        if (
+            body.batch_source_revision_id
+            and body.batch_source_revision_id != plan_revision_id
+        ):
+            raise TeacherLessonAuthoringError(
+                "lesson_script_batch_source_changed",
+                "批量生成期间本讲教案已变化，请重新发起生成。",
+            )
         expected_plan_section_ids = [
             str(item.get("node_id") or "") for item in scope["sections"]
         ]
@@ -4288,12 +4350,14 @@ async def generate_lesson_script(
                 # Resume means continue the frozen task.  A temporary failure
                 # while reloading the source tray must not silently change the
                 # prompt, sources, fingerprint, or reusable checkpoint.
+                snapshot = previous.get("request_snapshot")
+                snapshot = snapshot if isinstance(snapshot, dict) else previous
                 effective_requirements = str(
-                    previous.get("requirements") or ""
+                    snapshot.get("requirements") or ""
                 ).strip()
                 effective_material_asset_ids = [
                     str(item)
-                    for item in previous.get("material_asset_ids") or []
+                    for item in snapshot.get("material_asset_ids") or []
                     if str(item)
                 ]
         selected_material_ids, source_evidence = _course_material_evidence(
@@ -4337,6 +4401,11 @@ async def generate_lesson_script(
             requirements=effective_requirements,
             material_asset_ids=selected_material_ids,
             actor=actor,
+            request_snapshot={
+                "source_lesson_plan_revision_id": plan_revision_id,
+                "requirements": effective_requirements,
+                "material_asset_ids": selected_material_ids,
+            },
             **({
                 "parent_job_id": body.batch_parent_job_id,
                 "batch_position": body.batch_position,
@@ -4724,11 +4793,22 @@ async def generate_all_lesson_scripts(
 
         # Validate the entire launch set before creating any child.  A stale
         # plan must not leave the teacher with a half-enqueued batch.
+        plan_revision_ids: dict[str, str] = {}
+        material_scopes: dict[str, dict[str, Any]] = {}
         for lesson in target_lessons:
-            _current_plan_revision(
+            lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
+            _lesson, plan_revision = _current_plan_revision(
                 repository,
                 course_id,
-                str(lesson.get("lesson_unit_id") or ""),
+                lesson_unit_id,
+            )
+            plan_revision_ids[lesson_unit_id] = str(
+                plan_revision.get("revision_id") or ""
+            )
+            material_scopes[lesson_unit_id] = _lesson_script_material_scope(
+                course_id,
+                actor,
+                lesson_unit_id,
             )
 
         parent_job_id = f"tls-batch-{uuid.uuid4().hex}"
@@ -4737,11 +4817,7 @@ async def generate_all_lesson_scripts(
         jobs: list[dict[str, Any]] = []
         for batch_position, lesson in enumerate(target_lessons, start=1):
             lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
-            material_scope = _lesson_script_material_scope(
-                course_id,
-                actor,
-                lesson_unit_id,
-            )
+            material_scope = material_scopes[lesson_unit_id]
             resume_job_id = str(next((
                 item.get("id")
                 for item in reversed(prior_jobs)
@@ -4758,6 +4834,7 @@ async def generate_all_lesson_scripts(
                 batch_parent_job_id=parent_job_id,
                 batch_position=batch_position,
                 batch_size=len(target_lessons),
+                batch_source_revision_id=plan_revision_ids[lesson_unit_id],
             )
             result = await generate_lesson_script(
                 course_id,

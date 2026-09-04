@@ -44,8 +44,11 @@ runner 时标 `blocked`，不静默跳过）。本模块提供那个缺失的 ru
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
-from typing import Any, Callable
+from typing import Any
+
+from course_versioning import stable_hash
 
 PRACTICE_REBUILD_RECEIPT_SCHEMA = "practice_targeted_rebuild_receipt_v1"
 
@@ -95,7 +98,7 @@ def resolve_question_revisions(
             if _text(item.get("revision_id")) == target
         ]
         if by_revision:
-            return by_revision
+            return _expand_atomic_revisions(bundle, by_revision)
 
         by_item_id = [
             _text(item.get("revision_id"))
@@ -104,7 +107,7 @@ def resolve_question_revisions(
             and _text(item.get("revision_id"))
         ]
         if by_item_id:
-            return sorted(set(by_item_id))
+            return _expand_atomic_revisions(bundle, by_item_id)
 
     section = _text(section_id)
     if not section:
@@ -117,7 +120,19 @@ def resolve_question_revisions(
         # 已退休的题不再是课程资产，重建它没有意义。
         and _text(item.get("lifecycle_status")) != "retired"
     ]
-    return sorted(set(by_section))
+    return _expand_atomic_revisions(bundle, by_section)
+
+
+def _expand_atomic_revisions(
+    bundle: dict[str, Any] | None,
+    revision_ids: list[str],
+) -> list[str]:
+    from question_bank import expand_question_atomic_revisions
+
+    return expand_question_atomic_revisions(
+        bundle,
+        revision_ids=revision_ids,
+    )
 
 
 def _node_ids(item: dict[str, Any]) -> set[str]:
@@ -259,6 +274,9 @@ def question_bank_job_enqueue(
     job_repository: Any = None,
     actor_id: str = "",
     knowledge_revision_id: str = "",
+    job_executor: Any = None,
+    payload_factory: Callable[..., Any] | None = None,
+    course_data: dict[str, Any] | None = None,
 ) -> Callable[..., dict[str, Any]]:
     """把既有定向重建作业仓库包成 runner 认识的 `enqueue`。
 
@@ -272,18 +290,32 @@ def question_bank_job_enqueue(
     追溯是哪次知识修订触发的，不承担去重。
     """
     repository = job_repository
+    executor = job_executor
+    make_payload = payload_factory
     if repository is None:
         from question_bank_jobs import question_bank_rebuild_job_repository
 
         repository = question_bank_rebuild_job_repository
+        if executor is None or make_payload is None:
+            from routers.question_bank import (
+                QuestionBankRebuildRequest,
+                question_bank_rebuild_executor,
+            )
+
+            executor = executor or question_bank_rebuild_executor
+            make_payload = make_payload or QuestionBankRebuildRequest
 
     def enqueue(*, course_id: str, revision_ids: list[str], reason: str = "") -> dict[str, Any]:
         scoped = sorted({_text(item) for item in revision_ids if _text(item)})
-        request_id = "knowledge-rebuild:{}:{}".format(
-            _text(knowledge_revision_id) or "unknown",
-            ",".join(scoped),
+        request_id = stable_hash(
+            {
+                "course_id": course_id,
+                "knowledge_revision_id": _text(knowledge_revision_id) or "unknown",
+                "revision_ids": scoped,
+            },
+            prefix="knowledge-rebuild_",
         )
-        job, _created = repository.create_job(
+        job, created = repository.create_job(
             course_id,
             request_id=request_id,
             scope="items",
@@ -292,6 +324,20 @@ def question_bank_job_enqueue(
             mode="incremental",
             actor_id=actor_id,
         )
+        if created and executor is not None and make_payload is not None:
+            payload = make_payload(
+                request_id=request_id,
+                scope="items",
+                revision_ids=scoped,
+                mode="incremental",
+                resume_existing=True,
+            )
+            executor.submit(
+                job_id=str(job["job_id"]),
+                course_id=course_id,
+                payload=payload,
+                course=deepcopy(course_data or {}),
+            )
         return job or {}
 
     return enqueue
@@ -305,6 +351,9 @@ def build_rebuild_runners(
     actor_id: str = "",
     job_repository: Any = None,
     enqueue: Callable[..., dict[str, Any]] | None = None,
+    job_executor: Any = None,
+    payload_factory: Callable[..., Any] | None = None,
+    course_data: dict[str, Any] | None = None,
 ) -> dict[str, Callable[[dict[str, Any]], dict[str, Any]]]:
     """组装交给 `execute_rebuild` 的 runners 字典。
 
@@ -319,6 +368,9 @@ def build_rebuild_runners(
             job_repository=job_repository,
             actor_id=actor_id,
             knowledge_revision_id=knowledge_revision_id,
+            job_executor=job_executor,
+            payload_factory=payload_factory,
+            course_data=course_data,
         ),
         course_id=course_id,
         knowledge_revision_id=knowledge_revision_id,

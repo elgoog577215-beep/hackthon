@@ -953,18 +953,443 @@ def _structure_operations(
         ))
     if not proposed_nodes:
         return []
-    revision = context.base_revision_vector.get("teacher_outline") or context.base_revision_vector.get("course_document") or "unknown"
-    return [CourseStructureOperation(
-        operation_id=f"structure-{uuid.uuid4().hex}",
-        operation_type="REBUILD_OUTLINE",
-        base_blueprint_revision_id=revision,
-        idempotency_key=stable_hash({"plan": plan_id, "outline": proposed}, prefix="idem_"),
-        source_node_ids=[str(item.get("node_id") or "") for item in context.outline if item.get("node_id")],
-        proposed_nodes=proposed_nodes,
-        reason=_compact(structure.get("reason") or "课程结构需要先调整，再迁移和重建下游资产", 500),
-        assumptions=[_compact(item, 300) for item in analysis.get("assumptions") or []],
-        confidence=float(analysis.get("signal_confidence") or 0.5),
-    )]
+    revision = (
+        context.base_revision_vector.get("teacher_outline")
+        or context.base_revision_vector.get("course_document")
+        or "unknown"
+    )
+    reason = _compact(
+        structure.get("reason") or "课程结构需要先调整，再迁移和重建下游资产",
+        500,
+    )
+    assumptions = [
+        _compact(item, 300) for item in analysis.get("assumptions") or []
+    ]
+    confidence = float(analysis.get("signal_confidence") or 0.5)
+    current = {
+        str(item.get("node_id") or ""): item
+        for item in context.outline
+        if item.get("node_id")
+    }
+    source_occurrences = Counter(
+        source_id
+        for node in proposed_nodes
+        for source_id in node.source_node_ids
+    )
+    proposed_by_id = {
+        node.provisional_id: node for node in proposed_nodes
+    }
+
+    def comparable_parent(parent_ref: str) -> str:
+        if parent_ref in {"", "root", "None"}:
+            return "root"
+        parent = proposed_by_id.get(parent_ref)
+        if parent is not None and parent.source_node_ids:
+            return parent.source_node_ids[0]
+        return parent_ref
+
+    def operation(
+        operation_type: str,
+        *,
+        source_node_ids: list[str] | None = None,
+        nodes: list[ProposedOutlineNode] | None = None,
+        target_parent_id: str = "",
+        target_position: int | None = None,
+        depends_on: list[str] | None = None,
+    ) -> CourseStructureOperation:
+        sources = list(source_node_ids or [])
+        next_nodes = list(nodes or [])
+        identity = {
+            "plan_id": plan_id,
+            "operation_type": operation_type,
+            "source_node_ids": sources,
+            "target_parent_id": target_parent_id,
+            "target_position": target_position,
+            "proposed_nodes": [
+                item.model_dump(mode="json", exclude={"position"})
+                for item in next_nodes
+            ],
+        }
+        operation_id = stable_hash(identity, prefix="structure-op-")
+        return CourseStructureOperation(
+            operation_id=operation_id,
+            operation_type=operation_type,
+            base_blueprint_revision_id=revision,
+            idempotency_key=stable_hash(identity, prefix="idem_"),
+            source_node_ids=sources,
+            target_parent_id=target_parent_id,
+            target_position=target_position,
+            proposed_nodes=next_nodes,
+            depends_on_operation_ids=list(depends_on or []),
+            reason=reason,
+            assumptions=assumptions,
+            confidence=confidence,
+        )
+
+    primitives: list[CourseStructureOperation] = []
+    creator_by_provisional_id: dict[str, str] = {}
+    split_sources = {
+        source_id for source_id, count in source_occurrences.items() if count > 1
+    }
+    for source_id in sorted(split_sources):
+        nodes = [
+            item for item in proposed_nodes if source_id in item.source_node_ids
+        ]
+        next_operation = operation(
+            "SPLIT_OUTLINE_NODE",
+            source_node_ids=[source_id],
+            nodes=nodes,
+        )
+        primitives.append(next_operation)
+        for node in nodes:
+            creator_by_provisional_id[node.provisional_id] = (
+                next_operation.operation_id
+            )
+
+    for node in proposed_nodes:
+        sources = list(node.source_node_ids)
+        if any(source_id in split_sources for source_id in sources):
+            continue
+        if len(sources) > 1:
+            next_operation = operation(
+                "MERGE_OUTLINE_NODES",
+                source_node_ids=sources,
+                nodes=[node],
+            )
+            primitives.append(next_operation)
+            creator_by_provisional_id[node.provisional_id] = (
+                next_operation.operation_id
+            )
+            continue
+        if not sources:
+            next_operation = operation(
+                "INSERT_OUTLINE_NODE",
+                nodes=[node],
+                target_parent_id=node.parent_ref,
+                target_position=node.position,
+            )
+            primitives.append(next_operation)
+            creator_by_provisional_id[node.provisional_id] = (
+                next_operation.operation_id
+            )
+            continue
+        source_id = sources[0]
+        current_node = current.get(source_id) or {}
+        current_parent = str(current_node.get("parent_node_id") or "root")
+        current_title = str(current_node.get("node_name") or "")
+        current_focus = str(current_node.get("learning_objective") or "")
+        if node.title != current_title or node.learning_focus != current_focus:
+            primitives.append(operation(
+                "UPDATE_OUTLINE_NODE",
+                source_node_ids=[source_id],
+                nodes=[node],
+            ))
+        if comparable_parent(node.parent_ref) != current_parent:
+            primitives.append(operation(
+                "MOVE_OUTLINE_NODE",
+                source_node_ids=[source_id],
+                nodes=[node],
+                target_parent_id=node.parent_ref,
+                target_position=node.position,
+            ))
+
+    referenced_ids = set(source_occurrences)
+    retire_ids = sorted(
+        str(value)
+        for value in structure.get("retire_node_ids") or []
+        if str(value) and str(value) not in referenced_ids
+    )
+    for source_id in retire_ids:
+        primitives.append(operation(
+            "RETIRE_OUTLINE_NODE",
+            source_node_ids=[source_id],
+        ))
+
+    current_order = [
+        str(item.get("node_id") or "")
+        for item in context.outline
+        if item.get("node_id")
+    ]
+    proposed_existing_order = [
+        node.source_node_ids[0]
+        for node in proposed_nodes
+        if len(node.source_node_ids) == 1
+        and source_occurrences[node.source_node_ids[0]] == 1
+    ]
+    comparable_current_order = [
+        source_id
+        for source_id in current_order
+        if source_id in set(proposed_existing_order)
+    ]
+    if (
+        len(proposed_existing_order) >= 2
+        and proposed_existing_order != comparable_current_order
+    ):
+        primitives.append(operation(
+            "REORDER_OUTLINE_NODES",
+            source_node_ids=proposed_existing_order,
+            depends_on=[item.operation_id for item in primitives],
+        ))
+
+    for item in primitives:
+        parent_refs = {
+            node.parent_ref for node in item.proposed_nodes if node.parent_ref
+        }
+        if item.target_parent_id:
+            parent_refs.add(item.target_parent_id)
+        parent_dependencies = {
+            creator_by_provisional_id[parent_ref]
+            for parent_ref in parent_refs
+            if parent_ref in creator_by_provisional_id
+            and creator_by_provisional_id[parent_ref] != item.operation_id
+        }
+        item.depends_on_operation_ids = list(dict.fromkeys([
+            *item.depends_on_operation_ids,
+            *sorted(parent_dependencies),
+        ]))
+
+    terminal = operation(
+        "REBUILD_OUTLINE",
+        source_node_ids=[
+            str(item.get("node_id") or "")
+            for item in context.outline
+            if item.get("node_id")
+        ],
+        nodes=proposed_nodes,
+        depends_on=[item.operation_id for item in primitives],
+    )
+    return [*primitives, terminal]
+
+
+def _structure_operation_dag(
+    operations: list[CourseStructureOperation],
+) -> dict[str, Any]:
+    nodes = [
+        {
+            "operation_id": item.operation_id,
+            "operation_type": item.operation_type,
+            "depends_on_operation_ids": list(item.depends_on_operation_ids),
+            "source_node_ids": list(item.source_node_ids),
+            "target_parent_id": item.target_parent_id,
+            "target_position": item.target_position,
+            "provisional_ids": [
+                node.provisional_id for node in item.proposed_nodes
+            ],
+        }
+        for item in operations
+    ]
+    pending = {
+        item.operation_id: set(item.depends_on_operation_ids)
+        for item in operations
+    }
+    topological_order: list[str] = []
+    resolved: set[str] = set()
+    while pending:
+        ready = sorted(
+            operation_id
+            for operation_id, dependencies in pending.items()
+            if dependencies.issubset(resolved)
+        )
+        if not ready:
+            raise ValueError("课程结构操作依赖存在循环")
+        for operation_id in ready:
+            pending.pop(operation_id)
+            resolved.add(operation_id)
+            topological_order.append(operation_id)
+    return {
+        "schema_version": "course_structure_operation_dag_v1",
+        "revision": stable_hash(nodes, prefix="structure-dag-"),
+        "nodes": nodes,
+        "topological_order": topological_order,
+    }
+
+
+def _recalculate_migration_dependencies(
+    planning: CourseChangePlan,
+    outline_rebuild: dict[str, Any],
+) -> tuple[list[dict[str, Any]], set[str]]:
+    references = {
+        str(item.get("source_section_id") or ""): [
+            str(value)
+            for value in item.get("target_section_ids") or []
+            if str(value)
+        ]
+        for item in outline_rebuild.get("reference_migrations") or []
+        if isinstance(item, dict) and item.get("source_section_id")
+    }
+    final_section_ids = {
+        str(item.get("section_id") or "")
+        for item in outline_rebuild.get("sections") or []
+        if isinstance(item, dict) and item.get("section_id")
+    }
+    report: list[dict[str, Any]] = []
+    invalidated_operation_ids: set[str] = set()
+    for migration in planning.unit_migrations:
+        before = list(migration.dependency_ids)
+        source_dependencies = list(
+            migration.metadata.get("pre_structure_dependency_ids") or before
+        )
+        after: list[str] = []
+        for dependency_id in source_dependencies:
+            if dependency_id in references:
+                after.extend(references[dependency_id])
+            elif dependency_id in final_section_ids:
+                after.append(dependency_id)
+            else:
+                after.append(dependency_id)
+        after = list(dict.fromkeys(after))
+        status = "unchanged"
+        if before != after:
+            migration.metadata.setdefault(
+                "pre_structure_dependency_ids",
+                source_dependencies,
+            )
+            migration.dependency_ids = after
+            status = "rebound" if after else "blocked"
+        original_disposition = str(
+            migration.metadata.get("pre_structure_disposition")
+            or migration.disposition
+        )
+        if not after and source_dependencies and original_disposition != "retire":
+            previous_operation_id = str(
+                migration.metadata.get("operation_id") or ""
+            )
+            if previous_operation_id:
+                invalidated_operation_ids.add(previous_operation_id)
+            migration.metadata.setdefault(
+                "pre_structure_disposition",
+                migration.disposition,
+            )
+            migration.metadata.setdefault(
+                "pre_structure_reason",
+                migration.reason,
+            )
+            migration.metadata["structure_dependency_blocked"] = True
+            migration.metadata.pop("operation_id", None)
+            migration.metadata.pop("after_preview", None)
+            migration.candidate_status = "failed"
+            migration.disposition = "blocked"
+            migration.reason = "结构部分接受后原依赖已无可解析目标"
+            status = "blocked"
+        elif after and migration.metadata.pop(
+            "structure_dependency_blocked",
+            False,
+        ):
+            migration.disposition = str(
+                migration.metadata.pop(
+                    "pre_structure_disposition",
+                    "rewrite_partial",
+                )
+            )
+            migration.reason = str(
+                migration.metadata.pop(
+                    "pre_structure_reason",
+                    migration.reason,
+                )
+            )
+            if (
+                migration.disposition == "reuse_exact"
+                and after != source_dependencies
+            ):
+                migration.disposition = "reuse_rebind"
+            migration.candidate_status = (
+                "not_required"
+                if migration.disposition in {"reuse_exact", "reuse_rebind", "retire"}
+                else "not_started"
+            )
+            status = "rebound"
+            if after == source_dependencies:
+                migration.metadata.pop("pre_structure_dependency_ids", None)
+        elif after and before != after and migration.disposition == "reuse_exact":
+            migration.metadata.setdefault(
+                "pre_structure_disposition",
+                migration.disposition,
+            )
+            migration.disposition = "reuse_rebind"
+            migration.candidate_status = "not_required"
+        elif (
+            after == source_dependencies
+            and migration.disposition == "reuse_rebind"
+            and migration.metadata.get("pre_structure_disposition") == "reuse_exact"
+        ):
+            migration.disposition = "reuse_exact"
+            migration.metadata.pop("pre_structure_disposition", None)
+            migration.metadata.pop("pre_structure_dependency_ids", None)
+            migration.candidate_status = "not_required"
+            status = "rebound"
+        report.append({
+            "migration_id": migration.migration_id,
+            "before_dependency_ids": before,
+            "source_dependency_ids": source_dependencies,
+            "after_dependency_ids": after,
+            "status": status,
+        })
+    return report, invalidated_operation_ids
+
+
+def _structure_reference_operations(
+    *,
+    plan_id: str,
+    outline_rebuild: dict[str, Any],
+) -> list[CourseEvolutionOperation]:
+    """Compile durable per-repository rebind/stale operations.
+
+    The operations stay inside the existing domain-candidate executor and
+    journal.  They never copy or merge lesson content; each repository keeps
+    its last-good payload and records that a targeted rebuild is required.
+    """
+    references = [
+        deepcopy(item)
+        for item in outline_rebuild.get("reference_migrations") or []
+        if isinstance(item, dict) and item.get("source_section_id")
+    ]
+    changed = [
+        item
+        for item in references
+        if list(item.get("target_section_ids") or [])
+        != [str(item.get("source_section_id") or "")]
+    ]
+    if not changed:
+        return []
+    mapping_revision = stable_hash(
+        {
+            "reference_migrations": references,
+            "section_tombstones": outline_rebuild.get("section_tombstones") or [],
+        },
+        prefix="structure-ref-",
+    )
+    operations: list[CourseEvolutionOperation] = []
+    for domain in (
+        "authoring_structure_refs",
+        "ppt_structure_refs",
+        "question_bank_structure_refs",
+    ):
+        identity = {
+            "plan_id": plan_id,
+            "domain": domain,
+            "mapping_revision": mapping_revision,
+        }
+        operation_id = stable_hash(identity, prefix="domain-")
+        operations.append(CourseEvolutionOperation(
+            operation_id=operation_id,
+            operation_type="APPLY_DOMAIN_CANDIDATE",
+            target_block_id=mapping_revision,
+            target_section_id="",
+            scope="current",
+            reason="迁移课程结构引用并保留最后可用教学资产",
+            payload={
+                "schema_version": "teacher_section_reference_rebind_v1",
+                "domain": domain,
+                "action": "rebind_section_references",
+                "plan_id": plan_id,
+                "mapping_revision": mapping_revision,
+                "reference_migrations": references,
+                "section_tombstones": deepcopy(
+                    outline_rebuild.get("section_tombstones") or []
+                ),
+            },
+        ))
+    return operations
 
 
 def _unit_migrations(
@@ -1225,7 +1650,6 @@ def _outline_rebuild_operation(
             {
                 "plan_id": plan_id,
                 "provisional_id": provisional_id,
-                "title": title,
             },
             prefix="section_",
         )
@@ -1295,7 +1719,79 @@ def _outline_rebuild_operation(
         if not progressed:
             return []
 
-    operation_id = f"teacher-outline-{uuid.uuid4().hex}"
+    targets_by_source: dict[str, list[str]] = {}
+    for row in rows:
+        for source_id in row["source_ids"]:
+            targets_by_source.setdefault(source_id, []).append(row["final_id"])
+    merged_source_ids = {
+        source_id
+        for row in rows
+        if len(row["source_ids"]) > 1
+        for source_id in row["source_ids"]
+    }
+    reference_migrations = [
+        {
+            "source_section_id": source_id,
+            "target_section_ids": list(dict.fromkeys(
+                targets_by_source.get(source_id) or []
+            )),
+            "primary_target_section_id": source_to_final.get(source_id, ""),
+            "resolution": (
+                "retired"
+                if not targets_by_source.get(source_id)
+                else "primary_preserved"
+                if len(set(targets_by_source[source_id])) > 1
+                else "merge_primary"
+                if (
+                    source_id in merged_source_ids
+                    and source_to_final.get(source_id) == source_id
+                )
+                else "merged"
+                if source_id in merged_source_ids
+                else "unique"
+            ),
+        }
+        for source_id in sorted(current)
+    ]
+    final_section_ids = {item.section_id for item in sections}
+    section_tombstones = [
+        {
+            "section_id": item["source_section_id"],
+            "mapped_to_section_ids": item["target_section_ids"],
+            "reason": (
+                "merged"
+                if item["target_section_ids"]
+                else "retired"
+            ),
+        }
+        for item in reference_migrations
+        if item["source_section_id"] not in final_section_ids
+    ]
+    outline_rebuild = {
+        "sections": [item.model_dump(mode="json") for item in sections],
+        "section_id_map": source_to_final,
+        "retired_section_ids": sorted(retire_ids),
+        "section_tombstones": section_tombstones,
+        "reference_migrations": reference_migrations,
+        "operation_dag": _structure_operation_dag(
+            _structure_operations(context, analysis, plan_id)
+        ),
+        "identity_mapping": [
+            {
+                "provisional_id": row["provisional_id"],
+                "final_section_id": row["final_id"],
+                "source_section_ids": row["source_ids"],
+            }
+            for row in rows
+        ],
+    }
+    operation_id = stable_hash(
+        {
+            "plan_id": plan_id,
+            "outline_rebuild": outline_rebuild,
+        },
+        prefix="teacher-outline-",
+    )
     return [CourseEvolutionOperation(
         operation_id=operation_id,
         operation_type="REBUILD_COURSE_OUTLINE",
@@ -1307,21 +1803,7 @@ def _outline_rebuild_operation(
             or "按老师确认的新课程树重建结构并迁移稳定内容身份",
             500,
         ),
-        payload={
-            "outline_rebuild": {
-                "sections": [item.model_dump(mode="json") for item in sections],
-                "section_id_map": source_to_final,
-                "retired_section_ids": sorted(retire_ids),
-                "identity_mapping": [
-                    {
-                        "provisional_id": row["provisional_id"],
-                        "final_section_id": row["final_id"],
-                        "source_section_ids": row["source_ids"],
-                    }
-                    for row in rows
-                ],
-            },
-        },
+        payload={"outline_rebuild": outline_rebuild},
     )]
 
 
@@ -1424,6 +1906,18 @@ async def create_teacher_course_change_plan(
         *_outline_content_operation(context, analysis, migrations),
         *_outline_rebuild_operation(context, analysis, change_set_id),
     ]
+    outline_rebuild = next(
+        (
+            deepcopy(item.payload.get("outline_rebuild") or {})
+            for item in executable_operations
+            if item.operation_type == "REBUILD_COURSE_OUTLINE"
+        ),
+        {},
+    )
+    executable_operations.extend(_structure_reference_operations(
+        plan_id=change_set_id,
+        outline_rebuild=outline_rebuild,
+    ))
     requires_downstream_generation = any(
         item.asset_type in DOWNSTREAM_CANDIDATE_ASSET_TYPES
         and item.disposition not in {"reuse_exact", "reuse_rebind"}
@@ -1502,6 +1996,9 @@ async def create_teacher_course_change_plan(
                 "affected_units": len(affected_units),
             },
             "planning_summary": summary,
+            "structure_operation_dag": _structure_operation_dag(
+                structure_operations
+            ),
             "affected_units": affected_units,
             "current_outline": [
                 {
@@ -1695,10 +2192,27 @@ def review_teacher_course_change_scope(
             rebuilt_operations = _outline_rebuild_operation(context, structure_analysis, plan.change_set_id)
             if not rebuilt_operations:
                 raise ValueError("调整后的课程树无法安全编译，请检查删除、合并和上级关系")
-            planning.structural_operations = _structure_operations(
+            previous_dag = deepcopy(
+                plan.impact_summary.get("structure_operation_dag") or {}
+            )
+            rebuilt_structure_operations = _structure_operations(
                 context,
                 structure_analysis,
                 plan.change_set_id,
+            )
+            planning.structural_operations = rebuilt_structure_operations
+            outline_rebuild = deepcopy(
+                rebuilt_operations[0].payload.get("outline_rebuild") or {}
+            )
+            dependency_recalculation, invalidated_operation_ids = (
+                _recalculate_migration_dependencies(
+                    planning,
+                    outline_rebuild,
+                )
+            )
+            reference_operations = _structure_reference_operations(
+                plan_id=plan.change_set_id,
+                outline_rebuild=outline_rebuild,
             )
             plan.operations = [
                 item for item in plan.operations
@@ -1707,15 +2221,47 @@ def review_teacher_course_change_scope(
                     "REBUILD_COURSE_OUTLINE",
                     "APPLY_DOMAIN_CANDIDATE",
                 }
-            ] + rebuilt_operations
+                and item.operation_id not in invalidated_operation_ids
+            ] + rebuilt_operations + reference_operations
+            rebuilt_dag = _structure_operation_dag(
+                rebuilt_structure_operations
+            )
+            previous_operation_ids = {
+                str(item.get("operation_id") or "")
+                for item in previous_dag.get("nodes") or []
+                if isinstance(item, dict) and item.get("operation_id")
+            }
+            rebuilt_operation_ids = {
+                item.operation_id for item in rebuilt_structure_operations
+            }
             history = list(plan.impact_summary.get("structure_review_history") or [])
             history.append({
                 "revision": len(history) + 1,
                 "proposed_outline": deepcopy(edited_outline),
+                "previous_dag_revision": str(
+                    previous_dag.get("revision") or ""
+                ),
+                "recomputed_dag_revision": rebuilt_dag["revision"],
+                "retained_operation_ids": sorted(
+                    previous_operation_ids.intersection(rebuilt_operation_ids)
+                ),
+                "excluded_operation_ids": sorted(
+                    previous_operation_ids.difference(rebuilt_operation_ids)
+                ),
                 "edited_at": _now(),
             })
             plan.impact_summary["structure_review_history"] = history[-20:]
             plan.impact_summary["proposed_outline"] = deepcopy(edited_outline)
+            plan.impact_summary["structure_operation_dag"] = rebuilt_dag
+            plan.impact_summary["structure_dependency_recalculation"] = {
+                "schema_version": "course_structure_dependency_recalculation_v1",
+                "items": dependency_recalculation,
+                "blocked_migration_ids": [
+                    item["migration_id"]
+                    for item in dependency_recalculation
+                    if item["status"] == "blocked"
+                ],
+            }
             planning.structure_review_status = "pending"
 
         if disposition_changed or outline_changed:
@@ -1726,10 +2272,16 @@ def review_teacher_course_change_scope(
                 item.operation_id
                 for item in plan.operations
                 if item.operation_type == "APPLY_DOMAIN_CANDIDATE"
+                and str(item.payload.get("action") or "")
+                != "rebind_section_references"
             }
             plan.operations = [
                 item for item in plan.operations
-                if item.operation_type != "APPLY_DOMAIN_CANDIDATE"
+                if (
+                    item.operation_type != "APPLY_DOMAIN_CANDIDATE"
+                    or str(item.payload.get("action") or "")
+                    == "rebind_section_references"
+                )
             ]
             for migration in planning.unit_migrations:
                 if (
@@ -1741,15 +2293,46 @@ def review_teacher_course_change_scope(
                     migration.metadata.pop("candidate_error", None)
                     migration.metadata.pop("change_count", None)
                 migration.candidate_status = (
+                    "failed"
+                    if migration.metadata.get("structure_dependency_blocked")
+                    else
                     "not_required"
                     if migration.disposition in {"reuse_exact", "reuse_rebind"}
                     else "ready"
                     if migration.metadata.get("operation_id")
                     else "not_started"
                 )
-            plan.impact_summary["candidate_bundle"] = {}
-            planning.status = "impact_ready"
-            plan.generation_status = "suggested"
+            needs_domain_generation = any(
+                migration.migration_id in selected
+                and migration.asset_type in DOWNSTREAM_CANDIDATE_ASSET_TYPES
+                and migration.disposition not in {
+                    "reuse_exact",
+                    "reuse_rebind",
+                    "blocked",
+                }
+                for migration in planning.unit_migrations
+            )
+            if needs_domain_generation:
+                plan.impact_summary["candidate_bundle"] = {}
+                planning.status = "impact_ready"
+                plan.generation_status = "suggested"
+            else:
+                plan.impact_summary["candidate_bundle"] = {
+                    "operation_count": len(plan.operations),
+                    "operation_ids": [
+                        item.operation_id for item in plan.operations
+                    ],
+                    "domain_generation_pending": False,
+                    "structure_operation_count": sum(
+                        item.operation_type in {
+                            "RESEQUENCE_COURSE_PATH",
+                            "REBUILD_COURSE_OUTLINE",
+                        }
+                        for item in plan.operations
+                    ),
+                }
+                planning.status = "candidate_ready"
+                plan.generation_status = "ready"
 
         affected_by_migration = {
             str(item.get("migration_id") or ""): item
@@ -1762,6 +2345,7 @@ def review_teacher_course_change_scope(
             affected.update({
                 "disposition": migration.disposition,
                 "reason": migration.reason,
+                "section_ids": list(migration.dependency_ids),
                 "candidate_status": migration.candidate_status,
                 "operation_id": str(migration.metadata.get("operation_id") or ""),
                 "after_preview": str(migration.metadata.get("after_preview") or ""),
@@ -1785,7 +2369,14 @@ def review_teacher_course_change_scope(
         structure_operation_ids = [
             item.operation_id
             for item in plan.operations
-            if item.operation_type in {"RESEQUENCE_COURSE_PATH", "REBUILD_COURSE_OUTLINE"}
+            if (
+                item.operation_type in {
+                    "RESEQUENCE_COURSE_PATH",
+                    "REBUILD_COURSE_OUTLINE",
+                }
+                or str(item.payload.get("action") or "")
+                == "rebind_section_references"
+            )
         ]
         if confirm_structure:
             selected_operation_ids.extend(structure_operation_ids)
@@ -1812,6 +2403,13 @@ def review_teacher_course_change_scope(
             plan.impact_summary["structure_review"] = {
                 "status": "confirmed",
                 "confirmed_at": timestamp,
+                "operation_dag_revision": str(
+                    (
+                        plan.impact_summary.get("structure_operation_dag")
+                        or {}
+                    ).get("revision")
+                    or ""
+                ),
                 "formal_content_changed": False,
             }
         plan.impact_summary["planning_summary"] = summarize_course_change_plan(planning).model_dump(mode="json")

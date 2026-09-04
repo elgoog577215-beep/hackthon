@@ -213,6 +213,7 @@
       "complete": "Prepared",
       "incomplete": "Preparing",
       "generating": "Generating {target}{count}",
+      "stageProgress": "{stage} {available}/{total}",
       "waiting": "Continue {target}{count}",
       "paused": "{target} generation paused{count}",
       "failed": "{target} generation failed{count}"
@@ -232,6 +233,12 @@
       "readyWithSuggestions": "Published, with suggestions",
       "ready": "Ready to continue"
     }
+  },
+  "teacherProductionState": {
+    "issueTitle": "Generation issue",
+    "states": { "not_generated": "Not generated", "generating": "Generating", "available": "Available", "failed": "Generation failed" },
+    "stages": { "outline": "Outline", "lesson_plan": "Lesson plan", "script": "Lecture notes", "ppt": "PPT" },
+    "auxiliary": { "idle": "Not started", "queued": "Queued", "running": "Generating", "paused": "Paused", "failed": "Generation failed", "completed": "Completed", "stale": "Source updated", "pendingReview": "Pending review", "recentFailure": "Most recent generation failed" }
   },
   "teacherWorkbench": {
     "courseWorkbench": "Course workbench",
@@ -5768,14 +5775,15 @@
       "hours": "{hours} hours",
       "group": "{group}",
       "preparationTitle": "Session preparation",
-      "preparationProgress": "{ready}/3 ready",
+      "preparationProgress": "{ready}/4 ready",
       "outline": "Outline link",
       "linkOutline": "Link outline session",
       "startLessonPlan": "Start lesson plan",
       "reviewLessonPlan": "Review lesson plan",
+      "prepareScript": "Prepare lecture notes",
       "preparePpt": "Complete session PPT",
-      "states": { "linked": "Linked", "confirmed": "Confirmed", "generated": "Generated", "awaitingReview": "Review", "generating": "Generating", "syncing": "Syncing", "needsUpdate": "Update", "failed": "Failed", "readFailed": "Unavailable", "notLinked": "Not linked", "notCreated": "Not generated" },
-      "details": { "outlineLinked": "Linked to this session in the course outline", "outlineMissing": "This calendar session is not linked to an outline session", "outlineStale": "The linked session is no longer in the current outline", "statusSyncing": "Syncing this session's asset status", "statusUnavailable": "Status is unavailable; open preparation to retry", "planNeedsOutline": "Link an outline session before creating a lesson plan", "planWorking": "The lesson plan is being generated", "planFailed": "Lesson-plan generation stopped; open preparation to retry", "planMissing": "No lesson plan has been generated for this session", "planStale": "The outline changed; review this lesson plan", "planDraft": "A lesson-plan draft is waiting for teacher review", "planReady": "The lesson plan is confirmed and ready for class assets", "pptNeedsOutline": "Link an outline session before creating a PPT", "pptNeedsPlan": "Complete the lesson plan before generating a PPT", "pptWorking": "The session PPT is being generated", "pptFailed": "PPT generation stopped; open preparation to retry", "pptMissing": "No PPT has been generated for this session", "pptStale": "The lesson plan changed; sync the PPT", "pptReady": "The companion PPT is generated" }
+      "states": { "linked": "Linked", "confirmed": "Confirmed", "generated": "Generated", "available": "Available", "awaitingReview": "Review", "generating": "Generating", "syncing": "Syncing", "needsUpdate": "Update", "failed": "Failed", "readFailed": "Unavailable", "notLinked": "Not linked", "notCreated": "Not generated" },
+      "details": { "outlineLinked": "Linked to this session in the course outline", "outlineMissing": "This calendar session is not linked to an outline session", "outlineStale": "The linked session is no longer in the current outline", "statusSyncing": "Syncing this session's asset status", "statusUnavailable": "Status is unavailable; open preparation to retry", "planNeedsOutline": "Link an outline session before creating a lesson plan", "planWorking": "The lesson plan is being generated", "planFailed": "Lesson-plan generation stopped; open preparation to retry", "planMissing": "No lesson plan has been generated for this session", "planStale": "The outline changed; review this lesson plan", "planDraft": "A lesson-plan draft is waiting for teacher review", "planReady": "The lesson plan is confirmed and ready for class assets", "scriptNeedsPlan": "Complete the lesson plan before generating lecture notes", "scriptMissing": "No lecture notes have been generated for this session", "scriptStale": "The lesson plan changed; sync the lecture notes", "scriptReady": "The lecture notes are available", "pptNeedsOutline": "Link an outline session before creating a PPT", "pptNeedsPlan": "Complete the lesson plan before generating a PPT", "pptWorking": "The session PPT is being generated", "pptFailed": "PPT generation stopped; open preparation to retry", "pptMissing": "No PPT has been generated for this session", "pptStale": "The lesson plan changed; sync the PPT", "pptReady": "The companion PPT is generated" }
     }
   },
   "courseSpaceCreate": {
@@ -6134,7 +6142,7 @@
     "columns": { "name": "Name", "type": "Type", "status": "Status", "updated": "Date modified", "size": "Size" },
     "sortBy": "Sort by {name}",
     "types": { "root": "Course files", "deliverables": "Course administration", "course_logic": "Course logic", "supporting_materials": "Supporting materials", "outline_export": "Outline file", "lesson_plans": "Lesson plans", "script_ppt": "Scripts & PPTs", "question_bank_files": "Question bank", "question_practices": "Session practice", "aux_question_bank": "Teacher question banks", "aux_exam_papers": "Exam papers", "aux_student_work": "Student work", "aux_other": "Other materials", "exam_papers": "Formal exam papers", "outline": "Outline", "teachingCalendar": "Teaching calendar file", "lesson": "Session", "lessonPlan": "Lesson plan", "content": "Script", "material": "Materials", "ppt": "PPT", "practice": "Session practice", "question_bank": "Formal question bank", "exam_paper": "Formal exam paper", "companionDocuments": "Other administration materials", "companionDocument": "Administration material", "folder": "Folder", "file": "Uploaded original" },
-    "status": { "ready": "Ready", "draft": "Preparing", "missing": "Not generated", "working": "Generating", "stale": "Update needed", "uploaded": "Uploaded", "empty": "No content", "trashed": "In recycle bin" },
+    "status": { "ready": "Ready", "draft": "Preparing", "missing": "Not generated", "working": "Generating", "failed": "Generation failed", "stale": "Update needed", "uploaded": "Uploaded", "empty": "No content", "trashed": "In recycle bin" },
     "statusHelp": { "ready": "The current version is ready to use.", "draft": "Some required assets are not complete yet. Open this session to continue preparing.", "missing": "No content exists yet. Select it, then create or generate it from the inspector.", "working": "Generation is running in the background. The new version will appear here.", "stale": "An upstream outline, lesson plan, or source changed. Review and update this file.", "uploaded": "The original file is stored in the local course space.", "empty": "No teacher material has been added to this folder yet." },
     "names": { "deliverables": "Syllabus", "courseLogic": "Course files", "supportingMaterials": "Course materials", "outline": "Outline", "onlineOutline": "Online syllabus", "exportableOutline": "Exportable syllabus", "outlineFile": "Outline file", "teachingCalendar": "Teaching calendar", "teachingCalendarFile": "Teaching calendar file", "otherDeliverables": "Other course files", "otherCourseFiles": "Other course files", "lessonPlan": "Lesson plan", "lessonPlans": "Lesson plans", "content": "Handout", "scriptPpt": "Handouts & PPTs", "ppt": "PPT", "lessonPractice": "Practice", "questionBank": "Course question bank", "questionBankFiles": "Question bank", "questionPractices": "Session practice", "formalExamPapers": "Formal exam papers", "teacherQuestionBanks": "Teacher question banks", "uploadedExamPapers": "Exam papers", "studentWork": "Student work", "otherMaterials": "Other materials", "companionDocuments": "Companion documents", "recycleBin": "Trash", "newMaterial": "New material" },
     "descriptions": { "deliverables": "Materials for institutional submission and archiving", "courseLogic": "Formal course truth that stays editable and drives downstream updates", "supportingMaterials": "Teacher-uploaded question banks, exam papers, student work, and other evidence", "outlineDeliverable": "Shares the same formal revision as the outline in course logic", "scriptPpt": "The content body and classroom expression for the same session" },

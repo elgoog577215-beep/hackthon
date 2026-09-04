@@ -334,15 +334,22 @@ describe('CourseEvolutionWorkspace', () => {
     wrapper.unmount()
   })
 
-  it('应用部分失败时只重试失败资产', async () => {
+  it('应用 4 成功 1 失败时按 journal 汇编并只重试失败 operation ID', async () => {
     const pinia = createPinia()
     const store = useCourseEvolutionStore(pinia)
     store.plans = [plan({
       status: 'applied',
       selected_scope: 'current',
-      selected_operation_ids: ['script-ok', 'ppt-failed'],
+      selected_operation_ids: ['outline-ok', 'plan-ok', 'script-ok', 'bank-ok', 'ppt-failed'],
+      operation_journal: [
+        { schema_version: 'course_evolution_operation_journal_v1', operation_id: 'outline-ok', domain: 'outline', status: 'applied', attempt: 1, previous_revision_id: 'outline-1', expected_result_revision_id: 'outline-2', result_revision_id: 'outline-2', result_receipt: { title: '大纲', detail: '已更新' }, error_code: '', detail: '已更新', retryable: false, created_at: '', updated_at: '' },
+        { schema_version: 'course_evolution_operation_journal_v1', operation_id: 'plan-ok', domain: 'lesson_plan', status: 'applied', attempt: 1, previous_revision_id: 'plan-1', expected_result_revision_id: 'plan-2', result_revision_id: 'plan-2', result_receipt: { title: '教案', detail: '已更新' }, error_code: '', detail: '已更新', retryable: false, created_at: '', updated_at: '' },
+        { schema_version: 'course_evolution_operation_journal_v1', operation_id: 'script-ok', domain: 'script', status: 'applied', attempt: 1, previous_revision_id: 'script-1', expected_result_revision_id: 'script-2', result_revision_id: 'script-2', result_receipt: { title: '讲义', detail: '已更新' }, error_code: '', detail: '已更新', retryable: false, created_at: '', updated_at: '' },
+        { schema_version: 'course_evolution_operation_journal_v1', operation_id: 'bank-ok', domain: 'question_bank', status: 'applied', attempt: 1, previous_revision_id: 'bank-1', expected_result_revision_id: 'bank-2', result_revision_id: 'bank-2', result_receipt: { title: '题库', detail: '已更新' }, error_code: '', detail: '已更新', retryable: false, created_at: '', updated_at: '' },
+        { schema_version: 'course_evolution_operation_journal_v1', operation_id: 'ppt-failed', domain: 'ppt', status: 'failed', attempt: 1, previous_revision_id: 'ppt-1', expected_result_revision_id: 'ppt-2', result_revision_id: '', result_receipt: { title: 'PPT', detail: '应用失败' }, error_code: 'ppt_apply_failed', detail: '应用失败', retryable: true, created_at: '', updated_at: '' },
+      ],
       application_receipt: {
-        applied_count: 1,
+        applied_count: 99,
         failed_count: 1,
         unchanged_count: 0,
         items: [
@@ -354,12 +361,15 @@ describe('CourseEvolutionWorkspace', () => {
     const accept = vi.spyOn(store, 'accept').mockResolvedValue({} as any)
     const wrapper = mountWorkspace(pinia)
 
+    expect(wrapper.get('.receipt-state dl').text()).toContain('已更新4')
+    expect(wrapper.get('.receipt-state dl').text()).toContain('失败1')
+    expect(wrapper.findAll('.receipt-items li')).toHaveLength(5)
     expect(wrapper.get('.receipt-actions').text()).toContain('只重试失败项')
     await wrapper.findAll('.receipt-actions button')[0]!.trigger('click')
     expect(accept).toHaveBeenCalledWith(
       'change-1',
       'current',
-      ['script-ok', 'ppt-failed'],
+      ['ppt-failed'],
       { retryFailed: true },
     )
     wrapper.unmount()

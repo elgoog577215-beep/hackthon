@@ -101,18 +101,31 @@ def test_server_activation_cache_cleanup_is_scoped_to_regenerable_data() -> None
     assert "BACKUP_DIR" not in cleanup
 
 
-def test_server_activation_uses_checkpoint_recovery_for_active_tasks() -> None:
+def test_server_activation_exits_before_stop_for_unsafe_active_tasks() -> None:
     script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
 
-    recovery_plan = script.index("log_generation_task_recovery_plan")
-    stop_service = script.index('systemctl stop "$SERVICE_NAME"')
-    deployment_complete = script.index('log "部署完成：$TARGET_COMMIT"')
-    remove_artifact = script.index('rm -f "$ARTIFACT_PATH"')
+    preflight = script.index("\npreflight_retrieval_runtime\n")
+    safety_gate = script.index("\n    if assert_no_unsafe_active_tasks", preflight)
+    stop_service = script.index('systemctl stop "$SERVICE_NAME"', safety_gate)
 
-    assert recovery_plan < stop_service
-    assert "exit 75" not in script
-    assert "将优雅停止服务，并由新版本从检查点恢复" in script
-    assert deployment_complete < remove_artifact
+    assert safety_gate < stop_service
+    assert 'exit "$task_safety_status"' in script[safety_gate:stop_service]
+    assert "check_deploy_task_safety.py" in script
+    assert "继续依赖持久检查点" not in script
+
+
+def test_server_activation_creates_and_restore_verifies_versioned_backup() -> None:
+    script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
+
+    stop_service = script.index('systemctl stop "$SERVICE_NAME"')
+    backup = script.index('create_verified_data_backup "$CURRENT_LINK/backend/data"')
+    migrate = script.index('rsync -a "$CURRENT_LINK/backend/data/"')
+    switch = script.index('switch_current "$release_path"')
+
+    assert stop_service < backup < migrate < switch
+    assert 'create_verified_data_backup "$STATE_DIR/backend-data"' in script
+    assert "create_verified_data_backup.py" in script
+    assert 'rm -f -- "${backups[index]}.sha256"' in script
 
 
 def test_server_activation_preflights_and_recovers_systemd_runtime() -> None:
@@ -170,6 +183,8 @@ def test_workflow_builds_artifact_before_tuotu_activation() -> None:
     assert "secrets.LINGZHI_SSH_USER" in workflow
     assert "secrets.LINGZHI_SSH_KEY" in workflow
     assert "scripts/github-action-deploy.sh" in workflow
+    assert "LINGZHI_DEPLOY_BUSY=true" in workflow
+    assert "env.LINGZHI_DEPLOY_BUSY != 'true'" in workflow
 
 
 def test_server_activation_bootstraps_an_isolated_systemd_runtime() -> None:

@@ -15,6 +15,7 @@ import pytest
 
 os.environ["LINGZHI_TEST_ALLOW_EXTERNAL_TEXT_PROVIDERS"] = "true"
 os.environ["AI_LOCAL_PROVIDER"] = "http"
+os.environ["LINGZHI_TASK_RUNTIME_MODE"] = "isolated_test"
 for _forbidden_text_key in (
     "MODELSCOPE_API_KEY",
     "MODELSCOPE_BASE_URL",
@@ -227,3 +228,8 @@ class _IsolatedEventStorage:
         self._path(filename).write_text(
             json.dumps(value, ensure_ascii=False), encoding="utf-8",
         )
+
+    def update_data(self, filename: str, updater):
+        updated = updater(self.load_data(filename))
+        self.save_data(filename, updated)
+        return updated

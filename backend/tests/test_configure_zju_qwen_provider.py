@@ -5,7 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPOSITORY_ROOT / "scripts" / "configure_zju_qwen_provider.py"
 DEPLOY_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "deploy-lingzhi.yml"
@@ -19,6 +18,7 @@ def _payload(**overrides):
         "api_key": "private-placeholder",
         "base_url": "http://qwen.internal.test:30938/v1",
         "model": "qwen3.8-27b",
+        "release_sha": "a" * 40,
         "slide_deck_v6_enabled": True,
         "slide_deck_v6_default_enabled": True,
         "teacher_script_animation_enabled": False,
@@ -72,6 +72,7 @@ def test_configure_zju_qwen_updates_every_text_role_and_removes_modelscope(
         assert f"{key}=qwen3.8-27b" in content
     assert "AI_THINKING_ENABLED=false" in content
     assert "AI_LOCAL_PROVIDER=http" in content
+    assert f"LINGZHI_RELEASE_SHA={'a' * 40}" in content
     assert "SLIDE_DECK_V6_ENABLED=true" in content
     assert "SLIDE_DECK_V6_DEFAULT_ENABLED=true" in content
     assert "TEACHER_SCRIPT_ANIMATION_ENABLED=false" in content
@@ -106,6 +107,17 @@ def test_configure_zju_qwen_rejects_invalid_endpoint_atomically(tmp_path):
     assert env_file.read_text(encoding="utf-8") == original
 
 
+def test_configure_zju_qwen_rejects_invalid_release_sha_atomically(tmp_path):
+    env_file = tmp_path / ".env"
+    original = "LINGZHI_RELEASE_SHA=old\nAI_API_KEY=old-primary\n"
+    env_file.write_text(original, encoding="utf-8")
+
+    result = _run(env_file, _payload(release_sha="short"))
+
+    assert result.returncode != 0
+    assert env_file.read_text(encoding="utf-8") == original
+
+
 def test_release_workflow_uses_only_private_zju_qwen_text_secrets():
     workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
 
@@ -122,6 +134,8 @@ def test_release_workflow_uses_only_private_zju_qwen_text_secrets():
     assert "api.deepseek.com" not in workflow
     assert "TEACHER_SCRIPT_ANIMATION_ENABLED: false" in workflow
     assert '"teacher_script_animation_enabled"' in workflow
+    assert "LINGZHI_RELEASE_SHA: ${{ github.sha }}" in workflow
+    assert '"release_sha": os.environ["LINGZHI_RELEASE_SHA"]' in workflow
 
 
 def test_production_model_probe_runs_before_independent_retrieval_diagnostics():

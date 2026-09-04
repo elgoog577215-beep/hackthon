@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import http, { getTeacherIdentity } from '../utils/http'
+import type { CourseProductionState } from '../shared/teacher-production-state'
 
 export const TEACHING_CALENDAR_SAVED_EVENT = 'lingzhi:teaching-calendar-saved'
 export const TEACHING_CALENDAR_SAVED_STORAGE_KEY = 'lingzhi_teaching_calendar_saved_v1'
@@ -34,6 +35,7 @@ export interface ClassSession {
   calendar_revision?: number
   calendar_layer?: 'official' | 'incomplete'
   lesson_plan_status?: string
+  script_status?: string
   ppt_status?: string
   has_conflict?: boolean
 }
@@ -51,6 +53,7 @@ export interface TeachingCalendar {
   sessions: ClassSession[]
   created_at: string
   updated_at: string
+  course_production_state?: CourseProductionState
 }
 
 export interface OutlineCalendarCandidate {

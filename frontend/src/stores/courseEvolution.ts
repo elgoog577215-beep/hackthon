@@ -25,6 +25,25 @@ export interface EvolutionOperation {
   payload: Record<string, any>
 }
 
+export interface CourseEvolutionOperationJournalEntry {
+  schema_version: 'course_evolution_operation_journal_v1'
+  operation_id: string
+  domain: string
+  status: 'pending' | 'applying' | 'applied' | 'failed'
+  attempt: number
+  previous_revision_id: string
+  expected_result_revision_id: string
+  result_revision_id: string
+  result_receipt: Record<string, any>
+  error_code: string
+  detail: string
+  retryable: boolean
+  created_at: string
+  started_at?: string | null
+  completed_at?: string | null
+  updated_at: string
+}
+
 export type CourseEvolutionAnchorRole =
   | 'reasoning'
   | 'application'
@@ -203,6 +222,7 @@ export interface CourseEvolutionPlan {
   status: 'pending' | 'accepted' | 'applied' | 'rejected' | 'stale' | 'undo_partial' | 'undone'
   applied_block_ids?: string[]
   application_receipt?: Record<string, any>
+  operation_journal?: CourseEvolutionOperationJournalEntry[]
   undo_receipt?: Record<string, any>
   effect_evaluation: Record<string, any>
 }

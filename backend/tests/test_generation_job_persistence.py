@@ -6,7 +6,7 @@ import jobs.manager as task_manager_module
 from assessment_generation_policy import (
     ASSESSMENT_GENERATION_POLICY_VERSION,
 )
-from jobs.manager import TaskManager
+from jobs.manager import TaskIndexDegradedError, TaskManager
 from generation_workspace import GenerationWorkspaceRepository
 
 
@@ -332,6 +332,84 @@ def test_oversized_job_index_is_archived_before_json_hydration(
     assert not durable.exists()
     assert len(archives) == 1
     assert archives[0].read_text(encoding="utf-8") == original
+
+
+def test_corrupt_job_index_recovers_verified_last_good(
+    tmp_path,
+    monkeypatch,
+):
+    durable = tmp_path / "data" / "generation_jobs.json"
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", durable)
+    manager = TaskManager(storage=None, course_service=None, ws_service=None)
+    manager.tasks["job-kept"] = {
+        "id": "job-kept",
+        "course_id": "course-1",
+        "type": "course_generation",
+        "status": "running",
+    }
+    manager.save_tasks(strict=True)
+    manager.tasks["job-newer"] = {
+        "id": "job-newer",
+        "course_id": "course-2",
+        "type": "course_generation",
+        "status": "pending",
+    }
+    manager.save_tasks(strict=True)
+    durable.write_text("{broken", encoding="utf-8")
+
+    restarted = TaskManager(storage=None, course_service=None, ws_service=None)
+
+    assert set(restarted.tasks) == {"job-kept"}
+    assert restarted.task_index_health() == {
+        "state": "ready",
+        "ready": True,
+        "recovery": "last_good",
+        "error_code": None,
+    }
+    assert list(durable.parent.glob("generation_jobs.corrupt-*.json"))
+
+
+@pytest.mark.asyncio
+async def test_double_invalid_job_index_enters_degraded_and_rejects_writes(
+    tmp_path,
+    monkeypatch,
+):
+    durable = tmp_path / "data" / "generation_jobs.json"
+    durable.parent.mkdir(parents=True)
+    durable.write_text("{broken", encoding="utf-8")
+    last_good = durable.with_name("generation_jobs.last-good.json")
+    last_good.write_text(json.dumps({
+        "schema_version": "generation_job_index_last_good_v1",
+        "checksum": "wrong",
+        "tasks": {"job-hidden": {"status": "running"}},
+    }), encoding="utf-8")
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", durable)
+
+    class ReadableCourseStorage:
+        _data_dir = tmp_path / "data"
+
+        @staticmethod
+        def load_course(course_id):
+            return {"course_id": course_id, "course_name": "最后可用课程"}
+
+    course_storage = ReadableCourseStorage()
+    manager = TaskManager(
+        storage=course_storage,
+        course_service=None,
+        ws_service=None,
+    )
+
+    assert manager.tasks == {}
+    assert manager.task_index_health() == {
+        "state": "degraded",
+        "ready": False,
+        "recovery": "unavailable",
+        "error_code": "generation_job_index_unrecoverable",
+    }
+    with pytest.raises(TaskIndexDegradedError) as captured:
+        await manager.create_task("course-1", enqueue=False)
+    assert captured.value.code == "generation_job_index_degraded"
+    assert course_storage.load_course("course-1")["course_name"] == "最后可用课程"
 
 
 @pytest.mark.asyncio

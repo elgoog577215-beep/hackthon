@@ -345,8 +345,6 @@ def validate_teaching_plan_skeleton_v3(
         str(item.get("node_id") or ""): item
         for item in skeleton.get("sections") or [] if isinstance(item, dict)
     }
-    section_order = {node_id: index for index, node_id in enumerate(expected_ids)}
-    registry_order = {key: index for index, key in enumerate(keys)}
     ownership: dict[str, str] = {}
     declared_reuse: dict[str, set[str]] = {}
     for node_id in expected_ids:
@@ -384,23 +382,6 @@ def validate_teaching_plan_skeleton_v3(
         prerequisite_keys = list(item.get("prerequisite_keys") or [])
         if set(prerequisite_keys) - key_set:
             issues.append(_issue("teaching_skeleton:unknown_prerequisite", f"知识键 {key} 引用了未知前置知识"))
-        for prerequisite_key in prerequisite_keys:
-            prerequisite_owner = ownership.get(prerequisite_key, "")
-            if prerequisite_key not in key_set:
-                continue
-            if (
-                section_order.get(prerequisite_owner, len(expected_ids))
-                > section_order.get(owner, -1)
-                or (
-                    prerequisite_owner == owner
-                    and registry_order.get(prerequisite_key, len(keys))
-                    >= registry_order.get(key, -1)
-                )
-            ):
-                issues.append(_issue(
-                    "teaching_skeleton:future_prerequisite",
-                    f"知识键 {key} 只能引用本节更早位置或前序小节的前置知识 {prerequisite_key}",
-                ))
         if set(item.get("module_ids") or []) - allowed_modules.get(owner, set()):
             issues.append(_issue("teaching_skeleton:unknown_module", f"知识键 {key} 绑定了本节不允许的课程块"))
         if not item.get("module_ids"):

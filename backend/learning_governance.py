@@ -174,11 +174,25 @@ def load_deletion_receipts(*, user_id: str | None = None) -> list[dict[str, Any]
 
 def _append_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
     _assert_receipt_is_content_free(receipt)
-    stored = storage.load_data(DELETION_RECEIPTS_FILE) or []
-    receipts = list(stored) if isinstance(stored, list) else []
-    receipts.append(receipt)
-    storage.save_data(DELETION_RECEIPTS_FILE, receipts)
+
+    def append(stored: Any) -> list[dict[str, Any]]:
+        receipts = list(stored) if isinstance(stored, list) else []
+        receipts.append(receipt)
+        return receipts
+
+    _update_ledger(DELETION_RECEIPTS_FILE, append)
     return receipt
+
+
+def _update_ledger(filename: str, updater):
+    """Use Storage's cross-process atomic update with test-double fallback."""
+    update_data = getattr(storage, "update_data", None)
+    if callable(update_data):
+        return update_data(filename, updater)
+    current = storage.load_data(filename)
+    updated = updater(current)
+    storage.save_data(filename, updated)
+    return updated
 
 
 # --------------------------------------------------------------------------
@@ -207,9 +221,6 @@ def delete_learning_facts(
         raise ValueError("按课程删除必须提供 course_id")
 
     with _governance_lock:
-        stored = storage.load_data(LEARNING_EVENTS_FILE) or []
-        events = list(stored) if isinstance(stored, list) else []
-
         def is_target(item: dict[str, Any]) -> bool:
             if item.get("user_id") != user_id:
                 return False
@@ -219,12 +230,16 @@ def delete_learning_facts(
                 return str(item.get("course_id") or "") == str(course_id)
             return True
 
-        targets = [item for item in events if is_target(item)]
-        remaining = [item for item in events if not is_target(item)]
+        targets: list[dict[str, Any]] = []
 
-        # 事实载荷真删：写回不含目标事件的完整账本，而不是打标记。
-        if targets:
-            storage.save_data(LEARNING_EVENTS_FILE, remaining)
+        def remove_targets(stored: Any) -> list[dict[str, Any]]:
+            nonlocal targets
+            events = list(stored) if isinstance(stored, list) else []
+            targets = [item for item in events if is_target(item)]
+            # 事实载荷真删：写回不含目标事件的完整账本，而不是打标记。
+            return [item for item in events if not is_target(item)]
+
+        _update_ledger(LEARNING_EVENTS_FILE, remove_targets)
 
         affected_course_ids = sorted({
             str(item.get("course_id") or "")

@@ -213,6 +213,7 @@
       "complete": "备课完成",
       "incomplete": "备课中",
       "generating": "正在生成{target}{count}",
+      "stageProgress": "{stage} {available}/{total}",
       "waiting": "{target}等待继续{count}",
       "paused": "{target}生成已暂停{count}",
       "failed": "{target}生成失败{count}"
@@ -232,6 +233,12 @@
       "readyWithSuggestions": "已发布，有优化建议",
       "ready": "可继续备课"
     }
+  },
+  "teacherProductionState": {
+    "issueTitle": "生成问题",
+    "states": { "not_generated": "未生成", "generating": "生成中", "available": "可使用", "failed": "生成失败" },
+    "stages": { "outline": "大纲", "lesson_plan": "教案", "script": "讲义", "ppt": "PPT" },
+    "auxiliary": { "idle": "尚未开始", "queued": "等待生成", "running": "生成中", "paused": "已暂停", "failed": "生成失败", "completed": "已完成", "stale": "来源已更新", "pendingReview": "待核对", "recentFailure": "最近一次生成失败" }
   },
   "teacherWorkbench": {
     "courseWorkbench": "课程工作台",
@@ -5834,14 +5841,15 @@
       "hours": "{hours} 学时",
       "group": "{group}",
       "preparationTitle": "本讲备课",
-      "preparationProgress": "{ready}/3 已就绪",
+      "preparationProgress": "{ready}/4 已就绪",
       "outline": "大纲关联",
       "linkOutline": "关联大纲讲次",
       "startLessonPlan": "开始本讲教案",
       "reviewLessonPlan": "检查本讲教案",
+      "prepareScript": "准备讲义",
       "preparePpt": "完善本讲 PPT",
-      "states": { "linked": "已关联", "confirmed": "已确认", "generated": "已生成", "awaitingReview": "待确认", "generating": "生成中", "syncing": "同步中", "needsUpdate": "需更新", "failed": "生成失败", "readFailed": "读取失败", "notLinked": "未关联", "notCreated": "未生成" },
-      "details": { "outlineLinked": "已对应到课程大纲中的本讲", "outlineMissing": "课次尚未关联课程大纲中的讲次", "outlineStale": "关联讲次已不在当前大纲中", "statusSyncing": "正在同步本讲资产状态", "statusUnavailable": "状态暂时无法读取，进入备课后可重试", "planNeedsOutline": "关联大纲讲次后才能建立教案", "planWorking": "本讲教案正在生成", "planFailed": "本讲教案生成中断，可进入备课重试", "planMissing": "本讲教案尚未生成", "planStale": "课程大纲已变化，教案需要核对", "planDraft": "已有教案草稿，等待教师确认", "planReady": "教案已确认，可继续制作课堂资料", "pptNeedsOutline": "关联大纲讲次后才能制作 PPT", "pptNeedsPlan": "完成本讲教案后即可生成 PPT", "pptWorking": "本讲 PPT 正在生成", "pptFailed": "本讲 PPT 生成中断，可进入备课重试", "pptMissing": "本讲 PPT 尚未生成", "pptStale": "教案已变化，PPT 需要同步", "pptReady": "配套 PPT 已生成" }
+      "states": { "linked": "已关联", "confirmed": "已确认", "generated": "已生成", "available": "可使用", "awaitingReview": "待确认", "generating": "生成中", "syncing": "同步中", "needsUpdate": "需更新", "failed": "生成失败", "readFailed": "读取失败", "notLinked": "未关联", "notCreated": "未生成" },
+      "details": { "outlineLinked": "已对应到课程大纲中的本讲", "outlineMissing": "课次尚未关联课程大纲中的讲次", "outlineStale": "关联讲次已不在当前大纲中", "statusSyncing": "正在同步本讲资产状态", "statusUnavailable": "状态暂时无法读取，进入备课后可重试", "planNeedsOutline": "关联大纲讲次后才能建立教案", "planWorking": "本讲教案正在生成", "planFailed": "本讲教案生成中断，可进入备课重试", "planMissing": "本讲教案尚未生成", "planStale": "课程大纲已变化，教案需要核对", "planDraft": "已有教案草稿，等待教师确认", "planReady": "教案已确认，可继续制作课堂资料", "scriptNeedsPlan": "完成本讲教案后即可生成讲义", "scriptMissing": "本讲讲义尚未生成", "scriptStale": "教案已变化，讲义需要同步", "scriptReady": "本讲讲义可使用", "pptNeedsOutline": "关联大纲讲次后才能制作 PPT", "pptNeedsPlan": "完成本讲教案后即可生成 PPT", "pptWorking": "本讲 PPT 正在生成", "pptFailed": "本讲 PPT 生成中断，可进入备课重试", "pptMissing": "本讲 PPT 尚未生成", "pptStale": "教案已变化，PPT 需要同步", "pptReady": "配套 PPT 已生成" }
     }
   },
   "courseSpaceCreate": {
@@ -6286,7 +6294,7 @@
       "root": "课程文件", "deliverables": "教务材料", "course_logic": "课程逻辑文件", "supporting_materials": "辅助资料", "outline_export": "大纲文件", "lesson_plans": "教案", "script_ppt": "讲义-PPT", "question_bank_files": "题库", "question_practices": "分讲练习", "aux_question_bank": "老师题库", "aux_exam_papers": "试卷", "aux_student_work": "学生作业", "aux_other": "其他资料", "exam_papers": "正式试卷", "outline": "大纲", "teachingCalendar": "教学日历文件", "lesson": "课次", "lessonPlan": "教案",
       "content": "讲义", "material": "课程资料", "ppt": "PPT", "practice": "分讲练习", "question_bank": "正式题库", "exam_paper": "正式试卷", "companionDocuments": "其他课程文件", "companionDocument": "课程文件", "folder": "文件夹", "file": "上传原件"
     },
-    "status": { "ready": "已就绪", "draft": "准备中", "missing": "未生成", "working": "生成中", "stale": "待更新", "uploaded": "已上传", "empty": "暂无内容", "trashed": "已移入回收站" },
+    "status": { "ready": "已就绪", "draft": "准备中", "missing": "未生成", "working": "生成中", "failed": "生成失败", "stale": "待更新", "uploaded": "已上传", "empty": "暂无内容", "trashed": "已移入回收站" },
     "statusHelp": {
       "ready": "当前版本可直接使用。", "draft": "部分必备内容尚未完成，可进入后继续准备。", "missing": "当前还没有内容。选中后可在右侧开始生成或创建。",
       "working": "后台正在生成，完成后这里会自动显示新版本。", "stale": "上游大纲、教案或资料已变化，建议检查并更新。", "uploaded": "原始文件已保存到本地课程空间。", "empty": "当前文件夹还没有老师添加的资料。"

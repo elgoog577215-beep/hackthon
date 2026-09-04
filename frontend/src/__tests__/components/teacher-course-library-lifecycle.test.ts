@@ -98,7 +98,7 @@ describe('teacher course library management', () => {
     expect(wrapper.get('[data-testid="delete-course-math"]').attributes('title')).toBe('删除课程')
   })
 
-  it('在课程行内显示真实生成任务，并直接进入对应生产阶段', async () => {
+  it('课程行只显示备课两态与阶段进度，并直接进入对应生产阶段', async () => {
     const courses = useCourseStore()
     courses.courseList = [course('active', {
       course_name: '线性代数',
@@ -124,7 +124,8 @@ describe('teacher course library management', () => {
     const wrapper = mountLibrary()
     await flushPromises()
 
-    expect(wrapper.get('.course-production-summary').text()).toBe('正在生成教案 1/3')
+    expect(wrapper.get('.course-production-summary').text()).toBe('备课中')
+    expect(wrapper.get('.course-production-detail').text()).toBe('教案 1/3')
     expect(wrapper.find('.course-task').exists()).toBe(false)
     expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
     expect(wrapper.get('.course-action').text()).toContain('查看进度')
@@ -136,7 +137,7 @@ describe('teacher course library management', () => {
     expect(router.currentRoute.value.query.stage).toBe('lesson')
   })
 
-  it('大纲讲次方案完成后显示等待继续而不是正在生成', async () => {
+  it('大纲暂停时仍保持课程两态并进入大纲阶段', async () => {
     const courses = useCourseStore()
     courses.courseList = [course('outline-waiting', { course_name: 'UI 设计' }) as any]
     vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
@@ -148,15 +149,15 @@ describe('teacher course library management', () => {
     const wrapper = mountLibrary()
     await flushPromises()
 
-    expect(wrapper.get('.course-production-summary').text()).toBe('教学大纲等待继续')
-    expect(wrapper.get('.course-production-summary').attributes('data-tone')).toBe('attention')
-    expect(wrapper.get('.course-action').text()).toContain('继续备课')
+    expect(wrapper.get('.course-production-summary').text()).toBe('备课中')
+    expect(wrapper.get('.course-production-detail').text()).toBe('大纲 0/1')
+    expect(wrapper.get('.course-action').text()).toContain('查看进度')
     await wrapper.get('.course-action').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.query.stage).toBe('foundation')
   })
 
-  it('课程汇总中的大纲等待状态也进入大纲阶段', async () => {
+  it('课程汇总中的大纲等待状态不扩张课程主状态', async () => {
     const courses = useCourseStore()
     courses.courseList = [course('outline-summary-waiting', {
       course_name: 'UI 设计',
@@ -178,11 +179,77 @@ describe('teacher course library management', () => {
     const wrapper = mountLibrary()
     await flushPromises()
 
-    expect(wrapper.get('.course-production-summary').text()).toBe('教学大纲等待继续 16/16')
-    expect(wrapper.get('.course-action').text()).toContain('继续备课')
+    expect(wrapper.get('.course-production-summary').text()).toBe('备课中')
+    expect(wrapper.get('.course-production-detail').text()).toBe('大纲 0/1')
+    expect(wrapper.get('.course-action').text()).toContain('查看进度')
     await wrapper.get('.course-action').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.query.stage).toBe('foundation')
+  })
+
+  it('新投影优先保留整课 15/16，last-good 失败只导航定位且不发写请求', async () => {
+    const courses = useCourseStore()
+    const stage = (display_state: string, total: number, available: number, extra: Record<string, unknown> = {}) => ({
+      display_state,
+      task_state: 'idle',
+      availability: available > 0 ? 'usable' : 'missing',
+      source_state: 'current',
+      latest_attempt_failed: false,
+      update_required: false,
+      counts: { total, available, generating: 0, failed: 0, stale: 0 },
+      issues: [],
+      ...extra,
+    })
+    const issue = {
+      issue_id: 'lesson-plan-L1-16-task-16',
+      stage: 'lesson_plan',
+      lesson_unit_id: 'L1-16',
+      block_id: 'block-3',
+      task_id: 'task-16',
+      code: 'generation_failed',
+      summary: '第 16 讲知识骨架生成失败，请检查来源后重试。',
+      recovery: { action: 'retry_generation', automatic: false, requires_confirmation: true },
+    }
+    courses.courseList = [course('projection', {
+      preparation_summary: {
+        planned_lessons: 16,
+        current_production: { target: 'lesson_plan', status: 'failed', completed: 0, total: 1, failed: 1 },
+      },
+      course_production_state: {
+        schema_version: 'course_production_state_v1',
+        course_id: 'projection',
+        preparation_state: 'preparing',
+        stages: {
+          outline: stage('available', 1, 1),
+          lesson_plan: stage('available', 16, 15, { latest_attempt_failed: true, issues: [issue] }),
+          script: stage('not_generated', 16, 0),
+          ppt: stage('not_generated', 16, 0),
+        },
+        lessons: [],
+        issues: [issue],
+      },
+    }) as any]
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+
+    const wrapper = mountLibrary()
+    await flushPromises()
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockClear()
+
+    expect(wrapper.get('.course-production-summary').text()).toBe('备课中')
+    expect(wrapper.get('.course-production-detail').text()).toBe('教案 15/16')
+    expect(wrapper.get('.course-action').text()).toContain('处理问题')
+    await wrapper.get('.course-action').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.query).toMatchObject({
+      stage: 'lesson', lesson: 'L1-16', block: 'block-3', task: 'task-16',
+      issue: 'lesson-plan-L1-16-task-16', expandIssue: '1',
+    })
+    const writeMethods = fetchMock.mock.calls
+      .map(([, options]) => String(options?.method || 'GET').toUpperCase())
+      .filter(method => ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method))
+    expect(writeMethods).toEqual([])
   })
 
   it('停留在我的课程时静默刷新生成进度，离开页面后停止', async () => {

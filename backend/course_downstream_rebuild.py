@@ -265,11 +265,16 @@ def build_content_runner(
 def build_knowledge_rebuild_runners(
     course_data: dict[str, Any],
     *,
+    course_id: str = "",
     representation_repository: Any = None,
     course_repository: Any = None,
     block_repository: Any = None,
     actor: str = "system",
     request_id: str = "",
+    question_bundle: dict[str, Any] | None = None,
+    question_job_repository: Any = None,
+    question_job_executor: Any = None,
+    question_payload_factory: Any = None,
 ) -> dict[str, Any]:
     """Wrap the existing pipelines in the shape the shared executor expects.
 
@@ -278,9 +283,9 @@ def build_knowledge_rebuild_runners(
     plan changed must go through identical code, or "last usable artifact"
     stops meaning one thing.
 
-    Content and practice have no targeted rebuild entry point yet, so their
-    runners fail loudly. The executor turns that into a per-object receipt the
-    teacher can read, which beats reporting a rebuild that never happened.
+    Content and practice both reuse their existing targeted entry points. The
+    practice runner registers and submits an item-scoped job to the formal
+    question-bank executor; it never generates or publishes questions here.
     """
 
     def representation(_entry: dict[str, Any]) -> dict[str, Any]:
@@ -312,6 +317,25 @@ def build_knowledge_rebuild_runners(
         instruction=KNOWLEDGE_CONTENT_INSTRUCTION,
     )
 
+    from practice_targeted_rebuild import build_rebuild_runners
+    resolved_course_id = _text(course_id or (course_data or {}).get("course_id"))
+    if question_bundle is None and resolved_course_id:
+        from question_bank import question_bank_repository
+
+        question_bundle = question_bank_repository.load_bundle(
+            resolved_course_id,
+        )
+    practice = build_rebuild_runners(
+        bundle=question_bundle or {},
+        course_id=resolved_course_id,
+        knowledge_revision_id=request_id,
+        actor_id=actor,
+        job_repository=question_job_repository,
+        job_executor=question_job_executor,
+        payload_factory=question_payload_factory,
+        course_data=course_data,
+    )["practice"]
+
     def unsupported(entry: dict[str, Any]) -> dict[str, Any]:
         return {
             "status": "failed",
@@ -321,12 +345,7 @@ def build_knowledge_rebuild_runners(
     return {
         "representation": representation,
         "course_content": course_content,
-        # Practice deliberately stays unsupported: the question-bank pipeline's
-        # smallest real generation unit is a node, its ids live in a different
-        # space (`qbir_` vs the `q_` ids this chain carries), and it publishes
-        # live bundles instead of candidates. Faking a per-question runner would
-        # regenerate a whole node and activate it without review. See NOTES.
-        "practice": unsupported,
+        "practice": practice,
         "knowledge": unsupported,
     }
 
@@ -380,11 +399,15 @@ async def request_rebuild(
         downstream,
         runners=build_knowledge_rebuild_runners(
             course_data or {},
+            course_id=course_id,
             representation_repository=representation_repository,
             course_repository=course_repository,
             block_repository=block_repository,
             actor=actor,
-            request_id=request_id,
+            request_id=(
+                _text(downstream.get("source_plan_revision_id"))
+                or request_id
+            ),
         ),
         only_ids=[row["id"] for row in plan["targets"]],
         candidate_only=candidate_only,

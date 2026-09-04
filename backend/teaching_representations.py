@@ -125,6 +125,7 @@ class TeachingRepresentation(BaseModel):
     quality_report_id: str = ""
     revision: str
     status: RepresentationStatus = "planned"
+    rebuild_required: bool = False
     stale_reasons: list[str] = Field(default_factory=list)
     stale_unit_ids: list[str] = Field(default_factory=list)
     fallback_representation_id: str | None = None
@@ -226,7 +227,170 @@ class TeachingRepresentationRegistry(BaseModel):
     representation_sets: list[RepresentationSet] = Field(default_factory=list)
     derivation_graph: AssetDerivationGraph
     applied_revision_event_ids: list[str] = Field(default_factory=list)
+    section_reference_tombstones: list[dict[str, Any]] = Field(default_factory=list)
+    structure_reference_rebinds: list[dict[str, Any]] = Field(default_factory=list)
     updated_at: str
+
+
+_STRUCTURE_SCALAR_REFERENCE_FIELDS = {
+    "section_id",
+    "lesson_unit_id",
+    "parent_section_id",
+    "target_section_id",
+}
+_STRUCTURE_LIST_REFERENCE_FIELDS = {
+    "section_ids",
+    "lesson_unit_ids",
+    "target_section_ids",
+}
+
+
+def _rewrite_explicit_structure_references(
+    value: Any,
+    primary_by_source: dict[str, str],
+    *,
+    path: tuple[str | int, ...] = (),
+) -> list[dict[str, Any]]:
+    """Rewrite only typed identity fields and retain a reversible path journal."""
+
+    mutations: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        for key in list(value):
+            current = value[key]
+            current_path = (*path, key)
+            if key in {"source_revisions", "source_revision_vector"} and isinstance(current, dict):
+                rebound: dict[str, Any] = {}
+                for source_key, revision in current.items():
+                    if source_key.startswith("section:"):
+                        source_id = source_key.removeprefix("section:")
+                        target_id = primary_by_source.get(source_id)
+                        target_key = f"section:{target_id}" if target_id else source_key
+                    else:
+                        target_key = source_key
+                    if target_key in rebound and rebound[target_key] != revision:
+                        raise RepresentationConflict(
+                            "Structure rebind would collapse conflicting source revisions"
+                        )
+                    rebound[target_key] = revision
+                if rebound != current:
+                    mutations.append({
+                        "path": list(current_path),
+                        "before": deepcopy(current),
+                        "after": deepcopy(rebound),
+                    })
+                    value[key] = rebound
+                continue
+            if (
+                key in _STRUCTURE_SCALAR_REFERENCE_FIELDS
+                and isinstance(current, str)
+                and primary_by_source.get(current)
+                and primary_by_source[current] != current
+            ):
+                replacement = primary_by_source[current]
+                mutations.append({
+                    "path": list(current_path),
+                    "before": current,
+                    "after": replacement,
+                })
+                value[key] = replacement
+                continue
+            if key in _STRUCTURE_LIST_REFERENCE_FIELDS and isinstance(current, list):
+                replacement = list(dict.fromkeys(
+                    primary_by_source.get(str(item), str(item))
+                    for item in current
+                ))
+                if replacement != current:
+                    mutations.append({
+                        "path": list(current_path),
+                        "before": deepcopy(current),
+                        "after": replacement,
+                    })
+                    value[key] = replacement
+                continue
+            mutations.extend(_rewrite_explicit_structure_references(
+                value[key],
+                primary_by_source,
+                path=current_path,
+            ))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            mutations.extend(_rewrite_explicit_structure_references(
+                item,
+                primary_by_source,
+                path=(*path, index),
+            ))
+    return mutations
+
+
+def _contains_explicit_structure_reference(
+    value: Any,
+    affected_section_ids: set[str],
+) -> bool:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if (
+                key in _STRUCTURE_SCALAR_REFERENCE_FIELDS
+                and str(item or "") in affected_section_ids
+            ):
+                return True
+            if (
+                key in _STRUCTURE_LIST_REFERENCE_FIELDS
+                and isinstance(item, list)
+                and affected_section_ids.intersection(str(entry) for entry in item)
+            ):
+                return True
+            if (
+                key in {"source_revisions", "source_revision_vector"}
+                and isinstance(item, dict)
+                and affected_section_ids.intersection(
+                    source_key.removeprefix("section:")
+                    for source_key in item
+                    if source_key.startswith("section:")
+                )
+            ):
+                return True
+            if _contains_explicit_structure_reference(item, affected_section_ids):
+                return True
+    elif isinstance(value, list):
+        return any(
+            _contains_explicit_structure_reference(item, affected_section_ids)
+            for item in value
+        )
+    return False
+
+
+def _value_at_path(value: Any, path: list[str | int]) -> Any:
+    current = value
+    for part in path:
+        current = current[part]
+    return current
+
+
+def _set_value_at_path(value: Any, path: list[str | int], replacement: Any) -> None:
+    current = value
+    for part in path[:-1]:
+        current = current[part]
+    current[path[-1]] = deepcopy(replacement)
+
+
+def _record_replacement(
+    mutations: list[dict[str, Any]],
+    value: dict[str, Any],
+    *,
+    path: list[str | int],
+    field: str,
+    replacement: Any,
+) -> None:
+    target = _value_at_path(value, path)
+    before = deepcopy(target.get(field))
+    if before == replacement:
+        return
+    target[field] = deepcopy(replacement)
+    mutations.append({
+        "path": [*path, field],
+        "before": before,
+        "after": deepcopy(replacement),
+    })
 
 
 def source_binding_for_document(
@@ -321,6 +485,314 @@ class TeachingRepresentationRepository:
             refreshed = self._refresh_registry(registry)
             self._atomic_write(self._path(registry.course_id), refreshed.model_dump(mode="json"))
             return refreshed
+
+    def apply_structure_reference_rebind(
+        self,
+        course_id: str,
+        *,
+        operation_id: str,
+        mapping_revision: str,
+        reference_migrations: list[dict[str, Any]],
+        section_tombstones: list[dict[str, Any]],
+        affected_section_ids: list[str],
+    ) -> dict[str, Any]:
+        """Rebind explicit identities and stale a registry in one atomic write."""
+
+        with self._lock(course_id):
+            registry = self.load(course_id)
+            existing = next(
+                (
+                    item
+                    for item in registry.structure_reference_rebinds
+                    if item.get("operation_id") == operation_id
+                ),
+                None,
+            )
+            if isinstance(existing, dict):
+                if (
+                    existing.get("status") == "applied"
+                    and existing.get("mapping_revision") == mapping_revision
+                ):
+                    return {
+                        "registry_revision": registry.registry_revision,
+                        "record": deepcopy(existing),
+                    }
+                raise RepresentationConflict(
+                    "Teaching representation structure rebind conflicts with history"
+                )
+
+            primary_by_source = {
+                str(item.get("source_section_id") or ""): str(
+                    item.get("primary_target_section_id") or ""
+                )
+                for item in reference_migrations
+                if isinstance(item, dict) and item.get("source_section_id")
+            }
+            raw = registry.model_dump(mode="json")
+            records = list(raw.pop("structure_reference_rebinds", []))
+            previous_tombstones = deepcopy(
+                raw.pop("section_reference_tombstones", [])
+            )
+            before_graph = deepcopy(raw.pop("derivation_graph"))
+            before_graph.pop("graph_revision", None)
+            affected = set(affected_section_ids)
+            affected_indexes: dict[str, list[int]] = {}
+            mutations: list[dict[str, Any]] = []
+            for collection_name in (
+                "plans",
+                "specs",
+                "representations",
+                "representation_sets",
+            ):
+                for index, item in enumerate(raw.get(collection_name) or []):
+                    if not _contains_explicit_structure_reference(item, affected):
+                        continue
+                    affected_indexes.setdefault(collection_name, []).append(index)
+                    mutations.extend(_rewrite_explicit_structure_references(
+                        item,
+                        primary_by_source,
+                        path=(collection_name, index),
+                    ))
+            affected_spec_ids_before = {
+                str((raw.get("specs") or [])[index].get("spec_id") or "")
+                for index in affected_indexes.get("specs", [])
+            }
+            representation_indexes = affected_indexes.setdefault(
+                "representations",
+                [],
+            )
+            for index, representation in enumerate(raw.get("representations") or []):
+                if (
+                    str(representation.get("spec_id") or "")
+                    in affected_spec_ids_before
+                    and index not in representation_indexes
+                ):
+                    representation_indexes.append(index)
+            reason = f"structure_reference_rebound:{mapping_revision}"
+            for index in affected_indexes.get("representations", []):
+                representation = raw["representations"][index]
+                path = ["representations", index]
+                _record_replacement(
+                    mutations,
+                    raw,
+                    path=path,
+                    field="status",
+                    replacement="stale",
+                )
+                _record_replacement(
+                    mutations,
+                    raw,
+                    path=path,
+                    field="rebuild_required",
+                    replacement=True,
+                )
+                _record_replacement(
+                    mutations,
+                    raw,
+                    path=path,
+                    field="stale_reasons",
+                    replacement=list(dict.fromkeys([
+                        *list(representation.get("stale_reasons") or []),
+                        reason,
+                    ])),
+                )
+                _record_replacement(
+                    mutations,
+                    raw,
+                    path=path,
+                    field="stale_unit_ids",
+                    replacement=list(dict.fromkeys([
+                        *list(representation.get("stale_unit_ids") or []),
+                        *[
+                            section_id
+                            for section_id in affected_section_ids
+                            if _contains_explicit_structure_reference(
+                                representation,
+                                {section_id, primary_by_source.get(section_id, "")},
+                            )
+                        ],
+                    ])),
+                )
+
+            raw["derivation_graph"] = before_graph
+            rebound_registry = TeachingRepresentationRegistry.model_validate(raw)
+            affected_spec_ids = {
+                rebound_registry.specs[index].spec_id
+                for index in affected_indexes.get("specs", [])
+            }
+            affected_representation_ids = {
+                rebound_registry.representations[index].representation_id
+                for index in affected_indexes.get("representations", [])
+            }
+            for spec in rebound_registry.specs:
+                if spec.spec_id in affected_spec_ids:
+                    self._bind_spec(rebound_registry.derivation_graph, spec)
+            for representation in rebound_registry.representations:
+                if representation.representation_id not in affected_representation_ids:
+                    continue
+                old_edge = next(
+                    (
+                        item
+                        for item in registry.derivation_graph.edges
+                        if item.to_node_id
+                        == f"representation::{representation.representation_id}"
+                    ),
+                    None,
+                )
+                self._bind_representation(
+                    rebound_registry.derivation_graph,
+                    representation,
+                    dependency_kind=(
+                        old_edge.dependency_kind if old_edge else "semantic_content"
+                    ),
+                    rebuild_policy=(
+                        old_edge.rebuild_policy if old_edge else "on_demand"
+                    ),
+                )
+            referenced_node_ids = {
+                node_id
+                for edge in rebound_registry.derivation_graph.edges
+                for node_id in (edge.from_node_id, edge.to_node_id)
+            }
+            rebound_registry.derivation_graph.nodes = [
+                node
+                for node in rebound_registry.derivation_graph.nodes
+                if node.node_type != "source" or node.node_id in referenced_node_ids
+            ]
+            after_graph = rebound_registry.derivation_graph.model_dump(mode="json")
+            after_graph.pop("graph_revision", None)
+            raw = rebound_registry.model_dump(mode="json")
+
+            tombstones_by_id = {
+                str(item.get("section_id") or ""): deepcopy(item)
+                for item in previous_tombstones
+                if isinstance(item, dict) and item.get("section_id")
+            }
+            for item in section_tombstones:
+                if isinstance(item, dict) and item.get("section_id"):
+                    tombstones_by_id[str(item["section_id"])] = deepcopy(item)
+            result_tombstones = list(tombstones_by_id.values())
+            record = {
+                "operation_id": operation_id,
+                "mapping_revision": mapping_revision,
+                "status": "applied",
+                "affected_section_ids": list(dict.fromkeys(affected_section_ids)),
+                "mutations": mutations,
+                "before_graph": before_graph,
+                "after_graph": after_graph,
+                "previous_tombstones": previous_tombstones,
+                "result_tombstones": deepcopy(result_tombstones),
+                "applied_at": datetime.now(timezone.utc).isoformat(),
+            }
+            raw["section_reference_tombstones"] = result_tombstones
+            raw["structure_reference_rebinds"] = [*records, record]
+            saved = self.save(TeachingRepresentationRegistry.model_validate(raw))
+            return {
+                "registry_revision": saved.registry_revision,
+                "record": deepcopy(record),
+            }
+
+    def structure_reference_rebind(
+        self,
+        course_id: str,
+        operation_id: str,
+    ) -> dict[str, Any] | None:
+        registry = self.load(course_id)
+        record = next(
+            (
+                item
+                for item in registry.structure_reference_rebinds
+                if item.get("operation_id") == operation_id
+            ),
+            None,
+        )
+        if not isinstance(record, dict):
+            return None
+        return {
+            "registry_revision": registry.registry_revision,
+            "record": deepcopy(record),
+        }
+
+    def undo_structure_reference_rebind(
+        self,
+        course_id: str,
+        *,
+        operation_id: str,
+        expected_mapping_revision: str,
+    ) -> dict[str, Any]:
+        """Restore the exact reference and stale markers when CAS still matches."""
+
+        with self._lock(course_id):
+            registry = self.load(course_id)
+            raw = registry.model_dump(mode="json")
+            record_index = next(
+                (
+                    index
+                    for index, item in enumerate(
+                        raw.get("structure_reference_rebinds") or []
+                    )
+                    if isinstance(item, dict)
+                    and item.get("operation_id") == operation_id
+                ),
+                None,
+            )
+            if record_index is None:
+                raise RepresentationConflict(
+                    "Teaching representation structure rebind receipt is missing"
+                )
+            record = raw["structure_reference_rebinds"][record_index]
+            if record.get("status") == "undone":
+                return {
+                    "registry_revision": registry.registry_revision,
+                    "record": deepcopy(record),
+                }
+            if record.get("mapping_revision") != expected_mapping_revision:
+                raise RepresentationConflict(
+                    "Teaching representation structure rebind revision conflicts"
+                )
+            for mutation in record.get("mutations") or []:
+                path = list(mutation.get("path") or [])
+                try:
+                    current = _value_at_path(raw, path)
+                except (IndexError, KeyError, TypeError) as exc:
+                    raise RepresentationConflict(
+                        "Teaching representation changed after structure rebind"
+                    ) from exc
+                if current != mutation.get("after"):
+                    raise RepresentationConflict(
+                        "Teaching representation changed after structure rebind"
+                    )
+            if list(raw.get("section_reference_tombstones") or []) != list(
+                record.get("result_tombstones") or []
+            ):
+                raise RepresentationConflict(
+                    "Teaching representation tombstones changed after structure rebind"
+                )
+            current_graph = deepcopy(raw.get("derivation_graph") or {})
+            current_graph.pop("graph_revision", None)
+            if current_graph != (record.get("after_graph") or {}):
+                raise RepresentationConflict(
+                    "Teaching representation graph changed after structure rebind"
+                )
+            for mutation in reversed(record.get("mutations") or []):
+                _set_value_at_path(
+                    raw,
+                    list(mutation.get("path") or []),
+                    mutation.get("before"),
+                )
+            raw["derivation_graph"] = deepcopy(record.get("before_graph") or {})
+            raw["section_reference_tombstones"] = deepcopy(
+                record.get("previous_tombstones") or []
+            )
+            record["status"] = "undone"
+            record["undone_at"] = datetime.now(timezone.utc).isoformat()
+            saved = self.save(TeachingRepresentationRegistry.model_validate(raw))
+            return {
+                "registry_revision": saved.registry_revision,
+                "record": deepcopy(
+                    saved.structure_reference_rebinds[record_index]
+                ),
+            }
 
     def register_plan(self, plan: RepresentationPlan) -> TeachingRepresentationRegistry:
         with self._lock(plan.course_id):

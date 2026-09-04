@@ -119,6 +119,7 @@ class CourseStructureOperation(BaseModel):
     target_parent_id: str = ""
     target_position: int | None = Field(default=None, ge=0)
     proposed_nodes: list[ProposedOutlineNode] = Field(default_factory=list)
+    depends_on_operation_ids: list[str] = Field(default_factory=list)
     reason: str
     assumptions: list[str] = Field(default_factory=list)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
@@ -130,6 +131,13 @@ class CourseStructureOperation(BaseModel):
             raise ValueError("Structure operations require an ID and base blueprint revision")
         if not self.idempotency_key or not self.reason.strip():
             raise ValueError("Structure operations require an idempotency key and reason")
+        self.depends_on_operation_ids = list(dict.fromkeys(
+            str(value)
+            for value in self.depends_on_operation_ids
+            if str(value)
+        ))
+        if self.operation_id in self.depends_on_operation_ids:
+            raise ValueError("Structure operations cannot depend on themselves")
 
         source_count = len(self.source_node_ids)
         proposed_count = len(self.proposed_nodes)
@@ -369,6 +377,32 @@ class CourseChangePlan(BaseModel):
             self.structure_review_status = "pending"
         if self.status != "needs_clarification" and self.intent.blocking_questions:
             raise ValueError("Plans with blocking questions must remain needs_clarification")
+        known_operation_ids = {
+            item.operation_id for item in self.structural_operations
+        }
+        pending = {
+            item.operation_id: set(item.depends_on_operation_ids)
+            for item in self.structural_operations
+        }
+        if any(
+            not dependencies.issubset(known_operation_ids)
+            for dependencies in pending.values()
+        ):
+            raise ValueError(
+                "Structure operation dependencies must belong to the same plan"
+            )
+        resolved: set[str] = set()
+        while pending:
+            ready = sorted(
+                operation_id
+                for operation_id, dependencies in pending.items()
+                if dependencies.issubset(resolved)
+            )
+            if not ready:
+                raise ValueError("Structure operation dependency graph contains a cycle")
+            for operation_id in ready:
+                pending.pop(operation_id)
+                resolved.add(operation_id)
         return self
 
 

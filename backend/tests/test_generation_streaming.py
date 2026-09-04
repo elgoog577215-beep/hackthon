@@ -110,3 +110,40 @@ async def test_stream_decorator_keeps_one_handler_for_json_and_sse():
     assert [name for name, _payload in events] == ["started", "complete"]
     assert events[-1][1]["result"] == {"candidate_id": "c1"}
     assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_sse_disconnect_cancels_only_unpublished_short_operation():
+    operation_started = asyncio.Event()
+    operation_cancelled = asyncio.Event()
+    last_good = {"revision_id": "revision-last-good", "content": "已发布内容"}
+
+    async def operation():
+        operation_started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            operation_cancelled.set()
+        last_good["revision_id"] = "must-not-publish"
+
+    response = stream_generation_result(
+        operation,
+        stage="candidate",
+        started_message="已收到",
+        waiting_message="正在生成",
+    )
+    stream = response.body_iterator
+    assert _parse(await stream.__anext__())[0] == "started"
+    waiting_for_next_event = asyncio.create_task(stream.__anext__())
+    await operation_started.wait()
+
+    waiting_for_next_event.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiting_for_next_event
+    await stream.aclose()
+
+    assert operation_cancelled.is_set()
+    assert last_good == {
+        "revision_id": "revision-last-good",
+        "content": "已发布内容",
+    }

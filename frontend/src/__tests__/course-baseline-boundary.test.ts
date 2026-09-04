@@ -28,7 +28,7 @@ describe('course workbench authoring boundary', () => {
     expect(references).toContain('source-group--primary')
     expect(references).toContain('source-group--references')
     expect(workbench).toContain("emit('open-course-information')")
-    expect(workbench).toContain('@open-course-information="emit(\'open-course-information\')"')
+    expect(workspace).toContain('@open-course-information="courseInformationOpen = true"')
     expect(workbench).not.toContain('class="course-information-entry"')
     expect(workspace).toContain('<CourseBaselineDialog')
     expect(workspace).toContain(':initial-envelope="courseInformationEnvelope"')

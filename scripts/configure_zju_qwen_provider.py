@@ -11,9 +11,9 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
-
 EXPECTED_MODEL = "qwen3.8-27b"
 MANAGED_SETTINGS = (
+    "LINGZHI_RELEASE_SHA",
     "ZJU_QWEN_API_KEY",
     "ZJU_QWEN_BASE_URL",
     "AI_LOCAL_PROVIDER",
@@ -89,6 +89,9 @@ def _validated_settings(payload: object) -> dict[str, str]:
     model = _single_line(payload.get("model"), "model")
     if model != EXPECTED_MODEL:
         raise ValueError(f"model must be {EXPECTED_MODEL}")
+    release_sha = _single_line(payload.get("release_sha"), "release_sha").lower()
+    if len(release_sha) != 40 or any(character not in "0123456789abcdef" for character in release_sha):
+        raise ValueError("release_sha must be a full Git commit SHA")
 
     slide_enabled = _boolean_setting(
         payload.get("slide_deck_v6_enabled", True),
@@ -103,6 +106,7 @@ def _validated_settings(payload: object) -> dict[str, str]:
         "teacher_script_animation_enabled",
     )
     settings = {
+        "LINGZHI_RELEASE_SHA": release_sha,
         "ZJU_QWEN_API_KEY": api_key,
         "ZJU_QWEN_BASE_URL": base_url,
         "AI_LOCAL_PROVIDER": "http",

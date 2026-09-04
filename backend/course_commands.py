@@ -5,7 +5,13 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from course_document import CourseBlock, CourseSection, refresh_block_revision, stable_hash
+from course_document import (
+    CourseBlock,
+    CourseDocument,
+    CourseSection,
+    refresh_block_revision,
+    stable_hash,
+)
 from course_repository import CourseDocumentConflict, CourseDocumentRepository
 
 
@@ -183,9 +189,18 @@ class CourseCommandService:
         }
 
         def mutation(document) -> None:
+            retired_ids = {
+                str(retired_block_id)
+                for retired_block_id in retire_block_ids or []
+                if str(retired_block_id)
+            }
             outline_affected_ids: set[str] = set()
             if outline_rebuild:
-                outline_affected_ids = _apply_outline_rebuild(document, outline_rebuild)
+                outline_affected_ids = _apply_outline_rebuild(
+                    document,
+                    outline_rebuild,
+                    allowed_extra_block_ids=retired_ids,
+                )
             for move in section_moves or []:
                 _apply_section_move(document, move)
             blocks_by_id = {block.block_id: block for block in document.blocks}
@@ -235,11 +250,6 @@ class CourseCommandService:
                 new_ids.add(next_block.block_id)
                 normalized_insertions.append((deepcopy(next_block), after_block_id))
 
-            retired_ids = {
-                str(retired_block_id)
-                for retired_block_id in retire_block_ids or []
-                if str(retired_block_id)
-            }
             for retired_block_id in retired_ids:
                 target = blocks_by_id.get(retired_block_id)
                 if target is None:
@@ -500,8 +510,16 @@ def _section_structure_revision(section: CourseSection) -> str:
     return stable_hash(section.model_dump(mode="json"), prefix="cssr_")
 
 
-def _apply_outline_rebuild(document, rebuild: dict[str, Any]) -> set[str]:
+def _apply_outline_rebuild(
+    document: CourseDocument,
+    rebuild: dict[str, Any],
+    *,
+    allowed_extra_block_ids: set[str] | None = None,
+) -> set[str]:
     """Replace the catalog and migrate block ownership inside one commit."""
+    original_section_ids = {
+        section.section_id for section in document.sections
+    }
     raw_sections = rebuild.get("sections")
     if not isinstance(raw_sections, list) or not raw_sections:
         raise CourseDocumentConflict("Course outline rebuild has no sections")
@@ -519,6 +537,20 @@ def _apply_outline_rebuild(document, rebuild: dict[str, Any]) -> set[str]:
             raise CourseDocumentConflict("Course outline rebuild contains an unknown parent")
         if parent_id == section.section_id:
             raise CourseDocumentConflict("Course outline section cannot parent itself")
+    parent_by_id = {
+        section.section_id: str(section.parent_section_id or "")
+        for section in sections
+    }
+    for section_id in section_ids:
+        visited = {section_id}
+        parent_id = parent_by_id[section_id]
+        while parent_id:
+            if parent_id in visited:
+                raise CourseDocumentConflict(
+                    "Course outline rebuild contains a parent cycle"
+                )
+            visited.add(parent_id)
+            parent_id = parent_by_id[parent_id]
     for position, section in enumerate(sections):
         section.position = position
 
@@ -530,10 +562,17 @@ def _apply_outline_rebuild(document, rebuild: dict[str, Any]) -> set[str]:
             for item in block_states
             if isinstance(item, dict) and item.get("block_id")
         }
-        if set(states_by_id) != {block.block_id for block in document.blocks}:
+        current_block_ids = {block.block_id for block in document.blocks}
+        allowed_extra = set(allowed_extra_block_ids or set())
+        if (
+            not set(states_by_id).issubset(current_block_ids)
+            or current_block_ids.difference(states_by_id).difference(allowed_extra)
+        ):
             raise CourseDocumentConflict("Course outline restore journal is incomplete")
         for block in document.blocks:
-            state = states_by_id[block.block_id]
+            state = states_by_id.get(block.block_id)
+            if state is None:
+                continue
             target_section_id = str(state.get("section_id") or "")
             if target_section_id not in known_ids:
                 raise CourseDocumentConflict("Course outline restore target is unavailable")
@@ -549,6 +588,96 @@ def _apply_outline_rebuild(document, rebuild: dict[str, Any]) -> set[str]:
         mapping = {str(source): str(target) for source, target in raw_mapping.items()}
         if any(target not in known_ids for target in mapping.values()):
             raise CourseDocumentConflict("Course outline identity mapping targets an unknown section")
+        raw_references = rebuild.get("reference_migrations")
+        if raw_references is not None:
+            if not isinstance(raw_references, list):
+                raise CourseDocumentConflict(
+                    "Course outline reference migrations are invalid"
+                )
+            references = {
+                str(item.get("source_section_id") or ""): item
+                for item in raw_references
+                if isinstance(item, dict) and item.get("source_section_id")
+            }
+            if set(references) != original_section_ids:
+                raise CourseDocumentConflict(
+                    "Course outline reference migrations are incomplete"
+                )
+            for source_id, reference in references.items():
+                targets = [
+                    str(value)
+                    for value in reference.get("target_section_ids") or []
+                    if str(value)
+                ]
+                primary = str(
+                    reference.get("primary_target_section_id") or ""
+                )
+                if any(target not in known_ids for target in targets):
+                    raise CourseDocumentConflict(
+                        "Course outline reference migration targets an unknown section"
+                    )
+                if primary and primary not in targets:
+                    raise CourseDocumentConflict(
+                        "Course outline primary reference target is inconsistent"
+                    )
+                if mapping.get(source_id, "") != primary:
+                    raise CourseDocumentConflict(
+                        "Course outline identity and reference mappings disagree"
+                    )
+            raw_tombstones = rebuild.get("section_tombstones")
+            if not isinstance(raw_tombstones, list):
+                raise CourseDocumentConflict(
+                    "Course outline section tombstones are missing"
+                )
+            tombstones = {
+                str(item.get("section_id") or ""): item
+                for item in raw_tombstones
+                if isinstance(item, dict) and item.get("section_id")
+            }
+            if set(tombstones) != original_section_ids.difference(known_ids):
+                raise CourseDocumentConflict(
+                    "Course outline section tombstones are incomplete"
+                )
+            for source_id, tombstone in tombstones.items():
+                if list(tombstone.get("mapped_to_section_ids") or []) != list(
+                    references[source_id].get("target_section_ids") or []
+                ):
+                    raise CourseDocumentConflict(
+                        "Course outline tombstone mapping is inconsistent"
+                    )
+        raw_dag = rebuild.get("operation_dag")
+        if raw_dag is not None:
+            nodes = raw_dag.get("nodes") if isinstance(raw_dag, dict) else None
+            order = (
+                raw_dag.get("topological_order")
+                if isinstance(raw_dag, dict)
+                else None
+            )
+            if not isinstance(nodes, list) or not isinstance(order, list):
+                raise CourseDocumentConflict(
+                    "Course outline operation graph is invalid"
+                )
+            dependencies = {
+                str(item.get("operation_id") or ""): {
+                    str(value)
+                    for value in item.get("depends_on_operation_ids") or []
+                    if str(value)
+                }
+                for item in nodes
+                if isinstance(item, dict) and item.get("operation_id")
+            }
+            if len(dependencies) != len(nodes) or set(order) != set(dependencies):
+                raise CourseDocumentConflict(
+                    "Course outline operation graph is incomplete"
+                )
+            resolved: set[str] = set()
+            for operation_id in order:
+                operation_id = str(operation_id)
+                if not dependencies[operation_id].issubset(resolved):
+                    raise CourseDocumentConflict(
+                        "Course outline operation graph is not acyclic"
+                    )
+                resolved.add(operation_id)
         for block in document.blocks:
             target_section_id = mapping.get(block.section_id)
             if target_section_id:

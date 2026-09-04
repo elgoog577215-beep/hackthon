@@ -178,6 +178,7 @@
           <section class="inspector-status" :data-state="inspectedNode.status">
             <span><i />{{ statusLabel(inspectedNode) }}</span>
           </section>
+          <p v-if="inspectedNode.issue" class="inspector-production-issue" role="alert">{{ inspectedNode.issue.summary }}</p>
           <section class="inspector-overview">
             <dl>
               <template v-if="inspectedNode.trashItem">
@@ -504,6 +505,14 @@ import {
   LayoutGrid, Link2, Pencil, Presentation, RefreshCw, RotateCcw, Search, SearchX, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, Upload, UploadCloud, X,
 } from 'lucide-vue-next'
 import { activeLocale, t } from '../shared/i18n'
+import {
+  lessonProductionState,
+  productionDisplayStateLabel,
+  readCourseProductionState,
+  type AssetProductionState,
+  type CourseProductionIssue,
+  type CourseProductionStageKey,
+} from '../shared/teacher-production-state'
 import { canonicalizeCourseGenerationOptions, type CourseGenerationOptions } from '../shared/prompt-config'
 import {
   teacherLessonPlanIsReady,
@@ -525,10 +534,10 @@ type Package = { package_id: string; course_id?: string; course_name: string; ac
 type CompanionDocument = { document_id: string; template_id: string; document_type: string; title: string; status: string; revision_id: string; revision_number: number; rendered_markdown: string; updated_at?: string }
 type NodeKind = 'folder' | 'managed' | 'asset'
 type NodeType = 'root' | 'trash' | 'trash_file' | 'trash_folder' | 'deliverables' | 'course_logic' | 'supporting_materials' | 'outline_export' | 'lesson_plans' | 'script_ppt' | 'question_bank_files' | 'question_practices' | 'aux_question_bank' | 'aux_exam_papers' | 'aux_student_work' | 'aux_other' | 'exam_papers' | 'outline' | 'teaching_calendar' | 'lesson' | 'lesson_plan' | 'content' | 'material' | 'ppt' | 'practice' | 'question_bank' | 'exam_paper' | 'companion_documents' | 'companion_document' | 'folder' | 'file'
-type NodeStatus = 'ready' | 'draft' | 'missing' | 'working' | 'stale' | 'uploaded' | 'trashed' | 'empty'
+type NodeStatus = 'ready' | 'draft' | 'missing' | 'working' | 'failed' | 'stale' | 'uploaded' | 'trashed' | 'empty'
 type WorkspaceNode = {
   id: string; label: string; kind: NodeKind; type: NodeType; path: string; status: NodeStatus;
-  lessonId?: string; revision?: string; updatedAt?: string; sizeBytes?: number; asset?: Asset; trashItem?: TrashItem; companionDocument?: CompanionDocument; children?: WorkspaceNode[]; parentId?: string; origin?: 'generated' | 'uploaded'; order?: number; description?: string
+  lessonId?: string; revision?: string; updatedAt?: string; sizeBytes?: number; asset?: Asset; trashItem?: TrashItem; companionDocument?: CompanionDocument; children?: WorkspaceNode[]; parentId?: string; origin?: 'generated' | 'uploaded'; order?: number; description?: string; issue?: CourseProductionIssue
 }
 type WorkspaceFolderTreeItem = { id: string; label: string; attention?: boolean; children?: WorkspaceFolderTreeItem[] }
 type CreateType = 'outline' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 'folder'
@@ -544,6 +553,7 @@ type CategoryGroup = {
   icon: Component
   items: WorkspaceNode[]
   ready: number
+  total: number
   working: number
   attention: number
 }
@@ -634,6 +644,19 @@ const fileDragActive = ref(false)
 const fileDragDepth = ref(0)
 const fileContextMenuElement = ref<HTMLElement>()
 const fileContextMenu = ref<{ node: WorkspaceNode | null; x: number; y: number }>({ node: null, x: 0, y: 0 })
+const productionState = computed(() => (
+  readCourseProductionState(calendarStore.calendar)
+  || readCourseProductionState(lessonStore.productionState)
+  || readCourseProductionState(courseStore.teacherProductionStates[props.courseId])
+  || readCourseProductionState(courseStore.courseList.find(course => course.course_id === props.courseId))
+))
+
+function nodeStatusFromProduction(state: AssetProductionState): NodeStatus {
+  if (state.display_state === 'available') return 'ready'
+  if (state.display_state === 'generating') return 'working'
+  if (state.display_state === 'failed') return 'failed'
+  return 'missing'
+}
 
 const lessons = computed<TeacherLessonProjection[]>(() => {
   if (lessonStore.lessons.length) return lessonStore.lessons
@@ -793,16 +816,19 @@ function auxiliaryChildren(basePath: string, parentId: string, bucket: Auxiliary
 }
 
 const treeData = computed<WorkspaceNode[]>(() => {
-  const outlineStatus: NodeStatus = courseStore.nodes.length ? (courseStore.currentDocumentRevision ? 'ready' : 'draft') : 'missing'
+  const projectedOutline = productionState.value?.stages.outline
+  const outlineStatus: NodeStatus = projectedOutline
+    ? nodeStatusFromProduction(projectedOutline)
+    : courseStore.nodes.length ? (courseStore.currentDocumentRevision ? 'ready' : 'draft') : 'missing'
   const outlineRevision = courseStore.currentDocumentRevision || ''
   const outlineSize = courseStore.nodes.length ? textSize(outlineMarkdown()) : undefined
   const logicOutline: WorkspaceNode = {
     id: 'managed:outline', label: t('courseFiles.names.onlineOutline'), kind: 'managed', type: 'outline', path: '教学大纲/在线教学大纲',
-    status: outlineStatus, revision: outlineRevision, parentId: 'folder:outlines', sizeBytes: outlineSize, order: 1,
+    status: outlineStatus, revision: outlineRevision, parentId: 'folder:outlines', sizeBytes: outlineSize, order: 1, issue: projectedOutline?.issues[0],
   }
   const outlineDeliverable: WorkspaceNode = {
     id: 'deliverable:outline', label: t('courseFiles.names.exportableOutline'), kind: 'managed', type: 'outline_export', path: '教学大纲/可导出教学大纲',
-    status: outlineStatus, revision: outlineRevision, parentId: 'folder:outlines', sizeBytes: outlineSize, order: 2,
+    status: outlineStatus, revision: outlineRevision, parentId: 'folder:outlines', sizeBytes: outlineSize, order: 2, issue: projectedOutline?.issues[0],
     description: t('courseFiles.descriptions.outlineDeliverable'),
   }
   const calendar = calendarStore.calendar?.course_id === props.courseId ? calendarStore.calendar : null
@@ -856,21 +882,24 @@ const treeData = computed<WorkspaceNode[]>(() => {
     const working = lesson.plan.current_revision
     const ppt = lesson.plan.ppt_assets.find(item => item.role === 'primary') || lesson.plan.ppt_assets[0]
     const activeJob = lessonStore.activeJobByLesson(lesson.lesson_unit_id)
+    const projectedPlan = lessonProductionState(productionState.value, lesson.lesson_unit_id, 'lesson_plan')
+    const projectedScript = lessonProductionState(productionState.value, lesson.lesson_unit_id, 'script')
+    const projectedPpt = lessonProductionState(productionState.value, lesson.lesson_unit_id, 'ppt')
     const lessonPrefix = `${String(lesson.number).padStart(2, '0')}  ${lesson.title}`
     const planNode: WorkspaceNode = {
       id: `plan:${lesson.lesson_unit_id}`, label: `${lessonPrefix} · ${t('courseFiles.names.lessonPlan')}`, kind: 'managed', type: 'lesson_plan', path: `分讲教案/${safePart(lessonPrefix)}`,
-      lessonId: lesson.lesson_unit_id, parentId: 'folder:lesson-plans', status: activeJob?.type?.includes('plan') ? 'working' : lesson.plan.source_state === 'stale' ? 'stale' : teacherLessonPlanIsReady(lesson) ? 'ready' : working ? 'draft' : 'missing',
+      lessonId: lesson.lesson_unit_id, parentId: 'folder:lesson-plans', status: projectedPlan ? nodeStatusFromProduction(projectedPlan) : activeJob?.type?.includes('plan') ? 'working' : lesson.plan.source_state === 'stale' ? 'stale' : teacherLessonPlanIsReady(lesson) ? 'ready' : working ? 'draft' : 'missing', issue: projectedPlan?.issues[0],
       revision: working?.revision_id || '', updatedAt: working?.created_at, sizeBytes: working ? textSize(lessonPlanMarkdown(lesson)) : undefined,
     }
     const contentNode: WorkspaceNode = {
       id: `content:${lesson.lesson_unit_id}`, label: `${lessonPrefix} · ${t('courseFiles.names.content')}`, kind: 'managed', type: 'content', path: `讲义/${safePart(lessonPrefix)}`,
-      lessonId: lesson.lesson_unit_id, parentId: 'folder:handouts', status: teacherLessonScriptIsReady(lesson) ? 'ready' : script.current_revision_id ? 'draft' : 'missing',
+      lessonId: lesson.lesson_unit_id, parentId: 'folder:handouts', status: projectedScript ? nodeStatusFromProduction(projectedScript) : teacherLessonScriptIsReady(lesson) ? 'ready' : script.current_revision_id ? 'draft' : 'missing', issue: projectedScript?.issues[0],
       revision: script.current_revision_id || '', updatedAt: script.updated_at,
       sizeBytes: script.ready ? textSize(lessonContentMarkdown(lesson)) : undefined,
     }
     const pptNode: WorkspaceNode = {
       id: `ppt:${lesson.lesson_unit_id}`, label: `${lessonPrefix} · PPT`, kind: 'managed', type: 'ppt', path: `PPT/${safePart(lessonPrefix)}`,
-      lessonId: lesson.lesson_unit_id, parentId: 'folder:ppts', status: activeJob?.type?.includes('ppt') ? 'working' : ppt?.source_state === 'stale' ? 'stale' : teacherLessonPptAssetIsReady(ppt) ? 'ready' : ppt ? 'draft' : 'missing',
+      lessonId: lesson.lesson_unit_id, parentId: 'folder:ppts', status: projectedPpt ? nodeStatusFromProduction(projectedPpt) : activeJob?.type?.includes('ppt') ? 'working' : ppt?.source_state === 'stale' ? 'stale' : teacherLessonPptAssetIsReady(ppt) ? 'ready' : ppt ? 'draft' : 'missing', issue: projectedPpt?.issues[0],
       revision: ppt?.working_revision_id || '', updatedAt: ppt?.revisions?.at(-1)?.created_at, origin: (ppt || activeJob?.type?.includes('ppt') ? 'generated' : undefined) as 'generated' | undefined,
     }
     const practiceNode: WorkspaceNode = {
@@ -948,7 +977,7 @@ const treeData = computed<WorkspaceNode[]>(() => {
 function toFolderTreeItem(node: WorkspaceNode): WorkspaceFolderTreeItem | null {
   if (node.kind !== 'folder') return null
   const children = (node.children || []).map(toFolderTreeItem).filter((item): item is WorkspaceFolderTreeItem => Boolean(item))
-  const attention = (node.children || []).some(item => item.status === 'stale' || item.status === 'working' || item.kind === 'folder' && toFolderTreeItem(item)?.attention)
+  const attention = (node.children || []).some(item => ['failed', 'stale', 'working'].includes(item.status) || item.kind === 'folder' && toFolderTreeItem(item)?.attention)
   return { id: node.id, label: node.label, attention, children }
 }
 const folderTreeData = computed(() => treeData.value.map(toFolderTreeItem).filter((item): item is WorkspaceFolderTreeItem => Boolean(item)))
@@ -989,15 +1018,22 @@ const categoryGroups = computed<CategoryGroup[]>(() => ([
       const rightNumber = lessons.value.find(item => item.lesson_unit_id === right.lessonId)?.number || 0
       return leftNumber - rightNumber || left.label.localeCompare(right.label)
     })
+  const stageKey: CourseProductionStageKey = definition.type === 'outline'
+    ? 'outline'
+    : definition.type === 'lesson_plan' ? 'lesson_plan' : definition.type === 'content' ? 'script' : 'ppt'
+  const projected = productionState.value?.stages[stageKey]
   return {
     ...definition,
     items,
-    ready: items.filter(node => node.status === 'ready').length,
-    working: items.filter(node => node.status === 'working').length,
-    attention: items.filter(node => ['draft', 'missing', 'stale', 'empty'].includes(node.status)).length,
+    ready: projected?.counts.available ?? items.filter(node => node.status === 'ready').length,
+    total: projected?.counts.total ?? items.length,
+    working: projected?.counts.generating ?? items.filter(node => node.status === 'working').length,
+    attention: projected
+      ? projected.counts.failed + projected.counts.stale
+      : items.filter(node => ['draft', 'missing', 'failed', 'stale', 'empty'].includes(node.status)).length,
   }
 }))
-const completedCategoryStages = computed(() => categoryGroups.value.filter(group => group.items.length > 0 && group.ready === group.items.length).length)
+const completedCategoryStages = computed(() => categoryGroups.value.filter(group => group.total > 0 && group.ready === group.total).length)
 const categoryProgressPercent = computed(() => categoryGroups.value.length ? Math.round(completedCategoryStages.value / categoryGroups.value.length * 100) : 0)
 const activeCategory = computed(() => categoryGroups.value.find(group => group.type === selectedCategory.value) || categoryGroups.value[0])
 const categoryDetailNode = computed(() => {
@@ -1107,6 +1143,7 @@ const inspectedUsageLinks = computed(() => {
 })
 function aggregateStatus(nodes: WorkspaceNode[]): NodeStatus {
   const states = nodes.map(node => node.status)
+  if (states.includes('failed')) return 'failed'
   if (states.includes('working')) return 'working'
   if (states.includes('stale')) return 'stale'
   if (states.length && states.every(state => state === 'ready')) return 'ready'
@@ -1198,10 +1235,10 @@ function selectCategory(group: CategoryGroup) {
 function selectCategoryNode(node: WorkspaceNode) { selectNode(node) }
 
 function categoryCountLabel(group: CategoryGroup) {
-  if (!group.items.length) return t('courseFiles.categories.notStarted')
-  if (group.ready === group.items.length) return t('courseFiles.workbench.completed')
+  if (!group.total) return t('courseFiles.categories.notStarted')
+  if (group.ready === group.total) return t('courseFiles.workbench.completed')
   if (group.working) return t('courseFiles.workbench.generating')
-  return t('courseFiles.workbench.progressCount').replace('{ready}', String(group.ready)).replace('{total}', String(group.items.length))
+  return t('courseFiles.workbench.progressCount').replace('{ready}', String(group.ready)).replace('{total}', String(group.total))
 }
 
 function startActiveCategory() {
@@ -1215,7 +1252,7 @@ function startActiveCategory() {
 }
 
 function categoryState(group: CategoryGroup) {
-  if (group.ready === group.items.length && group.items.length) return 'ready'
+  if (group.ready === group.total && group.total) return 'ready'
   if (group.working) return 'working'
   return 'attention'
 }
@@ -1274,7 +1311,15 @@ function fileSourceLabel(node: WorkspaceNode) {
   if (node.kind === 'managed') return t('courseFiles.sources.formalTruth')
   return t('courseFiles.sources.semanticFolder')
 }
-const statusLabel = (node: WorkspaceNode) => t(`courseFiles.status.${node.status}`)
+const statusLabel = (node: WorkspaceNode) => {
+  if (productionState.value && node.kind === 'managed' && ['outline', 'outline_export', 'lesson_plan', 'content', 'ppt'].includes(node.type)) {
+    if (node.status === 'ready') return productionDisplayStateLabel('available')
+    if (node.status === 'working') return productionDisplayStateLabel('generating')
+    if (node.status === 'failed') return productionDisplayStateLabel('failed')
+    if (node.status === 'missing') return productionDisplayStateLabel('not_generated')
+  }
+  return t(`courseFiles.status.${node.status}`)
+}
 const nodeIcon = (node: WorkspaceNode) => markRaw(node.type === 'teaching_calendar' ? CalendarDays : node.type === 'ppt' ? Presentation : ['practice', 'question_bank', 'question_bank_files', 'question_practices', 'aux_question_bank'].includes(node.type) ? ListChecks : ['exam_paper', 'exam_papers', 'aux_exam_papers', 'companion_document', 'companion_documents', 'outline_export'].includes(node.type) ? FileCheck2 : node.type === 'lesson_plan' ? ClipboardList : node.type === 'content' ? BookOpenText : ['supporting_materials', 'aux_student_work', 'aux_other', 'material'].includes(node.type) ? BookOpen : FileText)
 const lessonLabel = (id: string) => lessons.value.find(item => item.lesson_unit_id === id)?.title || id
 const lessonNumber = (id?: string) => {
@@ -2248,6 +2293,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.status-dot[data-state="failed"],.inspector-status[data-state="failed"] i{background:#dc2626}.inspector-production-issue{margin:0;padding:10px 14px;border-bottom:1px solid #fecdd3;color:#b42335;background:#fff5f6;font-size:13px;line-height:1.5;overflow-wrap:anywhere}
 .file-space,.file-space *{box-sizing:border-box}.file-space{height:100%;min-height:0;color:var(--lz-text-strong);background:#f8fafc;font-size:14px}.standalone-header{position:relative;height:68px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;border-bottom:1px solid var(--lz-border);background:#fff}.standalone-header small,.standalone-header h1{display:block;margin:0}.standalone-header small{color:var(--lz-text-muted);font-size:13px}.standalone-header h1{font-size:20px}.standalone-header-actions{display:flex;align-items:center;gap:10px}.standalone-header-actions>button{height:38px;display:flex;align-items:center;gap:7px;padding:0 10px;border:0;border-radius:8px;color:var(--lz-text-secondary);background:transparent;font-size:14px;cursor:pointer}.standalone-header-actions>button:hover{color:var(--lz-brand-strong);background:var(--lz-brand-soft)}
 .workspace-ready{height:100%;min-height:0;overflow:hidden}.workspace-view-switch{position:absolute;left:50%;top:50%;display:inline-flex;align-items:center;gap:3px;padding:3px;border:1px solid var(--lz-border);border-radius:10px;background:#f5f6fa;transform:translate(-50%,-50%)}.workspace-view-switch button{height:32px;display:inline-flex;align-items:center;gap:6px;padding:0 11px;border:0;border-radius:7px;color:var(--lz-text-secondary);background:transparent;font-size:12px;font-weight:700;cursor:pointer}.workspace-view-switch button:hover{color:var(--lz-text-strong)}.workspace-view-switch button.active{color:var(--lz-brand-strong);background:#fff;box-shadow:0 2px 7px rgba(15,23,42,.08)}.workspace-view-switch button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}
 .file-layout{height:100%;min-height:0;display:grid;grid-template-columns:260px minmax(560px,1fr) 312px;overflow:hidden;background:#fff}.file-tree-pane,.file-list-pane,.file-inspector{min-height:0;overflow:hidden}.file-tree-pane{display:grid;grid-template-rows:auto minmax(0,1fr) auto;border-right:1px solid var(--lz-border);background:#f8fafc}.pane-heading{min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 14px;border-bottom:1px solid #e8edf4}.pane-heading>span{min-width:0;display:flex;align-items:center;gap:8px;color:#475569}.pane-heading>span>svg{color:#64748b}.pane-heading strong{overflow:hidden;font-size:14px;text-overflow:ellipsis;white-space:nowrap}.pane-heading button,.file-inspector header>button{width:32px;height:32px;display:grid;place-items:center;padding:0;border:0;border-radius:7px;background:transparent;color:var(--lz-text-muted);cursor:pointer}.pane-heading button:hover,.file-inspector header>button:hover{color:var(--lz-text-strong);background:#eef2f7}.folder-navigation{min-height:0;overflow:auto;padding:9px 8px 16px}.folder-navigation>ul{margin:0;padding:0;list-style:none}.file-tree-pane footer{display:grid;gap:9px;padding:14px;border-top:1px solid var(--lz-border);color:var(--lz-text-muted);font-size:12px}.file-tree-pane footer button{display:flex;align-items:center;gap:7px;padding:0;border:0;background:transparent;color:var(--lz-text-secondary);font-size:13px;font-weight:700;cursor:pointer}

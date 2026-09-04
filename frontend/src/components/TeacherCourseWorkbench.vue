@@ -57,6 +57,13 @@
         :aria-label="t('courseWorkbench.contextPane.expand', '展开当前内容信息')"
         @click="contextPaneCollapsed = false"
       ><PanelRightOpen :size="17" /></button>
+      <section v-if="activeProductionIssue" class="production-issue-detail" role="alert" data-testid="production-issue-detail">
+        <TriangleAlert :size="17" />
+        <div>
+          <strong>{{ t('teacherProductionState.issueTitle', '生成问题') }}</strong>
+          <p>{{ activeProductionIssue.summary }}</p>
+        </div>
+      </section>
       <header v-if="activeStage === 'foundation'" class="center-heading">
         <div><h2>{{ activeStageDefinition.label }}</h2></div>
       </header>
@@ -447,31 +454,21 @@
               <button type="button" @click="beginLessonPlanEditing"><Pencil :size="15" />{{ t('courseWorkbench.lessonDocument.edit', '编辑教案') }}</button>
               <i v-if="lessonGenerationActionsVisible" class="lesson-action-divider" aria-hidden="true" />
               <button
-                v-if="selectedLessonCanGenerate"
-                data-testid="lesson-single-start"
-                type="button"
-                :class="{ 'primary-action': !lessonBatchLaunchVisible }"
-                :disabled="batchStarting || referenceGenerationBlocked"
-                :title="referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"
-                @click="generateSelectedLessonPlan"
-              >
-                <Sparkles :size="15" />
-                {{ t('courseWorkbench.arrangement.generateLesson', '只生成本讲') }}
-              </button>
-              <button
                 v-if="lessonBatchLaunchVisible || batchStarting"
                 data-testid="lesson-batch-start"
                 type="button"
                 class="primary-action"
-                :disabled="batchStarting || referenceGenerationBlocked"
-                :title="referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"
+                :disabled="batchStarting || lessonBatchActionBlocked"
+                :title="!batchRecoveryAvailable && referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"
                 @click="generateAllLessonPlans"
               >
                 <LoaderCircle v-if="batchStarting" :size="15" class="spin" />
                 <Sparkles v-else :size="15" />
                 {{ batchStarting
                   ? t('courseWorkbench.lessonBatch.starting', '正在开始…')
-                  : t('courseWorkbench.lessonBatch.generateAllCount', '生成全部教案（{count}讲）').replace('{count}', String(batchEligibleCount)) }}
+                  : batchRecoveryAvailable
+                    ? t('courseWorkbench.lessonBatch.regenerate', '重新生成')
+                    : t('courseWorkbench.lessonBatch.generateAll', '生成全部教案') }}
               </button>
             </template>
         </TeacherDocumentCommandBar>
@@ -532,17 +529,19 @@
                 class="primary-action"
                 data-testid="lesson-course-preview-generate"
                 type="button"
-                :disabled="batchStarting || !batchEligibleCount || referenceGenerationBlocked"
-                :title="referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"
+                :disabled="batchStarting || !batchEligibleCount || lessonBatchActionBlocked"
+                :title="!batchRecoveryAvailable && referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"
                 @click="generateAllLessonPlans"
               >
                 <LoaderCircle v-if="batchStarting" :size="16" class="spin" />
                 <Sparkles v-else :size="16" />
                 {{ batchStarting
                   ? t('courseWorkbench.lessonBatch.starting', '正在开始…')
-                  : batchEligibleCount === lessonStore.lessons.length
-                    ? t('courseWorkbench.lessonBatch.generateAll', '生成全部教案')
-                    : t('courseWorkbench.lessonBatch.generateReady', '生成已具备教学结构的教案（{count}讲）').replace('{count}', String(batchEligibleCount)) }}
+                  : batchRecoveryAvailable
+                    ? t('courseWorkbench.lessonBatch.regenerate', '重新生成')
+                    : batchEligibleCount === lessonStore.lessons.length
+                      ? t('courseWorkbench.lessonBatch.generateAll', '生成全部教案')
+                      : t('courseWorkbench.lessonBatch.generateReady', '生成已具备教学结构的教案（{count}讲）').replace('{count}', String(batchEligibleCount)) }}
               </button>
             </header>
             <article>
@@ -553,7 +552,12 @@
                   <small>{{ lesson.arrangement?.lesson_type_label || t('courseWorkbench.lessonBatch.typePending', '课型待系统安排') }}</small>
                 </div>
                 <ol v-if="lesson.arrangement?.blocks?.length">
-                  <li v-for="block in lesson.arrangement.blocks" :key="block.block_id || block.name">
+                  <li
+                    v-for="block in lesson.arrangement.blocks"
+                    :key="block.block_id || block.name"
+                    :data-production-block-id="block.block_id || undefined"
+                    :class="{ 'production-block-highlight': props.initialBlockId && block.block_id === props.initialBlockId }"
+                  >
                     <strong><MathText :content="block.name" /></strong>
                     <MathText :content="block.purpose || block.content_summary" />
                   </li>
@@ -577,29 +581,21 @@
                 data-testid="lesson-generation-actions"
               >
                 <button
-                  data-testid="lesson-single-start"
-                  type="button"
-                  :disabled="!selectedLessonCanGenerate || batchStarting || referenceGenerationBlocked"
-                  :title="referenceGenerationBlocked ? referenceGenerationBlockReason : selectedLessonCanGenerate ? '' : t('courseWorkbench.lessonBatch.structureRequired', '本讲教学结构尚未生成')"
-                  @click="generateSelectedLessonPlan"
-                >
-                  <Sparkles :size="16" />
-                  {{ t('courseWorkbench.arrangement.generateLesson', '只生成本讲') }}
-                </button>
-                <button
                   v-if="lessonBatchLaunchVisible || batchStarting"
                   class="primary-action"
                   data-testid="lesson-batch-start"
                   type="button"
-                  :disabled="batchStarting || referenceGenerationBlocked"
-                  :title="referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"
+                  :disabled="batchStarting || lessonBatchActionBlocked"
+                  :title="!batchRecoveryAvailable && referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"
                   @click="generateAllLessonPlans"
                 >
                   <LoaderCircle v-if="batchStarting" :size="16" class="spin" />
                   <Sparkles v-else :size="16" />
                   {{ batchStarting
                     ? t('courseWorkbench.lessonBatch.starting', '正在开始…')
-                    : t('courseWorkbench.lessonBatch.generateAllCount', '生成全部教案（{count}讲）').replace('{count}', String(batchEligibleCount)) }}
+                    : batchRecoveryAvailable
+                      ? t('courseWorkbench.lessonBatch.regenerate', '重新生成')
+                      : t('courseWorkbench.lessonBatch.generateAll', '生成全部教案') }}
                 </button>
               </div>
               <div v-else-if="lessonGenerationRunning" class="lesson-generation-toolbar-status" aria-live="polite">
@@ -680,8 +676,8 @@
                 class="primary-action"
                 data-testid="script-course-preview-generate"
                 type="button"
-                :disabled="scriptBatchStarting || !scriptBatchEligibleCount || referenceGenerationBlocked"
-                :title="referenceGenerationBlocked
+                :disabled="scriptBatchStarting || !scriptBatchEligibleCount || scriptBatchActionBlocked"
+                :title="!scriptBatchRecoveryAvailable && referenceGenerationBlocked
                   ? referenceGenerationBlockReason
                   : scriptBatchEligibleCount
                     ? ''
@@ -692,6 +688,8 @@
                 <Sparkles v-else :size="16" />
                 {{ scriptBatchStarting
                   ? t('courseWorkbench.scriptBatch.starting', '正在开始…')
+                  : scriptBatchRecoveryAvailable
+                    ? t('courseWorkbench.scriptBatch.regenerate', '重新生成')
                     : scriptBatchEligibleCount === lessonStore.lessons.length
                       ? t('courseWorkbench.scriptBatch.generateAll', '生成全部讲义')
                     : scriptBatchEligibleCount
@@ -788,37 +786,23 @@
                   </template>
                   <template v-else>
                     <button v-if="currentScriptReady" type="button" @click="beginScriptEditing"><Pencil :size="15" />{{ t('courseWorkbench.scriptDocument.edit', '编辑讲义') }}</button>
-                    <button
-                      v-else
-                      data-testid="script-single-start"
-                      type="button"
-                      :class="{ 'primary-action': !scriptBatchLaunchVisible }"
-                      :disabled="scriptBatchStarting || !currentScriptCanGenerate || referenceGenerationBlocked"
-                      :title="referenceGenerationBlocked
-                        ? referenceGenerationBlockReason
-                        : currentScriptCanGenerate
-                          ? ''
-                          : t('courseWorkbench.scriptBatch.planRequired', '请先完成可用教案')"
-                      @click="generateScript()"
-                    >
-                      <Sparkles :size="15" />
-                      {{ t('courseWorkbench.scriptDocument.generate', '生成本讲讲义') }}
-                    </button>
-                    <i v-if="scriptBatchLaunchVisible" class="lesson-action-divider" aria-hidden="true" />
+                    <i v-if="currentScriptReady && scriptBatchLaunchVisible" class="lesson-action-divider" aria-hidden="true" />
                     <button
                       v-if="scriptBatchLaunchVisible || scriptBatchStarting"
                       class="primary-action"
                       data-testid="script-batch-start"
                       type="button"
-                      :disabled="scriptBatchStarting || referenceGenerationBlocked"
-                      :title="referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"
+                      :disabled="scriptBatchStarting || scriptBatchActionBlocked"
+                      :title="!scriptBatchRecoveryAvailable && referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"
                       @click="generateAllScripts"
                     >
                       <LoaderCircle v-if="scriptBatchStarting" :size="15" class="spin" />
                       <Sparkles v-else :size="15" />
                       {{ scriptBatchStarting
                         ? t('courseWorkbench.scriptBatch.starting', '正在开始…')
-                        : t('courseWorkbench.scriptBatch.generateRemaining', '生成剩余讲义（{count}讲）').replace('{count}', String(scriptBatchEligibleCount)) }}
+                        : scriptBatchRecoveryAvailable
+                          ? t('courseWorkbench.scriptBatch.regenerate', '重新生成')
+                          : t('courseWorkbench.scriptBatch.generateAll', '生成全部讲义') }}
                     </button>
                   </template>
               </TeacherDocumentCommandBar>
@@ -881,7 +865,7 @@
           <button v-if="referenceWorkflowState === 'generating' && referenceWorkflowCanPause" type="button" @click="pauseReferenceWorkflow"><Pause :size="14" />{{ t('courseWorkbench.pause', '暂停') }}</button>
           <button v-if="referenceWorkflowState === 'paused' && referenceWorkflowCanResume" class="primary-status-action" type="button" @click="resumeReferenceWorkflow"><Play :size="14" />{{ t('courseWorkbench.continue', '继续') }}</button>
           <button v-if="referenceWorkflowCanCancel" type="button" @click="cancelReferenceWorkflow"><X :size="14" />{{ t('common.cancel', '取消') }}</button>
-          <button v-if="referenceWorkflowState === 'failed' && referenceWorkflowCanRetry" class="primary-status-action" type="button" :disabled="referenceWorkflowRetryBlocked" @click="retryReferenceWorkflow"><RotateCcw :size="14" />{{ t('common.retry', '重试') }}</button>
+          <button v-if="referenceWorkflowState === 'failed' && referenceWorkflowCanRetry && !['lesson', 'script'].includes(activeStage)" class="primary-status-action" type="button" :disabled="referenceWorkflowRetryBlocked" @click="retryReferenceWorkflow"><RotateCcw :size="14" />{{ t('common.retry', '重试') }}</button>
           <button
             v-if="regenerationAvailable"
             class="primary-status-action"
@@ -1109,6 +1093,13 @@ import {
 } from '../composables/useTeacherProductionAiCollaboration'
 import { t } from '../shared/i18n'
 import {
+  lessonProductionState,
+  productionDisplayStateLabel,
+  productionStageProgress,
+  readCourseProductionState,
+  type CourseProductionStageKey,
+} from '../shared/teacher-production-state'
+import {
   teacherLessonPlanCanGenerate,
   teacherLessonPlanIsReady,
   teacherLessonPptIsReady,
@@ -1206,7 +1197,7 @@ type OutlineEditorHandle = ProductionAiDocumentHandle & {
   undoEdit: () => void
   redoEdit: () => void
 }
-const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; generationOptions: CourseGenerationOptions & { subject?: string }; generationStarting?: boolean; materialRefreshToken?: number; initialStage?: StageId; initialLessonId?: string; outlineEditing?: boolean }>(), { materialRefreshToken: 0, initialStage: 'foundation', initialLessonId: '', outlineEditing: false })
+const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; generationOptions: CourseGenerationOptions & { subject?: string }; generationStarting?: boolean; materialRefreshToken?: number; initialStage?: StageId; initialLessonId?: string; initialIssueId?: string; initialBlockId?: string; initialTaskId?: string; expandIssue?: boolean; outlineEditing?: boolean }>(), { materialRefreshToken: 0, initialStage: 'foundation', initialLessonId: '', initialIssueId: '', initialBlockId: '', initialTaskId: '', expandIssue: false, outlineEditing: false })
 const emit = defineEmits<{
   (event: 'generateOutline', payload: { subject: string; options: CourseGenerationOptions; references: CourseReferenceItem[] }): void
   (event: 'update:outlineEditing', value: boolean): void
@@ -1214,6 +1205,15 @@ const emit = defineEmits<{
   (event: 'open-course-adjustment', payload: { planId: string }): void
 }>()
 const courseStore = useCourseStore(); const courseEvolutionStore = useCourseEvolutionStore(); const courseWorkspaceStore = useCourseWorkspaceStore(); const generationStore = useGenerationStore(); const lessonStore = useTeacherLessonAuthoringStore(); const teachingRepresentationsStore = useTeachingRepresentationsStore()
+const productionState = computed(() => (
+  readCourseProductionState(lessonStore.productionState)
+  || readCourseProductionState(courseStore.teacherProductionStates[props.courseId])
+  || readCourseProductionState(courseStore.courseList.find(course => course.course_id === props.courseId))
+))
+const activeProductionIssue = computed(() => {
+  if (!props.expandIssue || !props.initialIssueId) return null
+  return productionState.value?.issues.find(issue => issue.issue_id === props.initialIssueId) || null
+})
 const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = ref(props.initialLessonId)
 const activeCompanionTemplateId = ref<CompanionTemplateId>(GRADING_RUBRIC_TEMPLATE_ID)
 const stageSwitching = ref(false)
@@ -1919,13 +1919,15 @@ const batchRecoveryAvailable = computed(() => batchPaused.value || batchFailed.v
   !lessonPlanIsReady(lesson)
   && ['paused', 'failed', 'cancelled'].includes(String(lessonStore.latestJobByLesson(lesson.lesson_unit_id)?.status || ''))
 )))
+const lessonBatchActionBlocked = computed(() => (
+  batchRecoveryAvailable.value ? referenceRelationshipSaving.value : referenceGenerationBlocked.value
+))
 const lessonBatchLaunchVisible = computed(() => (
   activeStage.value === 'lesson'
   && batchEligibleCount.value > 0
   && !batchRunning.value
   && !batchStarting.value
   && !batchPaused.value
-  && !batchRecoveryAvailable.value
 ))
 const lessonCoursePreviewVisible = computed(() => (
   activeStage.value === 'lesson'
@@ -1939,7 +1941,7 @@ const lessonGenerationActionsVisible = computed(() => (
   activeStage.value === 'lesson'
   && Boolean(selectedLesson.value?.arrangement?.blocks?.length)
   && !lessonGenerationActive.value
-  && (selectedLessonCanGenerate.value || lessonBatchLaunchVisible.value || batchStarting.value)
+  && (lessonBatchLaunchVisible.value || batchStarting.value)
 ))
 const batchTotalCount = computed(() => Math.max(
   ...batchLessonJobs.value.map(job => Number(job.batch_size || 0)),
@@ -1990,6 +1992,9 @@ const scriptBatchRecoveryAvailable = computed(() => (
   scriptBatchEligibleCount.value > 0
   && (scriptBatchPaused.value || scriptBatchFailed.value)
 ))
+const scriptBatchActionBlocked = computed(() => (
+  scriptBatchRecoveryAvailable.value ? referenceRelationshipSaving.value : referenceGenerationBlocked.value
+))
 const scriptBatchTotalCount = computed(() => Math.max(
   ...scriptBatchJobs.value.map(job => Number(job.batch_size || 0)),
   scriptBatchJobs.value.length,
@@ -2014,7 +2019,6 @@ const scriptBatchLaunchVisible = computed(() => (
   && scriptBatchEligibleCount.value > 0
   && !scriptBatchRunning.value
   && !scriptBatchPaused.value
-  && !scriptBatchRecoveryAvailable.value
 ))
 const scriptCoursePreviewVisible = computed(() => (
   activeStage.value === 'script'
@@ -2268,7 +2272,12 @@ const lessonPrerequisiteError = computed(() => (
       })
     : null
 ))
+function productionStageKey(stage: CoreStageId): CourseProductionStageKey {
+  return stage === 'foundation' ? 'outline' : stage === 'lesson' ? 'lesson_plan' : stage
+}
 function stageReady(stage: CoreStageId) {
+  const projected = productionState.value?.stages[productionStageKey(stage)]
+  if (projected) return projected.display_state === 'available'
   if (stage === 'foundation') return outlineFullReady.value
   if (!lessonStore.lessons.length) return false
   if (stage === 'lesson') return lessonStore.lessons.every(item => lessonPlanIsReady(item))
@@ -2279,6 +2288,8 @@ function boundedStageProgress(value: unknown): number {
   return Math.max(0, Math.min(100, Math.round(Number(value) || 0)))
 }
 function stageProgress(stage: CoreStageId): number {
+  const projected = productionState.value?.stages[productionStageKey(stage)]
+  if (projected) return productionStageProgress(projected)
   if (stageReady(stage)) return 100
   if (stage === 'foundation') {
     if (!props.generationStarting && !taskInFlight.value && !hasOutline.value && !outlineWaitingForInput.value) return 0
@@ -2305,6 +2316,13 @@ function stageProgress(stage: CoreStageId): number {
   return Math.min(99, boundedStageProgress(total / lessonStore.lessons.length))
 }
 function stageProgressLabel(stage: CoreStageId): string {
+  const projected = productionState.value?.stages[productionStageKey(stage)]
+  if (projected) {
+    const label = productionDisplayStateLabel(projected.display_state)
+    return projected.counts.total > 0
+      ? `${label} ${projected.counts.available}/${projected.counts.total}`
+      : label
+  }
   const progress = stageProgress(stage)
   if (progress === 100) return t('courseWorkbench.stageStatus.complete', '已生成')
   if (progress === 0) return t('courseWorkbench.stageStatus.pending', '未生成')
@@ -3089,7 +3107,7 @@ async function generateSelectedLessonPlan() {
   }
 }
 async function generateAllLessonPlans() {
-  if (batchStarting.value || batchRunning.value || !batchEligibleCount.value || referenceGenerationBlocked.value) return
+  if (batchStarting.value || batchRunning.value || !batchEligibleCount.value || lessonBatchActionBlocked.value) return
   batchStarting.value = true
   lessonGenerationRequestError.value = ''
   try {
@@ -3246,6 +3264,12 @@ function lessonJobForStage(lesson: any): TeacherLessonJob | undefined {
   return undefined
 }
 function lessonGenerationState(lesson: any): 'pending' | 'queued' | 'generating' | 'ready' | 'stale' | 'failed' {
+  const stage = activeStage.value === 'lesson' ? 'lesson_plan' : activeStage.value === 'script' ? 'script' : activeStage.value === 'ppt' ? 'ppt' : null
+  const projected = stage ? lessonProductionState(productionState.value, lesson.lesson_unit_id, stage) : null
+  if (projected?.display_state === 'available') return 'ready'
+  if (projected?.display_state === 'generating') return projected.task_state === 'paused' ? 'queued' : 'generating'
+  if (projected?.display_state === 'failed') return 'failed'
+  if (projected?.display_state === 'not_generated') return 'pending'
   if (activeStage.value === 'ppt') {
     const assets = Array.isArray(lesson.plan?.ppt_assets) ? lesson.plan.ppt_assets : []
     const eligible = assets.filter((asset: any) => ['slide_deck_v6', 'uploaded_pptx'].includes(String(asset.engine || '')))
@@ -3269,17 +3293,20 @@ function lessonGenerationIsRunning(lesson: any): boolean {
 }
 function lessonGenerationStateLabel(lesson: any): string {
   const state = lessonGenerationState(lesson)
+  const stage = activeStage.value === 'lesson' ? 'lesson_plan' : activeStage.value === 'script' ? 'script' : activeStage.value === 'ppt' ? 'ppt' : null
+  const projected = stage ? lessonProductionState(productionState.value, lesson.lesson_unit_id, stage) : null
+  if (projected) return productionDisplayStateLabel(projected.display_state)
   const job = lessonJobForStage(lesson)
   if (state === 'generating' && job?.message) return job.message
   if (state === 'queued' && job?.status === 'paused') return t('courseWorkbench.lessonBatch.status.paused', '已暂停')
   if (state === 'queued' && job?.message) return job.message
   const labels = {
-    pending: t('courseWorkbench.lessonOutline.status.pending', '未生成'),
-    queued: t('courseWorkbench.lessonBatch.status.pending', '等待生成'),
-    generating: t('courseWorkbench.lessonOutline.status.generating', '生成中'),
-    ready: t('courseWorkbench.lessonOutline.status.ready', '已生成'),
-    stale: t('courseWorkbench.lessonOutline.status.stale', '需更新'),
-    failed: t('courseWorkbench.lessonOutline.status.failed', '失败'),
+    pending: productionDisplayStateLabel('not_generated'),
+    queued: productionDisplayStateLabel('generating'),
+    generating: productionDisplayStateLabel('generating'),
+    ready: productionDisplayStateLabel('available'),
+    stale: productionDisplayStateLabel('available'),
+    failed: productionDisplayStateLabel('failed'),
   }
   return labels[state]
 }
@@ -3493,6 +3520,14 @@ watch([
 }, { immediate: true, deep: true })
 watch(() => props.initialStage, stage => { void requestStageChange(stage) })
 watch(() => props.initialLessonId, lessonId => { if (lessonId) selectedLessonId.value = lessonId })
+watch([activeProductionIssue, () => props.initialBlockId], async ([issue, blockId]) => {
+  if (!issue || !blockId) return
+  await nextTick()
+  const escaped = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+    ? CSS.escape(blockId)
+    : blockId.replace(/["\\]/g, '\\$&')
+  workbenchRoot.value?.querySelector<HTMLElement>(`[data-production-block-id="${escaped}"]`)?.scrollIntoView({ block: 'center' })
+}, { immediate: true })
 watch([() => props.courseId, () => lessonStore.outlineRevisionId], () => {
   clearLessonSyncRetryTimer()
   lessonSyncAttempt.value = 0
@@ -3608,6 +3643,7 @@ onBeforeUnmount(() => {
 @media(max-width:760px){.lesson-navigator{gap:6px;padding-inline:10px}.lesson-navigator>button{font-size:0}.lesson-navigator>button svg{display:block}.lesson-selector select{padding-inline:8px;font-size:14px}.ppt-entry{grid-template-columns:auto minmax(0,1fr);padding:28px 18px}.ppt-entry .primary{grid-column:1/-1}}
 .stage-rail nav button:disabled,.companion-entry>button:disabled{opacity:.45;cursor:not-allowed}.teacher-workbench.is-ai-collaboration{min-width:0;grid-template-columns:minmax(0,1fr) 10px var(--ai-pane-width);background:#eef1f6}.is-ai-collaboration>.workbench-center{min-width:0;overflow:auto}.is-ai-collaboration .has-lesson-outline .lesson-stage-content{min-width:0;overflow:hidden}.is-ai-collaboration .lesson-workspace,.is-ai-collaboration .lesson-stage,.is-ai-collaboration .outline-workspace{min-width:0;max-width:none}.is-ai-collaboration :deep(.lesson-document .flow-table){max-width:100%;overflow:auto}
 @media(max-width:900px){.teacher-workbench.is-ai-collaboration{grid-template-columns:minmax(0,1fr) 8px 340px}.is-ai-collaboration>.workbench-center{padding:0}}
+.production-issue-detail{max-width:860px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px;margin:0 auto 12px;padding:11px 13px;border:1px solid #fecdd3;border-radius:9px;color:#b42335;background:#fff5f6}.production-issue-detail>svg{margin-top:2px}.production-issue-detail strong{font-size:14px}.production-issue-detail p{margin:3px 0 0;overflow-wrap:anywhere;font-size:14px;line-height:1.55;white-space:normal}.production-block-highlight{border-radius:7px;background:#fff1f2;box-shadow:0 0 0 2px #fecdd3}
 @media(prefers-reduced-motion:reduce){.has-lesson-outline .lesson-workspace{transition:none}.lesson-outline-chapter-marker[data-state="generating"]{animation:none}}
 
 /* Lesson navigation keeps the document full width; the course outline appears only when requested. */

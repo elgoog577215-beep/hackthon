@@ -4,6 +4,7 @@
  */
 
 import type { CourseType } from '@/shared/prompt-config'
+import type { CourseProductionState } from '@/shared/teacher-production-state'
 
 export type NodeGenerationStatus = 'pending' | 'generating' | 'completed' | 'error' | 'skipped'
 
@@ -555,6 +556,7 @@ export interface Course {
     term?: string
     course_code?: string
     preparation_state?: 'preparing' | 'prepared'
+    course_production_state?: CourseProductionState
     preparation_summary?: {
         planned_lessons: number
         outline_ready?: boolean

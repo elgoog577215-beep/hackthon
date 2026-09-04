@@ -1230,6 +1230,10 @@ def reconcile_item_question_bank(
             "revision_ids are required for item reconciliation"
         )
     previous_items = list(previous.get("items") or [])
+    selected_revisions = set(expand_question_atomic_revisions(
+        previous,
+        revision_ids=selected_revisions,
+    ))
     selected_items = [
         item
         for item in previous_items
@@ -1306,6 +1310,96 @@ def reconcile_item_question_bank(
         },
     }
     return refresh_question_bank_bundle(result)
+
+
+def expand_question_atomic_revisions(
+    bundle: dict[str, Any] | None,
+    *,
+    revision_ids: Iterable[str],
+) -> list[str]:
+    """Expand item revisions to the smallest indivisible question units.
+
+    Most generated questions are independent and therefore remain one-item
+    units.  Imported or future assessment formats can explicitly bind several
+    items into one question group or shared stimulus/material.  Rebuilding only
+    one member would publish a half-updated formal asset, so selection expands
+    transitively across those explicit bindings before a job is created or a
+    bundle is reconciled.
+
+    The function deliberately does not infer groups from node ids, source
+    records, or similar text.  Those fields are commonly shared by otherwise
+    independent questions and would silently turn a targeted rebuild into a
+    whole-section rebuild.
+    """
+    requested = {
+        str(revision_id).strip()
+        for revision_id in revision_ids
+        if str(revision_id).strip()
+    }
+    if not requested:
+        return []
+    items = [
+        item
+        for item in (bundle or {}).get("items") or []
+        if isinstance(item, dict)
+        and str(item.get("revision_id") or "").strip()
+    ]
+    by_revision = {
+        str(item.get("revision_id") or "").strip(): item
+        for item in items
+    }
+    selected = requested & set(by_revision)
+    tokens = {
+        token
+        for revision_id in selected
+        for token in _question_atomic_unit_tokens(by_revision[revision_id])
+    }
+    changed = True
+    while changed and tokens:
+        changed = False
+        for revision_id, item in by_revision.items():
+            if revision_id in selected:
+                continue
+            item_tokens = _question_atomic_unit_tokens(item)
+            if not (tokens & item_tokens):
+                continue
+            selected.add(revision_id)
+            tokens.update(item_tokens)
+            changed = True
+    # Unknown ids stay in the result so the existing validation still reports
+    # them instead of silently dropping a caller error.
+    return sorted(requested | selected)
+
+
+def _question_atomic_unit_tokens(item: dict[str, Any]) -> set[str]:
+    tokens: set[str] = set()
+    containers = [
+        item,
+        (item.get("question_spec") or {}).get("stimulus") or {},
+    ]
+    scalar_fields = (
+        "atomic_unit_id",
+        "question_group_id",
+        "shared_material_id",
+    )
+    list_fields = (
+        "atomic_unit_ids",
+        "question_group_ids",
+        "shared_material_ids",
+    )
+    for container in containers:
+        if not isinstance(container, dict):
+            continue
+        for field in scalar_fields:
+            value = str(container.get(field) or "").strip()
+            if value:
+                tokens.add(f"{field}:{value}")
+        for field in list_fields:
+            for value in container.get(field) or []:
+                normalized = str(value or "").strip()
+                if normalized:
+                    tokens.add(f"{field.removesuffix('s')}:{normalized}")
+    return tokens
 
 
 def recalculate_question_bank_coverage(
@@ -1651,14 +1745,29 @@ class QuestionBankRepository:
             self.activate_bundle(normalized_course_id, revision_id)
         return stored
 
-    def activate_bundle(self, course_id: str, bundle_revision_id: str) -> None:
+    def activate_bundle(
+        self,
+        course_id: str,
+        bundle_revision_id: str,
+        *,
+        expected_current_revision_id: str | None = None,
+    ) -> None:
         course_id = _storage_id(course_id)
         bundle_revision_id = _storage_id(bundle_revision_id)
         path = self.root_dir / course_id / "revisions" / f"{bundle_revision_id}.json"
         if not path.exists():
             raise KeyError(f"Unknown question bank bundle: {bundle_revision_id}")
+        pointer = self.root_dir / course_id / "current.json"
+        if expected_current_revision_id is not None:
+            current_revision_id = (
+                str(self._read(pointer).get("bundle_revision_id") or "")
+                if pointer.exists()
+                else ""
+            )
+            if current_revision_id != expected_current_revision_id:
+                raise ValueError("question bank active revision changed")
         self._atomic_write(
-            self.root_dir / course_id / "current.json",
+            pointer,
             {"bundle_revision_id": bundle_revision_id},
         )
 

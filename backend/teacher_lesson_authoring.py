@@ -115,6 +115,170 @@ def _mark_lesson_dependents_stale(
             review["source_state"] = "stale"
 
 
+_STRUCTURE_REBIND_MARKER_FIELDS = (
+    "source_state",
+    "source_state_reason",
+    "rebuild_required",
+    "structure_reference",
+)
+
+
+def _capture_marker_fields(value: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        field: {
+            "present": field in value,
+            "value": deepcopy(value.get(field)),
+        }
+        for field in _STRUCTURE_REBIND_MARKER_FIELDS
+    }
+
+
+def _restore_marker_fields(
+    value: dict[str, Any],
+    snapshot: dict[str, dict[str, Any]],
+) -> None:
+    for field in _STRUCTURE_REBIND_MARKER_FIELDS:
+        saved = snapshot.get(field) or {}
+        if saved.get("present"):
+            value[field] = deepcopy(saved.get("value"))
+        else:
+            value.pop(field, None)
+
+
+def _lesson_structure_marker_snapshot(lesson: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "lesson": _capture_marker_fields(lesson),
+        "arrangement": _capture_marker_fields(lesson.get("arrangement") or {}),
+        "ppt_manuscript": _capture_marker_fields(lesson.get("ppt_manuscript") or {}),
+        "ppt_assets": {
+            str(item.get("asset_id") or index): _capture_marker_fields(item)
+            for index, item in enumerate(lesson.get("ppt_assets") or [])
+            if isinstance(item, dict)
+        },
+        "imported_ppt_reviews": {
+            str(item.get("review_id") or index): _capture_marker_fields(item)
+            for index, item in enumerate(lesson.get("imported_ppt_reviews") or [])
+            if isinstance(item, dict)
+        },
+    }
+
+
+def _restore_lesson_structure_marker_snapshot(
+    lesson: dict[str, Any],
+    snapshot: dict[str, Any],
+) -> None:
+    _restore_marker_fields(lesson, snapshot.get("lesson") or {})
+    arrangement = lesson.get("arrangement")
+    if isinstance(arrangement, dict):
+        _restore_marker_fields(arrangement, snapshot.get("arrangement") or {})
+    manuscript = lesson.get("ppt_manuscript")
+    if isinstance(manuscript, dict):
+        _restore_marker_fields(manuscript, snapshot.get("ppt_manuscript") or {})
+    for index, asset in enumerate(lesson.get("ppt_assets") or []):
+        if not isinstance(asset, dict):
+            continue
+        key = str(asset.get("asset_id") or index)
+        if key in (snapshot.get("ppt_assets") or {}):
+            _restore_marker_fields(asset, snapshot["ppt_assets"][key])
+    for index, review in enumerate(lesson.get("imported_ppt_reviews") or []):
+        if not isinstance(review, dict):
+            continue
+        key = str(review.get("review_id") or index)
+        if key in (snapshot.get("imported_ppt_reviews") or {}):
+            _restore_marker_fields(
+                review,
+                snapshot["imported_ppt_reviews"][key],
+            )
+
+
+_STRUCTURE_REFERENCE_FIELDS = {
+    "section_id",
+    "section_node_id",
+    "lesson_unit_id",
+    "parent_section_id",
+    "parent_node_id",
+}
+_STRUCTURE_REFERENCE_LIST_FIELDS = {
+    "section_ids",
+    "section_node_ids",
+    "lesson_unit_ids",
+}
+
+
+def _contains_structure_reference(value: Any, section_id: str) -> bool:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in _STRUCTURE_REFERENCE_FIELDS and str(item or "") == section_id:
+                return True
+            if (
+                key in _STRUCTURE_REFERENCE_LIST_FIELDS
+                and isinstance(item, list)
+                and section_id in {str(entry) for entry in item}
+            ):
+                return True
+            if _contains_structure_reference(item, section_id):
+                return True
+    elif isinstance(value, list):
+        return any(_contains_structure_reference(item, section_id) for item in value)
+    return False
+
+
+def _current_lesson_structure_slice(lesson: dict[str, Any]) -> dict[str, Any]:
+    def current_revision(
+        values: Any,
+        revision_id: Any,
+    ) -> dict[str, Any]:
+        return deepcopy(next(
+            (
+                item
+                for item in values or []
+                if isinstance(item, dict)
+                and str(item.get("revision_id") or "") == str(revision_id or "")
+            ),
+            {},
+        ))
+
+    arrangement = lesson.get("arrangement") or {}
+    plan_revision = current_revision(
+        lesson.get("revisions"),
+        lesson.get("working_revision_id"),
+    )
+    script_revision = current_revision(
+        lesson.get("script_revisions"),
+        lesson.get("working_script_revision_id"),
+    )
+    current_ppt_assets: list[dict[str, Any]] = []
+    for asset in lesson.get("ppt_assets") or []:
+        if not isinstance(asset, dict):
+            continue
+        active_binding = current_revision(
+            asset.get("v6_revisions"),
+            asset.get("working_v6_revision_id"),
+        )
+        current_ppt_assets.append({
+            key: deepcopy(value)
+            for key, value in asset.items()
+            if key not in {"revisions", "ai_candidates", "v6_revisions", "v6_ai_candidates"}
+        } | {"active_binding": active_binding})
+    return {
+        "lesson_unit_id": str(lesson.get("lesson_unit_id") or ""),
+        "arrangement": current_revision(
+            arrangement.get("revisions"),
+            arrangement.get("working_revision_id"),
+        ),
+        "lesson_plan": plan_revision,
+        "script": script_revision,
+        "ppt_manuscript": deepcopy(lesson.get("ppt_manuscript") or {}),
+        "ppt_assets": current_ppt_assets,
+        "imported_ppt_reviews": [
+            deepcopy(item)
+            for item in lesson.get("imported_ppt_reviews") or []
+            if isinstance(item, dict)
+            and item.get("source_state", "current") == "current"
+        ],
+    }
+
+
 def _text_list(value: Any) -> list[str]:
     if isinstance(value, str):
         return [item.strip() for item in value.splitlines() if item.strip()]
@@ -1808,6 +1972,227 @@ class TeacherLessonAuthoringRepository:
                 return deepcopy(value)
             return self._save(value)
 
+    def apply_structure_reference_rebind(
+        self,
+        course_id: str,
+        *,
+        operation_id: str,
+        mapping_revision: str,
+        reference_migrations: list[dict[str, Any]],
+        section_tombstones: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Persist one idempotent structure rebind without copying lesson bodies."""
+
+        with self._lock:
+            value = self.load(course_id)
+            records = value.setdefault("structure_reference_rebinds", [])
+            existing = next(
+                (
+                    item
+                    for item in records
+                    if isinstance(item, dict)
+                    and item.get("operation_id") == operation_id
+                ),
+                None,
+            )
+            if isinstance(existing, dict):
+                if (
+                    existing.get("status") == "applied"
+                    and existing.get("mapping_revision") == mapping_revision
+                ):
+                    return deepcopy(existing)
+                raise TeacherLessonAuthoringError(
+                    "structure_reference_rebind_conflict",
+                    "课程结构引用已经发生后续变化，不能重复覆盖。",
+                )
+
+            affected = [
+                deepcopy(item)
+                for item in reference_migrations
+                if isinstance(item, dict)
+                and item.get("source_section_id")
+                and (
+                    list(item.get("target_section_ids") or [])
+                    != [str(item.get("source_section_id") or "")]
+                    or str(item.get("resolution") or "")
+                    in {"merge_primary", "primary_preserved"}
+                )
+            ]
+            before_lessons: dict[str, Any] = {}
+            after_lessons: dict[str, Any] = {}
+            lessons = value.get("lessons") or {}
+            for lesson_id, lesson in lessons.items():
+                if not isinstance(lesson, dict):
+                    continue
+                current_slice = _current_lesson_structure_slice(lesson)
+                matched = [
+                    migration
+                    for migration in affected
+                    if (
+                        str(migration.get("source_section_id") or "") == lesson_id
+                        or _contains_structure_reference(
+                            current_slice,
+                            str(migration.get("source_section_id") or ""),
+                        )
+                    )
+                ]
+                if not matched:
+                    continue
+                before_lessons[lesson_id] = _lesson_structure_marker_snapshot(lesson)
+                reference = {
+                    "mapping_revision": mapping_revision,
+                    "reference_migrations": deepcopy(matched),
+                }
+                if lesson.get("working_revision_id") or lesson.get(
+                    "working_script_revision_id"
+                ):
+                    lesson["source_state"] = "stale"
+                    lesson["source_state_reason"] = "course_structure_rebound"
+                lesson["rebuild_required"] = True
+                lesson["structure_reference"] = deepcopy(reference)
+                arrangement = lesson.get("arrangement")
+                if isinstance(arrangement, dict) and arrangement.get(
+                    "working_revision_id"
+                ):
+                    arrangement["source_state"] = "stale"
+                    arrangement["rebuild_required"] = True
+                    arrangement["structure_reference"] = deepcopy(reference)
+                manuscript = lesson.get("ppt_manuscript")
+                if isinstance(manuscript, dict) and manuscript:
+                    manuscript["source_state"] = "stale"
+                    manuscript["rebuild_required"] = True
+                    manuscript["structure_reference"] = deepcopy(reference)
+                for collection in (
+                    lesson.get("ppt_assets") or [],
+                    lesson.get("imported_ppt_reviews") or [],
+                ):
+                    for asset in collection:
+                        if not isinstance(asset, dict):
+                            continue
+                        asset["source_state"] = "stale"
+                        asset["rebuild_required"] = True
+                        asset["structure_reference"] = deepcopy(reference)
+                after_lessons[lesson_id] = _lesson_structure_marker_snapshot(lesson)
+
+            previous_tombstones = deepcopy(
+                value.get("section_reference_tombstones") or []
+            )
+            tombstones_by_id = {
+                str(item.get("section_id") or ""): deepcopy(item)
+                for item in previous_tombstones
+                if isinstance(item, dict) and item.get("section_id")
+            }
+            for item in section_tombstones:
+                if isinstance(item, dict) and item.get("section_id"):
+                    tombstones_by_id[str(item["section_id"])] = deepcopy(item)
+            next_tombstones = list(tombstones_by_id.values())
+            value["section_reference_tombstones"] = next_tombstones
+            predicted_revision = int(value.get("revision") or 0) + 1
+            record = {
+                "operation_id": operation_id,
+                "mapping_revision": mapping_revision,
+                "status": "applied",
+                "previous_repository_revision": int(value.get("revision") or 0),
+                "result_repository_revision": predicted_revision,
+                "affected_section_ids": sorted(before_lessons),
+                "before_lessons": before_lessons,
+                "after_lessons": after_lessons,
+                "previous_tombstones": previous_tombstones,
+                "result_tombstones": deepcopy(next_tombstones),
+                "applied_at": _now(),
+            }
+            records.append(record)
+            saved = self._save(value)
+            return deepcopy(next(
+                item
+                for item in saved.get("structure_reference_rebinds") or []
+                if item.get("operation_id") == operation_id
+            ))
+
+    def structure_reference_rebind(
+        self,
+        course_id: str,
+        operation_id: str,
+    ) -> dict[str, Any] | None:
+        value = self.load(course_id)
+        record = next(
+            (
+                item
+                for item in value.get("structure_reference_rebinds") or []
+                if isinstance(item, dict)
+                and item.get("operation_id") == operation_id
+            ),
+            None,
+        )
+        return deepcopy(record) if isinstance(record, dict) else None
+
+    def undo_structure_reference_rebind(
+        self,
+        course_id: str,
+        *,
+        operation_id: str,
+        expected_mapping_revision: str,
+    ) -> dict[str, Any]:
+        """CAS-restore only fields changed by one structure rebind operation."""
+
+        with self._lock:
+            value = self.load(course_id)
+            record = next(
+                (
+                    item
+                    for item in value.get("structure_reference_rebinds") or []
+                    if isinstance(item, dict)
+                    and item.get("operation_id") == operation_id
+                ),
+                None,
+            )
+            if not isinstance(record, dict):
+                raise TeacherLessonAuthoringError(
+                    "structure_reference_rebind_not_found",
+                    "课程结构引用迁移回执不存在。",
+                )
+            if record.get("status") == "undone":
+                return deepcopy(record)
+            if record.get("mapping_revision") != expected_mapping_revision:
+                raise TeacherLessonAuthoringError(
+                    "structure_reference_rebind_conflict",
+                    "课程结构引用迁移版本不一致，不能撤销。",
+                )
+            lessons = value.get("lessons") or {}
+            for lesson_id, expected in (record.get("after_lessons") or {}).items():
+                lesson = lessons.get(lesson_id)
+                if (
+                    not isinstance(lesson, dict)
+                    or _lesson_structure_marker_snapshot(lesson) != expected
+                ):
+                    raise TeacherLessonAuthoringError(
+                        "structure_reference_rebind_conflict",
+                        "教案或讲义已在结构迁移后变化，不能覆盖。",
+                    )
+            if list(value.get("section_reference_tombstones") or []) != list(
+                record.get("result_tombstones") or []
+            ):
+                raise TeacherLessonAuthoringError(
+                    "structure_reference_rebind_conflict",
+                    "课程结构墓碑已发生后续变化，不能覆盖。",
+                )
+            for lesson_id, snapshot in (record.get("before_lessons") or {}).items():
+                lesson = lessons.get(lesson_id)
+                if isinstance(lesson, dict):
+                    _restore_lesson_structure_marker_snapshot(lesson, snapshot)
+            value["section_reference_tombstones"] = deepcopy(
+                record.get("previous_tombstones") or []
+            )
+            record["status"] = "undone"
+            record["undone_at"] = _now()
+            record["undo_repository_revision"] = int(value.get("revision") or 0) + 1
+            saved = self._save(value)
+            return deepcopy(next(
+                item
+                for item in saved.get("structure_reference_rebinds") or []
+                if item.get("operation_id") == operation_id
+            ))
+
     def save_arrangement_revision(
         self,
         course_id: str,
@@ -2176,6 +2561,7 @@ class TeacherLessonAuthoringRepository:
         quality_report: dict[str, Any] | None = None,
         actor: str = "teacher",
         expected_working_revision_id: str | None = None,
+        revision_id_override: str = "",
         rollback_from_revision_id: str = "",
         active_job_id: str = "",
     ) -> dict[str, Any]:
@@ -2212,7 +2598,7 @@ class TeacherLessonAuthoringRepository:
             source_arrangement_revision_id = str(
                 arrangement_state.get("working_revision_id") or ""
             )
-            revision_id = f"tlpr-{uuid.uuid4().hex}"
+            revision_id = revision_id_override or f"tlpr-{uuid.uuid4().hex}"
             revision = {
                 "revision_id": revision_id,
                 "lesson_unit_id": lesson_unit_id,
@@ -3478,6 +3864,7 @@ class TeacherLessonAuthoringRepository:
         source_lesson_plan_revision_id: str,
         material_asset_ids: list[str] | None = None,
         section_replacements: dict[str, str] | None = None,
+        block_replacements: dict[str, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         with self._lock:
             value = self.load(course_id)
@@ -3508,6 +3895,11 @@ class TeacherLessonAuthoringRepository:
                     str(key): str(value).strip()
                     for key, value in (section_replacements or {}).items()
                     if str(key).strip() and str(value).strip()
+                },
+                "block_replacements": {
+                    str(key): deepcopy(value)
+                    for key, value in (block_replacements or {}).items()
+                    if str(key).strip() and isinstance(value, dict)
                 },
                 "material_asset_ids": list(dict.fromkeys(
                     str(item).strip()
@@ -3629,6 +4021,7 @@ class TeacherLessonAuthoringRepository:
         quality_report: dict[str, Any] | None = None,
         accepted_plan: dict[str, Any] | None = None,
         actor: str = "teacher",
+        result_revision_id_override: str = "",
     ) -> dict[str, Any]:
         with self._lock:
             value = self.load(course_id)
@@ -3648,16 +4041,15 @@ class TeacherLessonAuthoringRepository:
                 return deepcopy(lesson)
             if lesson.get("working_revision_id") != candidate.get("base_revision_id"):
                 raise TeacherLessonAuthoringError("lesson_plan_revision_conflict", "教案草稿已经变化，不能覆盖新修改。")
-            candidate["status"] = "accepted" if accept else "rejected"
-            candidate["resolved_at"] = _now()
             if not accept:
+                candidate["status"] = "rejected"
+                candidate["resolved_at"] = _now()
                 saved = self._save(value)
                 return deepcopy(saved["lessons"][lesson_unit_id])
             source_outline_revision_id = str(value.get("outline_revision_id") or "")
+            base_revision_id = str(candidate.get("base_revision_id") or "")
             plan = deepcopy(accepted_plan or candidate.get("plan") or {})
-            candidate["plan"] = deepcopy(plan)
-            self._save(value)
-        return self.save_plan_revision(
+        saved_lesson = self.save_plan_revision(
             course_id,
             lesson_unit_id,
             plan,
@@ -3665,7 +4057,28 @@ class TeacherLessonAuthoringRepository:
             generation_source="ai_optimization",
             quality_report=quality_report,
             actor=actor,
+            expected_working_revision_id=base_revision_id,
+            revision_id_override=result_revision_id_override,
         )
+        result_revision_id = str(saved_lesson.get("working_revision_id") or "")
+        with self._lock:
+            value = self.load(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_unit_id)
+            candidate = next(
+                (
+                    item for item in (lesson or {}).get("ai_candidates") or []
+                    if isinstance(item, dict) and item.get("candidate_id") == candidate_id
+                ),
+                None,
+            )
+            if isinstance(candidate, dict) and candidate.get("status") == "pending":
+                candidate["plan"] = deepcopy(plan)
+                candidate["status"] = "accepted"
+                candidate["resolved_at"] = _now()
+                candidate["result_revision_id"] = result_revision_id
+                saved = self._save(value)
+                return deepcopy(saved["lessons"][lesson_unit_id])
+        return saved_lesson
 
     def apply_material_absorption(
         self,
@@ -3934,6 +4347,7 @@ class TeacherLessonAuthoringService:
         candidate_id: str,
         accept: bool,
         actor: str,
+        result_revision_id_override: str = "",
     ) -> dict[str, Any]:
         lesson = self.repository.lesson(course_id, lesson_unit_id)
         candidate = next(
@@ -3974,6 +4388,7 @@ class TeacherLessonAuthoringService:
             quality_report=quality_report,
             accepted_plan=aligned_plan,
             actor=actor,
+            result_revision_id_override=result_revision_id_override,
         )
 
     async def run_plan_job(

@@ -50,6 +50,7 @@ from learning_assets import compile_learning_assets
 from learner_context import require_user_id
 from material_storage import material_repository
 from question_bank import (
+    expand_question_atomic_revisions,
     filter_question_bank_items,
     load_active_question_bank,
     question_bank_repository,
@@ -742,6 +743,10 @@ async def rebuild_question_bank(
             )
     elif payload.scope == "items":
         bundle = _require_bundle(course)
+        payload.revision_ids = expand_question_atomic_revisions(
+            bundle,
+            revision_ids=payload.revision_ids,
+        )
         requested_revisions = set(payload.revision_ids)
         selected_items = [
             item

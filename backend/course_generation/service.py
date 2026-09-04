@@ -164,8 +164,6 @@ from course_generation.planning_state import (
 from course_generation.relation_validation import (
     _coherence_repair_suggestion,
     _record_relation_cycle_diagnosis,
-    diagnose_cross_batch_relation_cycles,
-    enforce_batch_prerequisite_direction,
 )
 from course_quality import evaluate_node_content, validate_blueprint
 from course_retrieval import build_course_source_context
@@ -202,6 +200,7 @@ from material_evidence import attach_evidence_to_plan, extract_grounding_annotat
 from material_pipeline import prepare_course_materials
 from material_storage import MaterialRepository, material_repository
 from models import NodeGenerationConfig
+from runtime_metrics import record_heartbeat_timeout
 from teacher_script import (
     compile_teacher_script_module_contract,
     compile_teacher_script_section,
@@ -1271,15 +1270,16 @@ class CourseService(AIBase):
         if existing.get("nodes"):
             plan = self._merge_outline_node_edits(plan, existing.get("nodes") or [])
         outline_plan = self._outline_only_plan(plan)
+        course_generation_brief = artifacts.get("course_generation_brief") or {}
         outline_quality_report = review_course_outline_document(
             outline_plan,
             course_context={
                 **deepcopy(existing),
                 "course_generation_brief": deepcopy(
-                    artifacts.get("course_generation_brief") or brief
+                    course_generation_brief
                 ),
                 "teacher_course_brief": deepcopy(
-                    (artifacts.get("course_generation_brief") or brief).get(
+                    course_generation_brief.get(
                         "teacher_course_brief"
                     ) or {}
                 ),
@@ -2894,12 +2894,6 @@ class CourseService(AIBase):
                 skeleton=skeleton,
                 sections=planning_sections,
             )
-            batch_report = enforce_batch_prerequisite_direction(
-                batch_report,
-                batch=batch,
-                skeleton=skeleton,
-                sections=planning_sections,
-            )
             resumed = bool(
                 teaching_stage.get("strategy") == strategy_name
                 and skeleton_report.get("passed")
@@ -3070,12 +3064,6 @@ class CourseService(AIBase):
                 batch_report = validate_teaching_plan_batch_v3(
                     batch,
                     batch_spec=batch_spec,
-                    skeleton=skeleton,
-                    sections=planning_sections,
-                )
-                batch_report = enforce_batch_prerequisite_direction(
-                    batch_report,
-                    batch=batch,
                     skeleton=skeleton,
                     sections=planning_sections,
                 )
@@ -3939,12 +3927,6 @@ class CourseService(AIBase):
                 skeleton=skeleton,
                 sections=planning_sections,
             )
-            candidate_report = enforce_batch_prerequisite_direction(
-                candidate_report,
-                batch=candidate,
-                skeleton=skeleton,
-                sections=planning_sections,
-            )
             if (
                 isinstance(stored, dict)
                 and stored.get("status") == "completed"
@@ -4084,12 +4066,6 @@ class CourseService(AIBase):
                         skeleton=skeleton,
                         sections=planning_sections,
                     )
-                    batch_report = enforce_batch_prerequisite_direction(
-                        batch_report,
-                        batch=batch,
-                        skeleton=skeleton,
-                        sections=planning_sections,
-                    )
                     if (
                         not batch_report.get("passed")
                         and not fallback_reason
@@ -4189,12 +4165,6 @@ class CourseService(AIBase):
                             batch_report = validate_teaching_plan_batch_v3(
                                 batch,
                                 batch_spec=spec,
-                                skeleton=skeleton,
-                                sections=planning_sections,
-                            )
-                            batch_report = enforce_batch_prerequisite_direction(
-                                batch_report,
-                                batch=batch,
                                 skeleton=skeleton,
                                 sections=planning_sections,
                             )
@@ -4321,15 +4291,6 @@ class CourseService(AIBase):
                         batch_report = validate_teaching_plan_batch_v3(
                             batch,
                             batch_spec=spec,
-                            skeleton=skeleton,
-                            sections=planning_sections,
-                        )
-                        # 补写只填内容字段，不改关系端点，所以它无法修好一条
-                        # 方向错误的前置边。这里必须再挡一次，否则补写会把
-                        # `passed` 重新置真，等于让方向错误被洗白。
-                        batch_report = enforce_batch_prerequisite_direction(
-                            batch_report,
-                            batch=batch,
                             skeleton=skeleton,
                             sections=planning_sections,
                         )
@@ -4829,12 +4790,6 @@ class CourseService(AIBase):
                 skeleton=skeleton,
                 sections=sections,
             )
-            batch_report = enforce_batch_prerequisite_direction(
-                batch_report,
-                batch=batch,
-                skeleton=skeleton,
-                sections=sections,
-            )
             generation_source = str(
                 (stored or {}).get("generation_source") or "model"
             )
@@ -4858,12 +4813,6 @@ class CourseService(AIBase):
                 batch_report = validate_teaching_plan_batch_v3(
                     batch,
                     batch_spec=spec,
-                    skeleton=skeleton,
-                    sections=sections,
-                )
-                batch_report = enforce_batch_prerequisite_direction(
-                    batch_report,
-                    batch=batch,
                     skeleton=skeleton,
                     sections=sections,
                 )
@@ -5293,6 +5242,11 @@ class CourseService(AIBase):
                                 "received_content_chars": visible_content_chars,
                             },
                         )
+                    record_heartbeat_timeout(
+                        timeout_policy="request_wall_clock",
+                        phase=phase,
+                        elapsed_seconds=elapsed_for,
+                    )
                     raise CourseGenerationDeadlineExceeded(
                         f"{phase} 阶段单次请求超过 "
                         f"{int(effective_wall_timeout)} 秒，已停止当前最小生成单元，"
@@ -5319,6 +5273,11 @@ class CourseService(AIBase):
                                 "received_content_chars": visible_content_chars,
                             },
                         )
+                    record_heartbeat_timeout(
+                        timeout_policy="stream_inactivity",
+                        phase=phase,
+                        elapsed_seconds=inactive_for,
+                    )
                     raise CourseGenerationDeadlineExceeded(
                         f"{phase} 阶段连续 {int(inactivity_timeout_seconds)} "
                         "秒没有新内容，已停止当前最小生成单元，可从最近检查点继续"
@@ -5359,6 +5318,11 @@ class CourseService(AIBase):
             except asyncio.TimeoutError as exc:
                 # Some provider adapters surface their own inactivity timeout
                 # as asyncio.TimeoutError; keep the same resumable contract.
+                record_heartbeat_timeout(
+                    timeout_policy="provider_timeout",
+                    phase=phase,
+                    elapsed_seconds=time.monotonic() - started_at,
+                )
                 raise CourseGenerationDeadlineExceeded(
                     f"{phase} 阶段连续 {int(inactivity_timeout_seconds)} "
                     "秒没有新内容，已停止当前最小生成单元，可从最近检查点继续"

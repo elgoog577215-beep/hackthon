@@ -14,7 +14,65 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Verify repository tracking hygiene
+        run: scripts/check-tracked-ignored.sh
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Install backend development dependencies
+        run: python -m pip install -r backend/requirements-dev.txt
+
+      - name: Run backend tests
+        run: python -m pytest backend/tests
+
+      - name: Run compatibility tests
+        run: python -m pytest tests
+
+      - name: Lint backend and tests
+        run: python -m ruff check backend tests --select E9,F63,F7,F82
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend tests
+        working-directory: frontend
+        run: npm test
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          VITE_BASE_PATH: /lingzhi/
+        run: npm run build
+
+      - name: Validate OpenSpec contracts
+        run: |
+          npm install --global @fission-ai/openspec@1.12.0
+          openspec validate --all --strict --no-interactive
+
   deploy:
+    needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -95,6 +153,7 @@ jobs:
           ZJU_QWEN_API_KEY: ${{ secrets.ZJU_QWEN_API_KEY }}
           ZJU_QWEN_BASE_URL: ${{ secrets.ZJU_QWEN_BASE_URL }}
           ZJU_QWEN_MODEL: qwen3.8-27b
+          LINGZHI_RELEASE_SHA: ${{ github.sha }}
           SLIDE_DECK_V6_ENABLED: true
           SLIDE_DECK_V6_DEFAULT_ENABLED: true
           TEACHER_SCRIPT_ANIMATION_ENABLED: false
@@ -144,7 +203,7 @@ jobs:
             -o StrictHostKeyChecking=yes \
             scripts/configure_zju_qwen_provider.py \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_script"
-          python3 -c 'import json, os; print(json.dumps({"api_key": os.environ["ZJU_QWEN_API_KEY"], "base_url": os.environ["ZJU_QWEN_BASE_URL"], "model": os.environ["ZJU_QWEN_MODEL"], "slide_deck_v6_enabled": os.environ["SLIDE_DECK_V6_ENABLED"], "slide_deck_v6_default_enabled": os.environ["SLIDE_DECK_V6_DEFAULT_ENABLED"], "teacher_script_animation_enabled": os.environ["TEACHER_SCRIPT_ANIMATION_ENABLED"]}))' \
+          python3 -c 'import json, os; print(json.dumps({"api_key": os.environ["ZJU_QWEN_API_KEY"], "base_url": os.environ["ZJU_QWEN_BASE_URL"], "model": os.environ["ZJU_QWEN_MODEL"], "release_sha": os.environ["LINGZHI_RELEASE_SHA"], "slide_deck_v6_enabled": os.environ["SLIDE_DECK_V6_ENABLED"], "slide_deck_v6_default_enabled": os.environ["SLIDE_DECK_V6_DEFAULT_ENABLED"], "teacher_script_animation_enabled": os.environ["TEACHER_SCRIPT_ANIMATION_ENABLED"]}))' \
             | ssh \
               -i ~/.ssh/lingzhi_deploy \
               -o BatchMode=yes \
@@ -187,6 +246,7 @@ jobs:
           local_artifact="/tmp/lingzhi-release-${GITHUB_SHA}.tgz"
           remote_artifact="/opt/lingzhi/incoming/lingzhi-release-${GITHUB_SHA}.tgz"
           artifact_sha256="$(sha256sum "$local_artifact" | awk '{print $1}')"
+          set +e
           ssh \
             -i ~/.ssh/lingzhi_deploy \
             -o BatchMode=yes \
@@ -195,6 +255,12 @@ jobs:
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
             "LINGZHI_TARGET_COMMIT='$GITHUB_SHA' LINGZHI_ARTIFACT_PATH='$remote_artifact' LINGZHI_ARTIFACT_SHA256='$artifact_sha256' bash -s" \
             < scripts/github-action-deploy.sh
+          deployment_status=$?
+          set -e
+          if [ "$deployment_status" -eq 75 ]; then
+            printf 'LINGZHI_DEPLOY_BUSY=true\n' >> "$GITHUB_ENV"
+          fi
+          exit "$deployment_status"
 
       - name: Verify production ZJU Qwen routes
         env:
@@ -211,7 +277,7 @@ jobs:
             "set -a; . /opt/lingzhi/state/.env; set +a; cd /opt/lingzhi/hackthon; /opt/lingzhi/.venv/bin/python scripts/probe_zju_qwen_runtime.py"
 
       - name: Restore previous release and model config on failure
-        if: ${{ failure() && env.LINGZHI_ENV_BACKUP != '' }}
+        if: ${{ failure() && env.LINGZHI_ENV_BACKUP != '' && env.LINGZHI_DEPLOY_BUSY != 'true' }}
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}

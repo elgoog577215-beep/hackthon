@@ -21,7 +21,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from .change_planning import CourseChangePlan
 from course_commands import CourseCommandService
 from course_document import CourseBlock, CourseDocument, stable_hash
 from course_knowledge_base import compile_course_knowledge_base, knowledge_binding_for_section
@@ -36,6 +35,8 @@ from practice_attempts import practice_attempt_repository
 from product_runtime_policy import demo_overrides_enabled
 from teaching_representations import teaching_representation_repository
 
+from .change_planning import CourseChangePlan
+
 COURSE_EVOLUTION_SCHEMA = "course_evolution_v2"
 COURSE_COMMAND_GROUP_SCHEMA = "course_evolution_command_group_v1"
 COURSE_EVOLUTION_REPRESENTATION_IMPACT_SCHEMA = (
@@ -45,6 +46,9 @@ COURSE_REVERIFICATION_WINDOW_SCHEMA = "course_evolution_reverification_window_v1
 COURSE_KNOWLEDGE_PINS_SCHEMA = "course_evolution_knowledge_pins_v1"
 COURSE_KNOWLEDGE_DRIFT_SCHEMA = "course_evolution_knowledge_drift_v1"
 COURSE_KNOWLEDGE_SEMANTICS_SCHEMA = "course_evolution_knowledge_semantics_v1"
+COURSE_EVOLUTION_OPERATION_JOURNAL_SCHEMA = (
+    "course_evolution_operation_journal_v1"
+)
 HypothesisStatus = Literal[
     "observing", "actionable", "candidate_created", "accepted", "rejected",
     "evaluating", "effective", "ineffective", "harmful", "expired",
@@ -163,6 +167,31 @@ class CourseEvolutionOperation(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class CourseEvolutionOperationJournalEntry(BaseModel):
+    schema_version: Literal["course_evolution_operation_journal_v1"] = (
+        COURSE_EVOLUTION_OPERATION_JOURNAL_SCHEMA
+    )
+    operation_id: str
+    domain: str = ""
+    status: Literal["pending", "applying", "applied", "failed"] = "pending"
+    attempt: int = 0
+    previous_revision_id: str = ""
+    expected_result_revision_id: str = ""
+    result_revision_id: str = ""
+    result_receipt: dict[str, Any] = Field(default_factory=dict)
+    error_code: str = ""
+    detail: str = ""
+    retryable: bool = False
+    created_at: str = ""
+    started_at: str | None = None
+    completed_at: str | None = None
+    updated_at: str = ""
+
+
+class CourseEvolutionJournalPersistenceError(RuntimeError):
+    """An operation boundary could not be durably recorded."""
+
+
 class AnimationKeyframe(BaseModel):
     index: int
     label: str
@@ -229,6 +258,9 @@ class CourseEvolutionPlan(BaseModel):
     resolved_at: str | None = None
     applied_block_ids: list[str] = Field(default_factory=list)
     application_receipt: dict[str, Any] = Field(default_factory=dict)
+    operation_journal: list[CourseEvolutionOperationJournalEntry] = Field(
+        default_factory=list,
+    )
     undo_receipt: dict[str, Any] = Field(default_factory=dict)
     effect_evaluation: dict[str, Any] = Field(default_factory=dict)
 
@@ -559,6 +591,179 @@ def knowledge_compilation_source(course_data: dict[str, Any]) -> dict[str, Any]:
         return course_data
 
 
+def _ensure_operation_journal(
+    change_set: CourseEvolutionPlan,
+    operation_ids: list[str],
+) -> None:
+    """Backfill journal entries without replaying legacy successful receipts."""
+    existing = {item.operation_id: item for item in change_set.operation_journal}
+    legacy_receipts = {
+        str(item.get("operation_id") or ""): item
+        for item in (change_set.application_receipt.get("domain_candidates") or {}).get(
+            "items",
+            [],
+        )
+        if isinstance(item, dict) and item.get("operation_id")
+    }
+    operations = {item.operation_id: item for item in change_set.operations}
+    now = _now()
+    for operation_id in operation_ids:
+        if operation_id in existing:
+            continue
+        operation = operations.get(operation_id)
+        if operation is None or operation.operation_type not in DOMAIN_CANDIDATE_OPERATION_TYPES:
+            continue
+        payload = operation.payload or {}
+        legacy = legacy_receipts.get(operation_id) or {}
+        legacy_status = str(legacy.get("status") or "")
+        status = legacy_status if legacy_status in {"applied", "failed"} else "pending"
+        result_revision_id = str(legacy.get("result_revision_id") or "")
+        entry = CourseEvolutionOperationJournalEntry(
+            operation_id=operation_id,
+            domain=str(payload.get("domain") or ""),
+            status=status,
+            attempt=1 if status in {"applied", "failed"} else 0,
+            previous_revision_id=str(
+                legacy.get("previous_revision_id")
+                or payload.get("previous_revision_id")
+                or payload.get("previous_spec_id")
+                or ""
+            ),
+            expected_result_revision_id=result_revision_id,
+            result_revision_id=result_revision_id,
+            result_receipt=deepcopy(legacy) if legacy else {},
+            error_code=("domain_candidate_apply_failed" if status == "failed" else ""),
+            detail=str(legacy.get("detail") or ""),
+            retryable=status == "failed",
+            created_at=now,
+            completed_at=now if status in {"applied", "failed"} else None,
+            updated_at=now,
+        )
+        change_set.operation_journal.append(entry)
+        existing[operation_id] = entry
+
+
+def _domain_receipt_from_journal(
+    change_set: CourseEvolutionPlan,
+    operation_ids: list[str],
+) -> dict[str, Any]:
+    """Compile the existing public receipt from durable operation records."""
+    selected = set(operation_ids)
+    items: list[dict[str, Any]] = []
+    for entry in change_set.operation_journal:
+        if entry.operation_id not in selected:
+            continue
+        receipt = deepcopy(entry.result_receipt)
+        receipt.update({
+            "operation_id": entry.operation_id,
+            "domain": entry.domain,
+            "status": entry.status,
+            "previous_revision_id": entry.previous_revision_id,
+            "result_revision_id": entry.result_revision_id,
+            "detail": entry.detail,
+        })
+        if entry.error_code:
+            receipt["error_code"] = entry.error_code
+        receipt["retryable"] = entry.retryable
+        items.append(receipt)
+    return {
+        "schema_version": "teacher_course_domain_receipt_v1",
+        "status": (
+            "applied"
+            if items and all(item.get("status") == "applied" for item in items)
+            else "partial"
+        ),
+        "applied_count": sum(item.get("status") == "applied" for item in items),
+        "failed_count": sum(item.get("status") == "failed" for item in items),
+        "items": items,
+        "updated_at": _now(),
+    }
+
+
+def _merge_domain_receipt(
+    change_set: CourseEvolutionPlan,
+    domain_receipt: dict[str, Any],
+) -> None:
+    """Keep the legacy teacher receipt aligned with the journal compilation."""
+    change_set.application_receipt["domain_candidates"] = deepcopy(domain_receipt)
+    domain_by_operation = {
+        str(item.get("operation_id") or ""): item
+        for item in domain_receipt.get("items") or []
+        if isinstance(item, dict) and item.get("operation_id")
+    }
+    receipt_items = [
+        deepcopy(item)
+        for item in change_set.application_receipt.get("items") or []
+        if isinstance(item, dict)
+    ]
+    for item in receipt_items:
+        domain_item = domain_by_operation.get(str(item.get("operation_id") or ""))
+        if domain_item is None:
+            continue
+        item["status"] = str(domain_item.get("status") or "failed")
+        item["detail"] = str(domain_item.get("detail") or (
+            "已写入该资产的正式工作版"
+            if item["status"] == "applied"
+            else "应用失败，已保留原版本"
+        ))
+    if receipt_items:
+        change_set.application_receipt.update({
+            "items": receipt_items,
+            "applied_count": sum(item.get("status") == "applied" for item in receipt_items),
+            "failed_count": sum(item.get("status") == "failed" for item in receipt_items),
+            "unchanged_count": sum(item.get("status") == "unchanged" for item in receipt_items),
+        })
+
+
+def _sync_operation_journal_from_receipt(
+    change_set: CourseEvolutionPlan,
+    receipt: dict[str, Any],
+) -> None:
+    """Keep compatibility appliers from leaving final journal entries pending."""
+    by_operation = {
+        str(item.get("operation_id") or ""): item
+        for item in receipt.get("items") or []
+        if isinstance(item, dict) and item.get("operation_id")
+    }
+    now = _now()
+    for entry in change_set.operation_journal:
+        item = by_operation.get(entry.operation_id)
+        if item is None:
+            continue
+        status = str(item.get("status") or "")
+        if status not in {"applied", "failed"}:
+            continue
+        entry.status = status
+        entry.attempt = max(1, entry.attempt)
+        entry.result_revision_id = str(
+            item.get("result_revision_id") or entry.result_revision_id
+        )
+        entry.result_receipt = deepcopy(item)
+        entry.error_code = str(item.get("error_code") or (
+            "domain_candidate_apply_failed" if status == "failed" else ""
+        ))
+        entry.detail = str(item.get("detail") or "")
+        entry.retryable = bool(item.get("retryable", status == "failed"))
+        entry.completed_at = entry.completed_at or now
+        entry.updated_at = now
+
+
+def _invoke_domain_candidate_applier(
+    domain_candidate_applier: Any,
+    change_set: CourseEvolutionPlan,
+    operation_ids: list[str],
+    *,
+    repository: CourseEvolutionRepository,
+) -> dict[str, Any]:
+    if bool(getattr(domain_candidate_applier, "operation_journal_aware", False)):
+        return domain_candidate_applier(
+            change_set,
+            operation_ids,
+            evolution_repository_override=repository,
+        ) or {}
+    return domain_candidate_applier(change_set, operation_ids) or {}
+
+
 def _reconcile_command_group(
     state: CourseEvolutionState,
     change_set: CourseEvolutionPlan,
@@ -627,6 +832,26 @@ def _reconcile_command_group(
         if replaced is not None:
             replaced_retire_block_ids = list(replaced.applied_block_ids)
     stored_scope = str(group.get("selected_scope") or "")
+    stored_operation_ids = [
+        str(value)
+        for value in group.get("selected_operation_ids") or []
+        if str(value)
+    ]
+    domain_operation_ids = [
+        operation.operation_id
+        for operation in change_set.operations
+        if operation.operation_id in set(stored_operation_ids)
+        and operation.operation_type in DOMAIN_CANDIDATE_OPERATION_TYPES
+    ]
+    if domain_operation_ids:
+        _ensure_operation_journal(change_set, domain_operation_ids)
+        receipt = {
+            **deepcopy(receipt),
+            "domain_candidates": _domain_receipt_from_journal(
+                change_set,
+                domain_operation_ids,
+            ),
+        }
     _finalize_applied_change_set(
         state,
         change_set,
@@ -682,6 +907,36 @@ def accept_change_set(
             or set(selected_operation_ids) == set(change_set.selected_operation_ids)
         )
         if change_set.selected_scope == selected_scope and same_selection:
+            stored_ids = list(change_set.selected_operation_ids)
+            domain_operation_ids = [
+                operation.operation_id
+                for operation in change_set.operations
+                if operation.operation_id in set(stored_ids)
+                and operation.operation_type in DOMAIN_CANDIDATE_OPERATION_TYPES
+            ]
+            if domain_operation_ids and domain_candidate_applier is not None:
+                _ensure_operation_journal(change_set, domain_operation_ids)
+                unfinished = {
+                    item.operation_id
+                    for item in change_set.operation_journal
+                    if item.operation_id in set(domain_operation_ids)
+                    and item.status in {"pending", "applying"}
+                }
+                if unfinished:
+                    domain_receipt = _invoke_domain_candidate_applier(
+                        domain_candidate_applier,
+                        change_set,
+                        domain_operation_ids,
+                        repository=repository,
+                    )
+                    _sync_operation_journal_from_receipt(
+                        change_set,
+                        domain_receipt,
+                    )
+                    _merge_domain_receipt(change_set, domain_receipt)
+                    change_set.updated_at = _now()
+                    state.updated_at = change_set.updated_at
+                    return repository.save(state)
             return state
         raise ValueError("Course change set has already been applied with another review selection")
     if change_set.status != "pending":
@@ -753,6 +1008,7 @@ def accept_change_set(
         for operation_id in eligible_operation_ids
         if operation_id not in accepted_operation_id_set
     ]
+    _ensure_operation_journal(change_set, accepted_domain_operation_ids)
 
     current_vector = revision_vector_for_document(document).revisions
     for key, revision in change_set.base_revision_vector.items():
@@ -878,10 +1134,15 @@ def accept_change_set(
         )
         if accepted_domain_operation_ids:
             try:
-                domain_receipt = domain_candidate_applier(
+                domain_receipt = _invoke_domain_candidate_applier(
+                    domain_candidate_applier,
                     change_set,
                     accepted_domain_operation_ids,
-                ) or {}
+                    repository=repository,
+                )
+                _sync_operation_journal_from_receipt(change_set, domain_receipt)
+            except CourseEvolutionJournalPersistenceError:
+                raise
             except Exception as exc:  # noqa: BLE001 - course commit may already be durable
                 domain_receipt = {
                     "schema_version": "teacher_course_domain_receipt_v1",
@@ -928,6 +1189,7 @@ def retry_failed_domain_candidates(
     user_id: str,
     change_set_id: str,
     domain_candidate_applier: Any,
+    selected_operation_ids: list[str] | None = None,
     repository: CourseEvolutionRepository | None = None,
 ) -> CourseEvolutionState:
     """Retry only failed downstream writes of an already-applied teacher plan.
@@ -950,15 +1212,61 @@ def retry_failed_domain_candidates(
         for item in domain_receipt.get("items") or []
         if isinstance(item, dict)
     ]
-    failed_operation_ids = list(dict.fromkeys(
+    legacy_failed_ids = {
         str(item.get("operation_id") or "")
         for item in previous_items
         if item.get("status") == "failed" and item.get("operation_id")
+    }
+    _ensure_operation_journal(
+        change_set,
+        [
+            operation.operation_id
+            for operation in change_set.operations
+            if operation.operation_id in set(change_set.selected_operation_ids)
+            and operation.operation_type in DOMAIN_CANDIDATE_OPERATION_TYPES
+        ],
+    )
+    requested_ids = set(selected_operation_ids) if selected_operation_ids is not None else None
+    failed_operation_ids = list(dict.fromkeys(
+        item.operation_id
+        for item in change_set.operation_journal
+        if item.status == "failed"
+        and item.retryable
+        and item.operation_id in set(change_set.selected_operation_ids)
+        and (requested_ids is None or item.operation_id in requested_ids)
+        and (not legacy_failed_ids or item.operation_id in legacy_failed_ids)
     ))
+    if not failed_operation_ids and not change_set.operation_journal:
+        failed_operation_ids = list(dict.fromkeys(
+            operation_id
+            for operation_id in legacy_failed_ids
+            if requested_ids is None or operation_id in requested_ids
+        ))
     if not failed_operation_ids:
         raise ValueError("当前回执中没有可重试的失败项")
+    retry_started_at = _now()
+    for entry in change_set.operation_journal:
+        if entry.operation_id not in set(failed_operation_ids):
+            continue
+        entry.status = "pending"
+        entry.error_code = ""
+        entry.detail = ""
+        entry.retryable = False
+        entry.started_at = None
+        entry.completed_at = None
+        entry.updated_at = retry_started_at
+    change_set.updated_at = retry_started_at
+    state.updated_at = retry_started_at
+    repository.save(state)
     try:
-        retry_receipt = domain_candidate_applier(change_set, failed_operation_ids) or {}
+        retry_receipt = _invoke_domain_candidate_applier(
+            domain_candidate_applier,
+            change_set,
+            failed_operation_ids,
+            repository=repository,
+        )
+    except CourseEvolutionJournalPersistenceError:
+        raise
     except Exception as exc:  # noqa: BLE001 - keep prior successes and a retryable receipt
         retry_receipt = {
             "items": [
@@ -975,6 +1283,26 @@ def retry_failed_domain_candidates(
         for item in retry_receipt.get("items") or []
         if isinstance(item, dict) and item.get("operation_id")
     }
+    journal_updated_at = _now()
+    for entry in change_set.operation_journal:
+        retried = retry_items.get(entry.operation_id)
+        if retried is None:
+            continue
+        status = str(retried.get("status") or "failed")
+        if status not in {"applied", "failed"}:
+            continue
+        entry.status = status
+        entry.result_revision_id = str(
+            retried.get("result_revision_id") or entry.result_revision_id
+        )
+        entry.result_receipt = deepcopy(retried)
+        entry.detail = str(retried.get("detail") or "")
+        entry.error_code = str(retried.get("error_code") or (
+            "domain_candidate_apply_failed" if status == "failed" else ""
+        ))
+        entry.retryable = bool(retried.get("retryable", status == "failed"))
+        entry.completed_at = journal_updated_at
+        entry.updated_at = journal_updated_at
     merged_items = [
         retry_items.get(str(item.get("operation_id") or ""), item)
         for item in previous_items
@@ -992,7 +1320,7 @@ def retry_failed_domain_candidates(
         "retry_count": int(domain_receipt.get("retry_count") or 0) + 1,
         "last_retried_operation_ids": failed_operation_ids,
     })
-    change_set.application_receipt["domain_candidates"] = domain_receipt
+    _merge_domain_receipt(change_set, domain_receipt)
 
     receipt_items = [
         deepcopy(item)
@@ -1060,6 +1388,15 @@ def _application_outcome(
                 str(item.get("section_id") or "")
                 for item in (outline_rebuild or {}).get("sections") or []
             ],
+            "section_tombstones": deepcopy(
+                (outline_rebuild or {}).get("section_tombstones") or []
+            ),
+            "reference_migrations": deepcopy(
+                (outline_rebuild or {}).get("reference_migrations") or []
+            ),
+            "operation_dag": deepcopy(
+                (outline_rebuild or {}).get("operation_dag") or {}
+            ),
         }
         if outline_rebuild
         else {}
@@ -4438,7 +4775,9 @@ undo_adaptation_plan = undo_change_set
 course_evolution_repository = CourseEvolutionRepository()
 
 __all__ = [
+    "CourseEvolutionJournalPersistenceError",
     "CourseEvolutionOperation",
+    "CourseEvolutionOperationJournalEntry",
     "CourseEvolutionPlan",
     "PersonalAdaptationOperation",
     "PersonalAdaptationPlan",

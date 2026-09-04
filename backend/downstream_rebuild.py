@@ -57,6 +57,8 @@ _REPRESENTATION_TYPES = {
 }
 _CONTENT_TYPES = {"section_content", "course_document", "block"}
 _PRACTICE_TYPES = {"practice", "question", "mastery_criterion"}
+_LESSON_PLAN_TYPES = {"lesson_plan_section"}
+_SCRIPT_TYPES = {"script_block"}
 
 
 def _now() -> str:
@@ -114,6 +116,10 @@ def pipeline_for(object_type: str) -> str:
         return "course_content"
     if normalized in _PRACTICE_TYPES:
         return "practice"
+    if normalized in _LESSON_PLAN_TYPES:
+        return "lesson_plan"
+    if normalized in _SCRIPT_TYPES:
+        return "script"
     if normalized in {"knowledge_binding", "knowledge_point"}:
         return "knowledge"
     return "unsupported"

@@ -990,7 +990,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('[data-testid="lesson-course-preview-generate"]').text()).toBe('生成已具备教学结构的教案（1讲）')
   })
 
-  it('已有部分教案时仍可只生成当前讲，课型在标题中显示', async () => {
+  it('已有部分教案时只保留整课生成入口，课型在标题中显示', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
@@ -1016,9 +1016,10 @@ describe('teacher course workbench outline streaming', () => {
       script: { current_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, sections: [] },
       plan: { lesson_unit_id: 'L1-2', working_revision_id: 'plan-2', source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
     }] as any
-    const generateLesson = vi.spyOn(lessonStore, 'generateLesson').mockResolvedValue({ id: 'lesson-job-1' } as any)
-    const generateAllLessons = vi.spyOn(lessonStore, 'generateAllLessons')
-    const saveRelationships = vi.spyOn(http, 'put').mockResolvedValue({ data: { relationships: [] } } as any)
+    const generateLesson = vi.spyOn(lessonStore, 'generateLesson')
+    const generateAllLessons = vi.spyOn(lessonStore, 'generateAllLessons').mockResolvedValue({
+      parent_job: { id: 'batch-1' }, jobs: [],
+    } as any)
 
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
     wrapper.findComponent({ name: 'CourseReferenceTray' }).vm.$emit('update:modelValue', [{
@@ -1027,29 +1028,21 @@ describe('teacher course workbench outline streaming', () => {
       size_bytes: 1800, role: 'primary',
     }])
     await flushPromises()
-    const singleButton = wrapper.get('[data-testid="lesson-single-start"]')
+    const batchButton = wrapper.get('[data-testid="lesson-batch-start"]')
     expect(wrapper.get('.lesson-type-context').text()).toContain('讲练结合')
     expect(wrapper.find('[data-testid="lesson-course-preview"]').exists()).toBe(false)
     expect(wrapper.find('.lesson-command-bar select').exists()).toBe(false)
     expect(wrapper.find('.lesson-command-bar [aria-label="历史版本"]').exists()).toBe(false)
     expect(wrapper.findAll('.lesson-command-bar button').some(button => button.text().includes('AI 修改'))).toBe(false)
-    expect(singleButton.text()).toBe('只生成本讲')
-    await singleButton.trigger('click')
+    expect(wrapper.find('[data-testid="lesson-single-start"]').exists()).toBe(false)
+    expect(batchButton.text()).toBe('生成全部教案')
+    await batchButton.trigger('click')
     await flushPromises()
 
-    expect(saveRelationships).toHaveBeenCalledWith(
-      '/api/teacher-course-spaces/package-1/relationships',
-      expect.objectContaining({
-        target_id: 'lesson-plan:L1-1',
-        sources: [{ source_asset_id: 'asset-3', role: 'primary' }],
-      }),
-      expect.any(Object),
+    expect(generateAllLessons).toHaveBeenCalledWith(
+      'course-1', { packageId: 'package-1', assetId: 'asset-3' }, '', ['mat-3'],
     )
-    expect(generateLesson).toHaveBeenCalledWith(
-      'course-1', 'L1-1', { packageId: 'package-1', assetId: 'asset-3' }, '', ['mat-3'], '',
-    )
-    expect(saveRelationships.mock.invocationCallOrder[0]).toBeLessThan(generateLesson.mock.invocationCallOrder[0]!)
-    expect(generateAllLessons).not.toHaveBeenCalled()
+    expect(generateLesson).not.toHaveBeenCalled()
   })
 
   it('默认先定位最近失败讲次，其次定位受影响讲次', () => {
@@ -1094,8 +1087,8 @@ describe('teacher course workbench outline streaming', () => {
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
     const buttons = wrapper.findAll('.lesson-outline-chapter-button')
     expect(buttons.map(button => button.attributes('aria-label'))).toEqual([
-      '第1讲，未生成', '第2讲，正在生成', '第3讲，已生成',
-      '第4讲，已生成', '第5讲，需更新', '第6讲，失败',
+      '第1讲，未生成', '第2讲，正在生成', '第3讲，可使用',
+      '第4讲，可使用', '第5讲，可使用', '第6讲，生成失败',
     ])
     expect(buttons[1]!.find('.lesson-outline-status').attributes('data-state')).toBe('generating')
     expect(buttons[1]!.find('small').exists()).toBe(false)
@@ -1163,7 +1156,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.lesson-queue-state button').exists()).toBe(false)
   })
 
-  it('教案任务失败后只在右侧显示真实原因和整课重试动作', async () => {
+  it('教案任务失败后右侧显示真实原因，原批量按钮改为重新生成', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
@@ -1184,9 +1177,10 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.context-pane-heading').text()).toContain('生成未完成')
     expect(wrapper.get('.context-pane-heading').text()).toContain('知识骨架汇编失败')
     expect(wrapper.get('[data-testid="reference-tray-stub"]').text()).not.toContain('知识骨架汇编失败')
-    expect(wrapper.get('.primary-status-action').text()).toBe('重试')
-    expect(wrapper.get('.lesson-empty-canvas').text()).toBe('教案尚未生成')
-    await wrapper.get('.primary-status-action').trigger('click')
+    expect(wrapper.find('.context-pane-heading .primary-status-action').exists()).toBe(false)
+    const retry = wrapper.get('[data-testid="lesson-course-preview-generate"]')
+    expect(retry.text()).toBe('重新生成')
+    await retry.trigger('click')
     await flushPromises()
     expect(generateAllLessons).toHaveBeenCalledWith('course-1', undefined, '', [])
     expect(wrapper.text()).not.toContain('重新生成本讲教案')
@@ -1205,7 +1199,7 @@ describe('teacher course workbench outline streaming', () => {
     }] as any
     const lessonWrapper = mountWorkbench({ initialStage: 'lesson' })
 
-    expect(lessonWrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('已生成')
+    expect(lessonWrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('可使用')
     expect(lessonWrapper.text()).toContain('1.1 程序运行过程')
     expect(lessonWrapper.text()).toContain('演示源码如何编译运行')
     expect(lessonWrapper.find('.lesson-toolbar-status').exists()).toBe(false)
@@ -1390,7 +1384,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(generateAll).not.toHaveBeenCalled()
   })
 
-  it('讲义批次失败后可在资料面板读取异常时继续原任务', async () => {
+  it('讲义批次失败后由原批量按钮继续原任务', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
@@ -1415,11 +1409,11 @@ describe('teacher course workbench outline streaming', () => {
     })
     await flushPromises()
 
-    const retry = wrapper.findAll('.context-pane-heading .primary-status-action')
-      .find(button => button.text().includes('重试'))
-    expect(retry).toBeDefined()
-    expect(retry!.attributes('disabled')).toBeUndefined()
-    await retry!.trigger('click')
+    expect(wrapper.find('.context-pane-heading .primary-status-action').exists()).toBe(false)
+    const retry = wrapper.get('[data-testid="script-course-preview-generate"]')
+    expect(retry.text()).toBe('重新生成')
+    expect(retry.attributes('disabled')).toBeUndefined()
+    await retry.trigger('click')
     await flushPromises()
 
     expect(generateAll).toHaveBeenCalledWith('course-1', '')
@@ -1563,8 +1557,8 @@ describe('teacher course workbench outline streaming', () => {
       expect(wrapper.get('.lesson-current-title').text()).toContain('第2讲 主题2')
       expect(wrapper.get('.lesson-current-title').text()).not.toContain('2/2')
       if (stage === 'script') {
-        expect(wrapper.get('[data-testid="script-single-start"]').text()).toContain('生成本讲讲义')
-        expect(wrapper.get('[data-testid="script-batch-start"]').text()).toContain('生成剩余讲义')
+        expect(wrapper.find('[data-testid="script-single-start"]').exists()).toBe(false)
+        expect(wrapper.get('[data-testid="script-batch-start"]').text()).toContain('生成全部讲义')
       }
       wrapper.unmount()
     }
@@ -1627,7 +1621,8 @@ describe('teacher course workbench outline streaming', () => {
     })
     await flushPromises()
 
-    const lessonButton = lessonWrapper.get('[data-testid="lesson-single-start"]')
+    expect(lessonWrapper.find('[data-testid="lesson-single-start"]').exists()).toBe(false)
+    const lessonButton = lessonWrapper.get('[data-testid="lesson-batch-start"]')
     expect(lessonButton.attributes('disabled')).toBeDefined()
     expect(lessonButton.attributes('title')).toContain('资料正在解析')
     await lessonButton.trigger('click')

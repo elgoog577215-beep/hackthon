@@ -2,104 +2,11 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 import logging
+from copy import deepcopy
 from typing import Any
 
 logger = logging.getLogger(__name__)
-
-def enforce_batch_prerequisite_direction(
-    report: dict[str, Any],
-    *,
-    batch: dict[str, Any],
-    skeleton: dict[str, Any],
-    sections: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Reject a batch declaring a later section's knowledge as an earlier one's prerequisite.
-
-    This mirrors the skeleton's own rule (``teaching_skeleton:future_prerequisite``
-    in course_teaching_plan_v3.py): a prerequisite must be taught before whatever
-    depends on it. The batch validator only constrains *which* keys a relation may
-    reference, never the direction, and that asymmetry is what let a cycle form --
-    the skeleton arc pointed forward, a batch arc pointed back, and neither layer
-    alone contained a cycle.
-
-    Blocking the edge here, while the batch can still be corrected, is strictly
-    better than detecting the cycle after assembly: by then the only remedy is
-    dropping an edge, which is lossy and changes the knowledge structure.
-
-    Returns a new report; the input is not mutated.
-    """
-    registry = {
-        str(item.get("knowledge_key") or ""): item
-        for item in skeleton.get("knowledge_registry") or []
-        if isinstance(item, dict)
-    }
-    if not registry:
-        return report
-    section_order = {
-        str(item.get("node_id") or ""): index
-        for index, item in enumerate(sections)
-    }
-    registry_order = {key: index for index, key in enumerate(registry)}
-
-    def position(key: str) -> tuple[int, int] | None:
-        owner = str((registry.get(key) or {}).get("owner_node_id") or "")
-        if owner not in section_order:
-            return None
-        return (section_order[owner], registry_order.get(key, 0))
-
-    violations: list[dict[str, str]] = []
-    for section in batch.get("sections") or []:
-        if not isinstance(section, dict):
-            continue
-        node_id = str(section.get("node_id") or "")
-        for relation in section.get("knowledge_relations") or []:
-            if not isinstance(relation, dict):
-                continue
-            if str(relation.get("relation_type") or "") != "prerequisite":
-                continue
-            source = str(relation.get("source_key") or "")
-            target = str(relation.get("target_key") or "")
-            source_position = position(source)
-            target_position = position(target)
-            if source_position is None or target_position is None:
-                # Unknown endpoints are already reported by the batch validator.
-                continue
-            if source_position < target_position:
-                continue
-            source_owner = str((registry.get(source) or {}).get("owner_node_id") or "?")
-            target_owner = str((registry.get(target) or {}).get("owner_node_id") or "?")
-            source_name = str((registry.get(source) or {}).get("name") or source)
-            target_name = str((registry.get(target) or {}).get("name") or target)
-            # Same-section and cross-section violations read very differently;
-            # one message covering both would misdescribe at least one of them.
-            if source_owner == target_owner:
-                detail = (
-                    f"「{source_name}」在本节的知识顺序中不早于「{target_name}」，"
-                    "不能作为它的前置"
-                )
-            else:
-                detail = (
-                    f"「{source_name}」属于更晚的 {source_owner}，"
-                    f"不能作为 {target_owner} 的「{target_name}」的前置"
-                )
-            violations.append(_issue_dict(
-                "teaching_batch:reversed_prerequisite",
-                f"小节 {node_id} 声明的前置方向与课程顺序相反：{detail}；"
-                "前置必须先于依赖它的知识出现",
-            ))
-    if not violations:
-        return report
-
-    augmented = deepcopy(report)
-    augmented["blocking_issues"] = list(
-        augmented.get("blocking_issues") or []
-    ) + violations
-    augmented["issues"] = list(augmented.get("issues") or []) + violations
-    augmented["passed"] = False
-    return augmented
-
 
 def _issue_dict(code: str, message: str) -> dict[str, str]:
     return {"code": code, "severity": "critical", "message": message}
@@ -324,5 +231,4 @@ def _coherence_repair_suggestion(issue: dict[str, Any]) -> str:
 
 __all__ = [
     "diagnose_cross_batch_relation_cycles",
-    "enforce_batch_prerequisite_direction",
 ]

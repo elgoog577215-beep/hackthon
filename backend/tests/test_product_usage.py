@@ -23,6 +23,11 @@ class MemoryStorage:
     def save_data(self, filename, value):
         self.data[filename] = deepcopy(value)
 
+    def update_data(self, filename, updater):
+        updated = updater(deepcopy(self.data.get(filename)))
+        self.data[filename] = deepcopy(updated)
+        return deepcopy(updated)
+
 
 @pytest.fixture
 def memory_storage(monkeypatch):

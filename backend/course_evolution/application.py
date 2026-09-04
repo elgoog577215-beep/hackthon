@@ -5,8 +5,11 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from learning_contracts import LearnerCourseScope
+from learning_events import record_learning_event
 from representation_compiler import rebuild_core_representations_safely
 
+from .adjustment_planning import generate_course_adjustment_plan
 from .core import (
     CourseEvolutionRepository,
     accept_change_set,
@@ -17,7 +20,6 @@ from .core import (
     undo_change_set,
 )
 from .intake import CourseEvolutionRequest, record_course_evolution_request
-from .adjustment_planning import generate_course_adjustment_plan
 from .teacher_execution import (
     build_domain_candidate_applier,
     build_domain_candidate_undoer,
@@ -28,8 +30,6 @@ from .teacher_planning import (
     create_teacher_course_change_plan,
     review_teacher_course_change_scope,
 )
-from learning_contracts import LearnerCourseScope
-from learning_events import record_learning_event
 
 
 class CourseEvolutionApplicationService:
@@ -246,6 +246,7 @@ class CourseEvolutionApplicationService:
             representation_repository=self.representation_repository,
             question_bank_repository=self.question_bank_repository,
             document_repository=self.document_repository,
+            evolution_repository=self.evolution_repository,
         )
         state = (
             retry_failed_domain_candidates(
@@ -253,6 +254,7 @@ class CourseEvolutionApplicationService:
                 user_id=user_id,
                 change_set_id=change_set_id,
                 domain_candidate_applier=applier,
+                selected_operation_ids=selected_operation_ids,
                 repository=self.evolution_repository,
             )
             if retry_failed

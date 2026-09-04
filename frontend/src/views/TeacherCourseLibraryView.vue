@@ -146,6 +146,7 @@
               <strong class="course-production-summary" :data-tone="production.tone" role="status">
                 {{ production.label }}
               </strong>
+              <small class="course-production-detail">{{ production.detail }}</small>
             </td>
             <td class="course-session">
               <strong>{{ courseNextSessionWhen(course) }}</strong>
@@ -155,7 +156,7 @@
             <td class="course-updated">{{ courseUpdatedLabel(course) }}</td>
             <td class="actions-column">
               <span class="course-actions">
-                <button type="button" class="course-action" @click="openCourse(course.course_id, production.stage)">
+                <button type="button" class="course-action" @click="openCourse(course.course_id, production.query)">
                   {{ production.actionLabel }}<ChevronRight :size="14" />
                 </button>
                 <button
@@ -203,10 +204,17 @@ import { ArrowDown, ArrowUp, ArrowUpDown, BookOpenText, ChevronLeft, ChevronRigh
 import UiSelectMenu from '../components/UiSelectMenu.vue'
 import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCourseRuntime'
 import { activeLocale, t } from '../shared/i18n'
-import { coursePreparationState } from '../utils/course-preparation'
+import {
+  COURSE_PRODUCTION_STAGE_KEYS,
+  issueNavigationQuery,
+  productionStageLabel,
+  readCourseProductionStateWithLegacy,
+  workbenchStageForProduction,
+  type CourseProductionIssue,
+  type CourseProductionStageKey,
+} from '../shared/teacher-production-state'
 import { formatCourseTitle } from '../utils/course-presentation'
 import type { Course } from '../stores/course'
-import type { Task } from '../stores/types'
 
 const router = useRouter()
 const route = useRoute()
@@ -216,35 +224,12 @@ const COURSES_PER_PAGE = 9
 type CourseStatusFilter = 'all' | 'preparing' | 'prepared'
 type CourseSortMode = 'name' | 'status' | 'nextSession' | 'term' | 'updated'
 type CourseSortDirection = 'ascending' | 'descending'
-type WorkbenchStage = 'foundation' | 'lesson' | 'script' | 'ppt'
-type CourseProductionSummary = {
-  planned_lessons?: number
-  outline_ready?: boolean
-  ready_lesson_plans?: number
-  ready_handouts?: number
-  ready_ppts?: number
-  current_production?: {
-    target?: 'lesson_plan' | 'script' | 'ppt'
-    status?: string
-    completed?: number
-    total?: number
-    failed?: number
-    progress?: number
-    message?: string
-    updated_at?: string
-  }
-}
-type ProductionTaskView = {
-  label: string
-  tone: 'active' | 'attention'
-  actionLabel: string
-  stage: WorkbenchStage
-}
 type CourseProductionView = {
   label: string
+  detail: string
   tone: 'ready' | 'active' | 'attention' | 'idle'
   actionLabel: string
-  stage?: WorkbenchStage
+  query: Record<string, string>
 }
 
 const query = ref(String(route.query.q || ''))
@@ -376,7 +361,7 @@ function sortCourses(courses: Course[]) {
   return [...courses].sort((left, right) => {
     let result = 0
     if (sortMode.value === 'name') result = left.course_name.localeCompare(right.course_name, localeTag())
-    else if (sortMode.value === 'status') result = coursePreparationState(left).localeCompare(coursePreparationState(right))
+    else if (sortMode.value === 'status') result = courseFilterKey(left).localeCompare(courseFilterKey(right))
     else if (sortMode.value === 'term') result = courseTermLabel(left).localeCompare(courseTermLabel(right), localeTag())
     else if (sortMode.value === 'nextSession') result = courseNextSessionTime(left) - courseNextSessionTime(right)
     else result = courseUpdatedTime(left) - courseUpdatedTime(right)
@@ -390,91 +375,37 @@ function toggleSort(key: CourseSortMode) {
 function sortIcon(key: CourseSortMode) { return sortMode.value !== key ? ArrowUpDown : sortDirection.value === 'ascending' ? ArrowUp : ArrowDown }
 function sortAria(key: CourseSortMode): 'none' | 'ascending' | 'descending' { return sortMode.value === key ? sortDirection.value : 'none' }
 function sortLabel(field: string) { return t('teacherCourseLibrary.sortBy').replace('{field}', field) }
-function taskTargetLabel(target: string) {
-  if (target === 'lesson_plan') return t('appError.domains.lessonPlan')
-  if (target === 'script') return t('appError.domains.script')
-  if (target === 'ppt') return t('appError.domains.ppt')
-  if (target === 'import') return t('taskObservability.kind.import')
-  return t('teacherWorkbench.nav.outline')
-}
-function globalTaskTarget(task: Task): { target: string; stage: WorkbenchStage } {
-  if (task.taskType === 'course_import') return { target: 'import', stage: 'foundation' }
-  if (task.taskType === 'teacher_outline_generation') return { target: 'outline', stage: 'foundation' }
-  const phase = String(task.currentPhase || '').toLowerCase()
-  if (/script|handout|content/.test(phase)) return { target: 'script', stage: 'script' }
-  if (/lesson|teaching/.test(phase)) return { target: 'lesson_plan', stage: 'lesson' }
-  return { target: 'outline', stage: 'foundation' }
-}
-function taskBatchCount(task: Task) {
-  const detail = task.phaseDetail || {}
-  const completed = Number(detail.completed_batches ?? task.recovery?.checkpoint?.completed_teaching_plan_batches ?? 0)
-  const total = Number(detail.total_batches ?? task.recovery?.checkpoint?.total_teaching_plan_batches ?? 0)
-  return { completed, total }
-}
-function productionTaskLabel(target: string, status: string, completed: number, total: number) {
-  const count = total > 0 ? ` ${Math.max(0, Math.min(completed, total))}/${total}` : ''
-  const key = status === 'waiting_for_input'
-    ? 'waiting'
-    : status === 'paused'
-    ? 'paused'
-    : ['failed', 'error', 'waiting_for_review', 'conflict'].includes(status) ? 'failed' : 'generating'
-  return t(`teacherCourseLibrary.production.${key}`)
-    .replace('{target}', taskTargetLabel(target))
-    .replace('{count}', count)
-}
-function globalProductionTask(task?: Task): ProductionTaskView | null {
-  if (!task || ['idle', 'completed', 'completed_with_warnings'].includes(task.status)) return null
-  const target = globalTaskTarget(task)
-  const { completed, total } = taskBatchCount(task)
-  const attention = ['paused', 'waiting_for_input', 'error', 'failed', 'waiting_for_review', 'conflict'].includes(task.status)
-  return {
-    label: productionTaskLabel(target.target, task.status, completed, total),
-    tone: attention ? 'attention' : 'active',
-    actionLabel: task.status === 'waiting_for_input'
-      ? t('teacherCourseLibrary.actions.continue')
-      : attention ? t('teacherCourseLibrary.actions.resolve') : t('teacherCourseLibrary.actions.viewProgress'),
-    stage: target.stage,
-  }
-}
-function authoringProductionTask(course: Course): ProductionTaskView | null {
-  const current = ((course.preparation_summary || {}) as CourseProductionSummary).current_production
-  if (!current?.status) return null
-  const completed = Math.max(0, Number(current.completed || 0))
-  const total = Math.max(0, Number(current.total || 0))
-  const failed = Math.max(0, Number(current.failed || 0))
-  const target = String(current.target || 'lesson_plan')
-  const attention = failed > 0 || ['paused', 'waiting_for_input', 'failed', 'error'].includes(current.status)
-  const status = failed > 0 ? 'failed' : current.status
-  return {
-    label: productionTaskLabel(target, status, completed, total),
-    tone: attention ? 'attention' : 'active',
-    actionLabel: current.status === 'waiting_for_input'
-      ? t('teacherCourseLibrary.actions.continue')
-      : attention ? t('teacherCourseLibrary.actions.resolve') : t('teacherCourseLibrary.actions.viewProgress'),
-    stage: target === 'outline'
-      ? 'foundation'
-      : target === 'script'
-        ? 'script'
-        : target === 'ppt' ? 'ppt' : 'lesson',
-  }
+function primaryProductionStage(course: Course, issue?: CourseProductionIssue): CourseProductionStageKey {
+  if (issue) return issue.stage
+  const state = readCourseProductionStateWithLegacy(course, generationStore.getTask(course.course_id))
+  const active = COURSE_PRODUCTION_STAGE_KEYS.find(key => ['queued', 'running', 'paused'].includes(state.stages[key].task_state))
+  if (active) return active
+  return COURSE_PRODUCTION_STAGE_KEYS.find(key => state.stages[key].display_state !== 'available') || 'outline'
 }
 function courseProduction(course: Course): CourseProductionView {
-  const task = authoringProductionTask(course) || globalProductionTask(generationStore.getTask(course.course_id))
-  if (task) return task
-  const summary = (course.preparation_summary || {}) as CourseProductionSummary
-  const total = Math.max(0, Number(summary.planned_lessons || course.node_count || 0))
-  const complete = Boolean(summary.outline_ready)
-    && total > 0
-    && Number(summary.ready_lesson_plans || 0) >= total
-    && Number(summary.ready_handouts || 0) >= total
-    && Number(summary.ready_ppts || 0) >= total
+  const state = readCourseProductionStateWithLegacy(course, generationStore.getTask(course.course_id))
+  const issue = state.issues[0]
+  const stageKey = primaryProductionStage(course, issue)
+  const stage = state.stages[stageKey]
+  const total = Math.max(0, Number(stage.counts.total || 0))
+  const available = Math.max(0, Math.min(Number(stage.counts.available || 0), total))
+  const complete = state.preparation_state === 'prepared'
+  const generating = stage.display_state === 'generating' || ['queued', 'running', 'paused'].includes(stage.task_state)
   return {
     label: complete ? t('teacherCourseLibrary.production.complete') : t('teacherCourseLibrary.production.incomplete'),
-    tone: complete ? 'ready' : 'idle',
-    actionLabel: t('teacherCourseLibrary.actions.continue'),
+    detail: total > 0
+      ? t('teacherCourseLibrary.production.stageProgress').replace('{stage}', productionStageLabel(stageKey)).replace('{available}', String(available)).replace('{total}', String(total))
+      : productionStageLabel(stageKey),
+    tone: complete ? 'ready' : issue ? 'attention' : generating ? 'active' : 'idle',
+    actionLabel: issue
+      ? t('teacherCourseLibrary.actions.resolve')
+      : generating ? t('teacherCourseLibrary.actions.viewProgress') : t('teacherCourseLibrary.actions.continue'),
+    query: issue ? issueNavigationQuery(issue) : { stage: workbenchStageForProduction(stageKey) },
   }
 }
-function courseFilterKey(course: Course): Exclude<CourseStatusFilter, 'all'> { return coursePreparationState(course) }
+function courseFilterKey(course: Course): Exclude<CourseStatusFilter, 'all'> {
+  return readCourseProductionStateWithLegacy(course, generationStore.getTask(course.course_id)).preparation_state
+}
 function libraryQuery() {
   return { view: 'courses', ...(query.value ? { q: query.value } : {}), ...(statusFilter.value !== 'all' ? { status: statusFilter.value } : {}), ...(termFilter.value !== 'all' ? { term: termFilter.value } : {}), sort: sortMode.value, dir: sortDirection.value }
 }
@@ -483,11 +414,11 @@ function returnPath() {
   if (routeName) return router.resolve({ name: routeName, query: libraryQuery() }).fullPath
   return router.resolve({ path: route.path || '/courses', query: libraryQuery() }).fullPath
 }
-function openCourse(courseId: string, stage?: WorkbenchStage) {
+function openCourse(courseId: string, productionQuery: Record<string, string> = {}) {
   void router.push({
     name: 'course-workspace',
     params: { courseId, mode: 'setup' },
-    query: { returnTo: returnPath(), ...(stage ? { stage } : {}) },
+    query: { returnTo: returnPath(), ...productionQuery },
   })
 }
 async function refreshCourses() { await courseStore.fetchCourseList({ surface: 'teacher' }) }
@@ -537,7 +468,7 @@ async function deleteSelectedCourses() {
 .course-table-region{width:100%;max-width:1320px;margin:0 auto;scroll-margin-top:18px;overflow-x:auto;border:1px solid var(--lz-border);border-radius:12px;background:var(--lz-surface);box-shadow:0 1px 2px rgba(30,41,59,.025)}.course-table{width:100%;min-width:1060px;border-collapse:collapse;table-layout:fixed;text-align:left}.course-table th{height:42px;padding:0 12px;border-bottom:1px solid var(--lz-border);color:var(--lz-text-muted);background:#f8f9fa;font-size:12px;font-weight:700}.course-table th:nth-child(2){width:29%}.course-table th:nth-child(3){width:20%}.course-table th:nth-child(4){width:18%}.course-table th:nth-child(5){width:12%}.course-table th:nth-child(6){width:11%}.course-table th.actions-column{width:154px;text-align:center}.course-table th.selection-column{width:46px}.column-sort{height:100%;display:flex;align-items:center;gap:5px;padding:0;border:0;color:inherit;background:transparent;font:inherit;cursor:pointer}.column-sort:hover,.column-sort:focus-visible{color:var(--lz-brand-strong);outline:none}.column-sort:focus-visible{text-decoration:underline;text-underline-offset:4px}
 .course-table td{height:66px;padding:8px 12px;border-bottom:1px solid color-mix(in srgb,var(--lz-border) 84%,transparent);color:var(--lz-text-secondary);font-size:13px;vertical-align:middle}.course-table tbody tr:last-child td{border-bottom:0}.course-table tbody tr:hover,.course-table tbody tr.selected{background:var(--lz-surface-subtle)}.course-table tbody tr.selected{background:var(--lz-brand-soft)}.selection-column{text-align:center}.selection-column input{width:16px;height:16px;margin:0;accent-color:var(--lz-brand);cursor:pointer}.selection-column input:focus-visible{outline:2px solid var(--lz-brand);outline-offset:3px}.selection-column input:disabled{cursor:not-allowed}
 .course-cell{padding-top:6px!important;padding-bottom:6px!important}.course-main{width:100%;min-height:48px;display:block;padding:0;border:0;color:inherit;background:transparent;text-align:left;cursor:pointer}.course-main:focus-visible{outline:2px solid var(--lz-brand);outline-offset:3px;border-radius:6px}.course-identity{min-width:0;display:grid;gap:3px}.course-identity strong,.course-identity small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.course-identity strong{color:var(--lz-text-strong);font-size:15px;font-weight:720}.course-main:hover .course-identity strong{color:var(--lz-brand-strong)}.course-identity small{color:var(--lz-text-muted);font-size:12px}
-.course-production-cell{padding-top:8px!important;padding-bottom:8px!important}.course-production-summary{display:block;overflow:hidden;color:var(--lz-text-secondary);font-size:13px;font-weight:750;text-overflow:ellipsis;white-space:nowrap}.course-production-summary[data-tone='ready']{color:var(--lz-success)}.course-production-summary[data-tone='active']{color:var(--lz-brand-strong)}.course-production-summary[data-tone='attention']{color:var(--lz-danger)}.course-session{display:grid;align-content:center;gap:3px}.course-session strong{overflow:hidden;color:var(--lz-text-secondary);font-size:12px;font-weight:680;text-overflow:ellipsis;white-space:nowrap}.course-session small{overflow:hidden;color:var(--lz-text-muted);font-size:11px;text-overflow:ellipsis;white-space:nowrap}.course-term,.course-updated{color:var(--lz-text-secondary);font-size:12px!important;font-variant-numeric:tabular-nums}
+.course-production-cell{padding-top:8px!important;padding-bottom:8px!important}.course-production-summary{display:block;overflow:hidden;color:var(--lz-text-secondary);font-size:13px;font-weight:750;text-overflow:ellipsis;white-space:nowrap}.course-production-detail{display:block;overflow:hidden;margin-top:3px;color:var(--lz-text-muted);font-size:12px;font-weight:500;text-overflow:ellipsis;white-space:nowrap}.course-production-summary[data-tone='ready']{color:var(--lz-success)}.course-production-summary[data-tone='active']{color:var(--lz-brand-strong)}.course-production-summary[data-tone='attention']{color:var(--lz-danger)}.course-session{display:grid;align-content:center;gap:3px}.course-session strong{overflow:hidden;color:var(--lz-text-secondary);font-size:12px;font-weight:680;text-overflow:ellipsis;white-space:nowrap}.course-session small{overflow:hidden;color:var(--lz-text-muted);font-size:11px;text-overflow:ellipsis;white-space:nowrap}.course-term,.course-updated{color:var(--lz-text-secondary);font-size:12px!important;font-variant-numeric:tabular-nums}
 .actions-column{text-align:center}.course-actions{display:flex;align-items:center;justify-content:flex-end;gap:4px}.course-action{height:32px;display:inline-flex;align-items:center;justify-content:center;gap:3px;padding:0 9px;border:1px solid var(--lz-brand-border);border-radius:7px;color:var(--lz-brand-strong);background:var(--lz-surface);font-size:13px;font-weight:700;white-space:nowrap;cursor:pointer}.course-action svg{opacity:0;transform:translateX(-2px);transition:opacity .15s ease,transform .15s ease}.course-action:hover,.course-action:focus-visible{border-color:var(--lz-brand);background:var(--lz-brand-soft);outline:none}.course-action:hover svg,.course-action:focus-visible svg{opacity:1;transform:translateX(0)}.course-action:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb,var(--lz-brand) 24%,transparent)}.delete-course-button{width:32px;height:32px;display:inline-grid;place-items:center;border:0;border-radius:7px;color:var(--lz-text-muted);background:transparent;cursor:pointer}.delete-course-button:hover:not(:disabled),.delete-course-button:focus-visible{color:var(--lz-danger);background:var(--lz-danger-soft);outline:none}.delete-course-button:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb,var(--lz-danger) 28%,transparent)}.delete-course-button:disabled{opacity:.45;cursor:not-allowed}
 .library-pagination{min-height:54px;display:flex;align-items:center;justify-content:center;gap:8px;border-top:1px solid var(--lz-border)}.library-pagination button{height:32px;min-width:32px;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 9px;border:1px solid transparent;border-radius:7px;color:var(--lz-text-secondary);background:transparent;font-size:12px;font-weight:700;cursor:pointer}.library-pagination button:hover:not(:disabled),.library-pagination button:focus-visible{color:var(--lz-brand-strong);background:var(--lz-brand-soft);outline:none}.library-pagination button.active{color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.library-pagination button:disabled{color:var(--lz-text-muted);cursor:not-allowed;opacity:.52}.pagination-pages{display:flex;align-items:center;gap:2px}.pagination-ellipsis{width:24px;color:var(--lz-text-muted);text-align:center}.pagination-direction{min-width:78px!important}
 .library-state{min-height:360px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;color:var(--lz-text-muted);text-align:center}.library-state strong{color:var(--lz-text-strong);font-size:15px}.library-state span{max-width:420px;font-size:12px;line-height:1.55}.library-state--error{color:var(--lz-danger)}.library-state--error strong{color:var(--lz-danger)}.library-state--error button{margin-top:4px}.spin{animation:spin .85s linear infinite}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}@keyframes spin{to{transform:rotate(360deg)}}

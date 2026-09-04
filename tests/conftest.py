@@ -9,6 +9,7 @@ import pytest
 
 os.environ["LINGZHI_TEST_ALLOW_EXTERNAL_TEXT_PROVIDERS"] = "true"
 os.environ["AI_LOCAL_PROVIDER"] = "http"
+os.environ["LINGZHI_TASK_RUNTIME_MODE"] = "isolated_test"
 for _forbidden_text_key in (
     "MODELSCOPE_API_KEY",
     "MODELSCOPE_BASE_URL",
@@ -99,6 +100,11 @@ class MockStorage:
 
     def save_data(self, filename: str, data):
         self.data[filename] = deepcopy(data)
+
+    def update_data(self, filename: str, updater):
+        updated = updater(deepcopy(self.data.get(filename)))
+        self.data[filename] = deepcopy(updated)
+        return deepcopy(updated)
 
 
 # ---------------------------------------------------------------------------

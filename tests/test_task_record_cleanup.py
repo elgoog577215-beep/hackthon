@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 
 
 @pytest.mark.asyncio

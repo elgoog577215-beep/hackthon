@@ -30,6 +30,22 @@ EvidenceEvaluator = Callable[[dict[str, Any], LearningEventStorage], None]
 _evidence_evaluator: EvidenceEvaluator | None = None
 
 
+def _update_event_ledger(updater: Callable[[Any], Any]) -> Any:
+    """Update the fact ledger through the shared atomic storage boundary.
+
+    A small fallback keeps legacy in-memory test doubles usable; the production
+    ``Storage`` always supplies ``update_data`` and therefore performs the
+    cross-process reread, lock and atomic replace.
+    """
+    update_data = getattr(storage, "update_data", None)
+    if callable(update_data):
+        return update_data(LEARNING_EVENTS_FILE, updater)
+    current = storage.load_data(LEARNING_EVENTS_FILE)
+    updated = updater(current)
+    storage.save_data(LEARNING_EVENTS_FILE, updated)
+    return updated
+
+
 def register_evidence_evaluator(evaluator: EvidenceEvaluator | None) -> None:
     """Register the application callback that turns facts into course suggestions.
 
@@ -160,8 +176,11 @@ def record_learning_event(
         metadata=_sanitize_dict(metadata or {}),
     ).to_dict()
 
-    with _event_lock:
-        stored = storage.load_data(LEARNING_EVENTS_FILE) or []
+    saved_event = event
+    created = False
+
+    def update_ledger(stored: Any) -> list[dict[str, Any]]:
+        nonlocal saved_event, created
         events = list(stored) if isinstance(stored, list) else []
         if normalized_key:
             existing = next((
@@ -172,11 +191,18 @@ def record_learning_event(
                 and item.get("idempotency_key") == normalized_key
             ), None)
             if existing:
-                return dict(existing)
+                saved_event = dict(existing)
+                return events
         events.append(event)
-        storage.save_data(LEARNING_EVENTS_FILE, events)
-    _maybe_trigger_evidence_evaluation(event)
-    return event
+        saved_event = event
+        created = True
+        return events
+
+    with _event_lock:
+        _update_event_ledger(update_ledger)
+    if created:
+        _maybe_trigger_evidence_evaluation(event)
+    return dict(saved_event)
 
 
 def _maybe_trigger_evidence_evaluation(event: dict[str, Any]) -> None:
