@@ -3764,9 +3764,9 @@ onBeforeUnmount(() => {
 /* The lesson rail and document are separate white content layers on the quiet workspace surface. */
 .workbench-center.is-lesson-workspace:has(.lesson-stage.has-lesson-outline){overflow:hidden;padding:0;background:#f5f6f8}
 .workbench-center.is-lesson-workspace .lesson-stage.has-lesson-outline{width:100%;height:100%;max-width:none;margin:0}
-.has-lesson-outline .lesson-workspace{width:100%;height:100%;min-height:0;box-sizing:border-box;display:grid;grid-template-columns:224px minmax(0,1fr);gap:16px;align-items:stretch;padding:16px}
-.workbench-center.is-lesson-workspace .has-lesson-outline .lesson-stage-content{min-height:0;overflow:auto;padding:0 2px 44px 0}
-.lesson-outline--fixed{position:static;min-width:0;height:100%;max-height:none;align-self:stretch;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);overflow:hidden;border:1px solid #e0e4ea;border-radius:12px;background:#fff;box-shadow:0 1px 2px rgba(30,41,59,.035)}
+.has-lesson-outline .lesson-workspace{width:100%;height:100%;min-height:0;box-sizing:border-box;display:grid;grid-template-columns:224px minmax(0,1fr);gap:0;align-items:stretch;padding:0}
+.workbench-center.is-lesson-workspace .has-lesson-outline .lesson-stage-content{min-height:0;overflow:auto;padding:16px 18px 44px 16px}
+.lesson-outline--fixed{position:static;min-width:0;height:100%;max-height:none;align-self:stretch;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);overflow:hidden;border:0;border-right:1px solid #e0e4ea;border-radius:0;background:#fff;box-shadow:none}
 .lesson-outline--fixed>header,.lesson-outline--fixed>nav{grid-column:1}
 .lesson-outline--fixed>header{min-height:52px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 13px;border-bottom:1px solid #eceff3;background:#fff}
 .lesson-outline--fixed>header strong{color:#2f3a4f;font-size:15px;font-weight:760}
@@ -3813,7 +3813,7 @@ onBeforeUnmount(() => {
 .lesson-course-preview>article li{display:grid;grid-template-columns:minmax(110px,.35fr) minmax(0,1fr);gap:12px;color:#596579;font-size:15px;line-height:1.55}
 .lesson-course-preview>article li strong{color:#364156;font-weight:700}
 .lesson-course-preview__pending{color:#7b8798!important}
-@media(max-width:1320px){.has-lesson-outline .lesson-workspace{grid-template-columns:212px minmax(0,1fr);gap:14px;padding:14px}}
+@media(max-width:1320px){.has-lesson-outline .lesson-workspace{grid-template-columns:212px minmax(0,1fr);gap:0;padding:0}}
 @media(prefers-reduced-motion:reduce){.outline-flow-steps button,.lesson-outline--fixed .lesson-outline-chapter-button{transition:none}}
 
 /* The right side is contextual evidence for the selected asset, not a permanent assistant destination. */
