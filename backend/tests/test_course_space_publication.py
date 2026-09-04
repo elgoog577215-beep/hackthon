@@ -266,6 +266,9 @@ def test_formal_templates_are_projected_from_the_existing_course_truth():
     assert "## 六、课程教学网站" in outline
 
     assert "#### 知识目标" in teaching_plan
+    assert "# 微积分｜全课教案" in teaching_plan
+    assert "### 1.1 函数极限" in teaching_plan
+    assert "- **课程名称**：微积分" in teaching_plan
     assert "#### 能力目标" in teaching_plan
     assert "#### 育人目标" in teaching_plan
     assert "#### 教学重点与难点" in teaching_plan

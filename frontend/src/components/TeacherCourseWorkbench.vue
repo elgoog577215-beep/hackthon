@@ -383,7 +383,10 @@
                 @click="selectLesson(lesson.lesson_unit_id)"
               >
                 <span class="lesson-outline-chapter-copy">
-                  <strong><MathText :content="lessonDisplayTitle(lesson, index)" /></strong>
+                  <span class="lesson-outline-chapter-line">
+                    <span class="lesson-outline-chapter-index" aria-hidden="true">{{ String(index + 1).padStart(2, '0') }}</span>
+                    <strong><MathText :content="lessonDisplayName(lesson)" /></strong>
+                  </span>
                   <small v-if="lessonGenerationState(lesson) !== 'ready'" :data-state="lessonGenerationState(lesson)">{{ lessonGenerationStateLabel(lesson) }}</small>
                 </span>
                 <span
@@ -412,7 +415,6 @@
             <div class="lesson-current-group">
               <div class="lesson-current-title">
                 <strong><MathText :content="selectedLesson?.title || t('courseWorkbench.form.chooseLesson', '请选择课次')" /></strong>
-                <small>{{ selectedLessonPosition }}/{{ lessonStore.lessons.length }}</small>
               </div>
             </div>
             <div class="lesson-current-meta">
@@ -634,7 +636,7 @@
               <section v-for="(lesson, index) in lessonStore.lessons" :key="lesson.lesson_unit_id">
                 <div class="lesson-course-preview__title">
                   <span>{{ String(index + 1).padStart(2, '0') }}</span>
-                  <h3><MathText :content="lessonDisplayTitle(lesson, index)" /></h3>
+                  <h3><MathText :content="lessonDisplayName(lesson)" /></h3>
                   <small>{{ lesson.arrangement?.lesson_type_label || t('courseWorkbench.lessonBatch.typePending', '课型待系统安排') }}</small>
                 </div>
                 <ol v-if="lesson.arrangement?.blocks?.length">
@@ -794,7 +796,7 @@
                 <summary>
                   <div class="lesson-course-preview__title">
                     <span>{{ String(index + 1).padStart(2, '0') }}</span>
-                    <h3><MathText :content="lessonDisplayTitle(lesson, index)" /></h3>
+                    <h3><MathText :content="lessonDisplayName(lesson)" /></h3>
                     <small :data-state="lessonPlanIsReady(lesson) ? 'ready' : 'pending'">{{ lessonPlanIsReady(lesson)
                       ? t('courseWorkbench.scriptBatch.planMapped', '教案已映射')
                       : t('courseWorkbench.scriptBatch.planPending', '教案待生成') }}</small>
@@ -3176,11 +3178,14 @@ function selectLessonSection(lessonId: string, sectionId: string) {
   selectedLessonId.value = lessonId
   selectedLessonSectionId.value = sectionId
 }
-function lessonDisplayTitle(lesson: any, index: number): string {
-  const title = String(lesson?.title || '')
+function lessonDisplayName(lesson: any): string {
+  return String(lesson?.title || '')
     .replace(/^第\s*[0-9一二三四五六七八九十百]+\s*[讲章节课]\s*/u, '')
     .replace(/^0*\d+\s*[.、：:]\s*/u, '')
     .trim()
+}
+function lessonDisplayTitle(lesson: any, index: number): string {
+  const title = lessonDisplayName(lesson)
   const prefix = t('courseWorkbench.lessonOutline.lessonNumber', '第{number}讲')
     .replace('{number}', String(index + 1))
   return title ? `${prefix} ${title}` : prefix
@@ -3770,7 +3775,9 @@ onBeforeUnmount(() => {
 .lesson-outline--fixed>nav::before{display:none}
 .lesson-outline--fixed .lesson-outline-chapter-button{min-height:50px;display:grid;grid-template-columns:minmax(0,1fr) 20px;align-items:center;gap:8px;padding:7px 8px 7px 10px;border-radius:8px}
 .lesson-outline--fixed .lesson-outline-chapter-copy{min-width:0;display:grid;gap:4px}
-.lesson-outline--fixed .lesson-outline-chapter-copy strong{overflow:hidden;color:#435066;font-size:14px;font-weight:700;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
+.lesson-outline--fixed .lesson-outline-chapter-line{min-width:0;display:flex;align-items:baseline;gap:8px}
+.lesson-outline--fixed .lesson-outline-chapter-index{flex:none;width:2ch;color:#625dd7;font-size:13px;font-weight:760;font-variant-numeric:tabular-nums;letter-spacing:.01em}
+.lesson-outline--fixed .lesson-outline-chapter-copy strong{min-width:0;flex:1;overflow:hidden;color:#435066;font-size:14px;font-weight:700;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
 .lesson-outline--fixed .lesson-outline-chapter-copy small{color:#7b8798;font-size:14px;line-height:1.25}
 .lesson-outline--fixed .lesson-outline-status{width:20px;height:20px;display:grid;place-items:center;color:#8490a1}
 .lesson-outline--fixed .lesson-outline-status>i{width:7px;height:7px;border:1px solid #aeb8c6;border-radius:50%}
@@ -3779,11 +3786,10 @@ onBeforeUnmount(() => {
 .lesson-outline--fixed .lesson-outline-status[data-state="stale"],.lesson-outline--fixed .lesson-outline-status[data-state="failed"]{color:#b9404e}
 .lesson-outline--fixed .lesson-outline-chapter-button:hover:not(:disabled){background:#f7f8fa}
 .lesson-outline--fixed .lesson-outline-chapter-button.active{background:#f1f1fb}
-.lesson-outline--fixed .lesson-outline-chapter-button.active strong{color:#312e81}
+.lesson-outline--fixed .lesson-outline-chapter-button.active .lesson-outline-chapter-index{color:#4338ca}
 .lesson-outline--fixed .lesson-outline-chapter-button.active small{color:#625dd7}
 .lesson-current-title{min-width:0;display:flex;align-items:baseline;gap:9px}
 .lesson-current-title strong{min-width:0;color:#172033;font-size:22px;font-weight:760;line-height:1.3;letter-spacing:-.018em;text-wrap:balance}
-.lesson-current-title small{flex:none;color:#7b8798;font-size:15px;font-weight:650}
 .lesson-course-preview{overflow:hidden;border:1px solid #e0e4ea;border-radius:12px;background:#fff;box-shadow:none}
 .lesson-stage-content.is-course-preview{overflow:visible;border:0;background:transparent;box-shadow:none}
 .lesson-course-preview>header{min-height:70px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 20px;border-bottom:1px solid #e7ebf2}
@@ -3816,7 +3822,7 @@ onBeforeUnmount(() => {
 .context-pane-reopen{position:absolute;z-index:8;top:14px;right:14px;width:36px;height:36px;display:grid;place-items:center;border:1px solid #d8dee8;border-radius:8px;color:#596579;background:#fff;cursor:pointer;box-shadow:0 4px 14px rgba(30,41,59,.07)}
 .context-pane-reopen:hover{border-color:#aaa7e8;color:#37348c;background:#fafaff}
 .context-pane-reopen:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
-.context-pane{grid-template-rows:auto auto minmax(0,1fr);background:#f7f8fa}
+.context-pane{grid-template-rows:auto auto minmax(0,1fr);background:#fff}
 .context-pane-heading{min-height:76px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;margin:12px 12px 8px;padding:11px;border:1px solid #dfe4ea;border-radius:11px;background:#fff;box-shadow:0 1px 2px rgba(30,41,59,.025)}
 .context-pane-heading__status{min-width:0;display:grid;grid-template-columns:30px minmax(0,1fr);align-items:center;gap:9px}
 .context-pane-heading__signal{width:30px;height:30px;display:grid;place-items:center;border-radius:8px;color:#5b60a5;background:#f0f1f6}

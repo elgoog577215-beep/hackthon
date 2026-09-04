@@ -102,12 +102,14 @@ describe('统一教案页面', () => {
     expect(wrapper.get('.lesson-document').text()).not.toContain('标准教案')
     expect(wrapper.find('.document-saved').exists()).toBe(false)
     for (const heading of [
-      '课程名称', '知识目标', '能力目标', '育人目标',
+      '知识目标', '能力目标', '育人目标',
       '教学重点与难点', '课堂教学过程',
       '课程总结', '课后作业', '拓展阅读', '教学活动照片',
     ]) expect(wrapper.text()).toContain(heading)
+    expect(wrapper.find('.lesson-identity').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('课程名称')
     expect(wrapper.text()).not.toContain('课前准备（按需）')
-    expect(wrapper.text()).toContain('网络爬虫')
+    expect(wrapper.get('.lesson-theme-heading').text()).toContain('1.1 爬虫的定义、原理与应用场景')
     expect(wrapper.find('.document-title p').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('理论型')
     expect(wrapper.text()).not.toContain('实战型')
@@ -146,6 +148,18 @@ describe('统一教案页面', () => {
     )
     expect(wrapper.find('.objective-section textarea').exists()).toBe(false)
     expect(wrapper.find('.lesson-document').exists()).toBe(true)
+  })
+
+  it('单一内容主题与讲次同名时不重复展示标题', () => {
+    const repeatedTitleLesson = structuredClone(lesson)
+    repeatedTitleLesson.sections[0]!.title = '1.1 爬虫概述与HTTP基础'
+    const wrapper = mount(TeacherLessonPlanDocument, {
+      props: { courseId: 'course-1', lesson: repeatedTitleLesson, confirmed: true },
+    })
+
+    expect(wrapper.get('.document-title h3').text()).toBe('第1讲 爬虫概述与HTTP基础')
+    expect(wrapper.find('.lesson-theme-heading').exists()).toBe(false)
+    expect(wrapper.get('.objective-section').text()).toContain('教学目标')
   })
 
   it('正式教案的结构化字段统一渲染公式，编辑态保留 LaTeX 源码', async () => {
@@ -223,7 +237,7 @@ describe('统一教案页面', () => {
 
     expect(wrapper.text()).toContain('AI 候选已嵌入教案正文')
     expect(wrapper.text()).toContain('AI 优化后的可观察目标')
-    expect(wrapper.get('.objective-section').classes()).toContain('ai-change-target')
+    expect(wrapper.get('[data-ai-field="knowledge_objectives"]').classes()).toContain('ai-change-target')
     await (wrapper.vm as unknown as { resolveAiCandidate: (accept: boolean) => Promise<boolean> }).resolveAiCandidate(true)
     await flushPromises()
 

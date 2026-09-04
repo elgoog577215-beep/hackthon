@@ -831,7 +831,7 @@ describe('teacher course workbench outline streaming', () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
-      title: '第一讲', duration_minutes: 45,
+      title: '第一讲 极限导论', duration_minutes: 45,
       sections: [{ section_node_id: 'L2-1-1', title: '1.1 基础概念' }],
       arrangement: {
         schema_version: 'teacher_lesson_arrangement_v1', revision_id: '', lesson_unit_id: 'L1-1',
@@ -857,7 +857,9 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('[data-testid="lesson-arrangement-editor"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="lesson-generation-form"]').exists()).toBe(false)
     expect(preview.text()).toContain('整门课程教案预览')
-    expect(preview.text()).toContain('第1讲')
+    expect(preview.get('.lesson-course-preview__title>span').text()).toBe('01')
+    expect(preview.get('.lesson-course-preview__title h3').text()).toBe('极限导论')
+    expect(preview.get('.lesson-course-preview__title').text()).not.toContain('第1讲')
     expect(preview.text()).toContain('理论讲授')
     expect(preview.text()).toContain('概念讲解')
     expect(wrapper.find('[data-testid="lesson-outline-fixed"]').exists()).toBe(false)
@@ -1401,7 +1403,7 @@ describe('teacher course workbench outline streaming', () => {
   it('教案、讲义和 PPT 开始生成后显示双行讲次目录，正文不再出现小节 Tab', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2].map(number => ({
-      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45,
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲 主题${number}`, duration_minutes: 45,
       sections: [1, 2].map(section => ({ section_node_id: `L2-${number}-${section}`, title: `${number}.${section} 小节${section}` })),
       script: { current_revision_id: number === 1 ? 'script-1' : '', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1', source_state: 'current', ready: number === 1, confirmed: false, confirmed_at: '', sections: [] },
       plan: { lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, confirmed_revision_id: number === 2 ? 'plan-2' : '', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
@@ -1413,7 +1415,8 @@ describe('teacher course workbench outline streaming', () => {
 
       expect(chapterButtons).toHaveLength(2)
       expect(chapterButtons.every(button => button.find('strong').exists())).toBe(true)
-      expect(chapterButtons[0]!.find('strong').text()).toContain('第1讲')
+      expect(chapterButtons[0]!.get('.lesson-outline-chapter-index').text()).toBe('01')
+      expect(chapterButtons[0]!.find('strong').text()).toBe('主题1')
       chapterButtons.forEach(button => {
         const state = button.find('.lesson-outline-status').attributes('data-state')
         expect(button.find('small').exists()).toBe(state !== 'ready')
@@ -1428,8 +1431,8 @@ describe('teacher course workbench outline streaming', () => {
       expect(wrapper.get('.lesson-switch-actions').text()).toContain('下一讲')
 
       await chapterButtons[1]!.trigger('click')
-      expect(wrapper.get('.lesson-current-title').text()).toContain('第2讲')
-      expect(wrapper.get('.lesson-current-title').text()).toContain('2/2')
+      expect(wrapper.get('.lesson-current-title').text()).toContain('第2讲 主题2')
+      expect(wrapper.get('.lesson-current-title').text()).not.toContain('2/2')
       if (stage === 'script') {
         expect(wrapper.get('[data-testid="script-single-start"]').text()).toContain('生成本讲讲义')
         expect(wrapper.get('[data-testid="script-batch-start"]').text()).toContain('生成剩余讲义')
