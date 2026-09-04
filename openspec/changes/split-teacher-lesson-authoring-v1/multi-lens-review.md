@@ -2,7 +2,7 @@
 
 ## Product / CEO — PASS
 
-The scope matches the confirmed teacher workflow: teacher-owned lesson count, outline stop, per-lesson plan, per-lesson PPT, no teacher content stage. Student publication and migration are explicitly deferred.
+The scope matches the current teacher workflow: teacher-owned lesson count, an editable course-plan stop, a complete outline, per-lesson plan, per-lesson script and per-lesson PPT. Student publication and migration are explicitly deferred.
 
 ## Engineering — NEEDS FIX, addressed in plan
 

@@ -90,7 +90,7 @@ describe('calendar and course file-space boundary', () => {
     expect(workspace).toContain('class="workspace-operating-shell"')
     expect(workspace).toContain('@click="openCoursePreview"')
     expect(workspace).not.toContain('workspace-subtabs')
-    expect(workspace).toContain('<TeacherCourseCalendarView embedded />')
+    expect(workspace).toContain('<TeacherCourseCalendarView />')
     expect(workspace).not.toContain('useTeacherCourseRuntime')
   })
 
@@ -145,7 +145,7 @@ describe('calendar and course file-space boundary', () => {
     expect(courseCalendar).toContain('ZJU_CLASS_PERIODS')
   })
 
-  it('keeps active routes in one namespace and redirects legacy teacher URLs', () => {
+  it('keeps active routes in one namespace and removes retired teacher URLs', () => {
     const router = source('router/index.ts')
 
     expect(router).toContain("path: '/courses'")
@@ -153,10 +153,9 @@ describe('calendar and course file-space boundary', () => {
     expect(router).toContain("path: '/course/:courseId/learn/:nodeId?'")
     expect(router).toContain("path: '/course/:courseId/ppt'")
     expect(router).toContain("component: () => import('../views/TeacherTeachingCalendarView.vue')")
-    expect(router).toMatch(/path:\s*'\/teacher\/courses\/new'[\s\S]*?redirect:[\s\S]*?create:\s*'course'/)
-    expect(router).toMatch(/path:\s*'\/teacher\/course\/:courseId\/files'[\s\S]*?redirect:[\s\S]*?name:\s*'course-workspace'/)
-    expect(router).toMatch(/path:\s*'\/teacher\/course\/:courseId\/teaching-calendar'[\s\S]*?redirect:[\s\S]*?name:\s*'course-workspace'[\s\S]*?section:\s*'calendar'/)
-    expect(router).toMatch(/path:\s*'\/teacher\/:pathMatch\(\.\*\)\*'[\s\S]*?redirect:\s*'\/courses'/)
+    expect(router).not.toContain("path: '/teacher/courses'")
+    expect(router).not.toContain("path: '/teacher/course/:courseId")
+    expect(router).not.toContain("path: '/teacher/teaching-calendar'")
     expect(router).not.toContain("import('../views/TeacherCourseOverviewView.vue')")
     expect(router).not.toContain("import('../views/TeacherCourseProductionView.vue')")
   })

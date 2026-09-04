@@ -30,8 +30,5 @@ describe('explicit route identity scope', () => {
     await router.push('/course/course-1/learn/node-1?teacherPreview=1')
     expect(getActiveRequestIdentityScope()).toBe('teacher')
 
-    await router.push('/teacher/course/course-1/release')
-    expect(router.currentRoute.value.query.teacherPreview).toBe('1')
-    expect(getActiveRequestIdentityScope()).toBe('teacher')
   })
 })

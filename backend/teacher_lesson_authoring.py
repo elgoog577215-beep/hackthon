@@ -1256,26 +1256,6 @@ def lesson_scope(course_data: dict[str, Any], lesson_unit_id: str) -> dict[str, 
     }
 
 
-def teacher_lesson_script_revision(
-    course_data: dict[str, Any],
-    lesson_unit_id: str,
-) -> str:
-    """Fingerprint the saved course body used as this lesson's single script source."""
-    scope = lesson_scope(course_data, lesson_unit_id)
-    payload = [
-        {
-            "section_node_id": str(section.get("node_id") or ""),
-            "title": str(section.get("node_name") or ""),
-            "content": str(section.get("node_content") or ""),
-        }
-        for section in scope["sections"]
-    ]
-    digest = hashlib.sha256(
-        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
-    ).hexdigest()[:24]
-    return f"tlsr-{digest}"
-
-
 def teacher_lesson_script_sections_revision(
     sections: list[dict[str, Any]],
 ) -> str:
@@ -1287,16 +1267,11 @@ def teacher_lesson_script_sections_revision(
         blocks = [
             block for block in section.get("blocks") or [] if isinstance(block, dict)
         ]
-        # Preserve the historic content fingerprint for one-way migrated v1
-        # scripts so dependent revision links remain valid.
-        legacy_only = bool(blocks) and all(
-            str(block.get("module_id") or "") == "legacy_script" for block in blocks
-        )
         item = {
             "section_node_id": str(section.get("section_node_id") or ""),
             "title": str(section.get("title") or ""),
         }
-        if blocks and not legacy_only:
+        if blocks:
             item["blocks"] = [
                 {
                     "block_id": str(block.get("block_id") or ""),
@@ -1310,10 +1285,7 @@ def teacher_lesson_script_sections_revision(
                 for block in blocks
             ]
         else:
-            item["content"] = str(
-                (blocks[0].get("content") if legacy_only else section.get("content"))
-                or ""
-            )
+            item["content"] = str(section.get("content") or "")
         payload.append(item)
     digest = hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
@@ -1484,7 +1456,6 @@ def teacher_lesson_v6_source(
                     "ppt_page_group_id": ppt_page_group_id,
                     "content_perspective": "teacher_delivery",
                     "source_kind": "current_teacher_script_block",
-                    "legacy_adapter": module_id == "legacy_script",
                 },
             })
             ppt_group_minutes += block_minutes

@@ -13,7 +13,7 @@
 
 ### Goal
 
-Deliver one real teacher vertical slice: teacher-defined lesson count → confirmed outline → select any lesson → generate all in-lesson sections as an independent editable/AI-optimizable lesson plan → generate and optimize that lesson's PPT. Teacher flow creates no course正文 and does not change student behavior.
+Deliver one real teacher vertical slice: teacher-defined lesson count → current structurally valid outline → select any lesson → generate all in-lesson sections as an independent editable/AI-optimizable lesson plan → generate and optimize that lesson's PPT. Teacher flow creates no course正文 and does not change student behavior.
 
 ### Constraints
 
@@ -33,7 +33,7 @@ Education-agent integration, student publication, calendars/files migration, old
 - [x] P1 Add regression tests for hard lesson count, teacher outline stop, lesson-scoped task isolation and fallback warning completion.
 - [x] P2 Add teacher outline/task contract and map teacher expected sessions to top-level lesson count.
 - [x] P3 Add atomic teacher lesson asset repository and lesson-scoped plan generation/read/retry endpoints.
-- [x] P4 Add draft patch/confirm/AI candidate/knowledge-evidence endpoints for one lesson.
+- [x] P4 Add current-revision patch, AI-candidate and knowledge-evidence endpoints for one lesson; retire the former lesson confirmation endpoint.
 - [x] P5 Split frontend lesson/section state and implement nested section navigation plus section/lesson view.
 - [x] P6 Connect lesson generation/edit/AI state to teacher production UI.
 - [x] P7 Add lesson-plan authoring source adapter and connect it to the existing V6 PPT engine/workbench with lesson-scoped version state.

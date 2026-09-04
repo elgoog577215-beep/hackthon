@@ -2,9 +2,9 @@
 """Remove retired whole-course teaching-plan workbench data after backup.
 
 The command is read-only by default. ``--apply`` writes only files that contain
-the retired ``teaching_plan_workbench`` envelope or an unshipped legacy import
-marker. Current ``course_teaching_plan_v3`` data and new per-lesson revisions
-are intentionally preserved because the active generation chain uses them.
+retired workbench envelopes, confirmation fields, guided teacher-outline state,
+or one-way imported plan/script revisions. Current ``course_teaching_plan_v3``
+data and new per-lesson revisions remain intact.
 """
 
 from __future__ import annotations
@@ -65,6 +65,26 @@ def _is_legacy_import(revision: Any) -> bool:
     return isinstance(revision, dict) and (
         str(revision.get("generation_source") or "") == LEGACY_IMPORT_SOURCE
         or bool(str(revision.get("legacy_source_revision_id") or ""))
+    )
+
+
+def _is_legacy_script_revision(revision: Any) -> bool:
+    if not isinstance(revision, dict):
+        return False
+    if str(revision.get("generation_source") or "") in {
+        "legacy",
+        "legacy_workbench_import",
+    }:
+        return True
+    blocks = [
+        block
+        for section in revision.get("sections") or []
+        if isinstance(section, dict)
+        for block in section.get("blocks") or []
+        if isinstance(block, dict)
+    ]
+    return bool(blocks) and all(
+        str(block.get("module_id") or "") == "legacy_script" for block in blocks
     )
 
 
@@ -129,6 +149,7 @@ def _clean_authoring(
             continue
         drop(lesson, "confirmed_revision_id")
         drop(lesson, "script_confirmation")
+        drop(lesson, "legacy_source_fingerprint")
         arrangement = lesson.get("arrangement")
         if isinstance(arrangement, dict):
             drop(arrangement, "confirmed_revision_id")
@@ -154,14 +175,46 @@ def _clean_authoring(
         removed_here = len(revisions) - len(remaining)
         marker_removed = "legacy_plan_import" in lesson
         drop(lesson, "legacy_plan_import")
-        if not removed_here and not marker_removed:
-            continue
-        removed_count += removed_here
-        lesson["revisions"] = remaining
-        if str(lesson.get("working_revision_id") or "") not in {
-            str(item.get("revision_id") or "") for item in remaining
-        }:
-            _select_current_revision(cleaned, lesson, remaining)
+        if removed_here or marker_removed:
+            removed_count += removed_here
+            lesson["revisions"] = remaining
+            if str(lesson.get("working_revision_id") or "") not in {
+                str(item.get("revision_id") or "") for item in remaining
+            }:
+                _select_current_revision(cleaned, lesson, remaining)
+        script_revisions = [
+            item for item in lesson.get("script_revisions") or []
+            if isinstance(item, dict)
+        ]
+        current_script_revisions = [
+            item for item in script_revisions
+            if not _is_legacy_script_revision(item)
+        ]
+        removed_scripts = len(script_revisions) - len(current_script_revisions)
+        if removed_scripts:
+            removed_count += removed_scripts
+            lesson["script_revisions"] = current_script_revisions
+            current_ids = {
+                str(item.get("revision_id") or "")
+                for item in current_script_revisions
+            }
+            if str(lesson.get("working_script_revision_id") or "") not in current_ids:
+                current_script = current_script_revisions[-1] if current_script_revisions else None
+                lesson["working_script_revision_id"] = str(
+                    (current_script or {}).get("revision_id") or ""
+                )
+                for asset in lesson.get("ppt_assets") or []:
+                    if isinstance(asset, dict):
+                        asset["source_state"] = "stale"
+                manuscript = lesson.get("ppt_manuscript")
+                if isinstance(manuscript, dict) and manuscript:
+                    manuscript["source_state"] = "stale"
+            lesson["script_ai_candidates"] = [
+                candidate
+                for candidate in lesson.get("script_ai_candidates") or []
+                if isinstance(candidate, dict)
+                and str(candidate.get("base_revision_id") or "") in current_ids
+            ]
     if not removed_count and cleaned == value:
         return None, 0, 0
     return cleaned, removed_count, removed_field_count

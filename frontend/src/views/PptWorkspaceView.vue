@@ -1014,7 +1014,7 @@ function backToCourse() {
     return
   }
   void router.push(isTeacherSurface.value
-    ? { name: 'teacher-course-production', params: { courseId: courseId.value }, query: { stage: 'ppt' } }
+    ? { name: 'course-workspace', params: { courseId: courseId.value, mode: 'build' }, query: { stage: 'ppt' } }
     : { name: 'learning', params: { courseId: courseId.value } })
 }
 
@@ -1032,9 +1032,9 @@ async function closeMaterials() {
 function openSameSourceCourse(state: PptSameSourceHighlightState) {
   if (isTeacherSurface.value) {
     void router.push({
-      name: 'teacher-course-production',
-      params: { courseId: state.courseId },
-      query: { stage: 'teaching', lesson: teacherLessonId.value, section: state.sectionId },
+      name: 'course-workspace',
+      params: { courseId: state.courseId, mode: 'build' },
+      query: { stage: 'lesson', lesson: teacherLessonId.value, section: state.sectionId },
     })
     return
   }

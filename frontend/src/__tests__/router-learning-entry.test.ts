@@ -23,29 +23,10 @@ describe('learning routes', () => {
     expect(resolved.params.courseId).toBe('course-1')
   })
 
-  it('旧教师路由保留名称但只重定向到统一工作区', () => {
-    expect(router.resolve('/teacher/courses').name).toBe('teacher-course-library')
-    expect(router.resolve('/teacher/course/course-1/overview').name).toBe('teacher-course-overview')
-    expect(router.resolve('/teacher/course/course-1/production').name).toBe('teacher-course-production')
-    expect(router.resolve('/teacher/course/course-1/outline').name).toBe('teacher-course-outline')
-    expect(router.resolve('/teacher/course/course-1/release').name).toBe('teacher-course-release')
-    expect(router.resolve('/teacher/course/course-1/teaching-calendar').name).toBe('teacher-course-calendar')
-    expect(router.resolve('/teacher/course/course-1/ppt').name).toBe('teacher-ppt-workspace')
-    expect(router.resolve('/teacher/teaching-calendar').name).toBe('teacher-teaching-calendar')
-    const filesRoute = router.getRoutes().find(route => route.name === 'teacher-course-files')
-    const redirected = (filesRoute!.redirect as Function)({ params: { courseId: 'course-1' }, query: {} })
-    expect(router.resolve(redirected).fullPath).toBe('/course/course-1/workspace/setup')
-    const calendarRoute = router.getRoutes().find(route => route.name === 'teacher-course-calendar')
-    const calendarRedirect = (calendarRoute!.redirect as Function)({ params: { courseId: 'course-1' }, query: { session: 'session-2' } })
-    expect(router.resolve(calendarRedirect).fullPath).toBe('/course/course-1/workspace/setup?section=calendar&session=session-2')
-  })
-
-  it('教师命名空间中的未知地址只能回教师工作台', () => {
-    const rootFallback = router.getRoutes().find(route => route.path === '/teacher')
-    const nestedFallback = router.getRoutes().find(route => route.path === '/teacher/:pathMatch(.*)*')
-
-    expect(rootFallback?.redirect).toBe('/courses')
-    expect(nestedFallback?.redirect).toBe('/courses')
-    expect(router.resolve('/teacher/not-a-real-page').matched.at(-1)?.path).toBe('/teacher/:pathMatch(.*)*')
+  it('不再注册已退役的教师页面路由', () => {
+    const routeNames = router.getRoutes().map(route => route.name)
+    expect(routeNames.some(name => String(name || '').startsWith('teacher-course-'))).toBe(false)
+    expect(routeNames).not.toContain('teacher-ppt-workspace')
+    expect(routeNames).not.toContain('teacher-teaching-calendar')
   })
 })

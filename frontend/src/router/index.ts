@@ -22,21 +22,6 @@ const routes: Array<RouteRecordRaw> = [
     meta: { identityScope: 'teacher' },
   },
   {
-    path: '/teacher/courses',
-    name: 'teacher-course-library',
-    redirect: { name: 'course-library' }
-  },
-  {
-    path: '/teacher/courses/new',
-    name: 'teacher-course-create',
-    redirect: { name: 'course-library', query: { view: 'courses', create: 'course' } }
-  },
-  {
-    path: '/teacher-course-space',
-    name: 'teacher-course-space',
-    redirect: { name: 'course-library' }
-  },
-  {
     path: '/workspace-concept',
     name: 'workspace-concept',
     component: () => import('../views/WorkspacePortalConceptView.vue'),
@@ -82,50 +67,6 @@ const routes: Array<RouteRecordRaw> = [
     }),
   },
   {
-    path: '/teacher/course/:courseId/overview',
-    name: 'teacher-course-overview',
-    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' } })
-  },
-  {
-    path: '/teacher/course/:courseId/production',
-    name: 'teacher-course-production',
-    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' } })
-  },
-  {
-    path: '/teacher/course/:courseId/outline',
-    name: 'teacher-course-outline',
-    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'build' }, query: { section: 'outline' } })
-  },
-  {
-    path: '/teacher/course/:courseId/release',
-    name: 'teacher-course-release',
-    redirect: to => ({
-      name: 'learning',
-      params: { courseId: to.params.courseId },
-      query: { teacherPreview: '1' },
-    })
-  },
-  {
-    path: '/teacher/course/:courseId/files',
-    name: 'teacher-course-files',
-    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' } })
-  },
-  {
-    path: '/teacher/course/:courseId/teaching-calendar',
-    name: 'teacher-course-calendar',
-    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' }, query: { section: 'calendar', ...(to.query.session ? { session: to.query.session } : {}) } })
-  },
-  {
-    path: '/teacher/course/:courseId/ppt',
-    name: 'teacher-ppt-workspace',
-    redirect: to => ({ name: 'ppt-workspace', params: { courseId: to.params.courseId }, query: to.query })
-  },
-  {
-    path: '/teacher/teaching-calendar',
-    name: 'teacher-teaching-calendar',
-    redirect: { name: 'course-library' }
-  },
-  {
     path: '/course/:courseId/learn/:nodeId?',
     name: 'learning',
     component: () => import('../views/LearningView.vue'),
@@ -136,14 +77,6 @@ const routes: Array<RouteRecordRaw> = [
     name: 'ppt-workspace',
     component: () => import('../views/PptWorkspaceView.vue'),
     meta: { identityScope: 'teacher' },
-  },
-  {
-    path: '/teacher',
-    redirect: '/courses'
-  },
-  {
-    path: '/teacher/:pathMatch(.*)*',
-    redirect: '/courses'
   },
   {
     path: '/:pathMatch(.*)*',

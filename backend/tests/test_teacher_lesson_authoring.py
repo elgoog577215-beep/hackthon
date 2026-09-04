@@ -28,7 +28,6 @@ from teacher_lesson_authoring import (
     lesson_scope,
     normalize_teacher_lesson_plan,
     project_current_teacher_scripts,
-    teacher_lesson_script_revision,
     teacher_lesson_section_content,
     teacher_lesson_v6_source,
     validate_teacher_lesson_plan,
@@ -345,7 +344,7 @@ def test_lesson_projection_recommends_current_arrangement_after_outline_change(t
     } == {"L2-1-1", "L2-1-2"}
 
 
-def test_lesson_projection_keeps_legacy_fingerprint_out_of_formal_script_revision(tmp_path):
+def test_lesson_projection_does_not_treat_student_body_as_teacher_script(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
 
     lesson = teacher_lesson_router._lesson_projection(
@@ -354,30 +353,29 @@ def test_lesson_projection_keeps_legacy_fingerprint_out_of_formal_script_revisio
     )[0]
 
     assert lesson["script"]["current_revision_id"] == ""
-    assert lesson["script"]["legacy_source_fingerprint"].startswith("tlsr-")
+    assert lesson["script"]["sections"] == []
     assert lesson["script"]["ready"] is False
 
 
-@pytest.mark.parametrize(
-    ("method", "path"),
-    [
-        ("put", "/arrangement/confirm"),
-        ("post", "/plan/confirm"),
-        ("post", "/script/confirm"),
-    ],
-)
-def test_retired_teacher_confirmation_routes_are_read_only_tombstones(method, path):
-    app = FastAPI()
-    app.include_router(teacher_lesson_router.router, prefix="/api")
+def test_retired_teacher_confirmation_and_history_routes_are_not_registered():
+    paths = {route.path for route in teacher_lesson_router.router.routes}
+    lesson_prefix = "/teacher/courses/{course_id}/lessons/{lesson_unit_id}"
 
-    with TestClient(app) as client:
-        response = getattr(client, method)(
-            f"/api/teacher/courses/course-1/lessons/L1-1{path}",
-            json={"revision_id": "legacy-revision"},
-        )
+    assert f"{lesson_prefix}/arrangement/confirm" not in paths
+    assert f"{lesson_prefix}/plan/confirm" not in paths
+    assert f"{lesson_prefix}/script/confirm" not in paths
+    assert not any("/plan/revisions/" in path and path.endswith("/restore") for path in paths)
+    assert not any("/script/revisions/" in path and path.endswith("/restore") for path in paths)
 
-    assert response.status_code == 410
-    assert response.json()["detail"]["code"] == "teacher_asset_confirmation_removed"
+    assert (
+        f"{lesson_prefix}/ppt-v6/manuscript/confirm"
+        in paths
+    )
+    assert (
+        f"{lesson_prefix}/ppt-import/reviews/"
+        "{review_id}/confirm"
+        in paths
+    )
 
 
 def test_lesson_arrangement_projects_existing_modules_without_example_exam_collision():
@@ -788,10 +786,10 @@ def test_teacher_script_inherits_confirmed_archetype_and_module_order():
                     "section_node_id": "L2-1-2",
                     "blocks": [{
                         "block_id": "second-section-block",
-                        "module_id": "legacy_script",
+                        "module_id": "core_explanation",
                         "role": "concept",
                         "title": "第二小节讲稿",
-                        "content": "这是第二小节已经确认的讲稿内容。",
+                        "content": "这是第二小节的当前讲义内容。",
                     }],
                 },
             ],
@@ -2697,51 +2695,6 @@ def test_script_fallback_content_is_rejected_without_formal_revision(tmp_path):
     assert repository.lesson("course-1", "L1-1")["script_revisions"] == []
 
 
-def test_legacy_script_adapter_keeps_the_original_body_as_one_compatibility_block():
-    original = "## 老师原有标题\n\n老师原本的一整篇课堂讲稿。"
-    migrated = normalize_teacher_script_section({
-        "section_node_id": "L2-1-1",
-        "title": "1.1 核心概念",
-        "content": original,
-    })
-
-    assert len(migrated["blocks"]) == 1
-    assert migrated["blocks"][0]["module_id"] == "legacy_script"
-    assert migrated["blocks"][0]["content"] == original
-
-
-def test_teacher_lesson_v6_source_accepts_confirmed_legacy_script_sections():
-    source = course_data()
-    source["blueprint_revision_id"] = "outline-v1"
-    document, view, _synthetic_id = teacher_lesson_v6_source(
-        source,
-        lesson_unit_id="L1-1",
-        plan_revision={
-            "revision_id": "plan-1",
-            "plan": standard_lesson_plan(),
-        },
-        script_revision={
-            "revision_id": "script-legacy",
-            "sections": [
-                {
-                    "section_node_id": "L2-1-1",
-                    "title": "1.1 核心概念",
-                    "content": "这是老版已确认讲稿的正文。",
-                },
-                {
-                    "section_node_id": "L2-1-2",
-                    "title": "1.2 能力迁移",
-                    "content": "这是第二小节的已确认讲稿。",
-                },
-            ],
-        },
-    )
-
-    assert document.blocks
-    assert view["nodes"][1]["content_blocks"][0]["metadata"]["module_id"] == "legacy_script"
-    assert view["nodes"][1]["content_blocks"][0]["content"] == "这是老版已确认讲稿的正文。"
-
-
 def test_canonical_outline_revision_recovers_current_state_and_blocks_weak_plan(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     repository.set_outline("course-1", "blueprint-v1")
@@ -3812,7 +3765,7 @@ def test_v6_ppt_binds_exact_plan_and_script_revisions_and_becomes_stale(tmp_path
         [{
             "section_node_id": "L2-1-1",
             "title": "1.1",
-            "content": "这是已经确认的讲稿正文。",
+            "content": "这是当前讲义正文。",
         }],
         source_lesson_plan_revision_id=source_revision,
         generation_source="teacher_edit",
@@ -3903,26 +3856,26 @@ def test_teacher_lesson_v6_source_is_synthetic_and_covers_only_one_lesson():
         lesson_unit_id="L1-1",
         plan_revision=revision,
         script_revision={
-            "revision_id": "legacy-script-v1",
+            "revision_id": "script-v1",
             "sections": [
                 {
                     "section_node_id": "L2-1-1",
                     "blocks": [{
-                        "block_id": "legacy-1",
-                        "module_id": "legacy_script",
+                        "block_id": "current-1",
+                        "module_id": "core_explanation",
                         "role": "concept",
                         "title": "讲稿正文",
-                        "content": "这是一段已确认的一手讲稿正文。",
+                        "content": "这是当前讲义的一手讲授内容。",
                     }],
                 },
                 {
                     "section_node_id": "L2-1-2",
                     "blocks": [{
-                        "block_id": "legacy-2",
-                        "module_id": "legacy_script",
+                        "block_id": "current-2",
+                        "module_id": "learner_action",
                         "role": "concept",
                         "title": "讲稿正文",
-                        "content": "这是第二小节已确认的一手讲稿正文。",
+                        "content": "这是第二小节的当前讲授内容。",
                     }],
                 },
             ],
@@ -3938,8 +3891,8 @@ def test_teacher_lesson_v6_source_is_synthetic_and_covers_only_one_lesson():
     assert {block.section_id for block in document.blocks} == {"L2-1-1", "L2-1-2"}
     assert graph.primary_block_coverage == 1.0
     assert graph.diagnostics == []
-    assert view["teacher_lesson_source"]["script_revision_id"] == "legacy-script-v1"
-    assert view["nodes"][1]["content_blocks"][0]["content"] == "这是一段已确认的一手讲稿正文。"
+    assert view["teacher_lesson_source"]["script_revision_id"] == "script-v1"
+    assert view["nodes"][1]["content_blocks"][0]["content"] == "这是当前讲义的一手讲授内容。"
     assert str(source) == source_before
 
 
@@ -4201,11 +4154,7 @@ def test_script_revision_change_stales_bound_v6_ppt_without_confirmation(tmp_pat
         quality_report=quality,
     )
     plan_revision = lesson["working_revision_id"]
-    source = course_data()
-    source["nodes"][1]["node_content"] = "第一节正式讲稿"
-    source["nodes"][2]["node_content"] = "第二节正式讲稿"
-    first_script_revision = teacher_lesson_script_revision(source, "L1-1")
-    repository.save_script_revision(
+    first_script = repository.save_script_revision(
         "course-1",
         "L1-1",
         [
@@ -4214,6 +4163,7 @@ def test_script_revision_change_stales_bound_v6_ppt_without_confirmation(tmp_pat
         ],
         source_lesson_plan_revision_id=plan_revision,
     )
+    first_script_revision = first_script["working_script_revision_id"]
     asset = repository.bind_v6_ppt_revision(
         "course-1",
         "L1-1",
@@ -4227,10 +4177,7 @@ def test_script_revision_change_stales_bound_v6_ppt_without_confirmation(tmp_pat
     assert asset["source_state"] == "current"
     assert asset["source_script_revision_id"] == first_script_revision
 
-    source["nodes"][1]["node_content"] = "第一节修改后的正式讲稿"
-    second_script_revision = teacher_lesson_script_revision(source, "L1-1")
-    assert second_script_revision != first_script_revision
-    repository.save_script_revision(
+    second_script = repository.save_script_revision(
         "course-1",
         "L1-1",
         [
@@ -4240,6 +4187,8 @@ def test_script_revision_change_stales_bound_v6_ppt_without_confirmation(tmp_pat
         source_lesson_plan_revision_id=plan_revision,
         generation_source="teacher_edit",
     )
+    second_script_revision = second_script["working_script_revision_id"]
+    assert second_script_revision != first_script_revision
     stale = repository.lesson("course-1", "L1-1")["ppt_assets"][0]
     assert stale["source_state"] == "stale"
 
@@ -4465,15 +4414,6 @@ def test_script_generation_edit_candidate_and_ppt_share_one_asset_chain(tmp_path
         assert stored_second_revision["sections"][0]["blocks"][0]["generation_source"] == "teacher_edit"
         assert stored_second_revision["sections"][1]["blocks"][0]["generation_source"] == "model"
 
-        retired_confirmation = client.post(
-            "/api/teacher/courses/course-1/lessons/L1-1/script/confirm",
-            json={"revision_id": second_revision},
-        )
-        assert retired_confirmation.status_code == 410
-        assert retired_confirmation.json()["detail"]["code"] == (
-            "teacher_asset_confirmation_removed"
-        )
-
         ppt_source = client.get(
             "/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/source"
         )
@@ -4481,12 +4421,6 @@ def test_script_generation_edit_candidate_and_ppt_share_one_asset_chain(tmp_path
         payload = json.dumps(ppt_source.json(), ensure_ascii=False)
         assert "AI 候选讲稿" in payload
 
-        retired_history_route = client.post(
-            f"/api/teacher/courses/course-1/lessons/L1-1/script/revisions/{first_revision}/restore",
-            json={"expected_current_revision_id": second_revision},
-            headers={"X-User-Id": "teacher-1"},
-        )
-        assert retired_history_route.status_code == 404
         projection = saved.json()["lesson"]
         assert projection["plan"]["current_revision"]["revision_id"]
         assert "revisions" not in projection["plan"]

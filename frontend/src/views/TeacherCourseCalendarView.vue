@@ -1,22 +1,5 @@
 <template>
-  <section class="course-calendar-page" :class="{ 'course-calendar-page--embedded': embedded }">
-    <header v-if="!embedded" class="product-bar">
-      <button type="button" class="brand" @click="router.push({ name: 'teacher-course-library' })">
-        <img src="/qizhi-favicon.svg" alt="" /><strong>启智</strong>
-      </button>
-      <nav aria-label="当前位置">
-        <button type="button" @click="router.push({ name: 'teacher-course-library' })">课程工作台</button><ChevronRight :size="14" />
-        <button type="button" @click="router.push({ name: 'teacher-course-overview', params: { courseId } })">{{ courseTitle }}</button><ChevronRight :size="14" />
-        <strong>教学日历</strong>
-      </nav>
-      <div class="product-actions">
-        <button type="button" @click="openTotalCalendar"><CalendarRange :size="16" />教学总日历</button>
-        <button type="button" aria-label="刷新日历" @click="load"><RefreshCw :size="17" :class="{ spin: store.loading }" /></button>
-      </div>
-    </header>
-
-    <div class="page-shell">
-      <TeacherCourseSidebar v-if="!embedded" :course-id="courseId" :title="courseTitle" :meta="courseMeta" active="calendar" />
+  <section class="course-calendar-page">
       <main class="calendar-main">
         <section class="calendar-workspace">
           <header class="workspace-toolbar">
@@ -215,16 +198,14 @@
           </el-dialog>
         </section>
       </main>
-    </div>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowUpDown, CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Clock3, Columns3, Download, LoaderCircle, PencilLine, Plus, RefreshCw, Save, Sparkles, Table2, Trash2, TriangleAlert, Upload } from 'lucide-vue-next'
-import TeacherCourseSidebar from '../components/TeacherCourseSidebar.vue'
+import { ArrowUpDown, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Clock3, Columns3, Download, LoaderCircle, PencilLine, Plus, Save, Sparkles, Table2, Trash2, TriangleAlert, Upload } from 'lucide-vue-next'
 import TeachingCalendarMonthGrid from '../components/TeachingCalendarMonthGrid.vue'
 import { t } from '../shared/i18n'
 import { useCourseStore } from '../stores/course'
@@ -234,9 +215,6 @@ import { ZJU_CLASS_PERIODS, resolveZjuClassPeriodRange, type ZjuClassPeriod } fr
 import http, { getTeacherIdentity } from '../utils/http'
 
 const route = useRoute()
-const router = useRouter()
-const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
-const embedded = computed(() => props.embedded)
 const courseStore = useCourseStore()
 const store = useTeachingCalendarStore()
 const editable = ref<TeachingCalendar | null>(null)
@@ -253,7 +231,6 @@ const selectedDiffIndexes = ref<number[]>([])
 const courseId = computed(() => String(route.params.courseId || ''))
 const courseSummary = computed(() => courseStore.courseList.find(item => item.course_id === courseId.value))
 const courseTitle = computed(() => editable.value?.course_title || courseSummary.value?.course_name || '未命名课程')
-const courseMeta = computed(() => [editable.value?.academic_year, editable.value?.term].filter(Boolean).join(' ') || '教学日历')
 const scheduledCount = computed(() => editable.value?.sessions.filter(isCompleteSession).length || 0)
 const unscheduledCount = computed(() => (editable.value?.sessions.length || 0) - scheduledCount.value)
 const monthLabel = computed(() => { const value = new Date(`${monthCursor.value.slice(0, 7)}-01T12:00:00`); return `${value.getFullYear()}年${value.getMonth() + 1}月` })
@@ -451,12 +428,6 @@ async function save(): Promise<boolean> {
     return false
   }
 }
-async function openTotalCalendar() {
-  if (dirty.value) {
-    if (!await save()) return
-  }
-  await router.push({ name: 'teacher-teaching-calendar' })
-}
 async function load() {
   try {
     const [, calendar] = await Promise.all([
@@ -492,9 +463,7 @@ onBeforeRouteLeave(async () => {
 </script>
 
 <style scoped>
-.course-calendar-page{height:100vh;min-height:100vh;overflow:hidden;color:var(--lz-text-primary);background:var(--lz-canvas)}button,input,textarea,select{font:inherit}.product-bar{height:52px;display:grid;grid-template-columns:188px minmax(0,1fr) auto;align-items:center;border-bottom:1px solid var(--lz-border);background:var(--lz-surface)}.brand{height:100%;display:flex;align-items:center;gap:10px;padding:0 20px;border:0;border-right:1px solid var(--lz-border);color:var(--lz-text-primary);background:transparent;cursor:pointer}.brand img{width:25px;height:25px}.brand strong{font-size:17px}.product-bar nav{min-width:0;display:flex;align-items:center;gap:8px;padding:0 24px;color:var(--lz-text-muted);font-size:12px}.product-bar nav button{max-width:220px;overflow:hidden;padding:0;border:0;color:inherit;background:transparent;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.product-bar nav strong{color:var(--lz-text-primary)}.product-actions{display:flex;align-items:center;gap:6px;padding-right:14px}.product-actions button{height:34px;display:inline-flex;align-items:center;gap:6px;padding:0 11px;border:1px solid var(--lz-border);border-radius:9px;color:var(--lz-text-secondary);background:var(--lz-surface);cursor:pointer}
-.page-shell{height:calc(100vh - 52px);display:grid;grid-template-columns:188px minmax(0,1fr)}.calendar-main{min-width:0;min-height:0;display:grid;grid-template-rows:minmax(0,1fr)}
-.course-calendar-page--embedded{width:100%;height:100%;min-height:0}.course-calendar-page--embedded .page-shell{height:100%;grid-template-columns:minmax(0,1fr)}
+.course-calendar-page{width:100%;height:100%;min-height:0;overflow:hidden;color:var(--lz-text-primary);background:var(--lz-canvas)}button,input,textarea,select{font:inherit}.calendar-main{height:100%;min-width:0;min-height:0;display:grid;grid-template-rows:minmax(0,1fr)}
 .calendar-workspace{min-width:0;min-height:0;display:grid;grid-template-rows:50px auto minmax(0,1fr);background:var(--lz-surface)}.workspace-toolbar{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--lz-border);font-size:12px}.segmented{display:flex;padding:2px;border:1px solid var(--lz-border);border-radius:8px;background:var(--lz-fill)}.segmented button,.quiet-button,.primary-button{height:32px;display:inline-flex;align-items:center;gap:5px;padding:0 10px;border:0;border-radius:6px;color:var(--lz-text-secondary);background:transparent;font-size:12px;cursor:pointer}.segmented button.active{color:var(--lz-brand-strong);background:var(--lz-surface);box-shadow:0 1px 2px rgb(0 0 0/.06);font-weight:700}.segmented button:focus-visible,.quiet-button:focus-visible,.primary-button:focus-visible{outline:3px solid rgba(99,102,241,.22);outline-offset:2px}.meta-field{display:flex;align-items:center;gap:5px;color:var(--lz-text-muted);font-size:11px}.meta-field input{width:96px;height:32px;padding:0 8px;border:1px solid var(--lz-border);border-radius:7px;background:var(--lz-surface);font-size:12px}.meta-field input:focus-visible{outline:0;border-color:var(--lz-brand-border);box-shadow:0 0 0 3px var(--lz-brand-soft)}.toolbar-spacer{flex:1}.calendar-revision{min-width:64px;color:var(--lz-text-muted);font-size:11px;text-align:center;white-space:nowrap}.calendar-revision.dirty{color:var(--lz-warning);font-weight:700}.quiet-button{border:1px solid var(--lz-border);background:var(--lz-surface)}.transfer-button{white-space:nowrap}.primary-button{color:#fff;background:var(--lz-brand)}.primary-button:disabled,.quiet-button:disabled{opacity:.45;cursor:not-allowed}.visually-hidden{display:none!important}.issue-bar{min-height:38px;display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--lz-warning-border);color:var(--lz-text-secondary);background:var(--lz-warning-soft);font-size:12px}.issue-bar span{flex:1}.issue-bar button{height:28px;padding:0 9px;border:1px solid var(--lz-warning-border);border-radius:6px;background:var(--lz-surface);cursor:pointer}.loading-state{height:100%;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--lz-text-muted);font-size:12px}
 .calendar-board{min-width:0;min-height:0;display:grid;grid-template-columns:218px minmax(0,1fr) 306px}.calendar-board.is-table{grid-template-columns:190px minmax(0,1fr)}.calendar-board.is-table .session-inspector{display:none}.session-rail,.session-inspector{min-width:0;min-height:0;background:var(--lz-surface)}.session-rail{display:grid;grid-template-rows:46px minmax(0,1fr) 38px;border-right:1px solid var(--lz-border)}.session-rail>header{display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-bottom:1px solid var(--lz-border)}.session-rail>header div{display:flex;align-items:center;gap:7px}.session-rail>header strong{font-size:11px}.session-rail>header span{padding:2px 6px;border-radius:8px;color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:9px}.session-rail>header button{width:28px;height:28px;display:grid;place-items:center;border:1px solid var(--lz-border);border-radius:7px;color:var(--lz-brand-strong);background:var(--lz-surface);cursor:pointer}.session-list{min-height:0;overflow:auto;padding:5px}.session-list button{width:100%;min-height:52px;display:grid;grid-template-columns:28px minmax(0,1fr) 8px;align-items:center;gap:7px;padding:7px 8px;border:1px solid transparent;border-radius:8px;color:var(--lz-text-secondary);background:transparent;text-align:left;cursor:pointer}.session-list button:hover{background:var(--lz-fill)}.session-list button.active{border-color:var(--lz-brand-border);background:var(--lz-brand-soft)}.session-sequence{color:var(--lz-brand);font-size:9px;font-weight:800}.session-copy{min-width:0;display:grid;gap:4px}.session-copy strong,.session-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.session-copy strong{color:var(--lz-text-primary);font-size:10px}.session-copy small{color:var(--lz-text-muted);font-size:9px}.session-list i,.session-rail footer i{width:7px;height:7px;border-radius:50%;background:var(--lz-warning)}.session-list i[data-state="scheduled"],.session-rail footer i[data-state="scheduled"]{background:var(--lz-success)}.session-rail footer{display:flex;align-items:center;gap:12px;padding:0 11px;border-top:1px solid var(--lz-border);color:var(--lz-text-muted);font-size:9px}.session-rail footer span{display:flex;align-items:center;gap:5px}.rail-empty,.inspector-empty{border:0;color:var(--lz-text-muted);background:transparent;cursor:pointer}.rail-empty{display:grid;place-content:center;justify-items:center;gap:6px;padding:18px}.rail-empty strong{color:var(--lz-text-primary);font-size:11px}.rail-empty span{font-size:9px;text-align:center}
 .calendar-board.is-empty,.calendar-board.is-table.is-empty{grid-template-columns:minmax(0,1fr)}
@@ -512,6 +481,6 @@ onBeforeRouteLeave(async () => {
 .table-wrap th{height:38px;font-size:11px}
 .table-wrap input,.table-wrap textarea,.table-wrap select,.inspector-form input,.inspector-form textarea,.inspector-form select{font-size:12px}
 @media(max-width:1100px){.calendar-board{grid-template-columns:170px minmax(0,1fr) 286px}.calendar-board.is-table{grid-template-columns:170px minmax(0,1fr)}.meta-field{display:none}}
-@media(max-width:900px){.product-bar{grid-template-columns:64px minmax(0,1fr) auto}.brand{justify-content:center;padding:0}.brand strong{display:none}.page-shell{grid-template-columns:64px minmax(0,1fr)}.status-bar>span:nth-of-type(n+4){display:none}.workspace-toolbar>.quiet-button{font-size:0}.workspace-toolbar>.quiet-button svg{margin:0}.transfer-button{font-size:0}.calendar-board{grid-template-columns:150px minmax(0,1fr) 250px}.calendar-board.is-table{grid-template-columns:150px minmax(0,1fr)}}
-@media(max-width:680px){.course-calendar-page{height:auto;overflow:auto}.course-calendar-page--embedded{min-height:720px}.product-bar nav button:first-child,.product-bar nav svg,.product-actions button:first-child{display:none}.product-bar nav{padding:0 10px}.page-shell{height:auto;display:block}.course-calendar-page--embedded .page-shell{height:auto}.calendar-main{min-height:calc(100vh - 52px)}.course-calendar-page--embedded .calendar-main{min-height:720px}.workspace-toolbar{flex-wrap:wrap}.toolbar-spacer{display:none}.primary-button{margin-left:auto}.status-bar>span{display:none}.calendar-board,.calendar-board.is-table{grid-template-columns:1fr}.session-rail{display:none}.session-inspector{min-height:430px;border-top:1px solid var(--lz-border);border-left:0}.month-scroll{min-height:500px}}
+@media(max-width:900px){.status-bar>span:nth-of-type(n+4){display:none}.workspace-toolbar>.quiet-button{font-size:0}.workspace-toolbar>.quiet-button svg{margin:0}.transfer-button{font-size:0}.calendar-board{grid-template-columns:150px minmax(0,1fr) 250px}.calendar-board.is-table{grid-template-columns:150px minmax(0,1fr)}}
+@media(max-width:680px){.course-calendar-page{min-height:720px;overflow:auto}.calendar-main{min-height:720px}.workspace-toolbar{flex-wrap:wrap}.toolbar-spacer{display:none}.primary-button{margin-left:auto}.status-bar>span{display:none}.calendar-board,.calendar-board.is-table{grid-template-columns:1fr}.session-rail{display:none}.session-inspector{min-height:430px;border-top:1px solid var(--lz-border);border-left:0}.month-scroll{min-height:500px}}
 </style>
