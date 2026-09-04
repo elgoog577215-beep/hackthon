@@ -1,33 +1,49 @@
 <template>
-  <section class="script-visual-studio" :data-open="open ? 'true' : 'false'">
-    <button
-      type="button"
-      class="script-visual-toggle"
-      :aria-expanded="open"
-      @click="open = !open"
+  <section class="script-visual-studio">
+    <figure
+      v-for="item in acceptedItems"
+      :key="item.representation_id"
+      class="script-visual-inline"
+      :data-type="item.representation_type"
     >
-      <Shapes :size="16" />
-      <span>{{ tr('title', '视觉表达', 'Visual explanation') }}</span>
-      <small v-if="acceptedCount">{{ tr('acceptedCount', `已采用 ${acceptedCount} 个`, `${acceptedCount} accepted`) }}</small>
-      <small v-else-if="recommendation?.recommended_types.length">{{ tr('recommended', '建议补充', 'Suggested') }}</small>
-      <ChevronDown :size="15" aria-hidden="true" />
-    </button>
+      <DiagramSpecRenderer
+        v-if="item.representation_type === 'diagram'"
+        :unit="item.content?.units?.[0]"
+        :title="String(item.content?.title || blockTitle)"
+      />
+      <StructuredScenePlayer
+        v-else-if="item.representation_type === 'animation'"
+        :scene="item.content"
+      />
+      <div v-else class="script-image-preview" :data-generation-status="item.content?.generation_status">
+        <img
+          v-if="imageUrls[item.representation_id]"
+          :src="imageUrls[item.representation_id]"
+          :alt="String(item.content?.title || blockTitle)"
+        />
+        <div v-else class="script-image-state">
+          <LoaderCircle :size="18" class="spin" />
+          <span>{{ tr('assetLoading', '正在读取图片…', 'Loading image…') }}</span>
+        </div>
+      </div>
+      <figcaption>{{ acceptedCaption(item) }}</figcaption>
+    </figure>
 
-    <div v-if="open" class="script-visual-panel">
+    <div class="script-visual-tools">
       <div class="script-visual-create">
-        <p v-if="recommendationReason">{{ recommendationReason }}</p>
-        <nav :aria-label="tr('createLabel', '选择视觉表达类型', 'Choose a visual type')">
+        <p v-if="recommendationReason && !acceptedItems.length">{{ recommendationReason }}</p>
+        <nav :aria-label="tr('createLabel', '插入图解或图片', 'Insert a diagram or illustration')">
           <button
             v-for="option in visualOptions"
             :key="option.type"
             type="button"
             :class="{ recommended: recommendation?.recommended_types.includes(option.type) }"
-            :disabled="Boolean(busyType || resolvingId)"
+            :disabled="Boolean(loading || busyType || resolvingId)"
             @click="generate(option.type)"
           >
             <LoaderCircle v-if="busyType === option.type" :size="15" class="spin" />
             <component :is="option.icon" v-else :size="15" />
-            {{ option.label }}
+            {{ visualActionLabel(option.type) }}
           </button>
         </nav>
       </div>
@@ -38,7 +54,7 @@
       </p>
 
       <article
-        v-for="item in displayItems"
+        v-for="item in reviewItems"
         :key="item.representation_id"
         class="script-visual-item"
         :data-status="item.status"
@@ -109,14 +125,7 @@
             <RotateCcw :size="14" />{{ tr('regenerate', '按当前讲义重生成', 'Regenerate from current script') }}
           </button>
         </footer>
-        <p v-else-if="item.status === 'accepted'" class="accepted-note">
-          <Check :size="14" />{{ tr('acceptedReuse', '已进入共享表达集，可供讲义、PPT 和学生端复用。', 'Added to the shared set for script, PPT, and learner reuse.') }}
-        </p>
       </article>
-
-      <p v-if="!loading && !displayItems.length && !errorMessage" class="script-visual-empty">
-        {{ tr('empty', '选择一种方式，为这段讲义生成可审阅的视觉表达。', 'Choose a format to create a reviewable visual explanation.') }}
-      </p>
     </div>
   </section>
 </template>
@@ -125,14 +134,12 @@
 import { computed, markRaw, reactive, ref, watch } from 'vue'
 import {
   Check,
-  ChevronDown,
   Image as ImageIcon,
   ImageOff,
   LoaderCircle,
   Network,
   PlaySquare,
   RotateCcw,
-  Shapes,
   TriangleAlert,
   X,
 } from 'lucide-vue-next'
@@ -155,7 +162,6 @@ const props = defineProps<{
 }>()
 
 const store = useTeacherScriptVisualStore()
-const open = ref(false)
 const busyType = ref<ScriptVisualType | ''>('')
 const resolvingId = ref('')
 const localError = ref('')
@@ -166,9 +172,9 @@ function tr(key: string, zh: string, en: string) {
 }
 
 const visualOptions = computed(() => [
-  { type: 'diagram' as const, label: tr('diagram', '生成图解', 'Generate diagram'), icon: markRaw(Network) },
-  { type: 'image' as const, label: tr('image', '生成 AI 插图', 'Generate AI illustration'), icon: markRaw(ImageIcon) },
-  { type: 'animation' as const, label: tr('animation', '生成动画', 'Generate animation'), icon: markRaw(PlaySquare) },
+  { type: 'diagram' as const, icon: markRaw(Network) },
+  { type: 'image' as const, icon: markRaw(ImageIcon) },
+  { type: 'animation' as const, icon: markRaw(PlaySquare) },
 ].filter(option => (view.value?.available_types || ['diagram', 'image']).includes(option.type)))
 const view = computed(() => store.view(props.courseId, props.lessonUnitId))
 const loading = computed(() => Boolean(store.loading[`${props.courseId}\u0000${props.lessonUnitId}`]))
@@ -194,7 +200,6 @@ const recommendationReason = computed(() => {
   }
   return recommendation.value?.reason || ''
 })
-const acceptedCount = computed(() => blockItems.value.filter(item => item.status === 'accepted').length)
 const displayItems = computed(() => {
   const result: ScriptVisualItem[] = []
   ;(view.value?.available_types || ['diagram', 'image']).forEach(type => {
@@ -210,6 +215,34 @@ const displayItems = computed(() => {
   })
   return result
 })
+const acceptedItems = computed(() => displayItems.value.filter(item => item.status === 'accepted'))
+const reviewItems = computed(() => displayItems.value.filter(item => item.status !== 'accepted'))
+
+function acceptedCaption(item: ScriptVisualItem) {
+  const title = String(item.content?.title || props.blockTitle)
+  if (item.representation_type === 'image') {
+    const provenance = String(item.content?.provenance_label || tr('aiGenerated', 'AI 生成插图', 'AI-generated illustration'))
+    return `${provenance} · ${title}`
+  }
+  return title
+}
+
+function visualActionLabel(type: ScriptVisualType) {
+  const replacing = acceptedItems.value.some(item => item.representation_type === type)
+  if (type === 'diagram') {
+    return replacing
+      ? tr('updateDiagram', '更新图解', 'Update diagram')
+      : tr('insertDiagram', '插入图解', 'Insert diagram')
+  }
+  if (type === 'image') {
+    return replacing
+      ? tr('updateImage', '更新 AI 插图', 'Update AI illustration')
+      : tr('insertImage', '插入 AI 插图', 'Insert AI illustration')
+  }
+  return replacing
+    ? tr('updateAnimation', '更新动画', 'Update animation')
+    : tr('insertAnimation', '插入动画', 'Insert animation')
+}
 
 function typeLabel(type: ScriptVisualType) {
   return ({
@@ -236,15 +269,6 @@ function canAccept(item: ScriptVisualItem) {
     || (item.content?.generation_status === 'ready' && item.artifact_ids.length > 0)
 }
 
-async function refresh(force = false) {
-  localError.value = ''
-  try {
-    await store.load(props.courseId, props.lessonUnitId, force)
-  } catch {
-    // The store keeps the user-facing scoped error.
-  }
-}
-
 async function generate(type: ScriptVisualType) {
   if (busyType.value || resolvingId.value) return
   busyType.value = type
@@ -258,7 +282,6 @@ async function generate(type: ScriptVisualType) {
       props.blockId,
       type,
     )
-    open.value = true
     await loadImage(item)
   } catch (error: any) {
     const detail = error?.response?.data?.detail
@@ -298,10 +321,8 @@ async function loadImage(item: ScriptVisualItem) {
 }
 
 watch(displayItems, items => { items.forEach(item => { void loadImage(item) }) }, { immediate: true })
-watch(open, value => { if (value && !view.value) void refresh() })
-watch(() => props.scriptRevisionId, () => { if (view.value) void refresh(true) })
 </script>
 
 <style scoped>
-.script-visual-studio{margin-top:16px;border-top:1px solid #edf0f5}.script-visual-toggle{width:100%;min-height:42px;display:flex;align-items:center;gap:8px;padding:8px 0;border:0;color:#58667b;background:transparent;font:inherit;font-size:14px;font-weight:720;text-align:left;cursor:pointer}.script-visual-toggle:hover{color:#3730a3}.script-visual-toggle:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.script-visual-toggle small{margin-left:auto;color:#7c8798;font-size:13px;font-weight:600}.script-visual-toggle>svg:last-child{transition:transform .18s ease}.script-visual-studio[data-open='true'] .script-visual-toggle>svg:last-child{transform:rotate(180deg)}.script-visual-panel{display:grid;gap:14px;padding:2px 0 12px}.script-visual-create{display:grid;gap:8px}.script-visual-create p{margin:0;color:#667287;font-size:14px;line-height:1.5}.script-visual-create nav{display:flex;gap:7px;flex-wrap:wrap}.script-visual-create button,.script-visual-item footer button{min-height:34px;display:inline-flex;align-items:center;gap:6px;padding:0 11px;border:1px solid #d4dbe8;border-radius:7px;color:#4e5c72;background:#fff;font:inherit;font-size:14px;font-weight:700;cursor:pointer}.script-visual-create button.recommended{border-color:#b9b9ea;color:#3f3a9b;background:#f8f8ff}.script-visual-create button:hover:not(:disabled),.script-visual-item footer button:hover:not(:disabled){border-color:#9d9ce0;color:#3730a3}.script-visual-create button:focus-visible,.script-visual-item footer button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.script-visual-create button:disabled,.script-visual-item footer button:disabled{opacity:.45;cursor:not-allowed}.script-visual-item{display:grid;gap:12px;padding:14px;border:1px solid #e1e6ef;border-radius:10px;background:#fcfdff}.script-visual-item[data-status='candidate']{border-color:#cfd0ef;background:#fbfbff}.script-visual-item[data-status='stale']{border-style:dashed;background:#fafafa}.script-visual-item>header{display:flex;align-items:center;justify-content:space-between;gap:12px}.script-visual-item>header strong{color:#263147;font-size:15px}.script-visual-item>header span{color:#6b778b;font-size:13px}.script-visual-item footer{display:flex;align-items:center;justify-content:flex-end;gap:7px}.script-visual-item footer button.primary{border-color:#514bdc;color:#fff;background:#514bdc}.script-visual-item footer.stale-actions{justify-content:space-between}.stale-actions span{color:#777f8d;font-size:13px}.accepted-note{display:flex;align-items:center;gap:6px;margin:0;color:#3b6c50;font-size:13px}.script-image-preview{display:grid;gap:10px}.script-image-preview img{width:100%;max-height:420px;object-fit:contain;border-radius:8px;background:#f3f5f9}.script-image-state{min-height:128px;display:grid;place-items:center;align-content:center;gap:6px;padding:16px;border:1px dashed #d8dde8;border-radius:8px;color:#697589;background:#fff;text-align:center}.script-image-state strong{color:#37445a;font-size:15px}.script-image-state span{font-size:13px}.script-image-prompt summary{color:#59677c;font-size:13px;cursor:pointer}.script-image-prompt p{margin:7px 0 0;padding:9px;border-radius:6px;color:#586579;background:#f4f6fa;font-size:13px;line-height:1.55}.script-visual-error,.script-visual-loading,.script-visual-empty{margin:0;padding:10px 12px;border-radius:7px;font-size:14px}.script-visual-error{color:#9a3e30;background:#fff3f1}.script-visual-loading{display:flex;align-items:center;gap:7px;color:#5b6382;background:#f7f7ff}.script-visual-empty{color:#6c788b;background:#f7f8fa}.spin{animation:script-visual-spin 1s linear infinite}@keyframes script-visual-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.script-visual-toggle>svg:last-child{transition:none}}
+.script-visual-studio{display:grid;gap:12px;margin-top:20px}.script-visual-inline{display:grid;gap:7px;margin:0}.script-visual-inline figcaption{color:#667287;font-size:13px;line-height:1.5}.script-visual-tools{display:grid;gap:10px}.script-visual-create{display:grid;gap:7px}.script-visual-create p{margin:0;color:#667287;font-size:14px;line-height:1.5}.script-visual-create nav{display:flex;gap:7px;flex-wrap:wrap}.script-visual-create button,.script-visual-item footer button{min-height:34px;display:inline-flex;align-items:center;gap:6px;padding:0 11px;border:1px solid #d4dbe8;border-radius:7px;color:#4e5c72;background:#fff;font:inherit;font-size:14px;font-weight:700;cursor:pointer}.script-visual-create button.recommended{border-color:#b9b9ea;color:#3f3a9b;background:#f8f8ff}.script-visual-create button:hover:not(:disabled),.script-visual-item footer button:hover:not(:disabled){border-color:#9d9ce0;color:#3730a3}.script-visual-create button:focus-visible,.script-visual-item footer button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.script-visual-create button:disabled,.script-visual-item footer button:disabled{opacity:.45;cursor:not-allowed}.script-visual-item{display:grid;gap:12px;padding:14px;border:1px solid #e1e6ef;border-radius:10px;background:#fcfdff}.script-visual-item[data-status='candidate']{border-color:#cfd0ef;background:#fbfbff}.script-visual-item[data-status='stale']{border-style:dashed;background:#fafafa}.script-visual-item>header{display:flex;align-items:center;justify-content:space-between;gap:12px}.script-visual-item>header strong{color:#263147;font-size:15px}.script-visual-item>header span{color:#6b778b;font-size:13px}.script-visual-item footer{display:flex;align-items:center;justify-content:flex-end;gap:7px}.script-visual-item footer button.primary{border-color:#514bdc;color:#fff;background:#514bdc}.script-visual-item footer.stale-actions{justify-content:space-between}.stale-actions span{color:#777f8d;font-size:13px}.script-image-preview{display:grid;gap:10px}.script-image-preview img{width:100%;max-height:420px;object-fit:contain;border-radius:8px;background:#f3f5f9}.script-image-state{min-height:128px;display:grid;place-items:center;align-content:center;gap:6px;padding:16px;border:1px dashed #d8dde8;border-radius:8px;color:#697589;background:#fff;text-align:center}.script-image-state strong{color:#37445a;font-size:15px}.script-image-state span{font-size:13px}.script-image-prompt summary{color:#59677c;font-size:13px;cursor:pointer}.script-image-prompt p{margin:7px 0 0;padding:9px;border-radius:6px;color:#586579;background:#f4f6fa;font-size:13px;line-height:1.55}.script-visual-error,.script-visual-loading{margin:0;padding:10px 12px;border-radius:7px;font-size:14px}.script-visual-error{color:#9a3e30;background:#fff3f1}.script-visual-loading{display:flex;align-items:center;gap:7px;color:#5b6382;background:#f7f7ff}.spin{animation:script-visual-spin 1s linear infinite}@keyframes script-visual-spin{to{transform:rotate(360deg)}}
 </style>

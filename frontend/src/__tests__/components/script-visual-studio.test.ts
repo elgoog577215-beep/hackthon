@@ -53,7 +53,7 @@ describe('讲义块视觉表达工作区', () => {
     await setLocale('zh')
   })
 
-  function mountStudio(items: ScriptVisualItem[]) {
+  function mountStudio(items: ScriptVisualItem[], beforeMount?: (store: ReturnType<typeof useTeacherScriptVisualStore>) => void) {
     const store = useTeacherScriptVisualStore()
     store.views['course-1\u0000lesson-1'] = {
       schema_version: 'teacher_script_visual_view_v1',
@@ -71,6 +71,7 @@ describe('讲义块视觉表达工作区', () => {
       items,
       representation_sets: [],
     }
+    beforeMount?.(store)
     return {
       store,
       wrapper: mount(ScriptVisualStudio, {
@@ -86,7 +87,7 @@ describe('讲义块视觉表达工作区', () => {
     }
   }
 
-  it('默认折叠，展开后只提供正式运行的图解和 AI 插图入口', async () => {
+  it('正文内直接提供图解和 AI 插图入口，不再使用折叠工作区', () => {
     const historicalAnimation = item({
       representation_id: 'animation-1',
       representation_type: 'animation',
@@ -94,13 +95,10 @@ describe('讲义块视觉表达工作区', () => {
     })
     const { wrapper } = mountStudio([historicalAnimation])
 
-    expect(wrapper.get('.script-visual-toggle').attributes('aria-expanded')).toBe('false')
-    await wrapper.get('.script-visual-toggle').trigger('click')
-
-    expect(wrapper.get('.script-visual-toggle').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.find('.script-visual-toggle').exists()).toBe(false)
     expect(wrapper.get('.script-visual-create').text()).toContain('适合用结构图解讲清')
     expect(wrapper.findAll('.script-visual-create button').map(button => button.text())).toEqual([
-      '生成图解', '生成 AI 插图',
+      '插入图解', '插入 AI 插图',
     ])
     expect(wrapper.find('[data-type="animation"]').exists()).toBe(false)
   })
@@ -117,7 +115,6 @@ describe('讲义块视觉表达工作区', () => {
       },
     })
     const { wrapper } = mountStudio([unavailableImage])
-    await wrapper.get('.script-visual-toggle').trigger('click')
 
     const image = wrapper.get('.script-visual-item[data-type="image"]')
     expect(image.text()).toContain('AI 插图')
@@ -131,18 +128,43 @@ describe('讲义块视觉表达工作区', () => {
     const candidate = item()
     const { store, wrapper } = mountStudio([candidate])
     const resolve = vi.spyOn(store, 'resolve').mockResolvedValue({ ...candidate, status: 'accepted' })
-    await wrapper.get('.script-visual-toggle').trigger('click')
     await wrapper.get('.script-visual-item footer .primary').trigger('click')
     await flushPromises()
 
     expect(resolve).toHaveBeenCalledWith('course-1', 'lesson-1', 'script-r1', 'visual-1', true)
   })
 
-  it('已采用表达明确说明由讲义、PPT 和学生端共享', async () => {
+  it('已采用图解直接作为正文插图显示，不再包在状态卡片中', () => {
     const { wrapper } = mountStudio([item({ status: 'accepted' })])
-    await wrapper.get('.script-visual-toggle').trigger('click')
 
-    expect(wrapper.get('.accepted-note').text()).toContain('讲义、PPT 和学生端复用')
+    expect(wrapper.find('.script-visual-inline[data-type="diagram"] [data-testid="diagram-svg"]').exists()).toBe(true)
+    expect(wrapper.get('.script-visual-inline figcaption').text()).toBe('处理过程图解')
+    expect(wrapper.find('.script-visual-item').exists()).toBe(false)
+    expect(wrapper.find('.accepted-note').exists()).toBe(false)
+    expect(wrapper.get('.script-visual-create button').text()).toContain('更新图解')
+  })
+
+  it('已采用 AI 插图直接显示并保留生成来源说明', async () => {
+    const acceptedImage = item({
+      representation_id: 'image-accepted',
+      representation_type: 'image',
+      status: 'accepted',
+      artifact_ids: ['asset-1'],
+      content: {
+        schema_version: 'script_image_spec_v1',
+        title: '输入输出示意',
+        generation_status: 'ready',
+        provenance_label: 'AI 生成插图',
+      },
+    })
+    const { wrapper } = mountStudio([acceptedImage], store => {
+      vi.spyOn(store, 'imageUrl').mockResolvedValue('blob:accepted-image')
+    })
+    await flushPromises()
+
+    expect(wrapper.get('.script-visual-inline[data-type="image"] img').attributes('src')).toBe('blob:accepted-image')
+    expect(wrapper.get('.script-visual-inline figcaption').text()).toBe('AI 生成插图 · 输入输出示意')
+    expect(wrapper.find('.script-visual-item').exists()).toBe(false)
   })
 })
 

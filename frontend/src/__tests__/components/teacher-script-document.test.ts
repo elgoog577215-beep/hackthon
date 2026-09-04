@@ -5,6 +5,7 @@ import TeacherScriptDocument from '@/components/TeacherScriptDocument.vue'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import { setLocale } from '@/shared/i18n'
 import { useTeacherLessonAuthoringStore } from '@/stores/teacherLessonAuthoring'
+import { useTeacherScriptVisualStore } from '@/stores/teacherScriptVisuals'
 import type { TeacherLessonJob, TeacherLessonProjection } from '@/stores/teacherLessonAuthoring'
 import zhMessages from '../../../public/locales/zh/translation.json'
 
@@ -31,6 +32,7 @@ const lesson: TeacherLessonProjection = {
 describe('统一讲义页面', () => {
   beforeEach(async () => {
     setActivePinia(createPinia())
+    vi.spyOn(useTeacherScriptVisualStore(), 'load').mockResolvedValue({} as any)
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => zhMessages })))
     await setLocale('zh')
   })
@@ -110,6 +112,8 @@ describe('统一讲义页面', () => {
     expect(wrapper.findAll('.script-module')).toHaveLength(2)
     expect(wrapper.text()).toContain('本节任务')
     expect(wrapper.text()).toContain('核心教学')
+    const firstModule = wrapper.findAll('.script-module')[0]!
+    expect(firstModule.get('.script-streamed-block').element.nextElementSibling?.classList.contains('script-visual-studio')).toBe(true)
 
     await wrapper.findAll('.script-actions button').find(button => button.text().includes('编辑讲义'))!.trigger('click')
     const editors = wrapper.findAll('.script-block-editor textarea')

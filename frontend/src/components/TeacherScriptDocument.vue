@@ -694,6 +694,20 @@ watch(() => props.lesson.lesson_unit_id, () => {
   selectedNodeId.value = scriptSections.value[0]?.section_node_id || ''
 }, { immediate: true })
 
+watch(() => ({
+  courseId: props.courseId,
+  lessonUnitId: props.lesson.lesson_unit_id,
+  scriptRevisionId: props.lesson.script.current_revision_id,
+  ready: props.lesson.script.ready,
+}), ({ courseId, lessonUnitId, scriptRevisionId, ready }) => {
+  if (!ready || !courseId || !lessonUnitId || !scriptRevisionId) return
+  const current = scriptVisualStore.view(courseId, lessonUnitId)
+  const force = Boolean(current && current.script_revision_id !== scriptRevisionId)
+  void scriptVisualStore.load(courseId, lessonUnitId, force).catch(() => {
+    // Each block keeps the scoped load error visible without interrupting script reading.
+  })
+}, { immediate: true })
+
 watch(() => [
   props.lesson.script.current_revision_id,
   props.lesson.script.ai_candidate,

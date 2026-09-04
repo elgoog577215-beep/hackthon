@@ -34,13 +34,15 @@ The system SHALL expose diagrams and AI-generated illustrations as the active te
 
 ### Requirement: Teacher acceptance controls downstream reuse
 
-The system SHALL add an expression to the block's shared `RepresentationSet` only after teacher acceptance. Rejection and regeneration SHALL archive the superseded candidate without modifying the script.
+The system SHALL add an expression to the block's shared `RepresentationSet` only after teacher acceptance. An accepted diagram or illustration SHALL render directly in the reading flow immediately after its source-bound script block, without being hidden behind a separate visual-expression heading or disclosure control. Candidate, stale, loading, and failure states SHALL remain visually distinct from accepted inline content. Rejection and regeneration SHALL archive the superseded candidate without modifying the script.
 
 #### Scenario: Teacher accepts one expression
 
 - **WHEN** a teacher accepts a current, complete visual candidate
 - **THEN** it becomes an accepted member of the block's `RepresentationSet`
 - **AND** the same representation ID is available to script, PPT, and learner consumers
+- **AND** the teacher script displays it inline immediately after the bound block content
+- **AND** no extra disclosure action is required to see it
 
 #### Scenario: Teacher rejects one expression
 
