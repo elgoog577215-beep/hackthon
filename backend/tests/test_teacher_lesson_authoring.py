@@ -307,7 +307,7 @@ def test_material_absorption_creates_linked_candidates_without_changing_current_
     assert drafts["lessons"]["L1-1"]["lesson_plan"]["status"] == "working_draft"
 
 
-def test_lesson_projection_recommends_current_arrangement_after_outline_change(tmp_path):
+def test_lesson_projection_keeps_existing_arrangement_until_outline_impact_is_audited(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     old_source = course_data()
     old_source["blueprint_revision_id"] = "outline-old"
@@ -341,7 +341,69 @@ def test_lesson_projection_recommends_current_arrangement_after_outline_change(t
     assert "confirmed" not in lesson["arrangement"]
     assert {
         item["section_node_id"] for item in lesson["arrangement"]["blocks"]
+    } == {"L2-1-1"}
+
+    repository.set_outline(
+        "course-1",
+        "outline-new",
+        mark_dependents_stale=True,
+    )
+    audited = teacher_lesson_router._lesson_projection(
+        current_source,
+        repository,
+    )[0]
+    assert audited["arrangement"]["source_state"] == "current"
+    assert {
+        item["section_node_id"] for item in audited["arrangement"]["blocks"]
     } == {"L2-1-1", "L2-1-2"}
+
+
+def test_observing_new_outline_does_not_invalidate_saved_lesson_assets(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    repository.set_outline("course-1", "outline-v1")
+    plan = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        standard_lesson_plan(),
+        source_outline_revision_id="outline-v1",
+        quality_report=validate_teacher_lesson_plan(standard_lesson_plan()),
+    )
+    script = repository.save_script_revision(
+        "course-1",
+        "L1-1",
+        [{
+            "section_node_id": "L2-1-1",
+            "title": "1.1 核心概念",
+            "content": "完整可用的教师讲义。",
+        }],
+        source_lesson_plan_revision_id=plan["working_revision_id"],
+    )
+    state = repository.load("course-1")
+    state["lessons"]["L1-1"]["ppt_assets"] = [{
+        "asset_id": "ppt-v1",
+        "source_lesson_plan_revision_id": plan["working_revision_id"],
+        "source_script_revision_id": script["working_script_revision_id"],
+        "source_state": "current",
+    }]
+    repository._save(state)
+
+    observed = repository.set_outline("course-1", "outline-v2")
+    lesson = observed["lessons"]["L1-1"]
+
+    assert observed["outline_revision_id"] == "outline-v2"
+    assert lesson["source_state"] == "current"
+    assert lesson["working_script_revision_id"] == script["working_script_revision_id"]
+    assert lesson["ppt_assets"][0]["source_state"] == "current"
+
+    audited = repository.set_outline(
+        "course-1",
+        "outline-v2",
+        mark_dependents_stale=True,
+    )
+    lesson = audited["lessons"]["L1-1"]
+    assert lesson["source_state"] == "stale"
+    assert lesson["working_script_revision_id"] == script["working_script_revision_id"]
+    assert lesson["ppt_assets"][0]["source_state"] == "stale"
 
 
 def test_lesson_projection_does_not_treat_student_body_as_teacher_script(tmp_path):
@@ -2713,7 +2775,11 @@ def test_canonical_outline_revision_recovers_current_state_and_blocks_weak_plan(
     )
     assert lesson["source_state"] == "stale"
 
-    repository.set_outline("course-1", "knowledge-scope-v1")
+    repository.set_outline(
+        "course-1",
+        "knowledge-scope-v1",
+        mark_dependents_stale=True,
+    )
     recovered = repository.lesson("course-1", "L1-1")
     assert recovered["source_state"] == "current"
     assert teacher_lesson_plan_readiness(recovered)["ready"] is True

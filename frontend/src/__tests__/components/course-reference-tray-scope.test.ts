@@ -437,7 +437,7 @@ describe('CourseReferenceTray lesson scope', () => {
     const wrapper = mount(CourseReferenceTray, {
       props: {
         courseId: 'course-1', modelValue: [{ ...assets[2]!, role: 'primary' }], stage: 'lesson',
-        workflowState: 'review', hideWorkflowStatus: true, readonly: true, showCourseInformation: false,
+        workflowState: 'completed', hideWorkflowStatus: true, readonly: true, showCourseInformation: false,
         scopeTargetId: 'lesson-plan:L1-2', scopeTargetType: 'lesson_plan', scopeTargetLabel: '第二讲',
         lessonTargets: [
           { id: 'lesson-plan:L1-1', lessonId: 'L1-1', label: '第一讲', position: 1 },

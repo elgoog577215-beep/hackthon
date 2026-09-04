@@ -792,6 +792,38 @@ async def test_teacher_outline_waits_through_restart_and_explicit_continue_reuse
     assert "course_teaching_plan" not in completed_course
     assert restored._version_repository.load_draft(job["course_id"]) is None
 
+    unchanged = await restored.continue_teacher_outline_details(job["course_id"])
+    assert unchanged["status"] == "already_completed"
+
+    regenerated_draft = build_blueprint_draft(completed_course)
+    regenerated_draft["nodes"][0]["node_name"] = "教师再次修改后的第一讲"
+    restored._version_repository.save_draft(job["course_id"], regenerated_draft)
+    regenerated = await restored.continue_teacher_outline_details(job["course_id"])
+
+    assert regenerated["status"] == "started"
+    assert regenerated["job_id"] == job["job_id"]
+    assert restored.tasks[job["job_id"]]["status"] == "pending"
+    working_course = restored.get_generation_workspace_course(job["course_id"])
+    assert working_course["generation_stage_artifacts"]["outline"]["skeleton"][
+        "chapters"
+    ][0]["title"] == "教师再次修改后的第一讲"
+    last_good = restored.get_generation_workspace_course_for_task(
+        job["course_id"],
+        task_type="teacher_outline_generation",
+        require_usable_outline=True,
+    )
+    assert last_good["nodes"][0]["node_name"] == completed_course["nodes"][0][
+        "node_name"
+    ]
+    assert last_good["generation_status"] == "teacher_outline_ready"
+    restored.tasks[job["job_id"]]["status"] = "failed"
+    failed_last_good = restored.get_generation_workspace_course_for_task(
+        job["course_id"],
+        task_type="teacher_outline_generation",
+        require_usable_outline=True,
+    )
+    assert failed_last_good == last_good
+
 
 def test_teacher_outline_result_requires_completed_course_contract():
     course = {

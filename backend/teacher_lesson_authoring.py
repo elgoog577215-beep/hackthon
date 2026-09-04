@@ -1733,11 +1733,26 @@ class TeacherLessonAuthoringRepository:
                 os.unlink(temp_name)
         return payload
 
-    def set_outline(self, course_id: str, outline_revision_id: str) -> dict[str, Any]:
+    def set_outline(
+        self,
+        course_id: str,
+        outline_revision_id: str,
+        *,
+        mark_dependents_stale: bool = False,
+    ) -> dict[str, Any]:
+        """Record an outline revision without guessing downstream impact.
+
+        Structured same-source audit owns the later decision to invalidate
+        lesson plans, scripts, and decks after an outline change.
+        """
         with self._lock:
             value = self.load(course_id)
             original = deepcopy(value)
             value["outline_revision_id"] = outline_revision_id
+            if not mark_dependents_stale:
+                if value == original:
+                    return deepcopy(value)
+                return self._save(value)
             for lesson in (value.get("lessons") or {}).values():
                 if not isinstance(lesson, dict):
                     continue

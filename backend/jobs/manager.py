@@ -1718,11 +1718,13 @@ class TaskManager:
         self,
         task_id: str,
         course_data: dict[str, Any],
+        *,
+        draft: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Compile the current editable framework into the detail input."""
         task = self.tasks.get(task_id) or {}
         course_id = str(task.get("course_id") or course_data.get("course_id") or "")
-        draft = (
+        draft = deepcopy(draft) if isinstance(draft, dict) else (
             self._version_repository.load_draft(course_id)
             or build_blueprint_draft(course_data)
         )
@@ -1930,28 +1932,48 @@ class TaskManager:
         course_data = self._load_task_course(task_id)
         if not isinstance(course_data, dict):
             raise ValueError("Course not found")
-        if _teacher_outline_result_ready(course_data):
+        result_ready = _teacher_outline_result_ready(course_data)
+        draft = self._version_repository.load_draft(course_id)
+        if result_ready and not isinstance(draft, dict):
             return {
                 "status": "already_completed",
                 "job_id": task_id,
                 "course_id": course_id,
             }
-        if task.get("status") not in {"waiting_for_input", "failed"}:
+        allowed_statuses = {"waiting_for_input", "failed"}
+        if result_ready and isinstance(draft, dict):
+            allowed_statuses.update({"completed", "completed_with_warnings"})
+        if task.get("status") not in allowed_statuses:
             raise TaskStateConflict(
                 "The course framework is not ready for full outline generation",
                 status=str(task.get("status") or "unknown"),
             )
+        workspace_id = str(task.get("workspace_id") or "")
+        if result_ready and workspace_id:
+            workspace = self._generation_workspace_repository.load(workspace_id)
+            result = deepcopy(workspace.get("result") or {})
+            result["last_good_course_data"] = deepcopy(course_data)
+            result["last_good_outline_revision_id"] = str(
+                course_data.get("blueprint_revision_id")
+                or course_data.get("course_outline_revision_id")
+                or ""
+            )
+            await asyncio.to_thread(
+                self._generation_workspace_repository.set_status,
+                workspace_id,
+                "active",
+                result=result,
+            )
         course_data = await self._compile_teacher_outline_framework(
             task_id,
             course_data,
+            draft=draft,
         )
-        workspace_id = str(task.get("workspace_id") or "")
         if workspace_id:
             await asyncio.to_thread(
                 self._generation_workspace_repository.set_status,
                 workspace_id,
                 "active",
-                result={},
             )
         async with self._lock:
             task = self.tasks[task_id]
@@ -2765,11 +2787,18 @@ class TaskManager:
                 if workspace.get("status") == "published":
                     continue
                 course = self._generation_workspace_repository.load_course(workspace_id)
-                if require_usable_outline and (
-                    str(task.get("status") or "")
-                    not in {"completed", "completed_with_warnings"}
-                    or not _teacher_outline_result_ready(course)
-                ):
+                if require_usable_outline:
+                    task_completed = str(task.get("status") or "") in {
+                        "completed",
+                        "completed_with_warnings",
+                    }
+                    if task_completed and _teacher_outline_result_ready(course):
+                        return course
+                    last_good = (workspace.get("result") or {}).get(
+                        "last_good_course_data"
+                    )
+                    if _teacher_outline_result_ready(last_good):
+                        return deepcopy(last_good)
                     continue
                 return course
             except GenerationWorkspaceNotFound:
@@ -6856,6 +6885,13 @@ class TaskManager:
             course_data["outline_lifecycle_status"] = "current"
             course_data["authoring_surface"] = "teacher"
             await self._save_task_course(task_id, course_data)
+            if task.get("workspace_id"):
+                await asyncio.to_thread(
+                    self._generation_workspace_repository.set_status,
+                    str(task["workspace_id"]),
+                    "active",
+                    result={},
+                )
             self._version_repository.delete_draft(course_id)
             async with self._lock:
                 task = self.tasks.get(task_id)
@@ -7135,6 +7171,13 @@ class TaskManager:
             course_data["outline_lifecycle_status"] = "current"
             course_data["authoring_surface"] = "teacher"
             await self._save_task_course(task_id, course_data)
+            if task.get("workspace_id"):
+                await asyncio.to_thread(
+                    self._generation_workspace_repository.set_status,
+                    str(task["workspace_id"]),
+                    "active",
+                    result={},
+                )
             self._version_repository.delete_draft(course_id)
             async with self._lock:
                 task = self.tasks.get(task_id)

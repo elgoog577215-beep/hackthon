@@ -115,7 +115,7 @@
           @redo="outlineEditor?.redoEdit()"
         >
           <button
-            v-if="outlineWaitingForInput"
+            v-if="outlineWaitingForInput || outlineRegenerationAvailable"
             class="primary-action"
             data-testid="outline-continue-action"
             type="button"
@@ -126,7 +126,9 @@
             <Sparkles v-else :size="15" />
             {{ outlineContinuing
               ? t('courseWorkbench.outlineFlow.continuing', '正在生成完整大纲…')
-              : t('courseWorkbench.outlineFlow.generateFull', '生成完整大纲') }}
+              : outlineRegenerationAvailable
+                ? t('courseWorkbench.outlineFlow.regenerateFull', '重新生成完整大纲')
+                : t('courseWorkbench.outlineFlow.generateFull', '生成完整大纲') }}
           </button>
           <button
             class="outline-manual-action"
@@ -1117,6 +1119,7 @@ import {
 } from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
 import { useCourseEvolutionStore } from '../stores/courseEvolution'
+import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
 import { lessonPlanStreamSegments, useTeacherLessonAuthoringStore, type TeacherLessonJob, type TeacherLessonPlanCandidate, type TeacherLessonProjection } from '../stores/teacherLessonAuthoring'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
@@ -1205,7 +1208,7 @@ const emit = defineEmits<{
   (event: 'open-course-information'): void
   (event: 'open-course-adjustment', payload: { planId: string }): void
 }>()
-const courseStore = useCourseStore(); const courseEvolutionStore = useCourseEvolutionStore(); const generationStore = useGenerationStore(); const lessonStore = useTeacherLessonAuthoringStore(); const teachingRepresentationsStore = useTeachingRepresentationsStore()
+const courseStore = useCourseStore(); const courseEvolutionStore = useCourseEvolutionStore(); const courseWorkspaceStore = useCourseWorkspaceStore(); const generationStore = useGenerationStore(); const lessonStore = useTeacherLessonAuthoringStore(); const teachingRepresentationsStore = useTeachingRepresentationsStore()
 const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = ref(props.initialLessonId)
 const activeCompanionTemplateId = ref<CompanionTemplateId>(GRADING_RUBRIC_TEMPLATE_ID)
 const stageSwitching = ref(false)
@@ -1851,6 +1854,10 @@ const outlineFullReady = computed(() => Boolean(
   && !taskInFlight.value
   && !generationFailed.value
   && (!generationTask.value || ['completed', 'completed_with_warnings'].includes(taskStatus.value)),
+))
+const outlineRegenerationAvailable = computed(() => Boolean(
+  outlineFullReady.value
+  && courseWorkspaceStore.blueprint?.has_unconfirmed_draft,
 ))
 const outlineFlowStep = computed<1 | 2 | 3>(() => {
   if (outlineDetailsGenerating.value || outlineFullReady.value) return 3
@@ -3360,7 +3367,7 @@ async function toggleOutlineEditing() {
 }
 async function continueOutlineDetails() {
   if (
-    !outlineWaitingForInput.value
+    !(outlineWaitingForInput.value || outlineRegenerationAvailable.value)
     || outlineContinuing.value
     || stageSwitching.value
     || outlineWorkspaceHydrating.value

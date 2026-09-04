@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TeacherCourseWorkbench from '@/components/TeacherCourseWorkbench.vue'
 import { useCourseStore } from '@/stores/course'
+import { useCourseWorkspaceStore } from '@/stores/courseWorkspace'
 import { useGenerationStore } from '@/stores/generation'
 import { lessonPlanStreamSegments, useTeacherLessonAuthoringStore } from '@/stores/teacherLessonAuthoring'
 import { useTeachingRepresentationsStore } from '@/stores/teachingRepresentations'
@@ -370,6 +371,34 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('[data-testid="outline-continue-action"]').text()).toContain('生成完整大纲')
     expect(wrapper.get('[data-testid="outline-manual-action"]').text()).toContain('编辑大纲')
     expect(wrapper.find('.spin').exists()).toBe(false)
+  })
+
+  it('完整大纲保存了新课程方案后才提供重新生成', async () => {
+    useCourseStore().nodes = [{
+      node_id: 'L1-1', parent_node_id: 'root', node_name: '第1讲 设计导论', node_level: 1,
+      node_content: '完整大纲正文', node_type: 'original', generation_status: 'completed', generated_chars: 8,
+    }] as any
+    const task = useGenerationStore().createTask('job-completed', 'course-1', 'UI 设计')
+    task.status = 'completed'
+    task.currentPhase = 'teacher_outline_ready'
+    task.progress = 100
+
+    const wrapper = mountWorkbench({ courseTitle: 'UI 设计' })
+    expect(wrapper.find('[data-testid="outline-continue-action"]').exists()).toBe(false)
+
+    useCourseWorkspaceStore().blueprint = { has_unconfirmed_draft: true }
+    await flushPromises()
+
+    const action = wrapper.get('[data-testid="outline-continue-action"]')
+    expect(action.text()).toContain('重新生成完整大纲')
+    await action.trigger('click')
+    await flushPromises()
+
+    expect(http.post).toHaveBeenCalledWith(
+      '/api/courses/course-1/generation/outline-details/continue',
+      {},
+      expect.any(Object),
+    )
   })
 
   it('等待继续状态先于讲次投影到达时不回退课程表单', async () => {
@@ -1584,7 +1613,14 @@ describe('teacher course workbench outline streaming', () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
-      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
+      plan: {
+        lesson_unit_id: 'L1-1',
+        working_revision_id: 'plan-1',
+        source_state: 'current',
+        ready: true,
+        current_revision: null,
+        ppt_assets: [{ engine: 'slide_deck_v6', ready: true, source_state: 'current' }],
+      },
       script: { current_revision_id: 'script-1', source_lesson_plan_revision_id: 'plan-1', source_state: 'current', ready: true, sections: [] },
     }] as any
     const routePush = vi.spyOn(router, 'push').mockResolvedValue(undefined as any)
