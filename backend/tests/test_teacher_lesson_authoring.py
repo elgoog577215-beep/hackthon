@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 import teacher_script as teacher_script_module
 from ai_base import AIProviderUnavailable
+from course_generation_budget import TeacherScriptGenerationTimeout
 
 from course_document import document_from_generation_draft
 from teacher_lesson_authoring import (
@@ -1652,6 +1653,135 @@ def test_teacher_script_requests_share_course_service_capacity(monkeypatch):
     assert peak == 1
 
 
+def test_teacher_script_queue_wait_does_not_consume_model_timeout(monkeypatch):
+    service = CourseService()
+    service._teaching_plan_semaphore = asyncio.Semaphore(4)
+    object.__setattr__(
+        service._generation_budget,
+        "teacher_script_request_timeout_seconds",
+        0.05,
+    )
+    active = 0
+    peak = 0
+
+    async def fake_call(_user_prompt, _system_prompt, **_kwargs):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.02)
+        active -= 1
+        return (
+            "## 核心教学\n\n"
+            "我们先看定义、成立条件和适用边界，请用一个反例核对这三项标准。"
+        )
+
+    monkeypatch.setattr(service, "_call_llm", fake_call)
+    outline = {
+        "node_id": "L2-1-1",
+        "node_name": "并发讲义",
+        "module_plan": [{
+            "module_id": "core_explanation",
+            "label": "核心教学",
+        }],
+    }
+    plan = {
+        "node_id": "L2-1-1",
+        "teaching_modules": [{"module_id": "core_explanation"}],
+    }
+
+    async def scenario():
+        return await asyncio.gather(*(
+            service.generate_teacher_script_section(
+                course_id=f"course-{index}",
+                outline_section=outline,
+                confirmed_plan_section=plan,
+            )
+            for index in range(16)
+        ))
+
+    results = asyncio.run(scenario())
+
+    assert len(results) == 16
+    assert all(item["quality_report"]["passed"] for item in results)
+    assert peak == 4
+
+
+def test_teacher_script_active_model_timeout_is_explicit(monkeypatch):
+    service = CourseService()
+    object.__setattr__(
+        service._generation_budget,
+        "teacher_script_request_timeout_seconds",
+        0.01,
+    )
+
+    async def fake_call(_user_prompt, _system_prompt, **_kwargs):
+        await asyncio.sleep(0.05)
+        return ""
+
+    monkeypatch.setattr(service, "_call_llm", fake_call)
+    outline = {
+        "node_id": "L2-1-1",
+        "node_name": "超时讲义",
+        "module_plan": [{
+            "module_id": "core_explanation",
+            "label": "核心教学",
+        }],
+    }
+    plan = {
+        "node_id": "L2-1-1",
+        "teaching_modules": [{"module_id": "core_explanation"}],
+    }
+
+    with pytest.raises(TeacherScriptGenerationTimeout, match="讲义模型调用超时"):
+        asyncio.run(service.generate_teacher_script_section(
+            course_id="course-timeout",
+            outline_section=outline,
+            confirmed_plan_section=plan,
+        ))
+
+
+def test_teacher_script_service_can_return_blocks_for_partial_checkpoint(monkeypatch):
+    service = CourseService()
+
+    async def fake_call(_user_prompt, _system_prompt, **_kwargs):
+        return (
+            "## 核心教学\n\n"
+            "我们先看定义、成立条件和适用边界，请用反例核对这三项标准。\n\n"
+            "## 课堂总结\n\n"
+            "本块内容完整。"
+        )
+
+    monkeypatch.setattr(service, "_call_llm", fake_call)
+    outline = {
+        "node_id": "L2-1-1",
+        "node_name": "局部保存",
+        "module_plan": [
+            {"module_id": "core_explanation", "label": "核心教学"},
+            {"module_id": "summary", "label": "课堂总结"},
+        ],
+    }
+    plan = {
+        "node_id": "L2-1-1",
+        "teaching_modules": [
+            {"module_id": "core_explanation"},
+            {"module_id": "summary"},
+        ],
+    }
+
+    result = asyncio.run(service.generate_teacher_script_section(
+        course_id="course-partial",
+        outline_section=outline,
+        confirmed_plan_section=plan,
+        allow_partial_quality=True,
+    ))
+
+    assert len(result["blocks"]) == 2
+    assert result["quality_report"]["passed"] is False
+    assert "teacher_script:placeholder_content" in {
+        item["code"] for item in result["quality_report"]["blocking_issues"]
+    }
+
+
 def test_script_job_keeps_completed_blocks_and_resumes_only_missing_work(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     service = TeacherLessonAuthoringService(repository)
@@ -2047,6 +2177,227 @@ def test_script_job_runs_bounded_shards_concurrently_and_retries_only_failed_sha
     ] == ordered_block_ids
     assert completed["stream_events"] == []
     assert completed["stream_batches"] == {}
+
+
+def test_script_shard_keeps_valid_sibling_and_retries_only_failed_block(
+    tmp_path,
+    monkeypatch,
+):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    service = TeacherLessonAuthoringService(repository)
+    module_ids = ["custom_1", "custom_2"]
+    plan = standard_lesson_plan()
+    plan["sections"][0]["teaching_modules"] = [
+        {
+            "module_id": module_id,
+            "teaching_purpose": f"完成第 {index} 个判断任务",
+            "knowledge_names": ["核心概念"],
+            "planned_minutes": 1,
+            "teacher_activity": f"引导学生核对第 {index} 项标准。",
+            "student_activity": f"完成第 {index} 个情境判断。",
+        }
+        for index, module_id in enumerate(module_ids, start=1)
+    ]
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        plan,
+        source_outline_revision_id="outline-v1",
+        quality_report={"passed": True},
+    )
+    plan_revision = lesson["working_revision_id"]
+    repository.confirm_plan_revision("course-1", "L1-1", plan_revision)
+    outline_section = {
+        "node_id": "L2-1-1",
+        "node_name": "1.1 核心概念",
+        "module_plan": [
+            {"module_id": module_id, "label": f"教学环节 {index}"}
+            for index, module_id in enumerate(module_ids, start=1)
+        ],
+    }
+    contract = compile_teacher_script_module_contract(
+        outline_section,
+        plan["sections"][0],
+    )
+    block_ids = [item["block_id"] for item in contract["modules"]]
+    monkeypatch.setattr(
+        teacher_script_module,
+        "SCRIPT_SINGLE_REQUEST_TARGET_CHARACTERS",
+        100_000,
+    )
+    monkeypatch.setattr(
+        teacher_script_module,
+        "SCRIPT_SINGLE_REQUEST_MAX_CHARACTERS",
+        100_000,
+    )
+
+    first_job = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_script_generation",
+        request_id="script-one-invalid-block",
+    )
+
+    async def unused_block_generator(*_args, **_kwargs):
+        raise AssertionError("shard generator must own real requests")
+
+    async def first_shard_generator(
+        entries,
+        _shard_context,
+        *,
+        on_block_delta,
+        on_shard_reset,
+    ):
+        assert [entry["module"]["block_id"] for entry in entries] == block_ids
+        valid = (
+            "我们先看红色标本，把定义、成立条件和排除边界分开。"
+            "请给出一句可核对的判断并说明依据。"
+        )
+        invalid = "本块内容完整。"
+        for block_id, content in zip(block_ids, [valid, invalid], strict=True):
+            await on_shard_reset(block_id)
+            await on_block_delta(block_id, content)
+        return dict(zip(block_ids, [valid, invalid], strict=True))
+
+    failed = asyncio.run(service.run_script_job(
+        course_id="course-1",
+        lesson_unit_id="L1-1",
+        job_id=first_job["id"],
+        source_plan_revision_id=plan_revision,
+        outline_sections=[outline_section],
+        plan_sections={"L2-1-1": plan["sections"][0]},
+        generator=unused_block_generator,
+        shard_generator=first_shard_generator,
+    ))
+
+    assert failed["status"] == "failed"
+    assert failed["completed_blocks"] == 1
+    assert failed["error"]["message"].startswith("1 个教学块生成失败")
+    assert [
+        item["block_id"] for item in failed["result_sections"][0]["blocks"]
+    ] == [block_ids[0]]
+    assert [
+        item["block_id"] for item in failed["error"]["failed_blocks"]
+    ] == [block_ids[1]]
+    assert failed["error"]["failed_shards"][0]["block_ids"] == [block_ids[1]]
+
+    retry_job = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_script_generation",
+        request_id="script-retry-one-invalid-block",
+    )
+    retried_block_ids = []
+
+    async def retry_shard_generator(
+        entries,
+        _shard_context,
+        *,
+        on_block_delta,
+        on_shard_reset,
+    ):
+        retried_block_ids.extend(
+            entry["module"]["block_id"] for entry in entries
+        )
+        content = (
+            "接下来请大家看蓝色情境，先列事实，再匹配规则。"
+            "最后用反例检查结论是否越过适用边界。"
+        )
+        block_id = entries[0]["module"]["block_id"]
+        await on_shard_reset(block_id)
+        await on_block_delta(block_id, content)
+        return {block_id: content}
+
+    completed = asyncio.run(service.run_script_job(
+        course_id="course-1",
+        lesson_unit_id="L1-1",
+        job_id=retry_job["id"],
+        source_plan_revision_id=plan_revision,
+        outline_sections=[outline_section],
+        plan_sections={"L2-1-1": plan["sections"][0]},
+        generator=unused_block_generator,
+        shard_generator=retry_shard_generator,
+        seed_sections=failed["result_sections"],
+    ))
+
+    assert completed["status"] == "completed", completed.get("error")
+    assert retried_block_ids == [block_ids[1]]
+    assert completed["completed_blocks"] == 2
+
+
+def test_script_provider_failure_counts_every_block_in_failed_shard(
+    tmp_path,
+    monkeypatch,
+):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    service = TeacherLessonAuthoringService(repository)
+    module_ids = [f"custom_{index}" for index in range(1, 8)]
+    plan = standard_lesson_plan()
+    plan["sections"][0]["teaching_modules"] = [
+        {
+            "module_id": module_id,
+            "teaching_purpose": f"完成第 {index} 个判断任务",
+            "knowledge_names": ["核心概念"],
+            "planned_minutes": 1,
+            "teacher_activity": f"引导学生核对第 {index} 项标准。",
+            "student_activity": f"完成第 {index} 个情境判断。",
+        }
+        for index, module_id in enumerate(module_ids, start=1)
+    ]
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        plan,
+        source_outline_revision_id="outline-v1",
+        quality_report={"passed": True},
+    )
+    outline_section = {
+        "node_id": "L2-1-1",
+        "node_name": "1.1 核心概念",
+        "module_plan": [
+            {"module_id": module_id, "label": f"教学环节 {index}"}
+            for index, module_id in enumerate(module_ids, start=1)
+        ],
+    }
+    monkeypatch.setattr(
+        teacher_script_module,
+        "SCRIPT_SINGLE_REQUEST_TARGET_CHARACTERS",
+        100_000,
+    )
+    monkeypatch.setattr(
+        teacher_script_module,
+        "SCRIPT_SINGLE_REQUEST_MAX_CHARACTERS",
+        100_000,
+    )
+    job = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_script_generation",
+        request_id="script-seven-block-provider-failure",
+    )
+
+    async def unused_block_generator(*_args, **_kwargs):
+        raise AssertionError("shard generator must own real requests")
+
+    async def failed_shard_generator(*_args, **_kwargs):
+        raise RuntimeError("provider interrupted")
+
+    failed = asyncio.run(service.run_script_job(
+        course_id="course-1",
+        lesson_unit_id="L1-1",
+        job_id=job["id"],
+        source_plan_revision_id=lesson["working_revision_id"],
+        outline_sections=[outline_section],
+        plan_sections={"L2-1-1": plan["sections"][0]},
+        generator=unused_block_generator,
+        shard_generator=failed_shard_generator,
+    ))
+
+    assert failed["status"] == "failed"
+    assert failed["error"]["message"].startswith("7 个教学块生成失败")
+    assert len(failed["error"]["failed_blocks"]) == 7
+    assert len(failed["error"]["failed_shards"]) == 1
+    assert len(failed["error"]["failed_shards"][0]["block_ids"]) == 7
 
 
 def test_script_resume_discards_only_invalid_checkpoint_block(tmp_path):

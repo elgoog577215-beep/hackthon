@@ -69,6 +69,7 @@ from course_generation.adaptive import (
 from course_generation_budget import (
     CourseGenerationBudget,
     CourseGenerationDeadlineExceeded,
+    TeacherScriptGenerationTimeout,
 )
 from course_generation_strategy import (
     PERSONALIZED_NODE_EXPLANATION,
@@ -8061,6 +8062,7 @@ class CourseService(AIBase):
         user_id: str = DEFAULT_USER_ID,
         on_content_delta: Callable[[str], Awaitable[None] | None] | None = None,
         on_content_reset: Callable[[], Awaitable[None] | None] | None = None,
+        allow_partial_quality: bool = False,
     ) -> dict[str, Any]:
         """Generate the teacher's direct-teaching script from the current plan.
 
@@ -8246,12 +8248,24 @@ class CourseService(AIBase):
                         ],
                     },
                 ):
-                    return await self._call_llm(
-                        prompt,
-                        instructions,
-                        use_fast_model=use_fast_model,
-                        **common,
+                    timeout_seconds = float(
+                        self._generation_budget.teacher_script_request_timeout_seconds
                     )
+                    try:
+                        return await asyncio.wait_for(
+                            self._call_llm(
+                                prompt,
+                                instructions,
+                                use_fast_model=use_fast_model,
+                                **common,
+                            ),
+                            timeout=timeout_seconds,
+                        )
+                    except asyncio.TimeoutError as exc:
+                        raise TeacherScriptGenerationTimeout(
+                            "讲义模型调用超时："
+                            f"取得模型资源后 {int(timeout_seconds)} 秒仍未完成。"
+                        ) from exc
 
             try:
                 return await call_with_shared_capacity(use_fast_model=True)
@@ -8264,6 +8278,7 @@ class CourseService(AIBase):
 
         last_report: dict[str, Any] = {}
         last_text = ""
+        last_compiled: dict[str, Any] = {}
         for attempt in range(2):
             repair = ""
             if attempt:
@@ -8299,6 +8314,7 @@ class CourseService(AIBase):
             )
             last_text = self.clean_response_text(response) if response else ""
             compiled = compile_teacher_script_section(last_text, contract)
+            last_compiled = compiled
             last_report = compiled.get("quality_report") or {}
             if last_report.get("passed"):
                 self._record_generation_quality(
@@ -8348,6 +8364,7 @@ class CourseService(AIBase):
                 compacted_text,
                 contract,
             )
+            last_compiled = compacted
             if (compacted.get("quality_report") or {}).get("passed"):
                 self._record_generation_quality(
                     output_type="teacher_script_section",
@@ -8361,6 +8378,12 @@ class CourseService(AIBase):
                 )
                 return compacted
             last_report = compacted.get("quality_report") or last_report
+        if allow_partial_quality and last_compiled.get("blocks"):
+            # The durable lesson job validates and checkpoints each returned
+            # block independently. Keep the provider output available there
+            # instead of discarding every valid sibling because one block or
+            # one cross-block rule still failed after the repair attempts.
+            return last_compiled
         issues = "；".join(
             str(item.get("message") or "")
             for item in last_report.get("blocking_issues") or []

@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from ai_base import AIProviderRequestError, AIProviderUnavailable
+from course_generation_budget import TeacherScriptGenerationTimeout
 from dependencies import (
     get_teacher_lesson_authoring_repository,
     require_task_manager,
@@ -4158,8 +4159,7 @@ async def generate_lesson_script(
                 if visible:
                     await on_content_delta(visible)
             try:
-                generated = await asyncio.wait_for(
-                    tm.course_service.generate_teacher_script_section(
+                generated = await tm.course_service.generate_teacher_script_section(
                     course_id=course_id,
                     outline_section=single_outline,
                     confirmed_plan_section=single_plan,
@@ -4180,8 +4180,6 @@ async def generate_lesson_script(
                     user_id=actor,
                     on_content_delta=forward_stream_delta,
                     on_content_reset=forward_stream_reset,
-                    ),
-                    timeout=150,
                 )
             except (
                 asyncio.TimeoutError,
@@ -4189,21 +4187,33 @@ async def generate_lesson_script(
                 AIProviderUnavailable,
             ) as exc:
                 error_detail = str(exc).strip()
+                timeout_failed = isinstance(
+                    exc,
+                    (TeacherScriptGenerationTimeout, asyncio.TimeoutError),
+                )
                 quality_failed = error_detail.startswith(
                     "讲义未通过当前教案的质量检查"
                 )
                 raise TeacherLessonAuthoringError(
                     (
-                        "lesson_script_block_quality_failed"
+                        "lesson_script_model_timeout"
+                        if timeout_failed
+                        else "lesson_script_block_quality_failed"
                         if quality_failed
                         else "lesson_script_provider_failed"
                     ),
                     (
-                        f"{module.get('title') or module_id}未通过硬校验，请重试。"
+                        f"{module.get('title') or module_id}模型调用超时，请重试。"
+                        if timeout_failed
+                        else f"{module.get('title') or module_id}未通过硬校验，请重试。"
                         if quality_failed
                         else f"{module.get('title') or module_id}生成失败，请重试。"
                     ),
-                    details={"reason": error_detail[:1000]},
+                    details={
+                        "reason": (
+                            error_detail or "讲义模型调用超时"
+                        )[:1000]
+                    },
                 ) from exc
             blocks = [
                 item for item in generated.get("blocks") or [] if isinstance(item, dict)
@@ -4310,24 +4320,22 @@ async def generate_lesson_script(
                     stream_parser["buffer"] = ""
 
             try:
-                generated = await asyncio.wait_for(
-                    tm.course_service.generate_teacher_script_section(
-                        course_id=course_id,
-                        outline_section=combined_outline,
-                        confirmed_plan_section=combined_plan,
-                        lesson_context={
-                            "lesson_title": lesson_title,
-                            "lesson_sections": lesson_section_titles,
-                            "script_shard_context": deepcopy(shard_context),
-                            "material_asset_ids": selected_material_ids,
-                            "selected_material_evidence": prompt_evidence,
-                        },
-                        requirements=body.requirements,
-                        user_id=actor,
-                        on_content_delta=forward_shard_delta,
-                        on_content_reset=forward_shard_reset,
-                    ),
-                    timeout=150,
+                generated = await tm.course_service.generate_teacher_script_section(
+                    course_id=course_id,
+                    outline_section=combined_outline,
+                    confirmed_plan_section=combined_plan,
+                    lesson_context={
+                        "lesson_title": lesson_title,
+                        "lesson_sections": lesson_section_titles,
+                        "script_shard_context": deepcopy(shard_context),
+                        "material_asset_ids": selected_material_ids,
+                        "selected_material_evidence": prompt_evidence,
+                    },
+                    requirements=body.requirements,
+                    user_id=actor,
+                    on_content_delta=forward_shard_delta,
+                    on_content_reset=forward_shard_reset,
+                    allow_partial_quality=True,
                 )
             except (
                 asyncio.TimeoutError,
@@ -4335,14 +4343,29 @@ async def generate_lesson_script(
                 AIProviderUnavailable,
             ) as exc:
                 error_detail = str(exc).strip()
+                timeout_failed = isinstance(
+                    exc,
+                    (TeacherScriptGenerationTimeout, asyncio.TimeoutError),
+                )
                 raise TeacherLessonAuthoringError(
                     (
-                        "lesson_script_block_quality_failed"
+                        "lesson_script_model_timeout"
+                        if timeout_failed
+                        else "lesson_script_block_quality_failed"
                         if error_detail.startswith("讲义未通过当前教案的质量检查")
                         else "lesson_script_provider_failed"
                     ),
-                    f"讲义分片生成失败：{error_detail or '请重试'}",
-                    details={"reason": error_detail[:1000], "shard_id": shard_id},
+                    (
+                        f"讲义分片模型调用超时：{error_detail or '请重试'}"
+                        if timeout_failed
+                        else f"讲义分片生成失败：{error_detail or '请重试'}"
+                    ),
+                    details={
+                        "reason": (
+                            error_detail or "讲义模型调用超时"
+                        )[:1000],
+                        "shard_id": shard_id,
+                    },
                 ) from exc
             generated_blocks = [
                 item for item in generated.get("blocks") or []

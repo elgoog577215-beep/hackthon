@@ -4606,16 +4606,23 @@ class TeacherLessonAuthoringService:
                             f"{block_title} 没有返回可定位的教学块。",
                         )
                     candidates: list[dict[str, Any]] = []
+                    candidate_failures: list[dict[str, Any]] = []
                     for entry in entries:
                         module = entry["module"]
                         contract = entry["contract"]
                         block_id = str(module.get("block_id") or "")
                         content = str(generated_map.get(block_id) or "").strip()
                         if not content:
-                            raise TeacherLessonAuthoringError(
-                                "lesson_script_block_empty",
-                                f"{module.get('title') or block_id} 没有生成有效内容。",
-                            )
+                            candidate_failures.append({
+                                "block_id": block_id,
+                                "title": str(module.get("title") or block_id),
+                                "code": "lesson_script_block_empty",
+                                "message": (
+                                    f"{module.get('title') or block_id} "
+                                    "没有生成有效内容。"
+                                ),
+                            })
+                            continue
                         candidate = {
                             **deepcopy(module),
                             "content": content,
@@ -4637,11 +4644,17 @@ class TeacherLessonAuthoringService:
                                 for item in candidate_report.get("blocking_issues") or []
                                 if isinstance(item, dict)
                             )
-                            raise TeacherLessonAuthoringError(
-                                "lesson_script_block_quality_failed",
-                                f"{module.get('title') or block_id}未通过硬校验：{messages or '请重试'}",
-                                details={"quality_report": deepcopy(candidate_report)},
-                            )
+                            candidate_failures.append({
+                                "block_id": block_id,
+                                "title": str(module.get("title") or block_id),
+                                "code": "lesson_script_block_quality_failed",
+                                "message": (
+                                    f"{module.get('title') or block_id}未通过硬校验："
+                                    f"{messages or '请重试'}"
+                                ),
+                                "quality_report": deepcopy(candidate_report),
+                            })
+                            continue
                         candidates.append({
                             "section_id": str(
                                 contract.get("section_node_id") or ""
@@ -4653,6 +4666,7 @@ class TeacherLessonAuthoringService:
                         "block_title": block_title,
                         "shard_id": shard_id,
                         "candidates": candidates,
+                        "failures": candidate_failures,
                         "streamed_block_ids": list(stream_state["delta_blocks"]),
                     }
                 except asyncio.CancelledError:
@@ -4666,7 +4680,8 @@ class TeacherLessonAuthoringService:
                     }
 
             tasks = [asyncio.create_task(generate_shard(shard)) for shard in shards]
-            failures: list[dict[str, Any]] = []
+            failed_shards: list[dict[str, Any]] = []
+            failed_blocks: list[dict[str, Any]] = []
             try:
                 for completed_task in asyncio.as_completed(tasks):
                     result = await completed_task
@@ -4686,7 +4701,7 @@ class TeacherLessonAuthoringService:
                         error = result["error"]
                         for failed_block_id in block_ids:
                             block_states[failed_block_id] = "failed"
-                        failures.append({
+                        shard_failure = {
                             "block_id": block_id,
                             "block_ids": block_ids,
                             "shard_id": shard_id,
@@ -4697,7 +4712,21 @@ class TeacherLessonAuthoringService:
                                 else "lesson_script_generation_failed"
                             ),
                             "message": str(error),
-                        })
+                        }
+                        failed_shards.append(shard_failure)
+                        for failed_block_id in block_ids:
+                            failed_module = (
+                                block_entries.get(failed_block_id) or {}
+                            ).get("module") or {}
+                            failed_blocks.append({
+                                "block_id": failed_block_id,
+                                "shard_id": shard_id,
+                                "title": str(
+                                    failed_module.get("title") or failed_block_id
+                                ),
+                                "code": shard_failure["code"],
+                                "message": str(error),
+                            })
                         self.repository.update_job_live(
                             course_id,
                             job_id,
@@ -4708,6 +4737,55 @@ class TeacherLessonAuthoringService:
                             block_states=block_states,
                         )
                         continue
+
+                    shard_block_failures = [
+                        item for item in result.get("failures") or []
+                        if isinstance(item, dict) and item.get("block_id")
+                    ]
+                    if shard_block_failures:
+                        failed_ids = [
+                            str(item.get("block_id") or "")
+                            for item in shard_block_failures
+                        ]
+                        for failure in shard_block_failures:
+                            failed_block_id = str(failure.get("block_id") or "")
+                            block_states[failed_block_id] = "failed"
+                            failed_blocks.append({
+                                **deepcopy(failure),
+                                "block_id": failed_block_id,
+                                "shard_id": shard_id,
+                            })
+                        failed_shards.append({
+                            "block_id": failed_ids[0],
+                            "block_ids": failed_ids,
+                            "shard_id": shard_id,
+                            "title": " / ".join(
+                                str(item.get("title") or item.get("block_id") or "教学块")
+                                for item in shard_block_failures
+                            ),
+                            "code": str(
+                                shard_block_failures[0].get("code")
+                                or "lesson_script_generation_failed"
+                            ),
+                            "message": str(
+                                shard_block_failures[0].get("message")
+                                or "讲义教学块未通过校验"
+                            ),
+                        })
+                        self.repository.update_job_live(
+                            course_id,
+                            job_id,
+                            phase="lesson_script_block_failed",
+                            message=(
+                                f"{len(shard_block_failures)} 个教学块未通过校验，"
+                                "其他教学块继续"
+                            ),
+                            current_block_id=failed_ids[0],
+                            current_block_title=str(
+                                shard_block_failures[0].get("title") or "教学块"
+                            ),
+                            block_states=block_states,
+                        )
 
                     streamed_block_ids = set(result.get("streamed_block_ids") or [])
                     for generated_item in result.get("candidates") or []:
@@ -4773,14 +4851,17 @@ class TeacherLessonAuthoringService:
                 await asyncio.gather(*tasks, return_exceptions=True)
                 raise
 
-            if failures:
-                first = failures[0]
+            if failed_blocks:
+                first = failed_blocks[0]
                 current_block_id = str(first.get("block_id") or "")
                 current_block_title = str(first.get("title") or "教学块")
                 raise TeacherLessonAuthoringError(
                     str(first.get("code") or "lesson_script_generation_failed"),
-                    f"{len(failures)} 个教学块生成失败，已保留其他成功结果。",
-                    details={"failed_shards": failures},
+                    f"{len(failed_blocks)} 个教学块生成失败，已保留其他成功结果。",
+                    details={
+                        "failed_shards": failed_shards,
+                        "failed_blocks": failed_blocks,
+                    },
                 )
 
             final_sections: list[dict[str, Any]] = []
@@ -4886,6 +4967,12 @@ class TeacherLessonAuthoringService:
                         {"failed_shards": deepcopy(exc.details["failed_shards"])}
                         if isinstance(exc, TeacherLessonAuthoringError)
                         and isinstance(exc.details.get("failed_shards"), list)
+                        else {}
+                    ),
+                    **(
+                        {"failed_blocks": deepcopy(exc.details["failed_blocks"])}
+                        if isinstance(exc, TeacherLessonAuthoringError)
+                        and isinstance(exc.details.get("failed_blocks"), list)
                         else {}
                     ),
                 },

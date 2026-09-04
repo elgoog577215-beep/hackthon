@@ -35,6 +35,13 @@ class CourseGenerationDeadlineExceeded(AIProviderRequestError):
     code = "course_generation_deadline_exceeded"
 
 
+class TeacherScriptGenerationTimeout(AIProviderRequestError):
+    """A teacher-script model call exceeded its active execution window."""
+
+    retryable = True
+    code = "lesson_script_model_timeout"
+
+
 @dataclass(frozen=True)
 class CourseGenerationBudget:
     max_input_chars: int = 32_000
@@ -46,6 +53,10 @@ class CourseGenerationBudget:
     # stream inactivity, never total wall-clock duration.
     call_timeout_seconds: int = 90
     content_inactivity_timeout_seconds: int = 90
+    # Starts only after a request owns the shared teaching-model slot. Queue
+    # time is deliberately excluded so a large lesson batch cannot expire
+    # while it is merely waiting for capacity.
+    teacher_script_request_timeout_seconds: int = 180
     # 正文并行阶段的默认并发。**8 是按端点实测定的，不是拍的**——
     # 标定方法与完整数据见 `docs/验收/并发容量标定运行手册.md`。
     #
@@ -108,6 +119,12 @@ class CourseGenerationBudget:
                 90,
                 minimum=30,
                 maximum=240,
+            ),
+            teacher_script_request_timeout_seconds=_env_int(
+                "COURSE_TEACHER_SCRIPT_REQUEST_TIMEOUT_SECONDS",
+                180,
+                minimum=30,
+                maximum=600,
             ),
             content_concurrency=_env_int(
                 "COURSE_CONTENT_CONCURRENCY",
