@@ -63,8 +63,8 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => mount(TeacherCou
       },
       CourseReferenceTray: {
         name: 'CourseReferenceTray',
-        props: ['modelValue', 'scopeTargetId', 'scopeTargetLabel', 'previousScopeTargetId', 'workflowState', 'workflowDetail', 'workflowProgress', 'workflowCanRetry'],
-        template: '<aside data-testid="reference-tray-stub"><span>{{ workflowDetail }}</span><i data-testid="workflow-progress">{{ workflowProgress }}</i><button data-testid="open-course-information" type="button" @click="$emit(\'open-course-information\')">课程信息</button><button v-if="workflowCanRetry" data-testid="retry-workflow" type="button" @click="$emit(\'retry-workflow\')">重试生成</button><slot name="workflow-action" /></aside>',
+        props: ['modelValue', 'scopeTargetId', 'scopeTargetLabel', 'previousScopeTargetId', 'workflowState', 'workflowDetail', 'workflowProgress', 'workflowCanRetry', 'hideWorkflowStatus'],
+        template: '<aside data-testid="reference-tray-stub"><span v-if="hideWorkflowStatus === undefined">{{ workflowDetail }}</span><i data-testid="workflow-progress">{{ workflowProgress }}</i><button data-testid="open-course-information" type="button" @click="$emit(\'open-course-information\')">课程信息</button><button v-if="workflowCanRetry && hideWorkflowStatus === undefined" data-testid="retry-workflow" type="button" @click="$emit(\'retry-workflow\')">重试生成</button><slot name="workflow-action" /></aside>',
         emits: ['open-course-information', 'retry-workflow', 'regenerate-workflow', 'source-state-change', 'update:modelValue'],
       },
       CompanionDocumentStudio: true,
@@ -400,7 +400,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('[data-testid="outline-continue-action"]').attributes('disabled')).toBeUndefined()
   })
 
-  it('正式大纲隐藏右栏 AI 助手，保留三步导航和生成后状态', async () => {
+  it('正式大纲不再重复完成步骤，右栏只显示一次结果状态', async () => {
     useCourseStore().nodes = [
       {
         node_id: 'L1-1', parent_node_id: 'root', node_name: '第1章 程序环境与基础语法', node_level: 1,
@@ -411,19 +411,16 @@ describe('teacher course workbench outline streaming', () => {
     const wrapper = mountWorkbench()
     await flushPromises()
 
-    const steps = wrapper.findAll('[data-testid="outline-flow-steps"] button')
-    expect(steps.map(step => step.text())).toEqual([
-      '1填写课程信息',
-      '2轻量讲次方案',
-      '3完整大纲',
-    ])
-    expect(steps[2]!.classes()).toContain('active')
+    expect(wrapper.find('[data-testid="outline-flow-steps"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="outline-ai-action"]').exists()).toBe(false)
     expect(wrapper.find('.context-pane-tabs').exists()).toBe(false)
     expect(wrapper.find('.ai-workspace-panel').exists()).toBe(false)
     expect(wrapper.find('[data-testid="teacher-ai-dialog"]').exists()).toBe(false)
     expect(wrapper.get('.context-pane-heading').attributes('data-phase')).toBe('after')
-    expect(wrapper.get('.context-pane-heading').text()).toContain('完整大纲已生成并保存')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('内容已就绪')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('完整大纲')
+    expect(wrapper.get('.context-pane-heading').text()).not.toContain('C 语言程序设计')
+    expect(wrapper.getComponent({ name: 'CourseReferenceTray' }).props('hideWorkflowStatus')).toBe('')
     expect(wrapper.get('.teacher-workbench').classes()).not.toContain('is-ai-collaboration')
     expect(wrapper.get('.stage-rail').attributes('style')).toBeUndefined()
   })
@@ -1091,10 +1088,12 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
 
-    expect(wrapper.get('[data-testid="reference-tray-stub"]').text()).toContain('知识骨架汇编失败')
-    expect(wrapper.get('[data-testid="retry-workflow"]').text()).toBe('重试生成')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('生成未完成')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('知识骨架汇编失败')
+    expect(wrapper.get('[data-testid="reference-tray-stub"]').text()).not.toContain('知识骨架汇编失败')
+    expect(wrapper.get('.primary-status-action').text()).toBe('重试')
     expect(wrapper.get('.lesson-empty-canvas').text()).toBe('教案尚未生成')
-    await wrapper.get('[data-testid="retry-workflow"]').trigger('click')
+    await wrapper.get('.primary-status-action').trigger('click')
     await flushPromises()
     expect(generateAllLessons).toHaveBeenCalledWith('course-1', undefined, '', [])
     expect(wrapper.text()).not.toContain('重新生成本讲教案')
@@ -1128,7 +1127,9 @@ describe('teacher course workbench outline streaming', () => {
     const pptWrapper = mountWorkbench({ initialStage: 'ppt' })
     await flushPromises()
     expect(pptWrapper.get('.lesson-navigator').text()).toContain('第一讲')
-    expect(pptWrapper.get('.lesson-toolbar-status').text()).toContain('待生成')
+    expect(pptWrapper.find('.lesson-toolbar-status').exists()).toBe(false)
+    expect(pptWrapper.get('.context-pane-heading').text()).toContain('准备资料')
+    expect(pptWrapper.get('.context-pane-heading').text()).toContain('待生成')
     expect(pptWrapper.get('.ppt-upload-secondary').attributes('disabled')).toBeUndefined()
     expect(pptWrapper.get('.ppt-generate-primary').attributes('disabled')).toBeDefined()
   })
@@ -1159,8 +1160,9 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('[data-testid="lesson-outline-fixed"]').exists()).toBe(true)
     expect(wrapper.find('.center-heading').exists()).toBe(false)
     expect(wrapper.get('.lesson-current-title').text()).toContain('第一讲')
-    expect(wrapper.get('.lesson-toolbar-status').text()).toContain('已生成')
-    expect(wrapper.find('.lesson-toolbar-status button').exists()).toBe(false)
+    expect(wrapper.find('.lesson-toolbar-status').exists()).toBe(false)
+    expect(wrapper.get('.context-pane-heading').text()).toContain('内容已就绪')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('已生成')
     expect(wrapper.find('.lesson-document-toolbar .primary-action').exists()).toBe(false)
     expect(wrapper.get('.stage-rail button.active').text()).toContain('讲义')
   })
@@ -1192,7 +1194,7 @@ describe('teacher course workbench outline streaming', () => {
     const wrapper = mountWorkbench({ initialStage: 'script' })
 
     expect(wrapper.find('[data-testid="lesson-outline-fixed"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="script-course-preview"]').text()).toContain('检查教案映射')
+    expect(wrapper.get('[data-testid="script-course-preview"]').text()).not.toContain('检查教案映射')
     expect(wrapper.get('[data-testid="script-course-preview"]').text()).toContain('整门课程教案映射')
     expect(wrapper.get('[data-testid="script-course-preview"]').text()).toContain('核心教学')
     expect(wrapper.get('[data-testid="script-course-preview"]').text()).toContain('讲清第1讲的核心概念')
@@ -1234,7 +1236,8 @@ describe('teacher course workbench outline streaming', () => {
     const preview = wrapper.get('[data-testid="script-course-preview"]')
     const button = wrapper.get('[data-testid="script-course-preview-generate"]')
 
-    expect(preview.text()).toContain('教案待生成的讲次会自动跳过')
+    expect(preview.text()).toContain('教案待生成')
+    expect(preview.text()).not.toContain('会自动跳过')
     expect(button.text()).toBe('生成已具备教案的讲义（1讲）')
 
     await button.trigger('click')
@@ -1311,8 +1314,8 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'script' })
 
-    expect(wrapper.get('[data-testid="reference-tray-stub"]').text()).toContain('上游教案已变化')
-    expect(wrapper.find('[data-testid="retry-workflow"]').exists()).toBe(false)
+    expect(wrapper.get('.context-pane-heading').text()).toContain('上游教案已变化')
+    expect(wrapper.find('.context-pane-heading .primary-status-action').exists()).toBe(false)
   })
 
   it('仅把真实可用的讲义计入完成，遗留修订标识不再显示勾选', () => {
@@ -1362,7 +1365,8 @@ describe('teacher course workbench outline streaming', () => {
     expect(chapters[0]!.find('.lesson-outline-status').attributes('data-state')).toBe('generating')
     expect(chapters[0]!.find('small').text()).toContain('正在生成：概念讲解')
     expect(chapters[1]!.find('.lesson-outline-status').attributes('data-state')).toBe('queued')
-    expect(wrapper.get('[data-testid="reference-tray-stub"]').text()).toContain('已完成 0/2 讲 · 正在并行生成 1 讲')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('已完成 0/2 讲 · 正在并行生成 1 讲')
+    expect(wrapper.get('.context-pane-heading__progress').attributes('aria-valuenow')).toBe('25')
     expect(wrapper.get('[data-testid="workflow-progress"]').text()).toBe('25')
   })
 
@@ -1400,7 +1404,7 @@ describe('teacher course workbench outline streaming', () => {
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45,
       sections: [1, 2].map(section => ({ section_node_id: `L2-${number}-${section}`, title: `${number}.${section} 小节${section}` })),
       script: { current_revision_id: number === 1 ? 'script-1' : '', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1', source_state: 'current', ready: number === 1, confirmed: false, confirmed_at: '', sections: [] },
-      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: number === 1 ? 'plan-1' : '', confirmed_revision_id: number === 2 ? 'plan-2' : '', source_state: 'current', ready: number === 1, revisions: [], ppt_assets: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, confirmed_revision_id: number === 2 ? 'plan-2' : '', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
     })) as any
     for (const stage of ['lesson', 'script', 'ppt']) {
       const wrapper = mountWorkbench({ initialStage: stage })
@@ -1416,12 +1420,17 @@ describe('teacher course workbench outline streaming', () => {
       expect(wrapper.find('.lesson-outline-sections').exists()).toBe(false)
       expect(wrapper.find('.lesson-selector').exists()).toBe(false)
       expect(wrapper.find('.lesson-section-tabs').exists()).toBe(false)
-      expect(wrapper.get('.lesson-navigator').text()).toContain('上一讲')
-      expect(wrapper.get('.lesson-navigator').text()).toContain('下一讲')
+      expect(wrapper.find('.lesson-navigator .lesson-switch-actions').exists()).toBe(false)
+      expect(wrapper.get('.lesson-switch-actions').text()).toContain('上一讲')
+      expect(wrapper.get('.lesson-switch-actions').text()).toContain('下一讲')
 
       await chapterButtons[1]!.trigger('click')
       expect(wrapper.get('.lesson-current-title').text()).toContain('第2讲')
       expect(wrapper.get('.lesson-current-title').text()).toContain('2/2')
+      if (stage === 'script') {
+        expect(wrapper.get('[data-testid="script-single-start"]').text()).toContain('生成本讲讲义')
+        expect(wrapper.get('[data-testid="script-batch-start"]').text()).toContain('生成剩余讲义')
+      }
       wrapper.unmount()
     }
   })

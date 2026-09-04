@@ -27,10 +27,10 @@ describe('teacher lesson toolbar placement', () => {
     expect(lessonToolbarSource).not.toContain("aiCollaboration.iterateCandidate")
     expect(workbenchSource).toContain("activeStage === 'lesson' && lessonToolbarVisible && !aiCandidatePending")
     expect(workbenchSource).toContain(
-      '.workbench-center.is-lesson-workspace .lesson-command-bar{width:calc(100% - 8px);justify-content:flex-end;gap:8px;margin:0 4px 10px;background:transparent}',
+      '.workbench-center.is-lesson-workspace .lesson-command-bar,.workbench-center.is-lesson-workspace .script-command-bar{width:100%;max-width:none;justify-content:space-between;gap:12px;margin:0 0 12px;background:transparent}',
     )
     expect(workbenchSource).toContain(
-      '.workbench-center.is-lesson-workspace :deep(.lesson-document){overflow:hidden;border:1px solid #e0e6ef',
+      '.workbench-center.is-lesson-workspace :deep(.lesson-document){overflow:hidden;border:1px solid #e0e4ea',
     )
   })
 

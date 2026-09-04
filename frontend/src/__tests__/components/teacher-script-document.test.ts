@@ -185,8 +185,37 @@ describe('统一讲义页面', () => {
 
     expect(wrapper.find('.script-header').exists()).toBe(false)
     expect(wrapper.find('.script-footer').exists()).toBe(false)
+    expect(wrapper.find('.script-status-notice').exists()).toBe(false)
     expect(wrapper.get('.external-script-toolbar').text()).toBe('讲稿操作')
     expect(wrapper.find('.script-body').exists()).toBe(true)
+  })
+
+  it('课程工作台接管未生成讲义的操作与进度，正文只显示教案内容', () => {
+    const emptyLesson = structuredClone(lesson)
+    emptyLesson.script = { ...emptyLesson.script, current_revision_id: '', ready: false, sections: [] }
+    emptyLesson.arrangement.blocks = [{
+      block_id: 'block-1', module_id: 'core_explanation', section_node_id: 'section-1',
+      section_title: '1.1 爬虫基础', name: '核心教学', role: 'concept', purpose: '讲清概念',
+      content_summary: '解释爬虫工作流程', planned_minutes: 20,
+      teacher_activity: '', student_activity: '', expected_output: '', required: true,
+    }]
+    const generationJob = {
+      id: 'script-job-1', course_id: 'course-1', lesson_unit_id: 'lesson-1',
+      type: 'teacher_lesson_script_generation', status: 'running', progress: 50,
+      phase: 'lesson_script_generation', message: '正在生成：核心教学', warnings: [],
+      total_blocks: 2, completed_blocks: 1, block_states: {}, result_sections: [],
+    } as TeacherLessonJob
+    const wrapper = mount(TeacherScriptDocument, {
+      props: {
+        courseId: 'course-1', lesson: emptyLesson, canGenerate: true,
+        generationJob, externalToolbar: true,
+      },
+    })
+
+    expect(wrapper.find('.script-source-steps').exists()).toBe(false)
+    expect(wrapper.find('.script-source-review__heading').exists()).toBe(false)
+    expect(wrapper.find('.script-generation-progress').exists()).toBe(false)
+    expect(wrapper.find('.script-source-blocks').exists()).toBe(true)
   })
 
   it('无讲稿时先映射教案教学块，核对后直接触发生成', async () => {

@@ -88,10 +88,10 @@ describe('teacher course library management', () => {
       '按课程排序', '按内容进度排序', '按上课时间排序', '按学年学期排序', '按最后编辑排序',
     ])
     expect(wrapper.get('tbody').text()).toContain('《矩阵与线性变换》')
-    expect(wrapper.get('.course-production-summary').text()).toBe('已生成完成')
+    expect(wrapper.get('.course-production-summary').text()).toBe('备课完成')
     expect(wrapper.find('.asset-progress').exists()).toBe(false)
     expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
-    expect(wrapper.get('tbody').text()).not.toContain('备课完成')
+    expect(wrapper.get('tbody').text()).toContain('备课完成')
     expect(wrapper.get('tbody').text()).toContain('14:00')
     expect(wrapper.get('tbody').text()).toContain('理科楼 A108')
     expect(wrapper.get('tbody').text()).toContain('2026-2027 秋季')

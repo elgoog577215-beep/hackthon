@@ -86,8 +86,8 @@ const emit = defineEmits<{
 </script>
 
 <style scoped>
-.teacher-document-command-bar-row{position:sticky;z-index:9;top:12px;width:calc(100% - 40px);min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:14px;margin:12px 20px 10px}
-.teacher-document-command-bar{width:max-content;max-width:100%;min-height:44px;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:4px;border:1px solid #e1e5ec;border-radius:14px;color:#526077;background:#fff;box-shadow:0 8px 22px rgba(30,41,59,.1)}
+.teacher-document-command-bar-row{position:relative;z-index:4;width:100%;max-width:860px;min-height:40px;display:flex;align-items:center;justify-content:space-between;gap:14px;margin:0 auto 12px;padding:0 2px}
+.teacher-document-command-bar{width:max-content;max-width:100%;min-height:40px;display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:0;border:0;border-radius:0;color:#526077;background:transparent;box-shadow:none}
 .teacher-document-command-bar__context{min-width:0;display:flex;align-items:center;gap:12px;white-space:nowrap}
 .teacher-document-command-bar__editing,.teacher-document-command-bar__actions{min-width:0;display:flex;align-items:center;gap:3px;white-space:nowrap}
 .teacher-document-command-bar button{min-height:34px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 9px;border:1px solid transparent;border-radius:9px;color:#526077;background:transparent;font-size:15px;font-weight:750;cursor:pointer}
@@ -110,5 +110,5 @@ const emit = defineEmits<{
 .teacher-document-command-bar__actions :deep(.primary-action){margin-left:2px;border-color:#454ca8;color:#fff;background:#454ca8}
 .teacher-document-command-bar__actions :deep(.primary-action:hover:not(:disabled)){border-color:#373b91;color:#fff;background:#373b91}
 .spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
-@media(max-width:1100px){.teacher-document-command-bar-row{width:calc(100% - 24px);gap:10px;margin-inline:12px}.teacher-document-command-bar__context{gap:8px}}
+@media(max-width:1100px){.teacher-document-command-bar-row{gap:10px;padding-inline:0}.teacher-document-command-bar__context{gap:8px}}
 </style>

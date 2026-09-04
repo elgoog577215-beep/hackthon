@@ -233,6 +233,24 @@ describe('CourseReferenceTray lesson scope', () => {
     expect(wrapper.get('.source-group--references').text()).toContain('参考文件')
   })
 
+  it('工作台顶部接管整体状态后，资料区只保留本次使用的文件', async () => {
+    const wrapper = mount(CourseReferenceTray, {
+      props: {
+        courseId: 'course-1', modelValue: [{ ...assets[2]!, role: 'primary' }], stage: 'lesson',
+        workflowState: 'generating', workflowProgress: 42, workflowCanPause: true,
+        workflowCanCancel: true, hideWorkflowStatus: true,
+      },
+      global: { stubs: { WebResearchDialog: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.workflow-state').exists()).toBe(false)
+    expect(wrapper.get('.workflow-sources').text()).toContain('本次使用')
+    expect(wrapper.get('.workflow-sources').text()).toContain('第二讲主教材.docx')
+    expect(wrapper.get('.workflow-sources').text()).not.toContain('使用中')
+    expect(wrapper.find('.workflow-sources button').exists()).toBe(false)
+  })
+
   it('生成失败后保留课程信息与资料，并提供同一任务重试入口', async () => {
     const wrapper = mount(CourseReferenceTray, {
       props: {

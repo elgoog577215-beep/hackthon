@@ -83,14 +83,14 @@
       @invoke="emit('open-ai-selection', $event)"
     />
 
-    <aside v-if="scriptStatusNotice" class="script-status-notice" :data-state="scriptStatusNotice.state">
+    <aside v-if="scriptStatusNotice && !externalToolbar" class="script-status-notice" :data-state="scriptStatusNotice.state">
       <strong>{{ scriptStatusNotice.title }}</strong>
       <span>{{ scriptStatusNotice.detail }}</span>
     </aside>
 
     <section v-if="!lesson.script.ready" class="script-generation-panel" :class="{ 'has-partial': scriptSections.length }">
       <form v-if="showGenerationForm" class="script-source-review" @submit.prevent="requestGeneration">
-        <ol class="script-source-steps" :aria-label="tr('courseWorkbench.scriptDocument.flowLabel')">
+        <ol v-if="!externalToolbar" class="script-source-steps" :aria-label="tr('courseWorkbench.scriptDocument.flowLabel')">
           <li class="active">
             <span>1</span>
             <div>
@@ -106,7 +106,7 @@
             </div>
           </li>
         </ol>
-        <div class="script-source-review__heading" :data-state="canGenerate ? 'ready' : 'blocked'">
+        <div v-if="!externalToolbar || !canGenerate" class="script-source-review__heading" :data-state="canGenerate ? 'ready' : 'blocked'">
           <div v-if="canGenerate">
             <strong>{{ tr('courseWorkbench.scriptDocument.mappingTitle') }}</strong>
             <span>{{ tr('courseWorkbench.scriptDocument.mappingReady') }}</span>
@@ -119,6 +119,7 @@
             </div>
           </div>
           <button
+            v-if="!externalToolbar"
             type="submit"
             :disabled="generating || !canGenerate"
             :title="!canGenerate ? scriptGenerationBlockStatus.detail : ''"
@@ -141,7 +142,7 @@
         </ol>
         <p v-else-if="canGenerate" class="script-source-empty">{{ tr('courseWorkbench.scriptDocument.mappingEmpty') }}</p>
       </form>
-      <div v-if="generationJob" class="script-generation-progress" :data-status="generationJob.status">
+      <div v-if="generationJob && !externalToolbar" class="script-generation-progress" :data-status="generationJob.status">
         <div>
           <span>{{ generationJob.message }}</span>
           <span class="script-generation-progress__actions">
