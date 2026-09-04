@@ -15,7 +15,7 @@ from collections import Counter, defaultdict
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from ai_base import (
     AIBase,
@@ -182,6 +182,13 @@ class _StoryResponsePage(_StrictModel):
     question_bank_item_ids: list[str] = Field(default_factory=list)
     shared_visual_expression_ids: list[str] = Field(default_factory=list)
     source_block_ids: list[str] = Field(min_length=1)
+
+    @field_validator("visible_copy", "reveal_steps", mode="before")
+    @classmethod
+    def _preserve_single_text_item_as_list(cls, value: Any) -> Any:
+        """Accept an equivalent one-item model response without rewriting it."""
+
+        return [value] if isinstance(value, str) else value
 
 
 class _StoryBatchResponse(_StrictModel):
@@ -1968,6 +1975,13 @@ def _story_requests(
                 ],
                 "optional_page_fields": [],
                 "forbidden_page_fields": ["content"],
+                "page_field_types": {
+                    "visible_copy": "array[string]",
+                    "reveal_steps": "array[string]",
+                    "question_bank_item_ids": "array[string]",
+                    "shared_visual_expression_ids": "array[string]",
+                    "source_block_ids": "array[string]",
+                },
             },
             "teaching_units": [
                 _story_unit_request(unit, template)
@@ -5297,11 +5311,13 @@ def build_ai_base_story_planner_v6() -> Planner:
                 "process layouts for ordered mechanisms, worked-example for a prompt plus reasoning, "
                 "practice layouts for tasks and checks, and repair layouts for misconceptions when "
                 "those choices are supplied. For every page, write visible_copy for the learner-facing "
-                "canvas, one concrete page_goal and primary_claim, and a transition that names the "
+                "canvas as a JSON array of strings, even when it contains only one string. Write one "
+                "concrete page_goal and primary_claim, and a transition that names the "
                 "prerequisite, contrast, example, practice, or conclusion relationship with an adjacent "
                 "page. When learners must answer or act, write audience_question or audience_action and "
                 "pair it with expected_response or observable_evidence. Write reveal_steps as semantic "
-                "ideas, artifacts, operations, or conclusions in teaching order; never use template slot "
+                "ideas, artifacts, operations, or conclusions in teaching order and return them as a "
+                "JSON array of strings; never use template slot "
                 "IDs. Use composition_notes only to describe how those ideas should be composed. "
                 "question_bank_item_ids and shared_visual_expression_ids must be empty unless matching "
                 "accepted current assets are supplied in the request. Titles, visible_copy, page goals, "

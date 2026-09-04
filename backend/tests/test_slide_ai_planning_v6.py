@@ -1062,6 +1062,51 @@ async def test_story_ai_is_required_and_uses_only_supplied_units_and_layouts() -
         await plan_slide_story_v3(graph, template, ai_planner=None)
 
 
+@pytest.mark.asyncio
+async def test_story_normalizes_single_text_items_without_rewriting_content() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    visible_copy = "一个可靠流程先界定输入，再执行动作，最后核对结果。"
+    reveal_step = "核对完成条件和异常原因"
+
+    async def planner(request):
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "provider": "fixture-provider",
+            "model": "fixture-model",
+            "attempts": 1,
+            "pages": [{
+                "page_id": "single-text-shape",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": next(
+                    item
+                    for item in unit["allowed_template_layout_ids"]
+                    if item.endswith("/practice-feedback")
+                ),
+                "title": _title_for_request_blocks(
+                    unit,
+                    unit["primary_block_ids"],
+                ),
+                "summary": "",
+                "visible_copy": visible_copy,
+                "reveal_steps": reveal_step,
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert story.pages[0].visible_copy == [visible_copy]
+    assert story.pages[0].reveal_steps == [reveal_step]
+    request = planning_module._story_requests(graph, template)[0]
+    assert request["response_contract"]["page_field_types"]["visible_copy"] == (
+        "array[string]"
+    )
+
+
 def test_story_model_request_removes_repeated_layout_and_source_contracts() -> None:
     document = _document(with_code=True)
     graph = compile_course_presentation_graph(document, teaching_plan={})
