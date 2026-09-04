@@ -905,6 +905,14 @@
           <button v-if="referenceWorkflowCanCancel" type="button" @click="cancelReferenceWorkflow"><X :size="14" />{{ t('common.cancel', '取消') }}</button>
           <button v-if="referenceWorkflowState === 'failed' && referenceWorkflowCanRetry" class="primary-status-action" type="button" :disabled="referenceGenerationBlocked" @click="retryReferenceWorkflow"><RotateCcw :size="14" />{{ t('common.retry', '重试') }}</button>
           <button
+            v-if="regenerationAvailable"
+            class="primary-status-action"
+            type="button"
+            :disabled="referenceGenerationBlocked"
+            :title="referenceGenerationBlocked ? referenceGenerationBlockReason : t('courseWorkbench.contextPane.prepareRegeneration', '准备重新生成')"
+            @click="openRegenerationPreparation"
+          ><RotateCcw :size="14" />{{ t('courseWorkbench.contextPane.regenerate', '重新生成') }}</button>
+          <button
             class="context-pane-heading__collapse"
             type="button"
             :title="t('courseWorkbench.contextPane.collapse', '收起当前内容信息')"
@@ -954,16 +962,63 @@
         :workflow-can-resume="referenceWorkflowCanResume"
         :workflow-can-cancel="referenceWorkflowCanCancel"
         :workflow-can-retry="referenceWorkflowCanRetry"
+        readonly
         hide-workflow-status
-        @open-course-information="emit('open-course-information')"
+        :show-course-information="false"
         @pause-workflow="pauseReferenceWorkflow"
         @resume-workflow="resumeReferenceWorkflow"
         @cancel-workflow="cancelReferenceWorkflow"
         @retry-workflow="retryReferenceWorkflow"
-        @regenerate-workflow="regenerateReferenceWorkflow"
         @source-state-change="handleReferenceSourceState"
       />
     </aside>
+
+    <el-dialog
+      v-model="regenerationDialogOpen"
+      class="regeneration-dialog"
+      data-testid="regeneration-dialog"
+      :title="t('courseWorkbench.contextPane.prepareRegeneration', '准备重新生成')"
+      width="min(620px, 92vw)"
+      append-to-body
+      destroy-on-close
+      @closed="resetRegenerationPreparation"
+    >
+      <CourseReferenceTray
+        v-model="regenerationReferences"
+        class="regeneration-dialog__sources"
+        :course-id="courseId"
+        :stage="activeStage"
+        :lesson-id="activeReferenceLessonId"
+        :scope-target-id="lessonReferenceTargetId"
+        :scope-target-type="lessonReferenceTargetType"
+        :scope-target-label="selectedLesson?.title || ''"
+        :scope-target-position="selectedLessonPosition"
+        :lesson-targets="lessonReferenceTargets"
+        :previous-scope-target-id="previousLessonReferenceTargetId"
+        :refresh-token="materialRefreshToken"
+        workflow-state="collecting"
+        hide-workflow-status
+        defer-persistence
+        :show-course-information="false"
+        @source-state-change="handleRegenerationSourceState"
+      />
+      <template #footer>
+        <div class="regeneration-dialog__actions">
+          <button type="button" @click="regenerationDialogOpen = false">{{ t('common.cancel', '取消') }}</button>
+          <button
+            type="button"
+            class="primary"
+            :disabled="regenerationConfirmDisabled"
+            :title="regenerationSourceState.blocked ? regenerationSourceState.reason : undefined"
+            @click="confirmRegeneration"
+          >
+            <LoaderCircle v-if="regenerationStarting" :size="14" class="spin" />
+            <RotateCcw v-else :size="14" />
+            {{ t('courseWorkbench.contextPane.startRegeneration', '开始重新生成') }}
+          </button>
+        </div>
+      </template>
+    </el-dialog>
 
     <TeacherLessonAiWorkspace
       v-if="aiCollaborationOpen && activeStage === 'question-bank'"
@@ -1230,6 +1285,13 @@ const editingOutline = computed({
 })
 const referencesByScope = reactive<Record<string, CourseReferenceItem[]>>({})
 const referenceSourceState = reactive<CourseReferenceSourceState>({ busy: false, blocked: false, reason: '' })
+const regenerationDialogOpen = ref(false)
+const regenerationReferences = ref<CourseReferenceItem[]>([])
+const regenerationSourceState = reactive<CourseReferenceSourceState>({ busy: false, blocked: false, reason: '' })
+const regenerationStarting = ref(false)
+const regenerationConfirmDisabled = computed(() => (
+  regenerationStarting.value || regenerationSourceState.busy || regenerationSourceState.blocked
+))
 const referenceRelationshipSaving = ref(false)
 const referenceGenerationBlocked = computed(() => (
   referenceRelationshipSaving.value || referenceSourceState.busy || referenceSourceState.blocked
@@ -1243,6 +1305,11 @@ function handleReferenceSourceState(value: CourseReferenceSourceState) {
   referenceSourceState.busy = value.busy
   referenceSourceState.blocked = value.blocked
   referenceSourceState.reason = value.reason
+}
+function handleRegenerationSourceState(value: CourseReferenceSourceState) {
+  regenerationSourceState.busy = value.busy
+  regenerationSourceState.blocked = value.blocked
+  regenerationSourceState.reason = value.reason
 }
 const activeReferenceScope = computed(() => (
   ['lesson', 'script', 'ppt'].includes(activeStage.value) && selectedLessonId.value
@@ -2199,6 +2266,10 @@ const contextPhase = computed<'before' | 'during' | 'after' | 'failed'>(() => {
   if (outlineWaitingForInput.value || stageReady(activeStage.value as CoreStageId)) return 'after'
   return 'before'
 })
+const regenerationAvailable = computed(() => (
+  contextPhase.value === 'after'
+  && !['generating', 'paused', 'failed'].includes(referenceWorkflowState.value)
+))
 const contextStatusLabel = computed(() => {
   if (referenceWorkflowState.value === 'generating') return t('courseWorkbench.contextPane.generating', '正在生成')
   if (referenceWorkflowState.value === 'paused') return t('courseWorkbench.contextPane.pausedStatus', '生成已暂停')
@@ -2373,6 +2444,32 @@ async function regenerateReferenceWorkflow() {
   if (activeStage.value === 'lesson') return generateSelectedLessonPlan()
   if (activeStage.value === 'script') return generateScript()
   if (activeStage.value === 'ppt') return openPptWorkspace(true)
+}
+function openRegenerationPreparation() {
+  regenerationReferences.value = activeReferences.value.map(item => ({ ...item }))
+  regenerationSourceState.busy = false
+  regenerationSourceState.blocked = false
+  regenerationSourceState.reason = ''
+  regenerationDialogOpen.value = true
+}
+function resetRegenerationPreparation() {
+  if (regenerationStarting.value) return
+  regenerationReferences.value = []
+  regenerationSourceState.busy = false
+  regenerationSourceState.blocked = false
+  regenerationSourceState.reason = ''
+}
+async function confirmRegeneration() {
+  if (regenerationConfirmDisabled.value) return
+  regenerationStarting.value = true
+  activeReferences.value = regenerationReferences.value.map(item => ({ ...item }))
+  regenerationDialogOpen.value = false
+  try {
+    await regenerateReferenceWorkflow()
+  } finally {
+    regenerationStarting.value = false
+    resetRegenerationPreparation()
+  }
 }
 function appendAiMessage(
   role: TeacherProductionAiMessage['role'],
@@ -3851,6 +3948,7 @@ onBeforeUnmount(() => {
 .context-pane-heading__progress>i{width:100%;height:100%;display:block;transform-origin:left center;background:#6266b4;transition:transform .2s ease-out}
 .context-pane-heading[data-phase="failed"] .context-pane-heading__progress>i{background:#b9404e}
 .context-pane>.context-pane-references{min-height:0;border-left:0;background:transparent}
+.regeneration-dialog__sources{max-height:min(62vh,640px);overflow:auto;border:0;background:#fff}.regeneration-dialog__actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}.regeneration-dialog__actions button{min-height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 13px;border:1px solid #d8dde6;border-radius:8px;color:#596579;background:#fff;font:inherit;font-size:14px;font-weight:700;cursor:pointer}.regeneration-dialog__actions button:hover:not(:disabled){border-color:#bbbfe4;color:#3f4385;background:#f8f8fc}.regeneration-dialog__actions button.primary{border-color:#5559a8;color:#fff;background:#5559a8}.regeneration-dialog__actions button.primary:hover:not(:disabled){border-color:#454984;color:#fff;background:#454984}.regeneration-dialog__actions button:disabled{opacity:.48;cursor:not-allowed}.regeneration-dialog__actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 
 /* Full-outline generation exposes the backend's per-lesson queue and streamed teacher-facing text. */
 .outline-detail-stream{display:grid;gap:0;margin-top:22px;border-top:1px solid #e7ebf2}

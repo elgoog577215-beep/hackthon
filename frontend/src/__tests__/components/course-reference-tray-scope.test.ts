@@ -407,13 +407,11 @@ describe('CourseReferenceTray lesson scope', () => {
     expect(wrapper.find('.confirmed-source-hint').exists()).toBe(false)
     expect(wrapper.find('.empty-drop').exists()).toBe(false)
     expect(wrapper.find('.reference-add').exists()).toBe(false)
-    expect(wrapper.find('.web-research-open').exists()).toBe(false)
     expect(wrapper.find('.reference-scope').exists()).toBe(false)
 
     await wrapper.get('.confirmed-source-adjust').trigger('click')
     expect(wrapper.get(`.source-status--${workflowState}`).text()).toContain('正在调整资料')
     expect(wrapper.find('.confirmed-source-summary').exists()).toBe(false)
-    expect(wrapper.find('.empty-drop').exists()).toBe(false)
     expect(wrapper.get('.source-group--primary').text()).toContain('第二讲主教材.docx')
     expect(wrapper.get('.reference-add').text()).toContain('上传参考文件')
     expect(wrapper.find('.reference-scope').exists()).toBe(true)
@@ -432,6 +430,53 @@ describe('CourseReferenceTray lesson scope', () => {
 
     await wrapper.get('.source-status__regenerate').trigger('click')
     expect(wrapper.emitted('regenerate-workflow')).toHaveLength(1)
+  })
+
+  it('右侧栏只读展示当前资料，不提供修改入口', async () => {
+    const wrapper = mount(CourseReferenceTray, {
+      props: {
+        courseId: 'course-1', modelValue: [{ ...assets[2]!, role: 'primary' }], stage: 'lesson',
+        workflowState: 'review', hideWorkflowStatus: true, readonly: true, showCourseInformation: false,
+        scopeTargetId: 'lesson-plan:L1-2', scopeTargetType: 'lesson_plan', scopeTargetLabel: '第二讲',
+        lessonTargets: [
+          { id: 'lesson-plan:L1-1', lessonId: 'L1-1', label: '第一讲', position: 1 },
+          { id: 'lesson-plan:L1-2', lessonId: 'L1-2', label: '第二讲', position: 2 },
+        ],
+      },
+      global: { stubs: { WebResearchDialog: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.confirmed-source-summary').exists()).toBe(false)
+    expect(wrapper.find('.source-status').exists()).toBe(false)
+    expect(wrapper.find('.reference-scope').exists()).toBe(false)
+    expect(wrapper.find('.system-context').exists()).toBe(false)
+    expect(wrapper.get('.source-group--primary').text()).toContain('第二讲主教材.docx')
+    expect(wrapper.get('.source-group--references').text()).toContain('第二讲练习.pdf')
+    expect(wrapper.get('.source-group--web .source-empty').text()).toContain('未使用来源')
+    expect(wrapper.find('button').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('调整资料')
+    expect(wrapper.text()).not.toContain('资料使用范围')
+  })
+
+  it('重新生成准备流程先保留资料草稿，确认前不写入当前关系', async () => {
+    const wrapper = mount(CourseReferenceTray, {
+      props: {
+        courseId: 'course-1', modelValue: [{ ...assets[2]!, role: 'primary' }], stage: 'lesson',
+        workflowState: 'collecting', hideWorkflowStatus: true, deferPersistence: true,
+        scopeTargetId: 'lesson-plan:L1-2', scopeTargetType: 'lesson_plan', scopeTargetLabel: '第二讲',
+      },
+      global: { stubs: { WebResearchDialog: true } },
+    })
+    await flushPromises()
+    vi.mocked(http.put).mockClear()
+
+    await wrapper.get('.drop-zone.has-file > button').trigger('click')
+    await flushPromises()
+
+    const draft = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as any[]
+    expect(draft.some(item => item.asset_id === assets[2]!.asset_id)).toBe(false)
+    expect(http.put).not.toHaveBeenCalled()
   })
 
   it('生成完成且没有资料时只显示未使用资料', async () => {

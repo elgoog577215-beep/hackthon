@@ -59,12 +59,12 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => mount(TeacherCou
     stubs: {
       'el-dialog': {
         props: ['modelValue'],
-        template: '<section v-if="modelValue"><slot /></section>',
+        template: '<section v-if="modelValue"><slot /><slot name="footer" /></section>',
       },
       CourseReferenceTray: {
         name: 'CourseReferenceTray',
-        props: ['modelValue', 'scopeTargetId', 'scopeTargetLabel', 'previousScopeTargetId', 'workflowState', 'workflowDetail', 'workflowProgress', 'workflowCanRetry', 'hideWorkflowStatus'],
-        template: '<aside data-testid="reference-tray-stub"><span v-if="hideWorkflowStatus === undefined">{{ workflowDetail }}</span><i data-testid="workflow-progress">{{ workflowProgress }}</i><button data-testid="open-course-information" type="button" @click="$emit(\'open-course-information\')">课程信息</button><button v-if="workflowCanRetry && hideWorkflowStatus === undefined" data-testid="retry-workflow" type="button" @click="$emit(\'retry-workflow\')">重试生成</button><slot name="workflow-action" /></aside>',
+        props: ['modelValue', 'scopeTargetId', 'scopeTargetLabel', 'previousScopeTargetId', 'workflowState', 'workflowDetail', 'workflowProgress', 'workflowCanRetry', 'hideWorkflowStatus', 'readonly', 'deferPersistence', 'showCourseInformation'],
+        template: '<aside data-testid="reference-tray-stub" :data-readonly="readonly ? \'true\' : \'false\'"><span v-if="hideWorkflowStatus === undefined">{{ workflowDetail }}</span><i data-testid="workflow-progress">{{ workflowProgress }}</i><button v-if="showCourseInformation !== false" data-testid="open-course-information" type="button" @click="$emit(\'open-course-information\')">课程信息</button><button v-if="workflowCanRetry && hideWorkflowStatus === undefined" data-testid="retry-workflow" type="button" @click="$emit(\'retry-workflow\')">重试生成</button><slot name="workflow-action" /></aside>',
         emits: ['open-course-information', 'retry-workflow', 'regenerate-workflow', 'source-state-change', 'update:modelValue'],
       },
       CompanionDocumentStudio: true,
@@ -155,7 +155,8 @@ describe('teacher course workbench outline streaming', () => {
   it('把课程信息入口事件交给课程工作区打开弹窗', async () => {
     const wrapper = mountWorkbench()
 
-    await wrapper.get('[data-testid="open-course-information"]').trigger('click')
+    expect(wrapper.find('[data-testid="open-course-information"]').exists()).toBe(false)
+    await wrapper.get('.outline-flow-steps button').trigger('click')
 
     expect(wrapper.emitted('open-course-information')).toHaveLength(1)
   })
@@ -423,6 +424,36 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.getComponent({ name: 'CourseReferenceTray' }).props('hideWorkflowStatus')).toBe('')
     expect(wrapper.get('.teacher-workbench').classes()).not.toContain('is-ai-collaboration')
     expect(wrapper.get('.stage-rail').attributes('style')).toBeUndefined()
+  })
+
+  it('右栏只读展示资料，重新生成先进入独立准备流程', async () => {
+    useCourseStore().nodes = [{
+      node_id: 'L1-1', parent_node_id: 'root', node_name: '第1讲 程序环境与基础语法', node_level: 1,
+      node_content: '', node_type: 'original', generation_status: 'completed', generated_chars: 0,
+    }] as any
+    const wrapper = mountWorkbench()
+    await flushPromises()
+
+    const heading = wrapper.get('.context-pane-heading')
+    const rightTray = wrapper.getComponent({ name: 'CourseReferenceTray' })
+    expect(rightTray.props('readonly')).toBe('')
+    expect(rightTray.props('showCourseInformation')).toBe(false)
+    expect(heading.text()).toContain('内容已就绪')
+
+    await heading.get('.primary-status-action').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="regeneration-dialog"]').exists()).toBe(true)
+    const trays = wrapper.findAllComponents({ name: 'CourseReferenceTray' })
+    expect(trays).toHaveLength(2)
+    expect(trays[1]!.props('readonly')).toBeUndefined()
+    expect(trays[1]!.props('deferPersistence')).toBe('')
+    trays[1]!.vm.$emit('update:modelValue', [])
+    expect(wrapper.emitted('generateOutline')).toBeUndefined()
+
+    await wrapper.get('.regeneration-dialog__actions .primary').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('generateOutline')).toHaveLength(1)
   })
 
   it('右侧审阅建议进入统一 AI 候选链，采用后重新审读并移除已解决问题', async () => {
@@ -1552,13 +1583,14 @@ describe('teacher course workbench outline streaming', () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
-      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', confirmed_revision_id: 'plan-1', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', confirmed_revision_id: 'plan-1', source_state: 'current', ready: true, revisions: [], ppt_assets: [{ engine: 'slide_deck_v6', ready: true }] },
       script: { current_revision_id: 'script-1', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1', source_state: 'current', ready: true, confirmed: false, confirmed_at: '', sections: [] },
     }] as any
     const routePush = vi.spyOn(router, 'push').mockResolvedValue(undefined as any)
     const wrapper = mountWorkbench({ initialStage: 'ppt' })
 
-    wrapper.findComponent({ name: 'CourseReferenceTray' }).vm.$emit('regenerate-workflow')
+    await wrapper.get('.context-pane-heading .primary-status-action').trigger('click')
+    await wrapper.get('.regeneration-dialog__actions .primary').trigger('click')
     await flushPromises()
 
     expect(routePush).toHaveBeenCalledWith({

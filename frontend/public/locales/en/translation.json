@@ -733,7 +733,10 @@
       "aiInProgress": "Working on this AI edit",
       "paused": "Paused with the source snapshot and progress preserved",
       "retryAvailable": "Current sources are preserved and generation can be retried",
-      "prepareSources": "Adjust the sources for this generation below"
+      "prepareSources": "Adjust the sources for this generation below",
+      "regenerate": "Regenerate",
+      "prepareRegeneration": "Prepare regeneration",
+      "startRegeneration": "Start regeneration"
     },
     "aiCollaboration": {
       "title": "AI assistant",
@@ -1235,11 +1238,11 @@
       "pptCurrentSources": "Used in this run", "pptEmpty": "No supporting sources yet", "pptEmptyHint": "AI will start from the confirmed script. New sources will appear here.",
       "pptAddSources": "Add sources", "pptWebResearch": "Search the web",
       "primary": "Source file", "pptPrimary": "Primary reference", "primaryLimit": "Up to 1", "addPrimary": "Upload source file", "addPptPrimary": "Add primary reference",
-      "supporting": "Reference files", "addSupporting": "Upload reference files", "courseMaterials": "Course material library",
+      "supporting": "Reference files", "addSupporting": "Upload reference files", "unusedFiles": "No files used", "courseMaterials": "Course material library",
       "questionSources": "Past exams", "questionSourcesHelp": "Upload past exams or an existing question bank for import and AI generation", "questionSourcesCount": "{count} files", "questionSourcesEmpty": "No past exams yet", "addQuestionSources": "Add or drop past exams", "addQuestionSourcesCompact": "Add past exams", "questionSourcesSaveFailed": "Could not save past exam sources",
       "allSelected": "All current materials are selected", "loadFailed": "Could not load course materials",
       "registerFailed": "The file uploaded but could not be added to this course", "uploadFailed": "File upload failed", "saveFailed": "Could not save this session's references",
-      "webSources": "Web sources", "startWebResearch": "Add web sources", "continueWebResearch": "Continue searching"
+      "webSources": "Web sources", "startWebResearch": "Add web sources", "continueWebResearch": "Continue searching", "unusedSources": "No sources used"
     },
     "webResearch": {
       "title": "Web research", "subtitle": "Describe what you need, then review the actual queries and sources",
