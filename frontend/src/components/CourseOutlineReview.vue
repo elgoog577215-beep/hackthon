@@ -4616,14 +4616,12 @@ defineExpose({
 .outline-rich-editor :deep(h2) {
   margin:0;
   padding:27px 0 10px;
-  border-top:1px solid #dfe3e9;
   color:#1d2639;
   font-size:21px;
   font-weight:820;
   line-height:1.4;
   letter-spacing:-.015em;
 }
-.outline-rich-editor :deep(h2:first-child) { border-top:0; }
 .outline-rich-editor :deep(.outline-lesson-type-control) {
   display:inline-flex;
   align-items:center;
@@ -4716,7 +4714,7 @@ defineExpose({
   font-size:13px;
   line-height:1.75;
 }
-.outline-rich-editor :deep([data-single-section-body="true"]) { margin-left:0; padding-bottom:22px; border-bottom:1px solid #e6e9ef; }
+.outline-rich-editor :deep([data-single-section-body="true"]) { margin-left:0; padding-bottom:22px; }
 .outline-rich-editor :deep(h2 + [data-node-body]) { margin-left:0; color:#6c7688; }
 .outline-rich-editor :deep([data-node-body] p) { min-height:1.75em; margin:0; }
 .outline-rich-editor :deep([data-node-body] ul),
