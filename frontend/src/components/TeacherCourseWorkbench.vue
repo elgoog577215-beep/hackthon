@@ -3771,7 +3771,14 @@ onBeforeUnmount(() => {
 .lesson-outline--fixed>header{min-height:52px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 13px;border-bottom:1px solid #eceff3;background:#fff}
 .lesson-outline--fixed>header strong{color:#2f3a4f;font-size:15px;font-weight:760}
 .lesson-outline--fixed>header small{color:#748195;font-size:14px;font-weight:650}
-.lesson-outline--fixed>nav{position:static;min-height:0;max-height:none;overflow:auto;padding:6px;background:#fff}
+.lesson-outline--fixed>nav{position:static;min-height:0;max-height:none;overflow:auto;padding:6px;background:#fff;scrollbar-width:thin;scrollbar-color:transparent transparent}
+.lesson-outline--fixed:hover>nav,.lesson-outline--fixed:focus-within>nav{scrollbar-color:rgba(91,87,232,.38) transparent}
+.lesson-outline--fixed>nav::-webkit-scrollbar{width:7px}
+.lesson-outline--fixed>nav::-webkit-scrollbar-track{background:transparent}
+.lesson-outline--fixed>nav::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:999px;background:transparent;background-clip:padding-box;transition:background-color .18s ease-out}
+.lesson-outline--fixed:hover>nav::-webkit-scrollbar-thumb,.lesson-outline--fixed:focus-within>nav::-webkit-scrollbar-thumb{background-color:rgba(91,87,232,.38)}
+.lesson-outline--fixed>nav::-webkit-scrollbar-thumb:hover{background-color:rgba(91,87,232,.54)}
+.lesson-outline--fixed>nav::-webkit-scrollbar-thumb:active{background-color:rgba(91,87,232,.7)}
 .lesson-outline--fixed>nav::before{display:none}
 .lesson-outline--fixed .lesson-outline-chapter-button{min-height:50px;display:grid;grid-template-columns:minmax(0,1fr) 20px;align-items:center;gap:8px;padding:7px 8px 7px 10px;border-radius:8px}
 .lesson-outline--fixed .lesson-outline-chapter-copy{min-width:0;display:grid;gap:4px}
@@ -3814,7 +3821,7 @@ onBeforeUnmount(() => {
 .lesson-course-preview>article li strong{color:#364156;font-weight:700}
 .lesson-course-preview__pending{color:#7b8798!important}
 @media(max-width:1320px){.has-lesson-outline .lesson-workspace{grid-template-columns:212px minmax(0,1fr);gap:0;padding:0}}
-@media(prefers-reduced-motion:reduce){.outline-flow-steps button,.lesson-outline--fixed .lesson-outline-chapter-button{transition:none}}
+@media(prefers-reduced-motion:reduce){.outline-flow-steps button,.lesson-outline--fixed .lesson-outline-chapter-button,.lesson-outline--fixed>nav::-webkit-scrollbar-thumb{transition:none}}
 
 /* The right side is contextual evidence for the selected asset, not a permanent assistant destination. */
 .teacher-workbench.is-context-collapsed{grid-template-columns:210px minmax(520px,1fr)}
