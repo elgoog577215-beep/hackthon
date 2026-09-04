@@ -780,7 +780,23 @@
                     </button>
                   </template>
                   <template v-else>
-                    <button type="button" @click="beginScriptEditing"><Pencil :size="15" />{{ t('courseWorkbench.scriptDocument.edit', '编辑讲义') }}</button>
+                    <button v-if="currentScriptReady" type="button" @click="beginScriptEditing"><Pencil :size="15" />{{ t('courseWorkbench.scriptDocument.edit', '编辑讲义') }}</button>
+                    <button
+                      v-else
+                      data-testid="script-single-start"
+                      type="button"
+                      :class="{ 'primary-action': !scriptBatchLaunchVisible }"
+                      :disabled="scriptBatchStarting || !currentScriptCanGenerate || referenceGenerationBlocked"
+                      :title="referenceGenerationBlocked
+                        ? referenceGenerationBlockReason
+                        : currentScriptCanGenerate
+                          ? ''
+                          : t('courseWorkbench.scriptBatch.planRequired', '请先完成可用教案')"
+                      @click="generateScript()"
+                    >
+                      <Sparkles :size="15" />
+                      {{ t('courseWorkbench.scriptDocument.generate', '生成本讲讲义') }}
+                    </button>
                     <i v-if="scriptBatchLaunchVisible" class="lesson-action-divider" aria-hidden="true" />
                     <button
                       v-if="scriptBatchLaunchVisible || scriptBatchStarting"

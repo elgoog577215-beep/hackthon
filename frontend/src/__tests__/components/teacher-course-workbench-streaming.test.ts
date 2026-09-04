@@ -1438,7 +1438,7 @@ describe('teacher course workbench outline streaming', () => {
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲 主题${number}`, duration_minutes: 45,
       sections: [1, 2].map(section => ({ section_node_id: `L2-${number}-${section}`, title: `${number}.${section} 小节${section}` })),
       script: { current_revision_id: number === 1 ? 'script-1' : '', source_lesson_plan_revision_id: 'plan-1', source_state: 'current', ready: number === 1, sections: [] },
-      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: number === 1 ? 'plan-1' : '', source_state: 'current', ready: number === 1, current_revision: null, ppt_assets: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
     })) as any
     for (const stage of ['lesson', 'script', 'ppt']) {
       const wrapper = mountWorkbench({ initialStage: stage })

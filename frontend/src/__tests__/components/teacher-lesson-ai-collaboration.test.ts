@@ -183,7 +183,7 @@ describe('教案 AI 协作编辑模式', () => {
   it('精确字段在对象下方生成，携带对象身份并显示真实等待时间', async () => {
     const store = useTeacherLessonAuthoringStore()
     store.lessons = [structuredClone(lesson)]
-    const candidatePlan = structuredClone(lesson.plan.revisions[0]!.plan)
+    const candidatePlan = structuredClone(lesson.plan.current_revision!.plan)
     candidatePlan.sections[0].teaching_modules[0].teacher_activity = '先让学生预测，再讲解四步流程'
     let finishCandidate: ((candidate: TeacherLessonPlanCandidate) => void) | undefined
     const createCandidate = vi.spyOn(store, 'createAiCandidate').mockImplementation(async (...args) => {
@@ -191,7 +191,7 @@ describe('教案 AI 协作编辑模式', () => {
       onProgress?.({ status: 'running', message: '正在读取局部上下文', elapsed_ms: 2200 })
       return await new Promise<TeacherLessonPlanCandidate>((resolve) => { finishCandidate = resolve })
     })
-    vi.spyOn(store, 'resolveAiCandidate').mockResolvedValue(lesson.plan)
+    vi.spyOn(store, 'resolveAiCandidate').mockResolvedValue(lesson)
     const wrapper = mountWorkbench()
     await flushPromises()
 
