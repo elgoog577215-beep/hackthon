@@ -44,15 +44,28 @@ The system SHALL persist an image prompt before provider execution. When no prov
 - **THEN** the system returns `provider_unavailable` with the saved prompt and retry action
 - **AND** no asset ID or synthetic image is reported
 
-### Requirement: Animation is an inspectable scene specification
+### Requirement: Animation is a continuous inspectable teaching scene
 
-The system SHALL represent animation as `scene_spec_v1` with bounded objects, actions, timing, focus, checkpoints, and a static fallback. The player SHALL support play, pause, previous step, next step, and replay without executing generated JavaScript.
+The system SHALL use the configured text model to plan new animations as `scene_spec_v2` with bounded SVG primitives, continuous motion paths, rotation, tracing, timing, checkpoints, and a static fallback. A `scene_spec_v2` SHALL contain actual motion, rotation, or path tracing; a physical-motion scene SHALL contain continuous movement and SHALL NOT pass validation as text-card reveals only. The player SHALL support play, pause, previous step, next step, and replay without executing generated JavaScript or Python. Existing `scene_spec_v1` expressions SHALL remain readable as legacy step diagrams.
 
 #### Scenario: Teacher reviews an animation candidate
 
 - **WHEN** an animation candidate is shown
 - **THEN** the teacher can pause it and move between checkpoints
 - **AND** reduced-motion preferences disable smooth automatic transitions
+
+#### Scenario: Teacher requests a ball rolling down a slope
+
+- **WHEN** the current script describes a ball rolling down an inclined plane
+- **THEN** the generated scene contains a slope primitive and a ball primitive
+- **AND** the ball continuously moves along the slope with accelerating easing and visible rotation
+- **AND** the candidate remains a validated scene specification rather than executable model code
+
+#### Scenario: Model returns only a playing diagram
+
+- **WHEN** an AI-planned scene contains only text-card reveal or focus actions
+- **THEN** validation rejects that result as an animation
+- **AND** no candidate is published unless an explicit validated motion template is available
 
 ### Requirement: Visual failures never block core teaching artifacts
 

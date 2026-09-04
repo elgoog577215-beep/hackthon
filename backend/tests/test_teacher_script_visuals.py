@@ -1,4 +1,5 @@
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -10,8 +11,10 @@ from starlette.requests import Request
 from slide_asset_repository import SlideAssetRepository
 from teacher_script_visuals import (
     TeacherScriptVisualService,
+    compile_inclined_plane_scene,
     compile_script_block_diagram,
     compile_script_block_scene,
+    plan_script_block_scene,
     recommend_script_visuals,
 )
 from teaching_representations import RepresentationConflict, TeachingRepresentationRepository
@@ -53,6 +56,20 @@ class InspectingImageProvider(WorkingImageProvider):
         assert spec.payload["content"]["generation_status"] == "pending"
         assert candidate.artifact_ids == []
         return super().generate(prompt=prompt, output_path=output_path, **kwargs)
+
+
+class FakeAnimationProvider:
+    def __init__(self, payload: dict) -> None:
+        self.payload = payload
+        self.calls: list[dict] = []
+
+    async def _call_llm(self, prompt: str, **kwargs) -> str:
+        self.calls.append({"prompt": prompt, **kwargs})
+        return json.dumps(self.payload, ensure_ascii=False)
+
+    @staticmethod
+    def _extract_json(response: str) -> dict:
+        return json.loads(response)
 
 
 def block(content: str = "系统先读取输入，然后建立概念关系，最后输出可检查结果。") -> dict:
@@ -105,6 +122,117 @@ def test_diagram_and_scene_are_bounded_source_specs():
     assert len(scene["checkpoints"]) >= 2
     assert scene["static_fallback"]["type"] == "diagram_spec_unit"
     assert all(action["duration_ms"] >= 120 for action in scene["actions"])
+
+
+def test_inclined_plane_scene_has_continuous_motion_rotation_and_trace():
+    scene = compile_inclined_plane_scene(
+        section_node_id="section-1",
+        block_id="block-1",
+        title="小球滚下斜面",
+        content="小球从斜面高处由静止释放，沿斜面加速滚下。",
+    )
+
+    assert scene["schema_version"] == "scene_spec_v2"
+    assert scene["scene_kind"] == "physical_motion"
+    assert {item["kind"] for item in scene["objects"]} >= {"circle", "polygon", "path"}
+    actions = {item["action_type"]: item for item in scene["actions"]}
+    assert actions["move"]["target_id"] == "ball"
+    assert actions["move"]["easing"] == "accelerate"
+    assert len(actions["move"]["path"]) >= 3
+    assert actions["rotate"]["to_rotation"] >= 360
+    assert actions["trace"]["target_id"] == "trajectory"
+
+
+def test_inclined_plane_fallback_does_not_invent_acceleration():
+    scene = compile_inclined_plane_scene(
+        section_node_id="section-1",
+        block_id="block-1",
+        title="小球滚下斜面",
+        content="小球从斜面高处滚下。",
+    )
+
+    actions = {item["action_type"]: item for item in scene["actions"]}
+    assert actions["move"]["easing"] == "linear"
+    assert "速度变化" not in scene["learning_focus"]
+    assert all(item["object_id"] != "speed_label" for item in scene["objects"])
+
+
+def test_ai_scene_planner_keeps_motion_dsl_and_rejects_executable_code():
+    planned = compile_inclined_plane_scene(
+        section_node_id="section-1",
+        block_id="block-1",
+        title="斜面运动",
+        content="小球沿斜坡滚下。",
+    )
+    planned.pop("generation_mode")
+    planned.pop("static_fallback")
+    provider = FakeAnimationProvider(planned)
+
+    scene = asyncio.run(plan_script_block_scene(
+        provider=provider,
+        section_node_id="section-1",
+        block_id="block-1",
+        title="斜面运动",
+        content="小球沿斜坡滚下。",
+        instruction="突出加速和转动",
+    ))
+
+    assert scene["schema_version"] == "scene_spec_v2"
+    assert scene["generation_mode"] == "ai_planned"
+    assert scene["static_fallback"]["type"] == "diagram_spec_unit"
+    assert any(item["action_type"] == "move" for item in scene["actions"])
+    assert "JavaScript" in provider.calls[0]["system_prompt"]
+    assert "不得擅自假设光滑斜面" in provider.calls[0]["system_prompt"]
+    request = json.loads(provider.calls[0]["prompt"])
+    assert request["constraints"]["no_unsupported_qualitative_claims"] is True
+    assert provider.calls[0]["json_mode"] is True
+
+
+def test_invalid_generic_ai_scene_fails_instead_of_becoming_a_playing_diagram():
+    provider = FakeAnimationProvider({
+        "schema_version": "scene_spec_v2",
+        "title": "伪动画",
+        "scene_kind": "process",
+        "learning_focus": "测试",
+        "duration_ms": 2000,
+        "objects": [],
+        "actions": [],
+        "checkpoints": [],
+    })
+
+    with pytest.raises(RepresentationConflict, match="Animation scene planning failed"):
+        asyncio.run(plan_script_block_scene(
+            provider=provider,
+            section_node_id="section-1",
+            block_id="block-1",
+            title="信息处理",
+            content="系统读取输入并产生输出。",
+        ))
+
+
+def test_ai_animation_candidate_persists_scene_v2(tmp_path):
+    planned = compile_inclined_plane_scene(
+        section_node_id="section-1",
+        block_id="block-1",
+        title="斜面运动",
+        content="小球沿斜面滚下。",
+    )
+    planned.pop("generation_mode")
+    planned.pop("static_fallback")
+    visual_service = service(tmp_path)
+
+    candidate = asyncio.run(visual_service.create_candidate_with_ai_animation(
+        provider=FakeAnimationProvider(planned),
+        course_id="course-1",
+        lesson_unit_id="lesson-1",
+        script_revision_id="script-r1",
+        section_node_id="section-1",
+        block=block("小球从斜面高处释放，沿斜面加速滚下。"),
+    ))
+
+    assert candidate["content"]["schema_version"] == "scene_spec_v2"
+    assert candidate["content"]["generation_mode"] == "ai_planned"
+    assert candidate["status"] == "candidate"
 
 
 def test_recommendation_identifies_process_as_animation_candidate():

@@ -157,6 +157,54 @@ describe('结构化动画播放器', () => {
     static_fallback: {},
   }
 
+  const motionScene = {
+    schema_version: 'scene_spec_v2',
+    title: '小球沿斜面滚下',
+    scene_kind: 'physical_motion',
+    learning_focus: '观察小球的位置、转动和速度变化。',
+    assumptions: [],
+    duration_ms: 6200,
+    generation_mode: 'ai_planned',
+    objects: [
+      {
+        object_id: 'ramp', kind: 'polygon', label: '斜面', x: 0, y: 0, width: 0, height: 0,
+        radius: 0, points: [{ x: 14, y: 75 }, { x: 82, y: 75 }, { x: 14, y: 22 }],
+        fill: 'muted', stroke: 'ink', stroke_width: 1.5, visible: true,
+      },
+      {
+        object_id: 'ball', kind: 'circle', label: '小球', x: 20, y: 22.5, width: 0, height: 0,
+        radius: 4, points: [], fill: 'warm', stroke: 'ink', stroke_width: 2, visible: true,
+      },
+      {
+        object_id: 'trajectory', kind: 'path', label: '轨迹', x: 0, y: 0, width: 0, height: 0,
+        radius: 0, points: [{ x: 20, y: 22.5 }, { x: 76, y: 66.5 }],
+        fill: 'muted', stroke: 'accent', stroke_width: 1.5, visible: false,
+      },
+    ],
+    actions: [
+      {
+        action_id: 'move', action_type: 'move', target_id: 'ball', start_ms: 1200, duration_ms: 4200,
+        easing: 'accelerate', path: [{ x: 20, y: 22.5 }, { x: 76, y: 66.5 }],
+        from_rotation: 0, to_rotation: 0,
+      },
+      {
+        action_id: 'rotate', action_type: 'rotate', target_id: 'ball', start_ms: 1200, duration_ms: 4200,
+        easing: 'accelerate', path: [], from_rotation: 0, to_rotation: 1080,
+      },
+      {
+        action_id: 'trace', action_type: 'trace', target_id: 'trajectory', start_ms: 1200, duration_ms: 4200,
+        easing: 'accelerate', path: [], from_rotation: 0, to_rotation: 0,
+      },
+    ],
+    checkpoints: [
+      { checkpoint_id: 's1', label: '观察初始位置', at_ms: 0 },
+      { checkpoint_id: 's2', label: '释放小球', at_ms: 1200 },
+      { checkpoint_id: 's3', label: '观察加速滚动', at_ms: 3300 },
+      { checkpoint_id: 's4', label: '到达底端', at_ms: 5400 },
+    ],
+    static_fallback: {},
+  }
+
   beforeEach(async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => zhMessages })))
     await setLocale('zh')
@@ -182,5 +230,26 @@ describe('结构化动画播放器', () => {
 
     expect(wrapper.get('.scene-progress').text()).toContain('2/2')
     expect(wrapper.get('.scene-player').attributes('data-playing')).toBe('false')
+  })
+
+  it('能渲染斜面、小球和轨迹，并在时间轴上连续改变位置与转角', async () => {
+    const wrapper = mount(StructuredScenePlayer, { props: { scene: motionScene } })
+    const ball = wrapper.get('[data-object-id="ball"]')
+    const initialTransform = ball.attributes('transform')
+
+    expect(wrapper.get('.scene-player').attributes('data-scene-version')).toBe('scene_spec_v2')
+    expect(wrapper.find('[data-object-id="ramp"] polygon').exists()).toBe(true)
+    expect(wrapper.find('[data-object-id="ball"] circle').exists()).toBe(true)
+    expect(wrapper.get('.scene-purpose').text()).toContain('AI 场景动画')
+
+    const nextButton = () => wrapper.findAll('.scene-controls button')
+      .find(button => button.text().includes('下一步'))!
+    await nextButton().trigger('click')
+    await nextButton().trigger('click')
+
+    expect(wrapper.get('.scene-progress').text()).toContain('观察加速滚动')
+    expect(ball.attributes('transform')).not.toBe(initialTransform)
+    expect(ball.attributes('transform')).toContain('rotate(270)')
+    expect(wrapper.get('[data-object-id="trajectory"] polyline').attributes('style')).toContain('stroke-dashoffset: 75')
   })
 })

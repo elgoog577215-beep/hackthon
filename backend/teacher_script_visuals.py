@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import tempfile
 import uuid
@@ -26,7 +27,7 @@ from teaching_representations import (
     teaching_representation_repository,
 )
 
-SCRIPT_VISUAL_COMPILER_VERSION = "teacher_script_visual_compiler_v1"
+SCRIPT_VISUAL_COMPILER_VERSION = "teacher_script_visual_compiler_v2"
 ScriptVisualType = Literal["diagram", "image", "animation"]
 
 
@@ -71,7 +72,7 @@ class SceneSpecV1(BaseModel):
     static_fallback: dict[str, Any]
 
     @model_validator(mode="after")
-    def validate_scene(self) -> "SceneSpecV1":
+    def validate_scene(self) -> SceneSpecV1:
         object_ids = {item.object_id for item in self.objects}
         if len(object_ids) != len(self.objects):
             raise ValueError("Scene object ids must be unique")
@@ -81,6 +82,138 @@ class SceneSpecV1(BaseModel):
             raise ValueError("Scene checkpoints must be ordered")
         if self.checkpoints[-1].at_ms > self.duration_ms:
             raise ValueError("Scene checkpoint exceeds scene duration")
+        return self
+
+
+SceneColorV2 = Literal[
+    "ink",
+    "primary",
+    "accent",
+    "warm",
+    "muted",
+    "success",
+    "danger",
+]
+
+
+class ScenePointV2(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    x: float = Field(ge=0, le=100)
+    y: float = Field(ge=0, le=100)
+
+
+class SceneObjectV2(BaseModel):
+    """A safe SVG primitive. Coordinates use a normalized 100 x 100 canvas."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    object_id: str = Field(min_length=1, max_length=80)
+    kind: Literal["circle", "rect", "line", "polygon", "path", "arrow", "text"]
+    label: str = Field(default="", max_length=120)
+    x: float = Field(default=0, ge=0, le=100)
+    y: float = Field(default=0, ge=0, le=100)
+    width: float = Field(default=0, ge=0, le=100)
+    height: float = Field(default=0, ge=0, le=100)
+    radius: float = Field(default=0, ge=0, le=20)
+    points: list[ScenePointV2] = Field(default_factory=list, max_length=16)
+    fill: SceneColorV2 = "muted"
+    stroke: SceneColorV2 = "ink"
+    stroke_width: float = Field(default=1.5, ge=0.5, le=6)
+    visible: bool = True
+
+    @model_validator(mode="after")
+    def validate_geometry(self) -> SceneObjectV2:
+        if self.kind == "circle" and self.radius <= 0:
+            raise ValueError("Scene circle requires radius")
+        if self.kind == "rect" and (self.width <= 0 or self.height <= 0):
+            raise ValueError("Scene rect requires width and height")
+        minimum_points = {
+            "line": 2,
+            "arrow": 2,
+            "path": 2,
+            "polygon": 3,
+        }.get(self.kind, 0)
+        if minimum_points and len(self.points) < minimum_points:
+            raise ValueError(f"Scene {self.kind} requires at least {minimum_points} points")
+        return self
+
+
+class SceneActionV2(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action_id: str = Field(min_length=1, max_length=120)
+    action_type: Literal["reveal", "move", "rotate", "pulse", "trace"]
+    target_id: str = Field(min_length=1, max_length=80)
+    start_ms: int = Field(ge=0)
+    duration_ms: int = Field(ge=120, le=15000)
+    easing: Literal["linear", "accelerate", "decelerate", "ease_in_out"] = "linear"
+    path: list[ScenePointV2] = Field(default_factory=list, max_length=16)
+    from_rotation: float = Field(default=0, ge=-3600, le=3600)
+    to_rotation: float = Field(default=0, ge=-3600, le=3600)
+    narration: str = Field(default="", max_length=240)
+
+    @model_validator(mode="after")
+    def validate_action(self) -> SceneActionV2:
+        if self.action_type == "move" and len(self.path) < 2:
+            raise ValueError("Scene move requires at least two path points")
+        return self
+
+
+class SceneSpecV2(BaseModel):
+    """Continuous, code-rendered teaching animation without executable model code."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["scene_spec_v2"] = "scene_spec_v2"
+    title: str = Field(min_length=1, max_length=160)
+    scene_kind: Literal[
+        "physical_motion",
+        "geometry",
+        "system_change",
+        "process",
+        "comparison",
+    ]
+    learning_focus: str = Field(min_length=1, max_length=240)
+    assumptions: list[str] = Field(default_factory=list, max_length=8)
+    duration_ms: int = Field(ge=1000, le=30000)
+    objects: list[SceneObjectV2] = Field(min_length=2, max_length=24)
+    actions: list[SceneActionV2] = Field(min_length=1, max_length=48)
+    checkpoints: list[SceneCheckpointV1] = Field(min_length=2, max_length=10)
+    generation_mode: Literal["ai_planned", "deterministic_template"]
+    static_fallback: dict[str, Any]
+
+    @model_validator(mode="after")
+    def validate_scene(self) -> SceneSpecV2:
+        object_ids = {item.object_id for item in self.objects}
+        if len(object_ids) != len(self.objects):
+            raise ValueError("Scene object ids must be unique")
+        if any(action.target_id not in object_ids for action in self.actions):
+            raise ValueError("Scene action references an unknown object")
+        if self.checkpoints != sorted(self.checkpoints, key=lambda item: item.at_ms):
+            raise ValueError("Scene checkpoints must be ordered")
+        if self.checkpoints[-1].at_ms > self.duration_ms:
+            raise ValueError("Scene checkpoint exceeds scene duration")
+        trace_targets = {
+            action.target_id for action in self.actions if action.action_type == "trace"
+        }
+        kinds = {item.object_id: item.kind for item in self.objects}
+        if any(kinds.get(target_id) != "path" for target_id in trace_targets):
+            raise ValueError("Scene trace can only target a path")
+        moving_actions = [
+            action for action in self.actions if action.action_type in {"move", "rotate"}
+        ]
+        if any(kinds.get(action.target_id) not in {"circle", "rect", "text"} for action in moving_actions):
+            raise ValueError("Scene move and rotate require an anchored primitive")
+        if not any(
+            action.action_type in {"move", "rotate", "trace"}
+            for action in self.actions
+        ):
+            raise ValueError("Scene v2 requires continuous motion, rotation, or path tracing")
+        if self.scene_kind == "physical_motion" and not any(
+            action.action_type == "move" for action in self.actions
+        ):
+            raise ValueError("Physical scene requires a move action")
         return self
 
 
@@ -246,6 +379,458 @@ def compile_script_block_scene(
     ).model_dump(mode="json")
 
 
+def _static_scene_fallback(
+    *,
+    section_node_id: str,
+    block_id: str,
+    title: str,
+    content: str,
+) -> dict[str, Any]:
+    unit = compile_script_block_diagram(
+        section_node_id=section_node_id,
+        block_id=block_id,
+        title=title,
+        content=content,
+    )["units"][0]
+    return {"type": "diagram_spec_unit", "unit": unit}
+
+
+def _is_inclined_plane_motion(value: str) -> bool:
+    text = str(value or "")
+    return bool(
+        re.search(r"斜面|斜坡|坡面", text)
+        and re.search(r"小球|球体|圆柱|滚下|下滑|滚动", text)
+    )
+
+
+def compile_inclined_plane_scene(
+    *,
+    section_node_id: str,
+    block_id: str,
+    title: str,
+    content: str,
+    instruction: str = "",
+) -> dict[str, Any]:
+    """Compile a real continuous-motion scene for the canonical incline example."""
+
+    source_text = f"{title}\n{content}\n{instruction}"
+    accelerating = bool(
+        re.search(r"加速|越来越快|速度(?:逐渐|不断)?(?:增大|增加|变快)", source_text)
+    )
+    motion_easing: Literal["linear", "accelerate"] = (
+        "accelerate" if accelerating else "linear"
+    )
+    learning_focus = (
+        "观察小球沿斜面运动时的位置、转动与速度变化。"
+        if accelerating
+        else "观察小球沿斜面运动时的位置与转动变化。"
+    )
+    objects = [
+        SceneObjectV2(
+            object_id="ramp",
+            kind="polygon",
+            label="斜面",
+            points=[
+                ScenePointV2(x=14, y=75),
+                ScenePointV2(x=82, y=75),
+                ScenePointV2(x=14, y=22),
+            ],
+            fill="muted",
+            stroke="ink",
+        ),
+        SceneObjectV2(
+            object_id="ground",
+            kind="line",
+            label="地面",
+            points=[ScenePointV2(x=9, y=75), ScenePointV2(x=91, y=75)],
+            stroke="ink",
+            stroke_width=2,
+        ),
+        SceneObjectV2(
+            object_id="ball",
+            kind="circle",
+            label="小球",
+            x=20,
+            y=22.5,
+            radius=4,
+            fill="warm",
+            stroke="ink",
+            stroke_width=2,
+        ),
+        SceneObjectV2(
+            object_id="trajectory",
+            kind="path",
+            label="运动轨迹",
+            points=[
+                ScenePointV2(x=20, y=22.5),
+                ScenePointV2(x=38, y=36.5),
+                ScenePointV2(x=57, y=51.5),
+                ScenePointV2(x=76, y=66.5),
+            ],
+            fill="muted",
+            stroke="accent",
+            visible=False,
+        ),
+        SceneObjectV2(
+            object_id="gravity",
+            kind="arrow",
+            label="重力",
+            points=[ScenePointV2(x=29, y=22), ScenePointV2(x=29, y=43)],
+            stroke="danger",
+            stroke_width=2.5,
+        ),
+    ]
+    actions = [
+        SceneActionV2(
+            action_id="reveal-trajectory",
+            action_type="trace",
+            target_id="trajectory",
+            start_ms=1200,
+            duration_ms=4200,
+            easing=motion_easing,
+            narration="记录小球沿斜面的运动轨迹。",
+        ),
+        SceneActionV2(
+            action_id="move-ball",
+            action_type="move",
+            target_id="ball",
+            start_ms=1200,
+            duration_ms=4200,
+            easing=motion_easing,
+            path=[
+                ScenePointV2(x=20, y=22.5),
+                ScenePointV2(x=38, y=36.5),
+                ScenePointV2(x=57, y=51.5),
+                ScenePointV2(x=76, y=66.5),
+            ],
+            narration="小球从斜面高处释放后向下运动。",
+        ),
+        SceneActionV2(
+            action_id="rotate-ball",
+            action_type="rotate",
+            target_id="ball",
+            start_ms=1200,
+            duration_ms=4200,
+            easing=motion_easing,
+            from_rotation=0,
+            to_rotation=1080,
+            narration="小球在位移的同时持续转动。",
+        ),
+        SceneActionV2(
+            action_id="finish-pulse",
+            action_type="pulse",
+            target_id="ball",
+            start_ms=5400,
+            duration_ms=500,
+        ),
+    ]
+    if accelerating:
+        objects.append(
+            SceneObjectV2(
+                object_id="speed_label",
+                kind="text",
+                label="沿斜面方向越来越快",
+                x=58,
+                y=19,
+                fill="primary",
+                stroke="primary",
+                visible=False,
+            )
+        )
+        actions.insert(
+            -1,
+            SceneActionV2(
+                action_id="reveal-speed",
+                action_type="reveal",
+                target_id="speed_label",
+                start_ms=3000,
+                duration_ms=600,
+                narration="讲义明确指出小球的速度正在增大。",
+            ),
+        )
+
+    return SceneSpecV2(
+        title=f"{title or '斜面运动'} · 过程动画",
+        scene_kind="physical_motion",
+        learning_focus=learning_focus,
+        assumptions=["以示意比例呈现运动过程，不表示未由讲义给出的精确数值。"],
+        duration_ms=6200,
+        objects=objects,
+        actions=actions,
+        checkpoints=[
+            SceneCheckpointV1(
+                checkpoint_id="observe-initial-state",
+                label="观察斜面与小球的初始位置",
+                at_ms=0,
+            ),
+            SceneCheckpointV1(
+                checkpoint_id="release-ball",
+                label="释放小球",
+                at_ms=1200,
+            ),
+            SceneCheckpointV1(
+                checkpoint_id=(
+                    "observe-acceleration" if accelerating else "observe-motion"
+                ),
+                label=(
+                    "观察位移和转动速度的变化"
+                    if accelerating
+                    else "观察位置和转动的连续变化"
+                ),
+                at_ms=3300,
+            ),
+            SceneCheckpointV1(
+                checkpoint_id="reach-bottom",
+                label="小球到达斜面底端",
+                at_ms=5400,
+            ),
+        ],
+        generation_mode="deterministic_template",
+        static_fallback=_static_scene_fallback(
+            section_node_id=section_node_id,
+            block_id=block_id,
+            title=title,
+            content=content,
+        ),
+    ).model_dump(mode="json")
+
+
+def _coerce_scene_points(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    matches = re.findall(
+        r"(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)",
+        value,
+    )
+    return [
+        {"x": float(x_value), "y": float(y_value)}
+        for x_value, y_value in matches
+    ]
+
+
+def _normalize_ai_scene_payload(value: dict[str, Any]) -> dict[str, Any]:
+    """Normalize harmless provider shape drift before strict semantic validation."""
+
+    payload = deepcopy(value)
+    payload["scene_kind"] = {
+        "physics_motion": "physical_motion",
+        "physics": "physical_motion",
+        "physical": "physical_motion",
+    }.get(str(payload.get("scene_kind") or ""), payload.get("scene_kind"))
+    learning_focus = payload.get("learning_focus")
+    if isinstance(learning_focus, list):
+        payload["learning_focus"] = "；".join(
+            str(item).strip() for item in learning_focus if str(item).strip()
+        )
+    for item in payload.get("objects") or []:
+        if isinstance(item, dict) and "points" in item:
+            item["points"] = _coerce_scene_points(item.get("points"))
+    for item in payload.get("actions") or []:
+        if isinstance(item, dict) and "path" in item:
+            item["path"] = _coerce_scene_points(item.get("path"))
+    return payload
+
+
+async def plan_script_block_scene(
+    *,
+    provider: Any,
+    section_node_id: str,
+    block_id: str,
+    title: str,
+    content: str,
+    instruction: str = "",
+) -> dict[str, Any]:
+    """Ask the configured text model for a validated motion scene, never raw code."""
+
+    request = {
+        "source": {
+            "title": title,
+            "content": summarize_text(content, 2400),
+            "teacher_instruction": instruction.strip(),
+        },
+        "canvas": {
+            "coordinates": "normalized 0..100; x grows right; y grows down",
+            "object_kinds": ["circle", "rect", "line", "polygon", "path", "arrow", "text"],
+            "colors": ["ink", "primary", "accent", "warm", "muted", "success", "danger"],
+        },
+        "motion": {
+            "action_types": ["reveal", "move", "rotate", "pulse", "trace"],
+            "easing": ["linear", "accelerate", "decelerate", "ease_in_out"],
+        },
+        "constraints": {
+            "duration_ms": [1000, 30000],
+            "objects": [2, 24],
+            "actions": [1, 48],
+            "checkpoints": [2, 10],
+            "no_executable_code": True,
+            "no_unsupported_numeric_claims": True,
+            "no_unsupported_qualitative_claims": True,
+        },
+        "response_contract_example": {
+            "schema_version": "scene_spec_v2",
+            "title": "示例场景",
+            "scene_kind": "physical_motion",
+            "learning_focus": "用一句话说明学生需要观察的变化",
+            "assumptions": ["只写没有超出来源的必要示意假设"],
+            "duration_ms": 6000,
+            "objects": [
+                {
+                    "object_id": "surface",
+                    "kind": "polygon",
+                    "label": "固定场景",
+                    "x": 0,
+                    "y": 0,
+                    "width": 0,
+                    "height": 0,
+                    "radius": 0,
+                    "points": [{"x": 12, "y": 70}, {"x": 82, "y": 70}, {"x": 12, "y": 24}],
+                    "fill": "muted",
+                    "stroke": "ink",
+                    "stroke_width": 1.5,
+                    "visible": True,
+                },
+                {
+                    "object_id": "moving_object",
+                    "kind": "circle",
+                    "label": "运动对象",
+                    "x": 20,
+                    "y": 24,
+                    "width": 0,
+                    "height": 0,
+                    "radius": 4,
+                    "points": [],
+                    "fill": "warm",
+                    "stroke": "ink",
+                    "stroke_width": 2,
+                    "visible": True,
+                },
+            ],
+            "actions": [
+                {
+                    "action_id": "move-object",
+                    "action_type": "move",
+                    "target_id": "moving_object",
+                    "start_ms": 1000,
+                    "duration_ms": 4000,
+                    "easing": "linear",
+                    "path": [{"x": 20, "y": 24}, {"x": 76, "y": 66}],
+                    "from_rotation": 0,
+                    "to_rotation": 0,
+                    "narration": "说明这一段真正发生的运动。",
+                },
+                {
+                    "action_id": "rotate-object",
+                    "action_type": "rotate",
+                    "target_id": "moving_object",
+                    "start_ms": 1000,
+                    "duration_ms": 4000,
+                    "easing": "linear",
+                    "path": [],
+                    "from_rotation": 0,
+                    "to_rotation": 720,
+                    "narration": "只有对象真正转动时才使用。",
+                },
+            ],
+            "checkpoints": [
+                {"checkpoint_id": "start", "label": "初始状态", "at_ms": 0},
+                {"checkpoint_id": "motion", "label": "连续运动", "at_ms": 3000},
+                {"checkpoint_id": "result", "label": "结果状态", "at_ms": 5000},
+            ],
+        },
+    }
+    system_prompt = (
+        "只返回一个严格的 scene_spec_v2 JSON 对象，不要 Markdown。"
+        "你是教学场景动画导演，不是流程图生成器。先理解讲义中真正需要被看见的对象、空间、"
+        "运动、变化和因果，再用白名单 SVG 图元与时间轴表达。对物理运动必须使用 move 连续改变位置；"
+        "需要转动时同时使用 rotate；轨迹使用 path + trace。例如小球滚下斜面应画 polygon 斜面和 circle 小球，"
+        "使小球沿斜面路径 move 并 rotate，如果只做文字卡片显隐则为不合格。"
+        "不得执行或返回 JavaScript/Python，不得根据常识补造精确数值或定性条件。"
+        "来源没有明确说明时，不得擅自假设光滑斜面、无摩擦、匀速、匀加速、能量守恒等条件或结论；"
+        "只能用中性的线性示意，assumptions 也不能用来绕过来源边界。"
+        "scene_kind 只能是 physical_motion,geometry,system_change,process,comparison 之一；"
+        "learning_focus 必须是一个字符串。"
+        "line,polygon,path,arrow 的 points 必须是 [{x,y}] 数组，不能是坐标字符串。"
+        "move 必须携带至少两个点的 path 数组；move/rotate 只能作用于 circle,rect,text，"
+        "圆内转动标记由播放器自动绘制，不要另建需要跟随的 line。"
+        "顶层字段只能是 schema_version,title,scene_kind,learning_focus,assumptions,"
+        "duration_ms,objects,actions,checkpoints。"
+        "objects 的每项只能使用 object_id,kind,label,x,y,width,height,radius,points,fill,stroke,stroke_width,visible；"
+        "actions 的每项只能使用 action_id,action_type,target_id,start_ms,duration_ms,"
+        "easing,path,from_rotation,to_rotation,narration；"
+        "checkpoints 的每项只能使用 checkpoint_id,label,at_ms。"
+    )
+    try:
+        last_validation_error: Exception | None = None
+        for attempt in range(2):
+            prompt_request = deepcopy(request)
+            if last_validation_error is not None:
+                errors = []
+                if hasattr(last_validation_error, "errors"):
+                    errors = [
+                        {
+                            "path": ".".join(str(part) for part in item.get("loc") or []),
+                            "message": str(item.get("msg") or "invalid"),
+                        }
+                        for item in last_validation_error.errors(
+                            include_url=False,
+                            include_context=False,
+                            include_input=False,
+                        )[:12]
+                    ]
+                prompt_request["repair_required"] = {
+                    "attempt": attempt + 1,
+                    "validation_errors": errors,
+                    "instruction": "上一版规格未通过，请从头返回完整合法场景，不要只返回局部补丁。",
+                }
+            response = await provider._call_llm(
+                json.dumps(prompt_request, ensure_ascii=False),
+                system_prompt=system_prompt,
+                use_fast_model=False,
+                retry_count=1,
+                max_attempts=2,
+                max_tokens=6000,
+                max_input_tokens=8000,
+                max_input_chars=18000,
+                reject_truncated=True,
+                raise_on_failure=True,
+                json_mode=True,
+                enable_thinking=False,
+            )
+            payload = provider._extract_json(response or "") or {}
+            if isinstance(payload.get("scene"), dict):
+                payload = payload["scene"]
+            payload = _normalize_ai_scene_payload(dict(payload))
+            payload.pop("generation_mode", None)
+            payload.pop("static_fallback", None)
+            payload["schema_version"] = "scene_spec_v2"
+            payload["generation_mode"] = "ai_planned"
+            payload["static_fallback"] = _static_scene_fallback(
+                section_node_id=section_node_id,
+                block_id=block_id,
+                title=title,
+                content=content,
+            )
+            try:
+                return SceneSpecV2.model_validate(payload).model_dump(mode="json")
+            except Exception as validation_error:
+                last_validation_error = validation_error
+        if last_validation_error is not None:
+            raise last_validation_error
+        raise ValueError("Animation scene planner returned no candidate")
+    except Exception as exc:
+        if _is_inclined_plane_motion(f"{title}\n{content}\n{instruction}"):
+            return compile_inclined_plane_scene(
+                section_node_id=section_node_id,
+                block_id=block_id,
+                title=title,
+                content=content,
+                instruction=instruction,
+            )
+        raise RepresentationConflict(
+            f"Animation scene planning failed: {type(exc).__name__}"
+        ) from exc
+
+
 def recommend_script_visuals(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     recommendations: list[dict[str, Any]] = []
     for block in blocks:
@@ -341,6 +926,7 @@ class TeacherScriptVisualService:
         block: dict[str, Any],
         expression_type: ScriptVisualType,
         instruction: str = "",
+        planned_animation: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         block_id = str(block.get("block_id") or "")
         title = str(block.get("title") or "教学内容")
@@ -371,11 +957,15 @@ class TeacherScriptVisualService:
                 content=content,
             )
         elif expression_type == "animation":
-            visual_content = compile_script_block_scene(
-                section_node_id=section_node_id,
-                block_id=block_id,
-                title=title,
-                content=content,
+            visual_content = (
+                SceneSpecV2.model_validate(planned_animation).model_dump(mode="json")
+                if planned_animation is not None
+                else compile_script_block_scene(
+                    section_node_id=section_node_id,
+                    block_id=block_id,
+                    title=title,
+                    content=content,
+                )
             )
         else:
             visual_content = self._plan_image(
@@ -476,6 +1066,41 @@ class TeacherScriptVisualService:
                 if item.representation_id == representation_id
             )
         return self._view_item(saved, spec)
+
+    async def create_candidate_with_ai_animation(
+        self,
+        *,
+        provider: Any,
+        course_id: str,
+        lesson_unit_id: str,
+        script_revision_id: str,
+        section_node_id: str,
+        block: dict[str, Any],
+        instruction: str = "",
+    ) -> dict[str, Any]:
+        block_id = str(block.get("block_id") or "")
+        title = str(block.get("title") or "教学内容")
+        content = str(block.get("content") or "").strip()
+        if not block_id or not content:
+            raise RepresentationConflict("Script visual source block is empty")
+        planned = await plan_script_block_scene(
+            provider=provider,
+            section_node_id=section_node_id,
+            block_id=block_id,
+            title=title,
+            content=content,
+            instruction=instruction,
+        )
+        return self.create_candidate(
+            course_id=course_id,
+            lesson_unit_id=lesson_unit_id,
+            script_revision_id=script_revision_id,
+            section_node_id=section_node_id,
+            block=block,
+            expression_type="animation",
+            instruction=instruction,
+            planned_animation=planned,
+        )
 
     def resolve_candidate(
         self,
@@ -640,9 +1265,12 @@ teacher_script_visual_service = TeacherScriptVisualService()
 __all__ = [
     "SCRIPT_VISUAL_COMPILER_VERSION",
     "SceneSpecV1",
+    "SceneSpecV2",
     "TeacherScriptVisualService",
+    "compile_inclined_plane_scene",
     "compile_script_block_diagram",
     "compile_script_block_scene",
+    "plan_script_block_scene",
     "recommend_script_visuals",
     "script_visual_source_key",
     "teacher_script_visual_service",
