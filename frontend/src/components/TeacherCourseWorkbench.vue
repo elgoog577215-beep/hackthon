@@ -197,7 +197,9 @@
               <pre v-if="lessonStatus.stream_preview" class="outline-detail-stream__preview"><MathText :content="lessonStatus.stream_preview" /><span v-if="outlineLessonStatusState(lessonStatus) === 'running'" class="stream-caret" /></pre>
             </article>
           </section>
-          <div v-if="!outlineGrowth && !outlineLessonStatuses.length && !generationFailed" class="stream-waiting"><LoaderCircle :size="20" class="spin" />{{ t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…') }}</div>
+          <div v-if="!outlineGrowth && !outlineLessonStatuses.length && !generationFailed" class="stream-waiting"><LoaderCircle :size="20" class="spin" />{{ outlineContinuing
+            ? t('courseWorkbench.outlineFlow.continuing', '正在生成完整大纲…')
+            : t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…') }}</div>
           <div v-else-if="!outlineGrowth && !outlineLessonStatuses.length && generationFailed" class="stream-waiting stream-failed"><TriangleAlert :size="22" />{{ t('courseWorkbench.noContentGenerated', '本次没有生成课程内容，请检查提示后重试。') }}</div>
         </article>
         <AppErrorNotice v-if="generationErrorPresentation" class="workbench-error" :presentation="generationErrorPresentation" compact>
@@ -1794,14 +1796,14 @@ const generationFailed = computed(() => generationTask.value
   : generationStore.generationStatus === 'error')
 const generationRunning = computed(() => taskInFlight.value)
 const showStreaming = computed(() => activeStage.value === 'foundation'
-  && (generationRequested.value || taskInFlight.value || taskPaused.value || generationFailed.value))
+  && (generationRequested.value || outlineContinuing.value || taskInFlight.value || taskPaused.value || generationFailed.value))
 const hasOutline = computed(() => courseStore.nodes.some(node => Number(node.node_level || 0) <= 2))
 const freshOutlineGenerationStarting = computed(() => generationRequested.value
   && !taskInFlight.value
   && !taskPaused.value
   && !generationFailed.value)
 const outlineGrowth = computed<Record<string, any> | null>(() => {
-  if (freshOutlineGenerationStarting.value) return null
+  if (freshOutlineGenerationStarting.value || outlineContinuing.value) return null
   const value = generationTask.value?.phaseDetail?.outline_growth
   if (value && typeof value === 'object') return value as Record<string, any>
   const retained = retainedOutlineGrowth.value
@@ -1812,7 +1814,7 @@ const outlineGrowth = computed<Record<string, any> | null>(() => {
     : null
 })
 const outlineLessonStatuses = computed<OutlineLessonStatus[]>(() => {
-  if (freshOutlineGenerationStarting.value) return []
+  if (freshOutlineGenerationStarting.value || outlineContinuing.value) return []
   const raw = generationTask.value?.phaseDetail?.lesson_statuses
   const values = Array.isArray(raw)
     ? raw
@@ -1860,16 +1862,18 @@ const outlineRegenerationAvailable = computed(() => Boolean(
   && courseWorkspaceStore.blueprint?.has_unconfirmed_draft,
 ))
 const outlineFlowStep = computed<1 | 2 | 3>(() => {
-  if (outlineDetailsGenerating.value || outlineFullReady.value) return 3
+  if (outlineContinuing.value || outlineDetailsGenerating.value || outlineFullReady.value) return 3
   if (hasOutline.value || taskInFlight.value || outlineWaitingForInput.value) return 2
   return 1
 })
 const generationProgress = computed(() => freshOutlineGenerationStarting.value
   ? 2
   : Math.max(2, Number(generationTask.value?.progress || 0)))
-const currentGenerationLabel = computed(() => teacherOutlineGenerationLabel(
-  freshOutlineGenerationStarting.value ? '' : generationTask.value?.currentStep,
-))
+const currentGenerationLabel = computed(() => outlineContinuing.value
+  ? t('courseWorkbench.outlineFlow.continuing', '正在生成完整大纲…')
+  : teacherOutlineGenerationLabel(
+      freshOutlineGenerationStarting.value ? '' : generationTask.value?.currentStep,
+    ))
 const generationError = computed(() => generationFailed.value ? String(generationTask.value?.error || generationStore.failureReport?.failed_nodes?.[0]?.error || t('courseWorkbench.generationFailed', '生成中断，可以从当前结果重试。')) : '')
 const generationErrorPresentation = computed(() => generationError.value ? toAppError(generationError.value, {
   title: t('courseWorkbench.outlineGenerationFailed', '课程大纲生成失败'),

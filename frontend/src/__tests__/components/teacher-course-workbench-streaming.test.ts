@@ -373,6 +373,36 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.spin').exists()).toBe(false)
   })
 
+  it('点击生成完整大纲后立即进入第 3 步并显示完整大纲加载态', async () => {
+    useCourseStore().nodes = [{
+      node_id: 'L1-1', parent_node_id: 'root', node_name: '第1讲 设计导论', node_level: 1,
+      node_content: '', node_type: 'original', generation_status: 'completed', generated_chars: 0,
+    }] as any
+    const generation = useGenerationStore()
+    const task = generation.createTask('job-waiting', 'course-1', 'UI 设计')
+    task.status = 'waiting_for_input'
+    task.currentPhase = 'outline_shape_ready'
+    task.currentStep = '正在准备课程知识'
+    task.progress = 35
+    let resolveContinue: (() => void) | undefined
+    vi.spyOn(generation, 'continueOutlineDetails').mockImplementation(() => new Promise<void>((resolve) => {
+      resolveContinue = resolve
+    }))
+
+    const wrapper = mountWorkbench({ courseTitle: 'UI 设计' })
+    await wrapper.get('[data-testid="outline-continue-action"]').trigger('click')
+
+    const steps = wrapper.findAll('[data-testid="outline-flow-steps"] button')
+    expect(steps[1]!.classes()).toContain('complete')
+    expect(steps[2]!.classes()).toContain('active')
+    expect(wrapper.find('[data-testid="outline-workspace"]').exists()).toBe(false)
+    expect(wrapper.get('.generation-surface').text()).toContain('正在生成完整大纲')
+    expect(wrapper.get('.generation-surface').text()).not.toContain('正在准备课程知识')
+
+    resolveContinue?.()
+    await flushPromises()
+  })
+
   it('完整大纲保存了新课程方案后才提供重新生成', async () => {
     useCourseStore().nodes = [{
       node_id: 'L1-1', parent_node_id: 'root', node_name: '第1讲 设计导论', node_level: 1,
