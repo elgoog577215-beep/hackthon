@@ -42,7 +42,6 @@ from teacher_lesson_authoring import (
     extract_uploaded_pptx_review,
     lesson_scope,
     teacher_lesson_deck_to_structured_slide_deck,
-    teacher_lesson_script_revision,
     teacher_lesson_v6_source,
 )
 from teacher_asset_readiness import (
@@ -396,17 +395,6 @@ def _raise(exc: TeacherLessonAuthoringError) -> None:
         status_code=status,
         detail={"code": exc.code, "message": str(exc), **exc.details},
     ) from exc
-
-
-def _raise_retired_confirmation(asset: str) -> None:
-    raise HTTPException(
-        status_code=410,
-        detail={
-            "code": "teacher_asset_confirmation_removed",
-            "message": f"{asset}不再使用人工确认；当前可用修订会直接进入下一步。",
-            "asset": asset,
-        },
-    )
 
 
 def _assert_ppt_manuscript_confirmable(manuscript: dict) -> None:
@@ -1086,8 +1074,6 @@ def _lesson_projection(
                 source_outline_revision_id=_canonical_outline_revision(source),
             )
         )
-        for retired_field in ("status", "confirmed", "confirmed_at"):
-            arrangement.pop(retired_field, None)
         arrangement["ready"] = bool(
             arrangement_is_current and list(arrangement.get("blocks") or [])
         )
@@ -1110,21 +1096,12 @@ def _lesson_projection(
             ),
             None,
         )
-        legacy_script_sections = [
-            {
-                "section_node_id": str(section.get("node_id") or ""),
-                "title": str(section.get("node_name") or ""),
-                "content": str(section.get("node_content") or ""),
-            }
-            for section in sections
-        ]
         script_sections = deepcopy(
             script_revision.get("sections")
             if isinstance(script_revision, dict)
-            else legacy_script_sections
+            else []
         )
         current_script_revision = str((script_revision or {}).get("revision_id") or "")
-        legacy_script_fingerprint = teacher_lesson_script_revision(source, lesson_id)
         script_quality = deepcopy((script_revision or {}).get("quality_report") or {})
         plan_revision_id = str(plan_asset.get("working_revision_id") or "")
         plan_readiness = teacher_lesson_plan_readiness(plan_asset)
@@ -1220,7 +1197,6 @@ def _lesson_projection(
             "arrangement": arrangement,
             "script": {
                 "current_revision_id": current_script_revision,
-                "legacy_source_fingerprint": legacy_script_fingerprint,
                 "source_lesson_plan_revision_id": str(
                     (script_revision or {}).get("source_lesson_plan_revision_id")
                     or ""
@@ -1241,7 +1217,7 @@ def _lesson_projection(
                 ),
                 "publication_eligible": script_ready,
                 "generation_source": str(
-                    (script_revision or {}).get("generation_source") or "legacy"
+                    (script_revision or {}).get("generation_source") or ""
                 ),
                 "quality_contract_version": str(
                     (script_revision or {}).get("quality_contract_version") or ""
@@ -1736,14 +1712,6 @@ async def get_lesson_authoring_view(
         }
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
-
-
-@router.put("/courses/{course_id}/lessons/{lesson_unit_id}/arrangement/confirm")
-async def confirm_lesson_arrangement(
-    course_id: str,
-    lesson_unit_id: str,
-):
-    _raise_retired_confirmation("教学编排")
 
 
 @router.put("/courses/{course_id}/lessons/{lesson_unit_id}/arrangement/type")
@@ -3903,22 +3871,6 @@ async def save_lesson_plan_draft(
         return {"lesson": projected}
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
-
-
-@router.post("/courses/{course_id}/lessons/{lesson_unit_id}/plan/confirm")
-async def confirm_lesson_plan(
-    course_id: str,
-    lesson_unit_id: str,
-):
-    _raise_retired_confirmation("教案")
-
-
-@router.post("/courses/{course_id}/lessons/{lesson_unit_id}/script/confirm")
-async def confirm_lesson_script(
-    course_id: str,
-    lesson_unit_id: str,
-):
-    _raise_retired_confirmation("讲义")
 
 
 @router.post(

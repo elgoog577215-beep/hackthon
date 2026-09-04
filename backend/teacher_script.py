@@ -759,7 +759,7 @@ def normalize_teacher_script_section(
     section: dict[str, Any],
     contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Normalize v2 blocks and preserve v1 Markdown through a one-way adapter."""
+    """Normalize current structured blocks or teacher-authored Markdown."""
     value = deepcopy(section)
     has_contract = contract is not None
     compiled = contract or {
@@ -782,7 +782,7 @@ def normalize_teacher_script_section(
             blocks.append({
                 "block_id": _text(raw.get("block_id") or module.get("block_id"))
                 or _stable_block_id(
-                    _text(compiled.get("section_node_id")), module_id or "legacy", index
+                    _text(compiled.get("section_node_id")), module_id or "unstructured", index
                 ),
                 "module_id": module_id,
                 "role": role,
@@ -812,9 +812,9 @@ def normalize_teacher_script_section(
         if not blocks and content:
             blocks = [{
                 "block_id": _stable_block_id(
-                    _text(compiled.get("section_node_id")), "legacy", 1
+                    _text(compiled.get("section_node_id")), "unstructured", 1
                 ),
-                "module_id": "legacy_script",
+                "module_id": "unstructured_script",
                 "role": "concept",
                 "title": _text(value.get("title") or compiled.get("title") or "讲义正文"),
                 "content": content,

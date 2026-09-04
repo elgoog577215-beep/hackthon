@@ -88,6 +88,39 @@ def test_cleanup_removes_only_retired_workbench_data_after_backup(tmp_path):
                     "generation_source": "legacy_workbench_import",
                     "plan": {"sections": [{"node_id": "section-1"}]},
                 }],
+                "working_script_revision_id": "legacy-script-1",
+                "script_revisions": [{
+                    "revision_id": "current-script-1",
+                    "generation_source": "teacher_edit",
+                    "sections": [{
+                        "section_node_id": "section-1",
+                        "blocks": [{
+                            "block_id": "current-block-1",
+                            "module_id": "core_explanation",
+                            "content": "当前讲义",
+                        }],
+                    }],
+                }, {
+                    "revision_id": "legacy-script-1",
+                    "generation_source": "legacy",
+                    "sections": [{
+                        "section_node_id": "section-1",
+                        "blocks": [{
+                            "block_id": "legacy-block-1",
+                            "module_id": "legacy_script",
+                            "content": "旧讲义",
+                        }],
+                    }],
+                }],
+                "script_ai_candidates": [{
+                    "candidate_id": "legacy-candidate-1",
+                    "base_revision_id": "legacy-script-1",
+                }],
+                "ppt_assets": [{
+                    "asset_id": "ppt-1",
+                    "source_script_revision_id": "legacy-script-1",
+                    "source_state": "current",
+                }],
             },
         },
     })
@@ -108,7 +141,7 @@ def test_cleanup_removes_only_retired_workbench_data_after_backup(tmp_path):
 
     assert report["affected_file_count"] == 3
     assert report["removed_workbench_envelope_count"] == 2
-    assert report["removed_legacy_revision_count"] == 1
+    assert report["removed_legacy_revision_count"] == 2
     assert report["removed_retired_field_count"] == 11
     backup_dir = Path(report["backup_dir"])
     assert (backup_dir / "courses" / course_path.name).exists()
@@ -134,6 +167,10 @@ def test_cleanup_removes_only_retired_workbench_data_after_backup(tmp_path):
     assert "confirmed_at" not in arrangement["revisions"][0]
     assert lesson["working_revision_id"] == "new-plan-1"
     assert lesson["source_state"] == "current"
+    assert [item["revision_id"] for item in lesson["script_revisions"]] == ["current-script-1"]
+    assert lesson["working_script_revision_id"] == "current-script-1"
+    assert lesson["script_ai_candidates"] == []
+    assert lesson["ppt_assets"][0]["source_state"] == "stale"
 
 
 def test_cleanup_removes_teacher_guided_workflow_and_normalizes_outline_states(tmp_path):

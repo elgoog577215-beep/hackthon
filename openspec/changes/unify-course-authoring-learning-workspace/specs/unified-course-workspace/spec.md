@@ -539,15 +539,10 @@
 - **AND** 正式题目尚未允许完整答案时只给递进提示或检查点
 - **AND** 学习者要求检查理解时先给一个可作答的小问题并等待，不同时公布答案
 
-### Requirement: 旧教师路由必须安全收束
-系统 MUST 将旧教师课程路由重定向到课程文件空间或日历首页。重定向 MUST 保留 `course_id` 与可表达的课次定位，不得删除或静默迁移旧数据。
+### Requirement: 教师课程只使用统一路由
+系统 MUST 只注册 `/courses` 和 `/course/:courseId/...` 下的当前入口。旧 `/teacher/course/:courseId/...` 页面名、跳转和兼容路由 MUST NOT 继续注册，现役界面也 MUST NOT 生成这些地址。
 
-#### Scenario: 打开旧教师文件链接
-- **WHEN** 用户访问 `/teacher/course/:courseId/files`
-- **THEN** 系统进入该课程文件空间
-- **AND** 文件读取继续受当前身份和课程绑定约束
-
-#### Scenario: 打开旧教学日历链接
-- **WHEN** 用户访问 `/teacher/course/:courseId/teaching-calendar`
-- **THEN** 系统进入该课程文件空间并打开教学日历
-- **AND** 系统保留可表达的 `session` 定位参数
+#### Scenario: 从 PPT 返回备课工作台
+- **WHEN** 教师从当前 PPT 工作台返回课程
+- **THEN** 系统直接进入 `/course/:courseId/workspace/build`
+- **AND** 保留当前讲次和备课阶段定位

@@ -111,9 +111,9 @@
 ## 12. Teacher outline skeleton checkpoint and inline review
 
 - [x] 12.1 Remove pre-generation section-count inference from total hours and do not ask for per-chapter counts before chapter names exist.
-- [x] 12.2 Stop `teacher_outline_generation` after the named chapter skeleton, persist the checkpoint, and expose one teacher-only shape-confirmation command.
-- [x] 12.3 Save teacher-adjusted per-chapter section counts in the outline stage, resume the same job, and stream structured chapter/section growth from backend checkpoints.
-- [x] 12.4 Distinguish active, shape-review, full-outline-review and failure states; keep fast failures and teacher identity/course title synchronized.
+- [x] 12.2 Stop `teacher_outline_generation` after the named chapter skeleton, persist the checkpoint, and expose one explicit teacher continue action without creating a confirmation lifecycle.
+- [x] 12.3 Save teacher-adjusted per-chapter section counts as the current plan revision, resume the same job only after the continue action, and stream structured chapter/section growth from backend checkpoints.
+- [x] 12.4 Distinguish active, waiting-for-continue, full-outline and failure states; keep fast failures and teacher identity/course title synchronized.
 - [x] 12.5 Render full outline review/editing in the workbench center and remove the duplicate outline drawer.
 - [x] 12.6 Run focused backend/frontend tests, production build, strict OpenSpec validation and Chinese desktop real-page verification; then update canonical docs and release evidence.
 
@@ -158,11 +158,11 @@
 
 ## 18. Structured teacher scripts and semantic V6 handoff
 
-- [x] 18.1 Freeze and validate the vertical teaching contract from pedagogy mode, subject variant and lesson archetype through confirmed teaching modules, script blocks, V6 teaching units and visual layout contracts.
-- [x] 18.2 Replace the self-study section rewrite call with one teacher-script generator that consumes the confirmed module contract, selected evidence and shared old-body quality rules without reselecting the lesson archetype.
-- [x] 18.3 Store ordered structured script blocks as the lesson script truth, derive Markdown deterministically, preserve legacy content through a one-way compatibility adapter and block confirmation on structural quality failures.
+- [x] 18.1 Freeze and validate the vertical teaching contract from pedagogy mode, subject variant and lesson archetype through the current teaching-module revision, script blocks, V6 teaching units and visual layout contracts.
+- [x] 18.2 Replace the self-study section rewrite call with one teacher-script generator that consumes the current module contract, selected evidence and shared old-body quality rules without reselecting the lesson archetype.
+- [x] 18.3 Store ordered structured script blocks as the lesson script truth, derive Markdown deterministically, absorb useful legacy content into the current structured generator, and fail the task when structural validation cannot produce a usable revision.
 - [x] 18.4 Render and edit the same script blocks in the existing document surface, keep the page visually continuous and route AI candidates through the same working revision.
-- [x] 18.5 Compile V6 source units directly from confirmed script blocks, preserve module/role/knowledge bindings and remove the duplicate giant-script-plus-plan-module projection.
+- [x] 18.5 Compile V6 source units directly from the current valid script blocks, preserve module/role/knowledge bindings and remove the duplicate giant-script-plus-plan-module projection.
 - [x] 18.6 Add focused backend/frontend tests, validate the active OpenSpec, run the production frontend build and verify the Chinese desktop script-to-PPT flow.
 
 ## 19. Domain-adapted production AI workspace
@@ -195,10 +195,10 @@
 - [x] 21.4 Block deletion of originals and folders that are still referenced by formal files, and preserve the existing explicit relationship update path.
 - [x] 21.5 Add course-wide search, focused frontend/backend tests, zh/en copy, strict OpenSpec validation, production build, design detector and Chinese desktop acceptance.
 
-## 22. Confirmed teacher-outline revision lifecycle
+## 22. Current teacher-outline revision lifecycle
 
-- [x] 22.1 Reopen the original completed teacher-outline job into an idempotent outline review while preserving any existing unconfirmed draft.
-- [x] 22.2 Let manual edits and AI proposals share the reopened draft, require a second confirmation before freezing the formal outline, and keep downstream impact traceable.
+- [x] 22.1 Open the current completed teacher outline directly for idempotent editing without reopening the retired guided lifecycle or restoring historical drafts.
+- [x] 22.2 Let manual edits and AI proposals target the current outline revision; explicit candidate adoption creates a new current revision and keeps downstream impact traceable without a second confirmation step.
 - [x] 22.3 Distinguish lifecycle conflicts from real revision conflicts in the user-facing error model.
 - [x] 22.4 Add focused backend/frontend regression tests, strict OpenSpec validation and Chinese desktop real-page verification.
 
@@ -207,15 +207,15 @@
 - [x] 23.1 Introduce `formal_syllabus_v2` for new lecture-based courses and consolidate objectives into learning objectives, education objectives and measurable outcomes without a separate literacy-and-perspective group.
 - [x] 23.2 Require one flexible application anchor, one verified extension resource and one evidence-bearing learning task per lecture; require online tasks only for online and blended delivery.
 - [x] 23.3 Add editable outcome alignment, structured formative/summative assessment with a 100% total, course-module grouping, per-lecture hour breakdown, optional mentor information and teacher-template numeric constraints.
-- [x] 23.4 Keep drafts editable and saveable, recompute the editorial report after every save and block only formal confirmation on unresolved hard gaps.
+- [x] 23.4 Keep the current outline editable and saveable, reject structurally invalid writes, and recompute the non-blocking editorial report after every successful save.
 - [x] 23.5 Project education objectives, derived teaching form, total hours and confirmed external mentor information into the teaching calendar and all DOCX/PDF/XLSX/CSV exports without creating a second syllabus truth.
 - [x] 23.6 Bundle and license a CJK font for PDF export, verify the font is embedded, and cover generation, adjustment, recovery, publication, calendar and frontend editing with focused tests.
 - [x] 23.7 Complete Chinese desktop browser acceptance, full regression, strict OpenSpec/build checks, release documentation and production verification.
 
 ## 24. Non-blocking outline review and repair loop
 
-- [x] 24.1 Remove editorial findings from the outline-confirmation permission path while retaining existence, revision-conflict and lock checks.
+- [x] 24.1 Remove the outline-confirmation permission path; retain current-revision existence, revision-conflict and lock checks for save and candidate adoption.
 - [x] 24.2 Move the outline review report from the center document into a compact collapsible region below the right-side AI assistant and course-material tabs.
 - [x] 24.3 Route repairable findings through the existing outline candidate, diff, accept/reject and save chain; route source-verification findings to manual editing only.
-- [x] 24.4 Recompute and synchronize the report after manual save, candidate acceptance and history restoration so resolved findings disappear immediately.
+- [x] 24.4 Recompute and synchronize the report after manual save and candidate acceptance so resolved findings disappear immediately; do not restore retired outline history.
 - [x] 24.5 Verify focused backend/frontend tests, strict OpenSpec, production build, detector output and the Chinese desktop interaction path; then update release evidence.

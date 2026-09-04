@@ -34,13 +34,13 @@ describe('teacher/student shared capability isolation', () => {
   it('opens the shared PPT capability through a teacher-owned route', () => {
     expect(teacherPptRoute('course-1', {
       nodeId: 'lesson-2',
-      returnTo: '/teacher/course/course-1/production?stage=ppt',
+      returnTo: '/course/course-1/workspace/build?stage=ppt',
     })).toEqual({
-      name: 'teacher-ppt-workspace',
+      name: 'ppt-workspace',
       params: { courseId: 'course-1' },
       query: {
         lesson: 'lesson-2',
-        returnTo: '/teacher/course/course-1/production?stage=ppt',
+        returnTo: '/course/course-1/workspace/build?stage=ppt',
       },
     })
   })

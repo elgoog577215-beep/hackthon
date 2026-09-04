@@ -12,7 +12,7 @@ import zhMessages from '../../../public/locales/zh/translation.json'
 const router = createRouter({
   history: createMemoryHistory(),
   routes: [
-    { path: '/teacher/courses', name: 'teacher-course-library', component: CourseLibraryView },
+    { path: '/courses', name: 'course-library', component: CourseLibraryView },
     { path: '/course/:courseId/workspace/:mode', name: 'course-workspace', component: { template: '<div />' } },
   ],
 })
@@ -48,7 +48,7 @@ describe('teacher course library management', () => {
   beforeEach(async () => {
     vi.restoreAllMocks()
     setActivePinia(createPinia())
-    await router.replace('/teacher/courses')
+    await router.replace('/courses')
     await router.isReady()
   })
 
@@ -237,7 +237,7 @@ describe('teacher course library management', () => {
     await flushPromises()
     expect(router.currentRoute.value.name).toBe('course-workspace')
     expect(router.currentRoute.value.params.courseId).toBe('a')
-    expect(router.currentRoute.value.query.returnTo).toBe('/teacher/courses?view=courses&sort=name&dir=ascending')
+    expect(router.currentRoute.value.query.returnTo).toBe('/courses?view=courses&sort=name&dir=ascending')
   })
 
   it('支持逐门选择、全选和部分选中，并可明确取消选择', async () => {

@@ -15,7 +15,7 @@ export function teacherPptRoute(
   options: TeacherPptRouteOptions = {},
 ): RouteLocationRaw {
   return {
-    name: 'teacher-ppt-workspace',
+    name: 'ppt-workspace',
     params: { courseId },
     query: {
       ...(options.returnTo ? { returnTo: options.returnTo } : {}),

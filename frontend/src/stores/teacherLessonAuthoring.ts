@@ -107,7 +107,6 @@ export interface TeacherLessonArrangement {
 
 export interface TeacherLessonScriptState {
   current_revision_id: string
-  legacy_source_fingerprint?: string
   source_lesson_plan_revision_id: string
   source_state: 'current' | 'stale'
   ready: boolean

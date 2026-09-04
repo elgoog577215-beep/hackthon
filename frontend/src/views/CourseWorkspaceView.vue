@@ -121,7 +121,7 @@
     />
 
     <el-drawer v-model="calendarOpen" class="teaching-calendar-drawer" size="min(1500px, 98vw)" :title="t('courseFiles.calendarDrawerTitle')">
-      <TeacherCourseCalendarView embedded />
+      <TeacherCourseCalendarView />
     </el-drawer>
 
     <CourseEvolutionWorkspace
