@@ -379,7 +379,10 @@
                     <span class="lesson-outline-chapter-index" aria-hidden="true">{{ String(index + 1).padStart(2, '0') }}</span>
                     <strong><MathText :content="lessonDisplayName(lesson)" /></strong>
                   </span>
-                  <small v-if="lessonGenerationState(lesson) !== 'ready'" :data-state="lessonGenerationState(lesson)">{{ lessonGenerationStateLabel(lesson) }}</small>
+                  <small
+                    v-if="!['ready', 'generating'].includes(lessonGenerationState(lesson))"
+                    :data-state="lessonGenerationState(lesson)"
+                  >{{ lessonGenerationStateLabel(lesson) }}</small>
                 </span>
                 <span
                   class="lesson-outline-status"

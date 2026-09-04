@@ -1098,6 +1098,7 @@ describe('teacher course workbench outline streaming', () => {
       '第4讲，已生成', '第5讲，需更新', '第6讲，失败',
     ])
     expect(buttons[1]!.find('.lesson-outline-status').attributes('data-state')).toBe('generating')
+    expect(buttons[1]!.find('small').exists()).toBe(false)
   })
 
   it('教案任务开始后原位显示真实进度并隐藏重复提交按钮', () => {
@@ -1150,7 +1151,8 @@ describe('teacher course workbench outline streaming', () => {
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
     const chapterButtons = wrapper.findAll('.lesson-outline-chapter-button')
     expect(chapterButtons[0]!.find('.lesson-outline-status').attributes('data-state')).toBe('generating')
-    expect(chapterButtons[0]!.find('small').text()).toContain('正在生成')
+    expect(chapterButtons[0]!.find('small').exists()).toBe(false)
+    expect(chapterButtons[0]!.attributes('aria-label')).toContain('正在生成')
     expect(chapterButtons[1]!.find('.lesson-outline-status').attributes('data-state')).toBe('queued')
     expect(chapterButtons[1]!.find('small').text()).toContain('等待')
     expect(wrapper.findAll('.lesson-outline-status .spin')).toHaveLength(1)
@@ -1456,7 +1458,8 @@ describe('teacher course workbench outline streaming', () => {
     const chapters = wrapper.findAll('.lesson-outline-chapter-button')
 
     expect(chapters[0]!.find('.lesson-outline-status').attributes('data-state')).toBe('generating')
-    expect(chapters[0]!.find('small').text()).toContain('正在生成：概念讲解')
+    expect(chapters[0]!.find('small').exists()).toBe(false)
+    expect(chapters[0]!.attributes('aria-label')).toContain('正在生成：概念讲解')
     expect(chapters[1]!.find('.lesson-outline-status').attributes('data-state')).toBe('queued')
     expect(wrapper.get('.context-pane-heading').text()).toContain('已完成 0/2 讲 · 正在并行生成 1 讲')
     expect(wrapper.get('.context-pane-heading__progress').attributes('aria-valuenow')).toBe('25')
