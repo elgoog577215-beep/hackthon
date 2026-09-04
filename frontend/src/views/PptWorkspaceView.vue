@@ -37,13 +37,17 @@
       v-else-if="showManuscriptWorkflow && pptManuscriptState"
       :title="courseTitle"
       :state="pptManuscriptState"
-      :busy="store.building"
+      :busy="store.building || pptManuscriptSaving || pptManuscriptRegenerating"
       :confirming="pptManuscriptConfirming"
+      :saving="pptManuscriptSaving"
+      :regenerating="pptManuscriptRegenerating"
       :error="pptManuscriptConfirmError || buildErrorLabel"
       :failure="effectiveBuildFailure"
       @back="closeManuscriptWorkflow"
       @generate-manuscript="openGenerator(false)"
       @regenerate-manuscript="openGenerator(true)"
+      @save-manuscript="savePptManuscript"
+      @regenerate-pages="regeneratePptManuscriptPages"
       @confirm-manuscript="confirmPptManuscript"
       @generate-ppt="generatePptFromConfirmedManuscript"
     />
@@ -353,6 +357,8 @@ const pptManuscriptState = ref<{
   manuscript?: Record<string, any> | null
 } | null>(null)
 const pptManuscriptConfirming = ref(false)
+const pptManuscriptSaving = ref(false)
+const pptManuscriptRegenerating = ref(false)
 const pptManuscriptConfirmError = ref('')
 const manuscriptWorkflowForced = ref(false)
 let pptAiCandidateAttempt = 0
@@ -1120,6 +1126,73 @@ async function confirmPptManuscript() {
     )
   } finally {
     pptManuscriptConfirming.value = false
+  }
+}
+
+async function savePptManuscript(pageUpdates: Record<string, any>[]) {
+  const state = pptManuscriptState.value
+  if (
+    !state?.revision
+    || !courseId.value
+    || !teacherLessonId.value
+    || !pageUpdates.length
+    || pptManuscriptSaving.value
+  ) return
+  pptManuscriptSaving.value = true
+  pptManuscriptConfirmError.value = ''
+  try {
+    const response = await http.patch(
+      `/api/teacher/courses/${courseId.value}/lessons/${teacherLessonId.value}/ppt-v6/manuscript`,
+      {
+        expected_manuscript_revision: state.revision,
+        page_updates: pageUpdates,
+      },
+    )
+    pptManuscriptState.value = response.data.ppt_manuscript_state
+  } catch (error: any) {
+    pptManuscriptConfirmError.value = String(
+      error?.response?.data?.detail?.message
+      || error?.response?.data?.detail
+      || t('pptWorkspace.manuscriptSaveFailed', '页面内容稿保存失败，请刷新后重试。'),
+    )
+  } finally {
+    pptManuscriptSaving.value = false
+  }
+}
+
+async function regeneratePptManuscriptPages(pageIds: string[]) {
+  const state = pptManuscriptState.value
+  const sourceImpactRebuild = state?.source_state === 'stale'
+  if (
+    !state?.revision
+    || !courseId.value
+    || !teacherLessonId.value
+    || (!pageIds.length && !sourceImpactRebuild)
+    || pptManuscriptRegenerating.value
+  ) return
+  pptManuscriptRegenerating.value = true
+  pptManuscriptConfirmError.value = ''
+  try {
+    const response = await http.post(
+      `/api/teacher/courses/${courseId.value}/lessons/${teacherLessonId.value}/ppt-v6/manuscript/regenerate-pages`,
+      {
+        expected_manuscript_revision: state.revision,
+        target_page_ids: pageIds,
+      },
+    )
+    pptManuscriptState.value = response.data.ppt_manuscript_state
+  } catch (error: any) {
+    pptManuscriptConfirmError.value = String(
+      error?.response?.data?.detail?.message
+      || error?.response?.data?.detail
+      || (
+        sourceImpactRebuild
+          ? t('pptWorkspace.manuscriptRegenerateAffectedFailed', '受影响页未能重新生成，原内容已保留。')
+          : t('pptWorkspace.manuscriptRegeneratePagesFailed', '选中页未能重新生成，原内容已保留。')
+      ),
+    )
+  } finally {
+    pptManuscriptRegenerating.value = false
   }
 }
 

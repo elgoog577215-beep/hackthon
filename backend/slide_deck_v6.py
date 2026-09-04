@@ -11,7 +11,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
-from course_document import CourseBlock, CourseDocument, refresh_document_revision, stable_hash
+from course_document import (
+    CourseBlock,
+    CourseDocument,
+    refresh_block_revision,
+    refresh_document_revision,
+    stable_hash,
+)
 from course_presentation_graph import (
     CoursePresentationGraphV1,
     CoursePresentationUnitV1,
@@ -228,8 +234,29 @@ class SlideStoryPageV3(_StrictModel):
     template_layout_id: str
     title: str = Field(max_length=90)
     summary: str = Field(default="", max_length=700)
+    visible_copy: list[str] = Field(default_factory=list, max_length=12)
+    page_goal: str = Field(default="", max_length=240)
+    primary_claim: str = Field(default="", max_length=320)
+    audience_question: str = Field(default="", max_length=320)
+    audience_action: str = Field(default="", max_length=320)
+    expected_response: str = Field(default="", max_length=500)
+    observable_evidence: str = Field(default="", max_length=500)
+    transition: str = Field(default="", max_length=320)
+    reveal_steps: list[str] = Field(default_factory=list, max_length=12)
+    composition_notes: str = Field(default="", max_length=500)
+    question_bank_item_ids: list[str] = Field(default_factory=list, max_length=12)
+    shared_visual_expression_ids: list[str] = Field(default_factory=list, max_length=12)
     source_block_ids: list[str] = Field(min_length=1)
     page_ordinal: int = Field(ge=0)
+
+
+class SlideNarrativeBriefV1(_StrictModel):
+    schema_version: Literal["slide_narrative_brief_v1"] = "slide_narrative_brief_v1"
+    central_question: str = Field(default="", max_length=320)
+    learning_path: list[str] = Field(default_factory=list, max_length=16)
+    observable_checkpoints: list[str] = Field(default_factory=list, max_length=16)
+    time_budget_minutes: int = Field(default=0, ge=0, le=6000)
+    must_include_source_block_ids: list[str] = Field(default_factory=list, max_length=5000)
 
 
 class SlideStoryBatchV3(_StrictModel):
@@ -241,6 +268,9 @@ class SlideStoryBatchV3(_StrictModel):
     attempts: int = Field(ge=1)
     validation_status: Literal["passed", "failed"]
     failure_category: str = ""
+    narrative_brief: SlideNarrativeBriefV1 = Field(
+        default_factory=SlideNarrativeBriefV1
+    )
     pages: list[SlideStoryPageV3] = Field(default_factory=list)
 
 
@@ -488,6 +518,9 @@ class PptManuscriptPageV1(_StrictModel):
     page_goal: str = ""
     primary_claim: str = ""
     audience_question: str = ""
+    audience_action: str = ""
+    expected_response: str = ""
+    observable_evidence: str = ""
     transition: str = ""
     reveal_steps: list[str] = Field(default_factory=list)
     title: str
@@ -499,6 +532,10 @@ class PptManuscriptPageV1(_StrictModel):
     source_section_ids: list[str] = Field(default_factory=list)
     speaker_note_source_block_ids: list[str] = Field(default_factory=list)
     source_material_evidence_ids: list[str] = Field(default_factory=list)
+    question_bank_item_ids: list[str] = Field(default_factory=list)
+    shared_visual_expression_ids: list[str] = Field(default_factory=list)
+    teacher_locked: bool = False
+    lock_source_document_revision: str = ""
     title_max_lines: int = Field(default=1, ge=1, le=3)
     web_renderer_adapter: str = ""
     pptx_renderer_adapter: str = ""
@@ -528,12 +565,18 @@ class PptManuscriptV1(_StrictModel):
     """讲义与模板渲染之间的唯一逐页内容合同。"""
 
     schema_version: Literal["ppt_manuscript_v1"] = "ppt_manuscript_v1"
+    teaching_content_contract_version: Literal[
+        "legacy", "page_teaching_v1"
+    ] = "legacy"
     manuscript_revision: str
     source_document_revision: str
     source_lesson_plan_revision_id: str = ""
     source_script_revision_id: str = ""
     material_bindings: list[PptManuscriptMaterialBindingV1] = Field(
         default_factory=list
+    )
+    narrative_brief: SlideNarrativeBriefV1 = Field(
+        default_factory=SlideNarrativeBriefV1
     )
     template_id: str
     template_version: str
@@ -625,19 +668,190 @@ def _ppt_manuscript_primary_claim(page: SlidePageV6) -> str:
 
 
 def _ppt_manuscript_reveal_steps(page: SlidePageV6) -> list[str]:
-    return [
-        region.slot_id
-        for region in page.regions
-        if region.content_kind != "notes" and region.content.strip()
-    ]
+    steps: list[str] = []
+    for region in page.regions:
+        if region.content_kind == "notes" or not region.content.strip():
+            continue
+        content = " ".join(_visible_prose_text(region.content).split())
+        if not content:
+            continue
+        steps.append(content[:96].rstrip("，。；;:： "))
+    return list(dict.fromkeys(steps))
+
+
+def _ppt_manuscript_narrative_brief(
+    story: SlideStoryPlanV3,
+) -> SlideNarrativeBriefV1:
+    briefs = [batch.narrative_brief for batch in story.batches]
+    return SlideNarrativeBriefV1(
+        central_question=next(
+            (item.central_question.strip() for item in briefs if item.central_question.strip()),
+            "",
+        ),
+        learning_path=list(dict.fromkeys(
+            value.strip()
+            for item in briefs
+            for value in item.learning_path
+            if value.strip()
+        )),
+        observable_checkpoints=list(dict.fromkeys(
+            value.strip()
+            for item in briefs
+            for value in item.observable_checkpoints
+            if value.strip()
+        )),
+        time_budget_minutes=sum(item.time_budget_minutes for item in briefs),
+        must_include_source_block_ids=list(dict.fromkeys(
+            block_id
+            for item in briefs
+            for block_id in item.must_include_source_block_ids
+            if block_id
+        )),
+    )
+
+
+def _ppt_manuscript_story_page(
+    page: SlidePageV6,
+    story_by_page_id: dict[str, SlideStoryPageV3],
+) -> SlideStoryPageV3 | None:
+    return (
+        story_by_page_id.get(page.page_id)
+        or story_by_page_id.get(page.continuation_of_page_id)
+    )
+
+
+def _ppt_manuscript_source_claim(
+    page: SlidePageV6,
+    visible_copy: list[str],
+) -> str:
+    title_key = _canonical_visible_semantic_text(page.title)
+    for value in visible_copy:
+        clean = " ".join(_visible_prose_text(value).split()).strip()
+        if clean and _canonical_visible_semantic_text(clean) != title_key:
+            return clean[:320].rstrip("，；;:： ")
+    candidates = _source_prose_claim_candidates(
+        [
+            CourseBlock(
+                block_id=note.block_id,
+                section_id="manuscript-source",
+                position=index,
+                kind=note.source_kind if note.source_kind in {
+                    "rich_text", "formula", "code", "image", "audio", "video",
+                    "diagram", "table", "callout", "source_excerpt",
+                    "practice_ref", "code_lab", "reflection", "project",
+                    "mastery_check", "review_checkpoint", "remediation_slot",
+                    "graph_embed",
+                } else "rich_text",
+                payload={"text": note.full_text},
+                internal_revision=note.block_revision,
+            )
+            for index, note in enumerate(page.speaker_notes.source_blocks)
+        ],
+        capacity=320,
+    )
+    return candidates[0] if candidates else page.title
+
+
+def _ppt_manuscript_deterministic_teaching_fields(
+    page: SlidePageV6,
+    page_type: PptManuscriptPageType,
+    visible_copy: list[str],
+) -> dict[str, Any]:
+    claim = _ppt_manuscript_source_claim(page, visible_copy)
+    first = visible_copy[0] if visible_copy else page.title
+    last = visible_copy[-1] if visible_copy else page.title
+    if page_type == "cover":
+        goal = f"明确本讲围绕「{page.title}」展开的学习范围"
+        claim = claim if claim != page.title else f"本讲聚焦「{page.title}」"
+    elif page_type == "agenda":
+        goal = f"看清从「{first}」到「{last}」的学习路径"
+        claim = "本讲依次完成：" + "；".join(visible_copy[:4])
+    elif page_type == "summary":
+        goal = f"用「{page.title}」核对本讲形成的认识"
+    else:
+        goal = f"围绕「{page.title}」完成本页学习判断"
+    reveal_steps = _ppt_manuscript_reveal_steps(page)
+    return {
+        "page_goal": goal,
+        "primary_claim": claim,
+        "audience_question": "",
+        "audience_action": "",
+        "expected_response": "",
+        "observable_evidence": "",
+        "reveal_steps": reveal_steps,
+        "composition_notes": (
+            "先呈现「" + "」，再呈现「".join(reveal_steps[:3]) + "」"
+            if reveal_steps else f"围绕「{page.title}」组织页面"
+        ),
+        "question_bank_item_ids": [],
+        "shared_visual_expression_ids": [],
+    }
+
+
+_PPT_MANUSCRIPT_GENERIC_TRANSITIONS = {
+    "建立本讲起点",
+    "承接上一页并推进到下一教学判断",
+    "承接上一页结论并推进下一教学判断",
+}
+
+
+def _ppt_manuscript_transition(
+    pages: list[PptManuscriptPageV1],
+    index: int,
+) -> str:
+    current = pages[index]
+    if index == 0:
+        next_title = pages[index + 1].title if len(pages) > 1 else current.title
+        return f"从「{current.title}」进入「{next_title}」的学习路径"
+    previous = pages[index - 1]
+    if current.page_type in {"example", "practice"}:
+        relation = "把上一页认识用于"
+    elif current.page_type in {"comparison", "summary"}:
+        relation = "用上一页结果进一步核对"
+    elif current.page_type in {"reasoning", "formula", "code", "diagram"}:
+        relation = "在上一页条件上继续解释"
+    else:
+        relation = "从上一页结论推进到"
+    return f"{relation}「{current.title}」（承接「{previous.title}」）"
 
 
 def _ppt_manuscript_quality_issues(
     pages: list[PptManuscriptPageV1],
     *,
     require_lesson_arc: bool = False,
+    require_teaching_content: bool = False,
+    narrative_brief: SlideNarrativeBriefV1 | None = None,
 ) -> list[V6Failure]:
     issues: list[V6Failure] = []
+    if require_teaching_content:
+        brief = narrative_brief or SlideNarrativeBriefV1()
+        if (
+            not brief.central_question.strip()
+            or not brief.learning_path
+            or not brief.observable_checkpoints
+            or brief.time_budget_minutes <= 0
+            or not brief.must_include_source_block_ids
+        ):
+            issues.append(V6Failure(
+                stage="manuscript",
+                code="ppt_manuscript_narrative_brief_incomplete",
+                message="页面内容稿必须先说明整讲中心问题、学习路径、检查点、时间与必讲来源。",
+            ))
+        else:
+            page_source_ids = {
+                block_id
+                for page in pages
+                for block_id in page.source_script_block_ids
+            }
+            missing_brief_source_ids = page_source_ids.difference(
+                brief.must_include_source_block_ids
+            )
+            if missing_brief_source_ids:
+                issues.append(V6Failure(
+                    stage="manuscript",
+                    code="ppt_manuscript_narrative_source_coverage_incomplete",
+                    message="整讲叙事蓝图没有覆盖页面内容稿中的全部必讲讲义来源。",
+                ))
     if require_lesson_arc and pages:
         if not pages[0].layout_id.endswith("/cover-minimal"):
             issues.append(V6Failure(
@@ -661,7 +875,31 @@ def _ppt_manuscript_quality_issues(
                 page_id=pages[-1].page_id,
             ))
     seen_claims: dict[str, str] = {}
-    for page in pages:
+    for page_index, page in enumerate(pages):
+        region_visible_copy = [
+            region.content.strip()
+            for region in page.regions
+            if region.content_kind != "notes" and region.content.strip()
+        ]
+        if region_visible_copy != page.visible_copy:
+            issues.append(V6Failure(
+                stage="manuscript",
+                code="ppt_manuscript_visible_region_mismatch",
+                message="台上可见文案与最终页面区域不一致。",
+                page_id=page.page_id,
+            ))
+        title_regions = [
+            region.content.strip()
+            for region in page.regions
+            if region.content_kind == "title" and region.content.strip()
+        ]
+        if title_regions and page.title.strip() not in title_regions:
+            issues.append(V6Failure(
+                stage="manuscript",
+                code="ppt_manuscript_title_region_mismatch",
+                message="页面标题与最终标题区域不一致。",
+                page_id=page.page_id,
+            ))
         if not page.page_goal.strip() or not page.primary_claim.strip():
             issues.append(V6Failure(
                 stage="manuscript",
@@ -669,6 +907,118 @@ def _ppt_manuscript_quality_issues(
                 message="页面内容稿每页都必须写明教学任务和主要结论。",
                 page_id=page.page_id,
             ))
+        if require_teaching_content:
+            is_structural = page.page_type in {"cover", "agenda", "summary"}
+            if (
+                not is_structural
+                and not page.continuation_of_page_id
+                and _canonical_visible_semantic_text(page.primary_claim)
+                == _canonical_visible_semantic_text(page.title)
+            ):
+                issues.append(V6Failure(
+                    stage="manuscript",
+                    code="ppt_manuscript_primary_claim_repeats_title",
+                    message="核心结论不能只重复页面标题，必须说明本页真正要形成的判断。",
+                    page_id=page.page_id,
+                ))
+            interaction = " ".join(filter(None, [
+                page.audience_question.strip(),
+                page.audience_action.strip(),
+            ]))
+            expected = " ".join(filter(None, [
+                page.expected_response.strip(),
+                page.observable_evidence.strip(),
+            ]))
+            if page.page_type == "practice" and not interaction:
+                issues.append(V6Failure(
+                    stage="manuscript",
+                    code="ppt_manuscript_learner_action_missing",
+                    message="练习页必须写明学习者要回答的问题或完成的行动。",
+                    page_id=page.page_id,
+                ))
+            if interaction and not expected:
+                issues.append(V6Failure(
+                    stage="manuscript",
+                    code="ppt_manuscript_expected_response_missing",
+                    message="学习者问题或行动必须对应预期反应或可观察达成证据。",
+                    page_id=page.page_id,
+                ))
+            region_slot_ids = {
+                region.slot_id.casefold()
+                for region in page.regions
+                if region.slot_id
+            }
+            if not page.reveal_steps or any(
+                step.strip().casefold() in region_slot_ids
+                for step in page.reveal_steps
+            ):
+                issues.append(V6Failure(
+                    stage="manuscript",
+                    code="ppt_manuscript_reveal_sequence_not_semantic",
+                    message="揭示顺序必须写教学内容，不能使用版式槽位名代替。",
+                    page_id=page.page_id,
+                ))
+            if not page.composition_notes.strip():
+                issues.append(V6Failure(
+                    stage="manuscript",
+                    code="ppt_manuscript_composition_notes_missing",
+                    message="页面内容稿必须说明本页教学内容怎样构成一个可读页面。",
+                    page_id=page.page_id,
+                ))
+            if (
+                page_index > 0
+                and (
+                    not page.transition.strip()
+                    or page.transition.strip() in _PPT_MANUSCRIPT_GENERIC_TRANSITIONS
+                )
+            ):
+                issues.append(V6Failure(
+                    stage="manuscript",
+                    code="ppt_manuscript_transition_not_specific",
+                    message="页间衔接必须说明与相邻页面的真实教学关系。",
+                    page_id=page.page_id,
+                ))
+            note_text = "\n".join(filter(None, [
+                page.title,
+                *page.visible_copy,
+                *(
+                    note.full_text
+                    for note in (
+                        page.speaker_notes.source_blocks
+                        if page.speaker_notes else []
+                    )
+                ),
+            ]))
+            adjacent_note_text = note_text
+            if page_index > 0 and pages[page_index - 1].speaker_notes:
+                adjacent_note_text = "\n".join([
+                    pages[page_index - 1].title,
+                    *pages[page_index - 1].visible_copy,
+                    *(note.full_text for note in pages[page_index - 1].speaker_notes.source_blocks),
+                    note_text,
+                ])
+            teaching_texts = [
+                page.page_goal,
+                page.primary_claim,
+                page.audience_question,
+                page.audience_action,
+                page.expected_response,
+                page.observable_evidence,
+                *page.reveal_steps,
+            ]
+            unsupported = set().union(*(
+                _protected_tokens(value) for value in teaching_texts if value
+            )) - _protected_tokens(note_text)
+            transition_unsupported = (
+                _protected_tokens(page.transition) - _protected_tokens(adjacent_note_text)
+            )
+            if unsupported or transition_unsupported:
+                issues.append(V6Failure(
+                    stage="manuscript",
+                    code="ppt_manuscript_teaching_content_untraceable",
+                    message="页面教学字段包含无法追溯到当前讲义或相邻页面来源的事实标记。",
+                    page_id=page.page_id,
+                ))
         if not page.visible_copy:
             issues.append(V6Failure(
                 stage="manuscript",
@@ -825,6 +1175,370 @@ def _ppt_manuscript_quality_issues(
                 page_id=current.page_id,
             ))
     return issues
+
+
+_PPT_MANUSCRIPT_EDITABLE_PAGE_FIELDS = frozenset({
+    "title",
+    "visible_copy",
+    "page_goal",
+    "primary_claim",
+    "audience_question",
+    "audience_action",
+    "expected_response",
+    "observable_evidence",
+    "transition",
+    "reveal_steps",
+    "composition_notes",
+    "teacher_locked",
+})
+
+
+def affected_ppt_manuscript_page_ids(
+    manuscript: PptManuscriptV1,
+    changed_source_block_ids: list[str],
+) -> list[str]:
+    """Return affected pages in manuscript order from frozen source bindings."""
+
+    changed = {str(item) for item in changed_source_block_ids if str(item)}
+    return [
+        page.page_id
+        for page in sorted(manuscript.pages, key=lambda item: item.page_number)
+        if changed.intersection(page.source_script_block_ids)
+    ]
+
+
+def rebase_ppt_manuscript_source_blocks_v1(
+    manuscript: PptManuscriptV1,
+    document: CourseDocument,
+    *,
+    source_script_revision_id: str,
+) -> tuple[PptManuscriptV1, list[str], list[str]]:
+    """Bind changed existing script blocks to a draft before targeted rebuild.
+
+    A structural source change cannot preserve the frozen page/layout graph and
+    therefore requires a full manuscript rebuild.  For content-only changes,
+    non-affected pages remain untouched while affected unlocked pages receive
+    the current source-note snapshots used by page-scoped Story AI.
+    """
+
+    current_ordered_blocks = _formal_blocks(document)
+    current_blocks = {
+        block.block_id: block for block in current_ordered_blocks
+    }
+    bound_ids = list(dict.fromkeys(
+        block_id
+        for page in manuscript.pages
+        for block_id in page.source_script_block_ids
+    ))
+    current_ids = [block.block_id for block in current_ordered_blocks]
+    if bound_ids != current_ids:
+        raise V6BuildError(
+            stage="manuscript",
+            code="ppt_manuscript_source_structure_changed",
+            message="讲义块新增、删除或重新编排后必须重新生成整份页面内容稿。",
+        )
+    previous_notes: dict[str, SourceNoteBlockV2] = {}
+    for page in manuscript.pages:
+        for note in (
+            page.speaker_notes.source_blocks if page.speaker_notes else []
+        ):
+            previous_notes.setdefault(note.block_id, note)
+    if any(block_id not in previous_notes for block_id in bound_ids):
+        raise V6BuildError(
+            stage="manuscript",
+            code="ppt_manuscript_source_snapshot_missing",
+            message="当前页面内容稿缺少完整讲义快照，请重新生成整份内容稿。",
+        )
+
+    changed_ids: list[str] = []
+    for block_id in bound_ids:
+        previous = previous_notes[block_id]
+        current = current_blocks[block_id]
+        # Speaker notes intentionally store exact content rather than a second
+        # copy of the course structure. Rebuild the old content on top of the
+        # current structural fields: if its revision no longer matches the
+        # frozen note, role/section/parent/position/reference structure drifted
+        # and page-scoped regeneration is no longer safe.
+        previous_block = refresh_block_revision(
+            current.model_copy(
+                update={
+                    "kind": previous.source_kind,
+                    "payload": dict(previous.source_payload),
+                    "asset_refs": list(previous.asset_refs),
+                    "internal_revision": "",
+                },
+                deep=True,
+            )
+        )
+        if previous_block.internal_revision != previous.block_revision:
+            raise V6BuildError(
+                stage="manuscript",
+                code="ppt_manuscript_source_structure_changed",
+                message="讲义块的角色、归属或编排已变化，必须重新生成整份页面内容稿。",
+                page_id=next((
+                    page.page_id for page in manuscript.pages
+                    if block_id in page.source_script_block_ids
+                ), ""),
+            )
+        if block_artifact_kinds(previous_block) != block_artifact_kinds(current):
+            raise V6BuildError(
+                stage="manuscript",
+                code="ppt_manuscript_source_artifact_changed",
+                message="讲义块的内容类型已经变化，现有页面版式不能安全复用。",
+                page_id=next((
+                    page.page_id for page in manuscript.pages
+                    if block_id in page.source_script_block_ids
+                ), ""),
+            )
+        if (
+            previous.block_revision != current.internal_revision
+            or previous.full_text != block_source_text(current)
+            or previous.source_kind != current.kind
+            or previous.source_payload != dict(current.payload or {})
+            or previous.asset_refs != list(current.asset_refs)
+        ):
+            changed_ids.append(block_id)
+
+    affected_ids = affected_ppt_manuscript_page_ids(manuscript, changed_ids)
+    locked_conflicts = [
+        page.page_id for page in manuscript.pages
+        if page.page_id in set(affected_ids) and page.teacher_locked
+    ]
+    continuation_conflicts = [
+        page.page_id for page in manuscript.pages
+        if (
+            page.page_id in set(affected_ids)
+            and page.continuation_of_page_id
+            and page.page_id not in set(locked_conflicts)
+        )
+    ]
+    if continuation_conflicts:
+        raise V6BuildError(
+            stage="manuscript",
+            code="ppt_manuscript_source_pagination_changed",
+            message="受影响的讲义已经生成续页，内容长度变化可能改变分页，请重新生成整份页面内容稿。",
+            page_id=continuation_conflicts[0],
+        )
+    pages = []
+    for original in manuscript.pages:
+        if original.page_id not in set(affected_ids):
+            pages.append(original.model_copy(deep=True))
+            continue
+        page = original.model_copy(deep=True)
+        if page.speaker_notes is None:
+            raise V6BuildError(
+                stage="manuscript",
+                code="ppt_manuscript_source_snapshot_missing",
+                message="受影响页面缺少讲义快照，请重新生成整份内容稿。",
+                page_id=page.page_id,
+            )
+        page.speaker_notes = page.speaker_notes.model_copy(
+            update={
+                "source_document_revision": document.document_revision,
+                "source_blocks": [
+                    SourceNoteBlockV2(
+                        block_id=block_id,
+                        block_revision=current_blocks[block_id].internal_revision,
+                        full_text=block_source_text(current_blocks[block_id]),
+                        source_kind=current_blocks[block_id].kind,
+                        source_payload=dict(current_blocks[block_id].payload or {}),
+                        asset_refs=list(current_blocks[block_id].asset_refs),
+                    )
+                    for block_id in page.speaker_note_source_block_ids
+                ],
+            },
+            deep=True,
+        )
+        pages.append(page)
+    payload = manuscript.model_dump(
+        mode="json",
+        exclude={"schema_version", "manuscript_revision"},
+    )
+    payload.update({
+        "source_document_revision": document.document_revision,
+        "source_script_revision_id": source_script_revision_id,
+        "pages": [page.model_dump(mode="json") for page in pages],
+    })
+    return (
+        PptManuscriptV1(
+            manuscript_revision=stable_hash(payload, prefix="pptman_"),
+            **payload,
+        ),
+        affected_ids,
+        locked_conflicts,
+    )
+
+
+def revise_ppt_manuscript_v1(
+    manuscript: PptManuscriptV1,
+    page_updates: list[dict[str, Any]],
+    *,
+    allow_system_asset_bindings: bool = False,
+) -> PptManuscriptV1:
+    """Apply teacher-owned page edits without changing frozen render/source contracts."""
+
+    pages_by_id = {
+        page.page_id: page.model_copy(deep=True)
+        for page in manuscript.pages
+    }
+    seen_page_ids: set[str] = set()
+    for raw_update in page_updates:
+        if not isinstance(raw_update, dict):
+            raise V6BuildError(
+                stage="manuscript",
+                code="ppt_manuscript_edit_invalid",
+                message="页面内容稿修改必须指定页面和可编辑字段。",
+            )
+        page_id = str(raw_update.get("page_id") or "")
+        if not page_id or page_id not in pages_by_id:
+            raise V6BuildError(
+                stage="manuscript",
+                code="ppt_manuscript_page_not_found",
+                message="要修改的页面不在当前内容稿中。",
+                page_id=page_id,
+            )
+        if page_id in seen_page_ids:
+            raise V6BuildError(
+                stage="manuscript",
+                code="ppt_manuscript_duplicate_page_update",
+                message="一次保存不能重复修改同一页。",
+                page_id=page_id,
+            )
+        seen_page_ids.add(page_id)
+        allowed_fields = {"page_id", *_PPT_MANUSCRIPT_EDITABLE_PAGE_FIELDS}
+        if allow_system_asset_bindings:
+            allowed_fields.update({
+                "question_bank_item_ids",
+                "shared_visual_expression_ids",
+            })
+        unknown_fields = set(raw_update).difference(allowed_fields)
+        if unknown_fields:
+            raise V6BuildError(
+                stage="manuscript",
+                code="ppt_manuscript_field_not_editable",
+                message="页面来源、模板和渲染合同不能在内容稿编辑中修改。",
+                page_id=page_id,
+            )
+        page = pages_by_id[page_id]
+        visible_regions = [
+            region for region in page.regions if region.content_kind != "notes"
+        ]
+        if "visible_copy" in raw_update:
+            visible_copy = raw_update["visible_copy"]
+            if (
+                not isinstance(visible_copy, list)
+                or any(not isinstance(item, str) for item in visible_copy)
+                or len(visible_copy) != len(visible_regions)
+            ):
+                raise V6BuildError(
+                    stage="manuscript",
+                    code="ppt_manuscript_visible_region_count_mismatch",
+                    message="可见文案必须与当前页面的可见区域一一对应。",
+                    page_id=page_id,
+                )
+            for region, content in zip(visible_regions, visible_copy):
+                region.content = content.strip()
+        for field in _PPT_MANUSCRIPT_EDITABLE_PAGE_FIELDS.difference({
+            "visible_copy", "teacher_locked", "title"
+        }):
+            if field not in raw_update:
+                continue
+            value = raw_update[field]
+            if field == "reveal_steps":
+                if not isinstance(value, list) or any(
+                    not isinstance(item, str) for item in value
+                ):
+                    raise V6BuildError(
+                        stage="manuscript",
+                        code="ppt_manuscript_edit_invalid",
+                        message="揭示顺序必须是按教学顺序排列的文本。",
+                        page_id=page_id,
+                    )
+                value = [item.strip() for item in value if item.strip()]
+            elif not isinstance(value, str):
+                raise V6BuildError(
+                    stage="manuscript",
+                    code="ppt_manuscript_edit_invalid",
+                    message="页面教学字段必须是文本。",
+                    page_id=page_id,
+                )
+            else:
+                value = value.strip()
+            setattr(page, field, value)
+        if "title" in raw_update:
+            if not isinstance(raw_update["title"], str):
+                raise V6BuildError(
+                    stage="manuscript",
+                    code="ppt_manuscript_edit_invalid",
+                    message="页面标题必须是文本。",
+                    page_id=page_id,
+                )
+            page.title = raw_update["title"].strip()
+            for region in visible_regions:
+                if region.content_kind == "title":
+                    region.content = page.title
+        if "teacher_locked" in raw_update:
+            if not isinstance(raw_update["teacher_locked"], bool):
+                raise V6BuildError(
+                    stage="manuscript",
+                    code="ppt_manuscript_edit_invalid",
+                    message="页面锁定状态必须是真假值。",
+                    page_id=page_id,
+                )
+            page.teacher_locked = raw_update["teacher_locked"]
+            page.lock_source_document_revision = (
+                manuscript.source_document_revision if page.teacher_locked else ""
+            )
+        if allow_system_asset_bindings:
+            for field in (
+                "question_bank_item_ids",
+                "shared_visual_expression_ids",
+            ):
+                if field not in raw_update:
+                    continue
+                values = raw_update[field]
+                if not isinstance(values, list) or any(
+                    not isinstance(item, str) or not item.strip()
+                    for item in values
+                ):
+                    raise V6BuildError(
+                        stage="manuscript",
+                        code="ppt_manuscript_asset_binding_invalid",
+                        message="系统采用的题目与图解绑定必须使用非空稳定 ID。",
+                        page_id=page_id,
+                    )
+                setattr(page, field, list(dict.fromkeys(
+                    item.strip() for item in values
+                )))
+        page.visible_copy = [
+            region.content.strip()
+            for region in visible_regions
+            if region.content.strip()
+        ]
+
+    pages = [pages_by_id[page.page_id] for page in manuscript.pages]
+    require_teaching_content = (
+        manuscript.teaching_content_contract_version == "page_teaching_v1"
+    )
+    quality_issues = _ppt_manuscript_quality_issues(
+        pages,
+        require_lesson_arc=bool(manuscript.source_lesson_plan_revision_id),
+        require_teaching_content=require_teaching_content,
+        narrative_brief=manuscript.narrative_brief,
+    )
+    payload = manuscript.model_dump(
+        mode="json",
+        exclude={"schema_version", "manuscript_revision"},
+    )
+    payload.update({
+        "pages": [page.model_dump(mode="json") for page in pages],
+        "quality_status": "blocked" if quality_issues else "passed",
+        "quality_issues": [issue.model_dump(mode="json") for issue in quality_issues],
+    })
+    return PptManuscriptV1(
+        manuscript_revision=stable_hash(payload, prefix="pptman_"),
+        **payload,
+    )
 
 
 def project_ppt_manuscript_from_deck_v1(
@@ -8039,7 +8753,10 @@ def _materialize_ppt_page_specs_v1(
             template=template,
             layout=layout,
             source_blocks=source_blocks,
-            story_summary=story_page.summary,
+            story_summary=(
+                "\n".join(story_page.visible_copy).strip()
+                or story_page.summary
+            ),
         )
         continuation_count = len(materializations)
         for continuation_index, materialization in enumerate(
@@ -8125,7 +8842,7 @@ def _materialize_ppt_page_specs_v1(
                 layout=page_layout,
                 source_blocks=materialized_blocks,
                 story_summary=(
-                    story_page.summary
+                    ("\n".join(story_page.visible_copy).strip() or story_page.summary)
                     if continuation_index == 1
                     and uses_story_artifact_layout
                     and (continuation_count == 1 or has_supporting_artifact)
@@ -8211,6 +8928,7 @@ def compile_ppt_manuscript_v1(
     material_bindings: list[dict[str, Any]] | None = None,
     page_material_evidence_ids: dict[str, list[str]] | None = None,
     external_quality_issues: list[V6Failure] | None = None,
+    require_ai_teaching_content: bool = False,
 ) -> PptManuscriptV1:
     """Compile the sole page-by-page content contract before SlideDeckV6."""
 
@@ -8225,7 +8943,11 @@ def compile_ppt_manuscript_v1(
         block.block_id: list(block.evidence_refs) for block in document.blocks
     }
     preserved_page_evidence = page_material_evidence_ids or {}
+    story_by_page_id = {page.page_id: page for page in prepared_story.pages}
+    narrative_brief = _ppt_manuscript_narrative_brief(prepared_story)
     pages: list[PptManuscriptPageV1] = []
+    ai_managed_page_ids: set[str] = set()
+    ai_contract_issues: list[V6Failure] = []
     for page in page_specs:
         page_type = _ppt_manuscript_page_type(page)
         visible_copy = list(dict.fromkeys(
@@ -8233,11 +8955,45 @@ def compile_ppt_manuscript_v1(
             for region in page.regions
             if region.content_kind != "notes" and region.content.strip()
         ))
-        region_order = [
-            region.slot_id
-            for region in page.regions
-            if region.content_kind != "notes"
-        ]
+        story_page = _ppt_manuscript_story_page(page, story_by_page_id)
+        direct_story_page = bool(
+            story_page is not None
+            and story_page.page_id == page.page_id
+            and not page.continuation_of_page_id
+        )
+        if require_ai_teaching_content and direct_story_page and story_page:
+            if not any(item.strip() for item in story_page.visible_copy):
+                ai_contract_issues.append(V6Failure(
+                    stage="manuscript",
+                    code="ppt_manuscript_ai_visible_copy_missing",
+                    message="Story AI 必须直接给出本页台上可见内容，编译器不能代写。",
+                    page_id=page.page_id,
+                ))
+            teaching_fields = {
+                "page_goal": story_page.page_goal.strip(),
+                "primary_claim": story_page.primary_claim.strip(),
+                "audience_question": story_page.audience_question.strip(),
+                "audience_action": story_page.audience_action.strip(),
+                "expected_response": story_page.expected_response.strip(),
+                "observable_evidence": story_page.observable_evidence.strip(),
+                "reveal_steps": [
+                    item.strip() for item in story_page.reveal_steps if item.strip()
+                ],
+                "composition_notes": story_page.composition_notes.strip(),
+                "question_bank_item_ids": list(dict.fromkeys(
+                    story_page.question_bank_item_ids
+                )),
+                "shared_visual_expression_ids": list(dict.fromkeys(
+                    story_page.shared_visual_expression_ids
+                )),
+            }
+            ai_managed_page_ids.add(page.page_id)
+        else:
+            teaching_fields = _ppt_manuscript_deterministic_teaching_fields(
+                page,
+                page_type,
+                visible_copy,
+            )
         pages.append(PptManuscriptPageV1(
             page_id=page.page_id,
             page_number=page.page_ordinal + 1,
@@ -8248,26 +9004,18 @@ def compile_ppt_manuscript_v1(
                 if note.source_kind
             )),
             page_type=page_type,
-            page_goal=_ppt_manuscript_page_goal(page_type),
-            primary_claim=_ppt_manuscript_primary_claim(page),
-            audience_question=(
-                "你能在看到答案前独立完成并说明依据吗？"
-                if page_type == "practice" else ""
-            ),
-            transition=(
-                "建立本讲起点"
-                if page.page_ordinal == 0
-                else "承接上一页结论并推进下一教学判断"
-            ),
-            reveal_steps=_ppt_manuscript_reveal_steps(page),
+            page_goal=teaching_fields["page_goal"],
+            primary_claim=teaching_fields["primary_claim"],
+            audience_question=teaching_fields["audience_question"],
+            audience_action=teaching_fields["audience_action"],
+            expected_response=teaching_fields["expected_response"],
+            observable_evidence=teaching_fields["observable_evidence"],
+            transition=(story_page.transition.strip() if direct_story_page and story_page else ""),
+            reveal_steps=teaching_fields["reveal_steps"],
             title=page.title,
             visible_copy=visible_copy,
             layout_id=page.resolved_layout,
-            composition_notes=(
-                f"使用 {page.resolved_layout} 版式，"
-                f"按 {' → '.join(region_order) or '默认区域'} 依次呈现，"
-                f"视觉类型为 {page.visual_decision.decision}。"
-            ),
+            composition_notes=teaching_fields["composition_notes"],
             visual_kind=page.visual_decision.decision,
             source_script_block_ids=list(page.source_block_ids),
             source_section_ids=list(page.source_section_ids),
@@ -8282,6 +9030,10 @@ def compile_ppt_manuscript_v1(
                     for evidence_id in evidence_by_block.get(block_id, [])
                 ),
             ])),
+            question_bank_item_ids=teaching_fields["question_bank_item_ids"],
+            shared_visual_expression_ids=teaching_fields[
+                "shared_visual_expression_ids"
+            ],
             title_max_lines=page.title_max_lines,
             web_renderer_adapter=page.web_renderer_adapter,
             pptx_renderer_adapter=page.pptx_renderer_adapter,
@@ -8293,6 +9045,9 @@ def compile_ppt_manuscript_v1(
             continuation_index=page.continuation_index,
             continuation_count=page.continuation_count,
         ))
+    for index, page in enumerate(pages):
+        if page.page_id not in ai_managed_page_ids:
+            page.transition = _ppt_manuscript_transition(pages, index)
     frozen_material_bindings = [
         PptManuscriptMaterialBindingV1.model_validate({
             "material_asset_id": str(item.get("material_asset_id") or ""),
@@ -8309,16 +9064,23 @@ def compile_ppt_manuscript_v1(
         *_ppt_manuscript_quality_issues(
             pages,
             require_lesson_arc=document.course_id.startswith("teacher-lesson-"),
+            require_teaching_content=require_ai_teaching_content,
+            narrative_brief=narrative_brief,
         ),
+        *ai_contract_issues,
         *(external_quality_issues or []),
     ]
     payload = {
+        "teaching_content_contract_version": (
+            "page_teaching_v1" if require_ai_teaching_content else "legacy"
+        ),
         "source_document_revision": document.document_revision,
         "source_lesson_plan_revision_id": source_lesson_plan_revision_id,
         "source_script_revision_id": source_script_revision_id,
         "material_bindings": [
             item.model_dump(mode="json") for item in frozen_material_bindings
         ],
+        "narrative_brief": narrative_brief.model_dump(mode="json"),
         "template_id": template.template_id,
         "template_version": template.template_version,
         "template_digest": template.template_digest,
@@ -8351,6 +9113,18 @@ def _slide_pages_from_ppt_manuscript_v1(
                 stage="manuscript",
                 code="ppt_manuscript_page_spec_incomplete",
                 message="已确认的 页面内容稿页缺少 Web/PPTX 共用渲染合同。",
+                page_id=page.page_id,
+            )
+        region_visible_copy = [
+            region.content.strip()
+            for region in page.regions
+            if region.content_kind != "notes" and region.content.strip()
+        ]
+        if region_visible_copy != page.visible_copy:
+            raise V6BuildError(
+                stage="manuscript",
+                code="ppt_manuscript_visible_region_mismatch",
+                message="已确认的台上可见文案与 Web/PPTX 页面区域不一致。",
                 page_id=page.page_id,
             )
         pages.append(SlidePageV6(
@@ -8765,6 +9539,10 @@ __all__ = [
     "PptManuscriptPageV1",
     "PptManuscriptV1",
     "PptSourceContractV2",
+    "SlideNarrativeBriefV1",
+    "affected_ppt_manuscript_page_ids",
+    "rebase_ppt_manuscript_source_blocks_v1",
+    "revise_ppt_manuscript_v1",
     "SlideDeckV6",
     "SlideStoryBatchV3",
     "SlideStoryPageV3",

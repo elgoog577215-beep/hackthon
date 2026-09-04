@@ -66,3 +66,12 @@
 - [x] 7.9 Add source-role classroom page policies for objectives, concepts, derivations, examples, practice, feedback and summaries, plus visible-density and screen-to-notes quality metrics.
 - [x] 7.10 Compile common formula notation into editable portable glyphs, distinguish decimal values from numbered-list markers during PPTX export validation, and keep Web/PPTX chapter-opening content in the same declared body region.
 - [x] 7.11 Use formal section titles for lesson openings and generate distinct, source-backed teaching titles for every compiler continuation instead of repeating the parent heading.
+
+## 8. Page manuscript teaching contract and teacher control
+
+- [x] 8.1 Expand the story response and `ppt_manuscript_v1` contracts so AI returns a lesson narrative brief plus concrete page goals, claims, learner questions/actions, expected responses, observable evidence, semantic reveal steps and transitions; remove compiler boilerplate substitutes and add hard teaching-content tests.
+- [x] 8.2 Add page-scoped teaching quality validation for source traceability, goal/claim usefulness, question-to-response alignment, semantic reveal order and adjacent-page transitions, including deterministic source-bound cover, agenda, recap and continuation behavior.
+- [x] 8.3 Add revision-checked manuscript draft editing and lock APIs, synchronize editable visible copy with materialized regions, invalidate confirmation on edits and preserve the last confirmed/last-good manuscript on conflicts or validation failure.
+- [x] 8.4 Add targeted page regeneration and source-block impact calculation that preserve non-target and source-current locked pages, surface stale-lock conflicts and reuse only confirmed current question-bank/shared-expression inputs.
+- [x] 8.5 Replace the read-only manuscript viewer with a compact continuous-document editor for page teaching fields, save state, page locks, validation diagnostics and selected-page regeneration; keep the independent whole-manuscript confirmation gate and maintain Chinese/English copy.
+- [ ] 8.6 Run focused backend/frontend contracts, OpenSpec strict validation, production frontend build and one representative real-provider manuscript/deck inspection; verify that editing visible copy changes Web/PPTX regions and that locked/non-target pages remain unchanged.

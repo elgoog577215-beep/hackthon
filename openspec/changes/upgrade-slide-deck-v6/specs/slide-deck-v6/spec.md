@@ -64,11 +64,13 @@ The system SHALL keep required code, formulas, tables, experiment data and sourc
 - **THEN** the source excerpt and interpretation remain bound without a mathematics or programming branch
 
 ### Requirement: Story AI Is Mandatory And Source Bound
-The system SHALL run chapter-scoped `slide_story_plan_v3` batches through the shared `AIBase` provider pool and SHALL NOT publish a deterministic story as an AI result.
+The system SHALL run chapter-scoped `slide_story_plan_v3` batches through the shared `AIBase` provider pool, SHALL produce a source-bound lesson narrative brief and real page-level teaching decisions, and SHALL NOT publish a deterministic story as an AI result.
 
 #### Scenario: AI story planning succeeds
 - **WHEN** every batch selects only supplied teaching units and template layouts and passes validation
 - **THEN** accepted batches merge in original course/dependency order
+- **AND** the lesson narrative brief records the central question, ordered learning path, observable checkpoints, time budget and must-include source blocks
+- **AND** every planned page records a concrete goal, primary claim, student question or action when applicable, expected response or observable evidence, semantic reveal steps, adjacent-page transition and source bindings
 - **AND** diagnostics identify the provider, model, duration, retries and validation result
 
 #### Scenario: One story batch fails
@@ -81,6 +83,85 @@ The system SHALL run chapter-scoped `slide_story_plan_v3` batches through the sh
 - **WHEN** a batch omits a formal block, references an unknown ID, inverts a dependency or introduces an unsupported fact
 - **THEN** the batch is rejected
 - **AND** no partial or deterministic substitute is published
+
+#### Scenario: Story AI returns empty teaching boilerplate
+- **WHEN** a page copies its title as the primary claim, uses generic transition text, exposes region slot IDs as reveal steps, or asks a practice question unrelated to its source task
+- **THEN** the batch is rejected with a page-scoped teaching-content diagnostic
+- **AND** the compiler does not fill the missing decision with a fixed sentence and continue
+
+### Requirement: The Page Manuscript Is The Only Editable Content Contract
+The system SHALL store `ppt_manuscript_v1` as the sole page-level content contract between the current confirmed teacher script and the final PPT and SHALL require its explicit confirmation before visual planning or rendering.
+
+#### Scenario: A teacher edits a draft page
+- **WHEN** the teacher changes its visible copy or teaching fields using the current manuscript revision
+- **THEN** the system creates a new draft revision and synchronizes the visible copy into the materialized page regions
+- **AND** it reruns source-fidelity and teaching-content validation for the affected page
+- **AND** the previous confirmed manuscript remains immutable while the new revision requires confirmation
+
+#### Scenario: Two editors save the same draft revision
+- **WHEN** a stale revision attempts to overwrite a newer manuscript draft
+- **THEN** the save fails with a revision-conflict response containing the current revision
+- **AND** neither revision is silently overwritten
+
+#### Scenario: Rendering receives unconfirmed or inconsistent content
+- **WHEN** the manuscript is unconfirmed, its source revision is stale, or its visible copy differs from final page regions
+- **THEN** final deck generation is blocked with structured manuscript diagnostics
+- **AND** the renderer does not reinterpret or rewrite the content
+
+### Requirement: Teachers Can Lock And Regenerate Page Content Selectively
+The system SHALL support page-level teacher locks and targeted manuscript regeneration while retaining the last good draft and all non-target content.
+
+#### Scenario: A teacher regenerates selected pages
+- **WHEN** the request contains explicit target page IDs and the current manuscript revision
+- **THEN** Story AI receives only the targets and their bounded neighboring context
+- **AND** every non-target page and every source-current locked page remains byte-for-byte unchanged
+- **AND** the result is saved as a new unconfirmed draft revision only after all target pages pass validation
+
+#### Scenario: One target page fails regeneration
+- **WHEN** the provider fails or the regenerated content violates source or teaching-content gates
+- **THEN** the operation returns page-scoped diagnostics
+- **AND** the last good manuscript draft remains available without a partial overwrite
+
+#### Scenario: A locked page has stale source
+- **WHEN** one of its bound source blocks changes
+- **THEN** the page is marked as an explicit lock/source conflict requiring teacher action
+- **AND** the system neither preserves it as current nor silently unlocks and rewrites it
+
+### Requirement: Manuscript Rebuild Follows Source Bindings And Accepted Assets
+The system SHALL compute manuscript impact from page-to-source bindings and SHALL treat accepted question-bank items and shared visual expressions as optional, revision-bound inputs rather than parallel content sources.
+
+#### Scenario: One source block changes
+- **WHEN** the current script publishes a new revision for that block
+- **THEN** the system identifies only manuscript pages bound to the changed block as affected
+- **AND** source-current unbound pages retain their content, order and lock state
+
+#### Scenario: A current accepted question or shared expression applies
+- **WHEN** its source bindings and revision match the page's frozen inputs
+- **THEN** Story AI may cite its stable ID and use its accepted content in the manuscript
+- **AND** the manuscript records that binding for impact and fidelity checks
+
+#### Scenario: An optional asset is absent, stale or unconfirmed
+- **WHEN** Story AI plans the page
+- **THEN** it ignores that asset and continues from the confirmed script and knowledge inputs
+- **AND** it does not adopt the candidate, invent a replacement fact or create a second manuscript path
+
+### Requirement: Page Content Passes A Teaching Quality Gate Before Confirmation
+The system SHALL reject a page manuscript that is source-faithful but does not specify a usable teaching move.
+
+#### Scenario: A page asks learners to act
+- **WHEN** it contains an audience question, comparison, calculation, prediction or practice action
+- **THEN** it identifies the expected response or observable evidence used by the teacher to judge the result
+- **AND** that response remains traceable to the page sources
+
+#### Scenario: A page reveals content progressively
+- **WHEN** it declares two or more reveal steps
+- **THEN** each step names a semantic idea, artifact, operation or conclusion in teaching order
+- **AND** renderer region or slot identifiers cannot satisfy the gate
+
+#### Scenario: Adjacent planned pages form a sequence
+- **WHEN** the previous page and next page both exist
+- **THEN** the transition states the actual prerequisite, contrast, example, practice or conclusion relationship
+- **AND** a generic continuity sentence cannot satisfy the gate
 
 ### Requirement: V6 Uses Only Published Template Layout Contracts
 The system SHALL resolve every final page through `template_layout_contract_v1` from the frozen published template version.

@@ -7,7 +7,7 @@ import { useCourseStore } from '@/stores/course'
 import { useCourseEvolutionStore } from '@/stores/courseEvolution'
 import { useTeachingRepresentationsStore } from '@/stores/teachingRepresentations'
 
-const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
+const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn() }))
 const routeState = vi.hoisted(() => ({ route: null as any }))
 const routerMock = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }))
 
@@ -26,6 +26,7 @@ beforeEach(() => {
   setActivePinia(createPinia())
   httpMock.get.mockReset()
   httpMock.post.mockReset()
+  httpMock.patch.mockReset()
   routerMock.push.mockReset()
   routerMock.replace.mockReset()
   routerMock.push.mockResolvedValue(undefined)
@@ -286,7 +287,10 @@ describe('PptWorkspaceView', () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('函数复合的定义域')
+    expect(wrapper.get('.ppt-manuscript-workflow__title-field input').element).toHaveProperty(
+      'value',
+      '函数复合的定义域',
+    )
     expect(wrapper.find('[data-testid="generate-ppt-from-manuscript"]').exists()).toBe(false)
     await wrapper.get('[data-testid="confirm-ppt-manuscript"]').trigger('click')
     await flushPromises()
@@ -296,6 +300,168 @@ describe('PptWorkspaceView', () => {
       { manuscript_revision: 'pptman-1' },
     )
     expect(wrapper.get('[data-testid="generate-ppt-from-manuscript"]').text()).toContain('根据已确认页面内容稿生成 PPT')
+  })
+
+  it('保存当前修订后只重新生成教师选中的页面', async () => {
+    routeState.route = reactive({
+      params: { courseId: 'course-1' },
+      query: { lesson: 'L1-1' },
+      meta: { identityScope: 'teacher' },
+    })
+    const page = {
+      page_id: 'page-1',
+      page_number: 1,
+      page_type: 'concept',
+      layout_id: 'content-stack',
+      title: '函数复合的定义域',
+      page_goal: '确认两层定义域约束',
+      primary_claim: '复合函数必须同时满足内外层约束',
+      audience_question: '',
+      audience_action: '',
+      expected_response: '',
+      observable_evidence: '',
+      visible_copy: ['函数复合的定义域', '先求内层输出，再检查外层输入'],
+      reveal_steps: ['内层输出', '外层输入条件'],
+      transition: '从单个函数的定义域进入两层约束',
+      composition_notes: '按内层到外层顺序呈现',
+      teacher_locked: false,
+      regions: [{ content_kind: 'title' }, { content_kind: 'body' }],
+    }
+    const manuscriptState = (revision: string, currentPage = page) => ({
+      generation_branch: 'manuscript_first',
+      revision,
+      status: 'draft',
+      source_state: 'current',
+      confirmable: true,
+      can_generate_ppt: false,
+      mode: 'teaching',
+      theme: 'qizhi-classroom',
+      manuscript: {
+        schema_version: 'ppt_manuscript_v1',
+        page_count: 1,
+        narrative_brief: {
+          central_question: '复合函数的定义域由什么决定？',
+          learning_path: ['内层输出', '外层输入'],
+          observable_checkpoints: ['能同时写出两层约束'],
+          time_budget_minutes: 12,
+        },
+        pages: [currentPage],
+      },
+    })
+    httpMock.get.mockImplementation((url: string) => Promise.resolve({
+      data: url.endsWith('/ppt-v6/manuscript')
+        ? { ppt_manuscript_state: manuscriptState('pptman-1') }
+        : courseEnvelope('canonical'),
+    }))
+    httpMock.patch.mockResolvedValue({
+      data: {
+        ppt_manuscript_state: manuscriptState('pptman-2', {
+          ...page,
+          title: '函数复合受两层定义域约束',
+          visible_copy: ['函数复合受两层定义域约束', page.visible_copy[1]!],
+        }),
+      },
+    })
+    httpMock.post.mockResolvedValue({
+      data: { ppt_manuscript_state: manuscriptState('pptman-3') },
+    })
+    const store = useTeachingRepresentationsStore()
+    vi.spyOn(store, 'ensure').mockImplementation(async () => {
+      store.registry = { slide_deck_target_schema: 'slide_deck_v6', representations: [] }
+    })
+    vi.spyOn(store, 'recoverDurableBuild').mockResolvedValue(null as any)
+
+    const wrapper = mount(PptWorkspaceView, {
+      global: { stubs: { SideAIPanel: true } },
+    })
+    await flushPromises()
+
+    await wrapper.get('.ppt-manuscript-workflow__title-field input').setValue('函数复合受两层定义域约束')
+    await wrapper.get('[data-testid="save-ppt-manuscript"]').trigger('click')
+    await flushPromises()
+    expect(httpMock.patch).toHaveBeenCalledWith(
+      '/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/manuscript',
+      expect.objectContaining({
+        expected_manuscript_revision: 'pptman-1',
+        page_updates: [expect.objectContaining({
+          page_id: 'page-1',
+          title: '函数复合受两层定义域约束',
+        })],
+      }),
+    )
+
+    await wrapper.get('.ppt-manuscript-workflow__page-rail input').trigger('change')
+    await wrapper.get('[data-testid="regenerate-selected-ppt-pages"]').trigger('click')
+    await flushPromises()
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/manuscript/regenerate-pages',
+      {
+        expected_manuscript_revision: 'pptman-2',
+        target_page_ids: ['page-1'],
+      },
+    )
+  })
+
+  it('讲义修订变化后可不选页直接请求重建真实受影响页', async () => {
+    routeState.route = reactive({
+      params: { courseId: 'course-1' },
+      query: { lesson: 'L1-1' },
+      meta: { identityScope: 'teacher' },
+    })
+    const staleState = {
+      generation_branch: 'manuscript_first',
+      revision: 'pptman-stale',
+      status: 'confirmed',
+      source_state: 'stale',
+      confirmable: false,
+      can_generate_ppt: false,
+      mode: 'teaching',
+      theme: 'qizhi-classroom',
+      manuscript: {
+        schema_version: 'ppt_manuscript_v1',
+        page_count: 1,
+        pages: [{
+          page_id: 'page-1', page_number: 1, page_type: 'concept', layout_id: 'content-stack',
+          title: '函数复合的定义域', visible_copy: ['函数复合的定义域'],
+          reveal_steps: ['内层输出', '外层输入'], teacher_locked: false,
+        }],
+      },
+    }
+    httpMock.get.mockImplementation((url: string) => Promise.resolve({
+      data: url.endsWith('/ppt-v6/manuscript')
+        ? { ppt_manuscript_state: staleState }
+        : courseEnvelope('canonical'),
+    }))
+    httpMock.post.mockResolvedValue({
+      data: {
+        ppt_manuscript_state: {
+          ...staleState,
+          revision: 'pptman-current',
+          status: 'draft',
+          source_state: 'current',
+        },
+      },
+    })
+    const store = useTeachingRepresentationsStore()
+    vi.spyOn(store, 'ensure').mockImplementation(async () => {
+      store.registry = { slide_deck_target_schema: 'slide_deck_v6', representations: [] }
+    })
+    vi.spyOn(store, 'recoverDurableBuild').mockResolvedValue(null as any)
+
+    const wrapper = mount(PptWorkspaceView, {
+      global: { stubs: { SideAIPanel: true } },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="regenerate-affected-ppt-pages"]').trigger('click')
+    await flushPromises()
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/manuscript/regenerate-pages',
+      {
+        expected_manuscript_revision: 'pptman-stale',
+        target_page_ids: [],
+      },
+    )
   })
 
   it('已有原版 PPT 时不进入文书两步生成链', async () => {

@@ -31,7 +31,9 @@ V6 采用“课程语义先行、模板合同后置、故事严格、视觉弹�
 freeze source/template
   -> compile course presentation graph
   -> run chapter-scoped story AI
-  -> validate source/order/coverage/facts
+  -> compile narrative brief + editable ppt_manuscript_v1
+  -> validate teaching content/source/order/coverage/facts
+  -> teacher edits, locks and confirms the page manuscript
   -> allocate published template layouts
   -> run bounded visual AI batches
   -> compile slide_deck_v6 + speaker notes
@@ -69,16 +71,30 @@ Personal templates may publish for V6 only after representative-page mapping, ca
 
 ### `slide_story_plan_v3`
 
-Story planning runs in ordered chapter batches through the existing `AIBase` provider pool. A batch may only:
+Story planning runs in ordered chapter batches through the existing `AIBase` provider pool. It first produces an embedded lesson narrative brief with the central question, ordered learning path, observable checkpoints, time budget and must-include source blocks. The brief is planning context inside `ppt_manuscript_v1`, not a second teacher asset or a second source of truth. A batch may only:
 
 - select supplied teaching unit IDs and compatible template layout IDs;
-- write bounded source-faithful titles, summaries and transitions;
+- write bounded source-faithful titles, summaries, page goals, primary claims, student questions/actions, expected responses, observable evidence, semantic reveal steps and concrete transitions;
 - split one teaching unit into as many declared safe pages as its complete source requires without changing dependencies;
 - preserve unit order and 100% primary block coverage.
 
 The validator rejects unknown IDs, omitted primary blocks, duplicate primary ownership, order inversions, ungrounded protected tokens and unsupported factual assertions. Any rejected or unavailable story batch fails the entire V6 candidate; accepted batches are never silently replaced by a deterministic story.
 
 Each batch stores provider/model, start/end/duration, attempts, normalized failure category and validation result. It never stores credentials or unrelated raw conversation.
+
+### `ppt_manuscript_v1`
+
+`ppt_manuscript_v1` is the only editable page-content contract between the current confirmed teacher script and the final deck. It embeds the lesson narrative brief and stores, for each page, the visible copy, page goal, primary claim, audience question/action, expected response, observable evidence, semantic reveal sequence, transition, composition intent, source block bindings, optional accepted question/visual-expression bindings and teacher-lock state. Internal compatibility keeps the existing contract name; no parallel manuscript or Markdown deck source is introduced.
+
+Story AI must return these teaching fields directly. The compiler may create deterministic cover, agenda, recap and continuation pages only from frozen source structure, and those pages receive page-type-specific, source-bound content. It may not fill missing AI teaching decisions with generic sentences such as “承接上一页结论并推进下一教学判断”, copy the title into the primary claim, use region slot IDs as reveal steps or invent a practice question unrelated to the source task.
+
+The manuscript has its own draft revision and confirmation state. A teacher edit creates a new draft revision, synchronizes edited visible copy into the final page regions, reruns page-content and source-fidelity validation, and invalidates the prior confirmation without mutating the last confirmed draft. Saves use optimistic revision checks. Confirmed content is the only input to visual planning and deterministic Web/PPTX compilation.
+
+Page regeneration accepts explicit page IDs. It preserves every non-target page and every locked page whose bound source revision remains current, and retains the last good draft if any target fails. A source-block revision computes affected page IDs from bindings and rebuilds only those pages; an affected locked page becomes an explicit conflict requiring teacher action rather than silently preserving stale content or silently unlocking it.
+
+Current question-bank items and shared diagrams/illustrations are optional inputs only when already accepted, source-bound and revision-current. The manuscript records their IDs and source bindings; it does not copy an unconfirmed candidate into formal content, and absence of these assets does not create a second generation path.
+
+Content validation checks both source fidelity and teaching usefulness before confirmation: every page has one concrete goal and claim; questions/actions have a corresponding expected response or observable evidence; reveal steps describe a semantic teaching order; transitions name the actual relationship to an adjacent page; protected facts remain traceable; and template boilerplate cannot satisfy the contract. These checks produce page-scoped diagnostics and block confirmation, while the last confirmed manuscript remains available.
 
 ### `slide_visual_plan_v2`
 
@@ -128,6 +144,8 @@ Every failure contains `stage`, `code`, `message`, `retryable`, and optional `ch
 - all visible facts, numbers, formulas and code identifiers traceable;
 - subject contract satisfied for characteristic artifacts;
 - exactly one primary teaching job per page;
+- page goals, claims, student actions, expected responses, semantic reveal steps and adjacent-page transitions are concrete, mutually consistent and source-bound rather than compiler boilerplate;
+- every teacher edit or targeted regeneration preserves revision checks, lock semantics, visible-region synchronization and the last good manuscript;
 - template layout and teaching intent compatible;
 - no empty required slot, fake visual, duplicate heading/body, prose wall, clipping, overlap or Web/PPTX drift;
 - visible canvas contains no teacher delivery cue, every page title is distinct, and formal lesson openings use their frozen section title;

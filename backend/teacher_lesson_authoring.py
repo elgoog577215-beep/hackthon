@@ -2492,6 +2492,22 @@ class TeacherLessonAuthoringRepository:
                     "lesson_ppt_source_stale",
                     "教案或讲义已经变化，请基于最新内容重新生成 页面内容稿。",
                 )
+            previous = lesson.get("ppt_manuscript")
+            previous = previous if isinstance(previous, dict) else {}
+            previous_manuscript = previous.get("manuscript")
+            previous_manuscript = (
+                deepcopy(previous_manuscript)
+                if isinstance(previous_manuscript, dict) else None
+            )
+            last_confirmed = previous.get("last_confirmed_manuscript")
+            if previous.get("status") == "confirmed" and previous_manuscript:
+                last_confirmed = previous_manuscript
+            last_good = previous.get("last_good_manuscript")
+            if (
+                previous_manuscript
+                and previous_manuscript.get("quality_status") == "passed"
+            ):
+                last_good = previous_manuscript
             state = {
                 "revision": str(manuscript.get("manuscript_revision") or ""),
                 "status": "draft",
@@ -2507,11 +2523,111 @@ class TeacherLessonAuthoringRepository:
                 "template_digest": template_digest,
                 "template_pack_id": template_pack_id,
                 "manuscript": deepcopy(manuscript),
+                "last_good_manuscript": (
+                    deepcopy(manuscript)
+                    if manuscript.get("quality_status") == "passed"
+                    else deepcopy(last_good) if isinstance(last_good, dict) else None
+                ),
+                "last_confirmed_manuscript": (
+                    deepcopy(last_confirmed)
+                    if isinstance(last_confirmed, dict) else None
+                ),
                 "created_at": _now(),
+                "updated_at": _now(),
                 "confirmed_at": "",
                 "generated_representation_id": "",
             }
             lesson["ppt_manuscript"] = state
+            saved = self._save(value)
+            return deepcopy(
+                saved["lessons"][lesson_unit_id]["ppt_manuscript"]
+            )
+
+    def update_v6_ppt_manuscript_draft(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        *,
+        expected_manuscript_revision: str,
+        manuscript: dict[str, Any],
+        source_rebase: bool = False,
+        source_lesson_plan_revision_id: str = "",
+        source_script_revision_id: str = "",
+        source_material_revision: str = "",
+    ) -> dict[str, Any]:
+        """Save one optimistic manuscript edit while retaining recoverable drafts."""
+
+        with self._lock:
+            value = self.load(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_unit_id)
+            state = (lesson or {}).get("ppt_manuscript")
+            if not isinstance(state, dict) or not state:
+                raise TeacherLessonAuthoringError(
+                    "lesson_ppt_manuscript_not_found", "请先生成页面内容稿。"
+                )
+            current_revision = str(state.get("revision") or "")
+            if current_revision != expected_manuscript_revision:
+                raise TeacherLessonAuthoringError(
+                    "lesson_ppt_manuscript_revision_conflict",
+                    "页面内容稿已在其他页面修改，请重新载入后再保存。",
+                    details={"current_revision": current_revision},
+                )
+            if source_rebase:
+                if (
+                    not source_lesson_plan_revision_id
+                    or not source_script_revision_id
+                    or not source_material_revision
+                    or lesson.get("working_revision_id")
+                    != source_lesson_plan_revision_id
+                    or lesson.get("source_state", "current") != "current"
+                    or lesson.get("working_script_revision_id")
+                    != source_script_revision_id
+                    or state.get("source_lesson_plan_revision_id")
+                    != source_lesson_plan_revision_id
+                    or state.get("source_script_revision_id")
+                    == source_script_revision_id
+                    or state.get("source_material_revision")
+                    != source_material_revision
+                    or manuscript.get("source_lesson_plan_revision_id")
+                    != source_lesson_plan_revision_id
+                    or manuscript.get("source_script_revision_id")
+                    != source_script_revision_id
+                ):
+                    raise TeacherLessonAuthoringError(
+                        "lesson_ppt_source_stale",
+                        "教案、讲义或资料已经变化，请基于最新内容重新生成页面内容稿。",
+                    )
+            elif state.get("source_state") != "current":
+                raise TeacherLessonAuthoringError(
+                    "lesson_ppt_source_stale",
+                    "教案或讲义已经变化，请基于最新内容重新生成页面内容稿。",
+                )
+            current_manuscript = state.get("manuscript")
+            if state.get("status") == "confirmed" and isinstance(
+                current_manuscript, dict
+            ):
+                state["last_confirmed_manuscript"] = deepcopy(current_manuscript)
+            if manuscript.get("quality_status") == "passed":
+                state["last_good_manuscript"] = deepcopy(manuscript)
+            elif (
+                not isinstance(state.get("last_good_manuscript"), dict)
+                and isinstance(current_manuscript, dict)
+                and current_manuscript.get("quality_status") == "passed"
+            ):
+                state["last_good_manuscript"] = deepcopy(current_manuscript)
+            state["revision"] = str(manuscript.get("manuscript_revision") or "")
+            state["status"] = "draft"
+            if source_rebase:
+                state["source_state"] = "current"
+                state["source_lesson_plan_revision_id"] = (
+                    source_lesson_plan_revision_id
+                )
+                state["source_script_revision_id"] = source_script_revision_id
+                state["source_material_revision"] = source_material_revision
+            state["manuscript"] = deepcopy(manuscript)
+            state["confirmed_at"] = ""
+            state["generated_representation_id"] = ""
+            state["updated_at"] = _now()
             saved = self._save(value)
             return deepcopy(
                 saved["lessons"][lesson_unit_id]["ppt_manuscript"]

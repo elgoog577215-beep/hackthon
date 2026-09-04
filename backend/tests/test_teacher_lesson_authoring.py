@@ -4190,6 +4190,7 @@ def test_v6_ppt_manuscript_quality_gate_blocks_confirmation():
     teacher_lesson_router._assert_ppt_manuscript_confirmable({
         "quality_status": "passed",
         "quality_issues": [],
+        "teaching_content_contract_version": "page_teaching_v1",
     })
 
 
@@ -4292,6 +4293,213 @@ def test_independent_ppt_manuscript_must_be_confirmed_before_binding_deck(tmp_pa
             "source_state"
         ]
         == "stale"
+    )
+
+
+def test_ppt_manuscript_draft_update_checks_revision_and_retains_recovery_points(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        standard_lesson_plan(),
+        source_outline_revision_id="outline-v1",
+        quality_report=validate_teacher_lesson_plan(standard_lesson_plan()),
+    )
+    plan_revision = lesson["working_revision_id"]
+    lesson = repository.save_script_revision(
+        "course-1",
+        "L1-1",
+        [{"section_node_id": "L2-1-1", "title": "1.1", "content": "中性讲稿正文。"}],
+        source_lesson_plan_revision_id=plan_revision,
+    )
+    script_revision = lesson["working_script_revision_id"]
+    first = {
+        "schema_version": "ppt_manuscript_v1",
+        "teaching_content_contract_version": "page_teaching_v1",
+        "manuscript_revision": "pptman-1",
+        "quality_status": "passed",
+        "quality_issues": [],
+        "pages": [{"page_id": "page-1", "title": "第一页"}],
+    }
+    repository.save_v6_ppt_manuscript(
+        "course-1",
+        "L1-1",
+        source_lesson_plan_revision_id=plan_revision,
+        source_script_revision_id=script_revision,
+        source_material_revision="pptrefs-1",
+        task_id="task-manuscript-1",
+        mode="teaching",
+        theme="qizhi-classroom",
+        manuscript=first,
+    )
+    repository.confirm_v6_ppt_manuscript_draft(
+        "course-1", "L1-1", manuscript_revision="pptman-1"
+    )
+    repository.bind_v6_ppt_manuscript_result(
+        "course-1",
+        "L1-1",
+        manuscript_revision="pptman-1",
+        representation_id="representation-1",
+    )
+
+    second = {
+        **first,
+        "manuscript_revision": "pptman-2",
+        "pages": [{"page_id": "page-1", "title": "第一页修订"}],
+    }
+    updated = repository.update_v6_ppt_manuscript_draft(
+        "course-1",
+        "L1-1",
+        expected_manuscript_revision="pptman-1",
+        manuscript=second,
+    )
+
+    assert updated["status"] == "draft"
+    assert updated["revision"] == "pptman-2"
+    assert updated["generated_representation_id"] == ""
+    assert updated["last_confirmed_manuscript"]["manuscript_revision"] == "pptman-1"
+    assert updated["last_good_manuscript"]["manuscript_revision"] == "pptman-2"
+
+    with pytest.raises(TeacherLessonAuthoringError) as conflict:
+        repository.update_v6_ppt_manuscript_draft(
+            "course-1",
+            "L1-1",
+            expected_manuscript_revision="pptman-1",
+            manuscript={**second, "manuscript_revision": "pptman-conflict"},
+        )
+    assert conflict.value.code == "lesson_ppt_manuscript_revision_conflict"
+    assert conflict.value.details["current_revision"] == "pptman-2"
+    assert repository.current_v6_ppt_manuscript(
+        "course-1", "L1-1"
+    )["revision"] == "pptman-2"
+
+    blocked = repository.update_v6_ppt_manuscript_draft(
+        "course-1",
+        "L1-1",
+        expected_manuscript_revision="pptman-2",
+        manuscript={
+            **second,
+            "manuscript_revision": "pptman-3",
+            "quality_status": "blocked",
+            "quality_issues": [{"code": "page-invalid"}],
+        },
+    )
+    assert blocked["status"] == "draft"
+    assert blocked["last_good_manuscript"]["manuscript_revision"] == "pptman-2"
+    assert blocked["last_confirmed_manuscript"]["manuscript_revision"] == "pptman-1"
+
+
+def test_ppt_manuscript_source_rebase_is_revision_checked_and_atomic(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    plan = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        standard_lesson_plan(),
+        source_outline_revision_id="outline-v1",
+        quality_report=validate_teacher_lesson_plan(standard_lesson_plan()),
+    )
+    plan_revision = plan["working_revision_id"]
+    first_script = repository.save_script_revision(
+        "course-1",
+        "L1-1",
+        [{"section_node_id": "L2-1-1", "title": "1.1", "content": "第一版讲义。"}],
+        source_lesson_plan_revision_id=plan_revision,
+    )
+    first_script_revision = first_script["working_script_revision_id"]
+    first = {
+        "schema_version": "ppt_manuscript_v1",
+        "teaching_content_contract_version": "page_teaching_v1",
+        "manuscript_revision": "pptman-source-1",
+        "source_lesson_plan_revision_id": plan_revision,
+        "source_script_revision_id": first_script_revision,
+        "quality_status": "passed",
+        "quality_issues": [],
+        "pages": [{"page_id": "page-1", "title": "第一页"}],
+    }
+    repository.save_v6_ppt_manuscript(
+        "course-1",
+        "L1-1",
+        source_lesson_plan_revision_id=plan_revision,
+        source_script_revision_id=first_script_revision,
+        source_material_revision="pptrefs-current",
+        task_id="task-manuscript-source",
+        mode="teaching",
+        theme="qizhi-classroom",
+        manuscript=first,
+    )
+    repository.confirm_v6_ppt_manuscript_draft(
+        "course-1", "L1-1", manuscript_revision="pptman-source-1"
+    )
+    second_script = repository.save_script_revision(
+        "course-1",
+        "L1-1",
+        [{"section_node_id": "L2-1-1", "title": "1.1", "content": "第二版讲义。"}],
+        source_lesson_plan_revision_id=plan_revision,
+    )
+    second_script_revision = second_script["working_script_revision_id"]
+    assert repository.current_v6_ppt_manuscript(
+        "course-1", "L1-1"
+    )["source_state"] == "stale"
+
+    second = {
+        **first,
+        "manuscript_revision": "pptman-source-2",
+        "source_script_revision_id": second_script_revision,
+        "pages": [{"page_id": "page-1", "title": "第一页新内容"}],
+    }
+    with pytest.raises(TeacherLessonAuthoringError) as conflict:
+        repository.update_v6_ppt_manuscript_draft(
+            "course-1",
+            "L1-1",
+            expected_manuscript_revision="pptman-wrong",
+            manuscript=second,
+            source_rebase=True,
+            source_lesson_plan_revision_id=plan_revision,
+            source_script_revision_id=second_script_revision,
+            source_material_revision="pptrefs-current",
+        )
+    assert conflict.value.code == "lesson_ppt_manuscript_revision_conflict"
+    assert repository.current_v6_ppt_manuscript(
+        "course-1", "L1-1"
+    )["source_state"] == "stale"
+
+    with pytest.raises(TeacherLessonAuthoringError) as material_conflict:
+        repository.update_v6_ppt_manuscript_draft(
+            "course-1",
+            "L1-1",
+            expected_manuscript_revision="pptman-source-1",
+            manuscript=second,
+            source_rebase=True,
+            source_lesson_plan_revision_id=plan_revision,
+            source_script_revision_id=second_script_revision,
+            source_material_revision="pptrefs-changed",
+        )
+    assert material_conflict.value.code == "lesson_ppt_source_stale"
+    assert repository.current_v6_ppt_manuscript(
+        "course-1", "L1-1"
+    )["source_state"] == "stale"
+
+    updated = repository.update_v6_ppt_manuscript_draft(
+        "course-1",
+        "L1-1",
+        expected_manuscript_revision="pptman-source-1",
+        manuscript=second,
+        source_rebase=True,
+        source_lesson_plan_revision_id=plan_revision,
+        source_script_revision_id=second_script_revision,
+        source_material_revision="pptrefs-current",
+    )
+    assert updated["source_state"] == "current"
+    assert updated["source_lesson_plan_revision_id"] == plan_revision
+    assert updated["source_script_revision_id"] == second_script_revision
+    assert updated["source_material_revision"] == "pptrefs-current"
+    assert updated["revision"] == "pptman-source-2"
+    assert updated["status"] == "draft"
+    assert updated["last_confirmed_manuscript"]["manuscript_revision"] == (
+        "pptman-source-1"
+    )
+    assert updated["last_good_manuscript"]["manuscript_revision"] == (
+        "pptman-source-2"
     )
 
 

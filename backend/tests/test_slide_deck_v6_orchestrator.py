@@ -109,14 +109,54 @@ def _two_chapter_document() -> CourseDocument:
     )
 
 
+def _story_teaching_fields(request, unit, *, title: str) -> dict:
+    source_text = "\n".join(
+        str(block.get("source_text") or "")
+        for block in unit.get("primary_blocks") or []
+    ).strip()
+    visible = source_text or title
+    return {
+        "visible_copy": [visible],
+        "page_goal": f"围绕「{title}」形成可检查的判断",
+        "primary_claim": visible,
+        "audience_question": "如何区分观察事实与后续解释？",
+        "audience_action": "指出记录中的观察事实与后续解释",
+        "expected_response": "观察事实保留对象、时间和环境，后续解释单独标明",
+        "observable_evidence": "能分别标出观察事实与后续解释",
+        "transition": f"用本页的判断继续推进「{title}」",
+        "reveal_steps": ["先确认观察事实", "再区分后续解释"],
+        "composition_notes": "先呈现观察事实，再呈现核对标准",
+        "question_bank_item_ids": [],
+        "shared_visual_expression_ids": [],
+    }
+
+
+def _story_narrative_brief(request) -> dict:
+    source_ids = [
+        str(block_id)
+        for unit in request.get("teaching_units") or []
+        for block_id in unit.get("primary_block_ids") or []
+    ]
+    return {
+        "schema_version": "slide_narrative_brief_v1",
+        "central_question": "怎样用观察和核对形成可信结论？",
+        "learning_path": ["记录观察事实", "区分后续解释"],
+        "observable_checkpoints": ["能标出对象、时间和环境条件"],
+        "time_budget_minutes": 15,
+        "must_include_source_block_ids": source_ids,
+    }
+
+
 async def _story_planner(request):
     unit = request["teaching_units"][0]
+    title = "完成观察与核对闭环"
     return {
         "schema_version": "slide_story_batch_response_v3",
         "chapter_id": request["chapter_id"],
         "provider": "fixture-pool",
         "model": "fixture-story",
         "attempts": 1,
+        "narrative_brief": _story_narrative_brief(request),
         "pages": [{
             "page_id": "page-1",
             "teaching_unit_id": unit["teaching_unit_id"],
@@ -125,8 +165,9 @@ async def _story_planner(request):
                 for item in unit["allowed_template_layout_ids"]
                 if item.endswith("/practice-feedback")
             ),
-            "title": "完成观察与核对闭环",
+            "title": title,
             "summary": "",
+            **_story_teaching_fields(request, unit, title=title),
             "source_block_ids": unit["primary_block_ids"],
         }],
     }
@@ -840,7 +881,7 @@ async def test_deterministic_story_fallback_is_saved_as_blocked_manuscript(
 
 
 @pytest.mark.asyncio
-async def test_deterministic_story_fallback_can_form_reviewable_manuscript(
+async def test_deterministic_story_fallback_cannot_form_reviewable_manuscript(
     tmp_path: Path,
 ) -> None:
     document = _document()
@@ -852,24 +893,24 @@ async def test_deterministic_story_fallback_can_form_reviewable_manuscript(
         payload["model"] = "deterministic-safe-partition"
         return payload
 
-    result = await orchestrator.build(
-        task_id="task-v6-fallback-reviewable-manuscript",
-        document=document,
-        course_data={},
-        mode="teaching",
-        theme="qizhi-classroom",
-        story_planner=fallback_story,
-        visual_planner=_visual_planner,
-        source_revision_provider=lambda: document.document_revision,
-        publish_result=False,
-        manuscript_only=True,
-    )
+    with pytest.raises(V6BuildError, match="ppt_manuscript_ai_story_unavailable"):
+        await orchestrator.build(
+            task_id="task-v6-fallback-reviewable-manuscript",
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=fallback_story,
+            visual_planner=_visual_planner,
+            source_revision_provider=lambda: document.document_revision,
+            publish_result=False,
+            manuscript_only=True,
+        )
 
-    assert result["status"] == "manuscript_ready"
-    assert result["published"] is False
-    assert result["ppt_manuscript"]["quality_status"] == "passed"
     assert representations.load(document.course_id).representations == []
     candidate = candidates.load("task-v6-fallback-reviewable-manuscript")
+    assert candidate["status"] == "v6_failed"
+    assert candidate["ppt_manuscript"]["quality_status"] == "blocked"
     assert candidate["story_plan"]["batches"][0]["provider"] == (
         "codex-structured-fallback"
     )
@@ -1228,12 +1269,14 @@ async def test_restart_reuses_persisted_story_batches_instead_of_calling_ai_agai
             interrupted = False
             raise asyncio.CancelledError()
         unit = request["teaching_units"][0]
+        title = unit["primary_blocks"][0]["source_text"][:40]
         return {
             "schema_version": "slide_story_batch_response_v3",
             "chapter_id": chapter_id,
             "provider": "fixture-pool",
             "model": "fixture-story",
             "attempts": 1,
+            "narrative_brief": _story_narrative_brief(request),
             "pages": [{
                 "page_id": f"page-{chapter_id}",
                 "teaching_unit_id": unit["teaching_unit_id"],
@@ -1241,8 +1284,9 @@ async def test_restart_reuses_persisted_story_batches_instead_of_calling_ai_agai
                     item for item in unit["allowed_template_layout_ids"]
                     if item.endswith("/content-stack")
                 ),
-                "title": unit["primary_blocks"][0]["source_text"][:40],
+                "title": title,
                 "summary": "",
+                **_story_teaching_fields(request, unit, title=title),
                 "source_block_ids": unit["primary_block_ids"],
             }],
         }
@@ -1292,12 +1336,14 @@ async def test_retryable_story_failure_resumes_same_task_and_reuses_finished_bat
             failed_once = True
             raise TimeoutError("provider timeout")
         unit = request["teaching_units"][0]
+        title = unit["title_candidates"][0]
         return {
             "schema_version": "slide_story_batch_response_v3",
             "chapter_id": chapter_id,
             "provider": "fixture-pool",
             "model": "fixture-story",
             "attempts": 1,
+            "narrative_brief": _story_narrative_brief(request),
             "pages": [{
                 "page_id": f"page-{chapter_id}",
                 "teaching_unit_id": unit["teaching_unit_id"],
@@ -1305,8 +1351,9 @@ async def test_retryable_story_failure_resumes_same_task_and_reuses_finished_bat
                     item for item in unit["allowed_template_layout_ids"]
                     if item.endswith("/content-stack")
                 ),
-                "title": unit["title_candidates"][0],
+                "title": title,
                 "summary": "",
+                **_story_teaching_fields(request, unit, title=title),
                 "source_block_ids": unit["primary_block_ids"],
             }],
         }

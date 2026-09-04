@@ -12,42 +12,106 @@ const emptyState = {
 }
 
 describe('PptManuscriptWorkflow', () => {
-  it('lets a teacher regenerate a draft before confirming it', async () => {
+  it('shows the lesson narrative and emits a synchronized page draft save', async () => {
     const wrapper = mount(PptManuscriptWorkflow, {
       props: {
         title: '第6章 微积分基本定理',
         state: {
           ...emptyState,
+          revision: 'pptman-1',
           status: 'draft',
           confirmable: true,
-          manuscript: { page_count: 1, pages: [] },
+          manuscript: {
+            page_count: 1,
+            narrative_brief: {
+              central_question: '变化率怎样连接局部变化与整体累积？',
+              learning_path: ['观察变化', '建立关系'],
+              observable_checkpoints: ['能解释两者的联系'],
+              time_budget_minutes: 18,
+            },
+            pages: [{
+              page_id: 'page-1', page_number: 1, page_type: 'concept', layout_id: 'content-stack',
+              title: '平均变化率刻画区间变化', visible_copy: ['平均变化率刻画区间变化', '先比较输入与输出的增量'],
+              page_goal: '建立平均变化率', primary_claim: '两个增量的比值刻画区间变化',
+              audience_question: '', audience_action: '', expected_response: '', observable_evidence: '',
+              reveal_steps: ['输入增量', '输出增量', '形成比值'], transition: '从变化现象进入数量关系',
+              composition_notes: '先呈现两个增量，再形成比值', teacher_locked: false,
+              regions: [{ content_kind: 'title' }, { content_kind: 'body' }],
+            }],
+          },
         },
       },
     })
 
-    await wrapper.get('[data-testid="regenerate-ppt-manuscript"]').trigger('click')
+    expect(wrapper.get('[data-testid="ppt-narrative-brief"]').text()).toContain('变化率怎样连接局部变化与整体累积')
+    await wrapper.get('.ppt-manuscript-workflow__title-field input').setValue('平均变化率连接两个增量')
+    await wrapper.get('[data-testid="save-ppt-manuscript"]').trigger('click')
 
-    expect(wrapper.emitted('regenerate-manuscript')).toHaveLength(1)
-    expect(wrapper.find('[data-testid="confirm-ppt-manuscript"]').exists()).toBe(true)
+    expect(wrapper.emitted('save-manuscript')).toEqual([[expect.arrayContaining([
+      expect.objectContaining({
+        page_id: 'page-1',
+        title: '平均变化率连接两个增量',
+        visible_copy: ['平均变化率连接两个增量', '先比较输入与输出的增量'],
+      }),
+    ])]])
   })
 
-  it('lets a teacher reopen and regenerate a confirmed manuscript', async () => {
+  it('regenerates only selected eligible pages and removes a page when it is locked', async () => {
     const wrapper = mount(PptManuscriptWorkflow, {
       props: {
         title: '第1章 变化与累积',
         state: {
           ...emptyState,
-          status: 'confirmed',
-          can_generate_ppt: true,
-          manuscript: { page_count: 1, pages: [] },
+          revision: 'pptman-1',
+          status: 'draft',
+          confirmable: true,
+          manuscript: {
+            page_count: 2,
+            pages: [
+              { page_id: 'page-1', page_number: 1, page_type: 'concept', layout_id: 'content-stack', title: '局部变化', visible_copy: ['局部变化'], reveal_steps: ['局部变化'], teacher_locked: false },
+              { page_id: 'page-2', page_number: 2, page_type: 'summary', layout_id: 'chapter-recap', title: '本讲回顾', visible_copy: ['本讲回顾'], reveal_steps: ['本讲回顾'], teacher_locked: false },
+            ],
+          },
         },
       },
     })
 
-    await wrapper.get('[data-testid="regenerate-ppt-manuscript"]').trigger('click')
+    const selectors = wrapper.findAll('.ppt-manuscript-workflow__page-rail input')
+    expect(selectors[0]!.attributes('disabled')).toBeUndefined()
+    expect(selectors[1]!.attributes('disabled')).toBeDefined()
+    await selectors[0]!.trigger('change')
+    await wrapper.get('[data-testid="regenerate-selected-ppt-pages"]').trigger('click')
+    expect(wrapper.emitted('regenerate-pages')).toEqual([[['page-1']]])
 
-    expect(wrapper.emitted('regenerate-manuscript')).toHaveLength(1)
-    expect(wrapper.find('[data-testid="generate-ppt-from-manuscript"]').exists()).toBe(true)
+    await wrapper.findAll('.ppt-manuscript-workflow__lock')[0]!.trigger('click')
+    expect(wrapper.get('[data-testid="regenerate-selected-ppt-pages"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="save-ppt-manuscript"]').attributes('disabled')).toBeUndefined()
+  })
+
+  it('offers source-impact regeneration while keeping the full rebuild path', async () => {
+    const wrapper = mount(PptManuscriptWorkflow, {
+      props: {
+        title: '第1章 变化与累积',
+        state: {
+          ...emptyState,
+          revision: 'pptman-stale',
+          status: 'confirmed',
+          source_state: 'stale',
+          manuscript: {
+            page_count: 1,
+            pages: [{
+              page_id: 'page-1', page_number: 1, page_type: 'concept', layout_id: 'content-stack',
+              title: '局部变化', visible_copy: ['局部变化'], reveal_steps: ['局部变化'], teacher_locked: false,
+            }],
+          },
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('只重新生成受影响页')
+    expect(wrapper.get('[data-testid="generate-ppt-manuscript"]').text()).toContain('重新生成整份页面内容稿')
+    await wrapper.get('[data-testid="regenerate-affected-ppt-pages"]').trigger('click')
+    expect(wrapper.emitted('regenerate-pages')).toEqual([[[]]])
   })
 
   it('shows the handout, lesson-plan, and material sources for every page', () => {

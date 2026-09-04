@@ -34,6 +34,8 @@ from course_presentation_graph import (
 from slide_deck_v6 import (
     AIBatchDiagnosticV1,
     AIProviderAttemptDiagnosticV1,
+    PptManuscriptV1,
+    SlideNarrativeBriefV1,
     SlideStoryBatchV3,
     SlideStoryPageV3,
     SlideStoryPlanV3,
@@ -53,6 +55,7 @@ from slide_deck_v6 import (
     _title_semantic_source_text,
     _visible_prose_text,
     graph_page_source_blocks,
+    revise_ppt_manuscript_v1,
     source_required_slot_kinds,
     story_page_count_range,
     story_safe_page_slices,
@@ -77,6 +80,18 @@ _STORY_PAGE_CONTRACT_FIELDS = frozenset({
     "template_layout_id",
     "title",
     "summary",
+    "visible_copy",
+    "page_goal",
+    "primary_claim",
+    "audience_question",
+    "audience_action",
+    "expected_response",
+    "observable_evidence",
+    "transition",
+    "reveal_steps",
+    "composition_notes",
+    "question_bank_item_ids",
+    "shared_visual_expression_ids",
     "source_block_ids",
 })
 _STORY_SEMANTIC_MAX_ATTEMPTS = 3
@@ -153,6 +168,18 @@ class _StoryResponsePage(_StrictModel):
     template_layout_id: str
     title: str
     summary: str = ""
+    visible_copy: list[str] = Field(default_factory=list)
+    page_goal: str = ""
+    primary_claim: str = ""
+    audience_question: str = ""
+    audience_action: str = ""
+    expected_response: str = ""
+    observable_evidence: str = ""
+    transition: str = ""
+    reveal_steps: list[str] = Field(default_factory=list)
+    composition_notes: str = ""
+    question_bank_item_ids: list[str] = Field(default_factory=list)
+    shared_visual_expression_ids: list[str] = Field(default_factory=list)
     source_block_ids: list[str] = Field(min_length=1)
 
 
@@ -162,6 +189,9 @@ class _StoryBatchResponse(_StrictModel):
     provider: str = ""
     model: str = ""
     attempts: int = Field(default=1, ge=1)
+    narrative_brief: SlideNarrativeBriefV1 = Field(
+        default_factory=SlideNarrativeBriefV1
+    )
     pages: list[_StoryResponsePage] = Field(min_length=1)
 
 
@@ -1904,16 +1934,38 @@ def _story_requests(
                 "required_top_level_fields": [
                     "schema_version",
                     "chapter_id",
+                    "narrative_brief",
                     "pages",
+                ],
+                "required_narrative_brief_fields": [
+                    "schema_version",
+                    "central_question",
+                    "learning_path",
+                    "observable_checkpoints",
+                    "time_budget_minutes",
+                    "must_include_source_block_ids",
                 ],
                 "required_page_fields": [
                     "page_id",
                     "teaching_unit_id",
                     "template_layout_id",
                     "title",
+                    "summary",
+                    "visible_copy",
+                    "page_goal",
+                    "primary_claim",
+                    "audience_question",
+                    "audience_action",
+                    "expected_response",
+                    "observable_evidence",
+                    "transition",
+                    "reveal_steps",
+                    "composition_notes",
+                    "question_bank_item_ids",
+                    "shared_visual_expression_ids",
                     "source_block_ids",
                 ],
-                "optional_page_fields": ["summary"],
+                "optional_page_fields": [],
                 "forbidden_page_fields": ["content"],
             },
             "teaching_units": [
@@ -3388,6 +3440,7 @@ async def plan_slide_story_v3(
                         duration_ms=max(0, round((time.perf_counter() - started) * 1000)),
                         attempts=reported_attempts,
                         validation_status="passed",
+                        narrative_brief=response.narrative_brief,
                         pages=local_pages,
                     )
                     candidate_batch = _assign_global_story_page_ids(
@@ -3496,6 +3549,7 @@ async def plan_slide_story_v3(
                     duration_ms=max(batch.duration_ms, round((time.perf_counter() - started) * 1000)),
                     attempts=batch.attempts,
                     validation_status="passed",
+                    narrative_brief=batch.narrative_brief,
                     pages=batch.pages,
             )
             batches.append(batch)
@@ -3589,6 +3643,321 @@ async def plan_slide_story_v3(
     )
     validate_slide_story_plan_v3(plan, graph, template)
     return plan
+
+
+async def regenerate_ppt_manuscript_pages_v1(
+    manuscript: PptManuscriptV1,
+    *,
+    target_page_ids: list[str],
+    ai_planner: Planner,
+    accepted_question_bank_items: list[dict[str, Any]] | None = None,
+    accepted_visual_expressions: list[dict[str, Any]] | None = None,
+    timeout_seconds: float = 180.0,
+) -> PptManuscriptV1:
+    """Regenerate only selected unlocked manuscript pages as one atomic draft."""
+
+    requested_ids = list(dict.fromkeys(
+        str(item) for item in target_page_ids if str(item)
+    ))
+    if not requested_ids:
+        raise V6BuildError(
+            stage="manuscript",
+            code="ppt_manuscript_regeneration_targets_missing",
+            message="请选择要重新生成的页面。",
+        )
+    pages = sorted(manuscript.pages, key=lambda item: item.page_number)
+    pages_by_id = {page.page_id: page for page in pages}
+    missing_ids = [page_id for page_id in requested_ids if page_id not in pages_by_id]
+    if missing_ids:
+        raise V6BuildError(
+            stage="manuscript",
+            code="ppt_manuscript_page_not_found",
+            message="选中的页面已不在当前内容稿中。",
+            page_id=missing_ids[0],
+        )
+    locked_ids = [
+        page_id for page_id in requested_ids
+        if pages_by_id[page_id].teacher_locked
+    ]
+    if locked_ids:
+        raise V6BuildError(
+            stage="manuscript",
+            code="ppt_manuscript_target_locked",
+            message="锁定页不会被重新生成，请先解除锁定或取消选择。",
+            page_id=locked_ids[0],
+        )
+    structural_ids = [
+        page_id for page_id in requested_ids
+        if pages_by_id[page_id].page_type in {"cover", "agenda", "summary"}
+        or pages_by_id[page_id].continuation_of_page_id
+    ]
+    if structural_ids:
+        raise V6BuildError(
+            stage="manuscript",
+            code="ppt_manuscript_structural_page_regeneration_forbidden",
+            message="封面、导览、回顾和续页由已冻结来源编译，不单独重新生成。",
+            page_id=structural_ids[0],
+        )
+
+    questions = [
+        dict(item) for item in (accepted_question_bank_items or [])
+        if isinstance(item, dict) and str(item.get("question_id") or "")
+    ]
+    visuals = [
+        dict(item) for item in (accepted_visual_expressions or [])
+        if isinstance(item, dict) and str(item.get("representation_id") or "")
+    ]
+    allowed_question_ids = {
+        str(item["question_id"]) for item in questions
+    }
+    allowed_visual_ids = {
+        str(item["representation_id"]) for item in visuals
+    }
+
+    async def regenerate(page_id: str) -> dict[str, Any]:
+        page = pages_by_id[page_id]
+        page_index = pages.index(page)
+        source_blocks = [
+            {
+                "block_id": note.block_id,
+                "source_title": str(
+                    note.source_payload.get("title") or ""
+                ).strip(),
+                "source_text": note.full_text,
+                "source_kind": note.source_kind,
+                "block_revision": note.block_revision,
+            }
+            for note in (page.speaker_notes.source_blocks if page.speaker_notes else [])
+        ]
+        if not source_blocks:
+            raise V6BuildError(
+                stage="manuscript",
+                code="ppt_manuscript_regeneration_source_missing",
+                message="目标页没有可用的讲义块来源。",
+                page_id=page_id,
+            )
+        previous = pages[page_index - 1] if page_index > 0 else None
+        following = pages[page_index + 1] if page_index + 1 < len(pages) else None
+        target_unit_id = f"target:{page_id}"
+        request = {
+            "schema_version": "ppt_manuscript_page_regeneration_request_v1",
+            "chapter_id": f"targeted-{page_id}",
+            "source_document_revision": manuscript.source_document_revision,
+            "constraints": {
+                "target_page_id": page_id,
+                "preserve_page_id": True,
+                "preserve_template_layout_id": True,
+                "preserve_source_block_ids": True,
+                "visible_region_count": len([
+                    region for region in page.regions
+                    if region.content_kind != "notes"
+                ]),
+                "allow_new_facts": False,
+            },
+            "neighbor_context": {
+                "previous": (
+                    {"title": previous.title, "primary_claim": previous.primary_claim}
+                    if previous else None
+                ),
+                "next": (
+                    {"title": following.title, "primary_claim": following.primary_claim}
+                    if following else None
+                ),
+            },
+            "accepted_question_bank_items": questions,
+            "accepted_visual_expressions": visuals,
+            "response_contract": {
+                "schema_version": "slide_story_batch_response_v3",
+                "required_top_level_fields": [
+                    "schema_version", "chapter_id", "narrative_brief", "pages"
+                ],
+                "required_page_fields": sorted(_STORY_PAGE_CONTRACT_FIELDS),
+                "page_count": 1,
+            },
+            "teaching_units": [{
+                "teaching_unit_id": target_unit_id,
+                "section_title": page.title,
+                "primary_block_ids": [item["block_id"] for item in source_blocks],
+                "primary_blocks": source_blocks,
+                "allowed_protected_tokens": sorted(_protected_tokens(
+                    "\n".join(item["source_text"] for item in source_blocks)
+                )),
+                "title_candidates": [page.title],
+                "allowed_page_count_range": [1, 1],
+                "safe_partition_options": [{
+                    "partition_id": f"target:{page_id}",
+                    "pages": [{
+                        "source_block_ids": [
+                            item["block_id"] for item in source_blocks
+                        ],
+                        "template_layout_ids": [page.layout_id],
+                    }],
+                }],
+                "allowed_template_layout_ids": [page.layout_id],
+            }],
+        }
+        try:
+            raw = await _invoke(ai_planner, request, timeout_seconds)
+            payload = _normalize_versioned_response(
+                raw,
+                schema_version="slide_story_batch_response_v3",
+                collection_field="pages",
+                collection_aliases=("slides",),
+            )
+            response = _StoryBatchResponse.model_validate(payload)
+        except V6BuildError:
+            raise
+        except Exception as error:
+            raise V6BuildError(
+                stage="manuscript",
+                code="ppt_manuscript_page_regeneration_failed",
+                message=str(error) or "页面教学内容重新生成失败。",
+                retryable=True,
+                page_id=page_id,
+            ) from error
+        if len(response.pages) != 1:
+            raise V6BuildError(
+                stage="manuscript",
+                code="ppt_manuscript_regeneration_page_count_changed",
+                message="局部重新生成不能增删页面。",
+                page_id=page_id,
+            )
+        generated = response.pages[0]
+        source_ids = [item["block_id"] for item in source_blocks]
+        if (
+            generated.page_id != page_id
+            or generated.template_layout_id != page.layout_id
+            or generated.source_block_ids != source_ids
+        ):
+            raise V6BuildError(
+                stage="manuscript",
+                code="ppt_manuscript_regeneration_contract_changed",
+                message="局部重新生成改变了页面、来源或模板绑定。",
+                page_id=page_id,
+            )
+        visible_regions = [
+            region for region in page.regions if region.content_kind != "notes"
+        ]
+        if len(generated.visible_copy) != len(visible_regions):
+            raise V6BuildError(
+                stage="manuscript",
+                code="ppt_manuscript_visible_region_count_mismatch",
+                message="重新生成的可见文案没有与当前页面区域一一对应。",
+                page_id=page_id,
+            )
+        title_indexes = [
+            index for index, region in enumerate(visible_regions)
+            if region.content_kind == "title"
+        ]
+        if any(
+            generated.visible_copy[index].strip() != generated.title.strip()
+            for index in title_indexes
+        ):
+            raise V6BuildError(
+                stage="manuscript",
+                code="ppt_manuscript_title_region_mismatch",
+                message="重新生成的页面标题与标题区域不一致。",
+                page_id=page_id,
+            )
+        if (
+            not generated.page_goal.strip()
+            or not generated.primary_claim.strip()
+            or not generated.reveal_steps
+            or (page_index > 0 and not generated.transition.strip())
+        ):
+            raise V6BuildError(
+                stage="manuscript",
+                code="ppt_manuscript_page_teaching_content_incomplete",
+                message="重新生成的页面缺少必要教学决策。",
+                page_id=page_id,
+            )
+        if not set(generated.question_bank_item_ids).issubset(allowed_question_ids):
+            raise V6BuildError(
+                stage="manuscript",
+                code="ppt_manuscript_question_binding_unconfirmed",
+                message="页面引用了未确认或非当前的题目。",
+                page_id=page_id,
+            )
+        if not set(generated.shared_visual_expression_ids).issubset(allowed_visual_ids):
+            raise V6BuildError(
+                stage="manuscript",
+                code="ppt_manuscript_visual_binding_unconfirmed",
+                message="页面引用了未采用或已过期的图解。",
+                page_id=page_id,
+            )
+        grounding_text = "\n".join(filter(None, [
+            *(item["source_text"] for item in source_blocks),
+            previous.title if previous else "",
+            previous.primary_claim if previous else "",
+            following.title if following else "",
+            following.primary_claim if following else "",
+            json.dumps(questions, ensure_ascii=False),
+            json.dumps(visuals, ensure_ascii=False),
+        ]))
+        generated_text = "\n".join([
+            generated.title,
+            *generated.visible_copy,
+            generated.page_goal,
+            generated.primary_claim,
+            generated.audience_question,
+            generated.audience_action,
+            generated.expected_response,
+            generated.observable_evidence,
+            generated.transition,
+            *generated.reveal_steps,
+            generated.composition_notes,
+        ])
+        if _protected_tokens(generated_text) - _protected_tokens(grounding_text):
+            raise V6BuildError(
+                stage="manuscript",
+                code="ppt_manuscript_teaching_content_untraceable",
+                message="重新生成的页面包含无法追溯的事实标记。",
+                page_id=page_id,
+            )
+        return {
+            "page_id": page_id,
+            "title": generated.title,
+            "visible_copy": generated.visible_copy,
+            "page_goal": generated.page_goal,
+            "primary_claim": generated.primary_claim,
+            "audience_question": generated.audience_question,
+            "audience_action": generated.audience_action,
+            "expected_response": generated.expected_response,
+            "observable_evidence": generated.observable_evidence,
+            "transition": generated.transition,
+            "reveal_steps": generated.reveal_steps,
+            "composition_notes": generated.composition_notes,
+            "question_bank_item_ids": generated.question_bank_item_ids,
+            "shared_visual_expression_ids": (
+                generated.shared_visual_expression_ids
+            ),
+        }
+
+    updates = await asyncio.gather(*(regenerate(page_id) for page_id in requested_ids))
+    revised = revise_ppt_manuscript_v1(
+        manuscript,
+        updates,
+        allow_system_asset_bindings=True,
+    )
+    if revised.quality_status != "passed" or revised.quality_issues:
+        issue = next(
+            (
+                item for item in revised.quality_issues
+                if not item.page_id or item.page_id in requested_ids
+            ),
+            revised.quality_issues[0] if revised.quality_issues else None,
+        )
+        raise V6BuildError(
+            stage="manuscript",
+            code=issue.code if issue else "ppt_manuscript_quality_blocked",
+            message=(
+                issue.message if issue
+                else "重新生成的页面未通过教学内容质量检查。"
+            ),
+            retryable=issue.retryable if issue else True,
+            page_id=issue.page_id if issue else requested_ids[0],
+        )
+    return revised
 
 
 def _visual_request(
@@ -4850,7 +5219,11 @@ def build_ai_base_story_planner_v6() -> Planner:
                     json.dumps(request, ensure_ascii=False),
                     system_prompt=(
                 "Return only slide_story_batch_response_v3 JSON. You are a course-faithful "
-                "presentation planner. Use every supplied primary_block_id exactly once, keep "
+                "presentation planner. First return narrative_brief with schema_version "
+                "slide_narrative_brief_v1, one source-grounded central_question, an ordered "
+                "learning_path, observable_checkpoints, the chapter time_budget_minutes, and "
+                "must_include_source_block_ids. Use only the supplied source IDs and facts. "
+                "Then use every supplied primary_block_id exactly once, keep "
                 "teaching units and prerequisites in order, and use only supplied teaching_unit_id. "
                 "Derive each page intent from the roles and artifacts of its bound primary_blocks, "
                 "then select a layout from allowed_template_layout_ids_by_page_intent for that intent. "
@@ -4869,16 +5242,25 @@ def build_ai_base_story_planner_v6() -> Planner:
                 "chapter-entry for a lesson objective, formula layouts for equations and derivations, "
                 "process layouts for ordered mechanisms, worked-example for a prompt plus reasoning, "
                 "practice layouts for tasks and checks, and repair layouts for misconceptions when "
-                "those choices are supplied. Titles, "
+                "those choices are supplied. For every page, write visible_copy for the learner-facing "
+                "canvas, one concrete page_goal and primary_claim, and a transition that names the "
+                "prerequisite, contrast, example, practice, or conclusion relationship with an adjacent "
+                "page. When learners must answer or act, write audience_question or audience_action and "
+                "pair it with expected_response or observable_evidence. Write reveal_steps as semantic "
+                "ideas, artifacts, operations, or conclusions in teaching order; never use template slot "
+                "IDs. Use composition_notes only to describe how those ideas should be composed. "
+                "question_bank_item_ids and shared_visual_expression_ids must be empty unless matching "
+                "accepted current assets are supplied in the request. Titles, visible_copy, page goals, "
+                "claims, questions, actions, responses, evidence, reveal steps, composition notes, "
                 "summaries, transitions, facts, numbers, formulas and identifiers must be supported "
                 "by that unit's source_text. Reference evidence summaries may guide example choice, "
                 "emphasis and layout only; they are supporting context, not a second content source, "
                 "and must not introduce visible claims absent from the bound source_text. Copy every "
                 "identifier and number exactly from the "
                 "allowed_protected_tokens of its bound primary_blocks; never shorten, approximate, "
-                "autocorrect or synthesize a protected token. Every page must contain exactly page_id, "
-                "teaching_unit_id, template_layout_id, title, summary and source_block_ids at the "
-                 "page level; never emit a nested content object. Copy a complete title from candidates "
+                "autocorrect or synthesize a protected token. Every page must contain exactly the fields "
+                "listed in response_contract.required_page_fields at the page level; never emit a nested "
+                 "content object. Copy a complete title from candidates "
                  "supplied by the primary_blocks bound to that page, keep it within title_max_chars, "
                  "and never end it with a connector or delimiter. Keep each summary compact and "
                  "screen-worthy; it must express the semantic closure of every source_block_id bound "
@@ -5027,5 +5409,6 @@ __all__ = [
     "build_ai_base_visual_planner_v2",
     "plan_slide_story_v3",
     "plan_slide_visuals_v2",
+    "regenerate_ppt_manuscript_pages_v1",
     "repair_slide_visuals_v2",
 ]

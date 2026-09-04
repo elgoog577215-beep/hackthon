@@ -1017,7 +1017,23 @@ async def test_story_ai_is_required_and_uses_only_supplied_units_and_layouts() -
         "teaching_unit_id",
         "template_layout_id",
         "title",
+        "summary",
+        "visible_copy",
+        "page_goal",
+        "primary_claim",
+        "audience_question",
+        "audience_action",
+        "expected_response",
+        "observable_evidence",
+        "transition",
+        "reveal_steps",
+        "composition_notes",
+        "question_bank_item_ids",
+        "shared_visual_expression_ids",
         "source_block_ids",
+    ]
+    assert "narrative_brief" in calls[0]["response_contract"][
+        "required_top_level_fields"
     ]
     assert calls[0]["response_contract"]["forbidden_page_fields"] == ["content"]
     assert calls[0]["constraints"]["primary_block_page_ownership"] == "exactly_once"

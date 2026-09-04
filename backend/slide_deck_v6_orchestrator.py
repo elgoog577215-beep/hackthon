@@ -67,12 +67,6 @@ def _manuscript_planning_quality_issues(
     ]
     if not fallback_batches:
         return []
-    if allow_reviewable_fallback:
-        # The safe partition has already passed the same source coverage,
-        # title, layout and capacity validators as model output.  It may form
-        # a reviewable manuscript, but direct deck publication remains blocked
-        # below unless the teacher explicitly confirms that manuscript first.
-        return []
     return [V6Failure(
         stage="manuscript",
         code="ppt_manuscript_ai_story_unavailable",
@@ -1006,6 +1000,7 @@ class SlideDeckV6Orchestrator:
                             story,
                             allow_reviewable_fallback=manuscript_only,
                         ),
+                        require_ai_teaching_content=True,
                     ),
                     tracker=tracker,
                     callback=progress_callback,

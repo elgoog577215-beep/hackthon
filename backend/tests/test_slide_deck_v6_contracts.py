@@ -3,7 +3,13 @@ import re
 
 import pytest
 
-from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
+from course_document import (
+    CourseBlock,
+    CourseDocument,
+    CourseSection,
+    refresh_document_revision,
+    stable_hash,
+)
 from course_presentation_graph import (
     block_artifact_kinds,
     block_presentation_text,
@@ -12,6 +18,7 @@ from course_presentation_graph import (
     teaching_intent_for_roles,
 )
 from slide_deck_v6 import (
+    SlideNarrativeBriefV1,
     SlideStoryBatchV3,
     SlideStoryPageV3,
     SlideStoryPlanV3,
@@ -36,6 +43,7 @@ from slide_deck_v6 import (
     _split_artifact_block,
     _title_is_incomplete,
     _title_is_generic_or_stub,
+    affected_ppt_manuscript_page_ids,
     build_signature_v6,
     classify_v6_failure,
     compile_ppt_manuscript_v1,
@@ -44,12 +52,15 @@ from slide_deck_v6 import (
     compile_slide_deck_v6,
     compile_slide_deck_v6_from_manuscript,
     prepare_story_plan_for_final_compilation,
+    rebase_ppt_manuscript_source_blocks_v1,
+    revise_ppt_manuscript_v1,
     story_page_count_range,
     story_safe_page_slices,
     validate_slide_story_plan_v3,
     validate_slide_visual_plan_v2,
     validate_deck_matches_ppt_manuscript_v1,
 )
+from slide_ai_planning_v6 import regenerate_ppt_manuscript_pages_v1
 from slide_deck_renderer import audit_exported_pptx
 from slide_deck_v6_renderer import adapt_v6_page_to_slide_spec, export_slide_deck_v6_pptx
 from template_layout_contract import compile_builtin_template_layout_contract_v1
@@ -1406,6 +1417,536 @@ def _valid_story(document: CourseDocument):
         ],
     )
     return graph, template, story
+
+
+def _strict_manuscript_fixture(document: CourseDocument):
+    graph, template, story = _valid_story(document)
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision=(
+                "table"
+                if page.template_layout_id.endswith("/evidence-table")
+                else "text_native"
+            ),
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        ) for page in story.pages],
+    )
+    legacy = compile_ppt_manuscript_v1(
+        document,
+        graph,
+        story,
+        visual,
+        template,
+    )
+    source_ids = list(dict.fromkeys(
+        block_id
+        for page in legacy.pages
+        for block_id in page.source_script_block_ids
+    ))
+    seed = legacy.model_copy(update={
+        "teaching_content_contract_version": "page_teaching_v1",
+        "narrative_brief": SlideNarrativeBriefV1(
+            central_question=f"怎样理解{document.title}的核心关系？",
+            learning_path=[page.title for page in legacy.pages],
+            observable_checkpoints=["能用页面结论核对讲义中的条件与结果"],
+            time_budget_minutes=max(1, len(legacy.pages) * 5),
+            must_include_source_block_ids=source_ids,
+        ),
+    })
+    updates = []
+    for index, page in enumerate(seed.pages):
+        source_text = next(
+            (
+                note.full_text.strip()
+                for note in (page.speaker_notes.source_blocks if page.speaker_notes else [])
+                if note.full_text.strip()
+            ),
+            page.title,
+        )
+        claim = page.primary_claim.strip()
+        if not claim or re.sub(r"\W+", "", claim).casefold() == re.sub(
+            r"\W+", "", page.title
+        ).casefold():
+            claim = f"本页结论：{source_text}"[:320]
+        updates.append({
+            "page_id": page.page_id,
+            "page_goal": page.page_goal or f"理解{page.title}",
+            "primary_claim": claim,
+            "audience_action": (
+                "完成本页讲义给出的任务" if page.page_type == "practice" else ""
+            ),
+            "expected_response": (
+                claim if page.page_type == "practice" else ""
+            ),
+            "transition": (
+                f"从课程主题进入{page.title}"
+                if index == 0
+                else f"把上一页结论用于理解{page.title}"
+            ),
+            "reveal_steps": page.reveal_steps or [source_text[:96]],
+            "composition_notes": page.composition_notes or "按来源顺序呈现结论与证据",
+        })
+    manuscript = revise_ppt_manuscript_v1(seed, updates)
+    assert manuscript.quality_status == "passed", [
+        item.code for item in manuscript.quality_issues
+    ]
+    return graph, template, story, visual, manuscript
+
+
+def _regenerated_page_response(page, *, question_ids=None, visual_ids=None):
+    return {
+        "schema_version": "slide_story_batch_response_v3",
+        "chapter_id": f"targeted-{page.page_id}",
+        "narrative_brief": {
+            "schema_version": "slide_narrative_brief_v1",
+            "central_question": "",
+            "learning_path": [],
+            "observable_checkpoints": [],
+            "time_budget_minutes": 0,
+            "must_include_source_block_ids": [],
+        },
+        "pages": [{
+            "page_id": page.page_id,
+            "teaching_unit_id": f"target:{page.page_id}",
+            "template_layout_id": page.layout_id,
+            "title": page.title,
+            "summary": "",
+            "visible_copy": list(page.visible_copy),
+            "page_goal": page.page_goal,
+            "primary_claim": page.primary_claim,
+            "audience_question": page.audience_question,
+            "audience_action": page.audience_action,
+            "expected_response": page.expected_response,
+            "observable_evidence": page.observable_evidence,
+            "transition": page.transition,
+            "reveal_steps": list(page.reveal_steps),
+            "composition_notes": f"{page.composition_notes}，局部重生成后复核",
+            "question_bank_item_ids": list(question_ids or []),
+            "shared_visual_expression_ids": list(visual_ids or []),
+            "source_block_ids": list(page.source_script_block_ids),
+        }],
+    }
+
+
+def test_strict_manuscript_blocks_missing_ai_narrative_and_page_teaching_fields() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision=(
+                "table"
+                if page.template_layout_id.endswith("/evidence-table")
+                else "text_native"
+            ),
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        ) for page in story.pages],
+    )
+
+    manuscript = compile_ppt_manuscript_v1(
+        document,
+        graph,
+        story,
+        visual,
+        template,
+        require_ai_teaching_content=True,
+    )
+
+    codes = {item.code for item in manuscript.quality_issues}
+    assert manuscript.teaching_content_contract_version == "page_teaching_v1"
+    assert manuscript.quality_status == "blocked"
+    assert "ppt_manuscript_narrative_brief_incomplete" in codes
+    assert "ppt_manuscript_narrative_job_missing" in codes
+    assert "ppt_manuscript_reveal_sequence_not_semantic" in codes
+    assert "ppt_manuscript_composition_notes_missing" in codes
+    assert "ppt_manuscript_ai_visible_copy_missing" in codes
+
+
+def test_strict_manuscript_rejects_slot_reveals_and_generic_transitions() -> None:
+    document = _cross_subject_document()
+    _graph, _template, _story, _visual, manuscript = (
+        _strict_manuscript_fixture(document)
+    )
+    assert len(manuscript.pages) >= 2
+    page = manuscript.pages[1]
+    slot_id = next(
+        region.slot_id for region in page.regions if region.slot_id
+    )
+    invalid_pages = [item.model_copy(deep=True) for item in manuscript.pages]
+    invalid_pages[1].reveal_steps = [slot_id]
+    invalid_pages[1].transition = "承接上一页并推进到下一教学判断"
+
+    issues = _ppt_manuscript_quality_issues(
+        invalid_pages,
+        require_teaching_content=True,
+        narrative_brief=manuscript.narrative_brief,
+    )
+
+    codes = {item.code for item in issues if item.page_id == page.page_id}
+    assert "ppt_manuscript_reveal_sequence_not_semantic" in codes
+    assert "ppt_manuscript_transition_not_specific" in codes
+
+
+def test_teacher_manuscript_edit_syncs_visible_regions_and_preserves_frozen_contracts() -> None:
+    document = _cross_subject_document()
+    _graph, _template, _story, _visual, manuscript = (
+        _strict_manuscript_fixture(document)
+    )
+    page = next(
+        item
+        for item in manuscript.pages
+        if item.source_script_block_ids
+        and item.speaker_notes
+        and item.speaker_notes.source_blocks
+        and len(item.visible_copy) == len([
+            region for region in item.regions if region.content_kind != "notes"
+        ])
+    )
+    revised_copy = list(page.visible_copy)
+    revised_copy[-1] = next(
+        note.full_text for note in page.speaker_notes.source_blocks
+        if note.full_text
+    )
+
+    revised = revise_ppt_manuscript_v1(manuscript, [{
+        "page_id": page.page_id,
+        "visible_copy": revised_copy,
+        "teacher_locked": True,
+    }])
+    revised_page = next(item for item in revised.pages if item.page_id == page.page_id)
+
+    assert revised.manuscript_revision != manuscript.manuscript_revision
+    assert revised_page.visible_copy == [
+        region.content.strip()
+        for region in revised_page.regions
+        if region.content_kind != "notes" and region.content.strip()
+    ]
+    assert revised_page.visible_copy[-1] == revised_copy[-1]
+    assert revised_page.teacher_locked is True
+    assert revised_page.lock_source_document_revision == manuscript.source_document_revision
+    assert revised_page.layout_id == page.layout_id
+    assert revised_page.source_script_block_ids == page.source_script_block_ids
+    assert revised_page.web_renderer_adapter == page.web_renderer_adapter
+    assert revised_page.pptx_renderer_adapter == page.pptx_renderer_adapter
+
+    with pytest.raises(V6BuildError, match="ppt_manuscript_field_not_editable"):
+        revise_ppt_manuscript_v1(manuscript, [{
+            "page_id": page.page_id,
+            "layout_id": "another-layout",
+        }])
+    with pytest.raises(V6BuildError, match="ppt_manuscript_field_not_editable"):
+        revise_ppt_manuscript_v1(manuscript, [{
+            "page_id": page.page_id,
+            "question_bank_item_ids": ["teacher-injected-question"],
+        }])
+
+
+def test_source_impact_keeps_unbound_pages_and_exposes_locked_conflicts() -> None:
+    document = _cross_subject_document()
+    _graph, _template, _story, _visual, manuscript = (
+        _strict_manuscript_fixture(document)
+    )
+    target = next(
+        page for page in manuscript.pages if page.source_script_block_ids
+    )
+    locked = revise_ppt_manuscript_v1(manuscript, [{
+        "page_id": target.page_id,
+        "teacher_locked": True,
+    }])
+
+    affected = affected_ppt_manuscript_page_ids(
+        locked,
+        [target.source_script_block_ids[0]],
+    )
+
+    assert target.page_id in affected
+    assert next(page for page in locked.pages if page.page_id == target.page_id).teacher_locked
+    assert [
+        page.page_id for page in locked.pages
+        if page.page_id not in affected
+    ] == [
+        page.page_id for page in manuscript.pages
+        if page.page_id not in affected
+    ]
+
+
+@pytest.mark.asyncio
+async def test_source_rebase_uses_current_notes_and_preserves_unaffected_pages() -> None:
+    document = _cross_subject_document()
+    _graph, template, _story, _visual, manuscript = (
+        _strict_manuscript_fixture(document)
+    )
+    current = document.model_copy(deep=True)
+    changed_block = next(block for block in current.blocks if block.block_id == "b5")
+    changed_block.payload["markdown"] = (
+        "证据解释必须分开记录到的现象、基于现象的推断和可检验的结论。"
+    )
+    current = refresh_document_revision(current)
+    before_pages = {
+        page.page_id: page.model_dump(mode="json") for page in manuscript.pages
+    }
+
+    rebased, affected, locked = rebase_ppt_manuscript_source_blocks_v1(
+        manuscript,
+        current,
+        source_script_revision_id="script-r2",
+    )
+
+    assert affected == ["p2"]
+    assert locked == []
+    assert rebased.source_document_revision == current.document_revision
+    assert rebased.source_script_revision_id == "script-r2"
+    assert rebased.manuscript_revision != manuscript.manuscript_revision
+    assert rebased.manuscript_revision == stable_hash(
+        rebased.model_dump(
+            mode="json", exclude={"schema_version", "manuscript_revision"}
+        ),
+        prefix="pptman_",
+    )
+    assert [
+        page.model_dump(mode="json") for page in rebased.pages
+        if page.page_id not in affected
+    ] == [
+        before_pages[page.page_id] for page in manuscript.pages
+        if page.page_id not in affected
+    ]
+    target = next(page for page in rebased.pages if page.page_id == "p2")
+    current_note = next(
+        note for note in target.speaker_notes.source_blocks
+        if note.block_id == "b5"
+    )
+    assert current_note.full_text == changed_block.payload["markdown"]
+    assert current_note.block_revision == changed_block.internal_revision
+
+    requests = []
+    response_target = target.model_copy(deep=True)
+    response_target.visible_copy[1] = "\n\n".join([
+        str(changed_block.payload["markdown"]),
+        next(
+            block_source_text(block)
+            for block in current.blocks if block.block_id == "b7"
+        ),
+    ])
+
+    async def planner(request):
+        requests.append(request)
+        return _regenerated_page_response(response_target)
+
+    revised = await regenerate_ppt_manuscript_pages_v1(
+        rebased,
+        target_page_ids=affected,
+        ai_planner=planner,
+    )
+    b5_request = next(
+        item for item in requests[0]["teaching_units"][0]["primary_blocks"]
+        if item["block_id"] == "b5"
+    )
+    assert b5_request["source_title"] == "b5"
+    assert b5_request["source_text"] == changed_block.payload["markdown"]
+    deck = compile_slide_deck_v6_from_manuscript(
+        current,
+        compile_course_presentation_graph(current, teaching_plan={}),
+        revised,
+        template,
+    )
+    assert deck.source_document_revision == current.document_revision
+    assert next(page for page in deck.pages if page.page_id == "p2").regions[
+        1
+    ].content == response_target.visible_copy[1]
+
+    teacher_locked = revise_ppt_manuscript_v1(manuscript, [{
+        "page_id": "p2",
+        "teacher_locked": True,
+    }])
+    _locked_rebase, locked_affected, locked_conflicts = (
+        rebase_ppt_manuscript_source_blocks_v1(
+            teacher_locked,
+            current,
+            source_script_revision_id="script-r2",
+        )
+    )
+    assert locked_affected == ["p2"]
+    assert locked_conflicts == ["p2"]
+
+
+def test_source_rebase_requires_full_rebuild_for_structural_or_artifact_drift() -> None:
+    document = _cross_subject_document()
+    _graph, _template, _story, _visual, manuscript = (
+        _strict_manuscript_fixture(document)
+    )
+
+    added = document.model_copy(deep=True)
+    added.blocks.append(_block(
+        "b8", "s2", 3, role="summary", text="用证据链复核调查结论。"
+    ))
+    with pytest.raises(V6BuildError, match="ppt_manuscript_source_structure_changed"):
+        rebase_ppt_manuscript_source_blocks_v1(
+            manuscript,
+            refresh_document_revision(added),
+            source_script_revision_id="script-added",
+        )
+
+    removed = document.model_copy(deep=True)
+    removed.blocks = [block for block in removed.blocks if block.block_id != "b7"]
+    with pytest.raises(V6BuildError, match="ppt_manuscript_source_structure_changed"):
+        rebase_ppt_manuscript_source_blocks_v1(
+            manuscript,
+            refresh_document_revision(removed),
+            source_script_revision_id="script-removed",
+        )
+
+    reordered = document.model_copy(deep=True)
+    next(block for block in reordered.blocks if block.block_id == "b5").position = 2
+    next(block for block in reordered.blocks if block.block_id == "b7").position = 0
+    with pytest.raises(V6BuildError, match="ppt_manuscript_source_structure_changed"):
+        rebase_ppt_manuscript_source_blocks_v1(
+            manuscript,
+            refresh_document_revision(reordered),
+            source_script_revision_id="script-reordered",
+        )
+
+    role_changed = document.model_copy(deep=True)
+    next(block for block in role_changed.blocks if block.block_id == "b5").role = "summary"
+    with pytest.raises(V6BuildError, match="ppt_manuscript_source_structure_changed"):
+        rebase_ppt_manuscript_source_blocks_v1(
+            manuscript,
+            refresh_document_revision(role_changed),
+            source_script_revision_id="script-role",
+        )
+
+    artifact_changed = document.model_copy(deep=True)
+    next(block for block in artifact_changed.blocks if block.block_id == "b6").kind = "code"
+    with pytest.raises(V6BuildError, match="ppt_manuscript_source_artifact_changed"):
+        rebase_ppt_manuscript_source_blocks_v1(
+            manuscript,
+            refresh_document_revision(artifact_changed),
+            source_script_revision_id="script-artifact",
+        )
+
+    continued = manuscript.model_copy(deep=True)
+    next(page for page in continued.pages if page.page_id == "p2").continuation_of_page_id = (
+        "p2-story-root"
+    )
+    content_changed = document.model_copy(deep=True)
+    next(block for block in content_changed.blocks if block.block_id == "b5").payload[
+        "markdown"
+    ] = "证据解释要先标出观察，再区分推断与结论。"
+    with pytest.raises(V6BuildError, match="ppt_manuscript_source_pagination_changed"):
+        rebase_ppt_manuscript_source_blocks_v1(
+            continued,
+            refresh_document_revision(content_changed),
+            source_script_revision_id="script-pagination",
+        )
+
+
+@pytest.mark.asyncio
+async def test_targeted_manuscript_regeneration_preserves_other_pages_and_records_accepted_assets() -> None:
+    document = _cross_subject_document()
+    _graph, _template, _story, _visual, manuscript = (
+        _strict_manuscript_fixture(document)
+    )
+    eligible = [
+        page for page in manuscript.pages
+        if page.page_type not in {"cover", "agenda", "summary"}
+        and not page.continuation_of_page_id
+        and len(page.visible_copy) == len([
+            region for region in page.regions if region.content_kind != "notes"
+        ])
+    ]
+    target = eligible[0]
+    before = manuscript.model_dump(mode="json")
+    requests = []
+
+    async def planner(request):
+        requests.append(request)
+        return _regenerated_page_response(
+            target,
+            question_ids=["q-approved"],
+            visual_ids=["visual-accepted"],
+        )
+
+    revised = await regenerate_ppt_manuscript_pages_v1(
+        manuscript,
+        target_page_ids=[target.page_id],
+        ai_planner=planner,
+        accepted_question_bank_items=[{"question_id": "q-approved"}],
+        accepted_visual_expressions=[{"representation_id": "visual-accepted"}],
+    )
+
+    assert manuscript.model_dump(mode="json") == before
+    assert len(requests) == 1
+    assert requests[0]["constraints"]["target_page_id"] == target.page_id
+    revised_target = next(page for page in revised.pages if page.page_id == target.page_id)
+    assert revised_target.question_bank_item_ids == ["q-approved"]
+    assert revised_target.shared_visual_expression_ids == ["visual-accepted"]
+    assert revised_target.composition_notes.endswith("局部重生成后复核")
+    assert [
+        page.model_dump(mode="json") for page in revised.pages
+        if page.page_id != target.page_id
+    ] == [
+        page.model_dump(mode="json") for page in manuscript.pages
+        if page.page_id != target.page_id
+    ]
+
+
+@pytest.mark.asyncio
+async def test_targeted_manuscript_regeneration_is_atomic_and_rejects_unconfirmed_assets() -> None:
+    document = _cross_subject_document()
+    _graph, _template, _story, _visual, manuscript = (
+        _strict_manuscript_fixture(document)
+    )
+    eligible = [
+        page for page in manuscript.pages
+        if page.page_type not in {"cover", "agenda", "summary"}
+        and not page.continuation_of_page_id
+        and len(page.visible_copy) == len([
+            region for region in page.regions if region.content_kind != "notes"
+        ])
+    ]
+    assert len(eligible) >= 2
+    targets = eligible[:2]
+    before = manuscript.model_dump(mode="json")
+
+    async def planner(request):
+        page_id = request["constraints"]["target_page_id"]
+        page = next(item for item in targets if item.page_id == page_id)
+        return _regenerated_page_response(
+            page,
+            question_ids=(
+                ["q-approved"] if page is targets[0] else ["q-unconfirmed"]
+            ),
+        )
+
+    with pytest.raises(
+        V6BuildError,
+        match="ppt_manuscript_question_binding_unconfirmed",
+    ):
+        await regenerate_ppt_manuscript_pages_v1(
+            manuscript,
+            target_page_ids=[page.page_id for page in targets],
+            ai_planner=planner,
+            accepted_question_bank_items=[{"question_id": "q-approved"}],
+        )
+
+    assert manuscript.model_dump(mode="json") == before
+
+    locked = revise_ppt_manuscript_v1(manuscript, [{
+        "page_id": targets[0].page_id,
+        "teacher_locked": True,
+    }])
+    with pytest.raises(V6BuildError, match="ppt_manuscript_target_locked"):
+        await regenerate_ppt_manuscript_pages_v1(
+            locked,
+            target_page_ids=[targets[0].page_id],
+            ai_planner=planner,
+        )
 
 
 def test_manuscript_is_frozen_before_deck_compilation() -> None:
