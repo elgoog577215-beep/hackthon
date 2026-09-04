@@ -8,7 +8,7 @@ const workbenchSource = readFileSync(
 )
 
 describe('teacher outline direct workflow', () => {
-  it('keeps editing and embedded AI as outline document actions while removing the confirmation gate', () => {
+  it('keeps manual editing in the top bar and AI editing inside the outline document', () => {
     const actionsStart = workbenchSource.indexOf('<TeacherDocumentCommandBar')
     const editAction = workbenchSource.indexOf('data-testid="outline-manual-action"', actionsStart)
     const actionsEnd = workbenchSource.indexOf('</TeacherDocumentCommandBar>', actionsStart)
@@ -19,8 +19,11 @@ describe('teacher outline direct workflow', () => {
     expect(editAction).toBeLessThan(actionsEnd)
     expect(outlineActions).not.toContain('outline-confirm-action')
     expect(outlineActions).not.toContain('confirmInlineOutline')
-    expect(outlineActions).toContain('@click="openOutlineInlineAi"')
-    expect(workbenchSource).toContain('function openOutlineInlineAi() { outlineEditor.value?.openInlineAi?.() }')
+    expect(outlineActions).not.toContain('openOutlineInlineAi')
+    expect(outlineActions).not.toContain("lessonDocument.aiImprove")
+    expect(outlineActions).not.toContain("aiCollaboration.iterateCandidate")
+    expect(workbenchSource).not.toContain('function openOutlineInlineAi()')
+    expect(workbenchSource).toContain('showOutlineWorkspace && !aiCandidatePending')
     expect(workbenchSource).not.toContain("(event: 'outlineConfirmed')")
     expect(workbenchSource).not.toContain('@confirmed="handleInlineOutlineConfirmed"')
   })

@@ -23,12 +23,35 @@ describe('teacher lesson toolbar placement', () => {
     const lessonToolbarEnd = workbenchSource.indexOf('</TeacherDocumentCommandBar>', lessonToolbarStart)
     const lessonToolbarSource = workbenchSource.slice(lessonToolbarStart, lessonToolbarEnd)
     expect(lessonToolbarSource).not.toContain("lessonDocument.aiImprove")
-    expect(lessonToolbarSource).toContain('lessonPlanDocument?.openInlineAi()')
+    expect(lessonToolbarSource).not.toContain('lessonPlanDocument?.openInlineAi()')
+    expect(lessonToolbarSource).not.toContain("aiCollaboration.iterateCandidate")
+    expect(workbenchSource).toContain("activeStage === 'lesson' && lessonToolbarVisible && !aiCandidatePending")
     expect(workbenchSource).toContain(
       '.workbench-center.is-lesson-workspace .lesson-command-bar{width:calc(100% - 8px);justify-content:flex-end;gap:8px;margin:0 4px 10px;background:transparent}',
     )
     expect(workbenchSource).toContain(
       '.workbench-center.is-lesson-workspace :deep(.lesson-document){overflow:hidden;border:1px solid #e0e6ef',
     )
+  })
+
+  it('keeps AI modification and candidate actions out of every document top bar', () => {
+    const outlineMarker = workbenchSource.indexOf("t('courseWorkbench.outlineDocument.actions'")
+    const outlineStart = workbenchSource.lastIndexOf('<TeacherDocumentCommandBar', outlineMarker)
+    const outlineEnd = workbenchSource.indexOf('</TeacherDocumentCommandBar>', outlineMarker)
+    const outlineToolbarSource = workbenchSource.slice(outlineStart, outlineEnd)
+
+    const scriptMarker = workbenchSource.indexOf("t('courseWorkbench.scriptDocument.actions'")
+    const scriptStart = workbenchSource.lastIndexOf('<TeacherDocumentCommandBar', scriptMarker)
+    const scriptEnd = workbenchSource.indexOf('</TeacherDocumentCommandBar>', scriptMarker)
+    const scriptToolbarSource = workbenchSource.slice(scriptStart, scriptEnd)
+
+    for (const toolbarSource of [outlineToolbarSource, scriptToolbarSource]) {
+      expect(toolbarSource).not.toContain('openInlineAi')
+      expect(toolbarSource).not.toContain('AI 修改')
+      expect(toolbarSource).not.toContain("aiCollaboration.iterateCandidate")
+      expect(toolbarSource).not.toContain('resolveAiCandidate')
+    }
+    expect(workbenchSource).not.toContain('function openScriptInlineAi()')
+    expect(workbenchSource).toContain('scriptToolbarVisible && !aiCandidatePending')
   })
 })

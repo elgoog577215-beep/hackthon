@@ -101,7 +101,7 @@
         </button>
       </nav>
 
-      <template v-if="showOutlineWorkspace">
+      <template v-if="showOutlineWorkspace && !aiCandidatePending">
         <TeacherDocumentCommandBar
           :label="t('courseWorkbench.outlineDocument.actions', '大纲操作')"
           :editing="editingOutline"
@@ -116,16 +116,6 @@
           @redo="outlineEditor?.redoEdit()"
           @history="toggleDocumentHistory('outline')"
         >
-          <button
-            v-if="!editingOutline"
-            type="button"
-            :disabled="stageSwitching || aiCollaborationBusy || outlineWorkspaceHydrating"
-            @click="openOutlineInlineAi"
-          >
-            <Sparkles :size="15" />{{ aiCandidatePending
-              ? t('courseWorkbench.aiCollaboration.iterateCandidate', '继续调整')
-              : t('courseWorkbench.lessonDocument.aiImprove', 'AI 修改') }}
-          </button>
           <button
             v-if="outlineWaitingForInput"
             class="primary-action"
@@ -443,7 +433,7 @@
           </nav>
         </header>
         <TeacherDocumentCommandBar
-          v-if="activeStage === 'lesson' && lessonToolbarVisible"
+          v-if="activeStage === 'lesson' && lessonToolbarVisible && !aiCandidatePending"
           class="lesson-command-bar"
           :label="t('courseWorkbench.lessonDocument.actions', '教案操作')"
           :editing="lessonDocumentEditing"
@@ -459,16 +449,7 @@
           @undo="lessonPlanDocument?.undoEdit()"
           @redo="lessonPlanDocument?.redoEdit()"
         >
-            <template v-if="aiCandidatePending">
-              <button type="button" :disabled="aiCollaborationBusy" @click="lessonPlanDocument?.openInlineAi()"><Sparkles :size="15" />{{ t('courseWorkbench.aiCollaboration.iterateCandidate', '继续调整') }}</button>
-              <button type="button" :disabled="aiCollaborationBusy" @click="resolveAiCandidate(false)"><X :size="15" />{{ t('courseWorkbench.lessonDocument.discardAi', '放弃') }}</button>
-              <button class="primary-action" type="button" :disabled="aiCollaborationBusy" @click="resolveAiCandidate(true)">
-                <LoaderCircle v-if="aiCollaborationBusy" :size="15" class="spin" />
-                <Check v-else :size="15" />
-                {{ aiCollaborationBusy ? t('courseWorkbench.lessonDocument.applyingAi', '正在采用…') : t('courseWorkbench.lessonDocument.applyAi', '采用') }}
-              </button>
-            </template>
-            <template v-else-if="lessonDocumentEditing">
+            <template v-if="lessonDocumentEditing">
               <button type="button" :disabled="lessonDocumentSaving" @click="cancelLessonPlanEditing"><X :size="15" />{{ t('courseWorkbench.lessonDocument.cancel', '取消') }}</button>
               <button class="primary-action" type="button" :disabled="lessonDocumentSaving" @click="saveLessonPlanDraft">
                 <LoaderCircle v-if="lessonDocumentSaving" :size="15" class="spin" />
@@ -798,7 +779,7 @@
           >
             <template #toolbar>
               <TeacherDocumentCommandBar
-                v-if="scriptToolbarVisible"
+                v-if="scriptToolbarVisible && !aiCandidatePending"
                 :label="t('courseWorkbench.scriptDocument.actions', '讲义操作')"
                 :editing="scriptDocumentEditing"
                 :can-undo="scriptCanUndo"
@@ -812,16 +793,7 @@
                 @redo="scriptDocument?.redoEdit()"
                 @history="toggleDocumentHistory('script')"
               >
-                  <template v-if="aiCandidatePending">
-                    <button type="button" :disabled="aiCollaborationBusy" @click="openScriptInlineAi"><Sparkles :size="15" />{{ t('courseWorkbench.aiCollaboration.iterateCandidate', '继续调整') }}</button>
-                    <button type="button" :disabled="aiCollaborationBusy" @click="resolveAiCandidate(false)"><X :size="15" />{{ t('courseWorkbench.scriptDocument.discardAi', '放弃') }}</button>
-                    <button class="primary-action" type="button" :disabled="aiCollaborationBusy" @click="resolveAiCandidate(true)">
-                      <LoaderCircle v-if="aiCollaborationBusy" :size="15" class="spin" />
-                      <Check v-else :size="15" />
-                      {{ aiCollaborationBusy ? t('courseWorkbench.scriptDocument.applyingAi', '正在采用…') : t('courseWorkbench.scriptDocument.applyAi', '采用') }}
-                    </button>
-                  </template>
-                  <template v-else-if="scriptDocumentEditing">
+                  <template v-if="scriptDocumentEditing">
                     <button type="button" :disabled="scriptDocumentSaving" @click="cancelScriptEditing"><X :size="15" />{{ t('courseWorkbench.scriptDocument.cancel', '取消') }}</button>
                     <button class="primary-action" type="button" :disabled="scriptDocumentSaving" @click="saveScriptDraft">
                       <LoaderCircle v-if="scriptDocumentSaving" :size="15" class="spin" />
@@ -830,7 +802,6 @@
                     </button>
                   </template>
                   <template v-else>
-                    <button type="button" :disabled="scriptDocumentAiBusy || aiCollaborationBusy" @click="openScriptInlineAi"><Sparkles :size="15" />{{ t('courseWorkbench.scriptDocument.aiImprove', 'AI 修改') }}</button>
                     <button type="button" @click="beginScriptEditing"><Pencil :size="15" />{{ t('courseWorkbench.scriptDocument.edit', '编辑讲义') }}</button>
                     <i v-if="scriptBatchLaunchVisible" class="lesson-action-divider" aria-hidden="true" />
                     <button
@@ -1106,7 +1077,6 @@ type LessonPlanDocumentHandle = {
   requestAiCandidate: (instruction: string) => Promise<TeacherLessonPlanCandidate | null>
   resolveAiCandidate: (accept: boolean) => Promise<boolean>
   focusCandidate: () => void
-  openInlineAi: () => void
   editing: boolean
   saving: boolean
   aiBusy: boolean
@@ -1125,7 +1095,6 @@ type ProductionAiDocumentHandle = {
   focusCandidate?: () => void
   focusReferenceSources?: () => void
   selectAiScope?: (scopeId: string) => boolean
-  openInlineAi?: () => void
 }
 type ScriptDocumentHandle = ProductionAiDocumentHandle & {
   editing: boolean
@@ -1679,7 +1648,6 @@ const lessonDocumentSaving = computed(() => Boolean(lessonPlanDocument.value?.sa
 const scriptToolbarVisible = computed(() => activeStage.value === 'script' && Boolean(selectedLesson.value?.script?.ready) && !scriptGenerationBusy.value)
 const scriptDocumentEditing = computed(() => Boolean(scriptDocument.value?.editing))
 const scriptDocumentSaving = computed(() => Boolean(scriptDocument.value?.saving))
-const scriptDocumentAiBusy = computed(() => Boolean(scriptDocument.value?.aiBusy))
 const outlineCanUndo = computed(() => Boolean(outlineEditor.value?.canUndo))
 const outlineCanRedo = computed(() => Boolean(outlineEditor.value?.canRedo))
 const outlineQualityIssues = computed<Record<string, any>[]>(() => (
@@ -3107,8 +3075,6 @@ async function saveLessonPlanDraft() { await lessonPlanDocument.value?.saveDraft
 function beginScriptEditing() { scriptDocument.value?.beginEditing() }
 function cancelScriptEditing() { scriptDocument.value?.cancelEditing() }
 async function saveScriptDraft() { await scriptDocument.value?.saveDraft() }
-function openOutlineInlineAi() { outlineEditor.value?.openInlineAi?.() }
-function openScriptInlineAi() { scriptDocument.value?.openInlineAi?.() }
 async function toggleDocumentHistory(domain: TeacherHistoryDomain) {
   if (historyOpen.value && historyDomain.value === domain) {
     closeDocumentHistory()
