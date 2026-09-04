@@ -828,6 +828,7 @@
       "inlineElapsed": "Waiting {seconds}s",
       "inlineSelectionScope": "Edit selected text",
       "inlineBlockScope": "Edit this paragraph",
+      "selectTarget": "Choose content to edit",
       "inlineDocumentScope": "Edit this content",
       "inlineOutlineScope": "Edit this outline",
       "inlineBoundary": "AI creates an option only. The formal content changes after you apply it.",

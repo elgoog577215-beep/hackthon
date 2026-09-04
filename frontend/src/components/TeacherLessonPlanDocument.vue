@@ -80,6 +80,8 @@
       :document-label="tr('courseWorkbench.aiCollaboration.inlineDocumentScope')"
       :boundary-label="tr('courseWorkbench.aiCollaboration.inlineBoundary')"
       target-selector="[data-ai-field]"
+      group-selector="[data-ai-inline-anchor]"
+      :select-target-label="tr('courseWorkbench.aiCollaboration.selectTarget')"
       :candidate-pending="Boolean(pendingCandidate)"
       :candidate-title="tr('courseWorkbench.aiCollaboration.candidateReady')"
       :candidate-hint="tr('courseWorkbench.aiCollaboration.inlineCandidateBoundary')"
@@ -324,6 +326,7 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.aiCollaboration.candidateReady': '修改候选已生成',
   'courseWorkbench.aiCollaboration.inlineSelectionScope': '修改选中内容',
   'courseWorkbench.aiCollaboration.inlineBlockScope': '修改当前段落',
+  'courseWorkbench.aiCollaboration.selectTarget': '选择要修改的内容',
   'courseWorkbench.aiCollaboration.inlineDocumentScope': '修改当前教案',
   'courseWorkbench.aiCollaboration.inlineBoundary': 'AI 只生成候选，采用后才会写入正式教案。',
   'courseWorkbench.aiCollaboration.inlineCandidateBoundary': '原文仍然保留，只有采用后候选才会写入正式教案。',

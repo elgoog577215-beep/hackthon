@@ -10,13 +10,15 @@
       ref="actionButton"
       type="button"
       class="text-selection-ai__trigger"
-      :aria-label="label"
-      :title="label"
+      :class="{ 'is-selecting': blockSelectionActive }"
+      :aria-label="triggerLabel"
+      :aria-pressed="blockSelectionActive"
+      :title="triggerLabel"
       @pointerdown.prevent
-      @click="openComposer"
+      @click="handleTriggerClick"
     >
       <Sparkles :size="14" />
-      <span>{{ label }}</span>
+      <span>{{ triggerLabel }}</span>
     </button>
   </div>
 
@@ -104,6 +106,7 @@
 
 <script setup lang="ts">
 import {
+  computed,
   nextTick,
   onBeforeUnmount,
   onMounted,
@@ -143,6 +146,8 @@ const props = withDefaults(
     documentLabel?: string;
     boundaryLabel?: string;
     targetSelector?: string;
+    groupSelector?: string;
+    selectTargetLabel?: string;
     candidatePending?: boolean;
     candidateTitle?: string;
     candidateHint?: string;
@@ -166,6 +171,8 @@ const props = withDefaults(
     boundaryLabel: "AI 只生成候选，采用后才会写入正式内容。",
     targetSelector:
       "p, li, blockquote, h2, h3, h4, h5, td, th, [data-node-body], .document-section, .script-module",
+    groupSelector: "",
+    selectTargetLabel: "选择要修改的内容",
     candidatePending: false,
     candidateTitle: "修改候选已生成",
     candidateHint: "候选已经显示在原文位置，采用后才会写入正式内容。",
@@ -187,7 +194,10 @@ const actionButton = ref<HTMLButtonElement | null>(null);
 const composer = ref<HTMLTextAreaElement | null>(null);
 const inlineHost = ref<HTMLElement | null>(null);
 const anchorTarget = ref<HTMLElement | null>(null);
+const activeGroup = ref<HTMLElement | null>(null);
+const previewTarget = ref<HTMLElement | null>(null);
 const composerOpen = ref(false);
+const blockSelectionActive = ref(false);
 const instruction = ref("");
 const submitted = ref(false);
 const anchorRect = ref<Pick<
@@ -202,6 +212,12 @@ const anchor = reactive({
   source: "block" as TeacherInlineAiSource,
 });
 const contextLabel = ref(props.blockLabel);
+const triggerLabel = computed(() =>
+  blockSelectionActive.value ? props.selectTargetLabel : props.label,
+);
+const selectionAnchorActive = computed(
+  () => anchor.source === "selection" && Boolean(anchorTarget.value),
+);
 
 function compactText(value: unknown) {
   return String(value || "")
@@ -246,6 +262,54 @@ function targetFromEvent(event: Event) {
     return null;
   const target = element.closest<HTMLElement>(props.targetSelector);
   return target && props.container?.contains(target) ? target : null;
+}
+
+function groupForTarget(target: HTMLElement | null) {
+  if (!target || !props.groupSelector) return null;
+  const group = target.closest<HTMLElement>(props.groupSelector);
+  return group && props.container?.contains(group) ? group : null;
+}
+
+function blockTargetWithinGroup(target: HTMLElement, group: HTMLElement) {
+  let blockTarget = target;
+  let parentTarget = blockTarget.parentElement?.closest<HTMLElement>(
+    props.targetSelector,
+  );
+  while (parentTarget && group.contains(parentTarget)) {
+    blockTarget = parentTarget;
+    if (blockTarget === group) break;
+    parentTarget = blockTarget.parentElement?.closest<HTMLElement>(
+      props.targetSelector,
+    );
+  }
+  return blockTarget;
+}
+
+function clearPreviewTarget() {
+  previewTarget.value?.classList.remove("text-selection-ai-target-preview");
+  previewTarget.value = null;
+}
+
+function clearActiveGroup() {
+  activeGroup.value?.classList.remove("text-selection-ai-group-selecting");
+  activeGroup.value = null;
+}
+
+function exitBlockSelection(hideAnchor = true) {
+  blockSelectionActive.value = false;
+  clearPreviewTarget();
+  clearActiveGroup();
+  if (hideAnchor) anchor.visible = false;
+}
+
+function previewBlockTarget(target: HTMLElement) {
+  const group = activeGroup.value;
+  if (!group || !group.contains(target)) return;
+  const blockTarget = blockTargetWithinGroup(target, group);
+  if (previewTarget.value === blockTarget) return;
+  clearPreviewTarget();
+  previewTarget.value = blockTarget;
+  blockTarget.classList.add("text-selection-ai-target-preview");
 }
 
 function requestTarget(
@@ -298,6 +362,28 @@ function showBlockTarget(target: HTMLElement) {
   positionForRect(target.getBoundingClientRect(), "block");
 }
 
+function showGroupTarget(target: HTMLElement) {
+  if (selectionAnchorActive.value) return;
+  const group = groupForTarget(target);
+  if (!group) {
+    showBlockTarget(target);
+    return;
+  }
+  if (blockSelectionActive.value) {
+    previewBlockTarget(target);
+    return;
+  }
+  if (activeGroup.value === group && anchor.visible) return;
+  clearPreviewTarget();
+  clearActiveGroup();
+  activeGroup.value = group;
+  anchorTarget.value = null;
+  anchor.text = "";
+  anchor.visible = true;
+  contextLabel.value = props.blockLabel;
+  positionForRect(group.getBoundingClientRect(), "block");
+}
+
 function captureSelection() {
   if (props.disabled || !props.container || composerOpen.value) return;
   const selected = window.getSelection();
@@ -316,25 +402,77 @@ function captureSelection() {
   const startTarget = start.closest<HTMLElement>(props.targetSelector);
   const endTarget = end.closest<HTMLElement>(props.targetSelector);
   if (!startTarget || !endTarget || startTarget !== endTarget) return;
+  exitBlockSelection(false);
   anchor.text = text;
   anchor.visible = true;
   contextLabel.value = props.selectionLabel;
   anchorTarget.value = endTarget;
-  positionForRect(
-    endTarget.getBoundingClientRect() || range.getBoundingClientRect(),
-    "selection",
-  );
+  positionForRect(range.getBoundingClientRect(), "selection");
 }
 
 function handlePointerOver(event: PointerEvent) {
   const target = targetFromEvent(event);
-  if (target) showBlockTarget(target);
+  if (target) showGroupTarget(target);
 }
 
 function handlePointerLeave(event: PointerEvent) {
   if (composerOpen.value || root.value?.contains(event.relatedTarget as Node))
     return;
+  if (selectionAnchorActive.value) return;
+  if (blockSelectionActive.value) {
+    exitBlockSelection();
+    return;
+  }
   anchor.visible = false;
+  clearActiveGroup();
+}
+
+function enterBlockSelection() {
+  if (!activeGroup.value) return;
+  blockSelectionActive.value = true;
+  activeGroup.value.classList.add("text-selection-ai-group-selecting");
+  contextLabel.value = props.selectTargetLabel;
+}
+
+function selectBlockTarget(target: HTMLElement) {
+  const group = activeGroup.value;
+  if (!group || !group.contains(target)) return;
+  const blockTarget = blockTargetWithinGroup(target, group);
+  const text = compactText(blockTarget.textContent);
+  if (text.length < 2) return;
+  blockSelectionActive.value = false;
+  clearPreviewTarget();
+  clearActiveGroup();
+  anchor.text = text;
+  anchor.source = "block";
+  anchorTarget.value = blockTarget;
+  contextLabel.value = props.blockLabel;
+  openComposer();
+}
+
+function handleContainerClick(event: MouseEvent) {
+  if (!blockSelectionActive.value) return;
+  const target = targetFromEvent(event);
+  if (!target || !activeGroup.value?.contains(target)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  selectBlockTarget(target);
+}
+
+function handleTriggerClick() {
+  if (selectionAnchorActive.value) {
+    openComposer();
+    return;
+  }
+  if (blockSelectionActive.value) {
+    exitBlockSelection();
+    return;
+  }
+  if (activeGroup.value && props.groupSelector) {
+    enterBlockSelection();
+    return;
+  }
+  openComposer();
 }
 
 function openComposer() {
@@ -385,6 +523,7 @@ function closeComposer() {
   anchor.visible = false;
   anchorRect.value = null;
   anchorTarget.value = null;
+  exitBlockSelection(false);
   removeInlineHost();
   window.getSelection()?.removeAllRanges();
 }
@@ -408,20 +547,42 @@ function handleDocumentPointerDown(event: PointerEvent) {
   )
     return;
   if (composerOpen.value) closeComposer();
+  else if (selectionAnchorActive.value) {
+    anchor.visible = false;
+    anchorRect.value = null;
+    anchorTarget.value = null;
+    anchor.text = "";
+    anchor.source = "block";
+  } else if (
+    blockSelectionActive.value &&
+    !activeGroup.value?.contains(event.target as Node)
+  )
+    exitBlockSelection();
+}
+
+function handleDocumentKeyDown(event: KeyboardEvent) {
+  if (event.key !== "Escape" || !blockSelectionActive.value) return;
+  event.preventDefault();
+  exitBlockSelection();
 }
 
 onMounted(() => {
   props.container?.addEventListener("pointerover", handlePointerOver);
   props.container?.addEventListener("pointerleave", handlePointerLeave);
+  props.container?.addEventListener("click", handleContainerClick);
   document.addEventListener("mouseup", captureSelection);
   document.addEventListener("pointerdown", handleDocumentPointerDown);
+  document.addEventListener("keydown", handleDocumentKeyDown);
 });
 
 onBeforeUnmount(() => {
   props.container?.removeEventListener("pointerover", handlePointerOver);
   props.container?.removeEventListener("pointerleave", handlePointerLeave);
+  props.container?.removeEventListener("click", handleContainerClick);
   document.removeEventListener("mouseup", captureSelection);
   document.removeEventListener("pointerdown", handleDocumentPointerDown);
+  document.removeEventListener("keydown", handleDocumentKeyDown);
+  exitBlockSelection(false);
   removeInlineHost();
 });
 
@@ -430,8 +591,10 @@ watch(
   (next, previous) => {
     previous?.removeEventListener("pointerover", handlePointerOver);
     previous?.removeEventListener("pointerleave", handlePointerLeave);
+    previous?.removeEventListener("click", handleContainerClick);
     next?.addEventListener("pointerover", handlePointerOver);
     next?.addEventListener("pointerleave", handlePointerLeave);
+    next?.addEventListener("click", handleContainerClick);
   },
 );
 watch(
@@ -478,6 +641,25 @@ defineExpose({ openForDocument, closeComposer });
   border-color: #8e88e9;
   color: #fff;
   background: #514bdc;
+}
+.text-selection-ai__trigger.is-selecting {
+  border-color: #514bdc;
+  color: #fff;
+  background: #514bdc;
+  box-shadow: 0 8px 22px rgba(45, 42, 130, 0.12);
+}
+:global(.text-selection-ai-group-selecting) {
+  outline: 1px dashed rgba(81, 75, 220, 0.34);
+  outline-offset: 7px;
+}
+:global(.text-selection-ai-group-selecting [data-ai-field]) {
+  cursor: pointer;
+}
+:global(.text-selection-ai-target-preview) {
+  border-radius: 8px;
+  outline: 2px solid rgba(81, 75, 220, 0.72);
+  outline-offset: 4px;
+  background: rgba(245, 245, 255, 0.78);
 }
 .text-selection-ai__trigger:focus-visible,
 .text-selection-ai__composer button:focus-visible,

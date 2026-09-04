@@ -53,7 +53,7 @@ describe('文中选区 AI 快捷操作', () => {
     await nextTick()
 
     expect(wrapper.get('button').text()).toContain('AI 修改')
-    expect(wrapper.get('.text-selection-ai').attributes('style')).toContain('left: 520px')
+    expect(wrapper.get('.text-selection-ai').attributes('style')).toContain('left: 320px')
     expect(wrapper.get('.text-selection-ai').attributes('style')).toContain('top: 124px')
     await wrapper.get('button').trigger('click')
     expect(host.querySelector('blockquote')?.textContent).toContain('理解函数模型并确定定义域')
@@ -163,11 +163,16 @@ describe('文中选区 AI 快捷操作', () => {
     ]])
   })
 
-  it('三栏目标中的入口跟随当前栏右侧，并只提交当前栏身份', async () => {
+  it('三栏目标共用大容器右侧入口，进入选择模式后锁定当前栏', async () => {
     const host = document.createElement('section')
     const section = document.createElement('section')
     section.dataset.aiSectionId = 'section-1'
     const objectiveGrid = document.createElement('div')
+    objectiveGrid.dataset.aiInlineAnchor = 'true'
+    objectiveGrid.getBoundingClientRect = () => ({
+      x: 20, y: 32, left: 20, top: 32, right: 600, bottom: 136, width: 580, height: 104,
+      toJSON: () => ({}),
+    })
     const fields = [
       ['knowledge_objectives', '知识目标', 20, 200],
       ['ability_objectives', '能力目标', 220, 400],
@@ -194,15 +199,35 @@ describe('文中选区 AI 快捷操作', () => {
     })
     const wrapper = mount(TextSelectionAiAction, {
       attachTo: host,
-      props: { container: host, targetSelector: '[data-ai-field]' },
+      props: {
+        container: host,
+        targetSelector: '[data-ai-field]',
+        groupSelector: '[data-ai-inline-anchor]',
+        selectTargetLabel: '选择要修改的内容',
+      },
     })
 
     const knowledgeField = objectiveGrid.children[0] as HTMLElement
+    const abilityField = objectiveGrid.children[1] as HTMLElement
     knowledgeField.dispatchEvent(new Event('pointerover', { bubbles: true }))
     await nextTick()
 
-    expect(wrapper.get('.text-selection-ai').attributes('style')).toContain('left: 200px')
+    expect(wrapper.get('.text-selection-ai').attributes('style')).toContain('left: 600px')
+    abilityField.dispatchEvent(new Event('pointerover', { bubbles: true }))
+    await nextTick()
+    expect(wrapper.get('.text-selection-ai').attributes('style')).toContain('left: 600px')
+
     await wrapper.get('.text-selection-ai__trigger').trigger('click')
+    expect(wrapper.get('.text-selection-ai__trigger').text()).toContain('选择要修改的内容')
+    expect(wrapper.get('.text-selection-ai__trigger').attributes('aria-pressed')).toBe('true')
+
+    knowledgeField.dispatchEvent(new Event('pointerover', { bubbles: true }))
+    await nextTick()
+    expect(knowledgeField.classList.contains('text-selection-ai-target-preview')).toBe(true)
+    knowledgeField.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    await nextTick()
+    expect(knowledgeField.classList.contains('text-selection-ai-target-preview')).toBe(false)
+
     const textarea = section.querySelector('textarea') as HTMLTextAreaElement
     textarea.value = '改成可检查的知识目标'
     textarea.dispatchEvent(new Event('input', { bubbles: true }))
@@ -217,5 +242,104 @@ describe('文中选区 AI 快捷操作', () => {
         label: '知识目标',
       },
     })
+  })
+
+  it('整块选择模式可用 Esc 退出且不会打开修改框', async () => {
+    const host = document.createElement('section')
+    const group = document.createElement('div')
+    group.dataset.aiInlineAnchor = 'true'
+    group.getBoundingClientRect = () => ({
+      x: 20, y: 40, left: 20, top: 40, right: 420, bottom: 140, width: 400, height: 100,
+      toJSON: () => ({}),
+    })
+    const field = document.createElement('p')
+    field.dataset.aiField = 'class_summary'
+    field.textContent = '本讲总结'
+    group.appendChild(field)
+    host.appendChild(group)
+    document.body.appendChild(host)
+    Object.defineProperty(host, 'clientWidth', { configurable: true, value: 640 })
+    host.getBoundingClientRect = () => ({
+      x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 400, width: 640, height: 400,
+      toJSON: () => ({}),
+    })
+    const wrapper = mount(TextSelectionAiAction, {
+      attachTo: host,
+      props: {
+        container: host,
+        targetSelector: '[data-ai-field]',
+        groupSelector: '[data-ai-inline-anchor]',
+      },
+    })
+
+    field.dispatchEvent(new Event('pointerover', { bubbles: true }))
+    await nextTick()
+    await wrapper.get('.text-selection-ai__trigger').trigger('click')
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await nextTick()
+
+    expect(wrapper.find('.text-selection-ai__trigger').exists()).toBe(false)
+    expect(group.classList.contains('text-selection-ai-group-selecting')).toBe(false)
+    expect(host.querySelector('.text-selection-ai__composer')).toBeNull()
+  })
+
+  it('手动划词会退出整块选择模式，并只保留选中文字', async () => {
+    const host = document.createElement('section')
+    const group = document.createElement('div')
+    group.dataset.aiInlineAnchor = 'true'
+    group.getBoundingClientRect = () => ({
+      x: 20, y: 40, left: 20, top: 40, right: 420, bottom: 140, width: 400, height: 100,
+      toJSON: () => ({}),
+    })
+    const field = document.createElement('p')
+    field.dataset.aiField = 'teacher_activity'
+    field.dataset.aiLabel = '教师活动'
+    field.textContent = '教师先提问，再讲解四步流程'
+    group.appendChild(field)
+    host.appendChild(group)
+    document.body.appendChild(host)
+    Object.defineProperty(host, 'clientWidth', { configurable: true, value: 640 })
+    host.getBoundingClientRect = () => ({
+      x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 400, width: 640, height: 400,
+      toJSON: () => ({}),
+    })
+    const range = {
+      startContainer: field.firstChild,
+      endContainer: field.firstChild,
+      getBoundingClientRect: () => ({
+        x: 64, y: 72, left: 64, top: 72, right: 152, bottom: 94, width: 88, height: 22,
+        toJSON: () => ({}),
+      }),
+    } as unknown as Range
+    const wrapper = mount(TextSelectionAiAction, {
+      attachTo: host,
+      props: {
+        container: host,
+        targetSelector: '[data-ai-field]',
+        groupSelector: '[data-ai-inline-anchor]',
+      },
+    })
+
+    field.dispatchEvent(new Event('pointerover', { bubbles: true }))
+    await nextTick()
+    await wrapper.get('.text-selection-ai__trigger').trigger('click')
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      toString: () => '先提问',
+      rangeCount: 1,
+      getRangeAt: () => range,
+      removeAllRanges: vi.fn(),
+    } as unknown as Selection)
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    await nextTick()
+
+    expect(group.classList.contains('text-selection-ai-group-selecting')).toBe(false)
+    expect(wrapper.get('.text-selection-ai__trigger').text()).toContain('AI 修改')
+    host.dispatchEvent(new Event('pointerleave'))
+    await nextTick()
+    field.dispatchEvent(new Event('pointerover', { bubbles: true }))
+    await nextTick()
+    await wrapper.get('.text-selection-ai__trigger').trigger('click')
+    expect(host.querySelector('blockquote')?.textContent).toBe('先提问')
+    expect(host.querySelector('.text-selection-ai__composer')?.textContent).toContain('教师活动 · 修改选中内容')
   })
 })
