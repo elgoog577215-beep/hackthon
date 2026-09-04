@@ -127,10 +127,10 @@ printf '正在启动后端：http://%s:%s\n' "$BACKEND_HOST" "$BACKEND_PORT"
             --host "$BACKEND_HOST" \
             --port "$BACKEND_PORT"
     fi
+    # TaskManager 在导入时获取唯一任务锁；--reload 的父进程会与服务子进程冲突。
     exec "$PYTHON_BIN" -m uvicorn main:app \
         --host "$BACKEND_HOST" \
-        --port "$BACKEND_PORT" \
-        --reload
+        --port "$BACKEND_PORT"
 ) &
 BACKEND_PID=$!
 
