@@ -730,6 +730,32 @@ async def get_teaching_representations(course_id: str, request: Request) -> dict
     return {"status": "success", "registry": _compact_registry_payload(registry)}
 
 
+@router.get("/accepted")
+async def get_accepted_teaching_representations(
+    course_id: str,
+    request: Request,
+    consumer: Literal["teacher_script", "slide_deck", "learner"],
+    lesson_unit_id: str = "",
+) -> dict:
+    """Return one shared, teacher-accepted representation projection."""
+
+    require_user_id(request.headers.get("X-User-Id"))
+    await get_course_or_404(course_id)
+    try:
+        projection = await run_in_threadpool(
+            get_teaching_representation_repository().accepted_sets_for_consumer,
+            course_id,
+            consumer=consumer,
+            lesson_unit_id=lesson_unit_id,
+        )
+    except RepresentationConflict as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": "teaching_representation_conflict",
+            "message": str(exc),
+        }) from exc
+    return {"status": "success", **projection}
+
+
 @router.get("/slide-decks/v6/metrics")
 async def get_slide_deck_v6_metrics(course_id: str, request: Request) -> dict:
     """Return source-free operational health metrics for terminal V6 builds."""
@@ -1924,8 +1950,8 @@ async def get_teaching_slide_asset(
     """Serve only immutable assets referenced by the requested slide version."""
     payload = await get_teaching_representation_spec(course_id, representation_id, request)
     representation = payload["representation"]
-    if representation["representation_type"] != "slide_deck":
-        raise HTTPException(status_code=409, detail="Only slide decks have visual assets")
+    if representation["representation_type"] not in {"slide_deck", "image"}:
+        raise HTTPException(status_code=409, detail="This representation has no visual assets")
     content = (payload["spec"].get("payload") or {}).get("content") or {}
     asset_manifest = {
         str(item.get("asset_id") or ""): item
@@ -1933,14 +1959,14 @@ async def get_teaching_slide_asset(
     }
     asset = asset_manifest.get(asset_id)
     if asset is None:
-        raise HTTPException(status_code=404, detail="Slide visual asset not found")
+        raise HTTPException(status_code=404, detail="Teaching visual asset not found")
     try:
         stored = slide_asset_repository.get(asset_id)
         path = slide_asset_repository.resolve(asset_id)
     except (FileNotFoundError, ValueError) as exc:
-        raise HTTPException(status_code=404, detail="Slide visual asset is unavailable") from exc
+        raise HTTPException(status_code=404, detail="Teaching visual asset is unavailable") from exc
     if stored is None or stored.course_id != course_id or stored.sha256 != str(asset.get("sha256") or ""):
-        raise HTTPException(status_code=409, detail="Slide visual asset manifest mismatch")
+        raise HTTPException(status_code=409, detail="Teaching visual asset manifest mismatch")
     return FileResponse(
         path,
         media_type=stored.mime_type,

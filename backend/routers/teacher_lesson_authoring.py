@@ -6,7 +6,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from copy import deepcopy
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
@@ -58,6 +58,10 @@ from teacher_script import (
     normalize_teacher_script_section,
     validate_teacher_script_section,
 )
+from teacher_script_visuals import (
+    TeacherScriptVisualService,
+    teacher_script_visual_service,
+)
 from teacher_course_space import teacher_course_space_repository
 from teacher_lesson_source import compile_original_lesson_plan_evidence
 from slide_deck_renderer import export_structured_slide_deck
@@ -80,6 +84,7 @@ from ppt_template_packs import (
     ppt_template_pack_repository,
 )
 from teaching_representations import (
+    RepresentationConflict,
     TeachingRepresentationSpec,
     teaching_representation_repository,
 )
@@ -102,6 +107,10 @@ from slide_deck_v6 import (
 
 router = APIRouter(prefix="/teacher", tags=["teacher-lesson-authoring"])
 _background_jobs: set[asyncio.Task] = set()
+
+
+def get_teacher_script_visual_service() -> TeacherScriptVisualService:
+    return teacher_script_visual_service
 
 
 async def _run_lesson_plan_job(
@@ -194,6 +203,19 @@ class RewriteLessonScriptRequest(BaseModel):
 
 
 class ResolveLessonScriptCandidateRequest(BaseModel):
+    accept: bool
+
+
+class CreateLessonScriptVisualRequest(BaseModel):
+    script_revision_id: str = Field(min_length=1, max_length=200)
+    section_node_id: str = Field(min_length=1, max_length=200)
+    block_id: str = Field(min_length=1, max_length=240)
+    expression_type: Literal["diagram", "image", "animation"]
+    instruction: str = Field(default="", max_length=1200)
+
+
+class ResolveLessonScriptVisualRequest(BaseModel):
+    script_revision_id: str = Field(min_length=1, max_length=200)
     accept: bool
 
 
@@ -1361,6 +1383,45 @@ def _current_script_revision(
             "当前讲义不完整或对应的教案已变化，请重新生成或编辑保存。",
         )
     return lesson, revision
+
+
+def _current_script_visual_context(
+    tm: TaskManager,
+    repository: TeacherLessonAuthoringRepository,
+    course_id: str,
+    lesson_unit_id: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    source = _source_course(tm, course_id)
+    lesson_scope(source, lesson_unit_id)
+    lesson = repository.lesson(course_id, lesson_unit_id)
+    revision_id = str(lesson.get("working_script_revision_id") or "")
+    if not revision_id:
+        raise TeacherLessonAuthoringError(
+            "lesson_script_not_ready",
+            "请先生成本讲讲义，再添加视觉表达。",
+        )
+    revision = _script_revision(repository, course_id, lesson_unit_id, revision_id)
+    if not _script_revision_has_content(revision):
+        raise TeacherLessonAuthoringError(
+            "lesson_script_source_incomplete",
+            "当前讲义内容不完整，暂时不能添加视觉表达。",
+        )
+    blocks: list[dict[str, Any]] = []
+    for section in revision.get("sections") or []:
+        if not isinstance(section, dict):
+            continue
+        normalized = normalize_teacher_script_section(section)
+        section_node_id = str(normalized.get("section_node_id") or "")
+        for block in normalized.get("blocks") or []:
+            if not isinstance(block, dict):
+                continue
+            blocks.append({**deepcopy(block), "section_node_id": section_node_id})
+    if not blocks:
+        raise TeacherLessonAuthoringError(
+            "lesson_script_blocks_empty",
+            "当前讲义没有可绑定视觉表达的教学块。",
+        )
+    return revision, blocks
 
 
 def _imported_ppt_review_context(
@@ -4563,6 +4624,141 @@ async def generate_all_lesson_scripts(
         }
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
+
+
+@router.get("/courses/{course_id}/lessons/{lesson_unit_id}/script/visuals")
+async def get_lesson_script_visuals(
+    course_id: str,
+    lesson_unit_id: str,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(
+        get_teacher_lesson_authoring_repository
+    ),
+    visual_service: TeacherScriptVisualService = Depends(
+        get_teacher_script_visual_service
+    ),
+):
+    try:
+        resolve_user_id(request.headers.get("X-User-Id"))
+        revision, blocks = _current_script_visual_context(
+            tm, repository, course_id, lesson_unit_id
+        )
+        return await run_in_threadpool(
+            visual_service.list_for_lesson,
+            course_id=course_id,
+            lesson_unit_id=lesson_unit_id,
+            script_revision_id=str(revision.get("revision_id") or ""),
+            blocks=blocks,
+        )
+    except (TeacherLessonAuthoringError, RepresentationConflict) as exc:
+        if isinstance(exc, TeacherLessonAuthoringError):
+            _raise(exc)
+        _raise(TeacherLessonAuthoringError(
+            "lesson_script_visual_conflict", str(exc)
+        ))
+
+
+@router.post("/courses/{course_id}/lessons/{lesson_unit_id}/script/visuals")
+async def create_lesson_script_visual(
+    course_id: str,
+    lesson_unit_id: str,
+    body: CreateLessonScriptVisualRequest,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(
+        get_teacher_lesson_authoring_repository
+    ),
+    visual_service: TeacherScriptVisualService = Depends(
+        get_teacher_script_visual_service
+    ),
+):
+    try:
+        resolve_user_id(request.headers.get("X-User-Id"))
+        revision, blocks = _current_script_visual_context(
+            tm, repository, course_id, lesson_unit_id
+        )
+        revision_id = str(revision.get("revision_id") or "")
+        if body.script_revision_id != revision_id:
+            raise TeacherLessonAuthoringError(
+                "lesson_script_revision_conflict",
+                "讲义工作稿已经变化，请基于当前教学块重新生成视觉表达。",
+            )
+        block = next(
+            (
+                item for item in blocks
+                if str(item.get("section_node_id") or "") == body.section_node_id
+                and str(item.get("block_id") or "") == body.block_id
+            ),
+            None,
+        )
+        if block is None:
+            raise TeacherLessonAuthoringError(
+                "lesson_script_visual_block_not_found",
+                "当前讲义教学块不存在，请重新载入。",
+            )
+        item = await run_in_threadpool(
+            visual_service.create_candidate,
+            course_id=course_id,
+            lesson_unit_id=lesson_unit_id,
+            script_revision_id=revision_id,
+            section_node_id=body.section_node_id,
+            block=block,
+            expression_type=body.expression_type,
+            instruction=body.instruction,
+        )
+        return {"item": item}
+    except (TeacherLessonAuthoringError, RepresentationConflict, ValueError) as exc:
+        if isinstance(exc, TeacherLessonAuthoringError):
+            _raise(exc)
+        _raise(TeacherLessonAuthoringError(
+            "lesson_script_visual_generation_failed", str(exc)
+        ))
+
+
+@router.post(
+    "/courses/{course_id}/lessons/{lesson_unit_id}/script/visuals/{representation_id}/resolve"
+)
+async def resolve_lesson_script_visual(
+    course_id: str,
+    lesson_unit_id: str,
+    representation_id: str,
+    body: ResolveLessonScriptVisualRequest,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(
+        get_teacher_lesson_authoring_repository
+    ),
+    visual_service: TeacherScriptVisualService = Depends(
+        get_teacher_script_visual_service
+    ),
+):
+    try:
+        resolve_user_id(request.headers.get("X-User-Id"))
+        revision, _blocks = _current_script_visual_context(
+            tm, repository, course_id, lesson_unit_id
+        )
+        revision_id = str(revision.get("revision_id") or "")
+        if body.script_revision_id != revision_id:
+            raise TeacherLessonAuthoringError(
+                "lesson_script_revision_conflict",
+                "讲义工作稿已经变化，不能处理旧的视觉表达候选。",
+            )
+        item = await run_in_threadpool(
+            visual_service.resolve_candidate,
+            course_id=course_id,
+            lesson_unit_id=lesson_unit_id,
+            script_revision_id=revision_id,
+            representation_id=representation_id,
+            accept=body.accept,
+        )
+        return {"item": item}
+    except (TeacherLessonAuthoringError, RepresentationConflict) as exc:
+        if isinstance(exc, TeacherLessonAuthoringError):
+            _raise(exc)
+        _raise(TeacherLessonAuthoringError(
+            "lesson_script_visual_conflict", str(exc)
+        ))
 
 
 @router.put("/courses/{course_id}/lessons/{lesson_unit_id}/script/draft")

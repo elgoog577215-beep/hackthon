@@ -207,6 +207,15 @@
               <MarkdownRenderer :key="`${block.block_id}-${block.content.length}-${generationJob?.stream_sequence || 0}`" :content="block.content" />
               <span v-if="blockIsStreaming(block.block_id)" class="stream-caret" aria-hidden="true" />
             </div>
+            <ScriptVisualStudio
+              v-if="lesson.script.ready"
+              :course-id="courseId"
+              :lesson-unit-id="lesson.lesson_unit_id"
+              :script-revision-id="lesson.script.current_revision_id"
+              :section-node-id="node.section_node_id"
+              :block-id="block.block_id"
+              :block-title="block.title"
+            />
           </section>
           <div v-if="!lesson.script.ready && generating && nodeIndex === scriptSections.length - 1" class="script-block-waiting">
             <LoaderCircle :size="15" class="spin" />
@@ -222,15 +231,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { Check, LoaderCircle, Pencil, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import MathText from './MathText.vue'
+import ScriptVisualStudio from './ScriptVisualStudio.vue'
 import TextSelectionAiAction, { type TeacherInlineAiRequest } from './TextSelectionAiAction.vue'
 import { useDocumentEditHistory } from '../composables/useDocumentEditHistory'
 import { t } from '../shared/i18n'
 import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring'
+import { useTeacherScriptVisualStore } from '../stores/teacherScriptVisuals'
 import type { TeacherLessonJob, TeacherLessonProjection, TeacherLessonScriptCandidate, TeacherLessonScriptState } from '../stores/teacherLessonAuthoring'
 import { toAppError } from '../utils/app-error'
 
@@ -275,6 +286,7 @@ const emit = defineEmits<{
 }>()
 
 const lessonStore = useTeacherLessonAuthoringStore()
+const scriptVisualStore = useTeacherScriptVisualStore()
 const selectedNodeId = ref('')
 const editing = ref(false)
 const saving = ref(false)
@@ -287,6 +299,7 @@ const pendingCandidate = ref<TeacherLessonScriptCandidate | null>(null)
 const candidateRef = ref<HTMLElement | null>(null)
 const documentRoot = ref<HTMLElement | null>(null)
 const inlineAiAction = ref<{ openForDocument: (text?: string) => void } | null>(null)
+onUnmounted(() => scriptVisualStore.releaseAssets())
 type ScriptEditSnapshot = { drafts: Record<string, string>; blockDrafts: Record<string, string> }
 const editHistory = useDocumentEditHistory<ScriptEditSnapshot>(snapshot => {
   Object.keys(drafts).forEach(key => { delete drafts[key] })

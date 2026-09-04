@@ -28,12 +28,15 @@ RepresentationType = Literal[
     "handout",
     "practice_sheet",
     "diagram",
+    "image",
     "animation",
     "audio",
     "video",
     "interaction",
 ]
 RepresentationStatus = Literal[
+    "candidate",
+    "accepted",
     "planned",
     "building",
     "ready",
@@ -355,6 +358,364 @@ class TeachingRepresentationRepository:
                 rebuild_policy=rebuild_policy,
             )
             return self.save(registry)
+
+    def publish_candidate(
+        self,
+        spec: TeachingRepresentationSpec,
+        representation: TeachingRepresentation,
+        *,
+        dependency_kind: DependencyKind = "semantic_content",
+        rebuild_policy: Literal["automatic", "on_demand", "manual"] = "on_demand",
+    ) -> TeachingRepresentationRegistry:
+        """Atomically publish one review candidate and retire its predecessor."""
+
+        if representation.status != "candidate":
+            raise RepresentationConflict("Candidate publication requires candidate status")
+        if spec.course_id != representation.course_id or spec.spec_id != representation.spec_id:
+            raise RepresentationConflict("Spec and representation publication targets differ")
+        with self._lock(spec.course_id):
+            registry = self.load(spec.course_id)
+            now = representation.updated_at
+            for current in registry.representations:
+                if (
+                    current.representation_type == representation.representation_type
+                    and current.variant_key == representation.variant_key
+                    and current.status == "candidate"
+                ):
+                    current.status = "archived"
+                    current.updated_at = now
+                    self._bind_representation(
+                        registry.derivation_graph,
+                        current,
+                        dependency_kind=dependency_kind,
+                        rebuild_policy=rebuild_policy,
+                    )
+            registry.specs = [item for item in registry.specs if item.spec_id != spec.spec_id]
+            registry.specs.append(spec)
+            registry.representations = [
+                item
+                for item in registry.representations
+                if item.representation_id != representation.representation_id
+            ]
+            registry.representations.append(representation)
+            self._bind_spec(registry.derivation_graph, spec)
+            self._bind_representation(
+                registry.derivation_graph,
+                representation,
+                dependency_kind=dependency_kind,
+                rebuild_policy=rebuild_policy,
+            )
+            return self.save(registry)
+
+    def complete_candidate(
+        self,
+        spec: TeachingRepresentationSpec,
+        representation: TeachingRepresentation,
+        *,
+        dependency_kind: DependencyKind = "semantic_content",
+        rebuild_policy: Literal["automatic", "on_demand", "manual"] = "on_demand",
+    ) -> TeachingRepresentationRegistry:
+        """Replace the persisted body of one still-current candidate."""
+
+        if representation.status != "candidate":
+            raise RepresentationConflict("Candidate completion requires candidate status")
+        if spec.course_id != representation.course_id or spec.spec_id != representation.spec_id:
+            raise RepresentationConflict("Spec and representation completion targets differ")
+        with self._lock(spec.course_id):
+            registry = self.load(spec.course_id)
+            current = next(
+                (
+                    item
+                    for item in registry.representations
+                    if item.representation_id == representation.representation_id
+                ),
+                None,
+            )
+            if current is None or current.spec_id != spec.spec_id:
+                raise RepresentationConflict("Teaching representation candidate does not exist")
+            if current.status != "candidate":
+                raise RepresentationConflict("Teaching representation candidate is no longer current")
+            source_nodes = {
+                node.object_id: node
+                for node in registry.derivation_graph.nodes
+                if node.node_type == "source"
+            }
+            if any(
+                source_nodes.get(source_key) is None
+                or source_nodes[source_key].revision_or_fingerprint != revision
+                or source_nodes[source_key].status != "current"
+                for source_key, revision in representation.source_revision_vector.items()
+            ):
+                raise RepresentationConflict("Teaching representation candidate source changed")
+            registry.specs = [item for item in registry.specs if item.spec_id != spec.spec_id]
+            registry.specs.append(spec)
+            registry.representations = [
+                item
+                for item in registry.representations
+                if item.representation_id != representation.representation_id
+            ]
+            registry.representations.append(representation)
+            self._bind_spec(registry.derivation_graph, spec)
+            self._bind_representation(
+                registry.derivation_graph,
+                representation,
+                dependency_kind=dependency_kind,
+                rebuild_policy=rebuild_policy,
+            )
+            return self.save(registry)
+
+    def resolve_candidate(
+        self,
+        course_id: str,
+        representation_id: str,
+        *,
+        accept: bool,
+        set_id: str,
+        member_variant_prefix: str,
+        target_scope: dict[str, Any],
+    ) -> TeachingRepresentationRegistry:
+        """Accept or archive a candidate and refresh its shared representation set."""
+
+        with self._lock(course_id):
+            registry = self.load(course_id)
+            representation = next(
+                (
+                    item
+                    for item in registry.representations
+                    if item.representation_id == representation_id
+                ),
+                None,
+            )
+            if representation is None:
+                raise RepresentationConflict("Teaching representation candidate does not exist")
+            if representation.status == "stale":
+                raise RepresentationConflict("Stale teaching representation cannot be accepted")
+            expected_status = "accepted" if accept else "archived"
+            if representation.status == expected_status:
+                return registry
+            if representation.status != "candidate":
+                raise RepresentationConflict("Teaching representation candidate was already resolved")
+
+            now = datetime.now(timezone.utc).isoformat()
+            representation.status = expected_status
+            representation.updated_at = now
+            if accept:
+                for current in registry.representations:
+                    if (
+                        current.representation_id != representation.representation_id
+                        and current.representation_type == representation.representation_type
+                        and current.variant_key == representation.variant_key
+                        and current.status == "accepted"
+                    ):
+                        current.status = "archived"
+                        current.updated_at = now
+                        self._bind_representation(
+                            registry.derivation_graph,
+                            current,
+                            dependency_kind="semantic_content",
+                            rebuild_policy="on_demand",
+                        )
+
+            self._bind_representation(
+                registry.derivation_graph,
+                representation,
+                dependency_kind="semantic_content",
+                rebuild_policy="on_demand",
+            )
+            if accept:
+                accepted = [
+                    item
+                    for item in registry.representations
+                    if item.status == "accepted"
+                    and item.variant_key.startswith(member_variant_prefix)
+                ]
+                previous = next(
+                    (item for item in registry.representation_sets if item.set_id == set_id),
+                    None,
+                )
+                accepted_ids = {item.representation_id for item in accepted}
+                default_id = (
+                    previous.default_representation_id
+                    if previous and previous.default_representation_id in accepted_ids
+                    else representation.representation_id
+                )
+                ordered = sorted(
+                    accepted,
+                    key=lambda item: (
+                        {"diagram": 0, "image": 1, "animation": 2}.get(
+                            item.representation_type, 9
+                        ),
+                        item.created_at,
+                    ),
+                )
+                representation_set = RepresentationSet(
+                    set_id=set_id,
+                    course_id=course_id,
+                    target_scope=deepcopy(target_scope),
+                    default_representation_id=default_id,
+                    complementary_representation_ids=[
+                        item.representation_id
+                        for item in ordered
+                        if item.representation_id != default_id
+                    ],
+                    fallback_chain=[item.representation_id for item in ordered],
+                    selection_policy={
+                        "policy": "teacher_accepted",
+                        "consumer_targets": ["teacher_script", "slide_deck", "learner"],
+                    },
+                    revision=stable_hash(
+                        {
+                            "set_id": set_id,
+                            "members": [item.representation_id for item in ordered],
+                        },
+                        prefix="trs_",
+                    ),
+                )
+                registry.representation_sets = [
+                    item for item in registry.representation_sets if item.set_id != set_id
+                ]
+                registry.representation_sets.append(representation_set)
+            return self.save(registry)
+
+    def accepted_sets_for_consumer(
+        self,
+        course_id: str,
+        *,
+        consumer: Literal["teacher_script", "slide_deck", "learner"],
+        lesson_unit_id: str = "",
+    ) -> dict[str, Any]:
+        """Project only accepted shared expressions for one downstream consumer."""
+
+        registry = self.load(course_id)
+        accepted_by_id = {
+            item.representation_id: item
+            for item in registry.representations
+            if item.status == "accepted"
+        }
+        specs_by_id = {item.spec_id: item for item in registry.specs}
+        projected_sets: list[dict[str, Any]] = []
+        projected_items: list[dict[str, Any]] = []
+        emitted_ids: set[str] = set()
+        for representation_set in registry.representation_sets:
+            targets = representation_set.selection_policy.get("consumer_targets") or []
+            if consumer not in targets:
+                continue
+            if lesson_unit_id and str(
+                representation_set.target_scope.get("lesson_unit_id") or ""
+            ) != lesson_unit_id:
+                continue
+            member_ids = list(dict.fromkeys([
+                representation_set.default_representation_id,
+                *representation_set.alternative_representation_ids,
+                *representation_set.complementary_representation_ids,
+                *representation_set.accessibility_representation_ids,
+                *representation_set.fallback_chain,
+            ]))
+            active_ids = [
+                representation_id
+                for representation_id in member_ids
+                if representation_id in accepted_by_id
+            ]
+            if not active_ids:
+                continue
+            default_id = (
+                representation_set.default_representation_id
+                if representation_set.default_representation_id in active_ids
+                else active_ids[0]
+            )
+            projected_sets.append({
+                **representation_set.model_dump(mode="json"),
+                "default_representation_id": default_id,
+                "alternative_representation_ids": [
+                    item for item in representation_set.alternative_representation_ids
+                    if item in active_ids
+                ],
+                "complementary_representation_ids": [
+                    item for item in representation_set.complementary_representation_ids
+                    if item in active_ids
+                ],
+                "accessibility_representation_ids": [
+                    item for item in representation_set.accessibility_representation_ids
+                    if item in active_ids
+                ],
+                "fallback_chain": [
+                    item for item in representation_set.fallback_chain
+                    if item in active_ids
+                ],
+            })
+            for representation_id in active_ids:
+                if representation_id in emitted_ids:
+                    continue
+                representation = accepted_by_id[representation_id]
+                spec = specs_by_id.get(representation.spec_id)
+                if spec is None:
+                    continue
+                projected_items.append({
+                    "representation": representation.model_dump(mode="json"),
+                    "spec": spec.model_dump(mode="json"),
+                })
+                emitted_ids.add(representation_id)
+        return {
+            "schema_version": "accepted_representation_sets_v1",
+            "course_id": course_id,
+            "consumer": consumer,
+            "lesson_unit_id": lesson_unit_id,
+            "representation_sets": projected_sets,
+            "items": projected_items,
+        }
+
+    def reconcile_external_source(
+        self,
+        course_id: str,
+        source_key: str,
+        current_revision: str,
+    ) -> TeachingRepresentationRegistry:
+        """Reconcile a source revision owned outside CourseDocument."""
+
+        with self._lock(course_id):
+            registry = self.load(course_id)
+            source_node = next(
+                (
+                    node
+                    for node in registry.derivation_graph.nodes
+                    if node.node_type == "source" and node.object_id == source_key
+                ),
+                None,
+            )
+            if source_node is None or source_node.revision_or_fingerprint == current_revision:
+                return registry
+            previous_revisions = {
+                node.object_id: node.revision_or_fingerprint
+                for node in registry.derivation_graph.nodes
+                if node.node_type == "source"
+            }
+            current_revisions = {**previous_revisions, source_key: current_revision}
+            timestamp = datetime.now(timezone.utc).isoformat()
+            event_payload = {
+                "course_id": course_id,
+                "command_id": "",
+                "operation": "reconcile_external_source",
+                "previous": CourseRevisionVector(
+                    course_id=course_id,
+                    revisions=previous_revisions,
+                ).model_dump(mode="json"),
+                "current": CourseRevisionVector(
+                    course_id=course_id,
+                    revisions=current_revisions,
+                ).model_dump(mode="json"),
+                "changed_source_keys": [source_key],
+                "added_source_keys": [],
+                "removed_source_keys": [],
+                "affected_block_ids": [],
+                "created_at": timestamp,
+            }
+            return self.apply_revision_event(
+                course_id,
+                CourseRevisionEvent(
+                    event_id=stable_hash(event_payload, prefix="cre_"),
+                    **event_payload,
+                ),
+            )
 
     def register_representation(
         self,
