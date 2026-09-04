@@ -9,6 +9,30 @@ from PIL import Image, ImageDraw
 from slide_image_provider import SlideImageProvider
 
 
+def test_unconfigured_prompt_is_ai_editorial_and_not_a_source_image(monkeypatch) -> None:
+    for key in (
+        "SLIDE_IMAGE_API_BASE",
+        "SLIDE_IMAGE_API_KEY",
+        "SLIDE_IMAGE_MODEL",
+        "SLIDE_IMAGE_PROMPT_MODEL",
+        "AI_API_BASE",
+        "AI_API_KEY",
+        "AI_MODEL",
+        "AI_MODEL_FAST",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    provider = SlideImageProvider()
+
+    prompt = provider.plan_prompt(
+        source_text="祖冲之研究圆周率的历史场景",
+        style="Playful ink illustration",
+    )
+
+    assert "AI-generated educational editorial illustration" in prompt
+    assert "archival photograph" in prompt
+    assert "factual source image" in prompt
+
+
 def test_modelscope_provider_submits_polls_and_downloads_image(
     monkeypatch,
     tmp_path: Path,

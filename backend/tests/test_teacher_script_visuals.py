@@ -14,6 +14,7 @@ from teacher_script_visuals import (
     compile_inclined_plane_scene,
     compile_script_block_diagram,
     compile_script_block_scene,
+    plan_script_block_diagram,
     plan_script_block_scene,
     recommend_script_visuals,
 )
@@ -122,6 +123,104 @@ def test_diagram_and_scene_are_bounded_source_specs():
     assert len(scene["checkpoints"]) >= 2
     assert scene["static_fallback"]["type"] == "diagram_spec_unit"
     assert all(action["duration_ms"] >= 120 for action in scene["actions"])
+
+
+def test_ai_diagram_plans_source_bound_relationships():
+    provider = FakeAnimationProvider({
+        "title": "输入如何变成结果",
+        "diagram_kind": "concept_map",
+        "learning_focus": "看懂输入、关系与结果之间的因果链",
+        "nodes": [
+            {
+                "node_id": "input",
+                "label": "输入",
+                "kind": "objective",
+                "source_quote": "输入",
+            },
+            {
+                "node_id": "relation",
+                "label": "建立概念关系",
+                "kind": "knowledge",
+                "source_quote": "建立概念关系",
+            },
+            {
+                "node_id": "result",
+                "label": "可检查结果",
+                "kind": "knowledge",
+                "source_quote": "可检查结果",
+            },
+        ],
+        "edges": [
+            {
+                "source_node_id": "input",
+                "target_node_id": "relation",
+                "relation": "transforms_to",
+            },
+            {
+                "source_node_id": "relation",
+                "target_node_id": "result",
+                "relation": "causes",
+            },
+        ],
+    })
+
+    diagram = asyncio.run(plan_script_block_diagram(
+        provider=provider,
+        section_node_id="section-1",
+        block_id="block-1",
+        title="处理过程",
+        content=block()["content"],
+    ))
+
+    assert diagram["quality_report"]["passed"] is True
+    assert diagram["quality_report"]["generation_mode"] == "ai_planned"
+    assert diagram["quality_report"]["source_quotes"]
+    assert [item["relation"] for item in diagram["units"][0]["edges"]] == [
+        "transforms_to",
+        "causes",
+    ]
+    assert provider.calls[0]["json_mode"] is True
+    assert "不要返回 Mermaid" in provider.calls[0]["system_prompt"]
+
+
+def test_ai_diagram_falls_back_when_quotes_are_not_in_source():
+    provider = FakeAnimationProvider({
+        "title": "虚构内容",
+        "diagram_kind": "concept_map",
+        "learning_focus": "不应通过",
+        "nodes": [
+            {
+                "node_id": "a",
+                "label": "量子纠缠",
+                "kind": "objective",
+                "source_quote": "量子纠缠",
+            },
+            {
+                "node_id": "b",
+                "label": "虫洞",
+                "kind": "knowledge",
+                "source_quote": "虫洞",
+            },
+        ],
+        "edges": [{
+            "source_node_id": "a",
+            "target_node_id": "b",
+            "relation": "causes",
+        }],
+    })
+
+    diagram = asyncio.run(plan_script_block_diagram(
+        provider=provider,
+        section_node_id="section-1",
+        block_id="block-1",
+        title="处理过程",
+        content=block()["content"],
+    ))
+
+    assert diagram["quality_report"]["passed"] is True
+    assert diagram["quality_report"]["generation_mode"] == "deterministic_fallback"
+    assert len(provider.calls) == 2
+    assert all("量子纠缠" not in item["label"] for item in diagram["units"][0]["nodes"])
 
 
 def test_inclined_plane_scene_has_continuous_motion_rotation_and_trace():
@@ -235,11 +334,61 @@ def test_ai_animation_candidate_persists_scene_v2(tmp_path):
     assert candidate["status"] == "candidate"
 
 
-def test_recommendation_identifies_process_as_animation_candidate():
+def test_recommendation_uses_diagrams_without_animation_by_default():
     result = recommend_script_visuals([block()])
 
-    assert result[0]["recommended_types"] == ["animation", "diagram"]
-    assert "逐步" in result[0]["reason"]
+    assert result[0]["recommended_types"] == ["diagram"]
+    assert "结构图解" in result[0]["reason"]
+
+
+def test_animation_can_only_reenter_recommendations_through_explicit_flag():
+    result = recommend_script_visuals([block()], animation_enabled=True)
+
+    assert result[0]["recommended_types"] == ["diagram", "animation"]
+
+
+def test_disabled_animation_is_hidden_and_cannot_be_resolved_or_consumed(
+    tmp_path,
+    monkeypatch,
+):
+    visual_service = service(tmp_path)
+    candidate = create(visual_service, "animation")
+    monkeypatch.setenv("TEACHER_SCRIPT_ANIMATION_ENABLED", "true")
+    visual_service.resolve_candidate(
+        course_id="course-1",
+        lesson_unit_id="lesson-1",
+        script_revision_id="script-r1",
+        representation_id=candidate["representation_id"],
+        accept=True,
+    )
+    monkeypatch.setenv("TEACHER_SCRIPT_ANIMATION_ENABLED", "false")
+
+    view = visual_service.list_for_lesson(
+        course_id="course-1",
+        lesson_unit_id="lesson-1",
+        script_revision_id="script-r1",
+        blocks=[block()],
+    )
+    consumer = visual_service.repository.accepted_sets_for_consumer(
+        "course-1",
+        consumer="teacher_script",
+        lesson_unit_id="lesson-1",
+    )
+
+    assert view["available_types"] == ["diagram", "image"]
+    assert view["animation_runtime"] == "gray_disabled"
+    assert view["items"] == []
+    assert view["representation_sets"] == []
+    assert consumer["items"] == []
+    assert consumer["representation_sets"] == []
+    with pytest.raises(RepresentationConflict, match="Animation runtime is disabled"):
+        visual_service.resolve_candidate(
+            course_id="course-1",
+            lesson_unit_id="lesson-1",
+            script_revision_id="script-r1",
+            representation_id=candidate["representation_id"],
+            accept=False,
+        )
 
 
 def test_candidate_acceptance_builds_shared_representation_set(tmp_path):
@@ -373,7 +522,49 @@ def test_visual_route_preserves_scoped_script_not_ready_error(monkeypatch):
     assert response.json()["detail"]["code"] == "lesson_script_source_incomplete"
 
 
-def test_shared_consumer_projection_excludes_candidates_and_stale_members(tmp_path):
+def test_visual_route_rejects_disabled_animation_without_calling_model(monkeypatch):
+    from dependencies import (
+        get_teacher_lesson_authoring_repository,
+        require_task_manager,
+    )
+    from routers import teacher_lesson_authoring as authoring_router
+
+    provider = FakeAnimationProvider({})
+    task_manager = type("TaskManagerStub", (), {"course_service": provider})()
+    monkeypatch.setenv("TEACHER_SCRIPT_ANIMATION_ENABLED", "false")
+    monkeypatch.setattr(
+        authoring_router,
+        "_current_script_visual_context",
+        lambda *_args, **_kwargs: (
+            {"revision_id": "script-r1"},
+            [{**block(), "section_node_id": "section-1"}],
+        ),
+    )
+    app = FastAPI()
+    app.include_router(authoring_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: task_manager
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: object()
+    client = TestClient(app, headers={"X-User-Id": "teacher-1"})
+
+    response = client.post(
+        "/api/teacher/courses/course-1/lessons/lesson-1/script/visuals",
+        json={
+            "script_revision_id": "script-r1",
+            "section_node_id": "section-1",
+            "block_id": "block-1",
+            "expression_type": "animation",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "lesson_script_animation_gray_disabled"
+    assert provider.calls == []
+
+
+def test_shared_consumer_projection_excludes_candidates_and_stale_members(
+    tmp_path,
+    monkeypatch,
+):
     visual_service = service(tmp_path)
     candidate = create(visual_service, "animation")
 
@@ -383,6 +574,7 @@ def test_shared_consumer_projection_excludes_candidates_and_stale_members(tmp_pa
     assert before_acceptance["items"] == []
     assert before_acceptance["representation_sets"] == []
 
+    monkeypatch.setenv("TEACHER_SCRIPT_ANIMATION_ENABLED", "true")
     visual_service.resolve_candidate(
         course_id="course-1",
         lesson_unit_id="lesson-1",
@@ -390,6 +582,7 @@ def test_shared_consumer_projection_excludes_candidates_and_stale_members(tmp_pa
         representation_id=candidate["representation_id"],
         accept=True,
     )
+    monkeypatch.setenv("TEACHER_SCRIPT_ANIMATION_ENABLED", "false")
     visual_service.list_for_lesson(
         course_id="course-1",
         lesson_unit_id="lesson-1",
@@ -436,9 +629,10 @@ def test_regeneration_archives_old_candidate_and_replacement_archives_old_accept
     assert registry.representation_sets[0].default_representation_id == third["representation_id"]
 
 
-def test_script_revision_change_marks_existing_visual_stale(tmp_path):
+def test_script_revision_change_marks_existing_visual_stale(tmp_path, monkeypatch):
     visual_service = service(tmp_path)
     candidate = create(visual_service, "animation")
+    monkeypatch.setenv("TEACHER_SCRIPT_ANIMATION_ENABLED", "true")
     visual_service.resolve_candidate(
         course_id="course-1",
         lesson_unit_id="lesson-1",
@@ -488,6 +682,10 @@ def test_unconfigured_image_provider_keeps_prompt_without_fake_asset(tmp_path):
     candidate = create(visual_service, "image")
 
     assert candidate["content"]["generation_status"] == "provider_unavailable"
+    assert candidate["content"]["image_origin"] == "ai_generated"
+    assert candidate["content"]["content_role"] == "editorial_illustration"
+    assert candidate["content"]["provenance_label"] == "AI 生成插图"
+    assert "not a source photograph" in candidate["content"]["prompt"]
     assert candidate["content"]["prompt"]
     assert candidate["artifact_ids"] == []
     with pytest.raises(RepresentationConflict, match="no verified asset"):

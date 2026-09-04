@@ -14,7 +14,7 @@ from typing import Any
 import httpx
 from PIL import Image, ImageFilter
 
-IMAGE_PROMPT_POLICY_VERSION = "slide_scene_prompt_v5_llm_visual_director"
+IMAGE_PROMPT_POLICY_VERSION = "slide_scene_prompt_v6_ai_generated_editorial"
 
 
 class SlideImageProvider:
@@ -68,8 +68,10 @@ class SlideImageProvider:
     def plan_prompt(self, *, source_text: str, style: str) -> str:
         """Use the website LLM to turn source prose into a concrete visual scene."""
         fallback = (
-            f"{style}. A concrete visual metaphor for this source concept: "
-            f"{source_text[:500]}"
+            f"{style}. An AI-generated educational editorial illustration inspired "
+            f"by this source concept: {source_text[:500]}. Make it vivid and engaging, "
+            "but do not present it as an archival photograph, documentary evidence, "
+            "or a factual source image."
         )
         if not (
             self.prompt_api_base
@@ -90,12 +92,17 @@ class SlideImageProvider:
                         {
                             "role": "system",
                             "content": (
-                                "Convert source-bound course prose into one concrete "
-                                "English image-generation scene. Output only 40-80 "
-                                "English words. Depict the mechanism with physical or "
-                                "geometric objects and spatial relationships. Never "
-                                "request text, labels, formulas, signs, posters, slides, "
-                                "screens, classrooms, or empty rooms. Do not invent facts."
+                                "Convert source-bound course prose into one concrete, "
+                                "engaging English prompt for an AI-generated educational "
+                                "editorial illustration. Output only 40-90 English words. "
+                                "Use vivid people, objects, environments, visual metaphors, "
+                                "or geometric relationships when they help students imagine "
+                                "the topic. The image may be playful or cinematic. For a "
+                                "historical person or scene, request a clearly interpretive "
+                                "illustration, never an archival photograph, documentary "
+                                "evidence, facsimile, exact likeness, or factual source image. "
+                                "Never request text, labels, formulas, signs, posters, slides, "
+                                "screens, classrooms, or empty rooms. Do not invent factual claims."
                             ),
                         },
                         {
@@ -133,10 +140,11 @@ class SlideImageProvider:
             raise RuntimeError("Slide image provider is not configured")
         display_prompt = re.sub(r"^\[[^\]]+\]\s*", "", prompt.strip())
         safe_prompt = (
-            "A single subject-focused conceptual editorial scene with a clear visual "
-            f"mechanism and generous composition. {display_prompt}. "
+            "An AI-generated, subject-focused educational editorial illustration with "
+            f"a clear visual idea and generous composition. {display_prompt}. "
             "Use objects, spatial relationships, color, light, and texture. "
-            "Original work, cinematic 16:9 composition."
+            "Original work, cinematic 16:9 composition. Do not imitate an archival "
+            "photograph, documentary record, facsimile, or source image."
         )
         headers = {
             "Authorization": f"Bearer {self.api_key}",

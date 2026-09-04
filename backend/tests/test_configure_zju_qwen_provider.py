@@ -21,6 +21,7 @@ def _payload(**overrides):
         "model": "qwen3.8-27b",
         "slide_deck_v6_enabled": True,
         "slide_deck_v6_default_enabled": True,
+        "teacher_script_animation_enabled": False,
     }
     payload.update(overrides)
     return payload
@@ -73,6 +74,7 @@ def test_configure_zju_qwen_updates_every_text_role_and_removes_modelscope(
     assert "AI_LOCAL_PROVIDER=http" in content
     assert "SLIDE_DECK_V6_ENABLED=true" in content
     assert "SLIDE_DECK_V6_DEFAULT_ENABLED=true" in content
+    assert "TEACHER_SCRIPT_ANIMATION_ENABLED=false" in content
     assert "private-placeholder" not in result.stdout
     assert "private-placeholder" not in result.stderr
     assert "qwen.internal.test" not in result.stdout
@@ -118,6 +120,8 @@ def test_release_workflow_uses_only_private_zju_qwen_text_secrets():
     assert "secrets.DEEPSEEK_API_KEY" not in workflow
     assert "api-inference.modelscope.cn" not in workflow
     assert "api.deepseek.com" not in workflow
+    assert "TEACHER_SCRIPT_ANIMATION_ENABLED: false" in workflow
+    assert '"teacher_script_animation_enabled"' in workflow
 
 
 def test_production_model_probe_runs_before_independent_retrieval_diagnostics():

@@ -33,6 +33,7 @@ MANAGED_SETTINGS = (
     "AI_THINKING_ENABLED",
     "SLIDE_DECK_V6_ENABLED",
     "SLIDE_DECK_V6_DEFAULT_ENABLED",
+    "TEACHER_SCRIPT_ANIMATION_ENABLED",
 )
 REMOVED_TEXT_SETTINGS = (
     "MODELSCOPE_API_KEY",
@@ -97,6 +98,10 @@ def _validated_settings(payload: object) -> dict[str, str]:
         payload.get("slide_deck_v6_default_enabled", True),
         "slide_deck_v6_default_enabled",
     )
+    teacher_script_animation_enabled = _boolean_setting(
+        payload.get("teacher_script_animation_enabled", False),
+        "teacher_script_animation_enabled",
+    )
     settings = {
         "ZJU_QWEN_API_KEY": api_key,
         "ZJU_QWEN_BASE_URL": base_url,
@@ -108,6 +113,7 @@ def _validated_settings(payload: object) -> dict[str, str]:
         "AI_THINKING_ENABLED": "false",
         "SLIDE_DECK_V6_ENABLED": slide_enabled,
         "SLIDE_DECK_V6_DEFAULT_ENABLED": slide_default_enabled,
+        "TEACHER_SCRIPT_ANIMATION_ENABLED": teacher_script_animation_enabled,
     }
     for key in (
         "AI_MODEL",

@@ -10,6 +10,17 @@ from pydantic import BaseModel, Field, model_validator
 from course_document import CourseDocument, stable_hash
 
 DIAGRAM_COMPILER_VERSION = "diagram_compiler_v1"
+DiagramRelation = Literal[
+    "supports",
+    "prepares",
+    "defines",
+    "contains",
+    "causes",
+    "contrasts",
+    "equivalent",
+    "condition",
+    "transforms_to",
+]
 
 
 class DiagramNodeSpec(BaseModel):
@@ -23,7 +34,7 @@ class DiagramEdgeSpec(BaseModel):
     edge_id: str
     source_node_id: str
     target_node_id: str
-    relation: Literal["supports", "prepares"]
+    relation: DiagramRelation
 
 
 class DiagramUnitSpec(BaseModel):
@@ -174,14 +185,26 @@ def _to_mermaid(unit: DiagramUnitSpec) -> str:
     for node in unit.nodes:
         label = node.label.replace('"', "'").replace("\n", " ")[:80]
         lines.append(f'  {aliases[node.node_id]}["{label}"]')
+    relation_labels = {
+        "supports": "支撑",
+        "prepares": "承接",
+        "defines": "定义",
+        "contains": "包含",
+        "causes": "导致",
+        "contrasts": "对比",
+        "equivalent": "等价",
+        "condition": "条件",
+        "transforms_to": "转化为",
+    }
     for edge in unit.edges:
-        arrow = "-->|支撑|" if edge.relation == "supports" else "-->|承接|"
+        arrow = f"-->|{relation_labels[edge.relation]}|"
         lines.append(f"  {aliases[edge.source_node_id]} {arrow} {aliases[edge.target_node_id]}")
     return "\n".join(lines)
 
 
 __all__ = [
     "DIAGRAM_COMPILER_VERSION",
+    "DiagramRelation",
     "DiagramSpec",
     "compile_diagram_spec",
     "validate_diagram_spec",

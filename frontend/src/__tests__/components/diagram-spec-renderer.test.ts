@@ -76,6 +76,34 @@ describe('DiagramSpecRenderer', () => {
     expect(first).not.toMatch(/mermaid-\d/)
   })
 
+  it('渲染公式、概念与过程所需的扩展关系标签', () => {
+    const relations = [
+      ['defines', '定义'],
+      ['contains', '包含'],
+      ['causes', '导致'],
+      ['contrasts', '对比'],
+      ['equivalent', '等价'],
+      ['condition', '条件'],
+      ['transforms_to', '转化为'],
+    ]
+    const wrapper = mount(DiagramSpecRenderer, {
+      props: {
+        unit: buildUnit({
+          edges: relations.map(([relation], index) => ({
+            edge_id: `extended-${index}`,
+            source_node_id: 'objective::obj-1',
+            target_node_id: index % 2 ? 'knowledge::kp-domain' : 'knowledge::kp-range',
+            relation,
+          })),
+        }),
+      },
+    })
+
+    expect(wrapper.findAll('.diagram-edge-label').map(edge => edge.text())).toEqual(
+      relations.map(([, label]) => label),
+    )
+  })
+
   it.each([
     ['missing_spec', undefined],
     ['missing_spec', 'not-an-object'],

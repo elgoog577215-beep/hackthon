@@ -167,9 +167,9 @@ function tr(key: string, zh: string, en: string) {
 
 const visualOptions = computed(() => [
   { type: 'diagram' as const, label: tr('diagram', '生成图解', 'Generate diagram'), icon: markRaw(Network) },
-  { type: 'image' as const, label: tr('image', '生成插图', 'Generate illustration'), icon: markRaw(ImageIcon) },
+  { type: 'image' as const, label: tr('image', '生成 AI 插图', 'Generate AI illustration'), icon: markRaw(ImageIcon) },
   { type: 'animation' as const, label: tr('animation', '生成动画', 'Generate animation'), icon: markRaw(PlaySquare) },
-])
+].filter(option => (view.value?.available_types || ['diagram', 'image']).includes(option.type)))
 const view = computed(() => store.view(props.courseId, props.lessonUnitId))
 const loading = computed(() => Boolean(store.loading[`${props.courseId}\u0000${props.lessonUnitId}`]))
 const errorMessage = computed(() => localError.value || store.errors[`${props.courseId}\u0000${props.lessonUnitId}`] || '')
@@ -178,7 +178,7 @@ const recommendation = computed(() => view.value?.recommendations.find(item => i
 const recommendationReason = computed(() => {
   const reasonCode = recommendation.value?.reason_code
   if (reasonCode === 'process_or_change') {
-    return tr('reasonProcess', '这一段包含过程或变化关系，逐步呈现更容易讲清。', 'This block describes a process or change; a step-by-step view will make it easier to explain.')
+    return tr('reasonProcess', '这一段包含公式、概念或过程关系，适合用结构图解讲清。', 'This block contains formulas, concepts, or process relationships that fit a structured diagram.')
   }
   if (reasonCode === 'concept_or_relation') {
     return tr('reasonConcept', '这一段包含概念或关系，适合压缩成结构图。', 'This block contains concepts or relationships that fit a compact diagram.')
@@ -186,12 +186,18 @@ const recommendationReason = computed(() => {
   if (reasonCode === 'dense_content') {
     return tr('reasonDense', '这一段信息较密，可用视觉表达降低口头解释负担。', 'This block is information-dense; a visual can reduce the explanation load.')
   }
+  if (reasonCode === 'ai_illustration_scene') {
+    return tr('reasonImageScene', '这一段包含人物或场景，可适当加入 AI 插图帮助联想。', 'This block contains a person or scene that may benefit from an AI illustration.')
+  }
+  if (reasonCode === 'relation_and_scene') {
+    return tr('reasonRelationScene', '这一段既有知识关系，也有适合形象化呈现的人物或场景。', 'This block contains both knowledge relationships and a scene worth visualizing.')
+  }
   return recommendation.value?.reason || ''
 })
 const acceptedCount = computed(() => blockItems.value.filter(item => item.status === 'accepted').length)
 const displayItems = computed(() => {
   const result: ScriptVisualItem[] = []
-  ;(['diagram', 'image', 'animation'] as ScriptVisualType[]).forEach(type => {
+  ;(view.value?.available_types || ['diagram', 'image']).forEach(type => {
     const typed = blockItems.value
       .filter(item => item.representation_type === type)
       .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
@@ -208,7 +214,7 @@ const displayItems = computed(() => {
 function typeLabel(type: ScriptVisualType) {
   return ({
     diagram: tr('diagramLabel', '结构图解', 'Diagram'),
-    image: tr('imageLabel', '教学插图', 'Illustration'),
+    image: tr('imageLabel', 'AI 插图', 'AI illustration'),
     animation: tr('animationLabel', '代码动画', 'Code animation'),
   })[type]
 }

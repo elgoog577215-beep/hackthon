@@ -1,9 +1,4 @@
-# teacher-script-multimodal-expressions Specification
-
-## Purpose
-让图解和 AI 生成插图以绑定当前讲义修订的候选形式生成、审阅、采用和回退，使教师能够补充视觉表达，同时不让失败媒体、过期来源或模型输出污染正式讲义与下游课件。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Visual expressions are source-bound candidates
 
@@ -32,22 +27,6 @@ The system SHALL expose diagrams and AI-generated illustrations as the active te
 - **WHEN** the animation runtime flag is disabled
 - **THEN** the API rejects the request without calling the text model or publishing a candidate
 
-### Requirement: Teacher acceptance controls downstream reuse
-
-The system SHALL add an expression to the block's shared `RepresentationSet` only after teacher acceptance. Rejection and regeneration SHALL archive the superseded candidate without modifying the script.
-
-#### Scenario: Teacher accepts one expression
-
-- **WHEN** a teacher accepts a current, complete visual candidate
-- **THEN** it becomes an accepted member of the block's `RepresentationSet`
-- **AND** the same representation ID is available to script, PPT, and learner consumers
-
-#### Scenario: Teacher rejects one expression
-
-- **WHEN** a teacher rejects a candidate
-- **THEN** it becomes archived
-- **AND** it is absent from the shared representation set
-
 ### Requirement: Image generation fails honestly
 
 The system SHALL create only AI-generated illustration candidates for teacher-script images and SHALL label every candidate and asset as AI-generated. An illustration MAY provide explanation, visual association, humor, or editorial rhythm, but SHALL NOT be described as a source photograph, archival record, or historical evidence. The system SHALL persist the prompt before provider execution. When no provider is configured or execution fails, it SHALL return an explicit retryable provider state and SHALL NOT create or accept a placeholder image.
@@ -64,15 +43,7 @@ The system SHALL create only AI-generated illustration candidates for teacher-sc
 - **THEN** the system returns `provider_unavailable` with the saved prompt and retry action
 - **AND** no asset ID or synthetic placeholder is reported
 
-### Requirement: Visual failures never block core teaching artifacts
-
-The system SHALL keep the current script and last accepted representation readable when diagram or image generation fails.
-
-#### Scenario: A media provider fails
-
-- **WHEN** visual generation returns a provider or validation failure
-- **THEN** the failure is scoped to that block's visual workspace
-- **AND** script reading, editing, and downstream artifact workflows remain available
+## ADDED Requirements
 
 ### Requirement: Diagram generation is model-planned and renderer-bounded
 
@@ -88,3 +59,28 @@ The system SHALL ask the configured private text model to plan the concepts, for
 - **WHEN** the model is unavailable or returns invalid diagram JSON after bounded repair
 - **THEN** the system publishes a deterministic diagram candidate from the same source block
 - **AND** the script remains readable and unchanged
+
+## REMOVED Requirements
+
+### Requirement: Animation is a continuous inspectable teaching scene
+
+The system SHALL use the configured text model to plan new animations as `scene_spec_v2` with bounded SVG primitives, continuous motion paths, rotation, tracing, timing, checkpoints, and a static fallback. A `scene_spec_v2` SHALL contain actual motion, rotation, or path tracing; a physical-motion scene SHALL contain continuous movement and SHALL NOT pass validation as text-card reveals only. The player SHALL support play, pause, previous step, next step, and replay without executing generated JavaScript or Python. Existing `scene_spec_v1` expressions SHALL remain readable as legacy step diagrams.
+
+#### Scenario: Teacher reviews an animation candidate
+
+- **WHEN** an animation candidate is shown
+- **THEN** the teacher can pause it and move between checkpoints
+- **AND** reduced-motion preferences disable smooth automatic transitions
+
+#### Scenario: Teacher requests a ball rolling down a slope
+
+- **WHEN** the current script describes a ball rolling down an inclined plane
+- **THEN** the generated scene contains a slope primitive and a ball primitive
+- **AND** the ball continuously moves along the slope with accelerating easing and visible rotation
+- **AND** the candidate remains a validated scene specification rather than executable model code
+
+#### Scenario: Model returns only a playing diagram
+
+- **WHEN** an AI-planned scene contains only text-card reveal or focus actions
+- **THEN** validation rejects that result as an animation
+- **AND** no candidate is published unless an explicit validated motion template is available

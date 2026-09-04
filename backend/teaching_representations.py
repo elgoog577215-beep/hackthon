@@ -21,6 +21,15 @@ from course_revisions import (
 
 TEACHING_REPRESENTATION_REGISTRY_SCHEMA = "teaching_representation_registry_v1"
 
+
+def _teacher_script_animation_runtime_enabled() -> bool:
+    return os.getenv("TEACHER_SCRIPT_ANIMATION_ENABLED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
 RepresentationType = Literal[
     "outline",
     "lesson_plan",
@@ -591,6 +600,11 @@ class TeachingRepresentationRepository:
             item.representation_id: item
             for item in registry.representations
             if item.status == "accepted"
+            and not (
+                item.representation_type == "animation"
+                and item.variant_key.startswith("script-visual:")
+                and not _teacher_script_animation_runtime_enabled()
+            )
         }
         specs_by_id = {item.spec_id: item for item in registry.specs}
         projected_sets: list[dict[str, Any]] = []

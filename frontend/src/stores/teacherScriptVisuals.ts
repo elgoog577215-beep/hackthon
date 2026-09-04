@@ -28,7 +28,13 @@ export interface ScriptVisualRecommendation {
   block_id: string
   recommended_types: ScriptVisualType[]
   reason: string
-  reason_code?: 'process_or_change' | 'concept_or_relation' | 'dense_content' | ''
+  reason_code?:
+    | 'process_or_change'
+    | 'concept_or_relation'
+    | 'dense_content'
+    | 'ai_illustration_scene'
+    | 'relation_and_scene'
+    | ''
 }
 
 export interface ScriptVisualView {
@@ -36,6 +42,8 @@ export interface ScriptVisualView {
   course_id: string
   lesson_unit_id: string
   script_revision_id: string
+  available_types: ScriptVisualType[]
+  animation_runtime: 'gray_disabled' | 'gray_enabled'
   recommendations: ScriptVisualRecommendation[]
   items: ScriptVisualItem[]
   representation_sets: Array<Record<string, any>>

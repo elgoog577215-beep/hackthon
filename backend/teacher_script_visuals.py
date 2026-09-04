@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import tempfile
 import uuid
@@ -15,7 +16,14 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from content_blocks import content_fingerprint, summarize_text
 from course_document import stable_hash
-from diagram_spec import DiagramEdgeSpec, DiagramNodeSpec, DiagramSpec, DiagramUnitSpec, validate_diagram_spec
+from diagram_spec import (
+    DiagramEdgeSpec,
+    DiagramNodeSpec,
+    DiagramRelation,
+    DiagramSpec,
+    DiagramUnitSpec,
+    validate_diagram_spec,
+)
 from slide_asset_repository import SlideAssetRepository, slide_asset_repository
 from slide_image_provider import IMAGE_PROMPT_POLICY_VERSION, SlideImageProvider
 from teaching_representations import (
@@ -29,6 +37,58 @@ from teaching_representations import (
 
 SCRIPT_VISUAL_COMPILER_VERSION = "teacher_script_visual_compiler_v2"
 ScriptVisualType = Literal["diagram", "image", "animation"]
+
+
+def script_animation_runtime_enabled() -> bool:
+    """Keep experimental animation code dormant unless explicitly re-enabled."""
+
+    return os.getenv("TEACHER_SCRIPT_ANIMATION_ENABLED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+class DiagramPlanNodeV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: str = Field(min_length=1, max_length=80)
+    label: str = Field(min_length=1, max_length=96)
+    kind: Literal["objective", "knowledge", "course_block"]
+    source_quote: str = Field(min_length=1, max_length=180)
+
+
+class DiagramPlanEdgeV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_node_id: str = Field(min_length=1, max_length=80)
+    target_node_id: str = Field(min_length=1, max_length=80)
+    relation: DiagramRelation
+
+
+class DiagramPlanV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=140)
+    diagram_kind: Literal["concept_map", "learning_path"] = "concept_map"
+    learning_focus: str = Field(min_length=1, max_length=240)
+    nodes: list[DiagramPlanNodeV1] = Field(min_length=2, max_length=9)
+    edges: list[DiagramPlanEdgeV1] = Field(min_length=1, max_length=16)
+
+    @model_validator(mode="after")
+    def validate_graph(self) -> DiagramPlanV1:
+        node_ids = {item.node_id for item in self.nodes}
+        if len(node_ids) != len(self.nodes):
+            raise ValueError("Diagram plan node ids must be unique")
+        if not any(item.kind == "objective" for item in self.nodes):
+            raise ValueError("Diagram plan requires an objective node")
+        if any(
+            edge.source_node_id not in node_ids or edge.target_node_id not in node_ids
+            for edge in self.edges
+        ):
+            raise ValueError("Diagram plan edge references an unknown node")
+        return self
 
 
 class SceneObjectV1(BaseModel):
@@ -299,6 +359,192 @@ def compile_script_block_diagram(
     if not payload["quality_report"]["passed"]:
         raise ValueError("Script diagram failed validation")
     return payload
+
+
+async def plan_script_block_diagram(
+    *,
+    provider: Any,
+    section_node_id: str,
+    block_id: str,
+    title: str,
+    content: str,
+    instruction: str = "",
+) -> dict[str, Any]:
+    """Plan source-grounded relationships and compile them into safe DiagramSpec."""
+
+    source_text = f"{title}\n{content}".strip()
+    allowed_relations = [
+        "supports",
+        "prepares",
+        "defines",
+        "contains",
+        "causes",
+        "contrasts",
+        "equivalent",
+        "condition",
+        "transforms_to",
+    ]
+    request = {
+        "source": {
+            "title": title,
+            "content": summarize_text(content, 2400),
+            "teacher_instruction": instruction.strip(),
+        },
+        "purpose": (
+            "把公式、概念、条件、因果、步骤或对比之间的关系讲清楚；"
+            "如果来源不足，不新增节点或结论。"
+        ),
+        "constraints": {
+            "node_count": [2, 9],
+            "edge_count": [1, 16],
+            "node_kinds": ["objective", "knowledge", "course_block"],
+            "diagram_kinds": ["concept_map", "learning_path"],
+            "relations": allowed_relations,
+            "source_quote_must_be_verbatim": True,
+            "no_mermaid": True,
+            "no_executable_code": True,
+        },
+        "response_contract": {
+            "title": "图解标题",
+            "diagram_kind": "concept_map",
+            "learning_focus": "学生通过这张图需要看懂的关系",
+            "nodes": [
+                {
+                    "node_id": "focus",
+                    "label": "来源中的概念或公式",
+                    "kind": "objective",
+                    "source_quote": "必须逐字来自标题或正文",
+                },
+                {
+                    "node_id": "detail",
+                    "label": "来源中的相关条件或结果",
+                    "kind": "knowledge",
+                    "source_quote": "必须逐字来自标题或正文",
+                },
+            ],
+            "edges": [
+                {
+                    "source_node_id": "focus",
+                    "target_node_id": "detail",
+                    "relation": "defines",
+                }
+            ],
+        },
+    }
+    system_prompt = (
+        "只返回一个严格 JSON 对象，不要 Markdown。你是课程图解规划器，负责把当前教学块中"
+        "已经存在的公式、概念、条件、因果、步骤和对比关系组织清楚，不负责补充新知识。"
+        "每个节点必须提供逐字来自标题或正文的 source_quote；不得创造来源中不存在的公式、"
+        "人物、事实或结论。关系只能从给定白名单中选择。不要返回 Mermaid、SVG、JavaScript"
+        "或 Python，渲染由系统完成。顶层字段只能是 title,diagram_kind,learning_focus,nodes,edges；"
+        "节点字段只能是 node_id,label,kind,source_quote；边字段只能是 source_node_id,"
+        "target_node_id,relation。"
+    )
+    fallback = compile_script_block_diagram(
+        section_node_id=section_node_id,
+        block_id=block_id,
+        title=title,
+        content=content,
+    )
+    last_error: Exception | None = None
+    try:
+        for attempt in range(2):
+            prompt_request = deepcopy(request)
+            if last_error is not None:
+                prompt_request["repair_required"] = {
+                    "attempt": attempt + 1,
+                    "instruction": "上一版没有通过来源或结构检查，请从头返回完整合法 JSON。",
+                }
+            response = await provider._call_llm(
+                json.dumps(prompt_request, ensure_ascii=False),
+                system_prompt=system_prompt,
+                use_fast_model=False,
+                retry_count=1,
+                max_attempts=2,
+                max_tokens=2600,
+                max_input_tokens=6000,
+                max_input_chars=14000,
+                reject_truncated=True,
+                raise_on_failure=True,
+                json_mode=True,
+                enable_thinking=False,
+            )
+            try:
+                raw = provider._extract_json(response or "") or {}
+                if not isinstance(raw, dict):
+                    raise ValueError("Diagram planner response must be an object")
+                if isinstance(raw.get("diagram"), dict):
+                    raw = raw["diagram"]
+                plan = DiagramPlanV1.model_validate(raw)
+                flattened_source = re.sub(r"\s+", "", source_text)
+                if any(
+                    re.sub(r"\s+", "", item.source_quote) not in flattened_source
+                    for item in plan.nodes
+                ):
+                    raise ValueError("Diagram node source quote is not present in the script block")
+                node_id_map = {
+                    item.node_id: f"planned::{block_id}:{index}"
+                    for index, item in enumerate(plan.nodes, start=1)
+                }
+                nodes = [
+                    DiagramNodeSpec(
+                        node_id=node_id_map[item.node_id],
+                        label=item.label,
+                        kind=item.kind,
+                        source_ref=f"teacher-script-block:{block_id}#quote-{index}",
+                    )
+                    for index, item in enumerate(plan.nodes, start=1)
+                ]
+                edges = [
+                    DiagramEdgeSpec(
+                        edge_id=stable_hash(
+                            {
+                                "source": node_id_map[item.source_node_id],
+                                "target": node_id_map[item.target_node_id],
+                                "relation": item.relation,
+                            },
+                            prefix="dge_",
+                        ),
+                        source_node_id=node_id_map[item.source_node_id],
+                        target_node_id=node_id_map[item.target_node_id],
+                        relation=item.relation,
+                    )
+                    for item in plan.edges
+                ]
+                unit = DiagramUnitSpec(
+                    unit_id=f"script-diagram:{block_id}",
+                    section_id=section_node_id,
+                    title=plan.title,
+                    diagram_kind=plan.diagram_kind,
+                    nodes=nodes,
+                    edges=edges,
+                    source_section_ids=[section_node_id],
+                    source_block_ids=[block_id],
+                    source_keys=[f"teacher-script-block:{block_id}"],
+                )
+                payload = DiagramSpec(title=plan.title, units=[unit]).model_dump(mode="json")
+                payload["quality_report"] = {
+                    **validate_diagram_spec(payload),
+                    "generation_mode": "ai_planned",
+                    "learning_focus": plan.learning_focus,
+                    "source_quotes": {
+                        node_id_map[item.node_id]: item.source_quote
+                        for item in plan.nodes
+                    },
+                }
+                if not payload["quality_report"]["passed"]:
+                    raise ValueError("AI-planned diagram failed validation")
+                return payload
+            except Exception as exc:
+                last_error = exc
+    except Exception as exc:
+        last_error = exc
+    fallback["quality_report"] = {
+        **fallback["quality_report"],
+        "generation_mode": "deterministic_fallback",
+        "planner_error": type(last_error).__name__ if last_error else "unknown",
+    }
+    return fallback
 
 
 def compile_script_block_scene(
@@ -831,7 +1077,11 @@ async def plan_script_block_scene(
         ) from exc
 
 
-def recommend_script_visuals(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def recommend_script_visuals(
+    blocks: list[dict[str, Any]],
+    *,
+    animation_enabled: bool = False,
+) -> list[dict[str, Any]]:
     recommendations: list[dict[str, Any]] = []
     for block in blocks:
         role = str(block.get("role") or "concept")
@@ -839,20 +1089,47 @@ def recommend_script_visuals(blocks: list[dict[str, Any]]) -> list[dict[str, Any
         kinds: list[ScriptVisualType] = []
         reason = ""
         reason_code = ""
-        if role in {"reasoning", "application", "activity", "example"} or re.search(
-            r"步骤|过程|变化|先.+再|从.+到|流程|推导", content
-        ):
-            kinds = ["animation", "diagram"]
-            reason = "这一段包含过程或变化关系，逐步呈现更容易讲清。"
+        relation_worthy = bool(
+            role in {
+                "reasoning",
+                "concept",
+                "objective",
+                "summary",
+                "misconception",
+                "counterexample",
+                "application",
+                "activity",
+                "example",
+            }
+            or re.search(
+                r"公式|概念|条件|关系|因果|步骤|过程|变化|先.+再|从.+到|流程|推导|对比|分类",
+                content,
+            )
+        )
+        illustration_worthy = bool(
+            re.search(
+                r"人物|数学家|科学家|历史|时代|场景|生活|故事|城市|建筑|器物|自然|景观|实验装置",
+                content,
+            )
+        )
+        motion_worthy = bool(
+            role in {"reasoning", "application", "activity", "example"}
+            or re.search(r"运动|变化|变换|演化|过程|步骤|从.+到", content)
+        )
+        if relation_worthy:
+            kinds.append("diagram")
+            reason = "这一段包含公式、概念或过程关系，适合用结构图解讲清。"
             reason_code = "process_or_change"
-        elif role in {"concept", "objective", "summary", "misconception", "counterexample"}:
-            kinds = ["diagram"]
-            reason = "这一段包含概念或关系，适合压缩成结构图。"
-            reason_code = "concept_or_relation"
-        elif len(content) >= 160:
-            kinds = ["diagram", "image"]
-            reason = "这一段信息较密，可用视觉表达降低口头解释负担。"
-            reason_code = "dense_content"
+        if illustration_worthy:
+            kinds.append("image")
+            if relation_worthy:
+                reason = "这一段既有知识关系，也有适合形象化呈现的人物或场景。"
+                reason_code = "relation_and_scene"
+            else:
+                reason = "这一段包含人物或场景，可适当加入 AI 插图帮助联想。"
+                reason_code = "ai_illustration_scene"
+        if animation_enabled and motion_worthy:
+            kinds.append("animation")
         recommendations.append({
             "block_id": str(block.get("block_id") or ""),
             "recommended_types": kinds,
@@ -901,18 +1178,55 @@ class TeacherScriptVisualService:
                 continue
             items.append(self._view_item(representation, spec))
         items.sort(key=lambda item: str(item.get("updated_at") or ""))
-        sets = [
-            item.model_dump(mode="json")
-            for item in registry.representation_sets
-            if str(item.target_scope.get("lesson_unit_id") or "") == lesson_unit_id
-        ]
+        animation_enabled = script_animation_runtime_enabled()
+        visible_ids = {
+            item["representation_id"]
+            for item in items
+            if item.get("representation_type") != "animation" or animation_enabled
+        }
+        sets = []
+        for representation_set in registry.representation_sets:
+            if str(representation_set.target_scope.get("lesson_unit_id") or "") != lesson_unit_id:
+                continue
+            payload = representation_set.model_dump(mode="json")
+            member_fields = (
+                "alternative_representation_ids",
+                "complementary_representation_ids",
+                "accessibility_representation_ids",
+                "fallback_chain",
+            )
+            member_ids = list(dict.fromkeys([
+                payload["default_representation_id"],
+                *(item_id for field in member_fields for item_id in payload[field]),
+            ]))
+            active_ids = [item_id for item_id in member_ids if item_id in visible_ids]
+            if not active_ids:
+                continue
+            if payload["default_representation_id"] not in visible_ids:
+                payload["default_representation_id"] = active_ids[0]
+            for field in member_fields:
+                payload[field] = [item_id for item_id in payload[field] if item_id in visible_ids]
+            sets.append(payload)
+        available_types: list[ScriptVisualType] = ["diagram", "image"]
+        if animation_enabled:
+            available_types.append("animation")
         return {
             "schema_version": "teacher_script_visual_view_v1",
             "course_id": course_id,
             "lesson_unit_id": lesson_unit_id,
             "script_revision_id": script_revision_id,
-            "recommendations": recommend_script_visuals(blocks),
-            "items": items,
+            "available_types": available_types,
+            "animation_runtime": "gray_enabled" if animation_enabled else "gray_disabled",
+            "recommendations": recommend_script_visuals(
+                blocks,
+                animation_enabled=animation_enabled,
+            ),
+            "items": [
+                item
+                for item in items
+                if item.get("representation_type") != "animation"
+                or animation_enabled
+            ],
             "representation_sets": sets,
         }
 
@@ -926,6 +1240,7 @@ class TeacherScriptVisualService:
         block: dict[str, Any],
         expression_type: ScriptVisualType,
         instruction: str = "",
+        planned_diagram: dict[str, Any] | None = None,
         planned_animation: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         block_id = str(block.get("block_id") or "")
@@ -950,11 +1265,15 @@ class TeacherScriptVisualService:
             source_revisions={source_key: script_revision_id},
         )
         if expression_type == "diagram":
-            visual_content = compile_script_block_diagram(
-                section_node_id=section_node_id,
-                block_id=block_id,
-                title=title,
-                content=content,
+            visual_content = (
+                DiagramSpec.model_validate(planned_diagram).model_dump(mode="json")
+                if planned_diagram is not None
+                else compile_script_block_diagram(
+                    section_node_id=section_node_id,
+                    block_id=block_id,
+                    title=title,
+                    content=content,
+                )
             )
         elif expression_type == "animation":
             visual_content = (
@@ -1067,6 +1386,41 @@ class TeacherScriptVisualService:
             )
         return self._view_item(saved, spec)
 
+    async def create_candidate_with_ai_diagram(
+        self,
+        *,
+        provider: Any,
+        course_id: str,
+        lesson_unit_id: str,
+        script_revision_id: str,
+        section_node_id: str,
+        block: dict[str, Any],
+        instruction: str = "",
+    ) -> dict[str, Any]:
+        block_id = str(block.get("block_id") or "")
+        title = str(block.get("title") or "教学内容")
+        content = str(block.get("content") or "").strip()
+        if not block_id or not content:
+            raise RepresentationConflict("Script visual source block is empty")
+        planned = await plan_script_block_diagram(
+            provider=provider,
+            section_node_id=section_node_id,
+            block_id=block_id,
+            title=title,
+            content=content,
+            instruction=instruction,
+        )
+        return self.create_candidate(
+            course_id=course_id,
+            lesson_unit_id=lesson_unit_id,
+            script_revision_id=script_revision_id,
+            section_node_id=section_node_id,
+            block=block,
+            expression_type="diagram",
+            instruction=instruction,
+            planned_diagram=planned,
+        )
+
     async def create_candidate_with_ai_animation(
         self,
         *,
@@ -1130,6 +1484,11 @@ class TeacherScriptVisualService:
         spec = next((item for item in registry.specs if item.spec_id == representation.spec_id), None)
         if spec is None:
             raise RepresentationConflict("Script visual candidate spec does not exist")
+        if (
+            representation.representation_type == "animation"
+            and not script_animation_runtime_enabled()
+        ):
+            raise RepresentationConflict("Animation runtime is disabled")
         if accept and representation.representation_type == "image":
             content = spec.payload.get("content") or {}
             if content.get("generation_status") != "ready" or not representation.artifact_ids:
@@ -1174,7 +1533,10 @@ class TeacherScriptVisualService:
     ) -> dict[str, Any]:
         style = (
             instruction.strip()
-            or "Clean educational editorial illustration, calm blue-violet palette, no text"
+            or (
+                "Engaging AI-generated educational editorial illustration, vivid and "
+                "approachable, calm blue-violet palette, no text, not a source photograph"
+            )
         )
         prompt = self.image_provider.plan_prompt(
             source_text=f"{title}. {summarize_text(content, 800)}",
@@ -1182,7 +1544,10 @@ class TeacherScriptVisualService:
         )
         base = {
             "schema_version": "script_image_spec_v1",
-            "title": f"{title} · 插图",
+            "title": f"{title} · AI 插图",
+            "image_origin": "ai_generated",
+            "content_role": "editorial_illustration",
+            "provenance_label": "AI 生成插图",
             "prompt": prompt,
             "prompt_policy_version": IMAGE_PROMPT_POLICY_VERSION,
             "provider_model": self.image_provider.model,
@@ -1214,7 +1579,7 @@ class TeacherScriptVisualService:
                     generated,
                     course_id=course_id,
                     source_fragment_ids=[block_id],
-                    alt_text=f"{title}的教学插图",
+                    alt_text=f"{title}的 AI 生成教学插图",
                     purpose="teacher_script_visual",
                     kind="generated_illustration",
                     prompt=prompt,
@@ -1270,8 +1635,10 @@ __all__ = [
     "compile_inclined_plane_scene",
     "compile_script_block_diagram",
     "compile_script_block_scene",
+    "plan_script_block_diagram",
     "plan_script_block_scene",
     "recommend_script_visuals",
+    "script_animation_runtime_enabled",
     "script_visual_source_key",
     "teacher_script_visual_service",
 ]

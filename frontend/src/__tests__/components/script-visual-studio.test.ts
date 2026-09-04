@@ -60,10 +60,12 @@ describe('讲义块视觉表达工作区', () => {
       course_id: 'course-1',
       lesson_unit_id: 'lesson-1',
       script_revision_id: 'script-r1',
+      available_types: ['diagram', 'image'],
+      animation_runtime: 'gray_disabled',
       recommendations: [{
         block_id: 'block-1',
-        recommended_types: ['animation', 'diagram'],
-        reason: '这一段包含过程或变化关系，逐步呈现更容易讲清。',
+        recommended_types: ['diagram'],
+        reason: '这一段包含公式、概念或过程关系，适合用结构图解讲清。',
         reason_code: 'process_or_change',
       }],
       items,
@@ -84,17 +86,23 @@ describe('讲义块视觉表达工作区', () => {
     }
   }
 
-  it('默认折叠，展开后在同一教学块提供图解、插图和动画入口', async () => {
-    const { wrapper } = mountStudio([])
+  it('默认折叠，展开后只提供正式运行的图解和 AI 插图入口', async () => {
+    const historicalAnimation = item({
+      representation_id: 'animation-1',
+      representation_type: 'animation',
+      content: { schema_version: 'scene_spec_v2' },
+    })
+    const { wrapper } = mountStudio([historicalAnimation])
 
     expect(wrapper.get('.script-visual-toggle').attributes('aria-expanded')).toBe('false')
     await wrapper.get('.script-visual-toggle').trigger('click')
 
     expect(wrapper.get('.script-visual-toggle').attributes('aria-expanded')).toBe('true')
-    expect(wrapper.get('.script-visual-create').text()).toContain('逐步呈现更容易讲清')
+    expect(wrapper.get('.script-visual-create').text()).toContain('适合用结构图解讲清')
     expect(wrapper.findAll('.script-visual-create button').map(button => button.text())).toEqual([
-      '生成图解', '生成插图', '生成动画',
+      '生成图解', '生成 AI 插图',
     ])
+    expect(wrapper.find('[data-type="animation"]').exists()).toBe(false)
   })
 
   it('图片服务未配置时保留提示词并只提供放弃或重试', async () => {
@@ -104,6 +112,7 @@ describe('讲义块视觉表达工作区', () => {
       content: {
         schema_version: 'script_image_spec_v1',
         generation_status: 'provider_unavailable',
+        provenance_label: 'AI 生成插图',
         prompt: 'A visual explanation of input and output',
       },
     })
@@ -111,6 +120,7 @@ describe('讲义块视觉表达工作区', () => {
     await wrapper.get('.script-visual-toggle').trigger('click')
 
     const image = wrapper.get('.script-visual-item[data-type="image"]')
+    expect(image.text()).toContain('AI 插图')
     expect(image.text()).toContain('图片服务未配置')
     expect(image.text()).toContain('生成提示词已经保存')
     expect(image.findAll('footer button').map(button => button.text())).toEqual(['放弃', '重新生成'])

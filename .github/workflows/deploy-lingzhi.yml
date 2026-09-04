@@ -97,6 +97,7 @@ jobs:
           ZJU_QWEN_MODEL: qwen3.8-27b
           SLIDE_DECK_V6_ENABLED: true
           SLIDE_DECK_V6_DEFAULT_ENABLED: true
+          TEACHER_SCRIPT_ANIMATION_ENABLED: false
         run: |
           set -euo pipefail
           test -n "$ZJU_QWEN_API_KEY"
@@ -143,7 +144,7 @@ jobs:
             -o StrictHostKeyChecking=yes \
             scripts/configure_zju_qwen_provider.py \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_script"
-          python3 -c 'import json, os; print(json.dumps({"api_key": os.environ["ZJU_QWEN_API_KEY"], "base_url": os.environ["ZJU_QWEN_BASE_URL"], "model": os.environ["ZJU_QWEN_MODEL"], "slide_deck_v6_enabled": os.environ["SLIDE_DECK_V6_ENABLED"], "slide_deck_v6_default_enabled": os.environ["SLIDE_DECK_V6_DEFAULT_ENABLED"]}))' \
+          python3 -c 'import json, os; print(json.dumps({"api_key": os.environ["ZJU_QWEN_API_KEY"], "base_url": os.environ["ZJU_QWEN_BASE_URL"], "model": os.environ["ZJU_QWEN_MODEL"], "slide_deck_v6_enabled": os.environ["SLIDE_DECK_V6_ENABLED"], "slide_deck_v6_default_enabled": os.environ["SLIDE_DECK_V6_DEFAULT_ENABLED"], "teacher_script_animation_enabled": os.environ["TEACHER_SCRIPT_ANIMATION_ENABLED"]}))' \
             | ssh \
               -i ~/.ssh/lingzhi_deploy \
               -o BatchMode=yes \

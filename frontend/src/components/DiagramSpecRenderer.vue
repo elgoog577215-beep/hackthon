@@ -71,11 +71,30 @@ const PADDING = 20
 const KNOWN_DIAGRAM_KINDS = ['concept_map', 'learning_path']
 
 /** 关系类型是有限字面量集合，因此每条合法边必定有标签（label 必填，无需可选）。 */
-type KnownRelation = 'supports' | 'prepares'
-const RELATION_LABELS: Record<KnownRelation, string> = { supports: '支撑', prepares: '承接' }
+type KnownRelation =
+  | 'supports'
+  | 'prepares'
+  | 'defines'
+  | 'contains'
+  | 'causes'
+  | 'contrasts'
+  | 'equivalent'
+  | 'condition'
+  | 'transforms_to'
+const RELATION_LABELS: Record<KnownRelation, string> = {
+  supports: '支撑',
+  prepares: '承接',
+  defines: '定义',
+  contains: '包含',
+  causes: '导致',
+  contrasts: '对比',
+  equivalent: '等价',
+  condition: '条件',
+  transforms_to: '转化为',
+}
 
 function isKnownRelation(value: string): value is KnownRelation {
-  return value === 'supports' || value === 'prepares'
+  return Object.prototype.hasOwnProperty.call(RELATION_LABELS, value)
 }
 
 type FallbackReason =

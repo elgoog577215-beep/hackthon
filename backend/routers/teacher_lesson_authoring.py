@@ -60,6 +60,7 @@ from teacher_script import (
 )
 from teacher_script_visuals import (
     TeacherScriptVisualService,
+    script_animation_runtime_enabled,
     teacher_script_visual_service,
 )
 from teacher_course_space import teacher_course_space_repository
@@ -4701,7 +4702,22 @@ async def create_lesson_script_visual(
                 "lesson_script_visual_block_not_found",
                 "当前讲义教学块不存在，请重新载入。",
             )
-        if body.expression_type == "animation":
+        if body.expression_type == "animation" and not script_animation_runtime_enabled():
+            raise TeacherLessonAuthoringError(
+                "lesson_script_animation_gray_disabled",
+                "教学动画仍处于灰度储备阶段，当前课程不参与实际运行。",
+            )
+        if body.expression_type == "diagram":
+            item = await visual_service.create_candidate_with_ai_diagram(
+                provider=tm.course_service,
+                course_id=course_id,
+                lesson_unit_id=lesson_unit_id,
+                script_revision_id=revision_id,
+                section_node_id=body.section_node_id,
+                block=block,
+                instruction=body.instruction,
+            )
+        elif body.expression_type == "animation":
             item = await visual_service.create_candidate_with_ai_animation(
                 provider=tm.course_service,
                 course_id=course_id,
