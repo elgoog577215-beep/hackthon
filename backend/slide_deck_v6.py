@@ -3386,10 +3386,17 @@ def _formula_canvas_text(block: CourseBlock) -> str:
     while the complete sequence remains in speaker notes.
     """
 
+    source = block_source_text(block)
+    payload = block.payload or {}
+    if payload.get("_v6_artifact_only"):
+        # The compiler has already split and capacity-checked this formula
+        # fragment.  It may deliberately pack several complete display
+        # formulae into one safe page, so selecting the first display again
+        # here would silently discard the rest of the frozen fragment.
+        return source
     presentation = block_presentation_text(block)
     if re.search(r"\$\$.+?\$\$|\\\[.+?\\\]", presentation, re.DOTALL):
         return presentation
-    source = block_source_text(block)
     first_display = re.search(
         r"\$\$.+?\$\$|\\\[.+?\\\]",
         source,

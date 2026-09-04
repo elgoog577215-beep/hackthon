@@ -301,6 +301,33 @@ def test_formula_canvas_restores_first_frozen_display_when_projection_is_prose()
     assert "B=2" in block_source_text(block)
 
 
+def test_formula_canvas_keeps_every_display_in_a_compiler_fragment() -> None:
+    source = (
+        "$$\n"
+        "A\\mathbf{v}=\\text{diag}(2, 1/2)"
+        "\\begin{pmatrix}x \\\\ y\\end{pmatrix}\n"
+        "$$\n\n"
+        "$$\n"
+        "=\\begin{pmatrix}2x \\\\ \\frac{1}{2}y\\end{pmatrix}\n"
+        "$$"
+    )
+    fragment = CourseBlock(
+        block_id="packed-formula-fragment",
+        section_id="section-a",
+        position=0,
+        role="reasoning",
+        kind="rich_text",
+        payload={
+            "markdown": source,
+            "artifact_kind": "formula",
+            "_v6_artifact_only": True,
+        },
+    )
+
+    assert _formula_canvas_text(fragment) == source
+    assert len(_formula_candidates(_formula_canvas_text(fragment))) == 2
+
+
 def test_continuation_title_compacts_a_long_formula_chain() -> None:
     block = _block(
         "force-x",
