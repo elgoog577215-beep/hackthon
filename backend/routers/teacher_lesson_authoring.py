@@ -3913,8 +3913,34 @@ async def generate_lesson_script(
             if isinstance(item, dict) and item.get("node_id")
         }
         actor = resolve_user_id(request.headers.get("X-User-Id"))
+        previous: dict[str, Any] | None = None
+        effective_requirements = body.requirements.strip()
+        effective_material_asset_ids = list(body.material_asset_ids)
+        if body.resume_job_id:
+            resume_candidate = repository.get_job(course_id, body.resume_job_id)
+            if (
+                resume_candidate.get("lesson_unit_id") == lesson_unit_id
+                and resume_candidate.get("type")
+                == "teacher_lesson_script_generation"
+                and resume_candidate.get("source_lesson_plan_revision_id")
+                == plan_revision_id
+                and resume_candidate.get("status")
+                in {"paused", "failed", "cancelled"}
+            ):
+                previous = resume_candidate
+                # Resume means continue the frozen task.  A temporary failure
+                # while reloading the source tray must not silently change the
+                # prompt, sources, fingerprint, or reusable checkpoint.
+                effective_requirements = str(
+                    previous.get("requirements") or ""
+                ).strip()
+                effective_material_asset_ids = [
+                    str(item)
+                    for item in previous.get("material_asset_ids") or []
+                    if str(item)
+                ]
         selected_material_ids, source_evidence = _course_material_evidence(
-            course_id, actor, body.material_asset_ids
+            course_id, actor, effective_material_asset_ids
         )
         prompt_evidence = _prompt_material_evidence(source_evidence)
         register = getattr(tm.course_service, "register_course_generation_metadata", None)
@@ -3923,16 +3949,13 @@ async def generate_lesson_script(
         input_fingerprint = stable_hash({
             "lesson_unit_id": lesson_unit_id,
             "source_lesson_plan_revision_id": plan_revision_id,
-            "requirements": body.requirements.strip(),
+            "requirements": effective_requirements,
             "material_asset_ids": sorted(selected_material_ids),
         }, prefix="teacher-script-input")
         seed_sections: list[dict[str, Any]] = []
-        if body.resume_job_id:
-            previous = repository.get_job(course_id, body.resume_job_id)
+        if previous:
             if (
-                previous.get("lesson_unit_id") == lesson_unit_id
-                and previous.get("type") == "teacher_lesson_script_generation"
-                and previous.get("input_fingerprint") == input_fingerprint
+                previous.get("input_fingerprint") == input_fingerprint
                 and previous.get("source_lesson_plan_revision_id") == plan_revision_id
             ):
                 seed_sections = [
@@ -3954,7 +3977,7 @@ async def generate_lesson_script(
             source_lesson_plan_revision_id=plan_revision_id,
             input_fingerprint=input_fingerprint,
             resume_from_job_id=(body.resume_job_id if seed_sections else ""),
-            requirements=body.requirements,
+            requirements=effective_requirements,
             material_asset_ids=selected_material_ids,
             actor=actor,
             **({
@@ -4046,7 +4069,7 @@ async def generate_lesson_script(
                         "material_asset_ids": selected_material_ids,
                         "selected_material_evidence": prompt_evidence,
                     },
-                    requirements=body.requirements,
+                    requirements=effective_requirements,
                     user_id=actor,
                     on_content_delta=forward_stream_delta,
                     on_content_reset=forward_stream_reset,
@@ -4201,7 +4224,7 @@ async def generate_lesson_script(
                         "material_asset_ids": selected_material_ids,
                         "selected_material_evidence": prompt_evidence,
                     },
-                    requirements=body.requirements,
+                    requirements=effective_requirements,
                     user_id=actor,
                     on_content_delta=forward_shard_delta,
                     on_content_reset=forward_shard_reset,
@@ -4262,8 +4285,9 @@ async def generate_lesson_script(
                     plan_sections=plan_sections,
                     generator=generate_block,
                     shard_generator=generate_script_shard,
+                    repair_generator=generate_block,
                     seed_sections=seed_sections,
-                    requirements=body.requirements,
+                    requirements=effective_requirements,
                     material_asset_ids=selected_material_ids,
                     actor=actor,
                 )

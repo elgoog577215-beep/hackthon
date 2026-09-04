@@ -881,7 +881,7 @@
           <button v-if="referenceWorkflowState === 'generating' && referenceWorkflowCanPause" type="button" @click="pauseReferenceWorkflow"><Pause :size="14" />{{ t('courseWorkbench.pause', '暂停') }}</button>
           <button v-if="referenceWorkflowState === 'paused' && referenceWorkflowCanResume" class="primary-status-action" type="button" @click="resumeReferenceWorkflow"><Play :size="14" />{{ t('courseWorkbench.continue', '继续') }}</button>
           <button v-if="referenceWorkflowCanCancel" type="button" @click="cancelReferenceWorkflow"><X :size="14" />{{ t('common.cancel', '取消') }}</button>
-          <button v-if="referenceWorkflowState === 'failed' && referenceWorkflowCanRetry" class="primary-status-action" type="button" :disabled="referenceGenerationBlocked" @click="retryReferenceWorkflow"><RotateCcw :size="14" />{{ t('common.retry', '重试') }}</button>
+          <button v-if="referenceWorkflowState === 'failed' && referenceWorkflowCanRetry" class="primary-status-action" type="button" :disabled="referenceWorkflowRetryBlocked" @click="retryReferenceWorkflow"><RotateCcw :size="14" />{{ t('common.retry', '重试') }}</button>
           <button
             v-if="regenerationAvailable"
             class="primary-status-action"
@@ -2170,6 +2170,15 @@ const referenceWorkflowCanRetry = computed(() => {
   }
   return true
 })
+const referenceWorkflowRetryBlocked = computed(() => {
+  if (activeStage.value === 'script' && (
+    scriptBatchRecoveryAvailable.value
+    || ['failed', 'cancelled'].includes(String(scriptJob.value?.status || ''))
+  )) {
+    return scriptBatchStarting.value || scriptGenerating.value || referenceRelationshipSaving.value
+  }
+  return referenceGenerationBlocked.value
+})
 const contextPhase = computed<'before' | 'during' | 'after' | 'failed'>(() => {
   if (referenceWorkflowState.value === 'failed') return 'failed'
   if (['generating', 'paused'].includes(referenceWorkflowState.value)) return 'during'
@@ -3276,18 +3285,31 @@ function lessonGenerationStateLabel(lesson: any): string {
 }
 async function handleScriptSaved() { scriptDocumentError.value = ''; await lessonStore.load(props.courseId) }
 async function generateScript(requirements = '') {
-  if (!selectedLesson.value || !currentScriptCanGenerate.value || scriptGenerationBusy.value || referenceGenerationBlocked.value) return
+  const resumeJobId = ['failed', 'cancelled', 'paused'].includes(String(scriptJob.value?.status || ''))
+    ? scriptJob.value?.id || ''
+    : ''
+  const resuming = Boolean(resumeJobId)
+  if (
+    !selectedLesson.value
+    || !currentScriptCanGenerate.value
+    || scriptGenerationBusy.value
+    || (resuming ? referenceRelationshipSaving.value : referenceGenerationBlocked.value)
+  ) return
   scriptGenerating.value = true
   scriptGenerationError.value = ''
   scriptDocumentError.value = ''
   try {
-    await saveRelationships(`script:${selectedLessonId.value}`, 'script', `${selectedLesson.value.title} 讲义`)
+    if (!resuming) {
+      await saveRelationships(`script:${selectedLessonId.value}`, 'script', `${selectedLesson.value.title} 讲义`)
+    }
     await lessonStore.generateScript(
       props.courseId,
       selectedLessonId.value,
       requirements,
-      activeCourseReferences.value.map(item => item.material_asset_id),
-      ['failed', 'cancelled', 'paused'].includes(String(scriptJob.value?.status || '')) ? scriptJob.value?.id || '' : '',
+      resuming
+        ? []
+        : activeCourseReferences.value.map(item => item.material_asset_id),
+      resumeJobId,
     )
   } catch {
     scriptGenerationError.value = lessonStore.error || t('courseWorkbench.scriptGenerationFailed', '本讲讲义生成失败，请重试。')
@@ -3296,7 +3318,13 @@ async function generateScript(requirements = '') {
   }
 }
 async function generateAllScripts() {
-  if (scriptBatchStarting.value || scriptBatchRunning.value || !scriptBatchEligibleCount.value || referenceGenerationBlocked.value) return
+  const recovering = scriptBatchRecoveryAvailable.value
+  if (
+    scriptBatchStarting.value
+    || scriptBatchRunning.value
+    || !scriptBatchEligibleCount.value
+    || (recovering ? referenceRelationshipSaving.value : referenceGenerationBlocked.value)
+  ) return
   scriptBatchStarting.value = true
   scriptBatchStartError.value = ''
   scriptGenerationError.value = ''

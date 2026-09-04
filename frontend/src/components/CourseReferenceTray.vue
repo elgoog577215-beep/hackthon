@@ -177,7 +177,7 @@
           <span><LoaderCircle v-if="sourceReadiness.kind === 'processing'" :size="16" class="workflow-spinner" /><TriangleAlert v-else-if="effectiveWorkflowState === 'failed' || sourceSelectionDirty || sourceReadiness.kind === 'failed'" :size="16" /><CheckCircle2 v-else-if="completedWorkflow" :size="16" /><Upload v-else :size="16" /></span>
           <div><strong>{{ displayedWorkflowStatusTitle }}</strong><small>{{ displayedWorkflowStatusDetail }}</small></div>
           <div v-if="(effectiveWorkflowState === 'failed' && workflowCanRetry) || sourceSelectionDirty || completedSourceEditing" class="source-status__actions">
-            <button v-if="effectiveWorkflowState === 'failed' && workflowCanRetry" type="button" class="source-status__retry" :disabled="sourceGenerationBlocked" @click="emit('retry-workflow')">
+            <button v-if="effectiveWorkflowState === 'failed' && workflowCanRetry" type="button" class="source-status__retry" :disabled="workflowRetryBlocked" @click="emit('retry-workflow')">
               <RotateCcw :size="13" />{{ t('courseWorkbench.references.retryGeneration', '重试生成') }}
             </button>
             <button v-if="sourceSelectionDirty" type="button" class="source-status__regenerate" :disabled="sourceGenerationBlocked" :title="sourceGenerationBlocked ? sourceBlockReason : undefined" @click="emit('regenerate-workflow')">
@@ -625,6 +625,10 @@ const sourceReadiness = computed(() => {
 })
 const sourceOperationBusy = computed(() => loading.value || saving.value || Boolean(scopeApplyingAssetId.value))
 const sourceGenerationBlocked = computed(() => sourceOperationBusy.value || sourceReadiness.value.kind !== 'ready' || Boolean(error.value))
+// A failed workflow resumes its frozen input/checkpoint.  A stale or timed-out
+// source-library read may block a *new* generation, but must not disable the
+// recovery action after that read has finished.
+const workflowRetryBlocked = computed(() => sourceOperationBusy.value)
 const sourceBlockReason = computed(() => {
   if (sourceOperationBusy.value) return t('courseWorkbench.references.sourcesUpdating', '正在更新资料…')
   return sourceReadiness.value.reason || error.value
@@ -922,7 +926,20 @@ async function loadMaterials() {
     configuredTargetIds.value = new Set(response.data?.configured_source_target_ids || [])
     generationSourceSnapshots.value = response.data?.generation_source_snapshots || {}
     materials.value = withoutWebSources(response.data?.assets || []).map((item: CourseReferenceItem) => ({ ...item, role: 'reference' }))
-  } catch (reason: any) { error.value = String(reason?.response?.data?.detail || reason?.message || t('courseWorkbench.references.loadFailed', '课程资料读取失败')) }
+  } catch (reason: any) {
+    const timedOut = reason?.code === 'ECONNABORTED'
+      || /timeout/i.test(String(reason?.message || ''))
+    error.value = timedOut
+      ? t(
+          'courseWorkbench.references.readTimeout',
+          '资料状态读取超时，已生成内容与重试进度不受影响。',
+        )
+      : String(
+          reason?.response?.data?.detail
+          || reason?.message
+          || t('courseWorkbench.references.loadFailed', '课程资料读取失败'),
+        )
+  }
 }
 
 function documentTypePreference() {

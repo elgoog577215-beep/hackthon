@@ -1219,7 +1219,7 @@
       "primary": "资料文件", "pptPrimary": "主参考", "primaryLimit": "最多 1 份", "addPrimary": "上传资料文件", "addPptPrimary": "添加主参考",
       "supporting": "参考文件", "addSupporting": "上传参考文件", "unusedFiles": "未使用文件", "courseMaterials": "课程资料库",
       "questionSources": "真题资料", "questionSourcesHelp": "上传历年试卷或已有题库，作为导入与智能出题依据", "questionSourcesCount": "{count} 份", "questionSourcesEmpty": "暂无真题资料", "addQuestionSources": "添加或拖入真题", "addQuestionSourcesCompact": "添加真题", "questionSourcesSaveFailed": "真题资料保存失败",
-      "allSelected": "当前资料已全部引用", "loadFailed": "课程资料读取失败",
+      "allSelected": "当前资料已全部引用", "loadFailed": "课程资料读取失败", "readTimeout": "资料状态读取超时，已生成内容与重试进度不受影响。",
       "registerFailed": "资料已上传，但未能加入当前课程", "uploadFailed": "资料上传失败", "saveFailed": "本讲资料保存失败",
       "webSources": "联网来源", "startWebResearch": "添加联网来源", "continueWebResearch": "继续检索", "unusedSources": "未使用来源"
     },

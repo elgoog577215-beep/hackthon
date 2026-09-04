@@ -1219,7 +1219,7 @@
       "primary": "Source file", "pptPrimary": "Primary reference", "primaryLimit": "Up to 1", "addPrimary": "Upload source file", "addPptPrimary": "Add primary reference",
       "supporting": "Reference files", "addSupporting": "Upload reference files", "unusedFiles": "No files used", "courseMaterials": "Course material library",
       "questionSources": "Past exams", "questionSourcesHelp": "Upload past exams or an existing question bank for import and AI generation", "questionSourcesCount": "{count} files", "questionSourcesEmpty": "No past exams yet", "addQuestionSources": "Add or drop past exams", "addQuestionSourcesCompact": "Add past exams", "questionSourcesSaveFailed": "Could not save past exam sources",
-      "allSelected": "All current materials are selected", "loadFailed": "Could not load course materials",
+      "allSelected": "All current materials are selected", "loadFailed": "Could not load course materials", "readTimeout": "Source status timed out. Generated content and retry progress are unaffected.",
       "registerFailed": "The file uploaded but could not be added to this course", "uploadFailed": "File upload failed", "saveFailed": "Could not save this session's references",
       "webSources": "Web sources", "startWebResearch": "Add web sources", "continueWebResearch": "Continue searching", "unusedSources": "No sources used"
     },

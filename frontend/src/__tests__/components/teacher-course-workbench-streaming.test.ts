@@ -1390,6 +1390,41 @@ describe('teacher course workbench outline streaming', () => {
     expect(generateAll).not.toHaveBeenCalled()
   })
 
+  it('讲义批次失败后可在资料面板读取异常时继续原任务', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
+      arrangement: { source_state: 'current', blocks: [] },
+      script: {
+        current_revision_id: '', source_lesson_plan_revision_id: 'plan-1',
+        source_state: 'current', ready: false, can_generate: true, sections: [],
+      },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
+    }] as any
+    lessonStore.jobs = [{
+      id: 'script-job-1', course_id: 'course-1', lesson_unit_id: 'L1-1', type: 'teacher_lesson_script_generation',
+      status: 'failed', progress: 80, phase: 'lesson_script_failed', message: '已保留 5/6 个教学块', warnings: [],
+      parent_job_id: 'script-batch-1', error: { code: 'lesson_script_block_quality_failed', message: '1 个教学块未通过检查', retryable: true },
+    }] as any
+    const generateAll = vi.spyOn(lessonStore, 'generateAllScripts').mockResolvedValue({
+      parent_job: { id: 'script-batch-2' }, jobs: [],
+    } as any)
+    const wrapper = mountWorkbench({ initialStage: 'script' })
+    wrapper.findComponent({ name: 'CourseReferenceTray' }).vm.$emit('source-state-change', {
+      busy: false, blocked: true, reason: '资料状态读取超时',
+    })
+    await flushPromises()
+
+    const retry = wrapper.findAll('.context-pane-heading .primary-status-action')
+      .find(button => button.text().includes('重试'))
+    expect(retry).toBeDefined()
+    expect(retry!.attributes('disabled')).toBeUndefined()
+    await retry!.trigger('click')
+    await flushPromises()
+
+    expect(generateAll).toHaveBeenCalledWith('course-1', '')
+  })
+
   it('旧讲义批次失败但当前无可生成讲次时不显示无效重试', () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{

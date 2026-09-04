@@ -20,6 +20,7 @@ from teacher_lesson_authoring import (
     TeacherLessonAuthoringError,
     TeacherLessonAuthoringRepository,
     TeacherLessonAuthoringService,
+    _teacher_script_retry_block_ids,
     align_teacher_lesson_plan_to_arrangement,
     build_uploaded_ppt_review_report,
     complete_teacher_lesson_plan_fields,
@@ -2379,6 +2380,91 @@ def test_script_shard_keeps_valid_sibling_and_retries_only_failed_block(
     assert completed["completed_blocks"] == 2
 
 
+def test_script_job_repairs_one_invalid_shard_block_before_pausing(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    service = TeacherLessonAuthoringService(repository)
+    plan = standard_lesson_plan()
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        plan,
+        source_outline_revision_id="outline-v1",
+        quality_report=validate_teacher_lesson_plan(plan),
+    )
+    outline_section = {
+        "node_id": "L2-1-1",
+        "node_name": "1.1 核心概念",
+        "module_plan": [{
+            "module_id": "core_explanation",
+            "label": "核心教学",
+        }],
+    }
+    contract = compile_teacher_script_module_contract(
+        outline_section,
+        plan["sections"][0],
+    )
+    block_id = contract["modules"][0]["block_id"]
+    job = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_script_generation",
+        request_id="script-inline-exact-repair",
+    )
+    repaired = []
+
+    async def shard_generator(
+        _entries,
+        _shard_context,
+        *,
+        on_block_delta,
+        on_shard_reset,
+    ):
+        await on_shard_reset(block_id)
+        await on_block_delta(block_id, "本块内容完整。")
+        return {block_id: "本块内容完整。"}
+
+    async def repair_generator(_outline, _plan, module, shard_context):
+        repaired.append(module["block_id"])
+        assert shard_context["repair_of_shard_id"]
+        assert shard_context["quality_feedback"]
+        return (
+            "我们先看一个具体反例：请大家分别找出定义、成立条件"
+            "和适用边界，再说明原判断错在哪一项。"
+        )
+
+    completed = asyncio.run(service.run_script_job(
+        course_id="course-1",
+        lesson_unit_id="L1-1",
+        job_id=job["id"],
+        source_plan_revision_id=lesson["working_revision_id"],
+        outline_sections=[outline_section],
+        plan_sections={"L2-1-1": plan["sections"][0]},
+        generator=repair_generator,
+        shard_generator=shard_generator,
+        repair_generator=repair_generator,
+    ))
+
+    assert completed["status"] == "completed", completed.get("error")
+    assert repaired == [block_id]
+    assert completed["completed_blocks"] == completed["total_blocks"] == 1
+
+
+def test_script_retry_invalidates_later_canned_transition_blocks():
+    report = {
+        "blocking_issues": [{
+            "code": "teacher_script:repetitive_canned_transitions",
+            "phrase_blocks": {
+                "值得注意的是": ["block-4", "block-2", "block-1", "block-3"],
+            },
+        }],
+    }
+
+    assert _teacher_script_retry_block_ids(
+        report,
+        {f"block-{index}": index for index in range(1, 5)},
+    ) == {"block-2", "block-3", "block-4"}
+
+
 def test_script_provider_failure_counts_every_block_in_failed_shard(
     tmp_path,
     monkeypatch,
@@ -4406,13 +4492,19 @@ def test_script_generation_edit_candidate_and_ppt_share_one_asset_chain(tmp_path
     app.include_router(teacher_lesson_router.router, prefix="/api")
     app.dependency_overrides[require_task_manager] = lambda: FakeTaskManager()
     app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: repository
+    material_evidence_calls = []
+
+    def fake_course_material_evidence(_course_id, _actor, material_ids):
+        material_evidence_calls.append(list(material_ids))
+        return (
+            material_ids,
+            [{"asset_id": "material-1", "unit_id": "evidence-1", "text": "资料中的可靠案例"}],
+        )
+
     monkeypatch.setattr(
         teacher_lesson_router,
         "_course_material_evidence",
-        lambda _course_id, _actor, material_ids: (
-            material_ids,
-            [{"asset_id": "material-1", "unit_id": "evidence-1", "text": "资料中的可靠案例"}],
-        ),
+        fake_course_material_evidence,
     )
 
     with TestClient(app) as client:
@@ -4436,6 +4528,55 @@ def test_script_generation_edit_candidate_and_ppt_share_one_asset_chain(tmp_path
             time.sleep(0.01)
         assert job["status"] == "completed"
         assert job["completed_blocks"] == job["total_blocks"] == 2
+
+        failed_job = repository.create_job(
+            "course-1",
+            "L1-1",
+            job_type="teacher_lesson_script_generation",
+            request_id="script-failed-checkpoint",
+        )
+        failed_job = repository.update_job(
+            "course-1",
+            failed_job["id"],
+            source_lesson_plan_revision_id=plan_revision,
+            input_fingerprint=job["input_fingerprint"],
+            requirements="增加案例",
+            material_asset_ids=["material-1"],
+            result_sections=job["result_sections"],
+            completed_blocks=job["completed_blocks"],
+            status="failed",
+            error={
+                "code": "lesson_script_generation_failed",
+                "message": "模拟恢复现场",
+                "retryable": True,
+            },
+        )
+        resumed = client.post(
+            "/api/teacher/courses/course-1/lessons/L1-1/script/generate",
+            json={
+                "request_id": "script-resume-frozen-input",
+                "resume_job_id": failed_job["id"],
+                "requirements": "这段恢复时的新要求不应生效",
+                "material_asset_ids": ["material-2"],
+            },
+            headers={"X-User-Id": "teacher-1"},
+        )
+        assert resumed.status_code == 202
+        resumed_job_id = resumed.json()["job"]["id"]
+        for _ in range(100):
+            resumed_job = client.get(
+                f"/api/teacher/courses/course-1/lesson-jobs/{resumed_job_id}"
+            ).json()["job"]
+            if resumed_job["status"] in {
+                "completed", "completed_with_warnings", "failed"
+            }:
+                break
+            time.sleep(0.01)
+        assert resumed_job["status"] == "completed", resumed_job.get("error")
+        assert resumed_job["requirements"] == "增加案例"
+        assert resumed_job["material_asset_ids"] == ["material-1"]
+        assert resumed_job["resume_from_job_id"] == failed_job["id"]
+
         view = client.get(
             "/api/teacher/courses/course-1/lesson-authoring"
         ).json()
@@ -4494,6 +4635,8 @@ def test_script_generation_edit_candidate_and_ppt_share_one_asset_chain(tmp_path
 
     assert FakeCourseService.registered is True
     assert len(FakeCourseService.script_calls) == 1
+    assert material_evidence_calls[:2] == [["material-1"], ["material-1"]]
+    assert ["material-2"] not in material_evidence_calls
     assert len(
         FakeCourseService.script_calls[0]["current_plan_section"]["teaching_modules"]
     ) == 2

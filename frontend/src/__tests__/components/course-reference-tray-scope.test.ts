@@ -268,6 +268,26 @@ describe('CourseReferenceTray lesson scope', () => {
     expect(wrapper.emitted('retry-workflow')).toHaveLength(1)
   })
 
+  it('资料状态读取超时不再禁用已冻结任务的重试', async () => {
+    vi.mocked(http.get).mockRejectedValueOnce(
+      Object.assign(new Error('timeout of 10000ms exceeded'), { code: 'ECONNABORTED' }),
+    )
+    const wrapper = mount(CourseReferenceTray, {
+      props: {
+        courseId: 'course-1', modelValue: [{ ...assets[2]!, role: 'primary' }], stage: 'script',
+        workflowState: 'failed', workflowDetail: '讲义块未通过质量检查', workflowCanRetry: true,
+      },
+      global: { stubs: { WebResearchDialog: true } },
+    })
+    await flushPromises()
+
+    const retry = wrapper.get('.source-status__retry')
+    expect(wrapper.get('.tray-error').text()).toContain('已生成内容与重试进度不受影响')
+    expect(retry.attributes('disabled')).toBeUndefined()
+    await retry.trigger('click')
+    expect(wrapper.emitted('retry-workflow')).toHaveLength(1)
+  })
+
   it('为每份资料独立保存全部讲次或指定讲次范围', async () => {
     const lessonTargets = [
       { id: 'lesson-plan:L1-1', lessonId: 'L1-1', label: '第一讲', position: 1 },

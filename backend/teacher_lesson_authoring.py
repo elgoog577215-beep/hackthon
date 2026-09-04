@@ -3687,6 +3687,51 @@ class TeacherLessonAuthoringRepository:
 Planner = Callable[[dict[str, Any], str, Callable[..., Awaitable[None]]], Awaitable[dict[str, Any]]]
 
 
+def _teacher_script_retry_block_ids(
+    quality_report: dict[str, Any],
+    block_order: dict[str, int],
+) -> set[str]:
+    """Return the smallest safe set of cross-block failures to regenerate.
+
+    A checkpoint can contain blocks which all pass their individual contract
+    while the assembled lesson still repeats the same prose or canned
+    transition.  Keeping every such block makes a resumed job loop forever:
+    it has no missing work, immediately reaches the same revision gate, and
+    fails again.  Preserve the first occurrence and invalidate only the later
+    blocks involved in each repetition group.
+    """
+
+    retry_ids: set[str] = set()
+
+    def ordered(values: Any) -> list[str]:
+        unique = {str(value) for value in values or [] if str(value)}
+        return sorted(
+            unique,
+            key=lambda block_id: block_order.get(block_id, len(block_order)),
+        )
+
+    def keep_first(values: Any) -> None:
+        retry_ids.update(ordered(values)[1:])
+
+    for issue in quality_report.get("blocking_issues") or []:
+        if not isinstance(issue, dict):
+            continue
+        code = str(issue.get("code") or "")
+        if code == "teacher_script:repetitive_blocks":
+            for group in issue.get("repeated_clause_groups") or []:
+                keep_first(group)
+            for pair in issue.get("block_pairs") or []:
+                pair_ids = ordered(pair)
+                if len(pair_ids) > 1:
+                    retry_ids.add(pair_ids[-1])
+        elif code == "teacher_script:repetitive_canned_transitions":
+            phrase_blocks = issue.get("phrase_blocks") or {}
+            if isinstance(phrase_blocks, dict):
+                for group in phrase_blocks.values():
+                    keep_first(group)
+    return retry_ids
+
+
 class TeacherLessonAuthoringService:
     def __init__(self, repository: TeacherLessonAuthoringRepository):
         self.repository = repository
@@ -4025,6 +4070,7 @@ class TeacherLessonAuthoringService:
         plan_sections: dict[str, dict[str, Any]],
         generator: Callable[..., Awaitable[str]],
         shard_generator: Callable[..., Awaitable[dict[str, str]]] | None = None,
+        repair_generator: Callable[..., Awaitable[str]] | None = None,
         seed_sections: list[dict[str, Any]] | None = None,
         requirements: str = "",
         material_asset_ids: list[str] | None = None,
@@ -4076,20 +4122,10 @@ class TeacherLessonAuthoringService:
                 ],
                 generation_source="model_block_pipeline",
             )
-            for issue in seed_quality.get("blocking_issues") or []:
-                if not isinstance(issue, dict) or str(issue.get("code") or "") != (
-                    "teacher_script:repetitive_blocks"
-                ):
-                    continue
-                for group in issue.get("repeated_clause_groups") or []:
-                    ordered_group = sorted(
-                        [str(block_id) for block_id in group if str(block_id)],
-                        key=lambda block_id: global_block_order.get(
-                            block_id,
-                            len(global_block_order),
-                        ),
-                    )
-                    invalid_seed_ids.update(ordered_group[1:])
+            invalid_seed_ids.update(_teacher_script_retry_block_ids(
+                seed_quality,
+                global_block_order,
+            ))
         seed_by_section = {
             str(item.get("section_node_id") or ""): item
             for item in seed_sections or []
@@ -4391,6 +4427,10 @@ class TeacherLessonAuthoringService:
                         )
                     candidates: list[dict[str, Any]] = []
                     candidate_failures: list[dict[str, Any]] = []
+                    entries_by_block_id = {
+                        str(entry["module"].get("block_id") or ""): entry
+                        for entry in entries
+                    }
                     for entry in entries:
                         module = entry["module"]
                         contract = entry["contract"]
@@ -4445,6 +4485,141 @@ class TeacherLessonAuthoringService:
                             ),
                             "candidate": candidate,
                         })
+
+                    # A batched response may be good as a whole while one
+                    # individual block still misses its direct-teaching
+                    # contract.  Repair that exact block once before pausing
+                    # the durable job; valid siblings remain checkpointed and
+                    # are never paid for or generated again.
+                    if repair_generator and candidate_failures:
+                        remaining_failures: list[dict[str, Any]] = []
+                        for failure in candidate_failures:
+                            failed_block_id = str(failure.get("block_id") or "")
+                            entry = entries_by_block_id.get(failed_block_id)
+                            if not entry:
+                                remaining_failures.append(failure)
+                                continue
+                            module = entry["module"]
+                            contract = entry["contract"]
+                            repair_context = {
+                                **compile_teacher_script_shard_context(
+                                    contract,
+                                    module,
+                                ),
+                                "repair_of_shard_id": shard_id,
+                                "quality_feedback": deepcopy(
+                                    (failure.get("quality_report") or {}).get(
+                                        "blocking_issues"
+                                    )
+                                    or [failure.get("message")]
+                                ),
+                            }
+                            try:
+                                self.repository.update_job_live(
+                                    course_id,
+                                    job_id,
+                                    phase="lesson_script_block_repair",
+                                    message=(
+                                        f"正在精确修复："
+                                        f"{module.get('title') or failed_block_id}"
+                                    ),
+                                    current_block_id=failed_block_id,
+                                    current_block_title=str(
+                                        module.get("title") or failed_block_id
+                                    ),
+                                )
+                                parameters = inspect.signature(
+                                    repair_generator
+                                ).parameters
+                                supports_stream_callbacks = (
+                                    "on_content_delta" in parameters
+                                    and "on_content_reset" in parameters
+                                ) or any(
+                                    parameter.kind
+                                    == inspect.Parameter.VAR_KEYWORD
+                                    for parameter in parameters.values()
+                                )
+                                async with semaphore:
+                                    if supports_stream_callbacks:
+                                        repaired = await repair_generator(
+                                            entry["outline_section"],
+                                            entry["plan_section"],
+                                            module,
+                                            repair_context,
+                                            on_content_delta=lambda delta: (
+                                                persist_stream_delta(
+                                                    failed_block_id,
+                                                    delta,
+                                                )
+                                            ),
+                                            on_content_reset=lambda: (
+                                                persist_stream_reset(
+                                                    failed_block_id
+                                                )
+                                            ),
+                                        )
+                                    else:
+                                        repaired = await repair_generator(
+                                            entry["outline_section"],
+                                            entry["plan_section"],
+                                            module,
+                                            repair_context,
+                                        )
+                                repaired_candidate = {
+                                    **deepcopy(module),
+                                    "content": str(repaired or "").strip(),
+                                    "generation_source": "model",
+                                }
+                                repaired_report = validate_teacher_script_section(
+                                    {
+                                        "section_node_id": str(
+                                            contract.get("section_node_id") or ""
+                                        ),
+                                        "title": contract.get("title"),
+                                        "blocks": [repaired_candidate],
+                                    },
+                                    {
+                                        **deepcopy(contract),
+                                        "modules": [deepcopy(module)],
+                                    },
+                                )
+                                if not repaired_report.get("passed"):
+                                    repair_messages = "；".join(
+                                        str(item.get("message") or "未知讲义错误")
+                                        for item in repaired_report.get(
+                                            "blocking_issues"
+                                        )
+                                        or []
+                                        if isinstance(item, dict)
+                                    )
+                                    remaining_failures.append({
+                                        **failure,
+                                        "message": (
+                                            f"{module.get('title') or failed_block_id}"
+                                            f"精确修复后仍未通过硬校验："
+                                            f"{repair_messages or '请重试'}"
+                                        ),
+                                        "quality_report": deepcopy(repaired_report),
+                                        "repair_attempted": True,
+                                    })
+                                    continue
+                                candidates.append({
+                                    "section_id": str(
+                                        contract.get("section_node_id") or ""
+                                    ),
+                                    "candidate": repaired_candidate,
+                                })
+                            except asyncio.CancelledError:
+                                raise
+                            except Exception as repair_error:
+                                remaining_failures.append({
+                                    **failure,
+                                    "message": str(repair_error) or str(
+                                        failure.get("message") or ""
+                                    ),
+                                    "repair_attempted": True,
+                                })
+                        candidate_failures = remaining_failures
                     return {
                         "block_ids": block_ids,
                         "block_title": block_title,
