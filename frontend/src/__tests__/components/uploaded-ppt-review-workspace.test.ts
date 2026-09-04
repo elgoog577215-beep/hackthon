@@ -18,8 +18,8 @@ const review = {
   }],
   report: {
     sources: [
-      { kind: 'lesson_plan', label: '已确认教案', revision_id: 'plan-1', status: 'confirmed' },
-      { kind: 'script', label: '已确认讲稿', revision_id: 'script-1', status: 'confirmed' },
+      { kind: 'lesson_plan', label: '当前教案', revision_id: 'plan-1', status: 'current' },
+      { kind: 'script', label: '当前讲义', revision_id: 'script-1', status: 'current' },
     ],
     findings: [{
       finding_id: 'finding-1', code: 'slide_alignment_unresolved', title: '与已确认教学内容的对应关系不明确',
@@ -50,8 +50,8 @@ describe('uploaded PPT review workspace', () => {
     expect(wrapper.find('.ppt-review-report').exists()).toBe(false)
     expect(wrapper.get('.ppt-report-toggle').text()).toContain('1')
     await wrapper.get('.ppt-report-toggle').trigger('click')
-    expect(wrapper.get('.ppt-review-report').text()).toContain('已确认教案')
-    expect(wrapper.get('.ppt-review-report').text()).toContain('已确认讲稿')
+    expect(wrapper.get('.ppt-review-report').text()).toContain('当前教案')
+    expect(wrapper.get('.ppt-review-report').text()).toContain('当前讲义')
     expect(wrapper.get('.ppt-review-report').text()).toContain('高置信建议')
     expect(wrapper.text()).not.toContain('100%')
 

@@ -12,7 +12,7 @@ describe('TeacherDocumentCommandBar', () => {
 
     expect(wrapper.find('[aria-label="撤销"]').exists()).toBe(false)
     expect(wrapper.find('[aria-label="重做"]').exists()).toBe(false)
-    expect(wrapper.find('[aria-label="历史版本"]').exists()).toBe(true)
+    expect(wrapper.find('[aria-label="历史版本"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('已保存')
     expect(wrapper.get('[role="toolbar"]').text()).not.toContain('已保存')
     expect(wrapper.get('[role="status"]').text()).toContain('已保存')

@@ -1237,7 +1237,7 @@ def build_domain_candidate_undoer(
                 previous = str(source.get("previous_revision_id") or "")
                 result = str(source.get("result_revision_id") or "")
                 if domain == "lesson_plan":
-                    authoring_repository.restore_plan_revision(
+                    authoring_repository.rollback_plan_revision(
                         course_id,
                         lesson_id,
                         previous,
@@ -1245,7 +1245,7 @@ def build_domain_candidate_undoer(
                         actor=user_id,
                     )
                 elif domain == "script":
-                    authoring_repository.restore_script_revision(
+                    authoring_repository.rollback_script_revision(
                         course_id,
                         lesson_id,
                         previous,

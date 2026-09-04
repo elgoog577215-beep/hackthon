@@ -18,21 +18,20 @@ const lesson: TeacherLessonProjection = {
     schema_version: 'teacher_lesson_arrangement_v1', revision_id: 'arrangement-1',
     lesson_unit_id: 'lesson-1', source_outline_revision_id: 'outline-1',
     lesson_type: 'theory', lesson_type_label: '理论讲授', blocks: [],
-    status: 'confirmed', confirmed: true, source_state: 'current',
+    source_state: 'current',
   },
   script: {
-    current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '',
-    source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [],
+    current_revision_id: '', source_lesson_plan_revision_id: '',
+    source_state: 'current', ready: false, sections: [],
   },
   plan: {
     lesson_unit_id: 'lesson-1',
     working_revision_id: 'revision-1',
-    confirmed_revision_id: '',
     source_state: 'current',
     ready: true,
-    revisions: [{
+    current_revision: {
       revision_id: 'revision-1', lesson_unit_id: 'lesson-1', source_outline_revision_id: 'outline-1',
-      generation_source: 'model', status: 'draft', warnings: [], actor: 'teacher', created_at: '',
+      generation_source: 'model', warnings: [], actor: 'teacher', created_at: '',
       plan: {
         schema_version: 'course_teaching_plan_v3',
         sections: [{
@@ -44,7 +43,7 @@ const lesson: TeacherLessonProjection = {
           }],
         }],
       },
-    }],
+    },
     ppt_assets: [],
   },
 }
@@ -153,13 +152,13 @@ describe('教案 AI 协作编辑模式', () => {
   it('教师从教案正文原位输入要求，候选直接嵌入同一篇正文', async () => {
     const store = useTeacherLessonAuthoringStore()
     store.lessons = [structuredClone(lesson)]
-    const candidatePlan = structuredClone(lesson.plan.revisions[0]!.plan)
+    const candidatePlan = structuredClone(lesson.plan.current_revision!.plan)
     candidatePlan.sections[0].learning_objective = '能用流程图准确解释爬虫四步流程'
     const createCandidate = vi.spyOn(store, 'createAiCandidate').mockResolvedValue({
       candidate_id: 'candidate-inline', lesson_unit_id: 'lesson-1', base_revision_id: 'revision-1',
       instruction: '把教学目标改成可观察行为', section_node_id: 'section-1', plan: candidatePlan, status: 'pending', created_at: '',
     })
-    vi.spyOn(store, 'resolveAiCandidate').mockResolvedValue(lesson.plan)
+    vi.spyOn(store, 'resolveAiCandidate').mockResolvedValue(lesson)
     const wrapper = mountWorkbench()
 
     const composer = await openInlineLessonAi(wrapper)
@@ -295,7 +294,7 @@ describe('教案 AI 协作编辑模式', () => {
   it('继续调整会替换上一版候选，采用后才形成教案工作修订', async () => {
     const store = useTeacherLessonAuthoringStore()
     store.lessons = [structuredClone(lesson)]
-    const candidatePlan = structuredClone(lesson.plan.revisions[0]!.plan)
+    const candidatePlan = structuredClone(lesson.plan.current_revision!.plan)
     candidatePlan.sections[0].learning_objective = '能用流程图准确解释爬虫四步流程'
     const createCandidate = vi.spyOn(store, 'createAiCandidate').mockImplementation(async (_course, _lesson, _revision, instruction) => ({
       candidate_id: `candidate-${createCandidate.mock.calls.length}`,
@@ -307,7 +306,7 @@ describe('教案 AI 协作编辑模式', () => {
       status: 'pending',
       created_at: '',
     } satisfies TeacherLessonPlanCandidate))
-    const resolveCandidate = vi.spyOn(store, 'resolveAiCandidate').mockResolvedValue(lesson.plan)
+    const resolveCandidate = vi.spyOn(store, 'resolveAiCandidate').mockResolvedValue(lesson)
     const wrapper = mountWorkbench()
 
     let composer = await openInlineLessonAi(wrapper)
@@ -340,7 +339,7 @@ describe('教案 AI 协作编辑模式', () => {
     store.lessons = [structuredClone(lesson)]
     const createCandidate = vi.spyOn(store, 'createAiCandidate').mockResolvedValue({
       candidate_id: 'candidate-selection', lesson_unit_id: 'lesson-1', base_revision_id: 'revision-1',
-      instruction: '改成可测量的表述', section_node_id: 'section-1', plan: structuredClone(lesson.plan.revisions[0]!.plan), status: 'pending', created_at: '',
+      instruction: '改成可测量的表述', section_node_id: 'section-1', plan: structuredClone(lesson.plan.current_revision!.plan), status: 'pending', created_at: '',
     })
     const wrapper = mountWorkbench()
 
@@ -417,14 +416,14 @@ describe('教案 AI 协作编辑模式', () => {
   it('刷新后把当前修订尚未处理的候选恢复到正文，并允许保留原文', async () => {
     const store = useTeacherLessonAuthoringStore()
     const restoredLesson = structuredClone(lesson)
-    const restoredPlan = structuredClone(lesson.plan.revisions[0]!.plan)
+    const restoredPlan = structuredClone(lesson.plan.current_revision!.plan)
     restoredPlan.sections[0].learning_objective = '能画出爬虫四步流程图'
-    restoredLesson.plan.ai_candidates = [{
+    restoredLesson.plan.ai_candidate = {
       candidate_id: 'candidate-restored', lesson_unit_id: 'lesson-1', base_revision_id: 'revision-1',
       instruction: '让目标可观察', section_node_id: 'section-1', plan: restoredPlan, status: 'pending', created_at: '',
-    }]
+    }
     store.lessons = [restoredLesson]
-    vi.spyOn(store, 'resolveAiCandidate').mockResolvedValue(restoredLesson.plan)
+    vi.spyOn(store, 'resolveAiCandidate').mockResolvedValue(restoredLesson)
     const wrapper = mountWorkbench()
     await flushPromises()
 

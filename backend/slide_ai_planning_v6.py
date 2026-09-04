@@ -4687,7 +4687,7 @@ def _deterministic_safe_partition_story_response(
         # blocks onto one canvas.  The compiler then had to split that single
         # story page into five continuations (22 slides for a 45-minute
         # lesson).  Keep the deterministic path classroom-dense: no more than
-        # three confirmed script blocks per story page, then choose the
+        # three current script blocks per story page, then choose the
         # smallest complete partition within that bound.
         option = min(
             classroom_safe_options or options,

@@ -123,9 +123,6 @@ function operationName(method: string, url: string): string {
 }
 
 function titleFor(code: string, status: number | null, method: string, url: string): string {
-  if (/outline_adjustment_lifecycle_conflict/.test(code)) {
-    return t('appError.names.outlineLifecycle', '大纲调整阶段不一致')
-  }
   if (/course_change_source_unavailable/.test(code)) {
     return t('appError.names.courseChangeSource', '课程修改条件不足')
   }
@@ -163,7 +160,6 @@ function reasonFor(
 ): string {
   if (networkFailure) return t('appError.reasons.network', '请求没有收到服务响应，请检查网络连接后重试。')
   const known: Array<[RegExp, string]> = [
-    [/outline_adjustment_lifecycle_conflict/i, t('appError.reasons.outlineLifecycle', '当前大纲不在可调整阶段，请重新进入编辑后再试。')],
     [/course_change_source_unavailable/i, t('appError.reasons.courseChangeSource', '当前课程还没有可分析的大纲或教学资产，请先完成课程大纲。')],
     [/lesson_sections_empty|sections_missing|outline_empty/i, t('appError.reasons.lessonPrerequisite', '当前讲次没有可生成教案的小节，请先补全课程大纲或课次小节。')],
     [/provider_rate_limited|too_many_requests|rate.?limit|\b429\b/i, t('appError.reasons.rateLimit', '服务请求过于频繁，当前操作尚未完成，请稍后重试。')],

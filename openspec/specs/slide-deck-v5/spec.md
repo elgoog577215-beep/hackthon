@@ -1,8 +1,7 @@
 # slide-deck-v5 Specification
 
 ## Purpose
-TBD - created by archiving change upgrade-slide-deck-v5. Update Purpose after archive.
-
+Define the V5 slide-deck planning, layout, rendering, and validation contract so source-grounded teaching content becomes a coherent, usable presentation.
 ## Requirements
 
 ### Requirement: V5 Plans the Whole Deck Before Materializing Pages

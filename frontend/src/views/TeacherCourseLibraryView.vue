@@ -223,10 +223,6 @@ type CourseProductionSummary = {
   ready_lesson_plans?: number
   ready_handouts?: number
   ready_ppts?: number
-  outline_confirmed?: boolean
-  confirmed_lesson_plans?: number
-  confirmed_handouts?: number
-  confirmed_ppts?: number
   current_production?: {
     target?: 'lesson_plan' | 'script' | 'ppt'
     status?: string
@@ -467,11 +463,11 @@ function courseProduction(course: Course): CourseProductionView {
   if (task) return task
   const summary = (course.preparation_summary || {}) as CourseProductionSummary
   const total = Math.max(0, Number(summary.planned_lessons || course.node_count || 0))
-  const complete = Boolean(summary.outline_ready ?? summary.outline_confirmed)
+  const complete = Boolean(summary.outline_ready)
     && total > 0
-    && Number(summary.ready_lesson_plans ?? summary.confirmed_lesson_plans ?? 0) >= total
-    && Number(summary.ready_handouts ?? summary.confirmed_handouts ?? 0) >= total
-    && Number(summary.ready_ppts ?? summary.confirmed_ppts ?? 0) >= total
+    && Number(summary.ready_lesson_plans || 0) >= total
+    && Number(summary.ready_handouts || 0) >= total
+    && Number(summary.ready_ppts || 0) >= total
   return {
     label: complete ? t('teacherCourseLibrary.production.complete') : t('teacherCourseLibrary.production.incomplete'),
     tone: complete ? 'ready' : 'idle',

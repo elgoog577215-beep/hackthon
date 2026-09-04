@@ -1,7 +1,7 @@
 # source-grounded-rule-diagrams Specification
 
 ## Purpose
-TBD - created by archiving change integrate-source-grounded-rule-diagrams. Update Purpose after archive.
+Define how source-grounded rules and Mermaid fragments become typed, bounded diagrams without losing provenance or changing course semantics.
 ## Requirements
 ### Requirement: Source Fragmentation Preserves Diagram Semantics
 The system SHALL preserve fenced-block language and SHALL classify Mermaid fences as diagram fragments instead of generic code fragments.

@@ -459,15 +459,15 @@ describe('TeacherCourseSpaceView', () => {
       {
         lesson_unit_id: 'lesson-1', number: 1, title: '内存管理', duration_minutes: 45, sections: [],
         plan: {
-          lesson_unit_id: 'lesson-1', working_revision_id: 'plan-1', confirmed_revision_id: 'plan-1', source_state: 'current', ppt_assets: [],
-          revisions: [{ revision_id: 'plan-1', lesson_unit_id: 'lesson-1', source_outline_revision_id: 'outline-1', generation_source: 'ai', status: 'confirmed', warnings: [], plan: { objectives: ['理解引用计数'] }, actor: 'teacher', created_at: '2026-08-22T00:00:00Z' }],
+          lesson_unit_id: 'lesson-1', working_revision_id: 'plan-1', source_state: 'current', ppt_assets: [],
+          current_revision: { revision_id: 'plan-1', lesson_unit_id: 'lesson-1', source_outline_revision_id: 'outline-1', generation_source: 'ai', warnings: [], plan: { objectives: ['理解引用计数'] }, actor: 'teacher', created_at: '2026-08-22T00:00:00Z' },
         },
       },
       {
         lesson_unit_id: 'lesson-2', number: 2, title: '垃圾回收', duration_minutes: 45, sections: [],
         plan: {
-          lesson_unit_id: 'lesson-2', working_revision_id: 'plan-2', confirmed_revision_id: 'plan-2', source_state: 'current', ppt_assets: [],
-          revisions: [{ revision_id: 'plan-2', lesson_unit_id: 'lesson-2', source_outline_revision_id: 'outline-1', generation_source: 'ai', status: 'confirmed', warnings: [], plan: { teaching_process: ['讲解标记清除'] }, actor: 'teacher', created_at: '2026-08-22T00:00:00Z' }],
+          lesson_unit_id: 'lesson-2', working_revision_id: 'plan-2', source_state: 'current', ppt_assets: [],
+          current_revision: { revision_id: 'plan-2', lesson_unit_id: 'lesson-2', source_outline_revision_id: 'outline-1', generation_source: 'ai', warnings: [], plan: { teaching_process: ['讲解标记清除'] }, actor: 'teacher', created_at: '2026-08-22T00:00:00Z' },
         },
       },
     ]
@@ -583,15 +583,15 @@ describe('TeacherCourseSpaceView', () => {
     }]
     const handoutLessons = [{
       lesson_unit_id: 'lesson-1', number: 1, title: '内存管理', duration_minutes: 45, sections: [],
-      arrangement: { blocks: [], confirmed: true, source_state: 'current' },
+      arrangement: { blocks: [], source_state: 'current' },
       script: {
-        current_revision_id: 'handout-1', confirmed_revision_id: 'handout-1',
+        current_revision_id: 'handout-1',
         source_lesson_plan_revision_id: 'plan-1', source_state: 'current',
-        ready: true, confirmed: true, confirmed_at: '2026-08-30T00:00:00Z', sections: [],
+        ready: true, sections: [],
       },
       plan: {
-        lesson_unit_id: 'lesson-1', working_revision_id: 'plan-1', confirmed_revision_id: 'plan-1',
-        source_state: 'current', revisions: [], ppt_assets: [],
+        lesson_unit_id: 'lesson-1', working_revision_id: 'plan-1',
+        source_state: 'current', current_revision: null, ppt_assets: [],
       },
     }] as any
     useTeacherLessonAuthoringStore().lessons = handoutLessons

@@ -1,7 +1,7 @@
 # product-usage-analytics Specification
 
 ## Purpose
-TBD - created by archiving change add-product-usage-analytics. Update Purpose after archive.
+Define a privacy-safe, idempotent usage-event ledger for product analytics that remains independent from learning evidence, task state, and business data.
 ## Requirements
 ### Requirement: Product usage signals have an independent event ledger
 

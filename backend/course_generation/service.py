@@ -8372,7 +8372,7 @@ class CourseService(AIBase):
         *,
         course_id: str,
         outline_section: dict[str, Any],
-        confirmed_plan_section: dict[str, Any],
+        current_plan_section: dict[str, Any],
         lesson_context: dict[str, Any] | None = None,
         requirements: str = "",
         user_id: str = DEFAULT_USER_ID,
@@ -8388,7 +8388,7 @@ class CourseService(AIBase):
         """
         contract = compile_teacher_script_module_contract(
             outline_section,
-            confirmed_plan_section,
+            current_plan_section,
         )
         modules = [
             item for item in contract.get("modules") or [] if isinstance(item, dict)

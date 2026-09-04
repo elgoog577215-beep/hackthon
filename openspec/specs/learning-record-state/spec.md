@@ -1,7 +1,7 @@
 # learning-record-state Specification
 
 ## Purpose
-TBD - created by archiving change unify-learning-records. Update Purpose after archive.
+定义笔记、问题、复习任务和书签四类学习记录的边界、版本化位置与生命周期。正式错题和作答继续归属练习系统，记录只保存用户主动留下的内容与可追溯语义位置。
 ## Requirements
 ### Requirement: 四类记录必须拥有明确边界
 

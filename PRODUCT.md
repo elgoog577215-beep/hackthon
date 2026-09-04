@@ -18,8 +18,8 @@
 ## 数据边界
 
 - 正式课程正文只有一个 `CourseDocument` 真源。
-- 正文块、教学目标、知识点和题目使用稳定 ID、修订号和依赖索引；教案、PPT 与练习只保存可追溯引用与表达修订。
-- 全课与分小节教学设计共同使用一个 `CourseTeachingPlan` 及其工作台修订链。
+- 正文块、教学目标、知识点和题目使用稳定 ID、修订号和依赖索引；教案、讲义、PPT 与练习只保存可追溯引用与表达修订。
+- 课程级教学语义由共享 `CourseTeachingPlanV3` 承载；分讲教案、讲义的当前修订、AI 候选、并发保护和来源状态由 `TeacherLessonAuthoringRepository` 持有。旧整课教案工作台及其历史修订链不再是兼容真源。
 - AI 生成 PPT 使用 `TeachingRepresentation / SlideDeckSpec` 注册表与现有 V6 工作台；上传 PPTX 的审阅修订属于 `TeacherLessonAuthoringRepository` 的文字投影，不冒充完整视觉编辑器。
 - 上传 PPTX 既可作为结构化教案的可追溯生成证据，也可在 PPT 阶段直接生成审阅修订；两条路径均不得静默覆盖当前教案、讲义或原始 PPTX。
 - 教学日历是课程级排课领域对象，不复制课程正文。

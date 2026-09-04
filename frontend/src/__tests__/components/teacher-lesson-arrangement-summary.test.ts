@@ -32,8 +32,6 @@ const arrangement: TeacherLessonArrangement = {
     safety_boundary: '不得伪造定理、证明或计算结果。',
     required: true,
   }],
-  status: 'confirmed',
-  confirmed: true,
   ready: true,
   source_state: 'current',
 }

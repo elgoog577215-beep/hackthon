@@ -1,7 +1,7 @@
 # material-evidence-pipeline Specification
 
 ## Purpose
-TBD - created by archiving change rebuild-material-evidence-pipeline. Update Purpose after archive.
+定义课程资料从安全上传、统一解析到来源证据单元的持久链，确保生成内容可追溯且不伪造来源。任务只引用稳定资产 ID，二进制和完整文本不得塞入任务快照或公开静态目录。
 ## Requirements
 ### Requirement: 用户资料必须作为真实资产上传和持久化
 

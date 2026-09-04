@@ -701,7 +701,7 @@ async def test_teacher_outline_waits_through_restart_and_explicit_continue_reuse
     task = manager.tasks[job["job_id"]]
     assert task["status"] == "waiting_for_input"
     assert task["phase"] == "outline_framework_ready"
-    assert task["guided_workflow"]["review_step"] is None
+    assert "guided_workflow" not in task
     assert service.stop_after_skeleton is True
     assert service.stop_after_outline is True
     checkpoint = manager.get_generation_workspace_course(job["course_id"])
@@ -843,6 +843,7 @@ async def test_teacher_outline_framework_is_editable_and_has_no_review_report(
     })
     task = manager.tasks[job["job_id"]]
     assert task["type"] == "teacher_outline_generation"
+    assert "guided_workflow" not in task
     assert storage.course["authoring_surface"] == "teacher"
     assert manager.get_generation_preview(
         job["course_id"],
@@ -858,7 +859,6 @@ async def test_teacher_outline_framework_is_editable_and_has_no_review_report(
     waiting = manager.tasks[job["job_id"]]
     assert waiting["status"] == "waiting_for_input"
     assert waiting["phase"] == "outline_framework_ready"
-    assert waiting["guided_workflow"]["review_step"] is None
     assert "轻量讲次方案已生成" in waiting["message"]
     teacher_course = manager.get_generation_workspace_course(job["course_id"])
     assert teacher_course["generation_status"] == "outline_framework_ready"

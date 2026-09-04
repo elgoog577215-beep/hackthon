@@ -64,10 +64,7 @@ def test_uploaded_ppt_review_context_includes_ppt_stage_materials(monkeypatch) -
     class Repository:
         @staticmethod
         def lesson(_course_id: str, _lesson_unit_id: str):
-            return {
-                "confirmed_revision_id": "",
-                "script_confirmation": {},
-            }
+            return {}
 
     monkeypatch.setattr(router.question_bank_repository, "load_bundle", lambda _course_id: None)
     monkeypatch.setattr(router, "_ppt_material_bundle", lambda *_args: ([{

@@ -33,12 +33,6 @@ def test_script_and_v6_candidates_survive_repository_reload(tmp_path):
         source_outline_revision_id="outline-1",
     )
     plan_revision_id = lesson["working_revision_id"]
-    repository.confirm_plan_revision(
-        "course-1",
-        "lesson-1",
-        plan_revision_id,
-        quality_report={"passed": True, "blocking_issues": []},
-    )
     lesson = repository.save_script_revision(
         "course-1",
         "lesson-1",

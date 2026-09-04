@@ -1,7 +1,7 @@
 # diagnostic-remediation-state Specification
 
 ## Purpose
-TBD - created by archiving change build-diagnostic-remediation-loop. Update Purpose after archive.
+定义从正式错答事实到错因验证、补救任务和复验的闭环，确保事实、假设与决策分层保存。系统不得用一次失败直接判定错因，也不得绕过正式 Attempt 伪造掌握证据。
 ## Requirements
 ### Requirement: 单次错误不得直接确认为错因
 

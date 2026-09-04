@@ -105,7 +105,7 @@
               <section class="outline-source">
                 <div class="outline-source__mark"><BookOpenCheck :size="19" /></div>
                 <div class="outline-source__copy">
-                  <div><strong>课程教学大纲</strong><span class="version-chip">v3</span><span class="state-chip is-ready">已确认</span></div>
+                  <div><strong>课程教学大纲</strong><span class="version-chip">v3</span><span class="state-chip is-ready">已完成</span></div>
                   <p>16 讲 · 32 学时 · 6 个课程目标 · 更新于今天 14:32</p>
                 </div>
                 <div class="outline-source__knowledge"><span>知识结构</span><strong>42 个节点</strong><small>本轮先展示来源，不自动级联覆盖</small></div>
@@ -197,7 +197,7 @@
                     <button type="button" class="add-deck" @click="notify('请选择主课件、补充案例或练习讲解模板（模拟）')"><Plus :size="15" />新增一份课件</button>
                   </div>
                   <div v-else class="inspector-empty">
-                    <span><Presentation :size="22" /></span><h4>这一讲还没有课件</h4><p>先确认教案，再使用现有 PPT 生成能力创建第一版。</p>
+                    <span><Presentation :size="22" /></span><h4>这一讲还没有课件</h4><p>先完成当前教案，再使用现有 PPT 生成能力创建第一版。</p>
                     <button type="button" class="primary-action" @click="simulateGeneration"><Sparkles :size="15" />从教案生成 PPT</button>
                   </div>
 
@@ -225,9 +225,8 @@
                     <small>当前工作版本</small><h4>第 {{ selectedLesson.order }} 讲教案 <span>{{ selectedLesson.lessonPlan.version }}</span></h4>
                     <p>目标、课堂活动、案例、理解检查和课后任务都维护在同一份受管教案中。</p>
                     <div class="knowledge-tags"><span v-for="knowledge in selectedLesson.knowledge" :key="knowledge">{{ knowledge }}</span></div>
-                    <div v-if="selectedLesson.lessonPlan.state === 'stale'" class="upstream-alert"><AlertTriangle :size="16" /><span><strong>大纲内容有更新</strong>请检查受影响段落，再确认本讲教案。</span></div>
+                    <div v-if="selectedLesson.lessonPlan.state === 'stale'" class="upstream-alert"><AlertTriangle :size="16" /><span><strong>大纲内容有更新</strong>请检查受影响段落，再保存本讲教案。</span></div>
                     <button type="button" class="primary-action wide-inspector-action" @click="notify('将打开现有教案编辑器（模拟）')"><FileText :size="15" />打开教案编辑器</button>
-                    <button type="button" class="history-toggle lesson-history"><span><History :size="15" />历史版本（{{ selectedLesson.lessonPlan.historyCount }}）</span><ChevronRight :size="15" /></button>
                   </div>
                   <div v-else class="inspector-empty"><span><FileText :size="22" /></span><h4>这一讲还没有教案</h4><p>可从大纲中的教学目标和知识结构生成初稿。</p><button type="button" class="primary-action" @click="simulateGeneration"><Sparkles :size="15" />生成教案初稿</button></div>
                 </template>
@@ -266,14 +265,14 @@
         </section>
 
         <section v-if="teacherSection === 'overview'" class="teacher-overview">
-          <div class="overview-copy"><p>下午好，张老师</p><h2>下一步，完善第 9 讲教案</h2><span>大纲已经确认，课程内容会沿着同一条生产链继续生长。</span><button type="button" class="primary-action" @click="teacherSection = 'production'; activeArtifact = 'lesson'">继续备课<ArrowRight :size="16" /></button></div>
+          <div class="overview-copy"><p>下午好，张老师</p><h2>下一步，完善第 9 讲教案</h2><span>大纲已经完成，课程内容会沿着同一条生产链继续生长。</span><button type="button" class="primary-action" @click="teacherSection = 'production'; activeArtifact = 'lesson'">继续备课<ArrowRight :size="16" /></button></div>
           <div class="overview-progress"><span>本学期准备度</span><strong>62%</strong><div><i /></div><small>8 / 16 讲已具备教案</small></div>
         </section>
 
         <article v-if="teacherSection === 'files'" class="artifact-editor">
           <header class="editor-toolbar">
             <div><small>在线内容 · {{ activeArtifactLabel }}</small><strong>{{ activeArtifactTitle }}</strong></div>
-            <div class="editor-actions"><button type="button" class="icon-action" title="历史版本"><History :size="16" /></button><button type="button" class="quiet-action"><WandSparkles :size="15" />AI 优化</button><button type="button" class="primary-action" @click="saved = true"><Save :size="15" />{{ saved ? '已保存' : '保存' }}</button></div>
+            <div class="editor-actions"><button v-if="activeArtifact !== 'lesson'" type="button" class="icon-action" title="历史版本"><History :size="16" /></button><button type="button" class="quiet-action"><WandSparkles :size="15" />AI 优化</button><button type="button" class="primary-action" @click="saved = true"><Save :size="15" />{{ saved ? '已保存' : '保存' }}</button></div>
           </header>
           <div class="single-source-note"><Link2 :size="15" /><span><strong>这是唯一原稿。</strong> 从“课程生产”或“课程文件”进入，打开的都是这里。</span></div>
           <div class="document-canvas">
@@ -364,7 +363,7 @@ const stages = [
   { id: 'requirements', name: '课程要求', detail: '培养目标、学时与考核约束', state: 'done', label: '已确认' },
   { id: 'outline', name: '教学大纲', detail: '16 讲结构与知识关系', state: 'done', label: '已完成' },
   { id: 'lesson', name: '分讲教案', detail: '继续完善第 9 讲', state: 'active', label: '8 / 16' },
-  { id: 'slides', name: '课件与练习', detail: '从已确认教案生成', state: 'todo', label: '5 / 16' },
+  { id: 'slides', name: '课件与练习', detail: '从当前可用教案生成', state: 'todo', label: '5 / 16' },
   { id: 'publish', name: '发布准备', detail: '检查缺项并生成学生版本', state: 'todo', label: '未开始' },
 ]
 
@@ -401,7 +400,7 @@ interface ProductionLesson {
   order: number
   title: string
   knowledge: string[]
-  lessonPlan: { version: string; label: string; state: ArtifactState; historyCount: number }
+  lessonPlan: { version: string; label: string; state: ArtifactState }
   decks: LessonDeck[]
   pptState: ArtifactState
   pptLabel: string
@@ -411,25 +410,25 @@ interface ProductionLesson {
 const lessons: ProductionLesson[] = [
   {
     id: 'lesson-1', order: 1, title: '函数、极限与连续', knowledge: ['函数关系', '极限思想', '连续性'],
-    lessonPlan: { version: 'v3', label: '已确认', state: 'ready', historyCount: 2 },
+    lessonPlan: { version: 'v3', label: '已保存', state: 'ready' },
     decks: [{ id: 'deck-1-main', name: '主课件', version: 'v4', status: 'published', statusLabel: '已发布', sourceVersion: 'v3', updatedAt: '8 月 4 日 16:20', pages: 38, history: [{ version: 'v3', time: '8 月 2 日', label: '已发布' }, { version: 'v2', time: '7 月 28 日', label: '课堂版' }, { version: 'v1', time: '7 月 25 日', label: '初始生成' }] }],
     pptState: 'ready', pptLabel: '主课件已发布', release: { state: 'published', label: '已发布', detail: '学生版本 v3' },
   },
   {
     id: 'lesson-2', order: 2, title: '数列极限与运算法则', knowledge: ['数列极限', '夹逼准则'],
-    lessonPlan: { version: 'v2', label: '编辑中', state: 'draft', historyCount: 1 },
+    lessonPlan: { version: 'v2', label: '编辑中', state: 'draft' },
     decks: [{ id: 'deck-2-main', name: '主课件', version: 'v3', status: 'draft', statusLabel: '草稿', sourceVersion: 'v2', updatedAt: '今天 09:18', pages: 34, history: [{ version: 'v2', time: '8 月 1 日', label: '已发布' }, { version: 'v1', time: '7 月 29 日', label: '初始生成' }] }],
     pptState: 'draft', pptLabel: '主课件草稿', release: { state: 'pending', label: '待发布', detail: '有新草稿' },
   },
   {
     id: 'lesson-3', order: 3, title: '函数极限与两个重要极限', knowledge: ['函数极限', '等价无穷小'],
-    lessonPlan: { version: 'v2', label: '已确认', state: 'ready', historyCount: 1 },
+    lessonPlan: { version: 'v2', label: '已保存', state: 'ready' },
     decks: [{ id: 'deck-3-main', name: '主课件', version: 'v2', status: 'published', statusLabel: '已发布', sourceVersion: 'v2', updatedAt: '8 月 3 日 11:06', pages: 41, history: [{ version: 'v1', time: '7 月 31 日', label: '初始生成' }] }],
     pptState: 'ready', pptLabel: '主课件已发布', release: { state: 'published', label: '已发布', detail: '学生版本 v2' },
   },
   {
     id: 'lesson-4', order: 4, title: '连续函数与间断点', knowledge: ['连续性', '间断点', '闭区间性质'],
-    lessonPlan: { version: 'v3', label: '已确认', state: 'ready', historyCount: 2 },
+    lessonPlan: { version: 'v3', label: '已保存', state: 'ready' },
     decks: [
       { id: 'deck-4-main', name: '主课件', version: 'v4', status: 'published', statusLabel: '已发布', sourceVersion: 'v2', updatedAt: '昨天 17:42', pages: 46, stale: true, history: [{ version: 'v3', time: '8 月 3 日', label: '已发布' }, { version: 'v2', time: '7 月 30 日', label: '课堂精简版' }, { version: 'v1', time: '7 月 26 日', label: '初始生成' }] },
       { id: 'deck-4-case', name: '补充案例', version: 'v2', status: 'published', statusLabel: '已发布', sourceVersion: 'v3', updatedAt: '今天 10:12', pages: 12, history: [{ version: 'v1', time: '8 月 2 日', label: '初始生成' }] },
@@ -438,24 +437,24 @@ const lessons: ProductionLesson[] = [
   },
   {
     id: 'lesson-5', order: 5, title: '导数概念与求导法则', knowledge: ['变化率', '导数定义', '求导法则'],
-    lessonPlan: { version: 'v2', label: '大纲已更新', state: 'stale', historyCount: 1 },
+    lessonPlan: { version: 'v2', label: '大纲已更新', state: 'stale' },
     decks: [{ id: 'deck-5-main', name: '主课件', version: 'v2', status: 'published', statusLabel: '已发布', sourceVersion: 'v1', updatedAt: '8 月 1 日 14:26', pages: 39, stale: true, history: [{ version: 'v1', time: '7 月 29 日', label: '初始生成' }] }],
     pptState: 'stale', pptLabel: '上游内容已更新', release: { state: 'published', label: '已发布', detail: '学生版本 v2' },
   },
   {
     id: 'lesson-6', order: 6, title: '微分与高阶导数', knowledge: ['微分', '高阶导数'],
-    lessonPlan: { version: 'v1', label: '编辑中', state: 'draft', historyCount: 0 },
-    decks: [], pptState: 'empty', pptLabel: '等待教案确认', release: { state: 'draft', label: '草稿', detail: '尚未发布' },
+    lessonPlan: { version: 'v1', label: '编辑中', state: 'draft' },
+    decks: [], pptState: 'empty', pptLabel: '等待教案', release: { state: 'draft', label: '草稿', detail: '尚未发布' },
   },
   {
     id: 'lesson-7', order: 7, title: '微分中值定理', knowledge: ['罗尔定理', '拉格朗日定理'],
-    lessonPlan: { version: 'v1', label: '已确认', state: 'ready', historyCount: 0 },
+    lessonPlan: { version: 'v1', label: '已保存', state: 'ready' },
     decks: [{ id: 'deck-7-main', name: '主课件', version: 'v1', status: 'building', statusLabel: '生成中 64%', sourceVersion: 'v1', updatedAt: '刚刚', pages: 0, history: [] }],
     pptState: 'building', pptLabel: '正在生成 64%', release: { state: 'empty', label: '未开始', detail: '等待课件' },
   },
   {
     id: 'lesson-8', order: 8, title: '函数单调性与极值', knowledge: ['单调性', '极值', '最值问题'],
-    lessonPlan: { version: '', label: '尚未生成', state: 'empty', historyCount: 0 },
+    lessonPlan: { version: '', label: '尚未生成', state: 'empty' },
     decks: [], pptState: 'empty', pptLabel: '等待教案', release: { state: 'empty', label: '未开始', detail: '尚无材料' },
   },
 ]
@@ -482,7 +481,7 @@ const fileFolders = [
     { name: '课程教学大纲', detail: '更新于 14:32', managed: true, artifact: 'outline', kind: 'doc', status: '' },
   ] },
   { id: 'lesson-plans', name: '1、教案', children: [
-    { name: '第 1 讲教案', detail: '已确认', managed: true, artifact: 'lesson', kind: 'doc', status: '' },
+    { name: '第 1 讲教案', detail: '已保存', managed: true, artifact: 'lesson', kind: 'doc', status: '' },
     { name: '第 9 讲教案', detail: '正在编辑', managed: true, artifact: 'lesson', kind: 'doc', status: '' },
   ] },
   { id: 'slides', name: '2、PPT', children: [
@@ -648,7 +647,7 @@ button { font: inherit; }
 .current-version { margin:14px 16px; padding:15px; border:1px solid #e0e3e9; border-radius:9px; background:#fff; }.version-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }.version-heading small { color:#929baa; font-size:8px; }.version-heading h4 { margin:4px 0 0; font-size:13px; }.version-heading h4 span,.lesson-plan-inspector h4 span { color:#5963bf; }.current-version dl { margin:15px 0; display:grid; gap:8px; }.current-version dl div { display:flex; justify-content:space-between; padding-bottom:7px; border-bottom:1px solid #eef0f3; font-size:9px; }.current-version dt { color:#929baa; }.current-version dd { margin:0; color:#4d586b; font-weight:650; }.version-actions { display:grid; grid-template-columns:1fr auto 36px; gap:6px; }.version-actions .quiet-action { padding:0 10px; }.regenerate-action { width:100%; min-height:35px; display:flex; align-items:center; justify-content:center; gap:6px; margin-top:8px; border:0; border-radius:8px; color:#fff; background:#b77a22; font-size:9px; font-weight:700; cursor:pointer; }.regenerate-action:disabled { cursor:wait; opacity:.75; }.spinning { animation:spin .9s linear infinite; }
 .version-history { margin:0 16px 20px; }.history-toggle { width:100%; display:flex; justify-content:space-between; align-items:center; padding:9px 2px; border:0; color:#525d71; background:transparent; cursor:pointer; }.history-toggle > span { display:flex; align-items:center; gap:6px; font-size:10px; font-weight:700; }.history-toggle .rotated { transform:rotate(90deg); }.history-list { display:grid; margin:3px 0 8px 6px; padding-left:10px; border-left:1px solid #dfe2e9; }.history-list > div { min-height:42px; display:grid; grid-template-columns:8px minmax(0,1fr) auto auto; align-items:center; gap:7px; position:relative; }.history-node { width:7px; height:7px; position:absolute; left:-14px; border:2px solid #fff; border-radius:50%; background:#9ba3b1; box-shadow:0 0 0 1px #cbd0d8; }.history-list strong,.history-list small { display:block; }.history-list strong { font-size:9px; }.history-list small { margin-top:2px; color:#999fac; font-size:8px; }.history-list em { color:#7e8797; font-size:8px; font-style:normal; }.history-list button { padding:3px 5px; border:0; color:#5660b4; background:transparent; font-size:8px; cursor:pointer; }.version-history > p { margin:5px 0 0; color:#9aa2af; font-size:8px; line-height:1.5; }
 .inspector-empty { display:flex; flex-direction:column; align-items:center; padding:44px 24px; text-align:center; }.inspector-empty > span,.document-mark { width:46px; height:46px; display:grid; place-items:center; border-radius:12px; color:#656cc3; background:#eef0ff; }.inspector-empty h4 { margin:13px 0 6px; font-size:13px; }.inspector-empty p { margin:0 0 18px; color:#8a94a5; font-size:9px; line-height:1.6; }
-.lesson-plan-inspector { padding:22px 18px; }.lesson-plan-inspector > small { display:block; margin-top:15px; color:#939baa; font-size:8px; }.lesson-plan-inspector h4 { margin:4px 0 10px; font-size:14px; }.lesson-plan-inspector > p { color:#778194; font-size:9px; line-height:1.65; }.knowledge-tags { display:flex; flex-wrap:wrap; gap:5px; margin:13px 0; }.knowledge-tags span { padding:4px 7px; border-radius:6px; color:#5861af; background:#f0f1ff; font-size:8px; }.lesson-plan-inspector .upstream-alert { margin:13px 0; }.wide-inspector-action { width:100%; margin-top:10px; }.lesson-history { margin-top:10px; padding:10px 2px; border-top:1px solid #e7e9ee; }
+.lesson-plan-inspector { padding:22px 18px; }.lesson-plan-inspector > small { display:block; margin-top:15px; color:#939baa; font-size:8px; }.lesson-plan-inspector h4 { margin:4px 0 10px; font-size:14px; }.lesson-plan-inspector > p { color:#778194; font-size:9px; line-height:1.65; }.knowledge-tags { display:flex; flex-wrap:wrap; gap:5px; margin:13px 0; }.knowledge-tags span { padding:4px 7px; border-radius:6px; color:#5861af; background:#f0f1ff; font-size:8px; }.lesson-plan-inspector .upstream-alert { margin:13px 0; }.wide-inspector-action { width:100%; margin-top:10px; }
 .inspector-enter-active,.inspector-leave-active { transition:opacity .22s ease, transform .28s cubic-bezier(.16,1,.3,1); }.inspector-enter-from,.inspector-leave-to { opacity:0; transform:translateX(18px); }
 @keyframes pulse-dot { 0%,100% { opacity:.55; } 50% { opacity:1; } }
 .file-system { display:grid; grid-template-rows:auto auto minmax(0,1fr) auto; min-height:430px; overflow:hidden; border:1px solid var(--concept-line); border-radius:12px; background:#fff; }

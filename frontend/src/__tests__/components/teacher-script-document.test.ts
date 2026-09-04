@@ -15,16 +15,16 @@ const lesson: TeacherLessonProjection = {
     schema_version: 'teacher_lesson_arrangement_v1', revision_id: 'arrangement-1',
     lesson_unit_id: 'lesson-1', source_outline_revision_id: 'outline-1',
     lesson_type: 'theory', lesson_type_label: '理论讲授', blocks: [],
-    status: 'confirmed', confirmed: true, source_state: 'current',
+    source_state: 'current',
   },
   script: {
-    current_revision_id: 'script-1', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1',
-    source_state: 'current', ready: true, confirmed: false, confirmed_at: '',
+    current_revision_id: 'script-1', source_lesson_plan_revision_id: 'plan-1',
+    source_state: 'current', ready: true,
     sections: [{ section_node_id: 'section-1', title: '1.1 爬虫基础', content: '原始讲稿内容' }],
   },
   plan: {
-    lesson_unit_id: 'lesson-1', working_revision_id: 'plan-1', confirmed_revision_id: 'plan-1',
-    source_state: 'current', revisions: [], ppt_assets: [],
+    lesson_unit_id: 'lesson-1', working_revision_id: 'plan-1',
+    source_state: 'current', current_revision: null, ppt_assets: [],
   },
 }
 
@@ -221,9 +221,9 @@ describe('统一讲义页面', () => {
   it('无讲稿时先映射教案教学块，核对后直接触发生成', async () => {
     const emptyLesson = structuredClone(lesson)
     emptyLesson.script = { ...emptyLesson.script, current_revision_id: '', ready: false, sections: [] }
-    emptyLesson.plan.revisions = [{
+    emptyLesson.plan.current_revision = {
       revision_id: 'plan-1', lesson_unit_id: 'lesson-1', source_outline_revision_id: 'outline-1',
-      generation_source: 'model', status: 'draft', warnings: [], actor: 'teacher', created_at: '',
+      generation_source: 'model', warnings: [], actor: 'teacher', created_at: '',
       plan: {
         sections: [{
           node_id: 'section-1',
@@ -233,7 +233,7 @@ describe('统一讲义页面', () => {
           }],
         }],
       },
-    }]
+    }
     const wrapper = mount(TeacherScriptDocument, {
       props: { courseId: 'course-1', lesson: emptyLesson, canGenerate: true },
     })
@@ -432,7 +432,7 @@ describe('统一讲义页面', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('教师编辑稿 · 当前讲义可用')
+    expect(wrapper.text()).toContain('教师编辑 · 当前讲义可用')
     expect(wrapper.text()).toContain('不是该次失败任务的输出')
     expect(wrapper.text()).not.toContain('讲稿生成失败')
     expect(wrapper.find('.script-footer').exists()).toBe(false)

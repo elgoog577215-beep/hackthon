@@ -1,7 +1,7 @@
 # learner-model-state Specification
 
 ## Purpose
-TBD - created by archiving change converge-learning-evidence-model-ai-teacher. Update Purpose after archive.
+定义学习者模型如何仅从可追溯正式事实确定性重算，并保持结论可解释、有时间边界且不反写原始证据。相同来源修订必须得到相同模型，旧自由画像不得成为隐藏真源。
 ## Requirements
 ### Requirement: 学习者模型必须由正式事实确定性重算
 

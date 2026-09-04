@@ -406,9 +406,7 @@ function tr(key: string): string {
   return t(key, fallbackMessages[key] || key)
 }
 
-const workingRevision = computed(() => props.lesson.plan.revisions.find(
-  item => item.revision_id === props.lesson.plan.working_revision_id,
-))
+const workingRevision = computed(() => props.lesson.plan.current_revision || undefined)
 const currentPlan = computed(() => draftPlan.value || pendingCandidate.value?.plan || workingRevision.value?.plan || {})
 const planSections = computed<any[]>(() => Array.isArray(currentPlan.value.sections) ? currentPlan.value.sections : [])
 const selectedSectionId = computed({
@@ -787,6 +785,7 @@ function cancelEditing() {
 
 async function saveDraft() {
   if (!draftPlan.value || saving.value) return
+  const expectedCurrentRevisionId = String(props.lesson.plan.working_revision_id || '')
   saving.value = true
   saveError.value = null
   try {
@@ -794,7 +793,12 @@ async function saveDraft() {
       ensureFormalObjectiveFields(section)
       section.learning_objective = [...section.knowledge_objectives, ...section.ability_objectives].join('；')
     }
-    await lessonStore.saveDraft(props.courseId, props.lesson.lesson_unit_id, draftPlan.value)
+    await lessonStore.saveDraft(
+      props.courseId,
+      props.lesson.lesson_unit_id,
+      draftPlan.value,
+      expectedCurrentRevisionId,
+    )
     draftPlan.value = null
     editing.value = false
     emit('saved')
@@ -808,18 +812,17 @@ async function saveDraft() {
 watch(() => [
   props.lesson.lesson_unit_id,
   props.lesson.plan.working_revision_id,
-  props.lesson.plan.ai_candidates,
+  props.lesson.plan.ai_candidate,
 ], () => {
   cancelEditing()
   aiError.value = null
   inlineCandidateInPlace.value = false
   inlineAiProgress.value = null
-  pendingCandidate.value = [...(props.lesson.plan.ai_candidates || [])]
-    .reverse()
-    .find(candidate => (
-      candidate.status === 'pending'
-      && candidate.base_revision_id === props.lesson.plan.working_revision_id
-    )) || null
+  const candidate = props.lesson.plan.ai_candidate
+  pendingCandidate.value = candidate?.status === 'pending'
+    && candidate.base_revision_id === props.lesson.plan.working_revision_id
+    ? candidate
+    : null
   selectedSectionId.value = String(
     pendingCandidate.value?.section_node_id
     || planSections.value[0]?.node_id

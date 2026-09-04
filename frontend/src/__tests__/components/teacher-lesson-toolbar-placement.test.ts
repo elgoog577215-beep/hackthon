@@ -15,8 +15,7 @@ describe('teacher lesson toolbar placement', () => {
     expect(toolbar).toBeGreaterThan(-1)
     expect(document).toBeGreaterThan(toolbar)
     expect(workbenchSource).not.toContain('class="lesson-section-tabs"')
-    expect(workbenchSource).toContain(':show-history="false"')
-    expect(workbenchSource).toContain(':show-status="false"')
+    expect(workbenchSource).not.toContain(':show-history=')
     expect(workbenchSource).not.toContain(':selection-ai-enabled="false"')
     expect(workbenchSource).toContain(':request-busy="aiCollaborationBusy"')
     const lessonToolbarStart = workbenchSource.indexOf('class="lesson-command-bar"')
@@ -35,6 +34,11 @@ describe('teacher lesson toolbar placement', () => {
   })
 
   it('keeps AI modification and candidate actions out of every document top bar', () => {
+    const lessonMarker = workbenchSource.indexOf("t('courseWorkbench.lessonDocument.actions'")
+    const lessonStart = workbenchSource.lastIndexOf('<TeacherDocumentCommandBar', lessonMarker)
+    const lessonEnd = workbenchSource.indexOf('</TeacherDocumentCommandBar>', lessonMarker)
+    const lessonToolbarSource = workbenchSource.slice(lessonStart, lessonEnd)
+
     const outlineMarker = workbenchSource.indexOf("t('courseWorkbench.outlineDocument.actions'")
     const outlineStart = workbenchSource.lastIndexOf('<TeacherDocumentCommandBar', outlineMarker)
     const outlineEnd = workbenchSource.indexOf('</TeacherDocumentCommandBar>', outlineMarker)
@@ -51,6 +55,8 @@ describe('teacher lesson toolbar placement', () => {
       expect(toolbarSource).not.toContain("aiCollaboration.iterateCandidate")
       expect(toolbarSource).not.toContain('resolveAiCandidate')
     }
+    expect(lessonToolbarSource).toContain(':show-status="false"')
+    expect(scriptToolbarSource).toContain(':show-status="false"')
     expect(workbenchSource).not.toContain('function openScriptInlineAi()')
     expect(workbenchSource).toContain('scriptToolbarVisible && !aiCandidatePending')
   })

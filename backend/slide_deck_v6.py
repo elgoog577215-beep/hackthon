@@ -7205,7 +7205,7 @@ def _compile_teacher_lesson_path_page(
 ) -> SlidePageV6:
     """Build one source-bound learning path when a lesson has one section.
 
-    A one-section lesson still needs an opening path.  Its confirmed script
+    A one-section lesson still needs an opening path. Its current script
     groups are the formal source for that path; deriving it here keeps the
     structural opening inside the existing V6 compilation chain instead of
     asking the story model to invent an extra page.
@@ -7236,7 +7236,7 @@ def _compile_teacher_lesson_path_page(
         raise V6BuildError(
             stage="source",
             code="lesson_path_source_binding_missing",
-            message="The lesson path requires confirmed script blocks",
+            message="The lesson path requires current usable script blocks",
         )
 
     grouped_blocks: list[list[CourseBlock]] = []
@@ -7294,7 +7294,7 @@ def _compile_teacher_lesson_path_page(
             raise V6BuildError(
                 stage="source",
                 code="lesson_path_title_missing",
-                message="A confirmed script group cannot be represented in the lesson path",
+                message="A current script group cannot be represented in the lesson path",
                 chapter_id=blocks[0].section_id,
             )
         entries.append({
@@ -8578,7 +8578,7 @@ def compile_slide_deck_v6_from_manuscript(
         raise V6BuildError(
             stage="manuscript",
             code="ppt_manuscript_source_revision_mismatch",
-            message="页面内容稿未绑定当前已确认讲义。",
+            message="页面内容稿未绑定当前可用讲义。",
         )
     if (
         manuscript.template_id != template.template_id

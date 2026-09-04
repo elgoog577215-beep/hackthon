@@ -1,7 +1,7 @@
 # representation-edit-roundtrip Specification
 
 ## Purpose
-TBD - created by archiving change build-same-source-teaching-representations. Update Purpose after archive.
+定义派生产物编辑怎样区分表现、等义与语义变化，并把需要回写的语义修改安全转成课程变化候选。表现修改可留在当前表示中，无法判断的变化必须等待用户决定并保留来源关系。
 ## Requirements
 ### Requirement: 表示编辑必须区分表现变化与语义变化
 

@@ -1,6 +1,6 @@
 """可直接讲授的教师讲义结构真源与确定性质量门。
 
-讲义不重新选择学科类型、课型或教学模板。它把已确认教案中的教学模块编译为
+讲义不重新选择学科类型、课型或教学模板。它把当前可用教案中的教学模块编译为
 教师站在讲台上可以自然说出的完整讲述：既讲清知识，也写出过渡、提问、活动指令、
 可能回应和反馈。机械舞台标签仍留在教案，真实教师语言进入讲义。
 """
@@ -171,7 +171,7 @@ def _has_unwrapped_display_math_environment(content: str) -> bool:
     by a bare ``\\begin{array}`` environment and a separate ``$$\\right]$$``.
     The learner renderer can repair some of those shapes, but PPT formula
     extraction cannot safely recover the omitted environment after the script
-    has been confirmed.  New model output is normalized before this predicate
+    becomes the current revision. New model output is normalized before this predicate
     runs; this guard primarily invalidates old checkpoints so the model block
     pipeline regenerates them through the same quality gate.
     """
@@ -409,11 +409,11 @@ def teacher_script_length_contract(
 
 def compile_teacher_script_module_contract(
     outline_section: dict[str, Any],
-    confirmed_plan_section: dict[str, Any],
+    current_plan_section: dict[str, Any],
 ) -> dict[str, Any]:
     """Compile the frozen plan modules into the script's exact block contract."""
     section_id = _text(
-        confirmed_plan_section.get("node_id") or outline_section.get("node_id")
+        current_plan_section.get("node_id") or outline_section.get("node_id")
     )
     frozen_modules = [
         item
@@ -425,10 +425,10 @@ def compile_teacher_script_module_contract(
     }
     plan_modules = [
         item
-        for item in confirmed_plan_section.get("teaching_modules") or []
+        for item in current_plan_section.get("teaching_modules") or []
         if isinstance(item, dict) and item.get("module_id")
     ]
-    # A confirmed mature plan owns the actual module order. The frozen outline
+    # The current structurally usable plan owns the actual module order. The frozen outline
     # contract enriches it with labels/roles; it never appends a second module list.
     source_modules = plan_modules or frozen_modules
     modules: list[dict[str, Any]] = []
@@ -493,7 +493,7 @@ def compile_teacher_script_module_contract(
             **length_contract,
         })
     archetype = deepcopy(
-        confirmed_plan_section.get("lesson_archetype")
+        current_plan_section.get("lesson_archetype")
         or outline_section.get("lesson_archetype")
         or {}
     )
@@ -508,19 +508,19 @@ def compile_teacher_script_module_contract(
         "section_node_id": section_id,
         "title": _text(
             outline_section.get("node_name")
-            or confirmed_plan_section.get("title")
+            or current_plan_section.get("title")
         ),
         "lesson_archetype": archetype,
         "learning_objective": _text(
-            confirmed_plan_section.get("learning_objective")
+            current_plan_section.get("learning_objective")
             or outline_section.get("learning_objective")
         ),
-        "key_points": _text_list(confirmed_plan_section.get("key_points")),
+        "key_points": _text_list(current_plan_section.get("key_points")),
         "key_difficulties": _text_list(
-            confirmed_plan_section.get("key_difficulties")
+            current_plan_section.get("key_difficulties")
         ),
         "in_class_checks": _text_list(
-            confirmed_plan_section.get("in_class_checks")
+            current_plan_section.get("in_class_checks")
         ),
         "modules": modules,
     }
@@ -865,14 +865,14 @@ def validate_teacher_script_section(
         add(
             blocking,
             "teacher_script:module_contract",
-            "讲义必须按已确认教案的模块顺序完整覆盖，不能另选通用模板。",
+            "讲义必须按当前可用教案的模块顺序完整覆盖，不能另选通用模板。",
         )
     expected_block_ids = [_text(item.get("block_id")) for item in expected]
     if expected_block_ids and block_ids != expected_block_ids:
         add(
             blocking,
             "teacher_script:block_contract",
-            "讲义块身份必须沿用已确认教案模块，不能重排或替换。",
+            "讲义块身份必须沿用当前可用教案模块，不能重排或替换。",
         )
     expected_titles = [_text(item.get("title")) for item in expected]
     actual_titles = [_text(item.get("title")) for item in blocks]
@@ -880,7 +880,7 @@ def validate_teacher_script_section(
         add(
             blocking,
             "teacher_script:module_heading",
-            "讲义块标题必须与已确认教学模块一致。",
+            "讲义块标题必须与当前教学模块一致。",
         )
     expected_roles = [_text(item.get("role")) for item in expected]
     actual_roles = [_text(item.get("role")) for item in blocks]
@@ -888,7 +888,7 @@ def validate_teacher_script_section(
         add(
             blocking,
             "teacher_script:role_contract",
-            "讲义块角色必须沿用已确认教学模块。",
+            "讲义块角色必须沿用当前教学模块。",
         )
     for index, block in enumerate(blocks):
         if index >= len(expected):

@@ -8,7 +8,7 @@
 
 ### Engineering — NEEDS FIX
 
-当前分支仍存在教师页直连共享 Store、教师 authoring 端点放在共享 `courses.py` 以及部分全局策略改动。WP9 必须先收窄这些边界再整合 `origin/main`；否则后续生成能力每次升级都会重新冲突。
+当前分支仍存在教师页直连共享 Store、教师课程编排端点放在共享 `courses.py` 以及部分全局策略改动。WP9 必须先收窄这些边界再整合 `origin/main`；否则后续生成能力每次升级都会重新冲突。
 
 ### QA — NEEDS FIX
 
@@ -24,7 +24,7 @@
 
 ### Backend — PASS
 
-保留 `GenerationJob / TaskManager / CourseDocument / TeachingPlanWorkbench / TeachingRepresentation` 为共享真源；新增 teacher authoring/orchestration 路由仅编排教师命令。该边界不增加网络跳数，也不引入第二存储引擎。
+保留 `GenerationJob / TaskManager / CourseDocument / CourseTeachingPlanV3 / TeachingRepresentation` 为共享能力；分讲资产继续由 `TeacherLessonAuthoringRepository` 持有，教师课程编排路由只转发命令和投影状态。该边界不增加网络跳数，也不引入第二存储引擎。
 
 ### Full-stack — PASS
 
@@ -46,7 +46,7 @@ WP9 已将所有权、冲突解决顺序、硬门和回滚条件写入唯一 `pl
 
 ## Product / CEO — PASS
 
-课程工作台 → 教师概览 → 大纲/日历/生产/文件/发布的层级已经与完整讨论对齐；生产按大纲、逐讲教案、按需 PPT 隔断，大纲确认后日历和教案并行。当前 change 交付真实生产与日历 alpha；浙江模板导入导出通过 follow-up change 完成产品 V1；文件桥接和学生端后置，范围可控且不混称完成。
+课程工作台 → 教师概览 → 大纲/日历/生产/文件/发布的层级已经与完整讨论对齐；生产按大纲、逐讲教案、按需 PPT 分段推进，当前大纲结构可用且来源未过期后，日历和教案即可并行。当前 change 交付真实生产与日历 alpha；浙江模板导入导出通过 follow-up change 完成产品 V1；文件桥接和学生端后置，范围可控且不混称完成。
 
 ## Engineering — QUESTION
 

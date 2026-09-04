@@ -1,15 +1,15 @@
 ## Context
 
-真实课程生产已经由 `courseStore`、`generationStore`、`CourseOutlineReview`、`GenerationLessonPlan`、`CourseGenerationGate`、`CourseTaskCenter` 和 `PptWorkspaceView` 承载。当前新增的 `TeacherCourseProductionView.vue` 已开始把这些能力放入教师壳，但路由、阶段归位、失败展示和 UI 规范尚未完整验证，教学日历则完全没有后端领域对象。
+真实课程生产已经由 `courseStore`、`generationStore`、`CourseOutlineReview`、`TeacherCourseWorkbench`、`TeacherLessonPlanDocument`、`CourseTaskCenter` 和 `PptWorkspaceView` 承载。当前教师课程空间已开始把这些能力放入统一教师壳，但路由、阶段归位、失败展示和 UI 规范尚未完整验证，教学日历则完全没有后端领域对象。
 
-教师的首要工作不是一次生成整门课，而是在真实授课周期中反复停靠、确认、恢复和发布。因此本轮以三个连续但可单独验收的交付面为边界：真实课程生产编排、单课程教学日历、教师教学总日历。模拟页 `/workspace-concept/teacher-course-v1` 只保留为视觉参考，不参与真实状态。
+教师的首要工作不是一次生成整门课，而是在真实授课周期中反复停靠、编辑和使用当前教学资产。因此本轮以三个连续但可单独验收的交付面为边界：真实课程生产编排、单课程教学日历、教师教学总日历。旧教师课程概念页已经退役，不再作为路由或流程参考。
 
 ## Goals / Non-Goals
 
 **Goals:**
 
 1. 课程库进入真实生产页后，所有状态来自现有 Store/API，刷新后不丢失，不使用模拟计时器。
-2. 大纲、教案、PPT 和发布被明确隔断；完成任一阶段可以离开，教师显式继续下一阶段。
+2. 大纲、教案、讲义和 PPT 被明确隔断；完成任一阶段可以离开，教师显式继续下一阶段。
 3. 课程日历使用稳定、可持久化的 `ClassSession`，一个教学单元可对应多个班组或重复场次。
 4. 总日历只聚合当前身份拥有的日历记录，不复制和反向同步第二份数据。
 5. UI 继承当前课程界面的蓝紫色、组件、按钮、字体、间距与反馈，满足高密度、强分类、少打扰、正文优先。
@@ -27,17 +27,17 @@
 
 ### 1. 生产页是现有领域状态的教师投影，不建立第二套引擎
 
-`TeacherCourseProductionView` 不再直接把学生页面编排当成教师工作流。所有教师页面经 `teacher-course` 运行时适配入口读取现有 `courseStore`、`generationStore`、目录、教案和 PPT 引擎；适配层负责把底层状态翻译成教师的 `outline / lesson-plan / ppt / release` 阶段与动作。
+教师课程空间不再直接把学生页面编排当成教师工作流。所有教师页面经 `teacher-course` 运行时适配入口读取现有 `courseStore`、`generationStore`、目录、分讲教案、讲义和 PPT 能力；适配层负责把底层状态翻译成教师的 `outline / lesson-plan / script / ppt` 阶段与动作。
 
 适配层不复制课程、任务或 PPT 状态，也不建第二套 Store；它只作为产品编排防腐层，集中处理命名、状态优先级、教师预览只读契约和底层接口变化。教师页面只保存当前阶段、当前讲次和临时展开状态。
 
 **拒绝方案：**复制 `LearningView` 的完整状态到新 Store，或使用本地数组模拟讲次进度。两者都会形成双真源。
 
-### 2. 隔断是显式确认门与可继续动作，不是把全部阶段锁成线性向导
+### 2. 隔断由当前修订、来源状态与可继续动作共同决定，不是人工确认状态机
 
-大纲未确认时教案和 PPT 显示来源阻断；大纲确认后，教学日历和分讲教案可以并行。教案按教学单元独立保存和确认；本讲教案确认后，由兼容适配层把教师确认版组织为现有 PPT 工作台可接受的作者态输入，继续复用原 PPT 构建、预览和导出接口。学生发布快照不是制作 PPT 的前置条件。教师可以只完成大纲或若干教案后离开。
+完整大纲尚未成为当前、结构可用且来源未过期的修订时，教案显示来源阻断；教案形成当前可用修订后可以继续生成讲义，讲义形成当前可用修订后可以继续制作 PPT。每讲教案直接保存为新的当前修订，不再设置“工作稿 → 已确认”状态；AI 候选仍需教师明确采用或放弃。教学日历在大纲可用后可与分讲备课并行。教师可以只完成大纲或若干讲次后离开，稍后沿持久任务继续。
 
-**拒绝方案：**保存即自动确认、确认教案即自动构建 PPT、一次按钮整课发布。
+**拒绝方案：**重新引入教案人工确认、保存教案即自动生成讲义或 PPT、一次按钮整课生成并发布。
 
 ### 3. `LessonUnit` 与 `ClassSession` 分层
 
@@ -96,9 +96,9 @@ ClassSessionV1
 
 组件与布局分开决策：按钮、Badge、表单、表格交互、Drawer、Dialog、Toast、Confirm、Lucide 图标及真实业务复合组件继承现有实现；页面网格、栏宽、间距与响应式根据当前任务重组。页面间距使用现有 `--space-*` 与 `--lz-*` token，不能因复用组件照搬学生页或模拟页的拥挤骨架，也不能因调整布局另造一套视觉组件。
 
-### 9. 模拟页的使用边界
+### 9. 视觉参考边界
 
-`/workspace-concept/teacher-course-v1` 只提供颜色、字体、按钮、边框、紧凑尺度和总体气质参考。信息架构、页面层级、生产流程与数据状态以本 design 和产品规划文档为准；不得为了“像模拟页”保留与方案冲突的双层导航、假进度或学生端流程。
+颜色、字体、按钮、边框、紧凑尺度和总体气质以当前真实课程工作区为准。信息架构、页面层级、生产流程与数据状态以本 design 和产品规划文档为准；不得保留双层导航、假进度或已经退役的教案确认与发布模拟流程。
 
 ### 10. 学生产品面和教师产品面独立，底层能力共享
 
@@ -119,7 +119,7 @@ Teacher surface
 
 原 `/course/:courseId` 继续回到学生学习现场，不再隐式跳到教师概览。教师预览学生版必须显式携带只读 preview 上下文，不创建学习记录、实践记录或 AI 会话。
 
-后端底层 `GenerationJob / TaskManager / CourseDocument / TeachingPlanWorkbench / TeachingRepresentation` 仍是共享真源。教师专属的“确认生成结果为教师工作稿”、“阶段状态投影”和“发布冻结”使用 teacher authoring/orchestration 路由，不把教师业务端点放进共享 `courses.py` 或学生 API 命名空间。
+后端底层 `GenerationJob / TaskManager / CourseDocument / CourseTeachingPlanV3 / TeachingRepresentation` 仍是共享能力；分讲教案、讲义、AI 候选和来源状态由 `TeacherLessonAuthoringRepository` 持有。教师课程的阶段状态投影和命令转发使用教师命名空间路由，不把教师业务端点放进共享 `courses.py` 或学生 API 命名空间，也不重新建立整课教案写状态。
 
 合并时的所有权规则固定为：
 
@@ -131,7 +131,7 @@ Teacher surface
 ## Risks / Trade-offs
 
 - **当前课程没有正式教师 ownership** → 日历按稳定身份隔离，同时在问题记录标记权限欠账；不以此扩大本轮到完整 RBAC。
-- **生成 preview 与 published 课程形态不同** → 生产页沿用 `loadCourse` 的 projection 门；PPT 作者态输入由兼容适配层从教师确认版建立，不把 preview 伪装成学生发布快照，也不改变现有 PPT 接口。
+- **生成 preview 与当前教师资产形态不同** → 生产页沿用 `loadCourse` 的 projection 门；PPT 只读取当前、结构可用且来源未过期的讲义，不把 preview 伪装成学生发布快照，也不改变现有 PPT 接口。
 - **大纲节点可能没有理想的讲次层级** → 派生算法使用叶子节点和顺序，并允许教师手工删除/新增；保留来源节点 ID 便于后续改进。
 - **JSON 文件并发** → `base_revision` + 原子写入，冲突明确返回 409；第一版单进程足够，横向扩展前必须换共享仓库。
 - **总日历事件过密** → 默认月视图只显示课程色点与短标题，悬停/点击再展示细节；周/列表承载时间和地点。
@@ -143,7 +143,7 @@ Teacher surface
 
 1. 先冻结学生/教师路由、状态与 API 契约，建立双端回归基线。
 2. 将教师课程库和六项课程工作台路由迁入 `/teacher` 命名空间，恢复学生课程库和旧课程入口。
-3. 用教师运行时适配入口承接现有 Store/引擎，将 teacher authoring API 从共享课程路由拆出。
+3. 用教师运行时适配入口承接共享 Store/引擎，将分讲资产命令统一接到 `teacher_lesson_authoring` 路由。
 4. 还原不必要的共享文件修改，然后将 `origin/main` 的最新生成能力接入适配层，禁止为了教师 UI 覆盖学生引擎策略。
 5. 在双端契约验证后，再对生产页、单课程日历和总日历做真实浏览器回归。
 6. 关闭 `/teacher` 路由即可回滚教师 UI；该回滚不改变学生路由、学习数据或日历 JSON。

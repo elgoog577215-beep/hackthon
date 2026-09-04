@@ -7,6 +7,7 @@ from assessment_generation_policy import (
     ASSESSMENT_GENERATION_POLICY_VERSION,
 )
 from jobs.manager import TaskManager
+from generation_workspace import GenerationWorkspaceRepository
 
 
 def test_legacy_release_history_moves_to_persistent_data(tmp_path, monkeypatch):
@@ -59,6 +60,79 @@ def test_task_manager_history_survives_restart(tmp_path, monkeypatch):
 
     assert restarted.tasks["job-1"]["status"] == "waiting_for_review"
     assert restarted.tasks["job-1"]["course_id"] == "course-1"
+
+
+def test_teacher_outline_restart_discards_legacy_guided_lifecycle(tmp_path, monkeypatch):
+    durable = tmp_path / "data" / "generation_jobs.json"
+    durable.parent.mkdir(parents=True)
+    durable.write_text(json.dumps({
+        "job-complete": {
+            "id": "job-complete",
+            "course_id": "course-complete",
+            "workspace_id": "job-complete",
+            "type": "teacher_outline_generation",
+            "status": "waiting_for_review",
+            "guided_workflow": {"review_step": "outline"},
+            "blueprint_confirmed": True,
+            "blueprint_revision_id": "outline-v1",
+        },
+        "job-framework": {
+            "id": "job-framework",
+            "course_id": "course-framework",
+            "workspace_id": "job-framework",
+            "type": "teacher_outline_generation",
+            "status": "waiting_for_review",
+            "guided_workflow": {"review_step": "outline"},
+        },
+    }), encoding="utf-8")
+    workspaces = GenerationWorkspaceRepository(tmp_path / "workspaces")
+    workspaces.create(
+        "job-complete",
+        course_id="course-complete",
+        course_data={
+            "outline_framework_only": False,
+            "generation_stage_artifacts": {
+                "outline": {
+                    "strategy": "teacher_framework_then_lecture_tasks",
+                    "status": "completed",
+                    "course_contract_status": "completed",
+                    "detail_batches": {"L1": {"status": "completed"}},
+                },
+            },
+            "nodes": [{"node_id": "L1", "node_name": "第一讲"}],
+        },
+    )
+    workspaces.create(
+        "job-framework",
+        course_id="course-framework",
+        course_data={
+            "outline_framework_only": True,
+            "nodes": [{"node_id": "L1", "node_name": "第一讲"}],
+        },
+    )
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", durable)
+
+    manager = TaskManager(
+        storage=None,
+        course_service=None,
+        ws_service=None,
+        workspace_repository=workspaces,
+    )
+
+    completed = manager.tasks["job-complete"]
+    assert completed["status"] == "completed"
+    assert completed["phase"] == "teacher_outline_ready"
+    assert completed["progress"] == 100
+    assert "guided_workflow" not in completed
+    assert "blueprint_confirmed" not in completed
+    assert "blueprint_revision_id" not in completed
+    framework = manager.tasks["job-framework"]
+    assert framework["status"] == "waiting_for_input"
+    assert framework["phase"] == "outline_framework_ready"
+    assert "guided_workflow" not in framework
+    persisted = json.loads(durable.read_text(encoding="utf-8"))
+    assert "guided_workflow" not in persisted["job-complete"]
+    assert "guided_workflow" not in persisted["job-framework"]
 
 
 @pytest.mark.asyncio

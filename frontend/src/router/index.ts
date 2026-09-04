@@ -43,18 +43,6 @@ const routes: Array<RouteRecordRaw> = [
     meta: { publicConcept: true, identityScope: 'learner' }
   },
   {
-    path: '/workspace-concept/modes',
-    name: 'workspace-mode-lab',
-    component: () => import('../views/WorkspaceModeLabView.vue'),
-    meta: { publicConcept: true, identityScope: 'learner' }
-  },
-  {
-    path: '/workspace-concept/teacher-course-v1',
-    name: 'teacher-course-production-concept',
-    component: () => import('../views/TeacherCourseProductionConceptView.vue'),
-    meta: { publicConcept: true, fullscreenConcept: true, identityScope: 'teacher' }
-  },
-  {
     path: '/course/:courseId',
     redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' } })
   },

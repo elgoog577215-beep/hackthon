@@ -597,15 +597,15 @@ describe('teacher course workbench outline streaming', () => {
       arrangement: {
         schema_version: 'teacher_lesson_arrangement_v1', revision_id: '', lesson_unit_id: 'L1-1',
         source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授',
-        status: 'suggested', confirmed: false, source_state: 'current', blocks: [{
+        source_state: 'current', blocks: [{
           block_id: 'block-1', module_id: 'core_explanation', section_node_id: 'L2-1-1',
           section_title: '基础概念', name: '概念讲解', role: 'concept', purpose: '建立概念',
           content_summary: '讲清概念边界', planned_minutes: 45, teacher_activity: '',
           student_activity: '', expected_output: '', required: true,
         }],
       },
-      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
-      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+      script: { current_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, sections: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', source_state: 'current', current_revision: null, ppt_assets: [] },
     }] as any
     const updateLessonType = vi.spyOn(lessonStore, 'updateLessonType').mockResolvedValue(lessonStore.lessons[0]!)
 
@@ -683,7 +683,7 @@ describe('teacher course workbench outline streaming', () => {
     task.phaseDetail = { artifact_type: 'course_outline_ready', refreshed_at: '2026-09-04T00:00:00Z' }
     useTeacherLessonAuthoringStore().lessons = [{
       lesson_unit_id: 'L1-1', number: 1, title: '第1讲 程序环境', duration_minutes: 45, sections: [],
-      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', source_state: 'current', current_revision: null, ppt_assets: [] },
     }] as any
     await flushPromises()
 
@@ -791,7 +791,7 @@ describe('teacher course workbench outline streaming', () => {
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
       title: '第一讲', duration_minutes: 45, sections: [],
-      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', source_state: 'current', current_revision: null, ppt_assets: [] },
     }] as any
     const task = useGenerationStore().createTask('job-1', 'course-1', 'C 语言程序设计')
     task.status = 'completed'
@@ -840,7 +840,7 @@ describe('teacher course workbench outline streaming', () => {
       lessonStore.lessons = [{
         lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
         title: '第一讲', duration_minutes: 45, sections: [],
-        plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+        plan: { lesson_unit_id: 'L1-1', working_revision_id: '', source_state: 'current', current_revision: null, ppt_assets: [] },
       }] as any
       return {} as any
     })
@@ -867,7 +867,7 @@ describe('teacher course workbench outline streaming', () => {
       arrangement: {
         schema_version: 'teacher_lesson_arrangement_v1', revision_id: '', lesson_unit_id: 'L1-1',
         source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授',
-        status: 'suggested', confirmed: false, source_state: 'current',
+        source_state: 'current',
         blocks: [{
           block_id: 'block-1', module_id: 'core_explanation', section_node_id: 'L2-1-1',
           section_title: '1.1 基础概念', name: '概念讲解', role: 'concept', purpose: '建立概念',
@@ -875,8 +875,8 @@ describe('teacher course workbench outline streaming', () => {
           teacher_activity: '', student_activity: '', expected_output: '', required: true,
         }],
       },
-      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
-      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+      script: { current_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, sections: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', source_state: 'current', current_revision: null, ppt_assets: [] },
     }] as any
     const generateAllLessons = vi.spyOn(lessonStore, 'generateAllLessons').mockResolvedValue({
       parent_job: { id: 'batch-1' }, jobs: [],
@@ -914,15 +914,15 @@ describe('teacher course workbench outline streaming', () => {
       arrangement: {
         schema_version: 'teacher_lesson_arrangement_v1', revision_id: '', lesson_unit_id: `L1-${number}`,
         source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授',
-        status: 'suggested', confirmed: false, source_state: 'current',
+        source_state: 'current',
         blocks: number === 1 ? [{ block_id: 'block-1', name: '概念讲解' }] : [],
       },
-      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
+      script: { current_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, sections: [] },
       plan: {
-        lesson_unit_id: `L1-${number}`, working_revision_id: '', confirmed_revision_id: '', source_state: 'current',
+        lesson_unit_id: `L1-${number}`, working_revision_id: '', source_state: 'current',
         ready: false, can_generate: number === 1,
         generation_unavailable_reason: number === 1 ? '' : 'lesson_arrangement:blocks_empty',
-        revisions: [], ppt_assets: [],
+        current_revision: null, ppt_assets: [],
       },
     })) as any
 
@@ -941,7 +941,7 @@ describe('teacher course workbench outline streaming', () => {
         schema_version: 'teacher_lesson_arrangement_v1', revision_id: 'arrangement-1', lesson_unit_id: 'L1-1',
         source_outline_revision_id: 'outline-1', lesson_type: 'theory_practice', lesson_type_label: '讲练结合',
         lesson_type_recommendation_reason: '需要把概念讲解和即时练习连续组织起来。',
-        status: 'confirmed', confirmed: true, source_state: 'current',
+        source_state: 'current',
         blocks: [{
           block_id: 'block-1', module_id: 'core_explanation', section_node_id: 'L2-1-1',
           section_title: '变化率', name: '建立概念', role: 'concept', purpose: '建立变化率概念',
@@ -949,13 +949,13 @@ describe('teacher course workbench outline streaming', () => {
           teacher_activity: '示范', student_activity: '解释', expected_output: '概念图', required: true,
         }],
       },
-      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
-      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+      script: { current_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, sections: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', source_state: 'current', current_revision: null, ppt_assets: [] },
     }, {
       lesson_unit_id: 'L1-2', source_outline_revision_id: 'outline-1', number: 2,
       title: '第二讲', duration_minutes: 45, sections: [],
-      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
-      plan: { lesson_unit_id: 'L1-2', working_revision_id: 'plan-2', confirmed_revision_id: '', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
+      script: { current_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, sections: [] },
+      plan: { lesson_unit_id: 'L1-2', working_revision_id: 'plan-2', source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
     }] as any
     const generateLesson = vi.spyOn(lessonStore, 'generateLesson').mockResolvedValue({ id: 'lesson-job-1' } as any)
     const generateAllLessons = vi.spyOn(lessonStore, 'generateAllLessons')
@@ -997,8 +997,8 @@ describe('teacher course workbench outline streaming', () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2, 3].map(number => ({
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45, sections: [],
-      script: { current_revision_id: 'script-1', confirmed_revision_id: 'script-1', source_lesson_plan_revision_id: 'plan-1', source_state: number === 2 ? 'stale' : 'current', ready: true, confirmed: true, confirmed_at: '', sections: [] },
-      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: 'plan-1', confirmed_revision_id: 'plan-1', source_state: number === 2 ? 'stale' : 'current', ready: number !== 2, revisions: [], ppt_assets: [{ source_state: 'current', ppt_manuscript_status: 'confirmed' }] },
+      script: { current_revision_id: 'script-1', source_lesson_plan_revision_id: 'plan-1', source_state: number === 2 ? 'stale' : 'current', ready: true, sections: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: 'plan-1', source_state: number === 2 ? 'stale' : 'current', ready: number !== 2, current_revision: null, ppt_assets: [{ source_state: 'current', ppt_manuscript_status: 'confirmed' }] },
     })) as any
     lessonStore.jobs = [{
       id: 'failed-job', course_id: 'course-1', lesson_unit_id: 'L1-3', type: 'teacher_lesson_plan_generation',
@@ -1021,8 +1021,7 @@ describe('teacher course workbench outline streaming', () => {
       plan: {
         lesson_unit_id: `L1-${number}`,
         working_revision_id: [3, 4, 5].includes(number) ? `plan-${number}` : '',
-        confirmed_revision_id: [4, 5].includes(number) ? `plan-${number}` : '',
-        source_state: number === 5 ? 'stale' : 'current', ready: [3, 4].includes(number), revisions: [], ppt_assets: [],
+        source_state: number === 5 ? 'stale' : 'current', ready: [3, 4].includes(number), current_revision: null, ppt_assets: [],
       },
     })) as any
     lessonStore.jobs = [{
@@ -1047,7 +1046,7 @@ describe('teacher course workbench outline streaming', () => {
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
       title: '第一讲', duration_minutes: 45, sections: [],
-      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', source_state: 'current', current_revision: null, ppt_assets: [] },
     }] as any
     lessonStore.jobs = [{
       id: 'lesson-job-1', course_id: 'course-1', lesson_unit_id: 'L1-1', type: 'teacher_lesson_plan_generation',
@@ -1074,7 +1073,7 @@ describe('teacher course workbench outline streaming', () => {
     lessonStore.lessons = [1, 2].map(number => ({
       lesson_unit_id: `L1-${number}`, source_outline_revision_id: 'outline-1', number,
       title: `第${number}讲`, duration_minutes: 45, sections: [],
-      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: '', source_state: 'current', current_revision: null, ppt_assets: [] },
     })) as any
     lessonStore.jobs = [
       {
@@ -1108,7 +1107,7 @@ describe('teacher course workbench outline streaming', () => {
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
       title: '第一讲', duration_minutes: 45, sections: [],
-      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', can_generate: true, revisions: [], ppt_assets: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', source_state: 'current', can_generate: true, current_revision: null, ppt_assets: [] },
     }] as any
     lessonStore.jobs = [{
       id: 'lesson-job-1', course_id: 'course-1', lesson_unit_id: 'L1-1', type: 'teacher_lesson_plan_generation',
@@ -1138,10 +1137,10 @@ describe('teacher course workbench outline streaming', () => {
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
       title: '第一讲', duration_minutes: 45, sections: [{ section_node_id: 'L2-1-1', title: '1.1 程序运行过程' }],
       plan: {
-        lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', confirmed_revision_id: '', source_state: 'current', ready: true, ppt_assets: [],
-        revisions: [{ revision_id: 'plan-1', lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', generation_source: 'model', status: 'draft', warnings: [], plan: { sections: [{ node_id: 'L2-1-1', key_points: ['编译', '运行'], teaching_modules: [{ module_id: 'core_explanation', planned_minutes: 15, teacher_activity: '演示源码如何编译运行', student_activity: '跟随完成首次运行' }] }] }, actor: 'teacher', created_at: '' }],
+        lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', source_state: 'current', ready: true, ppt_assets: [],
+        current_revision: { revision_id: 'plan-1', lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', generation_source: 'model', warnings: [], plan: { sections: [{ node_id: 'L2-1-1', key_points: ['编译', '运行'], teaching_modules: [{ module_id: 'core_explanation', planned_minutes: 15, teacher_activity: '演示源码如何编译运行', student_activity: '跟随完成首次运行' }] }] }, actor: 'teacher', created_at: '' },
       },
-      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
+      script: { current_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, sections: [] },
     }] as any
     const lessonWrapper = mountWorkbench({ initialStage: 'lesson' })
 
@@ -1163,6 +1162,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(pptWrapper.find('.lesson-toolbar-status').exists()).toBe(false)
     expect(pptWrapper.get('.context-pane-heading').text()).toContain('准备资料')
     expect(pptWrapper.get('.context-pane-heading').text()).toContain('待生成')
+    expect(pptWrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('未生成')
     expect(pptWrapper.get('.ppt-upload-secondary').attributes('disabled')).toBeUndefined()
     expect(pptWrapper.get('.ppt-generate-primary').attributes('disabled')).toBeDefined()
   })
@@ -1176,16 +1176,16 @@ describe('teacher course workbench outline streaming', () => {
       arrangement: {
         schema_version: 'teacher_lesson_arrangement_v1', revision_id: 'arrangement-1', lesson_unit_id: 'L1-1',
         source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授',
-        status: 'confirmed', confirmed: true, source_state: 'current', blocks: [],
+        source_state: 'current', blocks: [],
       },
       script: {
-        current_revision_id: 'script-1', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1',
-        source_state: 'current', ready: true, confirmed: false, confirmed_at: '',
+        current_revision_id: 'script-1', source_lesson_plan_revision_id: 'plan-1',
+        source_state: 'current', ready: true,
         sections: [{ section_node_id: 'L2-1-1', title: '1.1 程序运行过程', content: '讲稿正文' }],
       },
       plan: {
-        lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', confirmed_revision_id: 'plan-1', source_state: 'current', ready: true, ppt_assets: [],
-        revisions: [{ revision_id: 'plan-1', lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', generation_source: 'model', status: 'confirmed', warnings: [], plan: {}, actor: 'teacher', created_at: '' }],
+        lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', source_state: 'current', ready: true, ppt_assets: [],
+        current_revision: { revision_id: 'plan-1', lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', generation_source: 'model', warnings: [], plan: {}, actor: 'teacher', created_at: '' },
       },
     }] as any
     const wrapper = mountWorkbench({ initialStage: 'script' })
@@ -1196,6 +1196,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.lesson-toolbar-status').exists()).toBe(false)
     expect(wrapper.get('.context-pane-heading').text()).toContain('内容已就绪')
     expect(wrapper.get('.context-pane-heading').text()).toContain('已生成')
+    expect(wrapper.find('.teacher-document-command-bar__status').exists()).toBe(false)
     expect(wrapper.find('.lesson-document-toolbar .primary-action').exists()).toBe(false)
     expect(wrapper.get('.stage-rail button.active').text()).toContain('讲义')
   })
@@ -1208,16 +1209,16 @@ describe('teacher course workbench outline streaming', () => {
       arrangement: {
         schema_version: 'teacher_lesson_arrangement_v1', revision_id: `arrangement-${number}`, lesson_unit_id: `L1-${number}`,
         source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授',
-        status: 'confirmed', confirmed: true, source_state: 'current', blocks: [],
+        source_state: 'current', blocks: [],
       },
-      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: `plan-${number}`, source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
+      script: { current_revision_id: '', source_lesson_plan_revision_id: `plan-${number}`, source_state: 'current', ready: false, sections: [] },
       plan: {
-        lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, confirmed_revision_id: '', source_state: 'current', ready: true, ppt_assets: [],
-        revisions: [{
+        lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, source_state: 'current', ready: true, ppt_assets: [],
+        current_revision: {
           revision_id: `plan-${number}`, lesson_unit_id: `L1-${number}`, source_outline_revision_id: 'outline-1',
-          generation_source: 'model', status: 'draft', warnings: [], actor: 'teacher', created_at: '',
+          generation_source: 'model', warnings: [], actor: 'teacher', created_at: '',
           plan: { sections: [{ node_id: `L2-${number}-1`, teaching_modules: [{ module_id: 'core_explanation', label: '核心教学', planned_minutes: 20, teacher_activity: `讲清第${number}讲的核心概念` }] }] },
-        }],
+        },
       },
     })) as any
     const generateAll = vi.spyOn(lessonStore, 'generateAllScripts').mockResolvedValue({
@@ -1248,17 +1249,17 @@ describe('teacher course workbench outline streaming', () => {
       arrangement: {
         schema_version: 'teacher_lesson_arrangement_v1', revision_id: `arrangement-${number}`, lesson_unit_id: `L1-${number}`,
         source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授',
-        status: 'confirmed', confirmed: true, source_state: 'current', blocks: [],
+        source_state: 'current', blocks: [],
       },
       script: {
-        current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: number === 1 ? 'plan-1' : '',
+        current_revision_id: '', source_lesson_plan_revision_id: number === 1 ? 'plan-1' : '',
         source_state: 'current', ready: false, can_generate: number === 1,
         generation_unavailable_reason: number === 1 ? '' : 'revision_missing',
-        confirmed: false, confirmed_at: '', sections: [],
+        sections: [],
       },
       plan: {
-        lesson_unit_id: `L1-${number}`, working_revision_id: number === 1 ? 'plan-1' : '', confirmed_revision_id: '',
-        source_state: 'current', ready: number === 1, revisions: [], ppt_assets: [],
+        lesson_unit_id: `L1-${number}`, working_revision_id: number === 1 ? 'plan-1' : '',
+        source_state: 'current', ready: number === 1, current_revision: null, ppt_assets: [],
       },
     })) as any
     const generateAll = vi.spyOn(lessonStore, 'generateAllScripts').mockResolvedValue({
@@ -1285,10 +1286,10 @@ describe('teacher course workbench outline streaming', () => {
       lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
       arrangement: { source_state: 'current', blocks: [] },
       script: {
-        current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1',
-        source_state: 'current', ready: false, can_generate: true, confirmed: false, confirmed_at: '', sections: [],
+        current_revision_id: '', source_lesson_plan_revision_id: 'plan-1',
+        source_state: 'current', ready: false, can_generate: true, sections: [],
       },
-      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', confirmed_revision_id: '', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
     }] as any
     vi.spyOn(lessonStore, 'generateAllScripts').mockImplementation(async () => {
       lessonStore.error = '生成条件已变化，请重试。'
@@ -1309,10 +1310,10 @@ describe('teacher course workbench outline streaming', () => {
       lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
       arrangement: { source_state: 'current', blocks: [] },
       script: {
-        current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1',
-        source_state: 'current', ready: false, can_generate: true, confirmed: false, confirmed_at: '', sections: [],
+        current_revision_id: '', source_lesson_plan_revision_id: 'plan-1',
+        source_state: 'current', ready: false, can_generate: true, sections: [],
       },
-      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', confirmed_revision_id: '', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
     }] as any
     const generateAll = vi.spyOn(lessonStore, 'generateAllScripts')
     const wrapper = mountWorkbench({ initialStage: 'script' })
@@ -1334,10 +1335,10 @@ describe('teacher course workbench outline streaming', () => {
       lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
       arrangement: { source_state: 'current', blocks: [] },
       script: {
-        current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '',
-        source_state: 'current', ready: false, can_generate: false, confirmed: false, confirmed_at: '', sections: [],
+        current_revision_id: '', source_lesson_plan_revision_id: '',
+        source_state: 'current', ready: false, can_generate: false, sections: [],
       },
-      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', ready: false, revisions: [], ppt_assets: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', source_state: 'current', ready: false, current_revision: null, ppt_assets: [] },
     }] as any
     lessonStore.jobs = [{
       id: 'script-job-1', course_id: 'course-1', lesson_unit_id: 'L1-1', type: 'teacher_lesson_script_generation',
@@ -1355,12 +1356,12 @@ describe('teacher course workbench outline streaming', () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2].map(number => ({
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45, sections: [],
-      arrangement: { schema_version: 'teacher_lesson_arrangement_v1', revision_id: `arrangement-${number}`, lesson_unit_id: `L1-${number}`, source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授', status: 'confirmed', confirmed: true, source_state: 'current', blocks: [] },
-      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, confirmed_revision_id: '', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
+      arrangement: { schema_version: 'teacher_lesson_arrangement_v1', revision_id: `arrangement-${number}`, lesson_unit_id: `L1-${number}`, source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授', source_state: 'current', blocks: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
       script: {
         current_revision_id: number === 1 ? 'script-1' : 'legacy-fingerprint',
-        confirmed_revision_id: '', source_lesson_plan_revision_id: `plan-${number}`, source_state: 'current',
-        ready: number === 1, confirmed: false, confirmed_at: '', sections: [],
+        source_lesson_plan_revision_id: `plan-${number}`, source_state: 'current',
+        ready: number === 1, sections: [],
       },
     })) as any
 
@@ -1379,8 +1380,8 @@ describe('teacher course workbench outline streaming', () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2].map(number => ({
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45, sections: [],
-      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: `plan-${number}`, source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
-      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, confirmed_revision_id: '', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
+      script: { current_revision_id: '', source_lesson_plan_revision_id: `plan-${number}`, source_state: 'current', ready: false, sections: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
     })) as any
     lessonStore.jobs = [{
       id: 'script-job-1', course_id: 'course-1', lesson_unit_id: 'L1-1', type: 'teacher_lesson_script_generation',
@@ -1412,17 +1413,17 @@ describe('teacher course workbench outline streaming', () => {
       arrangement: {
         schema_version: 'teacher_lesson_arrangement_v1', revision_id: 'arrangement-1', lesson_unit_id: 'L1-1',
         source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授',
-        status: 'confirmed', confirmed: true, source_state: 'current', blocks: [],
+        source_state: 'current', blocks: [],
       },
       script: {
-        current_revision_id: 'script-old', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1',
-        source_state: 'current', ready: true, confirmed: false, confirmed_at: '', publication_eligible: false,
+        current_revision_id: 'script-old', source_lesson_plan_revision_id: 'plan-1',
+        source_state: 'current', ready: true, publication_eligible: false,
         quality_report: { blocking_issues: [{ code: 'quality_contract_stale', message: '旧质量规则' }] },
         sections: [{ section_node_id: 'L2-1-1', title: '1.1 程序运行过程', content: '旧讲稿正文' }],
       },
       plan: {
-        lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', confirmed_revision_id: 'plan-1', source_state: 'current', ready: true, ppt_assets: [],
-        revisions: [{ revision_id: 'plan-1', lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', generation_source: 'model', status: 'confirmed', warnings: [], plan: {}, actor: 'teacher', created_at: '' }],
+        lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', source_state: 'current', ready: true, ppt_assets: [],
+        current_revision: { revision_id: 'plan-1', lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', generation_source: 'model', warnings: [], plan: {}, actor: 'teacher', created_at: '' },
       },
     }] as any
 
@@ -1436,8 +1437,8 @@ describe('teacher course workbench outline streaming', () => {
     lessonStore.lessons = [1, 2].map(number => ({
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲 主题${number}`, duration_minutes: 45,
       sections: [1, 2].map(section => ({ section_node_id: `L2-${number}-${section}`, title: `${number}.${section} 小节${section}` })),
-      script: { current_revision_id: number === 1 ? 'script-1' : '', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1', source_state: 'current', ready: number === 1, confirmed: false, confirmed_at: '', sections: [] },
-      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, confirmed_revision_id: number === 2 ? 'plan-2' : '', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
+      script: { current_revision_id: number === 1 ? 'script-1' : '', source_lesson_plan_revision_id: 'plan-1', source_state: 'current', ready: number === 1, sections: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: number === 1 ? 'plan-1' : '', source_state: 'current', ready: number === 1, current_revision: null, ppt_assets: [] },
     })) as any
     for (const stage of ['lesson', 'script', 'ppt']) {
       const wrapper = mountWorkbench({ initialStage: stage })
@@ -1477,8 +1478,8 @@ describe('teacher course workbench outline streaming', () => {
     lessonStore.lessons = [1, 2].map(number => ({
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45,
       sections: [{ section_node_id: `L2-${number}-1`, title: `${number}.1 小节` }],
-      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
-      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: number === 1 ? 'plan-1' : '', confirmed_revision_id: '', source_state: 'current', ready: number === 1, revisions: [], ppt_assets: [] },
+      script: { current_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, sections: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: number === 1 ? 'plan-1' : '', source_state: 'current', ready: number === 1, current_revision: null, ppt_assets: [] },
     })) as any
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
     const firstReference = { package_id: 'package-1', asset_id: 'asset-1', material_asset_id: 'mat-1', filename: '第一讲.docx', relative_path: '', size_bytes: 100, role: 'primary' }
@@ -1512,15 +1513,15 @@ describe('teacher course workbench outline streaming', () => {
       arrangement: {
         schema_version: 'teacher_lesson_arrangement_v1', revision_id: 'arrangement-1', lesson_unit_id: 'L1-1',
         source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授',
-        status: 'confirmed', confirmed: true, source_state: 'current',
+        source_state: 'current',
         blocks: [{ block_id: 'block-1', module_id: 'core_explanation', section_node_id: 'L2-1-1', section_title: '基础概念', name: '概念讲解', role: 'concept', purpose: '建立概念', content_summary: '讲清边界', planned_minutes: 45, teacher_activity: '', student_activity: '', expected_output: '', required: true }],
       },
-      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
-      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+      script: { current_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, sections: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', source_state: 'current', current_revision: null, ppt_assets: [] },
     }, {
       lesson_unit_id: 'L1-2', source_outline_revision_id: 'outline-1', number: 2,
       title: '第二讲', duration_minutes: 45, sections: [],
-      plan: { lesson_unit_id: 'L1-2', working_revision_id: 'plan-2', confirmed_revision_id: '', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
+      plan: { lesson_unit_id: 'L1-2', working_revision_id: 'plan-2', source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
     }] as any
     const generateLesson = vi.spyOn(lessonStore, 'generateLesson')
     const lessonWrapper = mountWorkbench({ initialStage: 'lesson' })
@@ -1539,8 +1540,8 @@ describe('teacher course workbench outline streaming', () => {
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
       title: '第一讲', duration_minutes: 45, sections: [],
-      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', confirmed_revision_id: 'plan-1', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
-      script: { current_revision_id: 'script-1', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1', source_state: 'current', ready: true, confirmed: false, confirmed_at: '', sections: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
+      script: { current_revision_id: 'script-1', source_lesson_plan_revision_id: 'plan-1', source_state: 'current', ready: true, sections: [] },
     }] as any
     const routePush = vi.spyOn(router, 'push').mockResolvedValue(undefined as any)
     const pptWrapper = mountWorkbench({ initialStage: 'ppt' })
@@ -1559,8 +1560,8 @@ describe('teacher course workbench outline streaming', () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
-      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', confirmed_revision_id: 'plan-1', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
-      script: { current_revision_id: 'script-1', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1', source_state: 'current', ready: true, confirmed: false, confirmed_at: '', sections: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
+      script: { current_revision_id: 'script-1', source_lesson_plan_revision_id: 'plan-1', source_state: 'current', ready: true, sections: [] },
     }] as any
     const pptStore = useTeachingRepresentationsStore()
     pptStore.courseId = 'course-1'
@@ -1583,8 +1584,8 @@ describe('teacher course workbench outline streaming', () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
-      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', confirmed_revision_id: 'plan-1', source_state: 'current', ready: true, revisions: [], ppt_assets: [{ engine: 'slide_deck_v6', ready: true }] },
-      script: { current_revision_id: 'script-1', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1', source_state: 'current', ready: true, confirmed: false, confirmed_at: '', sections: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
+      script: { current_revision_id: 'script-1', source_lesson_plan_revision_id: 'plan-1', source_state: 'current', ready: true, sections: [] },
     }] as any
     const routePush = vi.spyOn(router, 'push').mockResolvedValue(undefined as any)
     const wrapper = mountWorkbench({ initialStage: 'ppt' })

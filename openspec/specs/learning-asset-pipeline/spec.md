@@ -1,7 +1,7 @@
 # learning-asset-pipeline Specification
 
 ## Purpose
-TBD - created by archiving change unify-course-blueprint-and-learning-assets. Update Purpose after archive.
+定义学习资产从课程蓝图计划、生成、质量检查到不可变修订和正式绑定的完整生产链。每项资产都必须说明范围、依赖、证据、生成方式和质量门，避免游离于课程目标之外。
 ## Requirements
 ### Requirement: 课程蓝图必须包含可执行学习资产计划
 

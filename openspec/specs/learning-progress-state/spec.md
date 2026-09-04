@@ -1,7 +1,7 @@
 # learning-progress-state Specification
 
 ## Purpose
-TBD - created by archiving change project-learning-objective-progress. Update Purpose after archive.
+定义学习目标、阅读进度、正式掌握证据和后续行动的分层状态，避免把阅读完成误报为已经掌握。目标和证据必须绑定不可变修订，来源变化后应重新判断有效性而不是沿用旧结论。
 ## Requirements
 ### Requirement: 学习目标必须拥有稳定身份和正式资产绑定
 

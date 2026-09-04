@@ -28,20 +28,6 @@
           ><Redo2 :size="16" /></button>
           <i aria-hidden="true" />
         </template>
-        <button
-          v-if="showHistory"
-          class="history-action"
-          type="button"
-          :class="{ active: historyOpen }"
-          :disabled="disabled"
-          title="历史版本"
-          aria-label="历史版本"
-          :aria-expanded="historyOpen"
-          @click="emit('history')"
-        >
-          <History :size="16" />
-          <small v-if="historyCount">{{ historyCount }}</small>
-        </button>
       </div>
       <div class="teacher-document-command-bar__actions lesson-toolbar-actions">
         <slot />
@@ -51,7 +37,7 @@
 </template>
 
 <script setup lang="ts">
-import { CircleAlert, CircleCheck, History, LoaderCircle, Redo2, Undo2 } from 'lucide-vue-next'
+import { CircleAlert, CircleCheck, LoaderCircle, Redo2, Undo2 } from 'lucide-vue-next'
 
 withDefaults(defineProps<{
   label: string
@@ -59,9 +45,6 @@ withDefaults(defineProps<{
   canUndo?: boolean
   canRedo?: boolean
   disabled?: boolean
-  historyOpen?: boolean
-  historyCount?: number
-  showHistory?: boolean
   showStatus?: boolean
   statusLabel?: string
   statusTone?: 'normal' | 'busy' | 'warning'
@@ -70,9 +53,6 @@ withDefaults(defineProps<{
   canUndo: false,
   canRedo: false,
   disabled: false,
-  historyOpen: false,
-  historyCount: 0,
-  showHistory: true,
   showStatus: true,
   statusLabel: '已保存',
   statusTone: 'normal',
@@ -81,7 +61,6 @@ withDefaults(defineProps<{
 const emit = defineEmits<{
   (event: 'undo'): void
   (event: 'redo'): void
-  (event: 'history'): void
 }>()
 </script>
 
@@ -94,9 +73,7 @@ const emit = defineEmits<{
 .teacher-document-command-bar button:hover:not(:disabled),.teacher-document-command-bar button.active{color:#3730a3;background:#f1f2f8}
 .teacher-document-command-bar button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .teacher-document-command-bar button:disabled{opacity:.38;cursor:not-allowed}
-.teacher-document-command-bar button small{position:absolute;top:0;right:0;min-width:16px;padding:0 4px;border-radius:999px;color:#4338ca;background:#e9e9ff;font-size:15px;line-height:16px}
 .teacher-document-command-bar__editing>i{width:1px;height:20px;margin:0 2px;background:#e1e5ec}
-.teacher-document-command-bar .history-action{position:relative;width:34px;padding:0}
 .teacher-document-command-bar__status{display:inline-flex;align-items:center;gap:5px;color:#687386;font-size:15px;white-space:nowrap}
 .teacher-document-command-bar__status svg{color:#159174}
 .teacher-document-command-bar__status[data-tone="warning"]{color:#a15c13}

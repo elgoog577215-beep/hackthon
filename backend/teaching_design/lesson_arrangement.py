@@ -262,8 +262,6 @@ def recommend_lesson_arrangement(
             "lesson_type": "theory",
             "lesson_type_label": LESSON_TYPES["theory"]["label"],
             "blocks": [],
-            "status": "suggested",
-            "confirmed": False,
             "source_state": "current",
         }
 
@@ -370,8 +368,6 @@ def recommend_lesson_arrangement(
         "course_teaching_type": course_teaching_type,
         "lesson_phase": phase,
         "blocks": raw_blocks,
-        "status": "suggested",
-        "confirmed": False,
         "source_state": "current",
     }
 

@@ -1,7 +1,7 @@
 # representation-derivation-state Specification
 
 ## Purpose
-TBD - created by archiving change build-same-source-teaching-representations. Update Purpose after archive.
+定义正式课程变化如何通过可重放事件精确传播到教案、讲义、PPT 等派生产物，并可靠标记来源过期。传播必须幂等、可重试且跨课程隔离，派生失败不能吞掉课程已提交的事实。
 ## Requirements
 ### Requirement: 每次正式课程变化必须产生可重放修订事件
 
