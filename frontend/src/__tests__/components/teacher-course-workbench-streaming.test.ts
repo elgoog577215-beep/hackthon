@@ -1412,9 +1412,12 @@ describe('teacher course workbench outline streaming', () => {
       const chapterButtons = outline.findAll('.lesson-outline-chapter-button')
 
       expect(chapterButtons).toHaveLength(2)
-      expect(chapterButtons.every(button => button.find('strong').exists() && button.find('small').exists())).toBe(true)
+      expect(chapterButtons.every(button => button.find('strong').exists())).toBe(true)
       expect(chapterButtons[0]!.find('strong').text()).toContain('第1讲')
-      expect(chapterButtons.every(button => Boolean(button.find('small').text()))).toBe(true)
+      chapterButtons.forEach(button => {
+        const state = button.find('.lesson-outline-status').attributes('data-state')
+        expect(button.find('small').exists()).toBe(state !== 'ready')
+      })
       expect(wrapper.find('.lesson-title-trigger').exists()).toBe(false)
       expect(wrapper.find('.lesson-outline-popover').exists()).toBe(false)
       expect(wrapper.find('.lesson-outline-sections').exists()).toBe(false)

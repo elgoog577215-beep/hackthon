@@ -14,6 +14,10 @@ function selectionFixture(text: string) {
     x: 100, y: 100, left: 100, top: 100, right: 740, bottom: 500, width: 640, height: 400,
     toJSON: () => ({}),
   })
+  paragraph.getBoundingClientRect = () => ({
+    x: 180, y: 220, left: 180, top: 220, right: 620, bottom: 280, width: 440, height: 60,
+    toJSON: () => ({}),
+  })
   const range = {
     startContainer: paragraph.firstChild,
     endContainer: paragraph.firstChild,
@@ -49,6 +53,8 @@ describe('文中选区 AI 快捷操作', () => {
     await nextTick()
 
     expect(wrapper.get('button').text()).toContain('AI 修改')
+    expect(wrapper.get('.text-selection-ai').attributes('style')).toContain('left: 624px')
+    expect(wrapper.get('.text-selection-ai').attributes('style')).toContain('top: 124px')
     await wrapper.get('button').trigger('click')
     expect(host.querySelector('blockquote')?.textContent).toContain('理解函数模型并确定定义域')
     const textarea = host.querySelector('textarea') as HTMLTextAreaElement

@@ -384,7 +384,7 @@
               >
                 <span class="lesson-outline-chapter-copy">
                   <strong><MathText :content="lessonDisplayTitle(lesson, index)" /></strong>
-                  <small :data-state="lessonGenerationState(lesson)">{{ lessonGenerationStateLabel(lesson) }}</small>
+                  <small v-if="lessonGenerationState(lesson) !== 'ready'" :data-state="lessonGenerationState(lesson)">{{ lessonGenerationStateLabel(lesson) }}</small>
                 </span>
                 <span
                   class="lesson-outline-status"
@@ -3675,7 +3675,7 @@ onBeforeUnmount(() => {
 .context-pane-tabs button:focus-visible{z-index:1;outline:2px solid #6366f1;outline-offset:-3px}
 .context-pane-tabs button:disabled{color:#adb5c2;cursor:not-allowed}
 .context-pane-tabs small{min-width:18px;height:18px;display:grid;place-items:center;border-radius:9px;color:#6965a9;background:#f0f0fb;font-size:14px}
-.outline-quality-review-entry{padding:10px 14px;border-bottom:1px solid #e7ebf2;background:#fff}
+.outline-quality-review-entry{padding:10px 14px;background:transparent}
 .outline-quality-review-entry__button{min-height:36px;display:inline-flex;align-items:center;gap:7px;padding:0 10px;border:1px solid #dfe3eb;border-radius:8px;color:#687386;background:#fff;font-size:14px;font-weight:700;cursor:pointer}
 .outline-quality-review-entry__button:hover{border-color:#c9c6ef;color:#45419b;background:#fafaff}
 .outline-quality-review-entry__button:focus-visible{outline:2px solid #6366f1;outline-offset:2px}
@@ -3739,7 +3739,7 @@ onBeforeUnmount(() => {
 .lesson-switch-actions--standalone{width:max-content;margin:0 0 12px auto}
 .lesson-action-divider{width:1px;height:20px;margin:0 2px;background:#e1e5ec}
 .workbench-center.is-lesson-workspace .lesson-section-tabs{border:1px solid #e0e4ea;border-bottom-color:#e7ebf2;border-radius:12px 12px 0 0;background:#fff}
-.workbench-center.is-lesson-workspace :deep(.lesson-document){overflow:hidden;border:1px solid #e0e4ea;border-top:0;border-radius:0 0 12px 12px;background:#fff}
+.workbench-center.is-lesson-workspace :deep(.lesson-document){overflow:hidden;border:1px solid #e0e4ea;border-radius:12px;background:#fff;box-shadow:0 1px 2px rgba(30,41,59,.035)}
 .workbench-center.is-lesson-workspace :deep(.script-document){overflow:hidden;border:1px solid #e0e4ea;border-radius:12px;background:#fff}
 @media(max-width:900px){.lesson-heading-cluster{gap:5px}.lesson-type-context{display:none}.lesson-switch-actions button{width:34px;padding:0;justify-content:center;font-size:0}}
 
@@ -3756,19 +3756,19 @@ onBeforeUnmount(() => {
 .outline-flow-steps button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .outline-flow-steps button:disabled{opacity:.48;cursor:not-allowed}
 
-/* The lesson rail is structural navigation: flush between the stage rail and the document. */
-.workbench-center.is-lesson-workspace:has(.lesson-stage.has-lesson-outline){overflow:hidden;padding:0}
+/* The lesson rail and document are separate white content layers on the quiet workspace surface. */
+.workbench-center.is-lesson-workspace:has(.lesson-stage.has-lesson-outline){overflow:hidden;padding:0;background:#f5f6f8}
 .workbench-center.is-lesson-workspace .lesson-stage.has-lesson-outline{width:100%;height:100%;max-width:none;margin:0}
-.has-lesson-outline .lesson-workspace{width:100%;height:100%;min-height:0;display:grid;grid-template-columns:230px minmax(0,1fr);gap:0;align-items:stretch}
-.workbench-center.is-lesson-workspace .has-lesson-outline .lesson-stage-content{min-height:0;overflow:auto;padding:24px 26px 52px}
-.lesson-outline--fixed{position:static;min-width:0;height:100%;max-height:none;align-self:stretch;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);overflow:hidden;border:0;border-right:1px solid #e0e6ef;border-radius:0;background:#fbfcfe;box-shadow:none}
+.has-lesson-outline .lesson-workspace{width:100%;height:100%;min-height:0;box-sizing:border-box;display:grid;grid-template-columns:224px minmax(0,1fr);gap:16px;align-items:stretch;padding:16px}
+.workbench-center.is-lesson-workspace .has-lesson-outline .lesson-stage-content{min-height:0;overflow:auto;padding:0 2px 44px 0}
+.lesson-outline--fixed{position:static;min-width:0;height:100%;max-height:none;align-self:stretch;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);overflow:hidden;border:1px solid #e0e4ea;border-radius:12px;background:#fff;box-shadow:0 1px 2px rgba(30,41,59,.035)}
 .lesson-outline--fixed>header,.lesson-outline--fixed>nav{grid-column:1}
-.lesson-outline--fixed>header{min-height:52px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 13px;border-bottom:1px solid #e7ebf2}
+.lesson-outline--fixed>header{min-height:52px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 13px;border-bottom:1px solid #eceff3;background:#fff}
 .lesson-outline--fixed>header strong{color:#2f3a4f;font-size:15px;font-weight:760}
 .lesson-outline--fixed>header small{color:#748195;font-size:14px;font-weight:650}
-.lesson-outline--fixed>nav{position:static;min-height:0;max-height:none;overflow:auto;padding:6px;background:#fbfcfe}
+.lesson-outline--fixed>nav{position:static;min-height:0;max-height:none;overflow:auto;padding:6px;background:#fff}
 .lesson-outline--fixed>nav::before{display:none}
-.lesson-outline--fixed .lesson-outline-chapter-button{min-height:62px;display:grid;grid-template-columns:minmax(0,1fr) 20px;align-items:center;gap:8px;padding:8px 8px 8px 10px;border-radius:8px}
+.lesson-outline--fixed .lesson-outline-chapter-button{min-height:50px;display:grid;grid-template-columns:minmax(0,1fr) 20px;align-items:center;gap:8px;padding:7px 8px 7px 10px;border-radius:8px}
 .lesson-outline--fixed .lesson-outline-chapter-copy{min-width:0;display:grid;gap:4px}
 .lesson-outline--fixed .lesson-outline-chapter-copy strong{overflow:hidden;color:#435066;font-size:14px;font-weight:700;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
 .lesson-outline--fixed .lesson-outline-chapter-copy small{color:#7b8798;font-size:14px;line-height:1.25}
@@ -3777,7 +3777,8 @@ onBeforeUnmount(() => {
 .lesson-outline--fixed .lesson-outline-status[data-state="generating"]{color:#5b57e8}
 .lesson-outline--fixed .lesson-outline-status[data-state="ready"]{color:#168044}
 .lesson-outline--fixed .lesson-outline-status[data-state="stale"],.lesson-outline--fixed .lesson-outline-status[data-state="failed"]{color:#b9404e}
-.lesson-outline--fixed .lesson-outline-chapter-button.active{background:#eef0ff}
+.lesson-outline--fixed .lesson-outline-chapter-button:hover:not(:disabled){background:#f7f8fa}
+.lesson-outline--fixed .lesson-outline-chapter-button.active{background:#f1f1fb}
 .lesson-outline--fixed .lesson-outline-chapter-button.active strong{color:#312e81}
 .lesson-outline--fixed .lesson-outline-chapter-button.active small{color:#625dd7}
 .lesson-current-title{min-width:0;display:flex;align-items:baseline;gap:9px}
@@ -3806,7 +3807,7 @@ onBeforeUnmount(() => {
 .lesson-course-preview>article li{display:grid;grid-template-columns:minmax(110px,.35fr) minmax(0,1fr);gap:12px;color:#596579;font-size:15px;line-height:1.55}
 .lesson-course-preview>article li strong{color:#364156;font-weight:700}
 .lesson-course-preview__pending{color:#7b8798!important}
-@media(max-width:1320px){.has-lesson-outline .lesson-workspace{grid-template-columns:220px minmax(0,1fr);gap:0}}
+@media(max-width:1320px){.has-lesson-outline .lesson-workspace{grid-template-columns:212px minmax(0,1fr);gap:14px;padding:14px}}
 @media(prefers-reduced-motion:reduce){.outline-flow-steps button,.lesson-outline--fixed .lesson-outline-chapter-button{transition:none}}
 
 /* The right side is contextual evidence for the selected asset, not a permanent assistant destination. */

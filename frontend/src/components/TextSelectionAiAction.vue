@@ -222,18 +222,14 @@ function positionForRect(
   if (!container) return;
   anchorRect.value = rect;
   const containerRect = container.getBoundingClientRect();
-  const panelWidth = composerOpen.value ? 360 : 92;
-  const desiredX = rect.right - containerRect.left + container.scrollLeft + 12;
+  const edgeInset = 16;
   anchor.x = Math.max(
-    panelWidth / 2 + 8,
-    Math.min(container.clientWidth - panelWidth / 2 - 8, desiredX),
+    edgeInset,
+    container.scrollLeft + container.clientWidth - edgeInset,
   );
   anchor.y = Math.max(
-    24,
-    rect.top -
-      containerRect.top +
-      container.scrollTop +
-      Math.min(rect.height / 2, 28),
+    8,
+    rect.top - containerRect.top + container.scrollTop + 4,
   );
   anchor.source = source;
 }
@@ -454,7 +450,7 @@ defineExpose({ openForDocument, closeComposer });
 .text-selection-ai {
   position: absolute;
   z-index: 30;
-  transform: translate(-50%, -50%);
+  transform: translate(-100%, 0);
   pointer-events: auto;
 }
 .text-selection-ai__trigger {
