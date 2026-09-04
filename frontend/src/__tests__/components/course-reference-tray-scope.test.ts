@@ -453,7 +453,7 @@ describe('CourseReferenceTray lesson scope', () => {
     expect(wrapper.find('.system-context').exists()).toBe(false)
     expect(wrapper.get('.source-group--primary').text()).toContain('第二讲主教材.docx')
     expect(wrapper.get('.source-group--references').text()).toContain('第二讲练习.pdf')
-    expect(wrapper.get('.source-group--web .source-empty').text()).toContain('未使用来源')
+    expect(wrapper.find('.source-group--web').exists()).toBe(false)
     expect(wrapper.find('button').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('调整资料')
     expect(wrapper.text()).not.toContain('资料使用范围')

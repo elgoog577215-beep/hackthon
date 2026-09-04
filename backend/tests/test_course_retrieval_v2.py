@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from content_blocks import set_node_content_blocks
 from course_retrieval import (
     build_course_retrieval_queries,
     build_course_source_context,
@@ -214,7 +213,7 @@ def test_outline_research_proposal_accepts_source_backed_no_change_result():
     assert proposal["reason"] == "The sources support the existing course sequence."
 
 
-def test_confirmed_sources_get_stable_inline_citations_and_block_metadata():
+def test_confirmed_web_sources_are_ignored_while_feature_is_frozen():
     package = _package()
     course = {
         "retrieval_package": package,
@@ -222,20 +221,6 @@ def test_confirmed_sources_get_stable_inline_citations_and_block_metadata():
     }
     context, citation_map, source_cards = build_course_source_context(course)
 
-    assert "〔S1〕" in context
-    assert "〔S2〕" in context
-    assert citation_map == {"S1": "src_a", "S2": "src_b"}
-    assert [item["source_id"] for item in source_cards] == ["src_a", "src_b"]
-
-    node = {
-        "node_id": "section-1",
-        "node_name": "Eigenvalues",
-        "citation_map": citation_map,
-        "source_cards": source_cards,
-    }
-    blocks = set_node_content_blocks(
-        node,
-        "## Concept\n\nDiagonalization follows eigenvectors.〔S2〕",
-    )
-    assert blocks[0]["metadata"]["citations"] == {"S2": "src_b"}
-    assert blocks[0]["metadata"]["source_ids"] == ["src_b"]
+    assert context == ""
+    assert citation_map == {}
+    assert source_cards == []

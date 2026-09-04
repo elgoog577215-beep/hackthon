@@ -7,6 +7,12 @@ from typing import Any
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 
+from course_web_research_policy import (
+    COURSE_WEB_RESEARCH_ENABLED,
+    historical_web_course_asset_ids,
+)
+from course_repository import CourseDocumentNotFound
+from dependencies import get_course_document_repository
 from material_parser import parse_material_asset
 from material_storage import MaterialStorageError, material_repository
 from teacher_course_space import (
@@ -137,6 +143,14 @@ def list_materials(
     owner_id = _optional_owner(x_user_id)
     if not owner_id:
         return {"assets": [], "owner_scoped": False}
+    hidden_course_asset_ids: set[str] = set()
+    if course_id and not COURSE_WEB_RESEARCH_ENABLED:
+        try:
+            hidden_course_asset_ids = historical_web_course_asset_ids(
+                get_course_document_repository().load_raw(course_id)
+            )
+        except (CourseDocumentNotFound, FileNotFoundError, OSError, ValueError):
+            hidden_course_asset_ids = set()
     assets: list[dict[str, Any]] = []
     summaries = teacher_course_space_repository.list_owned(owner_id, course_id)
     generation_source_snapshots: dict[str, dict[str, Any]] = {}
@@ -155,9 +169,17 @@ def list_materials(
             generation_source_snapshots[str(target_id)] = {
                 **snapshot,
                 "package_id": package_id,
+                "sources": [
+                    source
+                    for source in snapshot.get("sources") or []
+                    if str(source.get("source_asset_id") or "")
+                    not in hidden_course_asset_ids
+                ],
             }
         for item in package.get("assets") or []:
             if not item.get("material_asset_id"):
+                continue
+            if str(item.get("asset_id") or "") in hidden_course_asset_ids:
                 continue
             material_asset_id = str(item.get("material_asset_id") or "")
             material = material_repository.get_asset(material_asset_id)

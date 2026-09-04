@@ -169,6 +169,12 @@ from course_generation.relation_validation import (
 )
 from course_quality import evaluate_node_content, validate_blueprint
 from course_retrieval import build_course_source_context
+from course_web_research_policy import (
+    COURSE_WEB_RESEARCH_ENABLED,
+    course_generation_view,
+    frozen_web_search_report,
+    without_course_web_sources,
+)
 from teaching_design import (
     compile_overall_teaching_guidance,
     format_generation_teaching_guidance,
@@ -469,6 +475,9 @@ class CourseService(AIBase):
         on_phase: Callable[..., Awaitable[None] | None] | None,
     ) -> dict[str, Any]:
         """经团队检索网关取回联网资料；任何失败都降级为不联网，不阻断生成。"""
+        if not COURSE_WEB_RESEARCH_ENABLED:
+            return frozen_web_search_report()
+
         from web_material_search import discover_web_materials, ui_source_summaries
         from web_retrieval import resolve_retrieval_policy
 
@@ -622,8 +631,9 @@ class CourseService(AIBase):
         if isinstance(teacher_course_brief, dict) and teacher_course_brief.get("target_audience"):
             target_audience = str(teacher_course_brief["target_audience"])
         audience = self._parse_audience(target_audience)
-        material_inputs = materials or []
-        existing = existing_course_data or {}
+        material_inputs = without_course_web_sources(materials)
+        material_bindings = without_course_web_sources(material_bindings)
+        existing = course_generation_view(existing_course_data or {})
         composition_profile = compile_composition_profile(
             composition_style,
             legacy_style=style,

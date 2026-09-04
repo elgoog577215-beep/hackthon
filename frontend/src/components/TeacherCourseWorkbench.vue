@@ -1320,10 +1320,13 @@ const activeReferences = computed({
   get: () => referencesByScope[activeReferenceScope.value] || [],
   set: value => { referencesByScope[activeReferenceScope.value] = value },
 })
+const activeCourseReferences = computed(() => (
+  activeReferences.value.filter(item => item.origin !== 'web_search')
+))
 const questionBankReferences = ref<CourseReferenceItem[]>([])
 const aiActiveReferences = computed(() => aiDomain.value === 'question-bank'
   ? questionBankReferences.value
-  : activeReferences.value)
+  : activeCourseReferences.value)
 const activeReferenceLessonId = computed(() => ['lesson', 'script', 'ppt'].includes(activeStage.value) ? selectedLessonId.value : '')
 const foundation = reactive({
   goal: '',
@@ -2158,29 +2161,29 @@ const referenceWorkflowState = computed<CourseReferenceWorkflowState>(() => {
     if (taskPaused.value) return 'paused'
     if (generationFailed.value) return 'failed'
     if (hasOutline.value) return 'review'
-    return activeReferences.value.length ? 'ready' : 'collecting'
+    return activeCourseReferences.value.length ? 'ready' : 'collecting'
   }
   if (activeStage.value === 'lesson') {
     if (batchRunning.value || batchStarting.value || lessonGenerationActive.value) return 'generating'
     if (batchPaused.value || lessonJob.value?.status === 'paused') return 'paused'
     if ((batchRecoveryAvailable.value && batchEligibleCount.value) || lessonGenerationRequestError.value) return batchPaused.value ? 'paused' : 'failed'
     if (currentLessonPlanReady.value) return 'review'
-    return activeReferences.value.length ? 'ready' : 'collecting'
+    return activeCourseReferences.value.length ? 'ready' : 'collecting'
   }
   if (activeStage.value === 'script') {
     if (scriptBatchRunning.value || scriptBatchStarting.value || scriptGenerationBusy.value) return 'generating'
     if (scriptBatchPaused.value || scriptJob.value?.status === 'paused') return 'paused'
     if (scriptBatchRecoveryAvailable.value || ['failed', 'cancelled'].includes(String(scriptJob.value?.status || '')) || scriptBatchStartError.value || effectiveScriptGenerationError.value) return 'failed'
     if (currentScriptReady.value) return 'review'
-    return activeReferences.value.length ? 'ready' : 'collecting'
+    return activeCourseReferences.value.length ? 'ready' : 'collecting'
   }
   if (activeStage.value === 'ppt') {
     if (pptBuildMatchesSelection.value && teachingRepresentationsStore.building) return 'generating'
     if (pptBuildMatchesSelection.value && teachingRepresentationsStore.buildPaused) return 'paused'
     if (pptBuildMatchesSelection.value && (teachingRepresentationsStore.buildFailure || teachingRepresentationsStore.buildError)) return 'failed'
-    return currentPptAsset.value ? 'review' : activeReferences.value.length ? 'ready' : 'collecting'
+    return currentPptAsset.value ? 'review' : activeCourseReferences.value.length ? 'ready' : 'collecting'
   }
-  return activeReferences.value.length ? 'ready' : 'collecting'
+  return activeCourseReferences.value.length ? 'ready' : 'collecting'
 })
 const referenceWorkflowDetail = computed(() => {
   if (referenceWorkflowState.value === 'generating') {
@@ -2446,7 +2449,7 @@ async function regenerateReferenceWorkflow() {
   if (activeStage.value === 'ppt') return openPptWorkspace(true)
 }
 function openRegenerationPreparation() {
-  regenerationReferences.value = activeReferences.value.map(item => ({ ...item }))
+  regenerationReferences.value = activeCourseReferences.value.map(item => ({ ...item }))
   regenerationSourceState.busy = false
   regenerationSourceState.blocked = false
   regenerationSourceState.reason = ''
@@ -2462,7 +2465,9 @@ function resetRegenerationPreparation() {
 async function confirmRegeneration() {
   if (regenerationConfirmDisabled.value) return
   regenerationStarting.value = true
-  activeReferences.value = regenerationReferences.value.map(item => ({ ...item }))
+  activeReferences.value = regenerationReferences.value
+    .filter(item => item.origin !== 'web_search')
+    .map(item => ({ ...item }))
   regenerationDialogOpen.value = false
   try {
     await regenerateReferenceWorkflow()
@@ -3028,12 +3033,12 @@ function selectLearningPurpose(value: LearningPurpose) {
     foundation.courseTeachingType = 'comprehensive'
   }
 }
-function generationBindings(references: CourseReferenceItem[]) { return references.map(item => { const web = item.origin === 'web_search'; const highTrust = item.source_metadata?.credibility === 'high'; return { asset_id: item.material_asset_id, purpose: item.role === 'primary' ? 'content_source' as const : web && !highTrust ? 'weak_context' as const : 'supplement' as const, priority: item.role === 'primary' ? 'core' as const : web && !highTrust ? 'weak' as const : 'supporting' as const, authority: item.role === 'primary' ? 'primary' as const : web && !highTrust ? 'context_only' as const : 'secondary' as const, usage_policy: item.role === 'primary' ? 'must_use' as const : web && !highTrust ? 'optional' as const : 'prefer' as const, reuse_policy: item.reuse_policy || 'reference_only' as const, rights_basis: item.rights_basis || (web ? 'license_unknown' as const : 'teacher_asserted' as const), source_metadata: item.source_metadata || {}, source_label: item.source_label || item.filename } }) }
+function generationBindings(references: CourseReferenceItem[]) { return references.filter(item => item.origin !== 'web_search').map(item => ({ asset_id: item.material_asset_id, purpose: item.role === 'primary' ? 'content_source' as const : 'supplement' as const, priority: item.role === 'primary' ? 'core' as const : 'supporting' as const, authority: item.role === 'primary' ? 'primary' as const : 'secondary' as const, usage_policy: item.role === 'primary' ? 'must_use' as const : 'prefer' as const, reuse_policy: item.reuse_policy || 'reference_only' as const, rights_basis: item.rights_basis || 'teacher_asserted' as const, source_metadata: item.source_metadata || {}, source_label: item.source_label || item.filename })) }
 function currentGenerationOptions() {
   return canonicalizeCourseGenerationOptions(props.generationOptions)
 }
 async function saveRelationships(targetId: string, targetType: string, label: string) {
-  const refs = activeReferences.value.map(item => ({ ...item }))
+  const refs = activeCourseReferences.value.map(item => ({ ...item }))
   referenceRelationshipSaving.value = true
   try {
     const packageId = refs[0]?.package_id || String((await http.get('/api/teacher-course-spaces', teacherReadRequestConfig({ params: { course_id: props.courseId }, silentError: true }))).data?.[0]?.package_id || '')
@@ -3114,16 +3119,16 @@ async function submitFoundation() {
           teaching_context: baseTeacherBrief.teaching_context || 'classroom',
           additional_requirements: additionalRequirements,
         },
-        material_bindings: generationBindings(activeReferences.value),
+        material_bindings: generationBindings(activeCourseReferences.value),
       },
-      references: activeReferences.value,
+      references: activeCourseReferences.value,
     })
   } catch {
     generationRequested.value = false
   }
 }
 function activeLessonGenerationSource() {
-  const primary = activeReferences.value.find(item => item.role === 'primary')
+  const primary = activeCourseReferences.value.find(item => item.role === 'primary')
   return primary ? { packageId: primary.package_id, assetId: primary.asset_id } : undefined
 }
 async function updateOutlineLessonType(payload: { lessonUnitId: string; lessonType: string }) {
@@ -3157,7 +3162,7 @@ async function generateSelectedLessonPlan() {
       lesson.lesson_unit_id,
       activeLessonGenerationSource(),
       '',
-      activeReferences.value.map(item => item.material_asset_id),
+      activeCourseReferences.value.map(item => item.material_asset_id),
       ['failed', 'cancelled', 'paused'].includes(String(lessonJob.value?.status || '')) ? lessonJob.value?.id || '' : '',
     )
   } catch {
@@ -3173,7 +3178,7 @@ async function generateAllLessonPlans() {
       props.courseId,
       activeLessonGenerationSource(),
       '',
-      activeReferences.value.map(item => item.material_asset_id),
+      activeCourseReferences.value.map(item => item.material_asset_id),
     )
   } catch {
     lessonGenerationRequestError.value = lessonStore.error || t('courseWorkbench.lessonBatch.failed', '全部教案任务创建失败，请重试。')
@@ -3410,7 +3415,7 @@ async function generateScript(requirements = '') {
       props.courseId,
       selectedLessonId.value,
       requirements,
-      activeReferences.value.map(item => item.material_asset_id),
+      activeCourseReferences.value.map(item => item.material_asset_id),
       ['failed', 'cancelled', 'paused'].includes(String(scriptJob.value?.status || '')) ? scriptJob.value?.id || '' : '',
     )
   } catch {

@@ -130,16 +130,6 @@
           </div>
         </section>
 
-        <section class="source-group source-group--web">
-          <div class="group-heading"><strong>{{ t('courseWorkbench.references.webSources', '联网来源') }}</strong><small v-if="webSources.length">{{ webSources.length }}</small></div>
-          <div class="readonly-source-list">
-            <div v-for="item in webSources" :key="item.asset_id" class="readonly-source-item">
-              <Globe2 :size="17" />
-              <div><strong>{{ item.source_label || item.filename }}</strong><a v-if="item.source_metadata?.url" :href="String(item.source_metadata.url)" target="_blank" rel="noopener noreferrer">{{ item.source_metadata.domain || item.source_metadata.url }}<ExternalLink :size="11" /></a><small v-else>{{ item.filename }}</small></div>
-            </div>
-            <p v-if="!webSources.length" class="source-empty">{{ t('courseWorkbench.references.unusedSources', '未使用来源') }}</p>
-          </div>
-        </section>
       </section>
 
       <section v-else-if="variant === 'default' && workflowLocked && !hideWorkflowStatus" key="workflow" class="workflow-state" :class="`workflow-state--${effectiveWorkflowState}`" aria-live="polite">
@@ -155,7 +145,7 @@
         </div>
         <ul v-if="selected.length" class="workflow-source-list">
           <li v-for="item in selected" :key="item.asset_id">
-            <span class="workflow-source-pulse"><Globe2 v-if="item.origin === 'web_search'" :size="15" /><FileText v-else :size="15" /></span>
+            <span class="workflow-source-pulse"><FileText :size="15" /></span>
             <div><strong>{{ item.source_label || item.filename }}</strong><small>{{ sourceRoleLabel(item) }}<template v-if="sourceProcessingLabel(item)"> · {{ sourceProcessingLabel(item) }}</template></small></div>
             <em>{{ effectiveWorkflowState === 'paused' ? t('courseWorkbench.references.pausedSource', '已保留') : t('courseWorkbench.references.usingSource', '使用中') }}</em>
           </li>
@@ -175,7 +165,7 @@
         </div>
         <ul v-if="selected.length" class="workflow-source-list workflow-source-list--quiet">
           <li v-for="item in selected" :key="item.asset_id">
-            <span class="workflow-source-pulse"><Globe2 v-if="item.origin === 'web_search'" :size="15" /><FileText v-else :size="15" /></span>
+            <span class="workflow-source-pulse"><FileText :size="15" /></span>
             <div><strong>{{ item.source_label || item.filename }}</strong><small>{{ sourceRoleLabel(item) }}</small></div>
           </li>
         </ul>
@@ -208,7 +198,7 @@
           </div>
           <ul v-if="displayedSourceSnapshot.length" class="confirmed-source-list">
             <li v-for="item in displayedSourceSnapshot" :key="item.asset_id">
-              <span><Globe2 v-if="item.origin === 'web_search'" :size="16" /><FileText v-else :size="16" /></span>
+              <span><FileText :size="16" /></span>
               <div><strong>{{ item.source_label || item.filename }}</strong><small>{{ sourceRoleLabel(item) }}<template v-if="sourceProcessingLabel(item)"> · {{ sourceProcessingLabel(item) }}</template></small></div>
               <Check :size="15" />
             </li>
@@ -243,10 +233,10 @@
           <div class="group-heading"><strong>{{ t('courseWorkbench.references.pptCurrentSources', '本次使用') }}</strong><small>{{ loading || saving ? t('courseWorkbench.references.processing', '处理中…') : selected.length }}</small></div>
           <div v-if="selected.length" class="ppt-smart-source-list">
             <div v-for="item in selected" :key="item.asset_id" class="ppt-smart-source-item">
-              <span><Globe2 v-if="item.origin === 'web_search'" :size="17" /><FileText v-else :size="17" /></span>
+              <span><FileText :size="17" /></span>
               <div>
                 <strong>{{ item.source_label || item.filename }}</strong>
-                <small>{{ sourceRoleLabel(item) }}<template v-if="item.origin !== 'web_search'"> · {{ fileSize(item.size_bytes) }}</template></small>
+                <small>{{ sourceRoleLabel(item) }} · {{ fileSize(item.size_bytes) }}</small>
               </div>
               <button type="button" :aria-label="t('common.remove', '移除')" :disabled="loading || saving" @click="removeSource(item.asset_id)"><X :size="14" /></button>
             </div>
@@ -258,7 +248,6 @@
           </div>
           <div class="ppt-smart-actions">
             <button type="button" :disabled="loading || saving" :class="{ dragging: dragRole === 'reference' }" @click="smartInput?.click()" @dragover.prevent="dragRole = 'reference'" @dragleave="dragRole = ''" @drop.prevent="handleSmartDrop"><Plus :size="16" />{{ t('courseWorkbench.references.pptAddSources', '添加资料') }}</button>
-            <button v-if="webResearchAvailable" type="button" :disabled="loading || saving" @click="researchVisible = true"><Search :size="16" />{{ t('courseWorkbench.references.pptWebResearch', '联网查找') }}</button>
           </div>
           <input ref="smartInput" class="visually-hidden" type="file" multiple @change="handleSmartInput" />
         </section>
@@ -288,18 +277,6 @@
             <input ref="referenceInput" class="visually-hidden" type="file" multiple @change="handleInput($event, 'reference')" />
           </section>
         </template>
-
-          <section v-if="webResearchAvailable || webSources.length" class="source-group source-group--web">
-          <div class="group-heading"><strong>{{ t('courseWorkbench.references.webSources', '联网来源') }}</strong><small>{{ webSources.length }}</small></div>
-          <div class="web-source-list">
-            <div v-for="item in webSources" :key="item.asset_id" class="web-source-item">
-              <Globe2 :size="17" />
-              <div><strong>{{ item.source_label || item.filename }}</strong><a v-if="item.source_metadata?.url" :href="String(item.source_metadata.url)" target="_blank" rel="noopener noreferrer">{{ item.source_metadata.domain || item.source_metadata.url }}<ExternalLink :size="11" /></a><small v-else>{{ item.filename }}</small></div>
-              <button type="button" :disabled="loading || saving" :aria-label="t('common.remove', '移除')" @click="removeSource(item.asset_id)"><X :size="14" /></button>
-            </div>
-            <button v-if="webResearchAvailable" type="button" class="web-research-open" :disabled="loading || saving" @click="researchVisible = true"><Search :size="16" />{{ webSources.length ? t('courseWorkbench.references.continueWebResearch', '继续检索') : t('courseWorkbench.references.startWebResearch', '添加联网来源') }}</button>
-          </div>
-          </section>
 
           <section v-if="materials.length" class="material-library">
             <div class="group-heading"><strong>{{ t('courseWorkbench.references.courseMaterials', '课程资料库') }}</strong><small>{{ materials.length }}</small></div>
@@ -333,14 +310,12 @@
     </section>
 
     <p v-if="error" class="tray-error" role="alert">{{ error }}</p>
-    <WebResearchDialog v-if="variant === 'default' && webResearchAvailable" :visible="researchVisible" :course-id="courseId" :stage="stage" :lesson-id="lessonId" @close="researchVisible = false" @saved="handleWebSaved" />
   </aside>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { Check, CheckCircle2, ChevronRight, ChevronUp, CopyPlus, Database, ExternalLink, FileText, Globe2, LoaderCircle, LockKeyhole, Pause, Play, Plus, RotateCcw, Search, SlidersHorizontal, Sparkles, TriangleAlert, Upload, X } from 'lucide-vue-next'
-import WebResearchDialog from './WebResearchDialog.vue'
+import { Check, CheckCircle2, ChevronRight, ChevronUp, CopyPlus, Database, FileText, LoaderCircle, LockKeyhole, Pause, Play, Plus, RotateCcw, SlidersHorizontal, Sparkles, TriangleAlert, Upload, X } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 import http, { teacherReadRequestConfig, teacherRequestConfig } from '../utils/http'
 
@@ -474,7 +449,6 @@ const emit = defineEmits<{
 }>()
 const materials = ref<CourseReferenceItem[]>([])
 const selected = ref<CourseReferenceItem[]>([])
-const storedWebReferences = ref<CourseReferenceItem[]>([])
 const configuredTargetIds = ref(new Set<string>())
 const generationSourceSnapshots = ref<Record<string, GenerationSourceSnapshot>>({})
 const localGenerationSourceBaselines = ref<Record<string, GenerationSourceSnapshot>>({})
@@ -482,9 +456,7 @@ const loading = ref(false)
 const saving = ref(false)
 const hasLoaded = ref(false)
 const error = ref('')
-const researchVisible = ref(false)
 const sourceEditing = ref(false)
-const webResearchAvailable = ref(true)
 const dragRole = ref<'' | 'primary' | 'reference' | 'question_source'>('')
 const questionSourceInput = ref<HTMLInputElement | null>(null)
 const primaryInput = ref<HTMLInputElement | null>(null)
@@ -495,7 +467,6 @@ const scopeApplyingAssetId = ref('')
 const primarySource = computed(() => selected.value.find(item => item.role === 'primary'))
 const referenceSources = computed(() => selected.value.filter(item => item.role === 'reference' && item.origin !== 'web_search'))
 const questionSources = computed(() => selected.value.filter(item => item.role === 'question_source'))
-const webSources = computed(() => selected.value.filter(item => item.role === 'reference' && item.origin === 'web_search'))
 const availableMaterials = computed(() => {
   const chosen = new Set(selected.value.map(item => item.asset_id))
   return materials.value.filter(item => !chosen.has(item.asset_id))
@@ -607,13 +578,10 @@ const snapshotSourceItems = computed<CourseReferenceItem[]>(() => {
   const snapshot = activeGenerationSourceSnapshot.value
   if (!snapshot) return []
   const known = new Map([...materials.value, ...selected.value].map(item => [item.asset_id, item]))
-  const webByMaterialId = new Map(storedWebReferences.value.map(item => [item.material_asset_id, item]))
   return (snapshot.sources || []).map(source => {
     const item = known.get(source.source_asset_id)
-    const web = webByMaterialId.get(String(source.material_asset_id || item?.material_asset_id || ''))
     return {
       ...item,
-      ...web,
       package_id: snapshot.package_id || item?.package_id || '',
       asset_id: source.source_asset_id,
       material_asset_id: String(source.material_asset_id || item?.material_asset_id || ''),
@@ -726,8 +694,12 @@ const previousAvailableSources = computed(() => {
   })
 })
 
+function withoutWebSources(value: CourseReferenceItem[]) {
+  return value.filter(item => item.origin !== 'web_search')
+}
+
 watch(() => props.modelValue, value => {
-  selected.value = value.map(item => ({ ...item }))
+  selected.value = withoutWebSources(value).map(item => ({ ...item }))
   ensureScopeDrafts()
 }, { immediate: true, deep: true })
 watch([() => props.scopeTargetId, () => props.lessonTargets], () => {
@@ -735,6 +707,7 @@ watch([() => props.scopeTargetId, () => props.lessonTargets], () => {
   ensureScopeDrafts()
 }, { immediate: true, deep: true })
 function applySelection(value: CourseReferenceItem[], persist: boolean) {
+  value = withoutWebSources(value)
   selected.value = value
   ensureScopeDrafts()
   emit('update:modelValue', value)
@@ -768,7 +741,6 @@ function beginSourceEditing() {
 }
 function fileSize(value: number) { return value >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(value / 1024))} KB` }
 function sourceRoleLabel(item: CourseReferenceItem) {
-  if (item.origin === 'web_search') return t('courseWorkbench.references.webSources', '联网来源')
   return item.role === 'primary'
     ? t('courseWorkbench.references.primaryMaterial', '原始材料')
     : t('courseWorkbench.references.referenceMaterial', '参考材料')
@@ -949,10 +921,9 @@ async function applyReferenceScope(item: CourseReferenceItem) {
 async function loadMaterials() {
   try {
     const response = await http.get('/api/materials', teacherReadRequestConfig({ params: { course_id: props.courseId }, silentError: true }))
-    const webByMaterialId = new Map([...storedWebReferences.value, ...webSources.value].map(item => [item.material_asset_id, item]))
     configuredTargetIds.value = new Set(response.data?.configured_source_target_ids || [])
     generationSourceSnapshots.value = response.data?.generation_source_snapshots || {}
-    materials.value = (response.data?.assets || []).map((item: CourseReferenceItem) => ({ ...item, ...(webByMaterialId.get(item.material_asset_id) || {}), role: 'reference' }))
+    materials.value = withoutWebSources(response.data?.assets || []).map((item: CourseReferenceItem) => ({ ...item, role: 'reference' }))
   } catch (reason: any) { error.value = String(reason?.response?.data?.detail || reason?.message || t('courseWorkbench.references.loadFailed', '课程资料读取失败')) }
 }
 
@@ -1004,58 +975,17 @@ function recommendedSources() {
   ]
 }
 
-function mergeWebReferences(references: CourseReferenceItem[]) {
-  const next = [...selected.value]
-  for (const reference of references) {
-    const normalized = { ...reference, role: 'reference' as const, origin: 'web_search' as const }
-    const index = next.findIndex(item => item.asset_id === normalized.asset_id || item.material_asset_id === normalized.material_asset_id)
-    if (index >= 0) next[index] = normalized; else next.push(normalized)
-  }
-  commit(next)
-}
-
-async function loadWebReferences() {
-  try {
-    const response = await http.get(`/api/courses/${props.courseId}/web-research`, teacherReadRequestConfig({ params: { stage: props.stage, lesson_id: props.lessonId }, silentError: true }))
-    storedWebReferences.value = response.data?.accepted_references || []
-  } catch (reason: any) { error.value = String(reason?.response?.data?.detail?.message || reason?.response?.data?.detail || reason?.message || t('courseWorkbench.webResearch.loadFailed', '调研记录读取失败')) }
-}
-
-async function loadWebResearchCapability() {
-  try {
-    const response = await http.get(
-      `/api/courses/${props.courseId}/web-research/capability`,
-      teacherReadRequestConfig({ silentError: true }),
-    )
-    webResearchAvailable.value = response.data?.available !== false
-  } catch {
-    webResearchAvailable.value = false
-    researchVisible.value = false
-  }
-}
-
 async function loadAll() {
   const targetId = props.scopeTargetId
   loading.value = true; error.value = ''
   try {
-    if (props.variant === 'default') {
-      await Promise.all([
-        loadWebResearchCapability(),
-        loadWebReferences(),
-        loadMaterials(),
-      ])
-    } else {
-      storedWebReferences.value = []
-      await loadMaterials()
-    }
+    await loadMaterials()
     if (targetId && targetId === props.scopeTargetId) {
-      const webByMaterialId = new Map(storedWebReferences.value.map(item => [item.material_asset_id, item]))
       const scoped = materials.value.flatMap(item => {
         const usage = item.usages?.find(link => link.target_id === targetId)
         if (!usage) return []
         return [{
           ...item,
-          ...(webByMaterialId.get(item.material_asset_id) || {}),
           role: props.variant === 'question-bank'
             ? 'question_source' as const
             : usage.role === 'primary'
@@ -1143,7 +1073,6 @@ function reusePreviousSources() {
   })
   if (reused.length) commit([...selected.value, ...reused])
 }
-function handleWebSaved(references: CourseReferenceItem[]) { storedWebReferences.value = references; mergeWebReferences(references); void loadMaterials() }
 watch(() => [props.courseId, props.stage, props.lessonId, props.refreshToken], () => {
   sourceEditing.value = false
   hasLoaded.value = false
@@ -1171,7 +1100,7 @@ onMounted(loadAll)
 .reference-tray{min-width:0;min-height:0;overflow:auto;border-left:1px solid #e4e9f1;background:#fbfcfe}.reference-tray__header{min-height:54px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px 0 16px;border-bottom:1px solid #e7ebf2;background:#fff}.reference-tray__header.is-close-only{justify-content:flex-end}.reference-tray__header strong{color:#243047;font-size:14px}.reference-tray__header button{width:30px;height:30px;display:grid;place-items:center;border:0;border-radius:8px;color:#64748b;background:transparent;cursor:pointer}.reference-tray__header button:hover{color:#334155;background:#f3f5f8}.reference-tray__header button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.system-context{width:calc(100% - 32px);display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;margin:16px 16px 4px;padding:10px 12px;border:1px solid #e2e7ef;border-radius:10px;color:inherit;background:#fff;text-align:left;font:inherit;cursor:pointer}.system-context:hover{border-color:#c9c8f7;background:#fafaff}.system-context:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.system-context>span{width:34px;height:34px;display:grid;place-items:center;border-radius:8px;color:#4f46e5;background:#eef2ff}.system-context strong{min-width:0;overflow:hidden;color:#334155;font-size:14px;text-overflow:ellipsis;white-space:nowrap}.system-context>svg{color:#7b8798}.reference-tray.is-compact .system-context{min-height:46px}.reuse-previous{min-height:34px;display:flex;align-items:center;gap:7px;margin:8px 16px 0;padding:0;border:0;color:#4f46e5;background:transparent;font:inherit;font-size:14px;font-weight:700;cursor:pointer}.reuse-previous small{min-width:20px;height:20px;display:grid;place-items:center;border-radius:10px;color:#4338ca;background:#eef2ff;font-size:14px}.reuse-previous:hover:not(:disabled){color:#3730a3}.reuse-previous:focus-visible{outline:2px solid #6366f1;outline-offset:3px}.reuse-previous:disabled{opacity:.5;cursor:not-allowed}.source-group,.material-library{display:grid;gap:8px;padding:16px 16px 0}.group-heading{min-height:34px;display:flex;align-items:center;justify-content:space-between;gap:12px;color:#334155;font-size:14px}.group-heading small{color:#64748b}.source-group__edit{min-height:32px;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 9px;border:1px solid #d8dce7;border-radius:8px;color:#514bdc;background:#fff;font:inherit;font-size:14px;font-weight:700;cursor:pointer}.source-group__edit:hover:not(:disabled){border-color:#aaa7e8;background:#f8f8ff}.drop-zone{min-height:54px;display:flex;align-items:center;gap:10px;padding:8px 9px;border:1px solid #e2e7ef;border-radius:9px;color:#64748b;background:#fff}.drop-zone.dragging,.source-list.dragging .reference-item,.source-list.dragging .source-empty{border-color:#aaa7e8;background:#f8f8ff}.drop-zone>div,.reference-item>div{min-width:0;display:grid;gap:3px;flex:1}.drop-zone strong,.reference-item strong{overflow:hidden;color:#334155;font-size:14px;text-overflow:ellipsis;white-space:nowrap}.drop-zone small,.reference-item small{color:#64748b;font-size:14px}.drop-zone>button,.reference-item>button{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:6px;color:#64748b;background:transparent;cursor:pointer}.reference-list{display:grid;gap:7px}.reference-item{min-height:54px;display:flex;align-items:center;gap:9px;padding:8px 9px;border:1px solid #e2e7ef;border-radius:9px;background:#fff}.reference-item>svg{color:#6366f1}.source-empty{min-height:48px;display:flex;align-items:center;margin:0;padding:0 9px;border:1px solid #e7ebf1;border-radius:9px;color:#7b8798;background:#fff;font-size:14px}.drop-zone>.source-empty{min-height:auto;padding:0;border:0}.reference-add{min-height:42px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px dashed #b9c3d2;border-radius:9px;color:#4f46e5;background:#fff;font-size:14px;font-weight:700;cursor:pointer}.material-library{padding-bottom:18px}.material-library>button{min-height:38px;display:grid;grid-template-columns:18px minmax(0,1fr) 16px;align-items:center;gap:7px;padding:0 9px;border:0;border-radius:7px;color:#475569;background:transparent;text-align:left;cursor:pointer}.material-library>button:hover{background:#eef2ff;color:#4338ca}.material-library>button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}.material-library>p{margin:3px 0;color:#64748b;font-size:14px}.tray-error{margin:12px 16px;padding:9px 10px;border-radius:8px;color:#b91c1c;background:#fff1f2;font-size:14px}.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .drop-zone>.empty-drop{width:100%;height:auto;display:flex;align-items:center;justify-content:center;gap:7px;color:#4f46e5;font-weight:700}
 .reference-tray__title{min-width:0;display:flex;align-items:center;gap:9px}.reference-tray__title>span{width:30px;height:30px;display:grid;place-items:center;border-radius:8px;color:#4f46e5;background:#eef2ff}.reference-tray__title>div{min-width:0;display:grid;gap:1px}.reference-tray__title small{color:#778397;font-size:14px}.system-context>div{min-width:0;display:grid;gap:2px}.system-context small{color:#788497;font-size:14px}.reference-tray.is-ppt{background:#fff}.ppt-smart-sources{gap:10px}.ppt-smart-source-list{display:grid;gap:7px}.ppt-smart-source-item{min-height:54px;display:grid;grid-template-columns:32px minmax(0,1fr) 28px;align-items:center;gap:8px;padding:7px 8px;border-radius:9px;background:#f7f8fc}.ppt-smart-source-item>span{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:#5651ce;background:#ececff}.ppt-smart-source-item>div{min-width:0;display:grid;gap:2px}.ppt-smart-source-item strong{overflow:hidden;color:#303b50;font-size:14px;text-overflow:ellipsis;white-space:nowrap}.ppt-smart-source-item small{color:#788497;font-size:14px}.ppt-smart-source-item>button{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:7px;color:#7c8798;background:transparent;cursor:pointer}.ppt-smart-source-item>button:hover{color:#334155;background:#e9ebf2}.ppt-smart-empty{min-height:116px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:5px;padding:16px;color:#625dd7;text-align:center}.ppt-smart-empty strong{color:#3b4659;font-size:14px}.ppt-smart-empty span{max-width:230px;color:#788497;font-size:14px;line-height:1.5}.ppt-smart-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px}.ppt-smart-actions button{min-height:40px;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid #dce1e9;border-radius:9px;color:#4d596e;background:#fff;font-size:14px;font-weight:700;cursor:pointer}.ppt-smart-actions button:hover{border-color:#aaa7e8;color:#37348c;background:#fafaff}.ppt-smart-actions button.dragging{border-color:#5b57e8;background:#f4f4ff}.ppt-smart-actions button:focus-visible,.ppt-smart-source-item>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
-.source-group--web{padding-top:18px}.web-source-list{display:grid;gap:7px}.web-source-item{min-height:56px;display:grid;grid-template-columns:18px minmax(0,1fr) 28px;align-items:center;gap:9px;padding:8px 9px;border:1px solid #e2e7ef;border-radius:9px;background:#fff}.web-source-item>svg{color:#6366f1}.web-source-item>div{min-width:0;display:grid;gap:3px}.web-source-item strong{overflow:hidden;color:#334155;font-size:14px;text-overflow:ellipsis;white-space:nowrap}.web-source-item a{display:flex;align-items:center;gap:4px;overflow:hidden;color:#514bdc;font-size:14px;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}.web-source-item small{color:#64748b;font-size:14px}.web-source-item>button{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:6px;color:#64748b;background:transparent;cursor:pointer}.web-research-open{min-height:42px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px dashed #8fbab5;border-radius:9px;color:#0f766e;background:#f4fbfa;font-size:14px;font-weight:750;cursor:pointer}
+.ppt-smart-actions{grid-template-columns:1fr}
 .readonly-sources{padding-bottom:18px}.readonly-source-list{display:grid;gap:7px}.readonly-source-item{min-height:52px;display:grid;grid-template-columns:18px minmax(0,1fr);align-items:center;gap:9px;padding:8px 9px;border:1px solid #e7ebf1;border-radius:9px;background:#fff}.readonly-source-item>svg{color:#6366f1}.readonly-source-item>div{min-width:0;display:grid;gap:3px}.readonly-source-item strong{overflow:hidden;color:#334155;font-size:14px;text-overflow:ellipsis;white-space:nowrap}.readonly-source-item small,.readonly-source-item a{overflow:hidden;color:#64748b;font-size:14px;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}.readonly-source-item a{display:flex;align-items:center;gap:4px;color:#514bdc}
 .reference-tray.is-question-bank{height:100%;overflow:auto;border-left:0;background:#fbfcfe}.reference-tray.is-question-bank .reference-tray__header{min-height:64px;background:#fbfcfe}.source-group--question-bank{gap:10px;padding:12px 14px 18px}.source-group--question-bank .reference-list{gap:0}.source-group--question-bank .reference-item{min-height:48px;padding:7px 2px;border:0;border-bottom:1px solid #e7ebf2;border-radius:0;background:transparent}.reference-tray.is-question-bank .reference-add{min-height:38px;margin-top:0;border:0;border-radius:8px;color:#5552c8;background:#f0f1ff}.reference-tray.is-question-bank .reference-item~.reference-add{margin-top:10px}.reference-tray.is-question-bank .reference-add:hover{color:#4338ca;background:#e7e8ff}
 .reference-interactive{padding-bottom:18px}.source-status{display:grid;grid-template-columns:32px minmax(0,1fr);align-items:center;gap:9px;margin:12px 16px 0;padding:10px 11px;border:1px solid #dfe5ef;border-radius:10px;background:#fff}.source-status>span{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:#5651ce;background:#eef0ff}.source-status>div{min-width:0;display:grid;gap:3px}.source-status strong{color:#334155;font-size:14px}.source-status small{color:#738095;font-size:14px;line-height:1.45}.source-status--review,.source-status--confirmed{border-color:#cfe9d8;background:#f7fcf9}.source-status--review>span,.source-status--confirmed>span{color:#168044;background:#e7f7ed}.source-status--failed{border-color:#f1cdd1;background:#fff8f8}.source-status--failed>span{color:#b9404e;background:#fdebed}.reference-workflow-action{padding:12px 16px 2px}.workflow-state{display:grid;gap:14px;margin:12px 16px 18px;padding:14px;border:1px solid #dadcf6;border-radius:12px;background:linear-gradient(150deg,#fbfbff,#f4f5ff);box-shadow:0 10px 28px rgba(70,69,151,.08)}.workflow-state>header{display:grid;grid-template-columns:38px minmax(0,1fr);align-items:center;gap:10px}.workflow-state__signal{width:38px;height:38px;display:grid;place-items:center;border-radius:10px;color:#fff;background:#5955d8;box-shadow:0 7px 18px rgba(89,85,216,.22)}.workflow-state>header>div{min-width:0;display:grid;gap:4px}.workflow-state>header strong{color:#2d3650;font-size:14px}.workflow-state>header small{color:#6f7b90;font-size:14px;line-height:1.45}.workflow-state--paused{border-color:#eadfbd;background:linear-gradient(150deg,#fffdf8,#fff9e9)}.workflow-state--paused .workflow-state__signal{color:#8a5d09;background:#f6df9f;box-shadow:none}.workflow-progress{height:5px;overflow:hidden;border-radius:3px;background:#e3e5f4}.workflow-progress i{position:relative;width:100%;height:100%;display:block;transform-origin:left center;border-radius:inherit;background:#5955d8;transition:transform .25s cubic-bezier(.2,.8,.2,1)}.workflow-state--generating .workflow-progress i::after{position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.72),transparent);animation:workflow-scan 1.6s ease-in-out infinite;content:""}.workflow-state--paused .workflow-progress i{background:#d39b2f}.workflow-source-list{display:grid;gap:7px;margin:0;padding:0;list-style:none}.workflow-source-list li{min-height:52px;display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:8px;padding:7px 8px;border:1px solid rgba(213,216,239,.9);border-radius:9px;background:rgba(255,255,255,.8)}.workflow-source-pulse{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:#5551ce;background:#ececff}.workflow-state--generating .workflow-source-pulse{animation:source-usage-pulse 1.8s ease-in-out infinite}.workflow-source-list li>div{min-width:0;display:grid;gap:2px}.workflow-source-list strong{overflow:hidden;color:#354056;font-size:14px;text-overflow:ellipsis;white-space:nowrap}.workflow-source-list small{color:#7a8699;font-size:14px}.workflow-source-list em{color:#5b57c8;font-size:14px;font-style:normal;font-weight:750}.workflow-state--paused .workflow-source-list em{color:#956b19}.workflow-no-sources{margin:0;color:#6f7b90;font-size:14px;line-height:1.55}.workflow-state>footer{display:flex;align-items:center;gap:7px}.workflow-state>footer button{min-height:34px;display:flex;align-items:center;justify-content:center;gap:6px;padding:0 10px;border:1px solid #d5d9e5;border-radius:8px;color:#596579;background:#fff;font-size:14px;font-weight:700;cursor:pointer}.workflow-state>footer button:hover{border-color:#aaa7e8;color:#37348c;background:#fafaff}.workflow-state>footer .workflow-resume{border-color:#5651d1;color:#fff;background:#5651d1}.workflow-state>footer .workflow-resume:hover{border-color:#4742ba;color:#fff;background:#4742ba}.workflow-spinner{animation:spin 1s linear infinite}.tray-mode-enter-active,.tray-mode-leave-active{transition:opacity .2s ease,transform .2s cubic-bezier(.2,.8,.2,1),clip-path .2s ease}.tray-mode-enter-from{opacity:0;transform:translateY(8px);clip-path:inset(0 0 10% 0)}.tray-mode-leave-to{opacity:0;transform:translateY(-6px);clip-path:inset(0 0 10% 0)}.source-group__edit:disabled,.drop-zone button:disabled,.reference-add:disabled,.ppt-smart-actions button:disabled,.material-library>button:disabled,.web-research-open:disabled{opacity:.48;cursor:not-allowed}.drop-zone>button:hover,.reference-item>button:hover,.web-source-item>button:hover{color:#334155;background:#eef1f6}.source-group__edit:focus-visible,.reference-add:focus-visible,.material-library>button:focus-visible,.web-research-open:focus-visible,.workflow-state>footer button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}@keyframes workflow-scan{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}@keyframes source-usage-pulse{0%,100%{box-shadow:0 0 0 0 rgba(89,85,216,0)}50%{box-shadow:0 0 0 4px rgba(89,85,216,.1)}}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.workflow-spinner,.workflow-state--generating .workflow-progress i::after,.workflow-state--generating .workflow-source-pulse{animation:none}.tray-mode-enter-active,.tray-mode-leave-active,.workflow-progress i{transition:none}}

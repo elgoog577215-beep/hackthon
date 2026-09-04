@@ -65,15 +65,19 @@ async def test_legacy_question_enrichment_does_not_grant_course_scope():
 
 
 @pytest.mark.asyncio
-async def test_provider_failure_degrades_instead_of_breaking_generation(monkeypatch):
+async def test_explicit_retrieval_request_cannot_bypass_product_freeze(monkeypatch):
     service = CourseService()
     phases: list[dict] = []
 
     async def on_phase(*args, **kwargs):
         phases.append(kwargs)
 
+    called = False
+
     async def boom(**_kwargs):
-        raise RuntimeError("provider down")
+        nonlocal called
+        called = True
+        raise RuntimeError("provider must not be called")
 
     import web_material_search
 
@@ -87,10 +91,12 @@ async def test_provider_failure_degrades_instead_of_breaking_generation(monkeypa
         on_phase=on_phase,
     )
 
-    assert report["status"] == "degraded"
-    assert report["degraded"] is True
-    assert report["message_code"] == "web_search_unavailable"
+    assert report["status"] == "disabled"
+    assert report["degraded"] is False
+    assert report["message_code"] == "course_web_research_frozen"
     assert report["candidates"] == []
+    assert called is False
+    assert phases == []
 
 
 def test_artifacts_expose_web_search_summary():
@@ -159,12 +165,12 @@ def test_persisted_course_carries_web_summary_for_teacher_panel():
 
     import course_generation.service as course_service
     source = inspect.getsource(course_service.CourseService.build_course_draft)
-    # 两处 course_data 构造块都必须带上这一键。
-    assert source.count('"web_material_search": artifacts.get(') == 2
+    # 历史字段继续保留，保证代码与旧数据可兼容恢复。
+    assert source.count('"web_material_search": artifacts.get(') >= 2
 
 
 @pytest.mark.asyncio
-async def test_phase_detail_carries_adopted_sources_for_teacher_review(monkeypatch):
+async def test_frozen_search_emits_no_teacher_review_phase(monkeypatch):
     """采纳来源必须出现在 phase_detail.web_search.sources。
 
     前端复核面板读的就是这个键。改动前 phase_detail 只做了
@@ -211,7 +217,7 @@ async def test_phase_detail_carries_adopted_sources_for_teacher_review(monkeypat
         web_material_search, "discover_web_materials", fake_discover
     )
 
-    await service._run_web_material_search(
+    report = await service._run_web_material_search(
         topic="导数",
         requirements="需要真实案例",
         target_audience="高中生",
@@ -219,20 +225,12 @@ async def test_phase_detail_carries_adopted_sources_for_teacher_review(monkeypat
         on_phase=on_phase,
     )
 
-    web_search = next(
-        detail["web_search"] for detail in details if "web_search" in detail
-    )
-    sources = web_search["sources"]
-    assert [item["source_id"] for item in sources] == ["src_open"]
-    assert sources[0]["url"] == "https://openstax.org/derivative-intro"
-    # 摘要只带可展示字段，正文留在候选里供生成使用，不外发。
-    assert "text" not in sources[0]
-    assert "candidates" not in web_search
+    assert report["status"] == "disabled"
+    assert details == []
 
 
 @pytest.mark.asyncio
-async def test_degraded_path_still_notifies_teacher(monkeypatch):
-    """降级必须告知：原来这条路径直接 return，前端拿不到任何提示。"""
+async def test_frozen_search_neither_calls_provider_nor_notifies(monkeypatch):
     service = CourseService()
     details: list[dict] = []
 
@@ -243,8 +241,12 @@ async def test_degraded_path_still_notifies_teacher(monkeypatch):
         if detail:
             details.append(detail)
 
+    called = False
+
     async def boom(**_kwargs):
-        raise RuntimeError("provider down")
+        nonlocal called
+        called = True
+        raise RuntimeError("provider must not be called")
 
     import web_material_search
 
@@ -258,10 +260,7 @@ async def test_degraded_path_still_notifies_teacher(monkeypatch):
         on_phase=on_phase,
     )
 
-    assert report["degraded"] is True
-    web_search = next(
-        detail["web_search"] for detail in details if "web_search" in detail
-    )
-    assert web_search["degraded"] is True
-    assert web_search["message_code"] == "web_search_unavailable"
-    assert web_search["sources"] == []
+    assert report["status"] == "disabled"
+    assert report["message_code"] == "course_web_research_frozen"
+    assert called is False
+    assert details == []

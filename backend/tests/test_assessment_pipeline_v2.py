@@ -236,7 +236,7 @@ def test_java_course_does_not_claim_hidden_test_runner_support():
     assert slots[-1]["validation_mode"] == "expert_rubric_validator"
 
 
-async def test_web_retrieval_runs_before_generation_with_minimal_query():
+async def test_frozen_web_retrieval_never_calls_search():
     course = _course("math_formal")
     profile = compile_course_assessment_profile(course)
     objectives = compile_assessment_objectives(course, profile)
@@ -271,29 +271,19 @@ async def test_web_retrieval_runs_before_generation_with_minimal_query():
         search=search,
     )
 
-    assert queries
-    assert "PRIVATE_BODY_SENTINEL" not in queries[0]
-    assert "selected_response" in queries[0]
-    assert enriched["web"]["status"] == "completed"
-    assert enriched["references"][0]["reuse_policy"] == (
-        "reference_only"
-    )
+    assert queries == []
+    assert enriched["web"]["status"] == "disabled"
+    assert enriched["retrieval_mode"] == "off"
     assert enriched["schema_version"] == (
         "question_reference_package_v2"
     )
     assert enriched["content_coverage"][0]["covered"] is True
     assert enriched["method_coverage"]
-    assert enriched["retrieval_package"]["schema_version"] == (
-        "retrieval_package_v1"
-    )
-    web_source = next(
-        item["source_record"]
+    assert "retrieval_package" not in enriched
+    assert all(
+        item["source_type"] != "trusted_web_reference"
         for item in enriched["references"]
-        if item["source_type"] == "trusted_web_reference"
     )
-    assert web_source["source_id"].startswith("src_")
-    assert web_source["trust_tier"] == "tier_a"
-    assert web_source["provider"] == "test"
 
 
 async def test_question_retrieval_is_default_off_and_makes_no_search_call():
@@ -410,7 +400,7 @@ def test_teacher_question_bank_has_highest_authoring_priority():
     assert references[0]["source_type"] == "teacher_question_bank"
 
 
-async def test_method_gap_triggers_web_even_when_content_is_covered():
+async def test_method_gap_uses_builtin_templates_while_web_is_frozen():
     course = _course("programming_engineering")
     profile = compile_course_assessment_profile(course)
     objectives = compile_assessment_objectives(course, profile)
@@ -425,10 +415,7 @@ async def test_method_gap_triggers_web_even_when_content_is_covered():
         blueprint=blueprint,
     )
     assert package["content_coverage"][0]["covered"] is True
-    assert any(
-        not item["covered"]
-        for item in package["method_coverage"]
-    )
+    assert all(item["covered"] for item in package["method_coverage"])
     calls = 0
 
     async def search(query: str, *, num_results: int):
@@ -451,15 +438,15 @@ async def test_method_gap_triggers_web_even_when_content_is_covered():
         search=search,
     )
 
-    assert calls > 0
-    assert enriched["web"]["status"] == "completed"
+    assert calls == 0
+    assert enriched["web"]["status"] == "disabled"
     assert any(
-        item["source_type"] == "trusted_web_reference"
+        item["source_type"] == "builtin_subject_template"
         for item in enriched["authoring_patterns"]
     )
 
 
-async def test_web_failure_uses_builtin_authoring_templates():
+async def test_frozen_web_uses_builtin_authoring_templates_without_provider():
     course = _course("programming_engineering")
     profile = compile_course_assessment_profile(course)
     objectives = compile_assessment_objectives(course, profile)
@@ -474,7 +461,11 @@ async def test_web_failure_uses_builtin_authoring_templates():
         blueprint=blueprint,
     )
 
+    called = False
+
     async def failing_search(query: str, *, num_results: int):
+        nonlocal called
+        called = True
         raise RuntimeError("search unavailable")
 
     enriched = await enrich_reference_package_with_web(
@@ -484,7 +475,8 @@ async def test_web_failure_uses_builtin_authoring_templates():
         search=failing_search,
     )
 
-    assert enriched["web"]["status"] == "failed_fallback_local"
+    assert called is False
+    assert enriched["web"]["status"] == "disabled"
     assert any(
         item["source_type"] == "builtin_subject_template"
         for item in enriched["authoring_patterns"]

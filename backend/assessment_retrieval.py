@@ -12,6 +12,7 @@ import re
 from typing import Any, Awaitable, Callable
 
 from assessment_blueprint import REFERENCE_PACKAGE_SCHEMA
+from course_web_research_policy import COURSE_WEB_RESEARCH_ENABLED
 from course_versioning import stable_hash
 from web_retrieval import (
     RetrievalGateway,
@@ -187,6 +188,15 @@ async def enrich_reference_package_with_web(
 ) -> dict[str, Any]:
     """Fill uncovered objective references before question generation."""
     result = deepcopy(package)
+    if not COURSE_WEB_RESEARCH_ENABLED:
+        result["retrieval_mode"] = "off"
+        result.pop("retrieval_package", None)
+        result["web"] = {
+            "status": "disabled",
+            "query_count": 0,
+            "source_count": 0,
+        }
+        return _finalize(result, objectives)
     mode = str(result.get("retrieval_mode") or "auto_on_gap")
     if mode == "off":
         result["web"] = {
@@ -476,6 +486,8 @@ def _finalize(
 
 
 def _retrieval_mode(course_data: dict[str, Any]) -> str:
+    if not COURSE_WEB_RESEARCH_ENABLED:
+        return "off"
     generation_request = course_data.get("generation_request") or {}
     policy_payload = (
         generation_request

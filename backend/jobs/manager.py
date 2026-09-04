@@ -116,6 +116,10 @@ from course_versioning import (
     outline_adjustment_proposal_id,
     stable_hash,
 )
+from course_web_research_policy import (
+    COURSE_WEB_RESEARCH_ENABLED,
+    course_generation_view,
+)
 from course_versions import (
     CourseVersionConflict,
     CourseVersionRepository,
@@ -1559,6 +1563,16 @@ class TaskManager:
     ) -> dict[str, Any]:
         """Retrieve once and create a non-applied source-backed outline draft."""
 
+        if not COURSE_WEB_RESEARCH_ENABLED:
+            course_data = course_generation_view(course_data)
+            course_data.setdefault("generation_stage_artifacts", {})[
+                "web_retrieval"
+            ] = {
+                "status": "disabled",
+                "reason": "course_web_research_frozen",
+            }
+            return course_data
+
         policy = resolve_retrieval_policy(request)
         artifacts = course_data.setdefault(
             "generation_stage_artifacts", {}
@@ -1665,6 +1679,8 @@ class TaskManager:
     def _accept_outline_research(
         course_data: dict[str, Any],
     ) -> dict[str, Any]:
+        if not COURSE_WEB_RESEARCH_ENABLED:
+            return course_generation_view(course_data)
         artifacts = course_data.get("generation_stage_artifacts") or {}
         artifact = artifacts.get("web_retrieval") or {}
         proposal = artifact.get("proposal") or {}

@@ -37,6 +37,7 @@ describe('PPT smart reference tray', () => {
     expect(wrapper.find('.drop-zone').exists()).toBe(false)
     expect(wrapper.find('.source-group--references').exists()).toBe(false)
     expect(wrapper.get('.ppt-smart-actions').text()).toContain('添加资料')
-    expect(wrapper.get('.ppt-smart-actions').text()).toContain('联网查找')
+    expect(wrapper.get('.ppt-smart-actions').text()).not.toContain('联网查找')
+    expect(http.get).not.toHaveBeenCalledWith(expect.stringContaining('/web-research'), expect.anything())
   })
 })

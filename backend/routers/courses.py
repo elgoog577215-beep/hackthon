@@ -66,6 +66,10 @@ from course_web_research import (
     scoped_research_projection,
     upsert_research_session,
 )
+from course_web_research_policy import (
+    COURSE_WEB_RESEARCH_ENABLED,
+    COURSE_WEB_RESEARCH_FROZEN_DETAIL,
+)
 from web_material_search import (
     candidate_from_source,
     derive_search_queries,
@@ -79,6 +83,14 @@ from web_document_reader import (
 from web_retrieval import RetrievalRequest, configured_retrieval_gateway
 
 router = APIRouter(tags=["courses"])
+
+
+def _require_course_web_research_enabled() -> None:
+    if not COURSE_WEB_RESEARCH_ENABLED:
+        raise HTTPException(
+            status_code=404,
+            detail=COURSE_WEB_RESEARCH_FROZEN_DETAIL,
+        )
 
 
 # =============================================================================
@@ -910,6 +922,7 @@ async def get_course_web_research(
     repository=Depends(get_course_document_repository),
 ):
     """读取当前生产阶段的最近调研与已选网页来源。"""
+    _require_course_web_research_enabled()
     course = await get_course_or_404(course_id)
     # 调研词和未入选候选属于教师备课数据；即使课程已发布也不对学生开放。
     _require_teacher_course_write_access(course, request)
@@ -923,6 +936,7 @@ async def get_course_web_research_capability(
     request: Request,
 ):
     """Expose only whether this teacher can currently use web research."""
+    _require_course_web_research_enabled()
     course = await get_course_or_404(course_id)
     _require_teacher_course_write_access(course, request)
     actor_id = resolve_user_id(request.headers.get("X-User-Id"))
@@ -943,6 +957,7 @@ async def search_course_web_research(
     repository=Depends(get_course_document_repository),
 ):
     """通过统一检索网关执行老师可见、可复核的查询。"""
+    _require_course_web_research_enabled()
     course = await get_course_or_404(course_id)
     _require_teacher_course_write_access(course, request)
     queries = _requested_research_queries(course, body)
@@ -1047,6 +1062,7 @@ async def select_course_web_research_sources(
     repository=Depends(get_course_document_repository),
 ):
     """把已勾选网页转成课程资料资产，并登记到当前课程文件空间。"""
+    _require_course_web_research_enabled()
     course = await get_course_or_404(course_id)
     _require_teacher_course_write_access(course, request)
     raw = await run_in_threadpool(repository.load_raw, course_id)

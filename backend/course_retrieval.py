@@ -15,6 +15,7 @@ from course_versioning import (
     blueprint_draft_revision_id,
     stable_hash,
 )
+from course_web_research_policy import course_generation_view
 from web_retrieval import admitted_sources
 
 
@@ -244,6 +245,8 @@ def build_course_source_context(
     course: dict[str, Any],
 ) -> tuple[str, dict[str, str], list[dict[str, Any]]]:
     """Render confirmed source summaries and their stable citation mapping."""
+
+    course = course_generation_view(course)
 
     package = course.get("retrieval_package") or (
         (course.get("generation_stage_artifacts") or {})
