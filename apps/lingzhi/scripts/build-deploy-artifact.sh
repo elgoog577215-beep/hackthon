@@ -3,6 +3,7 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(git -C "$ROOT_DIR" rev-parse --show-toplevel)"
 TARGET_COMMIT="${LINGZHI_TARGET_COMMIT:-$(git -C "$ROOT_DIR" rev-parse HEAD)}"
 OUTPUT_PATH="${1:-/tmp/lingzhi-release-$TARGET_COMMIT.tgz}"
 STAGING_DIR="$(mktemp -d)"
@@ -17,15 +18,17 @@ if ! [[ "$TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
     exit 1
 fi
 
+git -C "$REPO_ROOT" archive "$TARGET_COMMIT:apps/lingzhi" | tar -x -C "$STAGING_DIR"
+
 printf '[%s] 在构建机生成前端产物：%s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$TARGET_COMMIT"
 (
-    cd "$ROOT_DIR/frontend"
+    cd "$STAGING_DIR/frontend"
     npm ci
     npm run test -- src/__tests__/shared/i18n.test.ts src/__tests__/utils/public-asset-url.test.ts
-    VITE_BASE_PATH=/lingzhi/ npm run build
+    VITE_API_BASE_URL=/lingzhi VITE_QIZHI_AUTH_REQUIRED=false VITE_BASE_PATH=/lingzhi/ npm run build
 )
 
-node - "$ROOT_DIR/frontend/dist" <<'NODE'
+node - "$STAGING_DIR/frontend/dist" <<'NODE'
 const fs = require('node:fs')
 const path = require('node:path')
 
@@ -44,12 +47,11 @@ for (const [locale, expected] of [['zh', '我的日历'], ['en', 'My calendar']]
 }
 NODE
 
-git -C "$ROOT_DIR" archive "$TARGET_COMMIT" | tar -x -C "$STAGING_DIR"
-rm -rf "$STAGING_DIR/demo_videos" "$STAGING_DIR/qizhi"
+rm -rf "$STAGING_DIR/demo_videos" "$STAGING_DIR/frontend/node_modules" "$STAGING_DIR/output"
 find "$STAGING_DIR" -maxdepth 1 -type f -name 'design-qa-*.png' -delete
 rm -rf "$STAGING_DIR/backend/static"
 mkdir -p "$STAGING_DIR/backend/static"
-cp -a "$ROOT_DIR/frontend/dist/." "$STAGING_DIR/backend/static/"
+cp -a "$STAGING_DIR/frontend/dist/." "$STAGING_DIR/backend/static/"
 printf '%s\n' "$TARGET_COMMIT" > "$STAGING_DIR/.release-commit"
 
 mkdir -p "$(dirname "$OUTPUT_PATH")"

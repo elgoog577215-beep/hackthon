@@ -3,17 +3,20 @@ name: Qizhi Checks
 on:
   push:
     paths:
-      - 'qizhi/**'
+      - 'apps/qizhi/**'
+      - 'deploy/zju/**'
       - 'scripts/qizhi.sh'
       - 'scripts/check_qizhi_layout.py'
       - '.github/workflows/qizhi-checks.yml'
   pull_request:
     paths:
-      - 'qizhi/**'
+      - 'apps/qizhi/**'
+      - 'deploy/zju/**'
       - 'scripts/qizhi.sh'
       - 'scripts/check_qizhi_layout.py'
       - '.github/workflows/qizhi-checks.yml'
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -32,20 +35,20 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: |
-            qizhi/client/website/package-lock.json
-            qizhi/plugins/essay_check_front/package-lock.json
+            apps/qizhi/client/website/package-lock.json
+            apps/qizhi/plugins/essay_check_front/package-lock.json
       - name: Verify repository and Compose
         run: |
           scripts/check-tracked-ignored.sh
           scripts/qizhi.sh check
-          python -m compileall -q qizhi/server qizhi/plugins/essay_check/app
+          python -m compileall -q apps/qizhi/server apps/qizhi/plugins/essay_check/app
       - name: Verify deployment configuration boundaries
         run: |
           python -m pip install sqlalchemy==2.0.46 pydantic==2.12.5 python-dotenv==1.2.1
-          python -m unittest discover -s qizhi/server/tests -p test_public_configuration.py
+          python -m unittest discover -s apps/qizhi/server/tests -p test_public_configuration.py
       - name: Build Qizhi website
-        working-directory: qizhi/client/website
+        working-directory: apps/qizhi/client/website
         run: npm ci && npm run build
       - name: Build essay frontend
-        working-directory: qizhi/plugins/essay_check_front
+        working-directory: apps/qizhi/plugins/essay_check_front
         run: npm ci && npm run build

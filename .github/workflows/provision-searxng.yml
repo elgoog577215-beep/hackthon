@@ -93,7 +93,7 @@ jobs:
             "install -d -m 700 '$remote_dir'"
           scp -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
-            deploy/searxng/compose.yml deploy/searxng/settings.yml scripts/provision-searxng.sh \
+            apps/lingzhi/deploy/searxng/compose.yml apps/lingzhi/deploy/searxng/settings.yml apps/lingzhi/scripts/provision-searxng.sh \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_dir/"
           if [ "$LINGZHI_REMOTE_IMAGE_PRESENT" != "true" ]; then
             scp -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \

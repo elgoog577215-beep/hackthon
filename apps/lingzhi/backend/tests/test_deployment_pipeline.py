@@ -256,7 +256,7 @@ def test_failure_restore_script_waits_for_health_and_reports_diagnostics() -> No
 
 
 def test_workflow_builds_artifact_before_tuotu_activation() -> None:
-    workflow = (ROOT / ".github" / "workflows" / "deploy-lingzhi.yml").read_text()
+    workflow = (ROOT.parents[1] / ".github" / "workflows" / "deploy-lingzhi.yml").read_text()
 
     build_step = workflow.index("Build release artifact on runner")
     upload_step = workflow.index("Upload verified release artifact")
@@ -295,7 +295,7 @@ def test_server_activation_bootstraps_an_isolated_systemd_runtime() -> None:
 def test_release_artifact_excludes_non_runtime_visual_evidence() -> None:
     script = (ROOT / "scripts" / "build-deploy-artifact.sh").read_text()
 
-    archive = script.index('git -C "$ROOT_DIR" archive "$TARGET_COMMIT"')
+    archive = script.index('git -C "$REPO_ROOT" archive "$TARGET_COMMIT:apps/lingzhi"')
     prune_videos = script.index('rm -rf "$STAGING_DIR/demo_videos"')
     prune_design_evidence = script.index("-name 'design-qa-*.png' -delete")
     package = script.index('tar -C "$STAGING_DIR" -czf "$OUTPUT_PATH" .')
@@ -311,7 +311,7 @@ def test_release_artifact_validates_production_i18n_contract() -> None:
     tests = script.index("src/__tests__/shared/i18n.test.ts")
     build = script.index("VITE_BASE_PATH=/lingzhi/ npm run build")
     locale_validation = script.index("invalid ${locale} teacherHome locale")
-    archive = script.index('git -C "$ROOT_DIR" archive "$TARGET_COMMIT"')
+    archive = script.index('git -C "$REPO_ROOT" archive "$TARGET_COMMIT:apps/lingzhi"')
 
-    assert tests < build < locale_validation < archive
+    assert archive < tests < build < locale_validation
     subprocess.run(["bash", "-n", str(script_path)], check=True)

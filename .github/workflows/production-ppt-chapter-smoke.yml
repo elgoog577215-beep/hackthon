@@ -142,7 +142,7 @@ jobs:
             "pydantic>=2,<3" \
             "pillow>=10,<13" \
             "python-pptx>=1,<2"
-          PYTHONUTF8=1 python3 backend/production_ppt_chapter_smoke.py \
+          PYTHONUTF8=1 python3 apps/lingzhi/backend/production_ppt_chapter_smoke.py \
             --output-dir production-ppt-smoke \
             --finalize-deferred-render
 

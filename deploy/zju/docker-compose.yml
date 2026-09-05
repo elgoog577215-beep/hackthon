@@ -3,14 +3,14 @@ name: edu-ai-home
 services:
   server:
     build:
-      context: ../server
-      dockerfile: ../deploy/server/Dockerfile
+      context: ../../apps/qizhi/server
+      dockerfile: ../../../deploy/zju/server/Dockerfile
     image: edu-ai-home-server:latest
     container_name: edu-ai-home-server
     environment:
       - ENV
     env_file:
-      - ../server/.env
+      - ../../apps/qizhi/server/.env
     ports:
       - 8000:8000
     volumes:
@@ -38,8 +38,8 @@ services:
 
   website:
     build:
-      context: ../client/website
-      dockerfile: ../../deploy/website/Dockerfile
+      context: ../../apps/qizhi/client/website
+      dockerfile: ../../../../deploy/zju/website/Dockerfile
       args:
         VITE_LINGZHI_COURSES_URL: /lingzhi/courses
     image: edu-ai-home-website:latest
@@ -56,7 +56,7 @@ services:
 
   lingzhi:
     build:
-      context: ../..
+      context: ../../apps/lingzhi
       dockerfile: Dockerfile
       args:
         VITE_BASE_PATH: /lingzhi/
@@ -94,5 +94,8 @@ services:
 
 volumes:
   uploads_data:
+    name: edu-ai-home_uploads_data
   postgres_data:
+    name: edu-ai-home_postgres_data
   lingzhi_data:
+    name: edu-ai-home_lingzhi_data

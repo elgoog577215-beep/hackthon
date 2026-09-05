@@ -4,7 +4,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _read(relative_path: str) -> str:
-    return (ROOT / relative_path).read_text(encoding="utf-8")
+    return ((ROOT.parents[1] if relative_path.startswith(".github/") else ROOT) / relative_path).read_text(encoding="utf-8")
 
 
 def test_searxng_compose_is_loopback_only_and_pins_the_image() -> None:

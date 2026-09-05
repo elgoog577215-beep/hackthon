@@ -3,6 +3,7 @@ name: Repository Hygiene
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -19,4 +20,7 @@ jobs:
         run: scripts/check-tracked-ignored.sh
 
       - name: Verify backend dependency direction
-        run: python3 scripts/audit_backend_dependencies.py
+        run: python3 apps/lingzhi/scripts/audit_backend_dependencies.py
+
+      - name: Verify release routing
+        run: python3 -m unittest discover -s scripts/tests -v

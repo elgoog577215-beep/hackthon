@@ -7,9 +7,9 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPOSITORY_ROOT / "scripts" / "configure_zju_qwen_provider.py"
-DEPLOY_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "deploy-lingzhi.yml"
+DEPLOY_WORKFLOW = REPOSITORY_ROOT.parents[1] / ".github" / "workflows" / "deploy-lingzhi.yml"
 DIAGNOSTICS_WORKFLOW = (
-    REPOSITORY_ROOT / ".github" / "workflows" / "production-diagnostics.yml"
+    REPOSITORY_ROOT.parents[1] / ".github" / "workflows" / "production-diagnostics.yml"
 )
 
 

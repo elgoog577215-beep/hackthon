@@ -1,0 +1,107 @@
+# Logs
+logs
+.logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Build output
+frontend/dist/
+backend/static/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+env/
+.env/
+
+# Data
+backend/tasks.json
+backend/data/annotations.json
+backend/data/learning_events.json
+backend/data/learning_records.json
+backend/data/generation_jobs.json
+backend/data/usage_events.json
+backend/data/courses/
+backend/data/knowledge_graphs/
+backend/data/materials/
+backend/data/course_versions/
+backend/data/learning_assets/
+backend/data/generation_workspaces/
+backend/data/subject_libraries/
+backend/data/knowledge_library_migrations/
+backend/data/change_proposals/
+backend/data/block_regeneration_candidates/
+backend/data/ai_teacher/
+backend/data/course_evolution/
+backend/data/diagnostic_workflows/
+backend/data/learning_records/
+backend/data/learning_snapshots/
+backend/data/practice_attempts/
+backend/data/question_banks/
+backend/data/question_bank_imports/
+backend/data/question_bank_rebuilds/
+backend/data/teaching_representations/
+backend/data/teaching_exports/
+backend/data/teacher_course_spaces/
+backend/data/teaching_calendars/
+backend/data/teacher_lesson_authoring/
+!backend/data/courses/.gitkeep
+!backend/data/knowledge_graphs/.gitkeep
+
+# Local browser/test evidence
+.playwright-cli/
+frontend/test-results/
+test-results/
+output/playwright/
+
+# Atomic write temp files
+*.tmp
+
+# Pytest scratch directories (basetemp / per-agent runs)
+backend/.pytest-*
+test-tmp/
+
+# Local AI fact and experience records
+docs/事实.md
+
+# All runtime state stays local
+backend/data/
+artifacts/
+output/
+tmp/
+frontend/public/_preview/
+*.mp4
+*.docx
+!output/
+!output/pdf/启智教师课程工作台_完整规划与开发图.pdf
+!demo_videos/01_教学材料一键生成及一键更新.mp4
+!demo_videos/02_学生个体化学习与课程生长.mp4
+!demo_videos/final_defense_video1_structured_same_source_2x.mp4
+!demo_videos/final_defense_video2_personalized_growth_2x.mp4

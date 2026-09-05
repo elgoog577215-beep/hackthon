@@ -53,7 +53,7 @@ jobs:
           if [ -n "${{ inputs.html_path }}" ]; then
             ARGS="--html ${{ inputs.html_path }}"
           fi
-          node scripts/course_layout_smoke.mjs $ARGS --out "$RUNNER_TEMP/layout-evidence"
+          node apps/lingzhi/scripts/course_layout_smoke.mjs $ARGS --out "$RUNNER_TEMP/layout-evidence"
 
       - name: Upload failure evidence
         if: failure()

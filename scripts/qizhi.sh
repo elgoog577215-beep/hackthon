@@ -2,7 +2,8 @@
 set -Eeuo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-qizhi_root="$repo_root/qizhi"
+qizhi_root="$repo_root/apps/qizhi"
+deploy_root="$repo_root/deploy/zju"
 action="${1:-help}"
 if [[ $# -gt 0 ]]; then shift; fi
 
@@ -18,8 +19,8 @@ case "$action" in
     ;;
   check)
     python3 "$repo_root/scripts/check_qizhi_layout.py"
-    docker compose --env-file "$qizhi_root/deploy/.env.example" \
-      -f "$qizhi_root/deploy/docker-compose.yml" config \
+    docker compose --env-file "$deploy_root/.env.example" \
+      -f "$deploy_root/docker-compose.yml" config \
       --no-env-resolution --no-interpolate --quiet
     ;;
   dev-web)
@@ -32,13 +33,13 @@ case "$action" in
       -m uvicorn main:app --host 127.0.0.1 --port 8010 "$@"
     ;;
   build|up|ps|logs|pull)
-    deploy_env="${QIZHI_DEPLOY_ENV_FILE:-$qizhi_root/deploy/.env}"
+    deploy_env="${QIZHI_DEPLOY_ENV_FILE:-$deploy_root/.env}"
     if [[ ! -f "$deploy_env" || ! -f "$qizhi_root/server/.env" ]]; then
-      printf '%s\n' 'Create qizhi/deploy/.env and qizhi/server/.env from their examples first.' >&2
+      printf '%s\n' 'Create deploy/zju/.env and apps/qizhi/server/.env from their examples first.' >&2
       exit 1
     fi
     exec docker compose --env-file "$deploy_env" \
-      -f "$qizhi_root/deploy/docker-compose.yml" "$action" "$@"
+      -f "$deploy_root/docker-compose.yml" "$action" "$@"
     ;;
   *)
     printf 'Unknown action: %s\n' "$action" >&2

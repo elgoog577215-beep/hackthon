@@ -21,16 +21,16 @@ services:
 
   server:
     build:
-      context: ../server
-      dockerfile: ../deploy/server/Dockerfile.dashboard-local
+      context: ../../apps/qizhi/server
+      dockerfile: ../../../deploy/zju/server/Dockerfile.dashboard-local
     image: edu-ai-home-server:dashboard-local
     container_name: edu-ai-home-server-dashboard-local
     env_file:
-      - ../server/.env.dev
+      - ../../apps/qizhi/server/.env.dev
     ports:
       - "8000:8000"
     volumes:
-      - ../server:/src
+      - ../../apps/qizhi/server:/src
       - uploads_dashboard_local_data:/src/uploads
     depends_on:
       db:
