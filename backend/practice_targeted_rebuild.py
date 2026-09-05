@@ -21,8 +21,8 @@ runner 时标 `blocked`，不静默跳过）。本模块提供那个缺失的 ru
 
 ## 不建第二真源
 
-- **不自己出题**：不调 AI、不写 bundle。真正的重建仍由
-  `routers.question_bank._execute_question_bank_rebuild` 完成。
+- **不自己出题**：不调 AI、不写 bundle。真正的重建仍由题库路由在启动时
+  注册的正式 executor 完成；业务层不反向导入路由。
 - **不自己定 `revision_id`**：`item_id` / `question_id` 到 `revision_id` 的映射
   只从当前活动 bundle 读，读不到就如实失败，不猜、不造。
 - **不绕过质量门与修订机制**：登记的作业走 `reconcile_item_question_bank`，
@@ -294,16 +294,19 @@ def question_bank_job_enqueue(
     make_payload = payload_factory
     if repository is None:
         from question_bank_jobs import question_bank_rebuild_job_repository
+        from question_bank_rebuild_runtime import (
+            current_question_bank_rebuild_runtime,
+        )
 
         repository = question_bank_rebuild_job_repository
         if executor is None or make_payload is None:
-            from routers.question_bank import (
-                QuestionBankRebuildRequest,
-                question_bank_rebuild_executor,
+            configured_executor, configured_payload_factory = (
+                current_question_bank_rebuild_runtime()
             )
-
-            executor = executor or question_bank_rebuild_executor
-            make_payload = make_payload or QuestionBankRebuildRequest
+            executor = executor or configured_executor
+            make_payload = make_payload or configured_payload_factory
+        if executor is None or make_payload is None:
+            raise RuntimeError("题库重建执行器尚未完成启动注册")
 
     def enqueue(*, course_id: str, revision_ids: list[str], reason: str = "") -> dict[str, Any]:
         scoped = sorted({_text(item) for item in revision_ids if _text(item)})

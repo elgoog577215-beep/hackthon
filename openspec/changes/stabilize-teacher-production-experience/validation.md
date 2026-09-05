@@ -289,3 +289,13 @@ PWCLI=/Users/yq/.codex/skills/playwright/scripts/playwright_cli.sh
 - 独立 UI 只读复核确认：投影存在时旧 jobs 不参与动作裁决；`retry_generation` 缺少或越界的 `action_targets` 时不显示写按钮；合法恢复只提交投影授权的 `resume_job_ids`。共享适配器 `44 passed`，工作台两个关键恢复场景通过。
 
 9.6 仍未完成：以上只证明代码和发布前门禁恢复可信。只有 Actions 的 `verify`、活动任务安全门、生产备份与隔离恢复、指定 `qwen3.8-27b` 探测、`/api/health` 和代表性课程只读验收全部通过后，才记录生产 SHA、回滚点并勾选 9.6。
+
+首次修复推送后，独立 `Repository Hygiene` 进一步发现
+`practice_targeted_rebuild -> routers.question_bank` 的业务层反向依赖。没有降低审计规则；
+新增单一 `question_bank_rebuild_runtime` 端口，由题库路由在启动时注册正式 executor
+与 payload factory，定向重建业务只读取该端口。运行时未完成注册时默认路径明确失败，
+不会留下只有 queued 状态却无人执行的幽灵任务。
+
+- `python3 scripts/audit_backend_dependencies.py`：`281` 个生产模块无循环、无职责方向违规。
+- 题库定向重建、课程下游重建与题库 API 联合回归：`71 passed`。
+- 新端口、业务模块与路由 Ruff：通过。

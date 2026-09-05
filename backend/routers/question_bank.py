@@ -65,6 +65,9 @@ from question_bank import (
 from question_bank_jobs import (
     question_bank_rebuild_job_repository,
 )
+from question_bank_rebuild_runtime import (
+    configure_question_bank_rebuild_runtime,
+)
 from solution_contracts import project_solution_spec
 from storage import storage
 from storage_utils import save_course_compat
@@ -303,6 +306,10 @@ def _configured_rebuild_worker_count() -> int:
 
 question_bank_rebuild_executor = QuestionBankRebuildExecutor(
     max_workers=_configured_rebuild_worker_count(),
+)
+configure_question_bank_rebuild_runtime(
+    executor=question_bank_rebuild_executor,
+    payload_factory=QuestionBankRebuildRequest,
 )
 atexit.register(question_bank_rebuild_executor.shutdown)
 assessment_generation_orchestrator = AssessmentGenerationOrchestrator()
