@@ -25,11 +25,14 @@ def main() -> None:
         for key in ("dependencies", "devDependencies"):
             if package.get(key, {}) != lock.get(key, {}):
                 raise SystemExit(f"Lockfile does not match {relative}: {key}")
-    tracked = subprocess.check_output(
-        ["git", "-C", str(root), "ls-files", "--stage", "apps"], text=True
-    )
-    if any(line.startswith("160000 ") for line in tracked.splitlines()):
-        raise SystemExit("Qizhi contains a Git submodule")
+    if (root / ".git").exists():
+        tracked = subprocess.check_output(
+            ["git", "-C", str(root), "ls-files", "--stage", "apps"], text=True
+        )
+        if any(line.startswith("160000 ") for line in tracked.splitlines()):
+            raise SystemExit("Qizhi contains a Git submodule")
+    elif not (root / "release.json").is_file():
+        raise SystemExit("Expected a repository checkout or an exported ZJU release")
     print("Qizhi source paths and dependency manifests verified.")
 
 

@@ -100,6 +100,9 @@ frontend/public/_preview/
 *.mp4
 *.docx
 !output/
+output/*
+!output/pdf/
+output/pdf/*
 !output/pdf/启智教师课程工作台_完整规划与开发图.pdf
 !demo_videos/01_教学材料一键生成及一键更新.mp4
 !demo_videos/02_学生个体化学习与课程生长.mp4

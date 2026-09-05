@@ -23,3 +23,8 @@ tmp/
 /qizhi
 /output
 /demo_videos
+
+# Local browser evidence and development caches
+.playwright-cli/
+.pytest_cache/
+.ruff_cache/
