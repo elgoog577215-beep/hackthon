@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'qizhi/**'
+      - 'docs/**'
+      - '**/*.md'
+      - 'scripts/qizhi.sh'
+      - 'scripts/check_qizhi_layout.py'
+      - '.github/workflows/qizhi-checks.yml'
   workflow_dispatch:
 
 permissions:

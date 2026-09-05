@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mirrors the iOS AccentColor (ZJU blue) and the login gradient stops. -->
+    <color name="brand_accent">#0072BC</color>
+    <color name="brand_login_gradient_start">#002E73</color>
+    <color name="brand_login_gradient_end">#005CB0</color>
+    <color name="surface_secondary">#F2F2F7</color>
+    <!-- Adaptive-launcher-icon background. White matches the iOS icon canvas, so the cap reads
+         the same on both platforms after the launcher mask is applied. -->
+    <color name="ic_launcher_background">#FFFFFF</color>
+</resources>

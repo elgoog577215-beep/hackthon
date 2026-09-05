@@ -45,7 +45,7 @@ for (const [locale, expected] of [['zh', '我的日历'], ['en', 'My calendar']]
 NODE
 
 git -C "$ROOT_DIR" archive "$TARGET_COMMIT" | tar -x -C "$STAGING_DIR"
-rm -rf "$STAGING_DIR/demo_videos"
+rm -rf "$STAGING_DIR/demo_videos" "$STAGING_DIR/qizhi"
 find "$STAGING_DIR" -maxdepth 1 -type f -name 'design-qa-*.png' -delete
 rm -rf "$STAGING_DIR/backend/static"
 mkdir -p "$STAGING_DIR/backend/static"

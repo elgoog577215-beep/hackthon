@@ -1,0 +1,4 @@
+
+# Release signing secrets — keep private, never commit
+keystore.properties
+release.keystore

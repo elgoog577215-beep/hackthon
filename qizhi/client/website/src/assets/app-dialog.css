@@ -1,0 +1,155 @@
+/* Alert / Message / 警告弹窗统一样式（DeleteConfirmModal、ConfirmDialogModal 及复用 app-dialog-* 的页面弹窗） */
+
+.app-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal-overlay, 1200);
+}
+
+.app-dialog-box {
+  box-sizing: border-box;
+  background: #fff;
+  border-radius: 12px;
+  width: 947px;
+  max-width: calc(100vw - 48px);
+  padding: 24px;
+}
+
+.app-dialog-title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #000;
+  text-align: left;
+  line-height: 1.4;
+}
+
+.app-dialog-content {
+  margin: 0 0 24px;
+  font-size: 14px;
+  font-weight: 400;
+  color: #a1a1a1;
+  text-align: left;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.app-dialog-error {
+  margin: -16px 0 16px;
+  font-size: 13px;
+  color: #dc2626;
+  text-align: left;
+}
+
+.app-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.app-dialog-btn {
+  box-sizing: border-box;
+  min-width: 80px;
+  max-width: 100%;
+  width: auto;
+  height: 40px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.app-dialog-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.app-dialog-btn--cancel {
+  background: #fff;
+  border: 1px solid #a1a1a1;
+  color: #000;
+}
+
+.app-dialog-btn--cancel:hover:not(:disabled) {
+  background: #fafafa;
+}
+
+.app-dialog-btn--danger {
+  background: #dc2626;
+  border: none;
+  color: #fff;
+}
+
+.app-dialog-btn--danger:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.app-dialog-btn--primary {
+  background: #0f172a;
+  border: none;
+  color: #fff;
+}
+
+.app-dialog-btn--primary:hover:not(:disabled) {
+  background: #1e293b;
+}
+
+/* ConfirmDialogModal / DeleteConfirmModal 显隐过渡 */
+.app-dialog-enter-active {
+  transition: opacity 0.22s ease;
+}
+
+.app-dialog-leave-active {
+  transition: opacity 0.18s ease;
+}
+
+.app-dialog-enter-active .app-dialog-box {
+  transition:
+    transform 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.22s ease;
+}
+
+.app-dialog-leave-active .app-dialog-box {
+  transition:
+    transform 0.18s ease,
+    opacity 0.18s ease;
+}
+
+.app-dialog-enter-from,
+.app-dialog-leave-to {
+  opacity: 0;
+}
+
+.app-dialog-enter-from .app-dialog-box,
+.app-dialog-leave-to .app-dialog-box {
+  opacity: 0;
+  transform: scale(0.96) translateY(12px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-dialog-enter-active,
+  .app-dialog-leave-active,
+  .app-dialog-enter-active .app-dialog-box,
+  .app-dialog-leave-active .app-dialog-box {
+    transition: none !important;
+  }
+
+  .app-dialog-enter-from .app-dialog-box,
+  .app-dialog-leave-to .app-dialog-box {
+    transform: none;
+  }
+}

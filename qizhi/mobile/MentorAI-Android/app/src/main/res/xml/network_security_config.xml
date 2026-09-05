@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+        Mirrors the iOS ATS exceptions: the backend at jsfzai.zju.edu.cn and the CAS / smart
+        classroom services under zju.edu.cn are served over http and must be reachable as
+        cleartext. All other domains require TLS by default.
+    -->
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">zju.edu.cn</domain>
+        <!-- Test environment backend (debug builds, reached via 暂不登录). -->
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

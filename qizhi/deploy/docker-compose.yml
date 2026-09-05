@@ -1,0 +1,98 @@
+name: edu-ai-home
+
+services:
+  server:
+    build:
+      context: ../server
+      dockerfile: ../deploy/server/Dockerfile
+    image: edu-ai-home-server:latest
+    container_name: edu-ai-home-server
+    environment:
+      - ENV
+    env_file:
+      - ../server/.env
+    ports:
+      - 8000:8000
+    volumes:
+      - uploads_data:/src/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:17
+    container_name: edu-ai-home-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: edu_ai_home
+    ports:
+      - 5432:5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  website:
+    build:
+      context: ../client/website
+      dockerfile: ../../deploy/website/Dockerfile
+      args:
+        VITE_LINGZHI_COURSES_URL: /lingzhi/courses
+    image: edu-ai-home-website:latest
+    container_name: edu-ai-home-website
+    environment:
+      ESSAY_CHECK_PROXY_URL: ${ESSAY_CHECK_PROXY_URL:-http://127.0.0.1:8001/api/}
+    ports:
+      - 80:80
+    depends_on:
+      server:
+        condition: service_started
+      lingzhi:
+        condition: service_healthy
+
+  lingzhi:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        VITE_BASE_PATH: /lingzhi/
+        VITE_API_BASE_URL: /lingzhi
+        VITE_QIZHI_AUTH_REQUIRED: "true"
+    image: edu-ai-home-lingzhi:latest
+    container_name: edu-ai-home-lingzhi
+    environment:
+      ZJU_QWEN_API_KEY: ${LINGZHI_AI_API_KEY:-}
+      ZJU_QWEN_BASE_URL: ${LINGZHI_AI_API_BASE:-}
+      AI_LOCAL_PROVIDER: http
+      AI_API_KEY: ${LINGZHI_AI_API_KEY:-}
+      AI_API_BASE: ${LINGZHI_AI_API_BASE:-}
+      AI_MODEL: qwen3.8-27b
+      AI_MODEL_FAST: qwen3.8-27b
+      AI_THINKING_ENABLED: ${LINGZHI_AI_THINKING_ENABLED:-true}
+      LINGZHI_DATA_DIR: /app/backend/data
+      GIT_AUTO_SYNC_ENABLED: "false"
+      QIZHI_AUTH_VERIFY_URL: http://server:8000/user/current
+      QIZHI_AUTH_ALLOWED_ROLES: teacher,admin
+      FORMAL_RUNNER_URL: ${LINGZHI_FORMAL_RUNNER_URL:-}
+      FORMAL_RUNNER_TOKEN: ${LINGZHI_FORMAL_RUNNER_TOKEN:-}
+    expose:
+      - 7860
+    volumes:
+      - lingzhi_data:/app/backend/data
+    command: ["/app/backend/start.sh"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7860/api/health', timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      retries: 12
+      start_period: 90s
+    restart: unless-stopped
+
+volumes:
+  uploads_data:
+  postgres_data:
+  lingzhi_data:

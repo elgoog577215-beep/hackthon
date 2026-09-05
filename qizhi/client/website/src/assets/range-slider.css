@@ -1,0 +1,98 @@
+/* 学时/学分等滑动条（大纲表单、新建课程弹窗等共用） */
+
+.form-field--with-range {
+  gap: 10px;
+}
+
+.form-row--with-range {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.range-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 4px;
+}
+
+/* --range-ratio: 0~1，与滑块中心行程对齐（扣除拇指宽度） */
+.range-slider {
+  --thumb-size: 18px;
+  --range-ratio: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: var(--thumb-size);
+  margin: 0;
+  background: transparent;
+  outline: none;
+  cursor: pointer;
+}
+
+.range-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    rgba(19, 88, 228, 0.45) 0,
+    rgba(19, 88, 228, 0.45)
+      calc(var(--thumb-size) / 2 + (100% - var(--thumb-size)) * var(--range-ratio, 0)),
+    rgba(217, 217, 217, 0.55)
+      calc(var(--thumb-size) / 2 + (100% - var(--thumb-size)) * var(--range-ratio, 0)),
+    rgba(217, 217, 217, 0.55) 100%
+  );
+}
+
+.range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: var(--thumb-size);
+  height: var(--thumb-size);
+  margin-top: calc((6px - var(--thumb-size)) / 2);
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: #1358e4;
+  box-shadow: 0 2px 8px rgba(19, 88, 228, 0.35);
+  transition: transform 0.12s ease, box-shadow 0.2s ease;
+}
+
+.range-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.06);
+  box-shadow: 0 4px 12px rgba(19, 88, 228, 0.4);
+}
+
+.range-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(197, 217, 255, 0.9);
+}
+
+.range-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(217, 217, 217, 0.55);
+}
+
+.range-slider::-moz-range-progress {
+  height: 6px;
+  border-radius: 999px 0 0 999px;
+  background: rgba(19, 88, 228, 0.45);
+}
+
+.range-slider::-moz-range-thumb {
+  width: var(--thumb-size);
+  height: var(--thumb-size);
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: #1358e4;
+  box-shadow: 0 2px 8px rgba(19, 88, 228, 0.35);
+  cursor: pointer;
+}
+
+.range-ticks {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #888;
+  padding: 0 2px;
+}

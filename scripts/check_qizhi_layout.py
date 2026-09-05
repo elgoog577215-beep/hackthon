@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""Check that a plain checkout contains the integrated build sources."""
+from pathlib import Path
+import json
+import subprocess
+
+
+def main() -> None:
+    root = Path(__file__).resolve().parent.parent
+    qizhi = root / "qizhi"
+    for relative in (
+        "Dockerfile", "frontend/package.json", "backend/start.sh",
+        "qizhi/server/main.py", "qizhi/client/website/package.json",
+        "qizhi/deploy/docker-compose.yml", "qizhi/deploy/server/Dockerfile",
+        "qizhi/deploy/website/Dockerfile",
+    ):
+        if not (root / relative).is_file():
+            raise SystemExit(f"Missing build source: {relative}")
+    if (qizhi / "services/lingzhi").exists() or (qizhi / ".gitmodules").exists():
+        raise SystemExit("Qizhi must use the root Lingzhi source, without a submodule copy")
+    for relative in ("qizhi/client/website/package.json", "qizhi/plugins/essay_check_front/package.json"):
+        package = json.loads((root / relative).read_text())
+        lock_path = root / relative.replace("package.json", "package-lock.json")
+        lock = json.loads(lock_path.read_text())["packages"][""]
+        for key in ("dependencies", "devDependencies"):
+            if package.get(key, {}) != lock.get(key, {}):
+                raise SystemExit(f"Lockfile does not match {relative}: {key}")
+    tracked = subprocess.check_output(
+        ["git", "-C", str(root), "ls-files", "--stage", "qizhi"], text=True
+    )
+    if any(line.startswith("160000 ") for line in tracked.splitlines()):
+        raise SystemExit("Qizhi contains a Git submodule")
+    print("Qizhi source paths and dependency manifests verified.")
+
+
+if __name__ == "__main__":
+    main()

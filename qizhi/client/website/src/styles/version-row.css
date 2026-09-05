@@ -1,0 +1,115 @@
+.version-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.version-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid #e9edf3;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.version-row:hover {
+  border-color: #bfdbfe;
+  box-shadow: 0 2px 10px rgba(59, 130, 246, 0.08);
+}
+
+.version-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+  flex: none;
+}
+
+.version-badge.large {
+  min-width: 44px;
+  height: 30px;
+  font-size: 14px;
+}
+
+.version-badge.red {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.version-badge.gray {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
+.version-texts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.version-name {
+  font-size: 15px;
+  font-weight: 500;
+  color: #111827;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.version-meta {
+  font-size: 12px;
+  color: #8a94a6;
+}
+
+.version-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.row-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid #e3e7ef;
+  background: #fff;
+  color: #4b5563;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.row-btn:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
+.row-btn.primary {
+  border-color: #3b82f6;
+  background: #3b82f6;
+  color: #fff;
+}
+
+.row-btn.primary:hover {
+  filter: brightness(0.96);
+  color: #fff;
+}
+
+.row-btn.danger:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+}

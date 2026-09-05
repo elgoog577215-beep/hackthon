@@ -1,0 +1,41 @@
+name: edu-ai-home-dashboard-local
+
+services:
+  db:
+    image: postgres:17
+    container_name: edu-ai-home-db-dashboard-local
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: edu_ai_home
+    # 宿主 5432 通常已被本机 postgres 占用，故对外暴露 5433
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_dashboard_local_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build:
+      context: ../server
+      dockerfile: ../deploy/server/Dockerfile.dashboard-local
+    image: edu-ai-home-server:dashboard-local
+    container_name: edu-ai-home-server-dashboard-local
+    env_file:
+      - ../server/.env.dev
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../server:/src
+      - uploads_dashboard_local_data:/src/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_dashboard_local_data:
+  uploads_dashboard_local_data:

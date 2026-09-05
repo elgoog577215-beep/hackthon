@@ -1,0 +1,170 @@
+/* 路由页面左右滑动过渡（App.vue / AdminLayout 共用） */
+
+.route-slide-host {
+  position: relative;
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.route-slide-host--fill .route-slide-stack {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+  align-content: stretch;
+}
+
+.route-slide-host--fill .route-slide-page {
+  height: 100%;
+  min-height: 0;
+}
+
+/* 两页叠在同一格，过渡时容器高度取较高者，避免塌陷 */
+.route-slide-stack {
+  display: grid;
+  grid-template-columns: 100%;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.route-slide-stack > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+
+.route-slide-page {
+  width: 100%;
+  min-height: 0;
+  background: var(--route-slide-bg, #fff);
+  backface-visibility: hidden;
+}
+
+/* 四个核心功能页根节点带 .core-app-page，需透明以显示 body 全局背景图 */
+.route-slide-page.core-app-page {
+  --route-slide-bg: transparent;
+  background: transparent;
+}
+
+.route-slide-page.core-app-page--flow {
+  height: auto;
+  min-height: calc(100vh - var(--app-nav-height, 64px));
+}
+
+.route-slide-host:not(.route-slide-host--fill) {
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 进出必须同一时长、同一缓动、仅 transform，位移 1:1 同步，避免新页已到、旧页仍滞留 */
+.route-slide-stack {
+  --slide-duration: 0.36s;
+  --slide-ease: cubic-bezier(0.45, 0, 0.55, 1);
+  --fade-duration: 0.32s;
+  --fade-ease: cubic-bezier(0.45, 0, 0.55, 1);
+}
+
+.slide-left-enter-active,
+.slide-left-leave-active,
+.slide-right-enter-active,
+.slide-right-leave-active {
+  transition: transform var(--slide-duration) var(--slide-ease);
+  will-change: transform;
+}
+
+.slide-left-enter-active,
+.slide-right-enter-active {
+  z-index: 2;
+}
+
+.slide-left-leave-active,
+.slide-right-leave-active {
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* 前进：新页从右推入，旧页同步向左推出 */
+.slide-left-enter-from {
+  transform: translate3d(100%, 0, 0);
+}
+
+.slide-left-enter-to,
+.slide-left-leave-from {
+  transform: translate3d(0, 0, 0);
+}
+
+.slide-left-leave-to {
+  transform: translate3d(-100%, 0, 0);
+}
+
+/* 后退：新页从左推入，旧页同步向右推出 */
+.slide-right-enter-from {
+  transform: translate3d(-100%, 0, 0);
+}
+
+.slide-right-enter-to,
+.slide-right-leave-from {
+  transform: translate3d(0, 0, 0);
+}
+
+.slide-right-leave-to {
+  transform: translate3d(100%, 0, 0);
+}
+
+/* 整页刷新式：首页、鉴权、跨模块、同 Tab 内平级切换 */
+.fade-page-enter-active,
+.fade-page-leave-active {
+  transition:
+    opacity var(--fade-duration) var(--fade-ease),
+    transform var(--fade-duration) var(--fade-ease);
+  will-change: opacity, transform;
+}
+
+.fade-page-enter-active {
+  z-index: 2;
+}
+
+.fade-page-leave-active {
+  z-index: 1;
+  pointer-events: none;
+}
+
+.fade-page-enter-from {
+  opacity: 0;
+  transform: translate3d(0, 10px, 0) scale(0.992);
+}
+
+.fade-page-enter-to,
+.fade-page-leave-from {
+  opacity: 1;
+  transform: translate3d(0, 0, 0) scale(1);
+}
+
+.fade-page-leave-to {
+  opacity: 0;
+  transform: translate3d(0, -6px, 0) scale(0.996);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slide-left-enter-active,
+  .slide-left-leave-active,
+  .slide-right-enter-active,
+  .slide-right-leave-active,
+  .fade-page-enter-active,
+  .fade-page-leave-active {
+    transition: none !important;
+  }
+  .slide-left-enter-from,
+  .slide-left-leave-to,
+  .slide-right-enter-from,
+  .slide-right-leave-to {
+    transform: none !important;
+  }
+  .fade-page-enter-from,
+  .fade-page-leave-to {
+    transform: none !important;
+    opacity: 1 !important;
+  }
+}
