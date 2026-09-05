@@ -3302,6 +3302,9 @@
     "close": "关闭并返回正文"
   },
   "courseBlocks": {
+    "lessonNumber": "第 {number} 讲",
+    "chapterNumber": "第 {number} 章",
+    "lessonPractice": "本讲练习",
     "lesson": "讲次",
     "courseOpening": "课程导读",
     "courseUnit": "课程单元",

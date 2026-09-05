@@ -85,6 +85,31 @@ describe('CourseBlockStream', () => {
     expect(wrapper.get('.markdown-renderer').text()).toBe('从问题进入。')
   })
 
+  it('正文标题只显示一次，去掉重复的角色标签和同名 Markdown 开头', () => {
+    const node: CourseNode = {
+      ...baseNode,
+      content_blocks: [
+        { block_id: 'goal', type: 'objective', title: '本节任务', content: '理解向量空间。', order: 0 },
+        { block_id: 'example', type: 'example', title: '线性组合', content: '## 线性组合\n\n保留完整推导。\n\n### 边界条件\n零向量必须属于空间。', order: 1 },
+      ],
+    }
+    const wrapper = mount(CourseBlockStream, { props: { node, content: node.node_content }, global })
+
+    expect(wrapper.findAll('.block-heading h4').map(item => item.text())).toEqual(['本节任务', '线性组合'])
+    expect(wrapper.findAll('.block-heading > .block-role')).toHaveLength(0)
+    expect(wrapper.findAll('.markdown-renderer')[1]?.text()).toBe('保留完整推导。\n\n### 边界条件\n零向量必须属于空间。')
+    expect(node.content_blocks?.[1]?.content).toContain('## 线性组合')
+  })
+
+  it('与块标题不同的正文开头仍完整保留', () => {
+    const node: CourseNode = {
+      ...baseNode,
+      content_blocks: [{ block_id: 'example', type: 'example', title: '线性组合', content: '## 为什么要检查封闭性\n\n这是独立的小标题。', order: 0 }],
+    }
+    const wrapper = mount(CourseBlockStream, { props: { node, content: node.node_content }, global })
+    expect(wrapper.get('.markdown-renderer').text()).toBe('## 为什么要检查封闭性\n\n这是独立的小标题。')
+  })
+
   it('renders clickable source cards beneath a cited course section', () => {
     const node: CourseNode = {
       ...baseNode,

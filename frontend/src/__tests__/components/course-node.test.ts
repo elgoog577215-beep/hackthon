@@ -29,6 +29,15 @@ const mountNode = () => mount(CourseNode, {
 describe('CourseNode 正式练习入口', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
+  it('讲次用一个编号定位，标题完整保留', () => {
+    const wrapper = mount(CourseNode, {
+      props: { node: { ...node, node_name: '结构化表达：起承转合与语言节奏' }, lesson: true, index: 6, fontSize: 17, fontFamily: 'sans', lineHeight: 1.8 },
+      global: { stubs: { CourseBlockStream: { template: '<div />' } } },
+    })
+    expect(wrapper.get('.chapter-meta').text()).toBe('第 7 讲')
+    expect(wrapper.get('h2').text()).toBe('结构化表达：起承转合与语言节奏')
+  })
+
   it('没有正式题目资产时不显示练习入口', () => {
     const workspace = useCourseWorkspaceStore()
     workspace.assets = {

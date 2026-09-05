@@ -19,11 +19,7 @@
     <template v-else-if="node.node_level === 2">
       <header class="chapter-heading">
         <div class="chapter-meta">
-          <span class="chapter-badge">
-            <BookOpenText :size="13" />
-            {{ lesson ? t('courseBlocks.lesson', '讲次') : t('courseBlocks.chapter', '章节') }}
-          </span>
-          <span class="chapter-index">{{ String(index + 1).padStart(2, '0') }}</span>
+          <span class="chapter-label">{{ chapterNumberLabel }}</span>
         </div>
         <div v-if="generationPreview || nodeProgress" class="chapter-status">
           <span v-if="generationPreview" class="generation-status" :data-state="generationState">
@@ -37,9 +33,6 @@
         </div>
         <div class="chapter-copy">
           <h2><MathText :content="node.node_name" /></h2>
-          <div class="chapter-divider" aria-hidden="true">
-            <span></span><i></i><b></b>
-          </div>
           <MathText v-if="node.learning_objective" tag="p" :content="node.learning_objective" />
         </div>
       </header>
@@ -66,7 +59,7 @@
         <span class="task-icon"><ClipboardCheck :size="17" /></span>
         <span class="task-copy">
           <span class="task-meta">
-            {{ t('courseBlocks.chapterPractice', '章节练习') }} · {{ practiceCountLabel }}
+            {{ lesson ? t('courseBlocks.lessonPractice', '本讲练习') : t('courseBlocks.chapterPractice', '章节练习') }} · {{ practiceCountLabel }}
           </span>
           <strong><MathText :content="practicePreview || node.node_name" /></strong>
           <small>{{ t('courseBlocks.practiceHint', '从正式题目进入，作答进度会自动保存') }}</small>
@@ -101,7 +94,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ArrowRight, BookOpenText, CheckCircle2, ClipboardCheck, Clock3, LoaderCircle, TriangleAlert } from 'lucide-vue-next'
+import { ArrowRight, CheckCircle2, ClipboardCheck, Clock3, LoaderCircle, TriangleAlert } from 'lucide-vue-next'
 import AdaptiveLearningBlock from './AdaptiveLearningBlock.vue'
 import CourseBlockStream from './CourseBlockStream.vue'
 import MathText from './MathText.vue'
@@ -131,6 +124,10 @@ const emit = defineEmits<{
 }>()
 const progressStore = useLearningProgressStore()
 const workspaceStore = useCourseWorkspaceStore()
+const chapterNumberLabel = computed(() => (props.lesson
+  ? t('courseBlocks.lessonNumber', '第 {number} 讲')
+  : t('courseBlocks.chapterNumber', '第 {number} 章')
+).replace('{number}', String(props.index + 1)))
 const cleanName = computed(() => props.node.node_name.replace(/《|》/g, ''))
 const generationState = computed(() => {
   const status = String(props.node.generation_status || '')
@@ -186,83 +183,153 @@ const contentStyle = computed(() => ({
 </script>
 
 <style scoped>
-.course-node { width:min(100%,920px); margin:0 auto; color:var(--lz-text); }
-.course-node[data-level="1"] { margin:34px auto 48px; padding:44px clamp(24px,5vw,64px); overflow:visible; border:1px solid rgba(255,255,255,.9); border-radius:28px; background:#fdfdff; box-shadow:0 6px 20px rgba(15,23,42,.04); }
-.course-node[data-level="2"] { position:relative; margin:30px auto 38px; padding:0 clamp(22px,4vw,42px) 34px; overflow:visible; border:1px solid rgba(241,245,249,.96); border-radius:24px; background:#fff; box-shadow:0 3px 14px rgba(15,23,42,.045); }
-.course-node[data-level="2"]::before { content:""; position:absolute; inset:0 0 auto; height:3px; border-radius:24px 24px 0 0; background:var(--color-primary-200); pointer-events:none; }
-.course-node[data-level="3"],.course-node[data-level="4"],.course-node[data-level="5"] { --inline-ai-menu-offset:calc(clamp(18px,4vw,30px) + clamp(16px,3vw,24px) + 15px); position:relative; margin:16px auto 24px; padding:2px 0 2px clamp(18px,4vw,30px); border-left:2px solid #e2e8f0; transition:border-color .2s ease; }
-.course-node[data-level="3"]::before,.course-node[data-level="4"]::before,.course-node[data-level="5"]::before { content:""; position:absolute; top:7px; left:-5px; width:8px; height:8px; border:1px solid #fff; border-radius:50%; background:#e2e8f0; box-shadow:0 1px 2px rgba(15,23,42,.04); transition:background-color .22s var(--ease-out); }
-.course-node[data-level="3"]:hover,.course-node[data-level="4"]:hover,.course-node[data-level="5"]:hover { border-left-color:#a5b4fc; }
-.course-node[data-level="3"]:hover::before,.course-node[data-level="4"]:hover::before,.course-node[data-level="5"]:hover::before { background:#818cf8; }
-.course-opening { display:flex; flex-direction:column; align-items:center; padding:10px 0 24px; border-bottom:0; text-align:center; }
-.course-opening > span { padding:6px 12px; border:1px solid rgba(203,213,225,.68); border-radius:999px; color:#6366f1; background:rgba(255,255,255,.7); font-size:9px; font-weight:800; text-transform:uppercase; }
-.course-opening h1 { max-width:760px; margin:22px 0 14px; color:#312e81; font-size:clamp(30px,4vw,46px); line-height:1.16; }
-.course-opening p,.chapter-copy p { max-width:720px; margin:0; color:var(--lz-text-secondary); font-size:13px; line-height:1.7; }
-.opening-content { padding-top:22px; border-top:0; }
-.chapter-heading { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start; gap:20px; padding:34px 0 24px; border-bottom:0; }
-.chapter-meta { min-width:0; display:flex; align-items:center; gap:12px; }
-.chapter-badge { display:inline-flex; align-items:center; gap:7px; padding:7px 12px; border-radius:999px; color:#fff; background:#334155; box-shadow:0 1px 3px rgba(15,23,42,.06); font-size:10px; font-weight:800; letter-spacing:0; }
-.chapter-badge svg { color:#a5b4fc; }
-.chapter-index { color:#e2e8f0; font-size:28px; font-weight:900; line-height:1; }
-.chapter-copy { min-width:0; grid-column:1/-1; }
-.chapter-copy h2 { margin:0 0 16px; color:#1e293b; font-size:clamp(29px,3.4vw,44px); font-weight:850; line-height:1.12; }
-.chapter-divider { display:flex; align-items:center; gap:10px; margin:0 0 17px; }
-.chapter-divider span { width:64px; height:4px; border-radius:999px; background:var(--color-primary-400); }
-.chapter-divider i { width:7px; height:7px; border-radius:50%; background:#818cf8; }
-.chapter-divider b { width:30px; height:2px; border-radius:999px; background:#e2e8f0; }
-.chapter-status { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:5px; }
-.chapter-status span { padding:4px 8px; border:1px solid rgba(203,213,225,.68); border-radius:999px; color:var(--lz-text-muted); background:rgba(255,255,255,.72); font-size:9px; }
-.chapter-status span[data-state="completed"],.chapter-status span[data-state="mastered"] { border-color:#a7f3d0; color:var(--lz-success); background:var(--lz-success-soft); }
-.chapter-status .generation-status { display:inline-flex; align-items:center; gap:5px; }
-.generation-status[data-state="generating"],.section-generation-status[data-state="generating"] { border-color:#c7d2fe; color:#4f46e5; background:#eef2ff; }
-.generation-status[data-state="finalized"],.section-generation-status[data-state="finalized"] { border-color:#a7f3d0; color:#047857; background:#ecfdf5; }
-.generation-status[data-state="failed"],.section-generation-status[data-state="failed"] { border-color:#fecaca; color:#b91c1c; background:#fef2f2; }
-.generation-status[data-state="draft"],.section-generation-status[data-state="draft"] { border-color:#ddd6fe; color:#6d28d9; background:#f5f3ff; }
-.spinning { animation:generation-status-spin .9s linear infinite; }
-.chapter-content { padding:20px 0 8px; }
-.generation-placeholder { min-height:52px; display:flex; align-items:center; gap:9px; margin:8px 0 0; padding:12px 14px; border:1px dashed #dbe2ee; border-radius:10px; color:#64748b; background:#f8fafc; font-size:11px; font-weight:650; }
+.course-node {
+  width: min(100%, 860px);
+  margin: 0 auto;
+  color: var(--lz-text);
+  container-type: inline-size;
+}
+.course-node[data-level="1"],
+.course-node[data-level="2"] {
+  margin: 22px auto 36px;
+  padding: 0 clamp(28px, 4vw, 44px) 36px;
+  border: 1px solid #e9ecf3;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(31, 41, 74, .025), 0 12px 36px rgba(31, 41, 74, .045);
+}
+.course-opening, .chapter-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 18px;
+  padding: 32px 0 26px;
+  border-bottom: 1px solid #e9ecf3;
+}
+.course-opening > span, .chapter-label {
+  color: var(--lz-brand-strong);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+.course-opening h1, .chapter-copy h2 {
+  margin: 0;
+  color: var(--lz-text-strong);
+  font-size: clamp(28px, 5cqi, 36px);
+  font-weight: 720;
+  line-height: 1.4;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.course-opening h1 { grid-column: 1 / -1; font-size: clamp(30px, 5cqi, 40px); }
+.course-opening p, .chapter-copy p {
+  max-width: 720px;
+  margin: 14px 0 0;
+  color: var(--lz-text-secondary);
+  font-size: 15px;
+  line-height: 1.75;
+}
+.course-opening p { grid-column: 1 / -1; margin-top: 0; }
+.chapter-meta { min-width: 0; display: flex; align-items: center; }
+.chapter-copy { min-width: 0; grid-column: 1 / -1; }
+.chapter-status { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.chapter-status span, .section-generation-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  color: var(--lz-text-secondary);
+  background: #f4f6fa;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.chapter-status span[data-state="completed"],
+.chapter-status span[data-state="mastered"] { color: var(--lz-success); background: var(--lz-success-soft); }
+.generation-status[data-state="generating"],.section-generation-status[data-state="generating"] { color:#4f46e5; background:#eef2ff; }
+.generation-status[data-state="finalized"],.section-generation-status[data-state="finalized"] { color:#047857; background:#ecfdf5; }
+.generation-status[data-state="failed"],.section-generation-status[data-state="failed"] { color:#b91c1c; background:#fef2f2; }
+.generation-status[data-state="draft"],.section-generation-status[data-state="draft"] { color:#6d28d9; background:#f5f3ff; }
+.spinning { animation: generation-status-spin .9s linear infinite; }
+.chapter-content, .opening-content { padding: 28px 0 0; }
+/* Keep the reader's typography settings across shared Markdown renderers. */
+.chapter-content :deep(.markdown-renderer),
+.opening-content :deep(.markdown-renderer),
+.section-content :deep(.markdown-renderer) { line-height: var(--content-line-height, 1.8); }
+.generation-placeholder {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 24px;
+  padding: 14px;
+  border: 1px dashed #dbe2ee;
+  border-radius: 10px;
+  color: var(--lz-text-secondary);
+  background: #f8fafc;
+  font-size: 14px;
+}
 .generation-placeholder[data-state="generating"] { border-color:#c7d2fe; color:#4f46e5; background:#f5f7ff; }
 .generation-placeholder[data-state="failed"] { border-color:#fecaca; color:#b91c1c; background:#fef2f2; }
-.task-launcher { position:relative; width:100%; min-height:112px; margin:30px 0 0; display:grid; grid-template-columns:44px minmax(0,1fr) auto; align-items:center; gap:16px; overflow:hidden; padding:18px 18px 18px 20px; border:1px solid #dbe2ee; border-radius:16px; color:var(--lz-text); background:#f8fafc; text-align:left; box-shadow:0 1px 2px rgba(15,23,42,.03); cursor:pointer; transition:border-color .22s var(--ease-out),box-shadow .22s var(--ease-out),background-color .22s var(--ease-out); }
-.task-launcher::before { content:""; position:absolute; inset:14px auto 14px 0; width:3px; border-radius:0 999px 999px 0; background:#6366f1; }
-.task-launcher:hover { border-color:#a5b4fc; background:#fff; box-shadow:0 2px 6px rgba(15,23,42,.045); }
-.task-launcher:focus-visible { outline:3px solid rgba(99,102,241,.28); outline-offset:3px; }
-.task-icon { width:44px; height:44px; display:grid; place-items:center; border:1px solid #c7d2fe; border-radius:13px; color:#4f46e5; background:#eef2ff; box-shadow:0 1px 3px rgba(15,23,42,.04); }
-.task-copy { min-width:0; display:flex; flex-direction:column; }
-.task-meta { margin-bottom:7px; color:#6366f1; font-size:10px; font-weight:800; letter-spacing:.02em; }
-.task-copy strong { display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:2; color:var(--lz-text-strong); font-size:14px; font-weight:720; line-height:1.55; }
-.task-copy small { margin-top:6px; color:var(--lz-text-muted); font-size:10px; line-height:1.45; }
-.task-action { display:inline-flex; align-items:center; gap:6px; padding:8px 10px; border-radius:9px; color:var(--lz-brand-strong); background:#eef2ff; font-size:11px; font-weight:750; white-space:nowrap; }
-.task-launcher:hover .task-action { background:#e0e7ff; }
-.task-action { transition:background-color .22s var(--ease-out); }
-.section-heading { display:grid; grid-template-columns:minmax(0,1fr); align-items:center; gap:10px; }
-.section-heading span { display:none; }
-.section-heading h3 { margin:0; color:#312e81; font-size:19px; line-height:1.35; }
-.section-generation-status { width:max-content; display:inline-flex; align-items:center; gap:4px; margin-top:2px; padding:3px 7px; border:1px solid #dbe2ee; border-radius:999px; color:#64748b; background:#f8fafc; font-size:9px; font-weight:700; }
-.section-content { margin:12px 0 0; padding:18px clamp(16px,3vw,24px); border:1px solid rgba(226,232,240,.7); border-radius:12px; background:rgba(255,255,255,.66); font-size:var(--content-font-size); line-height:var(--content-line-height); transition:background .2s ease,border-color .2s ease,box-shadow .2s ease; }
-.course-node[data-level="3"]:hover .section-content,.course-node[data-level="4"]:hover .section-content,.course-node[data-level="5"]:hover .section-content { border-color:rgba(203,213,225,.82); background:rgba(255,255,255,.84); box-shadow:0 4px 12px rgba(15,23,42,.04); }
-@media (max-width: 700px) {
-  .course-node[data-level="1"] { margin:18px auto 26px; padding:24px 18px 26px; border-radius:18px; }
-  .course-node[data-level="2"] { margin:18px auto 26px; padding:0 18px 26px; border-radius:18px; }
-  .course-node[data-level="2"]::before { border-radius:18px 18px 0 0; }
-  .chapter-heading { grid-template-columns:minmax(0,1fr); gap:12px; padding-top:28px; }
-  .chapter-status { justify-content:flex-start; }
-  .chapter-copy { grid-column:1; }
-  .chapter-copy h2 { overflow-wrap:anywhere; }
-  .chapter-content { padding-left: 0; }
-  .task-launcher { width:100%; min-height:0; margin-left:0; grid-template-columns:40px minmax(0,1fr); gap:12px; padding:16px 14px 15px 17px; }
-  .task-icon { width:40px; height:40px; border-radius:12px; }
-  .task-action { grid-column: 2; }
+.task-launcher {
+  position: relative;
+  width: 100%;
+  margin-top: 32px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+  padding: 22px;
+  border: 1px solid var(--color-primary-100);
+  border-radius: 12px;
+  color: var(--lz-text);
+  background: #f8f9ff;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .18s var(--ease-out), background-color .18s var(--ease-out);
 }
-@container (max-width:680px) {
-  .course-node[data-level="2"] { padding-inline:18px; }
-  .chapter-copy h2 { font-size:28px; }
-  .chapter-content { padding-left:0; }
-  .task-launcher { width:100%; margin-left:0; }
+.task-launcher:hover { border-color: var(--color-primary-300); background: #f3f5ff; }
+.task-launcher:active { background: var(--color-primary-50); }
+.task-launcher:focus-visible { outline: 2px solid var(--lz-brand-strong); outline-offset: 3px; }
+.task-icon { padding-top: 2px; color: var(--lz-brand-strong); }
+.task-icon :deep(svg) { width: 23px; height: 23px; }
+.task-copy { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.task-meta { color: var(--lz-brand-strong); font-size: 13px; font-weight: 650; line-height: 1.6; }
+.task-copy strong { color: var(--lz-text-strong); font-size: 16px; font-weight: 600; line-height: 1.7; overflow-wrap: anywhere; }
+.task-copy small { color: var(--lz-text-secondary); font-size: 13px; line-height: 1.65; }
+.task-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-primary-200);
+  border-radius: 8px;
+  color: var(--lz-brand-strong);
+  background: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background-color .18s var(--ease-out);
 }
-@keyframes generation-status-spin { to { transform:rotate(360deg); } }
-@media (prefers-reduced-motion:reduce) {
-  .course-node,.course-node::before,.section-content,.task-launcher,.task-action { transition:none; }
-  .spinning { animation:none; }
+.task-launcher:hover .task-action { background: var(--color-primary-50); }
+.course-node[data-level="3"],.course-node[data-level="4"],.course-node[data-level="5"] {
+  --inline-ai-menu-offset: 0px;
+  margin: 24px auto 32px;
+  padding: 0 clamp(28px, 4vw, 44px);
+}
+.section-heading { display: grid; gap: 10px; }
+.section-heading > span { display: none; }
+.section-heading h3 { margin: 0; color: var(--lz-text-strong); font-size: 22px; font-weight: 650; line-height: 1.5; text-wrap: balance; }
+.section-generation-status { width: max-content; }
+.section-content { margin-top: 16px; font-size: var(--content-font-size); line-height: var(--content-line-height); }
+@container (max-width: 580px) {
+  .task-launcher { grid-template-columns: 24px minmax(0, 1fr); padding: 18px; }
+  .task-action { grid-column: 2; justify-self: start; }
+}
+@keyframes generation-status-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .task-launcher,.task-action { transition: none; }
+  .spinning { animation: none; }
 }
 </style>

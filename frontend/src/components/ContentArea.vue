@@ -321,10 +321,10 @@
 
 
         <!-- Main Content Column -->
-        <div class="flex-1 min-w-0 px-2 sm:px-3 lg:px-4 xl:px-6 pb-24 sm:pb-28 lg:pb-32 pt-2 sm:pt-3 lg:pt-4">
+        <div class="reading-column">
             <div
                 ref="virtualListRef"
-                class="relative w-full mt-8 sm:mt-10 lg:mt-12"
+                class="relative w-full"
                 :style="{ height: totalNodesHeight + 'px' }"
             >
                 <div
@@ -406,7 +406,7 @@ import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useLearningSessionStore } from '../stores/learningSession'
 
 import CourseNode from './CourseNode.vue'
-import { isLessonNavigation } from '../utils/course-navigation'
+import { isLessonNavigation, structuralLessonAliases } from '../utils/course-navigation'
 import InlineAnnotationLayer from './InlineAnnotationLayer.vue'
 import InlineRecordPopover from './InlineRecordPopover.vue'
 import { Download, Notebook, Close, ChatLineSquare, Timer, ArrowUp, ChatDotRound, Loading, Setting, Check } from '@element-plus/icons-vue'
@@ -842,7 +842,7 @@ watch(() => courseStore.scrollToNodeId, async (nodeId) => {
     if (!scrollContainer) { isManualScrolling.value = false; return }
     
     // 先精确匹配 node_id，找不到则按名称模糊匹配
-    let targetNodeId = nodeId
+    let targetNodeId = readingAliases.value.get(nodeId) || nodeId
     let index = flatNodes.value.findIndex(n => n.node_id === targetNodeId)
     if (index === -1) {
         const match = flatNodes.value.find(n => 
@@ -960,6 +960,7 @@ const fontFamily = computed(() => courseStore.uiSettings.fontFamily)
 const lineHeight = computed(() => courseStore.uiSettings.lineHeight)
 
 const lessonNavigation = computed(() => isLessonNavigation(courseStore.treeData))
+const readingAliases = computed(() => structuralLessonAliases(courseStore.treeData))
 
 // Notes Logic
 const flatNodes = computed(() => {
@@ -967,7 +968,7 @@ const flatNodes = computed(() => {
     const nodes: any[] = []
     const traverse = (data: any[]) => {
         for (const node of data) {
-            nodes.push(node)
+            if (!readingAliases.value.has(node.node_id)) nodes.push(node)
             if (node.children && node.children.length > 0) {
                 traverse(node.children)
             }
@@ -2562,6 +2563,8 @@ defineExpose({
     0%, 100% { background-color: rgba(251, 191, 36, 0.3); }
     50% { background-color: rgba(251, 191, 36, 0.8); box-shadow: 0 0 10px rgba(245, 158, 11, 0.5); }
 }
+
+.reading-column { flex:1; min-width:0; padding:8px 0 96px; }
 
 .reading-progress-fill { width:100%; background:var(--color-primary-400); transform-origin:left; transition:transform .16s var(--ease-out); }
 

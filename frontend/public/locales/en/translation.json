@@ -3302,6 +3302,9 @@
     "close": "Close and return to content"
   },
   "courseBlocks": {
+    "lessonNumber": "Lecture {number}",
+    "chapterNumber": "Chapter {number}",
+    "lessonPractice": "Lecture practice",
     "lesson": "Lesson",
     "courseOpening": "Course introduction",
     "courseUnit": "Course unit",
