@@ -300,3 +300,9 @@ PWCLI=/Users/yq/.codex/skills/playwright/scripts/playwright_cli.sh
 - 题库定向重建、课程下游重建、知识命令与题库 API 联合回归：`167 passed`。
 - 新端口、业务模块与路由 Ruff：通过。
 - 新增直接合同证明：端口未注册时在落 job 前失败；注册后默认路径提交给正式 executor，job 同时持久化 executor `worker_id`，使进程重启能够识别并终结旧 worker 的幽灵任务。
+
+最新完整 Actions `33949361682` 将后端失败继续收敛到 1 项：真实进程恢复 harness
+在纯净 CI 中构造 TaskManager 时意外初始化评估模型，因没有生产模型凭据而无法进入 seed-ready。
+该测试只验证任务检查点落盘、进程终止与重启对账，不应发起模型能力；harness 现显式注入
+`RecoveryOnlyAssessmentOrchestrator`，若恢复路径意外调用生成会立即失败，既隔离凭据又锁定只恢复不生成。
+移除全部文本模型凭据后精确复验：`1 passed`；harness Ruff 与 `git diff --check` 通过。

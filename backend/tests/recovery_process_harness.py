@@ -41,6 +41,11 @@ class JsonStorage:
         temp.replace(self.path)
 
 
+class RecoveryOnlyAssessmentOrchestrator:
+    async def prepare_course(self, *_args, **_kwargs):
+        raise AssertionError("checkpoint recovery must not invoke assessment generation")
+
+
 def build_manager(root: Path) -> tuple[TaskManager, JsonStorage, GenerationWorkspaceRepository]:
     task_manager_module.TASKS_FILE = root / "tasks.json"
     storage = JsonStorage(root / "courses.json")
@@ -52,6 +57,7 @@ def build_manager(root: Path) -> tuple[TaskManager, JsonStorage, GenerationWorks
         version_repository=CourseVersionRepository(root / "versions"),
         workspace_repository=workspaces,
         document_repository=CourseDocumentRepository(storage),
+        assessment_orchestrator_override=RecoveryOnlyAssessmentOrchestrator(),
     )
     return manager, storage, workspaces
 
