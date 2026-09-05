@@ -15,10 +15,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: lingzhi-tuotu-production
-  cancel-in-progress: false
-
 jobs:
   plan:
     runs-on: ubuntu-latest
@@ -38,6 +34,11 @@ jobs:
     uses: ./.github/workflows/lingzhi-checks.yml
 
   deploy:
+    # Documentation-only runs never acquire the production queue. Build-only
+    # runs have independent groups and cannot displace a queued real release.
+    concurrency:
+      group: ${{ ((github.event_name == 'push' && !contains(github.event.head_commit.message, '[no deploy]')) || inputs.deploy) && 'lingzhi-tuotu-production' || format('lingzhi-tuotu-build-{0}', github.run_id) }}
+      cancel-in-progress: false
     if: ${{ github.event_name != 'pull_request' }}
     needs: verify
     runs-on: ubuntu-latest
