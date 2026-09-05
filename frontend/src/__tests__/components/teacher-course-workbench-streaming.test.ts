@@ -1227,7 +1227,7 @@ describe('teacher course workbench outline streaming', () => {
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
     const buttons = wrapper.findAll('.lesson-outline-chapter-button')
     expect(buttons.map(button => button.attributes('aria-label'))).toEqual([
-      '第1讲，未生成', '第2讲，正在生成', '第3讲，可使用',
+      '第1讲，未生成', '第2讲，正在生成，40%', '第3讲，可使用',
       '第4讲，可使用', '第5讲，可使用', '第6讲，生成失败',
     ])
     expect(buttons[1]!.find('.lesson-outline-status').attributes('data-state')).toBe('generating')
@@ -1383,7 +1383,9 @@ describe('teacher course workbench outline streaming', () => {
     expect(chapterButtons[0]!.attributes('aria-label')).toContain('正在生成')
     expect(chapterButtons[1]!.find('.lesson-outline-status').attributes('data-state')).toBe('queued')
     expect(chapterButtons[1]!.find('small').text()).toContain('等待')
-    expect(wrapper.findAll('.lesson-outline-status .spin')).toHaveLength(1)
+    expect(wrapper.findAll('.lesson-outline-status .spin')).toHaveLength(0)
+    expect(chapterButtons[0]!.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('42')
+    expect(chapterButtons[1]!.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('0')
 
     await chapterButtons[1]!.trigger('click')
     expect(wrapper.get('.lesson-current-title').text()).toContain('第2讲')
@@ -2127,9 +2129,67 @@ describe('teacher course workbench outline streaming', () => {
     expect(chapters[0]!.find('small').exists()).toBe(false)
     expect(chapters[0]!.attributes('aria-label')).toContain('正在生成：概念讲解')
     expect(chapters[1]!.find('.lesson-outline-status').attributes('data-state')).toBe('queued')
+    expect(chapters[0]!.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('50')
+    expect(chapters[1]!.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('0')
     expect(wrapper.get('.context-pane-heading').text()).toContain('已完成 0/2 讲 · 正在并行生成 1 讲')
     expect(wrapper.get('.context-pane-heading__progress').attributes('aria-valuenow')).toBe('25')
     expect(wrapper.get('[data-testid="workflow-progress"]').text()).toBe('25')
+  })
+
+  it.each(['lesson', 'script'] as const)('%s 目录圆环按当前任务分别更新，暂停保留进度，重试不复用旧进度', async initialStage => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    const stage = initialStage === 'script' ? 'script' : 'lesson_plan'
+    lessonStore.lessons = [1, 2, 3].map(number => ({
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45, sections: [],
+      plan: { working_revision_id: '', source_state: 'current', current_revision: null, ppt_assets: [] },
+      script: { ready: false, sections: [], source_state: 'current' },
+    })) as any
+    lessonStore.jobs = [24, 68, 40].map((progress, index) => ({
+      id: `job-${index + 1}`, course_id: 'course-1', lesson_unit_id: `L1-${index + 1}`,
+      type: initialStage === 'script' ? 'teacher_lesson_script_generation' : 'teacher_lesson_plan_generation',
+      status: index === 2 ? 'paused' : 'running', progress, warnings: [],
+    })) as any
+    const snapshot = strictProductionSnapshot({ [stage]: { display_state: 'generating', task_state: 'running' } }) as any
+    snapshot.lessons = [1, 2, 3].map(number => ({
+      lesson_unit_id: `L1-${number}`, title: `第${number}讲`,
+      stages: { [stage]: strictProductionStage({
+        display_state: 'generating', task_state: number === 3 ? 'paused' : 'running', task_ids: [`job-${number}`],
+      }) },
+    }))
+    const courseStore = useCourseStore()
+    courseStore.setTeacherProductionState('course-1', snapshot)
+    const wrapper = mountWorkbench({ initialStage })
+    const values = () => wrapper.findAll('.lesson-progress-ring').map(ring => ring.attributes('aria-valuenow'))
+    expect(values()).toEqual(['24', '68', '40'])
+    expect(wrapper.findAll('.lesson-outline-status .spin')).toHaveLength(0)
+
+    lessonStore.jobs[0]!.progress = 56
+    await flushPromises()
+    expect(values()).toEqual(['56', '68', '40'])
+    expect(wrapper.findAll('.lesson-outline-chapter-button')[0]!.attributes('aria-label')).toContain('56%')
+    expect(wrapper.get('.lesson-progress-ring__fill').attributes('stroke-dasharray')).toBe('56 100')
+    await wrapper.findAll('.lesson-outline-chapter-button')[1]!.trigger('click')
+    expect(values()).toEqual(['56', '68', '40'])
+
+    snapshot.lessons[0].stages[stage].task_ids = ['retry-1']
+    courseStore.setTeacherProductionState('course-1', structuredClone(snapshot))
+    await flushPromises()
+    expect(values()).toEqual(['0', '68', '40'])
+    lessonStore.jobs.push({ ...lessonStore.jobs[0]!, id: 'retry-1', progress: 15 })
+    await flushPromises()
+    expect(values()).toEqual(['15', '68', '40'])
+
+    snapshot.lessons[0].stages[stage] = strictProductionStage({ display_state: 'available', task_state: 'completed', availability: 'usable' })
+    snapshot.lessons[1].stages[stage] = strictProductionStage({ display_state: 'failed', task_state: 'failed' })
+    courseStore.setTeacherProductionState('course-1', structuredClone(snapshot))
+    await flushPromises()
+    const statuses = wrapper.findAll('.lesson-outline-status')
+    expect(statuses[0]!.attributes('data-state')).toBe('ready')
+    expect(statuses[0]!.find('.lucide-check').exists()).toBe(true)
+    expect(statuses[1]!.attributes('data-state')).toBe('failed')
+    expect(statuses[1]!.find('.lucide-triangle-alert').exists()).toBe(true)
+    expect(values()).toEqual(['40'])
+    wrapper.unmount()
   })
 
   it('旧质量报告只提供建议，不阻断从当前讲义进入 PPT', async () => {

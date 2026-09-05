@@ -378,7 +378,7 @@
                 :class="{ active: selectedLessonId === lesson.lesson_unit_id }"
                 :disabled="aiCandidatePending && selectedLessonId !== lesson.lesson_unit_id"
                 :aria-current="selectedLessonId === lesson.lesson_unit_id ? 'page' : undefined"
-                :aria-label="`${lesson.title}，${lessonGenerationStateLabel(lesson)}`"
+                :aria-label="lessonNavigationLabel(lesson)"
                 @click="selectLesson(lesson.lesson_unit_id)"
               >
                 <span class="lesson-outline-chapter-copy">
@@ -394,9 +394,24 @@
                 <span
                   class="lesson-outline-status"
                   :data-state="lessonGenerationState(lesson)"
-                  aria-hidden="true"
+                  :aria-hidden="lessonGenerationProgressFor(lesson) === null ? true : undefined"
                 >
-                  <LoaderCircle v-if="lessonGenerationIsRunning(lesson)" :size="14" class="spin" />
+                  <svg
+                    v-if="lessonGenerationProgressFor(lesson) !== null"
+                    class="lesson-progress-ring"
+                    width="16" height="16" viewBox="0 0 16 16"
+                    role="progressbar"
+                    :aria-label="lessonNavigationLabel(lesson)"
+                    :aria-valuenow="lessonGenerationProgressFor(lesson) ?? 0"
+                    aria-valuemin="0" aria-valuemax="100"
+                  >
+                    <circle class="lesson-progress-ring__track" cx="8" cy="8" r="6" />
+                    <circle
+                      class="lesson-progress-ring__fill" cx="8" cy="8" r="6" pathLength="100"
+                      :stroke-dasharray="`${lessonGenerationProgressFor(lesson)} 100`"
+                      transform="rotate(-90 8 8)"
+                    />
+                  </svg>
                   <Check v-else-if="lessonGenerationState(lesson) === 'ready'" :size="14" />
                   <TriangleAlert v-else-if="['stale', 'failed'].includes(lessonGenerationState(lesson))" :size="14" />
                   <i v-else />
@@ -3982,15 +3997,30 @@ function lessonGenerationState(lesson: any): 'pending' | 'queued' | 'generating'
   if (activeStage.value === 'lesson' && lessonPlanIsReady(lesson)) return 'ready'
   return 'pending'
 }
-function lessonGenerationIsRunning(lesson: any): boolean {
+function lessonGenerationProgressFor(lesson: any): number | null {
+  const stage = activeStage.value === 'lesson' ? 'lesson_plan' : activeStage.value === 'script' ? 'script' : null
+  if (!stage) return null
+  const projected = lessonProductionState(productionState.value, lesson.lesson_unit_id, stage)
+  let job = lessonJobForStage(lesson)
   if (productionState.value) {
-    return lessonProductionState(
-      productionState.value,
-      lesson.lesson_unit_id,
-      activeStage.value === 'script' ? 'script' : 'lesson_plan',
-    )?.task_state === 'running'
+    if (!projected || !['queued', 'running', 'paused'].includes(projected.task_state)) return null
+    if (projected.task_state === 'queued') return 0
+    // Progress belongs to this lesson's current attempt, never the batch or a previous retry.
+    job = lessonStore.jobs.find(candidate => (
+      projected.task_ids.includes(candidate.id)
+      && candidate.course_id === props.courseId
+      && candidate.lesson_unit_id === lesson.lesson_unit_id
+      && candidate.type === (stage === 'script' ? 'teacher_lesson_script_generation' : 'teacher_lesson_plan_generation')
+    ))
+  } else {
+    if (!job || !['pending', 'running', 'paused'].includes(job.status)) return null
+    if (job.status === 'pending') return 0
   }
-  return String(lessonJobForStage(lesson)?.status || '') === 'running'
+  return Math.min(99, boundedStageProgress(job?.progress))
+}
+function lessonNavigationLabel(lesson: any): string {
+  const progress = lessonGenerationProgressFor(lesson)
+  return `${lesson.title}，${lessonGenerationStateLabel(lesson)}${progress === null ? '' : `，${progress}%`}`
 }
 function lessonGenerationStateLabel(lesson: any): string {
   const state = lessonGenerationState(lesson)
@@ -4465,6 +4495,10 @@ onBeforeUnmount(() => {
 .lesson-outline-status[data-state="generating"],.lesson-outline-status[data-state="ready"]{color:#625dd7}
 .lesson-outline-status[data-state="failed"],.lesson-outline-status[data-state="stale"]{color:#c94c5a}
 .lesson-outline-status i{width:7px;height:7px;border:1px solid #b8c2d0;border-radius:50%;background:#fff}
+.lesson-progress-ring circle{fill:none;stroke-width:4}
+.lesson-progress-ring__track{stroke:#dbe2ea}
+.lesson-progress-ring__fill{stroke:#16a34a;transition:stroke-dasharray .2s ease-out}
+@media(prefers-reduced-motion:reduce){.lesson-progress-ring__fill{transition:none}}
 .is-ai-collaboration .lesson-outline-control{display:flex;width:min(100%,420px)}
 .is-ai-collaboration .lesson-navigator{grid-template-columns:auto minmax(0,1fr) auto;border-radius:0}
 @keyframes lesson-outline-in{from{opacity:.5;transform:translateX(-50%) translateY(-5px) scale(.985)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
