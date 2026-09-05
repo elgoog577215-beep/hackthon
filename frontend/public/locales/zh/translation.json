@@ -5158,6 +5158,8 @@
       }
     },
     "aiTeacher": {
+      "latestReply": "回到最新回复",
+      "settings": "对话设置",
       "title": "AI 助手",
       "newConversation": "新建对话",
       "conversations": "对话",
@@ -5170,8 +5172,8 @@
       "context": "当前上下文",
       "clearQuote": "取消引用",
       "loadingConversation": "正在读取对话",
-      "emptyTitle": "从当前学习现场开始",
-      "emptyBody": "从没弄懂的概念、题目或课程内容开始。",
+      "emptyTitle": "聊聊这一讲",
+      "emptyBody": "解释概念、一起举例，或检查你的理解。",
       "explainSuggestion": "解释这条建议",
       "thinking": "正在思考",
       "requestAccepted": "已收到，正在读取当前课程",

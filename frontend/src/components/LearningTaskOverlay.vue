@@ -2,10 +2,12 @@
   <section
     ref="modalRoot"
     class="question-book-modal"
+    :class="{ 'is-embedded': embedded }"
     tabindex="-1"
     @keydown.esc.prevent="emit('close')"
   >
     <button
+      v-if="!embedded"
       class="question-book-modal__backdrop"
       type="button"
       :aria-label="t('taskOverlay.close', '关闭并返回正文')"
@@ -14,8 +16,8 @@
 
     <section
       class="question-book-dialog"
-      role="dialog"
-      aria-modal="true"
+      :role="embedded ? 'region' : 'dialog'"
+      :aria-modal="embedded ? undefined : true"
       :aria-labelledby="dialogTitleId"
       :aria-describedby="dialogDescriptionId"
       data-testid="question-book-dialog"
@@ -88,12 +90,14 @@ import { t } from '../shared/i18n'
 
 withDefaults(defineProps<{
   courseId: string
+  embedded?: boolean
   nodeId?: string
   nodeLabel?: string
   originRect?: { top: number; left: number; width: number; height: number } | null
   recordCount?: number
 }>(), {
   recordCount: 0,
+  embedded: false,
 })
 const emit = defineEmits<{
   (event: 'close' | 'graded'): void
@@ -121,6 +125,14 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.question-book-modal.is-embedded { position:absolute; inset:0; z-index:34; display:flex; padding:0; }
+.is-embedded .question-book-dialog { width:100%; height:100%; min-height:0; border:0; border-radius:0; box-shadow:none; animation:none; }
+.is-embedded .question-book-dialog__header { grid-template-columns:minmax(0,1fr) auto; gap:12px; padding:16px 20px; }
+.is-embedded .question-book-dialog__views { grid-row:2; grid-column:1 / -1; justify-self:start; }
+.is-embedded .question-book-dialog__actions { grid-column:2; grid-row:1; }
+.is-embedded .question-book-dialog__identity div > span { white-space:normal; font-size:14px; }
+.is-embedded .question-book-dialog__views button { font-size:15px; }
+
 .question-book-modal {
   position: fixed;
   inset: 0;

@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent } from 'vue'
+import { defineComponent, ref } from 'vue'
 import LearningView from '@/views/LearningView.vue'
 import { useAITeacherStore } from '@/stores/aiTeacher'
 import { useChangeProposalsStore } from '@/stores/changeProposals'
@@ -80,6 +80,7 @@ const LearningStatsStub = defineComponent({
 
 describe('LearningView 正文任务覆盖层', () => {
   beforeEach(async () => {
+    sessionStorage.removeItem('lingzhi-learning-ai-open')
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 })
     const pinia = createPinia()
     setActivePinia(pinia)
@@ -130,6 +131,51 @@ describe('LearningView 正文任务覆盖层', () => {
     vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
     vi.spyOn(generation, 'observeCourse').mockImplementation(() => undefined)
     vi.spyOn(useChangeProposalsStore(), 'fetchChangeProposals').mockResolvedValue(undefined)
+  })
+
+  it('助手、笔记与正文切换保留输入；练习和概况不遮住助手与底栏', async () => {
+    const StatefulAssistant = defineComponent({
+      name: 'SideAIPanel',
+      props: ['visible'],
+      setup() { return { draft: ref('') } },
+      template: '<aside class="ai-panel-stub"><textarea v-model="draft" /></aside>',
+    })
+    const wrapper = mount(LearningView, {
+      attachTo: document.body,
+      global: {
+        plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
+        stubs: {
+          ContentArea: ContentAreaStub, CourseNavigator: true,
+          LearningTaskOverlay: TaskOverlayStub, LearningStats: LearningStatsStub,
+          NotesPanel: NotesPanelStub, SideAIPanel: StatefulAssistant,
+        },
+      },
+    })
+    await flushPromises()
+    await wrapper.get('.ai-panel-stub textarea').setValue('保留这段草稿')
+    await wrapper.get('[data-domain="assistant"]').trigger('click')
+    expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(false)
+    await wrapper.get('[data-domain="assistant"]').trigger('click')
+    expect((wrapper.get('.ai-panel-stub textarea').element as HTMLTextAreaElement).value).toBe('保留这段草稿')
+    await wrapper.get('[data-domain="notebook"]').trigger('click')
+    expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(false)
+    await wrapper.get('[data-domain="assistant"]').trigger('click')
+    expect(wrapper.find('.notebook-side-panel').exists()).toBe(false)
+    expect((wrapper.get('.ai-panel-stub textarea').element as HTMLTextAreaElement).value).toBe('保留这段草稿')
+    await wrapper.get('[data-domain="question-book"]').trigger('click')
+    expect(wrapper.find('.learning-stage .task-overlay-stub').exists()).toBe(true)
+    expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(true)
+    expect(wrapper.get('[data-domain="assistant"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-domain="question-book"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.find('.learning-stage .learning-dock').exists()).toBe(false)
+    await wrapper.get('[data-domain="question-book"]').trigger('click')
+    expect(wrapper.find('.task-overlay-stub').exists()).toBe(false)
+    await wrapper.get('[data-domain="overview"]').trigger('click')
+    expect(wrapper.find('.learning-stage .stats-overlay').exists()).toBe(true)
+    expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(true)
+    await wrapper.get('[data-domain="overview"]').trigger('click')
+    expect(wrapper.find('.stats-overlay').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('从正文打开任务并在关闭后恢复原滚动位置', async () => {

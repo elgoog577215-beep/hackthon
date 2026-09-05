@@ -1,5 +1,5 @@
 <template>
-  <div :class="panelClasses" class="ai-teacher-panel glass-panel-elevated">
+  <div :class="[panelClasses, { 'is-learning-assistant': props.docked && !isTeacherMode }]" class="ai-teacher-panel glass-panel-elevated">
     <section
       class="ai-teacher-surface"
       :class="{
@@ -23,7 +23,7 @@
             <BookOpenText :size="14" />
             <strong>{{ contextLabel }}</strong>
             <small
-              v-if="!isTeacherMode && modelEvidenceLabel"
+              v-if="!isTeacherMode && !props.docked && modelEvidenceLabel"
               class="context-evidence"
               :title="t('courseWorkspace.aiTeacher.evidenceReady', '已加载学习证据')"
             >{{ t('courseWorkspace.aiTeacher.evidenceSummary', '学习证据 · {level}').replace('{level}', modelEvidenceLabel) }}</small>
@@ -56,7 +56,7 @@
               </label>
             </div>
           </div>
-          <label v-if="!isTeacherMode" class="retrieval-setting">
+          <label v-if="!isTeacherMode && !props.docked" class="retrieval-setting">
             <input
               data-testid="ai-teacher-retrieval-toggle"
               type="checkbox"
@@ -69,6 +69,25 @@
         </div>
 
         <div class="ai-teacher-header-actions">
+          <details v-if="props.docked && !isTeacherMode && !props.blockTarget" class="assistant-settings" @keydown.esc.stop.prevent="closeAssistantSettings" @focusout="handleSettingsFocusOut">
+            <summary :title="t('courseWorkspace.aiTeacher.settings')">
+              <SlidersHorizontal :size="15" />
+              <span>{{ t('courseWorkspace.aiTeacher.settings') }}</span>
+            </summary>
+            <div class="assistant-settings-content">
+              <label class="retrieval-setting">
+                <input
+                  data-testid="ai-teacher-retrieval-toggle"
+                  type="checkbox"
+                  :checked="Boolean(aiStore.currentConversation?.retrieval_enabled)"
+                  :disabled="aiStore.loadingConversations || aiStore.retrievalUpdating || !aiStore.currentConversation"
+                  @change="toggleRetrieval"
+                />
+                <span>{{ t('courseWorkspace.aiTeacher.retrieval') }}</span>
+              </label>
+              <p v-if="modelEvidenceLabel" class="context-evidence">{{ t('courseWorkspace.aiTeacher.evidenceSummary').replace('{level}', modelEvidenceLabel) }}</p>
+            </div>
+          </details>
           <button
             v-if="!props.blockTarget && !props.embedded"
             type="button"
@@ -144,7 +163,7 @@
         </div>
       </aside>
 
-      <div class="assistant-main">
+      <div class="assistant-main" :inert="props.docked && conversationOpen ? true : undefined">
 
       <div v-if="props.blockTarget || quoteVisible" class="context-panel">
         <div v-if="props.blockTarget" class="block-target-line">
@@ -516,7 +535,7 @@
         </div>
       </section>
 
-      <main v-else ref="messageList" class="ai-teacher-messages" aria-live="polite">
+      <main v-else ref="messageList" class="ai-teacher-messages" aria-live="polite" @scroll="handleMessageScroll">
         <div v-if="aiStore.loadingConversations" class="panel-state">
           <LoaderCircle class="spin" :size="20" />
           <span>{{ t('courseWorkspace.aiTeacher.loadingConversation', '正在恢复对话') }}</span>
@@ -527,7 +546,7 @@
           <strong>{{ assistantEmptyTitle }}</strong>
           <p>{{ assistantEmptyDescription }}</p>
           <div class="quick-actions">
-            <button v-for="item in quickPrompts" :key="item.prompt" type="button" @click="sendPrompt(item.prompt)">
+            <button v-for="item in quickPrompts" :key="item.prompt" type="button" :disabled="composerDisabled || aiStore.loadingConversations" @click="sendPrompt(item.prompt)">
               <component :is="item.icon" :size="14" />
               {{ item.label }}
             </button>
@@ -652,7 +671,10 @@
       </main>
 
       <footer v-if="!props.blockTarget" class="ai-teacher-composer">
-        <div v-if="aiStore.loading" class="composer-status">
+        <button v-if="!followingLatest && aiStore.messages.length" type="button" class="latest-reply" @click="scrollToBottom">
+          <ArrowDown :size="15" />{{ t('courseWorkspace.aiTeacher.latestReply') }}
+        </button>
+        <div v-if="aiStore.loading" class="composer-status" role="status">
           <LoaderCircle class="spin" :size="13" />
           <span>{{ t('courseWorkspace.aiTeacher.generating', '正在生成回答') }}</span>
         </div>
@@ -667,6 +689,7 @@
             ref="inputElement"
             v-model="input"
             :placeholder="composerPlaceholder"
+            :aria-label="composerPlaceholder"
             :disabled="composerDisabled"
             rows="2"
             @input="resizeComposer"
@@ -694,6 +717,7 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import {
   AlertCircle,
+  ArrowDown,
   BookOpenText,
   BookmarkPlus,
   Check,
@@ -790,6 +814,11 @@ const courseEvolutionStore = useCourseEvolutionStore()
 const noteStore = useNoteStore()
 const changeProposalsStore = useChangeProposalsStore()
 const input = ref('')
+// Session-only drafts stay with their conversation; they never enter course data.
+const conversationDrafts = new Map<string, string>()
+const followingLatest = ref(true)
+let initialized = false
+let initialization: Promise<void> | null = null
 const quoteVisible = ref(Boolean(props.quoteText))
 const conversationOpen = ref(!props.embedded && !props.docked && window.innerWidth > 760)
 const conversationQuery = ref('')
@@ -835,7 +864,7 @@ const assistantEmptyDescription = computed(() => isTeacherMode.value
   : t('courseWorkspace.aiTeacher.emptyBody', '可以解释概念、分析作答，也可以检查你是否真正理解。'))
 const panelClasses = computed(() => props.docked ? 'is-embedded is-docked' : props.embedded ? 'is-embedded' : 'is-fullscreen')
 const currentNode = computed(() => (
-  courseStore.nodes.find(node => node.node_id === (props.quoteNodeId || courseStore.currentNode?.node_id))
+  courseStore.nodes.find(node => node.node_id === ((quoteVisible.value || props.blockTarget ? props.quoteNodeId : '') || courseStore.currentNode?.node_id))
   || courseStore.currentNode
 ))
 const contextLabel = computed(() => currentNode.value?.node_name
@@ -961,12 +990,13 @@ const personalizationRepresentationSummary = computed(() => {
 const canSend = computed(() => Boolean(
   input.value.trim()
   && isOnline.value
-  && !aiStore.loading,
+  && !aiStore.loading
+  && !aiStore.loadingConversations,
 ))
 const composerPlaceholder = computed(() => isTeacherMode.value
   ? t('courseWorkspace.teacherAgent.placeholder', '询问怎么教、怎么改教案或 PPT')
   : t('courseWorkspace.aiTeacher.placeholder', '询问当前内容或作答过程'))
-const composerDisabled = computed(() => !isOnline.value || aiStore.loading)
+const composerDisabled = computed(() => !isOnline.value || aiStore.loading || aiStore.loadingConversations)
 const composerButtonDisabled = computed(() => !aiStore.loading && !canSend.value)
 const composerButtonTitle = computed(() => {
   if (aiStore.loading) return t('courseWorkspace.aiTeacher.stop', '停止')
@@ -1019,7 +1049,7 @@ function contextRef() {
     objective_id: runtimeContext.objective_id || '',
     objective_revision_id: runtimeContext.objective_revision_id || '',
     content_anchor: {
-      ...(props.quoteAnchor || {}),
+      ...(quoteVisible.value ? props.quoteAnchor || {} : {}),
       ...(isTeacherMode.value
         ? {
             file_scope: {
@@ -1045,23 +1075,35 @@ function toggleScopeFile(fileId: string) {
 }
 
 async function initialize() {
-  if (!courseStore.currentCourseId) return
-  if (props.blockTarget) return
-  await aiStore.load(
-    courseStore.currentCourseId,
-    currentNode.value?.node_id,
-    props.identityScope || getActiveRequestIdentityScope(),
-  )
-  if (props.prefill) input.value = props.prefill
-  await nextTick()
-  resizeComposer()
-  inputElement.value?.focus()
-  scrollToBottom()
+  if (!props.visible || !courseStore.currentCourseId || props.blockTarget || initialized) return
+  if (initialization) return initialization
+  initialization = (async () => {
+    await aiStore.load(
+      courseStore.currentCourseId,
+      currentNode.value?.node_id,
+      props.identityScope || getActiveRequestIdentityScope(),
+    )
+    initialized = true
+    if (props.prefill) input.value = props.prefill
+    await nextTick()
+    resizeComposer()
+    // A default-open reading companion must not take keyboard focus from the page.
+    if (!props.docked || props.prefill) inputElement.value?.focus({ preventScroll: true })
+    scrollToBottom()
+  })()
+  try { await initialization } finally { initialization = null }
 }
 
 async function sendPrompt(prompt: string) {
+  if (composerDisabled.value) return
   input.value = prompt
-  await send()
+  if (props.docked && !isTeacherMode.value) {
+    await nextTick()
+    resizeComposer()
+    inputElement.value?.focus({ preventScroll: true })
+  } else {
+    await send()
+  }
 }
 
 function requestCourseBaselineDraft(message: AIMessage) {
@@ -1073,7 +1115,8 @@ function requestCourseBaselineDraft(message: AIMessage) {
 
 async function send() {
   const question = input.value.trim()
-  if (!question || !courseStore.currentCourseId) return
+  if (!canSend.value || !question || !courseStore.currentCourseId) return
+  scrollToBottom()
   const pendingPlanIdsBeforeQuestion = new Set(
     courseEvolutionStore.pendingPlans.map(plan => plan.change_set_id),
   )
@@ -1098,13 +1141,12 @@ async function send() {
     selection: quoteVisible.value ? props.quoteText : '',
     perspective: props.mode,
     identityScope: props.identityScope || getActiveRequestIdentityScope(),
-    entrypoint: props.entrypoint || (quoteVisible.value ? 'selection' : 'global'),
+    entrypoint: props.entrypoint === 'selection' && !quoteVisible.value ? 'global' : props.entrypoint || (quoteVisible.value ? 'selection' : 'global'),
     contextRef: contextRef(),
     taskRef: progressStore.runtime?.active_task || {},
     onQuestionRecorded: refreshCourseGrowth,
   })
   await refreshCourseGrowth()
-  scrollToBottom()
 }
 
 async function refreshCourseGrowthAfterQuestion(
@@ -1687,6 +1729,7 @@ function receiptLabel(receipt: AIActionReceipt) {
 }
 
 function handleKeydown(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) return
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault()
     void send()
@@ -1706,16 +1749,37 @@ function resetComposerHeight() {
   })
 }
 
+function handleMessageScroll() {
+  const element = messageList.value
+  if (!element || !props.visible || element.clientHeight === 0) return
+  followingLatest.value = element.scrollHeight - element.scrollTop - element.clientHeight < 64
+}
+
 function scrollToBottom() {
+  followingLatest.value = true
   nextTick(() => {
-    if (messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight
+    if (props.visible && messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight
   })
+}
+
+function closeAssistantSettings(event: Event) {
+  const details = event.currentTarget as HTMLDetailsElement
+  details.open = false
+  details.querySelector('summary')?.focus({ preventScroll: true })
+}
+
+function handleSettingsFocusOut(event: FocusEvent) {
+  const details = event.currentTarget as HTMLDetailsElement
+  if (!details.contains(event.relatedTarget as globalThis.Node | null)) details.open = false
 }
 
 function handleOnline() { isOnline.value = true }
 function handleOffline() { isOnline.value = false }
 
-watch(() => props.quoteText, value => { quoteVisible.value = Boolean(value) })
+watch(() => props.quoteText, value => {
+  quoteVisible.value = Boolean(value)
+  if (value && props.visible) nextTick(() => inputElement.value?.focus({ preventScroll: true }))
+})
 watch(() => props.scopeFiles.map(file => file.id).join('|'), () => {
   selectAllScopeFiles()
 }, { immediate: true })
@@ -1732,10 +1796,33 @@ watch(() => props.prefill, value => {
 watch(() => `${props.blockTarget?.block.block_id || ''}:${props.blockTarget?.block.internal_revision || ''}`, () => {
   resetPersonalization()
   void restorePersonalizationPlan()
+  if (!props.blockTarget) void initialize()
 }, { immediate: true })
-watch(() => aiStore.messages.length, scrollToBottom)
-watch(() => aiStore.loading, scrollToBottom)
+watch(() => aiStore.currentConversationId, (id, previousId) => {
+  if (previousId) conversationDrafts.set(previousId, input.value)
+  input.value = conversationDrafts.get(id) || ''
+  nextTick(resizeComposer)
+  scrollToBottom()
+})
+watch(() => {
+  const latest = aiStore.messages.at(-1)
+  return [aiStore.messages.length, latest?.content, latest?.status, aiStore.loading]
+}, () => {
+  if (followingLatest.value) scrollToBottom()
+})
+watch(() => props.visible, async visible => {
+  if (!visible) return
+  await initialize()
+  await nextTick()
+  if (!props.visible) return
+  resizeComposer()
+  inputElement.value?.focus({ preventScroll: true })
+  if (followingLatest.value) scrollToBottom()
+})
 watch(() => courseStore.currentCourseId, () => {
+  initialized = false
+  input.value = ''
+  conversationDrafts.clear()
   resetPersonalization()
   void initialize()
 })
@@ -1779,7 +1866,7 @@ onUnmounted(() => {
 .is-embedded .file-scope-picker { flex:none; }
 .is-embedded .file-scope-picker__toggle { max-width:180px; }
 .is-embedded .file-scope-picker__toggle strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.is-docked .conversation-shell { position:absolute; z-index:3; top:76px; bottom:0; left:0; width:100%; display:none; background:var(--lz-surface); }
+.is-docked .conversation-shell { position:relative; grid-column:1; grid-row:2; z-index:3; width:100%; display:none; background:#fff; }
 .is-docked .conversation-shell.open { display:grid; }
 .is-docked .ai-teacher-messages { padding:16px 12px; }
 .is-docked .ai-teacher-composer { padding:12px; }
@@ -2073,3 +2160,5 @@ onUnmounted(() => {
   .is-embedded .file-scope-picker,.is-embedded .file-scope-picker__toggle { width:100%; max-width:none; }
 }
 </style>
+
+<style scoped src="../styles/learning-assistant.css"></style>

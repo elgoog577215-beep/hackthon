@@ -23,16 +23,59 @@
         @accept="acceptSuggestion"
         @decline="declineSuggestion"
       />
-      <ContentArea
-        ref="contentAreaRef"
-        :side-ai-panel-visible="aiVisible"
-        :teacher-preview="isTeacherPreview"
-        class="learning-content"
-        @quote-ask="openAi"
-        @start-practice="openTask"
-        @improve-block="openBlockImprovement"
-        @active-block-change="handleActiveBlockChange"
-      />
+      <div class="learning-stage">
+        <ContentArea
+          v-show="!taskOpen && !statsOpen"
+          ref="contentAreaRef"
+          :side-ai-panel-visible="aiVisible"
+          :teacher-preview="isTeacherPreview"
+          class="learning-content"
+          @quote-ask="openAi"
+          @start-practice="openTask"
+          @improve-block="openBlockImprovement"
+          @active-block-change="handleActiveBlockChange"
+        />
+
+        <LearningTaskOverlay
+          :embedded="!isNarrow"
+          v-if="taskOpen && courseStore.currentCourseId && !isGenerationPreview"
+          :course-id="courseStore.currentCourseId"
+          :node-id="taskNode?.node_id"
+          :node-label="taskNode?.node_name"
+          :origin-rect="taskOriginRect"
+          :record-count="questionCount"
+          @close="closeTask"
+          @ask-teacher="openAiForPractice"
+          @graded="refreshAfterGrade"
+        />
+
+        <Teleport to="body">
+          <Transition name="learning-modal">
+            <section
+              v-if="notebookOpen && isNarrow"
+              class="learning-tool-modal notebook-overlay"
+              role="dialog"
+              aria-modal="true"
+              :aria-label="t('notebook.title', '笔记本')"
+              @keydown.esc="closeNotebook"
+            >
+              <button
+                type="button"
+                class="learning-tool-modal__backdrop"
+                :aria-label="t('common.close', '关闭')"
+                @click="closeNotebook"
+              ></button>
+              <div class="learning-tool-modal__card is-notebook">
+                <NotesPanel class="notebook-tool" @locate="locateRecord" @view-detail="locateRecord" @close="closeNotebook" />
+              </div>
+            </section>
+          </Transition>
+        </Teleport>
+
+        <section v-if="statsOpen" class="learning-tool-overlay stats-overlay" role="region" :aria-label="t('learningDock.stats', '学习概况')">
+          <LearningStats class="stats-tool" closable @close="closeStats" />
+        </section>
+      </div>
 
       <LearningDock
         v-if="!isGenerationPreview"
@@ -42,80 +85,43 @@
         :resume-action-label="resumeActionLabel"
         :resume-action-available="resumableAction?.availability === 'available'"
         :resume-action-busy="continuityBusy"
-        :active-domain="activeDomain"
+        :active-domain="dockActiveDomain"
+        :assistant-open="aiVisible && !courseStore.isFocusMode"
         @notebook="openNotebook"
         @question-book="openQuestionBook"
         @stats="openStats"
         @knowledge-library="openKnowledgeLibrary"
-        @ai="openAi()"
+        @ai="toggleAi"
         @resume="runResumeAction"
       />
 
-      <LearningTaskOverlay
-        v-if="taskOpen && courseStore.currentCourseId && !isGenerationPreview"
-        :course-id="courseStore.currentCourseId"
-        :node-id="taskNode?.node_id"
-        :node-label="taskNode?.node_name"
-        :origin-rect="taskOriginRect"
-        :record-count="questionCount"
-        @close="closeTask"
-        @ask-teacher="openAiForPractice"
-        @graded="refreshAfterGrade"
-      />
-
-      <Teleport to="body">
-        <Transition name="learning-modal">
-          <section
-            v-if="notebookOpen && isNarrow"
-            class="learning-tool-modal notebook-overlay"
-            role="dialog"
-            aria-modal="true"
-            :aria-label="t('notebook.title', '笔记本')"
-            @keydown.esc="closeNotebook"
-          >
-            <button
-              type="button"
-              class="learning-tool-modal__backdrop"
-              :aria-label="t('common.close', '关闭')"
-              @click="closeNotebook"
-            ></button>
-            <div class="learning-tool-modal__card is-notebook">
-              <NotesPanel class="notebook-tool" @locate="locateRecord" @view-detail="locateRecord" @close="closeNotebook" />
-            </div>
-          </section>
-        </Transition>
-      </Teleport>
-
-      <section v-if="statsOpen" class="learning-tool-overlay stats-overlay" role="dialog" aria-modal="true" :aria-label="t('learningDock.stats', '学习概况')">
-        <LearningStats class="stats-tool" closable @close="closeStats" />
-      </section>
-
     </main>
 
-    <Transition name="slide-right">
-      <aside v-if="notebookOpen && !isNarrow" class="notebook-side-panel" :aria-label="t('notebook.title', '笔记本')">
-        <NotesPanel mode="sidebar" @locate="locateRecord" @view-detail="locateRecord" @close="closeNotebook" />
-      </aside>
-    </Transition>
-
-    <Transition name="slide-right">
-      <SideAIPanel
-        v-if="aiVisible && !courseStore.isFocusMode && !isGenerationPreview"
-        :docked="!isNarrow"
-        :visible="aiVisible"
-        :quote-text="aiQuote"
-        :quote-node-id="aiNodeId"
-        :quote-anchor="aiAnchor"
-        :prefill="aiPrefill"
-        :entrypoint="aiEntrypoint"
-        :identity-scope="isTeacherPreview ? 'teacher' : 'learner'"
-        :block-target="aiBlockTarget"
-        @close="closeAi"
-        @clear-block-target="clearBlockImprovement"
-        @block-applied="handleBlockApplied"
-        @course-applied="handleCourseGrowthApplied"
-        @open-course-adjustment="openCourseAdjustment"
-      />
+    <Transition name="side-panel">
+      <div v-show="sidePanelVisible" class="learning-side-panel" :class="{ 'is-docked': !isNarrow }">
+        <aside v-if="notebookOpen && !isNarrow" class="notebook-side-panel" :aria-label="t('notebook.title', '笔记本')">
+          <NotesPanel mode="sidebar" @locate="locateRecord" @view-detail="locateRecord" @close="closeNotebook" />
+        </aside>
+        <SideAIPanel
+          v-if="!isGenerationPreview"
+          v-show="aiVisible && !courseStore.isFocusMode"
+          :key="`${courseStore.currentCourseId}:${isTeacherPreview}`"
+          :docked="!isNarrow"
+          :visible="aiVisible && !courseStore.isFocusMode"
+          :quote-text="aiQuote"
+          :quote-node-id="aiNodeId"
+          :quote-anchor="aiAnchor"
+          :prefill="aiPrefill"
+          :entrypoint="aiEntrypoint"
+          :identity-scope="isTeacherPreview ? 'teacher' : 'learner'"
+          :block-target="aiBlockTarget"
+          @close="closeAi"
+          @clear-block-target="clearBlockImprovement"
+          @block-applied="handleBlockApplied"
+          @course-applied="handleCourseGrowthApplied"
+          @open-course-adjustment="openCourseAdjustment"
+        />
+      </div>
     </Transition>
 
     <CourseEvolutionWorkspace
@@ -205,12 +211,17 @@ const autoFollowGeneration = ref(true)
 const practiceApiNodeId = ref('')
 let practiceAvailabilityRequest = 0
 const loadedLearningCourseId = ref('')
-const activeDomain = ref<'course' | 'notebook' | 'question-book' | 'overview' | 'knowledge-library' | 'assistant'>('course')
 const activeCourseBlockId = ref('')
 let courseGrowthLocationTimer: ReturnType<typeof setTimeout> | undefined
 let courseGrowthSettleTimer: ReturnType<typeof setTimeout> | undefined
 
 const isNarrow = computed(() => windowWidth.value < 1024)
+const sidePanelVisible = computed(() => !courseStore.isFocusMode && !isGenerationPreview.value && (aiVisible.value || (!isNarrow.value && notebookOpen.value)))
+const dockActiveDomain = computed(() => taskOpen.value ? 'question-book'
+  : statsOpen.value ? 'overview'
+  : courseStore.showKnowledgeLibrary ? 'knowledge-library'
+  : notebookOpen.value ? 'notebook'
+  : 'course')
 watch(aiVisible, visible => {
   if (!isNarrow.value) sessionStorage.setItem(assistantPanelStorageKey, visible ? 'open' : 'closed')
 })
@@ -302,11 +313,15 @@ watch(() => route.params.courseId, async value => {
   loadedLearningCourseId.value = loadedLearningCourseId.value === courseId ? loadedLearningCourseId.value : ''
   autoFollowGeneration.value = true
   activeCourseBlockId.value = ''
+  aiQuote.value = ''
+  aiNodeId.value = ''
+  aiAnchor.value = undefined
+  aiPrefill.value = ''
+  aiBlockTarget.value = undefined
   aiVisible.value = restoreAssistantPanelOpen()
   courseAdjustmentOpen.value = false
   courseAdjustmentFocusPlanId.value = ''
   courseAdjustmentSectionId.value = ''
-  activeDomain.value = 'course'
   notebookOpen.value = false
   statsOpen.value = false
   taskOpen.value = false
@@ -335,10 +350,6 @@ watch(() => route.params.courseId, async value => {
   }
 }, { immediate: true })
 
-watch(() => courseStore.showKnowledgeLibrary, visible => {
-  if (visible) activeDomain.value = 'knowledge-library'
-  else if (activeDomain.value === 'knowledge-library') activeDomain.value = 'course'
-})
 
 async function loadLearningContext(courseId: string) {
   if (
@@ -511,13 +522,12 @@ function handleActiveBlockChange(payload: { nodeId: string; blockId: string }) {
 
 function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string, unknown> }) {
   if (isGenerationPreview.value) return
-  activeDomain.value = 'assistant'
   notebookOpen.value = false
   statsOpen.value = false
   courseStore.showKnowledgeLibrary = false
   aiBlockTarget.value = undefined
   aiQuote.value = payload?.text || ''
-  aiNodeId.value = payload?.nodeId || courseStore.currentNode?.node_id || ''
+  aiNodeId.value = payload?.nodeId || ''
   aiAnchor.value = payload?.anchor
   aiPrefill.value = ''
   aiEntrypoint.value = payload?.text ? 'selection' : 'global'
@@ -529,7 +539,6 @@ function openCourseAdjustment(payload?: { planId?: string; sectionId?: string })
   courseAdjustmentFocusPlanId.value = payload?.planId || ''
   courseAdjustmentSectionId.value = payload?.sectionId || courseStore.currentNode?.node_id || ''
   aiVisible.value = false
-  activeDomain.value = 'course'
   courseAdjustmentOpen.value = true
 }
 
@@ -557,7 +566,6 @@ async function declineSuggestion(payload: { suggestion: AISuggestion; reason: 'n
 }
 
 function openBlockImprovement(target: CourseBlockEditTarget) {
-  activeDomain.value = 'assistant'
   aiBlockTarget.value = target
   aiQuote.value = ''
   aiNodeId.value = target.nodeId
@@ -612,7 +620,6 @@ function handleCourseGrowthApplied(presentation: CourseEvolutionApplicationPrese
 }
 
 function openAiForPractice(payload: { text: string; nodeId: string }) {
-  activeDomain.value = 'assistant'
   aiBlockTarget.value = undefined
   aiQuote.value = payload.text
   aiNodeId.value = payload.nodeId
@@ -623,7 +630,7 @@ function openAiForPractice(payload: { text: string; nodeId: string }) {
 }
 
 function openNotebook() {
-  activeDomain.value = 'notebook'
+  if (notebookOpen.value) { closeNotebook(); return }
   notebookOpen.value = true
   statsOpen.value = false
   taskOpen.value = false
@@ -634,53 +641,53 @@ function openNotebook() {
 
 function closeNotebook() {
   notebookOpen.value = false
-  activeDomain.value = 'course'
 }
 
 function openQuestionBook() {
+  if (taskOpen.value) { void closeTask(); return }
   const source = currentPracticeNode.value || courseStore.currentNode
   if (!source) return
-  activeDomain.value = 'question-book'
   notebookOpen.value = false
   statsOpen.value = false
-  aiVisible.value = false
   courseStore.showKnowledgeLibrary = false
   openTask(source)
   if (isNarrow.value) navigatorOpen.value = false
 }
 
 function openKnowledgeLibrary() {
-  activeDomain.value = 'knowledge-library'
+  if (courseStore.showKnowledgeLibrary) { courseStore.showKnowledgeLibrary = false; return }
   notebookOpen.value = false
   statsOpen.value = false
   taskOpen.value = false
-  aiVisible.value = false
   courseStore.showKnowledgeLibrary = true
   if (isNarrow.value) navigatorOpen.value = false
 }
 
 function openStats() {
-  activeDomain.value = 'overview'
+  if (statsOpen.value) { closeStats(); return }
   statsOpen.value = true
   notebookOpen.value = false
   taskOpen.value = false
-  aiVisible.value = false
   courseStore.showKnowledgeLibrary = false
 }
 
 function closeStats() {
   statsOpen.value = false
-  activeDomain.value = 'course'
+}
+
+function toggleAi() {
+  if (aiVisible.value) { closeAi(); return }
+  notebookOpen.value = false
+  aiVisible.value = true
+  if (isNarrow.value) navigatorOpen.value = false
 }
 
 function closeAi() {
   aiVisible.value = false
-  activeDomain.value = 'course'
 }
 
 function locateRecord(record: any) {
   notebookOpen.value = false
-  activeDomain.value = 'course'
   const node = courseStore.nodes.find(item => item.node_id === record.nodeId)
   if (node) selectNode(node)
   window.setTimeout(() => courseStore.scrollToNote(record.id), 160)
@@ -689,7 +696,6 @@ function locateRecord(record: any) {
 function openTask(node?: Node | null, taskRevisionId = '') {
   const source = node || courseStore.currentNode
   if (!source) return
-  activeDomain.value = 'question-book'
   notebookOpen.value = false
   statsOpen.value = false
   if (taskRevisionId && courseStore.currentCourseId) {
@@ -718,7 +724,6 @@ function openTask(node?: Node | null, taskRevisionId = '') {
 
 async function closeTask() {
   taskOpen.value = false
-  if (!aiVisible.value) activeDomain.value = 'course'
   await refreshRuntime()
   await nextTick()
   requestAnimationFrame(() => {
@@ -799,11 +804,14 @@ function closeMobileSurfaces() {
 <style scoped>
 .learning-view { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; display: flex; gap: 12px; overflow: hidden; background: transparent; }
 .navigator-surface { flex: 0 0 292px; }
-.learning-view > .ai-teacher-panel.is-docked { flex:0 0 clamp(300px,25vw,360px); width:clamp(300px,25vw,360px); border-radius:var(--lz-radius-surface); }
+.learning-side-panel { min-width:0; min-height:0; }
+.learning-side-panel.is-docked { --side-width:clamp(320px,25vw,380px); width:var(--side-width); flex:0 0 var(--side-width); overflow:hidden; border-radius:var(--lz-radius-surface); }
+.learning-side-panel.is-docked > .ai-teacher-panel { width:100%; height:100%; }
+.learning-stage { position:relative; flex:1; display:flex; flex-direction:column; min-height:0; min-width:0; overflow:hidden; }
 .learning-main { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: #fff; box-shadow: var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
 .has-ai-course-growth .learning-main { border-color:rgba(165,180,252,.7); box-shadow:0 16px 42px rgba(30,64,175,.1),0 2px 8px rgba(15,23,42,.05); }
 .learning-content { min-height: 0; flex: 1; }
-.notebook-side-panel { width:clamp(340px,28vw,410px); min-width:0; min-height:0; flex:0 0 clamp(340px,28vw,410px); overflow:hidden; border:1px solid rgba(255,255,255,.82); border-radius:var(--lz-radius-surface); background:#fff; box-shadow:var(--lz-shadow-panel); }
+.notebook-side-panel { width:100%; height:100%; min-width:0; min-height:0; overflow:hidden; border:1px solid rgba(255,255,255,.82); border-radius:var(--lz-radius-surface); background:#fff; box-shadow:var(--lz-shadow-panel); }
 .notebook-side-panel :deep(.records-panel) { height:100%; min-height:0; }
 .learning-tool-overlay { position:absolute; inset:0; z-index:34; min-width:0; min-height:0; display:flex; flex-direction:column; background:#fff; box-shadow:var(--lz-shadow-overlay); }
 .learning-tool-modal { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; padding:24px; }
@@ -818,9 +826,15 @@ function closeMobileSurfaces() {
 .stats-tool { flex:1; min-width:0; min-height:0; }
 .surface-backdrop { display: none; }
 .focus-mode .learning-main { max-width: 1040px; margin: 0 auto; }
-.slide-left-enter-active, .slide-left-leave-active, .slide-right-enter-active, .slide-right-leave-active { transition: transform .2s ease, opacity .2s ease; }
+.slide-left-enter-active, .slide-left-leave-active { transition: transform .2s ease, opacity .2s ease; }
 .slide-left-enter-from, .slide-left-leave-to { transform: translateX(-100%); opacity: 0; }
-.slide-right-enter-from, .slide-right-leave-to { transform: translateX(100%); opacity: 0; }
+@media (min-width:1024px) {
+  .side-panel-enter-active,.side-panel-leave-active { transition:opacity .16s ease,transform .16s ease; }
+  .learning-side-panel.side-panel-enter-from,.learning-side-panel.side-panel-leave-to { opacity:0; transform:translateX(8px); }
+}
+@media (prefers-reduced-motion:reduce) {
+  .side-panel-enter-active,.side-panel-leave-active { transition:none; }
+}
 @media (max-width:1279px) {
   .learning-view :deep(.ai-teacher-panel.is-overlay) { inset:0; padding:80px 12px 12px; }
 }

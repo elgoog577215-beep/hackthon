@@ -5158,6 +5158,8 @@
       }
     },
     "aiTeacher": {
+      "latestReply": "Back to latest reply",
+      "settings": "Chat settings",
       "title": "AI assistant",
       "newConversation": "New conversation",
       "conversations": "Conversations",
@@ -5170,8 +5172,8 @@
       "context": "Current context",
       "clearQuote": "Remove quote",
       "loadingConversation": "Loading conversation",
-      "emptyTitle": "Start from the current learning context",
-      "emptyBody": "Start with a concept, problem, or course passage that is still unclear.",
+      "emptyTitle": "Let’s talk about this lesson",
+      "emptyBody": "Explore a concept, work through an example, or check your understanding.",
       "explainSuggestion": "Explain this suggestion",
       "thinking": "Thinking",
       "requestAccepted": "Request received. Reading the current course",
