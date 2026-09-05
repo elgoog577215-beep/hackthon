@@ -9,6 +9,7 @@
         <section
           ref="dialogRef"
           class="knowledge-tree-dialog resource-workspace-shell"
+          :class="{ 'is-learning-library': learningMode }"
           role="dialog"
           aria-modal="true"
           :aria-label="t('knowledgeLibrary.title', '知识图谱')"
@@ -465,6 +466,8 @@ import type {
 
 const courseStore = useCourseStore()
 const dialogRef = ref<HTMLElement | null>(null)
+defineProps<{ learningMode?: boolean }>()
+
 const loading = ref(false)
 const loadError = ref('')
 const searchQuery = ref('')
@@ -1070,6 +1073,32 @@ watch(() => courseStore.currentCourseId, () => {
 .knowledge-tree-modal-enter-active, .knowledge-tree-modal-leave-active { transition:opacity .18s ease; }
 .knowledge-tree-modal-enter-from, .knowledge-tree-modal-leave-to { opacity:0; }
 @keyframes knowledge-tree-spin { to { transform:rotate(360deg); } }
+
+/* Match the student reading scale without changing the teacher resource workspace. */
+.is-learning-library { color:var(--lz-text); font-size:var(--text-base); }
+.is-learning-library :is(button,input):focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
+.is-learning-library button:active:not(:disabled) { filter:brightness(.96); }
+.is-learning-library :is(.knowledge-tree-brand,.knowledge-tree-upgrade-icon,.knowledge-tree-detail-icon) { color:var(--lz-brand-strong); background:var(--lz-brand-soft); border:0; box-shadow:none; border-radius:var(--lz-radius-control); }
+.is-learning-library .knowledge-tree-close:hover { color:var(--lz-brand-strong); border-color:var(--lz-brand); background:var(--lz-brand-soft); }
+.is-learning-library .knowledge-tree-search:focus-within { border-color:var(--lz-brand); box-shadow:none; }
+.is-learning-library .knowledge-tree-search input { font-size:var(--text-sm); }
+.is-learning-library .knowledge-tree-search input::placeholder { color:var(--lz-text-secondary); }
+.is-learning-library :is(.knowledge-tree-heading p,.knowledge-library-viewbar>span,.knowledge-tree-breadcrumb,.knowledge-tree-bindings span,.knowledge-tree-kicker,.knowledge-tree-kicker span,.knowledge-tree-detail-footer>div,.knowledge-tree-lifecycle,.knowledge-tree-detected,.knowledge-tree-state span) { color:var(--lz-text-secondary); font-size:var(--text-xs); line-height:1.6; }
+.is-learning-library :is(.knowledge-library-viewbar button,.knowledge-tree-scope button,.knowledge-tree-detail-footer button,.knowledge-tree-state button) { min-height:34px; height:auto; font-size:var(--text-sm); }
+.is-learning-library :is(.knowledge-library-viewbar button.active,.knowledge-tree-scope button.active) { color:var(--lz-brand-strong); }
+.is-learning-library :is(.knowledge-tree-detail-footer button,.knowledge-tree-state button) { border-color:var(--lz-brand-strong); background:var(--lz-brand-strong); }
+.is-learning-library :is(.knowledge-tree-description,.knowledge-tree-action-list,.knowledge-tree-evidence-list) { color:var(--lz-text); font-size:var(--text-base); line-height:1.75; }
+.is-learning-library :is(.knowledge-tree-pane-head strong,.knowledge-tree-node span,.knowledge-tree-child-list button span,.knowledge-tree-relations button strong,.knowledge-tree-relations button .knowledge-tree-relation-copy small,.knowledge-tree-misconceptions strong,.knowledge-tree-misconceptions p,.knowledge-tree-skill-head>strong,.knowledge-tree-skill-head>p,.knowledge-tree-skill-branch strong,.knowledge-tree-skill-branch p) { overflow:visible; white-space:normal; overflow-wrap:anywhere; font-size:var(--text-sm); line-height:1.6; }
+.is-learning-library :is(.knowledge-tree-skill-head>span,.knowledge-tree-skill-branch h4,.knowledge-tree-relations button span,.knowledge-tree-no-results,.knowledge-source-grounding,.knowledge-tree-governance-error) { font-size:var(--text-xs); line-height:1.6; }
+.is-learning-library :is(.knowledge-tree-section h3,.knowledge-tree-state strong,.knowledge-tree-detail-empty strong) { font-size:var(--text-base); }
+.is-learning-library .knowledge-tree-pane-head { flex-wrap:wrap; padding-block:10px; }
+.is-learning-library .knowledge-tree-child-list { grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr)); }
+.is-learning-library .knowledge-tree-skill-children { grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr)); margin-left:0; }
+.is-learning-library .knowledge-tree-state--error svg,.is-learning-library .knowledge-tree-governance-error { color:var(--lz-danger); }
+.is-learning-library .knowledge-source-grounding { color:var(--lz-warning); background:var(--lz-warning-soft); }
+.is-learning-library .knowledge-tree-state--upgrade>span:not(.knowledge-tree-upgrade-icon):not(.knowledge-tree-lifecycle):not(.knowledge-tree-governance-error) { color:var(--lz-text-secondary); font-size:var(--text-sm); line-height:1.7; }
+.is-learning-library .knowledge-tree-state .knowledge-tree-upgrade-icon { color:var(--lz-brand-strong); }
+
 
 @media (max-width:900px) {
   .knowledge-tree-header { grid-template-columns:minmax(170px,1fr) minmax(180px,300px) 38px; gap:8px; }

@@ -3296,6 +3296,7 @@
     "close": "Close and return to content"
   },
   "courseBlocks": {
+    "lesson": "Lesson",
     "courseOpening": "Course introduction",
     "courseUnit": "Course unit",
     "chapter": "Chapter",
@@ -4681,6 +4682,7 @@
     }
   },
   "courseWorkspace": {
+    "backToTop": "Back to the top of the course",
     "navigation": "Course workspace",
     "openCourseTree": "Open course outline",
     "loading": "Loading course assets",
@@ -5498,6 +5500,15 @@
     }
   },
   "notebook": {
+    "noResults": "No matching records",
+    "emptyCategory": "No records in this category yet",
+    "clearSearch": "Clear search",
+    "categories": {
+      "note": "Notes",
+      "issue": "Questions",
+      "review": "Review",
+      "bookmark": "Bookmarks"
+    },
     "title": "Notebook",
     "count": "{count} items",
     "search": "Search notebook...",

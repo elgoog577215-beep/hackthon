@@ -2,12 +2,12 @@
   <div class="h-full flex flex-col relative">
     <!-- Reading Progress Bar - Positioned below header -->
     <div v-if="scrollProgress > 0 && !isGenerationPreview" class="absolute top-0 left-0 right-0 h-1 bg-slate-100/50 z-10">
-        <div class="h-full bg-gradient-to-r from-primary-400 to-primary-600 transition-all duration-300 ease-out shadow-[0_0_10px_rgba(99,102,241,0.5)]" :style="{ width: scrollProgress + '%' }"></div>
+        <div class="reading-progress-fill" :style="{ transform: `scaleX(${scrollProgress / 100})` }"></div>
     </div>
 
     <div
         v-if="courseStore.currentCourseId && !isGenerationPreview && !props.readOnly"
-        class="absolute top-3 right-3 z-20 inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium shadow-sm backdrop-blur-md"
+        class="learning-sync-status absolute top-3 right-3 z-20 inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium"
         :class="learningSyncClass"
         :title="t('courseWorkspace.learningSession.title', '学习现场')"
     >
@@ -335,6 +335,7 @@
                 >
                     <CourseNode
                         :node="node"
+                        :lesson="lessonNavigation"
                         :index="getChapterIndex(node, visibleNodeStart + index)"
                         :font-size="fontSize"
                         :font-family="fontFamily"
@@ -384,17 +385,16 @@
     </div>
 
 
-    <!-- Back to Top Button -->
-    <Teleport to="body">
-        <transition name="back-to-top">
-            <button v-if="showBackToTop" 
-                    class="back-to-top p-3 bg-white/90 backdrop-blur-md border border-slate-200 rounded-full shadow-lg text-slate-500 hover:text-primary-600 hover:border-primary-300 hover:shadow-xl hover:shadow-primary-100/50 transition-all active:scale-95"
-                    :style="backToTopStyle"
-                    @click="scrollToTop">
-                <el-icon :size="20"><ArrowUp /></el-icon>
-            </button>
-        </transition>
-    </Teleport>
+    <transition name="back-to-top">
+        <button v-if="showBackToTop"
+                type="button"
+                class="back-to-top"
+                :title="t('courseWorkspace.backToTop', '回到正文顶部')"
+                :aria-label="t('courseWorkspace.backToTop', '回到正文顶部')"
+                @click="scrollToTop">
+            <el-icon :size="20"><ArrowUp /></el-icon>
+        </button>
+    </transition>
   </div>
 </template>
 
@@ -406,6 +406,7 @@ import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useLearningSessionStore } from '../stores/learningSession'
 
 import CourseNode from './CourseNode.vue'
+import { emptyLessonShellContent, isLessonNavigation } from '../utils/course-navigation'
 import InlineAnnotationLayer from './InlineAnnotationLayer.vue'
 import InlineRecordPopover from './InlineRecordPopover.vue'
 import { Download, Notebook, Close, ChatLineSquare, Timer, ArrowUp, ChatDotRound, Loading, Setting, Check } from '@element-plus/icons-vue'
@@ -497,7 +498,7 @@ const learningSyncIcon = computed(() => {
 const learningSyncClass = computed(() => {
     if (learningSessionStore.status === 'offline') return 'border-amber-200 bg-amber-50/95 text-amber-800'
     if (learningSessionStore.status === 'conflict') return 'border-red-200 bg-red-50/95 text-red-700'
-    if (learningSessionStore.status === 'pending' || learningSessionStore.status === 'syncing') return 'border-sky-200 bg-white/95 text-sky-700'
+    if (learningSessionStore.status === 'pending' || learningSessionStore.status === 'syncing') return 'border-primary-200 bg-white/95 text-primary-700'
     return 'border-slate-200 bg-white/90 text-slate-600'
 })
 const selectionMenu = ref({ visible: false, x: 0, y: 0, arrowOffset: 0, placement: 'top', text: '', range: null as Range | null })
@@ -783,6 +784,11 @@ const rafRefreshAnnotations = () => {
  */
 const smartScrollTo = (container: HTMLElement, targetTop: number, threshold = 1500): Promise<void> => {
     return new Promise((resolve) => {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            container.scrollTop = targetTop
+            resolve()
+            return
+        }
         const distance = Math.abs(container.scrollTop - targetTop)
         if (distance < threshold) {
             container.scrollTo({ top: targetTop, behavior: 'smooth' })
@@ -836,7 +842,8 @@ watch(() => courseStore.scrollToNodeId, async (nodeId) => {
     if (!scrollContainer) { isManualScrolling.value = false; return }
     
     // 先精确匹配 node_id，找不到则按名称模糊匹配
-    let targetNodeId = nodeId
+    const requestedRoot = courseStore.treeData.find(node => node.node_id === nodeId)
+    let targetNodeId = (!isGenerationPreview.value && requestedRoot && emptyLessonShellContent(requestedRoot)?.node_id) || nodeId
     let index = flatNodes.value.findIndex(n => n.node_id === targetNodeId)
     if (index === -1) {
         const match = flatNodes.value.find(n => 
@@ -953,13 +960,15 @@ const fontSize = computed(() => courseStore.uiSettings.fontSize)
 const fontFamily = computed(() => courseStore.uiSettings.fontFamily)
 const lineHeight = computed(() => courseStore.uiSettings.lineHeight)
 
+const lessonNavigation = computed(() => isLessonNavigation(courseStore.treeData))
+
 // Notes Logic
 const flatNodes = computed(() => {
     if (!courseStore.treeData || courseStore.treeData.length === 0) return []
     const nodes: any[] = []
     const traverse = (data: any[]) => {
         for (const node of data) {
-            nodes.push(node)
+            if (isGenerationPreview.value || !emptyLessonShellContent(node)) nodes.push(node)
             if (node.children && node.children.length > 0) {
                 traverse(node.children)
             }
@@ -2105,14 +2114,6 @@ watch(() => courseStore.isFocusMode, (newVal, oldVal) => {
 
 const showBackToTop = ref(false)
 
-// Compute dynamic right offset for back-to-top button — synced with AI button
-const backToTopStyle = computed(() => {
-  if (props.sideAiPanelVisible) {
-    return { right: 'calc(33vw + 1rem)' }
-  }
-  return { right: '1.5rem' }
-})
-
 const handleScroll = (e: Event) => {
     const target = e.target as HTMLElement
     showBackToTop.value = target.scrollTop > 500
@@ -2563,25 +2564,29 @@ defineExpose({
     50% { background-color: rgba(251, 191, 36, 0.8); box-shadow: 0 0 10px rgba(245, 158, 11, 0.5); }
 }
 
+.reading-progress-fill { width:100%; height:100%; background:var(--lz-brand); transform-origin:left; transition:transform var(--duration-normal) ease-out; }
+.learning-sync-status { max-width:calc(100% - 24px); font-size:var(--text-xs); }
 .back-to-top {
-    position: fixed;
-    bottom: 8.5rem;
-    z-index: 50;
-    transition: all 0.3s ease;
+    position:absolute;
+    right:20px;
+    bottom:20px;
+    z-index:20;
+    width:40px;
+    height:40px;
+    display:grid;
+    place-items:center;
+    border:1px solid var(--lz-border);
+    border-radius:var(--lz-radius-control);
+    color:var(--lz-text-secondary);
+    background:var(--bg-secondary);
+    cursor:pointer;
+    transition:color var(--duration-fast), border-color var(--duration-fast), background var(--duration-fast);
 }
-
-/* back-to-top transition animations */
-
-.back-to-top-enter-active,
-.back-to-top-leave-active {
-    transition: all 0.3s ease;
-}
-
-.back-to-top-enter-from,
-.back-to-top-leave-to {
-    opacity: 0;
-    transform: translateY(20px);
-}
+.back-to-top:hover,.back-to-top:active { color:var(--lz-brand-strong); border-color:var(--lz-brand); background:var(--lz-brand-soft); }
+.back-to-top:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
+.back-to-top-enter-active,.back-to-top-leave-active { transition:opacity var(--duration-fast); }
+.back-to-top-enter-from,.back-to-top-leave-to { opacity:0; }
+@media (prefers-reduced-motion:reduce) { .reading-progress-fill,.back-to-top,.back-to-top-enter-active,.back-to-top-leave-active { transition:none; } }
 
 .notes-expand-tab {
     display: flex;

@@ -37,13 +37,13 @@
         </div>
 
         <nav class="question-book-dialog__views" :aria-label="t('courseWorkspace.practice.views', '练习视图')">
-          <button :class="{ active: practiceView === 'current' }" @click="setPracticeView('current')">
+          <button :class="{ active: practiceView === 'current' }" :aria-pressed="practiceView === 'current'" @click="setPracticeView('current')">
             {{ t('courseWorkspace.practice.current', '当前练习') }}
           </button>
-          <button :class="{ active: practiceView === 'history' }" @click="setPracticeView('history')">
+          <button :class="{ active: practiceView === 'history' }" :aria-pressed="practiceView === 'history'" @click="setPracticeView('history')">
             {{ t('courseWorkspace.practice.history', '练习历史') }}
           </button>
-          <button :class="{ active: practiceView === 'needs_review' }" @click="setPracticeView('needs_review')">
+          <button :class="{ active: practiceView === 'needs_review' }" :aria-pressed="practiceView === 'needs_review'" @click="setPracticeView('needs_review')">
             {{ t('courseWorkspace.practice.needsReview', '错题本') }}
           </button>
         </nav>
@@ -131,7 +131,12 @@ onMounted(async () => {
 .is-embedded .question-book-dialog__views { grid-row:2; grid-column:1 / -1; justify-self:start; }
 .is-embedded .question-book-dialog__actions { grid-column:2; grid-row:1; }
 .is-embedded .question-book-dialog__identity div > span { white-space:normal; font-size:14px; }
-.is-embedded .question-book-dialog__views button { font-size:15px; }
+.is-embedded .question-book-dialog__views button { font-size:var(--text-sm); }
+.is-embedded .question-book-dialog__mark { width:32px; height:32px; border-radius:var(--radius-sm); color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
+.is-embedded .question-book-dialog__identity strong { font-size:var(--text-base); font-weight:650; }
+.is-embedded .question-book-dialog__close { border:1px solid var(--lz-border); }
+.is-embedded .question-book-dialog__close:hover { border-color:var(--lz-brand); color:var(--lz-brand-strong); }
+.is-embedded .question-book-dialog__identity div > span { overflow-wrap:anywhere; }
 
 .question-book-modal {
   position: fixed;

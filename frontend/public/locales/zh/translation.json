@@ -3296,6 +3296,7 @@
     "close": "关闭并返回正文"
   },
   "courseBlocks": {
+    "lesson": "讲次",
     "courseOpening": "课程导读",
     "courseUnit": "课程单元",
     "chapter": "章节",
@@ -4681,6 +4682,7 @@
     }
   },
   "courseWorkspace": {
+    "backToTop": "回到正文顶部",
     "navigation": "课程工作区",
     "openCourseTree": "打开课程目录",
     "loading": "正在读取课程资产",
@@ -5498,6 +5500,15 @@
     }
   },
   "notebook": {
+    "noResults": "没有找到相关内容",
+    "emptyCategory": "这个分类还没有记录",
+    "clearSearch": "清除搜索",
+    "categories": {
+      "note": "笔记",
+      "issue": "问题",
+      "review": "复习",
+      "bookmark": "书签"
+    },
     "title": "笔记本",
     "count": "共 {count} 条内容",
     "search": "搜索笔记本...",
