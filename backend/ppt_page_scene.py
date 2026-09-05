@@ -90,7 +90,11 @@ def _relation_label(relation, anchors, objects, execution):
             width=width, height=height, font_size=size, color="305AC7")
         if label.x >= 0 and label.y >= 0 and label.x + width <= 960 and label.y + height <= 540 and not any(_overlaps(label, o, 3) for o in objects):
             return label
-    raise ValueError(f"relation_label_overlap:{relation.relation_id}")
+    raise ValueError(f"relation_label_overlap:{relation.relation_id}: label={relation.label!r}, "
+                     f"box={width:g}x{height:g}pt; no clear area near the edge. "
+                     "Use fewer nodes or a shorter source-faithful edge label. "
+                     "If the label only repeats the relation type or node text, omit that redundant label while retaining the edge. "
+                     "Keep any essential branch condition explicit in the source-bound nodes or label.")
 
 
 def relation_anchors(source, target):

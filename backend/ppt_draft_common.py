@@ -50,5 +50,6 @@ def draft_element_text(item, sources):
             raise ValueError("selected_artifact_requires_one_source_quote")
         return resolve_quote_choice(item.sources[0], sources)[1]
     if not item.text.strip():
-        raise ValueError("screen_element_text_missing")
+        raise ValueError(f"screen_element_text_missing:{item.key}: provide concise text; "
+                         "for an exact source artifact set use_source_text=true with one quote_id")
     return item.text

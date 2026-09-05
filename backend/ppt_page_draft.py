@@ -75,7 +75,10 @@ def lower_teaching_draft(value, sources):
                          "sources": bind_choices(item.sources, sources, owner=item.key,
                              exact_text=text if item.kind in {"formula", "code", "quote", "data"} else None)})
     if max(stages.values()) != len(draft.reveal_notes):
-        raise ValueError(f"reveal_notes_count_must_match_last_show_from: max show_from={max(stages.values())}, notes={len(draft.reveal_notes)}; each page part needs its own notes, exactly one per step; remove unused trailing steps or assign the intended element to that step")
+        raise ValueError(f"reveal_notes_count_must_match_last_show_from: max show_from={max(stages.values())}, notes={len(draft.reveal_notes)}; "
+                         f"show_from_by_element={stages}; each page part needs its own notes, exactly one per step. "
+                         "For a final note explaining a conclusion, assign that conclusion element to the final step. "
+                         "If the note adds no visual state, combine the notes in the previous step. Return the complete revised page.")
     if draft.expression_kind in {"concept", "process", "causal", "hierarchy"}:
         endpoints = {key for r in draft.relations for key in (r.source_key, r.target_key)}
         # A claim may itself be a graph node. Teaching role does not override

@@ -35,7 +35,7 @@ jobs:
           python -m pytest -q backend/tests/test_ppt_teaching_content.py
           backend/tests/test_ppt_page_draft.py backend/tests/test_ppt_native_bindings.py
           backend/tests/test_ppt_adopted_visuals.py backend/tests/test_slide_build_progress_v2.py
-          backend/tests/test_ppt_chart_scene.py
+          backend/tests/test_ppt_chart_scene.py backend/tests/test_ppt_recovery_boundaries.py
       - name: Certify real filled component samples on Linux
         run: >-
           python scripts/ppt_template_tool.py certify
