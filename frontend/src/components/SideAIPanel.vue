@@ -6,8 +6,8 @@
         'has-conversation-rail': !props.blockTarget && !props.embedded,
         'conversation-rail-open': !props.blockTarget && !props.embedded && conversationOpen,
       }"
-      :role="props.embedded ? 'complementary' : 'dialog'"
-      :aria-modal="props.embedded ? undefined : 'true'"
+      :role="props.embedded || props.docked ? 'complementary' : 'dialog'"
+      :aria-modal="props.embedded || props.docked ? undefined : 'true'"
       :aria-label="assistantTitle"
     >
       <header class="ai-teacher-header">
@@ -764,12 +764,14 @@ const props = withDefaults(defineProps<{
   blockTarget?: CourseBlockEditTarget
   scopeFiles?: Array<{ id: string; label: string; nodeId?: string; path?: string }>
   embedded?: boolean
+  docked?: boolean
   courseBaselineDraftEnabled?: boolean
   courseBaselineDraftBusy?: boolean
 }>(), {
   mode: 'learner',
   scopeFiles: () => [],
   embedded: false,
+  docked: false,
   courseBaselineDraftEnabled: false,
   courseBaselineDraftBusy: false,
 })
@@ -789,7 +791,7 @@ const noteStore = useNoteStore()
 const changeProposalsStore = useChangeProposalsStore()
 const input = ref('')
 const quoteVisible = ref(Boolean(props.quoteText))
-const conversationOpen = ref(!props.embedded && window.innerWidth > 760)
+const conversationOpen = ref(!props.embedded && !props.docked && window.innerWidth > 760)
 const conversationQuery = ref('')
 const fileScopeOpen = ref(false)
 const selectedScopeFileIds = reactive(new Set<string>())
@@ -831,7 +833,7 @@ const assistantEmptyTitle = computed(() => isTeacherMode.value
 const assistantEmptyDescription = computed(() => isTeacherMode.value
   ? t('courseWorkspace.teacherAgent.emptyBody', '我会基于当前课程真源分析怎么教，正式改动会先说明影响。')
   : t('courseWorkspace.aiTeacher.emptyBody', '可以解释概念、分析作答，也可以检查你是否真正理解。'))
-const panelClasses = computed(() => props.embedded ? 'is-embedded' : 'is-fullscreen')
+const panelClasses = computed(() => props.docked ? 'is-embedded is-docked' : props.embedded ? 'is-embedded' : 'is-fullscreen')
 const currentNode = computed(() => (
   courseStore.nodes.find(node => node.node_id === (props.quoteNodeId || courseStore.currentNode?.node_id))
   || courseStore.currentNode
@@ -1598,12 +1600,14 @@ async function saveAnswerAsNote(message: AIMessage) {
 async function createConversation() {
   await aiStore.createConversation()
   conversationQuery.value = ''
+  if (props.docked) conversationOpen.value = false
   await nextTick()
   inputElement.value?.focus()
 }
 
 async function switchConversation(conversationId: string) {
   if (conversationId) await aiStore.selectConversation(conversationId)
+  if (props.docked) conversationOpen.value = false
   scrollToBottom()
 }
 
@@ -1775,6 +1779,11 @@ onUnmounted(() => {
 .is-embedded .file-scope-picker { flex:none; }
 .is-embedded .file-scope-picker__toggle { max-width:180px; }
 .is-embedded .file-scope-picker__toggle strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.is-docked .conversation-shell { position:absolute; z-index:3; top:76px; bottom:0; left:0; width:100%; display:none; background:var(--lz-surface); }
+.is-docked .conversation-shell.open { display:grid; }
+.is-docked .ai-teacher-messages { padding:16px 12px; }
+.is-docked .ai-teacher-composer { padding:12px; }
+.is-docked .quick-actions { grid-template-columns:minmax(0,1fr); }
 .conversation-rail-toggle { min-height:34px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid var(--lz-border); border-radius:9px; color:var(--lz-text-secondary); background:#fff; font-size:11px; font-weight:700; cursor:pointer; }
 .conversation-rail-toggle:hover,.conversation-rail-toggle[aria-expanded="true"] { border-color:var(--lz-brand-border); color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
 .icon-button { width: 32px; height: 32px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid transparent; border-radius: 9px; color: var(--lz-text-muted); background: transparent; cursor: pointer; transition: color .16s ease, border-color .16s ease, background .16s ease, transform .16s ease; }

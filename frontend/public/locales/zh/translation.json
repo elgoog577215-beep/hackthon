@@ -2805,7 +2805,9 @@
     "search": "查找章节或内容",
     "records": "学习记录",
     "sectionBlocks": "本节内容",
-    "blockFallback": "内容块"
+    "blockFallback": "内容块",
+    "searchLessons": "查找讲次或内容",
+    "noResults": "没有匹配的内容，试试其他关键词。"
   },
   "learningShell": {
     "openNavigator": "打开课程目录",
@@ -2842,7 +2844,7 @@
     "resourceMenuTitle": "课程资料",
     "resourceMenuHelp": "知识图谱与课程配套资料",
     "assistant": "AI 助手",
-    "assistantHint": "打开全屏 AI 助手",
+    "assistantHint": "打开 AI 助手",
     "notebook": "笔记本",
     "notebookHint": "查看本课程的笔记与学习标记",
     "questionBook": "题库本",
@@ -2872,7 +2874,7 @@
     "teachingDescription": "查看大纲、教案、讲义等",
     "resourcesHint": "查看由当前课程同步生成的大纲、教案、讲义、练习册和演示文稿",
     "ai": "AI 助手",
-    "aiHint": "打开全屏 AI 助手"
+    "aiHint": "打开 AI 助手"
   },
   "questionBook": {
     "title": "题库本",
