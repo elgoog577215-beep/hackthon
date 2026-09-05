@@ -523,7 +523,7 @@ async def test_ai_teacher_does_not_duplicate_conversation_history_in_user_prompt
     service = AIQAService()
     captured: dict[str, str] = {}
 
-    async def captured_stream(prompt, system_prompt):
+    async def captured_stream(prompt, system_prompt, **_kwargs):
         captured["prompt"] = prompt
         captured["system_prompt"] = system_prompt
         yield "回答"

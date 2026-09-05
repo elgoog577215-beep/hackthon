@@ -1017,7 +1017,26 @@ ID 只能来自 assessment_intent。反馈要说清题目要求、学生当前�
 """.strip()
 
 
-practice_analysis_service = PracticeAnalysisService()
+class _LazyPracticeAnalysisService:
+    """Delay provider construction until an answer actually needs diagnosis."""
+
+    def __init__(self) -> None:
+        self._service: PracticeAnalysisService | None = None
+
+    def _get_service(self) -> PracticeAnalysisService:
+        if self._service is None:
+            self._service = PracticeAnalysisService()
+        return self._service
+
+    async def diagnose_answer(
+        self,
+        question: dict[str, Any],
+        attempt: dict[str, Any],
+    ) -> dict[str, Any]:
+        return await self._get_service().diagnose_answer(question, attempt)
+
+
+practice_analysis_service = _LazyPracticeAnalysisService()
 
 
 __all__ = [

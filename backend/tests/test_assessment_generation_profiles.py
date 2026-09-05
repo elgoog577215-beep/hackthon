@@ -105,7 +105,10 @@ def test_deliberation_is_selective_and_reasoned() -> None:
     assert semantic_repair.reason_codes == ("semantic_repair",)
 
 
-def test_batch_generation_does_not_force_thinking_for_simple_items() -> None:
+def test_batch_generation_does_not_force_thinking_for_simple_items(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("AI_THINKING_ENABLED", "true")
     policy = resolve_assessment_generation_policy("complete")
 
     simple = policy.call_policy(

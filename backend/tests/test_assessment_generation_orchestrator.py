@@ -975,6 +975,7 @@ async def test_complex_generation_reserves_answer_budget_and_uses_compact_candid
     monkeypatch,
 ):
     monkeypatch.delenv("ASSESSMENT_MIN_OUTPUT_TOKENS", raising=False)
+    monkeypatch.setenv("AI_THINKING_ENABLED", "true")
     captured = {}
     model = UniversalAssessmentModel()
 

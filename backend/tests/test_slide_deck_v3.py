@@ -1505,6 +1505,7 @@ def test_variant_stream_endpoint_builds_only_requested_combination(tmp_path: Pat
             "mode": "teaching",
             "theme": "grid-notebook",
             "force_rebuild": False,
+            "engine_version": "v5",
         },
     ) as response:
         stream = "".join(response.iter_text())
@@ -1571,6 +1572,7 @@ def test_variant_stream_rebuilds_cached_v5_after_compiler_reliability_upgrade(
         "mode": "teaching",
         "theme": "qizhi-classroom",
         "force_rebuild": False,
+        "engine_version": "v5",
     }
     current_compiler_version = slide_deck_v5.SLIDE_DECK_V5_COMPILER_VERSION
     monkeypatch.setattr(
@@ -1655,6 +1657,7 @@ def test_variant_stream_publishes_and_reuses_an_atomic_v5_variant(
         "mode": "teaching",
         "theme": "qizhi-classroom",
         "force_rebuild": False,
+        "engine_version": "v5",
     }
 
     with client.stream(

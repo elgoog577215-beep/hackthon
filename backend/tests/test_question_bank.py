@@ -624,6 +624,13 @@ def test_legacy_review_queue_migrates_without_republishing_teacher_rejections():
         for item in migrated["items"]
         if item["assessment_role"] == "practice"
         and item["item_id"] != practice["item_id"]
+        and item.get("review_tier") == "auto_publish"
+    )
+    assert all(
+        item["lifecycle_status"] == "needs_review"
+        for item in migrated["items"]
+        if item["assessment_role"] == "practice"
+        and item.get("review_tier") == "mandatory_review"
     )
 
 

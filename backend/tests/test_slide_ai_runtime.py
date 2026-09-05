@@ -32,7 +32,7 @@ def test_durable_v5_story_worker_uses_auto_mode_when_provider_exists(
 ) -> None:
     monkeypatch.delenv("AI_SLIDE_PLANNER_ENABLED", raising=False)
 
-    with patch("jobs.manager.AIBase") as provider_type:
+    with patch("jobs.slide_build.AIBase") as provider_type:
         provider_type.return_value.client = object()
         worker = _source_first_story_ai_worker()
 
@@ -55,7 +55,7 @@ def test_route_planner_uses_auto_mode_when_provider_exists(monkeypatch) -> None:
 async def test_visual_worker_requires_complete_structured_json(monkeypatch) -> None:
     monkeypatch.delenv("AI_SLIDE_PLANNER_ENABLED", raising=False)
 
-    with patch("jobs.manager.AIBase") as provider_type:
+    with patch("jobs.slide_build.AIBase") as provider_type:
         provider = provider_type.return_value
         provider.client = object()
         provider._call_llm = AsyncMock(return_value='{"pages": []}')

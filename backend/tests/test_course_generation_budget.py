@@ -415,7 +415,7 @@ def test_parallel_node_context_never_depends_on_generated_predecessor_body():
         course["nodes"][1],
     )
 
-    assert "已确认的前序教学责任" in context
+    assert "当前前序教学责任" in context
     assert "能完成前序任务" in context
     assert "不应进入提示词的正文标记" not in context
 

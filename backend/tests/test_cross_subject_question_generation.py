@@ -29,7 +29,10 @@ def _course_for(
         },
         "material_bindings": [],
         "evidence_catalog": [],
-        "subject_pedagogy_profile": {"primary_mode": mode},
+        "subject_pedagogy_profile": {
+            "primary_mode": mode,
+            "user_locked": True,
+        },
         "nodes": [{
             "node_id": "L2-1-1",
             "node_level": 2,

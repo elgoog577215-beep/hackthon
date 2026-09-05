@@ -78,6 +78,9 @@ def test_upgrade_course_logic_unlocks_v4_without_rewriting_document(
 ):
     from routers import teaching_representations as representation_router
 
+    monkeypatch.setenv("SLIDE_DECK_V6_ENABLED", "true")
+    monkeypatch.setenv("SLIDE_DECK_V6_DEFAULT_ENABLED", "true")
+
     course = migrated_course_missing_logic()
     original_document = deepcopy(course["course_document"])
     storage = MemoryStorage(course)
@@ -134,7 +137,7 @@ def test_upgrade_course_logic_unlocks_v4_without_rewriting_document(
     payload = response.json()
     assert payload["status"] == "success"
     assert payload["already_ready"] is False
-    assert payload["registry"]["slide_deck_target_schema"] == "slide_deck_v5"
+    assert payload["registry"]["slide_deck_target_schema"] == "slide_deck_v6"
     assert course_supports_slide_deck_v4(
         course_repository.load_course_view("course-legacy-logic")
     )

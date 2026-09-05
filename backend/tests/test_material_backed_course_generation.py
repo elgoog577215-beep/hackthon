@@ -920,7 +920,7 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
 
     assert data["generation_pipeline_version"] == "course_generation_v17"
     assert data["generation_schema_version"] == "course_generation_v17"
-    assert data["prompt_contract_version"] == "course_prompt_v31"
+    assert data["prompt_contract_version"] == "course_prompt_v32"
     assert data["course_generation_brief"]["formal_course_profile"] == {
         "course_code": "MATH-101",
         "credits": 3,
@@ -1470,7 +1470,7 @@ async def test_course_service_can_stop_after_outline_without_generating_knowledg
 
     assert len(calls) == 2
     assert calls[0].startswith("为「目录确认课程」规划全课章节骨架")
-    assert data["generation_status"] == "outline_ready"
+    assert data["generation_status"] == "outline_completed"
     assert data["course_outline"]["chapters"][0]["sections"][0]["knowledge_structure"] == []
     assert "course_knowledge_base" not in data
 

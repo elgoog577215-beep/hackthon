@@ -59,14 +59,15 @@ def course_generation_view(course_data: dict[str, Any]) -> dict[str, Any]:
         if isinstance(item, dict) and is_course_web_source(item)
     }
     result["material_bindings"] = without_course_web_sources(bindings)
-    result["evidence_catalog"] = [
-        item
-        for item in result.get("evidence_catalog") or []
-        if not (
-            isinstance(item, dict)
-            and str(item.get("asset_id") or "") in web_asset_ids
-        )
-    ]
+    if "evidence_catalog" in result:
+        result["evidence_catalog"] = [
+            item
+            for item in result.get("evidence_catalog") or []
+            if not (
+                isinstance(item, dict)
+                and str(item.get("asset_id") or "") in web_asset_ids
+            )
+        ]
     result.pop("retrieval_package", None)
     result.pop("retrieval_acceptance", None)
     result.pop("outline_research", None)

@@ -797,13 +797,13 @@ def coerce_persisted_profile(course_data: dict[str, Any]) -> SubjectPedagogyProf
             or (request.get("course_intent") or {}).get("learning_goal")
             or ""
         )
-        if not bool(raw.get("user_locked")):
+        primary = parse_mode(raw.get("primary_mode"))
+        if primary is None:
             return resolve_pedagogy_profile(
                 subject=subject,
                 requirements=requirements,
                 materials=course_data.get("material_cards") or (),
             )
-        primary = parse_mode(raw.get("primary_mode")) or PedagogyMode.GENERAL
         secondary = parse_mode(raw.get("secondary_mode"))
         if secondary == primary:
             secondary = None

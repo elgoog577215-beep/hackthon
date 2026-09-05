@@ -2088,6 +2088,7 @@ def test_v5_editorial_body_does_not_reserve_a_fake_right_sidebar() -> None:
         key_message="",
         eyebrow="核心概念",
         title="系统边界决定交换方式",
+        quality={},
     )
     shape = Mock()
     text = Mock()

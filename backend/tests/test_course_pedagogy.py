@@ -98,7 +98,7 @@ def test_persisted_profile_keeps_evidence_and_rationale():
     assert restored.rationale == "课程以工程交付为主线"
 
 
-def test_auto_detected_profile_is_recomputed_when_course_signals_become_clearer():
+def test_persisted_profile_is_not_silently_reclassified_during_read():
     restored = coerce_persisted_profile({
         "course_name": "全链路验收：牛顿第二定律与受力分析",
         "generation_request": {
@@ -111,8 +111,8 @@ def test_auto_detected_profile_is_recomputed_when_course_signals_become_clearer(
         },
     })
 
-    assert restored.primary_mode is PedagogyMode.NATURAL_SCIENCE
-    assert restored.secondary_mode is not PedagogyMode.HUMANITIES_SOCIAL
+    assert restored.primary_mode is PedagogyMode.GENERAL
+    assert restored.secondary_mode is PedagogyMode.HUMANITIES_SOCIAL
     assert restored.user_locked is False
 
 

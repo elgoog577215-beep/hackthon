@@ -265,3 +265,27 @@ PWCLI=/Users/yq/.codex/skills/playwright/scripts/playwright_cli.sh
 - 中文桌面隔离浏览器中，PPT last-good + 最新失败显示“内容已就绪 / 可使用 · 最近一次生成失败”，唯一“重新生成”位于右栏；普通“AI 生成”禁用，“上传并审阅”可用。只读路由记录中只有被拒绝的匿名 `/api/usage-events/batch`，没有课程、资产或任务写请求。截图：`output/playwright/teacher-production-ppt-state-audit.png`。
 
 剩余兼容边界：旧通用节点生成的 HTTP/WebSocket skip/retry/stop/custom-instruction 仍按 `course_id` 查找活动任务，它不属于教师教案/讲义/PPT 主链，但仍是任务身份债务；在 9.1 完整发布观察和协议迁移前不冒险改动。当前 8000 仍是旧进程，数据目录存在其他课程的 running/pending/paused 教师资产 job，因此未重启后端、未点击恢复、未提交、未推送、未部署。
+
+## 首次推送失败后的发布基线修复（2026-09-05）
+
+提交 `7bc5bef3` 的 GitHub Actions `33923198527` 在 `verify` 阶段完成
+`3954 passed / 18 failed` 后停止，`deploy` 未执行，因此没有改动生产版本、生产数据或
+活动任务。18 项失败复核为远端旧测试断言、测试环境开关泄漏和两个导入时副作用，而不是
+教师生产状态合同的新失败；本轮没有绕过发布门，而是修复根因：
+
+- 已持久化的合法 `primary_mode` 不再因 `user_locked=false/缺失` 在读取时被静默重分类；只有缺失或非法模式才重新解析。
+- 练习诊断 provider 改为首次真实诊断时惰性初始化，任务恢复模块导入不再依赖模型凭据。
+- 冻结的课程联网资料读取不再给历史数据凭空补写 `evidence_catalog`。
+- AI Teacher、PPT V5/V6、Prompt/阶段名、题库迁移、课程结构引用迁移及 thinking/V6 开关测试均改为核对当前真实合同，并显式隔离本机环境变量。
+
+修复后的完整发布前证据：
+
+- `backend/.venv/bin/python -m pytest backend/tests`：`3972 passed, 3 skipped, 2 xfailed, 1 xpassed`。
+- `backend/.venv/bin/python -m pytest tests`：`112 passed`。
+- `backend/.venv/bin/python -m ruff check backend tests --select E9,F63,F7,F82`：通过。
+- 前端 Vitest：`174 files / 1470 tests passed`。
+- `VITE_BASE_PATH=/lingzhi/ npm run build`：通过，`5383 modules transformed`；仅有既有大 chunk 告警。
+- 当前 change 与全量 OpenSpec strict validation：`36 passed / 0 failed`；中英文 locale JSON 和 `git diff --check` 通过。
+- 独立 UI 只读复核确认：投影存在时旧 jobs 不参与动作裁决；`retry_generation` 缺少或越界的 `action_targets` 时不显示写按钮；合法恢复只提交投影授权的 `resume_job_ids`。共享适配器 `44 passed`，工作台两个关键恢复场景通过。
+
+9.6 仍未完成：以上只证明代码和发布前门禁恢复可信。只有 Actions 的 `verify`、活动任务安全门、生产备份与隔离恢复、指定 `qwen3.8-27b` 探测、`/api/health` 和代表性课程只读验收全部通过后，才记录生产 SHA、回滚点并勾选 9.6。

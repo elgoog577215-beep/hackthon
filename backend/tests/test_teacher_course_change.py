@@ -22,6 +22,50 @@ from course_evolution.teacher_planning import (
 )
 
 
+def _assert_structure_change_operations(operations) -> None:
+    assert [item.operation_type for item in operations].count(
+        "REBUILD_COURSE_OUTLINE"
+    ) == 1
+    domain_operations = [
+        item
+        for item in operations
+        if item.operation_type == "APPLY_DOMAIN_CANDIDATE"
+    ]
+    assert {
+        item.payload["domain"]
+        for item in domain_operations
+    } == {
+        "authoring_structure_refs",
+        "ppt_structure_refs",
+        "question_bank_structure_refs",
+    }
+
+
+def _apply_structure_change_domains(_plan, operation_ids) -> dict:
+    return {
+        "schema_version": "teacher_course_domain_receipt_v1",
+        "status": "applied",
+        "applied_count": len(operation_ids),
+        "failed_count": 0,
+        "items": [
+            {
+                "operation_id": operation_id,
+                "status": "applied",
+                "detail": "结构引用迁移已由独立仓储测试覆盖",
+            }
+            for operation_id in operation_ids
+        ],
+    }
+
+
+def _undo_structure_change_domains(_plan) -> dict:
+    return {
+        "schema_version": "teacher_course_domain_undo_receipt_v1",
+        "status": "undone",
+        "items": [],
+    }
+
+
 def document() -> CourseDocument:
     return refresh_document_revision(CourseDocument(
         course_id="course-1",
@@ -827,7 +871,7 @@ def test_reviewed_merge_retire_and_reorder_use_one_outline_command_and_undo(tmp_
         analyzer=analyzer,
     ))
     plan = state.change_sets[0]
-    assert [item.operation_type for item in plan.operations] == ["REBUILD_COURSE_OUTLINE"]
+    _assert_structure_change_operations(plan.operations)
     migration_ids = [item.migration_id for item in plan.teacher_change_planning.unit_migrations]
     reviewed = review_teacher_course_change_scope(
         repository=evolution_repository,
@@ -857,6 +901,7 @@ def test_reviewed_merge_retire_and_reorder_use_one_outline_command_and_undo(tmp_
         selected_operation_ids=selected_operation_ids,
         repository=evolution_repository,
         document_repository=document_repository,
+        domain_candidate_applier=_apply_structure_change_domains,
     )
     updated, _ = document_repository.load_document("course-structure")
     assert [(item.section_id, item.title) for item in updated.sections] == [
@@ -872,6 +917,7 @@ def test_reviewed_merge_retire_and_reorder_use_one_outline_command_and_undo(tmp_
         change_set_id=plan.change_set_id,
         repository=evolution_repository,
         document_repository=document_repository,
+        domain_candidate_undoer=_undo_structure_change_domains,
     )
     restored, _ = document_repository.load_document("course-structure")
     assert [item.section_id for item in restored.sections] == ["a", "b", "c", "d"]
@@ -957,7 +1003,7 @@ def test_complex_ten_section_request_deletes_merges_swaps_and_undoes(tmp_path):
         analyzer=analyzer,
     ))
     plan = state.change_sets[0]
-    assert [item.operation_type for item in plan.operations] == ["REBUILD_COURSE_OUTLINE"]
+    _assert_structure_change_operations(plan.operations)
 
     migration_ids = [
         item.migration_id for item in plan.teacher_change_planning.unit_migrations
@@ -989,6 +1035,7 @@ def test_complex_ten_section_request_deletes_merges_swaps_and_undoes(tmp_path):
         selected_operation_ids=selected_operation_ids,
         repository=evolution_repository,
         document_repository=document_repository,
+        domain_candidate_applier=_apply_structure_change_domains,
     )
 
     updated, _ = document_repository.load_document(structural_document.course_id)
@@ -1017,6 +1064,7 @@ def test_complex_ten_section_request_deletes_merges_swaps_and_undoes(tmp_path):
         change_set_id=plan.change_set_id,
         repository=evolution_repository,
         document_repository=document_repository,
+        domain_candidate_undoer=_undo_structure_change_domains,
     )
     restored, _ = document_repository.load_document(structural_document.course_id)
     assert [item.section_id for item in restored.sections] == section_ids
