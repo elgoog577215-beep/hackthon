@@ -229,6 +229,9 @@ class CourseEvolutionPlan(BaseModel):
     request_text: str = ""
     growth_direction: Literal["remediation", "challenge", "author_directed"] = "remediation"
     generation_status: Literal["suggested", "generating", "ready", "failed", "stale"] = "ready"
+    review_revision: int = 0
+    generation_job_id: str = ""
+    generation_attempt_id: str = ""
     requested_roles: list[str] = Field(default_factory=list)
     replaces_change_set_id: str = ""
     base_revision_vector: dict[str, str] = Field(default_factory=dict)

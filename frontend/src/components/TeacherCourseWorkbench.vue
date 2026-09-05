@@ -510,6 +510,12 @@
         </template>
 
         <template v-else-if="activeStage === 'lesson'">
+          <section v-if="selectedFailureJob" class="generation-recovery" role="status">
+            <strong>{{ selectedFailureJob.message }}</strong>
+            <details v-if="failureDetails.length"><summary>{{ t('courseWorkbench.recovery.details') }}</summary><ul><li v-for="detail in failureDetails" :key="detail">{{ detail }}</li></ul></details>
+            <p>{{ t(`courseWorkbench.recovery.${selectedFailureJob.error?.recovery_action || 'revise_inputs'}`) }}</p>
+            <div><button v-if="selectedFailureJob.error?.retryable" type="button" :disabled="recoveryStarting" @click="retrySelectedFailure">{{ t('courseWorkbench.recovery.retryOriginal') }}</button><button type="button" :disabled="recoveryStarting" @click="openRegenerationPreparation">{{ t('courseWorkbench.recovery.reviseAndGenerate') }}</button></div>
+          </section>
           <AppErrorNotice
             v-if="lessonBatchStartErrorPresentation"
             class="workbench-error"
@@ -656,6 +662,12 @@
         </template>
 
         <template v-else-if="activeStage === 'script'">
+          <section v-if="selectedFailureJob" class="generation-recovery" role="status">
+            <strong>{{ selectedFailureJob.message }}</strong>
+            <details v-if="failureDetails.length"><summary>{{ t('courseWorkbench.recovery.details') }}</summary><ul><li v-for="detail in failureDetails" :key="detail">{{ detail }}</li></ul></details>
+            <p>{{ t(`courseWorkbench.recovery.${selectedFailureJob.error?.recovery_action || 'revise_inputs'}`) }}</p>
+            <div><button v-if="selectedFailureJob.error?.retryable" type="button" :disabled="recoveryStarting" @click="retrySelectedFailure">{{ t('courseWorkbench.recovery.retryOriginal') }}</button><button type="button" :disabled="recoveryStarting" @click="openRegenerationPreparation">{{ t('courseWorkbench.recovery.reviseAndGenerate') }}</button></div>
+          </section>
           <AppErrorNotice
             v-if="scriptBatchStartErrorPresentation"
             class="workbench-error"
@@ -853,7 +865,7 @@
       <header class="context-pane-heading" :data-phase="contextPhase">
         <div class="context-pane-heading__status">
           <span class="context-pane-heading__signal" aria-hidden="true">
-            <LoaderCircle v-if="referenceWorkflowState === 'generating'" :size="15" class="spin" />
+            <LoaderCircle v-if="referenceWorkflowState === 'generating' && !outlineAwaitingContinuation" :size="15" class="spin" />
             <Pause v-else-if="referenceWorkflowState === 'paused'" :size="14" />
             <TriangleAlert v-else-if="referenceWorkflowState === 'failed'" :size="14" />
             <Check v-else-if="contextPhase === 'after'" :size="14" />
@@ -948,6 +960,7 @@
       destroy-on-close
       @closed="resetRegenerationPreparation"
     >
+      <label v-if="['lesson', 'script'].includes(activeStage)" class="recovery-input">{{ t('courseWorkbench.recovery.newRequirements') }}<textarea v-model="regenerationRequirements" rows="4" maxlength="4000" :placeholder="t('courseWorkbench.recovery.requirementsHint')" /></label>
       <CourseReferenceTray
         v-model="regenerationReferences"
         class="regeneration-dialog__sources"
@@ -1281,6 +1294,10 @@ const editingOutline = computed({
 const referencesByScope = reactive<Record<string, CourseReferenceItem[]>>({})
 const referenceSourceState = reactive<CourseReferenceSourceState>({ busy: false, blocked: false, reason: '' })
 const regenerationDialogOpen = ref(false)
+const regenerationRequirements = ref('')
+const recoveryStarting = ref(false)
+const selectedFailureJob = computed(() => { const job = activeStage.value === 'lesson' ? lessonJob.value : activeStage.value === 'script' ? scriptJob.value : null; return job?.status === 'failed' ? job : null })
+const failureDetails = computed(() => [...(selectedFailureJob.value?.error?.quality_report?.blocking_issues || []).map(item => item.message), ...(selectedFailureJob.value?.error?.blocking_questions || []), ...(selectedFailureJob.value?.error?.missing_fields || [])])
 const regenerationReferences = ref<CourseReferenceItem[]>([])
 const regenerationSourceState = reactive<CourseReferenceSourceState>({ busy: false, blocked: false, reason: '' })
 const regenerationStarting = ref(false)
@@ -1881,22 +1898,25 @@ const outlineCompletedLessonCount = computed(() => outlineLessonStatuses.value.f
   outlineLessonStatusState(item) === 'completed'
 )).length)
 const outlineWaitingForInput = computed(() => taskStatus.value === 'waiting_for_input')
+const outlineDetailsAction = computed<CourseProductionAllowedAction>(() => {
+  const projected = productionState.value?.stages.outline
+  // The lightweight plan is itself a draft. A waiting task must continue its
+  // input gate before any completed-outline draft regeneration is considered.
+  return projected?.task_state === 'waiting_for_input'
+    ? 'provide_input'
+    : projected?.has_unconfirmed_draft ? 'regenerate_from_latest_source' : 'provide_input'
+})
 const outlineDetailsTaskId = computed(() => {
   const projected = productionState.value?.stages.outline
   if (projected && !outlineLocalEventPendingProjection.value) {
-    const action = projected.has_unconfirmed_draft
-      ? 'regenerate_from_latest_source'
-      : 'provide_input'
-    return String(productionActionTaskIds(projected, action)[0] || '')
+    return String(productionActionTaskIds(projected, outlineDetailsAction.value)[0] || '')
   }
   return String(generationTask.value?.id || '')
 })
 const outlineDetailsActionAvailable = computed(() => {
   const projected = productionState.value?.stages.outline
   if (projected && !outlineLocalEventPendingProjection.value) {
-    return projected.has_unconfirmed_draft
-      ? productionActionTaskIds(projected, 'regenerate_from_latest_source').length > 0
-      : productionAllowsTaskAction(projected, 'provide_input')
+    return productionActionTaskIds(projected, outlineDetailsAction.value).length > 0
   }
   return Boolean(outlineDetailsTaskId.value && (outlineWaitingForInput.value || outlineRegenerationAvailable.value))
 })
@@ -1904,6 +1924,10 @@ const outlineFrameworkReady = computed(() => (
   outlineWaitingForInput.value
   || String(generationTask.value?.currentPhase || '') === 'outline_framework_ready'
 ))
+const outlineAwaitingContinuation = computed(() => activeStage.value === 'foundation'
+  && outlineDetailsActionAvailable.value
+  && !outlineContinuing.value
+  && (outlineFrameworkReady.value || productionState.value?.stages.outline.task_state === 'waiting_for_input'))
 const showOutlineWorkspace = computed(() => activeStage.value === 'foundation'
   && !showStreaming.value
   && (hasOutline.value || editingOutline.value || outlineFrameworkReady.value))
@@ -2682,6 +2706,7 @@ const regenerationAvailable = computed(() => {
     : true
 })
 const contextStatusLabel = computed(() => {
+  if (outlineAwaitingContinuation.value) return t('courseWorkbench.outlineFlow.readyToContinue', '讲次方案已就绪')
   if (projectedLastGoodFailure.value) return t('courseWorkbench.contextPane.ready', '内容已就绪')
   const projectedTaskState = activeProjectedProduction.value?.task_state
   if (projectedTaskState === 'waiting_for_input') return t('teacherProductionState.auxiliary.waitingForInput', '待补充信息')
@@ -2939,16 +2964,27 @@ async function retryReferenceWorkflow() {
 }
 async function regenerateReferenceWorkflow() {
   if (activeStage.value === 'foundation') return submitFoundation()
-  if (activeStage.value === 'lesson') return generateSelectedLessonPlan()
-  if (activeStage.value === 'script') return generateScript()
+  if (activeStage.value === 'lesson') return generateSelectedLessonPlan(regenerationRequirements.value, true)
+  if (activeStage.value === 'script') return generateScript(regenerationRequirements.value, true)
   if (activeStage.value === 'ppt') return openPptWorkspace('regenerate_from_latest_source')
 }
 function openRegenerationPreparation() {
+  regenerationRequirements.value = ''
   regenerationReferences.value = activeCourseReferences.value.map(item => ({ ...item }))
   regenerationSourceState.busy = false
   regenerationSourceState.blocked = false
   regenerationSourceState.reason = ''
   regenerationDialogOpen.value = true
+}
+async function retrySelectedFailure() {
+  const job = selectedFailureJob.value
+  if (!job || recoveryStarting.value || !job.error?.retryable) return
+  recoveryStarting.value = true
+  try {
+    if (activeStage.value === 'lesson') await lessonStore.generateLesson(props.courseId, job.lesson_unit_id, undefined, '', [], job.id)
+    else await lessonStore.generateScript(props.courseId, job.lesson_unit_id, '', [], job.id)
+  } catch { /* Owning store retains the actionable error. */ }
+  finally { recoveryStarting.value = false }
 }
 function resetRegenerationPreparation() {
   if (regenerationStarting.value) return
@@ -2965,7 +3001,12 @@ async function confirmRegeneration() {
     .map(item => ({ ...item }))
   regenerationDialogOpen.value = false
   try {
-    await regenerateReferenceWorkflow()
+    if (selectedFailureJob.value && selectedLesson.value) {
+      const previous = selectedFailureJob.value.id
+      const requirements = regenerationRequirements.value.trim()
+      if (activeStage.value === 'lesson') await lessonStore.generateLesson(props.courseId, selectedLesson.value.lesson_unit_id, activeLessonGenerationSource(), requirements, activeCourseReferences.value.map(item => item.material_asset_id), '', previous)
+      else await lessonStore.generateScript(props.courseId, selectedLesson.value.lesson_unit_id, requirements, activeCourseReferences.value.map(item => item.material_asset_id), '', previous)
+    } else await regenerateReferenceWorkflow()
   } finally {
     regenerationStarting.value = false
     resetRegenerationPreparation()
@@ -3642,7 +3683,7 @@ async function updateOutlineLessonType(payload: { lessonUnitId: string; lessonTy
     outlineLessonTypeSavingId.value = ''
   }
 }
-async function generateSelectedLessonPlan() {
+async function generateSelectedLessonPlan(requirements = '', forceNew = false) {
   const lesson = selectedLesson.value
   if (!lesson || lessonGenerationActive.value || referenceGenerationBlocked.value) return
   if (!productionState.value && !teacherLessonPlanCanGenerate(lesson)) {
@@ -3656,9 +3697,9 @@ async function generateSelectedLessonPlan() {
       props.courseId,
       lesson.lesson_unit_id,
       activeLessonGenerationSource(),
-      '',
+      requirements,
       activeCourseReferences.value.map(item => item.material_asset_id),
-      !productionState.value && ['failed', 'cancelled', 'paused'].includes(String(lessonJob.value?.status || '')) ? lessonJob.value?.id || '' : '',
+      !forceNew && !requirements.trim() && !productionState.value && ['failed', 'cancelled', 'paused'].includes(String(lessonJob.value?.status || '')) ? lessonJob.value?.id || '' : '',
     )
   } catch {
     arrangementError.value = lessonStore.error || t('courseWorkbench.arrangement.generateFailed', '本讲教案生成失败，请重试。')
@@ -3934,8 +3975,8 @@ function lessonGenerationStateLabel(lesson: any): string {
   return labels[state]
 }
 async function handleScriptSaved() { scriptDocumentError.value = ''; await lessonStore.load(props.courseId) }
-async function generateScript(requirements = '') {
-  const resumeJobId = !productionState.value && ['failed', 'cancelled', 'paused'].includes(String(scriptJob.value?.status || ''))
+async function generateScript(requirements = '', forceNew = false) {
+  const resumeJobId = !forceNew && !requirements.trim() && !productionState.value && ['failed', 'cancelled', 'paused'].includes(String(scriptJob.value?.status || ''))
     ? scriptJob.value?.id || ''
     : ''
   const resuming = Boolean(resumeJobId)
@@ -4602,4 +4643,5 @@ onBeforeUnmount(() => {
 @media(prefers-reduced-motion:reduce){.outline-detail-stream__progress>i{transition:none}}
 .script-course-preview__intro{flex:1}.script-course-preview__intro>div:last-child{display:grid;gap:5px}.script-course-preview .lesson-course-preview__title small[data-state="ready"]{color:#168044;font-weight:650}.script-course-preview .lesson-course-preview__title small[data-state="pending"]{color:#9a5b14;font-weight:650}.script-course-preview>article{padding-top:0}.script-course-preview__lesson{border-bottom:1px solid #e9edf3}.script-course-preview__lesson:last-child{border-bottom:0}.script-course-preview__lesson>summary{position:relative;display:grid;gap:11px;padding:19px 34px 19px 0;list-style:none;cursor:pointer}.script-course-preview__lesson>summary::-webkit-details-marker{display:none}.script-course-preview__lesson>summary::after{position:absolute;top:25px;right:5px;width:8px;height:8px;border-right:1.5px solid #8a95a5;border-bottom:1.5px solid #8a95a5;content:"";transform:rotate(45deg);transition:transform .16s ease-out}.script-course-preview__lesson[open]>summary::after{transform:translateY(4px) rotate(225deg)}.script-course-preview__lesson>summary:hover{background:#fbfcff}.script-course-preview__lesson>summary:focus-visible{border-radius:8px;outline:2px solid #5b57e8;outline-offset:-2px}.script-course-preview__block-line{display:flex;flex-wrap:wrap;gap:5px 0;margin-left:40px;color:#68768b;font-size:14px;line-height:1.5}.script-course-preview__block-line>span{display:inline-flex;align-items:baseline;gap:5px}.script-course-preview__block-line>span:not(:last-child)::after{margin:0 9px;color:#bcc4d0;content:"·"}.script-course-preview__block-line strong{color:#4b5870;font-weight:680}.script-course-preview__block-line small{color:#8994a4;font-size:13px;white-space:nowrap}.script-course-preview__lesson[open] .script-course-preview__block-line{display:none}.script-course-preview__lesson>ol{display:grid;gap:7px;margin:0 0 20px 40px;padding:0;list-style:none}.script-course-preview__lesson>ol li{grid-template-columns:minmax(120px,.3fr) minmax(0,1fr) auto}.script-course-preview__lesson>ol li small{color:#68768b;font-size:14px;white-space:nowrap}.script-course-preview__lesson>summary>.lesson-course-preview__pending{margin:0 0 0 40px}.script-course-preview__lesson>summary:hover .lesson-course-preview__title h3{color:#312e81}
 @media(prefers-reduced-motion:reduce){.script-course-preview__lesson>summary::after{transition:none}}
+.generation-recovery{padding:14px 0;border-bottom:1px solid #dfe4ec;font-size:15px;line-height:1.6}.generation-recovery p{margin:6px 0}.generation-recovery>div{display:flex;gap:8px}.generation-recovery button{padding:8px 12px;border:1px solid #5559a8;border-radius:8px;background:#fff;color:#454984;font:inherit;cursor:pointer}.generation-recovery button:disabled{opacity:.5;cursor:not-allowed}.recovery-input{display:grid;gap:8px;margin-bottom:16px;font-size:15px}.recovery-input textarea{padding:10px;border:1px solid #cbd2de;border-radius:8px;font:inherit;line-height:1.6}.generation-recovery button:focus-visible,.recovery-input textarea:focus-visible{outline:2px solid #5559a8;outline-offset:2px}
 </style>

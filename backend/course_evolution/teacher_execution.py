@@ -32,6 +32,7 @@ from teacher_lesson_authoring import (
     TeacherLessonAuthoringRepository,
     TeacherLessonAuthoringService,
     lesson_scope,
+    generation_failure,
     teacher_lesson_v6_source,
 )
 from teacher_script import (
@@ -52,6 +53,7 @@ from .core import (
     CourseEvolutionPlan,
     CourseEvolutionRepository,
 )
+from .text_fields import readable_text, replace_editable_text
 
 DOMAIN_OPERATION_TYPE = "APPLY_DOMAIN_CANDIDATE"
 CANDIDATE_BUNDLE_SCHEMA = "teacher_course_domain_candidates_v1"
@@ -218,7 +220,7 @@ def _selected_migrations(plan: CourseEvolutionPlan) -> list[Any]:
     selected = {
         str(value) for value in review.get("selected_migration_ids") or [] if str(value)
     }
-    if not selected:
+    if not selected and not (review and planning.structure_review_status == "confirmed" and planning.structural_operations):
         raise ValueError("请先确认本次修改的影响范围")
     if planning.structural_operations and planning.structure_review_status != "confirmed":
         raise ValueError("请先确认新课程结构与迁移原则")
@@ -274,6 +276,7 @@ def _fail(migrations: list[Any], error: Exception | str) -> None:
     for migration in migrations:
         migration.candidate_status = "failed"
         migration.metadata["candidate_error"] = message
+        migration.metadata["candidate_error_detail"] = generation_failure(error if isinstance(error, Exception) else ValueError(str(error)), "course_change_candidate_failed")
         migration.metadata.pop("operation_id", None)
 
 
@@ -282,40 +285,13 @@ def _literal_terms(migrations: list[Any]) -> tuple[str, str] | None:
         value = (migration.metadata or {}).get("literal_replacement") or {}
         before = str(value.get("before") or "")
         after = str(value.get("after") or "")
-        if before and after and before != after:
+        if before and before != after:
             return before, after
     return None
 
 
 def _replace_human_text(value: Any, before: str, after: str, *, key: str = "") -> tuple[Any, int]:
-    """Replace prose while leaving ids, revisions, URLs and source bindings intact."""
-    protected = (
-        key.endswith("_id")
-        or key.endswith("_ids")
-        or "revision" in key
-        or key in {"id", "schema_version", "source_refs", "material_asset_ids", "url"}
-    )
-    if isinstance(value, str):
-        if protected or before not in value:
-            return value, 0
-        return value.replace(before, after), value.count(before)
-    if isinstance(value, list):
-        result: list[Any] = []
-        count = 0
-        for item in value:
-            replaced, local = _replace_human_text(item, before, after, key=key)
-            result.append(replaced)
-            count += local
-        return result, count
-    if isinstance(value, dict):
-        result: dict[str, Any] = {}
-        count = 0
-        for child_key, item in value.items():
-            replaced, local = _replace_human_text(item, before, after, key=str(child_key))
-            result[child_key] = replaced
-            count += local
-        return result, count
-    return value, 0
+    return replace_editable_text(value, before, after, key=key)
 
 
 async def _generate_lesson_plan_candidates(
@@ -331,6 +307,8 @@ async def _generate_lesson_plan_candidates(
         try:
             lesson = repository.lesson(course_id, lesson_id)
             base_revision_id = str(lesson.get("working_revision_id") or "")
+            if any(str(item.base_revisions.get(_migration_unit_id(item)) or base_revision_id) != base_revision_id for item in items):
+                raise TeacherLessonAuthoringError("lesson_plan_revision_conflict", "教案已在分析后变化，请重新分析修改范围。")
             revision = _revision(lesson.get("revisions") or [], base_revision_id)
             candidate_plan = deepcopy(revision.get("plan") or {})
             if not base_revision_id or not candidate_plan:
@@ -380,8 +358,13 @@ async def _generate_lesson_plan_candidates(
                 material_asset_ids=[],
             )
             for item in items:
-                item.metadata["after_preview"] = _compact(candidate_plan)
-                item.metadata["change_count"] = 1
+                section_id = next(iter(item.dependency_ids), "")
+                before_section = next((v for v in (revision.get("plan") or {}).get("sections") or [] if str(v.get("node_id") or v.get("section_node_id") or "") == section_id), {})
+                after_section = next((v for v in candidate_plan.get("sections") or [] if str(v.get("node_id") or v.get("section_node_id") or "") == section_id), {})
+                item.metadata["before_content"] = readable_text(before_section)
+                item.metadata["after_content"] = readable_text(after_section)
+                item.metadata["after_preview"] = _compact(item.metadata["after_content"])
+                item.metadata["change_count"] = readable_text(before_section).count(literal[0]) if literal else 1
             operations.append(_operation(
                 plan=plan,
                 domain="lesson_plan",
@@ -413,9 +396,18 @@ async def _generate_script_candidates(
         try:
             lesson = repository.lesson(course_id, lesson_id)
             base_revision_id = str(lesson.get("working_script_revision_id") or "")
+            if any(str(item.base_revisions.get(_migration_unit_id(item)) or base_revision_id) != base_revision_id for item in items):
+                raise TeacherLessonAuthoringError("lesson_script_revision_conflict", "讲义已在分析后变化，请重新分析修改范围。")
             revision = _revision(lesson.get("script_revisions") or [], base_revision_id)
             if not base_revision_id or not revision:
                 raise ValueError("当前课节没有可优化的讲义工作稿")
+            upstream_items = [m for m in plan.teacher_change_planning.unit_migrations if m.asset_type == "lesson_plan" and str(m.metadata.get("parent_id") or "") == lesson_id and m.migration_id in set((plan.impact_summary.get("scope_review") or {}).get("selected_migration_ids") or []) and m.disposition not in {"reuse_exact", "reuse_rebind"}]
+            upstream_operation = next((op for op in plan.operations if op.payload.get("domain") == "lesson_plan" and op.payload.get("lesson_unit_id") == lesson_id), None)
+            if upstream_items and upstream_operation is None:
+                raise ValueError("本讲教案候选尚未成功，请先重试教案，再生成讲义候选")
+            upstream_candidate = next((v for v in lesson.get("ai_candidates") or [] if upstream_operation and v.get("candidate_id") == upstream_operation.payload.get("candidate_id")), None)
+            source_plan = deepcopy((upstream_candidate or {}).get("plan") or _revision(lesson.get("revisions") or [], str(revision.get("source_lesson_plan_revision_id") or "")).get("plan") or {})
+            source_context = readable_text(source_plan)
             scope = lesson_scope(course_data, lesson_id)
             outline_by_id = {
                 str(item.get("node_id") or ""): item for item in scope["sections"]
@@ -497,6 +489,7 @@ async def _generate_script_candidates(
                                     item.get("title") for item in scope["sections"]
                                 ],
                                 "teacher_requirements": revision.get("requirements") or "",
+                                "current_lesson_plan": source_context,
                                 "script_block_id": block_id,
                                 "script_block_role": block.get("role") or "",
                             }),
@@ -541,6 +534,7 @@ async def _generate_script_candidates(
                     course_context=str({
                         "lesson_sections": [item.get("title") for item in scope["sections"]],
                         "teacher_requirements": revision.get("requirements") or "",
+                                "current_lesson_plan": source_context,
                     }),
                     user_id=user_id,
                 )
@@ -570,6 +564,8 @@ async def _generate_script_candidates(
                 section_replacements=section_replacements,
                 block_replacements=block_replacements,
                 source_lesson_plan_revision_id=str(revision.get("source_lesson_plan_revision_id") or ""),
+                source_lesson_plan_candidate_id=str((upstream_candidate or {}).get("candidate_id") or ""),
+                candidate_group_id=plan.change_set_id,
                 material_asset_ids=[],
             )
             for item in items:
@@ -583,12 +579,9 @@ async def _generate_script_candidates(
                     ),
                     first_section_id,
                 )
-                item.metadata["after_preview"] = _compact(
-                    block_replacements.get(block_id)
-                    or section_replacements.get(section_id)
-                    or ""
-                )
-                item.metadata["change_count"] = 1
+                item.metadata["after_content"] = readable_text(block_replacements[block_id]) if block_id in block_replacements else section_replacements.get(section_id, "")
+                item.metadata["after_preview"] = _compact(item.metadata["after_content"])
+                item.metadata["change_count"] = str(item.metadata.get("before_content") or item.metadata.get("before_preview") or "").count(literal[0]) if literal else 1
             operations.append(_operation(
                 plan=plan,
                 domain="script",
@@ -876,6 +869,7 @@ async def _generate_teacher_asset_candidates_through_shared_executor(
     migrations: list[Any],
     repository: TeacherLessonAuthoringRepository,
     course_service: Any,
+    on_checkpoint: Any = None,
 ) -> tuple[list[CourseEvolutionOperation], dict[str, Any]]:
     """Create lesson-plan/script candidates under the shared rebuild contract.
 
@@ -954,6 +948,8 @@ async def _generate_teacher_asset_candidates_through_shared_executor(
         operation = generated[0] if generated else None
         if operation is not None:
             operations.extend(generated)
+        if on_checkpoint is not None:
+            await on_checkpoint(generated)
         for migration in grouped:
             item_type = (
                 "lesson_plan_section"
@@ -1009,6 +1005,8 @@ async def generate_teacher_course_change_candidates(
     representation_repository: TeachingRepresentationRepository,
     question_bank_repository: QuestionBankRepository,
     course_service: Any,
+    job_id: str = "",
+    on_progress: Any = None,
 ) -> Any:
     """Generate every reviewed downstream candidate through its owning store."""
     course_id = str(course_data.get("course_id") or "")
@@ -1022,6 +1020,19 @@ async def generate_teacher_course_change_candidates(
     if plan.status != "pending":
         raise ValueError("当前方案已不能生成新候选")
     migrations = _selected_migrations(plan)
+    expected_review_revision = plan.review_revision
+    attempt_id = uuid.uuid4().hex
+    def claim(current: Any) -> Any:
+        target = next(p for p in current.change_sets if p.change_set_id == change_set_id)
+        if target.status != "pending" or target.review_revision != expected_review_revision:
+            raise ValueError("方案已变化，请重新分析")
+        if job_id and target.generation_job_id != job_id:
+            raise ValueError("生成任务已变化")
+        target.generation_attempt_id = attempt_id
+        target.generation_status = "generating"
+        return current
+    repository.update(user_id, course_id, claim)
+    plan.generation_attempt_id = attempt_id
     selected_ids = [item.migration_id for item in migrations]
     existing_operation_ids = {item.operation_id for item in plan.operations}
     for migration in migrations:
@@ -1039,12 +1050,138 @@ async def generate_teacher_course_change_candidates(
         if migration.disposition == "retire" and migration.asset_type != "question_bank":
             _fail([migration], "该资产不支持脱离上游结构单独删除，请先调整课程结构")
             continue
+        if migration.candidate_status == "failed" and (migration.metadata.get("candidate_error_detail") or {}).get("retryable") is False:
+            continue
         migration.candidate_status = "not_started"
         migration.metadata.pop("candidate_error", None)
+        migration.metadata.pop("candidate_error_detail", None)
         migration.metadata.pop("operation_id", None)
         migration.metadata.pop("after_preview", None)
 
     operations: list[CourseEvolutionOperation] = []
+    def persist(*, partial: bool = False) -> Any:
+        # Exact course-document operations were already compiled during analysis.
+        preserved = [
+            operation for operation in plan.operations
+            if (
+                operation.operation_id in existing_operation_ids
+                or operation.operation_type != DOMAIN_OPERATION_TYPE
+                or str((operation.payload or {}).get("action") or "")
+                == "rebind_section_references"
+            )
+        ]
+        plan.operations = [*preserved, *operations]
+        plan.allowed_scopes = ["current"] if plan.operations else []
+        reviewed_operation_ids = list(dict.fromkeys([
+            str(item.metadata.get("operation_id") or "")
+            for item in migrations
+            if item.disposition not in {"reuse_exact", "reuse_rebind"}
+            and item.metadata.get("operation_id")
+        ]))
+        if (
+            plan.teacher_change_planning is not None
+            and plan.teacher_change_planning.structure_review_status == "confirmed"
+        ):
+            reviewed_operation_ids.extend(
+                item.operation_id
+                for item in plan.operations
+                if (
+                    item.operation_type in {
+                        "RESEQUENCE_COURSE_PATH",
+                        "REBUILD_COURSE_OUTLINE",
+                    }
+                    or str((item.payload or {}).get("action") or "")
+                    == "rebind_section_references"
+                )
+            )
+        reviewed_operation_ids = list(dict.fromkeys(reviewed_operation_ids))
+        plan.selected_operation_ids = reviewed_operation_ids
+        plan.excluded_operation_ids = [
+            item.operation_id
+            for item in plan.operations
+            if item.operation_id not in reviewed_operation_ids
+        ]
+        plan.impact_summary.setdefault("scope_review", {})["selected_operation_ids"] = reviewed_operation_ids
+        ready = sum(item.candidate_status in {"ready", "not_required"} for item in migrations)
+        failed = sum(item.candidate_status == "failed" for item in migrations)
+        planning = plan.teacher_change_planning
+        if planning is not None:
+            planning.status = "candidate_ready" if plan.operations else "blocked"
+            planning.updated_at = _now()
+        plan.generation_status = "generating" if partial else ("ready" if plan.operations else "failed")
+        plan.impact_summary["affected_units"] = [
+            {
+                **item,
+                "candidate_status": next(
+                    migration.candidate_status
+                    for migration in planning.unit_migrations
+                    if migration.migration_id == item.get("migration_id")
+                ),
+                "operation_id": str(next(
+                    migration.metadata.get("operation_id") or ""
+                    for migration in planning.unit_migrations
+                    if migration.migration_id == item.get("migration_id")
+                )),
+                "after_content": next((m.metadata.get("after_content") or "" for m in planning.unit_migrations if m.migration_id == item.get("migration_id")), ""),
+                "after_preview": str(next(
+                    migration.metadata.get("after_preview") or ""
+                    for migration in planning.unit_migrations
+                    if migration.migration_id == item.get("migration_id")
+                )),
+                "change_count": int(next(
+                    migration.metadata.get("change_count") or 0
+                    for migration in planning.unit_migrations
+                    if migration.migration_id == item.get("migration_id")
+                )),
+                "candidate_error_detail": next((m.metadata.get("candidate_error_detail") or {} for m in planning.unit_migrations if m.migration_id == item.get("migration_id")), {}),
+            "candidate_error": str(next(
+                    migration.metadata.get("candidate_error") or ""
+                    for migration in planning.unit_migrations
+                    if migration.migration_id == item.get("migration_id")
+                )),
+            }
+            for item in plan.impact_summary.get("affected_units") or []
+        ]
+        plan.impact_summary["candidate_bundle"] = {
+            "schema_version": CANDIDATE_BUNDLE_SCHEMA,
+            "operation_count": len(plan.operations),
+            "operation_ids": [item.operation_id for item in plan.operations],
+            "domain_operation_count": len(operations),
+            "ready_migration_count": ready,
+            "failed_migration_count": failed,
+            "selected_migration_ids": selected_ids,
+            "generated_at": _now(),
+        }
+        plan.impact_summary["application_capability"] = "course_evolution_operation_group"
+        plan.updated_at = _now()
+
+        def save_if_scope_unchanged(latest: Any) -> Any:
+            target = next(
+                (item for item in latest.change_sets if item.change_set_id == change_set_id),
+                None,
+            )
+            if target is None:
+                raise KeyError(change_set_id)
+            if (target.status != "pending" or target.review_revision != expected_review_revision
+                    or target.generation_attempt_id != attempt_id
+                    or (job_id and target.generation_job_id != job_id)):
+                raise ValueError("方案已修改或放弃，迟到的候选未保存")
+            latest_selected = list((target.impact_summary.get("scope_review") or {}).get("selected_migration_ids") or [])
+            if set(latest_selected) != set(selected_ids):
+                raise ValueError("影响范围已变化，请重新生成候选")
+            index = latest.change_sets.index(target)
+            latest.change_sets[index] = plan.model_copy(deep=True)
+            latest.updated_at = _now()
+            return latest
+
+        return repository.update(user_id, course_id, save_if_scope_unchanged)
+    async def checkpoint(generated: list[CourseEvolutionOperation]) -> None:
+        operations.extend(generated)
+        persist(partial=True)
+        if on_progress is not None:
+            await on_progress(sum(m.candidate_status != "not_started" for m in migrations), len(migrations))
+
+    persist(partial=True)
     actionable = [item for item in migrations if item.candidate_status == "not_started"]
     teacher_asset_operations, teacher_asset_rebuild = (
         await _generate_teacher_asset_candidates_through_shared_executor(
@@ -1055,9 +1192,9 @@ async def generate_teacher_course_change_candidates(
             migrations=actionable,
             repository=authoring_repository,
             course_service=course_service,
+            on_checkpoint=checkpoint,
         )
     )
-    operations.extend(teacher_asset_operations)
     plan.impact_summary["teacher_asset_targeted_rebuild"] = teacher_asset_rebuild
     operations.extend(await _generate_ppt_candidates(
         course_id=course_id,
@@ -1077,114 +1214,7 @@ async def generate_teacher_course_change_candidates(
         course_service=course_service,
     ))
 
-    # Exact course-document operations were already compiled during analysis.
-    preserved = [
-        operation for operation in plan.operations
-        if (
-            operation.operation_type != DOMAIN_OPERATION_TYPE
-            or str((operation.payload or {}).get("action") or "")
-            == "rebind_section_references"
-        )
-    ]
-    plan.operations = [*preserved, *operations]
-    plan.allowed_scopes = ["current"] if plan.operations else []
-    reviewed_operation_ids = list(dict.fromkeys([
-        str(item.metadata.get("operation_id") or "")
-        for item in migrations
-        if item.disposition not in {"reuse_exact", "reuse_rebind"}
-        and item.metadata.get("operation_id")
-    ]))
-    if (
-        plan.teacher_change_planning is not None
-        and plan.teacher_change_planning.structure_review_status == "confirmed"
-    ):
-        reviewed_operation_ids.extend(
-            item.operation_id
-            for item in plan.operations
-            if (
-                item.operation_type in {
-                    "RESEQUENCE_COURSE_PATH",
-                    "REBUILD_COURSE_OUTLINE",
-                }
-                or str((item.payload or {}).get("action") or "")
-                == "rebind_section_references"
-            )
-        )
-    reviewed_operation_ids = list(dict.fromkeys(reviewed_operation_ids))
-    plan.selected_operation_ids = reviewed_operation_ids
-    plan.excluded_operation_ids = [
-        item.operation_id
-        for item in plan.operations
-        if item.operation_id not in reviewed_operation_ids
-    ]
-    plan.impact_summary.setdefault("scope_review", {})["selected_operation_ids"] = reviewed_operation_ids
-    ready = sum(item.candidate_status in {"ready", "not_required"} for item in migrations)
-    failed = sum(item.candidate_status == "failed" for item in migrations)
-    planning = plan.teacher_change_planning
-    if planning is not None:
-        planning.status = "candidate_ready" if plan.operations else "blocked"
-        planning.updated_at = _now()
-    plan.generation_status = "ready" if plan.operations else "failed"
-    plan.impact_summary["affected_units"] = [
-        {
-            **item,
-            "candidate_status": next(
-                migration.candidate_status
-                for migration in planning.unit_migrations
-                if migration.migration_id == item.get("migration_id")
-            ),
-            "operation_id": str(next(
-                migration.metadata.get("operation_id") or ""
-                for migration in planning.unit_migrations
-                if migration.migration_id == item.get("migration_id")
-            )),
-            "after_preview": str(next(
-                migration.metadata.get("after_preview") or ""
-                for migration in planning.unit_migrations
-                if migration.migration_id == item.get("migration_id")
-            )),
-            "change_count": int(next(
-                migration.metadata.get("change_count") or 0
-                for migration in planning.unit_migrations
-                if migration.migration_id == item.get("migration_id")
-            )),
-            "candidate_error": str(next(
-                migration.metadata.get("candidate_error") or ""
-                for migration in planning.unit_migrations
-                if migration.migration_id == item.get("migration_id")
-            )),
-        }
-        for item in plan.impact_summary.get("affected_units") or []
-    ]
-    plan.impact_summary["candidate_bundle"] = {
-        "schema_version": CANDIDATE_BUNDLE_SCHEMA,
-        "operation_count": len(plan.operations),
-        "operation_ids": [item.operation_id for item in plan.operations],
-        "domain_operation_count": len(operations),
-        "ready_migration_count": ready,
-        "failed_migration_count": failed,
-        "selected_migration_ids": selected_ids,
-        "generated_at": _now(),
-    }
-    plan.impact_summary["application_capability"] = "course_evolution_operation_group"
-    plan.updated_at = _now()
-
-    def save_if_scope_unchanged(latest: Any) -> Any:
-        target = next(
-            (item for item in latest.change_sets if item.change_set_id == change_set_id),
-            None,
-        )
-        if target is None:
-            raise KeyError(change_set_id)
-        latest_selected = list((target.impact_summary.get("scope_review") or {}).get("selected_migration_ids") or [])
-        if set(latest_selected) != set(selected_ids):
-            raise ValueError("影响范围已变化，请重新生成候选")
-        index = latest.change_sets.index(target)
-        latest.change_sets[index] = plan
-        latest.updated_at = _now()
-        return latest
-
-    return repository.update(user_id, course_id, save_if_scope_unchanged)
+    return persist()
 
 
 def _apply_script_candidate(
@@ -1206,6 +1236,14 @@ def _apply_script_candidate(
         )
     base = _revision(lesson.get("script_revisions") or [], base_revision_id)
     plan_revision_id = str(candidate.get("source_lesson_plan_revision_id") or "")
+    source_candidate_id = str(candidate.get("source_lesson_plan_candidate_id") or "")
+    if source_candidate_id:
+        source_candidate = next((v for v in lesson.get("ai_candidates") or [] if v.get("candidate_id") == source_candidate_id), {})
+        if source_candidate.get("status") != "accepted" or not source_candidate.get("result_revision_id"):
+            raise TeacherLessonAuthoringError("lesson_plan_candidate_dependency_pending", "本讲教案候选尚未应用，讲义候选已保留。")
+        plan_revision_id = str(source_candidate["result_revision_id"])
+        if str(lesson.get("working_revision_id") or "") != plan_revision_id:
+            raise TeacherLessonAuthoringError("lesson_plan_revision_conflict", "本讲教案已有后续修改，请重新分析。")
     plan_revision = _revision(lesson.get("revisions") or [], plan_revision_id)
     plan_sections = {
         str(item.get("node_id") or item.get("section_node_id") or ""): item
@@ -2392,7 +2430,10 @@ def build_domain_candidate_undoer(
             if isinstance(item, dict) and item.get("status") == "undone"
         }
         items: list[dict[str, Any]] = []
-        for source in reversed(source_items):
+        # Restore the upstream plan before its script, then bind the old script
+        # to the proven rollback revision. Preflight protects later teacher edits.
+        undo_order = sorted(reversed(source_items), key=lambda item: 0 if item.get("domain") == "lesson_plan" else 1)
+        for source in undo_order:
             if source.get("status") != "applied":
                 continue
             operation_id = str(source.get("operation_id") or "")
@@ -2412,6 +2453,11 @@ def build_domain_candidate_undoer(
                 previous = str(source.get("previous_revision_id") or "")
                 result = str(source.get("result_revision_id") or "")
                 if domain == "lesson_plan":
+                    paired = next((src for src in source_items if src.get("domain") == "script" and src.get("status") == "applied" and any(op.operation_id == src.get("operation_id") and op.payload.get("lesson_unit_id") == lesson_id for op in plan.operations)), None)
+                    if paired and paired.get("operation_id") not in previous_undo_items:
+                        live = authoring_repository.lesson(course_id, lesson_id)
+                        if str(live.get("working_script_revision_id") or "") != str(paired.get("result_revision_id") or ""):
+                            raise ValueError("讲义已有后续修改，本讲教案和讲义均未覆盖；请先处理冲突。")
                     authoring_repository.rollback_plan_revision(
                         course_id,
                         lesson_id,

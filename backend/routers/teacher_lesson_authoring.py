@@ -198,15 +198,26 @@ def _validated_teacher_asset_resume_job(
     if reason:
         raise TeacherLessonAuthoringError(
             "teacher_asset_resume_conflict",
-            "要恢复的生成任务与当前内容或恢复状态不一致，请刷新状态后重试。",
+            "原任务的来源或状态已变化，不能继续原输入；请基于当前内容重新生成。",
             details={"resume_job_id": resume_job_id, "reason": reason},
         )
     return candidate
 
 
+def _validate_new_attempt(repository: TeacherLessonAuthoringRepository, course_id: str, lesson_id: str, job_type: str, body: Any) -> None:
+    if not body.retry_of_job_id:
+        return
+    if body.resume_job_id:
+        raise TeacherLessonAuthoringError("teacher_asset_retry_mode_conflict", "原输入恢复与新输入尝试不能同时提交。")
+    previous = repository.get_job(course_id, body.retry_of_job_id)
+    if previous.get("course_id") != course_id or previous.get("lesson_unit_id") != lesson_id or previous.get("type") != job_type or previous.get("status") not in {"failed", "cancelled", "paused"}:
+        raise TeacherLessonAuthoringError("teacher_asset_retry_conflict", "只能从当前讲次已经停止的任务发起新尝试。")
+
+
 class GenerateLessonPlanRequest(BaseModel):
     request_id: str = Field(default="", max_length=160)
     resume_job_id: str = Field(default="", max_length=160)
+    retry_of_job_id: str = Field(default="", max_length=160)
     source_package_id: str = Field(default="", max_length=160)
     source_asset_id: str = Field(default="", max_length=160)
     requirements: str = Field(default="", max_length=4000)
@@ -240,6 +251,7 @@ class SaveLessonPlanDraftRequest(BaseModel):
 class GenerateLessonScriptRequest(BaseModel):
     request_id: str = Field(default="", max_length=160)
     resume_job_id: str = Field(default="", max_length=160)
+    retry_of_job_id: str = Field(default="", max_length=160)
     requirements: str = Field(default="", max_length=4000)
     material_asset_ids: list[str] = Field(default_factory=list, max_length=24)
     batch_parent_job_id: str = Field(default="", max_length=160)
@@ -4038,6 +4050,7 @@ async def generate_lesson_plan(
     ),
 ):
     try:
+        _validate_new_attempt(repository, course_id, lesson_unit_id, "teacher_lesson_plan_generation", body)
         source = _source_course(tm, course_id)
         scope = lesson_scope(source, lesson_unit_id)
         outline_revision = _canonical_outline_revision(source)
@@ -4219,6 +4232,8 @@ async def generate_lesson_plan(
             course_id,
             str(job["id"]),
             input_fingerprint=input_fingerprint,
+            retry_of_job_id=body.retry_of_job_id,
+            attempt_mode="revised_inputs" if body.retry_of_job_id else "resume_original" if body.resume_job_id else "initial",
             resume_from_job_id=(body.resume_job_id if resume_checkpoint else ""),
             requirements=effective_requirements,
             material_asset_ids=selected_material_ids,
@@ -4812,6 +4827,7 @@ async def generate_lesson_script(
     ),
 ):
     try:
+        _validate_new_attempt(repository, course_id, lesson_unit_id, "teacher_lesson_script_generation", body)
         source = _source_course(tm, course_id)
         scope = lesson_scope(source, lesson_unit_id)
         lesson, plan_revision = _current_plan_revision(
@@ -4908,6 +4924,8 @@ async def generate_lesson_script(
             str(job["id"]),
             source_lesson_plan_revision_id=plan_revision_id,
             input_fingerprint=input_fingerprint,
+            retry_of_job_id=body.retry_of_job_id,
+            attempt_mode="revised_inputs" if body.retry_of_job_id else "resume_original" if body.resume_job_id else "initial",
             resume_from_job_id=(body.resume_job_id if seed_sections else ""),
             requirements=effective_requirements,
             material_asset_ids=selected_material_ids,

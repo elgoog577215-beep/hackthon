@@ -92,6 +92,8 @@ class CourseEvolutionApplicationService:
         request_id: str,
         instruction: str,
         supersedes_plan_id: str = "",
+        literal_replacement: dict[str, str] | None = None,
+        asset_types: list[str] | None = None,
     ) -> Any:
         context = await asyncio.to_thread(self.teacher_context, course_id)
         return await create_teacher_course_change_plan(
@@ -102,6 +104,8 @@ class CourseEvolutionApplicationService:
             repository=self.evolution_repository,
             analyzer=self.course_service.analyze_teacher_course_change,
             supersedes_plan_id=supersedes_plan_id,
+            literal_replacement=literal_replacement,
+            asset_types=asset_types,
         )
 
     async def create_course_adjustment(

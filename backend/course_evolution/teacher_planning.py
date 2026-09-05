@@ -8,6 +8,7 @@ existing CourseEvolutionPlan envelope.
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from collections import Counter
@@ -16,6 +17,9 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Iterable, Literal
 
 from pydantic import BaseModel, Field
+
+from course_document import CourseBlock, CourseDocument, CourseSection, stable_hash
+from course_revisions import revision_vector_for_document
 
 from .change_planning import (
     CourseChangeIntent,
@@ -26,14 +30,13 @@ from .change_planning import (
     ProposedOutlineNode,
     summarize_course_change_plan,
 )
-from course_document import CourseBlock, CourseDocument, CourseSection, stable_hash
 from .core import (
     CourseEvolutionOperation,
     CourseEvolutionPlan,
     CourseEvolutionRepository,
     CourseEvolutionState,
 )
-from course_revisions import revision_vector_for_document
+from .text_fields import editable_text_fields
 
 COURSE_CHANGE_CONTEXT_SCHEMA = "teacher_course_change_context_v1"
 COURSE_CHANGE_INDEX_SCHEMA = "teacher_course_change_index_v1"
@@ -58,6 +61,7 @@ class TeacherCourseChangeUnit(BaseModel):
     unit_type: str
     title: str
     text: str = ""
+    full_text_fields: dict[str, str] = Field(default_factory=dict, exclude=True)
     section_ids: list[str] = Field(default_factory=list)
     parent_id: str = ""
     role: str = ""
@@ -119,35 +123,7 @@ def _find_revision(values: Iterable[Any], revision_id: str) -> dict[str, Any]:
 
 
 def _text_fragments(value: Any, *, depth: int = 0) -> list[str]:
-    if depth > 5:
-        return []
-    if isinstance(value, str):
-        normalized = _compact(value, 1200)
-        return [normalized] if normalized else []
-    if isinstance(value, (int, float, bool)):
-        return []
-    if isinstance(value, list):
-        result: list[str] = []
-        for item in value[:80]:
-            result.extend(_text_fragments(item, depth=depth + 1))
-        return result
-    if not isinstance(value, dict):
-        return []
-    preferred = (
-        "title", "name", "content", "text", "markdown", "summary", "content_summary",
-        "teacher_activity", "student_activity", "expected_output", "purpose",
-        "learning_objective", "key_message", "subtitle", "question", "prompt",
-        "stem", "answer", "explanation", "speaker_notes",
-    )
-    result: list[str] = []
-    for key in preferred:
-        if key in value:
-            result.extend(_text_fragments(value.get(key), depth=depth + 1))
-    if result:
-        return result
-    for item in list(value.values())[:40]:
-        result.extend(_text_fragments(item, depth=depth + 1))
-    return result
+    return [value] if isinstance(value, str) else list(editable_text_fields(value).values())
 
 
 def _unit_text(value: Any, limit: int = 1200) -> str:
@@ -194,6 +170,7 @@ def _outline_units(outline: list[dict[str, Any]]) -> list[TeacherCourseChangeUni
             unit_type="outline_node",
             title=str(item.get("node_name") or "未命名章节"),
             text=_compact(item.get("learning_objective") or ""),
+            full_text_fields={"/title": str(item.get("node_name") or ""), "/learning_objective": str(item.get("learning_objective") or "")},
             section_ids=[str(item["node_id"])],
             parent_id=str(item.get("parent_node_id") or "root"),
             source_revision=str(item.get("source_revision") or ""),
@@ -221,6 +198,7 @@ def _document_units(document: CourseDocument) -> list[TeacherCourseChangeUnit]:
             unit_type="course_block",
             title=(section.title if section else block.block_id),
             text=_unit_text(block.payload),
+            full_text_fields=editable_text_fields(block.payload),
             section_ids=[block.section_id],
             parent_id=block.section_id,
             role=block.role,
@@ -274,6 +252,7 @@ def _authoring_units(authoring: dict[str, Any]) -> list[TeacherCourseChangeUnit]
                 unit_type="lesson_plan_section",
                 title=str(section.get("title") or section.get("name") or f"教案段落 {index + 1}"),
                 text=_unit_text(section),
+                full_text_fields=editable_text_fields(section),
                 section_ids=[section_id] if section_id else [str(lesson_id)],
                 parent_id=str(lesson_id),
                 role=str(section.get("role") or ""),
@@ -308,6 +287,7 @@ def _authoring_units(authoring: dict[str, Any]) -> list[TeacherCourseChangeUnit]
                     unit_type="script_block",
                     title=str(block.get("title") or block.get("name") or section.get("title") or "讲义段落"),
                     text=_unit_text(block),
+                    full_text_fields=editable_text_fields(block),
                     section_ids=[section_id],
                     parent_id=str(lesson_id),
                     role=str(block.get("role") or ""),
@@ -602,6 +582,7 @@ def rank_change_units(
     instruction: str,
     *,
     limit: int = 80,
+    include_all: bool = False,
 ) -> list[dict[str, Any]]:
     request_tokens = _tokens(instruction)
     broad_request = any(value in instruction for value in ("所有", "全部", "整个课程", "全课", "每个"))
@@ -656,7 +637,7 @@ def rank_change_units(
     for candidate in scored:
         if len(selected) >= limit:
             break
-        if candidate[0] <= 0 or candidate[1].unit_id in selected_ids:
+        if (candidate[0] <= 0 and not include_all) or candidate[1].unit_id in selected_ids:
             continue
         selected.append(candidate)
         selected_ids.add(candidate[1].unit_id)
@@ -724,7 +705,7 @@ def _fallback_analysis(
         "soft_preferences": [],
         "protected_requirements": [],
         "assumptions": ["AI 深度判断暂不可用，当前影响范围由索引给出，需老师复核。"],
-        "blocking_questions": [],
+        "blocking_questions": ["结构分析未完成，请重新分析或直接编辑讲次结构。"] if structural else [],
         "affected_units": [
             {
                 "unit_id": item["unit_id"],
@@ -753,6 +734,7 @@ _PLAIN_TERM_REPLACEMENT_RE = re.compile(
 def _explicit_term_replacement_analysis(
     context: TeacherCourseChangeContext,
     instruction: str,
+    replacement: dict[str, str] | None = None,
 ) -> dict[str, Any] | None:
     """Compile a literal A-to-B request into the existing operation group."""
 
@@ -760,11 +742,11 @@ def _explicit_term_replacement_analysis(
         _QUOTED_TERM_REPLACEMENT_RE.search(instruction)
         or _PLAIN_TERM_REPLACEMENT_RE.search(instruction)
     )
-    if match is None:
+    if match is None and replacement is None:
         return None
-    before = _compact(match.group("before"), 120)
-    after = _compact(match.group("after"), 120)
-    if not before or not after or before == after:
+    before = str(replacement.get("before", "")) if replacement is not None else match.group("before")
+    after = str(replacement.get("after", "")) if replacement is not None else match.group("after")
+    if not before or before == after:
         return None
 
     affected_units: list[dict[str, Any]] = []
@@ -784,7 +766,7 @@ def _explicit_term_replacement_analysis(
         if not patches:
             if isinstance(unit.metadata.get("editable_fields"), dict):
                 continue
-            if unit.asset_type in {"lesson_plan", "script", "ppt", "question_bank"} and before in unit.text:
+            if unit.asset_type in {"lesson_plan", "script", "ppt", "question_bank"} and (any(before in text for text in unit.full_text_fields.values()) if unit.full_text_fields else before in unit.text):
                 affected_units.append({
                     "unit_id": unit.unit_id,
                     "disposition": "rewrite_partial",
@@ -831,6 +813,66 @@ def _explicit_term_replacement_analysis(
     }
 
 
+def _lecture_structure_analysis(context: TeacherCourseChangeContext, instruction: str) -> dict[str, Any] | None:
+    """Compile unambiguous lecture deletion/reordering without an LLM tree rewrite."""
+    delete = re.fullmatch(r"(?:请)?(?:删除|删掉|移除)第?([0-9一二三四五六七八九十百零两]+)讲(?:[，, ]*(?:后续|后面|其余|剩余)讲次?(?:补位上来|补位|顺延|依次补位|依次前移))?[。.!]?", instruction.strip())
+    move = re.fullmatch(r"(?:请)?(?:把|将)?第?([0-9]+)讲(?:移到|移动到|调整到)第?([0-9]+)讲(前|后)[。.!]?", instruction.strip())
+    edit = instruction.strip() in {"调整讲次结构", "编辑讲次结构"}
+    if not delete and not move and not edit:
+        return None
+    roots = [node for node in context.outline if int(node.get("node_level") or 1) == 1]
+    def number(value: str) -> int:
+        if value.isdigit():
+            return int(value)
+        digits = dict(zip("零一二三四五六七八九", range(10))); digits["两"] = 2
+        total = current = 0
+        for char in value:
+            if char in digits:
+                current = digits[char]
+            else:
+                total += (current or 1) * {"十": 10, "百": 100}[char]
+                current = 0
+        return total + current
+    selected = number((delete or move).group(1)) if delete or move else 0
+    target = int(move.group(2)) if move else 0
+    error = ""
+    if not roots or (not edit and not 1 <= selected <= len(roots)) or (move and not 1 <= target <= len(roots)):
+        error = "当前课程中没有指定的讲次，请选择现有讲次。"
+    elif delete and len(roots) == 1:
+        error = "课程至少需要保留一讲。"
+    retire: set[str] = set()
+    ordered = list(context.outline)
+    if not error and delete:
+        retire.add(str(roots[selected - 1]["node_id"]))
+        for _ in context.outline:
+            retire.update(str(node["node_id"]) for node in context.outline if str(node.get("parent_node_id")) in retire)
+        ordered = [node for node in ordered if str(node["node_id"]) not in retire]
+    if not error and move and selected != target:
+        root_order = list(roots)
+        source, destination = roots[selected - 1], roots[target - 1]
+        root_order.remove(source)
+        root_order.insert(root_order.index(destination) + (move.group(3) == "后"), source)
+        by_parent: dict[str, list[dict[str, Any]]] = {}
+        for node in context.outline:
+            by_parent.setdefault(str(node.get("parent_node_id") or "root"), []).append(node)
+        ordered = []
+        def append(node: dict[str, Any]) -> None:
+            ordered.append(node)
+            for child in by_parent.get(str(node["node_id"]), []):
+                append(child)
+        for node in root_order:
+            append(node)
+    proposed = [{"provisional_id": str(node["node_id"]), "title": str(node.get("node_name") or ""),
+                 "parent_ref": str(node.get("parent_node_id") or "root"),
+                 "source_node_ids": [str(node["node_id"])],
+                 "learning_focus": str(node.get("learning_objective") or "")} for node in ordered]
+    return {"analysis_mode": "deterministic_structure", "interpreted_goal": instruction,
+            "signal_kind": "structural", "signal_confidence": 1.0,
+            "hard_constraints": ["保留其他讲次的稳定身份和内容"], "blocking_questions": [error] if error else [],
+            "affected_units": [], "structure": {"required": True, "reason": instruction,
+            "retire_node_ids": sorted(retire), "proposed_outline": proposed if not error else []}}
+
+
 def _normalize_analysis(
     raw: dict[str, Any] | None,
     context: TeacherCourseChangeContext,
@@ -841,9 +883,9 @@ def _normalize_analysis(
         return _fallback_analysis(context, instruction, ranked)
     result = deepcopy(raw)
     result["analysis_mode"] = (
-        "deterministic_exact_replace"
+        result["analysis_mode"]
         if result.get("analysis_mode")
-        == "deterministic_exact_replace"
+        in {"deterministic_exact_replace", "deterministic_structure"}
         else "ai_ranked"
     )
     result["interpreted_goal"] = _compact(result.get("interpreted_goal") or instruction, 1000)
@@ -891,9 +933,9 @@ def _normalize_analysis(
         literal_replacement: dict[str, str] = {}
         if result["analysis_mode"] == "deterministic_exact_replace":
             raw_literal = item.get("literal_replacement") or {}
-            literal_before = _compact(raw_literal.get("before"), 120)
-            literal_after = _compact(raw_literal.get("after"), 120)
-            if literal_before and literal_after and literal_before != literal_after:
+            literal_before = str(raw_literal.get("before") or "")
+            literal_after = str(raw_literal.get("after") or "")
+            if literal_before and literal_before != literal_after:
                 literal_replacement = {
                     "before": literal_before,
                     "after": literal_after,
@@ -918,8 +960,10 @@ def _normalize_analysis(
     structure["proposed_outline"] = [
         item for item in structure.get("proposed_outline") or [] if isinstance(item, dict)
     ][:200]
+    if structure["required"] and not structure["proposed_outline"] and not result["blocking_questions"]:
+        result["blocking_questions"] = ["本次未能形成可用的讲次方案。请重试分析，或选择调整讲次结构直接编辑。"]
     result["structure"] = structure
-    if not affected and not result["blocking_questions"]:
+    if not affected and "affected_units" not in raw and not result["blocking_questions"] and not str(result.get("analysis_mode", "")).startswith("deterministic_"):
         fallback = _fallback_analysis(context, instruction, ranked)
         result["affected_units"] = fallback["affected_units"]
         result["assumptions"] = [
@@ -1428,6 +1472,8 @@ def _unit_migrations(
                 "parent_id": unit.parent_id,
                 "title": unit.title,
                 "before_preview": _compact(unit.text, 360),
+                "before_content": "\n\n".join(unit.full_text_fields.values()) or unit.text,
+                "matched_fields": [path for path, text in unit.full_text_fields.items() if str((item.get("literal_replacement") or {}).get("before") or "") and (item.get("literal_replacement") or {})["before"] in text],
                 "section_ids": unit.section_ids,
                 "role": unit.role,
                 "source_state": unit.source_state,
@@ -1494,6 +1540,7 @@ def _content_operations(
         migration.metadata.update({
             "operation_id": operation_id,
             "after_preview": _unit_text(proposed.payload, 360),
+            "after_content": "\n\n".join(editable_text_fields(proposed.payload).values()),
             "change_count": change_count,
             "applied_patches": applied_patches,
         })
@@ -1570,6 +1617,7 @@ def _outline_content_operation(
         migration.candidate_status = "ready"
         migration.metadata.update({
             "operation_id": operation_id,
+            "after_content": "\n\n".join(filter(None, [section.title, section.learning_objective])),
             "after_preview": _compact(
                 " ".join(filter(None, [section.title, section.learning_objective])),
                 360,
@@ -1816,9 +1864,13 @@ async def create_teacher_course_change_plan(
     repository: CourseEvolutionRepository,
     analyzer: AnalysisCallable | None = None,
     supersedes_plan_id: str = "",
+    literal_replacement: dict[str, str] | None = None,
+    asset_types: list[str] | None = None,
 ) -> CourseEvolutionState:
     if not context.ready:
         raise TeacherCourseChangeSourceUnavailable("当前课程尚未形成可分析的大纲或教学资产")
+    if asset_types:
+        context = context.model_copy(update={"units": [unit for unit in context.units if unit.asset_type in asset_types]})
     normalized_instruction = _compact(instruction, 5000)
     if not normalized_instruction:
         raise ValueError("课程修改要求不能为空")
@@ -1849,25 +1901,81 @@ async def create_teacher_course_change_plan(
         ):
             raise ValueError("只能修订当前未应用的教师课程方案")
 
-    ranked = rank_change_units(context, normalized_instruction)
+    ranked = rank_change_units(context, normalized_instruction, limit=max(1, len(context.units)), include_all=True)
     overview = {
         "course_id": context.course_id,
         "course_title": context.course_title,
         "source_mode": context.source_mode,
         "assets": [item.model_dump(mode="json") for item in context.assets],
-        "outline": context.outline[:200],
+        "outline": [{k: v for k, v in node.items() if k != "section_snapshot"} for node in context.outline],
         "indexed_unit_count": len(context.units),
     }
     raw_analysis = _explicit_term_replacement_analysis(
         context,
         normalized_instruction,
+        replacement=literal_replacement,
     )
+    if raw_analysis is None:
+        raw_analysis = _lecture_structure_analysis(context, normalized_instruction)
+    scanned_ids: set[str] = set()
+    unscanned_ids: set[str] = set()
     if raw_analysis is None and analyzer is not None:
-        try:
-            raw_analysis = await analyzer(overview, ranked, normalized_instruction)
-        except Exception:
-            raw_analysis = None
+        # Split prose, never serialized JSON. Every indexed unit is considered.
+        units_by_id = {unit.unit_id: unit for unit in context.units}
+        batches: list[list[dict[str, Any]]] = []
+        batch: list[dict[str, Any]] = []
+        size = 0
+        for item in ranked:
+            unit = units_by_id[item["unit_id"]]
+            body = "\n\n".join(unit.full_text_fields.values()) or unit.text
+            chunks = [body[i:i + 4000] for i in range(0, max(1, len(body)), 3800)]
+            for index, chunk in enumerate(chunks):
+                entry = {**item, "content": chunk, "part": index + 1, "parts": len(chunks)}
+                cost = len(json.dumps(entry, ensure_ascii=False))
+                if batch and (size + cost > 10000 or len(batch) >= 12):
+                    batches.append(batch)
+                    batch, size = [], 0
+                batch.append(entry)
+                size += cost
+        if batch:
+            batches.append(batch)
+        analyses: list[dict[str, Any]] = []
+        for batch in batches:
+            try:
+                result = await analyzer(overview, batch, normalized_instruction)
+                if not isinstance(result, dict):
+                    raise ValueError("影响分析没有返回可用结果")
+                analyses.append(result)
+                scanned_ids.update(item["unit_id"] for item in batch)
+            except Exception:
+                unscanned_ids.update(item["unit_id"] for item in batch)
+        scanned_ids.difference_update(unscanned_ids)
+        if analyses:
+            raw_analysis = deepcopy(analyses[0])
+            by_id: dict[str, dict[str, Any]] = {}
+            for result in analyses:
+                for item in result.get("affected_units") or []:
+                    if isinstance(item, dict) and item.get("unit_id"):
+                        key = str(item["unit_id"])
+                        if key not in by_id:
+                            by_id[key] = deepcopy(item)
+                        else:
+                            by_id[key].setdefault("content_patches", []).extend(item.get("content_patches") or [])
+            raw_analysis["affected_units"] = list(by_id.values())
+            for field in ("blocking_questions", "protected_requirements", "assumptions", "hard_constraints", "soft_preferences"):
+                raw_analysis[field] = list(dict.fromkeys(str(v) for a in analyses for v in a.get(field) or []))
+            structures = [a["structure"] for a in analyses if isinstance(a.get("structure"), dict) and a["structure"].get("required")]
+            if structures:
+                raw_analysis["structure"] = structures[0]
+                if any(v.get("proposed_outline") != structures[0].get("proposed_outline") for v in structures[1:]):
+                    raw_analysis["blocking_questions"].append("各批次对课程结构的判断不一致，请直接编辑讲次结构后确认。")
+    elif raw_analysis is not None:
+        scanned_ids = {unit.unit_id for unit in context.units}
+    else:
+        unscanned_ids = {unit.unit_id for unit in context.units}
     analysis = _normalize_analysis(raw_analysis, context, normalized_instruction, ranked)
+    if unscanned_ids:
+        analysis.setdefault("blocking_questions", []).append(f"有 {len(unscanned_ids)} 个内容单元未完成检查，请重新分析，避免遗漏修改。")
 
     timestamp = _now()
     change_set_id = f"course-change-{uuid.uuid4().hex}"
@@ -1953,6 +2061,8 @@ async def create_teacher_course_change_plan(
             "unit_type": item.unit_type,
             "title": str(item.metadata.get("title") or item.unit_type),
             "before_preview": str(item.metadata.get("before_preview") or ""),
+            "before_content": str(item.metadata.get("before_content") or ""),
+            "matched_fields": list(item.metadata.get("matched_fields") or []),
             "section_ids": item.metadata.get("section_ids") or [],
             "source_state": str(item.metadata.get("source_state") or "current"),
             "disposition": item.disposition,
@@ -1961,6 +2071,7 @@ async def create_teacher_course_change_plan(
             "candidate_status": item.candidate_status,
             "operation_id": str(item.metadata.get("operation_id") or ""),
             "after_preview": str(item.metadata.get("after_preview") or ""),
+            "after_content": str(item.metadata.get("after_content") or ""),
             "change_count": int(item.metadata.get("change_count") or 0),
             "candidate_error": str(item.metadata.get("candidate_error") or ""),
         }
@@ -1992,6 +2103,9 @@ async def create_teacher_course_change_plan(
             "asset_inventory": [item.model_dump(mode="json") for item in context.assets],
             "coverage": {
                 "indexed_units": len(context.units),
+                "scanned_units": len(scanned_ids),
+                "unscanned_unit_ids": sorted(unscanned_ids),
+                "source_revisions": {unit.unit_id: unit.source_revision for unit in context.units if unit.unit_id in scanned_ids},
                 "ranked_candidates": len(ranked),
                 "affected_units": len(affected_units),
             },
@@ -2110,6 +2224,7 @@ def review_teacher_course_change_scope(
         if plan.status != "pending":
             raise ValueError("只能审阅尚未应用的课程方案")
         planning = plan.teacher_change_planning
+        selection_changed = set(selected) != set((plan.impact_summary.get("scope_review") or {}).get("selected_migration_ids") or [])
         migrations_by_id = {
             item.migration_id: item
             for item in planning.unit_migrations
@@ -2264,7 +2379,7 @@ def review_teacher_course_change_scope(
             }
             planning.structure_review_status = "pending"
 
-        if disposition_changed or outline_changed:
+        if disposition_changed or outline_changed or selection_changed:
             # Domain operations may group several migrations. Once one review
             # decision changes, remove the grouped candidates and regenerate
             # them from the reviewed plan instead of applying stale assets.
@@ -2290,6 +2405,7 @@ def review_teacher_course_change_scope(
                 ):
                     migration.metadata.pop("operation_id", None)
                     migration.metadata.pop("after_preview", None)
+                    migration.metadata.pop("after_content", None)
                     migration.metadata.pop("candidate_error", None)
                     migration.metadata.pop("change_count", None)
                 migration.candidate_status = (
@@ -2349,6 +2465,7 @@ def review_teacher_course_change_scope(
                 "candidate_status": migration.candidate_status,
                 "operation_id": str(migration.metadata.get("operation_id") or ""),
                 "after_preview": str(migration.metadata.get("after_preview") or ""),
+                "after_content": str(migration.metadata.get("after_content") or ""),
                 "candidate_error": str(migration.metadata.get("candidate_error") or ""),
                 "change_count": int(migration.metadata.get("change_count") or 0),
             })
@@ -2413,6 +2530,12 @@ def review_teacher_course_change_scope(
                 "formal_content_changed": False,
             }
         plan.impact_summary["planning_summary"] = summarize_course_change_plan(planning).model_dump(mode="json")
+        # A new review invalidates the in-flight attempt, even when the selected
+        # scope is identical. Keep saved candidates, but never leave a phantom run.
+        if plan.generation_status == "generating":
+            plan.generation_status = "suggested"
+            plan.generation_attempt_id = ""
+        plan.review_revision += 1
         planning.updated_at = timestamp
         plan.updated_at = timestamp
         state.updated_at = timestamp

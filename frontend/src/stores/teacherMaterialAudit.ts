@@ -130,6 +130,7 @@ function errorMessage(error: any, fallback: string) {
 export const useTeacherMaterialAuditStore = defineStore('teacher-material-audit', {
   state: () => ({
     courseId: '',
+    requestSequence: 0,
     coursePackage: null as MaterialAuditPackage | null,
     loading: false,
     refreshing: false,
@@ -142,7 +143,9 @@ export const useTeacherMaterialAuditStore = defineStore('teacher-material-audit'
   },
   actions: {
     async load(courseId: string) {
+      if (this.courseId !== courseId) { this.coursePackage = null; this.refreshing = false; this.executing = false; this.updatingAssetIds = [] }
       this.courseId = courseId
+      const sequence = ++this.requestSequence
       this.loading = true
       this.error = ''
       try {
@@ -150,46 +153,52 @@ export const useTeacherMaterialAuditStore = defineStore('teacher-material-audit'
           '/api/teacher-course-spaces',
           teacherRequestConfig({ params: { course_id: courseId }, silentError: true }),
         )).data
+        if (this.courseId !== courseId || sequence !== this.requestSequence) return null
         const packages = Array.isArray(payload) ? payload : []
         const summary = packages.find(item => String(item.course_id || '') === courseId)
         if (!summary) {
           this.coursePackage = null
           return null
         }
-        this.coursePackage = (await http.get<MaterialAuditPackage>(
+        const loaded = (await http.get<MaterialAuditPackage>(
           `/api/teacher-course-spaces/${summary.package_id}`,
           teacherRequestConfig({ silentError: true }),
         )).data
+        if (this.courseId !== courseId || sequence !== this.requestSequence) return null
+        this.coursePackage = loaded
         if (
           Array.isArray(this.coursePackage.assets) && this.coursePackage.assets.length
           && !this.coursePackage.material_absorption?.plan_id
         ) await this.refresh()
         return this.coursePackage
       } catch (error) {
-        this.error = errorMessage(error, '材料审计读取失败')
-        this.coursePackage = null
+        if (this.courseId === courseId && sequence === this.requestSequence) this.error = errorMessage(error, '材料审计读取失败')
         return null
       } finally {
-        this.loading = false
+        if (this.courseId === courseId) this.loading = false
       }
     },
     async refresh() {
       if (!this.coursePackage) return null
+      const courseId = this.courseId
+      const packageId = this.coursePackage.package_id
+      const sequence = ++this.requestSequence
       this.refreshing = true
       this.error = ''
       try {
         const response = await http.post<{ package: MaterialAuditPackage }>(
-          `/api/teacher-course-spaces/${this.coursePackage.package_id}/material-absorption/refresh`,
+          `/api/teacher-course-spaces/${packageId}/material-absorption/refresh`,
           {},
           teacherRequestConfig(),
         )
+        if (this.courseId !== courseId || sequence !== this.requestSequence) return null
         this.coursePackage = response.data.package
         return this.coursePackage.material_absorption || null
       } catch (error) {
-        this.error = errorMessage(error, '材料审计更新失败')
+        if (this.courseId === courseId && sequence === this.requestSequence) this.error = errorMessage(error, '材料审计更新失败')
         throw error
       } finally {
-        this.refreshing = false
+        if (this.courseId === courseId) this.refreshing = false
       }
     },
     async updateDecision(
@@ -202,45 +211,56 @@ export const useTeacherMaterialAuditStore = defineStore('teacher-material-audit'
       },
     ) {
       if (!this.coursePackage) return null
+      const courseId = this.courseId
+      const packageId = this.coursePackage.package_id
+      const sequence = ++this.requestSequence
       this.updatingAssetIds = [...new Set([...this.updatingAssetIds, assetId])]
       this.error = ''
       try {
         const response = await http.patch<{ package: MaterialAuditPackage }>(
-          `/api/teacher-course-spaces/${this.coursePackage.package_id}/assets/${assetId}/absorption`,
+          `/api/teacher-course-spaces/${packageId}/assets/${assetId}/absorption`,
           decision,
           teacherRequestConfig(),
         )
+        if (this.courseId !== courseId || sequence !== this.requestSequence) return null
         this.coursePackage = response.data.package
         return this.coursePackage.material_absorption || null
       } catch (error) {
-        this.error = errorMessage(error, '材料审计选择保存失败')
+        if (this.courseId === courseId && sequence === this.requestSequence) this.error = errorMessage(error, '材料审计选择保存失败')
         throw error
       } finally {
-        this.updatingAssetIds = this.updatingAssetIds.filter(item => item !== assetId)
+        if (this.courseId === courseId) this.updatingAssetIds = this.updatingAssetIds.filter(item => item !== assetId)
       }
     },
     async updateDocumentType(assetId: string, documentType: MaterialDocumentType) {
       if (!this.coursePackage) return null
+      const courseId = this.courseId
+      const packageId = this.coursePackage.package_id
+      const sequence = ++this.requestSequence
       this.updatingAssetIds = [...new Set([...this.updatingAssetIds, assetId])]
       this.error = ''
       try {
         const updated = (await http.patch<MaterialAuditAsset>(
-          `/api/teacher-course-spaces/${this.coursePackage.package_id}/assets/${assetId}`,
+          `/api/teacher-course-spaces/${packageId}/assets/${assetId}`,
           { document_type: documentType },
           teacherRequestConfig(),
         )).data
+        if (this.courseId !== courseId || sequence !== this.requestSequence || !this.coursePackage) return null
         this.coursePackage.assets = this.coursePackage.assets.map(asset => asset.asset_id === assetId ? { ...asset, ...updated } : asset)
         await this.refresh()
         return this.coursePackage.material_absorption || null
       } catch (error) {
-        this.error = errorMessage(error, '材料类型保存失败')
+        if (this.courseId === courseId && sequence === this.requestSequence) this.error = errorMessage(error, '材料类型保存失败')
         throw error
       } finally {
-        this.updatingAssetIds = this.updatingAssetIds.filter(item => item !== assetId)
+        if (this.courseId === courseId) this.updatingAssetIds = this.updatingAssetIds.filter(item => item !== assetId)
       }
     },
     async execute(targetIds: string[] = []) {
       if (!this.coursePackage) return null
+      const courseId = this.courseId
+      const packageId = this.coursePackage.package_id
+      const sequence = ++this.requestSequence
       this.executing = true
       this.error = ''
       try {
@@ -249,17 +269,18 @@ export const useTeacherMaterialAuditStore = defineStore('teacher-material-audit'
           receipt: Record<string, any>
           authoring_receipt: Record<string, any>
         }>(
-          `/api/teacher-course-spaces/${this.coursePackage.package_id}/material-absorption/execute`,
+          `/api/teacher-course-spaces/${packageId}/material-absorption/execute`,
           { target_ids: targetIds },
           teacherRequestConfig(),
         )
+        if (this.courseId !== courseId || sequence !== this.requestSequence) return null
         this.coursePackage = response.data.package
         return response.data
       } catch (error) {
-        this.error = errorMessage(error, '结构化工作稿生成失败')
+        if (this.courseId === courseId && sequence === this.requestSequence) this.error = errorMessage(error, '结构化工作稿生成失败')
         throw error
       } finally {
-        this.executing = false
+        if (this.courseId === courseId) this.executing = false
       }
     },
   },

@@ -101,8 +101,8 @@
               </button>
             </th>
             <th scope="col" :aria-sort="sortAria('status')">
-              <button type="button" class="column-sort" :aria-label="sortLabel(t('courseTasks.nodes', '内容进度'))" @click="toggleSort('status')">
-                {{ t('courseTasks.nodes', '内容进度') }}<component :is="sortIcon('status')" :size="13" />
+              <button type="button" class="column-sort" :aria-label="sortLabel(t('courseWorkbench.preparationStatus', '备课状态'))" @click="toggleSort('status')">
+                {{ t('courseWorkbench.preparationStatus', '备课状态') }}<component :is="sortIcon('status')" :size="13" />
               </button>
             </th>
             <th scope="col" :aria-sort="sortAria('nextSession')">
@@ -146,7 +146,6 @@
               <strong class="course-production-summary" :data-tone="production.tone" role="status">
                 {{ production.label }}
               </strong>
-              <small class="course-production-detail">{{ production.detail }}</small>
             </td>
             <td class="course-session">
               <strong>{{ courseNextSessionWhen(course) }}</strong>

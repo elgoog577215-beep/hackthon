@@ -432,6 +432,7 @@
       "appliedReceipt": "Applied and reviewed again: {resolved} resolved, {remaining} remaining."
     },
     "outlineFlow": {
+      "readyToContinue": "Lecture plan ready",
       "title": "Outline generation steps",
       "courseInfo": "Enter course information",
       "lightPlan": "Light lecture plan",
@@ -1248,6 +1249,17 @@
       "resultSummary": "{count} sources · {full} read in full · {domains} domains · {rejected} low-relevance results filtered", "deepRead": "Full text read", "reviewRecommended": "Sensitive content needs review",
       "highTrust": "High trust", "reviewTrust": "Review", "lowTrust": "Low trust", "selectedCount": "{count} sources selected",
       "saving": "Adding to course…", "save": "Add to this stage", "loadFailed": "Could not load research history", "searchFailed": "Web search failed", "saveFailed": "Could not add web sources to the course"
+    },
+    "preparationStatus": "Preparation status",
+    "recovery": {
+      "details": "View specific issues",
+      "retry_original": "Continue with the original inputs and keep validated work.",
+      "revise_inputs": "Review the issue and revise the instructions or materials for a new attempt.",
+      "reanalyze": "The source has changed. Start a new attempt from the current version.",
+      "retryOriginal": "Retry original inputs",
+      "reviseAndGenerate": "Revise inputs and regenerate",
+      "newRequirements": "Updated instructions",
+      "requirementsHint": "Describe the teaching conditions or content to add or correct. The new attempt uses the current lesson plan and these instructions."
     }
   },
   "companionDocuments": {
@@ -2377,11 +2389,11 @@
       "requestStep": "01 · Describe the outcome",
       "requestTitle": "How should this course change?",
       "requestHint": "Describe the result you want; no command syntax needed",
-      "requestPlaceholder": "For example: expand every example and update the handout and slides",
+      "requestPlaceholder": "For example: add complete reasoning to every example and update lesson plans and scripts.",
       "requestSuggestionsLabel": "Common change examples",
       "suggestDetailedExamples": "Add full derivations, counterexamples, and applicability boundaries to every case",
       "suggestRestructure": "Restructure the chapters around the new teaching logic and migrate reusable content",
-      "suggestVersionUpdate": "Update outdated model versions consistently across the outline, lesson plans, handouts, and slides",
+      "suggestVersionUpdate": "Update outdated model versions in the outline, lesson plans and scripts",
       "startAnalysis": "Analyze whole-course impact",
       "noDirectWrite": "Analyze impact first; the formal course stays unchanged until confirmation",
       "courseIndex": "Course index",
@@ -2482,7 +2494,23 @@
       "confirmPlanAndGenerate": "Confirm plan and generate options",
       "undoChange": "Undo this change",
       "courseMissing": "This course could not be found. Return to the course list and open it again.",
-      "refreshShort": "Refresh status"
+      "refreshShort": "Refresh status",
+      "partialTitle": "Some changes were applied; review the remaining failures",
+      "partialResult": "Partially applied",
+      "changeMode": "Change method",
+      "mode_describe": "Describe a change",
+      "mode_replace": "Find and replace",
+      "mode_structure": "Edit lectures",
+      "findText": "Find",
+      "replaceWith": "Replace with (empty removes the text)",
+      "replaceScope": "Scope",
+      "progressDisconnected": "Task updates are temporarily unavailable. Reconnecting; the last known results are preserved.",
+      "partialLoadFailed": "Some information could not be loaded. Please retry; available results remain readable.",
+      "rescanFailed": "The scan failed. Previous review results are preserved.",
+      "durableProgress": "Generating candidates. Completed items are saved; you can return after leaving or refreshing.",
+      "scanCoverage": "Checked {done}/{total} content units",
+      "replaceInstruction": "Replace all occurrences of “{before}” with “{after}”",
+      "analysisFailed": "Impact analysis failed. Please retry."
     },
     "refresh": "Re-evaluate learning evidence",
     "evidenceConvergence": "Multiple evidence sources converge",
@@ -5919,7 +5947,8 @@
     "parseHigh": "High-quality parse",
     "parseMedium": "Parse needs review",
     "parseLow": "Parse failed",
-    "type": { "outline": "Course outline", "lesson_plan": "Lesson plan", "script": "Script", "ppt": "PPT" }
+    "type": { "outline": "Course outline", "lesson_plan": "Lesson plan", "script": "Script", "ppt": "PPT" },
+    "globalChange": "Global changes"
   },
   "courseFiles": {
     "spaceLabel": "Course file space", "sameSource": "Structured same-source", "teacherAgent": "AI assistant", "hideTeacherAgent": "Hide AI assistant", "agentContext": "Current file: {label} ({path})", "previewCourse": "Preview as student", "folderNavigation": "Course folders", "expandFolder": "Expand folder", "collapseFolder": "Collapse folder", "courseLevel": "Course-wide", "lessonLevel": "By session", "otherLevel": "Other", "assembledCourseTitle": "The formal course is assembled from structured blocks", "assembledCourseHelp": "Content and practice stay separate in the file space and merge from the current revision at preview time.", "allCourseFiles": "Course files", "backToCalendar": "Back to calendar", "backToCourses": "Back to My courses", "taskCenter": "Task center", "untitledCourse": "Untitled course", "loading": "Loading course files", "loadFailed": "Could not load course", "outlineEditor": "Edit course outline", "calendarDrawerTitle": "Teaching calendar",

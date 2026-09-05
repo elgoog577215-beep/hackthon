@@ -2161,9 +2161,39 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'foundation' })
 
-    expect(wrapper.get('.context-pane-heading').text()).toContain('待补充信息')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('讲次方案已就绪')
     expect(wrapper.find('.context-pane-heading__actions .primary-status-action').exists()).toBe(false)
     expect(wrapper.find('.generation-header-actions').exists()).toBe(false)
+    await wrapper.get('[data-testid="outline-continue-action"]').trigger('click')
+    await flushPromises()
+
+    expect(continueDetails).toHaveBeenCalledWith('course-1', 'outline-waiting')
+    expect(resume).not.toHaveBeenCalled()
+  })
+
+  it('轻量方案同时存在草稿时仍使用 provide_input 的任务继续完整大纲', async () => {
+    useCourseStore().nodes = [{
+      node_id: 'L1-1', parent_node_id: 'root', node_name: '第一讲', node_level: 1,
+      node_content: '', node_type: 'original', generation_status: 'completed', generated_chars: 0,
+    }] as any
+    useCourseStore().setTeacherProductionState('course-1', strictProductionSnapshot({
+      outline: {
+        display_state: 'generating', task_state: 'waiting_for_input', task_ids: ['outline-waiting'],
+        action_targets: { provide_input: ['outline-waiting'] },
+        allowed_actions: ['provide_input'], has_unconfirmed_draft: true,
+        counts: { total: 1, available: 0, generating: 1, failed: 0, stale: 0 },
+      },
+    }) as any)
+    const generation = useGenerationStore()
+    const continueDetails = vi.spyOn(generation, 'continueOutlineDetails').mockResolvedValue({} as any)
+    const resume = vi.spyOn(generation, 'resumeTask').mockResolvedValue(undefined as any)
+
+    const wrapper = mountWorkbench({ initialStage: 'foundation' })
+
+    expect(wrapper.get('.context-pane-heading').text()).toContain('讲次方案已就绪')
+    expect(wrapper.find('.context-pane-heading__actions .primary-status-action').exists()).toBe(false)
+    expect(wrapper.find('.generation-header-actions').exists()).toBe(false)
+    expect(wrapper.find('.context-pane-heading .spin').exists()).toBe(false)
     await wrapper.get('[data-testid="outline-continue-action"]').trigger('click')
     await flushPromises()
 

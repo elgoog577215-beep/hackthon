@@ -1281,10 +1281,10 @@ def test_teacher_script_stale_quality_contract_is_never_publishable():
             "publication_eligible": True,
         },
     }) is False
-    assert SCRIPT_QUALITY_VERSION == "teacher_script_quality_v8"
+    assert SCRIPT_QUALITY_VERSION == "teacher_script_quality_v9"
 
 
-def test_teacher_script_revision_blocks_repeated_canned_transitions():
+def test_teacher_script_revision_reports_canned_transitions_as_advice():
     sections = [{
         "section_node_id": "L2-1-1",
         "quality_report": {
@@ -1310,8 +1310,10 @@ def test_teacher_script_revision_blocks_repeated_canned_transitions():
     )
 
     assert "teacher_script:repetitive_canned_transitions" in {
-        item["code"] for item in report["blocking_issues"]
+        item["code"] for item in report["review_issues"]
     }
+
+    assert "teacher_script:repetitive_canned_transitions" not in {item["code"] for item in report["blocking_issues"]}
 
 
 def test_ppt_source_keeps_quality_report_non_blocking_for_current_script(tmp_path):
@@ -5076,6 +5078,7 @@ def test_script_generation_edit_candidate_and_ppt_share_one_asset_chain(tmp_path
         assert resumed_job["material_asset_ids"] == ["material-1"]
         assert resumed_job["resume_from_job_id"] == failed_job["id"]
 
+
         view = client.get(
             "/api/teacher/courses/course-1/lesson-authoring"
         ).json()
@@ -5132,10 +5135,38 @@ def test_script_generation_edit_candidate_and_ppt_share_one_asset_chain(tmp_path
         assert "revisions" not in projection["plan"]
         assert "revisions" not in projection["script"]
 
+        calls_before_retry = len(FakeCourseService.script_calls)
+        revised = client.post(
+            "/api/teacher/courses/course-1/lessons/L1-1/script/generate",
+            json={
+                "request_id": "script-revised-input",
+                "retry_of_job_id": failed_job["id"],
+                "requirements": "补充实验器材条件",
+                "material_asset_ids": ["material-2"],
+            },
+            headers={"X-User-Id": "teacher-1"},
+        )
+        assert revised.status_code == 202, revised.text
+        revised_job_id = revised.json()["job"]["id"]
+        for _ in range(100):
+            revised_job = repository.get_job("course-1", revised_job_id)
+            if revised_job["status"] in {"completed", "completed_with_warnings", "failed"}:
+                break
+            time.sleep(0.01)
+        assert revised_job["status"] == "completed", revised_job.get("error")
+        assert revised_job["requirements"] == "补充实验器材条件"
+        assert revised_job["material_asset_ids"] == ["material-2"]
+        assert revised_job["retry_of_job_id"] == failed_job["id"]
+        assert revised_job["attempt_mode"] == "revised_inputs"
+        assert not revised_job["resume_from_job_id"]
+        assert len(FakeCourseService.script_calls) > calls_before_retry
+        assert "补充实验器材条件" in str(FakeCourseService.script_calls[calls_before_retry:])
+
+
     assert FakeCourseService.registered is True
-    assert len(FakeCourseService.script_calls) == 1
+    assert len(FakeCourseService.script_calls) == 2
     assert material_evidence_calls[:2] == [["material-1"], ["material-1"]]
-    assert ["material-2"] not in material_evidence_calls
+    assert material_evidence_calls[-1] == ["material-2"]
     assert len(
         FakeCourseService.script_calls[0]["current_plan_section"]["teaching_modules"]
     ) == 2
@@ -5144,7 +5175,7 @@ def test_script_generation_edit_candidate_and_ppt_share_one_asset_chain(tmp_path
         ["script_shard_context"]["budget_mode"]
         == "single_request"
     )
-    assert all(call["requirements"] == "增加案例" for call in FakeCourseService.script_calls)
+    assert [call["requirements"] for call in FakeCourseService.script_calls] == ["增加案例", "补充实验器材条件"]
     generation_context = FakeCourseService.script_calls[0]["lesson_context"]
     assert generation_context["selected_material_evidence"][0]["text"] == "资料中的可靠案例"
     rewrite_context = json.loads(FakeCourseService.rewrite_calls[0]["course_context"])

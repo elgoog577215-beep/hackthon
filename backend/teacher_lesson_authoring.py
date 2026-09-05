@@ -30,6 +30,7 @@ from teaching_design import normalize_lesson_arrangement
 from teacher_script import (
     SCRIPT_PIPELINE_VERSION,
     SCRIPT_QUALITY_VERSION,
+    upgrade_script_quality_report,
     compile_teacher_script_generation_shards,
     compile_teacher_script_module_contract,
     compile_teacher_script_shard_context,
@@ -69,6 +70,26 @@ class TeacherLessonAuthoringError(RuntimeError):
         super().__init__(message)
         self.code = code
         self.details = details or {}
+
+
+def generation_failure(exc: Exception, default_code: str) -> dict[str, Any]:
+    """One error contract for original generation and resumed attempts."""
+    code = str(getattr(exc, "code", "") or default_code)
+    details = deepcopy(getattr(exc, "details", {}) or {})
+    text = f"{code} {type(exc).__name__} {exc}".lower()
+    if any(word in text for word in ("conflict", "source_changed", "scope_stale", "revision_changed")):
+        category, action, retryable = "conflict", "reanalyze", False
+    elif details.get("missing_fields") or details.get("blocking_questions") or "missing_input" in code:
+        category, action, retryable = "missing_input", "revise_inputs", False
+    elif any(word in text for word in ("timeout", "connect", "rate_limit", "provider", "service_unavailable", "模型服务", "模型未返回")):
+        category, action, retryable = "provider", "retry_original", True
+    elif details.get("quality_report") or "quality" in code:
+        category, action, retryable = "quality", "retry_original", True
+    elif any(word in text for word in ("json", "schema", "parse", "structure", "validation")):
+        category, action, retryable = "structure", "retry_original", True
+    else:
+        category, action, retryable = "unknown", "revise_inputs", False
+    return {"code": code, "message": str(exc), **details, "category": category, "recovery_action": action, "retryable": retryable}
 
 
 def _now() -> str:
@@ -1901,6 +1922,16 @@ class TeacherLessonAuthoringRepository:
                     "教师讲次资产读取失败。",
                 ) from exc
             value = data if isinstance(data, dict) else self._empty(course_id)
+            for lesson in (value.get("lessons") or {}).values():
+                for revision in lesson.get("script_revisions") or []:
+                    for section in revision.get("sections") or []:
+                        section["quality_report"] = upgrade_script_quality_report(section.get("quality_report") or {})
+                    old_report = revision.get("quality_report") or {}
+                    report = upgrade_script_quality_report(old_report)
+                    if report is not old_report:
+                        revision["quality_report"] = report
+                        revision["publication_eligible"] = bool(report.get("publication_eligible"))
+                        revision["quality_contract_version"] = SCRIPT_QUALITY_VERSION
             return self._overlay_live_stream_jobs_locked(course_id, value)
 
     def _save(self, value: dict[str, Any]) -> dict[str, Any]:
@@ -3856,13 +3887,16 @@ class TeacherLessonAuthoringRepository:
                     "lesson_script_revision_not_found",
                     "本次全课调整的原讲义修订不存在。",
                 )
+            source_plan_id = str(source.get("source_lesson_plan_revision_id") or "")
+            current_plan_id = str(lesson.get("working_revision_id") or "")
+            current_plan = next((item for item in lesson.get("revisions") or [] if item.get("revision_id") == current_plan_id), {})
+            if current_plan.get("rollback_from_revision_id") == source_plan_id:
+                source_plan_id = current_plan_id
             return self.save_script_revision(
                 course_id,
                 lesson_unit_id,
                 deepcopy(source.get("sections") or []),
-                source_lesson_plan_revision_id=str(
-                    source.get("source_lesson_plan_revision_id") or ""
-                ),
+                source_lesson_plan_revision_id=source_plan_id,
                 generation_source="course_evolution_undo",
                 requirements=str(source.get("requirements") or ""),
                 material_asset_ids=list(source.get("material_asset_ids") or []),
@@ -3882,6 +3916,8 @@ class TeacherLessonAuthoringRepository:
         instruction: str,
         replacement_text: str,
         source_lesson_plan_revision_id: str,
+        source_lesson_plan_candidate_id: str = "",
+        candidate_group_id: str = "",
         material_asset_ids: list[str] | None = None,
         section_replacements: dict[str, str] | None = None,
         block_replacements: dict[str, dict[str, Any]] | None = None,
@@ -3900,7 +3936,7 @@ class TeacherLessonAuthoringRepository:
                     "讲义工作稿已经变化，请重新生成 AI 候选。",
                 )
             for item in lesson.get("script_ai_candidates") or []:
-                if isinstance(item, dict) and item.get("status") == "pending":
+                if isinstance(item, dict) and item.get("status") == "pending" and item.get("candidate_group_id", "") == candidate_group_id:
                     item["status"] = "superseded"
                     item["resolved_at"] = _now()
             candidate = {
@@ -3908,6 +3944,8 @@ class TeacherLessonAuthoringRepository:
                 "lesson_unit_id": lesson_unit_id,
                 "base_revision_id": base_revision_id,
                 "source_lesson_plan_revision_id": source_lesson_plan_revision_id,
+                "source_lesson_plan_candidate_id": source_lesson_plan_candidate_id,
+                "candidate_group_id": candidate_group_id,
                 "section_node_id": section_node_id,
                 "instruction": instruction,
                 "replacement_text": replacement_text,
@@ -4273,6 +4311,8 @@ def _teacher_script_retry_block_ids(
                 pair_ids = ordered(pair)
                 if len(pair_ids) > 1:
                     retry_ids.add(pair_ids[-1])
+        elif code == "teacher_script:lesson_too_shallow":
+            retry_ids.update(block_order)
         elif code == "teacher_script:repetitive_canned_transitions":
             phrase_blocks = issue.get("phrase_blocks") or {}
             if isinstance(phrase_blocks, dict):
@@ -4607,7 +4647,7 @@ class TeacherLessonAuthoringService:
                 message="本讲教案生成失败",
                 stream_sequence=int(current_job.get("stream_sequence") or 0) + 1,
                 stream_complete=True,
-                error={"code": code, "message": str(exc), "retryable": True},
+                error=generation_failure(exc, code),
             )
 
     async def run_script_job(
@@ -5461,7 +5501,7 @@ class TeacherLessonAuthoringService:
                 status="failed",
                 phase="lesson_script_failed",
                 progress=max(5, int(95 * completed_count / max(1, total_blocks))),
-                message=f"讲义生成暂停，已保留 {completed_count}/{total_blocks} 个教学块",
+                message=f"讲义生成失败，已保留 {completed_count}/{total_blocks} 个教学块",
                 completed_blocks=completed_count,
                 current_block_id=current_block_id,
                 current_block_title=current_block_title,
@@ -5469,21 +5509,5 @@ class TeacherLessonAuthoringService:
                 result_sections=checkpoint_sections(),
                 stream_sequence=int(current_job.get("stream_sequence") or 0) + 1,
                 stream_complete=True,
-                error={
-                    "code": code,
-                    "message": str(exc),
-                    "retryable": True,
-                    **(
-                        {"failed_shards": deepcopy(exc.details["failed_shards"])}
-                        if isinstance(exc, TeacherLessonAuthoringError)
-                        and isinstance(exc.details.get("failed_shards"), list)
-                        else {}
-                    ),
-                    **(
-                        {"failed_blocks": deepcopy(exc.details["failed_blocks"])}
-                        if isinstance(exc, TeacherLessonAuthoringError)
-                        and isinstance(exc.details.get("failed_blocks"), list)
-                        else {}
-                    ),
-                },
+                error=generation_failure(exc, code),
             )

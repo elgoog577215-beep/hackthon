@@ -432,6 +432,7 @@
       "appliedReceipt": "已应用并重新审读，解决 {resolved} 项，剩余 {remaining} 项。"
     },
     "outlineFlow": {
+      "readyToContinue": "讲次方案已就绪",
       "title": "大纲生成步骤",
       "courseInfo": "填写课程信息",
       "lightPlan": "轻量讲次方案",
@@ -1248,6 +1249,17 @@
       "resultSummary": "{count} 个来源 · {full} 篇已深读 · {domains} 个网域 · {rejected} 个低相关结果已过滤", "deepRead": "正文已深读", "reviewRecommended": "敏感内容需复核",
       "highTrust": "高可信", "reviewTrust": "需确认", "lowTrust": "低可信", "selectedCount": "已选 {count} 个来源",
       "saving": "正在加入课程…", "save": "加入当前阶段", "loadFailed": "调研记录读取失败", "searchFailed": "联网检索失败", "saveFailed": "联网来源加入课程失败"
+    },
+    "preparationStatus": "备课状态",
+    "recovery": {
+      "details": "查看具体问题",
+      "retry_original": "可按原要求继续，已经通过检查的内容会保留。",
+      "revise_inputs": "请检查问题并补充要求或资料，再开始新尝试。",
+      "reanalyze": "上游内容已变化，请基于当前版本重新生成；刷新后重复原任务不能解决版本冲突。",
+      "retryOriginal": "按原要求重试",
+      "reviseAndGenerate": "调整要求后重新生成",
+      "newRequirements": "这次补充的要求",
+      "requirementsHint": "填写这次需要补充或修正的教学条件、内容要求；系统将使用当前教案和这些新要求。"
     }
   },
   "companionDocuments": {
@@ -2377,11 +2389,11 @@
       "requestStep": "01 · 描述结果",
       "requestTitle": "这次想让课程怎么变？",
       "requestHint": "不用写成指令，直接说你想得到的结果",
-      "requestPlaceholder": "例如：以后所有例子都讲得更详细一点，并同步更新讲义和 PPT",
+      "requestPlaceholder": "例如：所有案例都增加完整推导，并同步更新教案和讲义",
       "requestSuggestionsLabel": "常用修改示例",
       "suggestDetailedExamples": "所有案例都补充完整推导、反例和适用边界",
       "suggestRestructure": "按新的教学逻辑重构章节，并迁移可以保留的内容",
-      "suggestVersionUpdate": "统一更新大纲、教案、讲义和 PPT 中过时的模型版本",
+      "suggestVersionUpdate": "统一更新大纲、教案和讲义中过时的模型版本",
       "startAnalysis": "分析全课影响",
       "noDirectWrite": "先分析影响，确认前不改正式课程",
       "courseIndex": "课程索引",
@@ -2482,7 +2494,23 @@
       "confirmPlanAndGenerate": "确认方案并生成候选",
       "undoChange": "撤销本次修改",
       "courseMissing": "未找到当前课程，请返回课程列表重新进入。",
-      "refreshShort": "刷新状态"
+      "refreshShort": "刷新状态",
+      "partialTitle": "部分修改已应用，请处理剩余失败项",
+      "partialResult": "部分应用",
+      "changeMode": "修改方式",
+      "mode_describe": "描述要求",
+      "mode_replace": "查找替换",
+      "mode_structure": "调整讲次",
+      "findText": "查找",
+      "replaceWith": "替换为（留空表示删除该文字）",
+      "replaceScope": "修改范围",
+      "progressDisconnected": "暂时无法同步任务状态，正在重新连接；已显示的结果已保留。",
+      "partialLoadFailed": "部分信息读取失败，请重试；已读取的结果可以继续查看。",
+      "rescanFailed": "重新扫描失败，原有审计结果仍已保留。",
+      "durableProgress": "正在生成修改候选，已完成项会自动保存；离开或刷新后可继续查看。",
+      "scanCoverage": "已检查 {done}/{total} 个内容单元",
+      "replaceInstruction": "将“{before}”统一替换为“{after}”",
+      "analysisFailed": "影响分析失败，请重试。"
     },
     "refresh": "重新分析学习证据",
     "evidenceConvergence": "多类证据汇聚",
@@ -5985,7 +6013,8 @@
     "parseHigh": "高质量解析",
     "parseMedium": "解析需复核",
     "parseLow": "解析失败",
-    "type": { "outline": "课程大纲", "lesson_plan": "教案", "script": "讲义", "ppt": "PPT" }
+    "type": { "outline": "课程大纲", "lesson_plan": "教案", "script": "讲义", "ppt": "PPT" },
+    "globalChange": "全局修改"
   },
   "courseFiles": {
     "spaceLabel": "课程文件空间",

@@ -3510,6 +3510,10 @@ class TaskManager:
         if not task:
             raise KeyError(task_id)
 
+        if task.get("type") == "teacher_course_change_generation":
+            return {"state": str(task.get("status") or "unknown"), "can_resume": False,
+                    "reason_code": "course_change_owned_recovery",
+                    "reason": "请在全局修改中继续，已完成候选会保留", "checkpoint": {"plan_id": (task.get("request_snapshot") or {}).get("plan_id")}}
         if task.get("type") == "course_import":
             status = str(task.get("status") or "")
             source_ready = self.import_source_path(task_id).is_file()
@@ -4538,6 +4542,12 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if not task:
             return False
+        if task.get("type") == "teacher_course_change_generation":
+            if task.get("status") not in {"pending", "running"}:
+                return False
+            task["status"] = "pending"
+            task["message"] = "正在恢复未完成的修改候选"
+            return True
         if task.get("type") == "course_import":
             if task.get("status") not in {"pending", "running"}:
                 return False
@@ -5508,6 +5518,9 @@ class TaskManager:
             await asyncio.gather(*unique, return_exceptions=True)
 
     async def _cleanup_task_artifacts(self, task: dict[str, Any]) -> None:
+        if task.get("type") == "teacher_course_change_generation":
+            # Candidate assets belong to their domain repositories, not this job.
+            return
         task_id = str(task.get("id") or "")
         course_id = str(task.get("course_id") or "")
         candidate_id = str(task.get("candidate_id") or "")
@@ -7117,6 +7130,10 @@ class TaskManager:
         if str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
             return
 
+        if task.get("type") == "teacher_course_change_generation":
+            from course_evolution.jobs import run_candidates
+            await run_candidates(self, task_id)
+            return
         if task.get("type") == "course_import":
             await self._process_course_import_task(task_id)
             return

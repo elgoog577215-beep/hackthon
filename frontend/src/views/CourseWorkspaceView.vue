@@ -43,9 +43,9 @@
           class="audit-action"
           type="button"
           :title="t('courseAuditUpdates.openHint', '查看材料变化、生成关系和全课调整')"
-          @click="openMaterialAudit"
+          @click="openGlobalChange"
         >
-          <ScanSearch :size="16" />{{ t('courseAuditUpdates.open', '审计与更新') }}
+          <ScanSearch :size="16" />{{ t('courseAuditUpdates.globalChange', '全局修改') }}
         </button>
         <button class="preview-action" type="button" @click="openCoursePreview"><Eye :size="16" />{{ t('courseFiles.previewCourse') }}</button>
       </div>
@@ -348,6 +348,10 @@ function handleCourseAdjustmentApplied() {
     lessonStore.load(courseId.value),
     courseStore.fetchTeacherCourseProductionState(courseId.value),
   ])
+}
+
+function openGlobalChange() {
+  void router.push({ name: 'course-audit-updates', params: { courseId: courseId.value }, query: auditCenterReturnQuery('changes') })
 }
 
 function openMaterialAudit() {
