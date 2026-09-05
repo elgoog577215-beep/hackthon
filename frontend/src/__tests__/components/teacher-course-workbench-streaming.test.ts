@@ -102,6 +102,7 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => {
       QuestionBankReviewPanel: true,
       TeacherScriptDocument: {
         name: 'TeacherScriptDocument',
+        props: ['generationJob'],
         template: '<section data-testid="script-document-stub"><slot name="toolbar" /></section>',
       },
       MarkdownRenderer: true,
@@ -1233,7 +1234,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(buttons[1]!.find('small').exists()).toBe(false)
   })
 
-  it('教案任务开始后原位显示真实进度并隐藏重复提交按钮', () => {
+  it.each([false, true])('教案任务持续显示增量正文并隐藏重复提交按钮（统一状态：%s）', async (withProductionState) => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
@@ -1248,6 +1249,19 @@ describe('teacher course workbench outline streaming', () => {
       },
     }] as any
 
+    if (withProductionState) {
+      const snapshot = strictProductionSnapshot({ lesson_plan: {
+        display_state: 'generating', task_state: 'running', task_ids: ['lesson-job-1'],
+        latest_attempt: { progress: 36, message: '正在确定各节教学重点', lesson_unit_ids: ['L1-1'] },
+      } })
+      snapshot.lessons = [{
+        lesson_unit_id: 'L1-1', title: '第一讲', stages: { lesson_plan: strictProductionStage({
+          display_state: 'generating', task_state: 'running', task_ids: ['lesson-job-1'],
+        }) },
+      }] as any
+      useCourseStore().setTeacherProductionState('course-1', snapshot as any)
+    }
+
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
 
     expect(wrapper.find('[data-testid="lesson-outline-fixed"]').exists()).toBe(true)
@@ -1258,6 +1272,88 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.lesson-stream-document .stream-caret').exists()).toBe(true)
     expect(wrapper.find('button[type="submit"]').exists()).toBe(false)
     expect(wrapper.get('.context-pane-heading').attributes('data-phase')).toBe('during')
+
+    lessonStore.jobs[0]!.stream_batches!['TP-B01'] += '，并完成一次请求实践'
+    await flushPromises()
+    expect(wrapper.get('.lesson-stream-document').text()).toContain('学生能够解释爬虫的工作流程，并完成一次请求实践')
+    expect(lessonStore.jobs[0]!.status).toBe('running')
+    wrapper.unmount()
+  })
+
+  it('切讲和重试只显示当前投影绑定任务的流式教案', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45, sections: [],
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: '', source_state: 'current', current_revision: null, ppt_assets: [] },
+    })) as any
+    lessonStore.jobs = [1, 2].map(number => ({
+      id: `lesson-job-${number}`, course_id: 'course-1', lesson_unit_id: `L1-${number}`,
+      type: 'teacher_lesson_plan_generation', status: 'running', progress: 40,
+      phase: 'lesson_plan_generation', message: '正在生成', warnings: [],
+      stream_batches: { 'TP-B01': `{"sections":[{"learning_objective":"第${number}讲正在形成的教学内容` },
+    })) as any
+    const snapshot = strictProductionSnapshot({ lesson_plan: {
+      display_state: 'generating', task_state: 'running', task_ids: ['lesson-job-1', 'lesson-job-2'],
+    } })
+    snapshot.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`, title: `第${number}讲`, stages: { lesson_plan: strictProductionStage({
+        display_state: 'generating', task_state: 'running', task_ids: [`lesson-job-${number}`],
+      }) },
+    })) as any
+    useCourseStore().setTeacherProductionState('course-1', snapshot as any)
+    const wrapper = mountWorkbench({ initialStage: 'lesson', initialLessonId: 'L1-1' })
+    await wrapper.findAll('.lesson-outline-chapter-button')[0]!.trigger('click')
+    expect(wrapper.get('.lesson-stream-document').text()).toContain('第1讲正在形成的教学内容')
+
+    await wrapper.findAll('.lesson-outline-chapter-button')[1]!.trigger('click')
+    expect(wrapper.get('.lesson-stream-document').text()).toContain('第2讲正在形成的教学内容')
+    expect(wrapper.get('.lesson-stream-document').text()).not.toContain('第1讲正在形成的教学内容')
+
+    const retrySnapshot = structuredClone(snapshot) as any
+    retrySnapshot.lessons[1].stages.lesson_plan.task_ids = ['lesson-job-2-retry']
+    useCourseStore().setTeacherProductionState('course-1', retrySnapshot)
+    await flushPromises()
+    expect(wrapper.find('.lesson-stream-document').exists()).toBe(false)
+    expect(wrapper.find('.lesson-stream-waiting').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('统一生产状态仍向讲义正文传递当前任务的持续增量', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', source_state: 'current', current_revision: null, ppt_assets: [] },
+      script: { ready: false, sections: [], source_state: 'current' },
+    }] as any
+    lessonStore.jobs = [{
+      id: 'script-job-1', course_id: 'course-1', lesson_unit_id: 'L1-1',
+      type: 'teacher_lesson_script_generation', status: 'running', progress: 25,
+      phase: 'lesson_script_generation', message: '正在写讲义', warnings: [],
+      streamed_block_content: { 'block-1': '爬虫会先发起请求' },
+    }] as any
+    const snapshot = strictProductionSnapshot({ script: {
+      display_state: 'generating', task_state: 'running', task_ids: ['script-job-1'],
+    } })
+    snapshot.lessons = [{
+      lesson_unit_id: 'L1-1', title: '第一讲', stages: { script: strictProductionStage({
+        display_state: 'generating', task_state: 'running', task_ids: ['script-job-1'],
+      }) },
+    }] as any
+    useCourseStore().setTeacherProductionState('course-1', snapshot as any)
+    const wrapper = mountWorkbench({ initialStage: 'script' })
+    const document = wrapper.findComponent({ name: 'TeacherScriptDocument' })
+    expect(document.props('generationJob').streamed_block_content['block-1']).toBe('爬虫会先发起请求')
+
+    lessonStore.jobs[0]!.streamed_block_content!['block-1'] += '，再解析响应。'
+    await flushPromises()
+    expect(document.props('generationJob').streamed_block_content['block-1']).toBe('爬虫会先发起请求，再解析响应。')
+
+    const retrySnapshot = structuredClone(snapshot) as any
+    retrySnapshot.lessons[0].stages.script.task_ids = ['script-job-retry']
+    useCourseStore().setTeacherProductionState('course-1', retrySnapshot)
+    await flushPromises()
+    expect(document.props('generationJob')).toBeUndefined()
+    wrapper.unmount()
   })
 
   it('批量任务在固定目录中独立显示运行与排队状态', async () => {

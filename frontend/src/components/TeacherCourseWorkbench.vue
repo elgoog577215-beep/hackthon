@@ -760,7 +760,7 @@
             :request-busy="aiCollaborationBusy"
             :material-asset-ids="activeReferences.map(item => item.asset_id)"
             :generating="scriptGenerationBusy"
-            :generation-job="productionState ? undefined : scriptJob"
+            :generation-job="scriptStreamJob"
             :generation-error="effectiveScriptGenerationError"
             :can-generate="currentScriptCanGenerate && !referenceGenerationBlocked"
             :generation-blocked-reason="referenceGenerationBlocked ? referenceGenerationBlockReason : ''"
@@ -2183,8 +2183,20 @@ const lessonArrangementError = computed(() => arrangementError.value || (
     ? t('teacherProductionState.localFailure.lesson_plan', '本讲教案生成失败')
     : ''
 ))
-const lessonStreamSegments = computed(() => productionState.value ? [] : lessonPlanStreamSegments(lessonJob.value?.stream_batches))
+function currentLessonStreamJob(job: TeacherLessonJob | undefined, stage: 'lesson_plan' | 'script') {
+  if (!job) return undefined
+  const projected = lessonProductionState(productionState.value, selectedLessonId.value, stage)
+  if (projected && !projected.task_ids.includes(job.id)) return undefined
+  return job
+}
+const lessonStreamSegments = computed(() => {
+  const job = currentLessonStreamJob(lessonJob.value, 'lesson_plan')
+  return job && ['pending', 'running'].includes(job.status)
+    ? lessonPlanStreamSegments(job.stream_batches)
+    : []
+})
 const scriptJob = computed(() => selectedLessonId.value ? lessonStore.latestScriptJobByLesson(selectedLessonId.value) : undefined)
+const scriptStreamJob = computed(() => currentLessonStreamJob(scriptJob.value, 'script'))
 const selectedScriptProduction = computed(() => lessonProductionState(productionState.value, selectedLessonId.value, 'script'))
 const scriptGenerationActive = computed(() => selectedScriptProduction.value
   ? ['queued', 'running'].includes(selectedScriptProduction.value.task_state)
