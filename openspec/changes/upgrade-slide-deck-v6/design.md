@@ -1,188 +1,259 @@
 ## Context
 
-正式课程正文真源是 `CourseDocument + ordered CourseBlock[]`。PPT 是 `TeachingRepresentation`，不能成为第二课程正文。V5 的主要缺口不是渲染组件数量，而是故事规划入口已收到按字符容量拆过的片段、布局名称跨层漂移、生成入口不统一、AI 规划结果可被确定性结果冒充，以及进度由前端固定阶段推断。
+本设计按用户 2026-09-05 提出的“准备内容 → 准备格式 → 用工具生成”重构现有 V6 计划，继续服务同一个教师 PPT 生产目标。用户已要求直接规划增强，不需要重复选择技术路线。旧稿已在仓库外备份；本次仅修改规划合同。
 
-V6 采用“课程语义先行、模板合同后置、故事严格、视觉弹性”的编译模型。容量只用于最终页面分配；故事 AI 只能选择已有教学单元与模板合同；视觉 AI 只能选择来源支持的表现形式；Web 与 PPTX 消费同一最终页面合同。
+当前代码核查基线为主工作树 `main` / `c6d1af1f`，存在其他任务未提交的教师课程和界面改动。下表是静态代码证据；历史测试、真实课件与在线服务状态不能替代新合同验收。
+
+### 三步现状与缺口
+
+| 步骤 | 已具备及代码证据 | 未达到的目标 | 增强后的交付 |
+| --- | --- | --- | --- |
+| 内容 | `backend/slide_deck_v6.py` 的 `PptManuscriptPageV1` 有页面目标、文案、构图、来源和 `reveal_steps`；`slide_ai_planning_v6.py` 已给模型模板容量 | 可见稿主要是字符串列表；比较对象/共同比较维度、因果条件、图表数据与展示状态没有统一强类型合同；`reveal_steps` 是语义文本，不是可执行状态 | 内容稿包含可检查的表达结构、来源去向、素材与展示顺序；来源不变时可局部改稿 |
+| 内容质量 | `_first_incomplete_visible_prose_block` 已允许标记为 `validated` 的故事投影，同时仍存在完整正文保真和无损续页路径 | 旧 spec 对“全部正文上屏”和“轻量投影”的要求冲突；不能据此判定所有现有页面都会逐字上屏，但规则混用需要消除 | 原文备注完整性与屏幕教学信息完整性分开验收，压缩不能丢条件、关系和证据 |
+| 格式 | `template_layout_contract.py` 有用途、槽位、容量、继承与双端适配；`concept-pair` 是左右正文槽，各允许 240 字 | “左右两块正文”不能确保比较维度对应；`ppt_template_packs._compile_layout_constructions` 推断内容画布并拆分左右区域，缺少每个原生对象的明确语义绑定 | 发布的每个页面都是已标注、已测容量、已测填充的模板；推断结果只作为待校对草稿 |
+| 执行 | `compile_slide_deck_v6_from_manuscript` 校验稿件、来源与模板修订；已有原生 PPTX 和导出可见性审计 | `slide_deck_v6_renderer._visuals` 给图解固定传入 `template=process`；个人 `_render_diagram_page` 只读取节点并按数组横排连接，没有读取真实边 | 对比、分支、因果、层级按实际结构绘制；对象/边/单元格逐一对账 |
+| 执行一致性 | `slide_deck_v6_renderer.py` 区分内置和个人输出；个人输出读取源 PPTX | 个人 `_clone_native_background` 和 `_render_native_page` 仍使用选择性背景保留与固定构图重绘；读取模板不等于按原对象精确填充 | 模板明确选择原生对象填充或受控组件绘制，两者在同一份已解析页面规格中声明 |
+| 素材与质量 | 已有共享表达 ID、资产仓库、`audit_exported_pptx`、LibreOffice/图像审计 | 文档记录 PPT 自动装配共享表达尚未完成；现有文字/几何审计不能证明图解关系正确、课堂易懂；图片提供方未配置属于环境能力边界 | 真实资产装配、关系完整性与代表性课堂评阅同时进入验收；有 ID 不算图已出现 |
 
 ## Goals / Non-Goals
 
-**Goals**
+**Goals:**
 
-- 每个正式课程块都有一个主要可见表达位置，完整原文进入讲者备注并保持来源绑定。
-- 页面顺序忠于课程顺序和正式教学依赖，禁止为填满页面跨主题拼接。
-- 代码、公式、表格、数据、实验、原文等学科特征素材与条件、解释、结果形成原子教学组合。
-- 每个教学单元使用内容所需数量的模板安全页，不设教学业务页数上限；每页只有一个主要教学任务。
-- 最新已发布模板版本成为唯一布局合同，浏览器与 PPTX 不再各自推断。
-- 故事 AI 失败硬失败；视觉 AI 只允许来源完整的页面级降级。
-- 进度可解释、可恢复、每 5 秒心跳且在发布前不超过 99%。
-- 修复规则跨学科通用，不按课程标题、课程 ID、固定公式、素材 ID 或章节层级写分支。
+1. 教师能够从当前讲义得到适合投影、可以编辑且有具体教学作用的 PPT。
+2. 三步各有清楚的输入、输出、工具与失败处理，避免生成阶段继续改内容。
+3. 同一份页面内容稿控制预览和导出，模板与工具只决定表达实现。
+4. 比较维度、流程方向、因果条件、图表数据、公式符号与课堂提问在全过程可追溯。
+5. 先交付可验证的完整小闭环，再扩展版式和学科；不以模板数量或模型调用次数衡量质量。
 
-**Non-Goals**
+**Non-Goals:**
 
-- V6 不修改正式课程正文和教案。
-- V6 不从视觉模板反推或创造课程事实。
-- V6 不自动覆盖已有 V5 课件。
-- V6 不支持任意 PPTX 宏、脚本或未声明布局。
-- 本变更不以降低字号、裁切或空占位换取“生成成功”。
+- 不改课程内容真源、教师权限、已有 PPT 原件和正在运行的课程任务。
+- 不给每次制作附加联网研究；课程联网来源保持冻结，外部教学样例用于离线研发。
+- 不启用冻结的动画路径；渐进展示先使用静态连续页。
+- 不把图像贴满整页当作可编辑 PPT，也不承诺任意 SmartArt、宏或复杂历史 PPTX 能自动原样填充。
+- 不要求模型每次写 Python/JavaScript，不建设可执行任意代码的页面 Agent。
 
-## Pipeline
+## Decisions
+
+### 1. 三步的边界与实际顺序
+
+“准备格式”包含提前建设页面库，以及每次制作时把内容绑定到具体页面。模板能力必须在内容规划前可读；最终格式适配则在内容初稿后完成。这是一个在确认前收敛的过程。
 
 ```text
-freeze source/template
-  -> compile course presentation graph
-  -> run chapter-scoped story AI
-  -> compile narrative brief + editable ppt_manuscript_v1
-  -> validate teaching content/source/order/coverage/facts
-  -> teacher edits, locks and confirms the page manuscript
-  -> allocate published template layouts
-  -> run bounded visual AI batches
-  -> compile slide_deck_v6 + speaker notes
-  -> render Web/PPTX from the same contract
-  -> fidelity + subject + layout + export gates
-  -> atomically publish or retain last published version
+离线：教学样例分析 → 页面设计 → 槽位/对象标注 → 容量实测 → 模板认证发布
+                                                    ↓
+运行：当前讲义 + 已采用素材 + 模板能力
+   → 第一步：内容组织、关系表达、展示状态
+   → 第二步：选择具体版式、绑定槽位、测量与预览
+   → 必要时只修复受影响页面，形成完整页面内容稿
+   → 教师确认（锁定文案、关系、素材、页序、模板与字体）
+   → 第三步：脚本填充/绘制/拼接 → 导出检查 → 当前可用 PPT
 ```
 
-## Contracts
+唯一可编辑逐页资产仍是 `ppt_manuscript_v1`。新增字段嵌入其中；整讲叙事、填充计划和已解析几何都是该修订的组成或可再生投影，不另建正文、Markdown deck、任务系统或独立内容仓库。保留 `TeachingRepresentation` 发布指针与最后可用版本。
 
-### `ppt_source_contract_v2`
+### 2. 第一步需要的能力、工具与工作流
 
-Stores immutable identifiers and digests for course/document revision, ordered active block IDs, formal teaching-plan revision, knowledge snapshot, template pack/version/digest, story/visual policy versions, locale and build request. The orchestrator rechecks course and template digests before publication and fails with `source_revision_changed` or `template_revision_changed` when they drift.
+| 能力 | 工具或实现选择 | 输入 → 输出 | 失败与权限 |
+| --- | --- | --- | --- |
+| 获取当前教学依据 | 当前讲义/教案仓库、`CourseDocument` 适配、题库与共享表达读取器 | 当前讲义、教学目标、时长、已采用素材 → 冻结的来源包 | 缺讲义、结构不可用、来源过期时说明缺口；只读，不替教师采用素材 |
+| 组织整讲与逐页内容 | 私有 `qwen3.8-27b`，通过现有 `AIBase` 与有限批次调用 | 教学单元、模板能力摘要 → 整讲叙事与逐页表达草稿 | 模型不可用走原任务失败恢复；没有外部文本模型兜底 |
+| 表达关系 | Pydantic 带类型标签的联合结构；普通关系确定性校验，必要语义检查仍用同一私有模型 | 比较/流程/因果/层级/公式/数据/问题 → 类型化元素和关系 | 空比较对象、维度不齐、未知节点、伪造数据等定位到元素；不凭槽位名补内容 |
+| 复用图形和素材 | 共享 `diagram_spec_v1` 适配、`SlideAssetRepository`、已采用图片引用 | 当前资产 ID 与不可变摘要 → 页面素材绑定 | 可选素材缺失可在确认前选无图布局；必需素材缺失阻断该页 |
+| 形成可审阅结果 | 扩展当前 manuscript 编辑/保存/锁定/局部重生接口 | 结构草稿 → 可见内容、讲者备注来源、预览及问题列表 | 修改使确认失效；锁定页来源变化产生冲突，保留最后可用稿 |
 
-### `course_presentation_graph_v1`
+标准工作流：冻结输入 → 读取课程目标和本讲教学块 → 形成整讲学习路径 → 选择每页教学任务 → 选择表达关系 → 准备屏幕元素和来源 → 选择素材和展示状态 → 模板容量预检 → 保存草稿。
 
-Contains ordered `TeachingUnit` nodes. Each node records source section, ordered primary block IDs, supporting block IDs, teaching intent, artifact kinds, prerequisites, dependants and source-native boundaries. Deterministic grouping uses section membership, explicit teaching roles, source order and dependency evidence. It never uses visible character capacity and never joins unrelated topics.
+模型接收整讲简明路径及本批来源，不重复携带每个模板的全部几何，也不将所有课程全文发给每页模型。正常路径先有一次整讲规划，再按有界页组补充表达；只在关系、来源或容量检查失败时局部修复。记录真实调用次数、输入输出 tokens、耗时及重试，不能预先宣称性能收益。
 
-Every active formal block appears exactly once in `primary_block_ids`. The same block may be referenced by other units as support. Code/formula/table/data/experiment/source artifacts are atomic with their conditions, explanation and result. Missing required neighbors remain explicit graph diagnostics rather than being fabricated.
+#### 内容合同
 
-### `template_layout_contract_v1`
+`teaching_content_contract_version` 增加 `page_teaching_v2`。旧稿仍按原版本读取，不伪造新字段默认值。
 
-Each published template layout declares:
+| 部分 | 必备语义 |
+| --- | --- |
+| 教学任务 | 页面目标、教学角色、中心问题或结论；只有要求学生行动时才要求对应反应/判据，不强迫封面和过渡页编造互动 |
+| 屏幕元素 | 稳定 `element_id`、类型、内容、来源块及必要片段；公式/代码/引文记录原始来源；需要强调的条件明确标注 |
+| 表达结构 | `expression_kind` 与各自的结构；comparison 必须有对象、共同维度与单元格；process 有有序步骤；causal 有带含义的边与条件；hierarchy 有父子关系 |
+| 展示状态 | 有序状态 ID、可见元素 ID、强调元素 ID及新增教学信息；是否累积由状态显式决定，不从页面数组顺序猜 |
+| 来源去向 | 每个来源块的主归属、屏幕元素或仅备注用途及理由；完整原文绑定讲者备注；核心条件和证据列入 `must_show` |
+| 格式绑定 | 固定模板/版式版本、槽位到元素的映射、字体依赖、预检结果；最终物理页数在确认前确定 |
 
-- `template_layout_id`, template ID/version/digest;
-- compatible teaching intents and artifact kinds;
-- required/optional typed slots;
-- title/body/item/code/formula/table/visual capacities;
-- safe continuations and base-layout inheritance;
-- Web and PPTX renderer adapter IDs.
+保持教学角色与视觉结构正交：练习可以用对比结构，概念讲解可以用流程结构；不得把学科、课型、主题、版式混成一组分类。
 
-The template registry is closed. V6 planning receives only published contract IDs. Compatibility aliases such as `two-column`, `answer` and `data-highlight` exist only in V5 read adapters. Missing mappings fail with `template_layout_unavailable`; no heuristic layout fallback is allowed.
+#### 取舍：从“全文可见”改为“两种完整性”
 
-Personal templates may publish for V6 only after representative-page mapping, capacity declarations and required-layout coverage pass. A missing specialized layout may inherit an explicitly declared base template layout; inheritance is stored, finite and cycle-checked.
+- 来源完整性：全部冻结来源可追溯，讲义正文逐字保留在备注中；每块有主归属与明确去向。
+- 教学完整性：本页要学生判断的对象、条件、证据、必要计算步骤和结论/问题完整上屏。教师串场、解释性长段可以只进备注；不得把所有核心内容都标成备注来满足覆盖率。
+- 允许有依据的简写和图解；代码/史料可以选取与教学任务对应的明确片段，记录行号/范围，不拼接出不存在的原文；用户要求完整呈现的内容必须完整。
+- 被选中上屏的公式、代码、数据、引文保持准确；转换为图形后仍能反向核对关系与数值。
+- 不再用每页最低字数、全部正文逐字上屏或统一图文比例强迫填充。来源、结构与客观容量错误阻断；审美和教学表达改进建议不冒充事实错误。
 
-### `slide_story_plan_v3`
+### 3. 第二步需要的能力、工具与工作流
 
-Story planning runs in ordered chapter batches through the existing `AIBase` provider pool. It first produces an embedded lesson narrative brief with the central question, ordered learning path, observable checkpoints, time budget and must-include source blocks. The brief is planning context inside `ppt_manuscript_v1`, not a second teacher asset or a second source of truth. A batch may only:
+| 能力 | 工具或实现选择 | 输入 → 输出 | 边界 |
+| --- | --- | --- | --- |
+| 学习表达方式 | 离线查看真实教学 PDF/PPT；参考 deck-studio、ppt-master、花叔 Design | 样例 → 页面用途、适用条件、结构与反例 | 只吸收设计方法；来源内容不进入正式课程，也不默认复制不明授权素材 |
+| 制作页面原型 | PowerPoint 或受控原生绘制脚本；必要时 HTML 仅作样稿 | 主题与表达结构 → 原生样页 | 从一开始按可编辑输出能力设计；HTML 不是另一份正式稿 |
+| 分析并标注模板 | `python-pptx` + `lxml`/OOXML；借鉴 ppt-master 的 slide/slot ID 与填充计划 | 原生样页 → 对象清单、语义槽位、可编辑能力清单 | 机器猜测是草稿；内置模板由维护者审定；个人模板在发布前校对 |
+| 验证容量和几何 | 统一字体测量（Pillow/FreeType）、实际 PPTX 渲染、测试填充器 | 短/标准/长中文、公式与图形样本 → 可用容量和错误证据 | 字数是预估；最终以实际换行和渲染为准，不缩到字体下限以下 |
+| 发布与查询模板 | 扩展当前模板仓库和 immutable manifest | 认证样页 → 版本化主题、表达能力、槽位和素材 | 未认证布局不得出现在新生产计划候选中；已发布版本不原地修改 |
 
-- select supplied teaching unit IDs and compatible template layout IDs;
-- write bounded source-faithful titles, summaries, page goals, primary claims, student questions/actions, expected responses, observable evidence, semantic reveal steps and concrete transitions;
-- split one teaching unit into as many declared safe pages as its complete source requires without changing dependencies;
-- preserve unit order and 100% primary block coverage.
+模板工作流：分析用途 → 选择表达结构 → 制作原生页面 → 标注对象 → 填入边界样本 → 渲染检查 → 发布版本。运行时仅执行：查询兼容版式 → 槽位绑定 → 容量检查 → 必要时回到内容稿修复。
 
-The validator rejects unknown IDs, omitted primary blocks, duplicate primary ownership, order inversions, ungrounded protected tokens and unsupported factual assertions. Any rejected or unavailable story batch fails the entire V6 candidate; accepted batches are never silently replaced by a deterministic story.
+#### 模板必须明确的内容
 
-Each batch stores provider/model, start/end/duration, attempts, normalized failure category and validation result. It never stores credentials or unrelated raw conversation.
+1. 身份与用途：主题、版式 ID、版本、适用教学角色与表达结构、预览样例。
+2. 绑定方式：`native_fill` 或 `component_render`。前者记录源 slide part、shape ID、group path、表格单元格/图表系列等稳定目标；后者记录受控组件 ID 与版本。不能只保存“左右两栏”的名字。
+3. 内容与容量：必选/可选槽位、元素类型、对象数量、文字行数、字体下限、图形区域、重复项规则；空可选槽如何收拢由模板声明。
+4. 视觉与几何：安全边距、对齐、共同坐标/比例、层级、强调、线型、允许的原生能力、不可替换装饰和字体依赖。
+5. 适配与认证：兼容替代版式、拆页规则、实际样本结果、工具版本与包摘要；未支持 SmartArt/复杂图表等必须可辨认，不能假装可填充。
 
-### `ppt_manuscript_v1`
+`template_layout_contract_v1` 保持兼容读取，并为新认证能力添加 `capability_contract_version=teaching_layout_v2`；旧未认证模板只用于旧稿导出或草稿导入，不能被标成新标准已通过。模板摘要覆盖文件、对象映射、组件版本和字体策略。
 
-`ppt_manuscript_v1` is the only editable page-content contract between the current confirmed teacher script and the final deck. It embeds the lesson narrative brief and stores, for each page, the visible copy, page goal, primary claim, audience question/action, expected response, observable evidence, semantic reveal sequence, transition, composition intent, source block bindings, optional accepted question/visual-expression bindings and teacher-lock state. Internal compatibility keeps the existing contract name; no parallel manuscript or Markdown deck source is introduced.
+#### 第一批页面库
 
-Story AI must return these teaching fields directly. The compiler may create deterministic cover, agenda, recap and continuation pages only from frozen source structure, and those pages receive page-type-specific, source-bound content. It may not fill missing AI teaching decisions with generic sentences such as “承接上一页结论并推进下一教学判断”, copy the title into the primary claim, use region slot IDs as reveal steps or invent a practice question unrelated to the source task.
+| 批次 | 页面结构 | 关键内容要求 | 关键排版要求 |
+| --- | --- | --- | --- |
+| 首批 | 问题引入 | 情境、问题、观察对象；答案可延后 | 一个明确观察焦点 |
+| 首批 | 概念图解 | 概念、构成/关系、适用条件 | 标签与对应图形就近，关系可读 |
+| 首批 | 图形对比 | 两个对象、共同条件、成对图形与结论/问题 | 同尺度/同结构，不能把两段无关文字并排 |
+| 首批 | 矩阵对比 | 对象、共同维度、完整对应单元格 | 表头与维度对齐，缺项有明确含义 |
+| 首批 | 流程/因果 | 步骤或有意义的因果边、方向和条件 | 模板必须区分顺序与因果，支持分支 |
+| 首批 | 逐步推演 | 初始条件、有序变换与结果 | 每个状态只增加必要信息，前后定位稳定 |
+| 首批 | 例题/练习 | 已知、问题、必要材料、解答/反馈 | 提问与答案分开状态，保留可作答条件 |
+| 首批 | 总结 | 本讲知识关系、边界与迁移提示 | 使用本讲实际内容，避免套话 |
+| 后续 | 层级、数据图表、证据材料 | 父子关系；真实数据/单位；引文与解释区分 | 关系正确、坐标可读、引用可核对 |
 
-The manuscript has its own draft revision and confirmation state. A teacher edit creates a new draft revision, synchronizes edited visible copy into the final page regions, reruns page-content and source-fidelity validation, and invalidates the prior confirmation without mutating the last confirmed draft. Saves use optimistic revision checks. Confirmed content is the only input to visual planning and deterministic Web/PPTX compilation.
+封面、讲次导航和结束页是公共基础壳，不要求每讲都插入无教学价值的目录。首批使用一个清楚、投影可读的主题，确认结构后再增加第二主题验证内容与风格解耦。
 
-Page regeneration accepts explicit page IDs. It preserves every non-target page and every locked page whose bound source revision remains current, and retains the last good draft if any target fails. A source-block revision computes affected page IDs from bindings and rebuilds only those pages; an affected locked page becomes an explicit conflict requiring teacher action rather than silently preserving stale content or silently unlocking it.
+### 4. 第三步需要的能力、工具与工作流
 
-Current question-bank items and shared diagrams/illustrations are optional inputs only when already accepted, source-bound and revision-current. The manuscript records their IDs and source bindings; it does not copy an unconfirmed candidate into formal content, and absence of these assets does not create a second generation path.
+| 能力 | 工具或实现选择 | 输入 → 输出 | 验收 |
+| --- | --- | --- | --- |
+| 编译填充计划 | Python + Pydantic，单一页面解析器 | 已确认内容稿 + 模板 → 页面对象/槽位/资产的不可变执行计划 | 来源、确认修订、模板、工具能力均匹配；执行计划不改文案与页序 |
+| 原生填充和绘制 | 主输出器 `python-pptx`，精确克隆与必要原生结构用 `lxml`/OOXML | 填充计划 → 可编辑文字、形状、连线、表格/受支持图表 | 标题/元素/边/表格/资产都有执行回执；旧模板文字无残留 |
+| 图形布局 | 受控比较/流程/分支/层级布局函数，使用同一节点边结构 | 表达结构 → 固定坐标与连线端点 | 边集合与方向一致，不能用节点顺序代替边 |
+| 数学和数据绘制 | SymPy 校核所支持的公式/数值；原生几何、图表优先，复杂图形使用受控矢量资产 | 冻结公式/数据 → 数学图形、图表或明确类型的公式对象 | 不执行模型任意代码；不能把示意曲线当成数据观测 |
+| 预览与静态展示 | Web/SVG 渲染器读取同一份坐标、文字与关系；Playwright 验证桌面视图 | 页面计划 → 可审阅预览和状态序列 | 不重新猜布局；不能要求不同排版引擎逐像素完全相同 |
+| 导出与验证 | LibreOffice headless → PDF，Poppler/PyMuPDF → 页面图；OOXML 回读、图像/OCR审计 | PPTX → 检查报告、缩略图、下载文件 | 内容、关系、字体、越界、遮挡、打开能力分别检查；用 PowerPoint 抽检代表页 |
 
-Content validation checks both source fidelity and teaching usefulness before confirmation: every page has one concrete goal and claim; questions/actions have a corresponding expected response or observable evidence; reveal steps describe a semantic teaching order; transitions name the actual relationship to an adjacent page; protected facts remain traceable; and template boilerplate cannot satisfy the contract. These checks produce page-scoped diagnostics and block confirmation, while the last confirmed manuscript remains available.
+选择原生 Python 输出器是为了对象级编辑、精确模板绑定和统一执行合同。PptxGenJS 具备同类输出能力，本轮不引入第二个主输出器；只有同一固定样本证明当前引擎存在无法接受的能力缺口时，才替换输出适配层。不能以安装更多工具代替结构和质量设计。
 
-### `slide_visual_plan_v2`
+公式输出按能力声明处理：可支持的原生公式/可编辑字符保留编辑性；复杂公式允许明确标注的矢量对象，原始 LaTeX 留存，禁止把矢量图片称为逐符号可编辑。原生公式转换属于后续能力验收项，不把现有工具未验证的能力写成已支持。
 
-Visual planning runs chapter-scoped batches with the shared 2～4 concurrency budget. It chooses only source-backed code, formula, table, chart, image, diagram or text-native representations. A page may degrade only to a declared text/code/formula/table layout that preserves all required source meaning and fits capacity. Such a page records `degradation_reason`, `original_decision`, `resolved_decision` and triggers `v6_needs_manual_edit`.
+`ppt-master` 等本地 skills 的文件、模板与脚本不直接成为生产依赖。需要的算法与资源经许可证核对后做受控适配，依赖显式锁定、放入部署镜像，字体和渲染工具也必须随环境验证。
 
-Missing required subject artifacts, invalid data, unsupported identifiers, capacity loss or unavailable layout are hard failures. Decorative imagery failure alone is degradable.
+#### 单一执行计划
 
-### `slide_deck_v6`
+每个物理页面保存 `logical_page_id`、`state_id`、模板/布局、已解析元素、样式 token、几何、关系、源对象目标和素材摘要。该计划是内容稿的派生结果，缓存键至少包含来源修订、内容稿修订、模板摘要、字体包、编译器、渲染器与质量合同版本。
 
-The final contract stores pages, resolved template layout IDs, typed slots, source block/teaching unit bindings, subject artifacts, speaker notes, visual decisions, renderer adapters and per-page quality. Web/PPTX adapters receive this contract without consulting story intent or legacy layout aliases.
+预检与最终输出读取同一计划。模板图形与内容图形分层；原生填充只替换标注对象，保留声明为静态装饰的部分。无法识别的对象不能靠清空整个页面后套通用布局来宣称保真。
 
-Full block text, full code and supplemental detail are stored in speaker notes with exact block/revision bindings. Canvas copy remains a source-faithful presentation expression. Code、显式步骤、表格和仅有一个正文块的页面不得用摘要替换原文；容量不足时必须按完整行、完整步骤、完整表格行或无损文字边界续页，而不是截断内容。实现可以保留仅用于异常输入的有限安全上限，但该上限不是教学页数策略。
+生成工作流：校验确认 → 校验依赖与资产 → 读取/编译执行计划 → 按页填充和绘制 → 写备注与顺序 → 打包 PPTX → 回读对象/关系/数据 → 真实渲染检查 → 原子发布。
 
-教师讲稿与课堂屏幕是同源的两种投影，不是相同文字的复制。教师讲稿块的完整正文逐字进入讲者备注；可见画布只抽取学生在该页需要观察、推导、比较、计算或作答的定义、条件、公式、步骤、例题数据和结论。问候、板书口令、停顿、巡视、转场和教师解释话术不得进入画布。目标页优先使用正式小节标题；公式推导、概念、例题、练习、反馈和总结分别使用与教学角色兼容的已发布布局，但布局不能重写教学语义。
+### 5. 对比页端到端样板
 
-故事页因容量生成续页时，每页必须得到一个不同的、可回溯到该页来源片段的教学标题。公式续页可从同一来源等式链确定性压缩为“变量—关系—结果”，表格续页使用行主键，代码续页使用完整源码行，正文续页使用完整来源分句；无法得到合格标题时阻断发布，不使用“续一、续二”或重复父标题掩盖问题。标题、章节正文和公式显示均由 Web/PPTX 共享适配合同编译，原始 LaTeX 仍保留在来源与备注中。
+选当前真实讲义中一个确实存在的比较任务；L1/L2 等距轮廓只是说明合同的例子，不向用户课程补写这个主题。
 
-Table projection is semantic before geometric. The compiler measures wrapped cell demand, prefers a declared full-width/wide variant for dense tables, and otherwise paginates complete rows with repeated headers. A row that cannot remain complete becomes a source-bound detail page. Generated ellipses, lost protected tokens and pre-render cell truncation are hard failures even when object bounds do not overflow.
+```text
+内容：两个对象 A/B；共同条件；比较维度；各自证据/图形；观察问题/结论；讲义片段
+格式：compare-visual / compare-matrix；标题、对象名称、图形、维度和结论槽；字体与空间
+执行：按元素绑定填入相应对象；同尺度绘制；核对左右身份、维度、数据与关系
+```
 
-Course agenda projection is also semantic before geometric. Each entry keeps a stable chapter number and full source title, and MAY add a complete source-derived learning objective or path explanation when it fits the shared agenda geometry. The agenda uses at most four two-level entries per page and continues through the same published `agenda-path` contract. It never invents a chapter description, repeats the title as a fake description or shrinks text to keep all chapters on one page.
+比较合同的示意结构（拟新增字段，非现有 API 调用）：
 
-Every visible source region carries renderer metadata. Code regions additionally carry the fenced language, original start/end line and continuation position. These fields only control presentation; they do not rewrite the source text. Both renderers show a compact language/continuation header and a separate line-number gutter while keeping code bytes, indentation and blank lines unchanged. Pagination treats adjacent declaration signatures, their opening bodies and comment groups as atomic whenever the declared page capacity permits.
+```json
+{
+  "expression_kind": "comparison",
+  "subject_ids": ["a", "b"],
+  "dimension_ids": ["definition", "effect"],
+  "cells": [
+    {"subject_id": "a", "dimension_id": "definition", "element_ids": ["a-def"]},
+    {"subject_id": "b", "dimension_id": "definition", "element_ids": ["b-def"]},
+    {"subject_id": "a", "dimension_id": "effect", "element_ids": ["a-visual"]},
+    {"subject_id": "b", "dimension_id": "effect", "element_ids": ["b-visual"]}
+  ],
+  "layout_binding": {
+    "layout_id": "compare-visual",
+    "slots": {"left.visual": ["a-visual"], "right.visual": ["b-visual"]}
+  }
+}
+```
 
-Export validation compares the final PPTX object's visible text against every materialized title and source region. A note binding, Story summary, hidden shape or pre-render fidelity score cannot stand in for actual exported visibility. Missing rendered source fails with a page- and region-scoped diagnostic before publication.
+真实合同还须携带完整元素内容、条件、来源、模板版本与容量信息。必须拒绝左右对象颠倒、缺少维度单元格、把共同条件只绑定一方，以及两幅图使用不可比较的尺度。首个闭环通过后，用流程分支样例检查真实边是否保留，再扩展其他类型。
 
-### `slide_build_progress_v2`
+### 6. 质量、修复与恢复
 
-The backend creates and persists work items before or as work becomes known. Item kinds and default weights are local validation/unit `1`, render page `3`, asset `5`, AI batch `10`. Progress equals completed cost divided by a monotonic total-cost high-water mark. Newly discovered items increase the high-water mark without decreasing the displayed percentage; completion cannot reach 100% before atomic publication.
+| 检查层 | 判定内容 | 负责环节与处理 |
+| --- | --- | --- |
+| 来源 | 来源版本、完整备注、上屏事实/摘录/素材、必需条件与证据 | 内容阶段；失败局部改稿，禁止补造事实 |
+| 结构 | 比较矩阵完整、边方向/条件、层级、公式步骤、题目与答案关系 | 内容阶段；类型校验 + 有界语义审阅；不以通用词匹配替代教学判断 |
+| 格式 | 槽位适配、字体、共同尺度、换行、几何与可编辑能力 | 模板/绑定阶段；换合适模板或拆页，确认前完成 |
+| 执行 | 执行计划与实际对象、文字、边、表格/图表数值、图片摘要一致 | 渲染阶段；修输出器，使用同一确认稿重试，不重写内容 |
+| 课堂使用 | 一页任务是否明确、图形是否帮助理解、是否适合投影、教师能否顺畅讲授 | 代表页人工审阅 + 教师反馈；保留意见，不冒充自动事实证明 |
 
-Each event/heartbeat contains stage, step index/count, chapter/batch/page, completed/total units and weights, elapsed time, provider wait/retry details, discovered work and remaining estimate. The task emits at least one event every five seconds, resumes from its persisted manifest after reconnect/restart, and the frontend does not maintain a second stage-percentage table.
+容量问题应先使用同表达的已认证版式，再回到内容稿进行来源忠实的缩写/拆页；任何可见内容、物理页序、关系或模板变化都产生新未确认修订。确认后不得自动截断、缩字、补图、重排或调用模型“修一下”。纯输出故障可对同一不可变计划重试。
 
-## State and Failure Model
+渐进展示采用静态物理页：同一逻辑页的每个状态明确列出可见元素，问题先出现、答案后出现。关系检查按状态分别核验，只统计该状态应出现的边；不能把尚未揭示的元素当作导出缺失，也不能提前泄露答案。备注完整性按逻辑页来源归属去重，状态页通过来源引用追溯。
 
-Only these V6 terminal states exist:
+沿用 TaskManager 的 task/job ID。内容生成、模板预检、输出页、资产、审计分别是原工作清单中的类型；公开阶段仍归入这三个步骤，不新增平行任务状态表。内容稿任务保存草稿成功可达 100%；最终生成任务只有输出与发布完成才达 100%，不把内容稿完成误报为 PPT 完成。
 
-- `v6_ready`: all hard gates pass and no visual degradation requires review.
-- `v6_needs_manual_edit`: all fidelity/subject/export gates pass, but one or more allowed visual degradations require review.
-- `v6_failed`: story, source, template, subject, capacity, render or export hard gate failed.
+模板离线认证使用同一校验函数，生产读取认证版本。失败重试只重新执行失败及依赖项；缓存失效检查包含模板、字体和工具版本。局部重生成保持非目标页内容/顺序/锁不变，影响临近过渡时显式扩展审阅范围，不能偷偷改未选页。
 
-Every failure contains `stage`, `code`, `message`, `retryable`, and optional `chapter_id`, `page_id`, `batch_id`. A failed candidate never replaces the latest published representation. Atomic publication writes the candidate contracts and registry pointer only after all gates pass.
+### 7. 内部工具接口与代码落点
 
-## Quality Gates
+下列名称表示拟建设的服务职责，不代表已经存在或新增一组公开 HTTP API。
 
-- formal block visible coverage 100%; full-text note binding 100%;
-- visible code/formula/table fidelity 100%; visible prose fidelity 100%; ordered-step fidelity 100%; no generated ellipsis absent from source;
-- course order and dependency order preserved; no cross-topic merge;
-- all visible facts, numbers, formulas and code identifiers traceable;
-- subject contract satisfied for characteristic artifacts;
-- exactly one primary teaching job per page;
-- page goals, claims, student actions, expected responses, semantic reveal steps and adjacent-page transitions are concrete, mutually consistent and source-bound rather than compiler boilerplate;
-- every teacher edit or targeted regeneration preserves revision checks, lock semantics, visible-region synchronization and the last good manuscript;
-- template layout and teaching intent compatible;
-- no empty required slot, fake visual, duplicate heading/body, prose wall, clipping, overlap or Web/PPTX drift;
-- visible canvas contains no teacher delivery cue, every page title is distinct, and formal lesson openings use their frozen section title;
-- classroom density stays measurable through average/max visible characters and visible-to-speaker-notes ratio rather than copying the teacher transcript onto slides;
-- agenda hierarchy uses full source titles and source-derived descriptions at readable template density;
-- every materialized title/body/item/step/table/code region is visible in the exported PPTX;
-- code keeps exact source lines and blank lines while exposing language, continuation and line-number reading aids without internal `CODE`/`SOURCE` labels;
-- source and template revisions unchanged;
-- exported PPTX opens and contains the expected page/note contracts.
+| 内部工具职责 | 读写对象 | 现有落点与改造方向 |
+| --- | --- | --- |
+| `read_ppt_sources` | 只读课程与已采用资产 | 讲义适配、teacher_lesson_authoring 与来源冻结 |
+| `plan_page_content` / `validate_page_content` | 产生/检查未确认稿 | slide_ai_planning_v6、slide_deck_v6；提取表达合同与校验，避免继续扩大单文件 |
+| `list_layout_capabilities` / `bind_page_layout` | 只读认证模板，更新草稿绑定 | template_layout_contract、ppt_template_packs |
+| `inspect_template` / `certify_template` | 模板草稿及发布版本 | 模板仓库；补对象清单、样例填充与认证 CLI |
+| `resolve_page_scene` | 可再生的页面执行计划 | 从现有编译器提取单一几何与关系解析模块 |
+| `render_native_pptx` / `verify_export` | 不可变候选与检查结果 | slide_deck_v6_renderer、personal_renderer、slide_deck_renderer；去除猜测和关系重写 |
+| `build_ppt` / `repair_page` | 原任务、草稿/候选和回执 | 原 V6 orchestrator / TaskManager；保留授权与最后可用结果 |
 
-## Compatibility and Migration
+现有大模块可以拆出表达、模板绑定、几何解析和输出适配；这属于同一主链的模块化，不增第二套产品 Store。所有调用遵循原课程授权；模板发布仅对有权维护该模板的主体开放。
 
-- V5 records remain readable/exportable through existing adapters.
-- A V5 deck is never rewritten as V6 without a new build.
-- All new generation endpoints enqueue the same durable V6 orchestrator when the V6 feature flag is enabled.
-- The synchronous compatibility route may return the durable task ID or `v6_orchestrator_unavailable`; it may not compile an alternate plan.
-- Rollback disables new V6 builds and restores V5 as default; published V6 remains readable.
+## Risks / Trade-offs
 
-## Release
+- [来源忠实但屏幕信息缺失] → `must_show`、来源去向和真实教师审阅共同防止“全放备注”的假通过。
+- [过度模板化] → 教学任务先决定表达类型，页面库保留适用条件；没有合适模板时显式提示缺口，不能硬塞通用卡片。
+- [原生与网页排版差异] → 共用坐标、字体策略和完整内容/关系；验收结构与可读性，并检查代表页实际 PPTX，不承诺逐像素一致。
+- [个人模板复杂对象不可替换] → 导入给能力报告，标成草稿或声明受控重建，不能假称保真。
+- [图像服务不可用或费用不可控] → 首批核心图解采用本地原生绘制；图像生成保持可选、显式配置与任务预算，未配置不影响本地结构图。
+- [语义审阅不可靠] → 确定性规则检查结构/来源，AI 提供有依据的候选与建议，教师保留内容判断；不以一个平均分掩盖丢条件或关系错误。
+- [相同规则新旧语义不同] → 升级教学与质量合同版本；旧报告不直接复用，能本地重算的检查不要求再次调用模型。
 
-1. Implement contracts and offline regression fixtures.
-2. Run a representative synthetic batch covering programming, mathematics/data and a non-math/non-programming subject.
-3. Enable shadow builds for one online chapter from Unity, linear algebra and machine learning.
-4. Require source coverage, sequence, subject artifacts, template selection, AI diagnostics, Web/PPTX parity and export-open checks for all three.
-5. Only after all samples pass, switch the new-build default to V6. Monitor build success, story failure, visual degradation, manual edits, stage latency and template conflicts.
+## Migration Plan
 
-Shadow verification uses the same public build stream with
-`engine_version=v6`, `shadow_only=true` and one `chapter_id`. The task freezes
-that section subtree, runs the durable V6 compiler, and records a terminal
-candidate with `published=false`; it never updates the teaching-representation
-registry. Authenticated diagnostics and PPTX export are read from the
-course-scoped shadow endpoints.
+按 `tasks.md` 第 9—14 节依赖实施。第 1—8 节已完成任务只说明历史基座，不意味着新语义、模板或关系审计已经完成。
 
-Rollout has two independent switches. `SLIDE_DECK_V6_ENABLED=false` disables
-explicit shadow/V6 requests, while `SLIDE_DECK_V6_DEFAULT_ENABLED=false` keeps
-ordinary new builds on V5. Rollback first disables the default switch, then the
-explicit V6 switch if required; existing V5/V6 specs and exports remain
-readable because rollback does not delete registry history or candidates.
+1. 固定真实讲义样本、对比/分支失真回归与工具依赖；建立可重复的同输入对照。
+2. 完成新内容合同和两种完整性规则，接通现有稿件编辑/确认；旧合同保留只读/导出兼容。
+3. 先认证对比页并打通端到端，再完成首批八类页面及真实关系渲染。
+4. 装配共享表达、静态状态、单一执行计划和输出回执；完善工作清单与局部修复。
+5. 用数学/数据、编程/工程、人文/社会三类真实讲义，运行同一主路径，验收全部物理页、备注和恢复；样本课程须确认未被其他任务占用。
+6. 新增独立配置 `PPT_THREE_STAGE_ENABLED`（拟定），默认关闭。原 V6 开关只控制原引擎；新教学合同启用需通过本次验收，不等于重新认证全部旧记录。
+7. 小范围启用新建任务；观察成功/失败类别、人工改稿量、关系损失、导出缺失和延迟。回滚关闭新建开关，已有新稿和导出仍可读取，当前任务按其冻结工具版本完成或明确失败恢复，不切换运行中的计划。
 
-The reference visual baseline is `frontend/public/presentation-templates/qizhi-classroom-v2.pptx` plus the currently published template pack manifests. V6 never hardcodes a course to that template or to any subject-specific layout ID.
+用户所需完整方案已固定；实施前不需要再选择工具清单。图形边界样本、字体具体版本和性能预算数值在首批实测中冻结，属于不改变方向的实现参数。
+
+## Validation
+
+- 合同层：覆盖比较缺项/换位、分支/环/边方向、因果条件、过期来源、模板对象失配、未知能力、确认后修改和缓存版本变化。
+- 真实模型：私有 `qwen3.8-27b` 生成页面稿，记录样本、模型、调用与失败；固定稿或 Mock 只用于回归，不替代真实模型证据。
+- 渲染层：每个物理页验证对象、关系、图片、表格/图表、字体与备注；再用 LibreOffice 渲染全部页，PowerPoint 抽检对比、分支、公式和练习状态。
+- 教师路径：当前讲义 → 生成内容稿 → 编辑关系/可见内容 → 保存确认 → 生成 → 查看导出 → 定向修改/失败恢复；中文桌面端，并维护对应英文文案。
+- 完成门：三类真实讲义均通过来源、结构、模板与输出硬检查；教师样页审阅没有未解决的严重教学问题；网络失败、模板变更、字体缺失和重启恢复不损坏最后可用结果。没有逐项证据不勾选完成。
+
+## References
+
+- 当前项目：`backend/slide_deck_v6.py`、`slide_ai_planning_v6.py`、`template_layout_contract.py`、`ppt_template_packs.py`、`slide_deck_v6_renderer.py`、`slide_deck_v6_personal_renderer.py`、`slide_deck_renderer.py`；产品事实参照 `docs/产品状态.md`。
+- [Stanford CS231n Lecture 2](https://cs231n.stanford.edu/slides/2025/lecture_2.pdf)：2026-09-05 查看；PDF 第 8/30/31 页的图像引入与比较，第 50—53/69—72 页的连续展开。
+- [Harvard CS50 Lecture 0](https://cdn.cs50.net/2024/fall/lectures/0/lecture0.pdf)：2026-09-05 查看；位权展开与第 102 页增长曲线。以上属于教学设计参考，不是跨学科学习效果实验。
+- [University of Waterloo — Designing Visual Aids](https://uwaterloo.ca/centre-for-teaching-excellence/catalogs/tip-sheets/designing-visual-aids)：有意义的图形、简洁但完整的主要信息、观看距离与一致排版。
+- 本机已读的设计参考：`ppt-master` 5.0.0 的 `workflows/template-fill-pptx.md`；`deck-studio` 的 `page-schema.md` 与 `layout-registry.md`；`huashu-design` 的 `SKILL.md` 与导出能力说明。它们是方法来源，不是生产运行依赖或质量实测证明。

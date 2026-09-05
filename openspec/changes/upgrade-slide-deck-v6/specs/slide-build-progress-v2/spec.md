@@ -14,7 +14,7 @@ The system SHALL persist `slide_build_progress_v2` work items and SHALL compute 
 - **AND** the displayed progress does not decrease
 
 ### Requirement: V6 Progress Is Monotonic And Publication Aware
-The system SHALL preserve a monotonic displayed percentage and SHALL cap progress at 99% until atomic publication completes.
+The system SHALL preserve a monotonic displayed percentage and SHALL cap a final-deck task at 99% until its output and atomic publication complete. Manuscript-only and shadow tasks SHALL use their own truthful terminal criteria.
 
 #### Scenario: Work discovery increases the total
 - **WHEN** the computed raw percentage would fall below the previous displayed value
@@ -24,7 +24,7 @@ The system SHALL preserve a monotonic displayed percentage and SHALL cap progres
 #### Scenario: Every quality item is complete but publication is pending
 - **WHEN** the registry pointer has not been atomically updated
 - **THEN** progress remains at or below 99%
-- **AND** only the published terminal event reports 100%
+- **AND** only successful final-deck publication reports final-deck completion at 100%
 
 ### Requirement: V6 Emits Liveness And Provider Diagnostics
 The system SHALL emit an event or heartbeat at least every five seconds while a build is active.
@@ -64,7 +64,8 @@ The system SHALL restore progress from the persisted work manifest rather than a
 #### Scenario: A published deck starts selective visual repair
 - **WHEN** the teacher retries degraded V6 pages
 - **THEN** the server seeds a new durable work manifest from accepted story and healthy visual checkpoints
-- **AND** only target visual batches, materialization, render, quality and atomic publication remain as active work
+- **AND** content-changing repairs under `page_teaching_v2` finish as unconfirmed manuscript candidates before a confirmed final-generation task can publish
+- **AND** pure execution retries reuse the same confirmed immutable plan
 - **AND** browser refresh restores that repair task by its normal task ID
 
 ### Requirement: Frontend Displays Backend Progress Facts
@@ -74,3 +75,21 @@ The frontend SHALL render the server-provided V2 work manifest, diagnostics and 
 - **WHEN** the event includes its label, weight and counts
 - **THEN** the frontend renders it generically
 - **AND** no frontend release is required merely to preserve correct progress arithmetic
+
+### Requirement: Three Stage Work Shares The Existing Task System
+The system SHALL represent content preparation, layout binding and deterministic generation through the existing persisted work manifest and task/job IDs rather than a new parallel state store.
+
+#### Scenario: Manuscript preparation completes
+- **WHEN** content, visual structure, assets, layout preflight and physical page order are saved as a reviewable draft
+- **THEN** that manuscript task may report 100% with a manuscript-ready terminal result
+- **AND** the UI does not label the final PPT as generated
+
+#### Scenario: A tool version differs at resume
+- **WHEN** the current source, manuscript, template, font, compiler or renderer identity differs from the checkpoint
+- **THEN** dependent work is invalidated or the task reports an explicit incompatible checkpoint
+- **AND** stale output is not reused as a successful new render
+
+#### Scenario: One export page fails
+- **WHEN** the confirmed scene is unchanged and only an execution item failed
+- **THEN** the same task can retry that item and its dependent validation/output items
+- **AND** content-planning models are not called and healthy content remains unchanged

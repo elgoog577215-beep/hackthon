@@ -20,3 +20,21 @@ The system SHALL distinguish AI-completed, AI-degraded and unavailable planning 
 - **WHEN** no V6 story AI batch completed
 - **THEN** the UI does not label story AI as completed
 - **AND** a V6 candidate cannot publish from that artifact
+
+### Requirement: Confirmed Manuscript And Export Remain Bound
+The system SHALL bind the final representation to its exact confirmed manuscript, template, assets, font policy, scene and tool-version manifest.
+
+#### Scenario: A repair changes a visual relationship
+- **WHEN** a corrected relationship or asset changes the visible page content
+- **THEN** the result is a new unconfirmed manuscript candidate before final export
+- **AND** the prior confirmed manuscript and last published PPT remain available
+
+#### Scenario: A renderer retries unchanged content
+- **WHEN** only file generation failed and the frozen scene is unchanged
+- **THEN** the retry may reuse the existing confirmation
+- **AND** the successful export records the actual execution and audit result
+
+#### Scenario: The teacher uploads an existing PPT
+- **WHEN** the original file enters the established review and revision path
+- **THEN** it remains immutable and that path retains its own review/confirmation behavior
+- **AND** the enhanced generated-PPT workflow does not force an AI recreation of the uploaded deck
