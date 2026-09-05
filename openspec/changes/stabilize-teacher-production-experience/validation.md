@@ -306,3 +306,22 @@ PWCLI=/Users/yq/.codex/skills/playwright/scripts/playwright_cli.sh
 该测试只验证任务检查点落盘、进程终止与重启对账，不应发起模型能力；harness 现显式注入
 `RecoveryOnlyAssessmentOrchestrator`，若恢复路径意外调用生成会立即失败，既隔离凭据又锁定只恢复不生成。
 移除全部文本模型凭据后精确复验：`1 passed`；harness Ruff 与 `git diff --check` 通过。
+
+## 9.6 生产安全发布与代表性课程只读验收（2026-09-05）
+
+首次完整发布 `66061f547bac95dfd0b8387e523865953d398507` 已通过代码、备份、健康与模型路由验证，但最终收口时发现发布安全门只读取 `generation_jobs.json`，没有读取独立的 `teacher_lesson_authoring/*.json` jobs。这意味着当前发布虽然没有中断活动任务，但“任何活动生成都阻止停服务”的合同尚未由机器完整保证，因此没有提前勾选 9.6。
+
+修复提交 `25847f291b6b8c15e476233a1bbb66174daa29ad` 将教师资产 jobs 纳入同一只读门禁：`pending / queued / running` 阻止发布，未知状态或损坏文件 fail closed，暂停、等待输入、等待审阅与终态允许在已持久化前提下安全停机。门禁不改写任务，只决定发布是否允许进入停服务。
+
+验收证据：
+
+- 本地发布、备份与门禁专项：`30 passed`；Ruff、Bash 语法和 `git diff --check` 通过。
+- 推送到 `origin/main`；Actions Run `33952159978` 的 `verify` 与 `deploy` 均成功，独立 Repository Hygiene Run `33952159969` 成功。
+- 停服务之前的新门禁报告：TaskManager `task_count=4`，教师资产 `teacher_job_count=113 / teacher_job_file_count=4`，两者的 `active_count=0 / unknown_count=0`；确认无活动用户任务被中断后才停服务。
+- 生产备份来源版本为 `66061f547bac95dfd0b8387e523865953d398507`，`file_count=84 / json_files_checked=78 / verified_in_isolation=true`；回滚槽保留该上一版本，本次发布未触发回滚。
+- 发布后 `/api/health` 返回 `200 / ready=true / version=25847f29... / leader=acquired / task_index=ready / data_directory readable+writable / text_model=qwen3.8-27b`；首页、7 个当前哈希 JS/CSS 资源与中英文 locale 均返回 200。
+- 真实模型发布探测的 `general / ppt_story / ppt_visual` 三类角色全部使用 `qwen3.8-27b` 并完成。
+- 代表性生产教师课程以不可逆的身份指纹 `c97d794cbc32` 记录，不把教师身份或课程原文写入仓库。该课程为 17 讲、41 个历史 jobs；课程库与单课程详情返回的 `course_production_state_v1` 完全一致。大纲为 `available 1/1`，教案为 `available 16/17`，讲义为 `failed + retry_generation / available 15/17 / failed 1`，PPT 为 `available 1/17`；四态、计数、`allowed_actions` 和 `action_targets` 合同均通过检查。
+- 代表性课程 GET 验收前后，课程、教师资产与任务索引共 49 个持久文件的整树 SHA-256 一致；没有创建、暂停、取消、继续、重试或改写任务。
+
+9.6 完成。9.1 仍需要至少一个完整生产观察周期与单讲兼容调用归零证据；因此 9.2 的兼容退场门尚未通过，旧字段、前端 fallback 与底层单讲能力继续保留。
