@@ -139,22 +139,28 @@ class TeacherCourseSpaceRepository:
     def __init__(self, root: Path | str = COURSE_SPACE_DIR) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
-        self._deleted_packages: set[str] = set()
+        self._deleted_packages: dict[str, str] = {}
 
     def delete_course(self, course_id: str) -> int:
         """Remove course-owned packages, never follow material-reference IDs."""
         if not course_id:
             return 0
-        removed = 0
+        # Keep targets across a partial filesystem failure, even when rmtree
+        # has already removed a package's manifest before reporting an error.
+        package_ids = {key for key, owner_course in self._deleted_packages.items() if owner_course == course_id}
         for manifest in self.root.glob("tcs-*/manifest.json"):
             package = json.loads(manifest.read_text(encoding="utf-8"))
-            if str(package.get("course_id") or "") != course_id:
-                continue
-            package_id = manifest.parent.name
-            path = self._path(package_id)
-            self._deleted_packages.add(package_id)
-            shutil.rmtree(path)
-            removed += 1
+            if str(package.get("course_id") or "") == course_id:
+                package_ids.add(manifest.parent.name)
+        removed = 0
+        for package_id in sorted(package_ids):
+            if not re.fullmatch(r"tcs-[a-z0-9-]{8,80}", package_id):
+                raise MaterialStorageError("课程工作包 ID 不合法")
+            path = self.root / package_id
+            self._deleted_packages[package_id] = course_id
+            if path.exists():
+                shutil.rmtree(path)
+                removed += 1
         return removed
 
     def _path(self, package_id: str) -> Path:

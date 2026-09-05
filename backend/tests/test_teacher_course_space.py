@@ -618,3 +618,26 @@ class TeacherCourseSpaceTests(unittest.IsolatedAsyncioTestCase):
                     "role": "question_source",
                 }],
             )
+
+
+
+def test_course_package_cleanup_can_retry_after_partial_filesystem_failure(tmp_path, monkeypatch):
+    import pytest
+    import teacher_course_space as module
+
+    repository = TeacherCourseSpaceRepository(tmp_path)
+    package = repository.create_package('teacher', '课程', '2026', '秋', course_id='course-delete')
+    path = repository._path(package['package_id'])
+    real_remove = module.shutil.rmtree
+    def partial_remove(target):
+        (target / 'manifest.json').unlink()
+        raise OSError('temporary filesystem failure')
+    monkeypatch.setattr(module.shutil, 'rmtree', partial_remove)
+    with pytest.raises(OSError, match='temporary filesystem failure'):
+        repository.delete_course('course-delete')
+    with pytest.raises(FileNotFoundError):
+        repository.save(package)
+    monkeypatch.setattr(module.shutil, 'rmtree', real_remove)
+    assert repository.delete_course('course-delete') == 1
+    assert not path.exists()
+    assert repository.delete_course('course-delete') == 0
