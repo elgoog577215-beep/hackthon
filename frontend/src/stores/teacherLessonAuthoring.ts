@@ -1004,7 +1004,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         if (this.courseId !== courseId || signal?.aborted) return undefined
         const response = await http.get<{ job: TeacherLessonJob }>(
           `/api/teacher/courses/${courseId}/lesson-jobs/${jobId}`,
-          { ...readRequestConfig(), signal },
+          { ...readRequestConfig(), signal, silentError: true },
         )
         if (this.courseId !== courseId || signal?.aborted) return undefined
         const job = response.data.job
