@@ -3506,9 +3506,12 @@ async def build_teacher_lesson_v6(
     )
     checkpoint_task_id = body.resume_task_id or str(manuscript_state.get("task_id") or "")
     try:
-        candidate_repository.clone_checkpoint(
-            checkpoint_task_id, task_id
-        )
+        # A new three-stage export starts from the confirmed scene contract.
+        # Its planning checkpoint has a different identity (no confirmation
+        # revision) and must not be treated as an interrupted export. Only an
+        # explicit resume reuses the final generation checkpoint.
+        if body.resume_task_id or confirmed_manuscript.teaching_content_contract_version != "page_teaching_v2":
+            candidate_repository.clone_checkpoint(checkpoint_task_id, task_id)
     except (FileNotFoundError, ValueError) as exc:
         _fail_teacher_ppt_job(
             repository,

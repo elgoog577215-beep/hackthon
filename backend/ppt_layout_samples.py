@@ -26,6 +26,18 @@ def matrix_boundary_sample(subject_count=4, dimension_count=4):
         "states": [{"state_id": "all", "visible_element_ids": ids, "teaching_note": "核对行列身份与容量"}]})
 
 
+def formula_comparison_sample():
+    value = matrix_boundary_sample(2, 1).model_dump()
+    formulas = [r"\begin{bmatrix}2&3&-1&5\\1&-1&0&2\\0&4&5&-1\end{bmatrix}",
+                r"\begin{bmatrix}2&3&-1&5\\1&-1&0&2\\4&5&-1\end{bmatrix}"]
+    source = "比较相同条件下各对象的各项观察结果。\n" + "\n".join(formulas)
+    for key, formula in zip(("cell-0-0", "cell-1-0"), formulas, strict=True):
+        element = next(e for e in value["elements"] if e["element_id"] == key)
+        element.update(text=formula, kind="formula", sources=[{"block_id": "sample-source", "block_revision": "sample-v1",
+            "start": source.index(formula), "end": source.index(formula) + len(formula), "quote": formula}])
+    return PageTeachingV2.model_validate(value)
+
+
 def layout_sample(slug: str, *, length="normal") -> PageTeachingV2:
     if slug == "data-bars":
         return chart_sample(length=length)

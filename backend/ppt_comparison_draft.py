@@ -10,7 +10,7 @@ from typing import Literal
 from pydantic import Field
 
 from ppt_teaching_content import Contract, PageTeachingV2
-from ppt_draft_common import QuoteChoice, DraftRelation, bind_choices, draft_element_text
+from ppt_draft_common import QuoteChoice, DraftRelation, bind_choices, draft_element_text, lower_reveal_states
 
 
 
@@ -120,8 +120,7 @@ def lower_comparison_draft(value, sources):
                           "target_id": keys[relation.target_key], "kind": relation.kind, "label": relation.label,
                           "condition_element_ids": [keys[k] for k in relation.condition_keys],
                           "sources": bind_choices(relation.sources, sources, owner=f"relation-{i}")})
-    if max(stages.values()) != len(draft.reveal_notes):
-        raise ValueError(f"reveal_notes_count_must_match_last_show_from: max show_from={max(stages.values())}, notes={len(draft.reveal_notes)}; each page part needs its own notes, exactly one per step; remove unused trailing steps or assign the intended element to that step")
+    states = lower_reveal_states(stages, draft.reveal_notes)
     dispositions = []
     for block_id in sources:
         ids = [e["element_id"] for e in elements if any(s["block_id"] == block_id for s in e["sources"])]
@@ -133,8 +132,6 @@ def lower_comparison_draft(value, sources):
                        "relations": relations},
         "must_show": list(stages),
         "source_dispositions": dispositions,
-        "states": [{"state_id": f"step-{i}", "visible_element_ids": [key for key, stage in stages.items() if stage <= i],
-                    "emphasized_element_ids": [], "teaching_note": note}
-                   for i, note in enumerate(draft.reveal_notes, 1)]})
+        "states": states})
     metadata = draft.model_dump(mode="json", exclude={"expression_kind", "conditions", "subjects", "dimensions", "cells", "screen_question", "conclusion", "reveal_notes", "relations"})
     return {**metadata, "teaching": content.model_dump(mode="json")}

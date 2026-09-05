@@ -28,7 +28,7 @@
       <main v-if="manuscript" class="ppt-manuscript-workflow__content">
         <div class="ppt-manuscript-workflow__summary">
           <div><small>{{ t('pptWorkspace.manuscriptLabel', '页面内容稿') }}</small><h2>{{ t('pptWorkspace.manuscriptReviewTitle', '逐页教学内容') }}</h2></div>
-          <div class="ppt-manuscript-workflow__save-state"><span>{{ manuscript.page_count }} {{ t('pptWorkspace.pageUnit', '页') }}</span><small>{{ saveStateLabel }}</small></div>
+          <div class="ppt-manuscript-workflow__save-state"><span v-if="manuscript.teaching_content_contract_version === 'page_teaching_v2'">{{ manuscriptPageCounts }}</span><span v-else>{{ manuscript.page_count }} {{ t('pptWorkspace.pageUnit', '页') }}</span><small>{{ saveStateLabel }}</small></div>
         </div>
 
         <section v-if="narrativeBrief" class="ppt-manuscript-workflow__brief" data-testid="ppt-narrative-brief">
@@ -115,6 +115,9 @@ const emit = defineEmits<{
 }>()
 
 const manuscript = computed(() => props.state.manuscript || null)
+const manuscriptPageCounts = computed(() => t('pptWorkspace.manuscriptPageCounts')
+  .replace('{logical}', String(manuscript.value?.pages?.length || 0))
+  .replace('{physical}', String(manuscript.value?.page_count || 0)))
 const draftPages = ref<Record<string, any>[]>([])
 const originalPages = ref<Record<string, any>[]>([])
 const selectedPageIds = ref(new Set<string>())

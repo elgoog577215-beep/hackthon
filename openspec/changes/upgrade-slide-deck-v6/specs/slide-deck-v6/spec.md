@@ -410,6 +410,18 @@ The system SHALL use `page_teaching_v2` inside `ppt_manuscript_v1` for the enhan
 - **THEN** no minimum prose length forces additional text
 - **AND** a question-led page need not expose its answer as a title
 
+#### Scenario: Source data is shown as horizontal bars
+- **WHEN** a page uses the initial `chart` expression with 2-6 values
+- **THEN** it binds every category and exact nonnegative decimal value to source elements and keeps an exact common unit visible
+- **AND** all reveal states share one zero baseline and one scale calculated from the full set of values
+- **AND** export preserves the value text and bar proportions as editable native text and shapes
+- **AND** negative values, mixed units and unsupported numeric notation fail before confirmation rather than being silently converted
+
+#### Scenario: A source contains an intentionally incomplete matrix counterexample
+- **WHEN** the selected source matrix has unequal row lengths
+- **THEN** its display preserves every supplied entry and leaves absent entries empty without inventing zeros
+- **AND** the original source syntax and character range remain unchanged in the manuscript
+
 ### Requirement: Static Reveal States Are Compiled Before Confirmation
 The system SHALL represent progressive teaching as explicit ordered element states and SHALL initially export those states as static consecutive physical slides without enabling frozen animation features.
 
@@ -423,6 +435,12 @@ The system SHALL represent progressive teaching as explicit ordered element stat
 - **WHEN** a later state adds nodes and relations
 - **THEN** output checks validate exactly the expected elements and relations for each state
 - **AND** existing visible elements retain their declared positions unless an explicit state transition changes them
+
+#### Scenario: Draft narration continues without changing the canvas
+- **WHEN** consecutive steps in a compact draft have identical visible elements and no distinct emphasis
+- **THEN** draft compilation merges those steps into one physical state and concatenates every narration note in its original order
+- **AND** a declared reveal step without a note or an answer appearing before its question still fails validation
+- **AND** the resulting page count is shown before confirmation and this normalization never rewrites confirmed states
 - **AND** source note coverage is reconciled through logical-page ownership without falsely counting repeated state pages as missing or duplicate ownership
 
 ### Requirement: Final Generation Performs No Content Or Visual Planning
@@ -485,3 +503,20 @@ The system SHALL validate the enhanced contract using real private-model outputs
 - **WHEN** its independent new-build feature switch is turned off
 - **THEN** existing manuscripts and artifacts remain readable and exportable under their versioned contracts
 - **AND** running tasks are not silently rerouted to a different content policy or engine
+
+### Requirement: Final scene execution checks use the confirmed contract
+
+The system SHALL compile confirmed teaching scenes without resuming content planning and SHALL audit their fixed geometry and text using the declared execution contract.
+
+#### Scenario: Confirmed teaching scenes start a new final generation task
+- **WHEN** a teacher generates a new PPT from a confirmed `page_teaching_v2` manuscript
+- **THEN** the new task reads the confirmed manuscript without requiring or cloning its content-planning checkpoint
+- **AND** only an explicit resume reuses a final-generation checkpoint with matching manuscript, source, template and tool identities
+- **AND** the final generation does not invoke a content or visual model
+
+#### Scenario: Fixed text lines and inline mathematics are verified
+- **WHEN** a manuscript includes supported delimited mathematics inside prose or an exact source quotation
+- **THEN** notation is projected and measured before confirmation while the original quotation and source range remain unchanged
+- **AND** unsupported notation fails the draft instead of remaining as visible LaTeX commands
+- **AND** exported fixed-line text is measured with the declared font and written line spacing, checking both horizontal and vertical overflow without inventing automatic wrapping
+- **AND** PDF glyph aliases are accepted only for verified identical pinned-font glyphs while OOXML retains exact code-point and order checks

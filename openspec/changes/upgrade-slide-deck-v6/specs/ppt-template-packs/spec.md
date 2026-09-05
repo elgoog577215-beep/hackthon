@@ -50,6 +50,12 @@ The system SHALL add `capability_contract_version=teaching_layout_v2` to enhance
 - **AND** missing or ambiguous targets block template certification
 - **AND** the renderer preserves declared static artwork rather than clearing the page and claiming faithful filling
 
+#### Scenario: A native template contains a replaceable image and branch connectors
+- **WHEN** explicit bindings select existing picture and connector objects
+- **THEN** filling preserves their object IDs and checks image bytes, aspect ratio, endpoint identities, connection sites and direction
+- **AND** Web preview uses the certified static artwork with the same dynamic execution plan while PPTX retains original native objects
+- **AND** unsupported rotated or scaled groups, cross-group connectors and cell endpoints remain explicit certification failures
+
 #### Scenario: The template uses controlled drawing components
 - **WHEN** a slot is marked `component_render`
 - **THEN** the template names a versioned component with explicit typed inputs and supported geometry

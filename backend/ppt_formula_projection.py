@@ -4,6 +4,33 @@ import re
 from ppt_layout_execution import FONT_PATH, file_digest, _font
 
 
+def project_formula(source):
+    """Project supported notation before confirmation, keeping raw source intact."""
+    matrix = project_matrix(source)
+    if matrix is not None:
+        return matrix
+    from slide_deck_renderer import _format_formula_text
+    source = re.sub(r"\\dots\b", lambda _: "…", source)
+    text = _format_formula_text(source)
+    if "\\" in text or "$" in text:
+        raise ValueError("teaching_formula_not_supported")
+    return text
+
+
+_MATH_SPAN = re.compile(r"(?<!\\)\$\$(.+?)\$\$|\\\((.+?)\\\)|\\\[(.+?)\\\]|(?<![\\$])\$(?!\$)([^\n$]+?)(?<!\\)\$(?![\d$])", re.S)
+
+
+def project_prose_math(source):
+    """Convert only delimited math, including math inside an exact quotation.
+
+    Ordinary prose, currency and braces stay literal; code never enters here.
+    Unsupported notation is a draft error, not a final-render fallback.
+    """
+    def display(match):
+        return project_formula(next(value for value in match.groups() if value is not None))
+    return _MATH_SPAN.sub(display, source)
+
+
 def project_matrix(source):
     """Align columns using the frozen font; return None for other formulas.
 

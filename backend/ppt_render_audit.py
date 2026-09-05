@@ -12,10 +12,11 @@ from ppt_layout_execution import file_digest
 
 
 def _glyphs(text):
-    # The two vertical middle pieces have the same rendered outline. PDF font
-    # subsetting can give their shared glyph just one ToUnicode entry. Their
-    # left/right positions and original Unicode remain audited in OOXML.
-    return Counter(c for c in text.replace("⎥", "⎢") if not c.isspace())
+    # Noto Sans CJK SC uses the same glyph for the two vertical middle pieces,
+    # and for these two horizontal ellipses (identical outline and advance).
+    # PDF subsetting gives a shared glyph one ToUnicode entry. OOXML still
+    # verifies the original code points and their positions without aliasing.
+    return Counter(c for c in text.replace("⎥", "⎢").replace("…", "⋯") if not c.isspace())
 
 
 def audit_pdf_scenes(pdf, scenes):

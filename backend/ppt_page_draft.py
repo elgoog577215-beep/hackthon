@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from ppt_draft_common import DraftMetadata, DraftRelation, QuoteChoice, bind_choices, draft_element_text
+from ppt_draft_common import DraftMetadata, DraftRelation, QuoteChoice, bind_choices, draft_element_text, lower_reveal_states
 from ppt_teaching_content import ChartPoint, Contract, PageTeachingV2
 
 
@@ -74,11 +74,7 @@ def lower_teaching_draft(value, sources):
                          "asset_id": item.asset_id, "asset_digest": item.asset_digest,
                          "sources": bind_choices(item.sources, sources, owner=item.key,
                              exact_text=text if item.kind in {"formula", "code", "quote", "data"} else None)})
-    if max(stages.values()) != len(draft.reveal_notes):
-        raise ValueError(f"reveal_notes_count_must_match_last_show_from: max show_from={max(stages.values())}, notes={len(draft.reveal_notes)}; "
-                         f"show_from_by_element={stages}; each page part needs its own notes, exactly one per step. "
-                         "For a final note explaining a conclusion, assign that conclusion element to the final step. "
-                         "If the note adds no visual state, combine the notes in the previous step. Return the complete revised page.")
+    states = lower_reveal_states(stages, draft.reveal_notes)
     if draft.expression_kind in {"concept", "process", "causal", "hierarchy"}:
         endpoints = {key for r in draft.relations for key in (r.source_key, r.target_key)}
         # A claim may itself be a graph node. Teaching role does not override
@@ -109,8 +105,7 @@ def lower_teaching_draft(value, sources):
                              "reason": "屏幕保留本页教学表达所引用的内容，完整原文保存在备注。"})
     content = PageTeachingV2.model_validate({"elements": elements, "expression": expression,
         "must_show": list(stages), "source_dispositions": dispositions,
-        "states": [{"state_id": f"step-{i}", "visible_element_ids": [key for key, stage in stages.items() if stage <= i],
-                    "teaching_note": note} for i, note in enumerate(draft.reveal_notes, 1)]})
+        "states": states})
     if draft.expression_kind != "chart" and (draft.chart_points or draft.chart_unit_key):
         raise ValueError("chart_binding_requires_chart_expression")
     metadata = draft.model_dump(mode="json", exclude={"expression_kind", "elements", "relations", "reveal_notes", "chart_points", "chart_unit_key"})

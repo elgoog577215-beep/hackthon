@@ -320,6 +320,8 @@ class PageTeachingV2(Contract):
             if not questions:
                 raise ValueError(f"question_element_missing: answer_ids={sorted(answers)}; "
                                  "include a visible role=question element before its answer. "
+                                 "For comparison drafts, fill screen_question with text, sources, role=question and show_from=1; "
+                                 "audience_question metadata and a condition field do not create a screen question. "
                                  "Comparison observations that do not answer a classroom question use role=evidence, not answer.")
             if answers:
                 for answer_id in answers:

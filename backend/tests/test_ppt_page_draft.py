@@ -173,3 +173,49 @@ def test_page_group_is_compiled_before_confirmation_and_can_resume_without_model
     split = asyncio.run(regenerate_teaching_pages(existing, ['p1'], planner))
     assert [p.page_id for p in split.pages] == ['p1-part-1', 'p1-part-2']
     assert existing.model_dump() == before
+
+
+def test_redundant_canvas_states_keep_all_notes_without_extra_physical_pages():
+    from ppt_draft_common import lower_reveal_states
+    states = lower_reveal_states({'question': 1, 'answer': 3}, ['提出问题', '留时间思考', '展示答案', '补充解释'])
+    assert len(states) == 2
+    assert states[0]['visible_element_ids'] == ['question']
+    assert states[1]['visible_element_ids'] == ['question', 'answer']
+    assert states[0]['teaching_note'] == '提出问题\n\n留时间思考'
+    assert states[1]['teaching_note'] == '展示答案\n\n补充解释'
+    with pytest.raises(ValueError, match='reveal_note_missing'):
+        lower_reveal_states({'question': 1, 'answer': 3}, ['提出问题', '思考'])
+    with pytest.raises(ValueError, match='initial_reveal_empty'):
+        lower_reveal_states({'question': 2}, ['开始', '提问'])
+
+
+def test_group_repair_sends_only_failed_subpage_and_retains_healthy_content():
+    import asyncio
+    from copy import deepcopy
+    from .test_ppt_teaching_content import compiled_manuscript
+    from ppt_teaching_planner import plan_teaching_manuscript
+    doc, graph, template, existing = compiled_manuscript()
+    page = existing.pages[0]
+    good = {'title': page.title, 'page_goal': page.page_goal, 'primary_claim': page.primary_claim,
+            'layout_id': page.layout_id, 'teaching': page.teaching.model_dump(mode='json')}
+    broken = deepcopy(good)
+    broken['title'] = '观察另一种执行方式'
+    broken['teaching']['elements'][4]['text'] = '很长的比较说明' * 100
+    calls = []
+    async def planner(request):
+        calls.append(request)
+        if request['teaching_request'] == 'narrative':
+            return {'narrative_brief': {'central_question': '比较执行方式'}, 'pages': [{
+                'page_id': 'p1', 'teaching_unit_id': page.teaching_unit_id, 'source_block_ids': ['b'],
+                'title': page.title, 'page_goal': page.page_goal, 'layout_id': page.layout_id}]}
+        if len(calls) == 2:
+            return {'pages': [deepcopy(good), broken]}
+        assert request['previous_candidate']['title'] == broken['title']
+        assert 'pages' not in request['previous_candidate']
+        assert request['page']['title'] == broken['title']
+        return {**deepcopy(good), 'title': '比较另一种执行方式'}
+    result, trace = asyncio.run(plan_teaching_manuscript(doc, graph, template, planner))
+    assert len(calls) == 3 and result.story_page_count == 2
+    assert result.pages[0].title == good['title']
+    assert result.pages[0].teaching.model_dump(mode='json') == good['teaching']
+    assert trace['draft_pages']['p1']['pages'][0] == good

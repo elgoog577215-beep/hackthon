@@ -5,9 +5,9 @@
       "status": "passed",
       "component_version": "teaching_layout_v2.3",
       "tools": {
-        "compiler": "teaching_scene_v2.4",
+        "compiler": "teaching_scene_v2.3",
         "renderer": "teaching_native_v2.3",
-        "quality": "teaching_export_v2.4",
+        "quality": "teaching_export_v2.3",
         "python": "3.12.13",
         "font_family": "Noto Sans CJK SC",
         "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
@@ -31,7 +31,7 @@
           "passed": true,
           "elements": 9,
           "relations": 1,
-          "scene_digest": "scene_e9337ca56650ac0e78bf0041",
+          "scene_digest": "scene_6e6873468b597e3b723708b4",
           "editability": [
             "text"
           ]
@@ -40,7 +40,7 @@
           "passed": true,
           "elements": 9,
           "relations": 1,
-          "scene_digest": "scene_a64865e7c5b4277141ec11b6",
+          "scene_digest": "scene_4e78f82998c363861adca6d4",
           "editability": [
             "text"
           ]
@@ -49,26 +49,16 @@
           "passed": true,
           "elements": 7,
           "relations": 0,
-          "scene_digest": "scene_c4b9d79bce72878713e72bbc",
+          "scene_digest": "scene_4bb877ff1603c9158e68840e",
           "editability": [
             "formula_source_text",
             "text"
           ]
         }
       ],
-      "export_review": {
-        "schema_version": "slide_render_review_v1",
-        "reviewer": "post_export_pptx_object_audit",
-        "passed": true,
-        "page_count": 3,
-        "issues": [],
-        "blockers": [],
-        "repair_attempts": 0,
-        "pixel_audit": null
-      },
       "classroom_review": "pending",
-      "pptx_sha256": "c727271ec36d4ea802a79611d10f06b3a582bdd070b58c2d6ed669ec203f73f7",
-      "pdf_sha256": "70f91f0d3b69912b66a7f25ac731834b87ac22297b72ddc1107f780cab0e27ff",
+      "pptx_sha256": "2859048be7a05292120bd44bd127af70d9534d5a36f649d036a1ec7d940106da",
+      "pdf_sha256": "34c47bd3cef86a2cddd4c4c725815d08d3069249b3eb0f797b5373e48d7c67f7",
       "render_page_sha256": [
         "db3f85b4ee27bd8d37254cb4a2682d457e1bc22f72496179a58cecee6f27c203",
         "48d66e0e3c9157a89f99c5ac4c4841ca4c7d1b1807baa0106ca137d7909e9fbb",
@@ -100,9 +90,9 @@
       "status": "passed",
       "component_version": "teaching_layout_v2.3",
       "tools": {
-        "compiler": "teaching_scene_v2.4",
+        "compiler": "teaching_scene_v2.3",
         "renderer": "teaching_native_v2.3",
-        "quality": "teaching_export_v2.4",
+        "quality": "teaching_export_v2.3",
         "python": "3.12.13",
         "font_family": "Noto Sans CJK SC",
         "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
@@ -126,7 +116,7 @@
           "passed": true,
           "elements": 9,
           "relations": 1,
-          "scene_digest": "scene_51c4c657c62d5851be64a6ca",
+          "scene_digest": "scene_46b05640c4913c86e808b2fa",
           "editability": [
             "text"
           ]
@@ -135,7 +125,7 @@
           "passed": true,
           "elements": 9,
           "relations": 1,
-          "scene_digest": "scene_c5cc50c34c5570ba963c4512",
+          "scene_digest": "scene_03e82569c246e8c5dbbe884a",
           "editability": [
             "text"
           ]
@@ -144,7 +134,7 @@
           "passed": true,
           "elements": 21,
           "relations": 0,
-          "scene_digest": "scene_b89b20ac11a2e3a1fbfe586e",
+          "scene_digest": "scene_c09b2ce07105d0d37059de45",
           "editability": [
             "text"
           ]
@@ -153,7 +143,7 @@
           "passed": true,
           "elements": 26,
           "relations": 0,
-          "scene_digest": "scene_02faeb055289a2e0a65c0cb1",
+          "scene_digest": "scene_9786c9e0585f713f82d755e7",
           "editability": [
             "text"
           ]
@@ -162,26 +152,16 @@
           "passed": true,
           "elements": 7,
           "relations": 0,
-          "scene_digest": "scene_b98f4a784f1d4491573fa524",
+          "scene_digest": "scene_81c6f08db8da7432c1d2d3fc",
           "editability": [
             "formula_source_text",
             "text"
           ]
         }
       ],
-      "export_review": {
-        "schema_version": "slide_render_review_v1",
-        "reviewer": "post_export_pptx_object_audit",
-        "passed": true,
-        "page_count": 5,
-        "issues": [],
-        "blockers": [],
-        "repair_attempts": 0,
-        "pixel_audit": null
-      },
       "classroom_review": "pending",
-      "pptx_sha256": "7fa7c1c5706607b37c5226f18941d84094885f7872baaa95d0d8c151a67f3e86",
-      "pdf_sha256": "7772dcc135c626ae8973ba7c488e8e5b31b9fc3e6844b21cdec388e1131310e2",
+      "pptx_sha256": "5ae259cdb324730d93a34a3d403377e3b79abecb9d8258de23f2d15452b1360e",
+      "pdf_sha256": "38dfc6d2d605bbdc86a8b32e83bd7021a0885fba11e70e99d3699dca54ec05de",
       "render_page_sha256": [
         "0ae55385a268290df2ce468a224bcd7d44668c3a815f788ee518c7a9ec8cb52a",
         "826c02a151b189fcce64e268c50935dfb09dda47045f5998a706cd0bd6214cd6",
@@ -227,9 +207,9 @@
       "status": "passed",
       "component_version": "teaching_layout_v2.3",
       "tools": {
-        "compiler": "teaching_scene_v2.4",
+        "compiler": "teaching_scene_v2.3",
         "renderer": "teaching_native_v2.3",
-        "quality": "teaching_export_v2.4",
+        "quality": "teaching_export_v2.3",
         "python": "3.12.13",
         "font_family": "Noto Sans CJK SC",
         "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
@@ -253,7 +233,7 @@
           "passed": true,
           "elements": 2,
           "relations": 0,
-          "scene_digest": "scene_95fc0295b4a27c614c3c1f47",
+          "scene_digest": "scene_2173201d3a96b982c1cc6370",
           "editability": [
             "text"
           ]
@@ -262,7 +242,7 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_6662895a850d0a644ae7917e",
+          "scene_digest": "scene_5b999a28e44d3f968fe5fff8",
           "editability": [
             "text"
           ]
@@ -271,7 +251,7 @@
           "passed": true,
           "elements": 2,
           "relations": 0,
-          "scene_digest": "scene_301583005465317087fa771c",
+          "scene_digest": "scene_54d1c9e15eabfe9ea0f45966",
           "editability": [
             "text"
           ]
@@ -280,25 +260,15 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_66976d0ce3c70d6ab3f00dd3",
+          "scene_digest": "scene_6982b3b219cbb8ec21ffc1f0",
           "editability": [
             "text"
           ]
         }
       ],
-      "export_review": {
-        "schema_version": "slide_render_review_v1",
-        "reviewer": "post_export_pptx_object_audit",
-        "passed": true,
-        "page_count": 4,
-        "issues": [],
-        "blockers": [],
-        "repair_attempts": 0,
-        "pixel_audit": null
-      },
       "classroom_review": "pending",
-      "pptx_sha256": "011d7006cac83a152c4be80af97ffabe53bf7d161c843554a932d8fbf976823f",
-      "pdf_sha256": "2c7e3a4d32237945a0af5f3917a008410509e6289f985a34a18753b216b7d8be",
+      "pptx_sha256": "082c0303ff8623dd8d9c8c315e4f175a360ee596faaeadb86d40316decc0567a",
+      "pdf_sha256": "f9d88599dd94d7ae413240595c2e6a6e406c7d629867408f132e43f7f763750a",
       "render_page_sha256": [
         "b5cad26e8c1bc53e6fd47f0b0856fb71afef2712aa38f8f7bf413db6c607c0b6",
         "ee118b0f06cc381d0cc0c364dfa6e15e381577e152b3744df347f9ca9625da03",
@@ -337,9 +307,9 @@
       "status": "passed",
       "component_version": "teaching_layout_v2.3",
       "tools": {
-        "compiler": "teaching_scene_v2.4",
+        "compiler": "teaching_scene_v2.3",
         "renderer": "teaching_native_v2.3",
-        "quality": "teaching_export_v2.4",
+        "quality": "teaching_export_v2.3",
         "python": "3.12.13",
         "font_family": "Noto Sans CJK SC",
         "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
@@ -363,7 +333,7 @@
           "passed": true,
           "elements": 5,
           "relations": 2,
-          "scene_digest": "scene_253b0299aaf576f390d12700",
+          "scene_digest": "scene_3e9a96625598e10ab57a186d",
           "editability": [
             "text"
           ]
@@ -372,25 +342,15 @@
           "passed": true,
           "elements": 5,
           "relations": 2,
-          "scene_digest": "scene_665dfabf5a4fc5772a52437f",
+          "scene_digest": "scene_8012093fb67b65770c83f723",
           "editability": [
             "text"
           ]
         }
       ],
-      "export_review": {
-        "schema_version": "slide_render_review_v1",
-        "reviewer": "post_export_pptx_object_audit",
-        "passed": true,
-        "page_count": 2,
-        "issues": [],
-        "blockers": [],
-        "repair_attempts": 0,
-        "pixel_audit": null
-      },
       "classroom_review": "pending",
-      "pptx_sha256": "8951b502af497da3b9b04107304d7628bbae09b8b0adc0991539bb1833ac8faa",
-      "pdf_sha256": "264f8138cec768e5b63901f1092dc0816fd7f09579c31f02e680c485028ed8cc",
+      "pptx_sha256": "c003a22cf956b021a51e08a84ebec172be0a6f8ef181577de57c8aaa1211e3af",
+      "pdf_sha256": "7c6e2e0fcd8a9759bba10a180b8a9262652f336ae3ebdfe54c365d6b219d2f60",
       "render_page_sha256": [
         "b666c801d481831fc198a0cd1fe25c800c133093d31e1332a31b02240c61b49c",
         "a83c9b5e7f410b5d39ab2cad68ca98f6b9d2138491d4dc85ae8159688be60e4d"
@@ -415,9 +375,9 @@
       "status": "passed",
       "component_version": "teaching_layout_v2.3",
       "tools": {
-        "compiler": "teaching_scene_v2.4",
+        "compiler": "teaching_scene_v2.3",
         "renderer": "teaching_native_v2.3",
-        "quality": "teaching_export_v2.4",
+        "quality": "teaching_export_v2.3",
         "python": "3.12.13",
         "font_family": "Noto Sans CJK SC",
         "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
@@ -441,7 +401,7 @@
           "passed": true,
           "elements": 5,
           "relations": 2,
-          "scene_digest": "scene_7ba47083b2e569b2a8deba91",
+          "scene_digest": "scene_6a4f4ef27ce528725910dde1",
           "editability": [
             "text"
           ]
@@ -450,25 +410,15 @@
           "passed": true,
           "elements": 5,
           "relations": 2,
-          "scene_digest": "scene_4e57e77c6580b4c28a8a18bf",
+          "scene_digest": "scene_66dab79251e6e5859ff381c2",
           "editability": [
             "text"
           ]
         }
       ],
-      "export_review": {
-        "schema_version": "slide_render_review_v1",
-        "reviewer": "post_export_pptx_object_audit",
-        "passed": true,
-        "page_count": 2,
-        "issues": [],
-        "blockers": [],
-        "repair_attempts": 0,
-        "pixel_audit": null
-      },
       "classroom_review": "pending",
-      "pptx_sha256": "0d92de05dfdbe69b26377e19ff5fd14c69ac554bc62f495aa19be8f518f71c85",
-      "pdf_sha256": "6c9aab58c39c72795ad05cb70cf8ca72dab88e85c4784dd2d94674c49912b61e",
+      "pptx_sha256": "697bb46b6eef8f0a3a47669540e765219625b373bc4c8d492bd01f9b5a45d27e",
+      "pdf_sha256": "a0a261a761364f731e60c5fc5d8d7878f668aec8dd5b43c461150ca0f5022d9c",
       "render_page_sha256": [
         "fd2856b6bd72602a598f6b1a1eda95e78fc0b6861f635a17505149ac422aaf6f",
         "466e57aadd64a17436d94d7320c289c3baa8e8967c2dc3accbd634beb5b6fd85"
@@ -493,9 +443,9 @@
       "status": "passed",
       "component_version": "teaching_layout_v2.3",
       "tools": {
-        "compiler": "teaching_scene_v2.4",
+        "compiler": "teaching_scene_v2.3",
         "renderer": "teaching_native_v2.3",
-        "quality": "teaching_export_v2.4",
+        "quality": "teaching_export_v2.3",
         "python": "3.12.13",
         "font_family": "Noto Sans CJK SC",
         "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
@@ -519,7 +469,7 @@
           "passed": true,
           "elements": 2,
           "relations": 0,
-          "scene_digest": "scene_fec57e6445b08529e4d6b343",
+          "scene_digest": "scene_6dff16f84fd6d25de2321b56",
           "editability": [
             "text"
           ]
@@ -528,7 +478,7 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_d835327ff2a085d7889baa66",
+          "scene_digest": "scene_8d7cfb7c0a8cfeb61356a80b",
           "editability": [
             "text"
           ]
@@ -537,7 +487,7 @@
           "passed": true,
           "elements": 2,
           "relations": 0,
-          "scene_digest": "scene_7d9f485771d8bc4cf6b0b9de",
+          "scene_digest": "scene_e5311bc6ed6db1a7221471a9",
           "editability": [
             "text"
           ]
@@ -546,25 +496,15 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_7686273092f573cc45ec29c1",
+          "scene_digest": "scene_3cc6c63ce403355981bbae73",
           "editability": [
             "text"
           ]
         }
       ],
-      "export_review": {
-        "schema_version": "slide_render_review_v1",
-        "reviewer": "post_export_pptx_object_audit",
-        "passed": true,
-        "page_count": 4,
-        "issues": [],
-        "blockers": [],
-        "repair_attempts": 0,
-        "pixel_audit": null
-      },
       "classroom_review": "pending",
-      "pptx_sha256": "ac12d37b4b5aa01c04118acee483d0ca96cc808e2818f9d43a412b820031d9a0",
-      "pdf_sha256": "45aad385eb0befdded7b34b8e2f9c007940414375017df78bf02a020c4cb83ae",
+      "pptx_sha256": "fab7120d38e63e3f80dc03d6aac8b8e469197e5dc12fe8a95936a1303fd91611",
+      "pdf_sha256": "02a1e9a9a4155ec5d07b4b42d9c1a161084309821096479ba2507e8729386b69",
       "render_page_sha256": [
         "b5cad26e8c1bc53e6fd47f0b0856fb71afef2712aa38f8f7bf413db6c607c0b6",
         "ee118b0f06cc381d0cc0c364dfa6e15e381577e152b3744df347f9ca9625da03",
@@ -603,9 +543,9 @@
       "status": "passed",
       "component_version": "teaching_layout_v2.3",
       "tools": {
-        "compiler": "teaching_scene_v2.4",
+        "compiler": "teaching_scene_v2.3",
         "renderer": "teaching_native_v2.3",
-        "quality": "teaching_export_v2.4",
+        "quality": "teaching_export_v2.3",
         "python": "3.12.13",
         "font_family": "Noto Sans CJK SC",
         "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
@@ -629,7 +569,7 @@
           "passed": true,
           "elements": 2,
           "relations": 0,
-          "scene_digest": "scene_ceb7c4b66641199d45be15e8",
+          "scene_digest": "scene_f3b467f7a31777c912119b9a",
           "editability": [
             "text"
           ]
@@ -638,7 +578,7 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_89b6f56cb038c712e47a6422",
+          "scene_digest": "scene_d31826c401765f53ef553d24",
           "editability": [
             "text"
           ]
@@ -647,7 +587,7 @@
           "passed": true,
           "elements": 2,
           "relations": 0,
-          "scene_digest": "scene_08a8fe4bf9d42b9d7ec5905c",
+          "scene_digest": "scene_f61b48c53921ec7648f8e0f0",
           "editability": [
             "text"
           ]
@@ -656,25 +596,15 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_30dd2057dfef65f5fb709ef2",
+          "scene_digest": "scene_80102f9b7b269a45aea02b6b",
           "editability": [
             "text"
           ]
         }
       ],
-      "export_review": {
-        "schema_version": "slide_render_review_v1",
-        "reviewer": "post_export_pptx_object_audit",
-        "passed": true,
-        "page_count": 4,
-        "issues": [],
-        "blockers": [],
-        "repair_attempts": 0,
-        "pixel_audit": null
-      },
       "classroom_review": "pending",
-      "pptx_sha256": "baa15c5e91ea2b56c9ff618c53e298bd895f78b1d247651fafa9aa12e21a3764",
-      "pdf_sha256": "655df152852e9ad83fce30b05349657cebdd0b4baff5938e1c5969a48ea246cc",
+      "pptx_sha256": "673b6558cf5461b1c55a97c602a34038c0a22cf53f30ee0617ecb485895fa1a1",
+      "pdf_sha256": "03c431d3e8405098b85fa3f1255ac66eae59d8bf808382413c880328c7dd5099",
       "render_page_sha256": [
         "b5cad26e8c1bc53e6fd47f0b0856fb71afef2712aa38f8f7bf413db6c607c0b6",
         "ee118b0f06cc381d0cc0c364dfa6e15e381577e152b3744df347f9ca9625da03",
@@ -713,9 +643,9 @@
       "status": "passed",
       "component_version": "teaching_layout_v2.3",
       "tools": {
-        "compiler": "teaching_scene_v2.4",
+        "compiler": "teaching_scene_v2.3",
         "renderer": "teaching_native_v2.3",
-        "quality": "teaching_export_v2.4",
+        "quality": "teaching_export_v2.3",
         "python": "3.12.13",
         "font_family": "Noto Sans CJK SC",
         "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
@@ -739,7 +669,7 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_1ea5859f7939b02d344312ae",
+          "scene_digest": "scene_b07c9a59dbd3549a5f3fd724",
           "editability": [
             "text"
           ]
@@ -748,25 +678,15 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_f3acdbd4a361d02ac65685a7",
+          "scene_digest": "scene_ba127fe1f8b2f0945cdee11d",
           "editability": [
             "text"
           ]
         }
       ],
-      "export_review": {
-        "schema_version": "slide_render_review_v1",
-        "reviewer": "post_export_pptx_object_audit",
-        "passed": true,
-        "page_count": 2,
-        "issues": [],
-        "blockers": [],
-        "repair_attempts": 0,
-        "pixel_audit": null
-      },
       "classroom_review": "pending",
-      "pptx_sha256": "d088e86ecc6a93d4f77693b525366b5f97eff718dbb6713409604b5b9288e206",
-      "pdf_sha256": "97b84f0a75ac7a58eb40379c243914ad083d03114fc090640739c699732993aa",
+      "pptx_sha256": "38ff99111459823b7aab52e7b64222e9ae3b6a59ecb1bbc49be3959e2b6816eb",
+      "pdf_sha256": "6d4b45b254b3bc2a936dd1a37f9fabbf8f5e4bd5ff850230d278ca9dea0724b0",
       "render_page_sha256": [
         "ee118b0f06cc381d0cc0c364dfa6e15e381577e152b3744df347f9ca9625da03",
         "038280dbe51ba2b44566e52e7d5c460b90c899f77c0f2dd7dbd6e2fdf0cd5293"
@@ -791,9 +711,9 @@
       "status": "passed",
       "component_version": "teaching_layout_v2.3",
       "tools": {
-        "compiler": "teaching_scene_v2.4",
+        "compiler": "teaching_scene_v2.3",
         "renderer": "teaching_native_v2.3",
-        "quality": "teaching_export_v2.4",
+        "quality": "teaching_export_v2.3",
         "python": "3.12.13",
         "font_family": "Noto Sans CJK SC",
         "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
@@ -817,7 +737,7 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_9c92f3bc325c17d46a662c02",
+          "scene_digest": "scene_2bff9d7a6a4f5da7220c3bac",
           "editability": [
             "text"
           ]
@@ -826,25 +746,15 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_fc7a5a77ce78cddbb520149c",
+          "scene_digest": "scene_40d507e87db9aec6dab1fd9c",
           "editability": [
             "text"
           ]
         }
       ],
-      "export_review": {
-        "schema_version": "slide_render_review_v1",
-        "reviewer": "post_export_pptx_object_audit",
-        "passed": true,
-        "page_count": 2,
-        "issues": [],
-        "blockers": [],
-        "repair_attempts": 0,
-        "pixel_audit": null
-      },
       "classroom_review": "pending",
-      "pptx_sha256": "670ec04c6c89e44e0aeebec8697de1e66f9d485e9302c2f632b012d3f9523dab",
-      "pdf_sha256": "dbb939fb421cc11c88102197da2d4dd8eb076e3887ad492f82c4f1bf5a0d58f2",
+      "pptx_sha256": "c3838d851a8c8bef4dd16b157cf5b6c95c3001de535af8baf840e84f716cb24c",
+      "pdf_sha256": "ee7e5b0dd1d47cef9fa7d192f4ab4fb60b7d0b42b35c27222132daa50e9f2923",
       "render_page_sha256": [
         "ee118b0f06cc381d0cc0c364dfa6e15e381577e152b3744df347f9ca9625da03",
         "038280dbe51ba2b44566e52e7d5c460b90c899f77c0f2dd7dbd6e2fdf0cd5293"
@@ -869,9 +779,9 @@
       "status": "passed",
       "component_version": "teaching_layout_v2.3",
       "tools": {
-        "compiler": "teaching_scene_v2.4",
+        "compiler": "teaching_scene_v2.3",
         "renderer": "teaching_native_v2.3",
-        "quality": "teaching_export_v2.4",
+        "quality": "teaching_export_v2.3",
         "python": "3.12.13",
         "font_family": "Noto Sans CJK SC",
         "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
@@ -895,7 +805,7 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_7957c24d829d62f292b42079",
+          "scene_digest": "scene_ae392e0dda001ad018dad16c",
           "editability": [
             "text"
           ]
@@ -904,25 +814,15 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_9a3eb86ab80abe105076148e",
+          "scene_digest": "scene_da3d374c510500779d1e4b04",
           "editability": [
             "text"
           ]
         }
       ],
-      "export_review": {
-        "schema_version": "slide_render_review_v1",
-        "reviewer": "post_export_pptx_object_audit",
-        "passed": true,
-        "page_count": 2,
-        "issues": [],
-        "blockers": [],
-        "repair_attempts": 0,
-        "pixel_audit": null
-      },
       "classroom_review": "pending",
-      "pptx_sha256": "a07fbc74da8326b99808210851d7339201986337967d0b5a58e46d78b0a2e9df",
-      "pdf_sha256": "4881caac2ca7c6b4ad2b2442625a8022dd5e56dfbede1963298f59f17c5c7a3b",
+      "pptx_sha256": "0c2d4c44bc70bf8ab2c354698019118109ff6b5d59f00a62056ac061a90545e1",
+      "pdf_sha256": "b9e90419f8831981bb8441c7b7d39a8620267ea65fd83aeb7a5ebcfe954064af",
       "render_page_sha256": [
         "ee118b0f06cc381d0cc0c364dfa6e15e381577e152b3744df347f9ca9625da03",
         "038280dbe51ba2b44566e52e7d5c460b90c899f77c0f2dd7dbd6e2fdf0cd5293"
@@ -947,9 +847,9 @@
       "status": "passed",
       "component_version": "teaching_layout_v2.3",
       "tools": {
-        "compiler": "teaching_scene_v2.4",
+        "compiler": "teaching_scene_v2.3",
         "renderer": "teaching_native_v2.3",
-        "quality": "teaching_export_v2.4",
+        "quality": "teaching_export_v2.3",
         "python": "3.12.13",
         "font_family": "Noto Sans CJK SC",
         "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
@@ -973,7 +873,7 @@
           "passed": true,
           "elements": 5,
           "relations": 2,
-          "scene_digest": "scene_f8bb2d64a96050360b54db4d",
+          "scene_digest": "scene_56b50f2760469cbae24b0b2c",
           "editability": [
             "text"
           ]
@@ -982,25 +882,15 @@
           "passed": true,
           "elements": 5,
           "relations": 2,
-          "scene_digest": "scene_a2a1aea8ded641b9dc37bb2a",
+          "scene_digest": "scene_fe569b042f1f8956978b1d44",
           "editability": [
             "text"
           ]
         }
       ],
-      "export_review": {
-        "schema_version": "slide_render_review_v1",
-        "reviewer": "post_export_pptx_object_audit",
-        "passed": true,
-        "page_count": 2,
-        "issues": [],
-        "blockers": [],
-        "repair_attempts": 0,
-        "pixel_audit": null
-      },
       "classroom_review": "pending",
-      "pptx_sha256": "3c98cc7a56eaef8f128e6d40b658486b8b48c1add8f65271ecaaac7e65b2be9a",
-      "pdf_sha256": "a68cb93e625cedbd8f0f028564ed9be6da9aefbe25a00d3799b528cb5ecffda9",
+      "pptx_sha256": "03a2bed3be714428d537f0cf44f796088a321d61eb455ccbeb3731101514baf8",
+      "pdf_sha256": "9b72cc1cad6afeb4d7b86aaec9324adc3bb63341a69ac2ffb2b76051f717b4aa",
       "render_page_sha256": [
         "fd2856b6bd72602a598f6b1a1eda95e78fc0b6861f635a17505149ac422aaf6f",
         "466e57aadd64a17436d94d7320c289c3baa8e8967c2dc3accbd634beb5b6fd85"
@@ -1025,9 +915,9 @@
       "status": "passed",
       "component_version": "teaching_layout_v2.3",
       "tools": {
-        "compiler": "teaching_scene_v2.4",
+        "compiler": "teaching_scene_v2.3",
         "renderer": "teaching_native_v2.3",
-        "quality": "teaching_export_v2.4",
+        "quality": "teaching_export_v2.3",
         "python": "3.12.13",
         "font_family": "Noto Sans CJK SC",
         "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
@@ -1051,7 +941,7 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_4de8e5b40c88e76b24adcb7d",
+          "scene_digest": "scene_89ab013a571081cd3db1b637",
           "editability": [
             "text"
           ]
@@ -1060,25 +950,15 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_073fd00256f9eb67f66a4bd3",
+          "scene_digest": "scene_76fef1014428ccc4864afe5a",
           "editability": [
             "text"
           ]
         }
       ],
-      "export_review": {
-        "schema_version": "slide_render_review_v1",
-        "reviewer": "post_export_pptx_object_audit",
-        "passed": true,
-        "page_count": 2,
-        "issues": [],
-        "blockers": [],
-        "repair_attempts": 0,
-        "pixel_audit": null
-      },
       "classroom_review": "pending",
-      "pptx_sha256": "43e7fae7c7304a411dd30adf1df5db3b49bca383868f301043e49060ebd8ab7d",
-      "pdf_sha256": "7fd688dab1f26503ee42a53d62fa3d4b5a01dafb56ec7370b90722b7d6a6f64e",
+      "pptx_sha256": "c81427a7025a5d6f619870c0fd6b39aed7bd9e62e7e01e15e6aba2a705965633",
+      "pdf_sha256": "72710fb5cba8e71a47cf1dd546e2c0cb4d26dfa095f7c8ab8fbeead0c601efee",
       "render_page_sha256": [
         "ee118b0f06cc381d0cc0c364dfa6e15e381577e152b3744df347f9ca9625da03",
         "038280dbe51ba2b44566e52e7d5c460b90c899f77c0f2dd7dbd6e2fdf0cd5293"
@@ -1103,9 +983,9 @@
       "status": "passed",
       "component_version": "teaching_layout_v2.3",
       "tools": {
-        "compiler": "teaching_scene_v2.4",
+        "compiler": "teaching_scene_v2.3",
         "renderer": "teaching_native_v2.3",
-        "quality": "teaching_export_v2.4",
+        "quality": "teaching_export_v2.3",
         "python": "3.12.13",
         "font_family": "Noto Sans CJK SC",
         "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
@@ -1129,7 +1009,7 @@
           "passed": true,
           "elements": 8,
           "relations": 0,
-          "scene_digest": "scene_b7d1e5f9c9618eb76fb11471",
+          "scene_digest": "scene_3fb40c98e8dba6fa435c5e05",
           "editability": [
             "native_shape",
             "text"
@@ -1139,7 +1019,7 @@
           "passed": true,
           "elements": 10,
           "relations": 0,
-          "scene_digest": "scene_84746e63342be8549a37ddca",
+          "scene_digest": "scene_e94f406d4c308eb05eb6b2a8",
           "editability": [
             "native_shape",
             "text"
@@ -1149,7 +1029,7 @@
           "passed": true,
           "elements": 8,
           "relations": 0,
-          "scene_digest": "scene_7e09d793bd6172a4f0a296cf",
+          "scene_digest": "scene_5bb5c0137bf5a68fa7efa01a",
           "editability": [
             "native_shape",
             "text"
@@ -1159,26 +1039,16 @@
           "passed": true,
           "elements": 10,
           "relations": 0,
-          "scene_digest": "scene_b89dcb4e5a6abfce69ace7b1",
+          "scene_digest": "scene_5550b7067bafef463a03668c",
           "editability": [
             "native_shape",
             "text"
           ]
         }
       ],
-      "export_review": {
-        "schema_version": "slide_render_review_v1",
-        "reviewer": "post_export_pptx_object_audit",
-        "passed": true,
-        "page_count": 4,
-        "issues": [],
-        "blockers": [],
-        "repair_attempts": 0,
-        "pixel_audit": null
-      },
       "classroom_review": "pending",
-      "pptx_sha256": "6154e3a89cd1b5febe2a05de6559625b51c0ec8abe14daa72ebf942f684119b4",
-      "pdf_sha256": "3eb0d32b0b0fb3f68ea16930d317bab19f6f0958ea865c9e9d3a0ab48916a6f2",
+      "pptx_sha256": "b2f3b4d0096fae8f2b722f56c315cd4b971f2519265fda7081de815fda061415",
+      "pdf_sha256": "4b3f9cd02ac1a5734768eb6ae80c6078a2b5b023f83330629729ff2cc768bfce",
       "render_page_sha256": [
         "8deca2a68e53a4113f2d02e88a48c007827c307e6c4045fc01a1d699db09b2be",
         "377c0665b6445af77c71561162806e9ac579e0027532178550be3a489814e807",

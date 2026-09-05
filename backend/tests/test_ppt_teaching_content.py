@@ -95,6 +95,28 @@ def test_intentionally_ragged_matrix_counterexample_preserves_missing_entry():
     assert "".join(c for c in projected.splitlines()[-1] if not c.isspace()) == "⎣45-1⎦"
 
 
+def test_inline_math_in_exact_quote_is_projected_without_changing_source():
+    from ppt_page_scene import display_element_text
+    from ppt_teaching_content import ScreenElement
+    original = r"将 $[1, 0, 4 \mid -1]$ 与 $[b_1, \dots, b_m]^T$ 对照。"
+    element = ScreenElement(element_id="quote", kind="quote", text=original,
+        sources=[{"block_id": "b", "block_revision": "r", "start": 0, "end": len(original), "quote": original}])
+    displayed = display_element_text(element)
+    assert "$" not in displayed and "\\" not in displayed
+    assert "∣" in displayed and "…" in displayed
+    assert element.text == element.sources[0].quote == original
+    element.kind = "code"
+    assert display_element_text(element) == original
+
+
+def test_math_projection_preserves_prose_and_refuses_unknown_commands():
+    from ppt_formula_projection import project_prose_math
+    assert project_prose_math("集合 {甲, 乙}，价格 $5 和 $10") == "集合 {甲, 乙}，价格 $5 和 $10"
+    assert project_prose_math(r"文件位于 C:\notes\lesson.txt") == r"文件位于 C:\notes\lesson.txt"
+    with pytest.raises(ValueError, match="teaching_formula_not_supported"):
+        project_prose_math(r"观察 $\unknown{x}$")
+
+
 @pytest.mark.parametrize("mutation,code", [
     (lambda v: v["expression"]["cells"].pop(), "comparison_matrix_incomplete"),
     (lambda v: v["expression"]["cells"][0].update(element_ids=["b-mode"]), "comparison_cell_identity_mismatch"),

@@ -402,6 +402,7 @@ def _text_frame_audit(shape: Any) -> dict[str, Any]:
     required_height = 0.0
     minimum_size = 10**9
     maximum_lines = 1
+    horizontal_overflow = False
     portable_width_safety_factor = (
         BALANCED_TWO_COLUMN_BODY_FONT_WIDTH_SAFETY_FACTOR
         if f"[v6-body-capacity={BALANCED_TWO_COLUMN_BODY_V1}]"
@@ -418,16 +419,37 @@ def _text_frame_audit(shape: Any) -> dict[str, Any]:
             font_size_pt=font_size,
             portable_width_safety_factor=portable_width_safety_factor,
         )
+        # A measured teaching scene writes explicit line breaks and disables
+        # automatic wrapping. Rewrapping with the Unicode width floor invents
+        # lines (even four Chinese characters in an exactly 80pt slot).
+        # Still measure every real line against the actual declared font so a
+        # no-wrap flag cannot hide horizontal overflow.
+        fixed_font = Path(__file__).resolve().parents[1] / "frontend/public/presentation-assets/fonts/NotoSansCJKsc-Regular.otf"
+        fixed_lines = (
+            frame.word_wrap is False
+            and paragraph.font.name == "Noto Sans CJK SC"
+            and all(run.font.name in (None, paragraph.font.name) for run in paragraph.runs)
+            and fixed_font.is_file()
+        )
+        if fixed_lines:
+            from PIL import ImageFont
+            measured_font = ImageFont.truetype(str(fixed_font), round(font_size * 4))
+            actual_lines = text.replace("\v", "\n").split("\n")
+            line_count = len(actual_lines)
+            horizontal_overflow |= any(measured_font.getlength(line) / 4 > width_pt + 0.01 for line in actual_lines)
         maximum_lines = max(maximum_lines, line_count)
         before = float(paragraph.space_before.pt) if paragraph.space_before else 0.0
         after = float(paragraph.space_after.pt) if paragraph.space_after else 0.0
-        required_height += line_count * font_size * 1.22 + before + after
+        spacing = paragraph.line_spacing
+        line_height = (spacing.pt if hasattr(spacing, "pt") else font_size * spacing if spacing else font_size * 1.22) if fixed_lines else font_size * 1.22
+        required_height += line_count * line_height + before + after
     return {
         # Keep only a small allowance for font-metric variance.  The previous
         # 18% tolerance let text visibly escape its semantic card while still
         # remaining inside the slide canvas (for example, dense two-column
         # bodies rendered by LibreOffice).
-        "overflow": required_height > max(height_pt * 1.02, height_pt + 2.0),
+        "overflow": horizontal_overflow or required_height > max(height_pt * 1.02, height_pt + 2.0),
+        "horizontal_overflow": horizontal_overflow,
         "required_height_pt": round(required_height, 2),
         "available_height_pt": round(height_pt, 2),
         "minimum_font_size_pt": 18.0 if minimum_size == 10**9 else minimum_size,
@@ -808,6 +830,7 @@ def audit_exported_pptx(
                 )
                 title_metric_variance_fits = bool(
                     is_title
+                    and not text_audit.get("horizontal_overflow")
                     and text_audit["required_height_pt"]
                     <= max(
                         text_audit["available_height_pt"] * 1.06,

@@ -16,13 +16,21 @@ from pptx import Presentation
 from pptx.util import Pt
 
 from ppt_layout_execution import ASSET_ROOT, LAYOUT_VERSION, LayoutExecution, certification_version, compile_teaching_template, file_digest, tool_identity
-from ppt_layout_samples import layout_sample, matrix_boundary_sample
+from ppt_layout_samples import formula_comparison_sample, layout_sample, matrix_boundary_sample
 from ppt_native_scene import audit_scene, clone_native_slide, inspect_native_bindings, inspect_native_connections, render_scene
 from ppt_page_scene import resolve_page_scenes
 from ppt_teaching_content import PageTeachingV2
 
 
 from ppt_render_audit import render_evidence
+
+
+def certify_export(path, count):
+    from slide_deck_renderer import audit_exported_pptx
+    report = audit_exported_pptx(path, expected_slide_count=count, require_pixel_audit=False)
+    if not report["passed"]:
+        raise ValueError(f"template_export_audit_failed:{report['blockers']}")
+    return report
 
 
 def native_artwork(source_path, execution, output):
@@ -91,7 +99,7 @@ def certify_native(source_path, specification_path, output, *, asset_repository=
     reports = [audit_scene(s, c) for s, c in zip(Presentation(path).slides, scenes, strict=True)]
     report = {"status": "passed", "component_version": LAYOUT_VERSION, "tools": tool_identity(),
         "checks": {"short": True, "normal": True, "long": True, "relations": True, "render": True},
-        "object_reports": reports, "classroom_review": "pending", **render_evidence(path, scenes)}
+        "object_reports": reports, "export_review": certify_export(path, len(scenes)), "classroom_review": "pending", **render_evidence(path, scenes)}
     execution.certification = report
     (output / "execution.json").write_text(execution.model_dump_json(indent=2) + "\n")
     print(json.dumps({"status": "passed", "mode": "native_fill", "physical_pages": len(scenes)}, ensure_ascii=False))
@@ -133,6 +141,9 @@ def certify(theme, slugs, output, publish):
             for count in (3, 4):
                 scenes.extend(resolve_page_scenes(page_id=f"matrix-boundary-{count}", title="比较矩阵边界容量测试", content=matrix_boundary_sample(count),
                     layout=layout, template=template, source_document_revision="sample-v1"))
+        if slug in {"compare-matrix", "compare-visual"}:
+            scenes.extend(resolve_page_scenes(page_id="formula-counterexample", title="矩阵与缺项反例", content=formula_comparison_sample(),
+                layout=layout, template=template, source_document_revision="sample-v1"))
         for scene in scenes:
             slide = deck.slides.add_slide(deck.slide_layouts[6])
             render_scene(slide, scene)
@@ -150,7 +161,7 @@ def certify(theme, slugs, output, publish):
             raise ValueError("long_text_was_not_rejected")
         report = {"status": "passed", "component_version": LAYOUT_VERSION, "tools": tool_identity(),
             "checks": {"short": True, "normal": True, "long": True, "relations": True, "render": True},
-            "object_reports": reports, "classroom_review": "pending", **render_evidence(path, scenes)}
+            "object_reports": reports, "export_review": certify_export(path, len(scenes)), "classroom_review": "pending", **render_evidence(path, scenes)}
         manifest["layouts"][slug] = report
         (output / f"{slug}-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
         print(json.dumps({"layout": slug, "status": "passed", "physical_pages": len(scenes)}, ensure_ascii=False), flush=True)

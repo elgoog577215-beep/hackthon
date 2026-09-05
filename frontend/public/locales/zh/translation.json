@@ -1647,6 +1647,7 @@
     "batchUnit": "批",
     "manuscriptLabel": "页面内容稿",
     "pageUnit": "页",
+    "manuscriptPageCounts": "{logical} 个内容页 · 导出 {physical} 页",
     "manuscriptBound": "已绑定讲义与版式",
     "manuscriptWorkflowEyebrow": "PPT 生成",
     "manuscriptWorkflowDescription": "先确认每页怎样教，再生成可编辑 PPT。",

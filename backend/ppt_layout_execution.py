@@ -136,6 +136,7 @@ def capability_summary(template) -> list[dict]:
         "font_floor_pt": l.execution.font_floor_pt,
         "composition_guidance": (
             "Common conditions and the optional question each use one short line. The conclusion uses one short line. "
+            "Subject column headers also fit only ONE short line: use a concise identity label, not a complete explanation. "
             "All cells remain in their fixed subject-column and dimension-row. Four dimensions permit only short cell labels; "
             "Rows share the available height according to measured text/formula height; complex comparisons need fewer dimensions. "
             "A multiline formula, code or diagram normally needs ONE dimension and few elements per cell. "

@@ -11,19 +11,11 @@ from ppt_teaching_content import ChartExpression, ComparisonExpression, Contract
 
 
 def display_element_text(element):
+    from ppt_formula_projection import project_formula, project_prose_math
     if element.kind == "formula":
-        from ppt_formula_projection import project_matrix
-        matrix = project_matrix(element.text)
-        if matrix is not None:
-            return matrix
-        from slide_deck_renderer import _format_formula_text
-        text = _format_formula_text(element.text)
-        if "\\" in text or "$" in text:
-            raise ValueError(f"teaching_formula_not_supported:{element.element_id}")
-        return text
-    if element.kind == "text":
-        from slide_deck_renderer import _display_text
-        return _display_text(element.text)
+        return project_formula(element.text)
+    if element.kind in {"text", "quote"}:
+        return project_prose_math(element.text)
     return element.text
 
 

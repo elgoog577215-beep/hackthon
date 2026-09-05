@@ -294,17 +294,32 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
         item_id = f"teaching-page-{plan.page_id}"
         error = next((c.get("validation_error", "") for c in reversed(checkpoint["calls"]) if c["item_id"] == item_id), "")
         previous_candidate = checkpoint["draft_pages"].get(plan.page_id)
+        repair_parts, repair_index = None, None
 
         async def accept(response):
+            nonlocal repair_parts, repair_index
+            repair_parts, repair_index = None, None
             responses = response.get("pages") if isinstance(response, dict) and "pages" in response else [response]
             if not isinstance(responses, list) or not 1 <= len(responses) <= 12:
                 raise ValueError("teaching_page_group_invalid")
-            revisions = [PageRevision.model_validate(normalize_page_response(part,
-                {b: sources[b] for b in plan.source_block_ids}, source_context.get("accepted_visual_expressions", []))) for part in responses]
-            planned = [revised_plan({**plan.model_dump(mode="json"),
-                "page_id": plan.page_id if len(revisions) == 1 else f"{plan.page_id}-part-{i + 1}"}, revision.model_dump(mode="json"))
-                for i, revision in enumerate(revisions)]
             subgraph = graph.model_copy(update={"formal_block_ids": plan.source_block_ids})
+            revisions, planned = [], []
+            for index, part in enumerate(responses):
+                try:
+                    if not isinstance(part, dict):
+                        raise ValueError("teaching_page_draft_invalid: each page must be an object")
+                    revision = PageRevision.model_validate(normalize_page_response(part,
+                        {b: sources[b] for b in plan.source_block_ids}, source_context.get("accepted_visual_expressions", [])))
+                    item = revised_plan({**plan.model_dump(mode="json"),
+                        "page_id": plan.page_id if len(responses) == 1 else f"{plan.page_id}-part-{index + 1}"}, revision.model_dump(mode="json"))
+                    compile_teaching_manuscript(document, subgraph, template, narrative.narrative_brief,
+                        [item], source_context=source_context)
+                except (ValueError, V6BuildError):
+                    if len(responses) > 1:
+                        repair_parts, repair_index = deepcopy(responses), index
+                    raise
+                revisions.append(revision)
+                planned.append(item)
             single = compile_teaching_manuscript(document, subgraph, template, narrative.narrative_brief,
                 planned, source_context=source_context)
             checkpoint["pages"][plan.page_id] = single.pages[0].teaching.model_dump(mode="json")
@@ -320,14 +335,22 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
             else:
                 continue
         for attempt in range(3):
-            response = await invoke({"teaching_request": "page", "page": plan.model_dump(mode="json"),
+            request_plan = plan.model_dump(mode="json")
+            request_candidate = previous_candidate
+            if repair_parts is not None:
+                request_candidate = repair_parts[repair_index]
+                if isinstance(request_candidate, dict):
+                    request_plan.update({key: request_candidate[key] for key in ("title", "page_goal", "layout_id") if request_candidate.get(key)})
+            response = await invoke({"teaching_request": "page", "page": request_plan,
                 "narrative_brief": narrative.narrative_brief, "response_contract": page_response_contract(),
                 "comparison_instruction": "Fill every subject-by-dimension cell with source-backed content. Do not return empty cells: use show_from to reveal values later. All object/dimension labels and shared conditions must appear before any cell. reveal_notes has one note per reveal step. The compiler assigns IDs and source ranges; you provide only semantic keys and exact quotes.",
                 "sources": [sources[b] for b in plan.source_block_ids], "layout_capabilities": capability_summary(template),
                 "literal_source_ranges": source_excerpt_catalog({b: sources[b] for b in plan.source_block_ids}),
                 "accepted_visual_expressions": [v for v in source_context.get("accepted_visual_expressions", []) if v["source_block_id"] in plan.source_block_ids],
                 "source_instruction": "Prefer sources=[{quote_id: supplied_id}]. For formula/code/data/quote set use_source_text=true and omit text; the compiler copies the selected quote exactly, including delimiters and whitespace. Choose a range containing only the desired artifact, not its surrounding paragraph. For ordinary text write a concise summary and cite supporting quote IDs.",
-                "validation_error": error, "previous_candidate": previous_candidate,
+                "validation_error": error, "previous_candidate": request_candidate,
+                "repair_scope": ("Return only the failing subpage shown in previous_candidate, or split that subpage into pages. "
+                    "Other subpages are preserved by the compiler; do not repeat them." if repair_parts is not None else "Current page task"),
                 "repair_instruction": (
                     "Capacity failure: recompose this target page to its stated goal only. You may return a different layout_id "
                     "from this template's capabilities when its expression kind better fits the task. Graph nodes need concise labels, "
@@ -345,6 +368,10 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
                     if "capacity" in error or "too_long" in error else
                     "Correct the reported field or relation, preserve other valid meaning, and return the complete page."
                 )}, item_id)
+            if repair_parts is not None:
+                parts = response.get("pages") if "pages" in response else [response]
+                if isinstance(parts, list):
+                    response = {"pages": [*repair_parts[:repair_index], *parts, *repair_parts[repair_index + 1:]]}
             previous_candidate = response
             checkpoint["draft_pages"][plan.page_id] = response
             try:
@@ -353,6 +380,8 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
             except (ValueError, V6BuildError) as exc:
                 error = page_failure_message(exc)
                 error = re.sub(r"cell-(\d+)-(\d+)", lambda m: f"cells[{m[1]}].content[{m[2]}].text", error)
+                error = re.sub(r"subject-(\d+)", lambda m: f"subjects[{m[1]}].text", error)
+                error = re.sub(r"dimension-(\d+)", lambda m: f"dimensions[{m[1]}].text", error)
                 checkpoint["calls"][-1]["validation_error"] = error
                 await save({"phase": "repair", "item_id": item_id})
         else:

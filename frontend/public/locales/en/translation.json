@@ -1647,6 +1647,7 @@
     "batchUnit": "batches",
     "manuscriptLabel": "Slide content draft",
     "pageUnit": "slides",
+    "manuscriptPageCounts": "{logical} content pages · {physical} exported slides",
     "manuscriptBound": "Bound to the handout and layout plan",
     "manuscriptWorkflowEyebrow": "PPT generation",
     "manuscriptWorkflowDescription": "Confirm how each slide teaches before generating an editable PPT.",
