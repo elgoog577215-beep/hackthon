@@ -502,9 +502,24 @@ if not isinstance(payload.get("results"), list):
 preflight_release_runtime() {
     log "预检新版本后端运行时导入：$TARGET_COMMIT"
     (
+        if [ -f "$STATE_DIR/.env" ]; then
+            set -a
+            # shellcheck disable=SC1090
+            . "$STATE_DIR/.env"
+            set +a
+        fi
         cd "$release_path/backend"
-        "$VENV/bin/python" -c 'import main'
+        runuser --user lingzhi -- \
+            env LINGZHI_TASK_RUNTIME_MODE=read_only \
+            "$VENV/bin/python" -c 'import main'
     )
+}
+
+normalize_backend_data_permissions() {
+    chmod 755 "$STATE_DIR"
+    install -d -o lingzhi -g lingzhi -m 750 "$STATE_DIR/backend-data"
+    chown -R lingzhi:lingzhi "$STATE_DIR/backend-data"
+    chmod 750 "$STATE_DIR/backend-data"
 }
 
 bootstrap_runtime() {
@@ -546,7 +561,7 @@ bootstrap_runtime() {
         systemctl daemon-reload
     fi
     systemctl enable "$SERVICE_NAME" >/dev/null
-    chown -R lingzhi:lingzhi "$STATE_DIR"
+    normalize_backend_data_permissions
 }
 
 log_service_diagnostics() {
@@ -574,6 +589,10 @@ rollback() {
         fi
         systemctl reset-failed "$SERVICE_NAME" || true
         systemctl restart "$SERVICE_NAME" || true
+        if ! wait_for_health; then
+            log "回滚版本未通过健康检查：$HEALTH_URL"
+            log_service_diagnostics
+        fi
     fi
     active_path="$(current_release)"
     if [ -n "$release_path" ] \
@@ -699,6 +718,8 @@ if [ ! -f "$STATE_DIR/backend-data/generation_jobs.json" ] \
     install -m 600 "$CURRENT_LINK/backend/tasks.json" \
         "$STATE_DIR/backend-data/generation_jobs.json"
 fi
+
+normalize_backend_data_permissions
 
 if [ -d "$CURRENT_LINK" ] && [ ! -L "$CURRENT_LINK" ]; then
     legacy_path="$BASE_DIR/legacy-hackthon-$timestamp"

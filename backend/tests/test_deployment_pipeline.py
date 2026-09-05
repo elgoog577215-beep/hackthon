@@ -135,7 +135,8 @@ def test_server_activation_preflights_and_recovers_systemd_runtime() -> None:
     preflight = script.index("\npreflight_release_runtime\n", activation)
     stop_service = script.index('systemctl stop "$SERVICE_NAME"', preflight)
     rollback = script.index("rollback()")
-    health_failure = script.index("if ! wait_for_health")
+    restart = script.index('systemctl restart "$SERVICE_NAME"', activation)
+    health_failure = script.index("if ! wait_for_health", restart)
     diagnostics = script.index("log_service_diagnostics", health_failure)
     fail_activation = script.index("\n    false", health_failure)
 
@@ -145,10 +146,77 @@ def test_server_activation_preflights_and_recovers_systemd_runtime() -> None:
     assert 'systemctl reset-failed "$SERVICE_NAME" || true' in script[rollback:]
 
 
+def test_server_activation_preflight_runs_as_the_service_user() -> None:
+    script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
+
+    preflight = script[
+        script.index("preflight_release_runtime()") : script.index(
+            "bootstrap_runtime()"
+        )
+    ]
+
+    assert "runuser --user lingzhi --" in preflight
+    assert "LINGZHI_TASK_RUNTIME_MODE=read_only" in preflight
+    assert '"$VENV/bin/python" -c \'import main\'' in preflight
+    main = (ROOT / "backend" / "main.py").read_text()
+    assert 'runtime_mode=os.getenv("LINGZHI_TASK_RUNTIME_MODE") or "leader"' in main
+
+
+def test_server_activation_normalizes_only_persistent_backend_data_permissions() -> None:
+    script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
+
+    permissions = script[
+        script.index("normalize_backend_data_permissions()") : script.index(
+            "log_service_diagnostics()"
+        )
+    ]
+    activation = script.index("\nvalidate_settings\n")
+    legacy_install = script.index(
+        '"$STATE_DIR/backend-data/generation_jobs.json"', activation
+    )
+    permission_refresh = script.index(
+        "\nnormalize_backend_data_permissions\n", legacy_install
+    )
+    restart = script.index('systemctl restart "$SERVICE_NAME"', permission_refresh)
+
+    assert 'chmod 755 "$STATE_DIR"' in permissions
+    assert 'install -d -o lingzhi -g lingzhi -m 750 "$STATE_DIR/backend-data"' in permissions
+    assert 'chown -R lingzhi:lingzhi "$STATE_DIR/backend-data"' in permissions
+    assert 'chown -R lingzhi:lingzhi "$STATE_DIR"' not in script
+    assert permission_refresh < restart
+
+
+def test_server_rollback_waits_for_restored_release_health() -> None:
+    script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
+    rollback = script[script.index("rollback()") : script.index("trap rollback ERR")]
+
+    switch = rollback.index('switch_current "$previous_path"')
+    restart = rollback.index('systemctl restart "$SERVICE_NAME"', switch)
+    health = rollback.index("if ! wait_for_health", restart)
+
+    assert switch < restart < health
+    assert "log_service_diagnostics" in rollback[health:]
+    assert 'exit "$exit_code"' in rollback[health:]
+
+
+def test_wait_for_health_is_bounded() -> None:
+    script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
+    health = script[
+        script.index("wait_for_health()") : script.index("verify_locale_assets()")
+    ]
+
+    assert 'for attempt in $(seq 1 "$HEALTH_ATTEMPTS")' in health
+    assert 'curl --fail --silent --show-error --max-time 2 "$HEALTH_URL"' in health
+    assert 'sleep "$HEALTH_INTERVAL_SECONDS"' in health
+    assert "return 1" in health
+
+
 def test_server_activation_verifies_both_locale_assets_before_completion() -> None:
     script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
 
-    health_check = script.index("if ! wait_for_health")
+    activation = script.index("\nvalidate_settings\n")
+    restart = script.index('systemctl restart "$SERVICE_NAME"', activation)
+    health_check = script.index("if ! wait_for_health", restart)
     locale_check = script.index("if ! verify_locale_assets", health_check)
     deployment_complete = script.index('log "部署完成：$TARGET_COMMIT"')
 
@@ -168,6 +236,20 @@ def test_server_activation_script_has_valid_bash_syntax() -> None:
     )
 
 
+def test_failure_restore_script_waits_for_health_and_reports_diagnostics() -> None:
+    script_path = ROOT / "scripts" / "github-action-restore.sh"
+    script = script_path.read_text()
+
+    restart = script.index("systemctl restart lingzhi")
+    health = script.index('for attempt in $(seq 1 "$HEALTH_ATTEMPTS")', restart)
+
+    assert 'HEALTH_URL="${LINGZHI_HEALTH_URL:-http://127.0.0.1:7862/health}"' in script
+    assert restart < health
+    assert "systemctl show lingzhi" in script[health:]
+    assert "journalctl -u lingzhi" in script[health:]
+    subprocess.run(["bash", "-n", str(script_path)], check=True)
+
+
 def test_workflow_builds_artifact_before_tuotu_activation() -> None:
     workflow = (ROOT / ".github" / "workflows" / "deploy-lingzhi.yml").read_text()
 
@@ -183,6 +265,7 @@ def test_workflow_builds_artifact_before_tuotu_activation() -> None:
     assert "secrets.LINGZHI_SSH_USER" in workflow
     assert "secrets.LINGZHI_SSH_KEY" in workflow
     assert "scripts/github-action-deploy.sh" in workflow
+    assert "scripts/github-action-restore.sh" in workflow
     assert "LINGZHI_DEPLOY_BUSY=true" in workflow
     assert "env.LINGZHI_DEPLOY_BUSY != 'true'" in workflow
 
@@ -199,6 +282,7 @@ def test_server_activation_bootstraps_an_isolated_systemd_runtime() -> None:
     assert 'PIP_NO_CACHE_DIR=1 "$VENV/bin/pip" install' in script
     assert 'chmod 755 "$release_path"' in script
     assert "User=lingzhi" in unit
+    assert "ExecStart=/usr/bin/env LINGZHI_TASK_RUNTIME_MODE=leader" in unit
     assert "WorkingDirectory=/opt/lingzhi/hackthon/backend" in unit
     assert "127.0.0.1 --port 7862" in unit
 

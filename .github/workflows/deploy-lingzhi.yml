@@ -289,4 +289,5 @@ jobs:
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            "set -e; if [ -d '$LINGZHI_PREVIOUS_RELEASE' ]; then ln -sfn '$LINGZHI_PREVIOUS_RELEASE' /opt/lingzhi/hackthon; fi; if [ -f '$LINGZHI_ENV_BACKUP' ]; then install -m 600 '$LINGZHI_ENV_BACKUP' /opt/lingzhi/state/.env; elif [ -f '$LINGZHI_ENV_BACKUP.empty' ]; then rm -f /opt/lingzhi/state/.env; fi; systemctl restart lingzhi; curl -fsS --max-time 10 http://127.0.0.1:7862/health >/dev/null"
+            "LINGZHI_PREVIOUS_RELEASE='$LINGZHI_PREVIOUS_RELEASE' LINGZHI_ENV_BACKUP='$LINGZHI_ENV_BACKUP' bash -s" \
+            < scripts/github-action-restore.sh

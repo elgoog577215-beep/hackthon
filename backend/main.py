@@ -108,7 +108,7 @@ try:
         course_service,
         ws_service,
         document_repository=course_repository,
-        runtime_mode="leader",
+        runtime_mode=os.getenv("LINGZHI_TASK_RUNTIME_MODE") or "leader",
     )
     ws_service.set_command_handler(task_manager.handle_command)
     init_task_manager(task_manager)
