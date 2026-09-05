@@ -2,7 +2,7 @@
   <div class="h-full flex flex-col relative">
     <!-- Reading Progress Bar - Positioned below header -->
     <div v-if="scrollProgress > 0 && !isGenerationPreview" class="absolute top-0 left-0 right-0 h-1 bg-slate-100/50 z-10">
-        <div class="h-full reading-progress-fill bg-gradient-to-r from-primary-400 to-primary-600 shadow-[0_0_10px_rgba(99,102,241,0.5)]" :style="{ transform: `scaleX(${scrollProgress / 100})` }"></div>
+        <div class="h-full reading-progress-fill" :style="{ transform: `scaleX(${scrollProgress / 100})` }"></div>
     </div>
 
     <div
@@ -388,7 +388,7 @@
     <transition name="back-to-top">
         <button v-if="showBackToTop"
                 type="button"
-                class="back-to-top p-3 bg-white/90 backdrop-blur-md border border-slate-200 rounded-full shadow-lg text-slate-500 hover:text-primary-600 hover:border-primary-300 hover:shadow-xl hover:shadow-primary-100/50 transition-all active:scale-95"
+                class="back-to-top"
                 :title="t('courseWorkspace.backToTop', '回到正文顶部')"
                 :aria-label="t('courseWorkspace.backToTop', '回到正文顶部')"
                 @click="scrollToTop">
@@ -2563,7 +2563,7 @@ defineExpose({
     50% { background-color: rgba(251, 191, 36, 0.8); box-shadow: 0 0 10px rgba(245, 158, 11, 0.5); }
 }
 
-.reading-progress-fill { width:100%; transform-origin:left; transition:transform .3s ease-out; }
+.reading-progress-fill { width:100%; background:var(--color-primary-400); transform-origin:left; transition:transform .16s var(--ease-out); }
 
 .back-to-top:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
 
@@ -2572,20 +2572,32 @@ defineExpose({
     right: 20px;
     bottom: 20px;
     z-index: 20;
-    transition: all 0.3s ease;
+    width: 48px;
+    height: 48px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--lz-border);
+    border-radius: 50%;
+    color: var(--lz-text-secondary);
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(15,23,42,.06);
+    cursor: pointer;
+    transition: color .22s var(--ease-out), background-color .22s var(--ease-out), border-color .22s var(--ease-out), box-shadow .22s var(--ease-out);
 }
+.back-to-top:hover { color:var(--lz-brand-strong); background:#fafafe; border-color:var(--color-primary-200); box-shadow:0 2px 6px rgba(15,23,42,.06); }
+.back-to-top:active { background:var(--color-primary-50); box-shadow:none; }
 
 /* back-to-top transition animations */
 
 .back-to-top-enter-active,
 .back-to-top-leave-active {
-    transition: all 0.3s ease;
+    transition: opacity .18s var(--ease-out), transform .18s var(--ease-out);
 }
 
 .back-to-top-enter-from,
 .back-to-top-leave-to {
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(4px);
 }
 
 @media (prefers-reduced-motion:reduce) { .reading-progress-fill,.back-to-top,.back-to-top-enter-active,.back-to-top-leave-active { transition:none; } }

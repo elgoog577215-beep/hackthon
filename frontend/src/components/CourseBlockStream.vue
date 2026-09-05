@@ -413,8 +413,9 @@ async function deleteAiRecord(note: Note) {
 .course-content-block.can-improve-formal .block-heading { padding-right:120px; }
 .block-heading span { flex:0 0 auto; display:inline-flex; align-items:center; min-height:25px; padding:3px 8px; border:1px solid color-mix(in srgb,var(--block-accent) 18%,white); border-radius:8px; color:var(--block-accent); background:var(--block-soft); font-size:11px; font-weight:800; line-height:1; }
 .block-heading h4 { margin:0; color:var(--lz-text-strong); font-size:18px; font-weight:750; line-height:1.35; }
-.block-formal-improvement { position:absolute; top:-2px; right:0; z-index:3; min-height:29px; display:inline-flex; align-items:center; gap:5px; padding:0 8px; border:1px solid rgba(203,213,225,.7); border-radius:8px; color:#1e293b; background:rgba(255,255,255,.9); font-size:10px; opacity:.68; pointer-events:auto; cursor:pointer; transition:opacity .16s ease,color .16s ease,border-color .16s ease,background .16s ease,transform .16s ease; }
-.block-formal-improvement:hover,.block-formal-improvement:focus-visible,.course-content-block:hover > .block-formal-improvement { opacity:1; pointer-events:auto; color:var(--lz-text-secondary); border-color:#cbd5e1; background:#fff; outline:none; transform:translateY(-1px); }
+.block-formal-improvement { position:absolute; top:-2px; right:0; z-index:3; min-height:29px; display:inline-flex; align-items:center; gap:5px; padding:0 8px; border:1px solid rgba(203,213,225,.7); border-radius:8px; color:#1e293b; background:rgba(255,255,255,.9); font-size:10px; opacity:.68; pointer-events:auto; cursor:pointer; transition:opacity .22s var(--ease-out),color .22s var(--ease-out),border-color .22s var(--ease-out),background-color .22s var(--ease-out); }
+.block-formal-improvement:hover,.block-formal-improvement:focus-visible,.course-content-block:hover > .block-formal-improvement { opacity:1; pointer-events:auto; color:var(--lz-text-secondary); border-color:#cbd5e1; background:#fff; outline:none; }
+.block-formal-improvement:focus-visible { outline:2px solid var(--lz-brand-strong); outline-offset:2px; }
 .course-content-block[data-content-block-type="intro"],
 .course-content-block[data-content-block-type="orientation"] { --block-accent:#7c3aed; --block-soft:#f5f3ff; }
 .course-content-block[data-content-block-type="prerequisite"] { --block-accent:#475569; --block-soft:#f8fafc; }
@@ -441,8 +442,8 @@ async function deleteAiRecord(note: Note) {
 .chapter-sources > header strong { color:#334155; font-size:11px; }
 .chapter-sources > header small { color:#64748b; font-size:9px; }
 .chapter-sources > div { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:8px; }
-.chapter-source-card { min-width:0; display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:2px 7px; border:1px solid #e2e8f0; border-radius:10px; padding:8px 9px; color:#334155; background:#fff; text-decoration:none; transition:border-color .16s ease,transform .16s ease; }
-.chapter-source-card:hover { transform:translateY(-1px); border-color:#a5b4fc; }
+.chapter-source-card { min-width:0; display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:2px 7px; border:1px solid #e2e8f0; border-radius:10px; padding:8px 9px; color:#334155; background:#fff; text-decoration:none; transition:border-color .22s var(--ease-out); }
+.chapter-source-card:hover { border-color:#a5b4fc; }
 .chapter-source-card > span { grid-row:1/3; border-radius:6px; padding:4px 5px; color:#4338ca; background:#eef2ff; font-size:9px; font-weight:800; }
 .chapter-source-card > strong { overflow:hidden; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
 .chapter-source-card > small { color:#64748b; font-size:8px; }
@@ -464,6 +465,7 @@ async function deleteAiRecord(note: Note) {
   .block-formal-improvement span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
 }
 @media (prefers-reduced-motion:reduce) {
+  .block-formal-improvement,.chapter-source-card { transition:none; }
   .course-content-block.is-ai-growth-primary { animation:none; }
   .course-content-block.is-ppt-same-source-pulse { animation:none; }
 }
