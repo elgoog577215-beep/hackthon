@@ -1,5 +1,5 @@
 <template>
-  <li v-if="visible" class="navigator-node" :class="{ 'lesson-node': isLesson }">
+  <li v-if="visible" class="navigator-node">
     <button
       type="button"
       :class="[
@@ -16,20 +16,16 @@
       :aria-expanded="hasDisclosure ? disclosureExpanded : undefined"
       :aria-controls="hasDisclosure ? disclosureId : undefined"
       :aria-current="isNodeActive ? 'location' : undefined"
-      :aria-label="isLesson ? node.node_name : undefined"
+      :aria-label="node.node_name"
       @click="handleNodeClick"
       @keydown.left.prevent="collapseDisclosure"
       @keydown.right.prevent="expandDisclosure"
     >
-      <template v-if="!isLesson">
-        <ChevronRight v-if="hasDisclosure" :size="13" :class="{ open: disclosureExpanded }" @click.stop="toggleDisclosure" />
-        <span v-else class="node-spacer"></span>
-        <span v-if="isChapter" class="node-kind chapter-kind"><BookOpenText :size="14" /></span>
-        <span v-else class="node-kind leaf-kind" :class="[{ active: isNodeActive, learned: isLearned }, generationState]"></span>
-      </template>
-      <span v-else class="lesson-number" aria-hidden="true">{{ lessonNumber }}</span>
-      <span class="node-label" :title="node.node_name"><MathText :content="isLesson ? lessonTitle : node.node_name" /></span>
-      <span class="node-indicators">
+      <ChevronRight v-if="hasDisclosure" :size="13" :class="{ open: disclosureExpanded }" @click.stop="toggleDisclosure" />
+      <span v-else class="node-spacer"></span>
+      <span v-if="isChapter" class="node-kind chapter-kind"><BookOpenText :size="14" /></span>
+      <span v-else class="node-kind leaf-kind" :class="[{ active: isNodeActive, learned: isLearned }, generationState]"></span>
+      <span class="node-label" :title="node.node_name"><MathText :content="node.node_name" /></span>
       <span v-if="adaptationMarker" class="adaptation-marker" :data-state="adaptationMarker.state" :title="adaptationMarker.title">
         {{ adaptationMarker.label }}<b>{{ adaptationMarker.count }}</b>
       </span>
@@ -45,8 +41,6 @@
       <CheckCircle2 v-else-if="progress?.mastery_status === 'mastered'" :size="13" class="status mastered" />
       <CircleDot v-else-if="isNodeActive" :size="13" class="status current" />
       <span v-else-if="progress?.reading_status === 'learned'" class="read-dot"></span>
-      <ChevronRight v-if="isLesson && hasDisclosure" :size="14" class="lesson-disclosure" :class="{ open: disclosureExpanded }" @click.stop="toggleDisclosure" />
-      </span>
     </button>
     <ol
       v-if="showBlockOutline"
@@ -112,8 +106,6 @@ const props = withDefaults(defineProps<{
   activeBlockId?: string
   query?: string
   depth?: number
-  lessonNumber?: string
-  lessonTitle?: string
 }>(), { activeId: '', activeBlockId: '', query: '', depth: 0 })
 const emit = defineEmits<{
   (event: 'select', node: Node): void
@@ -122,7 +114,6 @@ const emit = defineEmits<{
 const progressStore = useLearningProgressStore()
 const courseStore = useCourseStore()
 const evolutionStore = useCourseEvolutionStore()
-const isLesson = computed(() => Boolean(props.lessonNumber))
 const containsActiveNode = (node: Node): boolean => (
   node.node_id === props.activeId
   || Boolean(node.children?.some(containsActiveNode))
@@ -340,9 +331,7 @@ const blockOutlineId = computed(() => `course-block-outline-${selectionNode.valu
 const disclosureId = computed(() => (
   hasChildren.value ? `course-node-children-${props.node.node_id}` : blockOutlineId.value
 ))
-const visible = computed(() => {
-  return navigationNodeMatches(props.node, normalizedQuery.value, role => blockRoleLabel(role as CourseDocumentBlock['role']))
-})
+const visible = computed(() => navigationNodeMatches(props.node, normalizedQuery.value, role => blockRoleLabel(role as CourseDocumentBlock['role'])))
 const toggleDisclosure = () => {
   if (hasChildren.value) expanded.value = !expanded.value
   else if (hasBlockOutline.value) {
@@ -388,7 +377,8 @@ watch(() => props.activeId, (value, previous) => {
 .navigator-node ul { position:relative; margin:1px 0 4px 19px; padding:1px 0 2px 12px; border-left:1px dashed rgba(167,180,214,.72); transition:border-color .18s ease; }
 .navigator-node ul:hover { border-left-color:rgba(139,92,246,.52); }
 .navigator-node ul::before { content:""; position:absolute; top:0; left:-1px; width:8px; height:1px; background:rgba(165,180,252,.48); }
-.node-button { position:relative; width:100%; min-height:38px; display:grid; grid-template-columns:13px 24px minmax(0,1fr) auto; align-items:center; gap:7px; overflow:hidden; padding:5px 8px; border:1px solid transparent; border-radius:11px; color:var(--lz-text-secondary); background:transparent; text-align:left; cursor:pointer; transition:transform .16s ease,color .16s ease,background .16s ease,border-color .16s ease,box-shadow .16s ease; }
+.node-button { position:relative; width:100%; min-height:38px; display:grid; grid-template-columns:13px 24px minmax(0,1fr) auto auto; align-items:center; gap:7px; overflow:hidden; padding:5px 8px; border:1px solid transparent; border-radius:11px; color:var(--lz-text-secondary); background:transparent; text-align:left; cursor:pointer; transition:transform .16s ease,color .16s ease,background .16s ease,border-color .16s ease,box-shadow .16s ease; }
+.node-button:focus-visible { outline:2px solid var(--lz-brand-strong); outline-offset:-2px; }
 .node-button::before { content:""; position:absolute; left:0; top:50%; width:3px; height:0; border-radius:0 4px 4px 0; background:linear-gradient(180deg,#818cf8,#7c3aed); transform:translateY(-50%); transition:height .18s ease; }
 .node-button:hover { transform:translateX(1px); color:var(--lz-text-strong); background:rgba(255,255,255,.7); }
 .node-button.active { border-color:rgba(255,255,255,.9); color:var(--lz-brand-strong); background:linear-gradient(90deg,rgba(255,255,255,.96),rgba(238,242,255,.84)); box-shadow:0 7px 18px rgba(99,102,241,.11),inset 0 1px 0 #fff; font-weight:700; }
@@ -460,25 +450,6 @@ watch(() => props.activeId, (value, previous) => {
 .status.generation.failed { color:#dc2626; }
 .status.spinning { animation:navigator-generation-spin .9s linear infinite; }
 .read-dot { width: 6px; height: 6px; border-radius: 50%; background: #94a3b8; }
-.node-indicators { display:flex; align-items:center; justify-content:flex-end; gap:6px; }
-.node-indicators:empty { display:none; }
-.lesson-node > .node-button { grid-template-columns:34px minmax(0,1fr) auto; align-items:center; gap:10px; min-height:72px; margin:4px 0; padding:11px 10px 11px 12px; border-radius:14px; font-weight:500; color:var(--lz-text); }
-.lesson-node > .node-button::before { left:0; width:3px; background:linear-gradient(180deg,var(--color-primary-400),var(--color-secondary-600)); }
-.lesson-node > .node-button:hover { border-color:rgba(255,255,255,.92); background:rgba(255,255,255,.76); transform:none; box-shadow:0 3px 10px rgba(79,70,229,.04); }
-.lesson-node > .node-button.active { border-color:#fff; color:var(--lz-brand-strong); background:linear-gradient(110deg,#fff,var(--lz-brand-soft)); box-shadow:var(--lz-shadow-panel); }
-.lesson-node > .node-button.active::before { height:30px; }
-.lesson-node > .node-button:active { background:var(--lz-surface-muted); box-shadow:inset 0 1px 3px rgba(79,70,229,.08); }
-.node-button:focus-visible { outline:2px solid var(--lz-brand-strong); outline-offset:-2px; }
-.lesson-number { width:34px; height:36px; display:grid; place-items:center; border:1px solid var(--color-primary-100); border-radius:11px; color:var(--lz-brand-strong); background:linear-gradient(145deg,#fff,var(--color-primary-50)); box-shadow:var(--shadow-clay-sm); font-size:15px; line-height:1; font-weight:600; font-variant-numeric:tabular-nums; transition:color var(--duration-fast),background var(--duration-fast),box-shadow var(--duration-fast); }
-.lesson-node .node-button.active .lesson-number { border-color:rgba(255,255,255,.72); color:#fff; background:linear-gradient(145deg,var(--color-primary-600),var(--color-secondary-600)); box-shadow:0 4px 10px rgba(99,102,241,.2),inset 0 1px 0 rgba(255,255,255,.3); font-weight:650; }
-.lesson-node > .node-button > .node-label { overflow:visible; white-space:normal; overflow-wrap:anywhere; font-size:15px; line-height:1.55; font-weight:550; }
-.lesson-node > .node-button.active > .node-label { font-weight:650; }
-.lesson-node > .node-button > .node-indicators { flex-wrap:wrap; max-width:72px; }
-.lesson-disclosure { color:var(--lz-text-secondary); transition:transform .16s ease; }
-.lesson-disclosure.open { transform:rotate(90deg); }
-.lesson-node > .course-block-outline { margin-left:46px; }
-.lesson-node > .growth-trail { margin-left:46px; }
-.lesson-node > .node-button.is-ai-growth-target { outline:1px solid var(--lz-brand); outline-offset:-1px; background:var(--lz-brand-soft); }
 @media (max-width:1023px) {
   .course-block-link { min-height:36px; padding:5px 6px; }
   .course-block-role { min-height:18px; font-size:9px; }
@@ -490,7 +461,7 @@ watch(() => props.activeId, (value, previous) => {
   48% { transform:translateX(2px) scale(1.018); box-shadow:inset 3px 0 0 #7c3aed,0 0 0 3px rgba(139,92,246,.2),0 10px 24px rgba(79,70,229,.2); }
 }
 @media (prefers-reduced-motion:reduce) {
-  .node-button,.node-button::before,.lesson-number,.lesson-disclosure { transition:none; }
+  .node-button,.node-button::before { transition:none; }
   .status.spinning { animation:none; }
   .node-button.is-ai-growth-pulse { animation:none; box-shadow:inset 3px 0 0 #7c3aed,0 0 0 3px rgba(139,92,246,.18); }
 }

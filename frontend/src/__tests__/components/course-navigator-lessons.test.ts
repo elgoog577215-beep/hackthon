@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CourseNavigator from '@/components/CourseNavigator.vue'
 import { useCourseStore } from '@/stores/course'
 import { setLocale } from '@/shared/i18n'
-import { isLessonNavigation, lessonNavigationLabel } from '@/utils/course-navigation'
+import { isLessonNavigation } from '@/utils/course-navigation'
 import type { Node } from '@/stores/types'
 import zh from '../../../public/locales/zh/translation.json'
 import en from '../../../public/locales/en/translation.json'
@@ -29,13 +29,13 @@ describe('讲次式课程目录', () => {
   })
   afterEach(async () => { await setLocale('zh'); vi.unstubAllGlobals() })
 
-  it('平铺编号和完整标题，仍选择承载正式内容的稳定节点', async () => {
+  it('恢复原版书本图标和讲次名称，仍选择承载正式内容的稳定节点', async () => {
     const store = useCourseStore()
     store.currentNode = store.courseTree[1]!.children![0]!
     const wrapper = mount(CourseNavigator)
-    expect(wrapper.find('.lesson-navigator').exists()).toBe(true)
-    expect(wrapper.findAll('.lesson-number').map(row => row.text())).toEqual(['01', '07'])
-    expect(wrapper.find('.chapter-kind').exists()).toBe(false)
+    expect(wrapper.find('.lesson-number').exists()).toBe(false)
+    expect(wrapper.findAll('.chapter-kind')).toHaveLength(2)
+    expect(wrapper.findAll('.node-label').map(row => row.text())).toEqual(['第1讲 辩论导论：定义与价值', '第7讲 结构化表达：起承转合'])
     expect(wrapper.get('[aria-current="location"]').attributes('aria-label')).toBe('第7讲 结构化表达：起承转合')
     await wrapper.findAll('.node-button')[1]!.trigger('click')
     expect(wrapper.emitted('select')?.[0]?.[0]).toMatchObject({ node_id: 'section-7' })
@@ -44,11 +44,11 @@ describe('讲次式课程目录', () => {
   it('筛选后保留原编号，无匹配时提示并能清空恢复', async () => {
     const wrapper = mount(CourseNavigator)
     await wrapper.get('input').setValue('结构化')
-    expect(wrapper.findAll('.lesson-number').map(row => row.text())).toEqual(['07'])
+    expect(wrapper.findAll('.node-label').map(row => row.text())).toEqual(['第7讲 结构化表达：起承转合'])
     await wrapper.get('input').setValue('不存在的标题')
     expect(wrapper.get('[role="status"]').text()).toBe(zh.learningNavigator.noResults)
     await wrapper.get('input').setValue('')
-    expect(wrapper.findAll('.lesson-number')).toHaveLength(2)
+    expect(wrapper.findAll('.node-button')).toHaveLength(2)
     expect(wrapper.find('[role="status"]').exists()).toBe(false)
   })
 
@@ -62,17 +62,10 @@ describe('讲次式课程目录', () => {
     expect(wrapper.findAll('.navigator-node')).toHaveLength(3)
   })
 
-  it('只移除讲次前缀，保留公式、主题内编号和原始名称', () => {
-    const node = { ...lesson(1, ''), node_name: 'Lecture 12: $x^2$ and 3 cases' }
-    expect(lessonNavigationLabel(node, 0)).toEqual({ number: '12', title: '$x^2$ and 3 cases' })
-    expect(node.node_name).toBe('Lecture 12: $x^2$ and 3 cases')
-    expect(lessonNavigationLabel({ ...node, node_name: '2026 年课程' }, 0).title).toBe('2026 年课程')
-  })
-
   it('英文目录控件和空状态有完整翻译', async () => {
     await setLocale('en')
     const wrapper = mount(CourseNavigator)
-    expect(wrapper.get('input').attributes('placeholder')).toBe(en.learningNavigator.searchLessons)
+    expect(wrapper.get('input').attributes('placeholder')).toBe(en.learningNavigator.search)
     await wrapper.get('input').setValue('not found')
     expect(wrapper.get('[role="status"]').text()).toBe(en.learningNavigator.noResults)
     expect(wrapper.text()).not.toContain('learningNavigator.')
