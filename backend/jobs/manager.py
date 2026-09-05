@@ -2019,6 +2019,7 @@ class TaskManager:
                 "status": "already_running",
                 "job_id": task_id,
                 "course_id": course_id,
+                "outline_detail_requested": task.get("outline_detail_requested"),
             }
         course_data = self._load_task_course(task_id)
         if not isinstance(course_data, dict):
@@ -2102,6 +2103,7 @@ class TaskManager:
             "status": "started",
             "job_id": task_id,
             "course_id": course_id,
+            "outline_detail_requested": True,
             "outline_framework_only": bool(
                 course_data.get("outline_framework_only")
             ),
@@ -9405,6 +9407,7 @@ class TaskManager:
                 "status": task.get("status", ""),
                 "phase": task.get("phase", ""),
                 "current_phase": task.get("current_phase", ""),
+                "outline_detail_requested": task.get("outline_detail_requested"),
                 "phase_progress": task.get("phase_progress", 0),
                 "phase_detail": task.get("phase_detail", {}),
                 "guided_workflow": deepcopy(task.get("guided_workflow")),

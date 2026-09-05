@@ -1,6 +1,8 @@
 import asyncio
 import json
 from copy import deepcopy
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -776,8 +778,19 @@ async def test_teacher_outline_waits_through_restart_and_explicit_continue_reuse
     )
     assert started["status"] == "started"
     assert started["job_id"] == job["job_id"]
+    assert started["outline_detail_requested"] is True
     assert restored.tasks[job["job_id"]]["status"] == "pending"
     assert restored.tasks[job["job_id"]]["outline_detail_requested"] is True
+    progress_update = AsyncMock()
+    restored.ws_service = SimpleNamespace(push_progress_update=progress_update)
+    await restored._update_phase(
+        job["job_id"], "outline_course_contract_generation", 32,
+        "正在形成课程目标、知识模块与考核方案",
+        phase_detail={"artifact_type": "course_outline_course_contract"},
+    )
+    assert restored.get_task_summary(job["job_id"])["outline_detail_requested"] is True
+    assert progress_update.await_args.args[1]["outline_detail_requested"] is True
+    restored.ws_service = None
     compiled = restored.get_generation_workspace_course(job["course_id"])
     assert compiled["generation_status"] == "outline_detail_generation"
     assert compiled["generation_stage_artifacts"]["outline"]["skeleton"][
@@ -793,6 +806,7 @@ async def test_teacher_outline_waits_through_restart_and_explicit_continue_reuse
         job["course_id"], job["job_id"]
     )
     assert duplicate["status"] == "already_running"
+    assert duplicate["outline_detail_requested"] is True
     assert restored._task_queue.qsize() == 1
     assert await restored._task_queue.get() == job["job_id"]
     await restored._process_task(job["job_id"])

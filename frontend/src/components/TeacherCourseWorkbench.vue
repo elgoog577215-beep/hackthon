@@ -1932,11 +1932,13 @@ const showOutlineWorkspace = computed(() => activeStage.value === 'foundation'
   && !showStreaming.value
   && (hasOutline.value || editingOutline.value || outlineFrameworkReady.value))
 const outlineWorkspaceHydrating = computed(() => outlineFrameworkReady.value && !hasOutline.value)
-const outlineDetailsGenerating = computed(() => taskInFlight.value && (
-  /outline[_-]?details|detailed[_-]?outline/.test(String(generationTask.value?.currentPhase || '').toLowerCase())
-  || ['outline_details', 'outline_detail_generation'].includes(String(generationTask.value?.phaseDetail?.generation_step || ''))
-  || String(generationTask.value?.currentPhase || '') === 'outline_detail_generation'
-))
+const outlineDetailsStarted = computed(() => {
+  const requested = generationTask.value?.outlineDetailRequested
+  if (typeof requested === 'boolean') return requested
+  // Compatibility for task snapshots predating the persisted full-outline gate.
+  return /outline[_-]?details?|detailed[_-]?outline/.test(String(generationTask.value?.currentPhase || '').toLowerCase())
+    || ['outline_details', 'outline_detail_generation'].includes(String(generationTask.value?.phaseDetail?.generation_step || ''))
+})
 const outlineFullReady = computed(() => Boolean(
   hasOutline.value
   && !outlineWaitingForInput.value
@@ -1955,7 +1957,7 @@ const outlineRegenerationAvailable = computed(() => Boolean(
     : courseWorkspaceStore.blueprint?.has_unconfirmed_draft),
 ))
 const outlineFlowStep = computed<1 | 2 | 3>(() => {
-  if (outlineContinuing.value || outlineDetailsGenerating.value || outlineFullReady.value) return 3
+  if (outlineContinuing.value || outlineDetailsStarted.value || outlineFullReady.value) return 3
   if (hasOutline.value || taskInFlight.value || outlineWaitingForInput.value) return 2
   return 1
 })

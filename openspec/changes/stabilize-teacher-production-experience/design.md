@@ -243,3 +243,7 @@ TaskManager 的创建、暂停、恢复、取消、确认、失败和完成使�
 轻量讲次方案本身可以满足 `has_unconfirmed_draft=true`，但只要服务端仍处于 `waiting_for_input`，继续按钮 MUST 读取 `provide_input` 与其对应 task ID；只有完成后的草稿修改才进入 `regenerate_from_latest_source`。按钮是否可见和执行目标必须复用同一动作判定，不能各自按草稿状态猜测。
 
 本轮验收：后端 `3998 passed`（另 3 skipped、2 xfailed、1 xpassed）、根目录后端 `112 passed`；前端相关 8 文件 `178 passed`（包括新增大纲等待态与草稿组合回归），构建、运行级 Ruff 和 strict change 校验通过。独立数据中的真实指定模型完成影响分析与同讲两资产候选/应用，桌面验证关闭页面后同一 job 恢复观察、精确替换/结构删除的应用撤销以及两种失败恢复。用户新增反馈对应的原课程只读核验了继续按钮恢复，没有启动用户下一步生成。PPT 和生产发布未纳入本轮。
+
+### 完整大纲步骤稳定性补充（2026-09-05）
+
+大纲第三步不是内部 phase 名称的映射。已有 TaskManager 在教师继续命令中持久化 `outline_detail_requested`；沿原任务回执、WebSocket 和轮询把它传到同一 generation Store。页面只读该事实决定步骤，子阶段仍负责具体进度与文案；缓存只保存最近服务端现场，联网后按相同 task ID 对账。不得为步骤维护平行状态表，也不得依据该布尔值开放写权限。

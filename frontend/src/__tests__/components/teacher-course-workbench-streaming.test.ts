@@ -434,6 +434,60 @@ describe('teacher course workbench outline streaming', () => {
     await flushPromises()
   })
 
+  it('完整大纲请求返回并进入课程合同子阶段后仍在第 3 步，暂停和失败也保留位置', async () => {
+    useCourseStore().nodes = [{
+      node_id: 'L1-1', parent_node_id: 'root', node_name: '第1讲 设计导论', node_level: 1,
+      node_content: '', node_type: 'original', generation_status: 'completed', generated_chars: 0,
+    }] as any
+    const generation = useGenerationStore()
+    const task = generation.createTask('job-waiting', 'course-1', 'UI 设计')
+    task.status = 'waiting_for_input'
+    task.currentPhase = 'outline_framework_ready'
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.mocked(http.post).mockResolvedValue({ data: {
+      status: 'started', job_id: 'job-waiting', outline_detail_requested: true,
+    } })
+    const wrapper = mountWorkbench({ courseTitle: 'UI 设计' })
+    await wrapper.get('[data-testid="outline-continue-action"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="outline-flow-steps"] button')[2]!.classes()).toContain('active')
+    for (const status of ['running', 'paused', 'failed']) {
+      generation.handleWSProgressUpdate({
+        type: 'progress_update', course_id: 'course-1', task_id: 'job-waiting',
+        payload: { status, current_phase: 'outline_course_contract_generation',
+          outline_detail_requested: true, phase_detail: { artifact_type: 'course_outline_course_contract' } },
+      } as any)
+      await flushPromises()
+      expect(wrapper.findAll('[data-testid="outline-flow-steps"] button')[2]!.classes()).toContain('active')
+    }
+    wrapper.unmount()
+  })
+
+  it('刷新后从任务轮询恢复完整大纲步骤，不因课程合同或校验子阶段退回第二步', async () => {
+    useCourseStore().nodes = [{
+      node_id: 'L1-1', parent_node_id: 'root', node_name: '第1讲 设计导论', node_level: 1,
+      node_content: '', node_type: 'original', generation_status: 'completed', generated_chars: 0,
+    }] as any
+    const generation = useGenerationStore()
+    generation.createTask('outline-full', 'course-1', 'UI 设计')
+    vi.mocked(http.get).mockResolvedValue({ data: [{
+      id: 'outline-full', course_id: 'course-1', type: 'teacher_outline_generation',
+      status: 'running', current_phase: 'outline_course_contract_validation', progress: 40,
+      outline_detail_requested: true,
+    }] })
+    await generation.fetchGlobalTasks()
+    const wrapper = mountWorkbench({ courseTitle: 'UI 设计' })
+    expect(wrapper.findAll('[data-testid="outline-flow-steps"] button')[2]!.classes()).toContain('active')
+    generation.persistGenerationState()
+    generation.stateRestored = false
+    generation.tasks.clear()
+    generation.restoreGenerationState()
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="outline-flow-steps"] button')[2]!.classes()).toContain('active')
+    expect(http.post).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('完整大纲保存了新课程方案后才提供重新生成', async () => {
     useCourseStore().nodes = [{
       node_id: 'L1-1', parent_node_id: 'root', node_name: '第1讲 设计导论', node_level: 1,

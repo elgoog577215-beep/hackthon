@@ -684,6 +684,8 @@ export interface Task {
     progress: number
     currentStep: string
     currentPhase?: string
+    /** Backend-owned full-outline gate; child phases do not change this step. */
+    outlineDetailRequested?: boolean
     taskType?: string
     phaseProgress?: number
     phaseDetail?: Record<string, unknown>
