@@ -1866,12 +1866,13 @@ const freshOutlineGenerationStarting = computed(() => generationRequested.value
 const outlineGrowth = computed<Record<string, any> | null>(() => {
   if (freshOutlineGenerationStarting.value || outlineContinuing.value) return null
   const value = generationTask.value?.phaseDetail?.outline_growth
-  if (value && typeof value === 'object') return value as Record<string, any>
+  if (value && typeof value === 'object') return generationTask.value?.currentPhase === 'outline_auto_improvement'
+    ? { ...value, state: 'optimizing' } : value as Record<string, any>
   const retained = retainedOutlineGrowth.value
   return retained
     && retained.courseId === props.courseId
     && retained.taskId === String(generationTask.value?.id || '')
-    ? retained.value
+    ? generationTask.value?.currentPhase === 'outline_auto_improvement' ? { ...retained.value, state: 'optimizing' } : retained.value
     : null
 })
 const outlineLessonStatuses = computed<OutlineLessonStatus[]>(() => {
@@ -1966,6 +1967,8 @@ const generationProgress = computed(() => freshOutlineGenerationStarting.value
   : Math.max(2, Number(generationTask.value?.progress || 0)))
 const currentGenerationLabel = computed(() => outlineContinuing.value
   ? t('courseWorkbench.outlineFlow.continuing', '正在生成完整大纲…')
+  : generationTask.value?.currentPhase === 'outline_auto_improvement'
+    ? t('courseWorkbench.autoImprovement.outline', '正在自动优化大纲并复审')
   : teacherOutlineGenerationLabel(
       freshOutlineGenerationStarting.value ? '' : generationTask.value?.currentStep,
     ))
@@ -2481,6 +2484,9 @@ const referenceWorkflowState = computed<CourseReferenceWorkflowState>(() => {
   return activeCourseReferences.value.length ? 'ready' : 'collecting'
 })
 const referenceWorkflowDetail = computed(() => {
+  if (activeStage.value === 'foundation' && generationTask.value?.currentPhase === 'outline_auto_improvement') return t('courseWorkbench.autoImprovement.outline', '正在自动优化大纲并复审')
+  if (activeStage.value === 'lesson' && lessonJob.value?.phase === 'lesson_plan_auto_improvement') return t('courseWorkbench.autoImprovement.lesson', '正在自动优化教案并复审')
+  if (activeStage.value === 'script' && scriptJob.value?.phase === 'lesson_script_auto_improvement') return t('courseWorkbench.autoImprovement.script', '正在自动优化讲义并复审')
   const projected = activeStage.value === 'foundation' && !outlineLocalEventPendingProjection.value
     ? productionState.value?.stages.outline
     : activeStage.value === 'lesson'

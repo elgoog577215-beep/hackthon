@@ -4336,12 +4336,25 @@ async def generate_lesson_plan(
 
         async def run() -> None:
             async def run_current_lesson() -> None:
+                async def repair_generated_plan(*, plan, issues):
+                    return await tm.course_service.optimize_teacher_lesson_plan(
+                        plan=plan,
+                        instruction=(
+                            "这是尚未交付的模型教案。请修复以下质量问题后返回完整候选，"
+                            "只改必要的教学表达与活动，不改小节、教学块身份、顺序、时间、知识事实和资料来源。"
+                            + json.dumps(issues, ensure_ascii=False)
+                        ),
+                        lesson_context={"lesson_unit_id": lesson_unit_id, "requirements": effective_requirements},
+                        material_evidence=source_evidence,
+                    )
+
                 await service.run_plan_job(
                     course_id=course_id,
                     lesson_unit_id=lesson_unit_id,
                     job_id=str(job["id"]),
                     course_data=source,
                     planner=planner,
+                    repairer=repair_generated_plan,
                 )
 
             await _run_lesson_plan_job(

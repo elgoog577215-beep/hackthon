@@ -2707,7 +2707,8 @@ def test_script_resume_restores_a_missing_middle_block_in_contract_order(tmp_pat
     ]
 
 
-def test_script_resume_regenerates_repetitive_checkpoint_blocks(tmp_path):
+@pytest.mark.parametrize("during_generation", [False, True])
+def test_script_resume_regenerates_repetitive_checkpoint_blocks(tmp_path, during_generation):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     service = TeacherLessonAuthoringService(repository)
     plan = standard_lesson_plan()
@@ -2753,6 +2754,11 @@ def test_script_resume_regenerates_repetitive_checkpoint_blocks(tmp_path):
         plan["sections"][0],
     )
     repeated = "概念需要同时说明定义、成立条件与适用边界，并通过正例和反例逐项核对判断标准。"
+    if during_generation:
+        repeated = (
+            "接着请大家说明概念的定义、成立条件与适用边界，并通过正例和反例逐项核对判断标准。"
+            "典型错误是只给出结论而省略条件，修正时请补出缺少的条件，再检验结论是否成立。"
+        )
     seed_sections = [{
         "section_node_id": "L2-1-1",
         "title": "1.1 核心概念",
@@ -2776,8 +2782,19 @@ def test_script_resume_regenerates_repetitive_checkpoint_blocks(tmp_path):
     async def generator(_outline, _plan, module, shard_context):
         generated.append(module["module_id"])
         assert shard_context["schema_version"] == "teacher_script_shard_context_v1"
+        if during_generation:
+            return repeated
         assert shard_context["previous_block"] is not None
         assert "content" not in shard_context["previous_block"]
+        return replacements[module["module_id"]]
+
+    repaired = []
+    async def repairer(_outline, _plan, module, context):
+        repaired.append(module["module_id"])
+        assert context["quality_feedback"]
+        assert repository.get_job("course-1", job["id"])["phase"] == "lesson_script_auto_improvement"
+        assert any(issue["code"] == "teacher_script:repetitive_blocks" for issue in context["quality_feedback"])
+        assert context["current_content"] == repeated
         return replacements[module["module_id"]]
 
     completed = asyncio.run(service.run_script_job(
@@ -2788,11 +2805,17 @@ def test_script_resume_regenerates_repetitive_checkpoint_blocks(tmp_path):
         outline_sections=[outline_section],
         plan_sections={"L2-1-1": plan["sections"][0]},
         generator=generator,
-        seed_sections=seed_sections,
+        seed_sections=[] if during_generation else seed_sections,
+        repair_generator=repairer if during_generation else None,
     ))
 
     assert completed["status"] == "completed", completed.get("error")
-    assert set(generated) == {"core_explanation", "feedback_check"}
+    if during_generation:
+        assert set(generated) == {"lesson_goal", "core_explanation", "feedback_check"}
+        assert set(repaired) == {"core_explanation", "feedback_check"}
+        assert completed["auto_improvement"]["quality_report"]["passed"]
+    else:
+        assert set(generated) == {"core_explanation", "feedback_check"}
     revision = repository.lesson("course-1", "L1-1")["script_revisions"][0]
     assert revision["quality_report"]["passed"] is True
 
@@ -3299,6 +3322,70 @@ def test_plan_job_progress_never_moves_backwards(tmp_path):
 
     assert observed_progress == [36, 36]
     assert completed["progress"] == 100
+
+
+@pytest.mark.parametrize("repair_kind", ["fix", "change_identity", "unavailable"])
+def test_generated_plan_is_repaired_before_formal_save(tmp_path, repair_kind):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    repository.set_outline("course-1", "outline-v1")
+    service = TeacherLessonAuthoringService(repository)
+    job = repository.create_job("course-1", "L1-1", request_id="auto-plan", source_outline_revision_id="outline-v1")
+    draft = standard_lesson_plan()
+    draft["sections"][0]["teaching_modules"][0]["teacher_activity"] = "建立问题、价值与任务边界"
+    calls = []
+
+    async def planner(*_):
+        return {"plan": deepcopy(draft), "generation_source": "model", "source_outline_revision_id": "outline-v1"}
+
+    async def repairer(*, plan, issues):
+        calls.append(issues)
+        assert not repository.lesson("course-1", "L1-1").get("working_revision_id")
+        if repair_kind == "unavailable":
+            raise AIProviderUnavailable("test unavailable")
+        plan["sections"][0]["teaching_modules"][0]["teacher_activity"] = "展示满足与不满足条件的两个例子，请学生逐项判断。"
+        if repair_kind == "change_identity":
+            plan["sections"][0]["node_id"] = "unexpected-section"
+        return {"plan": plan}
+
+    completed = asyncio.run(service.run_plan_job(
+        course_id="course-1", lesson_unit_id="L1-1", job_id=job["id"],
+        course_data=single_section_course_data(), planner=planner, repairer=repairer,
+    ))
+    assert calls
+    if repair_kind == "fix":
+        assert completed["status"] == "completed"
+        lesson = repository.lesson("course-1", "L1-1")
+        assert lesson["working_revision_id"]
+        assert completed["auto_improvement"]["quality_report"]["passed"]
+    else:
+        assert completed["status"] == "failed"
+        assert not repository.lesson("course-1", "L1-1").get("working_revision_id")
+        assert completed["auto_improvement"]["plan"]["sections"][0]["node_id"] == "L2-1-1"
+
+
+def test_script_editorial_advice_triggers_automatic_improvement(monkeypatch):
+    service = CourseService()
+    calls = []
+    prose = (
+        "概念分类以条件是否满足为依据，需要逐一列出条件并核对对象的属性。"
+        "例如，必要条件不满足时可以直接排除，但只满足必要条件仍不能证明结论成立。"
+        "充分条件则可以保证结论成立，因此判断时需要辨明条件和结论的方向。"
+        "应用这一方法可以分析材料中的推断，发现把必要条件当成充分条件的逻辑错误。"
+        "还需要说明结论成立的范围，并用反例检验每一步推理。"
+    )
+    async def model(user_prompt, system_prompt, **_kwargs):
+        calls.append(system_prompt)
+        return "## 核心教学\n\n" + ("我们先看条件与结论之间的关系。" if len(calls) > 1 else "") + prose
+    monkeypatch.setattr(service, "_call_llm", model)
+    result = asyncio.run(service.generate_teacher_script_section(
+        course_id="auto-script", outline_section={"node_id": "L2-1-1", "node_name": "逻辑条件",
+            "module_plan": [{"module_id": "core_explanation", "label": "核心教学"}]},
+        current_plan_section={"node_id": "L2-1-1", "teaching_modules": [{"module_id": "core_explanation"}]},
+    ))
+    assert len(calls) == 2
+    assert "teacher_script:not_directly_teachable" in calls[1]
+    assert not result["quality_report"]["review_issues"]
+    assert result["auto_improvement"]["attempts"] == 1
 
 
 def test_plan_job_stream_updates_do_not_block_event_loop(tmp_path):

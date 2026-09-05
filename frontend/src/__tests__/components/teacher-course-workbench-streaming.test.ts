@@ -298,6 +298,26 @@ describe('teacher course workbench outline streaming', () => {
     expect(detail.find('article[data-state="running"] .stream-caret').exists()).toBe(true)
   })
 
+  it('各讲已生成但仍在自动复审时保持第三步和进行中状态', () => {
+    const task = useGenerationStore().createTask('job-auto', 'course-1', '电动力学')
+    task.status = 'running'
+    task.currentPhase = 'outline_auto_improvement'
+    task.currentStep = '已完成各讲内容'
+    task.outlineDetailRequested = true
+    task.phaseDetail = {
+      outline_growth: { ...growth, state: 'completed' },
+      lesson_statuses: {
+        'L1-1': { lesson_id: 'L1-1', status: 'completed', progress: 100 },
+        'L1-2': { lesson_id: 'L1-2', status: 'completed', progress: 100 },
+      },
+    }
+    const wrapper = mountWorkbench()
+    expect(wrapper.findAll('[data-testid="outline-flow-steps"] button')[2]!.classes()).toContain('active')
+    expect(wrapper.get('.generation-surface').text()).toContain('正在自动优化大纲并复审')
+    expect(wrapper.find('[data-testid="outline-detail-stream"]').exists()).toBe(true)
+    expect(wrapper.find('.outline-workspace').exists()).toBe(false)
+  })
+
   it('新生成任务启动时不回显上一个任务的旧结构', async () => {
     const task = useGenerationStore().createTask('job-old', 'course-1', 'C 语言程序设计')
     task.status = 'completed'

@@ -400,6 +400,12 @@
     "createCourse": "创建课程"
   },
   "courseWorkbench": {
+    "autoImprovement": {
+      "outline": "正在自动优化大纲并复审",
+      "lesson": "正在自动优化教案并复审",
+      "script": "正在自动优化讲义并复审",
+      "reviewing": "正在检查最终内容"
+    },
     "title": "课程工作台",
     "courseInformation": "课程信息",
     "continue": "继续",

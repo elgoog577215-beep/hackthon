@@ -1546,10 +1546,18 @@ def merge_teacher_outline_detail(
     merged = deepcopy(lecture)
     for field in _TEACHER_OUTLINE_DETAIL_FIELDS:
         current = merged.get(field)
-        is_empty = current is None or current == "" or current == [] or current == {}
+        is_empty = outline_detail_field_is_empty(field, current)
         if is_empty and field in detail:
             merged[field] = deepcopy(detail[field])
+    merged["planned_hours"] = round(sum(_normalize_hour_breakdown(merged.get("hour_breakdown")).values()), 2) or None
     return merged
+
+
+def outline_detail_field_is_empty(field: str, value: Any) -> bool:
+    """Treat normalized zero-hour placeholders as missing, not teacher edits."""
+    if field == "hour_breakdown":
+        return not any(_normalize_hour_breakdown(value).values())
+    return value is None or value == "" or value == [] or value == {}
 
 
 def normalize_outline_batch(

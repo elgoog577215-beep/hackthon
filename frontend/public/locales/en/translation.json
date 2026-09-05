@@ -400,6 +400,12 @@
     "createCourse": "Create course"
   },
   "courseWorkbench": {
+    "autoImprovement": {
+      "outline": "Improving and reviewing the outline",
+      "lesson": "Improving and reviewing the lesson plan",
+      "script": "Improving and reviewing the teaching script",
+      "reviewing": "Checking the final content"
+    },
     "title": "Course workbench",
     "courseInformation": "Course information",
     "continue": "Continue",

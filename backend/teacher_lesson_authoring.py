@@ -4459,6 +4459,7 @@ class TeacherLessonAuthoringService:
         job_id: str,
         course_data: dict[str, Any],
         planner: Planner,
+        repairer: Callable[..., Awaitable[dict[str, Any]]] | None = None,
     ) -> dict[str, Any]:
         started_job = await asyncio.to_thread(
             self.repository.update_job,
@@ -4586,6 +4587,74 @@ class TeacherLessonAuthoringService:
                 ),
                 source_outline_revision_id=outline_revision,
             )
+            # Generated drafts are repaired before becoming a formal revision.
+            # Manual edits/candidate acceptance never enter this job path.
+            for attempt in range(2):
+                issues = [*(quality_report.get("blocking_issues") or []), *(quality_report.get("review_issues") or [])]
+                if not repairer or not issues or any(
+                    item.get("code") in {"lesson_plan:stale_outline", "lesson_plan:knowledge_conflict"}
+                    for item in issues
+                ):
+                    break
+                await on_progress("lesson_plan_auto_improvement", 95, "正在自动优化教案并复审")
+                await asyncio.to_thread(
+                    self.repository.update_job, course_id, job_id,
+                    auto_improvement={"attempts": attempt + 1, "status": "running",
+                                      "plan": deepcopy(plan), "quality_report": deepcopy(quality_report)},
+                )
+                try:
+                    candidate_result = await asyncio.wait_for(
+                        repairer(plan=deepcopy(plan), issues=deepcopy(issues)), timeout=120,
+                    )
+                    candidate = candidate_result.get("plan") or {}
+                    # The shared optimizer owns merging. Protect the frozen
+                    # lesson identity, knowledge, sources and timing as well.
+                    before_sections = plan.get("sections") or []
+                    after_sections = candidate.get("sections") or []
+                    if [s.get("node_id") for s in before_sections] != [s.get("node_id") for s in after_sections]:
+                        raise ValueError("auto_lesson_scope_violation")
+                    for before, after in zip(before_sections, after_sections):
+                        for field in ("knowledge_structure", "resource_refs", "title"):
+                            if before.get(field) != after.get(field):
+                                raise ValueError("auto_lesson_source_violation")
+                        before_modules = before.get("teaching_modules") or []
+                        after_modules = after.get("teaching_modules") or []
+                        identity_fields = ("module_id", "arrangement_block_id", "planned_minutes")
+                        if [tuple(m.get(f) for f in identity_fields) for m in before_modules] != [
+                            tuple(m.get(f) for f in identity_fields) for m in after_modules
+                        ]:
+                            raise ValueError("auto_lesson_structure_violation")
+                    candidate_report = self._quality_report(
+                        course_data, lesson_unit_id, candidate,
+                        expected_outline_revision_id=str(course_view.get("outline_revision_id") or outline_revision),
+                        source_outline_revision_id=outline_revision,
+                    )
+                    old_codes = {(i.get("code"), i.get("section_id")) for i in issues}
+                    new_codes = {(i.get("code"), i.get("section_id")) for i in [
+                        *(candidate_report.get("blocking_issues") or []), *(candidate_report.get("review_issues") or []),
+                    ]}
+                    if new_codes < old_codes:
+                        plan, quality_report = candidate, candidate_report
+                    await asyncio.to_thread(
+                        self.repository.update_job, course_id, job_id,
+                        auto_improvement={"attempts": attempt + 1, "status": "reviewed",
+                                          "plan": deepcopy(plan), "quality_report": deepcopy(quality_report)},
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as repair_error:
+                    await asyncio.to_thread(
+                        self.repository.update_job, course_id, job_id,
+                        auto_improvement={"attempts": attempt + 1, "status": "failed",
+                                          "error_code": type(repair_error).__name__,
+                                          "plan": deepcopy(plan), "quality_report": deepcopy(quality_report)},
+                    )
+                    break
+            current_job = await asyncio.to_thread(self.repository.get_job, course_id, job_id)
+            if current_job.get("cancel_requested"):
+                raise asyncio.CancelledError
+            if str(current_job.get("status") or "") not in TEACHER_JOB_ACTIVE_STATUSES:
+                return current_job
             if not quality_report.get("passed"):
                 messages = "；".join(
                     str(item.get("message") or "未知教案错误")
@@ -5444,6 +5513,83 @@ class TeacherLessonAuthoringService:
                 final_sections,
                 generation_source="model_block_pipeline",
             )
+            # Review the assembled lecture too: individually valid shards can
+            # still repeat each other or miss transitions across shard boundaries.
+            for attempt in range(2):
+                findings = [*(revision_quality.get("blocking_issues") or []), *(revision_quality.get("review_issues") or [])]
+                if not repair_generator or not findings:
+                    break
+                block_order = {str(block.get("block_id") or ""): index for index, block in enumerate(
+                    block for section in final_sections for block in section["blocks"]
+                )}
+                targets = _teacher_script_retry_block_ids(revision_quality, block_order)
+                for issue in revision_quality.get("review_issues") or []:
+                    section_id = issue.get("section_node_id")
+                    for section in final_sections:
+                        if section_id == section.get("section_node_id"):
+                            targets.update(str(b.get("block_id") or "") for b in section["blocks"])
+                    for block_ids in (issue.get("phrase_blocks") or {}).values():
+                        targets.update(block_ids[1:])
+                if not targets:
+                    break
+                current = self.repository.get_job(course_id, job_id)
+                if current.get("cancel_requested"):
+                    raise asyncio.CancelledError
+                if str(current.get("status") or "") not in TEACHER_JOB_ACTIVE_STATUSES:
+                    return current
+                self.repository.update_job(
+                    course_id, job_id, phase="lesson_script_auto_improvement", progress=95,
+                    message="正在自动优化整讲衔接并复审",
+                    auto_improvement={"attempts": attempt + 1, "status": "running", "quality_report": deepcopy(revision_quality)},
+                    result_sections=deepcopy(final_sections),
+                )
+                candidate_sections = deepcopy(final_sections)
+
+                async def improve_block(outline, plan_section, contract, module, block):
+                    context = compile_teacher_script_shard_context(contract, module)
+                    context.update({
+                        "quality_feedback": deepcopy(findings),
+                        "current_content": str(block.get("content") or ""),
+                        "neighboring_content": [str(other.get("content") or "")[:1500]
+                                                for section in final_sections for other in section["blocks"]
+                                                if other.get("block_id") != block.get("block_id")],
+                    })
+                    async with semaphore:
+                        content = await asyncio.wait_for(repair_generator(outline, plan_section, module, context), timeout=120)
+                    return str(block["block_id"]), str(content or "").strip()
+
+                calls = []
+                for outline, plan_section, contract in contracts:
+                    modules = {str(m["block_id"]): m for m in contract["modules"]}
+                    section = next(s for s in final_sections if s["section_node_id"] == contract["section_node_id"])
+                    for block in section["blocks"]:
+                        block_id = str(block["block_id"])
+                        if block_id in targets:
+                            calls.append(improve_block(outline, plan_section, contract, modules[block_id], block))
+                results = await asyncio.gather(*calls, return_exceptions=True)
+                current = self.repository.get_job(course_id, job_id)
+                if current.get("cancel_requested"):
+                    raise asyncio.CancelledError
+                if str(current.get("status") or "") not in TEACHER_JOB_ACTIVE_STATUSES:
+                    return current
+                replacements = {item[0]: item[1] for item in results if isinstance(item, tuple) and item[1]}
+                for section in candidate_sections:
+                    contract = next(c for _, _, c in contracts if c["section_node_id"] == section["section_node_id"])
+                    for block in section["blocks"]:
+                        if block["block_id"] in replacements:
+                            block["content"] = replacements[block["block_id"]]
+                    section["quality_report"] = validate_teacher_script_section(section, contract)
+                candidate_quality = validate_teacher_script_revision(candidate_sections, generation_source="model_block_pipeline")
+                def issue_keys(report):
+                    return {(i.get("code"), i.get("section_node_id"), i.get("message")) for i in [
+                        *(report.get("blocking_issues") or []), *(report.get("review_issues") or []),
+                    ]}
+                if issue_keys(candidate_quality) < issue_keys(revision_quality):
+                    final_sections, revision_quality = candidate_sections, candidate_quality
+                self.repository.update_job(
+                    course_id, job_id, result_sections=deepcopy(final_sections),
+                    auto_improvement={"attempts": attempt + 1, "status": "reviewed", "quality_report": deepcopy(revision_quality)},
+                )
             if not revision_quality.get("passed"):
                 messages = "；".join(
                     str(item.get("message") or "未知讲义错误")

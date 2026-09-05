@@ -19,6 +19,15 @@ const lecture = (
 })
 
 describe('OutlineGrowthStream two-stage teacher outline', () => {
+  it('完整内容仍在自动优化时不会提前显示已生成', () => {
+    const wrapper = mount(OutlineGrowthStream, { props: {
+      reviewReady: true,
+      growth: { state: 'optimizing', chapters: [lecture(1, '论点与证据', 'completed', 1)] },
+    } })
+    expect(wrapper.text()).toContain('正在自动优化大纲并复审')
+    expect(wrapper.text()).toContain('正在检查最终内容')
+    expect(wrapper.text()).not.toContain('课程大纲已生成')
+  })
   it('轻量方案生成时逐讲显示已返回内容和真实状态', () => {
     const wrapper = mount(OutlineGrowthStream, {
       props: {
