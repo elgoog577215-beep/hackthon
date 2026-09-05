@@ -9,9 +9,15 @@ TASK_CHECKER = ROOT / "scripts" / "check_deploy_task_safety.py"
 BACKUP_TOOL = ROOT / "scripts" / "create_verified_data_backup.py"
 
 
-def _run_task_check(path: Path) -> subprocess.CompletedProcess[str]:
+def _run_task_check(
+    path: Path,
+    teacher_jobs_dir: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    command = ["python3", str(TASK_CHECKER), str(path)]
+    if teacher_jobs_dir is not None:
+        command.append(str(teacher_jobs_dir))
     return subprocess.run(
-        ["python3", str(TASK_CHECKER), str(path)],
+        command,
         text=True,
         capture_output=True,
         check=False,
@@ -60,6 +66,76 @@ def test_deploy_task_check_fails_closed_for_unreadable_index(tmp_path):
     task_index.write_text("{broken", encoding="utf-8")
 
     result = _run_task_check(task_index)
+
+    assert result.returncode == 75
+    assert json.loads(result.stdout)["safe_to_stop"] is False
+
+
+def test_deploy_task_check_blocks_active_teacher_asset_job_without_writing(tmp_path):
+    task_index = tmp_path / "generation_jobs.json"
+    task_index.write_text(json.dumps({
+        "done": {"id": "done", "status": "completed"},
+    }), encoding="utf-8")
+    teacher_jobs = tmp_path / "teacher_lesson_authoring"
+    teacher_jobs.mkdir()
+    authoring = teacher_jobs / "course-1.json"
+    authoring.write_text(json.dumps({
+        "course_id": "course-1",
+        "jobs": {
+            "done": {"id": "done", "status": "completed"},
+            "active": {"id": "active", "status": "running"},
+            "future": {"id": "future", "status": "future_state"},
+        },
+    }), encoding="utf-8")
+    before = authoring.read_bytes()
+
+    result = _run_task_check(task_index, teacher_jobs)
+    payload = json.loads(result.stdout)
+
+    assert result.returncode == 75
+    assert payload == {
+        "safe_to_stop": False,
+        "active_count": 1,
+        "unknown_count": 1,
+        "task_count": 1,
+        "teacher_job_active_count": 1,
+        "teacher_job_unknown_count": 1,
+        "teacher_job_count": 3,
+        "teacher_job_file_count": 1,
+    }
+    assert authoring.read_bytes() == before
+
+
+def test_deploy_task_check_allows_quiescent_teacher_asset_jobs(tmp_path):
+    task_index = tmp_path / "generation_jobs.json"
+    task_index.write_text("{}", encoding="utf-8")
+    teacher_jobs = tmp_path / "teacher_lesson_authoring"
+    teacher_jobs.mkdir()
+    (teacher_jobs / "course-1.json").write_text(json.dumps({
+        "jobs": [
+            {"id": "paused", "status": "paused"},
+            {"id": "failed", "status": "failed"},
+        ],
+    }), encoding="utf-8")
+
+    result = _run_task_check(task_index, teacher_jobs)
+    payload = json.loads(result.stdout)
+
+    assert result.returncode == 0
+    assert payload["safe_to_stop"] is True
+    assert payload["teacher_job_count"] == 2
+    assert payload["teacher_job_active_count"] == 0
+    assert payload["teacher_job_unknown_count"] == 0
+
+
+def test_deploy_task_check_fails_closed_for_corrupt_teacher_job_file(tmp_path):
+    task_index = tmp_path / "generation_jobs.json"
+    task_index.write_text("{}", encoding="utf-8")
+    teacher_jobs = tmp_path / "teacher_lesson_authoring"
+    teacher_jobs.mkdir()
+    (teacher_jobs / "course-1.json").write_text("{broken", encoding="utf-8")
+
+    result = _run_task_check(task_index, teacher_jobs)
 
     assert result.returncode == 75
     assert json.loads(result.stdout)["safe_to_stop"] is False

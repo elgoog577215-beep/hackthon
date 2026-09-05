@@ -111,6 +111,7 @@ def test_server_activation_exits_before_stop_for_unsafe_active_tasks() -> None:
     assert safety_gate < stop_service
     assert 'exit "$task_safety_status"' in script[safety_gate:stop_service]
     assert "check_deploy_task_safety.py" in script
+    assert '"$STATE_DIR/backend-data/teacher_lesson_authoring"' in script
     assert "继续依赖持久检查点" not in script
 
 

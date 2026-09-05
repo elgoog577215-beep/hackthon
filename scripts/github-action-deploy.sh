@@ -385,6 +385,7 @@ assert_no_unsafe_active_tasks() {
     local result=""
     local status=0
     local task_index="$STATE_DIR/backend-data/generation_jobs.json"
+    local teacher_jobs_dir="$STATE_DIR/backend-data/teacher_lesson_authoring"
 
     if [ ! -f "$task_index" ] && [ -f "$CURRENT_LINK/backend/tasks.json" ]; then
         task_index="$CURRENT_LINK/backend/tasks.json"
@@ -393,7 +394,7 @@ assert_no_unsafe_active_tasks() {
         log "发布包缺少只读活动任务检查器；无法证明停止服务安全"
         return 75
     fi
-    if result="$("$VENV/bin/python" "$checker" "$task_index")"; then
+    if result="$("$VENV/bin/python" "$checker" "$task_index" "$teacher_jobs_dir")"; then
         log "活动任务检查通过：$result"
         return 0
     fi
