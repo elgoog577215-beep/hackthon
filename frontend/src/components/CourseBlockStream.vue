@@ -408,10 +408,10 @@ async function deleteAiRecord(note: Note) {
 .ppt-same-source-diff dl > div:last-child dd { color:#14532d; }
 .course-content-block.is-ai-growth-highlight { border-color:rgba(129,140,248,.88); background:linear-gradient(135deg,rgba(245,247,255,1),rgba(236,254,255,.92)); box-shadow:0 0 0 3px rgba(99,102,241,.1),0 18px 38px rgba(30,64,175,.13); }
 .course-content-block.is-ai-growth-primary { border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.13),0 20px 42px rgba(30,64,175,.16); animation:course-ai-growth-arrival 1.45s cubic-bezier(.2,.8,.2,1); }
-.block-heading { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:14px; padding-right:34px; }
+.block-heading { display:flex; align-items:center; gap:10px; margin-bottom:14px; padding-right:34px; }
 .block-heading.is-label-only { margin-bottom:12px; }
 .course-content-block.can-improve-formal .block-heading { padding-right:120px; }
-.block-heading span { flex:0 0 auto; display:inline-flex; align-items:center; min-height:25px; padding:3px 8px; border:1px solid color-mix(in srgb,var(--block-accent) 18%,white); border-radius:8px; color:var(--block-accent); background:var(--block-soft); font-size:var(--text-xs); font-weight:600; line-height:1.35; }
+.block-heading span { flex:0 0 auto; display:inline-flex; align-items:center; min-height:25px; padding:3px 8px; border:1px solid color-mix(in srgb,var(--block-accent) 18%,white); border-radius:8px; color:var(--block-accent); background:var(--block-soft); font-size:11px; font-weight:800; line-height:1; }
 .block-heading h4 { margin:0; color:var(--lz-text-strong); font-size:18px; font-weight:750; line-height:1.35; }
 .block-formal-improvement { position:absolute; top:-2px; right:0; z-index:3; min-height:29px; display:inline-flex; align-items:center; gap:5px; padding:0 8px; border:1px solid rgba(203,213,225,.7); border-radius:8px; color:#1e293b; background:rgba(255,255,255,.9); font-size:10px; opacity:.68; pointer-events:auto; cursor:pointer; transition:opacity .16s ease,color .16s ease,border-color .16s ease,background .16s ease,transform .16s ease; }
 .block-formal-improvement:hover,.block-formal-improvement:focus-visible,.course-content-block:hover > .block-formal-improvement { opacity:1; pointer-events:auto; color:var(--lz-text-secondary); border-color:#cbd5e1; background:#fff; outline:none; transform:translateY(-1px); }
@@ -433,7 +433,7 @@ async function deleteAiRecord(note: Note) {
 .course-content-block[data-content-block-type="transfer"] { --block-accent:#6d28d9; --block-soft:#f5f3ff; }
 .course-content-block[data-content-block-type="summary"] { --block-accent:#4338ca; --block-soft:#eef2ff; margin-top:4px; }
 .course-content-block[data-content-block-type="summary"] .block-heading { margin-bottom:16px; }
-.course-content-block[data-content-block-type="summary"] .block-heading span { min-height:29px; padding:4px 10px; border-radius:9px; font-size:var(--text-xs); }
+.course-content-block[data-content-block-type="summary"] .block-heading span { min-height:29px; padding:4px 10px; border-radius:9px; font-size:13px; }
 .course-content-block[data-content-block-type="summary"] .block-heading h4 { font-size:21px; font-weight:800; }
 .course-content-block :deep(hr) { display:none; }
 .chapter-sources { display:grid; gap:9px; margin-top:4px; border-top:1px solid #e2e8f0; padding-top:15px; }

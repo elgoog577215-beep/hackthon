@@ -2,12 +2,12 @@
   <div class="h-full flex flex-col relative">
     <!-- Reading Progress Bar - Positioned below header -->
     <div v-if="scrollProgress > 0 && !isGenerationPreview" class="absolute top-0 left-0 right-0 h-1 bg-slate-100/50 z-10">
-        <div class="reading-progress-fill" :style="{ transform: `scaleX(${scrollProgress / 100})` }"></div>
+        <div class="h-full reading-progress-fill bg-gradient-to-r from-primary-400 to-primary-600 shadow-[0_0_10px_rgba(99,102,241,0.5)]" :style="{ transform: `scaleX(${scrollProgress / 100})` }"></div>
     </div>
 
     <div
         v-if="courseStore.currentCourseId && !isGenerationPreview && !props.readOnly"
-        class="learning-sync-status absolute top-3 right-3 z-20 inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium"
+        class="absolute top-3 right-3 z-20 inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium shadow-sm backdrop-blur-md"
         :class="learningSyncClass"
         :title="t('courseWorkspace.learningSession.title', '学习现场')"
     >
@@ -388,7 +388,7 @@
     <transition name="back-to-top">
         <button v-if="showBackToTop"
                 type="button"
-                class="back-to-top"
+                class="back-to-top p-3 bg-white/90 backdrop-blur-md border border-slate-200 rounded-full shadow-lg text-slate-500 hover:text-primary-600 hover:border-primary-300 hover:shadow-xl hover:shadow-primary-100/50 transition-all active:scale-95"
                 :title="t('courseWorkspace.backToTop', '回到正文顶部')"
                 :aria-label="t('courseWorkspace.backToTop', '回到正文顶部')"
                 @click="scrollToTop">
@@ -406,7 +406,7 @@ import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useLearningSessionStore } from '../stores/learningSession'
 
 import CourseNode from './CourseNode.vue'
-import { emptyLessonShellContent, isLessonNavigation } from '../utils/course-navigation'
+import { isLessonNavigation } from '../utils/course-navigation'
 import InlineAnnotationLayer from './InlineAnnotationLayer.vue'
 import InlineRecordPopover from './InlineRecordPopover.vue'
 import { Download, Notebook, Close, ChatLineSquare, Timer, ArrowUp, ChatDotRound, Loading, Setting, Check } from '@element-plus/icons-vue'
@@ -498,7 +498,7 @@ const learningSyncIcon = computed(() => {
 const learningSyncClass = computed(() => {
     if (learningSessionStore.status === 'offline') return 'border-amber-200 bg-amber-50/95 text-amber-800'
     if (learningSessionStore.status === 'conflict') return 'border-red-200 bg-red-50/95 text-red-700'
-    if (learningSessionStore.status === 'pending' || learningSessionStore.status === 'syncing') return 'border-primary-200 bg-white/95 text-primary-700'
+    if (learningSessionStore.status === 'pending' || learningSessionStore.status === 'syncing') return 'border-sky-200 bg-white/95 text-sky-700'
     return 'border-slate-200 bg-white/90 text-slate-600'
 })
 const selectionMenu = ref({ visible: false, x: 0, y: 0, arrowOffset: 0, placement: 'top', text: '', range: null as Range | null })
@@ -842,8 +842,7 @@ watch(() => courseStore.scrollToNodeId, async (nodeId) => {
     if (!scrollContainer) { isManualScrolling.value = false; return }
     
     // 先精确匹配 node_id，找不到则按名称模糊匹配
-    const requestedRoot = courseStore.treeData.find(node => node.node_id === nodeId)
-    let targetNodeId = (!isGenerationPreview.value && requestedRoot && emptyLessonShellContent(requestedRoot)?.node_id) || nodeId
+    let targetNodeId = nodeId
     let index = flatNodes.value.findIndex(n => n.node_id === targetNodeId)
     if (index === -1) {
         const match = flatNodes.value.find(n => 
@@ -968,7 +967,7 @@ const flatNodes = computed(() => {
     const nodes: any[] = []
     const traverse = (data: any[]) => {
         for (const node of data) {
-            if (isGenerationPreview.value || !emptyLessonShellContent(node)) nodes.push(node)
+            nodes.push(node)
             if (node.children && node.children.length > 0) {
                 traverse(node.children)
             }
@@ -2564,28 +2563,31 @@ defineExpose({
     50% { background-color: rgba(251, 191, 36, 0.8); box-shadow: 0 0 10px rgba(245, 158, 11, 0.5); }
 }
 
-.reading-progress-fill { width:100%; height:100%; background:var(--lz-brand); transform-origin:left; transition:transform var(--duration-normal) ease-out; }
-.learning-sync-status { max-width:calc(100% - 24px); font-size:var(--text-xs); }
-.back-to-top {
-    position:absolute;
-    right:20px;
-    bottom:20px;
-    z-index:20;
-    width:40px;
-    height:40px;
-    display:grid;
-    place-items:center;
-    border:1px solid var(--lz-border);
-    border-radius:var(--lz-radius-control);
-    color:var(--lz-text-secondary);
-    background:var(--bg-secondary);
-    cursor:pointer;
-    transition:color var(--duration-fast), border-color var(--duration-fast), background var(--duration-fast);
-}
-.back-to-top:hover,.back-to-top:active { color:var(--lz-brand-strong); border-color:var(--lz-brand); background:var(--lz-brand-soft); }
+.reading-progress-fill { width:100%; transform-origin:left; transition:transform .3s ease-out; }
+
 .back-to-top:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
-.back-to-top-enter-active,.back-to-top-leave-active { transition:opacity var(--duration-fast); }
-.back-to-top-enter-from,.back-to-top-leave-to { opacity:0; }
+
+.back-to-top {
+    position: absolute;
+    right: 20px;
+    bottom: 20px;
+    z-index: 20;
+    transition: all 0.3s ease;
+}
+
+/* back-to-top transition animations */
+
+.back-to-top-enter-active,
+.back-to-top-leave-active {
+    transition: all 0.3s ease;
+}
+
+.back-to-top-enter-from,
+.back-to-top-leave-to {
+    opacity: 0;
+    transform: translateY(20px);
+}
+
 @media (prefers-reduced-motion:reduce) { .reading-progress-fill,.back-to-top,.back-to-top-enter-active,.back-to-top-leave-active { transition:none; } }
 
 .notes-expand-tab {
