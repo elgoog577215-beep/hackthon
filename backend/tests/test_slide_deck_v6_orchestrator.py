@@ -1024,12 +1024,18 @@ async def test_materialization_keeps_the_event_loop_responsive(
     async def event_loop_probe() -> None:
         nonlocal ticks
         assert await asyncio.to_thread(entered.wait, 1)
-        while not exited.is_set():
-            ticks += 1
-            await asyncio.sleep(0.01)
+        # Start the responsiveness window after compilation actually enters.
+        # A wall-clock timer started before build also counts planning time and
+        # can release the worker before this probe is ever scheduled on CI.
+        try:
+            for _ in range(5):
+                if exited.is_set():
+                    break
+                ticks += 1
+                await asyncio.sleep(0.01)
+        finally:
+            release.set()
 
-    timer = threading.Timer(0.25, release.set)
-    timer.start()
     try:
         await asyncio.gather(
             orchestrator.build(
@@ -1046,7 +1052,6 @@ async def test_materialization_keeps_the_event_loop_responsive(
         )
     finally:
         release.set()
-        timer.cancel()
 
     assert ticks >= 5
 
