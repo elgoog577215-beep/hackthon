@@ -5,7 +5,7 @@
 > 面向对象：灵知产品负责人、后端、前端、AI/算法、测试、安全与架构负责人
 > 文档性质：产品判断、源码研究、目标架构、融合决策与实施交接稿
 > DeepTutor 研究快照：`v1.5.2` / commit `b728354863540466f5410bec3530eb55a9fe0edc`
-> 灵知对照基线：[`docs/产品蓝图.md`](../产品蓝图.md) 及当前生产代码
+> 灵知对照基线：[`docs/产品逻辑设计.md`](../产品逻辑设计.md) 及当前生产代码
 > 证据边界：外部事实以固定版本源码、官方 Release、论文和公开 Issue 为准；融合建议为本报告分析，不代表已经实施
 > 质量检查：引用完整性 PASS；关键事实 spot-check PASS；报告结论仍需 PoC 验证
 
@@ -1783,7 +1783,7 @@ Proposal / Command / Receipt / CourseEvolutionPlan
 
 [24] [DeepTutor Apache-2.0 LICENSE](https://github.com/HKUDS/DeepTutor/blob/b728354863540466f5410bec3530eb55a9fe0edc/LICENSE)
 
-[25] [灵知产品总蓝图](../产品蓝图.md)
+[25] [灵知产品逻辑设计](../产品逻辑设计.md)
 
 [26] [灵知 AI 课程智能体历史交接稿](../归档/历史需求/2026-07-15-AI课程智能体交接稿.md)
 
