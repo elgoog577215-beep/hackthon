@@ -6,6 +6,7 @@ import pytest
 from routers import courses
 from routers import teacher_lesson_authoring as lesson_router
 from teacher_lesson_authoring import TeacherLessonAuthoringRepository
+from teacher_outline_source import has_teaching_structure
 
 
 def test_course_preparation_status_requires_every_current_complete_asset():
@@ -174,8 +175,8 @@ def test_outline_review_findings_do_not_block_lesson_plan_entry():
         "nodes": [{"node_id": "L1-1", "node_name": "第一讲"}],
     }
 
-    assert lesson_router._has_teaching_structure(source) is True
-    assert lesson_router._has_teaching_structure({
+    assert has_teaching_structure(source) is True
+    assert has_teaching_structure({
         **source,
         "outline_framework_only": True,
         "generation_status": "outline_framework_ready",
