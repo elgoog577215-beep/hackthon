@@ -32,6 +32,7 @@ function mountPanel(
   mode: 'learner' | 'teacher' = 'learner',
   scopeFiles: Array<{ id: string; label: string; nodeId?: string }> = [],
   embedded = false,
+  docked = false,
 ) {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -72,6 +73,7 @@ function mountPanel(
       prefill: blockTarget ? '把定义讲得更清楚' : undefined,
       scopeFiles,
       embedded,
+      docked,
     },
     global: {
       plugins: [pinia],
@@ -343,6 +345,21 @@ describe('SideAIPanel', () => {
     }))
     expect(refreshRuntime).toHaveBeenCalledWith('course-1', 'node-1')
     expect(refreshRuntime).toHaveBeenCalledTimes(1)
+  })
+
+  it('桌面停靠保留对话管理，且不把课程页面设为模态背景', async () => {
+    const wrapper = mountPanel([], '', undefined, undefined, 'learner', [], false, true)
+    expect(wrapper.classes()).toContain('is-docked')
+    expect(wrapper.classes()).not.toContain('is-fullscreen')
+    expect(wrapper.get('.ai-teacher-surface').attributes('role')).toBe('complementary')
+    expect(wrapper.get('.ai-teacher-surface').attributes('aria-modal')).toBeUndefined()
+    expect(wrapper.get('.conversation-shell').classes()).not.toContain('open')
+    await wrapper.get('.conversation-rail-toggle').trigger('click')
+    expect(wrapper.get('.conversation-shell').classes()).toContain('open')
+    await wrapper.get('.conversation-rail-toggle').trigger('click')
+    expect(wrapper.get('.conversation-shell').classes()).not.toContain('open')
+    await wrapper.get('.ai-teacher-header-actions .icon-button').trigger('click')
+    expect(wrapper.emitted('close')).toHaveLength(1)
   })
 
   it('在移动视口继续使用统一的全屏 AI 工作区', () => {

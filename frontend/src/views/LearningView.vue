@@ -101,6 +101,7 @@
     <Transition name="slide-right">
       <SideAIPanel
         v-if="aiVisible && !courseStore.isFocusMode && !isGenerationPreview"
+        :docked="!isNarrow"
         :visible="aiVisible"
         :quote-text="aiQuote"
         :quote-node-id="aiNodeId"
@@ -180,7 +181,9 @@ const contentAreaRef = ref<InstanceType<typeof ContentArea> | null>(null)
 
 const windowWidth = ref(window.innerWidth)
 const navigatorOpen = ref(window.innerWidth >= 1024)
-const aiVisible = ref(false)
+const assistantPanelStorageKey = 'lingzhi-learning-ai-open'
+const restoreAssistantPanelOpen = () => window.innerWidth >= 1024 && sessionStorage.getItem(assistantPanelStorageKey) !== 'closed'
+const aiVisible = ref(restoreAssistantPanelOpen())
 const notebookOpen = ref(false)
 const statsOpen = ref(false)
 const taskOpen = ref(false)
@@ -208,6 +211,9 @@ let courseGrowthLocationTimer: ReturnType<typeof setTimeout> | undefined
 let courseGrowthSettleTimer: ReturnType<typeof setTimeout> | undefined
 
 const isNarrow = computed(() => windowWidth.value < 1024)
+watch(aiVisible, visible => {
+  if (!isNarrow.value) sessionStorage.setItem(assistantPanelStorageKey, visible ? 'open' : 'closed')
+})
 const isTeacherPreview = computed(() => String(route.query.teacherPreview || '') === '1')
 // 教师学生预览虽然读取当前教师课程投影，但它仍是完整学习现场。
 // 只有普通生成预览需要关闭记录、练习和 AI 等会写入学习事实的能力。
@@ -296,7 +302,7 @@ watch(() => route.params.courseId, async value => {
   loadedLearningCourseId.value = loadedLearningCourseId.value === courseId ? loadedLearningCourseId.value : ''
   autoFollowGeneration.value = true
   activeCourseBlockId.value = ''
-  aiVisible.value = false
+  aiVisible.value = restoreAssistantPanelOpen()
   courseAdjustmentOpen.value = false
   courseAdjustmentFocusPlanId.value = ''
   courseAdjustmentSectionId.value = ''
@@ -793,6 +799,7 @@ function closeMobileSurfaces() {
 <style scoped>
 .learning-view { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; display: flex; gap: 12px; overflow: hidden; background: transparent; }
 .navigator-surface { flex: 0 0 292px; }
+.learning-view > .ai-teacher-panel.is-docked { flex:0 0 clamp(300px,25vw,360px); width:clamp(300px,25vw,360px); border-radius:var(--lz-radius-surface); }
 .learning-main { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: #fff; box-shadow: var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
 .has-ai-course-growth .learning-main { border-color:rgba(165,180,252,.7); box-shadow:0 16px 42px rgba(30,64,175,.1),0 2px 8px rgba(15,23,42,.05); }
 .learning-content { min-height: 0; flex: 1; }

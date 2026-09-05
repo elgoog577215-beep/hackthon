@@ -2777,7 +2777,9 @@
     "search": "Find a chapter or lesson block",
     "records": "Learning records",
     "sectionBlocks": "Lesson blocks",
-    "blockFallback": "Content block"
+    "blockFallback": "Content block",
+    "searchLessons": "Search lessons or content",
+    "noResults": "No matches. Try another keyword."
   },
   "learningShell": {
     "openNavigator": "Open course outline",
@@ -2814,7 +2816,7 @@
     "resourceMenuTitle": "Course materials",
     "resourceMenuHelp": "Knowledge graph and supporting course materials",
     "assistant": "AI assistant",
-    "assistantHint": "Open the full-screen AI assistant",
+    "assistantHint": "Open the AI assistant",
     "notebook": "Notebook",
     "notebookHint": "View notes and learning markers for this course",
     "questionBook": "Question book",
@@ -2844,7 +2846,7 @@
     "teachingDescription": "View outlines, lesson plans, and handouts",
     "resourcesHint": "View the outline, lesson plan, handout, practice sheet, and slides compiled from this course",
     "ai": "AI assistant",
-    "aiHint": "Open the full-screen AI assistant"
+    "aiHint": "Open the AI assistant"
   },
   "questionBook": {
     "title": "Question book",
