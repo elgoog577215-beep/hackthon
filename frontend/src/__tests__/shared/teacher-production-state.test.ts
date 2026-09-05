@@ -73,6 +73,88 @@ describe('teacher production state actions', () => {
     expect(productionActionTaskIds(parsed?.stages.script, 'resume_generation')).toEqual([])
   })
 
+  it('promotes only explicit issue recovery from the original v1 projection shape', () => {
+    const retryIssue = {
+      issue_id: 'script-retry',
+      stage: 'script',
+      lesson_unit_id: 'L1-2',
+      task_id: 'script-job-2',
+      code: 'lesson_script_shard_incomplete',
+      summary: '3 个教学块生成失败，已保留其他成功结果。',
+      recovery: { action: 'retry_generation', automatic: false, requires_confirmation: true },
+    }
+    const oldStage = (overrides: Record<string, unknown> = {}) => ({
+      display_state: 'available',
+      task_state: 'completed',
+      availability: 'usable',
+      source_state: 'current',
+      latest_attempt_failed: false,
+      update_required: false,
+      counts: { total: 1, available: 1, generating: 0, failed: 0, stale: 0 },
+      issues: [],
+      ...overrides,
+    })
+    const parsed = readCourseProductionState({
+      schema_version: 'course_production_state_v1',
+      course_id: 'course-1',
+      preparation_state: 'preparing',
+      stages: {
+        outline: oldStage(),
+        lesson_plan: oldStage(),
+        script: oldStage({
+          display_state: 'failed',
+          task_state: 'failed',
+          availability: 'stale',
+          latest_attempt_failed: true,
+          counts: { total: 2, available: 1, generating: 0, failed: 1, stale: 0 },
+          latest_attempt: { task_ids: ['script-job-2'] },
+          issues: [retryIssue],
+        }),
+        ppt: oldStage(),
+      },
+      lessons: [{
+        lesson_unit_id: 'L1-2',
+        title: '第二讲',
+        stages: {
+          script: {
+            ...oldStage({
+              display_state: 'failed',
+              task_state: 'failed',
+              availability: 'missing',
+              latest_attempt_failed: true,
+              issues: [retryIssue],
+            }),
+            counts: undefined,
+          },
+        },
+      }],
+      issues: [retryIssue],
+    })
+
+    expect(parsed).not.toBeNull()
+    expect(parsed?.stages.script.allowed_actions).toEqual(['retry_generation'])
+    expect(productionActionTaskIds(parsed?.stages.script, 'retry_generation')).toEqual(['script-job-2'])
+    expect(parsed?.lessons[0]?.stages.script?.allowed_actions).toEqual(['retry_generation'])
+    expect(productionActionTaskIds(parsed?.lessons[0]?.stages.script, 'retry_generation')).toEqual(['script-job-2'])
+  })
+
+  it('does not infer retry from an old v1 failed status without explicit recovery authority', () => {
+    const oldFailedStage = {
+      display_state: 'failed', task_state: 'failed', availability: 'missing', source_state: 'missing',
+      latest_attempt_failed: true, update_required: false,
+      counts: { total: 1, available: 0, generating: 0, failed: 1, stale: 0 }, issues: [],
+    }
+    const parsed = readCourseProductionState({
+      schema_version: 'course_production_state_v1', course_id: 'course-1', preparation_state: 'preparing',
+      stages: { outline: oldFailedStage, lesson_plan: oldFailedStage, script: oldFailedStage, ppt: oldFailedStage },
+      lessons: [], issues: [],
+    })
+
+    expect(parsed).not.toBeNull()
+    expect(parsed?.stages.script.allowed_actions).toEqual(['inspect_failure'])
+    expect(productionActionTaskIds(parsed?.stages.script, 'retry_generation')).toEqual([])
+  })
+
   it.each([
     ['waiting_for_input', ['provide_input', 'cancel_generation'], { provide_input: ['task-1'], cancel_generation: ['task-1'] }],
     ['waiting_for_review', ['review_generation', 'resume_generation'], { review_generation: ['task-1'], resume_generation: ['task-1'] }],

@@ -2468,6 +2468,56 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.context-pane-heading__actions .primary-status-action').exists()).toBe(false)
   })
 
+  it('旧 v1 投影仍用服务端明确恢复身份显示讲义重新生成并提交原 job ID', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-2', number: 2, title: '第二讲', duration_minutes: 45, sections: [],
+      plan: { lesson_unit_id: 'L1-2', working_revision_id: 'plan-2', source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
+      script: { current_revision_id: '', source_lesson_plan_revision_id: 'plan-2', source_state: 'missing', ready: false, sections: [] },
+    }] as any
+    const retryIssue = {
+      issue_id: 'script-retry-old-v1', stage: 'script', lesson_unit_id: 'L1-2', task_id: 'script-job-old-v1',
+      code: 'lesson_script_shard_incomplete', summary: '3 个教学块生成失败，已保留其他成功结果。',
+      recovery: { action: 'retry_generation', automatic: false, requires_confirmation: true },
+    }
+    const oldStage = (overrides: Record<string, unknown> = {}) => ({
+      display_state: 'available', task_state: 'completed', availability: 'usable', source_state: 'current',
+      latest_attempt_failed: false, update_required: false,
+      counts: { total: 1, available: 1, generating: 0, failed: 0, stale: 0 }, issues: [],
+      ...overrides,
+    })
+    useCourseStore().setTeacherProductionState('course-1', {
+      schema_version: 'course_production_state_v1', course_id: 'course-1', preparation_state: 'preparing',
+      stages: {
+        outline: oldStage(), lesson_plan: oldStage(),
+        script: oldStage({
+          display_state: 'failed', task_state: 'failed', availability: 'stale', latest_attempt_failed: true,
+          counts: { total: 1, available: 0, generating: 0, failed: 1, stale: 0 },
+          latest_attempt: { attempt_id: 'old-attempt', task_ids: ['script-job-old-v1'], task_state: 'failed', target_count: 1, completed: 0, failed: 1, progress: 47, lesson_unit_ids: ['L1-2'], message: '讲义生成暂停', updated_at: '2026-09-04T13:16:41Z' },
+          issues: [retryIssue],
+        }),
+        ppt: oldStage({ display_state: 'not_generated', task_state: 'idle', availability: 'missing', source_state: 'missing', counts: { total: 1, available: 0, generating: 0, failed: 0, stale: 0 } }),
+      },
+      lessons: [{
+        lesson_unit_id: 'L1-2', title: '第二讲',
+        stages: { script: { display_state: 'failed', task_state: 'failed', availability: 'missing', source_state: 'missing', latest_attempt_failed: true, update_required: false, issues: [retryIssue] } },
+      }],
+      issues: [retryIssue],
+    } as any)
+    const generateAll = vi.spyOn(lessonStore, 'generateAllScripts').mockResolvedValue({} as any)
+
+    const wrapper = mountWorkbench({ initialStage: 'script', initialLessonId: 'L1-2' })
+
+    const retry = wrapper.get('[data-testid="script-course-preview-generate"]')
+    expect(retry.text()).toContain('重新生成')
+    await retry.trigger('click')
+    await flushPromises()
+    expect(generateAll).toHaveBeenCalledWith('course-1', '', {
+      regenerateReady: true,
+      resumeJobIds: ['script-job-old-v1'],
+    })
+  })
+
   it('可选资料待核对由统一投影显示，但不阻断可用内容', () => {
     const stage = {
       display_state: 'available', task_state: 'completed', availability: 'usable', source_state: 'current',

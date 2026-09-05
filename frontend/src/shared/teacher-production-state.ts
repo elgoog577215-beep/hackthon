@@ -265,11 +265,113 @@ function isStage(value: unknown): value is StageProductionState {
   ].every(Number.isFinite))
 }
 
+// The v1 projection originally exposed an explicit recovery action on each
+// issue before action_targets became a required top-level authorization map.
+// During a rolling/local frontend update the old backend can therefore return
+// enough authority to retry, but not the newer transport fields. Promote only
+// that explicit issue-level authority; never infer a write action from a task
+// state, display state, checkpoint, or local job.
+function upgradeLegacyV1AssetActions(
+  value: unknown,
+  stage: CourseProductionStageKey,
+  lessonUnitId?: string,
+): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  const asset = value as Record<string, unknown>
+  if (
+    Object.prototype.hasOwnProperty.call(asset, 'task_ids')
+    || Object.prototype.hasOwnProperty.call(asset, 'action_targets')
+    || Object.prototype.hasOwnProperty.call(asset, 'allowed_actions')
+  ) return value
+
+  const issues = Array.isArray(asset.issues) ? asset.issues : []
+  const actionTargets: CourseProductionActionTargets = {}
+  const allowedActions: CourseProductionAllowedAction[] = []
+  const taskIds = new Set<string>()
+  const latestAttempt = asset.latest_attempt
+  if (latestAttempt && typeof latestAttempt === 'object' && !Array.isArray(latestAttempt)) {
+    const attemptTaskIds = (latestAttempt as Record<string, unknown>).task_ids
+    if (Array.isArray(attemptTaskIds)) {
+      attemptTaskIds.forEach(taskId => {
+        if (typeof taskId === 'string' && taskId) taskIds.add(taskId)
+      })
+    }
+  }
+
+  for (const rawIssue of issues) {
+    if (!rawIssue || typeof rawIssue !== 'object' || Array.isArray(rawIssue)) continue
+    const issue = rawIssue as Record<string, unknown>
+    if (issue.stage !== stage) continue
+    if (lessonUnitId !== undefined && issue.lesson_unit_id !== lessonUnitId) continue
+    const recovery = issue.recovery
+    if (!recovery || typeof recovery !== 'object' || Array.isArray(recovery)) continue
+    const recoveryRecord = recovery as Record<string, unknown>
+    if (recoveryRecord.automatic !== false || recoveryRecord.requires_confirmation !== true) continue
+    const action = recoveryRecord.action
+    if (action === 'inspect_failure') {
+      if (!allowedActions.includes(action)) allowedActions.push(action)
+      continue
+    }
+    if (action !== 'retry_generation') continue
+    const taskId = typeof issue.task_id === 'string' ? issue.task_id : ''
+    if (!taskId) continue
+    taskIds.add(taskId)
+    if (!allowedActions.includes(action)) allowedActions.push(action)
+    actionTargets[action] = [...new Set([...(actionTargets[action] || []), taskId])]
+  }
+
+  if (!allowedActions.length && ['failed', 'unknown'].includes(String(asset.task_state || ''))) {
+    allowedActions.push('inspect_failure')
+  }
+  return {
+    ...asset,
+    task_ids: [...taskIds],
+    action_targets: actionTargets,
+    allowed_actions: allowedActions,
+  }
+}
+
+function upgradeLegacyV1Projection(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  const state = value as Record<string, unknown>
+  if (state.schema_version !== 'course_production_state_v1') return value
+  const rawStages = state.stages
+  if (!rawStages || typeof rawStages !== 'object' || Array.isArray(rawStages)) return value
+  const stages = rawStages as Record<string, unknown>
+  const lessons = Array.isArray(state.lessons) ? state.lessons.map(rawLesson => {
+    if (!rawLesson || typeof rawLesson !== 'object' || Array.isArray(rawLesson)) return rawLesson
+    const lesson = rawLesson as Record<string, unknown>
+    const lessonStages = lesson.stages
+    if (!lessonStages || typeof lessonStages !== 'object' || Array.isArray(lessonStages)) return rawLesson
+    const lessonUnitId = typeof lesson.lesson_unit_id === 'string' ? lesson.lesson_unit_id : ''
+    return {
+      ...lesson,
+      stages: Object.fromEntries(Object.entries(lessonStages).map(([key, asset]) => [
+        key,
+        COURSE_PRODUCTION_STAGE_KEYS.includes(key as CourseProductionStageKey)
+          ? upgradeLegacyV1AssetActions(asset, key as CourseProductionStageKey, lessonUnitId)
+          : asset,
+      ])),
+    }
+  }) : state.lessons
+  return {
+    ...state,
+    stages: Object.fromEntries(Object.entries(stages).map(([key, asset]) => [
+      key,
+      COURSE_PRODUCTION_STAGE_KEYS.includes(key as CourseProductionStageKey)
+        ? upgradeLegacyV1AssetActions(asset, key as CourseProductionStageKey)
+        : asset,
+    ])),
+    lessons,
+  }
+}
+
 export function readCourseProductionState(source?: unknown): CourseProductionState | null {
   if (!source || typeof source !== 'object') return null
-  const value = 'schema_version' in source
+  const rawValue = 'schema_version' in source
     ? source
     : (source as ProductionEnvelope).course_production_state
+  const value = upgradeLegacyV1Projection(rawValue)
   if (!value || typeof value !== 'object') return null
   const state = value as CourseProductionState
   if (state.schema_version !== 'course_production_state_v1' || !state.course_id) return null
