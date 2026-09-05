@@ -21,42 +21,7 @@ FONT_PATH = ASSET_ROOT / "fonts/NotoSansCJKsc-Regular.otf"
 from ppt_layout_schema import (FONT_FAMILY, COMPILER_VERSION, RENDERER_VERSION, QUALITY_VERSION, LAYOUT_VERSION, PLANNER_VERSION, NativeTarget, LayoutExecution)
 
 
-def file_digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-@lru_cache(maxsize=16)
-def _cli_version(path, modified_ns, argument):
-    try:
-        result = subprocess.run([path, argument], capture_output=True, text=True, check=True, timeout=20)
-        return (result.stdout.strip() or result.stderr.strip()).splitlines()[0]
-    except (OSError, subprocess.SubprocessError, IndexError):
-        return "unavailable"
-
-
-def _tool_version(names, argument):
-    path = next((p for name in names if (p := shutil.which(name))), None)
-    return _cli_version(path, Path(path).stat().st_mtime_ns, argument) if path else "unavailable"
-
-
-def tool_identity() -> dict:
-    if not FONT_PATH.is_file():
-        raise ValueError("teaching_font_missing")
-    return {
-        "compiler": COMPILER_VERSION,
-        "renderer": RENDERER_VERSION,
-        "quality": QUALITY_VERSION,
-        "python": platform.python_version(),
-        "font_family": FONT_FAMILY,
-        "font_sha256": file_digest(FONT_PATH),
-        "python_pptx": importlib.metadata.version("python-pptx"),
-        "lxml": importlib.metadata.version("lxml"),
-        "pillow": importlib.metadata.version("Pillow"),
-        "freetype": features.version_module("freetype2"),
-        "pypdf": importlib.metadata.version("pypdf"),
-        "libreoffice": _tool_version(("soffice", "libreoffice"), "--version"),
-        "poppler": _tool_version(("pdftoppm",), "-v"),
-    }
+from ppt_runtime_identity import file_digest, tool_identity
 
 
 @lru_cache(maxsize=48)
@@ -105,6 +70,7 @@ _LAYOUTS = {
     "lesson-agenda": ["agenda"],
     "hierarchy-map": ["hierarchy"],
     "source-evidence": ["evidence"],
+    "data-bars": ["chart"],
 }
 
 
@@ -171,7 +137,8 @@ def capability_summary(template) -> list[dict]:
         "composition_guidance": (
             "Common conditions and the optional question each use one short line. The conclusion uses one short line. "
             "All cells remain in their fixed subject-column and dimension-row. Four dimensions permit only short cell labels; "
-            "a multiline formula, code or diagram needs ONE dimension and few elements per cell. "
+            "Rows share the available height according to measured text/formula height; complex comparisons need fewer dimensions. "
+            "A multiline formula, code or diagram normally needs ONE dimension and few elements per cell. "
             "For a question comparing several formula options, use compare-matrix: each option is one subject, "
             "a single shared dimension contains its formula, and the screen question remains above the matrix. "
             "Do not stack multiple option labels and formulas as separate full-width linear rows. "
@@ -179,11 +146,15 @@ def capability_summary(template) -> list[dict]:
             "if the dimension asks for a count, a matrix row is not an answer. Do not invent numeric counts to fill cells. "
             "Relations join elements within the SAME subject; they never connect the compared subject labels."
             if l.layout_slug.startswith("compare-") else
+            "Horizontal data bars require 2-6 source-exact nonnegative decimal values and a source-exact shared unit. "
+            "Keep category labels short. Values share one zero baseline and fixed scale across reveal states. "
+            "No negative values, percentages embedded in values, mixed units, logarithmic scales or invented statistics. "
+            if l.layout_slug == "data-bars" else
             "Graph pages normally use 2-5 concise nodes, each one or two short lines, with explicit source-backed edges. "
             "Graph nodes are at most 210x108pt and become smaller as more layers/nodes are added. "
             "Complete definitions, explanations and background remain in the already preserved speaker notes. "
             "Show only information necessary for THIS page goal, not every idea from the source block. "
-            "Linear pages divide available height equally "
-            "among elements. Each added element reduces room for others; use a separate page for a large formula or code."
+            "Linear pages allocate height from measured text/formula lines, keeping every reveal state in the same position. "
+            "Each added element reduces room for others; use a separate page for a large formula or code."
         ),
     } for l in template.layouts if l.execution is not None]

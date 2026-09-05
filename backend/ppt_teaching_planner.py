@@ -15,7 +15,7 @@ from ppt_layout_execution import PLANNER_VERSION, capability_summary
 from ppt_teaching_content import Contract, PageTeachingV2
 from ppt_teaching_manuscript import compile_teaching_manuscript
 from ppt_comparison_draft import ComparisonPageDraft, lower_comparison_draft
-from ppt_page_draft import TeachingPageDraft, lower_teaching_draft
+from ppt_page_draft import ChartTeachingPageDraft, GraphTeachingPageDraft, LinearTeachingPageDraft, lower_teaching_draft
 from ppt_source_quotes import source_excerpt_catalog
 from ppt_adopted_visuals import AdoptedDiagramDraft, lower_adopted_diagram
 
@@ -55,12 +55,15 @@ class PageRevision(Contract):
     teaching: PageTeachingV2
 
 
+PageResponseDraft = ComparisonPageDraft | LinearTeachingPageDraft | GraphTeachingPageDraft | ChartTeachingPageDraft | AdoptedDiagramDraft
+
+
 class PageGroupDraft(Contract):
-    pages: list[ComparisonPageDraft | TeachingPageDraft | AdoptedDiagramDraft] = Field(min_length=1, max_length=12)
+    pages: list[PageResponseDraft] = Field(min_length=1, max_length=12)
 
 
 def page_response_contract():
-    schema = TypeAdapter(ComparisonPageDraft | TeachingPageDraft | AdoptedDiagramDraft | PageGroupDraft).json_schema()
+    schema = TypeAdapter(PageResponseDraft | PageGroupDraft).json_schema()
     def compact(value):
         if isinstance(value, dict):
             return {k: compact(v) for k, v in value.items() if k != "default" and not (k == "title" and isinstance(v, str))}
@@ -79,6 +82,11 @@ def normalize_page_response(response, sources, catalog=None):
 
 def revised_plan(plan, revision):
     return {**plan, **revision, "layout_id": revision.get("layout_id") or plan["layout_id"]}
+
+
+def page_failure_message(error):
+    from slide_deck_v6_models import V6BuildError
+    return (f"{error.failure.page_id}: {error.failure.message}" if isinstance(error, V6BuildError) else str(error))[:1800]
 
 
 async def invoke_teaching_provider(provider, request):
@@ -116,6 +124,9 @@ async def invoke_teaching_provider(provider, request):
             "Page order and show_from express presentation timing; never invent graph edges such as 'display' or 'ask'. "
             "do not copy full explanations into graph nodes. The source is already complete in notes. "
             "Images require accepted immutable asset IDs from the supplied catalog. Do not invent assets. "
+            "Data-bars supports 2-6 nonnegative decimal data values, copied exactly from sources with kind=data. "
+            "chart_points pairs existing label/value element keys; chart_unit_key cites an exact source unit using kind=quote. "
+            "All categories and the unit show from step 1; the compiler fixes one shared zero baseline and scale for every step. "
             "To reuse an accepted diagram, return AdoptedDiagramDraft with its adopted_diagram_id and diagram_unit_id "
             "and a concept-map layout. Its complete nodes and edges are copied from the accepted source; do not reconstruct them. "
             "For narrative planning, cover each supplied formal source block in original first-appearance order and keep "
@@ -305,7 +316,7 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
             try:
                 await accept(previous_candidate)
             except (ValueError, V6BuildError) as exc:
-                error = (exc.failure.message if isinstance(exc, V6BuildError) else str(exc))[:1800]
+                error = page_failure_message(exc)
             else:
                 continue
         for attempt in range(3):
@@ -337,7 +348,7 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
                 await accept(response)
                 break
             except (ValueError, V6BuildError) as exc:
-                error = (exc.failure.message if isinstance(exc, V6BuildError) else str(exc))[:1800]
+                error = page_failure_message(exc)
                 error = re.sub(r"cell-(\d+)-(\d+)", lambda m: f"cells[{m[1]}].content[{m[2]}].text", error)
                 checkpoint["calls"][-1]["validation_error"] = error
                 await save({"phase": "repair", "item_id": item_id})
@@ -409,7 +420,7 @@ async def regenerate_teaching_pages(manuscript, target_page_ids, planner, *, tim
                 replacements[page_id] = resolved
                 break
             except (ValueError, V6BuildError) as exc:
-                error = (exc.failure.message if isinstance(exc, V6BuildError) else str(exc))[:1800]
+                error = page_failure_message(exc)
         else:
             raise V6BuildError(stage="manuscript", code="teaching_page_validation_failed", message=error, page_id=page_id, retryable=True)
     candidate_base.pages = [part for page in candidate_base.pages for part in replacements.get(page.page_id, [page])]

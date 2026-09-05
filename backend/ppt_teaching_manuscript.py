@@ -37,20 +37,24 @@ def resolve_manuscript_page(page, template, source_revision):
     from ppt_adopted_visuals import validate_adopted_diagram
     validate_adopted_diagram(page.teaching)
     if not page.page_goal.strip():
-        raise ValueError("teaching_goal_or_question_missing")
+        raise ValueError("teaching_goal_or_question_missing: provide a nonempty page_goal describing this page's teaching task")
     # Comparison identities/cells and graph edges already express the teaching
     # relationship. Do not require the model to duplicate it as a prose claim.
-    if page.teaching.expression.kind not in {"comparison", "concept", "process", "causal", "hierarchy", "cover", "agenda"} and not (
+    if page.teaching.expression.kind not in {"comparison", "concept", "process", "causal", "hierarchy", "cover", "agenda", "chart"} and not (
             page.primary_claim.strip() or page.audience_question.strip()
             or any(e.role in {"question", "claim"} for e in page.teaching.elements)):
-        raise ValueError("teaching_goal_or_question_missing")
+        raise ValueError("teaching_goal_or_question_missing: include a primary_claim or audience_question, "
+                         "or mark the existing screen statement/question with role=claim/question; "
+                         "a derivation must make the result or question clear, not only label two artifacts")
     if (page.audience_question.strip() or page.audience_action.strip()) and not (page.expected_response.strip() or page.observable_evidence.strip()):
         raise ValueError("teaching_response_missing")
     from slide_source_tokens import _protected_tokens
     full_source = "\n".join(text for _, text in _notes(page).values())
     for field in ("title", "page_goal", "primary_claim", "audience_question", "audience_action", "expected_response", "observable_evidence"):
-        if _protected_tokens(getattr(page, field)) - _protected_tokens(full_source):
-            raise ValueError(f"teaching_fact_token_unsupported:{field}")
+        unsupported = _protected_tokens(getattr(page, field)) - _protected_tokens(full_source)
+        if unsupported:
+            raise ValueError(f"teaching_fact_token_unsupported:{field}: unsupported={sorted(unsupported)}; "
+                             "copy factual symbols/numbers exactly from supplied sources or remove unsupported claims")
     for element in page.teaching.elements:
         if element.kind == "image":
             adopted = {ref for note in page.speaker_notes.source_blocks for ref in note.asset_refs}
@@ -68,8 +72,11 @@ def resolve_manuscript_page(page, template, source_revision):
             if file_digest(asset_path) != element.asset_digest:
                 raise ValueError("teaching_asset_digest_mismatch")
         source = "\n".join(s.quote for s in element.sources)
-        if _protected_tokens(element.text) - _protected_tokens(source):
-            raise ValueError(f"teaching_fact_token_unsupported:{element.element_id}")
+        unsupported = _protected_tokens(element.text) - _protected_tokens(source)
+        if unsupported:
+            raise ValueError(f"teaching_fact_token_unsupported:{element.element_id}: unsupported={sorted(unsupported)}; "
+                             f"selected_source_tokens={sorted(_protected_tokens(source))}; "
+                             "cite the supplied quote containing the claim, or correct the screen text; never invent a source")
         if element.role == "answer" and len(element.text.strip()) >= 4 and element.text.strip() in page.title:
             raise ValueError("answer_revealed_in_title")
     layout = template.get_layout(page.layout_id)
@@ -103,7 +110,7 @@ def compile_teaching_manuscript(document, graph, template, narrative, planned_pa
     pages = []
     source_context = source_context or {}
     type_map = {"problem": "concept", "exercise": "practice", "derivation": "reasoning", "recap": "summary", "process": "diagram",
-                "causal": "diagram", "hierarchy": "diagram", "concept": "concept", "comparison": "comparison", "cover": "cover", "agenda": "agenda", "evidence": "content"}
+                "causal": "diagram", "hierarchy": "diagram", "concept": "concept", "comparison": "comparison", "cover": "cover", "agenda": "agenda", "evidence": "content", "chart": "content"}
     for index, planned in enumerate(planned_pages):
         unit = units.get(planned["teaching_unit_id"])
         source_ids = planned["source_block_ids"]

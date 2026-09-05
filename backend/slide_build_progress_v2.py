@@ -10,10 +10,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from slide_deck_v6 import V6Failure
+from slide_deck_v6_models import V6Failure
 
 
-WorkKind = Literal["local", "render_page", "asset", "ai_batch"]
+WorkKind = Literal["local", "render_page", "asset", "ai_batch", "ppt_content_plan", "ppt_content_page", "ppt_layout_preflight", "ppt_native_render", "ppt_output_audit"]
 WorkStatus = Literal["pending", "running", "completed", "failed"]
 ManifestStatus = Literal["active", "failed", "completed"]
 
@@ -22,6 +22,11 @@ DEFAULT_WORK_WEIGHTS: dict[WorkKind, int] = {
     "render_page": 3,
     "asset": 5,
     "ai_batch": 10,
+    "ppt_content_plan": 10,
+    "ppt_content_page": 10,
+    "ppt_layout_preflight": 1,
+    "ppt_native_render": 3,
+    "ppt_output_audit": 1,
 }
 
 

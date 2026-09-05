@@ -942,6 +942,35 @@ class PptTemplatePackRepository:
         _atomic_json(self._manifest_path(pack_id), manifest)
         return self._public(manifest)
 
+    def register_teaching_layout(self, pack_id: str, owner_id: str, slug: str, execution: dict, *, maintainer_reviewed: bool) -> dict[str, Any]:
+        """Register a locally certified native binding in the existing draft.
+
+        The maintainer CLI supplies the explicit object map. Upload geometry
+        guesses and ordinary draft metadata edits cannot grant certification.
+        Publication still creates a new immutable version in this repository.
+        """
+        slug = _safe_identifier(slug, field="layout slug")
+        manifest = self.load_owned(pack_id, owner_id)
+        from ppt_layout_schema import LayoutExecution
+        spec = LayoutExecution.model_validate(execution)
+        reference = next((a for a in manifest.get("assets", []) if a.get("role") == "reference_pptx"), None)
+        if not reference:
+            raise TemplatePackError("native_reference_missing")
+        path = self._pack_dir(pack_id) / 'draft-assets' / Path(reference['stored_name']).name
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != spec.source_sha256:
+            raise TemplatePackError("native_template_source_changed")
+        candidate = deepcopy(manifest)
+        candidate.setdefault('teaching_layouts', {})[slug] = {'execution': spec.model_dump(mode='json'), 'maintainer_reviewed': maintainer_reviewed}
+        candidate['version'] = int(manifest.get('latest_version') or 0) + 1
+        try:
+            compile_personal_template_layout_contract_v1(candidate)
+        except (TemplateLayoutContractError, ValueError) as exc:
+            raise TemplatePackError(str(exc)) from exc
+        manifest['teaching_layouts'] = candidate['teaching_layouts']
+        manifest['updated_at'] = _utc_now()
+        _atomic_json(self._manifest_path(pack_id), manifest)
+        return self._public(manifest)
+
     def publish(self, pack_id: str, owner_id: str) -> dict[str, Any]:
         manifest = self.load_owned(pack_id, owner_id)
         version = int(manifest.get("latest_version") or 0) + 1

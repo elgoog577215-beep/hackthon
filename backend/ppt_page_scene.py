@@ -7,11 +7,15 @@ from pydantic import Field
 
 from course_document import stable_hash
 from ppt_layout_execution import LayoutExecution, tool_identity, validate_text_frame
-from ppt_teaching_content import ComparisonExpression, Contract, GraphExpression, PageTeachingV2
+from ppt_teaching_content import ChartExpression, ComparisonExpression, Contract, GraphExpression, PageTeachingV2, chart_number, relation_is_directed
 
 
 def display_element_text(element):
     if element.kind == "formula":
+        from ppt_formula_projection import project_matrix
+        matrix = project_matrix(element.text)
+        if matrix is not None:
+            return matrix
         from slide_deck_renderer import _format_formula_text
         text = _format_formula_text(element.text)
         if "\\" in text or "$" in text:
@@ -27,7 +31,7 @@ class SceneObject(Contract):
     object_id: str
     element_id: str = ""
     slot_id: str
-    kind: Literal["text", "image"] = "text"
+    kind: Literal["text", "image", "shape"] = "text"
     text: str
     lines: list[str]
     x: float
@@ -45,7 +49,7 @@ class SceneObject(Contract):
     asset_representation_id: str = ""
     subject_id: str = ""
     dimension_id: str = ""
-    editability: Literal["text", "image_object", "formula_source_text"] = "text"
+    editability: Literal["text", "image_object", "formula_source_text", "native_shape"] = "text"
 
 
 class SceneEdge(Contract):
@@ -109,6 +113,7 @@ class ResolvedPageScene(Contract):
     width: float = 960
     height: float = 540
     background: str = "FFFFFF"
+    accent_color: str = "305AC7"
     objects: list[SceneObject]
     edges: list[SceneEdge]
     emphasized_element_ids: list[str]
@@ -156,17 +161,34 @@ def resolve_page_scenes(*, page_id: str, title: str, content: PageTeachingV2, la
     slots = {}
     styles = {}
     expression = content.expression
-    accent = "305AC7" if template.theme_id == "academic-editorial" else "4C479C"
+    palette = ({"accent": "305AC7", "condition": "EFF3FB", "header": "E5EDFA", "cell": "F3F6FB", "node": "EDF2FC"}
+        if template.theme_id == "academic-editorial" else
+        {"accent": "4C479C", "condition": "F2F0FA", "header": "E7E3F5", "cell": "F7F5FC", "node": "EEEAF9"})
+    accent = palette["accent"]
+    chart_bars = []
 
-    def place(ids, frame, prefix, *, fill="FFFFFF", bold=False):
+    def minimum_height(key, width):
+        from ppt_layout_execution import wrap_text
+        item = elements[key]
+        return (160 if item.kind == "image" else
+                len(wrap_text(display_element_text(item), width - 16, execution.font_floor_pt,
+                              font_digest=execution.font_sha256)) * execution.font_floor_pt * 1.3 + 12)
+
+    def place(ids, frame, prefix, *, fill="FFFFFF", bold=False, measured=False):
         if not ids:
             return
         x, y, w, h = frame
-        cell_h = h / len(ids)
+        heights = [h / len(ids)] * len(ids)
+        if measured and execution.mode != "native_fill":
+            minimums = [minimum_height(key, w) for key in ids]
+            extra = max(0, h - sum(minimums)) / len(ids)
+            heights = [minimum + extra for minimum in minimums]
+        offset = 0
         for i, element_id in enumerate(ids):
             if element_id in positions:
                 raise ValueError("teaching_element_placed_twice")
-            positions[element_id] = (x, y + i * cell_h, w, cell_h)
+            positions[element_id] = (x, y + offset, w, heights[i])
+            offset += heights[i]
             slots[element_id] = f"{prefix}.{i}"
             styles[element_id] = {"fill": fill, "bold": bold}
 
@@ -177,43 +199,93 @@ def resolve_page_scenes(*, page_id: str, title: str, content: PageTeachingV2, la
             raise ValueError("comparison_visual_evidence_missing")
         prompt = bool(expression.prompt_element_ids)
         place(expression.prompt_element_ids, (42, 87, 876, 44), "prompt", bold=True)
-        place(expression.condition_element_ids, (42, 133 if prompt else 87, 876, 56 if prompt else 66), "condition", fill="EFF3FB")
+        place(expression.condition_element_ids, (42, 133 if prompt else 87, 876, 56 if prompt else 66), "condition", fill=palette["condition"])
         n, m = len(expression.subjects), len(expression.dimensions)
         label_w = 150
         col_w = (876 - label_w) / n
-        row_h = (210 if prompt else 240) / m
+        available = 210 if prompt else 240
+        row_heights = [available / m] * m
+        if execution.component_id == "compare-matrix" and execution.mode != "native_fill":
+            minimums = [max(
+                minimum_height(d.label_element_id, label_w - 4),
+                *(sum(minimum_height(key, col_w - 4) for key in c.element_ids)
+                  for c in expression.cells if c.dimension_id == d.dimension_id),
+            ) + 4 for d in expression.dimensions]
+            if sum(minimums) > available:
+                raise ValueError(f"teaching_text_capacity_exceeded:comparison_rows: needs={sum(minimums):g}pt, "
+                    f"available={available}pt; minimum_heights={dict(zip((d.dimension_id for d in expression.dimensions), minimums))}; "
+                    "split comparison dimensions across pages, retaining subject labels and conditions")
+            extra = (available - sum(minimums)) / m
+            row_heights = [minimum + extra for minimum in minimums]
         for j, subject in enumerate(expression.subjects):
-            place([subject.label_element_id], (42 + label_w + j * col_w, 194 if prompt else 160, col_w - 4, 48 if prompt else 55), f"subject.{j}", fill="E5EDFA", bold=True)
+            place([subject.label_element_id], (42 + label_w + j * col_w, 194 if prompt else 160, col_w - 4, 48 if prompt else 55), f"subject.{j}", fill=palette["header"], bold=True)
+        row_y = 246 if prompt else 219
         for i, dimension in enumerate(expression.dimensions):
-            place([dimension.label_element_id], (42, (246 if prompt else 219) + row_h * i, label_w - 4, row_h - 4), f"dimension.{i}", fill="F3F5F9", bold=True)
+            row_h = row_heights[i]
+            place([dimension.label_element_id], (42, row_y, label_w - 4, row_h - 4), f"dimension.{i}", fill="F3F5F9", bold=True)
             for j, subject in enumerate(expression.subjects):
                 cell = next(c for c in expression.cells if c.subject_id == subject.subject_id and c.dimension_id == dimension.dimension_id)
-                frame = (42 + label_w + j * col_w, (246 if prompt else 219) + row_h * i, col_w - 4, row_h - 4)
+                frame = (42 + label_w + j * col_w, row_y, col_w - 4, row_h - 4)
                 if execution.component_id == "compare-visual" and len(cell.element_ids) > 1:
                     relations = [r for r in expression.relations if r.source_id in cell.element_ids and r.target_id in cell.element_ids]
                     cell_positions = _graph_positions(cell.element_ids, relations, frame)
                     for k, element_id in enumerate(cell.element_ids):
-                        place([element_id], cell_positions[element_id], f"cell.{i}.{j}.{k}", fill="F3F6FB")
+                        place([element_id], cell_positions[element_id], f"cell.{i}.{j}.{k}", fill=palette["cell"])
                 else:
-                    place(cell.element_ids, frame, f"cell.{i}.{j}", fill="F3F6FB")
+                    place(cell.element_ids, frame, f"cell.{i}.{j}", fill=palette["cell"], measured=True)
+            row_y += row_h
         place(expression.conclusion_element_ids, (42, 468, 876, 56), "conclusion", bold=True)
     elif isinstance(expression, GraphExpression):
         if len(expression.node_element_ids) > execution.max_nodes:
             raise ValueError("graph_layout_capacity_exceeded")
-        place(expression.condition_element_ids, (42, 87, 876, 66), "condition", fill="EFF3FB")
+        place(expression.condition_element_ids, (42, 87, 876, 66), "condition", fill=palette["condition"])
         for i, (element_id, frame) in enumerate(_graph_positions(expression.node_element_ids, expression.relations, (50, 171, 860, 276)).items()):
-            place([element_id], frame, f"node.{i}", fill="EDF2FC", bold=True)
+            place([element_id], frame, f"node.{i}", fill=palette["node"], bold=True)
         place(expression.conclusion_element_ids, (42, 466, 876, 58), "conclusion", bold=True)
+    elif isinstance(expression, ChartExpression):
+        if execution.mode != "component_render":
+            raise ValueError("native_chart_binding_not_supported")
+        place([expression.unit_element_id], (48, 87, 864, 56), "chart.unit", bold=True)
+        values = [chart_number(elements[p.value_element_id].text) for p in expression.points]
+        maximum = max(values) or 1
+        row_height = 282 / len(expression.points)
+        for index, (point, value) in enumerate(zip(expression.points, values, strict=True)):
+            y = 165 + index * row_height
+            place([point.label_element_id], (48, y, 200, row_height - 6), f"chart.label.{index}")
+            place([point.value_element_id], (786, y, 126, row_height - 6), f"chart.value.{index}", bold=True)
+            if value:
+                chart_bars.append(SceneObject(object_id=f"chart-bar:{point.value_element_id}", element_id=point.value_element_id,
+                    slot_id=f"chart.bar.{index}", kind="shape", text="", lines=[], x=262, y=y + 12,
+                    width=float(value / maximum * 500), height=18, font_size=20, fill=accent, stroke=accent,
+                    editability="native_shape"))
     else:
-        # Question and answer occupy separate fixed areas so revealing an answer
-        # never shifts previously visible objects.
-        place(expression.ordered_element_ids, (48, 112, 864, 396), "item")
+        # Measure all states together: short labels do not consume formula
+        # height, and revealing an answer never shifts earlier objects.
+        from ppt_layout_execution import wrap_text
+        ids = expression.ordered_element_ids
+        minimums = []
+        for key in ids:
+            item = elements[key]
+            minimums.append(160 if item.kind == "image" else
+                len(wrap_text(display_element_text(item), 864 - 16, execution.font_floor_pt,
+                              font_digest=execution.font_sha256)) * execution.font_floor_pt * 1.3 + 12)
+        gap = 8
+        required = sum(minimums) + gap * (len(ids) - 1)
+        if required > 396 and execution.mode != "native_fill":
+            raise ValueError(f"teaching_linear_capacity_exceeded: needs={required:g}pt, available=396pt; "
+                             f"minimum_heights={dict(zip(ids, minimums))}; "
+                             "split this task into pages or select a comparison layout for aligned alternatives")
+        extra = max(0, 396 - required) / len(ids)
+        y = 112
+        for index, (key, minimum) in enumerate(zip(ids, minimums, strict=True)):
+            height = minimum + extra
+            place([key], (48, y, 864, height), "item")
+            slots[key] = f"item.{index}"
+            y += height + gap
     if set(positions) != set(elements):
         raise ValueError("teaching_element_layout_binding_incomplete")
     title_frame = (42, 10, 876, 76)
     if execution.mode == "native_fill":
-        if getattr(expression, "relations", []):
-            raise ValueError("native_relation_binding_unsupported")
         for key, slot in {"title": "title", **slots}.items():
             target = execution.targets.get(slot)
             if target is None or target.geometry_pt is None:
@@ -255,6 +327,12 @@ def resolve_page_scenes(*, page_id: str, title: str, content: PageTeachingV2, la
         ))
     if capacity_errors:
         raise ValueError("; ".join(capacity_errors) + "; revise the draft: concise conditions and fewer dimensions; preserve selected artifacts exactly")
+    if isinstance(expression, ChartExpression):
+        all_objects.extend(chart_bars)
+        all_objects.append(SceneObject(object_id="chart-zero", slot_id="chart.zero", text="0", lines=["0"],
+            x=250, y=462, width=40, height=40, font_size=20))
+        all_objects.append(SceneObject(object_id="chart-baseline", slot_id="chart.baseline", kind="shape", text="", lines=[],
+            x=260, y=165, width=1, height=282, font_size=20, fill=accent, stroke=accent, editability="native_shape"))
     if execution.mode == "native_fill":
         if not execution.source_sha256 or execution.source_slide_number < 1:
             raise ValueError("native_template_source_missing")
@@ -277,14 +355,36 @@ def resolve_page_scenes(*, page_id: str, title: str, content: PageTeachingV2, la
             left, right = objects[relation.source_id], objects[relation.target_id]
             x1, y1, x2, y2, start_site, end_site = relation_anchors(
                 (left.x, left.y, left.width, left.height), (right.x, right.y, right.width, right.height))
-            label = _relation_label(relation, (x1, y1, x2, y2), label_obstacles, execution)
+            if execution.mode == "native_fill":
+                binding = execution.connections.get(f"{left.slot_id}->{right.slot_id}")
+                if binding is None:
+                    raise ValueError(f"native_relation_binding_missing:{relation.relation_id}")
+                if binding.directed != relation_is_directed(relation.kind):
+                    raise ValueError("native_relation_direction_incompatible")
+                x1, y1, x2, y2 = binding.geometry_pt
+                start_site, end_site = binding.start_site, binding.end_site
+                label = None
+                if relation.label:
+                    target = execution.targets.get(binding.label_slot)
+                    if target is None or target.geometry_pt is None or target.group_path or target.row is not None:
+                        raise ValueError("native_relation_label_binding_missing")
+                    x, y, w, h = target.geometry_pt
+                    label = SceneObject(object_id=f"relation-label:{relation.relation_id}", slot_id=binding.label_slot,
+                        text=relation.label, lines=validate_text_frame(relation.label, w, h, execution.font_floor_pt, execution.font_sha256),
+                        x=x, y=y, width=w, height=h, font_size=execution.font_floor_pt, color="305AC7")
+                    if any(_overlaps(label, o) for o in label_obstacles):
+                        raise ValueError("native_relation_label_overlap")
+            else:
+                label = _relation_label(relation, (x1, y1, x2, y2), label_obstacles, execution)
             if label:
+                label.color = accent
                 label_obstacles.append(label)
             edges.append(SceneEdge(relation_id=relation.relation_id, source_id=relation.source_id, target_id=relation.target_id,
                 kind=relation.kind, label=relation.label, label_object=label,
                 x1=x1, y1=y1, x2=x2, y2=y2, start_site=start_site, end_site=end_site))
         payload = dict(logical_page_id=page_id, state_id=state.state_id, layout_id=layout.template_layout_id,
             template_digest=template.template_digest, source_document_revision=source_document_revision,
+            accent_color=accent,
             objects=[o.model_dump(mode="json") for o in all_objects if not o.element_id or o.element_id in visible],
             edges=[e.model_dump(mode="json") for e in edges], emphasized_element_ids=state.emphasized_element_ids,
             execution=execution.model_dump(mode="json"), tools=tools)

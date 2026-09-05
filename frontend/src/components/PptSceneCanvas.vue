@@ -1,21 +1,22 @@
 <template>
   <svg class="ppt-scene" :viewBox="`0 0 ${scene.width} ${scene.height}`" role="img" :aria-label="scene.objects.find((o: any) => o.object_id === 'title')?.text">
-    <defs><marker :id="markerId" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#305AC7" /></marker></defs>
+    <defs><marker :id="markerId" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" :fill="`#${scene.accent_color}`" /></marker></defs>
     <rect :width="scene.width" :height="scene.height" :fill="`#${scene.background}`" />
+    <image v-if="scene.execution.static_artwork_data" :width="scene.width" :height="scene.height" :href="`data:image/png;base64,${scene.execution.static_artwork_data}`" />
     <g v-for="obj in scene.objects" :key="obj.object_id" :data-element-id="obj.element_id" :data-subject-id="obj.subject_id" :data-dimension-id="obj.dimension_id">
       <template v-if="obj.kind === 'image'">
         <image v-if="assetUrls[obj.asset_id]" :x="obj.x" :y="obj.y" :width="obj.width" :height="obj.height" :href="assetUrls[obj.asset_id]" preserveAspectRatio="xMidYMid meet" />
         <g v-else role="status"><rect :x="obj.x" :y="obj.y" :width="obj.width" :height="obj.height" fill="#F3F5F9" /><text :x="obj.x + 12" :y="obj.y + 32" font-size="20">{{ assetErrors[obj.asset_id] || !(obj.asset_course_id || courseId) || !(obj.asset_representation_id || representationId) ? t('pptWorkspace.sceneImageUnavailable') : t('pptWorkspace.sceneImageLoading') }}</text></g>
       </template>
       <template v-else>
-        <rect :x="obj.x" :y="obj.y" :width="obj.width" :height="obj.height" :fill="`#${obj.fill}`" :stroke="scene.emphasized_element_ids.includes(obj.element_id) ? '#305AC7' : `#${obj.stroke}`" :stroke-width="scene.emphasized_element_ids.includes(obj.element_id) ? 1.5 : 0" />
-        <text :x="obj.x + 8" :y="obj.y + 6 + obj.font_size" :fill="`#${obj.color}`" :font-size="obj.font_size" :font-weight="obj.bold ? 700 : 400" :font-family="scene.execution.font_family" xml:space="preserve">
+        <rect :x="obj.x" :y="obj.y" :width="obj.width" :height="obj.height" :fill="scene.execution.mode === 'native_fill' ? 'none' : `#${obj.fill}`" :stroke="scene.emphasized_element_ids.includes(obj.element_id) ? `#${scene.accent_color}` : `#${obj.stroke}`" :stroke-width="scene.emphasized_element_ids.includes(obj.element_id) ? 1.5 : 0" />
+        <text v-if="obj.kind === 'text'" :x="obj.x + 8" :y="obj.y + 6 + obj.font_size" :fill="`#${obj.color}`" :font-size="obj.font_size" :font-weight="obj.bold ? 700 : 400" :font-family="scene.execution.font_family" xml:space="preserve">
           <tspan v-for="(line, index) in obj.lines" :key="index" :x="obj.x + 8" :dy="index ? obj.font_size * 1.3 : 0">{{ line }}</tspan>
         </text>
       </template>
     </g>
     <g v-for="edge in scene.edges" :key="edge.relation_id" :data-relation-id="edge.relation_id" :data-source="edge.source_id" :data-target="edge.target_id">
-      <line :x1="edge.x1" :y1="edge.y1" :x2="edge.x2" :y2="edge.y2" stroke="#305AC7" stroke-width="1.7" :marker-end="['association', 'contrasts', 'equivalent'].includes(edge.kind) ? undefined : `url(#${markerId})`" />
+      <line :x1="edge.x1" :y1="edge.y1" :x2="edge.x2" :y2="edge.y2" :stroke="`#${scene.accent_color}`" stroke-width="1.7" :marker-end="['association', 'contrasts', 'equivalent'].includes(edge.kind) ? undefined : `url(#${markerId})`" />
       <text v-if="edge.label_object" :x="edge.label_object.x + 8" :y="edge.label_object.y + 6 + edge.label_object.font_size" :font-size="edge.label_object.font_size" :fill="`#${edge.label_object.color}`" :font-family="scene.execution.font_family" xml:space="preserve"><tspan v-for="(line, index) in edge.label_object.lines" :key="index" :x="edge.label_object.x + 8" :dy="index ? edge.label_object.font_size * 1.3 : 0">{{ line }}</tspan></text>
     </g>
   </svg>

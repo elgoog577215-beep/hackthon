@@ -31,7 +31,7 @@
           "passed": true,
           "elements": 9,
           "relations": 1,
-          "scene_digest": "scene_5600de3905934ea1bfcdbc9b",
+          "scene_digest": "scene_3f80050ee0ca0753558a98c6",
           "editability": [
             "text"
           ]
@@ -40,18 +40,18 @@
           "passed": true,
           "elements": 9,
           "relations": 1,
-          "scene_digest": "scene_75e9f25f95b5f2b78296a180",
+          "scene_digest": "scene_3a7ba40334076070c8696b67",
           "editability": [
             "text"
           ]
         }
       ],
       "classroom_review": "pending",
-      "pptx_sha256": "f373d7f6b34642348394985afaa8a9ce78c4acb196d24cfa2bc1f61c14f14e26",
-      "pdf_sha256": "7c0010f3bdf641b11383142bee290296868f9d15abc106538f98c44c076e34ae",
+      "pptx_sha256": "b8e7b298dd101303ce7ff174d74b9526a7e820f7a88c67d491988069ef712c96",
+      "pdf_sha256": "c31c640109fe46a1126e0f5a68556e566e42de485715d62504fa7faddd8f0ffc",
       "render_page_sha256": [
-        "0de9a425a089e5aafa284d9de5fb54ac023a09174601fcc9a4ad759750ad074a",
-        "81fbcf00c3291df23653e1446683e44019c6015cf8bfcd30fb935e0948293020"
+        "db3f85b4ee27bd8d37254cb4a2682d457e1bc22f72496179a58cecee6f27c203",
+        "48d66e0e3c9157a89f99c5ac4c4841ca4c7d1b1807baa0106ca137d7909e9fbb"
       ],
       "pdf_object_reports": [
         {
@@ -99,7 +99,7 @@
           "passed": true,
           "elements": 9,
           "relations": 1,
-          "scene_digest": "scene_8b6dac1c2a36d5df0d9c316a",
+          "scene_digest": "scene_4ea133d5b2aa4b42c4e2dd83",
           "editability": [
             "text"
           ]
@@ -108,7 +108,7 @@
           "passed": true,
           "elements": 9,
           "relations": 1,
-          "scene_digest": "scene_7d03c817005af1b1fd122450",
+          "scene_digest": "scene_799c9bb810fdd4ac03c504a8",
           "editability": [
             "text"
           ]
@@ -117,7 +117,7 @@
           "passed": true,
           "elements": 21,
           "relations": 0,
-          "scene_digest": "scene_5914c43717cbc202bbeac245",
+          "scene_digest": "scene_cde446c08a70cb69bdb251b8",
           "editability": [
             "text"
           ]
@@ -126,20 +126,20 @@
           "passed": true,
           "elements": 26,
           "relations": 0,
-          "scene_digest": "scene_064cdd3027b46f4747faa671",
+          "scene_digest": "scene_624001082486f23249eb09dd",
           "editability": [
             "text"
           ]
         }
       ],
       "classroom_review": "pending",
-      "pptx_sha256": "83fc72dcb617942286343b46613fb31d46790e1b65299b9e38cd4328f2a7ccf8",
-      "pdf_sha256": "9eff37126dfcf16993369bae5844ca18b6736bd63d113965d0d69739e8c03436",
+      "pptx_sha256": "4cef0959aaafcb76c4a851154bacd350b952e72a241dc22bdd3ec8c92fbacabe",
+      "pdf_sha256": "e1ed0addf248707535c02749da7752d902ec494a576bcc7b63a223944bdba5a6",
       "render_page_sha256": [
-        "9db0e5c02d3f5faa6ea3ed7b3eae64d43f543ce6987835bfdf9607e8f1c174e8",
-        "9da91df764141e20ea8d719333010843d07b00677a672b273d43a8d1fc3dcbff",
-        "5d17b675232ab0fbad9488ac0953ac074455a942ba5ab87039467ff7ebd64e61",
-        "40f3963bac51cab0d63bc53f2990e99e7020f682e3a1a782cce5b0197f6c8856"
+        "0ae55385a268290df2ce468a224bcd7d44668c3a815f788ee518c7a9ec8cb52a",
+        "826c02a151b189fcce64e268c50935dfb09dda47045f5998a706cd0bd6214cd6",
+        "169748797884d37fc214f2de943e3805189ce0b726180c913be4d61d31f4e20f",
+        "5aecfe97a1531e8399c03fc7da329abbe9c765aa021e1b197b12f9a14acb78d4"
       ],
       "pdf_object_reports": [
         {
@@ -199,7 +199,7 @@
           "passed": true,
           "elements": 2,
           "relations": 0,
-          "scene_digest": "scene_7a8af087e0e5dcf3950a0650",
+          "scene_digest": "scene_2173201d3a96b982c1cc6370",
           "editability": [
             "text"
           ]
@@ -208,7 +208,7 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_aa520a69de67d7d4de6d2148",
+          "scene_digest": "scene_5b999a28e44d3f968fe5fff8",
           "editability": [
             "text"
           ]
@@ -217,7 +217,7 @@
           "passed": true,
           "elements": 2,
           "relations": 0,
-          "scene_digest": "scene_dab5380dea9f298750d3898f",
+          "scene_digest": "scene_54d1c9e15eabfe9ea0f45966",
           "editability": [
             "text"
           ]
@@ -226,20 +226,20 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_a0a908d2210a6021684731a5",
+          "scene_digest": "scene_6982b3b219cbb8ec21ffc1f0",
           "editability": [
             "text"
           ]
         }
       ],
       "classroom_review": "pending",
-      "pptx_sha256": "58c7c910024fb7d48ec913e06bec173e9df95c4208ba85182f33a901b1a3cc2c",
-      "pdf_sha256": "f1011db7a87d269ecbc1f7e35c089e21a4cf6fd460aa5bbb3b56001c6e599311",
+      "pptx_sha256": "082c0303ff8623dd8d9c8c315e4f175a360ee596faaeadb86d40316decc0567a",
+      "pdf_sha256": "f9d88599dd94d7ae413240595c2e6a6e406c7d629867408f132e43f7f763750a",
       "render_page_sha256": [
-        "8068eeedb509518a7ea658beec24f4a11e7778ed9670104c6fb6000284759d17",
-        "742634630cf572be3b04e352a3643665c4c04f3844cb1043b79b76206d0121f1",
-        "57f2d1b6f90944287cc61c33669335591f933ca6ae236e984676cabc5af431b8",
-        "b6dadf80dbab7dabae06769499b7b97c75010306e460a9bbbfeb7b8c9a660d17"
+        "b5cad26e8c1bc53e6fd47f0b0856fb71afef2712aa38f8f7bf413db6c607c0b6",
+        "ee118b0f06cc381d0cc0c364dfa6e15e381577e152b3744df347f9ca9625da03",
+        "29a29ce463a35466109fe83369bbb9a5f7ecafe8aca3b0ebfc33d63604c2879e",
+        "038280dbe51ba2b44566e52e7d5c460b90c899f77c0f2dd7dbd6e2fdf0cd5293"
       ],
       "pdf_object_reports": [
         {
@@ -299,7 +299,7 @@
           "passed": true,
           "elements": 5,
           "relations": 2,
-          "scene_digest": "scene_48235560d318915cadbbf5af",
+          "scene_digest": "scene_3e9a96625598e10ab57a186d",
           "editability": [
             "text"
           ]
@@ -308,18 +308,18 @@
           "passed": true,
           "elements": 5,
           "relations": 2,
-          "scene_digest": "scene_664bec0e755f4ec12151c52d",
+          "scene_digest": "scene_8012093fb67b65770c83f723",
           "editability": [
             "text"
           ]
         }
       ],
       "classroom_review": "pending",
-      "pptx_sha256": "65a94dcf06ae78f45a788197cbd75da31ee992665359a50cdadc23bb5a574491",
-      "pdf_sha256": "003e20c2a0b3d9ef8b9bf271d7a8a39bbd76813cb8a700beedd586ddd34a3dcb",
+      "pptx_sha256": "c003a22cf956b021a51e08a84ebec172be0a6f8ef181577de57c8aaa1211e3af",
+      "pdf_sha256": "7c6e2e0fcd8a9759bba10a180b8a9262652f336ae3ebdfe54c365d6b219d2f60",
       "render_page_sha256": [
-        "0e9ffd1d930b7fc4c3f5f77378f82b1b38da6f13909b1bfb87acbe77b3447217",
-        "470d42544d460eb613ca701404e6c29db7cb7a821c21db7fb3ee151395e0928f"
+        "b666c801d481831fc198a0cd1fe25c800c133093d31e1332a31b02240c61b49c",
+        "a83c9b5e7f410b5d39ab2cad68ca98f6b9d2138491d4dc85ae8159688be60e4d"
       ],
       "pdf_object_reports": [
         {
@@ -367,7 +367,7 @@
           "passed": true,
           "elements": 5,
           "relations": 2,
-          "scene_digest": "scene_a50d42151547016819cd2f83",
+          "scene_digest": "scene_6a4f4ef27ce528725910dde1",
           "editability": [
             "text"
           ]
@@ -376,18 +376,18 @@
           "passed": true,
           "elements": 5,
           "relations": 2,
-          "scene_digest": "scene_0c0177611248c551f91e6226",
+          "scene_digest": "scene_66dab79251e6e5859ff381c2",
           "editability": [
             "text"
           ]
         }
       ],
       "classroom_review": "pending",
-      "pptx_sha256": "5e7d7aaa5e2110ad628e84e991d01cc7f5fba97e2ced258b140276dd658f132b",
-      "pdf_sha256": "63b3288606aeb0fb7cfdd2a1ed1b0bc696175f8705eba32f3a53ff61c7d27083",
+      "pptx_sha256": "697bb46b6eef8f0a3a47669540e765219625b373bc4c8d492bd01f9b5a45d27e",
+      "pdf_sha256": "a0a261a761364f731e60c5fc5d8d7878f668aec8dd5b43c461150ca0f5022d9c",
       "render_page_sha256": [
-        "eb60aade7aed250f2162dad565de3e2c16d2fbc2beafb22a603e8f7dda8e464a",
-        "0d6edda930122ca5662c0bc634caaef2b0621d06ce19e7054f9247508e5ed54e"
+        "fd2856b6bd72602a598f6b1a1eda95e78fc0b6861f635a17505149ac422aaf6f",
+        "466e57aadd64a17436d94d7320c289c3baa8e8967c2dc3accbd634beb5b6fd85"
       ],
       "pdf_object_reports": [
         {
@@ -435,7 +435,7 @@
           "passed": true,
           "elements": 2,
           "relations": 0,
-          "scene_digest": "scene_eb49aa58c876cc7c5becf9e3",
+          "scene_digest": "scene_6dff16f84fd6d25de2321b56",
           "editability": [
             "text"
           ]
@@ -444,7 +444,7 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_7e1e86f6886e15a38ed07bdf",
+          "scene_digest": "scene_8d7cfb7c0a8cfeb61356a80b",
           "editability": [
             "text"
           ]
@@ -453,7 +453,7 @@
           "passed": true,
           "elements": 2,
           "relations": 0,
-          "scene_digest": "scene_5dc89a807f8db985f12201d8",
+          "scene_digest": "scene_e5311bc6ed6db1a7221471a9",
           "editability": [
             "text"
           ]
@@ -462,20 +462,20 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_e1ad2daa4e9ebe094a15de06",
+          "scene_digest": "scene_3cc6c63ce403355981bbae73",
           "editability": [
             "text"
           ]
         }
       ],
       "classroom_review": "pending",
-      "pptx_sha256": "da64ccdda2064fb84b5b7c2a475bf6ed23a777ae7cd1b30adcae9817daba973e",
-      "pdf_sha256": "a02d17086e304b380ddf967505c262cd96ab839ef2c86d1e1762da4edaf217bf",
+      "pptx_sha256": "fab7120d38e63e3f80dc03d6aac8b8e469197e5dc12fe8a95936a1303fd91611",
+      "pdf_sha256": "02a1e9a9a4155ec5d07b4b42d9c1a161084309821096479ba2507e8729386b69",
       "render_page_sha256": [
-        "8068eeedb509518a7ea658beec24f4a11e7778ed9670104c6fb6000284759d17",
-        "742634630cf572be3b04e352a3643665c4c04f3844cb1043b79b76206d0121f1",
-        "57f2d1b6f90944287cc61c33669335591f933ca6ae236e984676cabc5af431b8",
-        "b6dadf80dbab7dabae06769499b7b97c75010306e460a9bbbfeb7b8c9a660d17"
+        "b5cad26e8c1bc53e6fd47f0b0856fb71afef2712aa38f8f7bf413db6c607c0b6",
+        "ee118b0f06cc381d0cc0c364dfa6e15e381577e152b3744df347f9ca9625da03",
+        "29a29ce463a35466109fe83369bbb9a5f7ecafe8aca3b0ebfc33d63604c2879e",
+        "038280dbe51ba2b44566e52e7d5c460b90c899f77c0f2dd7dbd6e2fdf0cd5293"
       ],
       "pdf_object_reports": [
         {
@@ -535,7 +535,7 @@
           "passed": true,
           "elements": 2,
           "relations": 0,
-          "scene_digest": "scene_99cfae5c05384d32e4decebf",
+          "scene_digest": "scene_f3b467f7a31777c912119b9a",
           "editability": [
             "text"
           ]
@@ -544,7 +544,7 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_6d59354121a93dab7bc5fecd",
+          "scene_digest": "scene_d31826c401765f53ef553d24",
           "editability": [
             "text"
           ]
@@ -553,7 +553,7 @@
           "passed": true,
           "elements": 2,
           "relations": 0,
-          "scene_digest": "scene_202d5fd75759e3ad4c7d01cd",
+          "scene_digest": "scene_f61b48c53921ec7648f8e0f0",
           "editability": [
             "text"
           ]
@@ -562,20 +562,20 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_128f545c6621ba5e57084a8d",
+          "scene_digest": "scene_80102f9b7b269a45aea02b6b",
           "editability": [
             "text"
           ]
         }
       ],
       "classroom_review": "pending",
-      "pptx_sha256": "8aa830788d1f838187ad0dcb671f7ca85fa721cfbf9f8419daaf5c927ebe8388",
-      "pdf_sha256": "b4ca49f13fc592c366806e0ff48e669c57dd1595fdab8a6461d72acdfa23108e",
+      "pptx_sha256": "673b6558cf5461b1c55a97c602a34038c0a22cf53f30ee0617ecb485895fa1a1",
+      "pdf_sha256": "03c431d3e8405098b85fa3f1255ac66eae59d8bf808382413c880328c7dd5099",
       "render_page_sha256": [
-        "8068eeedb509518a7ea658beec24f4a11e7778ed9670104c6fb6000284759d17",
-        "742634630cf572be3b04e352a3643665c4c04f3844cb1043b79b76206d0121f1",
-        "57f2d1b6f90944287cc61c33669335591f933ca6ae236e984676cabc5af431b8",
-        "b6dadf80dbab7dabae06769499b7b97c75010306e460a9bbbfeb7b8c9a660d17"
+        "b5cad26e8c1bc53e6fd47f0b0856fb71afef2712aa38f8f7bf413db6c607c0b6",
+        "ee118b0f06cc381d0cc0c364dfa6e15e381577e152b3744df347f9ca9625da03",
+        "29a29ce463a35466109fe83369bbb9a5f7ecafe8aca3b0ebfc33d63604c2879e",
+        "038280dbe51ba2b44566e52e7d5c460b90c899f77c0f2dd7dbd6e2fdf0cd5293"
       ],
       "pdf_object_reports": [
         {
@@ -635,7 +635,7 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_9c7f224a0582b17da00d5bc8",
+          "scene_digest": "scene_b07c9a59dbd3549a5f3fd724",
           "editability": [
             "text"
           ]
@@ -644,18 +644,18 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_46216d31684693cb6740ce4b",
+          "scene_digest": "scene_ba127fe1f8b2f0945cdee11d",
           "editability": [
             "text"
           ]
         }
       ],
       "classroom_review": "pending",
-      "pptx_sha256": "4d32af43caccf2e7f3d76a05fc04a33af2e37ea32aff358b7a185f2b310546fd",
-      "pdf_sha256": "d2e94abc1750d17279643c72d56f98c21e06230c2d11f752ed27273d5847adbe",
+      "pptx_sha256": "38ff99111459823b7aab52e7b64222e9ae3b6a59ecb1bbc49be3959e2b6816eb",
+      "pdf_sha256": "6d4b45b254b3bc2a936dd1a37f9fabbf8f5e4bd5ff850230d278ca9dea0724b0",
       "render_page_sha256": [
-        "742634630cf572be3b04e352a3643665c4c04f3844cb1043b79b76206d0121f1",
-        "b6dadf80dbab7dabae06769499b7b97c75010306e460a9bbbfeb7b8c9a660d17"
+        "ee118b0f06cc381d0cc0c364dfa6e15e381577e152b3744df347f9ca9625da03",
+        "038280dbe51ba2b44566e52e7d5c460b90c899f77c0f2dd7dbd6e2fdf0cd5293"
       ],
       "pdf_object_reports": [
         {
@@ -703,7 +703,7 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_0037acf8c53e21547f5506ce",
+          "scene_digest": "scene_2bff9d7a6a4f5da7220c3bac",
           "editability": [
             "text"
           ]
@@ -712,18 +712,18 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_2bd843e37caeab35c2f66312",
+          "scene_digest": "scene_40d507e87db9aec6dab1fd9c",
           "editability": [
             "text"
           ]
         }
       ],
       "classroom_review": "pending",
-      "pptx_sha256": "01ef14f6e0ee76c2faafe0e62c2f277468d678b660a825b7888bf997f4ed4c68",
-      "pdf_sha256": "f106f87884865728b6f1b80cbdd6ffb7ba02d14f3d8f8ed753fd287375676c55",
+      "pptx_sha256": "c3838d851a8c8bef4dd16b157cf5b6c95c3001de535af8baf840e84f716cb24c",
+      "pdf_sha256": "ee7e5b0dd1d47cef9fa7d192f4ab4fb60b7d0b42b35c27222132daa50e9f2923",
       "render_page_sha256": [
-        "742634630cf572be3b04e352a3643665c4c04f3844cb1043b79b76206d0121f1",
-        "b6dadf80dbab7dabae06769499b7b97c75010306e460a9bbbfeb7b8c9a660d17"
+        "ee118b0f06cc381d0cc0c364dfa6e15e381577e152b3744df347f9ca9625da03",
+        "038280dbe51ba2b44566e52e7d5c460b90c899f77c0f2dd7dbd6e2fdf0cd5293"
       ],
       "pdf_object_reports": [
         {
@@ -771,7 +771,7 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_fff30fe610c414ea09f1328b",
+          "scene_digest": "scene_ae392e0dda001ad018dad16c",
           "editability": [
             "text"
           ]
@@ -780,18 +780,18 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_e73b38a466129c103a0f0402",
+          "scene_digest": "scene_da3d374c510500779d1e4b04",
           "editability": [
             "text"
           ]
         }
       ],
       "classroom_review": "pending",
-      "pptx_sha256": "7efd0ac82bb3ce50dcfcb1ef8cd2246c9939ba82fda751db568b9fe5062d67c8",
-      "pdf_sha256": "f140fe8fe0189dddef25451248eb60034d21cd8270230aa9fba2808c1bb3d971",
+      "pptx_sha256": "0c2d4c44bc70bf8ab2c354698019118109ff6b5d59f00a62056ac061a90545e1",
+      "pdf_sha256": "b9e90419f8831981bb8441c7b7d39a8620267ea65fd83aeb7a5ebcfe954064af",
       "render_page_sha256": [
-        "742634630cf572be3b04e352a3643665c4c04f3844cb1043b79b76206d0121f1",
-        "b6dadf80dbab7dabae06769499b7b97c75010306e460a9bbbfeb7b8c9a660d17"
+        "ee118b0f06cc381d0cc0c364dfa6e15e381577e152b3744df347f9ca9625da03",
+        "038280dbe51ba2b44566e52e7d5c460b90c899f77c0f2dd7dbd6e2fdf0cd5293"
       ],
       "pdf_object_reports": [
         {
@@ -839,7 +839,7 @@
           "passed": true,
           "elements": 5,
           "relations": 2,
-          "scene_digest": "scene_0bd25bc1fbd73390310d3b23",
+          "scene_digest": "scene_56b50f2760469cbae24b0b2c",
           "editability": [
             "text"
           ]
@@ -848,18 +848,18 @@
           "passed": true,
           "elements": 5,
           "relations": 2,
-          "scene_digest": "scene_cb967b88c713fa00f1fe8ee6",
+          "scene_digest": "scene_fe569b042f1f8956978b1d44",
           "editability": [
             "text"
           ]
         }
       ],
       "classroom_review": "pending",
-      "pptx_sha256": "221e017b4754ca103195e5a47a24a292ef9145a48a195e7e191f1f3161b3881e",
-      "pdf_sha256": "42e093bda20d88ed6f5a923e783c1b85ed7eeb990d3b65607948587730422a3d",
+      "pptx_sha256": "03a2bed3be714428d537f0cf44f796088a321d61eb455ccbeb3731101514baf8",
+      "pdf_sha256": "9b72cc1cad6afeb4d7b86aaec9324adc3bb63341a69ac2ffb2b76051f717b4aa",
       "render_page_sha256": [
-        "eb60aade7aed250f2162dad565de3e2c16d2fbc2beafb22a603e8f7dda8e464a",
-        "0d6edda930122ca5662c0bc634caaef2b0621d06ce19e7054f9247508e5ed54e"
+        "fd2856b6bd72602a598f6b1a1eda95e78fc0b6861f635a17505149ac422aaf6f",
+        "466e57aadd64a17436d94d7320c289c3baa8e8967c2dc3accbd634beb5b6fd85"
       ],
       "pdf_object_reports": [
         {
@@ -907,7 +907,7 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_9d69abfa73b1a2b6c9b1f442",
+          "scene_digest": "scene_89ab013a571081cd3db1b637",
           "editability": [
             "text"
           ]
@@ -916,18 +916,18 @@
           "passed": true,
           "elements": 3,
           "relations": 0,
-          "scene_digest": "scene_30954a9bc66f4eff5d8883a0",
+          "scene_digest": "scene_76fef1014428ccc4864afe5a",
           "editability": [
             "text"
           ]
         }
       ],
       "classroom_review": "pending",
-      "pptx_sha256": "b3d85f3766f09ba0a4df25485fbf131f238a60c5e91c2ffb6a9c9b088802cc6a",
-      "pdf_sha256": "dfbe851514be9f50ddc12be3b3c9a06177f1e5b10f24d8d44f1e5ae0421f3521",
+      "pptx_sha256": "c81427a7025a5d6f619870c0fd6b39aed7bd9e62e7e01e15e6aba2a705965633",
+      "pdf_sha256": "72710fb5cba8e71a47cf1dd546e2c0cb4d26dfa095f7c8ab8fbeead0c601efee",
       "render_page_sha256": [
-        "742634630cf572be3b04e352a3643665c4c04f3844cb1043b79b76206d0121f1",
-        "b6dadf80dbab7dabae06769499b7b97c75010306e460a9bbbfeb7b8c9a660d17"
+        "ee118b0f06cc381d0cc0c364dfa6e15e381577e152b3744df347f9ca9625da03",
+        "038280dbe51ba2b44566e52e7d5c460b90c899f77c0f2dd7dbd6e2fdf0cd5293"
       ],
       "pdf_object_reports": [
         {
@@ -975,7 +975,7 @@
           "passed": true,
           "elements": 8,
           "relations": 0,
-          "scene_digest": "scene_4c6ee60e4fcaee915320c0bb",
+          "scene_digest": "scene_3fb40c98e8dba6fa435c5e05",
           "editability": [
             "native_shape",
             "text"
@@ -985,7 +985,7 @@
           "passed": true,
           "elements": 10,
           "relations": 0,
-          "scene_digest": "scene_07caf231536fa26dcb3cbbb2",
+          "scene_digest": "scene_e94f406d4c308eb05eb6b2a8",
           "editability": [
             "native_shape",
             "text"
@@ -995,7 +995,7 @@
           "passed": true,
           "elements": 8,
           "relations": 0,
-          "scene_digest": "scene_e2b9acaa3ca9b404858c5099",
+          "scene_digest": "scene_5bb5c0137bf5a68fa7efa01a",
           "editability": [
             "native_shape",
             "text"
@@ -1005,7 +1005,7 @@
           "passed": true,
           "elements": 10,
           "relations": 0,
-          "scene_digest": "scene_21c1db6a3d215e78043223c7",
+          "scene_digest": "scene_5550b7067bafef463a03668c",
           "editability": [
             "native_shape",
             "text"
@@ -1013,13 +1013,13 @@
         }
       ],
       "classroom_review": "pending",
-      "pptx_sha256": "36ca7ee7c15ef6ea5186654b7ffd86152368725b6e75de83e39b9056a07341e6",
-      "pdf_sha256": "7b7599c8e67314f786732f36befb77d23f8b72d5538061dbc4c47edbdb361355",
+      "pptx_sha256": "b2f3b4d0096fae8f2b722f56c315cd4b971f2519265fda7081de815fda061415",
+      "pdf_sha256": "4b3f9cd02ac1a5734768eb6ae80c6078a2b5b023f83330629729ff2cc768bfce",
       "render_page_sha256": [
-        "a9e49cf4a07dbc9e4c18067aca62590af1ef72c81659f5eafaab49e9264aca64",
-        "85c4942f8923795a7a7636996604c0167bea8ea7a69523e7a868a81b8b10b574",
-        "57aee7f237e45b1e869e24be3ccdf6a4cf0bf65d6e9604189830ecbcbe691391",
-        "9e74c9f8d0d384b1c609e4f5f911f870394dbc637a7d89b2490dabc51c546e3f"
+        "8deca2a68e53a4113f2d02e88a48c007827c307e6c4045fc01a1d699db09b2be",
+        "377c0665b6445af77c71561162806e9ac579e0027532178550be3a489814e807",
+        "e2b76a76f1c6aef944fe90335fd86a0cbfe2dabe28dcc730b865cbb7359aa2ea",
+        "3f56c2a17c2a96b0d0f39e0b770ffb9fd9f1e5f938dc3bec8bdb1c0b9fab6326"
       ],
       "pdf_object_reports": [
         {

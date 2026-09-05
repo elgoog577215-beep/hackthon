@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import Field
 
 from ppt_draft_common import DraftMetadata, DraftRelation, QuoteChoice, bind_choices, draft_element_text
-from ppt_teaching_content import Contract, PageTeachingV2
+from ppt_teaching_content import ChartPoint, Contract, PageTeachingV2
 
 
 
@@ -27,10 +27,33 @@ class PageDraftElement(Contract):
 
 
 class TeachingPageDraft(DraftMetadata):
-    expression_kind: Literal["process", "causal", "hierarchy", "concept", "problem", "derivation", "exercise", "recap", "cover", "agenda", "evidence"]
+    expression_kind: Literal["process", "causal", "hierarchy", "concept", "problem", "derivation", "exercise", "recap", "cover", "agenda", "evidence", "chart"]
     elements: list[PageDraftElement] = Field(min_length=1, max_length=80)
     relations: list[DraftRelation] = Field(default_factory=list, max_length=24)
     reveal_notes: list[str] = Field(min_length=1, max_length=12)
+    chart_points: list[ChartPoint] = Field(default_factory=list, max_length=6)
+    chart_unit_key: str = ""
+
+
+class LinearTeachingPageDraft(TeachingPageDraft):
+    expression_kind: Literal["problem", "derivation", "exercise", "recap", "cover", "agenda", "evidence"]
+    relations: list[DraftRelation] = Field(default_factory=list, max_length=0)
+    chart_points: list[ChartPoint] = Field(default_factory=list, max_length=0)
+    chart_unit_key: Literal[""] = ""
+
+
+class GraphTeachingPageDraft(TeachingPageDraft):
+    expression_kind: Literal["process", "causal", "hierarchy", "concept"]
+    relations: list[DraftRelation] = Field(min_length=1, max_length=24)
+    chart_points: list[ChartPoint] = Field(default_factory=list, max_length=0)
+    chart_unit_key: Literal[""] = ""
+
+
+class ChartTeachingPageDraft(TeachingPageDraft):
+    expression_kind: Literal["chart"]
+    relations: list[DraftRelation] = Field(default_factory=list, max_length=0)
+    chart_points: list[ChartPoint] = Field(min_length=2, max_length=6)
+    chart_unit_key: str = Field(min_length=1)
 
 
 
@@ -52,7 +75,7 @@ def lower_teaching_draft(value, sources):
                          "sources": bind_choices(item.sources, sources, owner=item.key,
                              exact_text=text if item.kind in {"formula", "code", "quote", "data"} else None)})
     if max(stages.values()) != len(draft.reveal_notes):
-        raise ValueError("reveal_notes_count_must_match_last_show_from")
+        raise ValueError(f"reveal_notes_count_must_match_last_show_from: max show_from={max(stages.values())}, notes={len(draft.reveal_notes)}; each page part needs its own notes, exactly one per step; remove unused trailing steps or assign the intended element to that step")
     if draft.expression_kind in {"concept", "process", "causal", "hierarchy"}:
         endpoints = {key for r in draft.relations for key in (r.source_key, r.target_key)}
         # A claim may itself be a graph node. Teaching role does not override
@@ -65,6 +88,11 @@ def lower_teaching_draft(value, sources):
                            "kind": r.kind, "label": r.label, "condition_element_ids": r.condition_keys,
                            "sources": bind_choices(r.sources, sources, owner=f"relation-{i}")}
                           for i, r in enumerate(draft.relations)]}
+    elif draft.expression_kind == "chart":
+        if draft.relations:
+            raise ValueError("chart_cannot_discard_relations")
+        expression = {"kind": "chart", "points": [p.model_dump() for p in draft.chart_points],
+                      "unit_element_id": draft.chart_unit_key}
     else:
         if draft.relations:
             raise ValueError(f"linear_expression_cannot_discard_relations:{draft.expression_kind}: "
@@ -80,5 +108,7 @@ def lower_teaching_draft(value, sources):
         "must_show": list(stages), "source_dispositions": dispositions,
         "states": [{"state_id": f"step-{i}", "visible_element_ids": [key for key, stage in stages.items() if stage <= i],
                     "teaching_note": note} for i, note in enumerate(draft.reveal_notes, 1)]})
-    metadata = draft.model_dump(mode="json", exclude={"expression_kind", "elements", "relations", "reveal_notes"})
+    if draft.expression_kind != "chart" and (draft.chart_points or draft.chart_unit_key):
+        raise ValueError("chart_binding_requires_chart_expression")
+    metadata = draft.model_dump(mode="json", exclude={"expression_kind", "elements", "relations", "reveal_notes", "chart_points", "chart_unit_key"})
     return {**metadata, "teaching": content.model_dump(mode="json")}

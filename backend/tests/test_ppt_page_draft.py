@@ -165,8 +165,9 @@ def test_page_group_is_compiled_before_confirmation_and_can_resume_without_model
         pytest.fail('accepted page group was regenerated')
     restored, _ = asyncio.run(plan_teaching_manuscript(doc, graph, template, forbidden, checkpoint=trace))
     assert restored.model_dump() == result.model_dump()
-    schema = page_response_contract()['$defs']['TeachingPageDraft']
+    schema = page_response_contract()['$defs']['LinearTeachingPageDraft']
     assert 'title' in schema['properties'] and 'title' in schema['required']
+    assert schema['properties']['relations']['maxItems'] == 0
     monkeypatch.setattr('ppt_teaching_manuscript.template_for_manuscript', lambda _: template)
     before = existing.model_dump()
     split = asyncio.run(regenerate_teaching_pages(existing, ['p1'], planner))

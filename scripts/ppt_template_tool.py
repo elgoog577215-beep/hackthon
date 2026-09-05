@@ -17,7 +17,7 @@ from pptx.util import Pt
 
 from ppt_layout_execution import ASSET_ROOT, LAYOUT_VERSION, LayoutExecution, certification_version, compile_teaching_template, file_digest, tool_identity
 from ppt_layout_samples import layout_sample, matrix_boundary_sample
-from ppt_native_scene import audit_scene, clone_native_slide, inspect_native_bindings, render_scene
+from ppt_native_scene import audit_scene, clone_native_slide, inspect_native_bindings, inspect_native_connections, render_scene
 from ppt_page_scene import resolve_page_scenes
 from ppt_teaching_content import PageTeachingV2
 
@@ -25,7 +25,28 @@ from ppt_teaching_content import PageTeachingV2
 from ppt_render_audit import render_evidence
 
 
-def certify_native(source_path, specification_path, output):
+def native_artwork(source_path, execution, output):
+    """Render only the template artwork for Web; PPTX keeps original objects."""
+    import base64
+    from types import SimpleNamespace
+    deck = Presentation(source_path)
+    count = len(deck.slides)
+    source = deck.slides[execution.source_slide_number - 1]
+    slide = clone_native_slide(deck, source, execution)
+    for binding in execution.connections.values():
+        connector = next(s for s in slide.shapes if s.shape_id == binding.shape_id)
+        connector._element.getparent().remove(connector._element)
+    from slide_deck_v6_personal_renderer import _remove_original_slides
+    _remove_original_slides(deck, count)
+    output.mkdir(parents=True, exist_ok=True)
+    path = output / 'native-artwork.pptx'
+    deck.save(path)
+    render_evidence(path, [SimpleNamespace(width=960, height=540, objects=[], edges=[], logical_page_id='artwork', state_id='static')])
+    png = output / 'native-artwork-1.png'
+    return base64.b64encode(png.read_bytes()).decode(), file_digest(png)
+
+
+def certify_native(source_path, specification_path, output, *, asset_repository=None):
     """Certify explicit targets against operator supplied boundary specimens."""
     specification = json.loads(specification_path.read_text())
     execution = LayoutExecution.model_validate(specification["execution"])
@@ -39,6 +60,8 @@ def certify_native(source_path, specification_path, output):
         raise ValueError("native_source_slide_missing")
     source = originals[execution.source_slide_number - 1]
     execution.targets = inspect_native_bindings(source, execution.targets)
+    inspect_native_connections(source, execution)
+    execution.static_artwork_data, execution.static_artwork_sha256 = native_artwork(source_path, execution, output)
     template = compile_teaching_template(specification.get("theme", "academic-editorial"), certification_required=False)
     layout = template.get_layout(template.layout_id(execution.component_id)).model_copy(deep=True)
     layout.execution = execution
@@ -59,7 +82,7 @@ def certify_native(source_path, specification_path, output):
         scenes.extend(resolved)
     for scene in scenes:
         slide = clone_native_slide(deck, source, execution)
-        render_scene(slide, scene)
+        render_scene(slide, scene, assets=asset_repository)
     from slide_deck_v6_personal_renderer import _remove_original_slides
     _remove_original_slides(deck, len(originals))
     output.mkdir(parents=True, exist_ok=True)
@@ -67,7 +90,7 @@ def certify_native(source_path, specification_path, output):
     deck.save(path)
     reports = [audit_scene(s, c) for s, c in zip(Presentation(path).slides, scenes, strict=True)]
     report = {"status": "passed", "component_version": LAYOUT_VERSION, "tools": tool_identity(),
-        "checks": {"short": True, "normal": True, "long": True, "relations": not any(c.edges for c in scenes), "render": True},
+        "checks": {"short": True, "normal": True, "long": True, "relations": True, "render": True},
         "object_reports": reports, "classroom_review": "pending", **render_evidence(path, scenes)}
     execution.certification = report
     (output / "execution.json").write_text(execution.model_dump_json(indent=2) + "\n")
@@ -158,11 +181,34 @@ if __name__ == "__main__":
     p.add_argument("source", type=Path)
     p.add_argument("specification", type=Path)
     p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--asset-repository", type=Path, help="Explicit local SlideAssetRepository containing the specimen images")
+    p = sub.add_parser("register-native")
+    p.add_argument("pack_id")
+    p.add_argument("execution", type=Path)
+    p.add_argument("--owner-id", required=True)
+    p.add_argument("--layout", required=True)
+    p.add_argument("--repository", type=Path, required=True)
+    p.add_argument("--reviewed", action="store_true", help="Confirm that the explicit object bindings and actual rendered samples have been reviewed")
+    p.add_argument("--publish", action="store_true")
     args = parser.parse_args()
     if args.command == "inspect":
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(inspect(args.source), ensure_ascii=False, indent=2) + "\n")
     elif args.command == "certify-native":
-        certify_native(args.source.resolve(), args.specification, args.output.resolve())
+        assets = None
+        if args.asset_repository:
+            from slide_asset_repository import SlideAssetRepository
+            if not args.asset_repository.is_dir():
+                raise ValueError("native_specimen_asset_repository_missing")
+            assets = SlideAssetRepository(args.asset_repository)
+        certify_native(args.source.resolve(), args.specification, args.output.resolve(), asset_repository=assets)
+    elif args.command == "register-native":
+        from ppt_template_packs import PptTemplatePackRepository
+        repository = PptTemplatePackRepository(args.repository)
+        result = repository.register_teaching_layout(args.pack_id, args.owner_id, args.layout,
+            json.loads(args.execution.read_text()), maintainer_reviewed=args.reviewed)
+        if args.publish:
+            result = repository.publish(args.pack_id, args.owner_id)
+        print(json.dumps({"pack_id": result['pack_id'], "status": result['status'], "version": result.get('version')}))
     else:
         certify(args.theme, args.layouts.split(","), args.output.resolve(), args.publish)

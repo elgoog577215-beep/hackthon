@@ -1,0 +1,30 @@
+{
+  "schema_version": "ppt_runtime_packages_v1",
+  "os_id": "ubuntu",
+  "os_version": "24.04",
+  "architecture": "amd64",
+  "source": "https://archive.ubuntu.com/ubuntu/",
+  "packages": {
+    "libreoffice-common": {
+      "Version": "4:24.2.7-0ubuntu0.24.04.6",
+      "SHA256": "be5e3dbb3293263630cd84fe6cb9409657ac89aee3b7d2d2cb6a90cbba0a33bb",
+      "Filename": "pool/main/libr/libreoffice/libreoffice-common_24.2.7-0ubuntu0.24.04.6_all.deb"
+    },
+    "libreoffice-core": {
+      "Version": "4:24.2.7-0ubuntu0.24.04.6",
+      "SHA256": "cf3ccc14987e7e2662dab5e97a30b48b1ea813b4e4304dc27399217322fc9984",
+      "Filename": "pool/main/libr/libreoffice/libreoffice-core_24.2.7-0ubuntu0.24.04.6_amd64.deb"
+    },
+    "libreoffice-impress": {
+      "Version": "4:24.2.7-0ubuntu0.24.04.6",
+      "SHA256": "e1a818b9ef99bbffda1c83a87323fe0c2a84b53fe844680bbc23d43fb300fe24",
+      "Filename": "pool/main/libr/libreoffice/libreoffice-impress_24.2.7-0ubuntu0.24.04.6_amd64.deb"
+    },
+    "poppler-utils": {
+      "Version": "24.02.0-1ubuntu9.9",
+      "SHA256": "fb936375b183a9d8ecb5b1fc5665a44110ca130c445946fb575c0b800b1dc0f4",
+      "Filename": "pool/main/p/poppler/poppler-utils_24.02.0-1ubuntu9.9_amd64.deb"
+    }
+  },
+  "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b"
+}

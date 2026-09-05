@@ -496,11 +496,16 @@ def _resolve_teacher_v6_template(
                 },
             ) from exc
     try:
-        return ppt_template_pack_repository.resolve_v6_layout_contract(
+        resolved = ppt_template_pack_repository.resolve_v6_layout_contract(
             body.template_pack_id,
             version,
             actor,
         )
+        from ppt_teaching_flags import three_stage_enabled
+        if any(layout.execution is not None for layout in resolved.layouts) and not three_stage_enabled():
+            raise HTTPException(status_code=422, detail={"code": "lesson_ppt_three_stage_disabled",
+                "message": "三阶段模板暂未开放新建；已确认课件仍可查看与导出。"})
+        return resolved
     except (FileNotFoundError, TemplatePackError, ValueError) as exc:
         raise HTTPException(
             status_code=404,

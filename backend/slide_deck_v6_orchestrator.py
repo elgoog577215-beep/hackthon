@@ -723,13 +723,13 @@ class SlideDeckV6Orchestrator:
             SlideWorkItemV2(item_id="course-graph", kind="local", stage="course_graph", label="构建完整教学单元图"),
             SlideWorkItemV2(
                 item_id="materialize",
-                kind="local",
+                kind="ppt_layout_preflight" if three_stage else "local",
                 stage="materialize",
                 label="Compile source-faithful pages",
             ),
             SlideWorkItemV2(
                 item_id="quality",
-                kind="local",
+                kind="ppt_output_audit" if three_stage else "local",
                 stage="quality",
                 label="Run fidelity and render gates",
             ),
@@ -791,7 +791,9 @@ class SlideDeckV6Orchestrator:
                         nonlocal current_work
                         item_id = event["item_id"]
                         current_work = item_id
-                        tracker.add_work([SlideWorkItemV2(item_id=item_id, kind="ai_batch", stage="story", label="组织整讲教学路径" if item_id == "teaching-narrative" else "准备逐页教学表达")])
+                        tracker.add_work([SlideWorkItemV2(item_id=item_id,
+                            kind="ppt_content_plan" if item_id == "teaching-narrative" else "ppt_content_page",
+                            stage="story", label="组织整讲教学路径" if item_id == "teaching-narrative" else "准备逐页教学表达")])
                         if event["phase"] == "started":
                             tracker.start(item_id, provider_wait=True)
                         elif event["phase"] == "completed":
@@ -1153,7 +1155,7 @@ class SlideDeckV6Orchestrator:
             tracker.add_work([
                 SlideWorkItemV2(
                     item_id=f"render-{page.page_id}",
-                    kind="render_page",
+                    kind="ppt_native_render" if three_stage else "render_page",
                     stage="render",
                     label=f"Compile page {page.page_ordinal + 1}",
                     page_id=page.page_id,

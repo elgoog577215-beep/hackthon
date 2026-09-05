@@ -1,0 +1,55 @@
+name: Validate PPT three-stage runtime
+
+on:
+  push:
+    branches: [codex/ppt-three-stage-plan]
+    paths:
+      - 'backend/**'
+      - 'frontend/public/presentation-assets/**'
+      - 'scripts/ppt_template_tool.py'
+      - 'scripts/provision_ppt_runtime.py'
+      - 'deploy/ppt-runtime/**'
+      - '.github/workflows/ppt-three-stage-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - name: Install locked native tools and project font
+        run: sudo python3 scripts/provision_ppt_runtime.py --install
+      - name: Install project test dependencies
+        run: python -m pip install -r backend/requirements-dev.txt
+      - name: Test content, original template bindings and zero-model export
+        run: >-
+          python -m pytest -q backend/tests/test_ppt_teaching_content.py
+          backend/tests/test_ppt_page_draft.py backend/tests/test_ppt_native_bindings.py
+          backend/tests/test_ppt_adopted_visuals.py backend/tests/test_slide_build_progress_v2.py
+          backend/tests/test_ppt_chart_scene.py
+      - name: Certify real filled component samples on Linux
+        run: >-
+          python scripts/ppt_template_tool.py certify
+          --layouts compare-visual,compare-matrix,problem-focus,concept-map,relation-flow,step-derivation,exercise-states,lesson-recap,lesson-cover,lesson-agenda,hierarchy-map,source-evidence,data-bars
+          --output /tmp/ppt-linux-evidence
+      - name: Certify second theme on Linux
+        run: >-
+          python scripts/ppt_template_tool.py certify --theme qizhi-classroom
+          --layouts compare-matrix,concept-map,data-bars --output /tmp/ppt-linux-evidence/second-theme
+      - name: Verify import boundaries
+        run: python scripts/audit_backend_dependencies.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ppt-linux-synthetic-evidence
+          path: /tmp/ppt-linux-evidence
+          if-no-files-found: ignore

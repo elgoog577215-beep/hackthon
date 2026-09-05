@@ -68,6 +68,33 @@ def test_comparison_retains_notes_and_aligned_objects():
     assert left.subject_id == "a" and right.subject_id == "b"
 
 
+def test_comparison_allocates_matrix_rows_without_shrinking_or_moving_reveal_states():
+    from ppt_layout_samples import matrix_boundary_sample
+    value = matrix_boundary_sample(2, 3).model_dump()
+    for element in value["elements"]:
+        if element["element_id"] in {"cell-0-0", "cell-1-0"}:
+            element.update(kind="formula", text=r"\begin{bmatrix}1&2&3\\0&4&5\\0&0&6\end{bmatrix}")
+    scene = scene_for(value)
+    objects = {obj.element_id: obj for obj in scene.objects}
+    assert objects["cell-0-0"].height > objects["cell-0-1"].height
+    assert len(objects["cell-0-0"].lines) == 3
+    assert objects["cell-0-0"].y == objects["cell-1-0"].y
+    assert objects["cell-0-0"].font_size == 20
+    value["states"].insert(0, {**value["states"][0], "state_id": "before", "visible_element_ids": [
+        key for key in value["states"][0]["visible_element_ids"] if key != "cell-1-0"]})
+    earlier = scene_for(value)
+    assert next(obj for obj in earlier.objects if obj.element_id == "cell-0-0") == objects["cell-0-0"]
+
+
+def test_intentionally_ragged_matrix_counterexample_preserves_missing_entry():
+    from ppt_formula_projection import project_matrix
+    source = r"\begin{bmatrix}2&3&-1&5\\1&-1&0&2\\4&5&-1\end{bmatrix}"
+    projected = project_matrix(source)
+    assert len(projected.splitlines()) == 3
+    assert projected.count("0") == 1
+    assert "".join(c for c in projected.splitlines()[-1] if not c.isspace()) == "⎣45-1⎦"
+
+
 @pytest.mark.parametrize("mutation,code", [
     (lambda v: v["expression"]["cells"].pop(), "comparison_matrix_incomplete"),
     (lambda v: v["expression"]["cells"][0].update(element_ids=["b-mode"]), "comparison_cell_identity_mismatch"),
@@ -189,6 +216,23 @@ def test_orchestrator_final_generation_never_invokes_planners(tmp_path, monkeypa
         story_planner=forbidden, visual_planner=forbidden, source_revision_provider=lambda: doc.document_revision,
         template_contract=template, confirmed_manuscript=manuscript, publish_result=False))
     assert result["status"] == "v6_ready"
+
+
+def test_render_failure_preserves_last_ppt_and_cleans_temporary_file(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from ppt_teaching_manuscript import physical_pages
+    from ppt_native_scene import render_teaching_deck
+    _, _, _, manuscript = compiled_manuscript()
+    target = tmp_path / 'last-good.pptx'
+    target.write_bytes(b'last-known-good')
+    def fail(*args, **kwargs):
+        raise ValueError('simulated_render_failure')
+    monkeypatch.setattr('ppt_render_audit.render_evidence', fail)
+    with pytest.raises(ValueError, match='simulated_render_failure'):
+        render_teaching_deck(SimpleNamespace(pages=physical_pages(manuscript)), target)
+    assert target.read_bytes() == b'last-known-good'
+    assert list(tmp_path.glob('*.pptx')) == [target]
+    assert not list(tmp_path.glob('.last-good-*'))
 
 
 def test_teacher_edit_and_targeted_repair_preserve_other_pages(monkeypatch):

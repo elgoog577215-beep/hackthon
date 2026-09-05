@@ -95,3 +95,34 @@ def test_adopted_diagram_copies_branch_edges_and_detects_semantic_edits(tmp_path
     content.adopted_diagram.semantic_digest = diagram_semantics(content)
     with pytest.raises(ValueError, match='teaching_adopted_diagram_changed'):
         bind_adopted_assets(content, catalog, {'b'})
+
+
+def test_native_picture_replacement_preserves_object_id_and_asset_bytes(tmp_path):
+    from ppt_layout_execution import compile_teaching_template
+    from ppt_layout_schema import NativeTarget
+    from ppt_page_scene import resolve_page_scenes
+    from ppt_native_scene import clone_native_slide
+    assets, asset, item, value, sources = adopted_fixture(tmp_path)
+    catalog = current_visual_catalog([item], course_id='course', script_revision_id='script-r1', sources=sources, asset_repository=assets)
+    content = bind_adopted_assets(PageTeachingV2.model_validate(value), catalog, {'b'})
+    t = compile_teaching_template('academic-editorial', certification_required=False)
+    layout = t.get_layout(t.layout_id('compare-visual'))
+    component = resolve_page_scenes(page_id='image', title='比较', content=content, layout=layout, template=t, source_document_revision='doc')[0]
+    deck = Presentation()
+    deck.slide_width, deck.slide_height = Pt(960), Pt(540)
+    source = deck.slides.add_slide(deck.slide_layouts[6])
+    render_scene(source, component, assets=assets)
+    names = {s.name: s for s in source.shapes}
+    execution = layout.execution.model_copy(deep=True)
+    execution.mode, execution.source_slide_number, execution.source_sha256 = 'native_fill', 1, 'fixture'
+    execution.targets = {o.slot_id: NativeTarget(kind=o.kind, shape_id=names[f'teaching:{o.object_id}'].shape_id,
+        geometry_pt=tuple(v / 12700 for v in (names[f'teaching:{o.object_id}'].left, names[f'teaching:{o.object_id}'].top,
+                                             names[f'teaching:{o.object_id}'].width, names[f'teaching:{o.object_id}'].height))) for o in component.objects}
+    layout.execution = execution
+    scene = resolve_page_scenes(page_id='image', title='比较', content=content, layout=layout, template=t, source_document_revision='doc')[0]
+    filled = clone_native_slide(deck, source, execution)
+    render_scene(filled, scene, assets=assets)
+    image = next(s for s in filled.shapes if s.name == 'teaching:a-mode')
+    assert image.shape_id == names['teaching:a-mode'].shape_id
+    assert image.image.blob == assets.resolve(asset.asset_id).read_bytes()
+    assert audit_scene(filled, scene)['passed']

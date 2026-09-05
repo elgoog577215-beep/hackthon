@@ -11,6 +11,45 @@ from ppt_teaching_content import PageTeachingV2
 from .test_ppt_teaching_content import comparison_fixture, scene_for
 
 
+def test_native_branch_connections_keep_original_targets_and_hide_with_nodes(tmp_path):
+    from ppt_layout_schema import NativeConnection
+    from ppt_native_scene import clone_native_slide, inspect_native_connections
+    from .test_ppt_teaching_content import branch_fixture
+    value, _ = branch_fixture()
+    complete = value['states'][0]
+    value['states'] = [{**deepcopy(complete), 'state_id': 'first', 'visible_element_ids': ['a']}, complete]
+    template = compile_teaching_template('academic-editorial', certification_required=False)
+    layout = template.get_layout(template.layout_id('concept-map'))
+    scenes = resolve_page_scenes(page_id='branch', title='分支', content=PageTeachingV2.model_validate(value),
+        layout=layout, template=template, source_document_revision='doc')
+    deck = Presentation()
+    deck.slide_width, deck.slide_height = Pt(960), Pt(540)
+    source = deck.slides.add_slide(deck.slide_layouts[6])
+    render_scene(source, scenes[-1])
+    names = {s.name: s for s in source.shapes}
+    execution = layout.execution.model_copy(deep=True)
+    execution.mode, execution.source_slide_number, execution.source_sha256 = 'native_fill', 1, 'fixture'
+    execution.targets = {o.slot_id: NativeTarget(shape_id=names[f'teaching:{o.object_id}'].shape_id,
+        geometry_pt=(o.x, o.y, o.width, o.height)) for o in scenes[-1].objects}
+    objects = {o.object_id: o for o in scenes[-1].objects}
+    execution.connections = {f'{objects[e.source_id].slot_id}->{objects[e.target_id].slot_id}': NativeConnection(
+        shape_id=names[f'relation:{e.relation_id}'].shape_id, source_slot=objects[e.source_id].slot_id,
+        target_slot=objects[e.target_id].slot_id, start_site=e.start_site, end_site=e.end_site,
+        geometry_pt=(e.x1, e.y1, e.x2, e.y2), directed=False) for e in scenes[-1].edges}
+    inspect_native_connections(source, execution)
+    layout.execution = execution
+    native = resolve_page_scenes(page_id='branch', title='分支', content=PageTeachingV2.model_validate(value),
+        layout=layout, template=template, source_document_revision='doc')
+    for scene in native:
+        slide = clone_native_slide(deck, source, execution)
+        render_scene(slide, scene)
+        assert audit_scene(slide, scene)['passed']
+        assert len([s for s in slide.shapes if s.name.startswith('relation:')]) == len(scene.edges)
+    execution.connections[next(iter(execution.connections))].directed = True
+    with pytest.raises(ValueError, match='native_connection_direction_mismatch'):
+        inspect_native_connections(source, execution)
+
+
 def test_native_table_cells_fill_and_read_back_without_new_text_boxes(tmp_path):
     content, _ = comparison_fixture()
     component = scene_for(content)

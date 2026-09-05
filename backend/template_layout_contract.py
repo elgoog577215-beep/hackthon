@@ -610,6 +610,30 @@ def compile_personal_template_layout_contract_v1(
     version = int(manifest.get("version") or 0)
     if not pack_id or version < 1:
         raise TemplateLayoutContractError("personal_template_version_missing")
+    if manifest.get("teaching_layouts"):
+        from ppt_runtime_identity import tool_identity
+        from ppt_layout_schema import LAYOUT_VERSION
+        tools = tool_identity()
+        reference = next((a for a in manifest.get("assets", []) if a.get("role") == "reference_pptx"), {})
+        layouts = []
+        for slug, item in manifest["teaching_layouts"].items():
+            execution = LayoutExecution.model_validate(item.get("execution"))
+            certificate = execution.certification
+            if (not item.get("maintainer_reviewed") or execution.mode != "native_fill"
+                    or execution.source_sha256 != reference.get("sha256")
+                    or not execution.static_artwork_data
+                    or certificate.get("status") != "passed" or certificate.get("tools") != tools
+                    or certificate.get("component_version") != LAYOUT_VERSION
+                    or not all(certificate.get("checks", {}).get(k) is True for k in ("short", "normal", "long", "relations", "render"))):
+                raise TemplateLayoutContractError(f"personal_teaching_layout_uncertified:{slug}")
+            layouts.append(TemplateLayoutContractV1(template_layout_id=f"{pack_id}@{version}/{slug}",
+                layout_slug=slug, teaching_intents=execution.expression_kinds,
+                slots=[TemplateSlotContractV1(slot_id="scene", slot_kind="visual")],
+                web_renderer_adapter="teaching-scene-web-v2", pptx_renderer_adapter="teaching-scene-pptx-v2",
+                execution=execution))
+        return TemplateLayoutPackContractV1(template_id=pack_id, template_version=str(version),
+            template_digest=stable_hash({"pack_id": pack_id, "version": version, "layouts": [l.model_dump(mode="json") for l in layouts]}, prefix="tmpl_"),
+            theme_id=str(manifest.get("base_theme") or "academic-editorial"), layouts=layouts)
     representative_pages = manifest.get("representative_pages") or []
     by_role = {
         str(item.get("role") or ""): item

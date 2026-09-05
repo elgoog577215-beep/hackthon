@@ -121,13 +121,58 @@ def inspect_native_bindings(slide, bindings):
             raise ValueError("native_target_bound_twice")
         seen.add(key)
         obj = _native_target(slide, target)
-        if not hasattr(obj, "text_frame"):
+        if target.kind == "image":
+            if target.group_path or target.row is not None or not hasattr(obj, "image"):
+                raise ValueError("native_image_target_unsupported")
+        elif not hasattr(obj, "text_frame"):
             raise ValueError("native_text_target_unsupported")
         geometry = native_target_geometry(slide, target, for_execution=True)
         if target.geometry_pt and any(abs(a - b) > 1 for a, b in zip(target.geometry_pt, geometry)):
             raise ValueError("native_target_geometry_mismatch")
         resolved[slot] = target.model_copy(update={"geometry_pt": geometry})
     return resolved
+
+
+def inspect_native_connections(slide, execution):
+    for key, binding in execution.connections.items():
+        if key != f"{binding.source_slot}->{binding.target_slot}":
+            raise ValueError("native_connection_key_mismatch")
+        targets = [execution.targets.get(slot) for slot in (binding.source_slot, binding.target_slot)]
+        if any(t is None or t.kind != "text" or t.group_path or t.row is not None for t in targets):
+            raise ValueError("native_connection_endpoint_unsupported")
+        matches = [s for s in slide.shapes if s.shape_id == binding.shape_id]
+        if len(matches) != 1 or not hasattr(matches[0], 'begin_connect'):
+            raise ValueError("native_connection_target_missing")
+        shape = matches[0]
+        for name, target, site in zip(('stCxn', 'endCxn'), targets, (binding.start_site, binding.end_site), strict=True):
+            nodes = shape._element.xpath(f'.//a:{name}')
+            if len(nodes) != 1 or nodes[0].get('id') != str(target.shape_id) or nodes[0].get('idx') != str(site):
+                raise ValueError("native_connection_endpoint_mismatch")
+        geometry = tuple(v / 12700 for v in (shape.begin_x, shape.begin_y, shape.end_x, shape.end_y))
+        if any(abs(a - b) > 1 for a, b in zip(geometry, binding.geometry_pt)):
+            raise ValueError("native_connection_geometry_mismatch")
+        arrows = shape._element.xpath('.//a:tailEnd')
+        if any(a.get('type') not in {None, 'none'} for a in shape._element.xpath('.//a:headEnd')) or any(a.get('type') not in {None, 'none', 'triangle'} for a in arrows):
+            raise ValueError("native_connection_arrow_unsupported")
+        if bool(arrows and arrows[0].get('type') == 'triangle') != binding.directed:
+            raise ValueError("native_connection_direction_mismatch")
+
+
+def _replace_picture(shape, data, geometry=None):
+    from io import BytesIO
+    _, relationship = shape.part.get_or_add_image_part(BytesIO(data))
+    shape._element.blipFill.blip.rEmbed = relationship
+    shape.crop_left = shape.crop_right = shape.crop_top = shape.crop_bottom = 0
+    if geometry:
+        shape.left, shape.top, shape.width, shape.height = (Pt(v) for v in geometry)
+
+
+def _transparent_picture():
+    from io import BytesIO
+    from PIL import Image
+    buffer = BytesIO()
+    Image.new('RGBA', (1, 1), (0, 0, 0, 0)).save(buffer, format='PNG')
+    return buffer.getvalue()
 
 
 def render_scene(slide, scene: ResolvedPageScene, *, assets=None):
@@ -139,16 +184,16 @@ def render_scene(slide, scene: ResolvedPageScene, *, assets=None):
             if target is None:
                 raise ValueError("native_template_target_missing")
             shape = _native_target(slide, target)
-            if obj.kind == "image":
-                raise ValueError("native_image_replacement_unsupported")
-            if not hasattr(shape, "text_frame"):
+            if target.kind != obj.kind:
+                raise ValueError("native_target_kind_mismatch")
+            if obj.kind == "text" and not hasattr(shape, "text_frame"):
                 raise ValueError("native_text_target_unsupported")
             # Native slot geometry is a contract, not a suggestion.
             if any(abs(a - b) > 1 for a, b in zip(
                     native_target_geometry(slide, target, for_execution=True),
                     (obj.x, obj.y, obj.width, obj.height))):
                 raise ValueError("native_target_geometry_mismatch")
-        elif obj.kind == "image":
+        if obj.kind == "image":
             if assets is None:
                 raise ValueError("teaching_asset_repository_missing")
             path = assets.resolve(obj.asset_id)
@@ -158,9 +203,12 @@ def render_scene(slide, scene: ResolvedPageScene, *, assets=None):
             with Image.open(path) as img:
                 iw, ih = img.size
             scale = min(obj.width / iw, obj.height / ih)
-            shape = slide.shapes.add_picture(str(path), Pt(obj.x + (obj.width - iw * scale) / 2),
-                Pt(obj.y + (obj.height - ih * scale) / 2), width=Pt(iw * scale), height=Pt(ih * scale))
-        else:
+            geometry = (obj.x + (obj.width - iw * scale) / 2, obj.y + (obj.height - ih * scale) / 2, iw * scale, ih * scale)
+            if scene.execution.mode == "native_fill":
+                _replace_picture(shape, path.read_bytes(), geometry)
+            else:
+                shape = slide.shapes.add_picture(str(path), Pt(geometry[0]), Pt(geometry[1]), width=Pt(geometry[2]), height=Pt(geometry[3]))
+        elif scene.execution.mode != "native_fill":
             shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Pt(obj.x), Pt(obj.y), Pt(obj.width), Pt(obj.height))
             style = shape._element.find(qn("p:style"))
             if style is not None:
@@ -168,30 +216,47 @@ def render_scene(slide, scene: ResolvedPageScene, *, assets=None):
             shape._element.spPr.append(OxmlElement("a:effectLst"))
             shape.fill.solid()
             shape.fill.fore_color.rgb = _color(obj.fill)
-            shape.line.color.rgb = _color("305AC7" if obj.element_id in scene.emphasized_element_ids else obj.stroke)
+            shape.line.color.rgb = _color(scene.accent_color if obj.element_id in scene.emphasized_element_ids else obj.stroke)
             shape.line.width = Pt(1.5 if obj.element_id in scene.emphasized_element_ids else 0)
         if obj.kind == "text":
             _shape_text(shape, obj, scene)
         if hasattr(shape, "name"):
             shape.name = f"teaching:{obj.object_id}"
             shapes_by_id[obj.object_id] = shape
+    objects = {o.object_id: o for o in scene.objects}
+    if scene.execution.mode == "native_fill":
+        visible = {f"{objects[e.source_id].slot_id}->{objects[e.target_id].slot_id}" for e in scene.edges}
+        for key, binding in scene.execution.connections.items():
+            if key not in visible:
+                shape = next(s for s in slide.shapes if s.shape_id == binding.shape_id)
+                shape._element.getparent().remove(shape._element)
     for edge in scene.edges:
+        key = f"{objects[edge.source_id].slot_id}->{objects[edge.target_id].slot_id}"
         if edge.source_id not in shapes_by_id or edge.target_id not in shapes_by_id:
             raise ValueError("native_cell_connector_unsupported")
         source, target = shapes_by_id[edge.source_id], shapes_by_id[edge.target_id]
-        connector = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Pt(edge.x1), Pt(edge.y1), Pt(edge.x2), Pt(edge.y2))
+        binding = scene.execution.connections.get(key) if scene.execution.mode == "native_fill" else None
+        connector = next(s for s in slide.shapes if s.shape_id == binding.shape_id) if binding else slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Pt(edge.x1), Pt(edge.y1), Pt(edge.x2), Pt(edge.y2))
         connector.name = f"relation:{edge.relation_id}"
+        style = connector._element.find(qn('p:style'))
+        if style is not None:
+            connector._element.remove(style)
+        for effect in connector._element.spPr.findall(qn('a:effectLst')):
+            connector._element.spPr.remove(effect)
+        connector._element.spPr.append(OxmlElement('a:effectLst'))
         connector.begin_connect(source, edge.start_site)
         connector.end_connect(target, edge.end_site)
-        connector.line.color.rgb = _color("305AC7")
+        connector.line.color.rgb = _color(scene.accent_color)
         connector.line.width = Pt(1.7)
         if relation_is_directed(edge.kind):
+            for previous in connector._element.xpath('.//a:tailEnd'):
+                previous.getparent().remove(previous)
             end = OxmlElement("a:tailEnd")
             end.set("type", "triangle")
             connector.line._get_or_add_ln().append(end)
         if edge.label:
             label = edge.label_object
-            shape = slide.shapes.add_textbox(Pt(label.x), Pt(label.y), Pt(label.width), Pt(label.height))
+            shape = _native_target(slide, scene.execution.targets[binding.label_slot]) if binding else slide.shapes.add_textbox(Pt(label.x), Pt(label.y), Pt(label.width), Pt(label.height))
             shape.name = f"relation-label:{edge.relation_id}"
             _shape_text(shape, label, scene)
 
@@ -232,6 +297,12 @@ def audit_scene(slide, scene: ResolvedPageScene) -> dict:
                 raise ValueError(f"export_element_position_mismatch:{obj.object_id}")
             if any(p.font.name != scene.execution.font_family or p.font.size != Pt(obj.font_size) for p in shape.text_frame.paragraphs):
                 raise ValueError("export_font_mismatch")
+        elif obj.kind == "shape":
+            actual = (shape.left / 12700, shape.top / 12700, shape.width / 12700, shape.height / 12700)
+            if any(abs(a - b) > 0.01 for a, b in zip(actual, (obj.x, obj.y, obj.width, obj.height))):
+                raise ValueError(f"export_chart_scale_mismatch:{obj.object_id}")
+            if str(shape.fill.fore_color.rgb) != obj.fill:
+                raise ValueError(f"export_shape_fill_mismatch:{obj.object_id}")
         else:
             import hashlib
             if hashlib.sha256(shape.image.blob).hexdigest() != obj.asset_digest:
@@ -244,9 +315,17 @@ def audit_scene(slide, scene: ResolvedPageScene) -> dict:
                 raise ValueError("export_asset_geometry_mismatch")
     if native:
         visible_slots = {o.slot_id for o in scene.objects}
+        objects = {o.object_id: o for o in scene.objects}
+        visible_connections = {f"{objects[e.source_id].slot_id}->{objects[e.target_id].slot_id}" for e in scene.edges}
+        visible_slots.update(b.label_slot for k, b in scene.execution.connections.items() if k in visible_connections and b.label_slot)
         for slot, binding in scene.execution.targets.items():
-            if slot not in visible_slots and _source_text(_native_target(slide, binding)).strip():
-                raise ValueError("export_hidden_native_content_visible")
+            if slot not in visible_slots:
+                target = _native_target(slide, binding)
+                if binding.kind == "image":
+                    if target.image.blob != _transparent_picture():
+                        raise ValueError("export_hidden_native_content_visible")
+                elif _source_text(target).strip():
+                    raise ValueError("export_hidden_native_content_visible")
     relation_names = {f"relation:{e.relation_id}" for e in scene.edges}
     if {n for n in named if n.startswith("relation:")} != relation_names:
         raise ValueError("export_relation_set_mismatch")
@@ -293,9 +372,13 @@ def clone_native_slide(presentation, source, execution):
         _replace_relationship_ids(node, remap)
         slide.shapes._spTree.insert_element_before(node, "p:extLst")
     inspect_native_bindings(slide, execution.targets)
+    inspect_native_connections(slide, execution)
     for target in execution.targets.values():
         shape = _native_target(slide, target)
-        shape.text_frame.clear()
+        if target.kind == "image":
+            _replace_picture(shape, _transparent_picture())
+        else:
+            shape.text_frame.clear()
         if hasattr(shape, "name") and shape.name.startswith("teaching:"):
             shape.name = f"template-hidden:{shape.shape_id}"
     return slide

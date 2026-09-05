@@ -100,7 +100,31 @@ class LinearExpression(Contract):
     ordered_element_ids: list[str] = Field(min_length=1, max_length=12)
 
 
-Expression = Annotated[ComparisonExpression | GraphExpression | LinearExpression, Field(discriminator="kind")]
+class ChartPoint(Contract):
+    label_element_id: str
+    value_element_id: str
+
+
+class ChartExpression(Contract):
+    kind: Literal["chart"] = "chart"
+    chart_type: Literal["horizontal_bar"] = "horizontal_bar"
+    points: list[ChartPoint] = Field(min_length=2, max_length=6)
+    unit_element_id: str
+
+
+def chart_number(text):
+    """Only source-exact, finite nonnegative decimals in the first chart type."""
+    import re
+    from decimal import Decimal
+    if not re.fullmatch(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?", text):
+        raise ValueError("chart_value_not_supported")
+    value = Decimal(text)
+    if value > Decimal("1e12"):
+        raise ValueError("chart_value_not_supported")
+    return value
+
+
+Expression = Annotated[ComparisonExpression | GraphExpression | LinearExpression | ChartExpression, Field(discriminator="kind")]
 
 
 class RevealState(Contract):
@@ -256,7 +280,9 @@ class PageTeachingV2(Contract):
                 if relation.source_id not in nodes or relation.target_id not in nodes or relation.source_id == relation.target_id:
                     raise ValueError(f"relation_endpoint_invalid:{relation.relation_id}: {relation.source_id}->{relation.target_id}; node_ids={sorted(nodes)}")
                 if expected and relation.kind != expected:
-                    raise ValueError("relation_kind_mismatch")
+                    raise ValueError(f"relation_kind_mismatch:{relation.relation_id}: expression={expression.kind} "
+                                     f"requires kind={expected}, got {relation.kind}. "
+                                     "Use a concept expression/layout for mixed relation kinds; never relabel a relation against source meaning.")
                 known(relation.condition_element_ids)
                 parents[relation.target_id].append(relation.source_id)
             if expression.kind == "hierarchy" and (sum(not p for p in parents.values()) != 1 or any(len(p) > 1 for p in parents.values())):
@@ -268,6 +294,22 @@ class PageTeachingV2(Contract):
                     if not ready:
                         raise ValueError("relation_cycle_invalid")
                     remaining -= ready
+        elif isinstance(expression, ChartExpression):
+            context = [expression.unit_element_id, *(p.label_element_id for p in expression.points)]
+            values = [p.value_element_id for p in expression.points]
+            known(context + values)
+            if set(context + values) != ids:
+                raise ValueError("chart_element_binding_incomplete")
+            unit = elements[expression.unit_element_id]
+            if unit.kind not in {"quote", "data"} and not unit.exact:
+                raise ValueError("chart_unit_must_be_source_exact")
+            for key in values:
+                if elements[key].kind != "data":
+                    raise ValueError("chart_value_must_be_source_data")
+                chart_number(elements[key].text)
+            for state in self.states:
+                if not set(context) <= set(state.visible_element_ids):
+                    raise ValueError("chart_context_hidden")
         else:
             known(expression.ordered_element_ids)
         # The initial exercise view must be answer-free. A later state owns the

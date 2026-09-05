@@ -27,6 +27,8 @@ def matrix_boundary_sample(subject_count=4, dimension_count=4):
 
 
 def layout_sample(slug: str, *, length="normal") -> PageTeachingV2:
+    if slug == "data-bars":
+        return chart_sample(length=length)
     source_text = "同一任务可以串行或并行。串行先完成观察再记录结果；并行把独立的观察和记录分配到两个任务。先观察条件，再判断路径，最后核对结果。条件不足时继续观察。"
     source = {"block_id": "sample-source", "block_revision": "sample-v1", "start": 0, "end": len(source_text), "quote": source_text}
     elements = []
@@ -76,3 +78,24 @@ def layout_sample(slug: str, *, length="normal") -> PageTeachingV2:
         states.insert(0, {"state_id": "question", "visible_element_ids": ["condition"], "teaching_note": "先观察问题"})
     return PageTeachingV2.model_validate({"elements": elements, "expression": expression, "must_show": ids,
         "source_dispositions": [{"block_id": "sample-source", "purpose": "screen", "element_ids": ids, "reason": "模板测试样本完整保留"}], "states": states})
+
+
+def chart_sample(*, length="normal"):
+    texts = ["时间（分钟）", "观察", "记录", "12.5", "25"]
+    if length == "short":
+        texts[0] = "分钟"
+    if length == "long":
+        texts[0] *= 100
+    source = "；".join(texts)
+    elements = []
+    for key, text, kind in zip(["unit", "a", "b", "av", "bv"], texts, ["quote", "text", "text", "data", "data"], strict=True):
+        start = source.index(text)
+        elements.append({"element_id": key, "text": text, "kind": kind,
+            "sources": [{"block_id": "sample-source", "block_revision": "sample-v1", "start": start, "end": start + len(text), "quote": text}]})
+    ids = [e["element_id"] for e in elements]
+    return PageTeachingV2.model_validate({"elements": elements,
+        "expression": {"kind": "chart", "unit_element_id": "unit", "points": [
+            {"label_element_id": "a", "value_element_id": "av"}, {"label_element_id": "b", "value_element_id": "bv"}]},
+        "must_show": ids, "source_dispositions": [{"block_id": "sample-source", "purpose": "screen", "element_ids": ids, "reason": "相同单位和零基线的图表边界样本"}],
+        "states": [{"state_id": "first", "visible_element_ids": ["unit", "a", "b", "av"], "teaching_note": "先观察第一个数据"},
+                   {"state_id": "all", "visible_element_ids": ids, "teaching_note": "按相同比例比较数据"}]})

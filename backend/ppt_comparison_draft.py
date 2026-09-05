@@ -121,7 +121,7 @@ def lower_comparison_draft(value, sources):
                           "condition_element_ids": [keys[k] for k in relation.condition_keys],
                           "sources": bind_choices(relation.sources, sources, owner=f"relation-{i}")})
     if max(stages.values()) != len(draft.reveal_notes):
-        raise ValueError("reveal_notes_count_must_match_last_show_from")
+        raise ValueError(f"reveal_notes_count_must_match_last_show_from: max show_from={max(stages.values())}, notes={len(draft.reveal_notes)}; each page part needs its own notes, exactly one per step; remove unused trailing steps or assign the intended element to that step")
     dispositions = []
     for block_id in sources:
         ids = [e["element_id"] for e in elements if any(s["block_id"] == block_id for s in e["sources"])]
