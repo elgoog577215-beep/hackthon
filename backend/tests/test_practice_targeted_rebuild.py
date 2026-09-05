@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+import pytest
+
 from downstream_rebuild import execute_rebuild, pipeline_for
 from practice_targeted_rebuild import (
     PRACTICE_REBUILD_RECEIPT_SCHEMA,
@@ -460,6 +462,7 @@ def test_new_real_job_is_submitted_to_the_existing_executor(tmp_path) -> None:
 
     class RecordingExecutor:
         def __init__(self) -> None:
+            self.instance_id = "question-bank-worker-1"
             self.calls = []
 
         def submit(self, **kwargs):
@@ -489,6 +492,75 @@ def test_new_real_job_is_submitted_to_the_existing_executor(tmp_path) -> None:
     assert submitted["payload"].scope == "items"
     assert submitted["payload"].revision_ids == ["qbr_1"]
     assert submitted["course"] == course
+    assert job["worker_id"] == "question-bank-worker-1"
+
+
+def test_default_runtime_fails_before_creating_an_orphan_job(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import question_bank_jobs
+    import question_bank_rebuild_runtime
+    from question_bank_jobs import QuestionBankRebuildJobRepository
+
+    repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
+    monkeypatch.setattr(
+        question_bank_jobs,
+        "question_bank_rebuild_job_repository",
+        repository,
+    )
+    monkeypatch.setattr(question_bank_rebuild_runtime, "_executor", None)
+    monkeypatch.setattr(question_bank_rebuild_runtime, "_payload_factory", None)
+
+    with pytest.raises(RuntimeError, match="尚未完成启动注册"):
+        question_bank_job_enqueue()
+
+    assert repository.latest_for_course("c1") is None
+
+
+def test_default_runtime_submits_through_the_registered_adapter(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import question_bank_jobs
+    import question_bank_rebuild_runtime
+    from question_bank_jobs import QuestionBankRebuildJobRepository
+
+    class RecordingExecutor:
+        instance_id = "question-bank-worker-runtime"
+
+        def __init__(self) -> None:
+            self.calls = []
+
+        def submit(self, **kwargs):
+            self.calls.append(kwargs)
+
+    class Payload(dict):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.__dict__.update(kwargs)
+
+    repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
+    executor = RecordingExecutor()
+    monkeypatch.setattr(
+        question_bank_jobs,
+        "question_bank_rebuild_job_repository",
+        repository,
+    )
+    monkeypatch.setattr(question_bank_rebuild_runtime, "_executor", executor)
+    monkeypatch.setattr(
+        question_bank_rebuild_runtime,
+        "_payload_factory",
+        Payload,
+    )
+
+    enqueue = question_bank_job_enqueue(course_data={"course_id": "c1"})
+    job = enqueue(course_id="c1", revision_ids=["qbr_1"])
+
+    assert job["worker_id"] == executor.instance_id
+    assert len(executor.calls) == 1
+    assert executor.calls[0]["job_id"] == job["job_id"]
+    assert executor.calls[0]["payload"].revision_ids == ["qbr_1"]
 
 
 def test_reconcile_expands_question_group_before_atomic_publish() -> None:

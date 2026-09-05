@@ -326,6 +326,7 @@ def question_bank_job_enqueue(
             revision_ids=scoped,
             mode="incremental",
             actor_id=actor_id,
+            worker_id=str(getattr(executor, "instance_id", "") or ""),
         )
         if created and executor is not None and make_payload is not None:
             payload = make_payload(

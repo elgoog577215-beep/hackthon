@@ -297,5 +297,6 @@ PWCLI=/Users/yq/.codex/skills/playwright/scripts/playwright_cli.sh
 不会留下只有 queued 状态却无人执行的幽灵任务。
 
 - `python3 scripts/audit_backend_dependencies.py`：`281` 个生产模块无循环、无职责方向违规。
-- 题库定向重建、课程下游重建与题库 API 联合回归：`71 passed`。
+- 题库定向重建、课程下游重建、知识命令与题库 API 联合回归：`167 passed`。
 - 新端口、业务模块与路由 Ruff：通过。
+- 新增直接合同证明：端口未注册时在落 job 前失败；注册后默认路径提交给正式 executor，job 同时持久化 executor `worker_id`，使进程重启能够识别并终结旧 worker 的幽灵任务。
