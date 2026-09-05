@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from release_targets import targets
+from release_targets import changed_paths, targets
 
 
 class ReleaseTargetsTest(unittest.TestCase):
@@ -30,3 +30,8 @@ class ReleaseTargetsTest(unittest.TestCase):
     def test_independent_deployment_config(self):
         self.assertFalse(targets(["deploy/zju/docker-compose.yml"])["tuotu"])
         self.assertFalse(targets(["deploy/tuotu/build.sh"])["zju"])
+
+    def test_identical_git_revisions_do_not_release(self):
+        paths = changed_paths("HEAD", "HEAD")
+        self.assertEqual(paths, [])
+        self.assertEqual(targets(paths), {"tuotu": False, "zju": False, "zju_services": []})

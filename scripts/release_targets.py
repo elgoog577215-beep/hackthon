@@ -42,7 +42,7 @@ def changed_paths(base, head):
         args = ["ls-tree", "-r", "--name-only", "-z", head]
     else:
         args = ["diff", "--name-only", "--no-renames", "-z", base, head]
-    return subprocess.check_output(["git", "-C", str(ROOT), *args]).decode().rstrip("\0").split("\0")
+    return [path for path in subprocess.check_output(["git", "-C", str(ROOT), *args]).decode().split("\0") if path]
 
 
 def main():
