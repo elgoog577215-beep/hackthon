@@ -324,7 +324,7 @@ def test_reject_route_matches_application_service_signature(tmp_path, monkeypatc
     assert repo.load("teacher", "course-1").change_sets[0].status == "rejected"
 
 
-def test_shallow_lesson_failure_has_repairable_checkpoint_scope():
+def test_lesson_length_advice_does_not_force_checkpoint_regeneration():
     from teacher_lesson_authoring import _teacher_script_retry_block_ids
     from teacher_script import SCRIPT_PIPELINE_VERSION, SCRIPT_QUALITY_VERSION, validate_teacher_script_revision
 
@@ -350,5 +350,6 @@ def test_shallow_lesson_failure_has_repairable_checkpoint_scope():
         }
     ]
     report = validate_teacher_script_revision(sections, generation_source="model_block_pipeline")
-    assert any(i["code"] == "teacher_script:lesson_too_shallow" for i in report["blocking_issues"])
-    assert _teacher_script_retry_block_ids(report, {str(i): i for i in range(4)}), report
+    assert report["passed"]
+    assert any(i["code"] == "teacher_script:lesson_too_shallow" for i in report["review_issues"])
+    assert not _teacher_script_retry_block_ids(report, {str(i): i for i in range(4)}), report

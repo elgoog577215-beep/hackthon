@@ -4246,7 +4246,10 @@ async def generate_lesson_plan(
                 on_phase=on_progress,
                 source_evidence=source_evidence,
                 lesson_arrangement=arrangement,
-                resume_checkpoint=resume_checkpoint,
+                resume_checkpoint=(
+                    (await asyncio.to_thread(repository.get_job, course_id, str(job["id"]))).get("checkpoint")
+                    or resume_checkpoint
+                ),
                 on_checkpoint=persist_checkpoint,
             )
 
@@ -4988,6 +4991,7 @@ async def generate_lesson_script(
                         else f"{module.get('title') or module_id}生成失败，请重试。"
                     ),
                     details={
+                        "retryable": getattr(exc, "retryable", True),
                         "reason": (
                             error_detail or "讲义模型调用超时"
                         )[:1000]
@@ -5139,6 +5143,7 @@ async def generate_lesson_script(
                         else f"讲义分片生成失败：{error_detail or '请重试'}"
                     ),
                     details={
+                        "retryable": getattr(exc, "retryable", True),
                         "reason": (
                             error_detail or "讲义模型调用超时"
                         )[:1000],

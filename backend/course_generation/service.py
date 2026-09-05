@@ -8541,6 +8541,7 @@ class CourseService(AIBase):
             instructions: str,
             *,
             output_tokens: int,
+            allow_secondary_attempt: bool = True,
         ) -> str | None:
             common = {
                 "retry_count": 1,
@@ -8595,11 +8596,11 @@ class CourseService(AIBase):
 
             try:
                 return await call_with_shared_capacity(use_fast_model=True)
-            except (AIProviderRequestError, AIProviderUnavailable):
-                # Fast quotas are model-specific in the current provider. A
-                # depleted or overloaded fast route must be able to use the
-                # already validated smart-model pool before the durable job
-                # pauses; the invalid last-resort token is not the only exit.
+            except (AIProviderRequestError, AIProviderUnavailable) as exc:
+                if not allow_secondary_attempt or getattr(exc, "retryable", True) is False:
+                    raise
+                # Both configured roles use the required text model. Only
+                # retry a recoverable request; optional polish keeps its draft.
                 return await call_with_shared_capacity(use_fast_model=False)
 
         last_report: dict[str, Any] = {}
@@ -8637,8 +8638,9 @@ class CourseService(AIBase):
                     user_prompt,
                     system_prompt + repair,
                     output_tokens=max(700, min(6000, int(max_output_characters * 1.1))),
+                    allow_secondary_attempt=best_usable is None,
                 )
-            except (AIProviderRequestError, AIProviderUnavailable):
+            except (AIProviderRequestError, AIProviderUnavailable, asyncio.TimeoutError):
                 if best_usable is None:
                     raise
                 best_usable["auto_improvement"] = {"attempts": attempt, "status": "partial", "error_code": "provider_unavailable"}

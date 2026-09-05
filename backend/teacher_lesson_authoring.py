@@ -18,6 +18,7 @@ import threading
 import time
 import uuid
 import hashlib
+from collections import Counter
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -85,10 +86,17 @@ def generation_failure(exc: Exception, default_code: str) -> dict[str, Any]:
         category, action, retryable = "provider", "retry_original", True
     elif details.get("quality_report") or "quality" in code:
         category, action, retryable = "quality", "retry_original", True
-    elif any(word in text for word in ("json", "schema", "parse", "structure", "validation")):
+    elif any(word in text for word in ("json", "schema", "parse", "structure", "validation", "lesson_plan_empty", "lesson_script_shard_invalid", "lesson_script_block_empty")):
         category, action, retryable = "structure", "retry_original", True
     else:
         category, action, retryable = "unknown", "revise_inputs", False
+    cause: BaseException | None = exc
+    while cause is not None:
+        if getattr(cause, "retryable", None) is False or (getattr(cause, "details", {}) or {}).get("retryable") is False:
+            retryable = False
+            action = "revise_inputs"
+            break
+        cause = cause.__cause__
     return {"code": code, "message": str(exc), **details, "category": category, "recovery_action": action, "retryable": retryable}
 
 
@@ -988,19 +996,19 @@ def validate_teacher_lesson_plan(
         if not objective or not knowledge_objectives:
             issue(blocking, "lesson_plan:knowledge_objective", "本讲缺少明确的知识目标。", section_id)
         if not ability_objectives:
-            issue(blocking, "lesson_plan:ability_objective", "本讲缺少可观察的能力目标。", section_id)
+            issue(review, "lesson_plan:ability_objective", "本讲缺少可观察的能力目标。", section_id)
         if not key_points:
-            issue(blocking, "lesson_plan:key_points", "小节缺少教学重点。", section_id)
+            issue(review, "lesson_plan:key_points", "小节缺少教学重点。", section_id)
         if not difficulties:
-            issue(blocking, "lesson_plan:difficulties", "小节缺少教学难点。", section_id)
+            issue(review, "lesson_plan:difficulties", "小节缺少教学难点。", section_id)
         if not modules:
             issue(blocking, "lesson_plan:modules", "小节缺少可执行的教学流程。", section_id)
         if modules and not any(str(item.get("teacher_activity") or "").strip() for item in modules):
             issue(blocking, "lesson_plan:teacher_activity", "小节缺少具体的教师活动。", section_id)
         if modules and not any(str(item.get("student_activity") or "").strip() for item in modules):
-            issue(blocking, "lesson_plan:student_activity", "小节缺少具体的学生活动。", section_id)
+            issue(review, "lesson_plan:student_activity", "小节缺少具体的学生活动。", section_id)
         if modules and section_minutes <= 0:
-            issue(blocking, "lesson_plan:timing", "小节缺少有效的时间分配。", section_id)
+            issue(review, "lesson_plan:timing", "小节缺少有效的时间分配。", section_id)
         for module in modules:
             missing = [
                 field for field in (
@@ -1014,32 +1022,32 @@ def validate_teacher_lesson_plan(
                 missing.append("adaptation_options")
             if missing:
                 issue(
-                    blocking,
+                    review,
                     "lesson_plan:block_contract",
                     f"教学块缺少可执行字段：{'、'.join(missing)}。",
                     section_id,
                 )
         if not checks:
-            issue(blocking, "lesson_plan:checks", "小节缺少课堂检查或可观察产出。", section_id)
+            issue(review, "lesson_plan:checks", "小节缺少课堂检查或可观察产出。", section_id)
         if not homework:
-            issue(blocking, "lesson_plan:homework", "小节缺少课后巩固或迁移任务。", section_id)
+            issue(review, "lesson_plan:homework", "小节缺少课后巩固或迁移任务。", section_id)
         if enforce_formal_fields:
             if not _text_list(section.get("class_summary")):
-                issue(blocking, "lesson_plan:class_summary", "本讲缺少课程总结。", section_id)
+                issue(review, "lesson_plan:class_summary", "本讲缺少课程总结。", section_id)
             if not _text_list(section.get("resource_refs")):
-                issue(blocking, "lesson_plan:recommended_reading", "本讲缺少可识别的推荐阅读来源。", section_id)
+                issue(review, "lesson_plan:recommended_reading", "本讲缺少可识别的推荐阅读来源。", section_id)
             if not str(section.get("homework_evaluation") or "").strip():
-                issue(blocking, "lesson_plan:homework_evaluation", "课后作业缺少评价标准。", section_id)
+                issue(review, "lesson_plan:homework_evaluation", "课后作业缺少评价标准。", section_id)
             if not str(section.get("next_lesson_connection") or "").strip():
-                issue(blocking, "lesson_plan:next_lesson_connection", "本讲缺少后续衔接或课程收束说明。", section_id)
+                issue(review, "lesson_plan:next_lesson_connection", "本讲缺少后续衔接或课程收束说明。", section_id)
             if not _text_list(section.get("teaching_notes")):
-                issue(blocking, "lesson_plan:teaching_notes", "本讲缺少可执行的教学提醒。", section_id)
+                issue(review, "lesson_plan:teaching_notes", "本讲缺少可执行的教学提醒。", section_id)
             if any(
                 not str(item.get("label") or "").strip()
                 or _GENERIC_MODULE_LABEL.fullmatch(str(item.get("label") or "").strip())
                 for item in modules
             ):
-                issue(blocking, "lesson_plan:block_name", "每个教学环节都需要与内容对应的具体名称。", section_id)
+                issue(review, "lesson_plan:block_name", "每个教学环节都需要与内容对应的具体名称。", section_id)
         public_copy = [
             objective,
             *key_points,
@@ -1069,14 +1077,14 @@ def validate_teacher_lesson_plan(
             or has_unnatural_system_language(visible_text)
         ):
             issue(
-                blocking,
+                review,
                 "lesson_plan:internal_register",
                 "教案夹带了资料、模型或内部规划说明，没有写成教师实际备课时会使用的语言。",
                 section_id,
             )
         if _PLAN_ABSTRACT_ACTIVITY_PATTERN.search(visible_text):
             issue(
-                blocking,
+                review,
                 "lesson_plan:abstract_activity",
                 "教案仍使用抽象流程套话，师生活动需要改成针对本节内容的具体课堂动作。",
                 section_id,
@@ -1095,15 +1103,17 @@ def validate_teacher_lesson_plan(
             statement = str(point.get("statement") or point.get("description") or "").strip()
             if name and not statement:
                 issue(blocking, "lesson_plan:knowledge_statement", f"知识点「{name}」缺少准确陈述。", section_id)
-            if point.get("conflict") or point.get("needs_manual_review"):
+            if point.get("conflict"):
                 issue(blocking, "lesson_plan:knowledge_conflict", f"知识点「{name or '未命名'}」存在待核实冲突。", section_id)
+            elif point.get("needs_manual_review"):
+                issue(review, "lesson_plan:knowledge_review", f"知识点「{name or '未命名'}」建议核对。", section_id)
 
     if (
         expected_total_minutes is not None
         and total_minutes != int(expected_total_minutes)
     ):
         issue(
-            blocking,
+            review,
             "lesson_plan:total_timing",
             (
                 f"本讲教案共 {total_minutes} 分钟，与当前 "
@@ -1112,7 +1122,7 @@ def validate_teacher_lesson_plan(
         )
 
     return {
-        "schema_version": "teacher_lesson_plan_quality_v1",
+        "schema_version": "teacher_lesson_plan_quality_v2",
         "pipeline_version": LESSON_PLAN_PIPELINE_VERSION,
         "passed": not blocking,
         "blocking_issues": blocking,
@@ -2492,6 +2502,23 @@ class TeacherLessonAuthoringRepository:
                 # still arriving concurrently for other plan/script shards.
                 self._live_stream_jobs[course_id][job_id] = job
             return deepcopy(saved["jobs"][job_id])
+
+    def reserve_generation_retry(
+        self, course_id: str, job_id: str, unit_id: str, failure: dict[str, Any],
+    ) -> int:
+        """Consume a bounded retry in the existing job, including concurrent shards."""
+        with self._lock:
+            job = self.get_job(course_id, job_id)
+            if job.get("cancel_requested") or job.get("status") not in TEACHER_JOB_ACTIVE_STATUSES:
+                return 0
+            recovery = deepcopy(job.get("auto_recovery") or {})
+            retries = int((recovery.get(unit_id) or {}).get("retries") or 0)
+            if retries >= 2:
+                return 0
+            retries += 1
+            recovery[unit_id] = {"retries": retries, "code": failure["code"], "category": failure["category"]}
+            self.update_job(course_id, job_id, auto_recovery=recovery, error=None)
+            return retries
 
     def update_job_live(
         self,
@@ -4353,9 +4380,53 @@ def _teacher_script_retry_block_ids(
     return retry_ids
 
 
+def _quality_improves(candidate: dict[str, Any], current: dict[str, Any]) -> bool:
+    def keys(report, field):
+        return Counter((i.get("code"), i.get("section_id") or i.get("section_node_id"))
+                       for i in report.get(field) or [])
+    old_hard, new_hard = keys(current, "blocking_issues"), keys(candidate, "blocking_issues")
+    if new_hard != old_hard:
+        return new_hard < old_hard
+    return keys(candidate, "review_issues") < keys(current, "review_issues")
+
+
 class TeacherLessonAuthoringService:
     def __init__(self, repository: TeacherLessonAuthoringRepository):
         self.repository = repository
+
+    async def _run_generation_step(
+        self, course_id: str, job_id: str, unit_id: str,
+        generate: Callable[[], Awaitable[Any]], *, source_plan_revision_id: str = "",
+    ) -> Any:
+        """Retry generation only; never replay a formal save or a stopped task."""
+        while True:
+            job = await asyncio.to_thread(self.repository.get_job, course_id, job_id)
+            if job.get("cancel_requested") or job.get("status") not in TEACHER_JOB_ACTIVE_STATUSES:
+                raise asyncio.CancelledError
+            view = await asyncio.to_thread(self.repository.view, course_id)
+            outline_id = str(job.get("source_outline_revision_id") or "")
+            if outline_id and view.get("outline_revision_id") and outline_id != view["outline_revision_id"]:
+                raise TeacherLessonAuthoringError("lesson_source_changed", "大纲已变化，请按当前来源生成。")
+            if source_plan_revision_id:
+                lesson = (view.get("lessons") or {}).get(str(job.get("lesson_unit_id") or "")) or {}
+                if lesson.get("working_revision_id") != source_plan_revision_id or lesson.get("source_state", "current") != "current":
+                    raise TeacherLessonAuthoringError("lesson_plan_revision_conflict", "教案已变化，请按当前来源生成。")
+            try:
+                return await generate()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                failure = generation_failure(exc, "teacher_generation_request_failed")
+                text = str(exc).lower()
+                if (not failure["retryable"] or failure["category"] not in {"provider", "structure", "quality"}
+                        or any(word in text for word in ("unauthorized", "forbidden", "invalid_api_key", "authentication", "permission denied"))):
+                    raise
+                retries = await asyncio.to_thread(
+                    self.repository.reserve_generation_retry, course_id, job_id, unit_id, failure,
+                )
+                if not retries:
+                    raise
+                await asyncio.sleep(2 ** (retries - 1))
 
     def _quality_report(
         self,
@@ -4553,7 +4624,13 @@ class TeacherLessonAuthoringService:
             )
 
         try:
-            result = await planner(course_data, lesson_unit_id, on_progress)
+            async def generate_plan():
+                result = await planner(deepcopy(course_data), lesson_unit_id, on_progress)
+                if not isinstance(result, dict) or not isinstance(result.get("plan"), dict) or not result["plan"].get("sections"):
+                    raise TeacherLessonAuthoringError("lesson_plan_empty", "本讲教案生成结果为空。")
+                return result
+
+            result = await self._run_generation_step(course_id, job_id, "lesson_plan", generate_plan)
             current_job = await asyncio.to_thread(
                 self.repository.get_job,
                 course_id,
@@ -4661,17 +4738,16 @@ class TeacherLessonAuthoringService:
                         expected_outline_revision_id=str(course_view.get("outline_revision_id") or outline_revision),
                         source_outline_revision_id=outline_revision,
                     )
-                    old_codes = {(i.get("code"), i.get("section_id")) for i in issues}
-                    new_codes = {(i.get("code"), i.get("section_id")) for i in [
-                        *(candidate_report.get("blocking_issues") or []), *(candidate_report.get("review_issues") or []),
-                    ]}
-                    if new_codes < old_codes:
+                    improved = _quality_improves(candidate_report, quality_report)
+                    if improved:
                         plan, quality_report = candidate, candidate_report
                     await asyncio.to_thread(
                         self.repository.update_job, course_id, job_id,
                         auto_improvement={"attempts": attempt + 1, "status": "reviewed",
                                           "plan": deepcopy(plan), "quality_report": deepcopy(quality_report)},
                     )
+                    if not improved:
+                        break
                 except asyncio.CancelledError:
                     raise
                 except Exception as repair_error:
@@ -5055,7 +5131,13 @@ class TeacherLessonAuthoringService:
                         stream_mode="token_stream",
                     )
 
-                try:
+                request_count = 0
+
+                async def request_shard():
+                    nonlocal request_count
+                    if request_count:
+                        await persist_stream_reset()
+                    request_count += 1
                     async with semaphore:
                         current = await asyncio.to_thread(
                             self.repository.get_job,
@@ -5102,7 +5184,18 @@ class TeacherLessonAuthoringService:
                                     module,
                                     deepcopy(context),
                                 )
+                            if not str(generated or "").strip():
+                                raise TeacherLessonAuthoringError("lesson_script_block_empty", "模型尚未返回教学块正文。")
                             generated_map = {block_id: str(generated or "").strip()}
+                    if not isinstance(generated_map, dict):
+                        raise TeacherLessonAuthoringError("lesson_script_shard_invalid", "模型没有返回可定位的教学块。")
+                    return generated_map
+
+                try:
+                    generated_map = await self._run_generation_step(
+                        course_id, job_id, shard_id, request_shard,
+                        source_plan_revision_id=source_plan_revision_id,
+                    )
                     current = await asyncio.to_thread(
                         self.repository.get_job,
                         course_id,
@@ -5612,16 +5705,15 @@ class TeacherLessonAuthoringService:
                             block["content"] = replacements[block["block_id"]]
                     section["quality_report"] = validate_teacher_script_section(section, contract)
                 candidate_quality = validate_teacher_script_revision(candidate_sections, generation_source="model_block_pipeline")
-                def issue_keys(report):
-                    return {(i.get("code"), i.get("section_node_id"), i.get("message")) for i in [
-                        *(report.get("blocking_issues") or []), *(report.get("review_issues") or []),
-                    ]}
-                if issue_keys(candidate_quality) < issue_keys(revision_quality):
+                improved = _quality_improves(candidate_quality, revision_quality)
+                if improved:
                     final_sections, revision_quality = candidate_sections, candidate_quality
                 self.repository.update_job(
                     course_id, job_id, result_sections=deepcopy(final_sections),
                     auto_improvement={"attempts": attempt + 1, "status": "reviewed", "quality_report": deepcopy(revision_quality)},
                 )
+                if not improved:
+                    break
             if not revision_quality.get("passed"):
                 messages = "；".join(
                     str(item.get("message") or "未知讲义错误")

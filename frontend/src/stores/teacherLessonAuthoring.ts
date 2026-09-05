@@ -35,7 +35,7 @@ export interface TeacherLessonPlanRevision {
   source_refs?: Array<Record<string, unknown>>
   pipeline_version?: 'standard_lesson_plan_v1'
   quality_report?: {
-    schema_version: 'teacher_lesson_plan_quality_v1'
+    schema_version: 'teacher_lesson_plan_quality_v1' | 'teacher_lesson_plan_quality_v2'
     pipeline_version: 'standard_lesson_plan_v1'
     passed: boolean
     blocking_issues: Array<{ code: string; message: string; section_id?: string }>
@@ -287,6 +287,7 @@ export interface TeacherLessonStreamDeltaEvent {
 }
 
 export interface TeacherLessonJob {
+  auto_recovery?: Record<string, { retries: number; code: string; category: string }>
   id: string
   course_id: string
   lesson_unit_id: string

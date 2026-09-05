@@ -18,7 +18,7 @@ from teacher_visible_language import has_unnatural_system_language
 
 SCRIPT_SCHEMA_VERSION = "teacher_script_v2"
 SCRIPT_PIPELINE_VERSION = "direct_teaching_script_v8"
-SCRIPT_QUALITY_VERSION = "teacher_script_quality_v9"
+SCRIPT_QUALITY_VERSION = "teacher_script_quality_v10"
 SCRIPT_SINGLE_REQUEST_TARGET_CHARACTERS = 6400
 SCRIPT_SINGLE_REQUEST_MAX_CHARACTERS = 12000
 SCRIPT_SHARD_TARGET_CHARACTERS = 4200
@@ -905,7 +905,7 @@ def validate_teacher_script_section(
         max_characters = int(expected[index].get("max_characters") or 0)
         if max_characters and len(content) > max_characters:
             add(
-                blocking,
+                review,
                 "teacher_script:block_too_long",
                 (
                     f"“{_text(block.get('title'))}”过长（{len(content)} 字），"
@@ -935,7 +935,7 @@ def validate_teacher_script_section(
             and _ACTIVITY_RESULT_PATTERN.search(content)
         ):
             add(
-                blocking,
+                review,
                 "teacher_script:practice_not_complete",
                 f"“{_text(block.get('title'))}”没有同时写清任务条件与结果、解法或验收标准。",
             )
@@ -944,7 +944,7 @@ def validate_teacher_script_section(
             and _FEEDBACK_REPAIR_PATTERN.search(content)
         ):
             add(
-                blocking,
+                review,
                 "teacher_script:feedback_not_checkable",
                 f"“{_text(block.get('title'))}”没有同时给出典型错误与可执行的修正、核对标准。",
             )
@@ -952,13 +952,13 @@ def validate_teacher_script_section(
         content = _text(block.get("content"))
         if _DELIVERY_CUE_PATTERN.search(content):
             add(
-                blocking,
+                review,
                 "teacher_script:classroom_delivery_cue",
                 f"“{_text(block.get('title'))}”仍用机械的提问、板书、巡视或等待标签，没有改写成自然教师语言。",
             )
         if _LESSON_PLAN_VOICE_PATTERN.search(content):
             add(
-                blocking,
+                review,
                 "teacher_script:lesson_plan_voice",
                 f"“{_text(block.get('title'))}”仍在描述教师或学生应当做什么，没有写成教师可以直接说的话。",
             )
@@ -967,7 +967,7 @@ def validate_teacher_script_section(
             or has_unnatural_system_language(content)
         ):
             add(
-                blocking,
+                review,
                 "teacher_script:internal_process_leakage",
                 f"“{_text(block.get('title'))}”泄露了模型、质量门或内部生成过程语言。",
             )
@@ -987,7 +987,7 @@ def validate_teacher_script_section(
         visible_tail = re.sub(r"```\s*$", "", content).rstrip()
         if visible_tail and _INCOMPLETE_END_PATTERN.search(visible_tail):
             add(
-                blocking,
+                review,
                 "teacher_script:incomplete_block_ending",
                 f"“{_text(block.get('title'))}”结尾似乎被截断，未形成完整语义。",
             )
@@ -1189,7 +1189,10 @@ def validate_teacher_script_revision(
         if len(block_ids) >= 3
     ]
     if len(duplicate_pairs) >= 2 or repeated_clause_groups:
-        blocking.append({
+        # Reusing a sentence across examples is advice. Several near-identical
+        # whole blocks still mean that the lesson content is missing.
+        target = blocking if len(duplicate_pairs) >= 2 else review
+        target.append({
             "code": "teacher_script:repetitive_blocks",
             "message": "多个教学块高度复读，未形成随知识内容推进的有效讲解。",
             "block_pairs": duplicate_pairs[:8],
@@ -1216,11 +1219,11 @@ def validate_teacher_script_revision(
     character_count = sum(len(_text(block.get("content"))) for block in blocks)
     minimum_lesson_characters = int(total_minutes * 55)
     if len(blocks) >= 4 and total_minutes >= 30 and character_count < minimum_lesson_characters:
-        blocking.append({
+        review.append({
             "code": "teacher_script:lesson_too_shallow",
             "message": (
                 f"整讲约 {total_minutes:g} 分钟，但正文只有 {character_count} 字，"
-                "不足以支撑完整授课。"
+                "建议结合讲解、实验或讨论的实际安排检查是否需要补充。"
             ),
         })
 
@@ -1257,18 +1260,27 @@ def validate_teacher_script_revision(
 
 
 def upgrade_script_quality_report(report: dict[str, Any]) -> dict[str, Any]:
-    """v9 changes only four expression heuristics to advice; no model needed.
-
-    Other versions/pipelines cannot reuse this report. Immutable revision prose
-    and every structural, source, completeness and repetition failure are kept.
-    """
-    if report.get("schema_version") != "teacher_script_quality_v8" or report.get("pipeline_version") != SCRIPT_PIPELINE_VERSION:
+    """Reclassify known reports without rewriting prose or calling a model."""
+    if report.get("schema_version") not in {"teacher_script_quality_v8", "teacher_script_quality_v9"} or report.get("pipeline_version") != SCRIPT_PIPELINE_VERSION:
         return report
     result = deepcopy(report)
-    advisory = {"teacher_script:not_directly_teachable", "teacher_script:missing_transition", "teacher_script:canned_discourse", "teacher_script:repetitive_canned_transitions"}
+    advisory = {
+        "teacher_script:not_directly_teachable", "teacher_script:missing_transition",
+        "teacher_script:canned_discourse", "teacher_script:repetitive_canned_transitions",
+        "teacher_script:block_too_long", "teacher_script:practice_not_complete",
+        "teacher_script:feedback_not_checkable", "teacher_script:classroom_delivery_cue",
+        "teacher_script:lesson_plan_voice", "teacher_script:internal_process_leakage",
+        "teacher_script:incomplete_block_ending", "teacher_script:lesson_too_shallow",
+    }
+    def is_advice(item):
+        return item.get("code") in advisory or (
+            item.get("code") == "teacher_script:repetitive_blocks"
+            and "block_pairs" in item and len(item["block_pairs"]) < 2
+            and bool(item.get("repeated_clause_groups"))
+        )
     issues = result.get("blocking_issues") or []
-    result["blocking_issues"] = [item for item in issues if item.get("code") not in advisory]
-    result["review_issues"] = [*(result.get("review_issues") or []), *(item for item in issues if item.get("code") in advisory)]
+    result["blocking_issues"] = [item for item in issues if not is_advice(item)]
+    result["review_issues"] = [*(result.get("review_issues") or []), *(item for item in issues if is_advice(item))]
     result["schema_version"] = SCRIPT_QUALITY_VERSION
     result["passed"] = not result["blocking_issues"]
     if "publication_eligible" in result:

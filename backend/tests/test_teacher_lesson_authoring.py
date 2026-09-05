@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import teacher_script as teacher_script_module
-from ai_base import AIProviderUnavailable
+from ai_base import AIProviderRequestError, AIProviderUnavailable
 from course_generation_budget import TeacherScriptGenerationTimeout
 
 from course_document import document_from_generation_draft
@@ -686,11 +686,11 @@ def test_standard_lesson_plan_quality_gate_controls_current_revision_readiness()
     assert blocked["passed"] is False
     assert {item["code"] for item in blocked["blocking_issues"]} >= {
         "lesson_plan:modules",
-        "lesson_plan:checks",
     }
+    assert "lesson_plan:checks" in {item["code"] for item in blocked["review_issues"]}
 
 
-def test_standard_lesson_plan_blocks_internal_policy_and_abstract_activity_language():
+def test_standard_lesson_plan_reports_language_as_advice():
     plan = standard_lesson_plan()
     section = plan["sections"][0]
     section["teaching_notes"] = [
@@ -700,8 +700,8 @@ def test_standard_lesson_plan_blocks_internal_policy_and_abstract_activity_langu
 
     report = validate_teacher_lesson_plan(plan)
 
-    assert report["passed"] is False
-    assert {item["code"] for item in report["blocking_issues"]} >= {
+    assert report["passed"] is True
+    assert {item["code"] for item in report["review_issues"]} >= {
         "lesson_plan:internal_register",
         "lesson_plan:abstract_activity",
     }
@@ -1230,8 +1230,8 @@ def test_teacher_script_blocks_placeholder_repetition_and_shallow_full_lesson():
     assert {item["code"] for item in report["blocking_issues"]} >= {
         "teacher_script:placeholder_content",
         "teacher_script:repetitive_blocks",
-        "teacher_script:lesson_too_shallow",
     }
+    assert "teacher_script:lesson_too_shallow" in {item["code"] for item in report["review_issues"]}
 
 
 def test_teacher_script_does_not_treat_distinct_matrices_as_repeated_prose():
@@ -1281,7 +1281,7 @@ def test_teacher_script_stale_quality_contract_is_never_publishable():
             "publication_eligible": True,
         },
     }) is False
-    assert SCRIPT_QUALITY_VERSION == "teacher_script_quality_v9"
+    assert SCRIPT_QUALITY_VERSION == "teacher_script_quality_v10"
 
 
 def test_teacher_script_revision_reports_canned_transitions_as_advice():
@@ -1379,7 +1379,7 @@ def test_ppt_source_keeps_quality_report_non_blocking_for_current_script(tmp_pat
     assert document.document_revision
 
 
-def test_teacher_script_rejects_mechanical_cues_plan_voice_and_truncation():
+def test_teacher_script_reports_language_and_uncertain_ending_as_advice():
     outline = {
         "node_id": "L2-1-1",
         "node_name": "中性讲稿",
@@ -1406,7 +1406,7 @@ def test_teacher_script_rejects_mechanical_cues_plan_voice_and_truncation():
     )
     codes = {
         item["code"]
-        for item in compiled["quality_report"]["blocking_issues"]
+        for item in compiled["quality_report"]["review_issues"]
     }
     assert codes >= {
         "teacher_script:classroom_delivery_cue",
@@ -1555,7 +1555,7 @@ def test_teacher_script_service_exposes_checkable_activity_structure(monkeypatch
     assert "验收标准" in prompts[0]
 
 
-def test_teacher_script_rejects_textbook_length_block():
+def test_teacher_script_treats_length_budget_as_advice():
     outline = {
         "node_id": "L2-1-1",
         "node_name": "轻量讲稿",
@@ -1575,14 +1575,14 @@ def test_teacher_script_rejects_textbook_length_block():
         f"## {module['title']}\n\n{oversized}",
         contract,
     )
-    assert compiled["quality_report"]["passed"] is False
+    assert compiled["quality_report"]["passed"] is True
     assert "teacher_script:block_too_long" in {
         item["code"]
-        for item in compiled["quality_report"]["blocking_issues"]
+        for item in compiled["quality_report"]["review_issues"]
     }
 
 
-def test_teacher_script_service_compacts_length_only_failure(monkeypatch):
+def test_teacher_script_service_improves_length_advice(monkeypatch):
     service = CourseService()
     calls = []
 
@@ -1617,7 +1617,7 @@ def test_teacher_script_service_compacts_length_only_failure(monkeypatch):
     ))
 
     assert len(calls) == 3
-    assert "请压缩下面的教师讲义" in calls[-1]
+    assert len(result["blocks"][0]["content"]) < 200
     assert result["quality_report"]["passed"] is True
 
 
@@ -1629,7 +1629,7 @@ def test_teacher_script_service_uses_smart_pool_after_fast_pool_failure(monkeypa
     async def fake_call(_user_prompt, _system_prompt, **kwargs):
         routes.append(kwargs["use_fast_model"])
         if kwargs["use_fast_model"]:
-            raise AIProviderUnavailable("fast_pool_exhausted")
+            raise AIProviderRequestError("fast_pool_exhausted")
         await kwargs["on_content_delta"]("概念必须同时说明")
         return (
             "## 核心教学\n\n"
@@ -3358,9 +3358,10 @@ def test_generated_plan_is_repaired_before_formal_save(tmp_path, repair_kind):
         assert lesson["working_revision_id"]
         assert completed["auto_improvement"]["quality_report"]["passed"]
     else:
-        assert completed["status"] == "failed"
-        assert not repository.lesson("course-1", "L1-1").get("working_revision_id")
+        assert completed["status"] == "completed"
+        assert repository.lesson("course-1", "L1-1").get("working_revision_id")
         assert completed["auto_improvement"]["plan"]["sections"][0]["node_id"] == "L2-1-1"
+        assert completed["auto_improvement"]["quality_report"]["review_issues"]
 
 
 def test_script_editorial_advice_triggers_automatic_improvement(monkeypatch):

@@ -34,9 +34,9 @@
 
 ### Requirement: 讲义语言建议与生成阻断必须分离
 
-讲义质量合同 MUST 使用 `teacher_script_quality_v9`。直接讲授表达、缺少过渡、罐头表达和重复过渡四类启发式 MUST 作为建议，MUST NOT 单独阻断生成；空正文、结构、来源、占位、内容不全、正文重复和深度不足 MUST 继续按正式规则阻断。
+讲义质量合同 MUST 使用 `teacher_script_quality_v10`，教案质量合同 MUST 使用 `teacher_lesson_plan_quality_v2`。篇幅与课时比例、措辞、教学动作关键词、辅助字段和局部复述 MUST 作为建议，MUST NOT 单独阻断交付。必要正文缺失、结构与来源错位、占位内容、成段复读及损坏的代码或公式结构 MUST 继续阻断。建议优化失败 MUST 保留可用结果并开放下一步。
 
 #### Scenario: 已知旧质量报告可以重新计算
-- **WHEN** 读取当前生成管线的 v8 讲义报告
-- **THEN** 系统 MUST 使用现有正文重算 v9 报告，MUST NOT 为规则变化要求再次调用模型
+- **WHEN** 读取当前生成管线的 v8 或 v9 讲义报告
+- **THEN** 系统 MUST 按新分级确定性重算 v10 报告，MUST NOT 为规则变化要求再次调用模型
 - **AND** 未知合同版本 MUST 保持来源或质量待核对，不能假定兼容
