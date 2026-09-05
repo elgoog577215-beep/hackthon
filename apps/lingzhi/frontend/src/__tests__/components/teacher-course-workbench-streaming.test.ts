@@ -1419,7 +1419,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.context-pane-heading').text()).toContain('生成未完成')
     expect(wrapper.get('.context-pane-heading').text()).toContain('知识骨架汇编失败')
     expect(wrapper.get('[data-testid="reference-tray-stub"]').text()).not.toContain('知识骨架汇编失败')
-    expect(wrapper.find('.context-pane-heading .primary-status-action').exists()).toBe(false)
+    expect(wrapper.find('.context-pane-heading .primary-status-action').exists()).toBe(true)
     const retry = wrapper.get('[data-testid="lesson-course-preview-generate"]')
     expect(retry.text()).toBe('重新生成')
     await retry.trigger('click')
@@ -1488,12 +1488,12 @@ describe('teacher course workbench outline streaming', () => {
     })
 
     const banner = wrapper.get('.context-pane [data-testid="production-issue-detail"]')
-    expect(banner.text()).toContain('课程生成问题')
+    expect(wrapper.findAll('.context-pane .generation-recovery')).toHaveLength(1)
     expect(banner.text()).toContain('本课程有 1 项内容生成失败')
     expect(banner.text()).not.toContain('知识骨架汇编失败')
     expect(wrapper.find('.workbench-center [role="alert"]').exists()).toBe(false)
     expect(wrapper.find('.workbench-center .generation-recovery').exists()).toBe(false)
-    expect(wrapper.get('.context-pane .generation-recovery').text()).toContain('本讲教案生成失败')
+    expect(wrapper.get('.context-pane .generation-recovery').text()).toContain('知识骨架汇编失败')
     expect(wrapper.get('.context-pane-heading').text()).toContain('知识骨架汇编失败')
     expect(wrapper.text().match(/知识骨架汇编失败/g)).toHaveLength(1)
     expect(wrapper.get('[data-testid="lesson-batch-start"]').text()).toBe('重新生成')
@@ -1502,7 +1502,48 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.workbench-center [role="alert"]').exists()).toBe(false)
     await wrapper.get('.context-pane-reopen').trigger('click')
     expect(wrapper.get('.context-pane [data-testid="production-issue-detail"]').text()).toContain('本课程有 1 项内容生成失败')
-    expect(wrapper.get('.context-pane .generation-recovery').text()).toContain('本讲教案生成失败')
+    expect(wrapper.get('.context-pane .generation-recovery').text()).toContain('知识骨架汇编失败')
+  })
+
+  it('右栏从可用内容的失败尝试切换到生成、暂停和完成，不残留旧错误或重试按钮', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
+      plan: { lesson_unit_id: 'L1-1', ready: true, working_revision_id: 'plan-1', source_state: 'current', current_revision: null, ppt_assets: [] },
+      script: { ready: false, sections: [] },
+    }] as any
+    const issue = { issue_id: 'retry-1', stage: 'lesson_plan', lesson_unit_id: 'L1-1', task_id: 'job-1', code: 'generation_failed', summary: '模型暂时不可用', recovery: { action: 'retry_generation', automatic: false, requires_confirmation: true } }
+    lessonStore.jobs = [{ id: 'job-1', course_id: 'course-1', lesson_unit_id: 'L1-1', type: 'teacher_lesson_plan_generation', status: 'failed', message: '本讲教案生成失败', error: { retryable: true, message: issue.summary } }] as any
+    const publish = (taskState: string) => {
+      const actions = taskState === 'running' ? ['pause_generation', 'cancel_generation'] : taskState === 'paused' ? ['resume_generation', 'cancel_generation'] : taskState === 'failed' ? ['retry_generation'] : []
+      useCourseStore().setTeacherProductionState('course-1', strictProductionSnapshot({
+        lesson_plan: { display_state: 'available', task_state: taskState, availability: 'usable', source_state: 'current', latest_attempt_failed: taskState !== 'completed', task_ids: ['job-1'], allowed_actions: actions, action_targets: Object.fromEntries(actions.map(action => [action, ['job-1']])), issues: taskState === 'completed' ? [] : [issue] },
+      }, taskState === 'completed' ? [] : [issue]) as any)
+    }
+    publish('failed')
+    let finishRetry: (() => void) | undefined
+    const retry = vi.spyOn(lessonStore, 'generateLesson').mockImplementation(() => new Promise(resolve => { finishRetry = () => resolve({} as any) }))
+    const wrapper = mountWorkbench({ initialStage: 'lesson', initialLessonId: 'L1-1', initialIssueId: issue.issue_id, expandIssue: true })
+    expect(wrapper.get('.context-pane-heading').attributes('data-phase')).toBe('after')
+    expect(wrapper.find('.context-pane-heading__signal .lucide-check').exists()).toBe(true)
+    expect(wrapper.get('.generation-recovery').text()).toContain(issue.summary)
+    await wrapper.get('.context-pane-heading__actions .primary-status-action').trigger('click')
+    expect(retry).toHaveBeenCalledWith('course-1', 'L1-1', undefined, '', [], 'job-1')
+    expect(wrapper.get('.context-pane-heading__actions').attributes('aria-busy')).toBe('true')
+    expect(wrapper.findAll('.context-pane-heading__actions button').every(button => button.attributes('disabled') !== undefined)).toBe(true)
+    finishRetry?.()
+    await flushPromises()
+    for (const taskState of ['running', 'paused', 'completed']) {
+      publish(taskState)
+      await flushPromises()
+      expect(wrapper.find('.context-pane-notices').exists()).toBe(false)
+      expect(wrapper.find('.context-pane .generation-recovery').exists()).toBe(false)
+      expect(wrapper.get('.context-pane-heading').attributes('data-phase')).toBe(taskState === 'completed' ? 'after' : 'during')
+      expect(wrapper.find('.context-pane-heading__progress').exists()).toBe(taskState !== 'completed')
+      if (taskState === 'running') expect(wrapper.find('.context-pane-heading__signal .spin').exists()).toBe(true)
+      if (taskState === 'paused') expect(wrapper.find('.context-pane-heading__signal .lucide-pause').exists()).toBe(true)
+    }
+    wrapper.unmount()
   })
 
   it('教案已生成但讲义未生成时仍可上传自有 PPT，但不能使用 AI 生成', async () => {
@@ -1782,7 +1823,7 @@ describe('teacher course workbench outline streaming', () => {
     })
     await flushPromises()
 
-    expect(wrapper.find('.context-pane-heading .primary-status-action').exists()).toBe(false)
+    expect(wrapper.find('.context-pane-heading .primary-status-action').exists()).toBe(true)
     const retry = wrapper.get('[data-testid="script-course-preview-generate"]')
     expect(retry.text()).toBe('重新生成')
     expect(retry.attributes('disabled')).toBeUndefined()

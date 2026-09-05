@@ -852,17 +852,17 @@
 
     <aside v-if="activeStage !== 'question-bank' && !contextPaneCollapsed" class="context-pane" :aria-label="t('courseWorkbench.contextPane.title', '当前内容信息')">
       <header class="context-pane-heading" :data-phase="contextPhase">
-        <div class="context-pane-heading__status">
+        <div class="context-pane-heading__status" role="status" aria-live="polite" aria-atomic="true">
           <span class="context-pane-heading__signal" aria-hidden="true">
-            <LoaderCircle v-if="referenceWorkflowState === 'generating' && !outlineAwaitingContinuation" :size="15" class="spin" />
-            <Pause v-else-if="referenceWorkflowState === 'paused'" :size="14" />
-            <TriangleAlert v-else-if="referenceWorkflowState === 'failed'" :size="14" />
-            <Check v-else-if="contextPhase === 'after'" :size="14" />
+            <LoaderCircle v-if="contextPhase === 'during' && referenceWorkflowState === 'generating' && !outlineAwaitingContinuation" :size="16" class="spin" />
+            <Pause v-else-if="contextPhase === 'during' && referenceWorkflowState === 'paused'" :size="16" />
+            <Check v-else-if="contextPhase === 'after'" :size="16" />
+            <TriangleAlert v-else-if="contextPhase === 'failed'" :size="16" />
             <FileText v-else :size="14" />
           </span>
           <div>
             <strong>{{ contextStatusLabel }}</strong>
-            <MathText v-if="!contextErrorPresentation" :content="contextStatusDetail" />
+            <MathText v-if="contextStatusDetail && !contextErrorPresentation" :content="contextStatusDetail" />
           </div>
         </div>
         <button
@@ -873,26 +873,30 @@
           @click="contextPaneCollapsed = true"
         ><PanelRightClose :size="17" /></button>
         <div v-if="hasContextNotices" class="context-pane-notices" data-testid="context-pane-notices">
-          <section v-if="activeProductionIssue" class="production-issue-detail" role="alert" data-testid="production-issue-detail">
-            <TriangleAlert :size="17" />
-            <div>
-              <strong>{{ t('teacherProductionState.courseIssueTitle', '课程生成问题') }}</strong>
-              <p>{{ activeProductionIssueSummary }}</p>
-            </div>
-          </section>
           <AppErrorNotice v-if="contextErrorPresentation" class="workbench-error" :presentation="contextErrorPresentation" compact>
             <template v-if="lessonStageBlocked && lessonPrerequisiteError" #action>
               <button type="button" :disabled="lessonStore.loading" @click="resolveLessonPrerequisite">{{ lessonPrerequisiteState.action }}</button>
             </template>
           </AppErrorNotice>
-          <section v-if="selectedFailureJob" class="generation-recovery" role="status">
-            <strong>{{ selectedFailureJob.message }}</strong>
-            <details v-if="failureDetails.length"><summary>{{ t('courseWorkbench.recovery.details') }}</summary><ul><li v-for="detail in failureDetails" :key="detail">{{ detail }}</li></ul></details>
-            <p>{{ t(`courseWorkbench.recovery.${selectedFailureJob.error?.recovery_action || 'revise_inputs'}`) }}</p>
-            <div><button v-if="selectedFailureJob.error?.retryable" type="button" :disabled="recoveryStarting" @click="retrySelectedFailure">{{ t('courseWorkbench.recovery.retryOriginal') }}</button><button type="button" :disabled="recoveryStarting" @click="openRegenerationPreparation">{{ t('courseWorkbench.recovery.reviseAndGenerate') }}</button></div>
+          <section v-else-if="contextFailureVisible" class="generation-recovery" role="alert">
+            <strong>{{ contextFailureTitle }}</strong>
+            <p v-if="referenceWorkflowDetail"><MathText :content="referenceWorkflowDetail" /></p>
+            <details v-if="failureDetails.length">
+              <summary>{{ t('courseWorkbench.recovery.details') }}</summary>
+              <ul><li v-for="detail in failureDetails" :key="detail">{{ detail }}</li></ul>
+            </details>
+            <p v-if="contextFailureJob?.error?.recovery_action" class="generation-recovery__guidance">{{ t(`courseWorkbench.recovery.${contextFailureJob.error.recovery_action}`) }}</p>
           </section>
+          <p v-if="showCourseIssueSummary" class="production-issue-detail" data-testid="production-issue-detail">{{ activeProductionIssueSummary }}</p>
         </div>
-        <div class="context-pane-heading__actions">
+        <div class="context-pane-heading__actions" :class="{ 'is-paired': contextPhase === 'during' }" :aria-busy="recoveryStarting">
+          <template v-if="contextFailureJob">
+            <button v-if="contextFailureCanRetry" class="primary-status-action" type="button" :disabled="recoveryStarting" @click="retrySelectedFailure">
+              <LoaderCircle v-if="recoveryStarting" :size="15" class="spin" /><RotateCcw v-else :size="15" />
+              {{ recoveryStarting ? t('courseWorkbench.contextPane.retrying', '正在重试…') : t('courseWorkbench.recovery.retryOriginal') }}
+            </button>
+            <button type="button" :disabled="recoveryStarting" @click="openRegenerationPreparation">{{ t('courseWorkbench.recovery.reviseAndGenerate') }}</button>
+          </template>
           <button v-if="referenceWorkflowState === 'generating' && referenceWorkflowCanPause" type="button" @click="pauseReferenceWorkflow"><Pause :size="14" />{{ t('courseWorkbench.pause', '暂停') }}</button>
           <button v-if="referenceWorkflowState === 'paused' && referenceWorkflowCanResume" class="primary-status-action" type="button" @click="resumeReferenceWorkflow"><Play :size="14" />{{ t('courseWorkbench.continue', '继续') }}</button>
           <button v-if="referenceWorkflowCanCancel" class="danger-status-action" type="button" @click="cancelReferenceWorkflow"><X :size="14" />{{ t('common.cancel', '取消') }}</button>
@@ -906,7 +910,7 @@
             @click="openRegenerationPreparation"
           ><RotateCcw :size="14" />{{ t('courseWorkbench.contextPane.regenerate', '重新生成') }}</button>
         </div>
-        <div v-if="['generating', 'paused'].includes(referenceWorkflowState)" class="context-pane-heading__progress" role="progressbar" :aria-label="contextStatusLabel" :aria-valuenow="referenceWorkflowProgress" aria-valuemin="0" aria-valuemax="100">
+        <div v-if="!outlineAwaitingContinuation && ['generating', 'paused'].includes(referenceWorkflowState)" class="context-pane-heading__progress" role="progressbar" :aria-label="contextStatusLabel" :aria-valuenow="referenceWorkflowProgress" aria-valuemin="0" aria-valuemax="100">
           <i :style="{ transform: `scaleX(${referenceWorkflowProgress / 100})` }" />
         </div>
       </header>
@@ -1265,8 +1269,8 @@ const activeProductionIssueSummary = computed(() => {
     ? 'teacherProductionState.courseFailureSummary'
     : 'teacherProductionState.courseIssueSummary'
   const fallback = isGenerationFailure
-    ? '本课程有 {count} 项内容生成失败，已定位到当前对象。'
-    : '本课程有 {count} 项内容需要处理，已定位到当前对象。'
+    ? '本课程有 {count} 项内容生成失败。'
+    : '本课程有 {count} 项内容需要处理。'
   return t(key, fallback).replace('{count}', String(count))
 })
 const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = ref(props.initialLessonId)
@@ -2703,13 +2707,28 @@ const contextErrorPresentation = computed(() => {
   if (activeStage.value === 'script') return scriptBatchStartErrorPresentation.value
   return null
 })
+const contextFailureVisible = computed(() => !contextErrorPresentation.value && referenceWorkflowState.value === 'failed')
+const contextFailureJob = computed(() => contextFailureVisible.value ? selectedFailureJob.value : null)
+const contextFailureCanRetry = computed(() => {
+  const job = contextFailureJob.value
+  if (!job?.error?.retryable || !referenceWorkflowCanRetry.value) return false
+  return !productionState.value || productionActionTaskIds(activeProjectedProduction.value, 'retry_generation').includes(job.id)
+})
+const contextFailureTitle = computed(() => projectedLastGoodFailure.value
+  ? t('teacherProductionState.auxiliary.recentFailure', '最近一次生成失败')
+  : contextFailureJob.value?.message || t('teacherProductionState.courseIssueTitle', '课程生成问题'))
+const showCourseIssueSummary = computed(() => Boolean(
+  activeProductionIssue.value && !['generating', 'paused'].includes(referenceWorkflowState.value),
+))
 const hasContextNotices = computed(() => Boolean(
-  activeProductionIssue.value || contextErrorPresentation.value || selectedFailureJob.value,
+  showCourseIssueSummary.value || contextErrorPresentation.value || contextFailureVisible.value,
 ))
 const contextPhase = computed<'before' | 'during' | 'after' | 'failed'>(() => {
+  if (outlineAwaitingContinuation.value) return 'after'
+  if (contextErrorPresentation.value) return 'failed'
+  if (['generating', 'paused'].includes(referenceWorkflowState.value)) return 'during'
   if (projectedLastGoodFailure.value) return 'after'
   if (referenceWorkflowState.value === 'failed') return 'failed'
-  if (['generating', 'paused'].includes(referenceWorkflowState.value)) return 'during'
   if (productionState.value && ['lesson', 'script'].includes(activeStage.value)) {
     const projected = activeStage.value === 'lesson'
       ? selectedLessonPlanProduction.value || productionState.value.stages.lesson_plan
@@ -2740,7 +2759,7 @@ const regenerationAvailable = computed(() => {
 })
 const contextStatusLabel = computed(() => {
   if (outlineAwaitingContinuation.value) return t('courseWorkbench.outlineFlow.readyToContinue', '讲次方案已就绪')
-  if (projectedLastGoodFailure.value) return t('courseWorkbench.contextPane.ready', '内容已就绪')
+  if (contextErrorPresentation.value) return t('courseWorkbench.contextPane.failed', '需要处理')
   const projectedTaskState = activeProjectedProduction.value?.task_state
   if (projectedTaskState === 'waiting_for_input') return t('teacherProductionState.auxiliary.waitingForInput', '待补充信息')
   if (projectedTaskState === 'waiting_for_review') return t('teacherProductionState.auxiliary.waitingForReview', '待审阅确认')
@@ -2749,6 +2768,7 @@ const contextStatusLabel = computed(() => {
     ? scriptGenerationPresentation(scriptJob.value).title
     : t('courseWorkbench.contextPane.generating', '正在生成')
   if (referenceWorkflowState.value === 'paused') return t('courseWorkbench.contextPane.pausedStatus', '生成已暂停')
+  if (projectedLastGoodFailure.value) return t('courseWorkbench.contextPane.ready', '内容已就绪')
   if (referenceWorkflowState.value === 'failed') return t('courseWorkbench.contextPane.incomplete', '生成未完成')
   if (contextPhase.value === 'after') return t('courseWorkbench.contextPane.ready', '内容已就绪')
   return t('courseWorkbench.contextPane.prepare', '准备资料')
@@ -2759,13 +2779,9 @@ const contextStatusDetail = computed(() => {
   if (activeProjectedProduction.value?.task_state === 'waiting_for_review') return activeProjectedProduction.value.issues[0]?.summary || t('teacherProductionState.auxiliary.waitingForReview', '待审阅确认')
   if (referenceWorkflowState.value === 'generating') return referenceWorkflowDetail.value || currentGenerationLabel.value
   if (referenceWorkflowState.value === 'paused') return t('courseWorkbench.contextPane.paused', '已暂停，资料快照和进度均已保留')
-  if (referenceWorkflowState.value === 'failed') {
-    if (projectedLastGoodFailure.value) {
-      const recentFailure = t('teacherProductionState.auxiliary.recentFailure', '最近一次生成失败')
-      return referenceWorkflowDetail.value ? `可使用 · ${recentFailure}：${referenceWorkflowDetail.value}` : `可使用 · ${recentFailure}`
-    }
-    return referenceWorkflowDetail.value || t('courseWorkbench.contextPane.retryAvailable', '当前资料仍然保留，可以重试')
-  }
+  if (referenceWorkflowState.value === 'failed') return projectedLastGoodFailure.value
+    ? t('courseWorkbench.contextPane.currentContentUsable', '当前内容仍可使用')
+    : ''
   if (pendingSourceReviewCount.value > 0) {
     return t('teacherProductionState.pendingSourceReviewSummary', '可使用 · {count} 项资料待核对')
       .replace('{count}', String(pendingSourceReviewCount.value))
@@ -4467,7 +4483,8 @@ onBeforeUnmount(() => {
 @media(max-width:760px){.lesson-navigator{gap:6px;padding-inline:10px}.lesson-navigator>button{font-size:0}.lesson-navigator>button svg{display:block}.lesson-selector select{padding-inline:8px;font-size:14px}.ppt-entry{grid-template-columns:auto minmax(0,1fr);padding:28px 18px}.ppt-entry .primary{grid-column:1/-1}}
 .stage-rail nav button:disabled,.companion-entry>button:disabled{opacity:.45;cursor:not-allowed}.teacher-workbench.is-ai-collaboration{min-width:0;grid-template-columns:minmax(0,1fr) 10px var(--ai-pane-width);background:#eef1f6}.is-ai-collaboration>.workbench-center{min-width:0;overflow:auto}.is-ai-collaboration .has-lesson-outline .lesson-stage-content{min-width:0;overflow:hidden}.is-ai-collaboration .lesson-workspace,.is-ai-collaboration .lesson-stage,.is-ai-collaboration .outline-workspace{min-width:0;max-width:none}.is-ai-collaboration :deep(.lesson-document .flow-table){max-width:100%;overflow:auto}
 @media(max-width:900px){.teacher-workbench.is-ai-collaboration{grid-template-columns:minmax(0,1fr) 8px 340px}.is-ai-collaboration>.workbench-center{padding:0}}
-.production-issue-detail{min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px;color:#b42335}.production-issue-detail>svg{margin-top:3px}.production-issue-detail strong{font-size:15px;line-height:1.5}.production-issue-detail p{margin:4px 0 0;overflow-wrap:anywhere;font-size:15px;line-height:1.6;white-space:normal}.production-block-highlight{border-radius:7px;background:#fff1f2;box-shadow:0 0 0 2px #fecdd3}
+.production-issue-detail{margin:0;color:#687489;font-size:15px;line-height:1.6;overflow-wrap:anywhere}
+.production-block-highlight{border-radius:7px;background:#fff1f2;box-shadow:0 0 0 2px #fecdd3}
 @media(prefers-reduced-motion:reduce){.has-lesson-outline .lesson-workspace{transition:none}.lesson-outline-chapter-marker[data-state="generating"]{animation:none}}
 
 /* Lesson navigation keeps the document full width; the course outline appears only when requested. */
@@ -4691,30 +4708,31 @@ onBeforeUnmount(() => {
 .context-pane-reopen:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .context-pane{display:flex;flex-direction:column;background:#fff}
 /* Status takes the full reading width; task controls have their own row. */
-.context-pane-heading{flex:none;max-height:65%;overflow-y:auto;display:grid;grid-template-columns:minmax(0,1fr) 32px;align-items:start;gap:14px 8px;margin:0;padding:20px 16px 18px;border-bottom:1px solid #e4e8ef;background:var(--teacher-component-surface,#fff)}
-.context-pane-heading__status{min-width:0;display:grid;grid-template-columns:30px minmax(0,1fr);align-items:start;gap:10px}
-.context-pane-heading__signal{width:30px;height:30px;display:grid;place-items:center;border-radius:8px;color:#5b60a5;background:#f0f1f6}
-.context-pane-heading__status>div{min-width:0;display:grid;gap:5px;padding-top:3px}
-.context-pane-heading__status strong{color:#2f394a;font-size:16px;font-weight:700;line-height:1.5;overflow-wrap:break-word}
-.context-pane-heading__status>div>span{color:#596579;font-size:15px;line-height:1.6;overflow-wrap:break-word;white-space:normal}
-.context-pane-heading[data-phase="failed"] .context-pane-heading__signal{color:#a83c49;background:#fbecee}
-.context-pane-heading[data-phase="after"] .context-pane-heading__signal{color:#187a4b;background:#eaf5ee}
-.context-pane-heading[data-phase="during"] .context-pane-heading__signal{color:#5559b1;background:#eeeefb}
-.context-pane-heading__actions{grid-column:1/-1;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.context-pane-heading{flex:none;max-height:65%;overflow-y:auto;display:grid;grid-template-columns:minmax(0,1fr) 32px;align-items:start;gap:16px 8px;margin:0;padding:18px 16px;border-bottom:1px solid #e4e8ef;background:var(--teacher-component-surface,#fff);scrollbar-gutter:stable}
+.context-pane-heading__status{min-width:0;display:grid;grid-template-columns:20px minmax(0,1fr);align-items:start;gap:8px}
+.context-pane-heading__signal{width:20px;height:26px;display:grid;place-items:center;color:#667386}
+.context-pane-heading__status>div{min-width:0;display:grid;gap:6px}
+.context-pane-heading__status strong{color:#2f394a;font-size:16px;font-weight:700;line-height:26px;overflow-wrap:anywhere}
+.context-pane-heading__status>div>span{color:#596579;font-size:15px;line-height:1.6;overflow-wrap:anywhere;white-space:normal}
+.context-pane-heading[data-phase="failed"] .context-pane-heading__signal{color:#a83c49}
+.context-pane-heading[data-phase="after"] .context-pane-heading__signal{color:#187a4b}
+.context-pane-heading[data-phase="during"] .context-pane-heading__signal{color:#5559b1}
+.context-pane-heading__actions{grid-column:1/-1;display:grid;grid-auto-rows:1fr;gap:8px;padding-left:28px}
+.context-pane-heading__actions.is-paired{grid-template-columns:repeat(2,minmax(0,1fr))}
 .context-pane-heading__actions:empty{display:none}
-.context-pane-heading__actions button,.context-pane-heading__collapse{min-height:32px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 10px;border:1px solid #d8dee8;border-radius:7px;color:#526077;background:var(--teacher-component-surface,#fff);font-size:15px;font-weight:600;white-space:nowrap;cursor:pointer;transition:background-color .15s ease-out,border-color .15s ease-out}
+.context-pane-heading__actions button,.context-pane-notices :deep(.app-error-notice__action button),.context-pane-heading__collapse{min-width:0;min-height:36px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:7px 10px;border:1px solid #d8dee8;border-radius:7px;color:#526077;background:var(--teacher-component-surface,#fff);font:inherit;font-size:15px;font-weight:600;line-height:1.5;white-space:normal;overflow-wrap:anywhere;cursor:pointer;transition:background-color .15s ease-out,border-color .15s ease-out}
 .context-pane-heading__actions button:hover:not(:disabled),.context-pane-heading__collapse:hover{border-color:#aaa7df;color:#373b78;background:#f5f5fb}
 .context-pane-heading__actions button:active:not(:disabled),.context-pane-heading__collapse:active{background:#eeeef8}
-.context-pane-heading__actions button:focus-visible,.context-pane-heading__collapse:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
-.context-pane-heading__actions button:disabled{opacity:.45;cursor:not-allowed}
-.context-pane-heading__actions .primary-status-action{border-color:#5559a8;color:#fff;background:#5559a8}
-.context-pane-heading__actions .primary-status-action:hover:not(:disabled){border-color:#454984;color:#fff;background:#454984}
+.context-pane-heading__actions button:focus-visible,.context-pane-heading__collapse:focus-visible,.context-pane-notices :deep(summary:focus-visible),.context-pane-notices :deep(button:focus-visible){outline:2px solid #5b57e8;outline-offset:2px}
+.context-pane-heading__actions button:disabled,.context-pane-notices :deep(button:disabled){opacity:.45;cursor:not-allowed}
+.context-pane-heading__actions .primary-status-action,.context-pane-notices :deep(.app-error-notice__action button){border-color:#5559a8;color:#fff;background:#5559a8}
+.context-pane-heading__actions .primary-status-action:hover:not(:disabled),.context-pane-notices :deep(.app-error-notice__action button:hover:not(:disabled)){border-color:#454984;color:#fff;background:#454984}
+.context-pane-heading__actions .primary-status-action:active:not(:disabled){border-color:#393d73;background:#393d73}
 .context-pane-heading__actions .danger-status-action{border-color:#e6cdd1;color:#a83c49}
 .context-pane-heading__actions .danger-status-action:hover:not(:disabled){border-color:#cd9aa3;color:#922c3a;background:#fdf3f4}
-.context-pane-heading__collapse{width:32px;padding:0}
-.context-pane-heading__progress{grid-column:1/-1;height:3px;overflow:hidden;border-radius:2px;background:#e7e9f1}
+.context-pane-heading__collapse{width:32px;min-height:32px;padding:0}
+.context-pane-heading__progress{grid-column:1/-1;height:3px;margin-left:28px;overflow:hidden;border-radius:2px;background:#e7e9f1}
 .context-pane-heading__progress>i{width:100%;height:100%;display:block;transform-origin:left center;background:#6266b4;transition:transform .2s ease-out}
-.context-pane-heading[data-phase="failed"] .context-pane-heading__progress>i{background:#b9404e}
 @media(prefers-reduced-motion:reduce){.context-pane-heading .spin{animation:none}.context-pane-heading__actions button,.context-pane-heading__collapse,.context-pane-heading__progress>i{transition:none}}
 .context-pane>.context-pane-references{flex:1;height:auto;min-height:0;border-left:0;background:transparent}
 .regeneration-dialog__sources{max-height:min(62vh,640px);overflow:auto;border:0;background:#fff}.regeneration-dialog__actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}.regeneration-dialog__actions button{min-height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 13px;border:1px solid #d8dde6;border-radius:8px;color:#596579;background:#fff;font:inherit;font-size:14px;font-weight:700;cursor:pointer}.regeneration-dialog__actions button:hover:not(:disabled){border-color:#bbbfe4;color:#3f4385;background:#f8f8fc}.regeneration-dialog__actions button.primary{border-color:#5559a8;color:#fff;background:#5559a8}.regeneration-dialog__actions button.primary:hover:not(:disabled){border-color:#454984;color:#fff;background:#454984}.regeneration-dialog__actions button:disabled{opacity:.48;cursor:not-allowed}.regeneration-dialog__actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
@@ -4742,11 +4760,21 @@ onBeforeUnmount(() => {
 @media(prefers-reduced-motion:reduce){.outline-detail-stream__progress>i{transition:none}}
 .script-course-preview__intro{flex:1}.script-course-preview__intro>div:last-child{display:grid;gap:5px}.script-course-preview .lesson-course-preview__title small[data-state="ready"]{color:#168044;font-weight:650}.script-course-preview .lesson-course-preview__title small[data-state="pending"]{color:#9a5b14;font-weight:650}.script-course-preview>article{padding-top:0}.script-course-preview__lesson{border-bottom:1px solid #e9edf3}.script-course-preview__lesson:last-child{border-bottom:0}.script-course-preview__lesson>summary{position:relative;display:grid;gap:11px;padding:19px 34px 19px 0;list-style:none;cursor:pointer}.script-course-preview__lesson>summary::-webkit-details-marker{display:none}.script-course-preview__lesson>summary::after{position:absolute;top:25px;right:5px;width:8px;height:8px;border-right:1.5px solid #8a95a5;border-bottom:1.5px solid #8a95a5;content:"";transform:rotate(45deg);transition:transform .16s ease-out}.script-course-preview__lesson[open]>summary::after{transform:translateY(4px) rotate(225deg)}.script-course-preview__lesson>summary:hover{background:#fbfcff}.script-course-preview__lesson>summary:focus-visible{border-radius:8px;outline:2px solid #5b57e8;outline-offset:-2px}.script-course-preview__block-line{display:flex;flex-wrap:wrap;gap:5px 0;margin-left:40px;color:#68768b;font-size:14px;line-height:1.5}.script-course-preview__block-line>span{display:inline-flex;align-items:baseline;gap:5px}.script-course-preview__block-line>span:not(:last-child)::after{margin:0 9px;color:#bcc4d0;content:"·"}.script-course-preview__block-line strong{color:#4b5870;font-weight:680}.script-course-preview__block-line small{color:#8994a4;font-size:13px;white-space:nowrap}.script-course-preview__lesson[open] .script-course-preview__block-line{display:none}.script-course-preview__lesson>ol{display:grid;gap:7px;margin:0 0 20px 40px;padding:0;list-style:none}.script-course-preview__lesson>ol li{grid-template-columns:minmax(120px,.3fr) minmax(0,1fr) auto}.script-course-preview__lesson>ol li small{color:#68768b;font-size:14px;white-space:nowrap}.script-course-preview__lesson>summary>.lesson-course-preview__pending{margin:0 0 0 40px}.script-course-preview__lesson>summary:hover .lesson-course-preview__title h3{color:#312e81}
 @media(prefers-reduced-motion:reduce){.script-course-preview__lesson>summary::after{transition:none}}
-.generation-recovery{min-width:0;overflow-wrap:anywhere;font-size:15px;line-height:1.6}.generation-recovery p{margin:6px 0}.generation-recovery>div{display:flex;flex-wrap:wrap;gap:8px}.generation-recovery button{padding:8px 12px;border:1px solid #5559a8;border-radius:8px;background:#fff;color:#454984;font:inherit;cursor:pointer}.generation-recovery button:disabled{opacity:.5;cursor:not-allowed}.recovery-input{display:grid;gap:8px;margin-bottom:16px;font-size:15px}.recovery-input textarea{padding:10px;border:1px solid #cbd2de;border-radius:8px;font:inherit;line-height:1.6}.generation-recovery button:focus-visible,.recovery-input textarea:focus-visible{outline:2px solid #5559a8;outline-offset:2px}
-.context-pane-notices{grid-column:1/-1;min-width:0;display:grid;gap:16px;padding-top:14px;border-top:1px solid #e4e8ef}
-.context-pane-notices .workbench-error{margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;grid-template-columns:18px minmax(0,1fr);gap:9px}
-.context-pane-notices :deep(.app-error-notice__icon){width:18px;height:24px;background:transparent}
-.context-pane-notices :deep(.app-error-notice strong),.context-pane-notices :deep(.app-error-notice p),.context-pane-notices :deep(.app-error-notice details),.context-pane-notices :deep(.app-error-notice__action button){font-size:15px}
+.generation-recovery{min-width:0;display:grid;gap:8px;color:#475467;font-size:15px;line-height:1.6;overflow-wrap:anywhere}
+.generation-recovery>strong{color:#a83c49;font-size:15px;font-weight:700}
+.generation-recovery p{margin:0}
+.generation-recovery__guidance{color:#596579}
+.generation-recovery details{font-size:15px;line-height:1.6}
+.generation-recovery summary{width:fit-content;cursor:pointer;color:#596579}
+.generation-recovery ul{margin:8px 0 0;padding-left:18px;display:grid;gap:6px}
+.recovery-input{display:grid;gap:8px;margin-bottom:16px;font-size:15px}.recovery-input textarea{padding:10px;border:1px solid #cbd2de;border-radius:8px;font:inherit;line-height:1.6}.recovery-input textarea:focus-visible{outline:2px solid #5559a8;outline-offset:2px}
+.context-pane-notices{grid-column:1/-1;min-width:0;display:grid;gap:12px;margin-left:28px}
+.context-pane-notices .workbench-error{margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;display:block}
+.context-pane-notices :deep(.app-error-notice__icon){display:none}
+.context-pane-notices :deep(.app-error-notice strong){color:#a83c49;font-size:15px;line-height:1.6}
+.context-pane-notices :deep(.app-error-notice p){margin-top:8px;color:#475467;font-size:15px;line-height:1.6}
+.context-pane-notices :deep(.app-error-notice details){margin-top:10px;color:#596579;font-size:15px}
+.context-pane-notices :deep(.app-error-notice__action){display:grid;margin-top:16px}
 </style>
 
 <style scoped>
