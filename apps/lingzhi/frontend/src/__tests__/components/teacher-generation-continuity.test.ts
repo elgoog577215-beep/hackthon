@@ -8,6 +8,8 @@ import TeacherCourseWorkbench from '@/components/TeacherCourseWorkbench.vue'
 import { useCourseStore } from '@/stores/course'
 import { useTeacherLessonAuthoringStore } from '@/stores/teacherLessonAuthoring'
 import http from '@/utils/http'
+import { setLocale } from '@/shared/i18n'
+import zhMessages from '../../../public/locales/zh/translation.json'
 
 const strictProductionStage = (overrides: Record<string, unknown> = {}) => ({
   display_state: 'not_generated', task_state: 'idle', availability: 'missing', source_state: 'missing',
@@ -130,8 +132,10 @@ const auditSetup = (stage: 'lesson_plan' | 'script' = 'lesson_plan') => {
   return {store, snapshot, publish}
 }
 describe('教师生成过程与当前讲保持一致', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     setActivePinia(createPinia()); vi.restoreAllMocks()
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => zhMessages })))
+    await setLocale('zh')
     vi.spyOn(http, 'get').mockResolvedValue({data:{total:0}})
     vi.spyOn(http, 'post').mockResolvedValue({data:{status:'resumed'}})
   })
@@ -140,7 +144,7 @@ describe('教师生成过程与当前讲保持一致', () => {
     const wrapper=mountWorkbench({initialStage:stage==='script'?'script':'lesson',initialLessonId:'L1-1'})
     expect(wrapper.findAll('.lesson-progress-ring').map(x=>x.attributes('aria-valuenow'))).toEqual(['24','68'])
     expect(wrapper.get('.context-pane-heading__progress').attributes('aria-valuenow')).toBe('24')
-    expect(wrapper.get('.context-pane-heading').text()).toContain('正在写第1讲')
+    expect(wrapper.get('.context-pane-heading').text()).toContain(stage === 'script' ? '正在生成讲义' : '正在写第1讲')
     if(stage==='lesson_plan') expect(wrapper.get('.lesson-generation-status em').text()).toBe('24%')
     const stageIndex=stage==='lesson_plan'?1:2
     expect(wrapper.findAll('.stage-state')[stageIndex]!.attributes('data-progress')).toBe('46')

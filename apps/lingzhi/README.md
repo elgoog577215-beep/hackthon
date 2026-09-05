@@ -225,13 +225,13 @@ openspec/        正式规格和变更任务
 zju-dev：保留开发环境，不作为正式发布的必经步骤
 ```
 
-服务器地址、账号或密钥发生变化时，先更新私有凭据记录；只有服务器职责、发布关系或访问方式变化时才修改 README。启智联合构建、配置与发布步骤见[接入与部署说明](./qizhi/docs/灵知新版课程接入与部署.md)。目前 `tuotu` 已有 GitHub Actions 自动发布配置，`zju` 只有联合构建与手动发布入口，不能把代码推送成功当作学校站点发布成功。
+服务器地址、账号或密钥发生变化时，先更新私有凭据记录；只有服务器职责、发布关系或访问方式变化时才修改 README。启智联合构建、配置与发布步骤见[接入与部署说明](../qizhi/docs/灵知新版课程接入与部署.md)。目前 `tuotu` 已有 GitHub Actions 自动发布配置，`zju` 已有自动检查和源码发布包，服务器激活待接通，不能把代码推送成功当作学校站点发布成功。
 
 - Docker 入口：[Dockerfile](./Dockerfile)。
 - Runner 独立部署：[docker-compose.runner.yml](./docker-compose.runner.yml)。
 - 发布包构建：`scripts/build-deploy-artifact.sh`。
 - 生产入口：<https://tuotuzju.com/lingzhi/>。
-- 自动发布：推送 `main` 后由 `.github/workflows/deploy-lingzhi.yml` 构建发布包，并通过 SSH 发布到拓途服务器的 `/opt/lingzhi`。
+- 自动发布：普通代码推送 `main` 后（`[no deploy]` 跳过发布），由仓库根目录 `.github/workflows/deploy-lingzhi.yml` 构建发布包，并通过 SSH 发布到拓途服务器的 `/opt/lingzhi`。
 - 运行隔离：应用使用 `lingzhi.service` 和回环端口 `127.0.0.1:7862`，Caddy 只把 `/lingzhi/*` 转发给它；持久数据位于 `/opt/lingzhi/state`，不与拓途主站共用数据或 API。
 - SearXNG 手动部署：`.github/workflows/provision-searxng.yml`；固定配置位于 `deploy/searxng/`。
 
@@ -239,4 +239,4 @@ zju-dev：保留开发环境，不作为正式发布的必经步骤
 
 ## 许可证
 
-查看 [LICENSE](./LICENSE)。
+查看 [LICENSE](../../LICENSE)。
