@@ -518,42 +518,48 @@ def _render_diagram_page(slide: Any, page: SlidePageV6, palette: dict[str, str])
             color=palette["ink"],
             valign="middle",
         )
-    nodes = list((page.visual_decision.visual_payload or {}).get("nodes") or [])
-    if len(nodes) < 2:
-        return
-    node_width = min(2.55, 10.6 / len(nodes))
-    gap = (10.7 - node_width * len(nodes)) / max(1, len(nodes) - 1)
-    x = 1.28
-    y = 3.55
-    for index, node in enumerate(nodes):
-        if index:
-            _shape(slide, x - gap + 0.10, y + 0.56, max(0.18, gap - 0.20), 0.035, palette["accent"], radius=False)
-        _shape(slide, x, y, node_width, 1.56, palette["white"], radius=True, line=palette["line"])
-        _text_box(
-            slide,
-            f"{index + 1:02d}",
-            x + 0.18,
-            y + 0.16,
-            0.42,
-            0.26,
-            size=11,
-            color=palette["accent"],
-            bold=True,
-        )
-        _text_box(
-            slide,
-            str(node.get("label") or ""),
-            x + 0.18,
-            y + 0.48,
-            node_width - 0.36,
-            0.86,
-            size=16,
-            color=palette["title"],
-            bold=True,
-            align="center",
-            valign="middle",
-        )
-        x += node_width + gap
+    from types import SimpleNamespace
+    from pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE
+    from pptx.oxml.xmlchemy import OxmlElement
+    from ppt_page_scene import _graph_positions, relation_anchors
+    payload = page.visual_decision.visual_payload or {}
+    nodes, edges = list(payload.get("nodes") or []), list(payload.get("edges") or [])
+    ids = [str(n.get("node_id") or "") for n in nodes]
+    if len(nodes) < 2 or not edges or "" in ids or len(ids) != len(set(ids)):
+        raise ValueError("v6_visual_diagram_payload_missing")
+    relations = [SimpleNamespace(source_id=str(e.get("source") or ""), target_id=str(e.get("target") or "")) for e in edges]
+    if any(r.source_id not in ids or r.target_id not in ids for r in relations):
+        raise ValueError("v6_visual_diagram_endpoint_missing")
+    positions = _graph_positions(ids, relations, (92, 218, 770, 240))
+    shapes = {}
+    for node in nodes:
+        key = str(node["node_id"])
+        x, y, w, h = positions[key]
+        shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Pt(x), Pt(y), Pt(w), Pt(h))
+        shape.name = f"diagram-node:{key}"
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = RGBColor.from_string(palette["white"])
+        shape.line.color.rgb = RGBColor.from_string(palette["line"])
+        shape.text = str(node.get("label") or "")
+        for paragraph in shape.text_frame.paragraphs:
+            paragraph.font.size, paragraph.font.name = Pt(16), _BODY_FONT
+            paragraph.font.color.rgb = RGBColor.from_string(palette["title"])
+        shapes[key] = shape
+    for index, (edge, relation) in enumerate(zip(edges, relations, strict=True)):
+        x1, y1, x2, y2, start, end = relation_anchors(positions[relation.source_id], positions[relation.target_id])
+        connector = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Pt(x1), Pt(y1), Pt(x2), Pt(y2))
+        connector.name = f"diagram-edge:{index}"
+        connector.begin_connect(shapes[relation.source_id], start)
+        connector.end_connect(shapes[relation.target_id], end)
+        connector.line.color.rgb = RGBColor.from_string(palette["accent"])
+        connector.line.width = Pt(1.5)
+        if edge.get("relation") != "association":
+            arrow = OxmlElement("a:tailEnd")
+            arrow.set("type", "triangle")
+            connector.line._get_or_add_ln().append(arrow)
+        if edge.get("label"):
+            _text_box(slide, str(edge["label"]), (x1 + x2) / 144 - .5, (y1 + y2) / 144 - .35,
+                      1, .3, size=14, color=palette["ink"], align="center")
 
 
 def _render_body_page(slide: Any, page: SlidePageV6, palette: dict[str, str]) -> None:

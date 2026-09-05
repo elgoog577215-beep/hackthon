@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
+
+from ppt_layout_schema import LayoutExecution
 
 from course_document import stable_hash
 from slide_layout_geometry import (
@@ -91,6 +93,14 @@ class TemplateLayoutContractV1(_StrictModel):
     slot_frames: dict[str, TemplateFrameContractV1] = Field(default_factory=dict)
     web_renderer_adapter: str = "template-layout-web-v1"
     pptx_renderer_adapter: str = "template-layout-pptx-v1"
+    execution: LayoutExecution | None = None
+
+    @model_serializer(mode="wrap")
+    def serialize_compatible(self, handler):
+        payload = handler(self)
+        if self.execution is None:
+            payload.pop("execution", None)
+        return payload
 
 
 class TemplateLayoutPackContractV1(_StrictModel):

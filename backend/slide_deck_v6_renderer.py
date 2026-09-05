@@ -1,6 +1,7 @@
 """Renderer-bound adapters for the closed slide-deck V6 template contract."""
 
 from __future__ import annotations
+from slide_speaker_notes import _speaker_notes
 
 import json
 import re
@@ -147,26 +148,6 @@ def _table_row_requires_detail(value: str) -> bool:
     return max((len(cell) for cell in cells), default=0) > safe_column_chars
 
 
-def _speaker_notes(page: SlidePageV6) -> str:
-    sections = [
-        f"source_document_revision: {page.speaker_notes.source_document_revision}",
-        f"teaching_unit_id: {page.speaker_notes.teaching_unit_id}",
-        "source_section_ids: " + json.dumps(
-            page.speaker_notes.source_section_ids,
-            ensure_ascii=False,
-        ),
-    ]
-    sections.extend(
-        "\n".join([
-            f"[{block.block_id} @ {block.block_revision}]",
-            f"source_kind: {block.source_kind}",
-            f"asset_refs: {json.dumps(block.asset_refs, ensure_ascii=False)}",
-            block.full_text,
-            f"source_payload: {json.dumps(block.source_payload, ensure_ascii=False, sort_keys=True)}",
-        ])
-        for block in page.speaker_notes.source_blocks
-    )
-    return "\n\n".join(sections)
 
 
 def _region_block(page: SlidePageV6, region: Any) -> SlideBlockSpec:
@@ -255,7 +236,7 @@ def _visuals(page: SlidePageV6) -> list[dict[str, Any]]:
             "alt_text": page.title,
             "parameters": {
                 "direction": str(payload.get("direction") or "vertical"),
-                "template": "process",
+                "template": str(payload.get("template") or "relation_graph"),
                 "relation_evidence": list(page.source_block_ids),
             },
         }]
@@ -636,6 +617,16 @@ def export_slide_deck_v6_pptx(
                 }],
                 "warnings": [],
             })
+
+    if any(page.resolved_scene is not None for page in deck.pages):
+        from ppt_native_scene import render_teaching_deck
+        source_path = None
+        if deck.template_id.startswith("pptp-"):
+            from ppt_template_packs import ppt_template_pack_repository
+            contract, source_path = ppt_template_pack_repository.resolve_render_bundle_internal(deck.template_id, deck.template_version)
+            if contract.template_digest != deck.template_digest:
+                raise ValueError("personal_template_render_contract_mismatch")
+        return render_teaching_deck(deck, Path(output_path), assets=asset_repository or slide_asset_repository, source_path=source_path)
 
     if deck.template_id.startswith("pptp-"):
         from ppt_template_packs import ppt_template_pack_repository

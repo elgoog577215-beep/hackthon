@@ -1,0 +1,105 @@
+{
+  "schema_version": "teaching_template_certification_v2",
+  "layouts": {
+    "compare-visual": {
+      "status": "passed",
+      "component_version": "teaching_layout_v2.1",
+      "tools": {
+        "compiler": "teaching_scene_v2.1",
+        "renderer": "teaching_native_v2.1",
+        "quality": "teaching_export_v2.1",
+        "font_family": "Noto Sans CJK SC",
+        "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+        "python_pptx": "1.0.2",
+        "lxml": "6.1.1",
+        "pillow": "12.3.0",
+        "freetype": "2.14.3"
+      },
+      "checks": {
+        "short": true,
+        "normal": true,
+        "long": true,
+        "relations": true,
+        "render": true
+      },
+      "pptx_sha256": "0f69640da021271f800fe61fc123902bca0e2b2562e50c6d791cf02cdc378525",
+      "pdf_sha256": "d628a72cb7f6bf0d829570caa71de69bbca662329556b9bcc1f2a523d81cd4e8",
+      "render_page_sha256": [
+        "f307040a08b49999f81c96c11ebf7879216ddc72af4458c2558f2a8056eb435d",
+        "e9ac6f2689675a9f8b17c1e3cc7581e2a04c1b7393148db5cccfefada073184f"
+      ],
+      "object_reports": [
+        {
+          "passed": true,
+          "elements": 9,
+          "relations": 1,
+          "scene_digest": "scene_c994fb51c844102a30b58048",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 9,
+          "relations": 1,
+          "scene_digest": "scene_86a82b4584f5129921647a76",
+          "editability": [
+            "text"
+          ]
+        }
+      ],
+      "render_engine": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+      "classroom_review": "pending"
+    },
+    "compare-matrix": {
+      "status": "passed",
+      "component_version": "teaching_layout_v2.1",
+      "tools": {
+        "compiler": "teaching_scene_v2.1",
+        "renderer": "teaching_native_v2.1",
+        "quality": "teaching_export_v2.1",
+        "font_family": "Noto Sans CJK SC",
+        "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+        "python_pptx": "1.0.2",
+        "lxml": "6.1.1",
+        "pillow": "12.3.0",
+        "freetype": "2.14.3"
+      },
+      "checks": {
+        "short": true,
+        "normal": true,
+        "long": true,
+        "relations": true,
+        "render": true
+      },
+      "pptx_sha256": "ad3fd288d04ec888fac471b2913d0e5342164a2adb1764db5f23656030635ffe",
+      "pdf_sha256": "6bfb97662bbc63a1d34a459410141c0a140605f0fb082e03812183966ce02257",
+      "render_page_sha256": [
+        "e3d06e9188ebd349aea7bd7cd64ece0722195b85857d96bc73b981eb237c4411",
+        "893b719f193052941d0f54839b741fc1e4f5b7d574fb3da33d0b5def4f675514"
+      ],
+      "object_reports": [
+        {
+          "passed": true,
+          "elements": 9,
+          "relations": 1,
+          "scene_digest": "scene_04ce5c72b3bcfce5dcbbf58a",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 9,
+          "relations": 1,
+          "scene_digest": "scene_f6aca602d6c907593c51d541",
+          "editability": [
+            "text"
+          ]
+        }
+      ],
+      "render_engine": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+      "classroom_review": "pending"
+    }
+  }
+}

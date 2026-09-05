@@ -12,7 +12,8 @@
     :style="themeStyle"
     :aria-label="`${pageNumber} / ${pageCount} · ${slide.title}`"
   >
-    <template v-if="slide.layout === 'cover'">
+    <PptSceneCanvas v-if="slide.resolved_scene" :scene="slide.resolved_scene" :course-id="courseId" :representation-id="representationId" />
+    <template v-else-if="slide.layout === 'cover'">
       <div v-if="visualLayout !== 'cover-minimal'" class="deck-cover__wash"></div>
       <div v-if="visualLayout !== 'cover-minimal'" class="deck-cover__index">{{ String(pageNumber).padStart(2, '0') }}</div>
       <div
@@ -450,6 +451,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import PptSceneCanvas from './PptSceneCanvas.vue'
 import { t } from '../shared/i18n'
 import type { SlideDeckTheme } from '../stores/teachingRepresentations'
 import SlideVisualRenderer from './SlideVisualRenderer.vue'
@@ -472,6 +474,7 @@ interface SlideBlock {
 }
 
 interface Slide {
+  resolved_scene?: Record<string, any>
   layout: string
   eyebrow?: string
   title: string

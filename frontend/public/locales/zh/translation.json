@@ -1764,7 +1764,27 @@
     "manualEditPageHelp": "内容完整且可阅读，请在发布前检查本页排版。",
     "failureStage": "失败阶段",
     "retryableFailure": "可以重试",
-    "nonRetryableFailure": "需要检查输入或系统配置"
+    "nonRetryableFailure": "需要检查输入或系统配置",
+    "adoptedDiagramFrozen": "已采用图解的节点和关系保持原样；可以调整展示步骤。需要改动图解时，请在讲义中修改后重新采用。",
+    "teachingPhysicalPages": "实际幻灯片数量",
+    "comparisonSubject": "比较对象",
+    "comparisonDimension": "比较维度",
+    "teachingRelations": "关系与方向",
+    "relationSource": "起点",
+    "relationTarget": "终点",
+    "relationMeaning": "关系含义",
+    "teachingRevealState": "展示步骤",
+    "savedPagePreview": "查看已保存的页面预览",
+    "sceneImageUnavailable": "图片暂不可用",
+    "sceneImageLoading": "图片加载中…",
+    "teachingRoles": {
+      "label": "对象或维度名称",
+      "condition": "必要条件",
+      "evidence": "证据与内容",
+      "question": "课堂问题",
+      "answer": "答案与反馈",
+      "claim": "结论"
+    }
   },
   "courseLibrary": {
     "eyebrow": "课程库",

@@ -602,6 +602,9 @@ class SlideDeckV6Orchestrator:
         progress_callback: ProgressCallback | None = None,
     ) -> dict[str, Any]:
         template = template_contract or compile_builtin_template_layout_contract_v1(theme)
+        three_stage = any(layout.execution is not None for layout in template.layouts)
+        from ppt_layout_execution import tool_identity
+        execution_identity = tool_identity() if three_stage else None
         try:
             restored_checkpoint = self.candidates.load_checkpoint(task_id)
         except FileNotFoundError:
@@ -616,6 +619,9 @@ class SlideDeckV6Orchestrator:
                 and restored_checkpoint.get("build_contract_version")
                 == SLIDE_DECK_V6_BUILD_CONTRACT_VERSION
             )
+            if three_stage:
+                identity = identity and restored_checkpoint.get("teaching_tools") == execution_identity
+                identity = identity and restored_checkpoint.get("confirmed_manuscript_revision", "") == (confirmed_manuscript.manuscript_revision if confirmed_manuscript else "")
             if not identity:
                 raise V6BuildError(
                     stage="recovery",
@@ -677,6 +683,9 @@ class SlideDeckV6Orchestrator:
             "visual_decisions": [],
             "updated_at": _utc_now(),
         }
+        if three_stage:
+            checkpoint["teaching_tools"] = execution_identity
+            checkpoint["confirmed_manuscript_revision"] = confirmed_manuscript.manuscript_revision if confirmed_manuscript else ""
         if restored_checkpoint and restored_checkpoint.get("schema_version") == "slide_deck_v6_checkpoint_v1":
             checkpoint.update(restored_checkpoint)
 
@@ -770,243 +779,287 @@ class SlideDeckV6Orchestrator:
                 source_contract=source_contract.model_dump(mode="json"),
                 course_presentation_graph=graph.model_dump(mode="json"),
             )
-            story_sections = list(dict.fromkeys(unit.section_id for unit in graph.units))
-            tracker.add_work([
-                SlideWorkItemV2(
-                    item_id=f"story-{index + 1}",
-                    kind="ai_batch",
-                    stage="story",
-                    label=f"故事规划批次 {index + 1}",
-                    chapter_id=section_id,
-                    batch_id=f"story-{index + 1}",
-                )
-                for index, section_id in enumerate(story_sections)
-            ] + [
-                SlideWorkItemV2(
-                    item_id=f"visual-{index + 1}",
-                    kind="ai_batch",
-                    stage="visual",
-                    label=f"Visual planning batch {index + 1}",
-                    chapter_id=section_id,
-                    batch_id=f"visual-{index + 1}",
-                )
-                for index, section_id in enumerate(story_sections)
-            ])
-            tracker.complete("course-graph")
-            await _emit(progress_callback, tracker.snapshot())
-
-            resumed_story_batches = [
-                SlideStoryBatchV3.model_validate(item)
-                for item in checkpoint.get("story_batches") or []
-            ]
-            story_batches_by_id = {
-                batch.batch_id: batch for batch in resumed_story_batches
-            }
-
-            async def story_batch_progress(event: dict[str, Any]) -> None:
-                nonlocal current_work
-                work_id = str(event["batch_id"])
-                current_work = work_id
-                phase = str(event["phase"])
-                if phase == "started":
-                    tracker.start(
-                        work_id,
-                        chapter_id=str(event["chapter_id"]),
-                        batch_id=work_id,
-                        provider_wait=True,
-                        retry_attempt=int(event.get("retry_attempt") or 0),
+            if three_stage:
+                from ppt_teaching_planner import plan_teaching_manuscript, manuscript_trace_plans
+                tracker.complete("course-graph")
+                if confirmed_manuscript is not None:
+                    if confirmed_manuscript.teaching_content_contract_version != "page_teaching_v2":
+                        raise V6BuildError(stage="manuscript", code="teaching_contract_mismatch", message="模板与内容稿合同不一致。")
+                    ppt_manuscript = confirmed_manuscript
+                elif manuscript_only:
+                    async def teaching_progress(payload, event):
+                        nonlocal current_work
+                        item_id = event["item_id"]
+                        current_work = item_id
+                        tracker.add_work([SlideWorkItemV2(item_id=item_id, kind="ai_batch", stage="story", label="组织整讲教学路径" if item_id == "teaching-narrative" else "准备逐页教学表达")])
+                        if event["phase"] == "started":
+                            tracker.start(item_id, provider_wait=True)
+                        elif event["phase"] == "completed":
+                            tracker.complete(item_id)
+                        from slide_ai_planning_v6 import _batch_diagnostic
+                        from slide_deck_v6 import AIProviderAttemptDiagnosticV1
+                        calls = [c for c in payload.get("calls", []) if c["item_id"] == item_id]
+                        if calls:
+                            store_ai_batch_diagnostic(_batch_diagnostic(
+                                kind="story", batch_id=item_id, chapter_id="lesson",
+                                duration_ms=sum(c["duration_ms"] for c in calls), attempts=len(calls),
+                                validation_status="passed" if event["phase"] == "completed" else "failed",
+                                failure_category="" if event["phase"] == "completed" else "teaching_planning_incomplete",
+                                attempt_records=[AIProviderAttemptDiagnosticV1.model_validate(a) for c in calls for a in c.get("attempts", [])],
+                            ))
+                        save_checkpoint(teaching_planning=payload, ai_batch_diagnostics=serialized_ai_batch_diagnostics())
+                        await _emit(progress_callback, tracker.snapshot())
+                    ppt_manuscript, teaching_checkpoint = await _await_with_heartbeats(
+                        plan_teaching_manuscript(document, graph, template, story_planner,
+                            source_context=dict(course_data.get("teacher_lesson_source") or {}),
+                            checkpoint=checkpoint.get("teaching_planning"), on_checkpoint=teaching_progress),
+                        tracker=tracker, callback=progress_callback,
                     )
-                elif phase == "completed":
-                    batch = event["batch"]
-                    story_batches_by_id[work_id] = batch
-                    store_ai_batch_diagnostic(event.get("diagnostic"))
-                    save_checkpoint(story_batches=[
-                        story_batches_by_id[key].model_dump(mode="json")
-                        for key in sorted(story_batches_by_id)
-                    ], ai_batch_diagnostics=serialized_ai_batch_diagnostics())
-                    tracker.complete(work_id)
-                elif phase == "failed":
-                    store_ai_batch_diagnostic(event.get("diagnostic"))
-                    save_checkpoint(
-                        ai_batch_diagnostics=serialized_ai_batch_diagnostics()
-                    )
-                await _emit(progress_callback, tracker.snapshot())
-
-            story = await _await_with_heartbeats(
-                plan_slide_story_v3(
-                    graph,
-                    template,
-                    ai_planner=story_planner,
-                    batch_callback=story_batch_progress,
-                    resume_batches=resumed_story_batches,
-                ),
-                tracker=tracker,
-                callback=progress_callback,
-            )
-            save_checkpoint(
-                story_plan=story.model_dump(mode="json"),
-                story_batches=[
-                    batch.model_dump(mode="json") for batch in story.batches
-                ],
-            )
-            if not manuscript_only:
+                    save_checkpoint(teaching_planning=teaching_checkpoint)
+                else:
+                    raise V6BuildError(stage="manuscript", code="ppt_manuscript_confirmation_required", message="请先确认页面内容稿。")
+                story, visual = manuscript_trace_plans(ppt_manuscript)
+                current_work = "materialize"
+                tracker.start("materialize")
+                save_checkpoint(story_plan=story.model_dump(mode="json"), visual_plan=visual.model_dump(mode="json"))
+            else:
+                story_sections = list(dict.fromkeys(unit.section_id for unit in graph.units))
                 tracker.add_work([
                     SlideWorkItemV2(
-                        item_id=f"render-{page.page_id}",
-                        kind="render_page",
-                        stage="render",
-                        label=f"Compile planned page {page.page_ordinal + 1}",
-                        page_id=page.page_id,
+                        item_id=f"story-{index + 1}",
+                        kind="ai_batch",
+                        stage="story",
+                        label=f"故事规划批次 {index + 1}",
+                        chapter_id=section_id,
+                        batch_id=f"story-{index + 1}",
                     )
-                    for page in story.pages
+                    for index, section_id in enumerate(story_sections)
+                ] + [
+                    SlideWorkItemV2(
+                        item_id=f"visual-{index + 1}",
+                        kind="ai_batch",
+                        stage="visual",
+                        label=f"Visual planning batch {index + 1}",
+                        chapter_id=section_id,
+                        batch_id=f"visual-{index + 1}",
+                    )
+                    for index, section_id in enumerate(story_sections)
                 ])
-            tracker.add_work([
-                SlideWorkItemV2(
-                    item_id=f"visual-{index + 1}",
-                    kind="ai_batch",
-                    stage="visual",
-                    label=f"视觉规划批次 {index + 1}",
-                    chapter_id=batch.chapter_id,
-                    batch_id=f"visual-{index + 1}",
-                )
-                for index, batch in enumerate(story.batches)
-            ])
-            await _emit(progress_callback, tracker.snapshot())
-
-            resumed_visual_decisions = [
-                SlideVisualDecisionV2.model_validate(item)
-                for item in checkpoint.get("visual_decisions") or []
-            ]
-            visual_decisions_by_page = {
-                decision.page_id: decision for decision in resumed_visual_decisions
-            }
-
-            async def visual_batch_progress(event: dict[str, Any]) -> None:
-                nonlocal current_work
-                work_id = str(event["batch_id"])
-                current_work = work_id
-                phase = str(event["phase"])
-                if phase == "started":
-                    tracker.start(
-                        work_id,
-                        chapter_id=str(event["chapter_id"]),
-                        batch_id=work_id,
-                        provider_wait=True,
-                    )
-                elif phase == "completed":
-                    for decision in event["decisions"]:
-                        visual_decisions_by_page[decision.page_id] = decision
-                    store_ai_batch_diagnostic(event.get("diagnostic"))
-                    save_checkpoint(visual_decisions=[
-                        visual_decisions_by_page[key].model_dump(mode="json")
-                        for key in sorted(visual_decisions_by_page)
-                    ], ai_batch_diagnostics=serialized_ai_batch_diagnostics())
-                    tracker.complete(work_id)
-                elif phase == "failed":
-                    store_ai_batch_diagnostic(event.get("diagnostic"))
-                    save_checkpoint(
-                        ai_batch_diagnostics=serialized_ai_batch_diagnostics()
-                    )
+                tracker.complete("course-graph")
                 await _emit(progress_callback, tracker.snapshot())
 
-            visual = await _await_with_heartbeats(
-                plan_slide_visuals_v2(
-                    story,
-                    graph,
-                    template,
-                    ai_planner=visual_planner,
-                    batch_callback=visual_batch_progress,
-                    resume_decisions=resumed_visual_decisions,
-                ),
-                tracker=tracker,
-                callback=progress_callback,
-            )
-            save_checkpoint(
-                visual_plan=visual.model_dump(mode="json"),
-                visual_decisions=[
-                    decision.model_dump(mode="json") for decision in visual.decisions
-                ],
-            )
-            repair_context = dict(checkpoint.get("visual_repair") or {})
-            if repair_context:
-                target_page_ids = set(repair_context.get("target_page_ids") or [])
-                incomplete_repairs = [
-                    decision
-                    for decision in visual.decisions
-                    if decision.page_id in target_page_ids and decision.degraded
+                resumed_story_batches = [
+                    SlideStoryBatchV3.model_validate(item)
+                    for item in checkpoint.get("story_batches") or []
                 ]
-                if incomplete_repairs:
-                    failed = incomplete_repairs[0]
-                    raise V6BuildError(
-                        stage="visual_repair",
-                        code="visual_repair_incomplete",
-                        message=(
-                            "The targeted page is still degraded after visual replanning: "
-                            f"{failed.degradation_reason}"
-                        ),
-                        retryable=True,
-                        page_id=failed.page_id,
-                    )
+                story_batches_by_id = {
+                    batch.batch_id: batch for batch in resumed_story_batches
+                }
 
-            tracker.add_work([
-                SlideWorkItemV2(item_id="materialize", kind="local", stage="materialize", label="编译 页面内容稿与课程忠实型页面"),
-                SlideWorkItemV2(item_id="quality", kind="local", stage="quality", label="执行忠实度与渲染门禁"),
-                SlideWorkItemV2(
-                    item_id=finalize_item_id,
-                    kind="local",
-                    stage=(
-                        "manuscript" if manuscript_only
-                        else "publish" if publish_result else "shadow_finalize"
-                    ),
-                    label=(
-                        "保存可审阅 页面内容稿"
-                        if manuscript_only
-                        else "原子发布正式课件" if publish_result
-                        else "完成只读影子候选"
-                    ),
-                ),
-            ])
-            await _emit(progress_callback, tracker.snapshot())
+                async def story_batch_progress(event: dict[str, Any]) -> None:
+                    nonlocal current_work
+                    work_id = str(event["batch_id"])
+                    current_work = work_id
+                    phase = str(event["phase"])
+                    if phase == "started":
+                        tracker.start(
+                            work_id,
+                            chapter_id=str(event["chapter_id"]),
+                            batch_id=work_id,
+                            provider_wait=True,
+                            retry_attempt=int(event.get("retry_attempt") or 0),
+                        )
+                    elif phase == "completed":
+                        batch = event["batch"]
+                        story_batches_by_id[work_id] = batch
+                        store_ai_batch_diagnostic(event.get("diagnostic"))
+                        save_checkpoint(story_batches=[
+                            story_batches_by_id[key].model_dump(mode="json")
+                            for key in sorted(story_batches_by_id)
+                        ], ai_batch_diagnostics=serialized_ai_batch_diagnostics())
+                        tracker.complete(work_id)
+                    elif phase == "failed":
+                        store_ai_batch_diagnostic(event.get("diagnostic"))
+                        save_checkpoint(
+                            ai_batch_diagnostics=serialized_ai_batch_diagnostics()
+                        )
+                    await _emit(progress_callback, tracker.snapshot())
 
-            current_work = "materialize"
-            tracker.start("materialize")
-            story = prepare_story_plan_for_final_compilation(
-                story,
-                graph,
-                template,
-            )
-            save_checkpoint(story_plan=story.model_dump(mode="json"))
-            teacher_lesson_source = dict(
-                course_data.get("teacher_lesson_source") or {}
-            )
-            ppt_manuscript = confirmed_manuscript
-            if ppt_manuscript is None:
-                ppt_manuscript = await _await_with_heartbeats(
-                    asyncio.to_thread(
-                        compile_ppt_manuscript_v1,
-                        document,
+                story = await _await_with_heartbeats(
+                    plan_slide_story_v3(
                         graph,
-                        story,
-                        visual,
                         template,
-                        source_lesson_plan_revision_id=str(
-                            teacher_lesson_source.get("lesson_plan_revision_id") or ""
-                        ),
-                        source_script_revision_id=str(
-                            teacher_lesson_source.get("script_revision_id") or ""
-                        ),
-                        material_bindings=list(
-                            teacher_lesson_source.get("material_bindings") or []
-                        ),
-                        external_quality_issues=_manuscript_planning_quality_issues(
-                            story,
-                            allow_reviewable_fallback=manuscript_only,
-                        ),
-                        require_ai_teaching_content=True,
+                        ai_planner=story_planner,
+                        batch_callback=story_batch_progress,
+                        resume_batches=resumed_story_batches,
                     ),
                     tracker=tracker,
                     callback=progress_callback,
                 )
+                save_checkpoint(
+                    story_plan=story.model_dump(mode="json"),
+                    story_batches=[
+                        batch.model_dump(mode="json") for batch in story.batches
+                    ],
+                )
+                if not manuscript_only:
+                    tracker.add_work([
+                        SlideWorkItemV2(
+                            item_id=f"render-{page.page_id}",
+                            kind="render_page",
+                            stage="render",
+                            label=f"Compile planned page {page.page_ordinal + 1}",
+                            page_id=page.page_id,
+                        )
+                        for page in story.pages
+                    ])
+                tracker.add_work([
+                    SlideWorkItemV2(
+                        item_id=f"visual-{index + 1}",
+                        kind="ai_batch",
+                        stage="visual",
+                        label=f"视觉规划批次 {index + 1}",
+                        chapter_id=batch.chapter_id,
+                        batch_id=f"visual-{index + 1}",
+                    )
+                    for index, batch in enumerate(story.batches)
+                ])
+                await _emit(progress_callback, tracker.snapshot())
+
+                resumed_visual_decisions = [
+                    SlideVisualDecisionV2.model_validate(item)
+                    for item in checkpoint.get("visual_decisions") or []
+                ]
+                visual_decisions_by_page = {
+                    decision.page_id: decision for decision in resumed_visual_decisions
+                }
+
+                async def visual_batch_progress(event: dict[str, Any]) -> None:
+                    nonlocal current_work
+                    work_id = str(event["batch_id"])
+                    current_work = work_id
+                    phase = str(event["phase"])
+                    if phase == "started":
+                        tracker.start(
+                            work_id,
+                            chapter_id=str(event["chapter_id"]),
+                            batch_id=work_id,
+                            provider_wait=True,
+                        )
+                    elif phase == "completed":
+                        for decision in event["decisions"]:
+                            visual_decisions_by_page[decision.page_id] = decision
+                        store_ai_batch_diagnostic(event.get("diagnostic"))
+                        save_checkpoint(visual_decisions=[
+                            visual_decisions_by_page[key].model_dump(mode="json")
+                            for key in sorted(visual_decisions_by_page)
+                        ], ai_batch_diagnostics=serialized_ai_batch_diagnostics())
+                        tracker.complete(work_id)
+                    elif phase == "failed":
+                        store_ai_batch_diagnostic(event.get("diagnostic"))
+                        save_checkpoint(
+                            ai_batch_diagnostics=serialized_ai_batch_diagnostics()
+                        )
+                    await _emit(progress_callback, tracker.snapshot())
+
+                visual = await _await_with_heartbeats(
+                    plan_slide_visuals_v2(
+                        story,
+                        graph,
+                        template,
+                        ai_planner=visual_planner,
+                        batch_callback=visual_batch_progress,
+                        resume_decisions=resumed_visual_decisions,
+                    ),
+                    tracker=tracker,
+                    callback=progress_callback,
+                )
+                save_checkpoint(
+                    visual_plan=visual.model_dump(mode="json"),
+                    visual_decisions=[
+                        decision.model_dump(mode="json") for decision in visual.decisions
+                    ],
+                )
+                repair_context = dict(checkpoint.get("visual_repair") or {})
+                if repair_context:
+                    target_page_ids = set(repair_context.get("target_page_ids") or [])
+                    incomplete_repairs = [
+                        decision
+                        for decision in visual.decisions
+                        if decision.page_id in target_page_ids and decision.degraded
+                    ]
+                    if incomplete_repairs:
+                        failed = incomplete_repairs[0]
+                        raise V6BuildError(
+                            stage="visual_repair",
+                            code="visual_repair_incomplete",
+                            message=(
+                                "The targeted page is still degraded after visual replanning: "
+                                f"{failed.degradation_reason}"
+                            ),
+                            retryable=True,
+                            page_id=failed.page_id,
+                        )
+
+                tracker.add_work([
+                    SlideWorkItemV2(item_id="materialize", kind="local", stage="materialize", label="编译 页面内容稿与课程忠实型页面"),
+                    SlideWorkItemV2(item_id="quality", kind="local", stage="quality", label="执行忠实度与渲染门禁"),
+                    SlideWorkItemV2(
+                        item_id=finalize_item_id,
+                        kind="local",
+                        stage=(
+                            "manuscript" if manuscript_only
+                            else "publish" if publish_result else "shadow_finalize"
+                        ),
+                        label=(
+                            "保存可审阅 页面内容稿"
+                            if manuscript_only
+                            else "原子发布正式课件" if publish_result
+                            else "完成只读影子候选"
+                        ),
+                    ),
+                ])
+                await _emit(progress_callback, tracker.snapshot())
+
+                current_work = "materialize"
+                tracker.start("materialize")
+                story = prepare_story_plan_for_final_compilation(
+                    story,
+                    graph,
+                    template,
+                )
+                save_checkpoint(story_plan=story.model_dump(mode="json"))
+                teacher_lesson_source = dict(
+                    course_data.get("teacher_lesson_source") or {}
+                )
+                ppt_manuscript = confirmed_manuscript
+                if ppt_manuscript is None:
+                    ppt_manuscript = await _await_with_heartbeats(
+                        asyncio.to_thread(
+                            compile_ppt_manuscript_v1,
+                            document,
+                            graph,
+                            story,
+                            visual,
+                            template,
+                            source_lesson_plan_revision_id=str(
+                                teacher_lesson_source.get("lesson_plan_revision_id") or ""
+                            ),
+                            source_script_revision_id=str(
+                                teacher_lesson_source.get("script_revision_id") or ""
+                            ),
+                            material_bindings=list(
+                                teacher_lesson_source.get("material_bindings") or []
+                            ),
+                            external_quality_issues=_manuscript_planning_quality_issues(
+                                story,
+                                allow_reviewable_fallback=manuscript_only,
+                            ),
+                            require_ai_teaching_content=True,
+                        ),
+                        tracker=tracker,
+                        callback=progress_callback,
+                    )
             save_checkpoint(
                 ppt_manuscript=ppt_manuscript.model_dump(mode="json")
             )

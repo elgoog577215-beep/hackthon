@@ -1764,7 +1764,27 @@
     "manualEditPageHelp": "The content is complete and readable. Review this slide's layout before final use.",
     "failureStage": "Failure stage",
     "retryableFailure": "Retry available",
-    "nonRetryableFailure": "Check the input or system configuration"
+    "nonRetryableFailure": "Check the input or system configuration",
+    "adoptedDiagramFrozen": "The accepted diagram keeps its original nodes and relations. Reveal steps can be adjusted. To change the diagram, revise and accept it in the handout first.",
+    "teachingPhysicalPages": "Physical slides",
+    "comparisonSubject": "Comparison subject",
+    "comparisonDimension": "Comparison dimension",
+    "teachingRelations": "Relationships and directions",
+    "relationSource": "Source",
+    "relationTarget": "Target",
+    "relationMeaning": "Relationship meaning",
+    "teachingRevealState": "Reveal step",
+    "savedPagePreview": "Preview saved pages",
+    "sceneImageUnavailable": "Image unavailable",
+    "sceneImageLoading": "Loading image…",
+    "teachingRoles": {
+      "label": "Object or dimension label",
+      "condition": "Required condition",
+      "evidence": "Evidence and content",
+      "question": "Classroom question",
+      "answer": "Answer and feedback",
+      "claim": "Conclusion"
+    }
   },
   "courseLibrary": {
     "eyebrow": "Course library",

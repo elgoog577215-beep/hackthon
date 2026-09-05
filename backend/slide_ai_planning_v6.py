@@ -5,6 +5,7 @@ degrade only pages that do not carry a required characteristic artifact.
 """
 
 from __future__ import annotations
+from slide_planning_telemetry import AIPlannerInvocationError, _AIPlannerResponse, _sanitize_provider_attempts, _provider_attempts_from
 
 import asyncio
 import inspect
@@ -128,35 +129,8 @@ _VISUAL_DECISION_CONTRACT_FIELDS = frozenset({
 })
 
 
-class AIPlannerInvocationError(RuntimeError):
-    """Provider failure with only allow-listed, non-content telemetry attached."""
-
-    def __init__(
-        self,
-        error: BaseException,
-        *,
-        telemetry: list[dict[str, Any]] | None = None,
-    ) -> None:
-        self.original_error = error
-        self.telemetry = [
-            item.model_dump(mode="json")
-            for item in _sanitize_provider_attempts(telemetry or [])
-        ]
-        super().__init__(str(error) or type(error).__name__)
 
 
-class _AIPlannerResponse(dict[str, Any]):
-    def __init__(
-        self,
-        value: dict[str, Any],
-        *,
-        telemetry: list[dict[str, Any]] | None = None,
-    ) -> None:
-        super().__init__(value)
-        self.telemetry = [
-            item.model_dump(mode="json")
-            for item in _sanitize_provider_attempts(telemetry or [])
-        ]
 
 
 class _StrictModel(BaseModel):
@@ -1389,83 +1363,8 @@ def _normalize_visual_batch_response(
     return payload
 
 
-def _sanitize_provider_attempts(
-    telemetry: list[dict[str, Any]],
-) -> list[AIProviderAttemptDiagnosticV1]:
-    """Keep operational routing data while dropping prompts, keys, and responses."""
-
-    records: list[AIProviderAttemptDiagnosticV1] = []
-    for ordinal, raw in enumerate(telemetry, start=1):
-        if not isinstance(raw, dict):
-            continue
-        provider = str(
-            raw.get("provider")
-            or raw.get("provider_route")
-            or "shared-ai-pool"
-        )
-        model = str(
-            raw.get("model")
-            or raw.get("model_id")
-            or "provider-selected"
-        )
-        try:
-            attempt = max(1, int(raw.get("provider_attempt") or raw.get("attempt") or ordinal))
-        except (TypeError, ValueError):
-            attempt = ordinal
-        try:
-            duration_ms = max(0, int(raw.get("duration_ms") or 0))
-        except (TypeError, ValueError):
-            duration_ms = 0
-        try:
-            queue_wait_ms = max(0, int(raw.get("queue_wait_ms") or 0))
-        except (TypeError, ValueError):
-            queue_wait_ms = 0
-        try:
-            physical_request_count = max(
-                0,
-                int(raw.get("physical_request_count") or 0),
-            )
-        except (TypeError, ValueError):
-            physical_request_count = 0
-        try:
-            input_tokens = max(0, int(
-                raw.get("input_tokens")
-                or raw.get("estimated_input_tokens")
-                or 0
-            ))
-        except (TypeError, ValueError):
-            input_tokens = 0
-        try:
-            output_tokens = max(0, int(
-                raw.get("output_tokens")
-                or raw.get("estimated_output_tokens")
-                or 0
-            ))
-        except (TypeError, ValueError):
-            output_tokens = 0
-        tokens_source = str(raw.get("tokens_source") or "unknown")
-        if tokens_source not in {"provider", "estimate", "unknown"}:
-            tokens_source = "unknown"
-        records.append(AIProviderAttemptDiagnosticV1(
-            provider=provider,
-            model=model,
-            attempt=attempt,
-            status=str(raw.get("status") or "unknown"),
-            duration_ms=duration_ms,
-            queue_wait_ms=queue_wait_ms,
-            physical_request_count=physical_request_count,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            tokens_source=tokens_source,
-            failure_kind=str(raw.get("failure_kind") or ""),
-            error_code=str(raw.get("error_code") or ""),
-        ))
-    return records
 
 
-def _provider_attempts_from(value: Any) -> list[AIProviderAttemptDiagnosticV1]:
-    telemetry = getattr(value, "telemetry", [])
-    return _sanitize_provider_attempts(telemetry if isinstance(telemetry, list) else [])
 
 
 def _batch_diagnostic(
@@ -3939,6 +3838,13 @@ async def regenerate_ppt_manuscript_pages_v1(
             message="锁定页不会被重新生成，请先解除锁定或取消选择。",
             page_id=locked_ids[0],
         )
+    if manuscript.teaching_content_contract_version == "page_teaching_v2":
+        from ppt_teaching_planner import regenerate_teaching_pages
+        return await regenerate_teaching_pages(
+            manuscript, requested_ids, ai_planner, timeout_seconds=timeout_seconds,
+            accepted_question_bank_items=accepted_question_bank_items,
+            accepted_visual_expressions=accepted_visual_expressions,
+        )
     structural_ids = [
         page_id for page_id in requested_ids
         if pages_by_id[page_id].page_type in {"cover", "agenda", "summary"}
@@ -5535,6 +5441,9 @@ def build_ai_base_story_planner_v6() -> Planner:
     provider = AIBase(provider_profile="ppt")
 
     async def planner(request: dict[str, Any]) -> dict[str, Any]:
+        if request.get("teaching_request") in {"narrative", "page", "revision"}:
+            from ppt_teaching_planner import invoke_teaching_provider
+            return await invoke_teaching_provider(provider, request)
         telemetry: list[dict[str, Any]] = []
         try:
             with generation_stage(

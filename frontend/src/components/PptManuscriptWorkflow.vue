@@ -46,7 +46,7 @@
             </aside>
             <div class="ppt-manuscript-workflow__page-copy">
               <div class="ppt-manuscript-workflow__page-meta">
-                <small>{{ pageTypeLabel(page.page_type) }} · {{ page.layout_id }}</small>
+                <small>{{ pageTypeLabel(page.page_type) }}<template v-if="!page.teaching"> · {{ page.layout_id }}</template></small>
                 <button type="button" class="ppt-manuscript-workflow__lock" :disabled="busy" @click="toggleLock(page)"><Lock v-if="page.teacher_locked" :size="15" /><Unlock v-else :size="15" />{{ page.teacher_locked ? t('pptWorkspace.pageLocked', '已锁定') : t('pptWorkspace.lockPage', '锁定本页') }}</button>
               </div>
 
@@ -60,8 +60,9 @@
                 <label><span>{{ t('pptWorkspace.observableEvidence', '达成证据') }}</span><textarea v-model="page.observable_evidence" :disabled="busy" rows="2" /></label>
               </div>
 
-              <div class="ppt-manuscript-workflow__visible-copy"><span>{{ t('pptWorkspace.visibleCopy', '台上可见内容') }}</span><textarea v-for="(_line, index) in page.visible_copy || []" :key="`${page.page_id}-copy-${index}`" v-model="page.visible_copy[index]" :disabled="busy" rows="2" /></div>
-              <label><span>{{ t('pptWorkspace.revealSteps', '揭示顺序') }}</span><textarea :value="listLines(page.reveal_steps)" :disabled="busy" rows="3" @input="setLines(page, 'reveal_steps', $event)" /></label>
+              <PptTeachingEditor v-if="page.teaching" :page="page" :disabled="Boolean(busy)" />
+              <div v-else class="ppt-manuscript-workflow__visible-copy"><span>{{ t('pptWorkspace.visibleCopy', '台上可见内容') }}</span><textarea v-for="(_line, index) in page.visible_copy || []" :key="`${page.page_id}-copy-${index}`" v-model="page.visible_copy[index]" :disabled="busy" rows="2" /></div>
+              <label v-if="!page.teaching"><span>{{ t('pptWorkspace.revealSteps', '揭示顺序') }}</span><textarea :value="listLines(page.reveal_steps)" :disabled="busy" rows="3" @input="setLines(page, 'reveal_steps', $event)" /></label>
               <label><span>{{ t('pptWorkspace.pageTransition', '与前后页的衔接') }}</span><textarea v-model="page.transition" :disabled="busy" rows="2" /></label>
               <label><span>{{ t('pptWorkspace.compositionNotes', '构图意图') }}</span><textarea v-model="page.composition_notes" :disabled="busy" rows="2" /></label>
 
@@ -100,6 +101,7 @@ import { computed, ref, watch } from 'vue'
 import { ArrowLeft, Check, FileCheck2, Lock, Presentation, RefreshCw, Save, ScrollText, Sparkles, TriangleAlert, Unlock } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 import MathText from './MathText.vue'
+import PptTeachingEditor from './PptTeachingEditor.vue'
 
 const props = defineProps<{ title: string; state: Record<string, any>; busy?: boolean; confirming?: boolean; saving?: boolean; regenerating?: boolean; error?: string; failure?: Record<string, any> | null }>()
 const emit = defineEmits<{
@@ -125,9 +127,13 @@ watch(() => props.state.revision, () => {
 }, { immediate: true })
 
 const narrativeBrief = computed(() => manuscript.value?.narrative_brief || null)
-const dirtyUpdates = computed(() => draftPages.value.flatMap((page, index) => {
+const dirtyUpdates = computed(() => draftPages.value.flatMap((page, index): Record<string, any>[] => {
   const original = originalPages.value[index]
   if (!original || JSON.stringify(page) === JSON.stringify(original)) return []
+  if (page.teaching) return [{ page_id: page.page_id, title: page.title, teaching: page.teaching, page_goal: page.page_goal,
+    primary_claim: page.primary_claim, audience_question: page.audience_question, audience_action: page.audience_action,
+    expected_response: page.expected_response, observable_evidence: page.observable_evidence, transition: page.transition,
+    composition_notes: page.composition_notes, teacher_locked: Boolean(page.teacher_locked) }]
   return [{ page_id: page.page_id, title: page.title, visible_copy: page.visible_copy, page_goal: page.page_goal, primary_claim: page.primary_claim, audience_question: page.audience_question, audience_action: page.audience_action, expected_response: page.expected_response, observable_evidence: page.observable_evidence, transition: page.transition, reveal_steps: page.reveal_steps, composition_notes: page.composition_notes, teacher_locked: Boolean(page.teacher_locked) }]
 }))
 const dirty = computed(() => dirtyUpdates.value.length > 0)

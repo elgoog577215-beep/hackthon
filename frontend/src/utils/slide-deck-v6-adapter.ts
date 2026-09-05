@@ -22,6 +22,7 @@ interface V6NoteBlock {
 }
 
 interface V6Page {
+  resolved_scene?: Record<string, any>
   page_id: string
   page_ordinal: number
   title: string
@@ -308,6 +309,12 @@ function adaptPage(
   page: V6Page,
   templateThemeOverrides: Record<string, string>,
 ): Record<string, any> {
+  if (page.resolved_scene) return {
+    unit_id: page.page_id, position: page.page_ordinal, layout: 'content', title: page.title,
+    resolved_scene: page.resolved_scene, blocks: [], visuals: [], speaker_notes: notesText(page),
+    source_block_ids: [...page.source_block_ids],
+    quality: { passed: true, resolved_layout: 'teaching-scene-v2', render_contract: 'resolved_page_scene_v2' },
+  }
   const slug = layoutSlug(page.resolved_layout)
   const adapter = layouts[slug]
   if (!adapter) throw new Error(`v6_template_layout_adapter_missing:${page.resolved_layout}`)

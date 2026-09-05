@@ -482,8 +482,12 @@ def _resolve_teacher_v6_template(
         )
     if not body.template_pack_id:
         try:
+            from ppt_teaching_flags import three_stage_enabled
+            if three_stage_enabled():
+                from ppt_layout_execution import compile_teaching_template
+                return compile_teaching_template(body.theme)
             return compile_builtin_template_layout_contract_v1(body.theme)
-        except KeyError as exc:
+        except (KeyError, ValueError) as exc:
             raise HTTPException(
                 status_code=422,
                 detail={
@@ -529,10 +533,14 @@ def _resolve_locked_teacher_v6_template(
             ) from exc
     else:
         try:
-            template = compile_builtin_template_layout_contract_v1(
-                str(state.get("theme") or "academic-editorial")
-            )
-        except KeyError as exc:
+            if str(state.get("template_version") or "").startswith("teaching_layout_v2"):
+                from ppt_layout_execution import compile_teaching_template
+                template = compile_teaching_template(str(state.get("theme") or "academic-editorial"), version=str(state.get("template_version") or ""))
+            else:
+                template = compile_builtin_template_layout_contract_v1(
+                    str(state.get("theme") or "academic-editorial")
+                )
+        except (KeyError, ValueError) as exc:
             raise HTTPException(
                 status_code=409,
                 detail={
@@ -643,7 +651,7 @@ def _assert_ppt_manuscript_confirmable(manuscript: dict) -> None:
             "页面内容稿质量未通过，修改后才能确认并生成正式 PPT。",
             details={"quality_issues": issues},
         )
-    if manuscript.get("teaching_content_contract_version") != "page_teaching_v1":
+    if manuscript.get("teaching_content_contract_version") not in {"page_teaching_v1", "page_teaching_v2"}:
         raise TeacherLessonAuthoringError(
             "lesson_ppt_manuscript_teaching_contract_outdated",
             "当前页面内容稿缺少逐页教学设计，请重新生成后再确认。",
@@ -2479,6 +2487,8 @@ async def regenerate_teacher_lesson_v6_manuscript_pages(
         ai_target_page_ids = [
             page_id for page_id in target_page_ids
             if not (
+                working_manuscript.teaching_content_contract_version != "page_teaching_v2"
+                and
                 page_id in affected_set
                 and page_id in pages_by_id
                 and (
@@ -2548,7 +2558,7 @@ async def regenerate_teacher_lesson_v6_manuscript_pages(
                 and item.get("status") == "accepted"
                 and not item.get("stale_reasons")
                 and target_source_ids.intersection({
-                    str((item.get("source") or {}).get("source_block_id") or ""),
+                    str((item.get("source") or {}).get("block_id") or (item.get("source") or {}).get("source_block_id") or ""),
                     *(
                         str(value)
                         for value in (item.get("source") or {}).get(
@@ -2557,6 +2567,17 @@ async def regenerate_teacher_lesson_v6_manuscript_pages(
                     ),
                 })
             ]
+            if working_manuscript.teaching_content_contract_version == "page_teaching_v2":
+                from ppt_adopted_visuals import current_visual_catalog
+                try:
+                    accepted_visuals = current_visual_catalog(
+                        accepted_visuals, course_id=course_id, script_revision_id=current_script_revision_id,
+                        sources={str(b.get("block_id") or ""): str(b.get("content") or "").strip() for b in script_blocks},
+                        asset_repository=visual_service.asset_repository,
+                    )
+                except (ValueError, FileNotFoundError) as exc:
+                    raise V6BuildError(stage="manuscript", code="lesson_ppt_shared_visual_unavailable",
+                        message="已采用的图解或插图暂不可用，原内容稿已保留。", retryable=True) from exc
             revised = await regenerate_ppt_manuscript_pages_v1(
                 working_manuscript,
                 target_page_ids=ai_target_page_ids,
@@ -2633,7 +2654,7 @@ async def confirm_teacher_lesson_v6_manuscript_draft(
     ),
 ):
     try:
-        _teacher_v6_source(tm, repository, course_id, lesson_unit_id)
+        document, *_ = _teacher_v6_source(tm, repository, course_id, lesson_unit_id)
         if repository.current_imported_ppt_review(course_id, lesson_unit_id):
             raise TeacherLessonAuthoringError(
                 "lesson_ppt_original_branch_active",
@@ -2663,6 +2684,12 @@ async def confirm_teacher_lesson_v6_manuscript_draft(
                 "lesson_ppt_source_stale",
                 "上游教学内容或资料已经变化，请重新生成 页面内容稿。",
             )
+        if manuscript.get("teaching_content_contract_version") == "page_teaching_v2":
+            template = _resolve_locked_teacher_v6_template(current or {}, actor)
+            compile_slide_deck_v6_from_manuscript(
+                document, compile_course_presentation_graph(document, teaching_plan={}),
+                PptManuscriptV1.model_validate(manuscript), template,
+            )
         confirmed = repository.confirm_v6_ppt_manuscript_draft(
             course_id,
             lesson_unit_id,
@@ -2677,6 +2704,9 @@ async def confirm_teacher_lesson_v6_manuscript_draft(
         }
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
+
+    except V6BuildError as exc:
+        raise HTTPException(status_code=422, detail=exc.failure.model_dump(mode="json")) from exc
 
 
 @router.get("/courses/{course_id}/lessons/{lesson_unit_id}/ppt-v6/{representation_id}/spec")
@@ -3039,6 +3069,14 @@ async def build_teacher_lesson_v6_manuscript(
         document = _attach_ppt_reference_evidence(document, material_evidence)
         teacher_source = dict(course_view.get("teacher_lesson_source") or {})
         teacher_source["material_bindings"] = material_bindings
+        if any(layout.execution is not None for layout in template.layouts):
+            from ppt_adopted_visuals import catalog_for_teacher_source
+            try:
+                teacher_source["accepted_visual_expressions"] = catalog_for_teacher_source(
+                    teacher_script_visual_service, document, course_view
+                )
+            except (ValueError, FileNotFoundError) as exc:
+                raise TeacherLessonAuthoringError("lesson_ppt_shared_visual_unavailable", "已采用的图解或插图不可用，请检查后重试。") from exc
         course_view["teacher_lesson_source"] = teacher_source
         course_view["evidence_catalog"] = material_evidence
     except TeacherLessonAuthoringError as exc:

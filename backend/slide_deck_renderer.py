@@ -682,6 +682,7 @@ def _write_libreoffice_fontconfig(output_dir: Path) -> Path:
         )
 
     candidates = [
+        Path(__file__).resolve().parents[1] / "frontend/public/presentation-assets/fonts",
         project_font_dir,
         Path("/System/Library/Fonts"),
         Path("/System/Library/Fonts/Supplemental"),

@@ -1,0 +1,813 @@
+{
+  "schema_version": "teaching_template_certification_v2",
+  "layouts": {
+    "compare-visual": {
+      "status": "passed",
+      "component_version": "teaching_layout_v2.2",
+      "tools": {
+        "compiler": "teaching_scene_v2.2",
+        "renderer": "teaching_native_v2.2",
+        "quality": "teaching_export_v2.2",
+        "python": "3.12.13",
+        "font_family": "Noto Sans CJK SC",
+        "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+        "python_pptx": "1.0.2",
+        "lxml": "6.1.1",
+        "pillow": "12.3.0",
+        "freetype": "2.14.3",
+        "pypdf": "6.10.0",
+        "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+        "poppler": "pdftoppm version 26.05.0"
+      },
+      "checks": {
+        "short": true,
+        "normal": true,
+        "long": true,
+        "relations": true,
+        "render": true
+      },
+      "object_reports": [
+        {
+          "passed": true,
+          "elements": 9,
+          "relations": 1,
+          "scene_digest": "scene_9d949d14f3eeb8ecb60ee1e9",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 9,
+          "relations": 1,
+          "scene_digest": "scene_5ed7586663a0a7cf28e9be54",
+          "editability": [
+            "text"
+          ]
+        }
+      ],
+      "classroom_review": "pending",
+      "pptx_sha256": "a8573bdc8945b96917fdaf3083133ef443c7212e88fc2f9a2d260cc505775da1",
+      "pdf_sha256": "d4de5171d8f5b33289ea802beed4b5fabfbb516264235569cd72b63d3c33a816",
+      "render_page_sha256": [
+        "26c4db9e627992ba39dd24b953434ec5fb24c56c04bdbbc8316607927620a18d",
+        "7e4c016baeb481f1f00b2213f2af544bccd0153b2b2f38f354b1f5484c555b35"
+      ],
+      "pdf_object_reports": [
+        {
+          "page_id": "sample-short",
+          "state_id": "complete",
+          "objects_verified": 9,
+          "passed": true
+        },
+        {
+          "page_id": "sample-normal",
+          "state_id": "complete",
+          "objects_verified": 9,
+          "passed": true
+        }
+      ],
+      "render_engine": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5"
+    },
+    "compare-matrix": {
+      "status": "passed",
+      "component_version": "teaching_layout_v2.2",
+      "tools": {
+        "compiler": "teaching_scene_v2.2",
+        "renderer": "teaching_native_v2.2",
+        "quality": "teaching_export_v2.2",
+        "python": "3.12.13",
+        "font_family": "Noto Sans CJK SC",
+        "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+        "python_pptx": "1.0.2",
+        "lxml": "6.1.1",
+        "pillow": "12.3.0",
+        "freetype": "2.14.3",
+        "pypdf": "6.10.0",
+        "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+        "poppler": "pdftoppm version 26.05.0"
+      },
+      "checks": {
+        "short": true,
+        "normal": true,
+        "long": true,
+        "relations": true,
+        "render": true
+      },
+      "object_reports": [
+        {
+          "passed": true,
+          "elements": 9,
+          "relations": 1,
+          "scene_digest": "scene_54d2eb098e6d9e103fb392c0",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 9,
+          "relations": 1,
+          "scene_digest": "scene_519bd37b79e624c84c598784",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 21,
+          "relations": 0,
+          "scene_digest": "scene_af23ffc9192867f008ad1654",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 26,
+          "relations": 0,
+          "scene_digest": "scene_e1563c847c06cbf89c1c9ef3",
+          "editability": [
+            "text"
+          ]
+        }
+      ],
+      "classroom_review": "pending",
+      "pptx_sha256": "45da38eb1afc29038ac6140d4dabd219be46f26046c2a712a5f26315fff1b589",
+      "pdf_sha256": "fab6dda04d690dbd069c986d8cb5bb5cb47e6b1c74f6d7dad9561c96ace6c765",
+      "render_page_sha256": [
+        "9d70ad7be4e7d81b73c09c05a962c15c09026e4deb1ad80c707332291f8eb3dd",
+        "53b7e3204bde7dca674f9cf05b7bad185665e78008e96a7e1fbe70bef95915b8",
+        "5d17b675232ab0fbad9488ac0953ac074455a942ba5ab87039467ff7ebd64e61",
+        "40f3963bac51cab0d63bc53f2990e99e7020f682e3a1a782cce5b0197f6c8856"
+      ],
+      "pdf_object_reports": [
+        {
+          "page_id": "sample-short",
+          "state_id": "complete",
+          "objects_verified": 9,
+          "passed": true
+        },
+        {
+          "page_id": "sample-normal",
+          "state_id": "complete",
+          "objects_verified": 9,
+          "passed": true
+        },
+        {
+          "page_id": "matrix-boundary-3",
+          "state_id": "all",
+          "objects_verified": 21,
+          "passed": true
+        },
+        {
+          "page_id": "matrix-boundary-4",
+          "state_id": "all",
+          "objects_verified": 26,
+          "passed": true
+        }
+      ],
+      "render_engine": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5"
+    },
+    "problem-focus": {
+      "status": "passed",
+      "component_version": "teaching_layout_v2.2",
+      "tools": {
+        "compiler": "teaching_scene_v2.2",
+        "renderer": "teaching_native_v2.2",
+        "quality": "teaching_export_v2.2",
+        "python": "3.12.13",
+        "font_family": "Noto Sans CJK SC",
+        "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+        "python_pptx": "1.0.2",
+        "lxml": "6.1.1",
+        "pillow": "12.3.0",
+        "freetype": "2.14.3",
+        "pypdf": "6.10.0",
+        "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+        "poppler": "pdftoppm version 26.05.0"
+      },
+      "checks": {
+        "short": true,
+        "normal": true,
+        "long": true,
+        "relations": true,
+        "render": true
+      },
+      "object_reports": [
+        {
+          "passed": true,
+          "elements": 2,
+          "relations": 0,
+          "scene_digest": "scene_9907d10f435a4127036ce492",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 3,
+          "relations": 0,
+          "scene_digest": "scene_549f11211d6bbfe2a905f926",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 2,
+          "relations": 0,
+          "scene_digest": "scene_06414544b164fdb37f8abf4f",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 3,
+          "relations": 0,
+          "scene_digest": "scene_c145a72c5404a9b8bcb99cb5",
+          "editability": [
+            "text"
+          ]
+        }
+      ],
+      "classroom_review": "pending",
+      "pptx_sha256": "6e66422e91310714080e9e1d29ed556d08ed6cc921b73b42a1949e1656c7b007",
+      "pdf_sha256": "d80a1d34d0bde0a9181796c80a2b673f64cb42ca41cb9945ae3d19f293815c3f",
+      "render_page_sha256": [
+        "502894aeb3a6ac91229bce5499c9e054847792179c5412e454e27cbf2d7bddd1",
+        "7aa5ad9c0ab60e44724122782b6f9d501bf8576bfaae43a1f54eaeb45e7ff75d",
+        "20d49131707c53e6f4027382913da624079c2729e279b77a46fb57b8ec596f25",
+        "7add1b4674fc226659d19b8c2cdb443645ae490a4641048434f2ee7d121c961c"
+      ],
+      "pdf_object_reports": [
+        {
+          "page_id": "sample-short",
+          "state_id": "question",
+          "objects_verified": 2,
+          "passed": true
+        },
+        {
+          "page_id": "sample-short",
+          "state_id": "complete",
+          "objects_verified": 3,
+          "passed": true
+        },
+        {
+          "page_id": "sample-normal",
+          "state_id": "question",
+          "objects_verified": 2,
+          "passed": true
+        },
+        {
+          "page_id": "sample-normal",
+          "state_id": "complete",
+          "objects_verified": 3,
+          "passed": true
+        }
+      ],
+      "render_engine": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5"
+    },
+    "concept-map": {
+      "status": "passed",
+      "component_version": "teaching_layout_v2.2",
+      "tools": {
+        "compiler": "teaching_scene_v2.2",
+        "renderer": "teaching_native_v2.2",
+        "quality": "teaching_export_v2.2",
+        "python": "3.12.13",
+        "font_family": "Noto Sans CJK SC",
+        "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+        "python_pptx": "1.0.2",
+        "lxml": "6.1.1",
+        "pillow": "12.3.0",
+        "freetype": "2.14.3",
+        "pypdf": "6.10.0",
+        "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+        "poppler": "pdftoppm version 26.05.0"
+      },
+      "checks": {
+        "short": true,
+        "normal": true,
+        "long": true,
+        "relations": true,
+        "render": true
+      },
+      "object_reports": [
+        {
+          "passed": true,
+          "elements": 5,
+          "relations": 2,
+          "scene_digest": "scene_e1230ba84de5286591ab60d9",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 5,
+          "relations": 2,
+          "scene_digest": "scene_361d82cbe13091eaea28e468",
+          "editability": [
+            "text"
+          ]
+        }
+      ],
+      "classroom_review": "pending",
+      "pptx_sha256": "f5c86b961a04f503300b466146ae2504d8b53cd924d2c35910401c8fa0a7f52d",
+      "pdf_sha256": "2553a4ae6d5d4eeacce273c71e9824bf21b3adb35a64fef3e3856b487632760d",
+      "render_page_sha256": [
+        "4272cdddcb2676d1b292de8e843dab69568035795878c6f1bb3046684e85cca7",
+        "af516eeaf76a03cda880076c4c44be03486410b8cf71f03077275cf3dc750ae9"
+      ],
+      "pdf_object_reports": [
+        {
+          "page_id": "sample-short",
+          "state_id": "complete",
+          "objects_verified": 5,
+          "passed": true
+        },
+        {
+          "page_id": "sample-normal",
+          "state_id": "complete",
+          "objects_verified": 5,
+          "passed": true
+        }
+      ],
+      "render_engine": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5"
+    },
+    "relation-flow": {
+      "status": "passed",
+      "component_version": "teaching_layout_v2.2",
+      "tools": {
+        "compiler": "teaching_scene_v2.2",
+        "renderer": "teaching_native_v2.2",
+        "quality": "teaching_export_v2.2",
+        "python": "3.12.13",
+        "font_family": "Noto Sans CJK SC",
+        "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+        "python_pptx": "1.0.2",
+        "lxml": "6.1.1",
+        "pillow": "12.3.0",
+        "freetype": "2.14.3",
+        "pypdf": "6.10.0",
+        "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+        "poppler": "pdftoppm version 26.05.0"
+      },
+      "checks": {
+        "short": true,
+        "normal": true,
+        "long": true,
+        "relations": true,
+        "render": true
+      },
+      "object_reports": [
+        {
+          "passed": true,
+          "elements": 5,
+          "relations": 2,
+          "scene_digest": "scene_2360720825f39b7d52aedd2e",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 5,
+          "relations": 2,
+          "scene_digest": "scene_33d045589ea35d817abdff61",
+          "editability": [
+            "text"
+          ]
+        }
+      ],
+      "classroom_review": "pending",
+      "pptx_sha256": "f2ddddfcff339863348d3c040b0ef26101dbde0f92b1da5710aa19065ecbd994",
+      "pdf_sha256": "0a73ab825b2ba0f1a2592fe5b9179dd3062e156d2f383b68893e2d525cf96a79",
+      "render_page_sha256": [
+        "c8061f07081f6c4280c9f33669318f74d77049cd1d55c8de04c03821394b9a7d",
+        "445589c6d93e298a61a619f6af7249960e3d37036b6f20d583ed168f91fcd098"
+      ],
+      "pdf_object_reports": [
+        {
+          "page_id": "sample-short",
+          "state_id": "complete",
+          "objects_verified": 5,
+          "passed": true
+        },
+        {
+          "page_id": "sample-normal",
+          "state_id": "complete",
+          "objects_verified": 5,
+          "passed": true
+        }
+      ],
+      "render_engine": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5"
+    },
+    "step-derivation": {
+      "status": "passed",
+      "component_version": "teaching_layout_v2.2",
+      "tools": {
+        "compiler": "teaching_scene_v2.2",
+        "renderer": "teaching_native_v2.2",
+        "quality": "teaching_export_v2.2",
+        "python": "3.12.13",
+        "font_family": "Noto Sans CJK SC",
+        "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+        "python_pptx": "1.0.2",
+        "lxml": "6.1.1",
+        "pillow": "12.3.0",
+        "freetype": "2.14.3",
+        "pypdf": "6.10.0",
+        "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+        "poppler": "pdftoppm version 26.05.0"
+      },
+      "checks": {
+        "short": true,
+        "normal": true,
+        "long": true,
+        "relations": true,
+        "render": true
+      },
+      "object_reports": [
+        {
+          "passed": true,
+          "elements": 2,
+          "relations": 0,
+          "scene_digest": "scene_a5de2c6fdc63ee56f0501fc9",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 3,
+          "relations": 0,
+          "scene_digest": "scene_884b62d80a2d17175adef7ab",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 2,
+          "relations": 0,
+          "scene_digest": "scene_0872aa952fc50be15af33029",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 3,
+          "relations": 0,
+          "scene_digest": "scene_d530a83f9f2b16b4e864e507",
+          "editability": [
+            "text"
+          ]
+        }
+      ],
+      "classroom_review": "pending",
+      "pptx_sha256": "ae3d405f1674381a28d1b5c0a111937f63b6aaa1ddbc3fb18d9b933e59810a09",
+      "pdf_sha256": "812d6dd6dd82f4b467afe19a9509bad3a5c2ca914ea78dd1c278f742138b7ffa",
+      "render_page_sha256": [
+        "502894aeb3a6ac91229bce5499c9e054847792179c5412e454e27cbf2d7bddd1",
+        "7aa5ad9c0ab60e44724122782b6f9d501bf8576bfaae43a1f54eaeb45e7ff75d",
+        "20d49131707c53e6f4027382913da624079c2729e279b77a46fb57b8ec596f25",
+        "7add1b4674fc226659d19b8c2cdb443645ae490a4641048434f2ee7d121c961c"
+      ],
+      "pdf_object_reports": [
+        {
+          "page_id": "sample-short",
+          "state_id": "question",
+          "objects_verified": 2,
+          "passed": true
+        },
+        {
+          "page_id": "sample-short",
+          "state_id": "complete",
+          "objects_verified": 3,
+          "passed": true
+        },
+        {
+          "page_id": "sample-normal",
+          "state_id": "question",
+          "objects_verified": 2,
+          "passed": true
+        },
+        {
+          "page_id": "sample-normal",
+          "state_id": "complete",
+          "objects_verified": 3,
+          "passed": true
+        }
+      ],
+      "render_engine": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5"
+    },
+    "exercise-states": {
+      "status": "passed",
+      "component_version": "teaching_layout_v2.2",
+      "tools": {
+        "compiler": "teaching_scene_v2.2",
+        "renderer": "teaching_native_v2.2",
+        "quality": "teaching_export_v2.2",
+        "python": "3.12.13",
+        "font_family": "Noto Sans CJK SC",
+        "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+        "python_pptx": "1.0.2",
+        "lxml": "6.1.1",
+        "pillow": "12.3.0",
+        "freetype": "2.14.3",
+        "pypdf": "6.10.0",
+        "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+        "poppler": "pdftoppm version 26.05.0"
+      },
+      "checks": {
+        "short": true,
+        "normal": true,
+        "long": true,
+        "relations": true,
+        "render": true
+      },
+      "object_reports": [
+        {
+          "passed": true,
+          "elements": 2,
+          "relations": 0,
+          "scene_digest": "scene_15b4a51362287a407f024a49",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 3,
+          "relations": 0,
+          "scene_digest": "scene_d6c34282d9218a3e12d52cc4",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 2,
+          "relations": 0,
+          "scene_digest": "scene_c51ff2dda67032560a260a1e",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 3,
+          "relations": 0,
+          "scene_digest": "scene_93523fa83142112a580603b6",
+          "editability": [
+            "text"
+          ]
+        }
+      ],
+      "classroom_review": "pending",
+      "pptx_sha256": "3aad3827ca74b09fe069c9ca84ba17b5e910b27d989d9af95020f8471bebfa20",
+      "pdf_sha256": "4fed3bd7c54ffa476a66ce59e3d64d6dbf08497b6495d4ad77e1a2ea336eef5f",
+      "render_page_sha256": [
+        "502894aeb3a6ac91229bce5499c9e054847792179c5412e454e27cbf2d7bddd1",
+        "7aa5ad9c0ab60e44724122782b6f9d501bf8576bfaae43a1f54eaeb45e7ff75d",
+        "20d49131707c53e6f4027382913da624079c2729e279b77a46fb57b8ec596f25",
+        "7add1b4674fc226659d19b8c2cdb443645ae490a4641048434f2ee7d121c961c"
+      ],
+      "pdf_object_reports": [
+        {
+          "page_id": "sample-short",
+          "state_id": "question",
+          "objects_verified": 2,
+          "passed": true
+        },
+        {
+          "page_id": "sample-short",
+          "state_id": "complete",
+          "objects_verified": 3,
+          "passed": true
+        },
+        {
+          "page_id": "sample-normal",
+          "state_id": "question",
+          "objects_verified": 2,
+          "passed": true
+        },
+        {
+          "page_id": "sample-normal",
+          "state_id": "complete",
+          "objects_verified": 3,
+          "passed": true
+        }
+      ],
+      "render_engine": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5"
+    },
+    "lesson-recap": {
+      "status": "passed",
+      "component_version": "teaching_layout_v2.2",
+      "tools": {
+        "compiler": "teaching_scene_v2.2",
+        "renderer": "teaching_native_v2.2",
+        "quality": "teaching_export_v2.2",
+        "python": "3.12.13",
+        "font_family": "Noto Sans CJK SC",
+        "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+        "python_pptx": "1.0.2",
+        "lxml": "6.1.1",
+        "pillow": "12.3.0",
+        "freetype": "2.14.3",
+        "pypdf": "6.10.0",
+        "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+        "poppler": "pdftoppm version 26.05.0"
+      },
+      "checks": {
+        "short": true,
+        "normal": true,
+        "long": true,
+        "relations": true,
+        "render": true
+      },
+      "object_reports": [
+        {
+          "passed": true,
+          "elements": 3,
+          "relations": 0,
+          "scene_digest": "scene_7e06a4277e9db6e6fecba98e",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 3,
+          "relations": 0,
+          "scene_digest": "scene_30c76bbb9cf543506778f535",
+          "editability": [
+            "text"
+          ]
+        }
+      ],
+      "classroom_review": "pending",
+      "pptx_sha256": "2fe1e19d7b86893201b186ac4c5f0f0875dbf9ec6cdf513a190a68f0fa2fa809",
+      "pdf_sha256": "a4ccc3424a17d163b7ecf9a2af4edcf5ebb771807b3ace1591933202f52e53f5",
+      "render_page_sha256": [
+        "7aa5ad9c0ab60e44724122782b6f9d501bf8576bfaae43a1f54eaeb45e7ff75d",
+        "7add1b4674fc226659d19b8c2cdb443645ae490a4641048434f2ee7d121c961c"
+      ],
+      "pdf_object_reports": [
+        {
+          "page_id": "sample-short",
+          "state_id": "complete",
+          "objects_verified": 3,
+          "passed": true
+        },
+        {
+          "page_id": "sample-normal",
+          "state_id": "complete",
+          "objects_verified": 3,
+          "passed": true
+        }
+      ],
+      "render_engine": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5"
+    },
+    "lesson-cover": {
+      "status": "passed",
+      "component_version": "teaching_layout_v2.2",
+      "tools": {
+        "compiler": "teaching_scene_v2.2",
+        "renderer": "teaching_native_v2.2",
+        "quality": "teaching_export_v2.2",
+        "python": "3.12.13",
+        "font_family": "Noto Sans CJK SC",
+        "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+        "python_pptx": "1.0.2",
+        "lxml": "6.1.1",
+        "pillow": "12.3.0",
+        "freetype": "2.14.3",
+        "pypdf": "6.10.0",
+        "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+        "poppler": "pdftoppm version 26.05.0"
+      },
+      "checks": {
+        "short": true,
+        "normal": true,
+        "long": true,
+        "relations": true,
+        "render": true
+      },
+      "object_reports": [
+        {
+          "passed": true,
+          "elements": 3,
+          "relations": 0,
+          "scene_digest": "scene_1efeed16509df2c2ff70941a",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 3,
+          "relations": 0,
+          "scene_digest": "scene_d01f2d13d132eb80d55e3787",
+          "editability": [
+            "text"
+          ]
+        }
+      ],
+      "classroom_review": "pending",
+      "pptx_sha256": "1c7d8b44e2fe7d8b92ec971e50d0fe63cad6517e12c25f0bdf611c540d9400d0",
+      "pdf_sha256": "d970e71c1ae729c77dfadc6680e51b16d9f928b21839f20993205628372f5217",
+      "render_page_sha256": [
+        "7aa5ad9c0ab60e44724122782b6f9d501bf8576bfaae43a1f54eaeb45e7ff75d",
+        "7add1b4674fc226659d19b8c2cdb443645ae490a4641048434f2ee7d121c961c"
+      ],
+      "pdf_object_reports": [
+        {
+          "page_id": "sample-short",
+          "state_id": "complete",
+          "objects_verified": 3,
+          "passed": true
+        },
+        {
+          "page_id": "sample-normal",
+          "state_id": "complete",
+          "objects_verified": 3,
+          "passed": true
+        }
+      ],
+      "render_engine": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5"
+    },
+    "lesson-agenda": {
+      "status": "passed",
+      "component_version": "teaching_layout_v2.2",
+      "tools": {
+        "compiler": "teaching_scene_v2.2",
+        "renderer": "teaching_native_v2.2",
+        "quality": "teaching_export_v2.2",
+        "python": "3.12.13",
+        "font_family": "Noto Sans CJK SC",
+        "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+        "python_pptx": "1.0.2",
+        "lxml": "6.1.1",
+        "pillow": "12.3.0",
+        "freetype": "2.14.3",
+        "pypdf": "6.10.0",
+        "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+        "poppler": "pdftoppm version 26.05.0"
+      },
+      "checks": {
+        "short": true,
+        "normal": true,
+        "long": true,
+        "relations": true,
+        "render": true
+      },
+      "object_reports": [
+        {
+          "passed": true,
+          "elements": 3,
+          "relations": 0,
+          "scene_digest": "scene_ec5530a8a4d09a9d32cad21e",
+          "editability": [
+            "text"
+          ]
+        },
+        {
+          "passed": true,
+          "elements": 3,
+          "relations": 0,
+          "scene_digest": "scene_928559df3a9c8f29d22fd1b4",
+          "editability": [
+            "text"
+          ]
+        }
+      ],
+      "classroom_review": "pending",
+      "pptx_sha256": "8c4f898b2f53a39c26e9f9866fcf40601f4761e2a01a362ddcf5a57a42b9f64f",
+      "pdf_sha256": "a6d853590c6e8a3f5fec7f4451b70a8a5cf4c8c88ad632b1ec9449a70d4d7ddf",
+      "render_page_sha256": [
+        "7aa5ad9c0ab60e44724122782b6f9d501bf8576bfaae43a1f54eaeb45e7ff75d",
+        "7add1b4674fc226659d19b8c2cdb443645ae490a4641048434f2ee7d121c961c"
+      ],
+      "pdf_object_reports": [
+        {
+          "page_id": "sample-short",
+          "state_id": "complete",
+          "objects_verified": 3,
+          "passed": true
+        },
+        {
+          "page_id": "sample-normal",
+          "state_id": "complete",
+          "objects_verified": 3,
+          "passed": true
+        }
+      ],
+      "render_engine": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5"
+    }
+  }
+}
