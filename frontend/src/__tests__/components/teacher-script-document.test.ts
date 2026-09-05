@@ -327,7 +327,7 @@ describe('统一讲义页面', () => {
       generationJob: { ...generationJob, status: 'running', message: '正在生成：核心教学' },
     })
     expect(wrapper.find('.script-source-review').exists()).toBe(false)
-    expect(wrapper.get('.script-generation-progress').text()).toContain('正在生成：核心教学')
+    expect(wrapper.get('.script-generation-progress').text()).toContain('正在生成讲义')
     const generationActions = wrapper.findAll('.script-generation-progress button')
     expect(generationActions.map(button => button.text())).toEqual(['暂停', '取消'])
     await generationActions[0]!.trigger('click')
@@ -367,6 +367,7 @@ describe('统一讲义页面', () => {
     expect(wrapper.get('.script-module').text()).toContain('爬虫会先发起请求')
     expect(wrapper.find('.script-streamed-block .stream-caret').exists()).toBe(true)
 
+    const renderer = wrapper.findComponent(MarkdownRenderer).element
     await wrapper.setProps({
       generationJob: {
         ...generationJob,
@@ -376,7 +377,76 @@ describe('统一讲义页面', () => {
       },
     })
 
-    expect(wrapper.get('.script-module').text()).toContain('再解析响应')
+    await vi.waitFor(() => expect(wrapper.get('.script-module').text()).toContain('再解析响应'))
+    expect(wrapper.findComponent(MarkdownRenderer).element).toBe(renderer)
+  })
+
+  it('并发初始化不产生空教学块，正文到达后不暴露内部编号或其他块的名称', async () => {
+    const emptyLesson = structuredClone(lesson)
+    emptyLesson.script = { ...emptyLesson.script, current_revision_id: '', ready: false, sections: [] }
+    const firstId = 'tsb-55bede79fcd2'
+    const secondId = 'tsb-598ba7d17b25'
+    const job: TeacherLessonJob = {
+      id: 'script-job-reset', course_id: 'course-1', lesson_unit_id: 'lesson-1',
+      type: 'teacher_lesson_script_generation', status: 'running', progress: 5,
+      phase: 'lesson_script_block_generation', message: '正在生成：本节任务 / 核心教学 / 学习者行动',
+      current_block_id: firstId, current_block_title: '其他并发块的名称', warnings: [],
+      result_sections: [], streamed_block_content: { [firstId]: '', [secondId]: '  ' },
+      block_states: { [firstId]: 'running', [secondId]: 'running' },
+    }
+    const wrapper = mount(TeacherScriptDocument, {
+      props: { courseId: 'course-1', lesson: emptyLesson, generating: true, generationJob: job, externalToolbar: true },
+    })
+    expect(wrapper.findAll('.script-module')).toHaveLength(0)
+    expect(wrapper.findAll('.script-body')).toHaveLength(0)
+    expect(wrapper.findAll('.script-block-waiting')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('tsb-')
+
+    const text = 'HTTP 200 表示请求成功，Python 3 可以读取响应。'
+    await wrapper.setProps({ generationJob: { ...job, streamed_block_content: { [firstId]: text, [secondId]: '' } } })
+    expect(wrapper.findAll('.script-module')).toHaveLength(1)
+    expect(wrapper.get('.script-streamed-block').text()).toContain(text)
+    expect(wrapper.find('.stream-caret').exists()).toBe(true)
+    expect(wrapper.find('.script-block-waiting').exists()).toBe(false)
+    expect(wrapper.get('.script-module').find('header').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('tsb-')
+    expect(wrapper.text()).not.toContain('其他并发块的名称')
+    expect(wrapper.text()).not.toContain('概念讲解')
+
+    await wrapper.setProps({
+      generationJob: {
+        ...job, current_block_id: secondId,
+        streamed_block_content: { [firstId]: text, [secondId]: '' },
+        block_states: { [firstId]: 'completed', [secondId]: 'running' },
+        result_sections: [{ section_node_id: 'section-1', title: '1.1 爬虫基础', content: '', blocks: [
+          { block_id: firstId, module_id: 'core_explanation', title: '理解 HTTP 响应', role: 'concept', content: '已经完成的正文。' },
+          { block_id: secondId, module_id: 'example', title: secondId, role: 'example', content: '' },
+        ] }],
+      },
+    })
+    expect(wrapper.findAll('.script-module')).toHaveLength(1)
+    expect(wrapper.get('.script-module h5').text()).toBe('理解 HTTP 响应')
+    expect(wrapper.get('.script-module').text()).toContain('已经完成的正文。')
+    expect(wrapper.findAll('.script-block-waiting')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('tsb-')
+    expect(job.result_sections).toEqual([])
+  })
+
+  it('重新生成只有初始化信号时继续保留已有可用正文', () => {
+    const wrapper = mount(TeacherScriptDocument, {
+      props: {
+        courseId: 'course-1', lesson, generating: true, externalToolbar: true,
+        generationJob: {
+          id: 'regenerate-job', course_id: 'course-1', lesson_unit_id: 'lesson-1',
+          type: 'teacher_lesson_script_generation', status: 'running', progress: 5,
+          phase: 'lesson_script_block_generation', message: '内部调度信息', warnings: [],
+          streamed_block_content: { 'tsb-55bede79fcd2': '' }, result_sections: [],
+        },
+      },
+    })
+    expect(wrapper.get('.script-content').text()).toContain('原始讲稿内容')
+    expect(wrapper.get('.script-continuous').attributes('data-state')).toBe('ready')
+    expect(wrapper.findAll('.script-module')).toHaveLength(0)
   })
 
   it('历史恢复稿不作为生成成功结果，只允许重试', () => {

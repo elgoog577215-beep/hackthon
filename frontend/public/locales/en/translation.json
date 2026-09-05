@@ -979,7 +979,16 @@
       "generating": "Generating…",
       "stopGeneration": "Stop",
       "continueGenerating": "Continue remaining blocks",
-      "waitingForNextBlock": "Preparing the next teaching block",
+      "waitingForNextBlock": "Continuing the lecture notes…",
+      "progress": {
+        "preparingTitle": "Preparing lecture notes",
+        "preparingDetail": "Preparing content for this lesson",
+        "writingTitle": "Writing lecture notes",
+        "writingDetail": "The text is appearing as it is written",
+        "improvingTitle": "Refining lecture notes",
+        "improvingDetail": "Checking and completing the content",
+        "partialFailureDetail": "Some content could not be completed; the rest is still being written"
+      },
       "generateFailed": "Could not generate the handout",
       "planRequired": "Complete this lesson plan first",
       "minutes": "min",

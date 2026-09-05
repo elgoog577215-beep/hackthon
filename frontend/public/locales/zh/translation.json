@@ -979,7 +979,16 @@
       "generating": "正在生成…",
       "stopGeneration": "停止",
       "continueGenerating": "继续生成剩余内容",
-      "waitingForNextBlock": "正在准备下一个教学块",
+      "waitingForNextBlock": "正在继续撰写…",
+      "progress": {
+        "preparingTitle": "正在准备讲义",
+        "preparingDetail": "正在准备本讲内容",
+        "writingTitle": "正在生成讲义",
+        "writingDetail": "正文正在逐步展开",
+        "improvingTitle": "正在完善讲义",
+        "improvingDetail": "正在检查并补全内容",
+        "partialFailureDetail": "部分内容未完成，其他内容继续生成"
+      },
       "generateFailed": "讲义生成失败",
       "planRequired": "请先完成本讲教案",
       "minutes": "分钟",

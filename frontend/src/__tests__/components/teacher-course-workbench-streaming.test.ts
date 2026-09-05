@@ -9,6 +9,8 @@ import { lessonPlanStreamSegments, useTeacherLessonAuthoringStore } from '@/stor
 import { useTeachingRepresentationsStore } from '@/stores/teachingRepresentations'
 import http from '@/utils/http'
 import router from '@/router'
+import { setLocale } from '@/shared/i18n'
+import zhMessages from '../../../public/locales/zh/translation.json'
 
 const growth = {
   schema_version: 'course_outline_growth_v1',
@@ -2105,7 +2107,9 @@ describe('teacher course workbench outline streaming', () => {
     expect(lessons[1]!.find('.lesson-outline-status svg').exists()).toBe(false)
   })
 
-  it('讲义批次保留逐讲状态且右栏显示当前讲进度', () => {
+  it('讲义批次保留逐讲状态且右栏显示当前讲进度', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => zhMessages } as Response)
+    await setLocale('zh')
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2].map(number => ({
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45, sections: [],
@@ -2131,9 +2135,32 @@ describe('teacher course workbench outline streaming', () => {
     expect(chapters[1]!.find('.lesson-outline-status').attributes('data-state')).toBe('queued')
     expect(chapters[0]!.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('50')
     expect(chapters[1]!.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('0')
-    expect(wrapper.get('.context-pane-heading').text()).toContain('正在生成：概念讲解')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('正在生成讲义')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('正文正在逐步展开')
+    expect(wrapper.get('.context-pane-heading').text()).not.toContain('正在生成：概念讲解')
     expect(wrapper.get('.context-pane-heading__progress').attributes('aria-valuenow')).toBe('50')
     expect(wrapper.get('[data-testid="workflow-progress"]').text()).toBe('50')
+    // The rest of this legacy suite exercises component fallback copy.
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
+    await setLocale('zh')
+    fetchMock.mockRestore()
+  })
+
+  it.each(['paused', 'failed', 'cancelled'] as const)('讲义%s后继续显示已经收到的正文，不返回教案映射', status => {
+    const store = useTeacherLessonAuthoringStore()
+    store.lessons = [{
+      lesson_unit_id: 'L1-1', number: 1, title: '第一讲', sections: [],
+      script: { ready: false, sections: [], source_state: 'current' },
+      plan: { working_revision_id: 'plan-1', source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
+    }] as any
+    store.jobs = [{
+      id: 'script-job-1', course_id: 'course-1', lesson_unit_id: 'L1-1', type: 'teacher_lesson_script_generation',
+      status, progress: 25, phase: 'lesson_script_block_generation', warnings: [],
+      streamed_block_content: { 'tsb-55bede79fcd2': '已经收到的讲义正文。' },
+    }] as any
+    const wrapper = mountWorkbench({ initialStage: 'script' })
+    expect(wrapper.find('[data-testid="script-course-preview"]').exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'TeacherScriptDocument' }).props('generationJob').id).toBe('script-job-1')
   })
 
   it.each(['lesson', 'script'] as const)('%s 目录圆环按当前任务分别更新，暂停保留进度，重试不复用旧进度', async initialStage => {

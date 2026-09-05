@@ -899,10 +899,17 @@
             <MathText :content="contextStatusDetail" />
           </div>
         </div>
+        <button
+          class="context-pane-heading__collapse"
+          type="button"
+          :title="t('courseWorkbench.contextPane.collapse', '收起当前内容信息')"
+          :aria-label="t('courseWorkbench.contextPane.collapse', '收起当前内容信息')"
+          @click="contextPaneCollapsed = true"
+        ><PanelRightClose :size="17" /></button>
         <div class="context-pane-heading__actions">
           <button v-if="referenceWorkflowState === 'generating' && referenceWorkflowCanPause" type="button" @click="pauseReferenceWorkflow"><Pause :size="14" />{{ t('courseWorkbench.pause', '暂停') }}</button>
           <button v-if="referenceWorkflowState === 'paused' && referenceWorkflowCanResume" class="primary-status-action" type="button" @click="resumeReferenceWorkflow"><Play :size="14" />{{ t('courseWorkbench.continue', '继续') }}</button>
-          <button v-if="referenceWorkflowCanCancel" type="button" @click="cancelReferenceWorkflow"><X :size="14" />{{ t('common.cancel', '取消') }}</button>
+          <button v-if="referenceWorkflowCanCancel" class="danger-status-action" type="button" @click="cancelReferenceWorkflow"><X :size="14" />{{ t('common.cancel', '取消') }}</button>
           <button v-if="referenceWorkflowState === 'failed' && referenceWorkflowCanRetry && !['lesson', 'script'].includes(activeStage)" class="primary-status-action" type="button" :disabled="referenceWorkflowRetryBlocked" @click="retryReferenceWorkflow"><RotateCcw :size="14" />{{ t('courseWorkbench.contextPane.regenerate', '重新生成') }}</button>
           <button
             v-if="regenerationAvailable"
@@ -912,15 +919,8 @@
             :title="referenceGenerationBlocked ? referenceGenerationBlockReason : t('courseWorkbench.contextPane.prepareRegeneration', '准备重新生成')"
             @click="openRegenerationPreparation"
           ><RotateCcw :size="14" />{{ t('courseWorkbench.contextPane.regenerate', '重新生成') }}</button>
-          <button
-            class="context-pane-heading__collapse"
-            type="button"
-            :title="t('courseWorkbench.contextPane.collapse', '收起当前内容信息')"
-            :aria-label="t('courseWorkbench.contextPane.collapse', '收起当前内容信息')"
-            @click="contextPaneCollapsed = true"
-          ><PanelRightClose :size="17" /></button>
         </div>
-        <div v-if="['generating', 'paused'].includes(referenceWorkflowState)" class="context-pane-heading__progress" role="progressbar" :aria-valuenow="referenceWorkflowProgress" aria-valuemin="0" aria-valuemax="100">
+        <div v-if="['generating', 'paused'].includes(referenceWorkflowState)" class="context-pane-heading__progress" role="progressbar" :aria-label="contextStatusLabel" :aria-valuenow="referenceWorkflowProgress" aria-valuemin="0" aria-valuemax="100">
           <i :style="{ transform: `scaleX(${referenceWorkflowProgress / 100})` }" />
         </div>
       </header>
@@ -1118,6 +1118,7 @@ import TeacherLessonArrangementSummary from './TeacherLessonArrangementSummary.v
 import TeacherDocumentCommandBar from './TeacherDocumentCommandBar.vue'
 import TeacherLessonPlanDocument from './TeacherLessonPlanDocument.vue'
 import TeacherScriptDocument from './TeacherScriptDocument.vue'
+import { hasScriptPreviewContent, scriptGenerationPresentation } from '../utils/teacher-script-presentation'
 import UploadedPptReviewWorkspace from './UploadedPptReviewWorkspace.vue'
 import {
   buildTeacherCourseChangeInstruction,
@@ -2333,6 +2334,8 @@ const scriptCoursePreviewVisible = computed(() => (
   && !lessonStore.lessons.some(lesson => lessonScriptIsReady(lesson))
   && !scriptBatchRunning.value
   && !scriptBatchStarting.value
+  && !scriptGenerationActive.value
+  && !hasScriptPreviewContent(scriptStreamJob.value)
 ))
 const scriptGenerationBusy = computed(() => scriptGenerating.value || scriptBatchStarting.value || scriptGenerationActive.value)
 const lessonOutlineVisible = computed(() => {
@@ -2525,7 +2528,7 @@ const referenceWorkflowState = computed<CourseReferenceWorkflowState>(() => {
 const referenceWorkflowDetail = computed(() => {
   if (['generating', 'paused'].includes(referenceWorkflowState.value)) {
     if (activeStage.value === 'lesson') return lessonJob.value?.message || ''
-    if (activeStage.value === 'script') return scriptJob.value?.message || ''
+    if (activeStage.value === 'script') return scriptGenerationPresentation(scriptJob.value).detail
   }
   if (activeStage.value === 'foundation' && generationTask.value?.currentPhase === 'outline_auto_improvement') return t('courseWorkbench.autoImprovement.outline', '正在自动优化大纲并复审')
   if (activeStage.value === 'lesson' && lessonJob.value?.phase === 'lesson_plan_auto_improvement') return t('courseWorkbench.autoImprovement.lesson', '正在自动优化教案并复审')
@@ -2749,7 +2752,9 @@ const contextStatusLabel = computed(() => {
   if (projectedTaskState === 'waiting_for_input') return t('teacherProductionState.auxiliary.waitingForInput', '待补充信息')
   if (projectedTaskState === 'waiting_for_review') return t('teacherProductionState.auxiliary.waitingForReview', '待审阅确认')
   if (projectedTaskState === 'unknown') return t('teacherProductionState.auxiliary.unknown', '状态待处理')
-  if (referenceWorkflowState.value === 'generating') return t('courseWorkbench.contextPane.generating', '正在生成')
+  if (referenceWorkflowState.value === 'generating') return activeStage.value === 'script'
+    ? scriptGenerationPresentation(scriptJob.value).title
+    : t('courseWorkbench.contextPane.generating', '正在生成')
   if (referenceWorkflowState.value === 'paused') return t('courseWorkbench.contextPane.pausedStatus', '生成已暂停')
   if (referenceWorkflowState.value === 'failed') return t('courseWorkbench.contextPane.incomplete', '生成未完成')
   if (contextPhase.value === 'after') return t('courseWorkbench.contextPane.ready', '内容已就绪')
@@ -4692,26 +4697,32 @@ onBeforeUnmount(() => {
 .context-pane-reopen:hover{border-color:#aaa7e8;color:#37348c;background:#fafaff}
 .context-pane-reopen:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .context-pane{grid-template-rows:auto auto minmax(0,1fr);background:#fff}
-.context-pane-heading{min-height:76px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;margin:12px 12px 8px;padding:11px;border:1px solid #dfe4ea;border-radius:11px;background:#fff;box-shadow:0 1px 2px rgba(30,41,59,.025)}
-.context-pane-heading__status{min-width:0;display:grid;grid-template-columns:30px minmax(0,1fr);align-items:center;gap:9px}
+/* Status takes the full reading width; task controls have their own row. */
+.context-pane-heading{display:grid;grid-template-columns:minmax(0,1fr) 32px;align-items:start;gap:14px 8px;margin:0;padding:20px 16px 18px;border-bottom:1px solid #e4e8ef;background:var(--teacher-component-surface,#fff)}
+.context-pane-heading__status{min-width:0;display:grid;grid-template-columns:30px minmax(0,1fr);align-items:start;gap:10px}
 .context-pane-heading__signal{width:30px;height:30px;display:grid;place-items:center;border-radius:8px;color:#5b60a5;background:#f0f1f6}
-.context-pane-heading__status>div{min-width:0;display:grid;gap:2px}
-.context-pane-heading__status strong{overflow:hidden;color:#2f394a;font-size:15px;font-weight:760;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
-.context-pane-heading__status>div>span{color:#758093;font-size:13px;line-height:1.4;overflow-wrap:anywhere;white-space:normal}
+.context-pane-heading__status>div{min-width:0;display:grid;gap:5px;padding-top:3px}
+.context-pane-heading__status strong{color:#2f394a;font-size:16px;font-weight:700;line-height:1.5;overflow-wrap:break-word}
+.context-pane-heading__status>div>span{color:#596579;font-size:15px;line-height:1.6;overflow-wrap:break-word;white-space:normal}
 .context-pane-heading[data-phase="failed"] .context-pane-heading__signal{color:#a83c49;background:#fbecee}
 .context-pane-heading[data-phase="after"] .context-pane-heading__signal{color:#187a4b;background:#eaf5ee}
 .context-pane-heading[data-phase="during"] .context-pane-heading__signal{color:#5559b1;background:#eeeefb}
-.context-pane-heading__actions{display:flex;align-items:center;justify-content:flex-end;gap:3px}
-.context-pane-heading__actions button{min-height:30px;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 8px;border:0;border-radius:7px;color:#657185;background:transparent;font-size:13px;font-weight:700;cursor:pointer}
-.context-pane-heading__actions button:hover:not(:disabled){color:#373b78;background:#f1f2f6}
-.context-pane-heading__actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
+.context-pane-heading__actions{grid-column:1/-1;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.context-pane-heading__actions:empty{display:none}
+.context-pane-heading__actions button,.context-pane-heading__collapse{min-height:32px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 10px;border:1px solid #d8dee8;border-radius:7px;color:#526077;background:var(--teacher-component-surface,#fff);font-size:15px;font-weight:600;white-space:nowrap;cursor:pointer;transition:background-color .15s ease-out,border-color .15s ease-out}
+.context-pane-heading__actions button:hover:not(:disabled),.context-pane-heading__collapse:hover{border-color:#aaa7df;color:#373b78;background:#f5f5fb}
+.context-pane-heading__actions button:active:not(:disabled),.context-pane-heading__collapse:active{background:#eeeef8}
+.context-pane-heading__actions button:focus-visible,.context-pane-heading__collapse:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .context-pane-heading__actions button:disabled{opacity:.45;cursor:not-allowed}
-.context-pane-heading__actions .primary-status-action{color:#fff;background:#5559a8}
-.context-pane-heading__actions .primary-status-action:hover:not(:disabled){color:#fff;background:#454984}
-.context-pane-heading__actions .context-pane-heading__collapse{width:30px;padding:0}
+.context-pane-heading__actions .primary-status-action{border-color:#5559a8;color:#fff;background:#5559a8}
+.context-pane-heading__actions .primary-status-action:hover:not(:disabled){border-color:#454984;color:#fff;background:#454984}
+.context-pane-heading__actions .danger-status-action{border-color:#e6cdd1;color:#a83c49}
+.context-pane-heading__actions .danger-status-action:hover:not(:disabled){border-color:#cd9aa3;color:#922c3a;background:#fdf3f4}
+.context-pane-heading__collapse{width:32px;padding:0}
 .context-pane-heading__progress{grid-column:1/-1;height:3px;overflow:hidden;border-radius:2px;background:#e7e9f1}
 .context-pane-heading__progress>i{width:100%;height:100%;display:block;transform-origin:left center;background:#6266b4;transition:transform .2s ease-out}
 .context-pane-heading[data-phase="failed"] .context-pane-heading__progress>i{background:#b9404e}
+@media(prefers-reduced-motion:reduce){.context-pane-heading .spin{animation:none}.context-pane-heading__actions button,.context-pane-heading__collapse,.context-pane-heading__progress>i{transition:none}}
 .context-pane>.context-pane-references{min-height:0;border-left:0;background:transparent}
 .regeneration-dialog__sources{max-height:min(62vh,640px);overflow:auto;border:0;background:#fff}.regeneration-dialog__actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}.regeneration-dialog__actions button{min-height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 13px;border:1px solid #d8dde6;border-radius:8px;color:#596579;background:#fff;font:inherit;font-size:14px;font-weight:700;cursor:pointer}.regeneration-dialog__actions button:hover:not(:disabled){border-color:#bbbfe4;color:#3f4385;background:#f8f8fc}.regeneration-dialog__actions button.primary{border-color:#5559a8;color:#fff;background:#5559a8}.regeneration-dialog__actions button.primary:hover:not(:disabled){border-color:#454984;color:#fff;background:#454984}.regeneration-dialog__actions button:disabled{opacity:.48;cursor:not-allowed}.regeneration-dialog__actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 

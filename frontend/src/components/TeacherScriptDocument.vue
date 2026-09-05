@@ -150,7 +150,7 @@
       </form>
       <div v-if="generationJob && !externalToolbar" class="script-generation-progress" :data-status="generationJob.status">
         <div>
-          <span>{{ generationJob.message }}</span>
+          <span>{{ generating ? generationPresentation.title : generationJob.message }}</span>
           <span class="script-generation-progress__actions">
             <strong>{{ generationJob.completed_blocks || 0 }}/{{ generationJob.total_blocks || 0 }}</strong>
             <button v-if="generating" type="button" @click="emit('pause-generation')">{{ tr('courseWorkbench.pause') }}</button>
@@ -204,12 +204,12 @@
         </div>
         <div v-else-if="node.blocks?.length" class="script-modules">
           <section v-for="block in node.blocks" :key="block.block_id" class="script-module">
-            <header>
-              <div><span>{{ blockRoleLabel(block.role) }}</span><h5><MathText :content="block.title" /></h5></div>
-              <small v-if="block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
+            <header v-if="block.title || (!showWorkingPreview && lesson.script.ready)">
+              <div><span v-if="!showWorkingPreview && lesson.script.ready">{{ blockRoleLabel(block.role) }}</span><h5 v-if="block.title"><MathText :content="block.title" /></h5></div>
+              <small v-if="!showWorkingPreview && lesson.script.ready && block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
             </header>
             <div class="script-streamed-block" :data-streaming="blockIsStreaming(block.block_id) ? 'true' : undefined">
-              <MarkdownRenderer :key="`${block.block_id}-${block.content.length}-${generationJob?.stream_sequence || 0}`" :content="block.content" />
+              <MarkdownRenderer :key="block.block_id" :content="block.content" />
               <span v-if="blockIsStreaming(block.block_id)" class="stream-caret" aria-hidden="true" />
             </div>
             <ScriptVisualStudio
@@ -222,14 +222,15 @@
               :block-title="block.title"
             />
           </section>
-          <div v-if="(!lesson.script.ready || showWorkingPreview) && generating && nodeIndex === scriptSections.length - 1" class="script-block-waiting">
-            <LoaderCircle :size="15" class="spin" />
-            {{ generationJob?.current_block_title || tr('courseWorkbench.scriptDocument.waitingForNextBlock') }}
-          </div>
         </div>
         <div v-else-if="contentFor(node)" class="script-content" data-state="current"><MarkdownRenderer :content="contentFor(node)" /></div>
         <div v-else class="script-empty">{{ tr('courseWorkbench.scriptPending') }}</div>
       </article>
+    </div>
+
+    <div v-if="waitingForScriptContent" class="script-block-waiting" role="status">
+      <LoaderCircle :size="16" class="spin" aria-hidden="true" />
+      {{ scriptSections.length ? tr('courseWorkbench.scriptDocument.waitingForNextBlock') : generationPresentation.title }}
     </div>
 
   </section>
@@ -249,6 +250,7 @@ import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring
 import { useTeacherScriptVisualStore } from '../stores/teacherScriptVisuals'
 import type { TeacherLessonJob, TeacherLessonProjection, TeacherLessonScriptCandidate, TeacherLessonScriptState } from '../stores/teacherLessonAuthoring'
 import { toAppError } from '../utils/app-error'
+import { hasScriptPreviewContent, readableScriptTitle, scriptGenerationPresentation } from '../utils/teacher-script-presentation'
 
 const props = withDefaults(defineProps<{
   courseId: string
@@ -393,7 +395,7 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.scriptDocument.generating': '正在生成…',
   'courseWorkbench.scriptDocument.stopGeneration': '停止',
   'courseWorkbench.scriptDocument.continueGenerating': '继续生成剩余内容',
-  'courseWorkbench.scriptDocument.waitingForNextBlock': '正在准备下一个教学块',
+  'courseWorkbench.scriptDocument.waitingForNextBlock': '正在继续撰写…',
   'courseWorkbench.scriptDocument.generateFailed': '讲义生成失败',
   'courseWorkbench.scriptDocument.planRequired': '请先生成本讲教案',
   'courseWorkbench.scriptDocument.minutes': '分钟',
@@ -433,7 +435,7 @@ const previewSelected = ref(true)
 const hasWorkingPreview = computed(() => (
   ['pending', 'running', 'paused', 'failed', 'cancelled'].includes(String(props.generationJob?.status || ''))
   && !(props.lesson.script.ready && Date.parse(props.lesson.script.updated_at || '') > Date.parse(props.generationJob?.updated_at || ''))
-  && Boolean(props.generationJob?.result_sections?.length || Object.keys(props.generationJob?.streamed_block_content || {}).length)
+  && hasScriptPreviewContent(props.generationJob)
 ))
 const showWorkingPreview = computed(() => hasWorkingPreview.value && previewSelected.value && !editing.value)
 watch(() => [props.lesson.lesson_unit_id, props.generationJob?.id], () => { previewSelected.value = true })
@@ -446,6 +448,9 @@ const scriptSections = computed<ScriptSection[]>(() => {
   }))
   const streamedBlocks = props.generationJob?.streamed_block_content || {}
   Object.entries(streamedBlocks).forEach(([blockId, content]) => {
+    // Reset events arrive for all parallel blocks before they contain prose.
+    // They belong to task state, not to the teacher's reading surface.
+    if (!content.trim()) return
     const arrangementBlock = props.lesson.arrangement?.blocks?.find(block => block.block_id === blockId)
     const sectionId = arrangementBlock?.section_node_id || props.lesson.sections[0]?.section_node_id || `stream-${blockId}`
     let section = sections.find(item => item.section_node_id === sectionId)
@@ -454,8 +459,7 @@ const scriptSections = computed<ScriptSection[]>(() => {
         section_node_id: sectionId,
         title: arrangementBlock?.section_title
           || props.lesson.sections.find(item => item.section_node_id === sectionId)?.title
-          || props.generationJob?.current_block_title
-          || tr('courseWorkbench.scriptDocument.generating'),
+          || props.lesson.title,
         content: '',
         schema_version: 'teacher_script_v2',
         blocks: [],
@@ -472,15 +476,28 @@ const scriptSections = computed<ScriptSection[]>(() => {
       {
         block_id: blockId,
         module_id: arrangementBlock?.module_id || 'streaming',
-        role: arrangementBlock?.role || 'concept',
-        title: arrangementBlock?.name || props.generationJob?.current_block_title || blockId,
+        role: arrangementBlock?.role || '',
+        title: readableScriptTitle(arrangementBlock?.name, [blockId]),
         content,
         planned_minutes: arrangementBlock?.planned_minutes,
       },
     ]
   })
-  return sections
+  return sections.map(section => ({
+    ...section,
+    title: readableScriptTitle(section.title, [section.section_node_id]) || props.lesson.title,
+    blocks: section.blocks?.filter(block => block.content?.trim()).map(block => ({
+      ...block,
+      title: readableScriptTitle(block.title, [block.block_id, block.module_id]),
+    })),
+  })).filter(section => section.blocks?.length || section.content?.trim())
 })
+const generationPresentation = computed(() => scriptGenerationPresentation(props.generationJob))
+const waitingForScriptContent = computed(() => (
+  props.generating
+  && (!props.lesson.script.ready || showWorkingPreview.value)
+  && !scriptSections.value.some(section => section.blocks?.some(block => blockIsStreaming(block.block_id)))
+))
 const generationProgress = computed(() => Math.max(0, Math.min(100, Number(props.generationJob?.progress || 0))))
 const showGenerationForm = computed(() => (
   !props.generating
@@ -778,13 +795,13 @@ defineExpose({
 </script>
 
 <style scoped>
-.script-document{background:#fff}.script-header{min-height:92px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:20px 28px;border-bottom:1px solid #e8ecf2}.script-title{min-width:0;display:flex;align-items:center;gap:9px}.script-title h3{margin:0;overflow:hidden;color:#172033;font-size:20px;letter-spacing:-.015em;text-overflow:ellipsis;white-space:nowrap}.script-actions{flex:none;display:flex;align-items:center;gap:2px}.script-actions button{min-height:34px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 10px;border:1px solid transparent;border-radius:7px;color:#526077;background:transparent;font-size:14px;font-weight:750;cursor:pointer}.script-actions button:hover{color:#3730a3;background:#f2f3fa}.script-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.script-actions button:disabled{opacity:.45;cursor:not-allowed}.script-actions .resolved-action{margin-left:4px;border-color:#d7ddea;background:#fff}.script-ai{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:stretch;gap:10px;padding:12px 28px;border-bottom:1px solid #e8ecf2;background:#fbfcff}.script-ai textarea{min-height:58px;padding:9px 11px;border:1px solid #cbd4e1;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:14px;line-height:1.5;resize:vertical}.script-ai textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-ai button,.script-generate button{display:flex;align-items:center;justify-content:center;gap:7px;padding:0 15px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:14px;font-weight:750;cursor:pointer}.script-ai button:disabled,.script-generate button:disabled{opacity:.45;cursor:not-allowed}.script-generation-panel{border-bottom:1px solid #e8ecf2;background:#fbfcfe}.script-generate{min-height:320px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-content:start;gap:12px;padding:28px}.script-generation-panel.has-partial .script-generate{min-height:auto;padding-bottom:14px}.script-generate textarea{min-height:112px;box-sizing:border-box;padding:13px 14px;border:1px solid #cbd4e1;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:15px;line-height:1.65;resize:vertical}.script-generate textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-generate textarea:disabled{color:#64748b;background:#f7f8fa}.script-generate button{min-height:42px;padding-inline:18px}.script-generation-progress{display:grid;gap:7px;padding:0 28px 18px}.script-generation-progress>div{display:flex;align-items:center;justify-content:space-between;gap:18px;color:#5d6879;font-size:14px}.script-generation-progress strong{color:#4338ca;font-size:14px}.script-generation-progress>i{height:4px;overflow:hidden;border-radius:4px;background:#e6e8f0}.script-generation-progress>i span{height:100%;display:block;border-radius:inherit;background:#5b57e8}.script-generation-progress[data-status="failed"]>i span{background:#e08a2e}.script-tabs{display:flex;gap:24px;overflow:auto;padding:0 28px;border-bottom:1px solid #e8ecf2}.script-tabs button{max-width:280px;min-height:48px;display:flex;align-items:center;gap:7px;padding:0;border:0;border-bottom:2px solid transparent;color:#64748b;background:transparent;font-size:14px;white-space:nowrap;cursor:pointer}.script-tabs button span{color:#94a3b8;font-size:14px;font-weight:800}.script-tabs button:hover{color:#3730a3}.script-tabs button.active{border-bottom-color:#5b57e8;color:#3730a3;font-weight:750}.script-tabs button.active span{color:#6366f1}.script-body{min-height:360px;padding:28px}.script-body[data-state="partial"]{background:#fff}.script-body>header{display:flex;align-items:center;gap:10px;margin-bottom:22px}.script-body>header span{color:#6366f1;font-size:14px;font-weight:850}.script-body>header h4{margin:0;color:#172033;font-size:16px}.script-body>textarea,.script-block-editor textarea{width:100%;box-sizing:border-box;padding:14px 15px;border:1px solid #cbd4e1;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:15px;line-height:1.75;resize:vertical}.script-body>textarea{min-height:520px}.script-block-editor textarea{min-height:220px}.script-body>textarea:focus,.script-block-editor textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-content{color:#405068;font-size:15px;line-height:1.75}.script-content[data-state="candidate"]{padding:12px 14px;border-radius:8px;background:#f7f7ff}.script-modules,.script-block-editor{display:grid}.script-module,.script-block-editor>section{padding:0 0 30px;margin:0 0 30px;border-bottom:1px solid #e8ecf2}.script-module:last-child,.script-block-editor>section:last-child{padding-bottom:0;margin-bottom:0;border-bottom:0}.script-module>header,.script-block-editor>section>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:14px}.script-module>header div,.script-block-editor>section>header div{display:grid;gap:4px}.script-module h5,.script-block-editor h5{margin:0;color:#172033;font-size:15px}.script-module header span,.script-block-editor header span{color:#6366f1;font-size:14px;font-weight:800}.script-module header small,.script-block-editor header small{flex:none;color:#7a8699;font-size:14px}.script-module{color:#405068;font-size:15px;line-height:1.75}.script-block-waiting{min-height:44px;display:flex;align-items:center;gap:8px;color:#6366f1;font-size:14px}.script-empty{min-height:260px;display:grid;place-items:center;color:#7a8699;font-size:14px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+.script-document{background:#fff}.script-header{min-height:92px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:20px 28px;border-bottom:1px solid #e8ecf2}.script-title{min-width:0;display:flex;align-items:center;gap:9px}.script-title h3{margin:0;overflow:hidden;color:#172033;font-size:20px;letter-spacing:-.015em;text-overflow:ellipsis;white-space:nowrap}.script-actions{flex:none;display:flex;align-items:center;gap:2px}.script-actions button{min-height:34px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 10px;border:1px solid transparent;border-radius:7px;color:#526077;background:transparent;font-size:14px;font-weight:750;cursor:pointer}.script-actions button:hover{color:#3730a3;background:#f2f3fa}.script-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.script-actions button:disabled{opacity:.45;cursor:not-allowed}.script-actions .resolved-action{margin-left:4px;border-color:#d7ddea;background:#fff}.script-ai{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:stretch;gap:10px;padding:12px 28px;border-bottom:1px solid #e8ecf2;background:#fbfcff}.script-ai textarea{min-height:58px;padding:9px 11px;border:1px solid #cbd4e1;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:14px;line-height:1.5;resize:vertical}.script-ai textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-ai button,.script-generate button{display:flex;align-items:center;justify-content:center;gap:7px;padding:0 15px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:14px;font-weight:750;cursor:pointer}.script-ai button:disabled,.script-generate button:disabled{opacity:.45;cursor:not-allowed}.script-generation-panel{border-bottom:1px solid #e8ecf2;background:#fbfcfe}.script-generate{min-height:320px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-content:start;gap:12px;padding:28px}.script-generation-panel.has-partial .script-generate{min-height:auto;padding-bottom:14px}.script-generate textarea{min-height:112px;box-sizing:border-box;padding:13px 14px;border:1px solid #cbd4e1;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:15px;line-height:1.65;resize:vertical}.script-generate textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-generate textarea:disabled{color:#64748b;background:#f7f8fa}.script-generate button{min-height:42px;padding-inline:18px}.script-generation-progress{display:grid;gap:7px;padding:0 28px 18px}.script-generation-progress>div{display:flex;align-items:center;justify-content:space-between;gap:18px;color:#5d6879;font-size:14px}.script-generation-progress strong{color:#4338ca;font-size:14px}.script-generation-progress>i{height:4px;overflow:hidden;border-radius:4px;background:#e6e8f0}.script-generation-progress>i span{height:100%;display:block;border-radius:inherit;background:#5b57e8}.script-generation-progress[data-status="failed"]>i span{background:#e08a2e}.script-tabs{display:flex;gap:24px;overflow:auto;padding:0 28px;border-bottom:1px solid #e8ecf2}.script-tabs button{max-width:280px;min-height:48px;display:flex;align-items:center;gap:7px;padding:0;border:0;border-bottom:2px solid transparent;color:#64748b;background:transparent;font-size:14px;white-space:nowrap;cursor:pointer}.script-tabs button span{color:#94a3b8;font-size:14px;font-weight:800}.script-tabs button:hover{color:#3730a3}.script-tabs button.active{border-bottom-color:#5b57e8;color:#3730a3;font-weight:750}.script-tabs button.active span{color:#6366f1}.script-body{min-height:360px;padding:28px}.script-body[data-state="partial"]{background:#fff}.script-body>header{display:flex;align-items:center;gap:10px;margin-bottom:22px}.script-body>header span{color:#6366f1;font-size:14px;font-weight:850}.script-body>header h4{margin:0;color:#172033;font-size:16px}.script-body>textarea,.script-block-editor textarea{width:100%;box-sizing:border-box;padding:14px 15px;border:1px solid #cbd4e1;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:15px;line-height:1.75;resize:vertical}.script-body>textarea{min-height:520px}.script-block-editor textarea{min-height:220px}.script-body>textarea:focus,.script-block-editor textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-content{color:#405068;font-size:15px;line-height:1.75}.script-content[data-state="candidate"]{padding:12px 14px;border-radius:8px;background:#f7f7ff}.script-modules,.script-block-editor{display:grid}.script-module,.script-block-editor>section{padding:0 0 30px;margin:0 0 30px;border-bottom:1px solid #e8ecf2}.script-module:last-child,.script-block-editor>section:last-child{padding-bottom:0;margin-bottom:0;border-bottom:0}.script-module>header,.script-block-editor>section>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:14px}.script-module>header div,.script-block-editor>section>header div{display:grid;gap:4px}.script-module h5,.script-block-editor h5{margin:0;color:#172033;font-size:15px}.script-module header span,.script-block-editor header span{color:#6366f1;font-size:14px;font-weight:800}.script-module header small,.script-block-editor header small{flex:none;color:#7a8699;font-size:14px}.script-module{color:#405068;font-size:15px;line-height:1.75}.script-block-waiting{width:min(100%,940px);box-sizing:border-box;margin:0 auto;padding:18px 28px;display:flex;align-items:center;gap:8px;color:#596579;font-size:15px;line-height:1.6}.script-empty{min-height:260px;display:grid;place-items:center;color:#7a8699;font-size:14px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .script-generation-progress__actions{display:flex;align-items:center;gap:10px}.script-generation-progress__actions button{min-height:28px;padding:0 10px;border:1px solid #d7ddea;border-radius:7px;color:#526077;background:#fff;font-size:14px;font-weight:750;cursor:pointer}.script-generation-progress__actions button:hover{color:#3730a3;border-color:#b9b9f4;background:#f7f7ff}.script-generation-progress[data-status="cancelled"]>i span{background:#e08a2e}
 .script-document{position:relative}
 .script-document>:deep(.app-error-notice){margin:12px 28px 0}
 .candidate-canvas-notice{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:11px 28px;border-bottom:1px solid #d9ddf5;color:#4338ca;background:#f5f5ff}.candidate-canvas-notice>div{min-width:0;display:flex;align-items:center;gap:9px}.candidate-canvas-notice>div>span{display:grid;gap:2px}.candidate-canvas-notice strong{font-size:15px}.candidate-canvas-notice small{color:#676aa0;font-size:11px}.candidate-canvas-notice nav{flex:none;display:flex;align-items:center;gap:6px}.candidate-canvas-notice button{min-height:32px;display:inline-flex;align-items:center;gap:5px;padding:0 9px;border:1px solid #d0d1ee;border-radius:7px;color:#4f55a9;background:#fff;font-size:11px;font-weight:750;cursor:pointer}.candidate-canvas-notice button.primary{border-color:#5148dc;color:#fff;background:#5148dc}.candidate-canvas-notice button:hover:not(:disabled){border-color:#9692e8;color:#4338ca;background:#f8f7ff}.candidate-canvas-notice button.primary:hover:not(:disabled){border-color:#433bc4;color:#fff;background:#433bc4}.candidate-canvas-notice button:focus-visible{outline:3px solid rgba(91,84,232,.22);outline-offset:2px}.candidate-canvas-notice button:disabled{opacity:.5;cursor:not-allowed}
 .script-status-notice{display:grid;gap:3px;margin:14px 28px 0;padding:11px 13px;border:1px solid #d8dff0;border-radius:8px;color:#4b5870;background:#f8faff;font-size:14px;line-height:1.55}.script-status-notice strong{color:#29334a;font-size:14px}.script-status-notice[data-state="suggestion"]{border-color:#efd2a8;background:#fff9ef}.script-status-notice[data-state="suggestion"] strong{color:#9a4c0c}.script-status-notice[data-state="ready"]{border-color:#cce4d5;background:#f5fbf7}.script-status-notice[data-state="ready"] strong{color:#276749}
-.script-continuous{width:min(100%,940px);margin:0 auto}.script-continuous .script-body{min-height:0;scroll-margin-top:72px;border-bottom:1px solid #e4e8ef}.script-continuous .script-body:last-child{border-bottom:0}.script-continuous .script-body.active>header h4{color:#3730a3}.script-continuous .script-body.active>header span{color:#4f46e5}.script-continuous[data-state="partial"] .script-body:last-child{min-height:280px}
+.script-continuous{width:min(100%,940px);margin:0 auto}.script-continuous .script-body{min-height:0;scroll-margin-top:72px;border-bottom:1px solid #e4e8ef}.script-continuous .script-body:last-child{border-bottom:0}.script-continuous .script-body.active>header h4{color:#3730a3}.script-continuous .script-body.active>header span{color:#4f46e5}
 @media(max-width:760px){.script-header{align-items:flex-start;flex-direction:column;padding-inline:18px}.script-actions{width:100%;justify-content:flex-end}.script-ai,.script-generate{grid-template-columns:1fr;padding-inline:18px}.script-ai button,.script-generate button{min-height:38px}.script-tabs{padding-inline:18px}.script-body{padding:22px 18px}.candidate-canvas-notice{align-items:flex-start;flex-direction:column;padding-inline:18px}.candidate-canvas-notice nav{width:100%;justify-content:flex-end;flex-wrap:wrap}}
 .script-content[data-state="candidate"]{border:1px solid #c8c7f2;background:#f8f8ff;outline:0}.script-content[data-state="candidate"]:focus{box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-tabs button:disabled{opacity:.45;cursor:not-allowed}
 .script-ai-change-bubble{width:max-content;max-width:100%;display:flex;align-items:center;gap:6px;margin:-3px 0 14px;padding:5px 9px;border:1px solid #c8c7f2;border-radius:999px;color:#4338ca;background:#fff;box-shadow:0 4px 12px rgba(67,56,202,.08);font-size:14px}.script-ai-change-bubble strong{font-size:14px}.script-ai-change-bubble span{overflow:hidden;color:#667085;text-overflow:ellipsis;white-space:nowrap}
@@ -793,4 +810,5 @@ defineExpose({
 .script-actions button:hover,.script-generate textarea:disabled{background:var(--teacher-component-tint,#f7f7ff)}
 .script-streamed-block .stream-caret{width:2px;height:17px;display:inline-block;margin-left:3px;vertical-align:-2px;background:#5b57e8;animation:blink .8s steps(1) infinite}@keyframes blink{50%{opacity:0}}
 .script-source-review{display:grid;gap:22px;padding:24px 28px 30px}.script-source-steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;margin:0;padding:3px;border:1px solid #dfe4ed;border-radius:11px;background:#eef1f6;list-style:none}.script-source-steps li{min-width:0;min-height:48px;display:grid;grid-template-columns:24px minmax(0,1fr);align-items:center;gap:8px;padding:5px 10px;border-radius:8px;color:#69768a}.script-source-steps li>span{width:22px;height:22px;display:grid;place-items:center;border:1px solid #cbd3df;border-radius:50%;font-size:13px;font-weight:800}.script-source-steps li>div{min-width:0;display:grid;gap:1px}.script-source-steps strong{overflow:hidden;font-size:14px;font-weight:750;text-overflow:ellipsis;white-space:nowrap}.script-source-steps small{overflow:hidden;color:#7c8899;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.script-source-steps li.active{color:#312e81;background:#fff;box-shadow:0 2px 8px rgba(30,41,59,.08)}.script-source-steps li.active>span{border-color:#6965d8;color:#fff;background:#6965d8}.script-source-review__heading{display:flex;align-items:center;justify-content:space-between;gap:24px}.script-source-review__heading>div{min-width:0;display:grid;gap:5px}.script-source-review__heading strong{color:#263147;font-size:18px;font-weight:760}.script-source-review__heading span{color:#68768b;font-size:15px;line-height:1.5}.script-source-review__heading>.script-source-review__blocked{grid-template-columns:22px minmax(0,1fr);align-items:start;gap:10px}.script-source-review__blocked>svg{margin-top:2px;color:#b56a18}.script-source-review__blocked>div{min-width:0;display:grid;gap:4px}.script-source-review__blocked strong{color:#7a410f;font-size:19px}.script-source-review__blocked span{color:#8a561f}.script-source-review__heading button{min-height:42px;flex:none;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 18px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:14px;font-weight:750;cursor:pointer}.script-source-review__heading button:hover:not(:disabled){background:#4338ca}.script-source-review__heading button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.script-source-review__heading button:disabled{opacity:.45;cursor:not-allowed}.script-source-blocks{display:grid;gap:0;margin:0;padding:0;border-top:1px solid #e8ecf2;list-style:none}.script-source-blocks li{min-height:72px;display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:start;gap:12px;padding:14px 0;border-bottom:1px solid #e8ecf2}.script-source-blocks>li>span{padding-top:2px;color:#817dcf;font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}.script-source-blocks li>div{min-width:0;display:grid;gap:3px}.script-source-blocks strong{color:#303b50;font-size:15px;font-weight:720}.script-source-blocks small{color:#68768b;font-size:14px}.script-source-blocks p{max-width:75ch;margin:2px 0 0;color:#566277;font-size:15px;line-height:1.55}.script-source-blocks em{padding-top:2px;color:#68768b;font-size:14px;font-style:normal;white-space:nowrap}.script-source-empty{margin:0;padding:18px 0;border-top:1px solid #e8ecf2;color:#68768b;font-size:15px}
+@media(prefers-reduced-motion:reduce){.script-document .spin,.script-streamed-block .stream-caret{animation:none}}
 </style>
