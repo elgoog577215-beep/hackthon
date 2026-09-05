@@ -15,6 +15,11 @@ from pydantic import BaseModel, Field
 
 from ai_base import AIProviderRequestError, AIProviderUnavailable
 from course_generation_budget import TeacherScriptGenerationTimeout
+from teacher_asset_readiness import (
+    teacher_lesson_plan_covers_sections as _plan_revision_covers_sections,
+    teacher_lesson_script_can_generate,
+)
+from teacher_outline_source import has_teaching_structure, matches_course_shell, read_teacher_outline_source
 from course_production_state import (
     read_course_production_state,
     teacher_asset_job_can_resume,
@@ -99,7 +104,6 @@ from template_layout_contract import (
 )
 from course_document import (
     CourseDocument,
-    course_view_from_document,
     refresh_document_revision,
     stable_hash,
 )
@@ -198,15 +202,26 @@ def _validated_teacher_asset_resume_job(
     if reason:
         raise TeacherLessonAuthoringError(
             "teacher_asset_resume_conflict",
-            "要恢复的生成任务与当前内容或恢复状态不一致，请刷新状态后重试。",
+            "原任务的来源或状态已变化，不能继续原输入；请基于当前内容重新生成。",
             details={"resume_job_id": resume_job_id, "reason": reason},
         )
     return candidate
 
 
+def _validate_new_attempt(repository: TeacherLessonAuthoringRepository, course_id: str, lesson_id: str, job_type: str, body: Any) -> None:
+    if not body.retry_of_job_id:
+        return
+    if body.resume_job_id:
+        raise TeacherLessonAuthoringError("teacher_asset_retry_mode_conflict", "原输入恢复与新输入尝试不能同时提交。")
+    previous = repository.get_job(course_id, body.retry_of_job_id)
+    if previous.get("course_id") != course_id or previous.get("lesson_unit_id") != lesson_id or previous.get("type") != job_type or previous.get("status") not in {"failed", "cancelled", "paused"}:
+        raise TeacherLessonAuthoringError("teacher_asset_retry_conflict", "只能从当前讲次已经停止的任务发起新尝试。")
+
+
 class GenerateLessonPlanRequest(BaseModel):
     request_id: str = Field(default="", max_length=160)
     resume_job_id: str = Field(default="", max_length=160)
+    retry_of_job_id: str = Field(default="", max_length=160)
     source_package_id: str = Field(default="", max_length=160)
     source_asset_id: str = Field(default="", max_length=160)
     requirements: str = Field(default="", max_length=4000)
@@ -240,6 +255,7 @@ class SaveLessonPlanDraftRequest(BaseModel):
 class GenerateLessonScriptRequest(BaseModel):
     request_id: str = Field(default="", max_length=160)
     resume_job_id: str = Field(default="", max_length=160)
+    retry_of_job_id: str = Field(default="", max_length=160)
     requirements: str = Field(default="", max_length=4000)
     material_asset_ids: list[str] = Field(default_factory=list, max_length=24)
     batch_parent_job_id: str = Field(default="", max_length=160)
@@ -813,87 +829,17 @@ def _refresh_v6_ppt_manuscript(
     return content["ppt_manuscript"]
 
 
-def _has_teaching_structure(source: Any) -> bool:
-    if not isinstance(source, dict):
-        return False
-    if source.get("outline_framework_only") is True:
-        return False
-    if str(source.get("generation_status") or "") in {
-        "outline_framework_ready",
-        "outline_detail_generation",
-        "outline_detail_failed",
-    }:
-        return False
-    outline_stage = (
-        (source.get("generation_stage_artifacts") or {}).get("outline")
-        or {}
-    )
-    if str(outline_stage.get("strategy") or "") in {
-        "teacher_framework_then_detail_batches",
-        "teacher_framework_then_lecture_tasks",
-    } and str(outline_stage.get("status") or "") not in {
-        "completed",
-        "completed_with_warnings",
-    }:
-        return False
-    if any(isinstance(item, dict) for item in source.get("nodes") or []):
-        return True
-    document = source.get("course_document")
-    if not isinstance(document, dict):
-        return False
-    return bool(document.get("sections") or document.get("blocks"))
-
-
-def _matches_course_shell(source: Any, course_id: str) -> bool:
-    if not isinstance(source, dict):
-        return False
-    if str(source.get("course_id") or "") == course_id:
-        return True
-    document = source.get("course_document")
-    return (
-        isinstance(document, dict)
-        and str(document.get("course_id") or "") == course_id
-    )
-
-
 def _source_course(
     tm: TaskManager,
     course_id: str,
     *,
     allow_empty: bool = False,
 ) -> dict[str, Any]:
-    teacher_workspace_getter = getattr(
-        tm,
-        "get_generation_workspace_course_for_task",
-        None,
-    )
-    teacher_workspace = (
-        teacher_workspace_getter(
-            course_id,
-            task_type="teacher_outline_generation",
-            require_confirmed_outline=False,
-            require_usable_outline=True,
-        )
-        if callable(teacher_workspace_getter)
-        else None
-    )
     raw = tm.storage.load_course(course_id) if tm.storage else None
-    source = teacher_workspace if _has_teaching_structure(teacher_workspace) else None
-    if not isinstance(source, dict):
-        source = raw if _has_teaching_structure(raw) else None
-    if not isinstance(source, dict):
-        workspace = tm.get_generation_workspace_course(course_id)
-        source = workspace if _has_teaching_structure(workspace) else None
-    if not isinstance(source, dict):
-        preview = tm.get_generation_preview(course_id)
-        source = preview if _has_teaching_structure(preview) else None
-    if not isinstance(source, dict) and allow_empty and _matches_course_shell(raw, course_id):
-        source = raw
-    if not isinstance(source, dict):
+    source = read_teacher_outline_source(raw or {"course_id": course_id}, tm)
+    if not has_teaching_structure(source) and not (allow_empty and matches_course_shell(raw, course_id)):
         raise TeacherLessonAuthoringError("course_not_found", "课程不存在或没有可用大纲。")
-    if not source.get("nodes") and isinstance(source.get("course_document"), dict):
-        source = course_view_from_document(source, source["course_document"])
-    return deepcopy(source)
+    return source
 
 
 def _canonical_outline_revision(source: dict[str, Any]) -> str:
@@ -1231,20 +1177,6 @@ def _prompt_material_evidence(
     return result
 
 
-def _plan_revision_covers_sections(
-    revision: object,
-    expected_section_ids: list[str],
-) -> bool:
-    if not isinstance(revision, dict):
-        return False
-    actual_section_ids = [
-        str(item.get("node_id") or "")
-        for item in (revision.get("plan") or {}).get("sections") or []
-        if isinstance(item, dict)
-    ]
-    return actual_section_ids == expected_section_ids
-
-
 def _lesson_projection(
     source: dict[str, Any],
     repository: TeacherLessonAuthoringRepository,
@@ -1350,13 +1282,7 @@ def _lesson_projection(
             ),
             None,
         )
-        script_can_generate = bool(
-            plan_ready
-            and _plan_revision_covers_sections(
-                plan_revision,
-                expected_section_ids,
-            )
-        )
+        script_can_generate = teacher_lesson_script_can_generate(plan_asset, expected_section_ids)
         script_source_state = (
             "stale"
             if (
@@ -4038,6 +3964,7 @@ async def generate_lesson_plan(
     ),
 ):
     try:
+        _validate_new_attempt(repository, course_id, lesson_unit_id, "teacher_lesson_plan_generation", body)
         source = _source_course(tm, course_id)
         scope = lesson_scope(source, lesson_unit_id)
         outline_revision = _canonical_outline_revision(source)
@@ -4219,6 +4146,8 @@ async def generate_lesson_plan(
             course_id,
             str(job["id"]),
             input_fingerprint=input_fingerprint,
+            retry_of_job_id=body.retry_of_job_id,
+            attempt_mode="revised_inputs" if body.retry_of_job_id else "resume_original" if body.resume_job_id else "initial",
             resume_from_job_id=(body.resume_job_id if resume_checkpoint else ""),
             requirements=effective_requirements,
             material_asset_ids=selected_material_ids,
@@ -4321,12 +4250,25 @@ async def generate_lesson_plan(
 
         async def run() -> None:
             async def run_current_lesson() -> None:
+                async def repair_generated_plan(*, plan, issues):
+                    return await tm.course_service.optimize_teacher_lesson_plan(
+                        plan=plan,
+                        instruction=(
+                            "这是尚未交付的模型教案。请修复以下质量问题后返回完整候选，"
+                            "只改必要的教学表达与活动，不改小节、教学块身份、顺序、时间、知识事实和资料来源。"
+                            + json.dumps(issues, ensure_ascii=False)
+                        ),
+                        lesson_context={"lesson_unit_id": lesson_unit_id, "requirements": effective_requirements},
+                        material_evidence=source_evidence,
+                    )
+
                 await service.run_plan_job(
                     course_id=course_id,
                     lesson_unit_id=lesson_unit_id,
                     job_id=str(job["id"]),
                     course_data=source,
                     planner=planner,
+                    repairer=repair_generated_plan,
                 )
 
             await _run_lesson_plan_job(
@@ -4812,6 +4754,7 @@ async def generate_lesson_script(
     ),
 ):
     try:
+        _validate_new_attempt(repository, course_id, lesson_unit_id, "teacher_lesson_script_generation", body)
         source = _source_course(tm, course_id)
         scope = lesson_scope(source, lesson_unit_id)
         lesson, plan_revision = _current_plan_revision(
@@ -4908,6 +4851,8 @@ async def generate_lesson_script(
             str(job["id"]),
             source_lesson_plan_revision_id=plan_revision_id,
             input_fingerprint=input_fingerprint,
+            retry_of_job_id=body.retry_of_job_id,
+            attempt_mode="revised_inputs" if body.retry_of_job_id else "resume_original" if body.resume_job_id else "initial",
             resume_from_job_id=(body.resume_job_id if seed_sections else ""),
             requirements=effective_requirements,
             material_asset_ids=selected_material_ids,

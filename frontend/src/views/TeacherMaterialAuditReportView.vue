@@ -109,6 +109,7 @@
             :course-title="courseName"
             :focus-plan-id="activeCoursePlanId"
             @update:model-value="backToWorkbench"
+            @plan-selected="center.selectSource(`course-change:${$event}`)"
           />
         </section>
 
@@ -284,7 +285,7 @@ const evolutionStore = center.courseEvolution
 const fileInput = ref<HTMLInputElement | null>(null)
 const sourceAddMenu = ref<HTMLElement | null>(null)
 const sourceMenuOpen = ref(false)
-const evolutionWorkspaceRef = ref<{ openPlan?: (id: string) => void; startNewRequest?: () => void } | null>(null)
+const evolutionWorkspaceRef = ref<{ openPlan?: (id: string) => void; startNewRequest?: () => void; showHistory?: () => void } | null>(null)
 const selectedTargetId = ref('')
 const selectedSectionId = ref('')
 const relationshipView = ref<'relation' | 'list'>('relation')
@@ -304,7 +305,7 @@ type CourseChangeListItem = CourseUpdateSource & { repeatCount: number }
 const actionableCourseChanges = computed<CourseChangeListItem[]>(() => {
   const groups = new Map<string, CourseUpdateSource[]>()
   center.courseChangeSources
-    .filter(source => !['applied', 'unchanged'].includes(source.status) || source.key === center.activeSourceKey)
+    .filter(source => !['applied', 'unchanged', 'undone'].includes(source.status) || source.key === center.activeSourceKey)
     .forEach(source => {
       const fingerprint = source.title.trim().replace(/\s+/g, ' ')
       groups.set(fingerprint, [...(groups.get(fingerprint) || []), source])
@@ -462,7 +463,7 @@ function handleSourceMenuFocusout(event: FocusEvent) {
 function openMaterialPicker() { closeSourceAddMenu(); fileInput.value?.click() }
 async function startNewCourseChange() { closeSourceAddMenu(); center.selectSource('new-change'); await nextTick(); evolutionWorkspaceRef.value?.startNewRequest?.() }
 function selectTarget(targetId: string) { selectedTargetId.value = targetId; detailMode.value = 'detail' }
-function showHistory(mode: 'execution' | 'version' | 'unaffected') { if (isCourseChangeMode.value) return; detailMode.value = mode }
+function showHistory(mode: 'execution' | 'version' | 'unaffected') { if (isCourseChangeMode.value) { evolutionWorkspaceRef.value?.showHistory?.(); return }; detailMode.value = mode }
 function backToWorkbench() {
   const returnTo = String(route.query?.returnTo || '')
   if (returnTo.startsWith(`/course/${courseId.value}/workspace`)) { void router.push(returnTo); return }

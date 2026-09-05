@@ -15,6 +15,8 @@
       :style="{ '--node-depth': String(depth) }"
       :aria-expanded="hasDisclosure ? disclosureExpanded : undefined"
       :aria-controls="hasDisclosure ? disclosureId : undefined"
+      :aria-current="isNodeActive ? 'location' : undefined"
+      :aria-label="node.node_name"
       @click="handleNodeClick"
       @keydown.left.prevent="collapseDisclosure"
       @keydown.right.prevent="expandDisclosure"
@@ -95,6 +97,7 @@ import { useCourseStore } from '../stores/course'
 import { useCourseEvolutionStore } from '../stores/courseEvolution'
 import { t } from '../shared/i18n'
 import MathText from './MathText.vue'
+import { navigationNodeMatches } from '../utils/course-navigation'
 
 defineOptions({ name: 'CourseNavigatorNode' })
 const props = withDefaults(defineProps<{
@@ -328,18 +331,7 @@ const blockOutlineId = computed(() => `course-block-outline-${selectionNode.valu
 const disclosureId = computed(() => (
   hasChildren.value ? `course-node-children-${props.node.node_id}` : blockOutlineId.value
 ))
-const nodeMatchesQuery = (node: Node): boolean => {
-  if (node.node_name.toLocaleLowerCase().includes(normalizedQuery.value)) return true
-  if ((node.course_blocks || []).some(block => {
-    const title = String(block.payload.title || '')
-    return `${blockRoleLabel(block.role)} ${title}`.toLocaleLowerCase().includes(normalizedQuery.value)
-  })) return true
-  return node.children?.some(nodeMatchesQuery) || false
-}
-const visible = computed(() => {
-  if (!normalizedQuery.value) return true
-  return nodeMatchesQuery(props.node)
-})
+const visible = computed(() => navigationNodeMatches(props.node, normalizedQuery.value, role => blockRoleLabel(role as CourseDocumentBlock['role'])))
 const toggleDisclosure = () => {
   if (hasChildren.value) expanded.value = !expanded.value
   else if (hasBlockOutline.value) {
@@ -386,6 +378,7 @@ watch(() => props.activeId, (value, previous) => {
 .navigator-node ul:hover { border-left-color:rgba(139,92,246,.52); }
 .navigator-node ul::before { content:""; position:absolute; top:0; left:-1px; width:8px; height:1px; background:rgba(165,180,252,.48); }
 .node-button { position:relative; width:100%; min-height:38px; display:grid; grid-template-columns:13px 24px minmax(0,1fr) auto auto; align-items:center; gap:7px; overflow:hidden; padding:5px 8px; border:1px solid transparent; border-radius:11px; color:var(--lz-text-secondary); background:transparent; text-align:left; cursor:pointer; transition:transform .16s ease,color .16s ease,background .16s ease,border-color .16s ease,box-shadow .16s ease; }
+.node-button:focus-visible { outline:2px solid var(--lz-brand-strong); outline-offset:-2px; }
 .node-button::before { content:""; position:absolute; left:0; top:50%; width:3px; height:0; border-radius:0 4px 4px 0; background:linear-gradient(180deg,#818cf8,#7c3aed); transform:translateY(-50%); transition:height .18s ease; }
 .node-button:hover { transform:translateX(1px); color:var(--lz-text-strong); background:rgba(255,255,255,.7); }
 .node-button.active { border-color:rgba(255,255,255,.9); color:var(--lz-brand-strong); background:linear-gradient(90deg,rgba(255,255,255,.96),rgba(238,242,255,.84)); box-shadow:0 7px 18px rgba(99,102,241,.11),inset 0 1px 0 #fff; font-weight:700; }
@@ -468,6 +461,8 @@ watch(() => props.activeId, (value, previous) => {
   48% { transform:translateX(2px) scale(1.018); box-shadow:inset 3px 0 0 #7c3aed,0 0 0 3px rgba(139,92,246,.2),0 10px 24px rgba(79,70,229,.2); }
 }
 @media (prefers-reduced-motion:reduce) {
+  .node-button,.node-button::before { transition:none; }
+  .status.spinning { animation:none; }
   .node-button.is-ai-growth-pulse { animation:none; box-shadow:inset 3px 0 0 #7c3aed,0 0 0 3px rgba(139,92,246,.18); }
 }
 </style>

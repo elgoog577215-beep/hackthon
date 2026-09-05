@@ -296,7 +296,7 @@ export interface TeacherLessonJob {
   phase: string
   message: string
   warnings: Array<Record<string, unknown>>
-  error?: { code: string; message: string; retryable?: boolean } | null
+  error?: { code: string; message: string; retryable?: boolean; category?: string; recovery_action?: string; quality_report?: { blocking_issues?: Array<{ code: string; message: string }> }; blocking_questions?: string[]; missing_fields?: string[] } | null
   result_revision_id?: string
   parent_job_id?: string
   batch_position?: number
@@ -846,6 +846,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       requirements = '',
       materialAssetIds: string[] = [],
       resumeJobId = '',
+      retryOfJobId = '',
     ) {
       if (!this.courseId) this.courseId = courseId
       this.actionLessonId = lessonUnitId
@@ -856,6 +857,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
           {
             request_id: createUuid(),
             resume_job_id: resumeJobId,
+            retry_of_job_id: retryOfJobId,
             source_package_id: source?.packageId || '',
             source_asset_id: source?.assetId || '',
             requirements,
@@ -1054,6 +1056,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       requirements = '',
       materialAssetIds: string[] = [],
       resumeJobId = '',
+      retryOfJobId = '',
     ) {
       if (!this.courseId) this.courseId = courseId
       this.actionLessonId = lessonUnitId
@@ -1064,6 +1067,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
           {
             request_id: createUuid(),
             resume_job_id: resumeJobId,
+            retry_of_job_id: retryOfJobId,
             requirements,
             material_asset_ids: materialAssetIds,
           },

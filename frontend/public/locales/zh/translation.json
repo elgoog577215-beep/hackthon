@@ -400,6 +400,12 @@
     "createCourse": "创建课程"
   },
   "courseWorkbench": {
+    "autoImprovement": {
+      "outline": "正在自动优化大纲并复审",
+      "lesson": "正在自动优化教案并复审",
+      "script": "正在自动优化讲义并复审",
+      "reviewing": "正在检查最终内容"
+    },
     "title": "课程工作台",
     "courseInformation": "课程信息",
     "continue": "继续",
@@ -429,9 +435,28 @@
       "finishCandidateFirst": "请先处理当前 AI 候选",
       "empty": "当前大纲暂无改进建议",
       "aiRequest": "优化这项大纲审阅建议：{issue}",
-      "appliedReceipt": "已应用并重新审读，解决 {resolved} 项，剩余 {remaining} 项。"
+      "appliedReceipt": "已应用并重新审读，解决 {resolved} 项，剩余 {remaining} 项。",
+      "evidence": "查看依据",
+      "repeatedObjectives": "有 {count} 讲的目标表达可能过于模板化，建议结合具体学习要求核对。",
+      "resourcesUnassigned": "有 {count} 讲尚未关联课程已有的拓展资源。",
+      "resourcesNeeded": "有 {count} 讲缺少拓展资源，需先补充课程参考资料。",
+      "resourceRecordsMissing": "有 {count} 讲的拓展资源缺少完整的核验记录或来源信息。",
+      "hoursMissing": "有 {count} 讲尚未填写有效的分类学时。",
+      "hourTotals": "目前已记录的分类学时合计 {actual}，课程要求 {expected}。",
+      "templateLimit": "以下原句在去掉主题名称、数字与标点后相同。句式相似不等于目标不合理，请核对学习对象与完成标准。",
+      "verificationLimit": "以下是核验记录或字段缺项；系统未据此判断资源真假。",
+      "resourceEvidence": "{title} · {resource}：待补充{missing}。",
+      "unnamedResource": "未命名资源",
+      "missingFields": {
+        "verification_record": "核验记录",
+        "source_ref": "来源引用",
+        "reference_match": "与课程参考资料的关联",
+        "edition": "版次",
+        "locator": "章节或页码位置"
+      }
     },
     "outlineFlow": {
+      "readyToContinue": "讲次方案已就绪",
       "title": "大纲生成步骤",
       "courseInfo": "填写课程信息",
       "lightPlan": "轻量讲次方案",
@@ -478,7 +503,9 @@
       "waitingDetail": "本讲已独立排队，生成位可用时自动开始，无需再次操作。",
       "failed": "批量教案任务启动失败，请重试",
       "failedTitle": "教案生成未开始",
-      "status": { "pending": "等待生成", "running": "生成中", "paused": "已暂停", "completed": "已完成", "completed_with_warnings": "已完成", "failed": "生成失败", "cancelled": "已取消" }
+      "status": { "pending": "等待生成", "running": "生成中", "paused": "已暂停", "completed": "已完成", "completed_with_warnings": "已完成", "failed": "生成失败", "cancelled": "已取消" },
+      "outlineRequired": "请先生成完整大纲，再生成教案。",
+      "stateUnavailable": "当前教学结构或任务状态尚不可用，请查看具体状态后重试。"
     },
     "scriptBatch": {
       "flowLabel": "讲义生成步骤",
@@ -604,7 +631,8 @@
         "experimentInquiry": "实验探究",
         "projectWorkshop": "项目工作坊",
         "reviewAssessment": "复习测评"
-      }
+      },
+      "review": "教学结构预览"
     },
     "materialAudit": {
       "title": "材料审计",
@@ -1248,6 +1276,17 @@
       "resultSummary": "{count} 个来源 · {full} 篇已深读 · {domains} 个网域 · {rejected} 个低相关结果已过滤", "deepRead": "正文已深读", "reviewRecommended": "敏感内容需复核",
       "highTrust": "高可信", "reviewTrust": "需确认", "lowTrust": "低可信", "selectedCount": "已选 {count} 个来源",
       "saving": "正在加入课程…", "save": "加入当前阶段", "loadFailed": "调研记录读取失败", "searchFailed": "联网检索失败", "saveFailed": "联网来源加入课程失败"
+    },
+    "preparationStatus": "备课状态",
+    "recovery": {
+      "details": "查看具体问题",
+      "retry_original": "可按原要求继续，已经通过检查的内容会保留。",
+      "revise_inputs": "请检查问题并补充要求或资料，再开始新尝试。",
+      "reanalyze": "上游内容已变化，请基于当前版本重新生成；刷新后重复原任务不能解决版本冲突。",
+      "retryOriginal": "按原要求重试",
+      "reviseAndGenerate": "调整要求后重新生成",
+      "newRequirements": "这次补充的要求",
+      "requirementsHint": "填写这次需要补充或修正的教学条件、内容要求；系统将使用当前教案和这些新要求。"
     }
   },
   "companionDocuments": {
@@ -2377,11 +2416,11 @@
       "requestStep": "01 · 描述结果",
       "requestTitle": "这次想让课程怎么变？",
       "requestHint": "不用写成指令，直接说你想得到的结果",
-      "requestPlaceholder": "例如：以后所有例子都讲得更详细一点，并同步更新讲义和 PPT",
+      "requestPlaceholder": "例如：所有案例都增加完整推导，并同步更新教案和讲义",
       "requestSuggestionsLabel": "常用修改示例",
       "suggestDetailedExamples": "所有案例都补充完整推导、反例和适用边界",
       "suggestRestructure": "按新的教学逻辑重构章节，并迁移可以保留的内容",
-      "suggestVersionUpdate": "统一更新大纲、教案、讲义和 PPT 中过时的模型版本",
+      "suggestVersionUpdate": "统一更新大纲、教案和讲义中过时的模型版本",
       "startAnalysis": "分析全课影响",
       "noDirectWrite": "先分析影响，确认前不改正式课程",
       "courseIndex": "课程索引",
@@ -2482,7 +2521,23 @@
       "confirmPlanAndGenerate": "确认方案并生成候选",
       "undoChange": "撤销本次修改",
       "courseMissing": "未找到当前课程，请返回课程列表重新进入。",
-      "refreshShort": "刷新状态"
+      "refreshShort": "刷新状态",
+      "partialTitle": "部分修改已应用，请处理剩余失败项",
+      "partialResult": "部分应用",
+      "changeMode": "修改方式",
+      "mode_describe": "描述要求",
+      "mode_replace": "查找替换",
+      "mode_structure": "调整讲次",
+      "findText": "查找",
+      "replaceWith": "替换为（留空表示删除该文字）",
+      "replaceScope": "修改范围",
+      "progressDisconnected": "暂时无法同步任务状态，正在重新连接；已显示的结果已保留。",
+      "partialLoadFailed": "部分信息读取失败，请重试；已读取的结果可以继续查看。",
+      "rescanFailed": "重新扫描失败，原有审计结果仍已保留。",
+      "durableProgress": "正在生成修改候选，已完成项会自动保存；离开或刷新后可继续查看。",
+      "scanCoverage": "已检查 {done}/{total} 个内容单元",
+      "replaceInstruction": "将“{before}”统一替换为“{after}”",
+      "analysisFailed": "影响分析失败，请重试。"
     },
     "refresh": "重新分析学习证据",
     "evidenceConvergence": "多类证据汇聚",
@@ -2777,7 +2832,9 @@
     "search": "查找章节或内容",
     "records": "学习记录",
     "sectionBlocks": "本节内容",
-    "blockFallback": "内容块"
+    "blockFallback": "内容块",
+    "searchLessons": "查找讲次或内容",
+    "noResults": "没有匹配的内容，试试其他关键词。"
   },
   "learningShell": {
     "openNavigator": "打开课程目录",
@@ -2814,7 +2871,7 @@
     "resourceMenuTitle": "课程资料",
     "resourceMenuHelp": "知识图谱与课程配套资料",
     "assistant": "AI 助手",
-    "assistantHint": "打开全屏 AI 助手",
+    "assistantHint": "打开 AI 助手",
     "notebook": "笔记本",
     "notebookHint": "查看本课程的笔记与学习标记",
     "questionBook": "题库本",
@@ -2844,7 +2901,7 @@
     "teachingDescription": "查看大纲、教案、讲义等",
     "resourcesHint": "查看由当前课程同步生成的大纲、教案、讲义、练习册和演示文稿",
     "ai": "AI 助手",
-    "aiHint": "打开全屏 AI 助手"
+    "aiHint": "打开 AI 助手"
   },
   "questionBook": {
     "title": "题库本",
@@ -3266,6 +3323,10 @@
     "close": "关闭并返回正文"
   },
   "courseBlocks": {
+    "lessonNumber": "第 {number} 讲",
+    "chapterNumber": "第 {number} 章",
+    "lessonPractice": "本讲练习",
+    "lesson": "讲次",
     "courseOpening": "课程导读",
     "courseUnit": "课程单元",
     "chapter": "章节",
@@ -4651,6 +4712,7 @@
     }
   },
   "courseWorkspace": {
+    "backToTop": "回到正文顶部",
     "navigation": "课程工作区",
     "openCourseTree": "打开课程目录",
     "loading": "正在读取课程资产",
@@ -5128,6 +5190,8 @@
       }
     },
     "aiTeacher": {
+      "latestReply": "回到最新回复",
+      "settings": "对话设置",
       "title": "AI 助手",
       "newConversation": "新建对话",
       "conversations": "对话",
@@ -5140,8 +5204,8 @@
       "context": "当前上下文",
       "clearQuote": "取消引用",
       "loadingConversation": "正在读取对话",
-      "emptyTitle": "从当前学习现场开始",
-      "emptyBody": "从没弄懂的概念、题目或课程内容开始。",
+      "emptyTitle": "聊聊这一讲",
+      "emptyBody": "解释概念、一起举例，或检查你的理解。",
       "explainSuggestion": "解释这条建议",
       "thinking": "正在思考",
       "requestAccepted": "已收到，正在读取当前课程",
@@ -5466,6 +5530,15 @@
     }
   },
   "notebook": {
+    "noResults": "没有找到相关内容",
+    "emptyCategory": "这个分类还没有记录",
+    "clearSearch": "清除搜索",
+    "categories": {
+      "note": "笔记",
+      "issue": "问题",
+      "review": "复习",
+      "bookmark": "书签"
+    },
     "title": "笔记本",
     "count": "共 {count} 条内容",
     "search": "搜索笔记本...",
@@ -5985,7 +6058,8 @@
     "parseHigh": "高质量解析",
     "parseMedium": "解析需复核",
     "parseLow": "解析失败",
-    "type": { "outline": "课程大纲", "lesson_plan": "教案", "script": "讲义", "ppt": "PPT" }
+    "type": { "outline": "课程大纲", "lesson_plan": "教案", "script": "讲义", "ppt": "PPT" },
+    "globalChange": "全局修改"
   },
   "courseFiles": {
     "spaceLabel": "课程文件空间",

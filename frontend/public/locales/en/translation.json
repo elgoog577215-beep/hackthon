@@ -400,6 +400,12 @@
     "createCourse": "Create course"
   },
   "courseWorkbench": {
+    "autoImprovement": {
+      "outline": "Improving and reviewing the outline",
+      "lesson": "Improving and reviewing the lesson plan",
+      "script": "Improving and reviewing the teaching script",
+      "reviewing": "Checking the final content"
+    },
     "title": "Course workbench",
     "courseInformation": "Course information",
     "continue": "Continue",
@@ -429,9 +435,28 @@
       "finishCandidateFirst": "Resolve the current AI option first",
       "empty": "No improvement suggestions for this outline",
       "aiRequest": "Improve this outline review suggestion: {issue}",
-      "appliedReceipt": "Applied and reviewed again: {resolved} resolved, {remaining} remaining."
+      "appliedReceipt": "Applied and reviewed again: {resolved} resolved, {remaining} remaining.",
+      "evidence": "View evidence",
+      "repeatedObjectives": "Objectives in {count} lectures may be overly formulaic. Check their specific learning requirements.",
+      "resourcesUnassigned": "{count} lectures have not been linked to the existing course references.",
+      "resourcesNeeded": "{count} lectures need extension resources. Add course references first.",
+      "resourceRecordsMissing": "Resources in {count} lectures lack verification records or source information.",
+      "hoursMissing": "{count} lectures have no valid breakdown of instructional hours.",
+      "hourTotals": "Recorded instructional hours total {actual}; the course requires {expected}.",
+      "templateLimit": "These sentences match after removing topic names, numbers and punctuation. Similar wording does not establish a weak objective; check the learning object and completion criteria.",
+      "verificationLimit": "These are missing records or fields, not a finding that the resources are true or false.",
+      "resourceEvidence": "{title} · {resource}: missing {missing}.",
+      "unnamedResource": "Unnamed resource",
+      "missingFields": {
+        "verification_record": "verification record",
+        "source_ref": "source reference",
+        "reference_match": "link to course references",
+        "edition": "edition",
+        "locator": "chapter or page location"
+      }
     },
     "outlineFlow": {
+      "readyToContinue": "Lecture plan ready",
       "title": "Outline generation steps",
       "courseInfo": "Enter course information",
       "lightPlan": "Light lecture plan",
@@ -478,7 +503,9 @@
       "waitingDetail": "This lesson is queued independently and starts when capacity is available. No further action is needed.",
       "failed": "Could not start the batch lesson-plan tasks. Try again.",
       "failedTitle": "Lesson-plan generation did not start",
-      "status": { "pending": "Waiting", "running": "Generating", "paused": "Paused", "completed": "Complete", "completed_with_warnings": "Complete", "failed": "Failed", "cancelled": "Cancelled" }
+      "status": { "pending": "Waiting", "running": "Generating", "paused": "Paused", "completed": "Complete", "completed_with_warnings": "Complete", "failed": "Failed", "cancelled": "Cancelled" },
+      "outlineRequired": "Generate a complete outline before creating lesson plans.",
+      "stateUnavailable": "The teaching structure or task state is unavailable. Check its status and retry."
     },
     "scriptBatch": {
       "flowLabel": "Handout generation steps",
@@ -604,7 +631,8 @@
         "experimentInquiry": "Experimental inquiry",
         "projectWorkshop": "Project workshop",
         "reviewAssessment": "Review and assessment"
-      }
+      },
+      "review": "Teaching structure preview"
     },
     "materialAudit": {
       "title": "Material audit",
@@ -1248,6 +1276,17 @@
       "resultSummary": "{count} sources · {full} read in full · {domains} domains · {rejected} low-relevance results filtered", "deepRead": "Full text read", "reviewRecommended": "Sensitive content needs review",
       "highTrust": "High trust", "reviewTrust": "Review", "lowTrust": "Low trust", "selectedCount": "{count} sources selected",
       "saving": "Adding to course…", "save": "Add to this stage", "loadFailed": "Could not load research history", "searchFailed": "Web search failed", "saveFailed": "Could not add web sources to the course"
+    },
+    "preparationStatus": "Preparation status",
+    "recovery": {
+      "details": "View specific issues",
+      "retry_original": "Continue with the original inputs and keep validated work.",
+      "revise_inputs": "Review the issue and revise the instructions or materials for a new attempt.",
+      "reanalyze": "The source has changed. Start a new attempt from the current version.",
+      "retryOriginal": "Retry original inputs",
+      "reviseAndGenerate": "Revise inputs and regenerate",
+      "newRequirements": "Updated instructions",
+      "requirementsHint": "Describe the teaching conditions or content to add or correct. The new attempt uses the current lesson plan and these instructions."
     }
   },
   "companionDocuments": {
@@ -2377,11 +2416,11 @@
       "requestStep": "01 · Describe the outcome",
       "requestTitle": "How should this course change?",
       "requestHint": "Describe the result you want; no command syntax needed",
-      "requestPlaceholder": "For example: expand every example and update the handout and slides",
+      "requestPlaceholder": "For example: add complete reasoning to every example and update lesson plans and scripts.",
       "requestSuggestionsLabel": "Common change examples",
       "suggestDetailedExamples": "Add full derivations, counterexamples, and applicability boundaries to every case",
       "suggestRestructure": "Restructure the chapters around the new teaching logic and migrate reusable content",
-      "suggestVersionUpdate": "Update outdated model versions consistently across the outline, lesson plans, handouts, and slides",
+      "suggestVersionUpdate": "Update outdated model versions in the outline, lesson plans and scripts",
       "startAnalysis": "Analyze whole-course impact",
       "noDirectWrite": "Analyze impact first; the formal course stays unchanged until confirmation",
       "courseIndex": "Course index",
@@ -2482,7 +2521,23 @@
       "confirmPlanAndGenerate": "Confirm plan and generate options",
       "undoChange": "Undo this change",
       "courseMissing": "This course could not be found. Return to the course list and open it again.",
-      "refreshShort": "Refresh status"
+      "refreshShort": "Refresh status",
+      "partialTitle": "Some changes were applied; review the remaining failures",
+      "partialResult": "Partially applied",
+      "changeMode": "Change method",
+      "mode_describe": "Describe a change",
+      "mode_replace": "Find and replace",
+      "mode_structure": "Edit lectures",
+      "findText": "Find",
+      "replaceWith": "Replace with (empty removes the text)",
+      "replaceScope": "Scope",
+      "progressDisconnected": "Task updates are temporarily unavailable. Reconnecting; the last known results are preserved.",
+      "partialLoadFailed": "Some information could not be loaded. Please retry; available results remain readable.",
+      "rescanFailed": "The scan failed. Previous review results are preserved.",
+      "durableProgress": "Generating candidates. Completed items are saved; you can return after leaving or refreshing.",
+      "scanCoverage": "Checked {done}/{total} content units",
+      "replaceInstruction": "Replace all occurrences of “{before}” with “{after}”",
+      "analysisFailed": "Impact analysis failed. Please retry."
     },
     "refresh": "Re-evaluate learning evidence",
     "evidenceConvergence": "Multiple evidence sources converge",
@@ -2777,7 +2832,9 @@
     "search": "Find a chapter or lesson block",
     "records": "Learning records",
     "sectionBlocks": "Lesson blocks",
-    "blockFallback": "Content block"
+    "blockFallback": "Content block",
+    "searchLessons": "Search lessons or content",
+    "noResults": "No matches. Try another keyword."
   },
   "learningShell": {
     "openNavigator": "Open course outline",
@@ -2814,7 +2871,7 @@
     "resourceMenuTitle": "Course materials",
     "resourceMenuHelp": "Knowledge graph and supporting course materials",
     "assistant": "AI assistant",
-    "assistantHint": "Open the full-screen AI assistant",
+    "assistantHint": "Open the AI assistant",
     "notebook": "Notebook",
     "notebookHint": "View notes and learning markers for this course",
     "questionBook": "Question book",
@@ -2844,7 +2901,7 @@
     "teachingDescription": "View outlines, lesson plans, and handouts",
     "resourcesHint": "View the outline, lesson plan, handout, practice sheet, and slides compiled from this course",
     "ai": "AI assistant",
-    "aiHint": "Open the full-screen AI assistant"
+    "aiHint": "Open the AI assistant"
   },
   "questionBook": {
     "title": "Question book",
@@ -3266,6 +3323,10 @@
     "close": "Close and return to content"
   },
   "courseBlocks": {
+    "lessonNumber": "Lecture {number}",
+    "chapterNumber": "Chapter {number}",
+    "lessonPractice": "Lecture practice",
+    "lesson": "Lesson",
     "courseOpening": "Course introduction",
     "courseUnit": "Course unit",
     "chapter": "Chapter",
@@ -4651,6 +4712,7 @@
     }
   },
   "courseWorkspace": {
+    "backToTop": "Back to the top of the course",
     "navigation": "Course workspace",
     "openCourseTree": "Open course outline",
     "loading": "Loading course assets",
@@ -5128,6 +5190,8 @@
       }
     },
     "aiTeacher": {
+      "latestReply": "Back to latest reply",
+      "settings": "Chat settings",
       "title": "AI assistant",
       "newConversation": "New conversation",
       "conversations": "Conversations",
@@ -5140,8 +5204,8 @@
       "context": "Current context",
       "clearQuote": "Remove quote",
       "loadingConversation": "Loading conversation",
-      "emptyTitle": "Start from the current learning context",
-      "emptyBody": "Start with a concept, problem, or course passage that is still unclear.",
+      "emptyTitle": "Let’s talk about this lesson",
+      "emptyBody": "Explore a concept, work through an example, or check your understanding.",
       "explainSuggestion": "Explain this suggestion",
       "thinking": "Thinking",
       "requestAccepted": "Request received. Reading the current course",
@@ -5466,6 +5530,15 @@
     }
   },
   "notebook": {
+    "noResults": "No matching records",
+    "emptyCategory": "No records in this category yet",
+    "clearSearch": "Clear search",
+    "categories": {
+      "note": "Notes",
+      "issue": "Questions",
+      "review": "Review",
+      "bookmark": "Bookmarks"
+    },
     "title": "Notebook",
     "count": "{count} items",
     "search": "Search notebook...",
@@ -5919,7 +5992,8 @@
     "parseHigh": "High-quality parse",
     "parseMedium": "Parse needs review",
     "parseLow": "Parse failed",
-    "type": { "outline": "Course outline", "lesson_plan": "Lesson plan", "script": "Script", "ppt": "PPT" }
+    "type": { "outline": "Course outline", "lesson_plan": "Lesson plan", "script": "Script", "ppt": "PPT" },
+    "globalChange": "Global changes"
   },
   "courseFiles": {
     "spaceLabel": "Course file space", "sameSource": "Structured same-source", "teacherAgent": "AI assistant", "hideTeacherAgent": "Hide AI assistant", "agentContext": "Current file: {label} ({path})", "previewCourse": "Preview as student", "folderNavigation": "Course folders", "expandFolder": "Expand folder", "collapseFolder": "Collapse folder", "courseLevel": "Course-wide", "lessonLevel": "By session", "otherLevel": "Other", "assembledCourseTitle": "The formal course is assembled from structured blocks", "assembledCourseHelp": "Content and practice stay separate in the file space and merge from the current revision at preview time.", "allCourseFiles": "Course files", "backToCalendar": "Back to calendar", "backToCourses": "Back to My courses", "taskCenter": "Task center", "untitledCourse": "Untitled course", "loading": "Loading course files", "loadFailed": "Could not load course", "outlineEditor": "Edit course outline", "calendarDrawerTitle": "Teaching calendar",

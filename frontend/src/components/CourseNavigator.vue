@@ -1,7 +1,7 @@
 <template>
   <aside class="course-navigator glass-panel-elevated" :aria-label="t('learningNavigator.title', '课程目录')">
     <header>
-      <button type="button" :title="t('learningNavigator.back', '返回课程库')" @click="emit('back')">
+      <button type="button" :title="t('learningNavigator.back', '返回课程库')" :aria-label="t('learningNavigator.back')" @click="emit('back')">
         <ArrowLeft :size="16" />
       </button>
       <div v-if="productionMode && !courseStore.courseTree.length" class="navigator-production-label">
@@ -10,9 +10,9 @@
       </div>
       <label v-else class="navigator-search">
         <Search :size="14" />
-        <input v-model="query" type="search" :placeholder="t('learningNavigator.search', '查找章节或内容')" />
+        <input v-model="query" type="search" :placeholder="t('learningNavigator.search', '查找章节或内容')" :aria-label="t('learningNavigator.search')" />
       </label>
-      <button type="button" :title="t('learningNavigator.close', '收起目录')" @click="emit('close')">
+      <button type="button" :title="t('learningNavigator.close', '收起目录')" :aria-label="t('learningNavigator.close')" @click="emit('close')">
         <PanelLeftClose :size="16" />
       </button>
     </header>
@@ -30,6 +30,7 @@
           @select-block="emit('selectBlock', $event)"
         />
       </ul>
+      <p v-if="query.trim() && !hasMatches" class="navigator-no-results" role="status">{{ t('learningNavigator.noResults') }}</p>
     </nav>
     <section v-else-if="productionMode" class="navigator-production-empty" :data-state="generationTask?.status || 'pending'">
       <header>
@@ -63,6 +64,7 @@ import CourseNavigatorNode from './CourseNavigatorNode.vue'
 import { useCourseStore } from '../stores/course'
 import type { CourseBlockNavigationTarget, Node, Task } from '../stores/types'
 import { t } from '../shared/i18n'
+import { navigationNodeMatches } from '../utils/course-navigation'
 
 const props = withDefaults(defineProps<{
   activeBlockId?: string
@@ -80,6 +82,7 @@ const emit = defineEmits<{
 }>()
 const courseStore = useCourseStore()
 const query = ref('')
+const hasMatches = computed(() => courseStore.courseTree.some(node => navigationNodeMatches(node, query.value, role => t(`courseBlocks.${role}`))))
 const skeletonRows = [1, 2, 3, 4, 5, 6]
 const generationProgress = computed(() => Math.max(0, Math.min(100, Math.round(Number(props.generationTask?.progress || 0)))))
 const navigatorTitle = computed(() => {
@@ -107,6 +110,8 @@ const navigatorHelp = computed(() => {
 .navigator-production-label { height:34px; min-width:0; display:flex; align-items:center; gap:7px; padding:0 10px; border:1px solid rgba(226,232,240,.82); border-radius:10px; color:#5552c9; background:#f7f7ff; font-size:10px; font-weight:750; }
 .course-navigator nav { min-height:0; overflow-y:auto; padding:6px 8px 18px; scrollbar-width:thin; scrollbar-color:#dbe4f2 transparent; }
 .course-navigator nav > ul { margin: 0; padding: 0; }
+.navigator-no-results { margin:0; padding:24px 10px; color:var(--lz-text-secondary); font-size:15px; line-height:1.6; }
+.course-navigator header button:focus-visible { outline:2px solid var(--lz-brand-strong); outline-offset:2px; }
 .navigator-production-empty { min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; padding:10px 14px 15px; text-align:left; }
 .navigator-production-empty > header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:7px 2px 11px; border-bottom:1px solid #e8ebf0; }
 .navigator-production-empty > header strong { color:#4b5567; font-size:9px; }

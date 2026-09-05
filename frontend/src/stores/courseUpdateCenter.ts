@@ -1,3 +1,4 @@
+import { t } from '@/shared/i18n'
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import {
@@ -17,7 +18,7 @@ export interface CourseUpdateSource {
   sourceId: string
   title: string
   subtitle: string
-  status: 'changed' | 'pending' | 'ready' | 'applied' | 'failed' | 'unchanged'
+  status: 'changed' | 'pending' | 'ready' | 'applied' | 'failed' | 'unchanged' | 'undone' | 'partial'
   updatedAt: string
   material?: MaterialAuditAsset
   plan?: CourseEvolutionPlan
@@ -32,7 +33,8 @@ function planUpdatedAt(plan: CourseEvolutionPlan) {
 }
 
 function planStatus(plan: CourseEvolutionPlan): CourseUpdateSource['status'] {
-  if (plan.status === 'applied' || plan.status === 'undone') return 'applied'
+  if (plan.status === 'undone') return 'undone'
+  if (plan.status === 'applied') return plan.application_receipt?.status === 'partial' ? 'partial' : 'applied'
   if (plan.status === 'rejected') return 'unchanged'
   if (plan.status === 'stale' || plan.status === 'undo_partial') return 'failed'
   if (plan.generation_status === 'failed') return 'failed'
@@ -115,7 +117,7 @@ export const useCourseUpdateCenterStore = defineStore('course-update-center', ()
   }
 
   function selectFirstAvailable(preferred = '') {
-    if (preferred && sources.value.some(source => source.key === preferred)) {
+    if (preferred === 'new-change' || (preferred && sources.value.some(source => source.key === preferred))) {
       activeSourceKey.value = preferred
       return
     }
@@ -126,8 +128,12 @@ export const useCourseUpdateCenterStore = defineStore('course-update-center', ()
     activeSourceKey.value = materialSources.value[0]?.key || courseChangeSources.value[0]?.key || 'new-change'
   }
 
+  let loadSequence = 0
+
   async function load(targetCourseId: string, preferred = '') {
+    if (courseId.value !== targetCourseId) activeSourceKey.value = ''
     courseId.value = targetCourseId
+    const currentLoad = ++loadSequence
     loading.value = true
     error.value = ''
     const [materials, changes, context] = await Promise.allSettled([
@@ -135,14 +141,17 @@ export const useCourseUpdateCenterStore = defineStore('course-update-center', ()
       courseEvolution.refreshProgress(targetCourseId),
       courseEvolution.loadCourseContext(targetCourseId),
     ])
+    if (currentLoad !== loadSequence || courseId.value !== targetCourseId) return
     const failures = [materials, changes, context].filter(result => result.status === 'rejected')
-    if (failures.length === 3) error.value = '审计与更新信息读取失败，请重试。'
+    if (failures.length || materialAudit.error) error.value = t('courseEvolution.workspace.partialLoadFailed')
     selectFirstAvailable(preferred)
     loading.value = false
   }
 
   async function refreshAll() {
     if (!courseId.value) return
+    const currentLoad = ++loadSequence
+    const targetCourseId = courseId.value
     loading.value = true
     error.value = ''
     const tasks: Promise<unknown>[] = [
@@ -151,8 +160,9 @@ export const useCourseUpdateCenterStore = defineStore('course-update-center', ()
     ]
     if (materialAudit.coursePackage) tasks.unshift(materialAudit.refresh())
     const results = await Promise.allSettled(tasks)
-    if (results.every(result => result.status === 'rejected')) {
-      error.value = '重新扫描失败，原有审计结果仍已保留。'
+    if (currentLoad !== loadSequence || targetCourseId !== courseId.value) return
+    if (results.some(result => result.status === 'rejected') || materialAudit.error) {
+      error.value = t('courseEvolution.workspace.rescanFailed')
     }
     selectFirstAvailable()
     loading.value = false

@@ -327,6 +327,9 @@ export const useGenerationStore = defineStore('generation', {
           { status: payload.status || localTask.status, updated_at: payload.updated_at },
         )) return
         localTask.status = normalizeTaskStatus(payload.status, localTask.status)
+        if (typeof payload.outline_detail_requested === 'boolean') {
+          localTask.outlineDetailRequested = payload.outline_detail_requested
+        }
 
         localTask.progress = (payload.progress as number) ?? localTask.progress
         if (task_id) localTask.id = task_id
@@ -842,6 +845,9 @@ export const useGenerationStore = defineStore('generation', {
           : t('courseWorkbench.outlineFlow.continuing', '正在生成完整大纲…')),
       )
       task.phaseDetail = payload.phase_detail || task.phaseDetail || {}
+      if (typeof payload.outline_detail_requested === 'boolean') {
+        task.outlineDetailRequested = payload.outline_detail_requested
+      }
       task.shouldStop = false
       this.syncCurrentCourseGenerationState(courseId, task.status, task.progress, task.currentStep)
       this.persistGenerationState()
@@ -963,6 +969,7 @@ export const useGenerationStore = defineStore('generation', {
           progress: task.progress, currentStep: task.currentStep,
           taskType: task.taskType, updatedAt: task.updatedAt, heartbeatAt: task.heartbeatAt,
           currentPhase: task.currentPhase, phaseProgress: task.phaseProgress, phaseDetail: task.phaseDetail,
+          outlineDetailRequested: task.outlineDetailRequested,
           difficulty: task.difficulty, compositionStyle: task.compositionStyle, courseType: task.courseType,
           style: task.style, requirements: task.requirements,
           recovery: task.recovery,
@@ -1044,6 +1051,9 @@ export const useGenerationStore = defineStore('generation', {
             )) return
             const prevStatus = localTask.status
             localTask.status = normalizeTaskStatus(backendTask.status, localTask.status)
+            if (typeof backendTask.outline_detail_requested === 'boolean') {
+              localTask.outlineDetailRequested = backendTask.outline_detail_requested
+            }
             localTask.progress = backendTask.progress
             localTask.id = backendTask.id
             localTask.taskType = String(backendTask.type || localTask.taskType || '') || undefined

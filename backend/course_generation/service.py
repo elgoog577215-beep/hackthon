@@ -124,6 +124,7 @@ from course_generation.outline import (
     normalize_teacher_outline_detail_batch,
     outline_neighbor_chapters,
     outline_request_fingerprint,
+    outline_detail_field_is_empty,
     project_streamed_teacher_outline_detail_preview,
     project_streamed_teacher_outline_growth,
     review_course_outline_document,
@@ -133,6 +134,7 @@ from course_generation.outline import (
     validate_teacher_outline_course_contract,
     validate_teacher_outline_detail_batch,
 )
+from course_generation.outline_improvement import improve_generated_outline
 from course_pedagogy import (
     SubjectPedagogyProfile,
     attach_module_plans_to_plan,
@@ -1269,8 +1271,49 @@ class CourseService(AIBase):
         plan["evidence_package_revision_id"] = evidence_package.package_revision_id
         if existing.get("nodes"):
             plan = self._merge_outline_node_edits(plan, existing.get("nodes") or [])
-        outline_plan = self._outline_only_plan(plan)
         course_generation_brief = artifacts.get("course_generation_brief") or {}
+        auto_context = {
+            **deepcopy(existing),
+            "generation_request": generation_request_payload,
+            "course_generation_brief": deepcopy(course_generation_brief),
+            "teacher_course_brief": deepcopy(course_generation_brief.get("teacher_course_brief") or {}),
+        }
+        if (
+            plan.get("authoring_structure_version") == "lecture_v1"
+            and (outline_was_generated or (existing_outline_stage.get("auto_improvement") or {}).get("status") == "running")
+            and not (existing.get("outline_generation_status") == "completed" and not existing.get("outline_framework_only"))
+        ):
+            async def save_improvement(state: dict[str, Any]) -> None:
+                existing_outline_stage["auto_improvement"] = deepcopy(state)
+                await self._notify_checkpoint(on_checkpoint, {
+                    "generation_status": "outline_generation",
+                    "generation_stage_artifacts": {
+                        **deepcopy(existing.get("generation_stage_artifacts") or {}),
+                        "outline": deepcopy(existing_outline_stage),
+                    },
+                })
+
+            async def improvement_progress(attempt: int) -> None:
+                await self._notify_phase(
+                    on_phase, "outline_auto_improvement", 35, "正在自动优化大纲并复审",
+                    phase_progress=min(90, 10 + attempt * 35),
+                    phase_detail={"artifact_type": "course_outline", "attempt": attempt, "max_attempts": 2},
+                )
+
+            async def propose_improvement(**kwargs: Any) -> dict[str, Any]:
+                async with self._planning_semaphore:
+                    return await self.propose_outline_adjustment(**kwargs)
+
+            await improvement_progress(0)
+            plan, _, improvement_state = await improve_generated_outline(
+                plan=plan, context=auto_context, existing=existing,
+                saved_state=existing_outline_stage.get("auto_improvement") or {},
+                propose=propose_improvement, checkpoint=save_improvement, progress=improvement_progress,
+                timeout_seconds=min(120, self._outline_budget.teacher_lecture_request_timeout_seconds),
+            )
+            existing_outline_stage["auto_improvement"] = improvement_state
+            plan_constraint_report = validate_course_outline_constraints(plan, course_generation_brief)
+        outline_plan = self._outline_only_plan(plan)
         outline_quality_report = review_course_outline_document(
             outline_plan,
             course_context={
@@ -5011,8 +5054,11 @@ class CourseService(AIBase):
                     "hour_breakdown",
                     "planned_hours",
                 ):
-                    if node.get(field) not in (None, "", [], {}):
+                    if not outline_detail_field_is_empty(field, node.get(field)):
                         section[field] = deepcopy(node[field])
+                section["planned_hours"] = round(sum(
+                    float(value or 0) for value in (section.get("hour_breakdown") or {}).values()
+                ), 2) or section.get("planned_hours")
         return plan
 
     @staticmethod
@@ -8559,7 +8605,9 @@ class CourseService(AIBase):
         last_report: dict[str, Any] = {}
         last_text = ""
         last_compiled: dict[str, Any] = {}
-        for attempt in range(2):
+        best_usable: dict[str, Any] | None = None
+        outer_repair = bool(((lesson_context or {}).get("script_shard_context") or {}).get("quality_feedback"))
+        for attempt in range(3):
             repair = ""
             if attempt:
                 blocking_codes = {
@@ -8577,26 +8625,40 @@ class CourseService(AIBase):
                     }
                     else ""
                 )
-                repair = "\n\n上次输出未通过正式质量门。请保留既定模块顺序，针对问题修复结构、学科产物或格式完整性，然后完整重写。问题：" + json.dumps(
-                    last_report.get("blocking_issues") or [], ensure_ascii=False
-                ) + formula_boundary_repair
+                repair = "\n\n交付前自动复审发现以下问题。保留既定模块顺序、正确事实和推理，只修正受影响内容，返回完整讲义。不要只为消除检查词而改写。问题：" + json.dumps(
+                    [*(last_report.get("blocking_issues") or []), *(last_report.get("review_issues") or [])], ensure_ascii=False
+                ) + formula_boundary_repair + "\n上一版讲义：\n" + last_text
             max_output_characters = sum(
                 int(item.get("max_characters") or 900)
                 for item in modules
             )
-            response = await call_script_model(
-                user_prompt,
-                system_prompt + repair,
-                output_tokens=max(
-                    700,
-                    min(6000, int(max_output_characters * 1.1)),
-                ),
-            )
+            try:
+                response = await call_script_model(
+                    user_prompt,
+                    system_prompt + repair,
+                    output_tokens=max(700, min(6000, int(max_output_characters * 1.1))),
+                )
+            except (AIProviderRequestError, AIProviderUnavailable):
+                if best_usable is None:
+                    raise
+                best_usable["auto_improvement"] = {"attempts": attempt, "status": "partial", "error_code": "provider_unavailable"}
+                return best_usable
             last_text = self.clean_response_text(response) if response else ""
             compiled = compile_teacher_script_section(last_text, contract)
             last_compiled = compiled
             last_report = compiled.get("quality_report") or {}
             if last_report.get("passed"):
+                review_codes = {item.get("code") for item in last_report.get("review_issues") or []}
+                best_codes = {item.get("code") for item in (best_usable or {}).get("quality_report", {}).get("review_issues") or []}
+                if best_usable is None or review_codes < best_codes:
+                    best_usable = deepcopy(compiled)
+                if review_codes and attempt < 2 and not outer_repair:
+                    last_compiled = deepcopy(best_usable)
+                    last_report = last_compiled["quality_report"]
+                    last_text = last_compiled.get("content") or last_text
+                    continue
+                compiled = best_usable
+                compiled["auto_improvement"] = {"attempts": attempt, "status": "partial" if compiled["quality_report"].get("review_issues") else "completed"}
                 self._record_generation_quality(
                     output_type="teacher_script_section",
                     output_text=compiled.get("content") or "",
@@ -8608,6 +8670,11 @@ class CourseService(AIBase):
                     require_markdown_structure=True,
                 )
                 return compiled
+            if attempt >= 1:
+                break  # Keep the existing two-pass hard-repair/compaction bound.
+        if best_usable is not None:
+            best_usable["auto_improvement"] = {"attempts": 2, "status": "partial"}
+            return best_usable
         blocking_codes = {
             str(item.get("code") or "")
             for item in last_report.get("blocking_issues") or []
@@ -9914,9 +9981,9 @@ class CourseService(AIBase):
             "请分析老师对整门课程的修改要求，只输出一个 JSON 对象。\n"
             f"老师原话：{instruction}\n\n"
             "课程与资产概况：\n"
-            f"{json.dumps(overview, ensure_ascii=False)[:12000]}\n\n"
+            f"{json.dumps(overview, ensure_ascii=False)}\n\n"
             "经过索引与关系扩展后的候选单元：\n"
-            f"{json.dumps(ranked_candidates, ensure_ascii=False)[:28000]}\n\n"
+            f"{json.dumps(ranked_candidates, ensure_ascii=False)}\n\n"
             "返回字段：interpreted_goal、signal_kind、signal_confidence、"
             "hard_constraints、soft_preferences、protected_requirements、assumptions、"
             "blocking_questions、affected_units、structure。"

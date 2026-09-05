@@ -18,6 +18,15 @@ from course_generation.service import CourseService
 from course_pedagogy import resolve_pedagogy_profile
 
 
+@pytest.fixture(autouse=True)
+def isolate_editorial_optimizer(monkeypatch):
+    # These tests measure framework/detail scheduling. The actual automatic
+    # editor and its integration are exercised in test_outline_auto_improvement.
+    async def no_change(**_kwargs):
+        return {"operations": []}
+    monkeypatch.setattr(CourseService, "propose_outline_adjustment", staticmethod(no_change))
+
+
 def _teacher_framework_payload(lecture_count: int = 16) -> str:
     return json.dumps(
         {
@@ -588,3 +597,55 @@ async def test_teacher_outline_failure_keeps_successes_and_retries_only_failed_l
     )
     assert resumed_stage["fallback_units"] == []
     assert resumed_stage["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_full_outline_delivery_uses_auto_editor_and_keeps_final_projection(monkeypatch):
+    service = CourseService()
+    phases, checkpoints, edits = [], [], []
+    brief = {**_teacher_brief(), "lecture_count": 1, "total_class_hours": 2, "teaching_context": "classroom"}
+
+    async def model(_prompt, system_prompt="", **_kwargs):
+        if system_prompt.startswith("## 轻量讲次方案 V1"):
+            return _teacher_framework_payload(1)
+        if system_prompt.startswith("## 课程级完整大纲合同 V1"):
+            return _teacher_course_contract_payload(system_prompt)
+        if system_prompt.startswith("## 单讲完整大纲 V2"):
+            payload = json.loads(_teacher_detail_payload(system_prompt))
+            payload["lectures"][0]["learning_objective"] = "掌握人工智能知识"
+            return json.dumps(payload, ensure_ascii=False)
+        raise AssertionError(system_prompt)
+
+    async def propose(**request):
+        edits.append(request)
+        assert any(p["generation_stage_artifacts"]["outline"].get("auto_improvement", {}).get("attempts") == 1
+                   for p in checkpoints if p.get("generation_stage_artifacts"))
+        return {"operations": [{"op": "update_node", "node_ref": "L2-1-1",
+                                "learning_objective": "根据给定数据特征，选择分类或回归方法并解释选择依据。"}]}
+
+    async def phase(name, *_):
+        phases.append(name)
+
+    async def checkpoint(data):
+        checkpoints.append(deepcopy(data))
+
+    monkeypatch.setattr(service, "_call_llm", model)
+    monkeypatch.setattr(service, "propose_outline_adjustment", propose)
+    result = await service.build_course_draft(
+        course_id="outline-auto-integration", topic="人工智能导论", teacher_course_brief=brief,
+        stop_after_outline=True, on_phase=phase, on_checkpoint=checkpoint,
+    )
+    assert edits and "outline_auto_improvement" in phases
+    node = next(n for n in result["nodes"] if n["node_id"] == "L2-1-1")
+    section = result["course_outline"]["chapters"][0]["sections"][0]
+    assert node["learning_objective"] == section["learning_objective"] == "根据给定数据特征，选择分类或回归方法并解释选择依据。"
+    assert node["planned_hours"] == section["planned_hours"] == 2
+    assert result["outline_generation_status"] == "completed"
+    edits.clear()
+    phases.clear()
+    restored = await service.build_course_draft(
+        course_id="outline-auto-integration", topic="人工智能导论", teacher_course_brief=brief,
+        existing_course_data=result, stop_after_outline=True, on_phase=phase,
+    )
+    assert not edits and "outline_auto_improvement" not in phases
+    assert restored["course_outline"] == result["course_outline"]

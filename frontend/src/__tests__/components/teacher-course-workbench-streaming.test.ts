@@ -298,6 +298,26 @@ describe('teacher course workbench outline streaming', () => {
     expect(detail.find('article[data-state="running"] .stream-caret').exists()).toBe(true)
   })
 
+  it('各讲已生成但仍在自动复审时保持第三步和进行中状态', () => {
+    const task = useGenerationStore().createTask('job-auto', 'course-1', '电动力学')
+    task.status = 'running'
+    task.currentPhase = 'outline_auto_improvement'
+    task.currentStep = '已完成各讲内容'
+    task.outlineDetailRequested = true
+    task.phaseDetail = {
+      outline_growth: { ...growth, state: 'completed' },
+      lesson_statuses: {
+        'L1-1': { lesson_id: 'L1-1', status: 'completed', progress: 100 },
+        'L1-2': { lesson_id: 'L1-2', status: 'completed', progress: 100 },
+      },
+    }
+    const wrapper = mountWorkbench()
+    expect(wrapper.findAll('[data-testid="outline-flow-steps"] button')[2]!.classes()).toContain('active')
+    expect(wrapper.get('.generation-surface').text()).toContain('正在自动优化大纲并复审')
+    expect(wrapper.find('[data-testid="outline-detail-stream"]').exists()).toBe(true)
+    expect(wrapper.find('.outline-workspace').exists()).toBe(false)
+  })
+
   it('新生成任务启动时不回显上一个任务的旧结构', async () => {
     const task = useGenerationStore().createTask('job-old', 'course-1', 'C 语言程序设计')
     task.status = 'completed'
@@ -432,6 +452,60 @@ describe('teacher course workbench outline streaming', () => {
 
     resolveContinue?.()
     await flushPromises()
+  })
+
+  it('完整大纲请求返回并进入课程合同子阶段后仍在第 3 步，暂停和失败也保留位置', async () => {
+    useCourseStore().nodes = [{
+      node_id: 'L1-1', parent_node_id: 'root', node_name: '第1讲 设计导论', node_level: 1,
+      node_content: '', node_type: 'original', generation_status: 'completed', generated_chars: 0,
+    }] as any
+    const generation = useGenerationStore()
+    const task = generation.createTask('job-waiting', 'course-1', 'UI 设计')
+    task.status = 'waiting_for_input'
+    task.currentPhase = 'outline_framework_ready'
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.mocked(http.post).mockResolvedValue({ data: {
+      status: 'started', job_id: 'job-waiting', outline_detail_requested: true,
+    } })
+    const wrapper = mountWorkbench({ courseTitle: 'UI 设计' })
+    await wrapper.get('[data-testid="outline-continue-action"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="outline-flow-steps"] button')[2]!.classes()).toContain('active')
+    for (const status of ['running', 'paused', 'failed']) {
+      generation.handleWSProgressUpdate({
+        type: 'progress_update', course_id: 'course-1', task_id: 'job-waiting',
+        payload: { status, current_phase: 'outline_course_contract_generation',
+          outline_detail_requested: true, phase_detail: { artifact_type: 'course_outline_course_contract' } },
+      } as any)
+      await flushPromises()
+      expect(wrapper.findAll('[data-testid="outline-flow-steps"] button')[2]!.classes()).toContain('active')
+    }
+    wrapper.unmount()
+  })
+
+  it('刷新后从任务轮询恢复完整大纲步骤，不因课程合同或校验子阶段退回第二步', async () => {
+    useCourseStore().nodes = [{
+      node_id: 'L1-1', parent_node_id: 'root', node_name: '第1讲 设计导论', node_level: 1,
+      node_content: '', node_type: 'original', generation_status: 'completed', generated_chars: 0,
+    }] as any
+    const generation = useGenerationStore()
+    generation.createTask('outline-full', 'course-1', 'UI 设计')
+    vi.mocked(http.get).mockResolvedValue({ data: [{
+      id: 'outline-full', course_id: 'course-1', type: 'teacher_outline_generation',
+      status: 'running', current_phase: 'outline_course_contract_validation', progress: 40,
+      outline_detail_requested: true,
+    }] })
+    await generation.fetchGlobalTasks()
+    const wrapper = mountWorkbench({ courseTitle: 'UI 设计' })
+    expect(wrapper.findAll('[data-testid="outline-flow-steps"] button')[2]!.classes()).toContain('active')
+    generation.persistGenerationState()
+    generation.stateRestored = false
+    generation.tasks.clear()
+    generation.restoreGenerationState()
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="outline-flow-steps"] button')[2]!.classes()).toContain('active')
+    expect(http.post).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('完整大纲保存了新课程方案后才提供重新生成', async () => {
@@ -1470,6 +1544,58 @@ describe('teacher course workbench outline streaming', () => {
     expect(generateAll).toHaveBeenCalledWith('course-1', '')
   })
 
+  it('整课允许生成时仍只统计逐讲获准范围，其他讲的旧 can_generate 不扩大权限', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    const snapshot = strictProductionSnapshot({ script: { allowed_actions: ['generate'], counts: { total: 2, available: 0, generating: 0, failed: 0, stale: 0 } } })
+    snapshot.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`,
+      stages: { script: strictProductionStage({ allowed_actions: number === 1 ? ['generate'] : [] }) },
+    })) as any
+    lessonStore.productionState = snapshot as any
+    lessonStore.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, sections: [],
+      arrangement: { source_state: 'current', blocks: [] },
+      plan: { working_revision_id: `plan-${number}`, source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
+      script: { current_revision_id: '', source_state: 'current', ready: false, can_generate: true, sections: [] },
+    })) as any
+    const generateAll = vi.spyOn(lessonStore, 'generateAllScripts').mockResolvedValue({ parent_job: { id: 'batch' }, jobs: [] } as any)
+    const wrapper = mountWorkbench({ initialStage: 'script' })
+    const button = wrapper.get('[data-testid="script-course-preview-generate"]')
+    expect(button.text()).toBe('生成已具备教案的讲义（1讲）')
+    await button.trigger('click')
+    expect(generateAll).toHaveBeenCalledOnce()
+  })
+
+  it('已有其他讲讲义时，当前缺教案的讲仍保留禁用生成入口', () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    const snapshot = strictProductionSnapshot({ script: { display_state: 'available', availability: 'usable', counts: { total: 2, available: 1, generating: 0, failed: 0, stale: 0 } } })
+    snapshot.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`,
+      stages: { script: strictProductionStage(number === 1 ? { display_state: 'available', availability: 'usable' } : {}) },
+    })) as any
+    lessonStore.productionState = snapshot as any
+    lessonStore.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, sections: [],
+      arrangement: { source_state: 'current', blocks: [] },
+      plan: { working_revision_id: number === 1 ? 'plan-1' : '', source_state: 'current', ready: number === 1, current_revision: null, ppt_assets: [] },
+      script: { current_revision_id: number === 1 ? 'script-1' : '', source_state: 'current', ready: number === 1, can_generate: false, sections: number === 1 ? [{ section_node_id: 's1', content: '讲义正文' }] : [] },
+    })) as any
+    const wrapper = mountWorkbench({ initialStage: 'script', initialLessonId: 'L1-2' })
+    expect(wrapper.get('[data-testid="script-batch-start"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.generation-unavailable-reason').exists()).toBe(true)
+  })
+
+  it('缺少大纲时保留教案生成按钮及原因，不提交生成请求', async () => {
+    useTeacherLessonAuthoringStore().productionState = strictProductionSnapshot({}) as any
+    const generateAll = vi.spyOn(useTeacherLessonAuthoringStore(), 'generateAllLessons')
+    const wrapper = mountWorkbench({ initialStage: 'lesson' })
+    const button = wrapper.get('.lesson-generation-actions button')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.generation-unavailable-reason').exists()).toBe(true)
+    await button.trigger('click')
+    expect(generateAll).not.toHaveBeenCalled()
+  })
+
   it('讲义批量启动失败在当前预览内反馈', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
@@ -1774,7 +1900,7 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'script' })
 
-    expect(wrapper.find('[data-testid="script-course-preview-generate"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="script-course-preview-generate"]').attributes('disabled')).toBeDefined()
     expect(wrapper.find('[data-testid="script-batch-start"]').exists()).toBe(false)
     expect(wrapper.get('.context-pane-heading').text()).toContain('生成未完成')
   })
@@ -2161,9 +2287,39 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'foundation' })
 
-    expect(wrapper.get('.context-pane-heading').text()).toContain('待补充信息')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('讲次方案已就绪')
     expect(wrapper.find('.context-pane-heading__actions .primary-status-action').exists()).toBe(false)
     expect(wrapper.find('.generation-header-actions').exists()).toBe(false)
+    await wrapper.get('[data-testid="outline-continue-action"]').trigger('click')
+    await flushPromises()
+
+    expect(continueDetails).toHaveBeenCalledWith('course-1', 'outline-waiting')
+    expect(resume).not.toHaveBeenCalled()
+  })
+
+  it('轻量方案同时存在草稿时仍使用 provide_input 的任务继续完整大纲', async () => {
+    useCourseStore().nodes = [{
+      node_id: 'L1-1', parent_node_id: 'root', node_name: '第一讲', node_level: 1,
+      node_content: '', node_type: 'original', generation_status: 'completed', generated_chars: 0,
+    }] as any
+    useCourseStore().setTeacherProductionState('course-1', strictProductionSnapshot({
+      outline: {
+        display_state: 'generating', task_state: 'waiting_for_input', task_ids: ['outline-waiting'],
+        action_targets: { provide_input: ['outline-waiting'] },
+        allowed_actions: ['provide_input'], has_unconfirmed_draft: true,
+        counts: { total: 1, available: 0, generating: 1, failed: 0, stale: 0 },
+      },
+    }) as any)
+    const generation = useGenerationStore()
+    const continueDetails = vi.spyOn(generation, 'continueOutlineDetails').mockResolvedValue({} as any)
+    const resume = vi.spyOn(generation, 'resumeTask').mockResolvedValue(undefined as any)
+
+    const wrapper = mountWorkbench({ initialStage: 'foundation' })
+
+    expect(wrapper.get('.context-pane-heading').text()).toContain('讲次方案已就绪')
+    expect(wrapper.find('.context-pane-heading__actions .primary-status-action').exists()).toBe(false)
+    expect(wrapper.find('.generation-header-actions').exists()).toBe(false)
+    expect(wrapper.find('.context-pane-heading .spin').exists()).toBe(false)
     await wrapper.get('[data-testid="outline-continue-action"]').trigger('click')
     await flushPromises()
 

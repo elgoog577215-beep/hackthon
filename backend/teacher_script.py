@@ -18,7 +18,7 @@ from teacher_visible_language import has_unnatural_system_language
 
 SCRIPT_SCHEMA_VERSION = "teacher_script_v2"
 SCRIPT_PIPELINE_VERSION = "direct_teaching_script_v8"
-SCRIPT_QUALITY_VERSION = "teacher_script_quality_v8"
+SCRIPT_QUALITY_VERSION = "teacher_script_quality_v9"
 SCRIPT_SINGLE_REQUEST_TARGET_CHARACTERS = 6400
 SCRIPT_SINGLE_REQUEST_MAX_CHARACTERS = 12000
 SCRIPT_SHARD_TARGET_CHARACTERS = 4200
@@ -980,7 +980,7 @@ def validate_teacher_script_section(
         canned_count = len(_CANNED_DISCOURSE_PATTERN.findall(content))
         if canned_count >= 4:
             add(
-                blocking,
+                review,
                 "teacher_script:canned_discourse",
                 f"“{_text(block.get('title'))}”连续使用程式化连接词，课堂语言仍有明显模板感。",
             )
@@ -1031,7 +1031,7 @@ def validate_teacher_script_section(
     combined_content = "\n".join(_text(block.get("content")) for block in blocks)
     if len(combined_content) >= 120 and not _DIRECT_TEACHING_PATTERN.search(combined_content):
         add(
-            blocking,
+            review,
             "teacher_script:not_directly_teachable",
             "整节讲义缺少自然讲解、提问或引导语言，仍像教材正文，不能直接站在讲台上讲。",
         )
@@ -1040,7 +1040,7 @@ def validate_teacher_script_section(
         for block in blocks[1:]
     ):
         add(
-            blocking,
+            review,
             "teacher_script:missing_transition",
             "相邻教学块之间没有自然承接，教师实际讲授时会出现明显跳段。",
         )
@@ -1207,7 +1207,7 @@ def validate_teacher_script_revision(
         if len(block_ids) >= 4
     }
     if repeated_canned_phrases:
-        blocking.append({
+        review.append({
             "code": "teacher_script:repetitive_canned_transitions",
             "message": "多个教学块反复使用同一套程式化连接词，讲义需要改成随内容自然推进的课堂语言。",
             "phrase_blocks": repeated_canned_phrases,
@@ -1256,10 +1256,30 @@ def validate_teacher_script_revision(
     }
 
 
+def upgrade_script_quality_report(report: dict[str, Any]) -> dict[str, Any]:
+    """v9 changes only four expression heuristics to advice; no model needed.
+
+    Other versions/pipelines cannot reuse this report. Immutable revision prose
+    and every structural, source, completeness and repetition failure are kept.
+    """
+    if report.get("schema_version") != "teacher_script_quality_v8" or report.get("pipeline_version") != SCRIPT_PIPELINE_VERSION:
+        return report
+    result = deepcopy(report)
+    advisory = {"teacher_script:not_directly_teachable", "teacher_script:missing_transition", "teacher_script:canned_discourse", "teacher_script:repetitive_canned_transitions"}
+    issues = result.get("blocking_issues") or []
+    result["blocking_issues"] = [item for item in issues if item.get("code") not in advisory]
+    result["review_issues"] = [*(result.get("review_issues") or []), *(item for item in issues if item.get("code") in advisory)]
+    result["schema_version"] = SCRIPT_QUALITY_VERSION
+    result["passed"] = not result["blocking_issues"]
+    if "publication_eligible" in result:
+        result["publication_eligible"] = result["passed"]
+    return result
+
+
 def teacher_script_revision_is_publishable(revision: dict[str, Any]) -> bool:
-    quality = revision.get("quality_report") or {}
+    quality = upgrade_script_quality_report(revision.get("quality_report") or {})
     return bool(
-        revision.get("publication_eligible")
+        quality.get("publication_eligible", revision.get("publication_eligible"))
         and quality.get("passed")
         and quality.get("publication_eligible")
         and quality.get("schema_version") == SCRIPT_QUALITY_VERSION

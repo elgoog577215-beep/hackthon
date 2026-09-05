@@ -120,7 +120,7 @@ describe('calendar and course file-space boundary', () => {
     expect(library).toContain('class="course-production-summary"')
     expect(library).not.toContain('class="asset-progress"')
     expect(library).not.toContain('role="progressbar"')
-    expect(library).toContain("t('courseTasks.nodes', '内容进度')")
+    expect(library).toContain("t('courseWorkbench.preparationStatus', '备课状态')")
     expect(library).toContain('type="checkbox"')
     expect(library).toContain(':indeterminate="someVisibleSelected"')
     expect(library).toContain('data-testid="delete-selected-courses"')

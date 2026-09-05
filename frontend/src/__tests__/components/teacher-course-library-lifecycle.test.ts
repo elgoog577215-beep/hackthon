@@ -80,12 +80,12 @@ describe('teacher course library management', () => {
     expect(wrapper.find('.library-view-control').exists()).toBe(false)
     expect(wrapper.find('[aria-haspopup="menu"]').exists()).toBe(false)
     expect(wrapper.get('thead').text()).toContain('课程')
-    expect(wrapper.get('thead').text()).toContain('内容进度')
+    expect(wrapper.get('thead').text()).toContain('备课状态')
     expect(wrapper.get('thead').text()).toContain('上课时间')
     expect(wrapper.get('thead').text()).toContain('学年学期')
     expect(wrapper.get('thead').text()).toContain('最后编辑')
     expect(wrapper.findAll('.column-sort').map(node => node.attributes('aria-label'))).toEqual([
-      '按课程排序', '按内容进度排序', '按上课时间排序', '按学年学期排序', '按最后编辑排序',
+      '按课程排序', '按备课状态排序', '按上课时间排序', '按学年学期排序', '按最后编辑排序',
     ])
     expect(wrapper.get('tbody').text()).toContain('《矩阵与线性变换》')
     expect(wrapper.get('.course-production-summary').text()).toBe('备课完成')
@@ -98,7 +98,7 @@ describe('teacher course library management', () => {
     expect(wrapper.get('[data-testid="delete-course-math"]').attributes('title')).toBe('删除课程')
   })
 
-  it('课程行只显示备课两态与阶段进度，并直接进入对应生产阶段', async () => {
+  it('课程行只显示备课两态，并直接进入对应生产阶段', async () => {
     const courses = useCourseStore()
     courses.courseList = [course('active', {
       course_name: '线性代数',
@@ -125,7 +125,7 @@ describe('teacher course library management', () => {
     await flushPromises()
 
     expect(wrapper.get('.course-production-summary').text()).toBe('备课中')
-    expect(wrapper.get('.course-production-detail').text()).toBe('教案 1/3')
+    expect(wrapper.find('.course-production-detail').exists()).toBe(false)
     expect(wrapper.find('.course-task').exists()).toBe(false)
     expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
     expect(wrapper.get('.course-action').text()).toContain('查看进度')
@@ -150,7 +150,7 @@ describe('teacher course library management', () => {
     await flushPromises()
 
     expect(wrapper.get('.course-production-summary').text()).toBe('备课中')
-    expect(wrapper.get('.course-production-detail').text()).toBe('大纲 0/1')
+    expect(wrapper.find('.course-production-detail').exists()).toBe(false)
     expect(wrapper.get('.course-action').text()).toContain('查看进度')
     await wrapper.get('.course-action').trigger('click')
     await flushPromises()
@@ -180,7 +180,7 @@ describe('teacher course library management', () => {
     await flushPromises()
 
     expect(wrapper.get('.course-production-summary').text()).toBe('备课中')
-    expect(wrapper.get('.course-production-detail').text()).toBe('大纲 0/1')
+    expect(wrapper.find('.course-production-detail').exists()).toBe(false)
     expect(wrapper.get('.course-action').text()).toContain('查看进度')
     await wrapper.get('.course-action').trigger('click')
     await flushPromises()
@@ -220,7 +220,7 @@ describe('teacher course library management', () => {
     const wrapper = mountLibrary()
     await flushPromises()
 
-    expect(wrapper.get('.course-production-detail').text()).toBe('讲义 2/2')
+    expect(wrapper.find('.course-production-detail').exists()).toBe(false)
     expect(wrapper.get('.course-action').text()).toContain('查看进度')
     await wrapper.get('.course-action').trigger('click')
     await flushPromises()
@@ -277,7 +277,7 @@ describe('teacher course library management', () => {
     fetchMock.mockClear()
 
     expect(wrapper.get('.course-production-summary').text()).toBe('备课中')
-    expect(wrapper.get('.course-production-detail').text()).toBe('教案 15/16')
+    expect(wrapper.find('.course-production-detail').exists()).toBe(false)
     expect(wrapper.get('.course-action').text()).toContain('处理问题')
     await wrapper.get('.course-action').trigger('click')
     await flushPromises()

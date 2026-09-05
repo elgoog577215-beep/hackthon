@@ -16,11 +16,13 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from teacher_outline_source import read_teacher_outline_source
 from teacher_asset_readiness import (
     teacher_lesson_plan_readiness,
     teacher_lesson_plan_revision_has_content,
     teacher_lesson_ppt_asset_readiness,
     teacher_lesson_script_readiness,
+    teacher_lesson_script_can_generate,
     teacher_lesson_script_revision_has_content,
 )
 
@@ -28,6 +30,10 @@ SCHEMA_VERSION = "course_production_state_v1"
 STAGE_KEYS = ("outline", "lesson_plan", "script", "ppt")
 
 _PROJECTION_READ_FAILURES = {
+    "outline_source_read_failed": (
+        "当前大纲暂时无法读取，请重试；已有内容仍保留。",
+        STAGE_KEYS,
+    ),
     "teacher_asset_state_read_failed": (
         "教师资产状态暂时无法读取，已禁止生成和恢复操作以避免重复任务。",
         ("lesson_plan", "script", "ppt"),
@@ -1562,6 +1568,17 @@ def compile_course_production_state(
                         summary=issue.summary,
                         action=issue.recovery.action,
                     ).issue_id
+            if stage == "script":
+                section_ids = [
+                    str(node.get("node_id") or "")
+                    for node in _flatten_nodes(course.get("nodes"))
+                    if str(node.get("parent_node_id") or "") == lesson_id
+                ]
+                if not teacher_lesson_script_can_generate(lesson, section_ids):
+                    state.allowed_actions = [
+                        action for action in state.allowed_actions
+                        if action not in {ProductionAction.GENERATE, ProductionAction.REGENERATE_FROM_LATEST_SOURCE}
+                    ]
             stages[stage] = state
             stage_items[stage].append(state)
         unit_states.append(LessonProductionState(
@@ -1688,6 +1705,10 @@ def read_course_production_state(
 
     course_id = str(course.get("course_id") or "")
     read_failures: list[str] = []
+    try:
+        course = read_teacher_outline_source(course, task_manager)
+    except Exception:
+        read_failures.append("outline_source_read_failed")
     if authoring_state is not None:
         authoring = deepcopy(authoring_state)
     else:

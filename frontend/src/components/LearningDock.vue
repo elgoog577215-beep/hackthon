@@ -79,8 +79,8 @@
         type="button"
         class="learning-dock__domain"
         data-domain="assistant"
-        :class="{ 'is-active': activeDomain === 'assistant' }"
-        :aria-current="activeDomain === 'assistant' ? 'page' : undefined"
+        :class="{ 'is-active': assistantOpen || activeDomain === 'assistant' }"
+        :aria-pressed="assistantOpen || activeDomain === 'assistant'"
         :title="t('learningDock.assistantHint', '在当前页面打开 AI 老师')"
         @click="emit('ai')"
       >
@@ -106,6 +106,7 @@ import { t } from '../shared/i18n'
 
 withDefaults(defineProps<{
   location: string
+  assistantOpen?: boolean
   activeDomain?: 'course' | 'notebook' | 'question-book' | 'overview' | 'knowledge-library' | 'assistant'
   noteCount?: number
   questionCount?: number
@@ -114,6 +115,7 @@ withDefaults(defineProps<{
   resumeActionBusy?: boolean
 }>(), {
   activeDomain: 'course',
+  assistantOpen: false,
   noteCount: 0,
   questionCount: 0,
   resumeActionLabel: '',
@@ -152,6 +154,17 @@ const emit = defineEmits<{
   .learning-dock__resume > button { width:38px; padding:0; }
   .learning-dock__resume > button span { display:none; }
   .learning-dock__domain { padding-inline:9px; }
+}
+@media (min-width:1024px) {
+  .learning-dock { flex-wrap:wrap; gap:6px 12px; padding:9px 14px; background:#fff; box-shadow:none; }
+  .learning-dock__location { display:none; }
+  .learning-dock__actions { flex:1; flex-wrap:wrap; gap:4px; }
+  .learning-dock button { min-height:38px; padding:0 8px; font-size:15px; font-weight:500; gap:6px; }
+  .learning-dock__domain.is-active { background:var(--lz-brand-soft); border-color:transparent; box-shadow:none; }
+  .learning-dock__count { position:static; min-width:0; height:auto; padding:0; border:0; border-radius:0; color:var(--lz-text-secondary); background:transparent; font-size:13px; font-weight:500; }
+  .learning-dock__resume > button { width:auto; color:var(--lz-brand-strong); background:var(--lz-brand-soft); border-color:var(--lz-border); box-shadow:none; }
+  .learning-dock__resume > button span { display:inline; }
+  .learning-dock__divider { height:20px; }
 }
 @keyframes learning-dock-spin { to { transform:rotate(360deg); } }
 @media (max-width:767px) {

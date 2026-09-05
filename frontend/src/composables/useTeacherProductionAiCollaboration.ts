@@ -153,6 +153,7 @@ const EXPLICIT_ASSET_TARGETS: Record<TeacherProductionAiDomain, RegExp> = {
 }
 
 const STRUCTURAL_CHANGE = /(删除|删掉|移除|合并|拆分|交换|调换|前移|后移|调整顺序|重新排序|改成\s*\d+\s*(章|节|讲)|增加\s*\d*\s*(章|节|讲)|新增\s*\d*\s*(章|节|讲))/
+const STRUCTURAL_TARGET = /(第?\s*[一二三四五六七八九十百零两\d]+\s*[讲章节]|讲次|章节|课程结构|大纲|lecture\s*\d+)/i
 const COURSE_WIDE_CHANGE = /(整门课|整门课程|全课程|全课|全文|全局|全部|所有|每一[章节讲页题]|统一|批量|一律|永远都)/
 const BATCH_CHANGE = /(替换|改成|改为|删除|删掉|移除|合并|重写|统一|批量)/
 
@@ -176,7 +177,7 @@ export function routeTeacherProductionRequest(
   if (domains.length > 1) {
     return { capability: 'plan_course_change', domains, reason: 'cross_asset' }
   }
-  if (STRUCTURAL_CHANGE.test(request) && (domain === 'outline' || domains.includes('outline'))) {
+  if (STRUCTURAL_CHANGE.test(request) && (domain === 'outline' || domains.includes('outline') || STRUCTURAL_TARGET.test(request))) {
     return {
       capability: 'plan_course_change',
       domains: domains.length ? domains : ['outline'],

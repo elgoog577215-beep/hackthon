@@ -205,6 +205,8 @@ export interface CourseEvolutionPlan {
   target_section_id?: string
   request_text?: string
   growth_direction?: 'remediation' | 'challenge' | 'author_directed'
+  generation_job_id?: string
+  review_revision?: number
   generation_status?: 'suggested' | 'generating' | 'ready' | 'failed' | 'stale'
   requested_roles?: string[]
   evidence_ids: string[]
@@ -249,6 +251,9 @@ export interface CourseEvolutionApplicationVisual extends CourseEvolutionApplica
 export const useCourseEvolutionStore = defineStore('courseEvolution', {
   state: () => ({
     courseId: '',
+    courseEpoch: 0,
+    contextRequestSequence: 0,
+    payloadRequestSequence: 0,
     evidenceItems: [] as EvolutionEvidence[],
     hypotheses: [] as AdaptationHypothesis[],
     plans: [] as CourseEvolutionPlan[],
@@ -259,6 +264,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
     actingId: '',
     generating: false,
     generationError: '',
+    progressDisconnected: false,
     generationMessage: '',
     contextLoading: false,
     applicationVisual: null as CourseEvolutionApplicationVisual | null,
@@ -275,11 +281,27 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
     ),
   },
   actions: {
-    applyPayload(courseId: string, payload: Record<string, any>) {
-      if (this.courseId && this.courseId !== courseId) {
-        this.applicationVisual = null
-      }
+    selectCourse(courseId: string) {
+      if (this.courseId === courseId) return
       this.courseId = courseId
+      this.courseEpoch += 1
+      this.loading = false
+      this.contextLoading = false
+      this.courseContext = null
+      this.plans = []
+      this.evidenceItems = []
+      this.hypotheses = []
+      this.permissions = null
+      this.summary = {}
+      this.applicationVisual = null
+      this.actingId = ''
+      this.generating = false
+      this.generationError = ''
+      this.progressDisconnected = false
+      this.generationMessage = ''
+    },
+    applyPayload(courseId: string, payload: Record<string, any>) {
+      if (this.courseId !== courseId) this.selectCourse(courseId)
       this.evidenceItems = payload.evidence_items || []
       this.hypotheses = payload.hypotheses || []
       this.plans = payload.course_evolution_plans || payload.change_sets || payload.adaptation_plans || []
@@ -305,62 +327,65 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       this.applicationVisual = null
     },
     async load(courseId: string) {
+      this.selectCourse(courseId)
+      const sequence = ++this.payloadRequestSequence
       this.loading = true
       try {
         const response = await http.get(`/api/courses/${courseId}/evolution`)
-        this.applyPayload(courseId, response.data)
+        if (this.courseId === courseId && sequence === this.payloadRequestSequence) this.applyPayload(courseId, response.data)
         return response.data
       } finally {
-        this.loading = false
+        if (this.courseId === courseId && sequence === this.payloadRequestSequence) this.loading = false
       }
     },
     async refreshProgress(courseId?: string) {
       const targetCourseId = courseId || this.courseId
       if (!targetCourseId) return null
+      this.selectCourse(targetCourseId)
+      if (this.actingId || this.generating) return null
+      const sequence = ++this.payloadRequestSequence
       const response = await http.get(
         `/api/courses/${targetCourseId}/evolution/progress`,
         { silentError: true },
       )
-      this.applyPayload(targetCourseId, response.data)
+      if (this.courseId === targetCourseId && sequence === this.payloadRequestSequence) this.applyPayload(targetCourseId, response.data)
       return response.data
     },
     async evaluate(courseId: string) {
+      this.selectCourse(courseId)
+      const sequence = ++this.payloadRequestSequence
       this.loading = true
       try {
         const response = await http.post(`/api/courses/${courseId}/evolution/evaluate`)
-        this.applyPayload(courseId, response.data)
+        if (this.courseId === courseId && sequence === this.payloadRequestSequence) this.applyPayload(courseId, response.data)
         return response.data
       } finally {
-        this.loading = false
+        if (this.courseId === courseId && sequence === this.payloadRequestSequence) this.loading = false
       }
     },
     async loadCourseContext(courseId?: string) {
       const targetCourseId = courseId || this.courseId
       if (!targetCourseId) return null
-      if (this.courseId !== targetCourseId) {
-        this.courseId = targetCourseId
-        this.courseContext = null
-      }
+      this.selectCourse(targetCourseId)
+      const sequence = ++this.contextRequestSequence
       this.contextLoading = true
       try {
         const response = await http.get(
           `/api/courses/${targetCourseId}/evolution/course-context`,
           { silentError: true },
         )
-        this.courseContext = response.data
+        if (this.courseId === targetCourseId && sequence === this.contextRequestSequence) this.courseContext = response.data
         return response.data as TeacherCourseChangeContext
       } finally {
-        this.contextLoading = false
+        if (this.courseId === targetCourseId && sequence === this.contextRequestSequence) this.contextLoading = false
       }
     },
-    async createCoursePlan(input: { instruction: string; requestId?: string; courseId?: string; supersedesPlanId?: string }) {
+    async createCoursePlan(input: { instruction: string; requestId?: string; courseId?: string; supersedesPlanId?: string; literalReplacement?: { before: string; after: string }; assetTypes?: string[] }) {
       const targetCourseId = input.courseId || this.courseId
       if (!targetCourseId) throw new Error('course_change_course_required')
-      if (this.courseId !== targetCourseId) {
-        this.courseId = targetCourseId
-        this.courseContext = null
-        this.plans = []
-      }
+      this.selectCourse(targetCourseId)
+      const epoch = this.courseEpoch
+      const sequence = ++this.payloadRequestSequence
       this.generating = true
       this.generationError = ''
       try {
@@ -370,15 +395,17 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
             request_id: input.requestId
               || createUuid(),
             instruction: input.instruction,
+            ...(input.literalReplacement ? { literal_replacement: input.literalReplacement } : {}),
+            ...(input.assetTypes ? { asset_types: input.assetTypes } : {}),
             ...(input.supersedesPlanId
               ? { supersedes_plan_id: input.supersedesPlanId }
               : {}),
           },
         )
-        this.applyPayload(targetCourseId, response.data)
+        if (epoch === this.courseEpoch && sequence === this.payloadRequestSequence) this.applyPayload(targetCourseId, response.data)
         return response.data
       } catch (error: any) {
-        this.generationError = String(
+        if (epoch === this.courseEpoch) this.generationError = String(
           error?.response?.data?.detail?.message
           || error?.response?.data?.detail
           || error?.message
@@ -386,7 +413,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         )
         throw error
       } finally {
-        this.generating = false
+        if (epoch === this.courseEpoch) this.generating = false
       }
     },
     async reviewCoursePlan(
@@ -398,10 +425,13 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         proposedOutline?: TeacherCourseOutlineReviewNode[]
       } = {},
     ) {
+      const targetCourseId = this.courseId
+      const epoch = this.courseEpoch
+      const sequence = ++this.payloadRequestSequence
       this.actingId = planId
       try {
         const response = await http.post(
-          `/api/courses/${this.courseId}/evolution/course-plans/${planId}/review`,
+          `/api/courses/${targetCourseId}/evolution/course-plans/${planId}/review`,
           {
             selected_migration_ids: selectedMigrationIds,
             confirm_structure: Boolean(options.confirmStructure),
@@ -413,18 +443,21 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
               : {}),
           },
         )
-        this.applyPayload(this.courseId, response.data)
+        if (epoch === this.courseEpoch && sequence === this.payloadRequestSequence) this.applyPayload(targetCourseId, response.data)
         return response.data
       } finally {
-        this.actingId = ''
+        if (epoch === this.courseEpoch && this.actingId === planId) this.actingId = ''
       }
     },
     async createPlan(input: CreateCourseAdjustmentInput) {
+      const targetCourseId = this.courseId
+      const epoch = this.courseEpoch
+      const sequence = ++this.payloadRequestSequence
       this.generating = true
       this.generationError = ''
       try {
         const response = await http.post(
-          `/api/courses/${this.courseId}/evolution/plans`,
+          `/api/courses/${targetCourseId}/evolution/plans`,
           {
             request_id: input.requestId
               || createUuid(),
@@ -438,10 +471,10 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
             anchor_role: input.anchorRole,
           },
         )
-        this.applyPayload(this.courseId, response.data)
+        if (epoch === this.courseEpoch && sequence === this.payloadRequestSequence) this.applyPayload(targetCourseId, response.data)
         return response.data
       } catch (error: any) {
-        this.generationError = String(
+        if (epoch === this.courseEpoch) this.generationError = String(
           error?.response?.data?.detail?.message
           || error?.response?.data?.detail
           || error?.message
@@ -449,7 +482,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         )
         throw error
       } finally {
-        this.generating = false
+        if (epoch === this.courseEpoch) this.generating = false
       }
     },
     async createSectionPlan(
@@ -466,24 +499,28 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       })
     },
     async generateSuggested(planId: string) {
+      const targetCourseId = this.courseId
+      const epoch = this.courseEpoch
+      const sequence = ++this.payloadRequestSequence
       this.actingId = planId
       this.generationError = ''
+      this.progressDisconnected = false
       this.generationMessage = ''
       try {
         const payload = await postGenerationStream<Record<string, any>>(
-          `/api/courses/${this.courseId}/evolution/change-sets/${planId}/generate`,
+          `/api/courses/${targetCourseId}/evolution/change-sets/${planId}/generate`,
           {},
           {
             headers: activeIdentityHeaders(),
             onProgress: progress => {
-              this.generationMessage = progress.message || ''
+              if (epoch === this.courseEpoch) this.generationMessage = progress.message || ''
             },
           },
         )
-        this.applyPayload(this.courseId, payload)
+        if (epoch === this.courseEpoch && sequence === this.payloadRequestSequence) this.applyPayload(targetCourseId, payload)
         return payload
       } catch (error: any) {
-        this.generationError = String(
+        if (epoch === this.courseEpoch) this.generationError = String(
           error?.response?.data?.detail?.message
           || error?.response?.data?.detail
           || error?.message
@@ -491,8 +528,8 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         )
         throw error
       } finally {
-        this.actingId = ''
-        this.generationMessage = ''
+        if (epoch === this.courseEpoch && this.actingId === planId) this.actingId = ''
+        if (epoch === this.courseEpoch) this.generationMessage = ''
       }
     },
     async accept(
@@ -501,6 +538,9 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       selectedOperationIds?: string[],
       options: { retryFailed?: boolean } = {},
     ) {
+      const targetCourseId = this.courseId
+      const epoch = this.courseEpoch
+      const sequence = ++this.payloadRequestSequence
       this.actingId = planId
       try {
         const payload: Record<string, any> = { selected_scope: selectedScope }
@@ -509,51 +549,81 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         }
         if (options.retryFailed) payload.retry_failed = true
         const response = await http.post(
-          `/api/courses/${this.courseId}/evolution/change-sets/${planId}/accept`,
+          `/api/courses/${targetCourseId}/evolution/change-sets/${planId}/accept`,
           payload,
         )
-        this.applyPayload(this.courseId, response.data)
+        if (epoch === this.courseEpoch && sequence === this.payloadRequestSequence) this.applyPayload(targetCourseId, response.data)
         return response.data
       } finally {
-        this.actingId = ''
+        if (epoch === this.courseEpoch && this.actingId === planId) this.actingId = ''
       }
     },
     async reject(planId: string, reason = '') {
+      const targetCourseId = this.courseId
+      const epoch = this.courseEpoch
+      const sequence = ++this.payloadRequestSequence
       this.actingId = planId
       try {
         const response = await http.post(
-          `/api/courses/${this.courseId}/evolution/change-sets/${planId}/reject`,
+          `/api/courses/${targetCourseId}/evolution/change-sets/${planId}/reject`,
           { reason },
         )
-        this.applyPayload(this.courseId, response.data)
+        if (epoch === this.courseEpoch && sequence === this.payloadRequestSequence) this.applyPayload(targetCourseId, response.data)
         return response.data
       } finally {
-        this.actingId = ''
+        if (epoch === this.courseEpoch && this.actingId === planId) this.actingId = ''
       }
     },
     async undo(planId: string) {
+      const targetCourseId = this.courseId
+      const epoch = this.courseEpoch
+      const sequence = ++this.payloadRequestSequence
       this.actingId = planId
       try {
         const response = await http.post(
-          `/api/courses/${this.courseId}/evolution/change-sets/${planId}/undo`,
+          `/api/courses/${targetCourseId}/evolution/change-sets/${planId}/undo`,
         )
-        this.applyPayload(this.courseId, response.data)
+        if (epoch === this.courseEpoch && sequence === this.payloadRequestSequence) this.applyPayload(targetCourseId, response.data)
         return response.data
       } finally {
-        this.actingId = ''
+        if (epoch === this.courseEpoch && this.actingId === planId) this.actingId = ''
       }
     },
     async adjust(planId: string) {
+      const targetCourseId = this.courseId
+      const epoch = this.courseEpoch
+      const sequence = ++this.payloadRequestSequence
       this.actingId = planId
       try {
         const response = await http.post(
-          `/api/courses/${this.courseId}/evolution/change-sets/${planId}/adjust`,
+          `/api/courses/${targetCourseId}/evolution/change-sets/${planId}/adjust`,
         )
-        this.applyPayload(this.courseId, response.data)
+        if (epoch === this.courseEpoch && sequence === this.payloadRequestSequence) this.applyPayload(targetCourseId, response.data)
         return response.data
       } finally {
-        this.actingId = ''
+        if (epoch === this.courseEpoch && this.actingId === planId) this.actingId = ''
       }
     },
   },
 })
+
+// One polling owner per store. Closing a surface releases observation only.
+const progressWatchers = new WeakMap<object, { courseId: string; refs: number; timer: ReturnType<typeof setInterval> }>()
+export function observeCourseChangeProgress(store: ReturnType<typeof useCourseEvolutionStore>, courseId: string) {
+  let watcher = progressWatchers.get(store)
+  if (watcher && watcher.courseId !== courseId) { clearInterval(watcher.timer); progressWatchers.delete(store); watcher = undefined }
+  if (!watcher) {
+    let inFlight = false
+    const timer = setInterval(async () => {
+      if (inFlight || store.courseId !== courseId || store.actingId || store.generating || !store.plans.some(p => p.teacher_change_planning && p.status === 'pending' && p.generation_status === 'generating')) return
+      inFlight = true
+      try { await store.refreshProgress(courseId); if (store.courseId === courseId) store.progressDisconnected = false } catch { if (store.courseId === courseId) store.progressDisconnected = true }
+      finally { inFlight = false }
+    }, 1800)
+    watcher = { courseId, refs: 0, timer }
+    progressWatchers.set(store, watcher)
+  }
+  watcher.refs += 1
+  const owned = watcher
+  return () => { owned.refs -= 1; if (owned.refs === 0) { clearInterval(owned.timer); if (progressWatchers.get(store) === owned) progressWatchers.delete(store) } }
+}

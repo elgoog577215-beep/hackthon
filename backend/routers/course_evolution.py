@@ -17,6 +17,7 @@ from course_evolution.application import CourseEvolutionApplicationService
 from dependencies import (
     get_course_document_repository,
     get_course_or_404,
+    get_task_manager_optional,
     get_teacher_lesson_authoring_repository,
     require_task_manager,
 )
@@ -77,12 +78,20 @@ class GenerateCourseAdjustmentRequest(BaseModel):
     ] | None = None
 
 
+class TeacherLiteralReplacement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    before: str = Field(min_length=1, max_length=2000)
+    after: str = Field(max_length=2000)
+
+
 class GenerateTeacherCourseChangeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     request_id: str = Field(min_length=1, max_length=200)
     instruction: str = Field(min_length=1, max_length=5000)
     supersedes_plan_id: str = Field(default="", max_length=240)
+    literal_replacement: TeacherLiteralReplacement | None = None
+    asset_types: list[Literal["outline", "course_content", "lesson_plan", "script", "ppt", "question_bank"]] | None = None
 
 
 class TeacherCourseOutlineReviewNode(BaseModel):
@@ -135,15 +144,12 @@ async def get_course_evolution(course_id: str, request: Request) -> dict:
 
 
 @router.get("/progress")
-async def get_course_evolution_progress(course_id: str, request: Request) -> dict:
+async def get_course_evolution_progress(course_id: str, request: Request, tm: TaskManager | None = Depends(get_task_manager_optional)) -> dict:
     """Return persisted generation checkpoints without re-evaluating evidence."""
     await get_course_or_404(course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
-    state = await run_in_threadpool(
-        course_evolution_repository.load,
-        user_id,
-        course_id,
-    )
+    from course_evolution.jobs import reconcile_candidate_jobs
+    state = await run_in_threadpool(reconcile_candidate_jobs, tm, course_evolution_repository, user_id, course_id) if tm is not None else await run_in_threadpool(course_evolution_repository.load, user_id, course_id)
     return course_evolution_view(state)
 
 
@@ -220,6 +226,8 @@ async def create_teacher_course_plan(
             request_id=body.request_id,
             instruction=body.instruction,
             supersedes_plan_id=body.supersedes_plan_id,
+            literal_replacement=body.literal_replacement.model_dump() if body.literal_replacement else None,
+            asset_types=body.asset_types,
         )
     except TeacherCourseChangeSourceUnavailable as exc:
         raise HTTPException(status_code=409, detail={
@@ -283,15 +291,21 @@ async def generate_suggested_course_evolution_plan(
     course_id: str,
     change_set_id: str,
     request: Request,
+    tm: TaskManager = Depends(require_task_manager),
 ) -> dict:
     course = await get_course_or_404(course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
     try:
-        state = await _course_evolution_service().generate_suggested(
-            course_data=course,
-            user_id=user_id,
-            change_set_id=change_set_id,
-        )
+        service = _course_evolution_service(tm)
+        existing = service.evolution_repository.load(user_id, course_id)
+        plan = next((p for p in existing.change_sets if p.change_set_id == change_set_id), None)
+        if plan and plan.teacher_change_planning is not None:
+            from course_evolution.jobs import enqueue_candidates
+            state = await enqueue_candidates(manager=tm, service=service, user_id=user_id,
+                                             course_id=course_id, plan_id=change_set_id)
+        else:
+            state = await service.generate_suggested(course_data=course, user_id=user_id,
+                                                     change_set_id=change_set_id)
     except KeyError as exc:
         raise HTTPException(
             status_code=404,
@@ -373,7 +387,6 @@ async def reject_course_evolution_change_set(
             course_id=course_id,
             change_set_id=change_set_id,
             reason=body.reason,
-            document_repository=get_course_document_repository(),
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Course evolution change set not found") from exc

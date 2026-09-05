@@ -3,6 +3,20 @@ import { describe, expect, it } from 'vitest'
 import LearningTaskOverlay from '@/components/LearningTaskOverlay.vue'
 
 describe('LearningTaskOverlay navigation', () => {
+  it('桌面嵌入模式保留练习并把提问传给旁边的助手，不创建全屏遮罩', async () => {
+    const wrapper = mount(LearningTaskOverlay, {
+      props: { courseId: 'course-1', nodeId: 'node-1', embedded: true },
+      global: { stubs: { PracticeWorkspace: true } },
+    })
+    expect(wrapper.get('[data-testid="question-book-dialog"]').attributes('role')).toBe('region')
+    expect(wrapper.get('[data-testid="question-book-dialog"]').attributes('aria-modal')).toBeUndefined()
+    expect(wrapper.find('.question-book-modal__backdrop').exists()).toBe(false)
+    wrapper.getComponent({ name: 'PracticeWorkspace' }).vm.$emit('ask-teacher', { text: '请解释这一步', nodeId: 'node-1' })
+    expect(wrapper.emitted('askTeacher')?.[0]).toEqual([{ text: '请解释这一步', nodeId: 'node-1' }])
+    expect(wrapper.emitted('close')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('题库本作为居中的模态弹窗打开，而不是占满学习页面', () => {
     const wrapper = mount(LearningTaskOverlay, {
       props: {

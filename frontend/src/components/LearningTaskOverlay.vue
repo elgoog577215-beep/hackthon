@@ -2,10 +2,12 @@
   <section
     ref="modalRoot"
     class="question-book-modal"
+    :class="{ 'is-embedded': embedded }"
     tabindex="-1"
     @keydown.esc.prevent="emit('close')"
   >
     <button
+      v-if="!embedded"
       class="question-book-modal__backdrop"
       type="button"
       :aria-label="t('taskOverlay.close', '关闭并返回正文')"
@@ -14,8 +16,8 @@
 
     <section
       class="question-book-dialog"
-      role="dialog"
-      aria-modal="true"
+      :role="embedded ? 'region' : 'dialog'"
+      :aria-modal="embedded ? undefined : true"
       :aria-labelledby="dialogTitleId"
       :aria-describedby="dialogDescriptionId"
       data-testid="question-book-dialog"
@@ -35,13 +37,13 @@
         </div>
 
         <nav class="question-book-dialog__views" :aria-label="t('courseWorkspace.practice.views', '练习视图')">
-          <button :class="{ active: practiceView === 'current' }" @click="setPracticeView('current')">
+          <button :class="{ active: practiceView === 'current' }" :aria-pressed="practiceView === 'current'" @click="setPracticeView('current')">
             {{ t('courseWorkspace.practice.current', '当前练习') }}
           </button>
-          <button :class="{ active: practiceView === 'history' }" @click="setPracticeView('history')">
+          <button :class="{ active: practiceView === 'history' }" :aria-pressed="practiceView === 'history'" @click="setPracticeView('history')">
             {{ t('courseWorkspace.practice.history', '练习历史') }}
           </button>
-          <button :class="{ active: practiceView === 'needs_review' }" @click="setPracticeView('needs_review')">
+          <button :class="{ active: practiceView === 'needs_review' }" :aria-pressed="practiceView === 'needs_review'" @click="setPracticeView('needs_review')">
             {{ t('courseWorkspace.practice.needsReview', '错题本') }}
           </button>
         </nav>
@@ -88,12 +90,14 @@ import { t } from '../shared/i18n'
 
 withDefaults(defineProps<{
   courseId: string
+  embedded?: boolean
   nodeId?: string
   nodeLabel?: string
   originRect?: { top: number; left: number; width: number; height: number } | null
   recordCount?: number
 }>(), {
   recordCount: 0,
+  embedded: false,
 })
 const emit = defineEmits<{
   (event: 'close' | 'graded'): void
@@ -121,6 +125,19 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.question-book-modal.is-embedded { position:absolute; inset:0; z-index:34; display:flex; padding:0; }
+.is-embedded .question-book-dialog { width:100%; height:100%; min-height:0; border:0; border-radius:0; box-shadow:none; animation:none; }
+.is-embedded .question-book-dialog__header { grid-template-columns:minmax(0,1fr) auto; gap:12px; padding:16px 20px; }
+.is-embedded .question-book-dialog__views { grid-row:2; grid-column:1 / -1; justify-self:start; }
+.is-embedded .question-book-dialog__actions { grid-column:2; grid-row:1; }
+.is-embedded .question-book-dialog__identity div > span { white-space:normal; font-size:14px; }
+.is-embedded .question-book-dialog__views button { font-size:var(--text-sm); }
+.is-embedded .question-book-dialog__mark { width:32px; height:32px; border-radius:var(--radius-sm); color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
+.is-embedded .question-book-dialog__identity strong { font-size:var(--text-base); font-weight:650; }
+.is-embedded .question-book-dialog__close { border:1px solid var(--lz-border); }
+.is-embedded .question-book-dialog__close:hover { border-color:var(--lz-brand); color:var(--lz-brand-strong); }
+.is-embedded .question-book-dialog__identity div > span { overflow-wrap:anywhere; }
+
 .question-book-modal {
   position: fixed;
   inset: 0;

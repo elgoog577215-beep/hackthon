@@ -73,4 +73,24 @@ describe('NotesPanel quick note', () => {
     expect(wrapper.get('.quick-note-trigger').attributes('disabled')).toBeDefined()
     expect(wrapper.text()).toContain('请先选择一个课程章节')
   })
+
+  it('distinguishes a search miss from an empty notebook and clears the query', async () => {
+    const store = useNoteStore()
+    store.notes = [{ id:'note-1', nodeId:'n1', recordType:'note', content:'线性组合', summary:'线性组合', createdAt:1 }] as any
+    const wrapper = mount(NotesPanel)
+    await wrapper.get('input[type="search"]').setValue('不存在的内容')
+    expect(wrapper.text()).toContain('没有找到相关内容')
+    expect(wrapper.text()).not.toContain('笔记本还是空的')
+    await wrapper.get('.records-empty button').trigger('click')
+    expect(wrapper.find('.records-empty').exists()).toBe(false)
+    expect(wrapper.text()).toContain('线性组合')
+  })
+
+  it('moves keyboard focus to the quick note input when opening the composer', async () => {
+    const wrapper = mount(NotesPanel, { attachTo:document.body })
+    await wrapper.get('.quick-note-trigger').trigger('click')
+    expect(document.activeElement).toBe(wrapper.get('textarea').element)
+    wrapper.unmount()
+  })
+
 })

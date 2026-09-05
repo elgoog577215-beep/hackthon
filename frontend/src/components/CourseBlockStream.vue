@@ -41,7 +41,7 @@
             <div><dt>{{ t('teachingRepresentations.sameSourceAfter', '修改后') }}</dt><dd>{{ sameSourceState?.afterText }}</dd></div>
           </dl>
         </aside>
-          <span>{{ blockLabel(item.block.type) }}</span>
+          <span v-if="!shouldShowBlockTitle(item.block, index)" class="block-role">{{ blockLabel(item.block.type) }}</span>
           <h4 v-if="shouldShowBlockTitle(item.block, index)"><MathText :content="item.block.title" /></h4>
         </header>
         <button
@@ -326,11 +326,13 @@ function shouldShowBlockTitle(block: ContentBlock, index: number) {
 
 function displayBlockContent(block: ContentBlock, index: number) {
   const content = String(block.content || '')
-  if (index !== 0) return content
   const leadingHeading = content.match(/^\s{0,3}#{1,6}\s+([^\n]+)(?:\n|$)/)
-  if (!leadingHeading || normalizeTitle(leadingHeading[1] || '') !== normalizeTitle(props.node.node_name)) {
-    return content
-  }
+  if (!leadingHeading) return content
+  const heading = normalizeTitle(leadingHeading[1] || '')
+  const repeatsNodeTitle = index === 0 && heading === normalizeTitle(props.node.node_name)
+  const repeatsBlockTitle = Boolean(block.title) && shouldShowBlockTitle(block, index)
+    && heading === normalizeTitle(block.title || '')
+  if (!repeatsNodeTitle && !repeatsBlockTitle) return content
   return content.slice(leadingHeading[0].length).replace(/^\s*\n/, '')
 }
 
@@ -382,10 +384,17 @@ async function deleteAiRecord(note: Note) {
 </script>
 
 <style scoped>
-.course-block-stream { display:grid; gap:30px; }
+.course-block-stream { display:grid; gap:34px; }
 .legacy-inline-records { display:grid; gap:12px; margin-top:24px; }
 .course-content-block { --block-accent:#6366f1; --block-soft:#eef2ff; position:relative; min-width:0; scroll-margin-top:92px; }
-.course-content-block + .course-content-block { padding-top:2px; border-top:0; }
+/* Examples are reading insets; the prose keeps one continuous left edge. */
+.course-content-block[data-content-block-type="example"],
+.course-content-block[data-content-block-type="counterexample"] {
+  margin-inline: -20px;
+  padding: 22px 20px;
+  border-radius: 12px;
+  background: #f6f7fc;
+}
 .course-content-block.is-ai-evolved-block { padding:18px 20px 20px; border:1px solid rgba(191,219,254,.86); border-left:3px solid #4f46e5; border-radius:16px; background:linear-gradient(135deg,rgba(248,250,255,.98),rgba(240,249,255,.78)); box-shadow:0 10px 28px rgba(30,64,175,.07),inset 0 1px 0 rgba(255,255,255,.94); transition:border-color .28s ease,box-shadow .28s ease,background .28s ease,transform .28s ease; }
 .ai-evolution-block-badge { width:max-content; display:inline-flex; align-items:center; gap:5px; margin:0 0 12px; padding:4px 7px; border:1px solid rgba(165,180,252,.72); border-radius:999px; color:#4338ca; background:rgba(255,255,255,.9); font-size:9px; font-weight:800; letter-spacing:.02em; }
 .ai-evolution-block-badge > svg { color:#0891b2; }
@@ -408,13 +417,14 @@ async function deleteAiRecord(note: Note) {
 .ppt-same-source-diff dl > div:last-child dd { color:#14532d; }
 .course-content-block.is-ai-growth-highlight { border-color:rgba(129,140,248,.88); background:linear-gradient(135deg,rgba(245,247,255,1),rgba(236,254,255,.92)); box-shadow:0 0 0 3px rgba(99,102,241,.1),0 18px 38px rgba(30,64,175,.13); }
 .course-content-block.is-ai-growth-primary { border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.13),0 20px 42px rgba(30,64,175,.16); animation:course-ai-growth-arrival 1.45s cubic-bezier(.2,.8,.2,1); }
-.block-heading { display:flex; align-items:center; gap:10px; margin-bottom:14px; padding-right:34px; }
-.block-heading.is-label-only { margin-bottom:12px; }
+.block-heading { display:block; margin-bottom:14px; padding-right:34px; }
+.block-heading.is-label-only { margin-bottom:14px; }
 .course-content-block.can-improve-formal .block-heading { padding-right:120px; }
-.block-heading span { flex:0 0 auto; display:inline-flex; align-items:center; min-height:25px; padding:3px 8px; border:1px solid color-mix(in srgb,var(--block-accent) 18%,white); border-radius:8px; color:var(--block-accent); background:var(--block-soft); font-size:11px; font-weight:800; line-height:1; }
-.block-heading h4 { margin:0; color:var(--lz-text-strong); font-size:18px; font-weight:750; line-height:1.35; }
-.block-formal-improvement { position:absolute; top:-2px; right:0; z-index:3; min-height:29px; display:inline-flex; align-items:center; gap:5px; padding:0 8px; border:1px solid rgba(203,213,225,.7); border-radius:8px; color:#1e293b; background:rgba(255,255,255,.9); font-size:10px; opacity:.68; pointer-events:auto; cursor:pointer; transition:opacity .16s ease,color .16s ease,border-color .16s ease,background .16s ease,transform .16s ease; }
-.block-formal-improvement:hover,.block-formal-improvement:focus-visible,.course-content-block:hover > .block-formal-improvement { opacity:1; pointer-events:auto; color:var(--lz-text-secondary); border-color:#cbd5e1; background:#fff; outline:none; transform:translateY(-1px); }
+.block-heading > .block-role { color:var(--lz-text-strong); font-size:20px; font-weight:650; line-height:1.5; }
+.block-heading h4 { margin:0; color:var(--lz-text-strong); font-size:20px; font-weight:650; line-height:1.5; text-wrap:pretty; }
+.block-formal-improvement { position:absolute; top:-2px; right:0; z-index:3; min-height:32px; display:inline-flex; align-items:center; gap:5px; padding:0 8px; border:1px solid rgba(203,213,225,.7); border-radius:8px; color:#1e293b; background:rgba(255,255,255,.9); font-size:12px; opacity:.68; pointer-events:auto; cursor:pointer; transition:opacity .22s var(--ease-out),color .22s var(--ease-out),border-color .22s var(--ease-out),background-color .22s var(--ease-out); }
+.block-formal-improvement:hover,.block-formal-improvement:focus-visible,.course-content-block:hover > .block-formal-improvement { opacity:1; pointer-events:auto; color:var(--lz-text-secondary); border-color:#cbd5e1; background:#fff; outline:none; }
+.block-formal-improvement:focus-visible { outline:2px solid var(--lz-brand-strong); outline-offset:2px; }
 .course-content-block[data-content-block-type="intro"],
 .course-content-block[data-content-block-type="orientation"] { --block-accent:#7c3aed; --block-soft:#f5f3ff; }
 .course-content-block[data-content-block-type="prerequisite"] { --block-accent:#475569; --block-soft:#f8fafc; }
@@ -431,18 +441,16 @@ async function deleteAiRecord(note: Note) {
 .course-content-block[data-content-block-type="feedback"] { --block-accent:#047857; --block-soft:#ecfdf5; }
 .course-content-block[data-content-block-type="remediation"] { --block-accent:#c2410c; --block-soft:#fff7ed; }
 .course-content-block[data-content-block-type="transfer"] { --block-accent:#6d28d9; --block-soft:#f5f3ff; }
-.course-content-block[data-content-block-type="summary"] { --block-accent:#4338ca; --block-soft:#eef2ff; margin-top:4px; }
+.course-content-block[data-content-block-type="summary"] { --block-accent:#4338ca; --block-soft:#eef2ff; padding-top:24px; border-top:1px solid #e9ecf3; }
 .course-content-block[data-content-block-type="summary"] .block-heading { margin-bottom:16px; }
-.course-content-block[data-content-block-type="summary"] .block-heading span { min-height:29px; padding:4px 10px; border-radius:9px; font-size:13px; }
-.course-content-block[data-content-block-type="summary"] .block-heading h4 { font-size:21px; font-weight:800; }
 .course-content-block :deep(hr) { display:none; }
 .chapter-sources { display:grid; gap:9px; margin-top:4px; border-top:1px solid #e2e8f0; padding-top:15px; }
 .chapter-sources > header { display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .chapter-sources > header strong { color:#334155; font-size:11px; }
 .chapter-sources > header small { color:#64748b; font-size:9px; }
 .chapter-sources > div { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:8px; }
-.chapter-source-card { min-width:0; display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:2px 7px; border:1px solid #e2e8f0; border-radius:10px; padding:8px 9px; color:#334155; background:#fff; text-decoration:none; transition:border-color .16s ease,transform .16s ease; }
-.chapter-source-card:hover { transform:translateY(-1px); border-color:#a5b4fc; }
+.chapter-source-card { min-width:0; display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:2px 7px; border:1px solid #e2e8f0; border-radius:10px; padding:8px 9px; color:#334155; background:#fff; text-decoration:none; transition:border-color .22s var(--ease-out); }
+.chapter-source-card:hover { border-color:#a5b4fc; }
 .chapter-source-card > span { grid-row:1/3; border-radius:6px; padding:4px 5px; color:#4338ca; background:#eef2ff; font-size:9px; font-weight:800; }
 .chapter-source-card > strong { overflow:hidden; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
 .chapter-source-card > small { color:#64748b; font-size:8px; }
@@ -464,6 +472,7 @@ async function deleteAiRecord(note: Note) {
   .block-formal-improvement span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
 }
 @media (prefers-reduced-motion:reduce) {
+  .block-formal-improvement,.chapter-source-card { transition:none; }
   .course-content-block.is-ai-growth-primary { animation:none; }
   .course-content-block.is-ppt-same-source-pulse { animation:none; }
 }

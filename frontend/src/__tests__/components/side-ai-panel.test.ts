@@ -32,6 +32,7 @@ function mountPanel(
   mode: 'learner' | 'teacher' = 'learner',
   scopeFiles: Array<{ id: string; label: string; nodeId?: string }> = [],
   embedded = false,
+  docked = false,
 ) {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -72,6 +73,7 @@ function mountPanel(
       prefill: blockTarget ? '把定义讲得更清楚' : undefined,
       scopeFiles,
       embedded,
+      docked,
     },
     global: {
       plugins: [pinia],
@@ -104,6 +106,109 @@ describe('SideAIPanel', () => {
     await setLocale('zh')
     Object.defineProperty(window, 'innerWidth', { value: 1440, configurable: true })
     Object.defineProperty(navigator, 'onLine', { value: true, configurable: true })
+  })
+
+  it('停靠助手的快捷问题先填入草稿，由学生明确发送', async () => {
+    const wrapper = mountPanel([], '', undefined, undefined, 'learner', [], false, true)
+    await flushPromises()
+    const send = vi.spyOn(useAITeacherStore(), 'sendMessage').mockResolvedValue()
+    await wrapper.get('.quick-actions button').trigger('click')
+    expect((wrapper.get('.composer-box textarea').element as HTMLTextAreaElement).value).toContain('解释')
+    expect(send).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('隐藏后重新显示保留草稿，不重新加载并覆盖正在生成的对话', async () => {
+    const wrapper = mountPanel([], '', undefined, undefined, 'learner', [], false, true)
+    await flushPromises()
+    const aiStore = useAITeacherStore()
+    await wrapper.get('.composer-box textarea').setValue('还没写完的问题')
+    await wrapper.setProps({ visible: false })
+    aiStore.loading = true
+    await wrapper.setProps({ visible: true })
+    await flushPromises()
+    expect((wrapper.get('.composer-box textarea').element as HTMLTextAreaElement).value).toBe('还没写完的问题')
+    expect(aiStore.load).toHaveBeenCalledTimes(1)
+    expect(aiStore.loading).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('按对话保留各自草稿，切换课程清除旧草稿', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+    const aiStore = useAITeacherStore()
+    aiStore.conversations.push({ ...conversation(), conversation_id: 'conversation-2' })
+    await wrapper.get('.composer-box textarea').setValue('第一个问题')
+    aiStore.currentConversationId = 'conversation-2'
+    await flushPromises()
+    expect((wrapper.get('.composer-box textarea').element as HTMLTextAreaElement).value).toBe('')
+    await wrapper.get('.composer-box textarea').setValue('第二个问题')
+    aiStore.currentConversationId = 'conversation-1'
+    await flushPromises()
+    expect((wrapper.get('.composer-box textarea').element as HTMLTextAreaElement).value).toBe('第一个问题')
+    useCourseStore().currentCourseId = 'other-course'
+    await flushPromises()
+    expect((wrapper.get('.composer-box textarea').element as HTMLTextAreaElement).value).toBe('')
+    wrapper.unmount()
+  })
+
+  it('中文输入法确认候选词、离线或正在回答时，Enter 不误发也不清空草稿', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+    const aiStore = useAITeacherStore()
+    const send = vi.spyOn(aiStore, 'sendMessage').mockResolvedValue()
+    const textarea = wrapper.get('.composer-box textarea')
+    await textarea.setValue('中文问题')
+    await textarea.trigger('keydown', { key: 'Enter', isComposing: true })
+    await textarea.trigger('keydown', { key: 'Enter', keyCode: 229 })
+    await textarea.trigger('keydown', { key: 'Enter', shiftKey: true })
+    aiStore.loading = true
+    await textarea.trigger('keydown', { key: 'Enter' })
+    aiStore.loading = false
+    window.dispatchEvent(new Event('offline'))
+    await textarea.trigger('keydown', { key: 'Enter' })
+    expect(send).not.toHaveBeenCalled()
+    expect((textarea.element as HTMLTextAreaElement).value).toBe('中文问题')
+    window.dispatchEvent(new Event('online'))
+    wrapper.unmount()
+  })
+
+  it('回看旧回答时不被流式更新和完成状态拉走，允许主动回到最新', async () => {
+    const wrapper = mountPanel([{ message_id: 'answer', role: 'assistant', content: '正在回答', status: 'streaming' }])
+    await flushPromises()
+    const list = wrapper.get('.ai-teacher-messages')
+    const element = list.element as HTMLElement
+    Object.defineProperties(element, { scrollHeight: { value: 1400, configurable: true }, clientHeight: { value: 400, configurable: true } })
+    element.scrollTop = 120
+    await list.trigger('scroll')
+    const aiStore = useAITeacherStore()
+    aiStore.messages[0]!.content += '新增内容'
+    aiStore.messages[0]!.status = 'complete'
+    await flushPromises()
+    expect(element.scrollTop).toBe(120)
+    expect(wrapper.find('.latest-reply').exists()).toBe(true)
+    await wrapper.get('.latest-reply').trigger('click')
+    await flushPromises()
+    expect(element.scrollTop).toBe(1400)
+    Object.defineProperty(element, 'scrollHeight', { value: 1600, configurable: true })
+    aiStore.messages[0]!.content += '继续补充'
+    await flushPromises()
+    expect(element.scrollTop).toBe(1600)
+    wrapper.unmount()
+  })
+
+  it('取消引用后跟随当前阅读讲次，不继续锁定旧讲次', async () => {
+    const wrapper = mountPanel([], '引用的句子')
+    await flushPromises()
+    const courseStore = useCourseStore()
+    const nextNode = { ...courseStore.nodes[0]!, node_id: 'node-2', node_name: '下一讲' }
+    courseStore.nodes.push(nextNode)
+    courseStore.currentNode = nextNode
+    await flushPromises()
+    expect(wrapper.get('.context-line').text()).toContain('向量空间')
+    await wrapper.get('.context-quote button').trigger('click')
+    expect(wrapper.get('.context-line').text()).toContain('下一讲')
+    wrapper.unmount()
   })
 
   it('默认展示对话历史，并把章节与选区组织成上下文', async () => {
@@ -343,6 +448,21 @@ describe('SideAIPanel', () => {
     }))
     expect(refreshRuntime).toHaveBeenCalledWith('course-1', 'node-1')
     expect(refreshRuntime).toHaveBeenCalledTimes(1)
+  })
+
+  it('桌面停靠保留对话管理，且不把课程页面设为模态背景', async () => {
+    const wrapper = mountPanel([], '', undefined, undefined, 'learner', [], false, true)
+    expect(wrapper.classes()).toContain('is-docked')
+    expect(wrapper.classes()).not.toContain('is-fullscreen')
+    expect(wrapper.get('.ai-teacher-surface').attributes('role')).toBe('complementary')
+    expect(wrapper.get('.ai-teacher-surface').attributes('aria-modal')).toBeUndefined()
+    expect(wrapper.get('.conversation-shell').classes()).not.toContain('open')
+    await wrapper.get('.conversation-rail-toggle').trigger('click')
+    expect(wrapper.get('.conversation-shell').classes()).toContain('open')
+    await wrapper.get('.conversation-rail-toggle').trigger('click')
+    expect(wrapper.get('.conversation-shell').classes()).not.toContain('open')
+    await wrapper.get('.ai-teacher-header-actions .icon-button').trigger('click')
+    expect(wrapper.emitted('close')).toHaveLength(1)
   })
 
   it('在移动视口继续使用统一的全屏 AI 工作区', () => {

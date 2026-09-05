@@ -110,7 +110,7 @@
     </main>
 
     <AppErrorCenter />
-    <KnowledgeLibrary v-if="!isPublicConceptRoute" />
+    <KnowledgeLibrary v-if="!isPublicConceptRoute" :learning-mode="isLearningRoute" />
   </div>
 </template>
 

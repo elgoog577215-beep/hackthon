@@ -1546,10 +1546,18 @@ def merge_teacher_outline_detail(
     merged = deepcopy(lecture)
     for field in _TEACHER_OUTLINE_DETAIL_FIELDS:
         current = merged.get(field)
-        is_empty = current is None or current == "" or current == [] or current == {}
+        is_empty = outline_detail_field_is_empty(field, current)
         if is_empty and field in detail:
             merged[field] = deepcopy(detail[field])
+    merged["planned_hours"] = round(sum(_normalize_hour_breakdown(merged.get("hour_breakdown")).values()), 2) or None
     return merged
+
+
+def outline_detail_field_is_empty(field: str, value: Any) -> bool:
+    """Treat normalized zero-hour placeholders as missing, not teacher edits."""
+    if field == "hour_breakdown":
+        return not any(_normalize_hour_breakdown(value).values())
+    return value is None or value == "" or value == [] or value == {}
 
 
 def normalize_outline_batch(
@@ -1925,7 +1933,7 @@ def assemble_course_outline(
     }
 
 
-_QUALITY_RULE_VERSION = "course_outline_editorial_v7"
+_QUALITY_RULE_VERSION = "course_outline_editorial_v8"
 _QUOTED_TOPIC = re.compile(r"[“‘「『《][^”’」』》]{1,80}[”’」』》]")
 _NUMBER_TOKEN = re.compile(r"(?:第\s*)?\d+(?:\.\d+)?(?:\s*[章节项个])?")
 _QUALITY_PUNCTUATION = re.compile(r"[\s\W_]+", re.UNICODE)
@@ -2262,11 +2270,15 @@ def review_course_outline_document(
     if repeated_objective_nodes:
         issues.append(_editorial_issue(
             "outline_editorial:repeated_objective_template",
-            f"有 {len(repeated_objective_nodes)} {unit_label}沿用同一种目标句式，只替换了主题名称。",
+            f"有 {len(repeated_objective_nodes)} {unit_label}的目标表达可能过于模板化，建议结合具体学习要求核对。",
             category="outcome_quality",
             node_ids=repeated_objective_nodes,
-            evidence={"threshold": minimum_repetition},
-            repair_instruction="重写这些小节的学习目标，让动作、学习对象与完成标准随具体内容变化；保留节点、标题和顺序。",
+            evidence={"threshold": minimum_repetition, "examples": [
+                {"node_id": str(section.get("node_id") or ""), "title": str(section.get("title") or ""),
+                 "text": str(section.get("learning_objective") or "")}
+                for section in sections if str(section.get("node_id") or "") in repeated_objective_nodes
+            ]},
+            repair_instruction="结合各讲实际内容核对目标，只修改不能体现学习对象与完成标准的目标；句式相同但目标具体时保留，不为消除提示换词。保留节点、标题和顺序。",
         ))
     combined_assessment_nodes = list(dict.fromkeys([
         *generic_assessment_nodes,
@@ -2290,6 +2302,7 @@ def review_course_outline_document(
         missing_anchor_nodes: list[str] = []
         missing_resource_nodes: list[str] = []
         unverified_resource_nodes: list[str] = []
+        resource_findings: list[dict[str, Any]] = []
         missing_task_nodes: list[str] = []
         missing_online_task_nodes: list[str] = []
         missing_hour_nodes: list[str] = []
@@ -2315,20 +2328,22 @@ def review_course_outline_document(
             ]
             if not resources:
                 missing_resource_nodes.append(node_id)
-            elif any(
-                item.get("verification_status") != "verified"
-                or not str(item.get("source_ref") or "").strip()
-                or str(item.get("source_ref") or "").strip() not in confirmed_reference_labels
-                or (
-                    item.get("resource_type") == "book"
-                    and (
-                        not str(item.get("edition") or "").strip()
-                        or not str(item.get("locator") or "").strip()
-                    )
-                )
-                for item in resources
-            ):
-                unverified_resource_nodes.append(node_id)
+            for item in resources:
+                missing = []
+                source_ref = str(item.get("source_ref") or "").strip()
+                if item.get("verification_status") != "verified":
+                    missing.append("verification_record")
+                if not source_ref:
+                    missing.append("source_ref")
+                elif source_ref not in confirmed_reference_labels:
+                    missing.append("reference_match")
+                if item.get("resource_type") == "book":
+                    missing.extend(field for field in ("edition", "locator") if not str(item.get(field) or "").strip())
+                if missing:
+                    if node_id not in unverified_resource_nodes:
+                        unverified_resource_nodes.append(node_id)
+                    resource_findings.append({"node_id": node_id, "title": str(section.get("title") or ""),
+                                              "resource": str(item.get("title") or source_ref), "missing_fields": missing})
             tasks = [
                 item for item in section.get("learning_tasks") or []
                 if isinstance(item, dict) and str(item.get("task") or "").strip()
@@ -2364,14 +2379,15 @@ def review_course_outline_document(
             ),
             (
                 "outline_editorial:missing_extension_resources",
-                f"有 {len(missing_resource_nodes)} 讲缺少拓展资源。",
+                (f"有 {len(missing_resource_nodes)} 讲尚未关联课程已有的拓展资源。" if confirmed_reference_labels
+                 else f"有 {len(missing_resource_nodes)} 讲缺少拓展资源，需先补充课程参考资料。"),
                 "reference_quality",
                 missing_resource_nodes,
                 "从教师已确认来源中为这些讲次选择相关资源；没有来源时标记缺口，不得编造。",
             ),
             (
                 "outline_editorial:unverified_extension_resources",
-                f"有 {len(unverified_resource_nodes)} 讲的拓展资源尚未核验来源、版次或定位信息。",
+                f"有 {len(unverified_resource_nodes)} 讲的拓展资源缺少完整的核验记录或来源信息。",
                 "reference_quality",
                 unverified_resource_nodes,
                 "核对来源；书籍确认版次与章节后再填写页码，无法核验的内容继续标记待补充。",
@@ -2409,7 +2425,7 @@ def review_course_outline_document(
                 ))
 
         expected_hours = requirements["total_hours"]
-        if expected_hours and abs(official_hours - expected_hours) > 0.01:
+        if not missing_hour_nodes and expected_hours and abs(official_hours - expected_hours) > 0.01:
             issues.append(_editorial_issue(
                 "outline_editorial:hour_total_mismatch",
                 f"各讲计入总学时的合计为 {official_hours:g}，与课程总学时 {expected_hours:g} 不一致。",
@@ -2418,6 +2434,20 @@ def review_course_outline_document(
                 repair_instruction="调整各讲分项学时，使线下讲授、线下实践和在线教学合计等于课程总学时。",
                 blocking=True,
             ))
+        for issue in issues:
+            if issue["code"] == "outline_editorial:missing_extension_resources":
+                issue["repair_mode"] = "ai" if confirmed_reference_labels else "manual"
+                issue["evidence"] = {"has_course_references": bool(confirmed_reference_labels)}
+                if not confirmed_reference_labels:
+                    issue["repair_field"] = "reference_books"
+            elif issue["code"] == "outline_editorial:unverified_extension_resources":
+                issue["repair_mode"] = "manual"
+                issue["evidence"] = {"resources": resource_findings}
+            elif issue["code"] == "outline_editorial:missing_hour_breakdown":
+                issue["evidence"] = {"actual_hours": official_hours, "expected_hours": expected_hours}
+                if expected_hours and abs(official_hours - expected_hours) > 0.01:
+                    issue["message"] += f"目前已记录的分类学时合计 {official_hours:g}，课程要求 {expected_hours:g}。"
+
         mode_invalid = (
             teaching_context == "classroom" and online_hours > 0
         ) or (
@@ -2582,7 +2612,7 @@ def review_course_outline_document(
         "blocking_issues": [],
         "status": "review_suggested" if issues else "ready",
         "summary": (
-            f"大纲已生成；发现 {len(issues)} 类改进建议，不影响教师确认。"
+            f"大纲已生成；发现 {len(issues)} 类改进建议，不影响后续生成。"
             if issues
             else "整篇大纲未发现高频专业表达问题。"
         ),
