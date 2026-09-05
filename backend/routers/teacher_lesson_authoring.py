@@ -3320,6 +3320,7 @@ async def build_teacher_lesson_v6_manuscript(
             f"{json.dumps({**queued_event, 'sequence': sequence}, ensure_ascii=False)}\n\n"
         )
         worker = asyncio.create_task(run())
+        repository.track_runtime_job(course_id, worker)
         while True:
             payload = await queue.get()
             if payload is None:
@@ -3678,6 +3679,7 @@ async def build_teacher_lesson_v6(
             f"{json.dumps({**queued_event, 'sequence': sequence}, ensure_ascii=False)}\n\n"
         )
         worker = asyncio.create_task(run())
+        repository.track_runtime_job(course_id, worker)
         while True:
             payload = await queue.get()
             if payload is None:
@@ -4279,6 +4281,7 @@ async def generate_lesson_plan(
             )
 
         task = asyncio.create_task(run())
+        repository.track_runtime_job(course_id, task)
         _background_jobs.add(task)
         task.add_done_callback(_background_jobs.discard)
         return {"job": {**job, "actor": actor}}
@@ -5196,6 +5199,7 @@ async def generate_lesson_script(
                     )
 
         task = asyncio.create_task(run())
+        repository.track_runtime_job(course_id, task)
         _background_jobs.add(task)
         task.add_done_callback(_background_jobs.discard)
         return {"job": job}

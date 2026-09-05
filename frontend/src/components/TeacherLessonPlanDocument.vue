@@ -271,6 +271,9 @@ const emit = defineEmits<{
 
 const lessonStore = useTeacherLessonAuthoringStore()
 const editing = ref(false)
+const editBaseline = ref('')
+const editBaseRevisionId = ref('')
+const dirty = computed(() => editing.value && JSON.stringify(draftPlan.value) !== editBaseline.value)
 const saving = ref(false)
 const inlineAiAction = ref<{ openForDocument: (text?: string) => void } | null>(null)
 const saveError = ref<unknown>(null)
@@ -683,6 +686,8 @@ function beginEditing() {
   if (!workingRevision.value?.plan) return
   draftPlan.value = clonePlan(workingRevision.value.plan)
   for (const section of draftPlan.value.sections || []) ensureFormalObjectiveFields(section)
+  editBaseline.value = JSON.stringify(draftPlan.value)
+  editBaseRevisionId.value = String(props.lesson.plan.working_revision_id || '')
   editHistory.reset(draftPlan.value)
   editing.value = true
   saveError.value = null
@@ -783,9 +788,12 @@ function cancelEditing() {
   saveError.value = null
 }
 
-async function saveDraft() {
-  if (!draftPlan.value || saving.value) return
-  const expectedCurrentRevisionId = String(props.lesson.plan.working_revision_id || '')
+async function saveDraft(): Promise<boolean> {
+  if (saving.value) return false
+  if (!editing.value) return true
+  if (!dirty.value) { cancelEditing(); return true }
+  if (!draftPlan.value) return false
+  const expectedCurrentRevisionId = editBaseRevisionId.value
   saving.value = true
   saveError.value = null
   try {
@@ -802,8 +810,10 @@ async function saveDraft() {
     draftPlan.value = null
     editing.value = false
     emit('saved')
+    return true
   } catch (error: any) {
     saveError.value = error
+    return false
   } finally {
     saving.value = false
   }
@@ -813,7 +823,9 @@ watch(() => [
   props.lesson.lesson_unit_id,
   props.lesson.plan.working_revision_id,
   props.lesson.plan.ai_candidate,
-], () => {
+], (current, previous) => {
+  // A refresh or revision conflict must not discard the teacher's draft.
+  if (current[0] === previous?.[0] && editing.value) return
   cancelEditing()
   aiError.value = null
   inlineCandidateInPlace.value = false
@@ -849,6 +861,7 @@ defineExpose({
   focusCandidate,
   openInlineAi,
   editing,
+  dirty,
   saving,
   aiBusy,
   beginEditing,

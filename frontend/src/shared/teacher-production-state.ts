@@ -789,9 +789,10 @@ export function productionTaskStateLabel(state: CourseProductionTaskState): stri
   return t(`teacherProductionState.auxiliary.${keys[state]}`, fallback[state])
 }
 
-export function productionStageProgress(stage: StageProductionState): number {
+export function productionStageProgress(stage: StageProductionState, inProgress: readonly number[] = []): number {
   if (stage.counts.total <= 0) return stage.display_state === 'available' ? 100 : 0
-  return Math.max(0, Math.min(100, Math.round((stage.counts.available / stage.counts.total) * 100)))
+  const partial = inProgress.reduce((sum, progress) => sum + Math.max(0, Math.min(99, Number(progress) || 0)), 0)
+  return Math.max(0, Math.min(100, Math.round((stage.counts.available * 100 + partial) / stage.counts.total)))
 }
 
 export function lessonProductionState(

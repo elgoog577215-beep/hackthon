@@ -1860,8 +1860,38 @@ class TeacherLessonAuthoringRepository:
         self.root = Path(root) if root is not None else _default_root()
         self.root.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._deleted_courses: set[str] = set()
+        self._runtime_jobs: dict[str, set[asyncio.Task]] = {}
         self._live_stream_jobs: dict[str, dict[str, dict[str, Any]]] = {}
         self._live_stream_touched_at: dict[tuple[str, str], float] = {}
+
+    def track_runtime_job(self, course_id: str, task: asyncio.Task) -> None:
+        """Track only runtime handles; persisted job IDs remain the task truth."""
+        if course_id in self._deleted_courses:
+            task.cancel()
+            return
+        tasks = self._runtime_jobs.setdefault(course_id, set())
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
+
+    async def delete_course(self, course_id: str) -> None:
+        # Fence late model/thread callbacks before cancellation or removal. They
+        # must never recreate an authoring file after the teacher deletes it.
+        with self._lock:
+            path = self._path(course_id)
+            self._deleted_courses.add(course_id)
+            self._live_stream_jobs.pop(course_id, None)
+            for key in list(self._live_stream_touched_at):
+                if key[0] == course_id:
+                    self._live_stream_touched_at.pop(key, None)
+            path.unlink(missing_ok=True)
+        tasks = self._runtime_jobs.pop(course_id, set())
+        current = asyncio.current_task()
+        pending = [task for task in tasks if task is not current and not task.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
     def _path(self, course_id: str) -> Path:
         safe = "".join(char for char in course_id if char.isalnum() or char in {"-", "_"})
@@ -1936,6 +1966,8 @@ class TeacherLessonAuthoringRepository:
 
     def _save(self, value: dict[str, Any]) -> dict[str, Any]:
         course_id = str(value.get("course_id") or "")
+        if course_id in self._deleted_courses:
+            raise TeacherLessonAuthoringError("teacher_course_deleted", "课程已删除，不能再写入讲次资产。")
         path = self._path(course_id)
         payload = deepcopy(value)
         for job in (payload.get("jobs") or {}).values():

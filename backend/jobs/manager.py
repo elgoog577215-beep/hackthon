@@ -5494,7 +5494,12 @@ class TaskManager:
 
     async def delete_course(self, course_id: str) -> int:
         """Stop every related job before deleting the formal course and sidecars."""
+        from dependencies import get_teacher_lesson_authoring_repository
+        from teacher_course_space import teacher_course_space_repository
+
+        await get_teacher_lesson_authoring_repository().delete_course(course_id)
         removed = await self.delete_tasks_for_course(course_id)
+        await asyncio.to_thread(teacher_course_space_repository.delete_course, course_id)
         await self._delete_stored_course(course_id)
         self._version_repository.delete_course(course_id)
         self._learning_asset_repository.delete_course(course_id)

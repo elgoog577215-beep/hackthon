@@ -13,10 +13,10 @@
 
     <Teleport to="#app-header-route-center">
       <nav class="workspace-view-switch" :aria-label="t('courseFiles.views.label')">
-        <button type="button" :class="{ active: workspaceView === 'categories' }" @click="workspaceView = 'categories'">
+        <button type="button" :class="{ active: workspaceView === 'categories' }" @click="changeWorkspaceView('categories')">
           <LayoutGrid :size="15" />{{ t('courseFiles.views.categories') }}
         </button>
-        <button type="button" :class="{ active: workspaceView === 'files' }" @click="workspaceView = 'files'">
+        <button type="button" :class="{ active: workspaceView === 'files' }" @click="changeWorkspaceView('files')">
           <FolderTree :size="15" />{{ t('courseFiles.views.files') }}
         </button>
       </nav>
@@ -67,6 +67,7 @@
       <section v-else key="ready" class="workspace-operating-shell">
         <Transition name="workspace-surface" mode="out-in">
           <TeacherCourseWorkbench
+            ref="workbench"
             v-if="workspaceView === 'categories'"
             key="categories"
             :course-id="courseId"
@@ -141,7 +142,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Eye, FolderOpen, FolderTree, LayoutGrid, LoaderCircle, ScanSearch, Search, X } from 'lucide-vue-next'
 import AppErrorNotice from '../components/AppErrorNotice.vue'
 import CourseBaselineDialog from '../components/CourseBaselineDialog.vue'
@@ -162,6 +163,14 @@ import http, { teacherReadRequestConfig } from '../utils/http'
 const props = defineProps<{ courseId: string; mode?: string }>()
 const route = useRoute()
 const router = useRouter()
+const workbench = ref<{ finishEditing: () => Promise<boolean> } | null>(null)
+const finishWorkbenchEditing = async () => await workbench.value?.finishEditing() ?? true
+async function changeWorkspaceView(view: 'files' | 'categories') {
+  if (view !== workspaceView.value && !await finishWorkbenchEditing()) return
+  workspaceView.value = view
+}
+onBeforeRouteLeave(finishWorkbenchEditing)
+onBeforeRouteUpdate(finishWorkbenchEditing)
 const courseStore = useCourseStore()
 const generationStore = useGenerationStore()
 const lessonStore = useTeacherLessonAuthoringStore()

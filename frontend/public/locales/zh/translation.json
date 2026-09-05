@@ -929,6 +929,8 @@
       "quickQuestionExplanationPrompt": "完善标准答案、逐步解析、错误选项说明和结果检查"
     },
     "scriptDocument": {
+      "previewVersions": "讲义版本",
+      "savedVersion": "已保存讲义",
       "candidateCanvasTitle": "AI 候选已嵌入讲义正文",
       "title": "课程讲义",
       "actions": "讲义操作",

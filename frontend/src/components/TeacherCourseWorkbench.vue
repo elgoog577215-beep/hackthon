@@ -387,7 +387,7 @@
                     <strong><MathText :content="lessonDisplayName(lesson)" /></strong>
                   </span>
                   <small
-                    v-if="!['ready', 'generating'].includes(lessonGenerationState(lesson))"
+                    v-if="showLessonAuxiliaryState(lesson) || !['ready', 'generating'].includes(lessonGenerationState(lesson))"
                     :data-state="lessonGenerationState(lesson)"
                   >{{ lessonGenerationStateLabel(lesson) }}</small>
                 </span>
@@ -598,6 +598,7 @@
             :arrangement="selectedLesson.arrangement"
             :impact-labels="lessonArrangementImpactLabels"
             :generating="lessonGenerationActive"
+            :collapsed="lessonStreamSegments.length > 0"
             :sticky-actions="!workingLessonRevision || lessonGenerationRunning"
             :error="lessonArrangementError"
           >
@@ -633,8 +634,8 @@
               </div>
             </template>
           </TeacherLessonArrangementSummary>
-          <template v-if="lessonGenerationRunning">
-            <div v-if="!selectedLesson?.arrangement?.blocks?.length" class="lesson-generation-status" aria-live="polite">
+          <template v-if="(lessonGenerationRunning || lessonStreamSegments.length) && !lessonDocumentEditing">
+            <div v-if="lessonGenerationRunning && !selectedLesson?.arrangement?.blocks?.length" class="lesson-generation-status" aria-live="polite">
               <div>
                 <LoaderCircle :size="17" class="spin" />
                 <span>
@@ -647,7 +648,7 @@
             <article v-if="lessonStreamSegments.length" class="lesson-stream-document" :aria-label="t('courseWorkbench.lessonStreamDraft', 'AI 工作稿')">
               <small>{{ t('courseWorkbench.lessonStreamDraft', 'AI 工作稿') }}</small>
               <p v-for="(segment, index) in lessonStreamSegments" :key="`${index}-${segment}`">
-                <MathText :content="segment" /><span v-if="index === lessonStreamSegments.length - 1" class="stream-caret" />
+                <MathText :content="segment" /><span v-if="lessonGenerationRunning && index === lessonStreamSegments.length - 1" class="stream-caret" />
               </p>
             </article>
             <div v-else class="lesson-stream-waiting">{{ t('courseWorkbench.lessonStreamWaiting', '正在组织教案结构…') }}</div>
@@ -820,7 +821,7 @@
                     </button>
                   </template>
                   <template v-else>
-                    <button v-if="currentScriptReady" type="button" @click="beginScriptEditing"><Pencil :size="15" />{{ t('courseWorkbench.scriptDocument.edit', '编辑讲义') }}</button>
+                    <button v-if="currentScriptReady" type="button" :disabled="scriptDocument?.showWorkingPreview" @click="beginScriptEditing"><Pencil :size="15" />{{ t('courseWorkbench.scriptDocument.edit', '编辑讲义') }}</button>
                     <i v-if="currentScriptReady && scriptBatchLaunchVisible" class="lesson-action-divider" aria-hidden="true" />
                     <button
                       v-if="scriptBatchLaunchVisible || scriptBatchStarting || (!currentScriptReady && !scriptBatchRunning && !scriptBatchPaused)"
@@ -1140,6 +1141,7 @@ import {
   productionActionTaskIds,
   productionAllowsTaskAction,
   productionDisplayStateLabel,
+  productionTaskStateLabel,
   productionStagePrimaryAction,
   productionStageProgress,
   readCourseProductionState,
@@ -1187,7 +1189,8 @@ type LessonPlanDocumentHandle = {
   aiBusy: boolean
   beginEditing: () => void
   cancelEditing: () => void
-  saveDraft: () => Promise<void>
+  saveDraft: () => Promise<boolean>
+  dirty: boolean
   canUndo: boolean
   canRedo: boolean
   undoEdit: () => boolean
@@ -1202,12 +1205,14 @@ type ProductionAiDocumentHandle = {
   selectAiScope?: (scopeId: string) => boolean
 }
 type ScriptDocumentHandle = ProductionAiDocumentHandle & {
+  showWorkingPreview: boolean
   editing: boolean
   saving: boolean
   aiBusy: boolean
   beginEditing: () => void
   cancelEditing: () => void
-  saveDraft: () => Promise<void>
+  saveDraft: () => Promise<boolean>
+  dirty: boolean
   canUndo: boolean
   canRedo: boolean
   undoEdit: () => boolean
@@ -1857,12 +1862,7 @@ const lessonHeaderStatusLabel = computed(() => {
     if (pptNeedsRefresh.value) return t('courseWorkbench.pptReview.refreshRequired', '待更新')
     return t('courseWorkbench.pptReview.pendingStatus', '待生成')
   }
-  if (activeStage.value === 'lesson' && productionState.value) return productionDisplayStateLabel(
-    selectedLessonPlanProduction.value?.display_state || productionState.value.stages.lesson_plan.display_state,
-  )
-  if (activeStage.value === 'script' && productionState.value) return productionDisplayStateLabel(
-    selectedScriptProduction.value?.display_state || productionState.value.stages.script.display_state,
-  )
+  if (['lesson', 'script'].includes(activeStage.value) && selectedLesson.value && productionState.value) return lessonGenerationStateLabel(selectedLesson.value)
   if (activeStage.value === 'script' && scriptGenerationBusy.value) return t('courseWorkbench.scriptDocument.generating', '正在生成…')
   if (activeStage.value === 'lesson' && lessonGenerationActive.value) return t('courseWorkbench.lessonOutline.status.generating', '生成中')
   if (activeStage.value === 'lesson' && String(lessonJob.value?.status || '') === 'failed') return t('courseWorkbench.lessonOutline.status.failed', '失败')
@@ -2007,7 +2007,7 @@ const generationErrorPresentation = computed(() => generationError.value ? toApp
   code: String(generationTask.value?.errorCode || ''),
   requestId: String(generationTask.value?.id || ''),
 }) : null)
-const lessonJob = computed(() => selectedLessonId.value ? lessonStore.latestJobByLesson(selectedLessonId.value) : undefined)
+const lessonJob = computed(() => currentJobForLesson(selectedLessonId.value, 'lesson_plan'))
 const selectedLessonPlanProduction = computed(() => lessonProductionState(productionState.value, selectedLessonId.value, 'lesson_plan'))
 const selectedPptProduction = computed(() => lessonProductionState(productionState.value, selectedLessonId.value, 'ppt'))
 const lessonGenerationActive = computed(() => selectedLessonPlanProduction.value
@@ -2151,6 +2151,7 @@ const lessonCoursePreviewVisible = computed(() => (
   && !lessonStore.lessons.some(lesson => lessonPlanIsReady(lesson))
   && !batchRunning.value
   && !batchStarting.value
+  && !lessonStreamSegments.value.length
 ))
 const lessonGenerationActionsVisible = computed(() => (
   activeStage.value === 'lesson'
@@ -2162,28 +2163,13 @@ const batchTotalCount = computed(() => productionState.value
   ? productionState.value.stages.lesson_plan.latest_attempt?.target_count || productionState.value.stages.lesson_plan.counts.total
   : Math.max(...batchLessonJobs.value.map(job => Number(job.batch_size || 0)), batchLessonJobs.value.length, 0))
 const batchCurrentJob = computed(() => batchLessonJobs.value.find(job => job.status === 'running'))
-const batchProgress = computed(() => {
-  const projected = productionState.value?.stages.lesson_plan
-  if (projected) return projected.latest_attempt?.progress ?? productionStageProgress(projected)
-  if (!batchTotalCount.value) return 0
-  const completed = batchLessonJobs.value.reduce((total, job) => {
-    if (['completed', 'completed_with_warnings'].includes(job.status)) return total + 100
-    if (job.status === 'running') return total + Math.max(0, Math.min(100, Number(job.progress || 0)))
-    return total
-  }, 0)
-  return Math.round(completed / batchTotalCount.value)
-})
 const batchError = computed(() => String(
   productionState.value
     ? productionState.value.stages.lesson_plan.issues.find(issue => Boolean(issue.task_id))?.summary || ''
     : [...(batchLessonJobs.value.length ? batchLessonJobs.value : lessonStore.jobs)].reverse().find(job => job.status === 'failed')?.error?.message || '',
 ))
-const lessonGenerationProgress = computed(() => productionState.value
-  ? Math.max(3, Number(productionState.value.stages.lesson_plan.latest_attempt?.progress ?? productionStageProgress(productionState.value.stages.lesson_plan)))
-  : Math.max(3, Number(lessonJob.value?.progress || 0)))
-const lessonGenerationMessage = computed(() => productionState.value
-  ? productionState.value.stages.lesson_plan.latest_attempt?.message || t('courseWorkbench.lessonStreamWaiting', '正在组织教案结构…')
-  : lessonJob.value?.message || t('courseWorkbench.lessonStreamWaiting', '正在组织教案结构…'))
+const lessonGenerationProgress = computed(() => boundedStageProgress(lessonJob.value?.progress))
+const lessonGenerationMessage = computed(() => lessonJob.value?.message || t('courseWorkbench.lessonStreamWaiting', '正在组织教案结构…'))
 const lessonGenerationError = computed(() => productionState.value
   ? String(
       selectedLessonPlanProduction.value?.issues[0]?.summary
@@ -2198,6 +2184,15 @@ const lessonArrangementError = computed(() => arrangementError.value || (
     ? t('teacherProductionState.localFailure.lesson_plan', '本讲教案生成失败')
     : ''
 ))
+function currentJobForLesson(lessonId: string, stage: 'lesson_plan' | 'script'): TeacherLessonJob | undefined {
+  const projected = lessonProductionState(productionState.value, lessonId, stage)
+  const type = stage === 'script' ? 'teacher_lesson_script_generation' : 'teacher_lesson_plan_generation'
+  if (projected) return [...lessonStore.jobs].reverse().find(job => (
+    projected.task_ids.includes(job.id) && job.course_id === props.courseId
+    && job.lesson_unit_id === lessonId && job.type === type
+  ))
+  return stage === 'script' ? lessonStore.latestScriptJobByLesson(lessonId) : lessonStore.latestJobByLesson(lessonId)
+}
 function currentLessonStreamJob(job: TeacherLessonJob | undefined, stage: 'lesson_plan' | 'script') {
   if (!job) return undefined
   const projected = lessonProductionState(productionState.value, selectedLessonId.value, stage)
@@ -2206,11 +2201,11 @@ function currentLessonStreamJob(job: TeacherLessonJob | undefined, stage: 'lesso
 }
 const lessonStreamSegments = computed(() => {
   const job = currentLessonStreamJob(lessonJob.value, 'lesson_plan')
-  return job && ['pending', 'running'].includes(job.status)
+  return job && ['pending', 'running', 'paused', 'failed', 'cancelled'].includes(job.status)
     ? lessonPlanStreamSegments(job.stream_batches)
     : []
 })
-const scriptJob = computed(() => selectedLessonId.value ? lessonStore.latestScriptJobByLesson(selectedLessonId.value) : undefined)
+const scriptJob = computed(() => currentJobForLesson(selectedLessonId.value, 'script'))
 const scriptStreamJob = computed(() => currentLessonStreamJob(scriptJob.value, 'script'))
 const selectedScriptProduction = computed(() => lessonProductionState(productionState.value, selectedLessonId.value, 'script'))
 const scriptGenerationActive = computed(() => selectedScriptProduction.value
@@ -2314,17 +2309,6 @@ const scriptBatchCompletedCount = computed(() => productionState.value
   : scriptBatchJobs.value.filter(job => ['completed', 'completed_with_warnings'].includes(job.status)).length)
 const scriptBatchActiveCount = computed(() => productionState.value?.stages.script.counts.generating
   ?? scriptBatchJobs.value.filter(job => job.status === 'running').length)
-const scriptBatchProgress = computed(() => {
-  const projected = productionState.value?.stages.script
-  if (projected) return projected.latest_attempt?.progress ?? productionStageProgress(projected)
-  if (!scriptBatchTotalCount.value) return 0
-  const progress = scriptBatchJobs.value.reduce((total, job) => {
-    if (['completed', 'completed_with_warnings'].includes(job.status)) return total + 100
-    if (['running', 'paused'].includes(job.status)) return total + Math.max(0, Math.min(100, Number(job.progress || 0)))
-    return total
-  }, 0)
-  return Math.round(progress / scriptBatchTotalCount.value)
-})
 const scriptBatchError = computed(() => String(
   productionState.value
     ? productionState.value.stages.script.issues.find(issue => Boolean(issue.task_id))?.summary || ''
@@ -2361,7 +2345,6 @@ const lessonOutlineVisible = computed(() => {
   }
   return activeStage.value === 'ppt'
 })
-const scriptGenerationProgress = computed(() => Math.max(3, Number(scriptJob.value?.progress || 0)))
 const effectiveScriptGenerationError = computed(() => String(
   productionState.value
     ? selectedScriptProduction.value?.issues[0]?.summary || ''
@@ -2540,6 +2523,10 @@ const referenceWorkflowState = computed<CourseReferenceWorkflowState>(() => {
   return activeCourseReferences.value.length ? 'ready' : 'collecting'
 })
 const referenceWorkflowDetail = computed(() => {
+  if (['generating', 'paused'].includes(referenceWorkflowState.value)) {
+    if (activeStage.value === 'lesson') return lessonJob.value?.message || ''
+    if (activeStage.value === 'script') return scriptJob.value?.message || ''
+  }
   if (activeStage.value === 'foundation' && generationTask.value?.currentPhase === 'outline_auto_improvement') return t('courseWorkbench.autoImprovement.outline', '正在自动优化大纲并复审')
   if (activeStage.value === 'lesson' && lessonJob.value?.phase === 'lesson_plan_auto_improvement') return t('courseWorkbench.autoImprovement.lesson', '正在自动优化教案并复审')
   if (activeStage.value === 'script' && scriptJob.value?.phase === 'lesson_script_auto_improvement') return t('courseWorkbench.autoImprovement.script', '正在自动优化讲义并复审')
@@ -2605,22 +2592,8 @@ const referenceWorkflowProgress = computed(() => {
     }
     return generationProgress.value
   }
-  if (activeStage.value === 'lesson' && productionState.value) {
-    const projected = productionState.value.stages.lesson_plan
-    return projected.latest_attempt?.progress ?? productionStageProgress(projected)
-  }
-  if (activeStage.value === 'script' && productionState.value) {
-    const projected = productionState.value.stages.script
-    return projected.latest_attempt?.progress ?? productionStageProgress(projected)
-  }
-  if (activeStage.value === 'lesson') return batchRunning.value || batchStarting.value
-    ? batchProgress.value
-    : lessonGenerationActive.value || lessonJob.value?.status === 'paused'
-      ? lessonGenerationProgress.value
-      : batchLessonJobs.value.length ? batchProgress.value : 0
-  if (activeStage.value === 'script') return scriptBatchRunning.value || scriptBatchStarting.value
-      ? scriptBatchProgress.value
-      : scriptGenerationProgress.value
+  if (activeStage.value === 'lesson') return lessonJob.value ? lessonGenerationProgress.value : currentLessonPlanReady.value ? 100 : 0
+  if (activeStage.value === 'script') return scriptJob.value ? boundedStageProgress(scriptJob.value.progress) : currentScriptReady.value ? 100 : 0
   if (activeStage.value === 'ppt') {
     if (selectedPptProduction.value && !pptLocalEventPendingProjection.value) {
       return selectedPptAttempt.value?.progress ?? (selectedPptProduction.value.display_state === 'available' ? 100 : 0)
@@ -2879,7 +2852,19 @@ function boundedStageProgress(value: unknown): number {
 }
 function stageProgress(stage: CoreStageId): number {
   const projected = productionState.value?.stages[productionStageKey(stage)]
-  if (projected) return productionStageProgress(projected)
+  if (projected) {
+    const key = productionStageKey(stage)
+    const partial = key === 'lesson_plan' || key === 'script'
+      ? (productionState.value?.lessons || []).flatMap(lesson => {
+          const asset = lesson.stages[key]
+          if (!asset || asset.display_state === 'available' || !['queued', 'running', 'paused'].includes(asset.task_state)) return []
+          const job = currentJobForLesson(lesson.lesson_unit_id, key)
+          return [asset.task_state === 'queued' ? 0 : boundedStageProgress(job?.progress)]
+        })
+      : key === 'outline' && projected.display_state !== 'available' && ['queued', 'running', 'paused'].includes(projected.task_state)
+        ? [projected.latest_attempt?.progress || 0] : []
+    return productionStageProgress(projected, partial)
+  }
   if (stageReady(stage)) return 100
   if (stage === 'foundation') {
     if (!props.generationStarting && !taskInFlight.value && !hasOutline.value && !outlineWaitingForInput.value) return 0
@@ -2908,7 +2893,9 @@ function stageProgress(stage: CoreStageId): number {
 function stageProgressLabel(stage: CoreStageId): string {
   const projected = productionState.value?.stages[productionStageKey(stage)]
   if (projected) {
-    const label = productionDisplayStateLabel(projected.display_state)
+    const label = ['paused', 'queued'].includes(projected.task_state)
+      ? productionTaskStateLabel(projected.task_state)
+      : productionDisplayStateLabel(projected.display_state)
     return projected.counts.total > 0
       ? `${label} ${projected.counts.available}/${projected.counts.total}`
       : label
@@ -3829,9 +3816,26 @@ async function saveLessonPlanDraft() { await lessonPlanDocument.value?.saveDraft
 function beginScriptEditing() { scriptDocument.value?.beginEditing() }
 function cancelScriptEditing() { scriptDocument.value?.cancelEditing() }
 async function saveScriptDraft() { await scriptDocument.value?.saveDraft() }
-function selectLesson(lessonId?: string) {
+async function finishEditing(): Promise<boolean> {
+  if (aiCandidatePending.value) return false
+  if (activeStage.value === 'foundation' && outlineEditor.value) return outlineEditor.value.finishEditing()
+  const editor = activeStage.value === 'lesson' ? lessonPlanDocument.value : activeStage.value === 'script' ? scriptDocument.value : null
+  return editor?.editing ? editor.saveDraft() : true
+}
+function protectUnsavedEdits(event: BeforeUnloadEvent) {
+  if (outlineEditor.value?.dirty || lessonPlanDocument.value?.dirty || scriptDocument.value?.dirty) {
+    event.preventDefault()
+    event.returnValue = ''
+  }
+}
+onMounted(() => window.addEventListener('beforeunload', protectUnsavedEdits))
+onBeforeUnmount(() => window.removeEventListener('beforeunload', protectUnsavedEdits))
+defineExpose({ finishEditing })
+
+async function selectLesson(lessonId?: string) {
   if (!lessonId) return
   if (aiCandidatePending.value && selectedLessonId.value !== lessonId) return
+  if (selectedLessonId.value !== lessonId && !await finishEditing()) return
   const lesson = lessonStore.lessons.find(item => item.lesson_unit_id === lessonId)
   const lessonChanged = selectedLessonId.value !== lessonId
   selectedLessonId.value = lessonId
@@ -3960,15 +3964,15 @@ function lessonPlanBlocks(lesson: TeacherLessonProjection): ScriptPlanPreviewBlo
   }))
 }
 function lessonJobForStage(lesson: any): TeacherLessonJob | undefined {
-  if (activeStage.value === 'script') return lessonStore.latestScriptJobByLesson(lesson.lesson_unit_id)
-  if (activeStage.value === 'lesson') return lessonStore.latestJobByLesson(lesson.lesson_unit_id)
+  if (activeStage.value === 'script') return currentJobForLesson(lesson.lesson_unit_id, 'script')
+  if (activeStage.value === 'lesson') return currentJobForLesson(lesson.lesson_unit_id, 'lesson_plan')
   return undefined
 }
 function lessonGenerationState(lesson: any): 'pending' | 'queued' | 'generating' | 'ready' | 'stale' | 'failed' {
   const stage = activeStage.value === 'lesson' ? 'lesson_plan' : activeStage.value === 'script' ? 'script' : activeStage.value === 'ppt' ? 'ppt' : null
   const projected = stage ? lessonProductionState(productionState.value, lesson.lesson_unit_id, stage) : null
-  if (projected?.display_state === 'available') return 'ready'
-  if (projected?.display_state === 'generating') return projected.task_state === 'paused' ? 'queued' : 'generating'
+  if (projected?.display_state === 'available') return projected.update_required || projected.source_state === 'stale' ? 'stale' : 'ready'
+  if (projected?.display_state === 'generating') return ['paused', 'queued'].includes(projected.task_state) ? 'queued' : 'generating'
   if (projected?.display_state === 'failed') return 'failed'
   if (projected?.display_state === 'not_generated') return 'pending'
   if (productionState.value) {
@@ -4005,13 +4009,7 @@ function lessonGenerationProgressFor(lesson: any): number | null {
   if (productionState.value) {
     if (!projected || !['queued', 'running', 'paused'].includes(projected.task_state)) return null
     if (projected.task_state === 'queued') return 0
-    // Progress belongs to this lesson's current attempt, never the batch or a previous retry.
-    job = lessonStore.jobs.find(candidate => (
-      projected.task_ids.includes(candidate.id)
-      && candidate.course_id === props.courseId
-      && candidate.lesson_unit_id === lesson.lesson_unit_id
-      && candidate.type === (stage === 'script' ? 'teacher_lesson_script_generation' : 'teacher_lesson_plan_generation')
-    ))
+    job = currentJobForLesson(lesson.lesson_unit_id, stage)
   } else {
     if (!job || !['pending', 'running', 'paused'].includes(job.status)) return null
     if (job.status === 'pending') return 0
@@ -4022,11 +4020,25 @@ function lessonNavigationLabel(lesson: any): string {
   const progress = lessonGenerationProgressFor(lesson)
   return `${lesson.title}，${lessonGenerationStateLabel(lesson)}${progress === null ? '' : `，${progress}%`}`
 }
+function showLessonAuxiliaryState(lesson: any): boolean {
+  const stage = activeStage.value === 'script' ? 'script' : activeStage.value === 'ppt' ? 'ppt' : 'lesson_plan'
+  const projected = lessonProductionState(productionState.value, lesson.lesson_unit_id, stage)
+  return Boolean(projected && (projected.update_required || projected.latest_attempt_failed || ['paused', 'queued', 'waiting_for_input', 'waiting_for_review'].includes(projected.task_state)))
+}
 function lessonGenerationStateLabel(lesson: any): string {
   const state = lessonGenerationState(lesson)
   const stage = activeStage.value === 'lesson' ? 'lesson_plan' : activeStage.value === 'script' ? 'script' : activeStage.value === 'ppt' ? 'ppt' : null
   const projected = stage ? lessonProductionState(productionState.value, lesson.lesson_unit_id, stage) : null
-  if (projected) return productionDisplayStateLabel(projected.display_state)
+  if (projected) {
+    const labels = [productionDisplayStateLabel(projected.display_state)]
+    if (['paused', 'queued', 'waiting_for_input', 'waiting_for_review'].includes(projected.task_state)) {
+      if (projected.display_state === 'generating') labels.length = 0
+      labels.push(productionTaskStateLabel(projected.task_state))
+    }
+    if (projected.update_required || projected.source_state === 'stale') labels.push(t('courseWorkbench.lessonOutline.status.stale', '需更新'))
+    if (projected.latest_attempt_failed && projected.display_state !== 'failed') labels.push(productionTaskStateLabel('failed'))
+    return labels.join(' · ')
+  }
   if (productionState.value) {
     const labels = {
       pending: productionDisplayStateLabel('not_generated'),
@@ -4234,10 +4246,7 @@ async function requestStageChange(stage: StageId) {
   if (stage === activeStage.value || stageSwitching.value) return
   stageSwitching.value = true
   try {
-    if (activeStage.value === 'foundation' && showOutlineWorkspace.value && outlineEditor.value) {
-      const saved = await outlineEditor.value.finishEditing()
-      if (!saved) return
-    }
+    if (!await finishEditing()) return
     activeStage.value = stage
   } finally {
     stageSwitching.value = false
@@ -4332,7 +4341,7 @@ watch([
   }
 }, { immediate: true, deep: true })
 watch(() => props.initialStage, stage => { void requestStageChange(stage) })
-watch(() => props.initialLessonId, lessonId => { if (lessonId) selectedLessonId.value = lessonId })
+watch(() => props.initialLessonId, lessonId => { if (lessonId) void selectLesson(lessonId) })
 watch([activeProductionIssue, () => props.initialBlockId], async ([issue, blockId]) => {
   if (!issue || !blockId) return
   await nextTick()
@@ -4381,6 +4390,9 @@ watch(() => lessonStore.lessons, lessons => {
     selectedLessonSectionId.value = lesson.sections[0]?.section_node_id || ''
   }
 }, { immediate: true, deep: true })
+watch([selectedLessonId, activeStage, () => lessonStore.loadedCourseId], () => {
+  if (lessonStore.courseId === props.courseId) lessonStore.focusLesson(selectedLessonId.value, activeStage.value === 'script' ? 'teacher_lesson_script_generation' : 'teacher_lesson_plan_generation')
+}, { immediate: true })
 watch(selectedLessonId, (lessonId, previousLessonId) => {
   if (previousLessonId && lessonId !== previousLessonId) closeAiCollaboration()
   lessonDocumentError.value = ''
@@ -4407,6 +4419,7 @@ onMounted(() => {
   window.addEventListener('resize', updateAiPaneBounds)
 })
 onBeforeUnmount(() => {
+  if (lessonStore.courseId === props.courseId) lessonStore.stopObserving()
   clearLessonSyncRetryTimer()
   stopAiPaneResize()
   window.removeEventListener('resize', updateAiPaneBounds)

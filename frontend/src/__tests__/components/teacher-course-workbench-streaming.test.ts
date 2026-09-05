@@ -2105,7 +2105,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(lessons[1]!.find('.lesson-outline-status svg').exists()).toBe(false)
   })
 
-  it('讲义批次同时显示逐讲状态与全课总进度', () => {
+  it('讲义批次保留逐讲状态且右栏显示当前讲进度', () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2].map(number => ({
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45, sections: [],
@@ -2131,9 +2131,9 @@ describe('teacher course workbench outline streaming', () => {
     expect(chapters[1]!.find('.lesson-outline-status').attributes('data-state')).toBe('queued')
     expect(chapters[0]!.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('50')
     expect(chapters[1]!.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('0')
-    expect(wrapper.get('.context-pane-heading').text()).toContain('已完成 0/2 讲 · 正在并行生成 1 讲')
-    expect(wrapper.get('.context-pane-heading__progress').attributes('aria-valuenow')).toBe('25')
-    expect(wrapper.get('[data-testid="workflow-progress"]').text()).toBe('25')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('正在生成：概念讲解')
+    expect(wrapper.get('.context-pane-heading__progress').attributes('aria-valuenow')).toBe('50')
+    expect(wrapper.get('[data-testid="workflow-progress"]').text()).toBe('50')
   })
 
   it.each(['lesson', 'script'] as const)('%s 目录圆环按当前任务分别更新，暂停保留进度，重试不复用旧进度', async initialStage => {

@@ -738,3 +738,67 @@ async def test_qa_event_stream_splits_metadata():
 
     assert any("event: answer" in event and "答案" in event for event in events)
     assert any("event: metadata" in event and '"node_id": "n1"' in event for event in events)
+
+
+@pytest.mark.asyncio
+async def test_course_deletion_removes_teacher_assets_and_cancels_only_its_workers(tmp_path, monkeypatch):
+    import dependencies
+    import teacher_course_space
+    from teacher_course_space import TeacherCourseSpaceRepository
+    from teacher_lesson_authoring import TeacherLessonAuthoringError, TeacherLessonAuthoringRepository
+
+    manager, storage, _ = _lifecycle_manager(tmp_path, monkeypatch)
+    authoring = TeacherLessonAuthoringRepository(tmp_path / 'teacher-assets')
+    spaces = TeacherCourseSpaceRepository(tmp_path / 'course-spaces')
+    monkeypatch.setattr(dependencies, '_teacher_lesson_authoring_repository', authoring)
+    monkeypatch.setattr(teacher_course_space, 'teacher_course_space_repository', spaces)
+    course_id = (await manager.create_generation_job({'subject': '删除范围测试'}))['course_id']
+    job = authoring.create_job(course_id, 'lesson-1')
+    authoring.update_job_live(course_id, job['id'], progress=24)
+    other = authoring.create_job('other-course', 'lesson-1')
+    package = spaces.create_package('teacher', '本课程', '2026', '秋', course_id=course_id)
+    other_package = spaces.create_package('teacher', '其他课程', '2026', '秋', course_id='other-course')
+    inbox = spaces.create_package('teacher', '共享资料', '2026', '全年')
+    shared_source = tmp_path / 'shared-material.pdf'
+    shared_source.write_bytes(b'shared original')
+    owned = spaces.load_owned(package['package_id'], 'teacher')
+    owned['assets'] = [{'kind': 'material_reference', 'material_asset_id': 'mat-shared'}]
+    spaces.save(owned)
+    stale_authoring = authoring.load(course_id)
+    package_path = spaces._path(package['package_id'])
+
+    started = asyncio.Event()
+    async def late_worker():
+        started.set()
+        try:
+            await asyncio.sleep(60)
+        finally:
+            # A late callback cannot put the deleted file back.
+            with pytest.raises(TeacherLessonAuthoringError, match='课程已删除'):
+                authoring._save(stale_authoring)
+    worker = asyncio.create_task(late_worker())
+    other_worker = asyncio.create_task(asyncio.sleep(60))
+    authoring.track_runtime_job(course_id, worker)
+    authoring.track_runtime_job('other-course', other_worker)
+    await started.wait()
+    try:
+        await manager.delete_course(course_id)
+        assert worker.cancelled()
+        assert not other_worker.done()
+        assert storage.load_course(course_id) is None
+        assert not authoring._path(course_id).exists()
+        assert course_id not in authoring._live_stream_jobs
+        assert all(key[0] != course_id for key in authoring._live_stream_touched_at)
+        assert not package_path.exists()
+        assert authoring.get_job('other-course', other['id'])['id'] == other['id']
+        assert spaces.load_owned(other_package['package_id'], 'teacher')
+        assert spaces.load_owned(inbox['package_id'], 'teacher')
+        assert shared_source.read_bytes() == b'shared original'
+        with pytest.raises(FileNotFoundError):
+            spaces.save(owned)
+        # Retrying cleanup is safe and cannot resurrect deleted data.
+        await manager.delete_course(course_id)
+        assert not package_path.exists()
+    finally:
+        other_worker.cancel()
+        await asyncio.gather(other_worker, return_exceptions=True)

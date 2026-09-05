@@ -139,8 +139,27 @@ class TeacherCourseSpaceRepository:
     def __init__(self, root: Path | str = COURSE_SPACE_DIR) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
+        self._deleted_packages: set[str] = set()
+
+    def delete_course(self, course_id: str) -> int:
+        """Remove course-owned packages, never follow material-reference IDs."""
+        if not course_id:
+            return 0
+        removed = 0
+        for manifest in self.root.glob("tcs-*/manifest.json"):
+            package = json.loads(manifest.read_text(encoding="utf-8"))
+            if str(package.get("course_id") or "") != course_id:
+                continue
+            package_id = manifest.parent.name
+            path = self._path(package_id)
+            self._deleted_packages.add(package_id)
+            shutil.rmtree(path)
+            removed += 1
+        return removed
 
     def _path(self, package_id: str) -> Path:
+        if package_id in self._deleted_packages:
+            raise FileNotFoundError(package_id)
         if not re.fullmatch(r"tcs-[a-z0-9-]{8,80}", package_id or ""):
             raise MaterialStorageError("课程工作包 ID 不合法")
         return self.root / package_id

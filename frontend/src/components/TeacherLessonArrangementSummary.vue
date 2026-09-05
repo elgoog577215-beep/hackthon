@@ -26,7 +26,7 @@
 
     <p v-if="error" class="arrangement-error" role="alert"><TriangleAlert :size="14" />{{ error }}</p>
 
-    <section v-if="!generating" class="arrangement-document">
+    <section v-if="!generating && !collapsed" class="arrangement-document">
       <div class="arrangement-blocks">
         <article v-for="(block, index) in arrangement.blocks" :key="block.block_id">
           <header>
@@ -43,7 +43,7 @@
       </div>
     </section>
 
-    <footer v-if="!generating && impactLabels.length">
+    <footer v-if="!generating && !collapsed && impactLabels.length">
       <TriangleAlert :size="14" />
       <div>
         <strong>{{ t('courseWorkbench.arrangement.changeImpact', '调整后的影响') }}</strong>
@@ -62,11 +62,13 @@ import type { TeacherLessonArrangement } from '../stores/teacherLessonAuthoring'
 withDefaults(defineProps<{
   arrangement: TeacherLessonArrangement
   impactLabels?: string[]
+  collapsed?: boolean
   generating?: boolean
   stickyActions?: boolean
   error?: string
 }>(), {
   impactLabels: () => [],
+  collapsed: false,
   generating: false,
   stickyActions: false,
   error: '',

@@ -31,10 +31,10 @@
           </button>
         </template>
         <template v-else>
-          <button type="button" :disabled="!lesson.script.ready || !selectedNode || aiBusy || requestBusy" @click="openInlineAi">
+          <button type="button" :disabled="showWorkingPreview || !lesson.script.ready || !selectedNode || aiBusy || requestBusy" @click="openInlineAi">
             <Sparkles :size="15" />{{ tr('courseWorkbench.scriptDocument.aiImprove') }}
           </button>
-          <button type="button" :disabled="!lesson.script.ready || !scriptSections.length" @click="beginEditing">
+          <button type="button" :disabled="showWorkingPreview || !lesson.script.ready || !scriptSections.length" @click="beginEditing">
             <Pencil :size="15" />{{ tr('courseWorkbench.scriptDocument.edit') }}
           </button>
         </template>
@@ -68,7 +68,7 @@
     <TextSelectionAiAction
       ref="inlineAiAction"
       :container="documentRoot"
-      :disabled="editing || !lesson.script.ready"
+      :disabled="editing || showWorkingPreview || !lesson.script.ready"
       :busy="aiBusy || requestBusy"
       :label="tr('courseWorkbench.aiCollaboration.selectionModify')"
       :composer-title="tr('courseWorkbench.aiCollaboration.inlineComposerTitle')"
@@ -89,6 +89,10 @@
     </aside>
 
     <slot v-if="externalToolbar" name="toolbar" />
+    <nav v-if="hasWorkingPreview && lesson.script.ready && !editing" class="script-tabs" :aria-label="tr('courseWorkbench.scriptDocument.previewVersions')">
+      <button type="button" :class="{ active: previewSelected }" :aria-pressed="previewSelected" @click="previewSelected = true">{{ tr('courseWorkbench.lessonStreamDraft') }}</button>
+      <button type="button" :class="{ active: !previewSelected }" :aria-pressed="!previewSelected" @click="previewSelected = false">{{ tr('courseWorkbench.scriptDocument.savedVersion') }}</button>
+    </nav>
 
     <section v-if="!lesson.script.ready" class="script-generation-panel" :class="{ 'has-partial': scriptSections.length }">
       <form v-if="showGenerationForm" class="script-source-review" @submit.prevent="requestGeneration">
@@ -171,7 +175,7 @@
       </button>
     </nav>
 
-    <div v-if="scriptSections.length" class="script-continuous" :data-state="lesson.script.ready ? 'ready' : 'partial'">
+    <div v-if="scriptSections.length" class="script-continuous" :data-state="lesson.script.ready && !showWorkingPreview ? 'ready' : 'partial'">
       <article
         v-for="(node, nodeIndex) in scriptSections"
         :id="sectionAnchor(node)"
@@ -209,7 +213,7 @@
               <span v-if="blockIsStreaming(block.block_id)" class="stream-caret" aria-hidden="true" />
             </div>
             <ScriptVisualStudio
-              v-if="lesson.script.ready"
+              v-if="!showWorkingPreview && lesson.script.ready"
               :course-id="courseId"
               :lesson-unit-id="lesson.lesson_unit_id"
               :script-revision-id="lesson.script.current_revision_id"
@@ -218,7 +222,7 @@
               :block-title="block.title"
             />
           </section>
-          <div v-if="!lesson.script.ready && generating && nodeIndex === scriptSections.length - 1" class="script-block-waiting">
+          <div v-if="(!lesson.script.ready || showWorkingPreview) && generating && nodeIndex === scriptSections.length - 1" class="script-block-waiting">
             <LoaderCircle :size="15" class="spin" />
             {{ generationJob?.current_block_title || tr('courseWorkbench.scriptDocument.waitingForNextBlock') }}
           </div>
@@ -290,6 +294,10 @@ const lessonStore = useTeacherLessonAuthoringStore()
 const scriptVisualStore = useTeacherScriptVisualStore()
 const selectedNodeId = ref('')
 const editing = ref(false)
+const editBaseline = ref('')
+const editBaseRevisionId = ref('')
+const editSections = ref<ScriptSection[]>([])
+const dirty = computed(() => editing.value && JSON.stringify({ drafts: { ...drafts }, blockDrafts: { ...blockDrafts } }) !== editBaseline.value)
 const saving = ref(false)
 const saveError = ref<unknown>(null)
 const drafts = reactive<Record<string, string>>({})
@@ -406,7 +414,7 @@ const sourceLabel = computed(() => {
   return tr('courseWorkbench.scriptDocument.sourceLegacy')
 })
 const scriptStatusNotice = computed(() => {
-  if (!props.lesson.script.ready) return null
+  if (!props.lesson.script.ready || showWorkingPreview.value) return null
   if (['failed', 'cancelled'].includes(String(props.generationJob?.status || ''))) {
     return {
       state: 'info',
@@ -421,8 +429,17 @@ const scriptStatusNotice = computed(() => {
     detail: tr('courseWorkbench.scriptDocument.statusGeneratedDetail'),
   }
 })
+const previewSelected = ref(true)
+const hasWorkingPreview = computed(() => (
+  ['pending', 'running', 'paused', 'failed', 'cancelled'].includes(String(props.generationJob?.status || ''))
+  && !(props.lesson.script.ready && Date.parse(props.lesson.script.updated_at || '') > Date.parse(props.generationJob?.updated_at || ''))
+  && Boolean(props.generationJob?.result_sections?.length || Object.keys(props.generationJob?.streamed_block_content || {}).length)
+))
+const showWorkingPreview = computed(() => hasWorkingPreview.value && previewSelected.value && !editing.value)
+watch(() => [props.lesson.lesson_unit_id, props.generationJob?.id], () => { previewSelected.value = true })
 const scriptSections = computed<ScriptSection[]>(() => {
-  if (props.lesson.script.ready) return props.lesson.script.sections || []
+  if (editing.value) return editSections.value
+  if (props.lesson.script.ready && !showWorkingPreview.value) return props.lesson.script.sections || []
   const sections = (props.generationJob?.result_sections || []).map(section => ({
     ...section,
     blocks: section.blocks?.map(block => ({ ...block })),
@@ -527,7 +544,7 @@ const selectedNode = computed(() => scriptSections.value.find(node => node.secti
 
 function blockIsStreaming(blockId: string): boolean {
   return Boolean(
-    !props.lesson.script.ready
+    (!props.lesson.script.ready || showWorkingPreview.value)
     && props.generating
     && props.generationJob?.current_block_id === blockId
     && props.generationJob?.block_states?.[blockId] !== 'completed',
@@ -554,10 +571,14 @@ function requestGeneration() {
 }
 
 function beginEditing() {
+  if (showWorkingPreview.value || !props.lesson.script.ready) return
+  editSections.value = JSON.parse(JSON.stringify(scriptSections.value))
+  editBaseRevisionId.value = props.lesson.script.current_revision_id
   scriptSections.value.forEach(node => {
     drafts[node.section_node_id] = node.content || ''
     node.blocks?.forEach(block => { blockDrafts[block.block_id] = block.content || '' })
   })
+  editBaseline.value = JSON.stringify({ drafts: { ...drafts }, blockDrafts: { ...blockDrafts } })
   editHistory.reset({ drafts: { ...drafts }, blockDrafts: { ...blockDrafts } })
   editing.value = true
   saveError.value = null
@@ -577,12 +598,14 @@ function recordEditSnapshot() {
   })
 }
 
-async function saveDraft() {
-  if (saving.value) return
+async function saveDraft(): Promise<boolean> {
+  if (saving.value) return false
+  if (!editing.value) return true
+  if (!dirty.value) { cancelEditing(); return true }
   saving.value = true
   saveError.value = null
   try {
-    const sections = scriptSections.value.map(node => (
+    const sections = editSections.value.map(node => (
       node.blocks?.length
         ? {
             ...node,
@@ -596,13 +619,15 @@ async function saveDraft() {
     await lessonStore.saveScriptDraft(
       props.courseId,
       props.lesson.lesson_unit_id,
-      props.lesson.script.current_revision_id,
+      editBaseRevisionId.value,
       sections,
     )
     cancelEditing()
     emit('saved')
+    return true
   } catch (error: any) {
     saveError.value = error
+    return false
   } finally {
     saving.value = false
   }
@@ -611,7 +636,7 @@ async function saveDraft() {
 async function requestAiCandidate(value: string) {
   const node = selectedNode.value
   const instruction = value.trim()
-  if (!node || !instruction || aiBusy.value || !node.content.trim()) return null
+  if (showWorkingPreview.value || !node || !instruction || aiBusy.value || !node.content.trim()) return null
   aiBusy.value = true
   aiError.value = null
   try {
@@ -738,6 +763,8 @@ defineExpose({
   selectAiScope,
   openInlineAi,
   editing,
+  dirty,
+  showWorkingPreview,
   saving,
   aiBusy,
   beginEditing,

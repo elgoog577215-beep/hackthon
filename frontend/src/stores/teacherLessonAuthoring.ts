@@ -467,15 +467,20 @@ async function consumeLessonPlanStream(
       .join('\n')
     if (data) onEvent(JSON.parse(data) as TeacherLessonJobStreamEvent)
   }
-  while (true) {
-    const { done, value } = await reader.read()
-    buffer += decoder.decode(value, { stream: !done })
-    const chunks = buffer.split(/\r?\n\r?\n/)
-    buffer = chunks.pop() || ''
-    chunks.forEach(flush)
-    if (done) break
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      buffer += decoder.decode(value, { stream: !done })
+      const chunks = buffer.split(/\r?\n\r?\n/)
+      buffer = chunks.pop() || ''
+      chunks.forEach(flush)
+      if (done) break
+    }
+    if (buffer.trim()) flush(buffer)
+  } finally {
+    try { await reader.cancel() } catch { /* The transport may already be closed. */ }
+    reader.releaseLock()
   }
-  if (buffer.trim()) flush(buffer)
 }
 
 const errorMessage = (error: any, fallback: string) => {
@@ -536,6 +541,9 @@ export function mergeLessonJobSnapshot(
   incoming: TeacherLessonJob,
 ): TeacherLessonJob {
   if (!previous || previous.id !== incoming.id) return incoming
+  if (['paused', 'failed', 'cancelled'].includes(incoming.status) && !Object.keys(incoming.stream_batches || {}).length) {
+    incoming = { ...incoming, stream_batches: previous.stream_batches }
+  }
   const previousTimestamp = lessonJobTimestamp(previous)
   const incomingTimestamp = lessonJobTimestamp(incoming)
   if (previousTimestamp && incomingTimestamp) {
@@ -561,22 +569,22 @@ export function mergeLessonJobSnapshots(
 
 const LESSON_JOB_OBSERVER_LIMIT = 4
 
-const prioritizedActiveLessonJobs = (jobs: TeacherLessonJob[]) => [...jobs]
+// Four connections across both asset types leave room for ordinary API requests.
+export const lessonJobsToObserve = (jobs: TeacherLessonJob[], lessonId = '', type = '') => jobs
+  .filter(job => ['pending', 'running'].includes(job.status))
   .sort((left, right) => (
-    Number(right.status === 'running') - Number(left.status === 'running')
+    Number(right.lesson_unit_id === lessonId && (!type || right.type === type)) - Number(left.lesson_unit_id === lessonId && (!type || left.type === type))
+    || Number(right.status === 'running') - Number(left.status === 'running')
     || Number(left.batch_position || 0) - Number(right.batch_position || 0)
     || String(left.id || '').localeCompare(String(right.id || ''))
   ))
   .slice(0, LESSON_JOB_OBSERVER_LIMIT)
 
-export const lessonJobsToObserve = (jobs: TeacherLessonJob[]) => {
-  const active = jobs.filter(job => ['pending', 'running'].includes(job.status))
-  const scriptJobs = active.filter(job => job.type === 'teacher_lesson_script_generation')
-  const lessonPlanJobs = active.filter(job => job.type !== 'teacher_lesson_script_generation')
-  return [
-    ...prioritizedActiveLessonJobs(scriptJobs),
-    ...prioritizedActiveLessonJobs(lessonPlanJobs),
-  ]
+const streamControllers = new WeakMap<object, Map<string, AbortController>>()
+const snapshotTimers = new WeakMap<object, ReturnType<typeof setTimeout>>()
+function controllersFor(store: object) {
+  if (!streamControllers.has(store)) streamControllers.set(store, new Map())
+  return streamControllers.get(store)!
 }
 
 function streamChunkContent(chunks: Record<string, string>): string {
@@ -763,6 +771,9 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
     loadedCourseId: '',
     actionLessonId: '',
     streamingJobIds: {} as Record<string, boolean>,
+    focusedLessonId: '',
+    focusedJobType: '',
+    observingWorkspace: false,
     error: '',
     refreshError: '',
   }),
@@ -791,9 +802,48 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       ))[0]?.job,
   },
   actions: {
+    stopObserving() {
+      this.observingWorkspace = false
+      clearTimeout(snapshotTimers.get(this))
+      snapshotTimers.delete(this)
+      controllersFor(this).forEach(controller => controller.abort())
+      controllersFor(this).clear()
+      this.streamingJobIds = {}
+    },
+    focusLesson(lessonId: string, type: string) {
+      this.focusedLessonId = lessonId
+      this.focusedJobType = type
+      this.observingWorkspace = true
+      this.syncJobObservers()
+      this.scheduleSnapshot()
+    },
+    scheduleSnapshot() {
+      clearTimeout(snapshotTimers.get(this))
+      if (!this.observingWorkspace || !this.jobs.some(job => ['pending', 'running'].includes(job.status))) return
+      const courseId = this.courseId
+      snapshotTimers.set(this, setTimeout(async () => {
+        try { if (this.courseId === courseId) await this.load(courseId) } catch { /* Scoped refreshError retains the last good snapshot. */ }
+        finally { if (this.courseId === courseId) this.scheduleSnapshot() }
+      }, 5000))
+    },
+    syncJobObservers() {
+      const jobs = lessonJobsToObserve(this.jobs, this.focusedLessonId, this.focusedJobType)
+      const desired = new Set(jobs.map(job => job.id))
+      const controllers = controllersFor(this)
+      for (const [id, controller] of controllers) {
+        if (!desired.has(id)) {
+          // Disconnect only the read subscription; the backend job continues.
+          controller.abort()
+          controllers.delete(id)
+          delete this.streamingJobIds[id]
+        }
+      }
+      jobs.forEach(job => { void this.streamJob(this.courseId, job.id) })
+    },
     async load(courseId: string, options: { afterCurrent?: boolean } = {}) {
       const hasSuccessfulSnapshot = this.loadedCourseId === courseId
       if (this.courseId !== courseId) {
+        this.stopObserving()
         this.courseId = courseId
         this.outlineRevisionId = ''
         this.lessons = []
@@ -822,8 +872,8 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         }
         this.loadedCourseId = courseId
         this.error = ''
-        lessonJobsToObserve(this.jobs)
-          .forEach(job => { void this.streamJob(courseId, job.id) })
+        this.syncJobObservers()
+        this.scheduleSnapshot()
         return response
       } catch (error) {
         if (this.courseId === courseId) {
@@ -868,7 +918,8 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         const job = response.data.job
         if (this.courseId === courseId) {
           this.jobs = mergeLessonJobSnapshots(this.jobs, [job])
-          void this.streamJob(courseId, job.id)
+          this.syncJobObservers()
+          this.scheduleSnapshot()
         }
         return job
       } catch (error) {
@@ -909,7 +960,8 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         const incoming = response.data.jobs
         if (this.courseId === courseId) {
           this.jobs = mergeLessonJobSnapshots(this.jobs, incoming)
-          lessonJobsToObserve(incoming).forEach(job => { void this.streamJob(courseId, job.id) })
+          this.syncJobObservers()
+          this.scheduleSnapshot()
         }
         return response.data
       } catch (error) {
@@ -946,15 +998,15 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       )
       return response.data
     },
-    async pollJob(courseId: string, jobId: string) {
+    async pollJob(courseId: string, jobId: string, signal?: AbortSignal) {
       if (!this.courseId) this.courseId = courseId
       for (let attempt = 0; attempt < 180; attempt += 1) {
-        if (this.courseId !== courseId) return undefined
+        if (this.courseId !== courseId || signal?.aborted) return undefined
         const response = await http.get<{ job: TeacherLessonJob }>(
           `/api/teacher/courses/${courseId}/lesson-jobs/${jobId}`,
-          readRequestConfig(),
+          { ...readRequestConfig(), signal },
         )
-        if (this.courseId !== courseId) return undefined
+        if (this.courseId !== courseId || signal?.aborted) return undefined
         const job = response.data.job
         this.jobs = mergeLessonJobSnapshots(this.jobs, [job])
         const current = this.jobs.find(item => item.id === job.id) || job
@@ -971,42 +1023,47 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       if (this.courseId !== courseId) return undefined
       if (this.streamingJobIds[jobId]) return this.jobs.find(item => item.id === jobId)
       this.streamingJobIds = { ...this.streamingJobIds, [jobId]: true }
-      let terminal = false
+      const controller = new AbortController()
+      controllersFor(this).set(jobId, controller)
       try {
-        const response = await fetch(
-          withApiBase(`/api/teacher/courses/${courseId}/lesson-jobs/${jobId}/stream`),
-          {
-            headers: teacherIdentityHeaders({
-              Accept: 'text/event-stream',
-              'X-User-Id': getTeacherIdentity(),
-            }),
-          },
-        )
-        await consumeLessonPlanStream(response, event => {
-          if (this.courseId !== courseId) return
-          const eventJobId = String(event.job?.id || event.job_id || jobId)
-          const previous = this.jobs.find(item => item.id === eventJobId)
-          const job = mergeLessonJobStreamEvent(previous, { ...event, job_id: eventJobId })
-          if (!job) {
-            if (event.event === 'error') this.error = event.message || '本讲生成流已中断'
-            return
-          }
-          this.jobs = mergeLessonJobSnapshots(this.jobs, [job])
-          terminal = TERMINAL_LESSON_JOB_STATUSES.has(
-            (this.jobs.find(item => item.id === job.id) || job).status,
+        try {
+          const response = await fetch(
+            withApiBase(`/api/teacher/courses/${courseId}/lesson-jobs/${jobId}/stream`),
+            {
+              signal: controller.signal,
+              headers: teacherIdentityHeaders({
+                Accept: 'text/event-stream',
+                'X-User-Id': getTeacherIdentity(),
+              }),
+            },
           )
-        })
-        if (terminal && this.courseId === courseId) await this.load(courseId, { afterCurrent: true })
-        return this.jobs.find(item => item.id === jobId)
-      } catch {
-        if (this.courseId !== courseId) return undefined
+          await consumeLessonPlanStream(response, event => {
+            if (this.courseId !== courseId || controller.signal.aborted) return
+            const eventJobId = String(event.job?.id || event.job_id || jobId)
+            const previous = this.jobs.find(item => item.id === eventJobId)
+            const job = mergeLessonJobStreamEvent(previous, { ...event, job_id: eventJobId })
+            if (!job) {
+              if (event.event === 'error') this.error = event.message || '本讲生成流已中断'
+              return
+            }
+            this.jobs = mergeLessonJobSnapshots(this.jobs, [job])
+          })
+        } catch { /* Reconcile below for both a thrown disconnect and a normal EOF. */ }
+        if (this.courseId !== courseId || controller.signal.aborted) return undefined
         const current = this.jobs.find(item => item.id === jobId)
-        if (current && !TERMINAL_LESSON_JOB_STATUSES.has(current.status)) {
-          return this.pollJob(courseId, jobId)
+        try {
+          if (current && TERMINAL_LESSON_JOB_STATUSES.has(current.status)) {
+            await this.load(courseId, { afterCurrent: true })
+          } else if (current) {
+            return await this.pollJob(courseId, jobId, controller.signal)
+          }
+        } catch (error) {
+          if (!controller.signal.aborted && this.courseId === courseId) this.refreshError = errorMessage(error, '本讲生成状态同步失败')
         }
         return current
       } finally {
-        if (this.courseId === courseId) {
+        if (this.courseId === courseId && controllersFor(this).get(jobId) === controller) {
+          controllersFor(this).delete(jobId)
           const next = { ...this.streamingJobIds }
           delete next[jobId]
           this.streamingJobIds = next
@@ -1076,7 +1133,8 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         const job = response.data.job
         if (this.courseId === courseId) {
           this.jobs = mergeLessonJobSnapshots(this.jobs, [job])
-          void this.streamJob(courseId, job.id)
+          this.syncJobObservers()
+          this.scheduleSnapshot()
         }
         return job
       } catch (error) {
@@ -1112,9 +1170,8 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         const incoming = response.data.jobs
         if (this.courseId === courseId) {
           this.jobs = mergeLessonJobSnapshots(this.jobs, incoming)
-          incoming
-            .filter(job => ['pending', 'running'].includes(job.status))
-            .forEach(job => { void this.streamJob(courseId, job.id) })
+          this.syncJobObservers()
+          this.scheduleSnapshot()
         }
         return response.data
       } catch (error) {

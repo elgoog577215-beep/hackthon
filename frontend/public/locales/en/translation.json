@@ -929,6 +929,8 @@
       "quickQuestionExplanationPrompt": "Improve canonical answers, step-by-step explanations, distractor analysis, and result checks"
     },
     "scriptDocument": {
+      "previewVersions": "Script versions",
+      "savedVersion": "Saved script",
       "candidateCanvasTitle": "The AI option is embedded in the handout",
       "title": "Course handout",
       "actions": "Handout actions",
