@@ -23,4 +23,3 @@ def _speaker_notes(page: SlidePageV6) -> str:
         for block in page.speaker_notes.source_blocks
     )
     return "\n\n".join(sections)
-

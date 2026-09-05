@@ -32,4 +32,3 @@ def _identifier_token_variants(value: str) -> set[str]:
         if _PROTECTED_IDENTIFIER_RE.fullmatch(prefix):
             variants.add(prefix)
     return variants
-

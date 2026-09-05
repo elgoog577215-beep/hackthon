@@ -52,4 +52,3 @@ def draft_element_text(item, sources):
     if not item.text.strip():
         raise ValueError("screen_element_text_missing")
     return item.text
-

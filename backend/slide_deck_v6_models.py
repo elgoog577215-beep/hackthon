@@ -462,5 +462,3 @@ class PptManuscriptV1(_StrictModel):
     render_status: V6Status = "v6_ready"
     quality_status: Literal["passed", "blocked"] = "passed"
     quality_issues: list[V6Failure] = Field(default_factory=list)
-
-

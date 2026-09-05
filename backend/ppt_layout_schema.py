@@ -35,4 +35,3 @@ class LayoutExecution(Contract):
     source_slide_number: int = Field(default=0, ge=0)
     source_sha256: str = ""
     certification: dict = Field(default_factory=dict)
-

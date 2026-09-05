@@ -111,4 +111,3 @@ def _sanitize_provider_attempts(
 def _provider_attempts_from(value: Any) -> list[AIProviderAttemptDiagnosticV1]:
     telemetry = getattr(value, "telemetry", [])
     return _sanitize_provider_attempts(telemetry if isinstance(telemetry, list) else [])
-
