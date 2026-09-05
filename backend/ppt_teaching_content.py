@@ -382,7 +382,9 @@ class PageTeachingV2(Contract):
                         raise ValueError(f"answer_question_binding_missing:{answer_id}")
                     first_question = next(i for i, s in enumerate(self.states) if paired in s.visible_element_ids)
                     if any(answer_id in s.visible_element_ids for s in self.states[:first_question + 1]):
-                        raise ValueError("answer_revealed_before_question")
+                        raise ValueError(f"answer_revealed_before_question: answer={answer_id}, question={paired}, "
+                            f"first_question_state={self.states[first_question].state_id}; put the answer's show_from on a later reveal step. "
+                            "When this is an explanatory observation rather than an independent learner response, use role=evidence/claim instead of answer.")
                     if any(answer_id in s.visible_element_ids and paired not in s.visible_element_ids for s in self.states):
                         raise ValueError("answer_question_context_hidden")
         return self

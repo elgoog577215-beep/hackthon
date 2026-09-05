@@ -209,6 +209,14 @@ async def invoke_teaching_provider(provider, request):
     response = await call(
         json.dumps(request, ensure_ascii=False),
         system_prompt=(
+            "Return JSON matching response_contract only. Plan the supplied classroom lesson in the handout's language. "
+            "This request plans the whole-lesson learning path, not detailed slide elements or reveal notes. "
+            "Group related contiguous source numbers into coherent learner tasks. Cover every supplied source in first-use order; "
+            "do not create one page per source block or invent source IDs. Copy the formal lesson duration, or use 0 when unknown. "
+            "Choose a compact physical-page budget with a teaching rationale, accounting for actual independent questions and "
+            "only necessary reasoning stops. Ordinary exposition can use one complete canvas with full prose in notes. "
+            "Use only the fields specified for each task in response_contract and the supplied supported layouts."
+            if request.get("teaching_request") == "narrative" else
             "Return JSON matching response_contract only. Prepare classroom slides from the supplied handout in its language. "
             "Only use supplied facts, source block IDs, assets and certified layouts. Full prose stays in notes. "
             "Screen content expresses a clear teaching task through concise evidence, comparisons and relations. "
@@ -381,7 +389,7 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
                 try:
                     narrative = validate_narrative(raw)
                 except ValueError as exc:
-                    error = str(exc)
+                    error = page_failure_message(exc)
                 else:
                     checkpoint["narrative"] = narrative.model_dump(mode="json")
                     break
@@ -400,7 +408,7 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
             try:
                 narrative = validate_narrative(response)
             except ValueError as exc:
-                error = str(exc)
+                error = page_failure_message(exc)
                 checkpoint["calls"][-1]["validation_error"] = error
                 await save({"phase": "repair", "item_id": "teaching-narrative"})
             else:

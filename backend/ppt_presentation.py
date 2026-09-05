@@ -64,4 +64,3 @@ def validate_page_sources(graph, source_ids, anchor):
 
 
 PACING_ISSUE_CODES = {"ppt_pacing_budget_exceeded", "ppt_pacing_duplicate_canvas"}
-
