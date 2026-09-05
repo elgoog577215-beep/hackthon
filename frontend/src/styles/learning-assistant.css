@@ -1,14 +1,17 @@
 /* Student reading companion; teacher production surfaces retain their density. */
 .is-learning-assistant { --assistant-secondary:var(--color-slate-600); box-shadow:var(--lz-shadow-panel); }
-.is-learning-assistant .ai-teacher-surface,.is-learning-assistant .ai-teacher-messages { background:#fff; }
-.is-learning-assistant .ai-teacher-header { padding:16px; gap:14px 10px; }
-.is-learning-assistant .ai-teacher-icon { width:30px; height:30px; border:0; border-radius:8px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); box-shadow:none; }
+.is-learning-assistant .ai-teacher-surface { background:linear-gradient(180deg,#fff,var(--lz-canvas)); }
+.is-learning-assistant .ai-teacher-header { padding:16px; gap:14px 10px; border-bottom-color:var(--color-primary-100); background:linear-gradient(145deg,#fff,rgba(238,242,255,.48)); }
+.is-learning-assistant .ai-teacher-icon { width:34px; height:34px; border:1px solid rgba(255,255,255,.65); border-radius:11px; color:#fff; background:linear-gradient(145deg,var(--color-primary-600),var(--color-secondary-600)); box-shadow:0 4px 10px rgba(99,102,241,.18),inset 0 1px 0 rgba(255,255,255,.3); }
 .is-learning-assistant .ai-teacher-heading-copy strong { color:var(--lz-text-strong); font-size:17px; font-weight:600; }
 .is-learning-assistant .ai-teacher-header-context { align-items:flex-start; }
 .is-learning-assistant .context-line { align-items:flex-start; gap:8px; }
 .is-learning-assistant .context-line svg { flex:none; margin-top:4px; color:var(--assistant-secondary); }
 .is-learning-assistant .context-line strong { overflow:visible; white-space:normal; overflow-wrap:anywhere; color:var(--assistant-secondary); font-size:15px; line-height:1.6; font-weight:400; }
 .is-learning-assistant .conversation-rail-toggle { width:32px; height:32px; min-height:32px; justify-content:center; padding:0; }
+.is-learning-assistant .ai-teacher-header-actions { gap:6px; }
+.is-learning-assistant .ai-teacher-header-actions :is(.icon-button,.conversation-rail-toggle,summary) { border:1px solid var(--color-primary-100); border-radius:9px; color:var(--assistant-secondary); background:linear-gradient(145deg,#fff,var(--lz-surface-subtle)); box-shadow:0 2px 4px rgba(79,70,229,.04),inset 0 1px 0 #fff; transition:color var(--duration-fast),border-color var(--duration-fast),background var(--duration-fast); }
+.is-learning-assistant .ai-teacher-header-actions :is(.icon-button,.conversation-rail-toggle,summary):hover,.is-learning-assistant .conversation-rail-toggle[aria-expanded="true"],.is-learning-assistant .assistant-settings[open] summary { border-color:var(--color-primary-200); color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
 .is-learning-assistant .conversation-rail-toggle span { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 .is-learning-assistant .icon-button { color:var(--assistant-secondary); }
 .is-learning-assistant .icon-button:hover { transform:none; }
@@ -20,23 +23,23 @@
 .assistant-settings summary::-webkit-details-marker { display:none; }
 .assistant-settings summary span { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 .assistant-settings[open] summary,.assistant-settings summary:hover { color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
-.assistant-settings-content { position:absolute; z-index:5; top:calc(100% + 8px); right:-80px; width:250px; padding:16px; border:1px solid var(--lz-border); border-radius:var(--lz-radius-control); color:var(--color-slate-600); background:#fff; }
+.assistant-settings-content { position:absolute; z-index:5; top:calc(100% + 8px); right:-80px; width:250px; padding:16px; border:1px solid var(--color-primary-100); border-radius:12px; color:var(--color-slate-600); background:#fff; box-shadow:0 12px 30px rgba(49,46,129,.13),inset 0 1px 0 #fff; }
 .is-learning-assistant .assistant-settings-content .retrieval-setting { display:flex; justify-content:flex-start; gap:9px; border:0; padding:0; font-size:15px; }
 .is-learning-assistant .assistant-settings-content .context-evidence { display:block; padding:0; margin:12px 0 0; border:0; border-radius:0; color:var(--assistant-secondary); background:transparent; font-size:14px; line-height:1.6; }
-.is-learning-assistant .ai-teacher-messages { padding:24px 18px; scrollbar-gutter:stable; overscroll-behavior:contain; scroll-behavior:auto; }
-.is-learning-assistant .ai-teacher-empty { min-height:100%; align-items:stretch; padding:24px 4px; gap:12px; text-align:left; }
-.is-learning-assistant .empty-mark { display:none; }
+.is-learning-assistant .ai-teacher-messages { padding:24px 18px; background:transparent; scrollbar-gutter:stable; overscroll-behavior:contain; scroll-behavior:auto; }
+.is-learning-assistant .ai-teacher-empty { min-height:100%; align-items:stretch; padding:24px 4px; gap:10px; text-align:left; }
+.is-learning-assistant .empty-mark { display:grid; width:44px; height:44px; margin-bottom:8px; border-color:var(--color-primary-100); border-radius:14px; color:var(--lz-brand-strong); background:linear-gradient(145deg,#fff,var(--color-primary-50)); box-shadow:var(--shadow-clay-sm); }
 .is-learning-assistant .ai-teacher-empty strong { font-size:20px; font-weight:600; line-height:1.5; }
 .is-learning-assistant .ai-teacher-empty p { color:var(--assistant-secondary); font-size:15px; line-height:1.8; }
-.is-learning-assistant .quick-actions { gap:8px; margin:12px 0 0; }
-.is-learning-assistant .quick-actions button { min-height:44px; justify-content:flex-start; gap:10px; padding:10px 12px; border-color:var(--lz-border); border-radius:var(--lz-radius-control); color:var(--lz-text); background:#fff; font-size:15px; line-height:1.5; }
-.is-learning-assistant .quick-actions button svg { flex:none; color:var(--assistant-secondary); }
-.is-learning-assistant .quick-actions button:hover:not(:disabled) { transform:none; color:var(--lz-brand-strong); border-color:var(--lz-border-strong); background:var(--lz-surface-subtle); }
+.is-learning-assistant .quick-actions { gap:10px; margin:14px 0 0; }
+.is-learning-assistant .quick-actions button { min-height:50px; justify-content:flex-start; gap:11px; padding:9px 12px; border-color:var(--color-primary-100); border-radius:12px; color:var(--lz-text); background:linear-gradient(110deg,#fff,rgba(255,255,255,.72)); box-shadow:0 3px 8px rgba(79,70,229,.045),inset 0 1px 0 #fff; font-size:15px; line-height:1.5; transition:color var(--duration-fast),border-color var(--duration-fast),box-shadow var(--duration-fast),background var(--duration-fast); }
+.is-learning-assistant .quick-actions button svg { flex:none; box-sizing:content-box; padding:6px; border-radius:8px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
+.is-learning-assistant .quick-actions button:hover:not(:disabled) { transform:none; color:var(--lz-brand-strong); border-color:var(--color-primary-200); background:#fff; box-shadow:0 5px 14px rgba(79,70,229,.09); }
 .is-learning-assistant .quick-actions button:disabled { opacity:.55; }
 .is-learning-assistant .ai-message { margin-bottom:28px; }
 .is-learning-assistant .ai-message:not(.is-user) { display:block; }
 .is-learning-assistant .assistant-avatar { display:none; }
-.is-learning-assistant .user-message-bubble { max-width:94%; padding:11px 14px; border:0; border-radius:12px; color:var(--lz-text-strong); background:var(--lz-brand-soft); box-shadow:none; font-size:15px; line-height:1.75; }
+.is-learning-assistant .user-message-bubble { max-width:94%; padding:11px 14px; border:1px solid rgba(199,210,254,.45); border-radius:14px 14px 4px 14px; color:var(--lz-text-strong); background:linear-gradient(135deg,var(--color-primary-50),var(--color-secondary-50)); box-shadow:0 3px 10px rgba(79,70,229,.05),inset 0 1px 0 rgba(255,255,255,.75); font-size:15px; line-height:1.75; }
 .is-learning-assistant .assistant-answer { padding:0; font-size:16px; line-height:1.85; }
 .is-learning-assistant .assistant-message-column:has(.model-failure) .assistant-answer.failed { padding:0; border:0; background:transparent; color:var(--lz-text); }
 .is-learning-assistant .assistant-answer :deep(h1) { font-size:21px; }
@@ -58,20 +61,23 @@
 .is-learning-assistant .action-proposal strong { font-size:15px; }
 .is-learning-assistant .action-proposal p,.is-learning-assistant .action-receipt,.is-learning-assistant .action-receipt button { font-size:14px; line-height:1.6; }
 .is-learning-assistant .primary-command,.is-learning-assistant .secondary-command { min-height:34px; font-size:14px; }
-.is-learning-assistant .ai-teacher-composer { padding:12px 16px 16px; border-top:1px solid var(--lz-border); background:#fff; box-shadow:none; }
-.is-learning-assistant .composer-box { min-height:96px; align-items:end; padding:8px 8px 8px 12px; border-color:var(--lz-border-strong); border-radius:12px; box-shadow:none; }
-.is-learning-assistant .composer-box:focus-within { border-color:var(--lz-brand-strong); box-shadow:none; }
+.is-learning-assistant .ai-teacher-composer { padding:14px 16px 16px; border-top:1px solid var(--color-primary-100); background:linear-gradient(180deg,rgba(248,249,255,.65),#fff); box-shadow:inset 0 1px 0 #fff; }
+.is-learning-assistant .composer-box { min-height:96px; align-items:end; padding:8px 8px 8px 12px; border-color:var(--color-primary-200); border-radius:14px; background:linear-gradient(145deg,#fff,rgba(250,251,255,.98)); box-shadow:0 4px 14px rgba(79,70,229,.07),inset 0 1px 0 #fff; }
+.is-learning-assistant .composer-box:focus-within { border-color:var(--color-primary-400); box-shadow:0 5px 16px rgba(79,70,229,.1),0 0 0 3px rgba(99,102,241,.08); }
 .is-learning-assistant .composer-box textarea { min-height:72px; font-size:15px; line-height:1.65; }
 .is-learning-assistant .composer-box textarea::placeholder { color:var(--assistant-secondary); }
-.is-learning-assistant .send-button { width:36px; height:36px; border-radius:8px; background:var(--lz-brand-strong); box-shadow:none; }
-.is-learning-assistant .send-button:hover:not(:disabled) { transform:none; background:var(--color-primary-700); box-shadow:none; }
-.is-learning-assistant .send-button:disabled { color:var(--assistant-secondary); background:var(--color-slate-100); }
-.is-learning-assistant .send-button.is-stop { color:var(--lz-danger); background:var(--lz-danger-soft); }
+.is-learning-assistant .send-button { width:36px; height:36px; border:1px solid rgba(255,255,255,.35); border-radius:10px; background:linear-gradient(145deg,var(--color-primary-600),var(--color-secondary-600)); box-shadow:0 4px 10px rgba(99,102,241,.2),inset 0 1px 0 rgba(255,255,255,.25); }
+.is-learning-assistant .send-button:hover:not(:disabled) { transform:none; background:linear-gradient(145deg,var(--color-primary-700),var(--color-secondary-700)); box-shadow:0 5px 14px rgba(99,102,241,.24); }
+.is-learning-assistant .send-button:disabled { border-color:var(--color-primary-100); color:var(--assistant-secondary); background:var(--color-primary-50); box-shadow:inset 0 1px 0 #fff; }
+.is-learning-assistant .send-button.is-stop,.is-learning-assistant .send-button.is-stop:hover:not(:disabled) { border-color:var(--color-accent-rose); color:var(--lz-danger); background:var(--lz-danger-soft); box-shadow:none; }
 .is-learning-assistant .composer-status,.is-learning-assistant .offline-notice,.is-learning-assistant .panel-state,.is-learning-assistant .thinking-line { color:var(--assistant-secondary); font-size:14px; line-height:1.6; }
 .is-learning-assistant .thinking-line i { display:none; }
 .latest-reply { display:flex; align-items:center; justify-content:center; gap:6px; min-height:32px; margin:0 auto 10px; padding:4px 10px; border:1px solid var(--lz-border); border-radius:8px; color:var(--lz-brand-strong); background:#fff; font-size:14px; cursor:pointer; }
 .latest-reply:hover { background:var(--lz-brand-soft); }
-.is-learning-assistant .conversation-shell { border:0; padding:16px; }
+.is-learning-assistant .conversation-shell { border:0; padding:16px; background:linear-gradient(160deg,#fff,var(--lz-canvas)); }
+.is-learning-assistant .conversation-search { border-color:var(--color-primary-100); background:rgba(248,250,255,.9); box-shadow:inset 0 1px 3px rgba(79,70,229,.035); }
+.is-learning-assistant .conversation-row { border-radius:12px; }
+.is-learning-assistant .conversation-row.active { border-color:var(--color-primary-100); background:linear-gradient(110deg,#fff,var(--lz-brand-soft)); box-shadow:0 3px 10px rgba(79,70,229,.06); }
 .is-learning-assistant .conversation-rail-heading strong { font-size:16px; }
 .is-learning-assistant .conversation-search input { font-size:15px; }
 .is-learning-assistant .conversation-row__select strong { font-size:15px; white-space:normal; line-height:1.6; }

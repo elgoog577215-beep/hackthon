@@ -119,14 +119,14 @@ const navigatorHelp = computed(() => {
 .course-navigator nav { min-height:0; overflow-y:auto; padding:6px 8px 18px; scrollbar-width:thin; scrollbar-color:#dbe4f2 transparent; }
 .course-navigator nav > ul { margin: 0; padding: 0; }
 .navigator-heading { color:var(--lz-text-strong); font-size:16px; font-weight:650; }
-.lesson-navigator { background:var(--lz-surface); }
-.lesson-navigator > header { gap:10px; padding:14px 14px 12px; border-bottom-color:var(--lz-border); background:transparent; }
-.lesson-navigator > header > button { border-color:var(--lz-border); color:var(--lz-text-secondary); background:transparent; }
-.lesson-navigator > header > button:hover { color:var(--lz-brand-strong); background:var(--lz-brand-soft); transform:none; }
-.lesson-search { grid-column:1 / -1; height:38px; border-radius:var(--lz-radius-control); background:var(--lz-surface-subtle); color:var(--lz-text-secondary); }
+.lesson-navigator { background:linear-gradient(160deg,rgba(255,255,255,.97),rgba(245,246,255,.94)); }
+.lesson-navigator > header { gap:12px 10px; padding:16px 14px 14px; border-bottom-color:var(--color-primary-100); background:linear-gradient(160deg,#fff,rgba(238,242,255,.42)); }
+.lesson-navigator > header > button { border-color:var(--color-primary-100); color:var(--lz-text-secondary); background:linear-gradient(145deg,#fff,var(--lz-surface-subtle)); box-shadow:0 2px 4px rgba(79,70,229,.04),inset 0 1px 0 #fff; }
+.lesson-navigator > header > button:hover { border-color:var(--color-primary-200); color:var(--lz-brand-strong); background:#fff; transform:none; }
+.lesson-search { grid-column:1 / -1; height:40px; border-color:var(--color-primary-100); border-radius:12px; background:rgba(248,250,255,.9); color:var(--lz-text-secondary); box-shadow:inset 0 1px 3px rgba(79,70,229,.035),0 1px 0 #fff; }
 .lesson-search input { font-size:15px; color:var(--lz-text-strong); }
 .lesson-search input::placeholder { color:var(--lz-text-secondary); opacity:1; }
-.lesson-navigator nav { padding:8px 10px 16px; }
+.lesson-navigator nav { padding:8px 10px 16px; scrollbar-gutter:stable; }
 .navigator-no-results { margin:0; padding:24px 10px; color:var(--lz-text-secondary); font-size:15px; line-height:1.6; }
 .course-navigator header button:focus-visible { outline:2px solid var(--lz-brand-strong); outline-offset:2px; }
 .course-navigator header button:active { background:var(--lz-brand-soft); }
