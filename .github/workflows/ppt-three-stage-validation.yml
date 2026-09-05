@@ -38,6 +38,7 @@ jobs:
           backend/tests/test_ppt_chart_scene.py backend/tests/test_ppt_recovery_boundaries.py
           backend/tests/test_ppt_export_text_metrics.py
           backend/tests/test_teacher_ppt_export_checkpoint.py
+          backend/tests/test_ppt_pacing.py backend/tests/test_ppt_pacing_api.py
       - name: Certify real filled component samples on Linux
         run: >-
           python scripts/ppt_template_tool.py certify

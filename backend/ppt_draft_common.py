@@ -1,7 +1,7 @@
 """Shared draft syntax and exact source selection; no page lowering."""
 from typing import Literal
 from pydantic import Field
-from ppt_teaching_content import Contract
+from ppt_teaching_content import Contract, PagePresentationV1
 from ppt_source_quotes import resolve_quote_choice
 
 class QuoteChoice(Contract):
@@ -30,10 +30,12 @@ class DraftMetadata(Contract):
     observable_evidence: str = ""
     transition: str = ""
     composition_notes: str = ""
+    presentation: PagePresentationV1 | None = None
+    split_reason: str = ""
 
 
 def lower_reveal_states(stages, notes):
-    """Before confirmation, merge identical canvases and keep all narration."""
+    """Keep narration IDs intact; presentation_states alone chooses slides."""
     if max(stages.values()) > len(notes):
         raise ValueError(f"reveal_note_missing: show_from_by_element={stages}, notes={len(notes)}; "
                          "provide the teaching note for every declared reveal step")
@@ -42,11 +44,8 @@ def lower_reveal_states(stages, notes):
         visible = [key for key, stage in stages.items() if stage <= index]
         if not visible:
             raise ValueError("initial_reveal_empty: at least one screen element must show from step 1")
-        if states and states[-1]["visible_element_ids"] == visible:
-            states[-1]["teaching_note"] += "\n\n" + note
-        else:
-            states.append({"state_id": f"step-{index}", "visible_element_ids": visible,
-                           "emphasized_element_ids": [], "teaching_note": note})
+        states.append({"state_id": f"step-{index}", "visible_element_ids": visible,
+                       "emphasized_element_ids": [], "teaching_note": note})
     return states
 
 

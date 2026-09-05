@@ -12,6 +12,8 @@ def _speaker_notes(page: SlidePageV6) -> str:
             ensure_ascii=False,
         ),
     ]
+    if page.speaker_notes.teaching_notes is not None:
+        sections.append("讲述提示\n" + "\n\n".join(page.speaker_notes.teaching_notes))
     sections.extend(
         "\n".join([
             f"[{block.block_id} @ {block.block_revision}]",

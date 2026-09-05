@@ -4,11 +4,11 @@ from pydantic import Field, model_serializer, model_validator
 from ppt_teaching_content import Contract
 
 FONT_FAMILY = "Noto Sans CJK SC"
-COMPILER_VERSION = "teaching_scene_v2.4"
-RENDERER_VERSION = "teaching_native_v2.3"
-QUALITY_VERSION = "teaching_export_v2.4"
+COMPILER_VERSION = "teaching_scene_v2.5"
+RENDERER_VERSION = "teaching_native_v2.4"
+QUALITY_VERSION = "teaching_export_v2.5"
 LAYOUT_VERSION = "teaching_layout_v2.3"
-PLANNER_VERSION = "teaching_planning_v2.4"
+PLANNER_VERSION = "teaching_planning_v2.5"
 
 
 class NativeTarget(Contract):

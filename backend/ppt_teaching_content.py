@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator, model_serializer
 
 
 class Contract(BaseModel):
@@ -160,6 +160,49 @@ class AdoptedDiagramBinding(Contract):
     semantic_digest: str
 
 
+class PresentationCheckpoint(Contract):
+    state_id: str = Field(min_length=1)
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def meaningful_reason(cls, value):
+        if not value.strip():
+            raise ValueError("presentation_checkpoint_reason_missing")
+        return value
+
+
+class PagePresentationV1(Contract):
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"allOf": [{
+        "if": {"properties": {"mode": {"const": "key_steps"}}, "required": ["mode"]},
+        "then": {"required": ["checkpoints"], "properties": {"checkpoints": {"minItems": 1}}},
+        "else": {"properties": {"checkpoints": {"maxItems": 0}}},
+    }]})
+    schema_version: Literal["page_presentation_v1"] = "page_presentation_v1"
+    mode: Literal["complete", "question_answer", "key_steps"] = "complete"
+    checkpoints: list[PresentationCheckpoint] = Field(default_factory=list, max_length=12,
+        description="Only key_steps accepts checkpoints. Omit or use [] for complete and question_answer.")
+
+    @model_validator(mode="after")
+    def checkpoint_mode(self):
+        if (self.mode == "key_steps") != bool(self.checkpoints):
+            raise ValueError("presentation_checkpoint_mode_invalid: key_steps requires checkpoints; complete and question_answer require checkpoints=[]")
+        return self
+
+
+class PptPacingV1(Contract):
+    schema_version: Literal["ppt_pacing_v1"] = "ppt_pacing_v1"
+    max_physical_pages: int = Field(ge=1, le=5000)
+    rationale: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("rationale")
+    @classmethod
+    def meaningful_rationale(cls, value):
+        if not value.strip():
+            raise ValueError("ppt_pacing_rationale_missing")
+        return value
+
+
 class PageTeachingV2(Contract):
     schema_version: Literal["page_teaching_v2"] = "page_teaching_v2"
     elements: list[ScreenElement] = Field(min_length=1, max_length=80)
@@ -169,6 +212,14 @@ class PageTeachingV2(Contract):
     states: list[RevealState] = Field(min_length=1, max_length=12)
     adopted_assets: list[AdoptedAssetBinding] = Field(default_factory=list)
     adopted_diagram: AdoptedDiagramBinding | None = None
+    presentation: PagePresentationV1 | None = None
+
+    @model_serializer(mode="wrap")
+    def serialize_compatible(self, handler):
+        payload = handler(self)
+        if self.presentation is None:
+            payload.pop("presentation", None)
+        return payload
 
     @model_validator(mode="after")
     def references_and_meaning(self):

@@ -35,9 +35,15 @@
           <div><small>{{ t('pptWorkspace.narrativeQuestion', '整讲中心问题') }}</small><strong>{{ narrativeBrief.central_question }}</strong></div>
           <div><small>{{ t('pptWorkspace.learningPath', '学习路径') }}</small><span>{{ listText(narrativeBrief.learning_path) }}</span></div>
           <div><small>{{ t('pptWorkspace.observableCheckpoints', '可观察检查点') }}</small><span>{{ listText(narrativeBrief.observable_checkpoints) }}</span></div>
-          <span class="ppt-manuscript-workflow__time">{{ narrativeBrief.time_budget_minutes }} {{ t('pptWorkspace.minutes', '分钟') }}</span>
+          <span v-if="narrativeBrief.time_budget_minutes > 0" class="ppt-manuscript-workflow__time">{{ narrativeBrief.time_budget_minutes }} {{ t('pptWorkspace.minutes', '分钟') }}</span>
         </section>
 
+        <section v-if="draftPacing" class="ppt-manuscript-workflow__pacing" data-testid="ppt-pacing-plan">
+          <label><span>{{ t('pptWorkspace.pacingBudget') }}</span><input v-model.number="draftPacing.max_physical_pages" type="number" min="1" max="5000" :disabled="busy" data-testid="ppt-pacing-budget"></label>
+          <label><span>{{ t('pptWorkspace.pacingRationale') }}</span><textarea v-model="draftPacing.rationale" :disabled="busy" rows="2" /></label>
+          <p>{{ t('pptWorkspace.pacingSavedCount').replace('{count}', String(manuscript.page_count)) }}</p>
+        </section>
+        <ul v-if="lessonIssues.length" class="ppt-manuscript-workflow__issues" role="alert"><li v-for="issue in lessonIssues" :key="issue.code">{{ issue.message }}</li></ul>
         <div class="ppt-manuscript-workflow__pages">
           <article v-for="page in draftPages" :key="page.page_id" :class="{ 'is-selected': selectedPageIds.has(page.page_id), 'is-locked': page.teacher_locked }">
             <aside class="ppt-manuscript-workflow__page-rail">
@@ -110,7 +116,7 @@ const emit = defineEmits<{
   (event: 'regenerate-manuscript'): void
   (event: 'confirm-manuscript'): void
   (event: 'generate-ppt'): void
-  (event: 'save-manuscript', updates: Record<string, any>[]): void
+  (event: 'save-manuscript', updates: Record<string, any>[], pacing?: Record<string, any>): void
   (event: 'regenerate-pages', pageIds: string[]): void
 }>()
 
@@ -120,12 +126,14 @@ const manuscriptPageCounts = computed(() => t('pptWorkspace.manuscriptPageCounts
   .replace('{physical}', String(manuscript.value?.page_count || 0)))
 const draftPages = ref<Record<string, any>[]>([])
 const originalPages = ref<Record<string, any>[]>([])
+const draftPacing = ref<Record<string, any> | null>(null)
 const selectedPageIds = ref(new Set<string>())
 
 watch(() => props.state.revision, () => {
   const pages = Array.isArray(manuscript.value?.pages) ? manuscript.value.pages : []
   draftPages.value = JSON.parse(JSON.stringify(pages))
   originalPages.value = JSON.parse(JSON.stringify(pages))
+  draftPacing.value = manuscript.value?.pacing ? JSON.parse(JSON.stringify(manuscript.value.pacing)) : null
   selectedPageIds.value = new Set()
 }, { immediate: true })
 
@@ -139,7 +147,9 @@ const dirtyUpdates = computed(() => draftPages.value.flatMap((page, index): Reco
     composition_notes: page.composition_notes, teacher_locked: Boolean(page.teacher_locked) }]
   return [{ page_id: page.page_id, title: page.title, visible_copy: page.visible_copy, page_goal: page.page_goal, primary_claim: page.primary_claim, audience_question: page.audience_question, audience_action: page.audience_action, expected_response: page.expected_response, observable_evidence: page.observable_evidence, transition: page.transition, reveal_steps: page.reveal_steps, composition_notes: page.composition_notes, teacher_locked: Boolean(page.teacher_locked) }]
 }))
-const dirty = computed(() => dirtyUpdates.value.length > 0)
+const pacingDirty = computed(() => JSON.stringify(draftPacing.value) !== JSON.stringify(manuscript.value?.pacing || null))
+const dirty = computed(() => dirtyUpdates.value.length > 0 || pacingDirty.value)
+const lessonIssues = computed(() => (manuscript.value?.quality_issues || []).filter((item: any) => !item.page_id))
 const saveStateLabel = computed(() => props.saving ? t('pptWorkspace.savingManuscript', '正在保存…') : dirty.value ? t('pptWorkspace.manuscriptUnsaved', '有未保存修改') : t('pptWorkspace.manuscriptSaved', '已保存'))
 
 const failureView = computed(() => {
@@ -157,7 +167,7 @@ const retryLabel = computed(() => failureView.value ? t('pptWorkspace.retryManus
 const manuscriptStepStatus = computed(() => props.state.source_state === 'stale' ? t('pptWorkspace.stepStale', '需要重新生成') : props.state.status === 'confirmed' ? t('pptWorkspace.stepConfirmed', '已确认') : manuscript.value ? t('pptWorkspace.stepAwaitingConfirmation', '待确认') : t('pptWorkspace.stepNotStarted', '未开始'))
 const deckStepStatus = computed(() => props.state.generated_representation_id ? t('pptWorkspace.stepCompleted', '已生成') : props.state.can_generate_ppt ? t('pptWorkspace.stepReady', '可生成') : t('pptWorkspace.stepLocked', '确认页面内容稿后解锁'))
 
-function saveDraft() { if (dirtyUpdates.value.length) emit('save-manuscript', dirtyUpdates.value) }
+function saveDraft() { if (pacingDirty.value && draftPacing.value) emit('save-manuscript', dirtyUpdates.value, draftPacing.value); else if (dirtyUpdates.value.length) emit('save-manuscript', dirtyUpdates.value) }
 function syncTitleRegion(page: Record<string, any>) { const regions = Array.isArray(page.regions) ? page.regions.filter((item: any) => item.content_kind !== 'notes') : []; const titleIndex = regions.findIndex((item: any) => item.content_kind === 'title'); if (titleIndex >= 0 && Array.isArray(page.visible_copy)) page.visible_copy[titleIndex] = page.title }
 function toggleLock(page: Record<string, any>) { page.teacher_locked = !page.teacher_locked; if (page.teacher_locked) selectedPageIds.value.delete(page.page_id) }
 function toggleSelected(pageId: string) { const next = new Set(selectedPageIds.value); next.has(pageId) ? next.delete(pageId) : next.add(pageId); selectedPageIds.value = next }
@@ -165,7 +175,7 @@ function canRegenerate(page: Record<string, any>) { return !page.teacher_locked 
 function setLines(page: Record<string, any>, field: string, event: Event) { page[field] = (event.target as HTMLTextAreaElement).value.split('\n').map(value => value.trim()).filter(Boolean) }
 function listLines(value: unknown) { return Array.isArray(value) ? value.join('\n') : '' }
 function listText(value: unknown) { return Array.isArray(value) ? value.join(' → ') : '' }
-function pageIssues(pageId: string) { return (manuscript.value?.quality_issues || []).filter((item: any) => !item.page_id || item.page_id === pageId) }
+function pageIssues(pageId: string) { return (manuscript.value?.quality_issues || []).filter((item: any) => item.page_id === pageId) }
 function sourceIds(page: Record<string, any>, field: string): string[] { const values = page?.[field]; return Array.isArray(values) ? values.map(String).filter(Boolean) : [] }
 function hasSourceRefs(page: Record<string, any>) { return ['source_script_block_ids', 'source_section_ids', 'source_material_evidence_ids'].some(field => sourceIds(page, field).length) }
 function stepClass(step: number) { return step === 1 ? { 'is-active': true, 'is-complete': props.state.status === 'confirmed' } : { 'is-active': props.state.can_generate_ppt, 'is-complete': Boolean(props.state.generated_representation_id) } }
@@ -174,4 +184,5 @@ function pageTypeLabel(value: string) { const labels: Record<string, string> = {
 
 <style scoped>
 .ppt-manuscript-workflow{width:100%;height:100%;overflow:auto;padding:28px 36px 110px;background:#f5f6f8;color:#172033}.ppt-manuscript-workflow__header{display:flex;gap:18px;align-items:flex-start;max-width:1080px;margin:0 auto 20px}.ppt-manuscript-workflow__header h1{margin:4px 0 5px;font-size:25px}.ppt-manuscript-workflow__header p{margin:0;color:#667085}.ppt-manuscript-workflow__header small{color:#3857d6;font-weight:750;letter-spacing:.08em}.ppt-manuscript-workflow__back{width:38px;height:38px;border:1px solid #d8dde7;border-radius:10px;background:#fff;display:grid;place-items:center}.ppt-manuscript-workflow__steps{list-style:none;padding:0;max-width:1080px;margin:0 auto 16px;display:flex;gap:22px}.ppt-manuscript-workflow__steps li{display:flex;align-items:center;gap:9px;color:#98a2b3}.ppt-manuscript-workflow__steps li>span{width:27px;height:27px;display:grid;place-items:center;border-radius:8px;background:#e8ebf0;font-weight:800}.ppt-manuscript-workflow__steps li div{display:flex;flex-direction:column}.ppt-manuscript-workflow__steps li.is-active{color:#243b86}.ppt-manuscript-workflow__steps li.is-active>span{color:#fff;background:#3857d6}.ppt-manuscript-workflow__steps li.is-complete>span{background:#16845b}.ppt-manuscript-workflow__warning,.ppt-manuscript-workflow__original{max-width:1080px;margin:0 auto 15px;padding:13px 16px;border-radius:10px;background:#fff7e8;color:#8a5a08;display:flex;gap:9px;align-items:center}.ppt-manuscript-workflow__warning.is-error{align-items:flex-start;background:#fff0f0;color:#8f1712}.ppt-manuscript-workflow__warning p{margin:4px 0}.ppt-manuscript-workflow__content,.ppt-manuscript-workflow__empty,.ppt-manuscript-workflow__original{max-width:1080px;margin-left:auto;margin-right:auto;background:#fff;border:1px solid #e1e5ec;border-radius:12px}.ppt-manuscript-workflow__summary{display:flex;justify-content:space-between;align-items:center;padding:20px 28px;border-bottom:1px solid #e8ebf0}.ppt-manuscript-workflow__summary h2{margin:3px 0 0;font-size:19px}.ppt-manuscript-workflow__save-state{display:flex;align-items:flex-end;flex-direction:column;gap:2px;color:#3857d6;font-weight:700}.ppt-manuscript-workflow__save-state small{color:#667085;font-weight:500}.ppt-manuscript-workflow__brief{position:relative;padding:20px 28px;background:#f8f9fc;border-bottom:1px solid #e8ebf0;display:grid;gap:10px}.ppt-manuscript-workflow__brief div{display:grid;grid-template-columns:130px 1fr;gap:12px}.ppt-manuscript-workflow__brief small,.ppt-manuscript-workflow__page-copy label>span,.ppt-manuscript-workflow__visible-copy>span{color:#667085;font-size:12px;font-weight:700}.ppt-manuscript-workflow__time{position:absolute;right:28px;top:20px;color:#3857d6;font-size:13px}.ppt-manuscript-workflow__pages article{display:grid;grid-template-columns:54px 1fr;gap:16px;padding:26px 28px;border-bottom:1px solid #e8ebf0}.ppt-manuscript-workflow__pages article:last-child{border-bottom:0}.ppt-manuscript-workflow__pages article.is-selected{box-shadow:inset 3px 0 #3857d6}.ppt-manuscript-workflow__pages article.is-locked{background:#fbfcfe}.ppt-manuscript-workflow__page-rail{display:flex;align-items:center;flex-direction:column;gap:13px;color:#98a2b3;font-size:18px;font-weight:800}.ppt-manuscript-workflow__page-rail input{width:16px;height:16px}.ppt-manuscript-workflow__page-meta{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;color:#667085}.ppt-manuscript-workflow__lock{display:flex;align-items:center;gap:5px;padding:5px 8px;border:0;background:transparent;color:#475467}.ppt-manuscript-workflow__page-copy label,.ppt-manuscript-workflow__visible-copy{display:flex;flex-direction:column;gap:5px;margin:10px 0}.ppt-manuscript-workflow__page-copy input,.ppt-manuscript-workflow__page-copy textarea{width:100%;padding:8px 0;border:0;border-bottom:1px solid #d8dde7;border-radius:0;background:transparent;color:#172033;font:inherit;line-height:1.55;resize:vertical}.ppt-manuscript-workflow__page-copy input:focus,.ppt-manuscript-workflow__page-copy textarea:focus{outline:none;border-color:#3857d6;box-shadow:0 1px 0 #3857d6}.ppt-manuscript-workflow__title-field input{font-size:20px;font-weight:750}.ppt-manuscript-workflow__field-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 24px}.ppt-manuscript-workflow__visible-copy{margin-top:15px;padding-top:10px;border-top:1px dashed #d8dde7}.ppt-manuscript-workflow__issues{margin:14px 0 0;padding:10px 14px 10px 32px;border-radius:8px;background:#fff0f0;color:#9b2018;line-height:1.5}.ppt-manuscript-workflow__sources{margin-top:13px;color:#667085}.ppt-manuscript-workflow__sources dl{display:grid;gap:8px}.ppt-manuscript-workflow__sources dl>div{display:grid;grid-template-columns:100px 1fr;gap:8px}.ppt-manuscript-workflow__sources dd{display:flex;flex-wrap:wrap;gap:5px;margin:0}.ppt-manuscript-workflow__sources code{padding:2px 5px;border-radius:4px;background:#f2f4f7;font-size:11px}.ppt-manuscript-workflow__empty{padding:60px 28px;text-align:center;color:#667085}.ppt-manuscript-workflow__original{padding:50px 28px;text-align:center;flex-direction:column;color:#475467}.ppt-manuscript-workflow__original button{padding:10px 16px;border:0;border-radius:9px;background:#3857d6;color:#fff}.ppt-manuscript-workflow__actions{position:fixed;left:0;right:0;bottom:0;z-index:5;padding:14px 36px;border-top:1px solid #dfe3eb;background:rgba(255,255,255,.97);display:flex;justify-content:flex-end;gap:10px}.ppt-manuscript-workflow__actions button{min-width:150px;padding:10px 15px;border:0;border-radius:8px;display:flex;align-items:center;justify-content:center;gap:7px;font-weight:750;background:#eef1f7;color:#28344d}.ppt-manuscript-workflow__actions button.is-primary{background:#3857d6;color:#fff}.ppt-manuscript-workflow__actions button:disabled{opacity:.5}
+.ppt-manuscript-workflow__pacing{padding:20px 28px;border-bottom:1px solid #e8ebf0;display:grid;grid-template-columns:180px 1fr;gap:12px 24px;font-size:16px}.ppt-manuscript-workflow__pacing label{display:flex;flex-direction:column;gap:8px}.ppt-manuscript-workflow__pacing :is(input,textarea){font:inherit;color:inherit;border:1px solid #cdd3df;border-radius:5px;padding:8px;line-height:1.5;width:100%}.ppt-manuscript-workflow__pacing :is(input,textarea):focus-visible{outline:2px solid #3857d6;outline-offset:2px}.ppt-manuscript-workflow__pacing p{grid-column:1 / -1;margin:0}
 </style>

@@ -2,7 +2,7 @@
 from __future__ import annotations
 from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_serializer, model_validator
-from ppt_teaching_content import PageTeachingV2
+from ppt_teaching_content import PageTeachingV2, PptPacingV1
 from ppt_page_scene import ResolvedPageScene
 V6Status = Literal["v6_ready", "v6_needs_manual_edit", "v6_failed"]
 
@@ -234,6 +234,15 @@ class SlideSpeakerNotesV2(_StrictModel):
     source_blocks: list[SourceNoteBlockV2] = Field(default_factory=list)
     source_section_ids: list[str] = Field(default_factory=list)
 
+    teaching_notes: list[str] | None = None
+
+    @model_serializer(mode="wrap")
+    def serialize_compatible(self, handler):
+        payload = handler(self)
+        if self.teaching_notes is None:
+            payload.pop("teaching_notes", None)
+        return payload
+
     @model_validator(mode="after")
     def require_source_binding(self) -> SlideSpeakerNotesV2:
         if not self.source_blocks and not self.source_section_ids:
@@ -412,10 +421,13 @@ class PptManuscriptPageV1(_StrictModel):
     continuation_count: int = Field(default=1, ge=1)
     teaching: PageTeachingV2 | None = None
     resolved_scenes: list[ResolvedPageScene] | None = None
+    split_reason: str = ""
 
     @model_serializer(mode="wrap")
     def serialize_compatible(self, handler):
         payload = handler(self)
+        if not self.split_reason:
+            payload.pop("split_reason", None)
         if self.teaching is None:
             payload.pop("teaching", None)
         if self.resolved_scenes is None:
@@ -462,3 +474,11 @@ class PptManuscriptV1(_StrictModel):
     render_status: V6Status = "v6_ready"
     quality_status: Literal["passed", "blocked"] = "passed"
     quality_issues: list[V6Failure] = Field(default_factory=list)
+    pacing: PptPacingV1 | None = None
+
+    @model_serializer(mode="wrap")
+    def serialize_compatible(self, handler):
+        payload = handler(self)
+        if self.pacing is None:
+            payload.pop("pacing", None)
+        return payload

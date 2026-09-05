@@ -1149,13 +1149,13 @@ async function confirmPptManuscript() {
   }
 }
 
-async function savePptManuscript(pageUpdates: Record<string, any>[]) {
+async function savePptManuscript(pageUpdates: Record<string, any>[], pacing?: Record<string, any>) {
   const state = pptManuscriptState.value
   if (
     !state?.revision
     || !courseId.value
     || !teacherLessonId.value
-    || !pageUpdates.length
+    || (!pageUpdates.length && !pacing)
     || pptManuscriptSaving.value
   ) return
   pptManuscriptSaving.value = true
@@ -1166,6 +1166,7 @@ async function savePptManuscript(pageUpdates: Record<string, any>[]) {
       {
         expected_manuscript_revision: state.revision,
         page_updates: pageUpdates,
+        ...(pacing ? { pacing } : {}),
       },
     )
     pptManuscriptState.value = response.data.ppt_manuscript_state

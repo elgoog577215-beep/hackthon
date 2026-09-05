@@ -303,7 +303,7 @@ def test_page_capacity_failure_is_locally_repaired(monkeypatch):
     async def planner(request):
         responses.append(request)
         if request["teaching_request"] == "narrative":
-            return {"narrative_brief": {"central_question": "比较执行方式"}, "pages": [plan]}
+            return {"pacing": {"max_physical_pages": 12, "rationale": "保留比较与必要推理停顿"}, "narrative_brief": {"central_question": "比较执行方式"}, "pages": [plan]}
         content = deepcopy(value)
         if len(responses) == 2:
             content["elements"][4]["text"] = "逐项执行" * 150
@@ -311,7 +311,7 @@ def test_page_capacity_failure_is_locally_repaired(monkeypatch):
     result, checkpoint = asyncio.run(plan_teaching_manuscript(doc, graph, template, planner))
     assert len(responses) == 3
     assert "capacity" in responses[-1]["validation_error"]
-    assert result.pages[0].teaching == manuscript.pages[0].teaching
+    assert result.pages[0].teaching.model_dump(exclude={"presentation"}) == manuscript.pages[0].teaching.model_dump(exclude={"presentation"})
     assert checkpoint["pages"]["p1"]
 
 

@@ -20,8 +20,8 @@ The system SHALL publish `template_layout_contract_v1` entries containing layout
 
 #### Scenario: Complete source requires many continuation pages
 - **WHEN** draft-selected code, steps, table rows or approved screen copy exceed one layout's declared capacity
-- **THEN** the pack's finite safe-continuation graph remains reusable for every required page
-- **AND** the template contract does not impose a teaching page-count limit or require smaller text to force content into fewer pages
+- **THEN** the pack's finite safe-continuation graph remains reusable for pages approved within the lesson pacing plan
+- **AND** the template contract does not itself choose a teaching page-count limit; draft production respects the explicit lesson budget or require smaller text to force content into fewer pages
 
 #### Scenario: A personal template is published for V6
 - **WHEN** representative-page mapping, capacity declarations or required layout coverage are incomplete

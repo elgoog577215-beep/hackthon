@@ -8,7 +8,8 @@ from course_document import stable_hash
 from course_presentation_graph import block_source_text
 from ppt_layout_execution import compile_teaching_template
 from ppt_page_scene import display_element_text, resolve_page_scenes, verify_scene
-from ppt_teaching_content import PageTeachingV2, validate_source_bindings
+from ppt_teaching_content import PageTeachingV2, PptPacingV1, validate_source_bindings
+from ppt_presentation import presentation_states, validate_page_sources
 
 
 def _failure(error, page_id=""):
@@ -91,19 +92,54 @@ def resolve_manuscript_page(page, template, source_revision):
         content_kind=e.kind, content=display_element_text(e), source_block_ids=list(dict.fromkeys(s.block_id for s in e.sources)),
         metadata={"element_id": e.element_id, "subject_id": e.subject_id, "dimension_id": e.dimension_id}) for e in page.teaching.elements)
     page.reveal_steps = [s.teaching_note for s in page.teaching.states]
+    if page.teaching.presentation is not None:
+        page.speaker_notes.teaching_notes = list(page.reveal_steps)
     page.web_renderer_adapter, page.pptx_renderer_adapter = layout.web_renderer_adapter, layout.pptx_renderer_adapter
     return page
 
 
+def pacing_issues(manuscript):
+    """Whole-lesson checks are separate from source and rendering checks."""
+    from course_document import stable_hash
+    from slide_deck_v6_models import V6Failure
+    issues = []
+    count = sum(len(p.resolved_scenes or []) for p in manuscript.pages)
+    if manuscript.pacing and count > manuscript.pacing.max_physical_pages:
+        issues.append(V6Failure(stage="manuscript", code="ppt_pacing_budget_exceeded",
+            message=f"当前导出 {count} 页，超过整讲预算 {manuscript.pacing.max_physical_pages} 页。请合并重复讲解、减少非必要停顿，或修改预算并说明教学理由。"))
+    previous = None
+    for page in manuscript.pages:
+        if not page.teaching or page.teaching.presentation is None:
+            previous = None
+            continue
+        for scene in page.resolved_scenes or []:
+            # Ignore state/page IDs and title rewording; compare the actual body.
+            objects = [o for o in scene.objects if o.element_id]
+            ids = {o.element_id: i for i, o in enumerate(objects)}
+            signature = stable_hash({
+                "objects": [o.model_dump(mode="json", exclude={"object_id", "element_id", "slot_id", "subject_id", "dimension_id"}) for o in objects],
+                "edges": [{"source": ids.get(e.source_id), "target": ids.get(e.target_id), "kind": e.kind, "label": e.label} for e in scene.edges],
+                "emphasis": sorted(ids[i] for i in scene.emphasized_element_ids),
+            }, prefix="canvas_")
+            if previous and previous[0] == signature:
+                issues.append(V6Failure(stage="manuscript", code="ppt_pacing_duplicate_canvas", page_id=page.page_id,
+                    message=f"本页与前一画面重复（内容页 {previous[1]}）。请合并讲述或明确新增的教学内容。"))
+            previous = (signature, page.page_number)
+    return issues
+
+
 def refresh_manuscript(manuscript):
     from slide_deck_v6_models import PptManuscriptV1
+    from ppt_presentation import PACING_ISSUE_CODES
     payload = manuscript.model_dump(mode="json", exclude={"schema_version", "manuscript_revision"})
     payload["page_count"] = sum(len(p.resolved_scenes or []) for p in manuscript.pages)
-    payload["quality_status"], payload["quality_issues"] = "passed", []
+    issues = [i for i in manuscript.quality_issues if i.code not in PACING_ISSUE_CODES] + pacing_issues(manuscript)
+    payload["quality_status"] = "blocked" if issues else "passed"
+    payload["quality_issues"] = [i.model_dump(mode="json") for i in issues]
     return PptManuscriptV1(manuscript_revision=stable_hash(payload, prefix="pptman_"), **payload)
 
 
-def compile_teaching_manuscript(document, graph, template, narrative, planned_pages, *, source_context=None):
+def compile_teaching_manuscript(document, graph, template, narrative, planned_pages, *, source_context=None, pacing=None):
     from slide_deck_v6_models import PptManuscriptV1, PptManuscriptPageV1, SlideSpeakerNotesV2, SourceNoteBlockV2, SlideVisualDecisionV2
     blocks = {b.block_id: b for b in document.blocks}
     units = {u.teaching_unit_id: u for u in graph.units}
@@ -114,8 +150,10 @@ def compile_teaching_manuscript(document, graph, template, narrative, planned_pa
     for index, planned in enumerate(planned_pages):
         unit = units.get(planned["teaching_unit_id"])
         source_ids = planned["source_block_ids"]
-        if unit is None or not set(source_ids) <= set(unit.primary_block_ids):
-            raise _failure("teaching_unit_source_mismatch", planned["page_id"])
+        try:
+            validate_page_sources(graph, source_ids, planned["teaching_unit_id"])
+        except ValueError as error:
+            raise _failure(error, planned["page_id"]) from error
         from ppt_adopted_visuals import bind_adopted_assets
         try:
             content = PageTeachingV2.model_validate(planned["teaching"])
@@ -129,7 +167,7 @@ def compile_teaching_manuscript(document, graph, template, narrative, planned_pa
             audience_question=planned.get("audience_question", ""), audience_action=planned.get("audience_action", ""),
             expected_response=planned.get("expected_response", ""), observable_evidence=planned.get("observable_evidence", ""),
             transition=planned.get("transition", ""), composition_notes=planned.get("composition_notes", ""),
-            teaching=content, source_script_block_ids=source_ids, speaker_note_source_block_ids=source_ids,
+            teaching=content, split_reason=planned.get("split_reason", ""), source_script_block_ids=source_ids, speaker_note_source_block_ids=source_ids,
             course_block_types=[blocks[b].kind for b in source_ids], visual_kind="text_native",
             visual_decision=SlideVisualDecisionV2(page_id=planned["page_id"], decision="text_native", source_block_ids=source_ids,
                 resolved_template_layout_id=planned["layout_id"]),
@@ -156,7 +194,7 @@ def compile_teaching_manuscript(document, graph, template, narrative, planned_pa
         source_script_revision_id=source_context.get("script_revision_id", ""),
         material_bindings=source_context.get("material_bindings", []), narrative_brief=narrative,
         template_id=template.template_id, template_version=template.template_version, template_digest=template.template_digest,
-        pages=pages, page_count=sum(len(p.resolved_scenes) for p in pages), story_page_count=len(pages),
+        pages=pages, page_count=sum(len(p.resolved_scenes) for p in pages), story_page_count=len(pages), pacing=pacing,
     )
     return refresh_manuscript(manuscript)
 
@@ -175,13 +213,31 @@ def template_for_manuscript(manuscript):
     return template
 
 
-def revise_teaching_manuscript(manuscript, updates):
+def validate_reviewable_manuscript(document, graph, manuscript, template):
+    """Permit pacing diagnostics in a draft, never source or scene corruption."""
+    if manuscript.source_document_revision != document.document_revision:
+        raise _failure("ppt_manuscript_source_revision_mismatch")
+    if (manuscript.template_id, manuscript.template_version, manuscript.template_digest) != (template.template_id, template.template_version, template.template_digest):
+        raise _failure("ppt_manuscript_template_mismatch")
+    from ppt_presentation import PACING_ISSUE_CODES
+    if any(i.code not in PACING_ISSUE_CODES for i in manuscript.quality_issues):
+        raise _failure("ppt_manuscript_quality_blocked")
+    pages = physical_pages(manuscript)
+    teaching_deck_quality(document, graph, manuscript, template, pages, allow_pacing_issues=True)
+
+
+def revise_teaching_manuscript(manuscript, updates, *, pacing=None):
     from slide_deck_v6_models import PptManuscriptPageV1
     template = template_for_manuscript(manuscript)
     candidate = manuscript.model_copy(deep=True)
+    if pacing is not None:
+        try:
+            candidate.pacing = PptPacingV1.model_validate(pacing)
+        except ValueError as error:
+            raise _failure(error) from error
     pages = {p.page_id: p for p in candidate.pages}
     allowed = {"page_id", "title", "page_goal", "primary_claim", "audience_question", "audience_action", "expected_response",
-               "observable_evidence", "transition", "composition_notes", "teaching", "teacher_locked", "layout_id"}
+               "observable_evidence", "transition", "composition_notes", "teaching", "teacher_locked", "layout_id", "split_reason"}
     seen = set()
     for update in updates:
         page_id = update.get("page_id")
@@ -190,6 +246,8 @@ def revise_teaching_manuscript(manuscript, updates):
         seen.add(page_id)
         page = pages[page_id]
         payload = page.model_dump(mode="json")
+        if page.teaching.presentation is not None and "teaching" in update and not update["teaching"].get("presentation"):
+            raise _failure("presentation_policy_required", page_id)
         if "teaching" in update and update["teaching"].get("adopted_assets", []) != [a.model_dump(mode="json") for a in page.teaching.adopted_assets]:
             raise _failure("teaching_adopted_asset_binding_immutable", page_id)
         if "teaching" in update and update["teaching"].get("adopted_diagram") != (page.teaching.adopted_diagram.model_dump(mode="json") if page.teaching.adopted_diagram else None):
@@ -215,14 +273,15 @@ def physical_pages(manuscript):
         validate_source_bindings(logical.teaching, _notes(logical))
         from ppt_adopted_visuals import validate_adopted_diagram
         validate_adopted_diagram(logical.teaching)
-        if [s.state_id for s in logical.resolved_scenes] != [s.state_id for s in logical.teaching.states]:
+        states = presentation_states(logical.teaching)
+        if [s.state_id for s in logical.resolved_scenes] != [s.state_id for s in states]:
             raise _failure("teaching_state_scene_mismatch", logical.page_id)
         expected_copy = [logical.title, *(display_element_text(e) for e in logical.teaching.elements)]
         if logical.visible_copy != expected_copy:
             raise _failure("teaching_visible_copy_mismatch", logical.page_id)
         for index, scene in enumerate(logical.resolved_scenes):
             verify_scene(scene)
-            state = logical.teaching.states[index]
+            state = states[index]
             if {o.element_id for o in scene.objects if o.element_id} != set(state.visible_element_ids):
                 raise _failure("teaching_state_scene_mismatch", logical.page_id)
             regions = {r.slot_id: r for r in logical.regions}
@@ -245,8 +304,12 @@ def physical_pages(manuscript):
     return pages
 
 
-def teaching_deck_quality(document, graph, manuscript, template, pages):
+def teaching_deck_quality(document, graph, manuscript, template, pages, *, allow_pacing_issues=False):
     from slide_deck_v6_models import SlideDeckV6Quality
+    issues = pacing_issues(manuscript)
+    if issues and not allow_pacing_issues:
+        from slide_deck_v6_models import V6BuildError
+        raise V6BuildError(**issues[0].model_dump(mode="json"))
     blocks = {b.block_id: b for b in document.blocks}
     ownership = Counter(b for p in manuscript.pages for b in p.source_script_block_ids)
     if set(ownership) != set(graph.formal_block_ids):

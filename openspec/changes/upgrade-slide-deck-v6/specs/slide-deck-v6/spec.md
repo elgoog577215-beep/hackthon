@@ -58,7 +58,7 @@ The system SHALL keep required code, formulas, tables, experiment data and sourc
 #### Scenario: A programming unit contains code and expected output
 - **WHEN** V6 allocates the unit
 - **THEN** the draft page budget is derived from the source-bound code range selected for the teaching task and the published template's artifact and slot-capacity contracts
-- **AND** before confirmation the allocation expands to the declared safe pages needed for that selected range and all required conditions and results, without a teaching business cap
+- **AND** before confirmation the allocation expands to the declared safe pages needed for that selected range and all required conditions and results, within the explicit lesson pacing budget; exceeding that budget requires draft reorganization or an explicit budget revision
 - **AND** adjacent pages preserve the code, execution conditions, explanation and result
 - **AND** generic prose cannot replace the code artifact
 
@@ -423,7 +423,7 @@ The system SHALL use `page_teaching_v2` inside `ppt_manuscript_v1` for the enhan
 - **AND** the original source syntax and character range remain unchanged in the manuscript
 
 ### Requirement: Static Reveal States Are Compiled Before Confirmation
-The system SHALL represent progressive teaching as explicit ordered element states and SHALL initially export those states as static consecutive physical slides without enabling frozen animation features.
+The system SHALL represent progressive teaching as explicit ordered element states and SHALL select physical slides through an explicit complete, question-answer or justified key-step presentation policy before exporting static consecutive slides without enabling frozen animation features.
 
 #### Scenario: A question precedes its answer
 - **WHEN** a logical page defines a question state followed by an answer state
@@ -437,7 +437,7 @@ The system SHALL represent progressive teaching as explicit ordered element stat
 - **AND** existing visible elements retain their declared positions unless an explicit state transition changes them
 
 #### Scenario: Draft narration continues without changing the canvas
-- **WHEN** consecutive steps in a compact draft have identical visible elements and no distinct emphasis
+- **WHEN** consecutive selected steps in any new draft entry, including formal teaching payloads have identical visible elements and no distinct emphasis
 - **THEN** draft compilation merges those steps into one physical state and concatenates every narration note in its original order
 - **AND** a declared reveal step without a note or an answer appearing before its question still fails validation
 - **AND** the resulting page count is shown before confirmation and this normalization never rewrites confirmed states
@@ -520,3 +520,45 @@ The system SHALL compile confirmed teaching scenes without resuming content plan
 - **AND** unsupported notation fails the draft instead of remaining as visible LaTeX commands
 - **AND** exported fixed-line text is measured with the declared font and written line spacing, checking both horizontal and vertical overflow without inventing automatic wrapping
 - **AND** PDF glyph aliases are accepted only for verified identical pinned-font glyphs while OOXML retains exact code-point and order checks
+
+### Requirement: Lesson Pacing Governs Draft Production
+The system SHALL plan related source blocks around one learner task, allow contiguous cross-unit source groups with preserved source ownership and first-use order, and record an explicit physical-page budget with its teaching rationale before detailed page generation.
+
+#### Scenario: Formal lesson timing is available or unknown
+- **WHEN** the content planner receives the formal teaching plan
+- **THEN** its narrative duration equals the supplied lesson duration
+- **AND** missing timing stays unknown rather than becoming an invented standard lesson length
+- **AND** contiguous numbered source ranges compile into exact source identities, rejecting gaps, reversed ranges and incomplete first-use coverage
+
+#### Scenario: Related explanation and example belong to different source units
+- **WHEN** one page goal needs both adjacent sources
+- **THEN** planning may use both while retaining each complete source and exact citations in notes
+- **AND** the first source unit remains the compatibility navigation anchor without becoming the only permitted source owner
+
+#### Scenario: Local capacity repair would expand the lesson
+- **WHEN** one task requires additional content or reveal pages
+- **THEN** it first reduces optional screen exposition and counts all proposed physical pages against the remaining lesson budget
+- **AND** a split identifies the distinct teaching need rather than expanding without bound
+
+#### Scenario: Repairing one field must preserve healthy page content
+- **WHEN** a model returns a field patch for a failing single page or subpage
+- **THEN** omitted fields and other subpages remain unchanged, and the complete merged page is validated again
+- **AND** unknown fields and expression-kind changes through a partial patch are rejected
+- **AND** original narration IDs remain available for checkpoint selection without concatenating separate notes into an oversized note
+
+#### Scenario: An ordinary page has several narration steps
+- **WHEN** its presentation mode is complete
+- **THEN** only its complete canvas is exported and every narration note is retained
+- **AND** question-answer pages retain an answer-free problem view and a complete answer view
+- **AND** key-step pages require ordered checkpoint IDs and teaching reasons and retain all required elements and question context
+
+#### Scenario: A manuscript exceeds its budget or repeats a canvas
+- **WHEN** whole-lesson review detects excess physical pages or identical adjacent exported canvases
+- **THEN** the draft contains blocking page-scoped or lesson-scoped diagnostics and is not confirmable
+- **AND** saving a reviewable draft preserves the last confirmed and published versions
+- **AND** editing the budget or display policy recalculates diagnostics and invalidates confirmation without a model call
+
+#### Scenario: A historical confirmed manuscript has no pacing policy
+- **WHEN** it is read or exported
+- **THEN** its historical states and serialized fields are not silently normalized into the new policy
+- **AND** explicit draft editing is required to change its page sequence

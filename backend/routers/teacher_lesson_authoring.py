@@ -580,7 +580,8 @@ class ConfirmTeacherLessonPptManuscriptRequest(BaseModel):
 
 class UpdateTeacherLessonPptManuscriptRequest(BaseModel):
     expected_manuscript_revision: str = Field(min_length=1, max_length=200)
-    page_updates: list[dict[str, Any]] = Field(min_length=1, max_length=80)
+    page_updates: list[dict[str, Any]] = Field(default_factory=list, max_length=80)
+    pacing: dict[str, Any] | None = None
 
 
 class RegenerateTeacherLessonPptManuscriptPagesRequest(BaseModel):
@@ -645,7 +646,7 @@ def _raise(exc: TeacherLessonAuthoringError) -> None:
 
 
 def _assert_ppt_manuscript_confirmable(manuscript: dict) -> None:
-    if manuscript.get("quality_status") != "passed":
+    if manuscript.get("quality_status") != "passed" or manuscript.get("quality_issues"):
         issues = [
             str(item).strip()
             for item in manuscript.get("quality_issues") or []
@@ -691,6 +692,7 @@ def _ppt_manuscript_state_payload(
     quality_passed = bool(
         manuscript_payload
         and manuscript_payload.get("quality_status") == "passed"
+        and not manuscript_payload.get("quality_issues")
     )
     status = str(state.get("status") or "draft")
     return {
@@ -2352,15 +2354,16 @@ async def update_teacher_lesson_v6_manuscript_draft(
                 "lesson_ppt_manuscript_not_found", "请先生成页面内容稿。"
             )
         manuscript = PptManuscriptV1.model_validate(manuscript_payload)
-        revised = revise_ppt_manuscript_v1(manuscript, body.page_updates)
+        if not body.page_updates and body.pacing is None:
+            raise HTTPException(status_code=422, detail={"code": "ppt_manuscript_edit_empty", "message": "请提供页面或篇幅修改。"})
+        revised = revise_ppt_manuscript_v1(manuscript, body.page_updates, pacing=body.pacing)
         template = _resolve_locked_teacher_v6_template(current or {}, actor)
         graph = compile_course_presentation_graph(document, teaching_plan={})
-        compile_slide_deck_v6_from_manuscript(
-            document,
-            graph,
-            revised,
-            template,
-        )
+        if revised.teaching_content_contract_version == "page_teaching_v2":
+            from ppt_teaching_manuscript import validate_reviewable_manuscript
+            validate_reviewable_manuscript(document, graph, revised, template)
+        else:
+            compile_slide_deck_v6_from_manuscript(document, graph, revised, template)
         saved = repository.update_v6_ppt_manuscript_draft(
             course_id,
             lesson_unit_id,
@@ -2613,12 +2616,11 @@ async def regenerate_teacher_lesson_v6_manuscript_pages(
             )
         template = _resolve_locked_teacher_v6_template(current, actor)
         graph = compile_course_presentation_graph(document, teaching_plan={})
-        compile_slide_deck_v6_from_manuscript(
-            document,
-            graph,
-            revised,
-            template,
-        )
+        if revised.teaching_content_contract_version == "page_teaching_v2":
+            from ppt_teaching_manuscript import validate_reviewable_manuscript
+            validate_reviewable_manuscript(document, graph, revised, template)
+        else:
+            compile_slide_deck_v6_from_manuscript(document, graph, revised, template)
         saved = repository.update_v6_ppt_manuscript_draft(
             course_id,
             lesson_unit_id,

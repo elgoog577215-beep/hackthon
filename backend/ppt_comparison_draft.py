@@ -10,7 +10,7 @@ from typing import Literal
 from pydantic import Field
 
 from ppt_teaching_content import Contract, PageTeachingV2
-from ppt_draft_common import QuoteChoice, DraftRelation, bind_choices, draft_element_text, lower_reveal_states
+from ppt_draft_common import DraftMetadata, QuoteChoice, DraftRelation, bind_choices, draft_element_text, lower_reveal_states
 
 
 
@@ -25,13 +25,21 @@ class DraftElement(Contract):
     role: Literal["label", "condition", "evidence", "question", "answer", "claim"] = "evidence"
     asset_id: str = ""
     asset_digest: str = ""
-    answers_question_id: str = ""
+    answers_question_id: str = Field(default="", description="The explicit key of the on-screen question this answer resolves. Metadata audience_question is not a screen key.")
 
 
 
 
-class DraftIdentity(DraftElement):
+class DraftShortText(DraftElement):
+    """Header strips accept concise copy; exact artifacts belong in cells."""
+    kind: Literal["text"] = "text"
+    text: str = Field(min_length=1, max_length=80)
+    use_source_text: Literal[False] = False
+
+
+class DraftIdentity(DraftShortText):
     key: str = Field(min_length=1)
+    text: str = Field(min_length=1, max_length=32)
 
 
 class DraftCell(Contract):
@@ -40,24 +48,15 @@ class DraftCell(Contract):
     content: list[DraftElement] = Field(min_length=1, max_length=4)
 
 
-class ComparisonPageDraft(Contract):
+class ComparisonPageDraft(DraftMetadata):
     expression_kind: Literal["comparison"] = "comparison"
-    layout_id: str = ""
-    title: str = Field(min_length=1, max_length=60)
-    page_goal: str = Field(min_length=1)
-    primary_claim: str = ""
-    audience_question: str = ""
-    audience_action: str = ""
-    expected_response: str = ""
-    observable_evidence: str = ""
-    transition: str = ""
-    composition_notes: str = ""
-    conditions: list[DraftElement] = Field(min_length=1, max_length=2)
+    conditions: list[DraftShortText] = Field(min_length=1, max_length=1,
+        description="One short shared-condition strip. Combine related conditions concisely; exact artifacts belong in cells.")
     subjects: list[DraftIdentity] = Field(min_length=2, max_length=4)
     dimensions: list[DraftIdentity] = Field(min_length=1, max_length=4)
     cells: list[DraftCell] = Field(min_length=2, max_length=16)
-    screen_question: DraftElement | None = None
-    conclusion: DraftElement | None = None
+    screen_question: DraftShortText | None = None
+    conclusion: DraftShortText | None = None
     reveal_notes: list[str] = Field(min_length=1, max_length=12)
     relations: list[DraftRelation] = Field(default_factory=list, max_length=24)
 
@@ -110,7 +109,7 @@ def lower_comparison_draft(value, sources):
     for item in elements:
         if item["answers_question_id"]:
             if item["answers_question_id"] not in keys:
-                raise ValueError(f"answer_question_key_unknown:{item['answers_question_id']}")
+                raise ValueError(f"answer_question_key_unknown:{item['answers_question_id']}: assign a key to screen_question and reference that exact key; available keys={list(keys)}. Metadata audience_question is not a screen element.")
             item["answers_question_id"] = keys[item["answers_question_id"]]
     relations = []
     for i, relation in enumerate(draft.relations):

@@ -3123,6 +3123,11 @@ class TeacherLessonAuthoringRepository:
                     "lesson_ppt_manuscript_revision_conflict",
                     "页面内容稿已更新，请刷新后再确认。",
                 )
+            manuscript = state.get("manuscript") or {}
+            if manuscript.get("quality_status") == "blocked" or manuscript.get("quality_issues"):
+                raise TeacherLessonAuthoringError(
+                    "lesson_ppt_manuscript_quality_blocked", "请先处理页面内容稿中的问题，再确认。"
+                )
             state["status"] = "confirmed"
             state["confirmed_at"] = _now()
             saved = self._save(value)

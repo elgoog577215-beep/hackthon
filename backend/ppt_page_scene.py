@@ -339,7 +339,8 @@ def resolve_page_scenes(*, page_id: str, title: str, content: PageTeachingV2, la
         raise ValueError("teaching_objects_overlap")
     relations = getattr(expression, "relations", [])
     scenes = []
-    for state in content.states:
+    from ppt_presentation import presentation_states
+    for state in presentation_states(content):
         visible = set(state.visible_element_ids)
         edges = []
         label_obstacles = list(all_objects)

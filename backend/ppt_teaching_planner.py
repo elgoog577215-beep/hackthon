@@ -7,12 +7,13 @@ import re
 import time
 from copy import deepcopy
 
-from pydantic import Field, TypeAdapter
+from pydantic import Field, TypeAdapter, ValidationError
 
 from course_document import stable_hash
 from course_presentation_graph import block_source_text
 from ppt_layout_execution import PLANNER_VERSION, capability_summary
-from ppt_teaching_content import Contract, PageTeachingV2
+from ppt_teaching_content import Contract, PageTeachingV2, PagePresentationV1, PptPacingV1
+from ppt_presentation import default_presentation, presentation_states, validate_page_sources
 from ppt_teaching_manuscript import compile_teaching_manuscript
 from ppt_comparison_draft import ComparisonPageDraft, lower_comparison_draft
 from ppt_page_draft import ChartTeachingPageDraft, GraphTeachingPageDraft, LinearTeachingPageDraft, lower_teaching_draft
@@ -39,6 +40,38 @@ class PlannedPage(Contract):
 class NarrativeResponse(Contract):
     narrative_brief: dict
     pages: list[PlannedPage] = Field(min_length=1)
+    pacing: PptPacingV1
+
+
+class NarrativeTaskDraft(Contract):
+    source_first: int = Field(ge=1, description="First supplied source number, inclusive")
+    source_last: int = Field(ge=1, description="Last supplied source number, inclusive")
+    title: str = Field(min_length=1, max_length=60)
+    layout_id: str = Field(min_length=1)
+    page_goal: str = Field(min_length=1)
+
+
+class NarrativeDraft(Contract):
+    narrative_brief: dict
+    pacing: PptPacingV1
+    pages: list[NarrativeTaskDraft] = Field(min_length=1)
+
+
+def normalize_narrative_response(response, graph):
+    """The model selects contiguous evidence ranges, code binds exact IDs."""
+    pages = response.get("pages") if isinstance(response, dict) else None
+    if not isinstance(pages, list) or not any(isinstance(p, dict) and ("source_first" in p or "source_last" in p) for p in pages):
+        return response
+    draft = NarrativeDraft.model_validate(response)
+    owners = {b: u.teaching_unit_id for u in graph.units for b in u.primary_block_ids}
+    pages = []
+    for number, page in enumerate(draft.pages, 1):
+        if not 1 <= page.source_first <= page.source_last <= len(graph.formal_block_ids):
+            raise ValueError("teaching_narrative_source_span_invalid")
+        sources = graph.formal_block_ids[page.source_first - 1:page.source_last]
+        pages.append({**page.model_dump(exclude={"source_first", "source_last"}), "page_id": f"page-{number}",
+            "teaching_unit_id": owners[sources[0]], "source_block_ids": sources})
+    return {"narrative_brief": draft.narrative_brief, "pacing": draft.pacing.model_dump(mode="json"), "pages": pages}
 
 
 class PageRevision(Contract):
@@ -53,17 +86,62 @@ class PageRevision(Contract):
     transition: str = ""
     composition_notes: str = ""
     teaching: PageTeachingV2
+    split_reason: str = ""
 
 
 PageResponseDraft = ComparisonPageDraft | LinearTeachingPageDraft | GraphTeachingPageDraft | ChartTeachingPageDraft | AdoptedDiagramDraft
+PATCH_INSTRUCTION = (
+    "When previous_candidate is a single page, prefer {patch:{field:replacement}} for the reported errors. "
+    "Omitted top-level fields remain unchanged; supplied arrays replace that complete array. "
+    "The merged page is fully revalidated. For a different expression kind or a split, return the complete page or pages instead."
+)
 
 
 class PageGroupDraft(Contract):
     pages: list[PageResponseDraft] = Field(min_length=1, max_length=12)
 
 
-def page_response_contract():
+def draft_type(candidate):
+    if "teaching" in candidate:
+        return PageRevision
+    if "adopted_diagram_id" in candidate:
+        return AdoptedDiagramDraft
+    kind = candidate.get("expression_kind")
+    if "subjects" in candidate or kind == "comparison":
+        return ComparisonPageDraft
+    if kind in {"process", "causal", "hierarchy", "concept"}:
+        return GraphTeachingPageDraft
+    return ChartTeachingPageDraft if kind == "chart" else LinearTeachingPageDraft
+
+
+def apply_page_repair(response, candidate):
+    """Model-authored field replacements preserve everything it did not edit."""
+    if "patch" not in response:
+        return response
+    if set(response) != {"patch"} or not isinstance(candidate, dict) or "pages" in candidate:
+        raise ValueError("teaching_page_patch_target_invalid")
+    patch = response["patch"]
+    if not isinstance(patch, dict) or not patch or set(patch) - set(draft_type(candidate).model_fields):
+        raise ValueError("teaching_page_patch_fields_invalid")
+    if "expression_kind" in patch and patch["expression_kind"] != candidate.get("expression_kind"):
+        raise ValueError("teaching_page_patch_expression_change: return a complete page when changing expression kind")
+    return {**deepcopy(candidate), **deepcopy(patch)}
+
+
+def page_response_contract(repair_candidate=None, *, split_required=False):
     schema = TypeAdapter(PageResponseDraft | PageGroupDraft).json_schema()
+    group_items = schema["$defs"]["PageGroupDraft"]["properties"]["pages"]["items"]
+    schema["$defs"]["PageGroupDraft"]["properties"]["pages"]["items"] = {"allOf": [group_items,
+        {"type": "object", "required": ["split_reason"], "properties": {"split_reason": {"type": "string", "minLength": 1}}}]}
+    if split_required:
+        schema["allOf"] = [{"anyOf": [{"required": ["pages"]}, {"required": ["split_reason"],
+            "properties": {"split_reason": {"type": "string", "minLength": 1}}}, {"required": ["patch"]}]}]
+    if isinstance(repair_candidate, dict) and "pages" not in repair_candidate:
+        fields = draft_type(repair_candidate).model_json_schema()
+        schema["$defs"].update(fields.get("$defs", {}))
+        schema["anyOf"].append({"type": "object", "required": ["patch"], "additionalProperties": False,
+            "properties": {"patch": {"type": "object", "minProperties": 1, "additionalProperties": False,
+                "properties": fields["properties"]}}})
     def compact(value):
         if isinstance(value, dict):
             return {k: compact(v) for k, v in value.items() if k != "default" and not (k == "title" and isinstance(v, str))}
@@ -71,13 +149,29 @@ def page_response_contract():
     return compact(schema)
 
 
+def planning_layout_context(template, selected_id=""):
+    capabilities = capability_summary(template)
+    return {"available_layouts": [{k: v for k, v in item.items() if k != "composition_guidance"} for item in capabilities],
+        "selected_layout": next((item for item in capabilities if item["layout_id"] == selected_id), None)}
+
+
 def normalize_page_response(response, sources, catalog=None):
+    response = deepcopy(response)
+    policy = response.pop("presentation", None)
     if "adopted_diagram_id" in response:
-        return lower_adopted_diagram(response, sources, catalog or [])
-    if "teaching" in response:
-        return _bind_exact_quotes(response, sources)
-    lower = lower_comparison_draft if "subjects" in response or response.get("expression_kind") == "comparison" else lower_teaching_draft
-    return lower(response, sources)
+        result = lower_adopted_diagram(response, sources, catalog or [])
+    elif "teaching" in response:
+        result = _bind_exact_quotes(response, sources)
+    else:
+        lower = lower_comparison_draft if "subjects" in response or response.get("expression_kind") == "comparison" else lower_teaching_draft
+        result = lower(response, sources)
+    # Formal payloads and compact drafts share the exact same policy path.
+    result.pop("presentation", None)
+    content = PageTeachingV2.model_validate(result["teaching"])
+    content.presentation = PagePresentationV1.model_validate(policy) if policy is not None else (content.presentation or default_presentation(content))
+    presentation_states(content)
+    result["teaching"] = content.model_dump(mode="json")
+    return result
 
 
 def revised_plan(plan, revision):
@@ -86,7 +180,20 @@ def revised_plan(plan, revision):
 
 def page_failure_message(error):
     from slide_deck_v6_models import V6BuildError
-    return (f"{error.failure.page_id}: {error.failure.message}" if isinstance(error, V6BuildError) else str(error))[:1800]
+    if isinstance(error, ValidationError):
+        # Give the model field-level repair instructions, without echoed payloads
+        # and documentation URLs displacing the actionable errors.
+        message = "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['msg']}"
+            for e in error.errors(include_url=False, include_input=False))
+        if any(e["loc"] and e["loc"][0] in {"conditions", "subjects", "dimensions", "screen_question", "conclusion"}
+                for e in error.errors()):
+            message += "; comparison headers/conditions/question/conclusion accept concise kind=text with explicit text and use_source_text=false. Keep at least one short common condition; place exact formulas or quotations in cells, not header strips."
+    else:
+        message = f"{error.failure.page_id}: {error.failure.message}" if isinstance(error, V6BuildError) else str(error)
+    message = re.sub(r"cell-(\d+)-(\d+)", lambda m: f"cells[{m[1]}].content[{m[2]}].text", message)
+    message = re.sub(r"subject-(\d+)", lambda m: f"subjects[{m[1]}].text", message)
+    message = re.sub(r"dimension-(\d+)", lambda m: f"dimensions[{m[1]}].text", message)
+    return message[:1800]
 
 
 async def invoke_teaching_provider(provider, request):
@@ -129,12 +236,22 @@ async def invoke_teaching_provider(provider, request):
             "All categories and the unit show from step 1; the compiler fixes one shared zero baseline and scale for every step. "
             "To reuse an accepted diagram, return AdoptedDiagramDraft with its adopted_diagram_id and diagram_unit_id "
             "and a concept-map layout. Its complete nodes and edges are copied from the accepted source; do not reconstruct them. "
-            "For narrative planning, cover each supplied formal source block in original first-appearance order and keep "
-            "each page within one teaching unit. A long block may support several pages with distinct tasks. "
+            "For narrative planning, cover each supplied formal source block in original first-appearance order and combine "
+            "related contiguous source blocks in one learner task, even across source units. teaching_unit_id is the owner "
+            "of the first source block, not a page boundary. Do not create one page per source block. Merge related "
+            "definitions, explanation and example where a coherent diagram/comparison suffices. Never merge unrelated topics. "
             "Choose only expression forms supported by the listed layouts. Include cover or recap only if compatible. "
             "During repair preserve valid meaning. Capacity repair may recompose the entire target page, reduce dimensions "
             "or remove optional text. Never shorten or alter a selected exact artifact to fit. "
-            "When one planned task needs multiple slides, return {pages:[...]} of complete page drafts, each with its own "
+            "Ordinary comparison, concept, graph, recap and evidence pages use presentation.mode=complete; multiple narration "
+            "steps remain notes and do not require physical slides. Pages with answers use question_answer (two slides). "
+            "Do not turn every explanatory statement into a student exercise. A visible conclusion used for explanation has "
+            "role=claim. Use role=answer and question_answer only when learners must respond independently before checking it. "
+            "Use key_steps only for essential student pauses in reasoning, with checkpoints [{state_id: step-N, reason: ...}]. "
+            "Each checkpoint reason names what students must observe, decide or do before proceeding. Do not progressively "
+            "reveal every label or bullet. For complete/question_answer the final state contains all elements. "
+            "Respect the supplied physical-page budget, including answer views and key-step views. "
+            "When one planned task needs multiple slides within that budget, return {pages:[...]} of complete page drafts, each with a split_reason and its own "
             "title, goal, layout and reveal_notes. Split a compound exercise into separate answerable tasks; keep each "
             "question with all its necessary conditions/options, then reveal its answer. Do not spread one question's "
             "essential options across unrelated pages. Large formulas and code need dedicated space. "
@@ -188,6 +305,11 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
     from slide_planning_telemetry import _provider_attempts_from
     from slide_deck_v6_models import SlideNarrativeBriefV1, V6BuildError
     source_context = source_context or {}
+    formal_plan = source_context.get("teaching_plan") or {}
+    teaching_context = {"lesson_duration_minutes": formal_plan.get("lesson_duration_minutes", 0),
+        "timing_source": formal_plan.get("timing_source", ""),
+        "sections": [{key: section[key] for key in ("node_id", "planned_minutes", "learning_objective", "timing_source") if key in section}
+            for section in formal_plan.get("sections", [])]}
     checkpoint = deepcopy(checkpoint or {})
     sources = {b.block_id: {"block_id": b.block_id, "block_revision": b.internal_revision, "full_text": block_source_text(b)}
                for b in document.blocks if b.block_id in graph.formal_block_ids}
@@ -226,7 +348,7 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
         return dict(response)
 
     def validate_narrative(response):
-        narrative = NarrativeResponse.model_validate(response)
+        narrative = NarrativeResponse.model_validate(normalize_narrative_response(response, graph))
         ids = [b for p in narrative.pages for b in p.source_block_ids]
         first_use = list(dict.fromkeys(ids))
         missing = [b for b in graph.formal_block_ids if b not in first_use]
@@ -237,20 +359,21 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
             raise ValueError(f"teaching_narrative_order_invalid: required first-use order={graph.formal_block_ids}; actual={first_use}")
         if len({p.page_id for p in narrative.pages}) != len(narrative.pages):
             raise ValueError("teaching_narrative_page_id_duplicate")
-        units = {u.teaching_unit_id: set(u.primary_block_ids) for u in graph.units}
         layouts = {l.template_layout_id for l in template.layouts if l.execution is not None}
         for page in narrative.pages:
-            if not set(page.source_block_ids) <= units.get(page.teaching_unit_id, set()):
-                raise ValueError(f"teaching_unit_source_mismatch:{page.page_id}: use sources from {page.teaching_unit_id} only")
+            validate_page_sources(graph, page.source_block_ids, page.teaching_unit_id)
             if page.layout_id not in layouts:
                 raise ValueError(f"teaching_layout_unavailable:{page.page_id}")
-        SlideNarrativeBriefV1.model_validate(narrative.narrative_brief)
+        brief = SlideNarrativeBriefV1.model_validate(narrative.narrative_brief)
+        minutes = teaching_context["lesson_duration_minutes"] or 0
+        if brief.time_budget_minutes != minutes:
+            raise ValueError(f"ppt_pacing_duration_mismatch: use supplied formal duration {minutes}; 0 means unknown, not a suggested lesson length")
+        if len(narrative.pages) > narrative.pacing.max_physical_pages:
+            raise ValueError("ppt_pacing_narrative_exceeds_budget: consolidate related sources into fewer learner tasks")
         return narrative
 
     if "narrative" not in checkpoint:
-        schema = NarrativeResponse.model_json_schema()
-        page_schema = schema["$defs"]["PlannedPage"]
-        page_schema["properties"] = {k: v for k, v in page_schema["properties"].items() if k in page_schema["required"]}
+        schema = NarrativeDraft.model_json_schema()
         error = ""
         raw = checkpoint.get("draft_narrative")
         for attempt in range(3):
@@ -265,11 +388,12 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
             response = await invoke({"teaching_request": "narrative", "title": document.title,
                 "response_contract": schema,
                 "narrative_contract": SlideNarrativeBriefV1.model_json_schema(),
-                "planning_instruction": "Return only a compact lesson path and required page fields. Detailed text, questions, answers and relations belong to the later page request. Preserve the supplied source order on first appearance; include ALL blocks, even short objective and feedback blocks.",
+                "planning_instruction": "Organize a compact classroom learning path, not a page for every handout block. Group related CONTIGUOUS source numbers into a task using source_first/source_last inclusive. Ranges must collectively cover 1 through the last source number in first-use order without gaps; repeating an already covered range for a distinct task is allowed. The compiler assigns page IDs, source IDs and the first source's unit anchor. Short objectives, transitions and feedback may be accounted for in the task's notes, without a separate page. Set pacing.max_physical_pages and explain its teaching rationale before detailed generation, accounting for question-answer pairs and only essential reasoning stops. Do not derive the budget from character count, block count or a fixed slides-per-minute ratio. Use supplied lesson timing if available; do not invent formal timing.",
+                "teaching_context": teaching_context,
                 "required_first_use_order": graph.formal_block_ids,
-                "layout_capabilities": capability_summary(template),
-                "units": [{"teaching_unit_id": u.teaching_unit_id, "intent": u.teaching_intent,
-                           "sources": [sources[b] for b in u.primary_block_ids]} for u in graph.units],
+                "layout_capabilities": planning_layout_context(template),
+                "units": [{"teaching_unit_id": u.teaching_unit_id, "intent": u.teaching_intent, "teaching_context": u.teaching_plan_context,
+                           "sources": [{"source_number": graph.formal_block_ids.index(b) + 1, **sources[b]} for b in u.primary_block_ids]} for u in graph.units],
                 "previous_candidate": raw, "validation_error": error}, "teaching-narrative")
             raw = response
             checkpoint["draft_narrative"] = response
@@ -286,8 +410,7 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
         else:
             raise V6BuildError(stage="story", code="teaching_narrative_invalid", message=error, retryable=True)
     narrative = NarrativeResponse.model_validate(checkpoint["narrative"])
-    # The bounded group currently holds one logical page; accepted pages survive
-    # provider failure and restart, and are never resent as repair targets.
+    # Accepted task groups survive failure and restart; every group shares the lesson budget.
     for plan in narrative.pages:
         if plan.page_id in checkpoint["pages"]:
             continue
@@ -295,6 +418,10 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
         error = next((c.get("validation_error", "") for c in reversed(checkpoint["calls"]) if c["item_id"] == item_id), "")
         previous_candidate = checkpoint["draft_pages"].get(plan.page_id)
         repair_parts, repair_index = None, None
+        used_pages = sum(len(presentation_states(PageTeachingV2.model_validate(part["teaching"])))
+            for parts in checkpoint["page_groups"].values() for part in parts)
+        pending_tasks = sum(p.page_id not in checkpoint["pages"] for p in narrative.pages) - 1
+        available_pages = narrative.pacing.max_physical_pages - used_pages - pending_tasks
 
         async def accept(response):
             nonlocal repair_parts, repair_index
@@ -302,20 +429,32 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
             responses = response.get("pages") if isinstance(response, dict) and "pages" in response else [response]
             if not isinstance(responses, list) or not 1 <= len(responses) <= 12:
                 raise ValueError("teaching_page_group_invalid")
+            missing_reasons = [index + 1 for index, part in enumerate(responses) if isinstance(part, dict) and not str(part.get("split_reason") or "").strip()]
+            if len(responses) > 1 and missing_reasons:
+                repair_parts, repair_index = deepcopy(responses), missing_reasons[0] - 1
+                raise ValueError("teaching_split_reason_missing: this subpage needs a split_reason explaining its distinct learner task; a patch containing only split_reason is sufficient")
             subgraph = graph.model_copy(update={"formal_block_ids": plan.source_block_ids})
             revisions, planned = [], []
+            physical_count = 0
             for index, part in enumerate(responses):
                 try:
                     if not isinstance(part, dict):
                         raise ValueError("teaching_page_draft_invalid: each page must be an object")
                     revision = PageRevision.model_validate(normalize_page_response(part,
                         {b: sources[b] for b in plan.source_block_ids}, source_context.get("accepted_visual_expressions", [])))
+                    if len(responses) > 1 and not revision.split_reason.strip():
+                        raise ValueError("teaching_split_reason_missing: each split must explain its distinct learner task")
+                    physical_count += len(presentation_states(revision.teaching))
+                    if physical_count > available_pages:
+                        raise ValueError(f"ppt_pacing_task_budget_exceeded: needs {physical_count}, available {available_pages}; simplify optional exposition or unnecessary stops")
                     item = revised_plan({**plan.model_dump(mode="json"),
                         "page_id": plan.page_id if len(responses) == 1 else f"{plan.page_id}-part-{index + 1}"}, revision.model_dump(mode="json"))
                     compile_teaching_manuscript(document, subgraph, template, narrative.narrative_brief,
                         [item], source_context=source_context)
-                except (ValueError, V6BuildError):
-                    if len(responses) > 1:
+                except (ValueError, V6BuildError) as exc:
+                    # A whole-task budget failure may require merging siblings;
+                    # isolating the final subpage can leave it zero usable pages.
+                    if len(responses) > 1 and "ppt_pacing_task_budget_exceeded" not in str(exc):
                         repair_parts, repair_index = deepcopy(responses), index
                     raise
                 revisions.append(revision)
@@ -342,15 +481,24 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
                 if isinstance(request_candidate, dict):
                     request_plan.update({key: request_candidate[key] for key in ("title", "page_goal", "layout_id") if request_candidate.get(key)})
             response = await invoke({"teaching_request": "page", "page": request_plan,
-                "narrative_brief": narrative.narrative_brief, "response_contract": page_response_contract(),
+                "narrative_brief": narrative.narrative_brief, "response_contract": page_response_contract(request_candidate, split_required=repair_parts is not None),
+                "physical_page_budget": {"lesson_max": narrative.pacing.max_physical_pages, "already_used": used_pages, "available_for_this_task": available_pages, "rationale": narrative.pacing.rationale},
                 "comparison_instruction": "Fill every subject-by-dimension cell with source-backed content. Do not return empty cells: use show_from to reveal values later. All object/dimension labels and shared conditions must appear before any cell. reveal_notes has one note per reveal step. The compiler assigns IDs and source ranges; you provide only semantic keys and exact quotes.",
-                "sources": [sources[b] for b in plan.source_block_ids], "layout_capabilities": capability_summary(template),
+                "sources": [sources[b] for b in plan.source_block_ids], "layout_capabilities": planning_layout_context(template, request_plan["layout_id"]),
                 "literal_source_ranges": source_excerpt_catalog({b: sources[b] for b in plan.source_block_ids}),
                 "accepted_visual_expressions": [v for v in source_context.get("accepted_visual_expressions", []) if v["source_block_id"] in plan.source_block_ids],
                 "source_instruction": "Prefer sources=[{quote_id: supplied_id}]. For formula/code/data/quote set use_source_text=true and omit text; the compiler copies the selected quote exactly, including delimiters and whitespace. Choose a range containing only the desired artifact, not its surrounding paragraph. For ordinary text write a concise summary and cite supporting quote IDs.",
                 "validation_error": error, "previous_candidate": request_candidate,
                 "repair_scope": ("Return only the failing subpage shown in previous_candidate, or split that subpage into pages. "
-                    "Other subpages are preserved by the compiler; do not repeat them." if repair_parts is not None else "Current page task"),
+                    "Other subpages are preserved by the compiler; do not repeat them. This subpage still requires split_reason." if repair_parts is not None else "Current page task"),
+                "patch_instruction": PATCH_INSTRUCTION,
+                "capacity_hint": (
+                    "This vertical layout cannot fit the measured elements. If the goal compares input, intermediate and output artifacts, "
+                    "switch to compare-matrix and put those artifacts side by side as subjects, with few shared dimensions. "
+                    "Keep exact formulas unchanged in cells; remove redundant standalone labels and move routine explanation to notes. "
+                    "Do not keep removing a few words from a layout that is structurally too tall. A changed expression requires a full page response."
+                    if "teaching_linear_capacity_exceeded" in error else ""
+                ),
                 "repair_instruction": (
                     "Capacity failure: recompose this target page to its stated goal only. You may return a different layout_id "
                     "from this template's capabilities when its expression kind better fits the task. Graph nodes need concise labels, "
@@ -359,36 +507,35 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
                     "only the matrix itself per cell; move optional prose to the teacher metadata or leave it in source notes. "
                     "Common conditions, question and conclusion are short single-line text. Preserve exact formulas. "
                     "Return the complete revised page or {pages:[...]} to split this task into several answerable pages. "
-                    "When a derivation exceeds capacity, use ONE large matrix/formula per page with one short operation or question; "
-                    "place intermediate arithmetic on its own page. A two-page draft can need three or more pages. "
+                    "When a derivation exceeds capacity, retain only source-exact artifacts essential to this learner task. "
+                    "Move routine intermediate arithmetic and explanation to notes. Split only independent learner tasks "
+                    "that cannot be shown readably, explain each split_reason and stay within physical_page_budget. "
                     "Do not add more elements while repairing overflow. Preserve healthy page parts; split the named failing part. "
                     "For linear expressions relations must be []; use reveal timing, not graph edges, for instruction order. "
                     "Each linear element shares the frame, so 10-15 formula/option elements cannot fit on one page. "
                     "Use fewer grouped options with concise source excerpts, or separate distinct questions. "
-                    if "capacity" in error or "too_long" in error else
+                    if "capacity" in error or "too_long" in error or "budget" in error else
                     "Correct the reported field or relation, preserve other valid meaning, and return the complete page."
                 )}, item_id)
-            if repair_parts is not None:
-                parts = response.get("pages") if "pages" in response else [response]
-                if isinstance(parts, list):
-                    response = {"pages": [*repair_parts[:repair_index], *parts, *repair_parts[repair_index + 1:]]}
-            previous_candidate = response
-            checkpoint["draft_pages"][plan.page_id] = response
             try:
+                response = apply_page_repair(response, request_candidate)
+                if repair_parts is not None:
+                    parts = response.get("pages") if "pages" in response else [response]
+                    if isinstance(parts, list):
+                        response = {"pages": [*repair_parts[:repair_index], *parts, *repair_parts[repair_index + 1:]]}
+                previous_candidate = response
+                checkpoint["draft_pages"][plan.page_id] = response
                 await accept(response)
                 break
             except (ValueError, V6BuildError) as exc:
                 error = page_failure_message(exc)
-                error = re.sub(r"cell-(\d+)-(\d+)", lambda m: f"cells[{m[1]}].content[{m[2]}].text", error)
-                error = re.sub(r"subject-(\d+)", lambda m: f"subjects[{m[1]}].text", error)
-                error = re.sub(r"dimension-(\d+)", lambda m: f"dimensions[{m[1]}].text", error)
                 checkpoint["calls"][-1]["validation_error"] = error
                 await save({"phase": "repair", "item_id": item_id})
         else:
             raise V6BuildError(stage="manuscript", code="teaching_page_validation_failed", message=error, page_id=plan.page_id, retryable=True)
     manuscript = compile_teaching_manuscript(document, graph, template, narrative.narrative_brief,
         [part for p in narrative.pages for part in checkpoint["page_groups"].get(p.page_id, [
-            {**revised_plan(p.model_dump(mode="json"), checkpoint["page_revisions"].get(p.page_id, {})), "teaching": checkpoint["pages"][p.page_id]}])], source_context=source_context)
+            {**revised_plan(p.model_dump(mode="json"), checkpoint["page_revisions"].get(p.page_id, {})), "teaching": checkpoint["pages"][p.page_id]}])], source_context=source_context, pacing=narrative.pacing)
     return manuscript, checkpoint
 
 
@@ -412,20 +559,22 @@ async def regenerate_teaching_pages(manuscript, target_page_ids, planner, *, tim
         error = ""
         previous_candidate = None
         for attempt in range(3):
-            request = {"teaching_request": "revision", "response_contract": page_response_contract(),
+            request = {"teaching_request": "revision", "response_contract": page_response_contract(previous_candidate),
                 "current_page": page.model_dump(mode="json", exclude={"resolved_scenes", "regions", "speaker_notes"}),
                 "narrative_brief": manuscript.narrative_brief.model_dump(mode="json"),
-                "sources": list(sources.values()), "layout_capabilities": capability_summary(template),
+                "physical_page_budget": manuscript.pacing.model_dump(mode="json") if manuscript.pacing else None,
+                "sources": list(sources.values()), "layout_capabilities": planning_layout_context(template, page.layout_id),
                 "literal_source_ranges": source_excerpt_catalog(sources),
                 "accepted_question_bank_items": accepted_question_bank_items or [],
                 "accepted_visual_expressions": accepted_visual_expressions or [], "validation_error": error,
-                "previous_candidate": previous_candidate}
+                "previous_candidate": previous_candidate, "patch_instruction": PATCH_INSTRUCTION}
             try:
                 response = await asyncio.wait_for(planner(request), timeout=timeout_seconds)
             except Exception as exc:
                 raise V6BuildError(stage="story", code="teaching_provider_failed", message="指定模型未完成选定页重生，原稿已保留。", page_id=page_id, retryable=True) from exc
             try:
-                previous_candidate = dict(response)
+                response = apply_page_repair(dict(response), previous_candidate)
+                previous_candidate = response
                 parts = response.get("pages") if "pages" in response else [response]
                 if not isinstance(parts, list) or not 1 <= len(parts) <= 12:
                     raise ValueError("teaching_page_group_invalid")
@@ -433,6 +582,8 @@ async def regenerate_teaching_pages(manuscript, target_page_ids, planner, *, tim
                 resolved = []
                 for index, part in enumerate(parts):
                     revision = PageRevision.model_validate(normalize_page_response(dict(part), sources, accepted_visual_expressions or []))
+                    if len(parts) > 1 and not revision.split_reason.strip():
+                        raise ValueError("teaching_split_reason_missing")
                     bind_adopted_assets(revision.teaching, accepted_visual_expressions or [], set(sources))
                     temporary = candidate_base.model_copy(deep=True)
                     base_page = next(p for p in temporary.pages if p.page_id == page_id)

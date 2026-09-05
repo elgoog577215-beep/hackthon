@@ -813,7 +813,7 @@ class SlideDeckV6Orchestrator:
                         await _emit(progress_callback, tracker.snapshot())
                     ppt_manuscript, teaching_checkpoint = await _await_with_heartbeats(
                         plan_teaching_manuscript(document, graph, template, story_planner,
-                            source_context=dict(course_data.get("teacher_lesson_source") or {}),
+                            source_context={**dict(course_data.get("teacher_lesson_source") or {}), "teaching_plan": dict(course_data.get("course_teaching_plan") or {})},
                             checkpoint=checkpoint.get("teaching_planning"), on_checkpoint=teaching_progress),
                         tracker=tracker, callback=progress_callback,
                     )
@@ -1065,7 +1065,15 @@ class SlideDeckV6Orchestrator:
             save_checkpoint(
                 ppt_manuscript=ppt_manuscript.model_dump(mode="json")
             )
-            if ppt_manuscript.quality_status != "passed":
+            from ppt_presentation import PACING_ISSUE_CODES
+            reviewable_pacing = (manuscript_only
+                and ppt_manuscript.teaching_content_contract_version == "page_teaching_v2"
+                and bool(ppt_manuscript.quality_issues)
+                and all(i.code in PACING_ISSUE_CODES for i in ppt_manuscript.quality_issues))
+            if reviewable_pacing:
+                from ppt_teaching_manuscript import validate_reviewable_manuscript
+                validate_reviewable_manuscript(document, graph, ppt_manuscript, template)
+            if ppt_manuscript.quality_status != "passed" and not reviewable_pacing:
                 first_issue = next(iter(ppt_manuscript.quality_issues), None)
                 raise V6BuildError(
                     stage="manuscript",

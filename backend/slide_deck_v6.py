@@ -1064,12 +1064,16 @@ def revise_ppt_manuscript_v1(
     page_updates: list[dict[str, Any]],
     *,
     allow_system_asset_bindings: bool = False,
+    pacing: dict | None = None,
 ) -> PptManuscriptV1:
     """Apply teacher-owned page edits without changing frozen render/source contracts."""
 
     if manuscript.teaching_content_contract_version == "page_teaching_v2":
         from ppt_teaching_manuscript import revise_teaching_manuscript
-        return revise_teaching_manuscript(manuscript, page_updates)
+        return revise_teaching_manuscript(manuscript, page_updates, pacing=pacing)
+
+    if pacing is not None:
+        raise V6BuildError(stage="manuscript", code="ppt_pacing_contract_unavailable", message="请先使用新版页面内容稿，再设置整讲篇幅。")
 
     pages_by_id = {
         page.page_id: page.model_copy(deep=True)

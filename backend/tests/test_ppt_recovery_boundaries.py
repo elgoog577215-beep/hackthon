@@ -20,7 +20,7 @@ def test_provider_failure_persists_accepted_pages_for_a_new_planner_instance(tmp
         trace_path.write_text(json.dumps(trace))
     async def first(request):
         if request['teaching_request'] == 'narrative':
-            return {'narrative_brief': {'central_question': '比较执行方式'}, 'pages': [
+            return {'pacing': {'max_physical_pages': 12, 'rationale': '保留比较与必要推理停顿'}, 'narrative_brief': {'central_question': '比较执行方式'}, 'pages': [
                 {'page_id': key, 'teaching_unit_id': page.teaching_unit_id, 'source_block_ids': ['b'],
                  'title': page.title, 'page_goal': page.page_goal, 'layout_id': page.layout_id} for key in ('p1', 'p2')]}
         if request['page']['page_id'] == 'p2':

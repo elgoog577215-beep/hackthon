@@ -181,4 +181,23 @@ describe('PptManuscriptWorkflow', () => {
     expect(wrapper.text()).toContain('确认页面内容稿后解锁')
     expect(wrapper.find('[data-testid="generate-ppt-from-manuscript"]').exists()).toBe(false)
   })
+  it('saves a budget-only edit while blocking confirmation and keeps failed saves dirty', async () => {
+    const state = { ...emptyState, revision: 'pacing-1', status: 'draft', manuscript: {
+      teaching_content_contract_version: 'page_teaching_v2', page_count: 3,
+      pacing: { schema_version: 'ppt_pacing_v1', max_physical_pages: 2, rationale: '留出课堂练习时间' },
+      quality_issues: [{ code: 'ppt_pacing_budget_exceeded', message: '当前导出 3 页，超过预算 2 页。' }],
+      pages: [],
+    } }
+    const wrapper = mount(PptManuscriptWorkflow, { props: { title: '执行方式', state } })
+    expect(wrapper.get('[data-testid="confirm-ppt-manuscript"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.findAll('[role="alert"]')).toHaveLength(1)
+    await wrapper.get('[data-testid="ppt-pacing-budget"]').setValue('4')
+    await wrapper.get('[data-testid="save-ppt-manuscript"]').trigger('click')
+    expect(wrapper.emitted('save-manuscript')).toEqual([[[], expect.objectContaining({ max_physical_pages: 4 })]])
+    expect(state.manuscript.pacing.max_physical_pages).toBe(2)
+    await wrapper.setProps({ error: '保存冲突，请重新载入' })
+    expect((wrapper.get('[data-testid="ppt-pacing-budget"]').element as HTMLInputElement).value).toBe('4')
+    expect(wrapper.get('[data-testid="save-ppt-manuscript"]').attributes('disabled')).toBeUndefined()
+  })
+
 })

@@ -94,7 +94,7 @@ def test_narrative_repairs_missing_sources_and_keeps_failed_candidate():
             planned = deepcopy(plan)
             if len(requests) == 1:
                 planned['source_block_ids'] = ['missing']
-            return {'narrative_brief': {'central_question': '比较执行方式'}, 'pages': [planned]}
+            return {'pacing': {'max_physical_pages': 12, 'rationale': '保留比较与必要推理停顿'}, 'narrative_brief': {'central_question': '比较执行方式'}, 'pages': [planned]}
         return {'title': page.title, 'page_goal': page.page_goal, 'teaching': page.teaching.model_dump(mode='json')}
     async def checkpoint(value, event):
         saved.append(deepcopy(value))
@@ -104,8 +104,8 @@ def test_narrative_repairs_missing_sources_and_keeps_failed_candidate():
     assert requests[1]['previous_candidate']['pages'][0]['source_block_ids'] == ['missing']
     assert saved[0]['signature'] == trace['signature']
     assert any(s.get('draft_narrative', {}).get('pages', [{}])[0].get('source_block_ids') == ['missing'] for s in saved)
-    schema = requests[0]['response_contract']['$defs']['PlannedPage']['properties']
-    assert 'audience_question' not in schema and 'source_block_ids' in schema
+    schema = requests[0]['response_contract']['$defs']['NarrativeTaskDraft']['properties']
+    assert 'audience_question' not in schema and 'source_first' in schema and 'source_last' in schema
 
 
 def test_exact_quote_selection_retains_duplicate_occurrence_and_rejects_conflicts():
@@ -148,13 +148,13 @@ def test_page_group_is_compiled_before_confirmation_and_can_resume_without_model
     from .test_ppt_teaching_content import compiled_manuscript
     doc, graph, template, existing = compiled_manuscript()
     page = existing.pages[0]
-    group = {'pages': [{'title': title, 'page_goal': page.page_goal, 'primary_claim': page.primary_claim,
+    group = {'pages': [{'split_reason': '分别观察不同执行方式', 'title': title, 'page_goal': page.page_goal, 'primary_claim': page.primary_claim,
         'teaching': page.teaching.model_dump(mode='json')} for title in ['比较执行方式', '观察执行差异']]}
     calls = []
     async def planner(request):
         calls.append(request)
         if request['teaching_request'] == 'narrative':
-            return {'narrative_brief': {'central_question': '比较执行方式'}, 'pages': [{
+            return {'pacing': {'max_physical_pages': 12, 'rationale': '保留比较与必要推理停顿'}, 'narrative_brief': {'central_question': '比较执行方式'}, 'pages': [{
                 'page_id': 'p1', 'teaching_unit_id': page.teaching_unit_id, 'source_block_ids': ['b'],
                 'title': page.title, 'page_goal': page.page_goal, 'layout_id': page.layout_id}]}
         return group
@@ -175,14 +175,13 @@ def test_page_group_is_compiled_before_confirmation_and_can_resume_without_model
     assert existing.model_dump() == before
 
 
-def test_redundant_canvas_states_keep_all_notes_without_extra_physical_pages():
+def test_draft_states_preserve_all_narration_for_the_presentation_policy():
     from ppt_draft_common import lower_reveal_states
     states = lower_reveal_states({'question': 1, 'answer': 3}, ['提出问题', '留时间思考', '展示答案', '补充解释'])
-    assert len(states) == 2
+    assert len(states) == 4
     assert states[0]['visible_element_ids'] == ['question']
-    assert states[1]['visible_element_ids'] == ['question', 'answer']
-    assert states[0]['teaching_note'] == '提出问题\n\n留时间思考'
-    assert states[1]['teaching_note'] == '展示答案\n\n补充解释'
+    assert states[2]['visible_element_ids'] == ['question', 'answer']
+    assert [s['teaching_note'] for s in states] == ['提出问题', '留时间思考', '展示答案', '补充解释']
     with pytest.raises(ValueError, match='reveal_note_missing'):
         lower_reveal_states({'question': 1, 'answer': 3}, ['提出问题', '思考'])
     with pytest.raises(ValueError, match='initial_reveal_empty'):
@@ -196,7 +195,7 @@ def test_group_repair_sends_only_failed_subpage_and_retains_healthy_content():
     from ppt_teaching_planner import plan_teaching_manuscript
     doc, graph, template, existing = compiled_manuscript()
     page = existing.pages[0]
-    good = {'title': page.title, 'page_goal': page.page_goal, 'primary_claim': page.primary_claim,
+    good = {'split_reason': '比较不同执行方式', 'title': page.title, 'page_goal': page.page_goal, 'primary_claim': page.primary_claim,
             'layout_id': page.layout_id, 'teaching': page.teaching.model_dump(mode='json')}
     broken = deepcopy(good)
     broken['title'] = '观察另一种执行方式'
@@ -205,7 +204,7 @@ def test_group_repair_sends_only_failed_subpage_and_retains_healthy_content():
     async def planner(request):
         calls.append(request)
         if request['teaching_request'] == 'narrative':
-            return {'narrative_brief': {'central_question': '比较执行方式'}, 'pages': [{
+            return {'pacing': {'max_physical_pages': 12, 'rationale': '保留比较与必要推理停顿'}, 'narrative_brief': {'central_question': '比较执行方式'}, 'pages': [{
                 'page_id': 'p1', 'teaching_unit_id': page.teaching_unit_id, 'source_block_ids': ['b'],
                 'title': page.title, 'page_goal': page.page_goal, 'layout_id': page.layout_id}]}
         if len(calls) == 2:
@@ -213,9 +212,9 @@ def test_group_repair_sends_only_failed_subpage_and_retains_healthy_content():
         assert request['previous_candidate']['title'] == broken['title']
         assert 'pages' not in request['previous_candidate']
         assert request['page']['title'] == broken['title']
-        return {**deepcopy(good), 'title': '比较另一种执行方式'}
+        return {'patch': {'teaching': deepcopy(good['teaching']), 'title': '比较另一种执行方式'}}
     result, trace = asyncio.run(plan_teaching_manuscript(doc, graph, template, planner))
     assert len(calls) == 3 and result.story_page_count == 2
     assert result.pages[0].title == good['title']
-    assert result.pages[0].teaching.model_dump(mode='json') == good['teaching']
+    assert result.pages[0].teaching.model_dump(mode='json', exclude={'presentation'}) == good['teaching']
     assert trace['draft_pages']['p1']['pages'][0] == good
