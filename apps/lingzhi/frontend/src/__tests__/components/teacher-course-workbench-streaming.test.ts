@@ -366,7 +366,9 @@ describe('teacher course workbench outline streaming', () => {
     const resume = vi.spyOn(generation, 'resumeTask').mockResolvedValue(undefined)
 
     const wrapper = mountWorkbench()
-    await wrapper.get('.workbench-error button').trigger('click')
+    expect(wrapper.find('.workbench-center [role="alert"]').exists()).toBe(false)
+    expect(wrapper.get('.context-pane .workbench-error').text()).toContain('AI 服务身份校验未通过')
+    await wrapper.get('.context-pane-heading__actions .primary-status-action').trigger('click')
     await flushPromises()
 
     expect(resume).toHaveBeenCalledWith('course-1', 'job-failed')
@@ -1018,7 +1020,8 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
 
-    const notice = wrapper.get('.prerequisite-error')
+    expect(wrapper.find('.workbench-center [role="alert"]').exists()).toBe(false)
+    const notice = wrapper.get('.context-pane .workbench-error')
     expect(notice.text()).toContain('教案读取失败')
     expect(notice.text()).toContain('分讲教案状态读取失败')
     expect(notice.get('details code').text()).toContain('原始反馈')
@@ -1425,7 +1428,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.text()).not.toContain('重新生成本讲教案')
   })
 
-  it('深链失败按课程摘要、正文状态和右栏原因分层且不重复具体错误', () => {
+  it('深链失败集中到右栏，正文保留内容且折叠不会丢失消息', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     const issue = {
       issue_id: 'issue-lesson-plan-2',
@@ -1484,15 +1487,22 @@ describe('teacher course workbench outline streaming', () => {
       initialStage: 'lesson', initialLessonId: 'L1-2', initialIssueId: issue.issue_id, expandIssue: true,
     })
 
-    const banner = wrapper.get('[data-testid="production-issue-detail"]')
+    const banner = wrapper.get('.context-pane [data-testid="production-issue-detail"]')
     expect(banner.text()).toContain('课程生成问题')
     expect(banner.text()).toContain('本课程有 1 项内容生成失败')
     expect(banner.text()).not.toContain('知识骨架汇编失败')
-    expect(wrapper.get('.arrangement-error').text()).toContain('本讲教案生成失败')
-    expect(wrapper.get('.arrangement-error').text()).not.toContain('知识骨架汇编失败')
+    expect(wrapper.find('.workbench-center [role="alert"]').exists()).toBe(false)
+    expect(wrapper.find('.workbench-center .generation-recovery').exists()).toBe(false)
+    expect(wrapper.get('.context-pane .generation-recovery').text()).toContain('本讲教案生成失败')
     expect(wrapper.get('.context-pane-heading').text()).toContain('知识骨架汇编失败')
     expect(wrapper.text().match(/知识骨架汇编失败/g)).toHaveLength(1)
     expect(wrapper.get('[data-testid="lesson-batch-start"]').text()).toBe('重新生成')
+    await wrapper.get('.context-pane-heading__collapse').trigger('click')
+    expect(wrapper.find('.context-pane').exists()).toBe(false)
+    expect(wrapper.find('.workbench-center [role="alert"]').exists()).toBe(false)
+    await wrapper.get('.context-pane-reopen').trigger('click')
+    expect(wrapper.get('.context-pane [data-testid="production-issue-detail"]').text()).toContain('本课程有 1 项内容生成失败')
+    expect(wrapper.get('.context-pane .generation-recovery').text()).toContain('本讲教案生成失败')
   })
 
   it('教案已生成但讲义未生成时仍可上传自有 PPT，但不能使用 AI 生成', async () => {
@@ -1696,7 +1706,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(generateAll).not.toHaveBeenCalled()
   })
 
-  it('讲义批量启动失败在当前预览内反馈', async () => {
+  it('讲义批量启动失败在右栏反馈并保留当前预览', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
@@ -1716,8 +1726,10 @@ describe('teacher course workbench outline streaming', () => {
     await wrapper.get('[data-testid="script-course-preview-generate"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('.workbench-error').text()).toContain('讲义生成未开始')
-    expect(wrapper.get('.workbench-error').text()).toContain('生成条件已变化')
+    expect(wrapper.find('.workbench-center [role="alert"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="script-course-preview"]').exists()).toBe(true)
+    expect(wrapper.get('.context-pane .workbench-error').text()).toContain('讲义生成未开始')
+    expect(wrapper.get('.context-pane .workbench-error').text()).toContain('生成条件已变化')
   })
 
   it('资料未就绪时讲义批量按钮显示禁用原因且不发起请求', async () => {

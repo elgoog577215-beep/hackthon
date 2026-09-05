@@ -57,13 +57,6 @@
         :aria-label="t('courseWorkbench.contextPane.expand', '展开当前内容信息')"
         @click="contextPaneCollapsed = false"
       ><PanelRightOpen :size="17" /></button>
-      <section v-if="activeProductionIssue" class="production-issue-detail" role="alert" data-testid="production-issue-detail">
-        <TriangleAlert :size="17" />
-        <div>
-          <strong>{{ t('teacherProductionState.courseIssueTitle', '课程生成问题') }}</strong>
-          <p>{{ activeProductionIssueBannerText }}</p>
-        </div>
-      </section>
       <header v-if="activeStage === 'foundation'" class="center-heading">
         <div><h2>{{ activeStageDefinition.label }}</h2></div>
       </header>
@@ -156,7 +149,7 @@
 
       <section v-if="showStreaming" class="generation-surface" aria-live="polite">
         <header>
-          <div><TriangleAlert v-if="generationFailed" :size="18" /><LoaderCircle v-else :size="18" class="spin" /><span><strong>{{ generationFailed ? t('courseWorkbench.generationInterrupted', '生成已中断') : t('courseWorkbench.generating', '正在生成课程大纲') }}</strong><small>{{ generationFailed ? generationErrorPresentation?.summary : currentGenerationLabel }}</small></span></div>
+          <div><TriangleAlert v-if="generationFailed" :size="18" /><LoaderCircle v-else :size="18" class="spin" /><span><strong>{{ generationFailed ? t('courseWorkbench.generationInterrupted', '生成已中断') : t('courseWorkbench.generating', '正在生成课程大纲') }}</strong><small v-if="!generationFailed">{{ currentGenerationLabel }}</small></span></div>
           <div v-if="generationRunning && (referenceWorkflowCanPause || referenceWorkflowCanCancel)" class="generation-header-actions">
             <button v-if="referenceWorkflowCanPause" type="button" @click="pauseReferenceWorkflow"><Pause :size="15" />{{ t('courseWorkbench.pause', '暂停') }}</button>
             <button v-if="referenceWorkflowCanCancel" type="button" @click="cancelReferenceWorkflow"><X :size="15" />{{ t('common.cancel', '取消') }}</button>
@@ -209,9 +202,6 @@
             : t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…') }}</div>
           <div v-else-if="!outlineGrowth && !outlineLessonStatuses.length && generationFailed" class="stream-waiting stream-failed"><TriangleAlert :size="22" />{{ t('courseWorkbench.noContentGenerated', '本次没有生成课程内容，请检查提示后重试。') }}</div>
         </article>
-        <AppErrorNotice v-if="generationErrorPresentation" class="workbench-error" :presentation="generationErrorPresentation" compact>
-          <template #action><button v-if="referenceWorkflowCanRetry" type="button" :disabled="referenceGenerationBlocked" :title="referenceGenerationBlocked ? referenceGenerationBlockReason : undefined" @click="retryReferenceWorkflow">{{ t('common.retry', '重试') }}</button></template>
-        </AppErrorNotice>
       </section>
 
       <section
@@ -499,15 +489,17 @@
           <button class="primary-action" type="button" disabled>{{ t(activeStage === 'lesson' ? 'courseWorkbench.lessonBatch.generateAll' : 'courseWorkbench.scriptBatch.generateAll') }}</button>
           <p class="generation-unavailable-reason" role="status">{{ activeStage === 'lesson' ? lessonGenerationBlockedReason : scriptGenerationBlockedReason }}</p>
         </div>
-        <AppErrorNotice v-if="lessonStageBlocked && lessonPrerequisiteError" class="prerequisite-error" :presentation="lessonPrerequisiteError" compact>
+        <AppErrorNotice v-if="activeStage === 'question-bank' && lessonStageBlocked && lessonPrerequisiteError" class="prerequisite-error" :presentation="lessonPrerequisiteError" compact>
           <template #action><button type="button" :disabled="lessonStore.loading" @click="resolveLessonPrerequisite">{{ lessonPrerequisiteState.action }}</button></template>
         </AppErrorNotice>
         <div v-else-if="lessonStageBlocked" class="prerequisite" :data-state="lessonPrerequisiteState.kind" aria-live="polite">
-          <LoaderCircle v-if="lessonPrerequisiteState.kind === 'loading'" :size="24" class="spin" />
-          <FileText v-else :size="24" />
-          <strong>{{ lessonPrerequisiteState.title }}</strong>
-          <span>{{ lessonPrerequisiteState.detail }}</span>
-          <button v-if="lessonPrerequisiteState.action" type="button" :disabled="lessonStore.loading" @click="resolveLessonPrerequisite">{{ lessonPrerequisiteState.action }}</button>
+          <template v-if="!lessonPrerequisiteError">
+            <LoaderCircle v-if="lessonPrerequisiteState.kind === 'loading'" :size="24" class="spin" />
+            <FileText v-else :size="24" />
+            <strong>{{ lessonPrerequisiteState.title }}</strong>
+            <span>{{ lessonPrerequisiteState.detail }}</span>
+            <button v-if="lessonPrerequisiteState.action" type="button" :disabled="lessonStore.loading" @click="resolveLessonPrerequisite">{{ lessonPrerequisiteState.action }}</button>
+          </template>
         </div>
 
         <template v-else-if="activeStage === 'question-bank'">
@@ -529,18 +521,6 @@
         </template>
 
         <template v-else-if="activeStage === 'lesson'">
-          <section v-if="selectedFailureJob" class="generation-recovery" role="status">
-            <strong>{{ selectedFailureJob.message }}</strong>
-            <details v-if="failureDetails.length"><summary>{{ t('courseWorkbench.recovery.details') }}</summary><ul><li v-for="detail in failureDetails" :key="detail">{{ detail }}</li></ul></details>
-            <p>{{ t(`courseWorkbench.recovery.${selectedFailureJob.error?.recovery_action || 'revise_inputs'}`) }}</p>
-            <div><button v-if="selectedFailureJob.error?.retryable" type="button" :disabled="recoveryStarting" @click="retrySelectedFailure">{{ t('courseWorkbench.recovery.retryOriginal') }}</button><button type="button" :disabled="recoveryStarting" @click="openRegenerationPreparation">{{ t('courseWorkbench.recovery.reviseAndGenerate') }}</button></div>
-          </section>
-          <AppErrorNotice
-            v-if="lessonBatchStartErrorPresentation"
-            class="workbench-error"
-            :presentation="lessonBatchStartErrorPresentation"
-            compact
-          />
           <section
             v-if="lessonCoursePreviewVisible"
             class="lesson-course-preview"
@@ -600,7 +580,6 @@
             :generating="lessonGenerationActive"
             :collapsed="lessonStreamSegments.length > 0"
             :sticky-actions="!workingLessonRevision || lessonGenerationRunning"
-            :error="lessonArrangementError"
           >
             <template #generation-actions>
               <div
@@ -684,18 +663,6 @@
         </template>
 
         <template v-else-if="activeStage === 'script'">
-          <section v-if="selectedFailureJob" class="generation-recovery" role="status">
-            <strong>{{ selectedFailureJob.message }}</strong>
-            <details v-if="failureDetails.length"><summary>{{ t('courseWorkbench.recovery.details') }}</summary><ul><li v-for="detail in failureDetails" :key="detail">{{ detail }}</li></ul></details>
-            <p>{{ t(`courseWorkbench.recovery.${selectedFailureJob.error?.recovery_action || 'revise_inputs'}`) }}</p>
-            <div><button v-if="selectedFailureJob.error?.retryable" type="button" :disabled="recoveryStarting" @click="retrySelectedFailure">{{ t('courseWorkbench.recovery.retryOriginal') }}</button><button type="button" :disabled="recoveryStarting" @click="openRegenerationPreparation">{{ t('courseWorkbench.recovery.reviseAndGenerate') }}</button></div>
-          </section>
-          <AppErrorNotice
-            v-if="scriptBatchStartErrorPresentation"
-            class="workbench-error"
-            :presentation="scriptBatchStartErrorPresentation"
-            compact
-          />
           <section
             v-if="scriptCoursePreviewVisible"
             class="lesson-course-preview script-course-preview"
@@ -777,7 +744,6 @@
             :material-asset-ids="activeReferences.map(item => item.asset_id)"
             :generating="scriptGenerationBusy"
             :generation-job="scriptStreamJob"
-            :generation-error="effectiveScriptGenerationError"
             :can-generate="currentScriptCanGenerate && !referenceGenerationBlocked"
             :generation-blocked-reason="referenceGenerationBlocked ? referenceGenerationBlockReason : ''"
             external-toolbar
@@ -896,7 +862,7 @@
           </span>
           <div>
             <strong>{{ contextStatusLabel }}</strong>
-            <MathText :content="contextStatusDetail" />
+            <MathText v-if="!contextErrorPresentation" :content="contextStatusDetail" />
           </div>
         </div>
         <button
@@ -906,6 +872,26 @@
           :aria-label="t('courseWorkbench.contextPane.collapse', '收起当前内容信息')"
           @click="contextPaneCollapsed = true"
         ><PanelRightClose :size="17" /></button>
+        <div v-if="hasContextNotices" class="context-pane-notices" data-testid="context-pane-notices">
+          <section v-if="activeProductionIssue" class="production-issue-detail" role="alert" data-testid="production-issue-detail">
+            <TriangleAlert :size="17" />
+            <div>
+              <strong>{{ t('teacherProductionState.courseIssueTitle', '课程生成问题') }}</strong>
+              <p>{{ activeProductionIssueSummary }}</p>
+            </div>
+          </section>
+          <AppErrorNotice v-if="contextErrorPresentation" class="workbench-error" :presentation="contextErrorPresentation" compact>
+            <template v-if="lessonStageBlocked && lessonPrerequisiteError" #action>
+              <button type="button" :disabled="lessonStore.loading" @click="resolveLessonPrerequisite">{{ lessonPrerequisiteState.action }}</button>
+            </template>
+          </AppErrorNotice>
+          <section v-if="selectedFailureJob" class="generation-recovery" role="status">
+            <strong>{{ selectedFailureJob.message }}</strong>
+            <details v-if="failureDetails.length"><summary>{{ t('courseWorkbench.recovery.details') }}</summary><ul><li v-for="detail in failureDetails" :key="detail">{{ detail }}</li></ul></details>
+            <p>{{ t(`courseWorkbench.recovery.${selectedFailureJob.error?.recovery_action || 'revise_inputs'}`) }}</p>
+            <div><button v-if="selectedFailureJob.error?.retryable" type="button" :disabled="recoveryStarting" @click="retrySelectedFailure">{{ t('courseWorkbench.recovery.retryOriginal') }}</button><button type="button" :disabled="recoveryStarting" @click="openRegenerationPreparation">{{ t('courseWorkbench.recovery.reviseAndGenerate') }}</button></div>
+          </section>
+        </div>
         <div class="context-pane-heading__actions">
           <button v-if="referenceWorkflowState === 'generating' && referenceWorkflowCanPause" type="button" @click="pauseReferenceWorkflow"><Pause :size="14" />{{ t('courseWorkbench.pause', '暂停') }}</button>
           <button v-if="referenceWorkflowState === 'paused' && referenceWorkflowCanResume" class="primary-status-action" type="button" @click="resumeReferenceWorkflow"><Play :size="14" />{{ t('courseWorkbench.continue', '继续') }}</button>
@@ -1267,7 +1253,7 @@ const activeProductionIssue = computed(() => {
   if (!props.expandIssue || !props.initialIssueId) return null
   return productionState.value?.issues.find(issue => issue.issue_id === props.initialIssueId) || null
 })
-const activeProductionIssueBannerText = computed(() => {
+const activeProductionIssueSummary = computed(() => {
   const issue = activeProductionIssue.value
   if (!issue) return ''
   const allIssues = productionState.value?.issues || []
@@ -2180,11 +2166,6 @@ const lessonGenerationError = computed(() => productionState.value
   : lessonJob.value?.status === 'cancelled'
     ? ''
     : String(lessonJob.value?.error?.message || lessonStore.error || ''))
-const lessonArrangementError = computed(() => arrangementError.value || (
-  lessonGenerationError.value
-    ? t('teacherProductionState.localFailure.lesson_plan', '本讲教案生成失败')
-    : ''
-))
 function currentJobForLesson(lessonId: string, stage: 'lesson_plan' | 'script'): TeacherLessonJob | undefined {
   const projected = lessonProductionState(productionState.value, lessonId, stage)
   const type = stage === 'script' ? 'teacher_lesson_script_generation' : 'teacher_lesson_plan_generation'
@@ -2712,6 +2693,18 @@ const projectedLastGoodFailure = computed(() => {
 const pendingSourceReviewCount = computed(() => Math.max(
   0,
   Number(productionState.value?.source_summary?.pending_review_count || 0),
+))
+const contextErrorPresentation = computed(() => {
+  if (activeStage.value === 'foundation') return generationErrorPresentation.value
+  if (['lesson', 'script', 'ppt'].includes(activeStage.value) && lessonStageBlocked.value && lessonPrerequisiteError.value) return lessonPrerequisiteError.value
+  if (activeStage.value === 'lesson') return lessonBatchStartErrorPresentation.value || (
+    arrangementError.value ? toAppError(arrangementError.value) : null
+  )
+  if (activeStage.value === 'script') return scriptBatchStartErrorPresentation.value
+  return null
+})
+const hasContextNotices = computed(() => Boolean(
+  activeProductionIssue.value || contextErrorPresentation.value || selectedFailureJob.value,
 ))
 const contextPhase = computed<'before' | 'during' | 'after' | 'failed'>(() => {
   if (projectedLastGoodFailure.value) return 'after'
@@ -4474,7 +4467,7 @@ onBeforeUnmount(() => {
 @media(max-width:760px){.lesson-navigator{gap:6px;padding-inline:10px}.lesson-navigator>button{font-size:0}.lesson-navigator>button svg{display:block}.lesson-selector select{padding-inline:8px;font-size:14px}.ppt-entry{grid-template-columns:auto minmax(0,1fr);padding:28px 18px}.ppt-entry .primary{grid-column:1/-1}}
 .stage-rail nav button:disabled,.companion-entry>button:disabled{opacity:.45;cursor:not-allowed}.teacher-workbench.is-ai-collaboration{min-width:0;grid-template-columns:minmax(0,1fr) 10px var(--ai-pane-width);background:#eef1f6}.is-ai-collaboration>.workbench-center{min-width:0;overflow:auto}.is-ai-collaboration .has-lesson-outline .lesson-stage-content{min-width:0;overflow:hidden}.is-ai-collaboration .lesson-workspace,.is-ai-collaboration .lesson-stage,.is-ai-collaboration .outline-workspace{min-width:0;max-width:none}.is-ai-collaboration :deep(.lesson-document .flow-table){max-width:100%;overflow:auto}
 @media(max-width:900px){.teacher-workbench.is-ai-collaboration{grid-template-columns:minmax(0,1fr) 8px 340px}.is-ai-collaboration>.workbench-center{padding:0}}
-.production-issue-detail{max-width:860px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px;margin:0 auto 12px;padding:11px 13px;border:1px solid #fecdd3;border-radius:9px;color:#b42335;background:#fff5f6}.production-issue-detail>svg{margin-top:2px}.production-issue-detail strong{font-size:14px}.production-issue-detail p{margin:3px 0 0;overflow-wrap:anywhere;font-size:14px;line-height:1.55;white-space:normal}.production-block-highlight{border-radius:7px;background:#fff1f2;box-shadow:0 0 0 2px #fecdd3}
+.production-issue-detail{min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px;color:#b42335}.production-issue-detail>svg{margin-top:3px}.production-issue-detail strong{font-size:15px;line-height:1.5}.production-issue-detail p{margin:4px 0 0;overflow-wrap:anywhere;font-size:15px;line-height:1.6;white-space:normal}.production-block-highlight{border-radius:7px;background:#fff1f2;box-shadow:0 0 0 2px #fecdd3}
 @media(prefers-reduced-motion:reduce){.has-lesson-outline .lesson-workspace{transition:none}.lesson-outline-chapter-marker[data-state="generating"]{animation:none}}
 
 /* Lesson navigation keeps the document full width; the course outline appears only when requested. */
@@ -4696,9 +4689,9 @@ onBeforeUnmount(() => {
 .context-pane-reopen{position:absolute;z-index:8;top:14px;right:14px;width:36px;height:36px;display:grid;place-items:center;border:1px solid #d8dee8;border-radius:8px;color:#596579;background:#fff;cursor:pointer;box-shadow:0 4px 14px rgba(30,41,59,.07)}
 .context-pane-reopen:hover{border-color:#aaa7e8;color:#37348c;background:#fafaff}
 .context-pane-reopen:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
-.context-pane{grid-template-rows:auto auto minmax(0,1fr);background:#fff}
+.context-pane{display:flex;flex-direction:column;background:#fff}
 /* Status takes the full reading width; task controls have their own row. */
-.context-pane-heading{display:grid;grid-template-columns:minmax(0,1fr) 32px;align-items:start;gap:14px 8px;margin:0;padding:20px 16px 18px;border-bottom:1px solid #e4e8ef;background:var(--teacher-component-surface,#fff)}
+.context-pane-heading{flex:none;max-height:65%;overflow-y:auto;display:grid;grid-template-columns:minmax(0,1fr) 32px;align-items:start;gap:14px 8px;margin:0;padding:20px 16px 18px;border-bottom:1px solid #e4e8ef;background:var(--teacher-component-surface,#fff)}
 .context-pane-heading__status{min-width:0;display:grid;grid-template-columns:30px minmax(0,1fr);align-items:start;gap:10px}
 .context-pane-heading__signal{width:30px;height:30px;display:grid;place-items:center;border-radius:8px;color:#5b60a5;background:#f0f1f6}
 .context-pane-heading__status>div{min-width:0;display:grid;gap:5px;padding-top:3px}
@@ -4723,7 +4716,7 @@ onBeforeUnmount(() => {
 .context-pane-heading__progress>i{width:100%;height:100%;display:block;transform-origin:left center;background:#6266b4;transition:transform .2s ease-out}
 .context-pane-heading[data-phase="failed"] .context-pane-heading__progress>i{background:#b9404e}
 @media(prefers-reduced-motion:reduce){.context-pane-heading .spin{animation:none}.context-pane-heading__actions button,.context-pane-heading__collapse,.context-pane-heading__progress>i{transition:none}}
-.context-pane>.context-pane-references{min-height:0;border-left:0;background:transparent}
+.context-pane>.context-pane-references{flex:1;height:auto;min-height:0;border-left:0;background:transparent}
 .regeneration-dialog__sources{max-height:min(62vh,640px);overflow:auto;border:0;background:#fff}.regeneration-dialog__actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}.regeneration-dialog__actions button{min-height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 13px;border:1px solid #d8dde6;border-radius:8px;color:#596579;background:#fff;font:inherit;font-size:14px;font-weight:700;cursor:pointer}.regeneration-dialog__actions button:hover:not(:disabled){border-color:#bbbfe4;color:#3f4385;background:#f8f8fc}.regeneration-dialog__actions button.primary{border-color:#5559a8;color:#fff;background:#5559a8}.regeneration-dialog__actions button.primary:hover:not(:disabled){border-color:#454984;color:#fff;background:#454984}.regeneration-dialog__actions button:disabled{opacity:.48;cursor:not-allowed}.regeneration-dialog__actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 
 /* Full-outline generation exposes the backend's per-lesson queue and streamed teacher-facing text. */
@@ -4749,7 +4742,11 @@ onBeforeUnmount(() => {
 @media(prefers-reduced-motion:reduce){.outline-detail-stream__progress>i{transition:none}}
 .script-course-preview__intro{flex:1}.script-course-preview__intro>div:last-child{display:grid;gap:5px}.script-course-preview .lesson-course-preview__title small[data-state="ready"]{color:#168044;font-weight:650}.script-course-preview .lesson-course-preview__title small[data-state="pending"]{color:#9a5b14;font-weight:650}.script-course-preview>article{padding-top:0}.script-course-preview__lesson{border-bottom:1px solid #e9edf3}.script-course-preview__lesson:last-child{border-bottom:0}.script-course-preview__lesson>summary{position:relative;display:grid;gap:11px;padding:19px 34px 19px 0;list-style:none;cursor:pointer}.script-course-preview__lesson>summary::-webkit-details-marker{display:none}.script-course-preview__lesson>summary::after{position:absolute;top:25px;right:5px;width:8px;height:8px;border-right:1.5px solid #8a95a5;border-bottom:1.5px solid #8a95a5;content:"";transform:rotate(45deg);transition:transform .16s ease-out}.script-course-preview__lesson[open]>summary::after{transform:translateY(4px) rotate(225deg)}.script-course-preview__lesson>summary:hover{background:#fbfcff}.script-course-preview__lesson>summary:focus-visible{border-radius:8px;outline:2px solid #5b57e8;outline-offset:-2px}.script-course-preview__block-line{display:flex;flex-wrap:wrap;gap:5px 0;margin-left:40px;color:#68768b;font-size:14px;line-height:1.5}.script-course-preview__block-line>span{display:inline-flex;align-items:baseline;gap:5px}.script-course-preview__block-line>span:not(:last-child)::after{margin:0 9px;color:#bcc4d0;content:"·"}.script-course-preview__block-line strong{color:#4b5870;font-weight:680}.script-course-preview__block-line small{color:#8994a4;font-size:13px;white-space:nowrap}.script-course-preview__lesson[open] .script-course-preview__block-line{display:none}.script-course-preview__lesson>ol{display:grid;gap:7px;margin:0 0 20px 40px;padding:0;list-style:none}.script-course-preview__lesson>ol li{grid-template-columns:minmax(120px,.3fr) minmax(0,1fr) auto}.script-course-preview__lesson>ol li small{color:#68768b;font-size:14px;white-space:nowrap}.script-course-preview__lesson>summary>.lesson-course-preview__pending{margin:0 0 0 40px}.script-course-preview__lesson>summary:hover .lesson-course-preview__title h3{color:#312e81}
 @media(prefers-reduced-motion:reduce){.script-course-preview__lesson>summary::after{transition:none}}
-.generation-recovery{padding:14px 0;border-bottom:1px solid #dfe4ec;font-size:15px;line-height:1.6}.generation-recovery p{margin:6px 0}.generation-recovery>div{display:flex;gap:8px}.generation-recovery button{padding:8px 12px;border:1px solid #5559a8;border-radius:8px;background:#fff;color:#454984;font:inherit;cursor:pointer}.generation-recovery button:disabled{opacity:.5;cursor:not-allowed}.recovery-input{display:grid;gap:8px;margin-bottom:16px;font-size:15px}.recovery-input textarea{padding:10px;border:1px solid #cbd2de;border-radius:8px;font:inherit;line-height:1.6}.generation-recovery button:focus-visible,.recovery-input textarea:focus-visible{outline:2px solid #5559a8;outline-offset:2px}
+.generation-recovery{min-width:0;overflow-wrap:anywhere;font-size:15px;line-height:1.6}.generation-recovery p{margin:6px 0}.generation-recovery>div{display:flex;flex-wrap:wrap;gap:8px}.generation-recovery button{padding:8px 12px;border:1px solid #5559a8;border-radius:8px;background:#fff;color:#454984;font:inherit;cursor:pointer}.generation-recovery button:disabled{opacity:.5;cursor:not-allowed}.recovery-input{display:grid;gap:8px;margin-bottom:16px;font-size:15px}.recovery-input textarea{padding:10px;border:1px solid #cbd2de;border-radius:8px;font:inherit;line-height:1.6}.generation-recovery button:focus-visible,.recovery-input textarea:focus-visible{outline:2px solid #5559a8;outline-offset:2px}
+.context-pane-notices{grid-column:1/-1;min-width:0;display:grid;gap:16px;padding-top:14px;border-top:1px solid #e4e8ef}
+.context-pane-notices .workbench-error{margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;grid-template-columns:18px minmax(0,1fr);gap:9px}
+.context-pane-notices :deep(.app-error-notice__icon){width:18px;height:24px;background:transparent}
+.context-pane-notices :deep(.app-error-notice strong),.context-pane-notices :deep(.app-error-notice p),.context-pane-notices :deep(.app-error-notice details),.context-pane-notices :deep(.app-error-notice__action button){font-size:15px}
 </style>
 
 <style scoped>
