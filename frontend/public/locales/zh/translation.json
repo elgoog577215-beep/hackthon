@@ -435,7 +435,25 @@
       "finishCandidateFirst": "请先处理当前 AI 候选",
       "empty": "当前大纲暂无改进建议",
       "aiRequest": "优化这项大纲审阅建议：{issue}",
-      "appliedReceipt": "已应用并重新审读，解决 {resolved} 项，剩余 {remaining} 项。"
+      "appliedReceipt": "已应用并重新审读，解决 {resolved} 项，剩余 {remaining} 项。",
+      "evidence": "查看依据",
+      "repeatedObjectives": "有 {count} 讲的目标表达可能过于模板化，建议结合具体学习要求核对。",
+      "resourcesUnassigned": "有 {count} 讲尚未关联课程已有的拓展资源。",
+      "resourcesNeeded": "有 {count} 讲缺少拓展资源，需先补充课程参考资料。",
+      "resourceRecordsMissing": "有 {count} 讲的拓展资源缺少完整的核验记录或来源信息。",
+      "hoursMissing": "有 {count} 讲尚未填写有效的分类学时。",
+      "hourTotals": "目前已记录的分类学时合计 {actual}，课程要求 {expected}。",
+      "templateLimit": "以下原句在去掉主题名称、数字与标点后相同。句式相似不等于目标不合理，请核对学习对象与完成标准。",
+      "verificationLimit": "以下是核验记录或字段缺项；系统未据此判断资源真假。",
+      "resourceEvidence": "{title} · {resource}：待补充{missing}。",
+      "unnamedResource": "未命名资源",
+      "missingFields": {
+        "verification_record": "核验记录",
+        "source_ref": "来源引用",
+        "reference_match": "与课程参考资料的关联",
+        "edition": "版次",
+        "locator": "章节或页码位置"
+      }
     },
     "outlineFlow": {
       "readyToContinue": "讲次方案已就绪",
@@ -485,7 +503,9 @@
       "waitingDetail": "本讲已独立排队，生成位可用时自动开始，无需再次操作。",
       "failed": "批量教案任务启动失败，请重试",
       "failedTitle": "教案生成未开始",
-      "status": { "pending": "等待生成", "running": "生成中", "paused": "已暂停", "completed": "已完成", "completed_with_warnings": "已完成", "failed": "生成失败", "cancelled": "已取消" }
+      "status": { "pending": "等待生成", "running": "生成中", "paused": "已暂停", "completed": "已完成", "completed_with_warnings": "已完成", "failed": "生成失败", "cancelled": "已取消" },
+      "outlineRequired": "请先生成完整大纲，再生成教案。",
+      "stateUnavailable": "当前教学结构或任务状态尚不可用，请查看具体状态后重试。"
     },
     "scriptBatch": {
       "flowLabel": "讲义生成步骤",
@@ -611,7 +631,8 @@
         "experimentInquiry": "实验探究",
         "projectWorkshop": "项目工作坊",
         "reviewAssessment": "复习测评"
-      }
+      },
+      "review": "教学结构预览"
     },
     "materialAudit": {
       "title": "材料审计",

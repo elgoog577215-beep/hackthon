@@ -1544,6 +1544,58 @@ describe('teacher course workbench outline streaming', () => {
     expect(generateAll).toHaveBeenCalledWith('course-1', '')
   })
 
+  it('整课允许生成时仍只统计逐讲获准范围，其他讲的旧 can_generate 不扩大权限', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    const snapshot = strictProductionSnapshot({ script: { allowed_actions: ['generate'], counts: { total: 2, available: 0, generating: 0, failed: 0, stale: 0 } } })
+    snapshot.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`,
+      stages: { script: strictProductionStage({ allowed_actions: number === 1 ? ['generate'] : [] }) },
+    })) as any
+    lessonStore.productionState = snapshot as any
+    lessonStore.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, sections: [],
+      arrangement: { source_state: 'current', blocks: [] },
+      plan: { working_revision_id: `plan-${number}`, source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
+      script: { current_revision_id: '', source_state: 'current', ready: false, can_generate: true, sections: [] },
+    })) as any
+    const generateAll = vi.spyOn(lessonStore, 'generateAllScripts').mockResolvedValue({ parent_job: { id: 'batch' }, jobs: [] } as any)
+    const wrapper = mountWorkbench({ initialStage: 'script' })
+    const button = wrapper.get('[data-testid="script-course-preview-generate"]')
+    expect(button.text()).toBe('生成已具备教案的讲义（1讲）')
+    await button.trigger('click')
+    expect(generateAll).toHaveBeenCalledOnce()
+  })
+
+  it('已有其他讲讲义时，当前缺教案的讲仍保留禁用生成入口', () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    const snapshot = strictProductionSnapshot({ script: { display_state: 'available', availability: 'usable', counts: { total: 2, available: 1, generating: 0, failed: 0, stale: 0 } } })
+    snapshot.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`,
+      stages: { script: strictProductionStage(number === 1 ? { display_state: 'available', availability: 'usable' } : {}) },
+    })) as any
+    lessonStore.productionState = snapshot as any
+    lessonStore.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, sections: [],
+      arrangement: { source_state: 'current', blocks: [] },
+      plan: { working_revision_id: number === 1 ? 'plan-1' : '', source_state: 'current', ready: number === 1, current_revision: null, ppt_assets: [] },
+      script: { current_revision_id: number === 1 ? 'script-1' : '', source_state: 'current', ready: number === 1, can_generate: false, sections: number === 1 ? [{ section_node_id: 's1', content: '讲义正文' }] : [] },
+    })) as any
+    const wrapper = mountWorkbench({ initialStage: 'script', initialLessonId: 'L1-2' })
+    expect(wrapper.get('[data-testid="script-batch-start"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.generation-unavailable-reason').exists()).toBe(true)
+  })
+
+  it('缺少大纲时保留教案生成按钮及原因，不提交生成请求', async () => {
+    useTeacherLessonAuthoringStore().productionState = strictProductionSnapshot({}) as any
+    const generateAll = vi.spyOn(useTeacherLessonAuthoringStore(), 'generateAllLessons')
+    const wrapper = mountWorkbench({ initialStage: 'lesson' })
+    const button = wrapper.get('.lesson-generation-actions button')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.generation-unavailable-reason').exists()).toBe(true)
+    await button.trigger('click')
+    expect(generateAll).not.toHaveBeenCalled()
+  })
+
   it('讲义批量启动失败在当前预览内反馈', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
@@ -1848,7 +1900,7 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'script' })
 
-    expect(wrapper.find('[data-testid="script-course-preview-generate"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="script-course-preview-generate"]').attributes('disabled')).toBeDefined()
     expect(wrapper.find('[data-testid="script-batch-start"]').exists()).toBe(false)
     expect(wrapper.get('.context-pane-heading').text()).toContain('生成未完成')
   })

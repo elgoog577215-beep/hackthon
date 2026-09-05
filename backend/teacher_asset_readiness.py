@@ -151,3 +151,23 @@ def teacher_lesson_ppt_asset_readiness(
     ):
         return _readiness(False, "revision_missing")
     return _readiness(True)
+
+
+def teacher_lesson_plan_covers_sections(revision: object, expected_section_ids: list[str]) -> bool:
+    if not isinstance(revision, dict):
+        return False
+    actual = [
+        str(item.get("node_id") or "")
+        for item in (revision.get("plan") or {}).get("sections") or []
+        if isinstance(item, dict)
+    ]
+    return actual == expected_section_ids
+
+
+def teacher_lesson_script_can_generate(lesson: object, expected_section_ids: list[str] | None = None) -> bool:
+    if not teacher_lesson_plan_readiness(lesson)["ready"]:
+        return False
+    if expected_section_ids is None:
+        return True
+    revision = _revision(lesson.get("revisions"), str(lesson.get("working_revision_id") or ""))
+    return teacher_lesson_plan_covers_sections(revision, expected_section_ids)

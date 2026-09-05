@@ -342,7 +342,7 @@ def test_teacher_lecture_missing_evidence_is_reported_instead_of_fabricated():
     assert "outline_editorial:missing_extension_resources" in codes
     assert "outline_editorial:missing_learning_tasks" in codes
     assert report["summary"].startswith("大纲已生成")
-    assert report["summary"].endswith("不影响教师确认。")
+    assert report["summary"].endswith("不影响后续生成。")
 
 
 def test_extension_resource_cannot_be_verified_without_an_exact_confirmed_source():
@@ -431,7 +431,7 @@ def test_measurable_outcomes_without_alignment_are_reported_for_review():
         item for item in report["issues"]
         if item["code"] == "outline_editorial:missing_outcome_alignment"
     )
-    assert issue["rule_version"] == "course_outline_editorial_v7"
+    assert issue["rule_version"] == "course_outline_editorial_v8"
     assert issue["evidence"]["outcome_numbers"] == [1]
 
 
@@ -600,7 +600,7 @@ def test_whole_outline_review_locates_repeated_assessment_templates_without_bloc
         if issue["code"] == "outline_editorial:repeated_assessment_template"
     )
     assert repeated["node_ids"] == ["L2-1-1", "L2-1-2", "L2-1-3", "L2-1-4"]
-    assert repeated["rule_version"] == "course_outline_editorial_v7"
+    assert repeated["rule_version"] == "course_outline_editorial_v8"
     assert "范围说明" in repeated["repair_instruction"]
     assert report["metrics"]["located_section_count"] == 4
 

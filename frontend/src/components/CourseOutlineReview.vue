@@ -3493,6 +3493,7 @@ function requestQualityRepair(issue: Record<string, any>) {
 }
 
 function qualityIssueField(issue: Record<string, any>) {
+  if (issue.repair_field === 'reference_books') return 'reference_books'
   const code = String(issue.code || '')
   const hasNodeTarget = Array.isArray(issue.node_ids) && issue.node_ids.length > 0
   if (code.includes('course_intro_zh')) return 'course_intro_zh'
@@ -3535,7 +3536,7 @@ async function focusQualityIssueEditor(issue: Record<string, any>) {
   await nextTick()
   const field = qualityIssueField(issue)
   const fieldRoot = field
-    ? (lectureEditor?.querySelector<HTMLElement>(`[data-outline-field="${field}"]`)
+    ? (issue.repair_field === 'reference_books' ? contractEditor.querySelector<HTMLElement>('[data-outline-field="reference_books"]') : lectureEditor?.querySelector<HTMLElement>(`[data-outline-field="${field}"]`)
       || contractEditor.querySelector<HTMLElement>(`[data-outline-field="${field}"]`))
     : lectureEditor
   const target = fieldRoot?.querySelector<HTMLElement>('textarea, input, select, button') || fieldRoot || contractEditor

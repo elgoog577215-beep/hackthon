@@ -14,7 +14,7 @@
             ? t('courseWorkbench.arrangement.stale', '教学结构需更新')
             : arrangement.ready === true
               ? t('courseWorkbench.arrangement.generated', '教学结构已生成')
-              : t('courseWorkbench.arrangement.review', '教学结构待检查') }}
+              : t('courseWorkbench.arrangement.review', '教学结构预览') }}
         </span>
       </div>
       <div class="arrangement-actions">

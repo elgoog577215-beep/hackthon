@@ -435,7 +435,25 @@
       "finishCandidateFirst": "Resolve the current AI option first",
       "empty": "No improvement suggestions for this outline",
       "aiRequest": "Improve this outline review suggestion: {issue}",
-      "appliedReceipt": "Applied and reviewed again: {resolved} resolved, {remaining} remaining."
+      "appliedReceipt": "Applied and reviewed again: {resolved} resolved, {remaining} remaining.",
+      "evidence": "View evidence",
+      "repeatedObjectives": "Objectives in {count} lectures may be overly formulaic. Check their specific learning requirements.",
+      "resourcesUnassigned": "{count} lectures have not been linked to the existing course references.",
+      "resourcesNeeded": "{count} lectures need extension resources. Add course references first.",
+      "resourceRecordsMissing": "Resources in {count} lectures lack verification records or source information.",
+      "hoursMissing": "{count} lectures have no valid breakdown of instructional hours.",
+      "hourTotals": "Recorded instructional hours total {actual}; the course requires {expected}.",
+      "templateLimit": "These sentences match after removing topic names, numbers and punctuation. Similar wording does not establish a weak objective; check the learning object and completion criteria.",
+      "verificationLimit": "These are missing records or fields, not a finding that the resources are true or false.",
+      "resourceEvidence": "{title} · {resource}: missing {missing}.",
+      "unnamedResource": "Unnamed resource",
+      "missingFields": {
+        "verification_record": "verification record",
+        "source_ref": "source reference",
+        "reference_match": "link to course references",
+        "edition": "edition",
+        "locator": "chapter or page location"
+      }
     },
     "outlineFlow": {
       "readyToContinue": "Lecture plan ready",
@@ -485,7 +503,9 @@
       "waitingDetail": "This lesson is queued independently and starts when capacity is available. No further action is needed.",
       "failed": "Could not start the batch lesson-plan tasks. Try again.",
       "failedTitle": "Lesson-plan generation did not start",
-      "status": { "pending": "Waiting", "running": "Generating", "paused": "Paused", "completed": "Complete", "completed_with_warnings": "Complete", "failed": "Failed", "cancelled": "Cancelled" }
+      "status": { "pending": "Waiting", "running": "Generating", "paused": "Paused", "completed": "Complete", "completed_with_warnings": "Complete", "failed": "Failed", "cancelled": "Cancelled" },
+      "outlineRequired": "Generate a complete outline before creating lesson plans.",
+      "stateUnavailable": "The teaching structure or task state is unavailable. Check its status and retry."
     },
     "scriptBatch": {
       "flowLabel": "Handout generation steps",
@@ -611,7 +631,8 @@
         "experimentInquiry": "Experimental inquiry",
         "projectWorkshop": "Project workshop",
         "reviewAssessment": "Review and assessment"
-      }
+      },
+      "review": "Teaching structure preview"
     },
     "materialAudit": {
       "title": "Material audit",

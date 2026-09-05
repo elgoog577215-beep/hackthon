@@ -27,7 +27,6 @@ HOUR_FIELDS = ("classroom_lecture", "classroom_practice", "online_instruction")
 ISSUE_FIELDS = {
     "generic_objectives": {"learning_objective"},
     "overlong_objectives": {"learning_objective"},
-    "repeated_objective_template": {"learning_objective"},
     "repeated_assessment_template": {"assessment"},
     "missing_assessments": {"assessment"},
     "missing_scope_boundaries": {"scope_boundary"},
