@@ -162,11 +162,11 @@ def test_server_activation_preflight_runs_as_the_service_user() -> None:
     assert 'runtime_mode=os.getenv("LINGZHI_TASK_RUNTIME_MODE") or "leader"' in main
 
 
-def test_server_activation_normalizes_only_persistent_backend_data_permissions() -> None:
+def test_server_activation_normalizes_runtime_permissions_without_touching_searxng() -> None:
     script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
 
     permissions = script[
-        script.index("normalize_backend_data_permissions()") : script.index(
+        script.index("normalize_runtime_permissions()") : script.index(
             "log_service_diagnostics()"
         )
     ]
@@ -175,13 +175,15 @@ def test_server_activation_normalizes_only_persistent_backend_data_permissions()
         '"$STATE_DIR/backend-data/generation_jobs.json"', activation
     )
     permission_refresh = script.index(
-        "\nnormalize_backend_data_permissions\n", legacy_install
+        "\nnormalize_runtime_permissions\n", legacy_install
     )
     restart = script.index('systemctl restart "$SERVICE_NAME"', permission_refresh)
 
     assert 'chmod 755 "$STATE_DIR"' in permissions
     assert 'install -d -o lingzhi -g lingzhi -m 750 "$STATE_DIR/backend-data"' in permissions
     assert 'chown -R lingzhi:lingzhi "$STATE_DIR/backend-data"' in permissions
+    assert 'chown lingzhi:lingzhi "$STATE_DIR/.env"' in permissions
+    assert 'chmod 600 "$STATE_DIR/.env"' in permissions
     assert 'chown -R lingzhi:lingzhi "$STATE_DIR"' not in script
     assert permission_refresh < restart
 
@@ -245,6 +247,8 @@ def test_failure_restore_script_waits_for_health_and_reports_diagnostics() -> No
 
     assert 'HEALTH_URL="${LINGZHI_HEALTH_URL:-http://127.0.0.1:7862/health}"' in script
     assert restart < health
+    assert 'chown lingzhi:lingzhi "$STATE_DIR/.env"' in script[:restart]
+    assert 'chmod 600 "$STATE_DIR/.env"' in script[:restart]
     assert "systemctl show lingzhi" in script[health:]
     assert "journalctl -u lingzhi" in script[health:]
     subprocess.run(["bash", "-n", str(script_path)], check=True)

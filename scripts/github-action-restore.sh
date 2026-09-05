@@ -49,6 +49,10 @@ else
     log "模型配置备份不存在，拒绝伪装成回滚成功"
     exit 1
 fi
+if [ -f "$STATE_DIR/.env" ]; then
+    chown lingzhi:lingzhi "$STATE_DIR/.env"
+    chmod 600 "$STATE_DIR/.env"
+fi
 
 systemctl reset-failed lingzhi || true
 systemctl restart lingzhi

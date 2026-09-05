@@ -515,11 +515,15 @@ preflight_release_runtime() {
     )
 }
 
-normalize_backend_data_permissions() {
+normalize_runtime_permissions() {
     chmod 755 "$STATE_DIR"
     install -d -o lingzhi -g lingzhi -m 750 "$STATE_DIR/backend-data"
     chown -R lingzhi:lingzhi "$STATE_DIR/backend-data"
     chmod 750 "$STATE_DIR/backend-data"
+    if [ -f "$STATE_DIR/.env" ]; then
+        chown lingzhi:lingzhi "$STATE_DIR/.env"
+        chmod 600 "$STATE_DIR/.env"
+    fi
 }
 
 bootstrap_runtime() {
@@ -561,7 +565,7 @@ bootstrap_runtime() {
         systemctl daemon-reload
     fi
     systemctl enable "$SERVICE_NAME" >/dev/null
-    normalize_backend_data_permissions
+    normalize_runtime_permissions
 }
 
 log_service_diagnostics() {
@@ -719,7 +723,7 @@ if [ ! -f "$STATE_DIR/backend-data/generation_jobs.json" ] \
         "$STATE_DIR/backend-data/generation_jobs.json"
 fi
 
-normalize_backend_data_permissions
+normalize_runtime_permissions
 
 if [ -d "$CURRENT_LINK" ] && [ ! -L "$CURRENT_LINK" ]; then
     legacy_path="$BASE_DIR/legacy-hackthon-$timestamp"
