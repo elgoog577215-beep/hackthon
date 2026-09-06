@@ -1,5 +1,6 @@
 import { t } from '../shared/i18n'
 import type { TeacherLessonJob } from '../stores/teacherLessonAuthoring'
+import { teacherFacingTeachingLabel } from './teaching-terminology'
 
 export function hasScriptPreviewContent(job?: TeacherLessonJob): boolean {
   return Boolean(
@@ -23,8 +24,8 @@ export function scriptGenerationPresentation(job?: TeacherLessonJob) {
   }
 }
 
-export function readableScriptTitle(value: unknown, internalIds: string[] = []): string {
+export function readableScriptTitle(value: unknown, internalIds: string[] = [], moduleId = ''): string {
   const title = String(value || '').trim()
   if (!title || internalIds.includes(title) || /^tsb-[a-f\d]+$/i.test(title)) return ''
-  return title
+  return teacherFacingTeachingLabel(title, moduleId)
 }

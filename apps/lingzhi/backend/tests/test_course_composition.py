@@ -323,7 +323,7 @@ def test_final_course_block_keeps_difficulty_recipe_selection_trace():
     system_prompt = _system_prompt + _user_prompt
     assert "必需模块 `## 证明与推导`" in system_prompt
     assert "必需模块 `## 数学建模`" in system_prompt
-    assert "必需模块 `## 迁移挑战`" in system_prompt
+    assert "必需模块 `## 拓展应用`" in system_prompt
 
     set_node_content_blocks(
         node,

@@ -179,11 +179,11 @@ function fallbackItems(unit: Record<string, unknown> | null): FallbackItem[] {
 
 function reasonText(reason: FallbackReason): string {
   const table: Record<FallbackReason, string> = {
-    missing_spec: '图解数据缺失或结构不符，已降级为文本列表。',
-    invalid_nodes: '图解节点缺失、字段类型不符或存在重复 id，已降级为文本列表。',
-    too_many_nodes: `图解节点数超过 ${MAX_NODES} 个上限，已降级为文本列表。`,
-    unknown_diagram_kind: '图解类型未知，无法确定渲染方式，已降级为文本列表。',
-    invalid_edges: '图解关系指向了不存在的节点或字段不符，已降级为文本列表。',
+    missing_spec: '图解数据缺失或结构不完整，已改用文本列表显示。',
+    invalid_nodes: '图解内容缺失、格式不正确或存在重复项，已改用文本列表显示。',
+    too_many_nodes: `图解内容超过 ${MAX_NODES} 项，已改用文本列表显示。`,
+    unknown_diagram_kind: '暂时无法识别这种图解类型，已改用文本列表显示。',
+    invalid_edges: '图解中的关系无法对应到现有内容，已改用文本列表显示。',
   }
   return t(`teachingRepresentations.diagram.reason.${reason}`, table[reason])
 }

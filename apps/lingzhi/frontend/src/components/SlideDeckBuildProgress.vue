@@ -213,7 +213,7 @@ const steps: readonly BuildStep[] = [
     key: 'repair',
     label: '补图与语义修复',
     description: '检索图片、核验来源并修复内容缺口',
-    tasks: ['识别需要配图的页面', '检索并去重候选图片', '核验图片来源并修复缺口'],
+    tasks: ['识别需要配图的页面', '检索并去重建议图片', '核验图片来源并修复缺口'],
   },
   {
     key: 'quality',

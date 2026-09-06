@@ -27,11 +27,11 @@
           <div>
             <Sparkles :size="16" />
             <span>
-              <strong>{{ t('courseWorkbench.aiCollaboration.outlineCandidateTitle', 'AI 候选已嵌入大纲正文') }}</strong>
-              <small>{{ t('courseWorkbench.aiCollaboration.inlineCandidateBoundary', '原文仍然保留，只有采用后候选才会写入正式大纲。') }}</small>
+              <strong>{{ t('courseWorkbench.aiCollaboration.outlineCandidateTitle', '修改建议已嵌入大纲正文') }}</strong>
+              <small>{{ t('courseWorkbench.aiCollaboration.inlineCandidateBoundary', '原文仍然保留，只有采用后建议才会写入正式大纲。') }}</small>
             </span>
           </div>
-          <nav :aria-label="t('courseWorkbench.aiCollaboration.inlineCandidateActions', 'AI 候选操作')">
+          <nav :aria-label="t('courseWorkbench.aiCollaboration.inlineCandidateActions', '修改建议操作')">
             <button type="button" :disabled="adjustmentBusy || requestBusy" @click="openInlineAi">
               <Sparkles :size="14" />{{ t('courseWorkbench.aiCollaboration.iterateCandidate', '继续调整') }}
             </button>
@@ -56,11 +56,11 @@
           :placeholder="t('courseWorkbench.aiCollaboration.selectionPlaceholder', '说明你想怎样修改选中内容…')"
           :submit-label="t('courseWorkbench.aiCollaboration.inlineGenerate', '生成修改')"
           :cancel-label="t('common.cancel', '取消')"
-          :working-label="t('courseWorkbench.aiCollaboration.inlineWorking', '正在生成候选…')"
+          :working-label="t('courseWorkbench.aiCollaboration.inlineWorking', '正在生成建议…')"
           :selection-label="t('courseWorkbench.aiCollaboration.inlineSelectionScope', '修改选中内容')"
           :block-label="t('courseWorkbench.aiCollaboration.inlineBlockScope', '修改当前段落')"
           :document-label="t('courseWorkbench.aiCollaboration.inlineOutlineScope', '修改当前大纲')"
-          :boundary-label="t('courseWorkbench.aiCollaboration.inlineBoundary', 'AI 只生成候选，采用后才会写入正式内容。')"
+          :boundary-label="t('courseWorkbench.aiCollaboration.inlineBoundary', 'AI 只生成建议，采用后才会写入正式内容。')"
           target-selector="h2[data-node-id], h3[data-node-id], [data-node-body], p, li, blockquote"
           @invoke="emit('open-ai-selection', $event)"
         />
@@ -103,7 +103,7 @@
             <header>
               <div>
                 <strong>{{ t('courseGeneration.outlineReview.retrievalTitle', '联网研究调整提案') }}</strong>
-                <small>{{ t('courseGeneration.outlineReview.retrievalRevision', '检索包修订 {revision}').replace('{revision}', String(retrievalProposal.retrieval_package_revision || 1)) }}</small>
+                <small>{{ t('courseGeneration.outlineReview.retrievalRevision', '资料检索版本 {revision}').replace('{revision}', String(retrievalProposal.retrieval_package_revision || 1)) }}</small>
               </div>
               <span>{{ t('courseGeneration.outlineReview.retrievalPending', '确认目录后生效') }}</span>
             </header>
@@ -1220,7 +1220,7 @@ const retrievalFailureStats = computed(() => {
   if (total <= 0) return ''
   return t(
     'courseGeneration.outlineReview.retrievalStats',
-    '已检查 {total} 个候选来源，其中 {admitted} 个符合准入标准。',
+    '已检查 {total} 个建议来源，其中 {admitted} 个符合准入标准。',
   )
     .replace('{total}', String(total))
     .replace('{admitted}', String(admitted))

@@ -58,7 +58,7 @@ COURSE_TYPE_CONTRACTS: dict[str, dict[str, Any]] = {
         "completion_evidence": "学习者能够解释、迁移并综合应用核心知识",
     },
     COURSE_TYPE_PROJECT: {
-        "label": "项目实战",
+        "label": "项目实践",
         "organizing_question": "学习者要完成什么项目，以及为了完成它需要补齐什么？",
         "planning_sequence": ["项目目标", "交付物", "项目里程碑", "能力缺口", "学习与验证"],
         "outline_requirements": [

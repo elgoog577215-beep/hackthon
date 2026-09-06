@@ -95,7 +95,7 @@ describe('CourseBlockStream', () => {
     }
     const wrapper = mount(CourseBlockStream, { props: { node, content: node.node_content }, global })
 
-    expect(wrapper.findAll('.block-heading h4').map(item => item.text())).toEqual(['本节任务', '线性组合'])
+    expect(wrapper.findAll('.block-heading h4').map(item => item.text())).toEqual(['本讲目标', '线性组合'])
     expect(wrapper.findAll('.block-heading > .block-role')).toHaveLength(0)
     expect(wrapper.findAll('.markdown-renderer')[1]?.text()).toBe('保留完整推导。\n\n### 边界条件\n零向量必须属于空间。')
     expect(node.content_blocks?.[1]?.content).toContain('## 线性组合')
@@ -178,8 +178,8 @@ describe('CourseBlockStream', () => {
     const wrapper = mount(CourseBlockStream, { props: { node, content: node.node_content }, global })
 
     expect(wrapper.findAll('.course-content-block')).toHaveLength(2)
-    expect(wrapper.text()).toContain('任务')
-    expect(wrapper.text()).toContain('行动')
+    expect(wrapper.text()).toContain('本讲目标')
+    expect(wrapper.text()).toContain('学生活动')
     expect(wrapper.text()).not.toContain('向量空间')
   })
 

@@ -291,7 +291,7 @@ const isTerminal = computed(() => ['error', 'paused', 'blocked'].includes(stageS
 const canResume = computed(() => canResumeCourseProduction(props.task))
 const progressValue = computed(() => Math.max(0, Math.min(100, Math.round(Number(props.task?.progress || 0)))))
 const productionAriaLabel = computed(() => {
-  const label = t('courseGeneration.production.ariaLabel', '课程生产现场')
+  const label = t('courseGeneration.production.ariaLabel', '课程创建进度')
   return props.courseName ? `${label}：${props.courseName}` : label
 })
 const outlineNodes = computed(() => props.nodes
@@ -498,7 +498,7 @@ const savedSummary = computed(() => savedItems.value.length
 const nextDetails = computed<Record<CourseProductionStageKey, string>>(() => {
   if (courseType.value === 'project') return {
       requirements: t('courseGeneration.production.projectRequirementsNext', '项目需求确定后立即形成第一版个人路径，后续学习证据仍可继续校准它。'),
-      outline: t('courseGeneration.production.projectOutlineNext', '确认个人路径后，系统会为每个项目节点生成能力与知识安排。'),
+      outline: t('courseGeneration.production.projectOutlineNext', '确认个人路径后，系统会为每个项目阶段生成能力与知识安排。'),
       teaching: t('courseGeneration.production.projectTeachingNext', '确认能力与知识安排后，课程会沿项目依赖逐节生成。'),
       content: t('courseGeneration.production.projectContentNext', '所有项目课程内容完成后，系统检查它们能否共同支撑最终交付物。'),
       release: t('courseGeneration.production.projectReleaseNext', '确认后，当前页面会原地切换为你的项目学习现场。'),
@@ -548,17 +548,17 @@ function nodeFailureReason(node: { error_code?: string; error?: string }): strin
 }
 const technicalError = computed(() => userError.value.technicalDetail)
 const terminalTitle = computed(() => {
-  if (stageStatus.value === 'paused') return t('courseGeneration.production.pausedTitle', '课程生产已暂停')
-  if (stageStatus.value === 'blocked') return t('courseGeneration.production.blockedTitle', '课程生产需要处理冲突')
-  return t('courseGeneration.production.interruptedTitle', '课程生产暂时中断')
+  if (stageStatus.value === 'paused') return t('courseGeneration.production.pausedTitle', '课程创建已暂停')
+  if (stageStatus.value === 'blocked') return t('courseGeneration.production.blockedTitle', '课程创建需要核对内容版本')
+  return t('courseGeneration.production.interruptedTitle', '课程创建暂时中断')
 })
 const friendlyError = computed(() => {
   if (stageStatus.value === 'paused') return t('courseGeneration.production.pausedDescription', '当前模型调用已经停止。')
-  if (stageStatus.value === 'blocked') return t('courseGeneration.production.blockedDescription', '当前产物与课程真源存在冲突。')
+  if (stageStatus.value === 'blocked') return t('courseGeneration.production.blockedDescription', '当前内容与正式课程版本存在冲突。')
   return userError.value.message || t('courseGeneration.production.genericError', '本阶段尚未完成。')
 })
 const resumeLabel = computed(() => props.task?.status === 'paused'
-  ? t('courseGeneration.production.continueAction', '继续课程生产')
+  ? t('courseGeneration.production.continueAction', '继续创建课程')
   : t('courseGeneration.production.retryAction', '重试当前阶段'))
 </script>
 

@@ -305,7 +305,7 @@ async function resolve(item: ScriptVisualItem, accept: boolean) {
     )
   } catch (error: any) {
     const detail = error?.response?.data?.detail
-    localError.value = String(detail?.message || detail || error?.message || tr('resolveFailed', '候选处理失败，请重试。', 'Could not resolve the candidate. Try again.'))
+    localError.value = String(detail?.message || detail || error?.message || tr('resolveFailed', '建议处理失败，请重试。', 'Could not resolve the candidate. Try again.'))
   } finally {
     resolvingId.value = ''
   }

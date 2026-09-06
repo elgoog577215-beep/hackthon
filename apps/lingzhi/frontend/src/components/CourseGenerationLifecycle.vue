@@ -1,5 +1,5 @@
 <template>
-  <nav class="generation-lifecycle" :aria-label="t('courseGeneration.lifecycle.label', '课程生产进度')">
+  <nav class="generation-lifecycle" :aria-label="t('courseGeneration.lifecycle.label', '课程创建进度')">
     <div class="generation-lifecycle__inner">
       <div class="generation-lifecycle__summary" :data-status="currentStatus">
         <span>
@@ -9,7 +9,7 @@
           <Check v-else :size="14" />
         </span>
         <div>
-          <small>{{ t('courseGeneration.workspace.label', '课程生产') }}</small>
+          <small>{{ t('courseGeneration.workspace.label', '课程创建') }}</small>
           <strong>{{ activeMilestoneIndex + 1 }} / {{ milestones.length }}</strong>
         </div>
       </div>

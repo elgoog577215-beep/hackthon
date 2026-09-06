@@ -143,23 +143,23 @@ MODULES: dict[str, TeachingModuleSpec] = {
     # 通用骨架
     "course_positioning": _module("course_positioning", "课程定位", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "说明学习对象、最终成果和边界", "明确这门课面向谁、学完能做什么、哪些内容不在范围内"),
     "learning_path": _module("learning_path", "学习路径", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "形成可解释的前置依赖和章节顺序", "章节必须由知识或能力依赖推进，不能只是主题罗列"),
-    "integrated_transfer": _module("integrated_transfer", "综合迁移", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "安排整合多章能力的最终任务", "课程末尾必须让学习者将多个章节用于一个完整问题"),
-    "lesson_goal": _module("lesson_goal", "本节任务", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "给出可观察的本节学习目标", "开头直接说明本节要解决的问题和学会后的可验证行为"),
-    "core_explanation": _module("core_explanation", "核心教学", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "讲清当前核心知识或方法", "围绕节点目标解释必要内容，不扩写无关百科背景"),
-    "learner_action": _module("learner_action", "学习者行动", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "要求学习者完成主动加工任务", "安排计算、实现、分析、表达或操作，而不是只让学习者阅读"),
+    "integrated_transfer": _module("integrated_transfer", "综合应用", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "安排整合多讲能力的最终任务", "课程末尾必须让学生将多讲所学用于一个完整问题"),
+    "lesson_goal": _module("lesson_goal", "本讲目标", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "给出可观察的本讲学习目标", "开头直接说明本讲要解决的问题和学会后的可验证行为"),
+    "core_explanation": _module("core_explanation", "重点讲解", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "讲清当前核心知识或方法", "围绕本讲目标解释必要内容，不扩写无关百科背景"),
+    "learner_action": _module("learner_action", "学生活动", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "要求学生完成主动加工任务", "安排计算、实现、分析、表达或操作，而不是只让学生阅读"),
     "feedback_check": _module(
         "feedback_check",
-        "检查与反馈",
+        "课堂评价与反馈",
         ModuleScope.LESSON,
         ModuleFrequency.LESSON_REQUIRED,
-        "按学习者任务分别提供核对标准、参考结论、推导依据和典型错误",
+        "按学生任务分别提供核对标准、参考结论、推导依据和典型错误",
         "静态课程块不是个性化反馈；每个任务使用三级标题，先说明核对标准，再给参考结论和依据",
     ),
 
     # 课程编排偏好扩展。它们只负责跨学科的块节奏，不能替代下方学科模块。
     "composition_deep_reasoning": _module(
         "composition_deep_reasoning",
-        "深入推演",
+        "深入讲解与推理",
         ModuleScope.LESSON,
         ModuleFrequency.CONDITIONAL,
         "把核心结论展开为可检查的因果、推理或推导链",
@@ -170,12 +170,12 @@ MODULES: dict[str, TeachingModuleSpec] = {
         "补充案例",
         ModuleScope.LESSON,
         ModuleFrequency.CONDITIONAL,
-        "增加一个与本节目标直接对应、可逐步拆解的典型案例",
+        "增加一个与本讲目标直接对应、可逐步拆解的典型案例",
         "案例必须写清情境、输入、关键判断、过程和结果检查，不得只换名词复述正文",
     ),
     "composition_real_application": _module(
         "composition_real_application",
-        "真实场景",
+        "情境应用",
         ModuleScope.LESSON,
         ModuleFrequency.CONDITIONAL,
         "把本节能力用于一个有角色、目标与约束的真实情境",
@@ -183,7 +183,7 @@ MODULES: dict[str, TeachingModuleSpec] = {
     ),
     "composition_project_task": _module(
         "composition_project_task",
-        "项目实战",
+        "项目实践",
         ModuleScope.LESSON,
         ModuleFrequency.CONDITIONAL,
         "产出可检查的阶段性项目成果",
@@ -199,7 +199,7 @@ MODULES: dict[str, TeachingModuleSpec] = {
     ),
     "composition_boundary": _module(
         "composition_boundary",
-        "边界与反例",
+        "适用条件与反例",
         ModuleScope.LESSON,
         ModuleFrequency.CONDITIONAL,
         "用边界条件或反例检验当前概念、方法或结论",
@@ -218,59 +218,59 @@ MODULES: dict[str, TeachingModuleSpec] = {
     ),
     "difficulty_guided_practice": _module(
         "difficulty_guided_practice",
-        "带支架练习",
+        "分步练习",
         ModuleScope.LESSON,
         ModuleFrequency.CONDITIONAL,
-        "让学习者在提示、半成品或检查点支持下完成相邻任务",
-        "提供逐级减少的提示或中间检查点，但保留需要学习者亲自完成的关键步骤",
+        "让学生在提示、半成品或检查点支持下完成相邻任务",
+        "提供逐级减少的提示或中间检查点，但保留需要学生亲自完成的关键步骤",
     ),
     "difficulty_transfer_challenge": _module(
         "difficulty_transfer_challenge",
-        "迁移挑战",
+        "拓展应用",
         ModuleScope.LESSON,
         ModuleFrequency.CONDITIONAL,
         "在新条件、多重约束或陌生情境中独立迁移本节能力",
-        "改变情境、条件或目标，要求学习者说明方法选择、边界、取舍和验收依据",
+        "改变情境、条件或目标，要求学生说明方法选择、边界、取舍和完成依据",
     ),
 
     # 通用课程
-    "general_concept_map": _module("general_concept_map", "概念地图", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "连接核心概念和方法", "用清晰关系组织概念，避免百科式堆砌"),
-    "general_explained_example": _module("general_explained_example", "解释性例子", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "用具体例子落实抽象说明", "例子必须对应当前概念并解释映射关系"),
+    "general_concept_map": _module("general_concept_map", "概念关系", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "连接核心概念和方法", "用清晰关系组织概念，避免百科式堆砌"),
+    "general_explained_example": _module("general_explained_example", "例子讲解", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "用具体例子落实抽象说明", "例子必须对应当前概念并解释对应关系"),
     "general_application": _module("general_application", "应用场景", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "说明知识在真实问题中的用法", "给出可执行的应用情境和判断步骤"),
     "general_checklist": _module("general_checklist", "清单或模板", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "产出可复用清单或模板", "仅在方法型主题中提供简洁、可直接使用的清单", "步骤", "流程", "方法", "操作"),
     "general_comparison": _module("general_comparison", "案例比较", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "比较不同选择的适用条件", "对比至少两种做法及其边界", "比较", "区别", "选择", "方案"),
     "general_concept_model": _module("general_concept_model", "概念模型", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "建立概念、关系、条件和边界", "围绕当前问题组织概念关系，并用例子与反例划清边界"),
     "general_procedure": _module("general_procedure", "方法演练", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "执行并检查一个完整方法", "写清输入、判断、步骤、结果和自检，不把清单当作答案"),
-    "general_transfer": _module("general_transfer", "综合迁移", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "整合前序知识解决变化后的问题", "改变情境或约束，要求说明选择、边界和验收依据"),
+    "general_transfer": _module("general_transfer", "综合应用", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "整合前序知识解决变化后的问题", "改变情境或约束，要求说明选择、边界和完成依据"),
 
     # 数学与形式科学
     "math_prerequisite_diagnostic": _module("math_prerequisite_diagnostic", "前置诊断", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "列出并检查必要前置知识", "在进入新对象前明确依赖的定义和运算能力"),
-    "math_intuition": _module("math_intuition", "直觉入口", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "给出形式化之前的可检验直觉", "用图形、变化或问题建立直觉，但不能替代正式定义"),
+    "math_intuition": _module("math_intuition", "直观理解", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "在形式化之前建立可检验的直观理解", "用图形、变化或问题建立直观理解，但不能替代正式定义"),
     "math_formalization": _module("math_formalization", "正式定义", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "给出符号、对象、条件和边界", "正式写出定义或命题，逐一解释符号和适用条件", "定义", "定理", "公式", "证明"),
-    "math_worked_example": _module("math_worked_example", "例题推演", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "展示完整求解或推理过程", "例题必须写出关键步骤、依据和结果检查"),
+    "math_worked_example": _module("math_worked_example", "例题讲解", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "展示完整求解或推理过程", "例题必须写出关键步骤、依据和结果检查"),
     "math_variation": _module("math_variation", "变式练习", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "提供需要独立迁移的相邻问题", "改变条件或表示方式，避免照抄例题"),
     "math_error_analysis": _module("math_error_analysis", "错误分析", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "解释常见错误的逻辑原因", "指出错误发生在哪个定义、条件或推理步骤"),
     "math_proof": _module("math_proof", "证明与推导", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "给出必要的证明或推导链", "只有节点目标需要时才完整证明，不能每节强制证明", "证明", "推导", "定理", "性质"),
     "math_modeling": _module("math_modeling", "数学建模", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "把现实条件转化为形式对象", "说明变量、假设、方程和结果解释", "建模", "优化", "预测"),
-    "math_representation": _module("math_representation", "多重表征", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "连接文字、符号、图形和数值表征", "说明不同表征对应同一数学对象的哪些性质与不变量"),
+    "math_representation": _module("math_representation", "多种表示", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "连接文字、符号、图形和数值等表示方式", "说明不同表示对应同一数学对象的哪些性质与不变量"),
     "math_problem_strategy": _module("math_problem_strategy", "策略选择", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "解释如何识别问题结构并选择方法", "比较可用策略、选择依据、关键步骤和结果检查"),
     "math_reasoning_discourse": _module("math_reasoning_discourse", "数学论证", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "表达、比较并检验数学推理", "要求学习者说明每一步依据、回应异议并识别例证与证明的差别"),
 
     # 编程与工程技术
-    "engineering_artifact_path": _module("engineering_artifact_path", "工程成果路径", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "定义最终可运行成果和项目里程碑", "课程顺序围绕逐步构建一个可验收成果组织"),
-    "engineering_minimal_run": _module("engineering_minimal_run", "最小可运行示例", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "提供能够直接运行的最小实现", "代码必须完整到可运行，并说明环境或版本前提", "代码", "实现", "运行", "编程"),
-    "engineering_output": _module("engineering_output", "运行结果", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "展示或描述正确运行结果", "说明如何运行、预期输出和验收方法"),
-    "engineering_mechanism": _module("engineering_mechanism", "机制拆解", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "解释实现为什么工作", "逐段解释关键机制、数据流或控制流"),
-    "engineering_modification": _module("engineering_modification", "修改任务", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "要求学习者修改并重新验证实现", "任务必须改变需求或约束，不能只复制代码"),
-    "engineering_debugging": _module("engineering_debugging", "调试案例", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "展示错误、定位和修复过程", "给出真实错误现象、原因和验证修复的方法"),
-    "engineering_testing": _module("engineering_testing", "测试与质量", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "提供自动或手动验证", "对关键行为设计测试和边界条件", "测试", "质量", "边界", "可靠性"),
+    "engineering_artifact_path": _module("engineering_artifact_path", "项目成果与进度", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "定义最终可运行成果和项目里程碑", "课程顺序围绕逐步完成一个可检查成果组织"),
+    "engineering_minimal_run": _module("engineering_minimal_run", "基础示例与运行", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "提供能够直接运行的基础实现", "代码必须完整到可运行，并说明环境或版本前提", "代码", "实现", "运行", "编程"),
+    "engineering_output": _module("engineering_output", "运行结果与核对", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "展示或描述正确运行结果", "说明如何运行、预期输出和核对方法"),
+    "engineering_mechanism": _module("engineering_mechanism", "实现原理", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "解释实现为什么工作", "逐段解释关键原理、数据流或控制流"),
+    "engineering_modification": _module("engineering_modification", "改进练习", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "要求学生修改并重新验证实现", "练习必须改变需求或约束，不能只复制代码"),
+    "engineering_debugging": _module("engineering_debugging", "调试与修正", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "展示错误、定位和修复过程", "给出真实错误现象、原因和验证修复的方法"),
+    "engineering_testing": _module("engineering_testing", "测试与结果分析", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "提供自动或手动验证", "对关键行为设计测试和边界条件", "测试", "质量", "边界", "可靠性"),
     "engineering_architecture": _module("engineering_architecture", "架构设计", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "解释组件职责和取舍", "只有系统级主题才引入架构，不强制画图", "架构", "系统", "模块", "服务"),
-    "engineering_design": _module("engineering_design", "需求与设计", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "把需求转化为组件、接口和验收条件", "先说明约束与方案取舍，再进入实现"),
+    "engineering_design": _module("engineering_design", "需求分析与方案设计", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "把需求转化为组件、接口和完成条件", "先说明约束与方案取舍，再进入实现"),
     "engineering_refactoring": _module("engineering_refactoring", "重构实践", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "在保持外部行为不变的前提下改善实现", "先用测试保护行为，再说明代码结构和可维护性如何改善"),
     "engineering_review": _module("engineering_review", "代码评审", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "依据正确性、清晰度和边界条件评审实现", "给出具体问题、影响、修改建议和验证方式"),
 
     # 自然科学
-    "science_phenomenon_path": _module("science_phenomenon_path", "现象到模型路径", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "按现象、模型、证据和应用组织课程", "课程必须从可观察问题进入模型，再回到预测或解释"),
+    "science_phenomenon_path": _module("science_phenomenon_path", "从现象到模型", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "按现象、模型、证据和应用组织课程", "课程必须从可观察问题进入模型，再回到预测或解释"),
     "science_phenomenon": _module("science_phenomenon", "现象与问题", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "提出可观察现象和待解释问题", "区分观察事实与需要解释的问题"),
     "science_model": _module("science_model", "模型与规律", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "说明对象、变量、假设和规律", "明确模型假设、规律和适用范围"),
     "science_evidence": _module("science_evidence", "实验与证据", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "给出支持结论的实验、数据或观察", "把证据、解释和结论分开写清"),
@@ -286,9 +286,9 @@ MODULES: dict[str, TeachingModuleSpec] = {
     "life_system_levels": _module("life_system_levels", "生命层级", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "建立结构层级与系统关系", "从分子、细胞、组织或系统中选择适当层级推进"),
     "life_location_structure": _module("life_location_structure", "定位与结构", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "说明对象位于哪里、由什么组成", "先定位结构层级，再描述关键组成"),
     "life_function": _module("life_function", "功能", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "说明结构承担的功能", "把功能与具体结构联系起来"),
-    "life_mechanism": _module("life_mechanism", "机制过程", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "解释过程怎样发生", "按因果顺序解释机制，不把相关性写成因果"),
+    "life_mechanism": _module("life_mechanism", "过程与机制", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "解释过程怎样发生", "按因果顺序解释机制，不把相关性写成因果"),
     "life_regulation": _module("life_regulation", "调节与系统关系", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "连接调节因素和其他系统", "说明反馈、稳态或系统相互作用"),
-    "life_case": _module("life_case", "机制案例", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "用案例检验结构功能机制", "案例用于解释知识，不给个人诊断或治疗建议"),
+    "life_case": _module("life_case", "案例分析", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "用案例检验结构、功能和机制", "案例用于解释知识，不给个人诊断或治疗建议"),
     "life_normal_abnormal": _module("life_normal_abnormal", "正常与异常", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "比较正常机制和异常变化", "只解释学习范围内的机制和风险边界", "疾病", "异常", "病理", "风险"),
     "life_evidence": _module("life_evidence", "实验依据", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "说明机制的实验或观察依据", "区分已知事实、常见模型和不确定性", "实验", "研究", "证据", "数据"),
     "life_scale_connection": _module("life_scale_connection", "尺度连接", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "连接分子、细胞、组织、个体或生态尺度", "明确当前解释尺度以及跨尺度变化如何传递"),
@@ -309,34 +309,77 @@ MODULES: dict[str, TeachingModuleSpec] = {
     "humanities_synthesis": _module("humanities_synthesis", "综合回应", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "整合多份材料与观点形成完整回应", "不能把摘要拼接成论证，必须形成主张、证据和推理链"),
 
     # 语言学习
-    "language_scenario_path": _module("language_scenario_path", "交际场景路径", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "按可完成的沟通场景组织课程", "每章服务一个逐步升级的真实沟通目标"),
-    "language_input": _module("language_input", "可理解输入", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "提供符合当前水平的对话、文本或听力稿", "输入必须包含本节目标表达并控制生词负担"),
+    "language_scenario_path": _module("language_scenario_path", "交际能力发展", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "按可完成的沟通情境组织课程", "每讲服务一个逐步升级的真实沟通目标"),
+    "language_input": _module("language_input", "可理解输入", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "提供符合当前水平的对话、文本或听力稿", "输入必须包含本讲目标表达并控制生词负担"),
     "language_chunks": _module("language_chunks", "词汇与语块", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "提取可直接使用的表达", "优先教授语块、搭配和使用条件，而非孤立词表"),
     "language_form_use": _module("language_form_use", "形式、意义与使用", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "解释句型或语法如何表达意义", "把形式、意义和语用场景连接起来"),
-    "language_controlled_practice": _module("language_controlled_practice", "控制练习", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "让学习者准确模仿和替换", "从低自由度练习开始，并提供答案或反馈"),
-    "language_output": _module("language_output", "真实输出", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "要求学习者说、写、读或听后回应", "输出任务必须对应本节场景并可评价"),
+    "language_controlled_practice": _module("language_controlled_practice", "基础练习", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "让学生准确模仿和替换", "从低自由度练习开始，并提供答案或反馈"),
+    "language_output": _module("language_output", "表达与运用", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "要求学生说、写、读或听后回应", "表达任务必须对应本讲情境并可评价"),
     "language_review": _module("language_review", "间隔复习", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "安排旧语块在后续场景复现", "新课必须复用先前表达，形成间隔和交错练习"),
     "language_pronunciation": _module("language_pronunciation", "发音与文字系统", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "提供发音、重音或文字规则练习", "只在目标语言和节点需要时启用", "发音", "音标", "拼写", "字母"),
     "language_pragmatics": _module("language_pragmatics", "文化与语用", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "说明礼貌、语域和文化使用边界", "避免把文化倾向写成绝对规则", "礼貌", "文化", "正式", "语境"),
     "language_noticing": _module("language_noticing", "语言注意", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "从输入中注意形式、意义和使用条件", "先让学习者发现目标表达，再用简洁规则澄清"),
-    "language_interaction": _module("language_interaction", "互动协商", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "在信息差中理解、回应和协商意义", "设置角色、目标和真实选择，不能只背诵固定脚本"),
-    "language_mediation": _module("language_mediation", "调解转述", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "面向特定对象重组、解释或转述信息", "保留关键信息和交际目的，不做逐字替换"),
+    "language_interaction": _module("language_interaction", "互动交流", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "在信息差中理解、回应和协商意义", "设置角色、目标和真实选择，不能只背诵固定脚本"),
+    "language_mediation": _module("language_mediation", "转述与沟通", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "面向特定对象重组、解释或转述信息", "保留关键信息和交际目的，不做逐字替换"),
     "language_feedback_repair": _module("language_feedback_repair", "反馈与修正", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "依据交际效果与准确性反馈修正输出", "区分影响理解的错误和可暂缓问题，修正后再次完成任务"),
 
     # 商业与职业技能
-    "business_deliverable_path": _module("business_deliverable_path", "工作成果路径", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "围绕真实工作成果组织课程", "最终必须产出方案、分析、文档、决策或可演示成果"),
+    "business_deliverable_path": _module("business_deliverable_path", "成果形成过程", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "围绕真实工作成果组织课程", "最终必须产出方案、分析、文档、决策或可演示成果"),
     "business_scenario": _module("business_scenario", "业务场景", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "给出角色、目标和约束", "使用具体工作场景，不能只讲管理口号"),
     "business_framework": _module("business_framework", "方法框架", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "提供可解释的判断框架", "说明框架解决什么问题、何时不适用"),
-    "business_case": _module("business_case", "案例拆解", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "展示从信息到决策的过程", "案例必须包含约束、取舍和结果"),
+    "business_case": _module("business_case", "案例分析", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "展示从信息到决策的过程", "案例必须包含约束、取舍和结果"),
     "business_tool": _module("business_tool", "工具与模板", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "提供可复用模板、清单或步骤", "工具必须可以直接用于本节实战任务"),
-    "business_task": _module("business_task", "实战任务", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "要求产出工作成果", "明确输入、交付物和完成条件"),
+    "business_task": _module("business_task", "实践任务", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "要求产出工作成果", "明确输入、交付物和完成条件"),
     "business_metric": _module("business_metric", "评价指标", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "用指标或评分标准检查成果", "指标必须能区分不同质量的交付物"),
     "business_roleplay": _module("business_roleplay", "角色模拟", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "模拟沟通、谈判或决策", "给出双方目标、信息差和复盘问题", "谈判", "沟通", "汇报", "面试"),
     "business_data": _module("business_data", "数据分析", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "使用数据支持判断", "明确指标定义、计算和决策含义", "数据", "指标", "财务", "分析"),
     "business_problem_diagnosis": _module("business_problem_diagnosis", "问题诊断", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "区分业务症状、原因、约束和信息缺口", "先形成问题定义，再选择框架或工具"),
     "business_decision": _module("business_decision", "决策与取舍", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "比较选项并作出可解释决策", "说明依据、风险、机会成本和替代方案"),
-    "business_reflection": _module("business_reflection", "成果复盘", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "依据反馈和结果修订工作成果", "区分执行过程、成果质量和下一轮改进"),
+    "business_reflection": _module("business_reflection", "成果评价与反思", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "依据反馈和结果修订工作成果", "区分执行过程、成果质量和下一轮改进"),
     "business_ethics": _module("business_ethics", "伦理与相关方", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "分析决策对不同利益相关者的影响", "识别利益冲突、风险与责任，避免只以单一指标判断"),
+}
+
+
+# 这些旧名称只用于读取既有课程和历史 Markdown。新生成内容一律使用
+# MODULES 中的教师端正式名称，避免兼容层重新进入界面或生成提示词。
+MODULE_LABEL_ALIASES: dict[str, tuple[str, ...]] = {
+    "integrated_transfer": ("综合迁移",),
+    "lesson_goal": ("本节任务", "本节目标"),
+    "core_explanation": ("核心教学", "核心讲解"),
+    "learner_action": ("学习者行动",),
+    "feedback_check": ("检查与反馈",),
+    "composition_deep_reasoning": ("深入推演",),
+    "composition_real_application": ("真实场景",),
+    "composition_project_task": ("项目实战",),
+    "composition_boundary": ("边界与反例",),
+    "difficulty_guided_practice": ("带支架练习",),
+    "difficulty_transfer_challenge": ("迁移挑战",),
+    "general_concept_map": ("概念地图",),
+    "general_explained_example": ("解释性例子",),
+    "general_transfer": ("综合迁移",),
+    "math_intuition": ("直觉入口",),
+    "math_worked_example": ("例题推演",),
+    "math_representation": ("多重表征",),
+    "engineering_artifact_path": ("工程成果路径",),
+    "engineering_minimal_run": ("最小可运行示例",),
+    "engineering_output": ("运行结果",),
+    "engineering_mechanism": ("机制拆解",),
+    "engineering_modification": ("修改任务",),
+    "engineering_debugging": ("调试案例",),
+    "engineering_testing": ("测试与质量",),
+    "engineering_design": ("需求与设计",),
+    "science_phenomenon_path": ("现象到模型路径",),
+    "life_mechanism": ("机制过程",),
+    "life_case": ("机制案例",),
+    "language_scenario_path": ("交际场景路径",),
+    "language_controlled_practice": ("控制练习",),
+    "language_output": ("真实输出",),
+    "language_interaction": ("互动协商",),
+    "language_mediation": ("调解转述",),
+    "business_deliverable_path": ("工作成果路径",),
+    "business_case": ("案例拆解",),
+    "business_task": ("实战任务",),
+    "business_reflection": ("成果复盘",),
 }
 
 
@@ -456,15 +499,16 @@ def module_block_role(module_id: str) -> str:
 
 
 def module_role_from_heading(title: str) -> str | None:
-    """Resolve a generated heading only when it matches a registered module label."""
+    """Resolve current and historical headings without re-emitting legacy labels."""
     normalized = re.sub(r"\s+", "", str(title or "")).strip("：:、。 ").lower()
     if not normalized:
         return None
     matches: list[tuple[int, str]] = []
     for module_id, module in MODULES.items():
-        label = re.sub(r"\s+", "", module.label).strip("：:、。 ").lower()
-        if normalized == label or normalized.startswith(f"{label}：") or normalized.startswith(f"{label}:"):
-            matches.append((len(label), module_block_role(module_id)))
+        for raw_label in (module.label, *MODULE_LABEL_ALIASES.get(module_id, ())):
+            label = re.sub(r"\s+", "", raw_label).strip("：:、。 ").lower()
+            if normalized == label or normalized.startswith(f"{label}：") or normalized.startswith(f"{label}:"):
+                matches.append((len(label), module_block_role(module_id)))
     return max(matches, default=(0, ""))[1] or None
 
 
@@ -1111,6 +1155,7 @@ __all__ = [
     "PedagogyTemplate",
     "SubjectPedagogyProfile",
     "MODULES",
+    "MODULE_LABEL_ALIASES",
     "MODULE_BLOCK_ROLES",
     "TEMPLATES",
     "LESSON_ARCHETYPES",

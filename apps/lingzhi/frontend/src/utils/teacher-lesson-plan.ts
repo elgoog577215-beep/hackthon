@@ -1,3 +1,5 @@
+import { teacherFacingTeachingLabel } from './teaching-terminology'
+
 export interface TeacherLessonSectionView {
   learningObjective: string
   keyDifficulties: string[]
@@ -15,16 +17,16 @@ export interface TeacherLessonSectionDiff {
 }
 
 const MODULE_LABELS: Record<string, string> = {
-  lesson_goal: '本节目标',
-  core_explanation: '核心讲解',
+  lesson_goal: '本讲目标',
+  core_explanation: '重点讲解',
   math_problem_strategy: '策略选择',
-  math_worked_example: '例题推演',
-  math_intuition: '直觉导入',
-  math_representation: '多重表征',
+  math_worked_example: '例题讲解',
+  math_intuition: '直观理解',
+  math_representation: '多种表示',
   math_formalization: '正式定义',
   math_variation: '变式练习',
-  learner_action: '学习者行动',
-  feedback_check: '检查与反馈',
+  learner_action: '学生活动',
+  feedback_check: '课堂评价与反馈',
 }
 
 const asTextList = (value: unknown): string[] => {
@@ -47,7 +49,7 @@ const knowledgePoints = (section: Record<string, any>): Array<Record<string, any
 
 const moduleLine = (module: Record<string, any>): string => {
   const moduleId = String(module.module_id || '')
-  const label = String(module.label || MODULE_LABELS[moduleId] || '教学活动')
+  const label = teacherFacingTeachingLabel(module.label || MODULE_LABELS[moduleId] || '教学活动', moduleId)
   const knowledge = asTextList(module.knowledge_names)
   const guidance = String(module.teaching_guidance || '').trim()
   const concreteGuidance = /^按模板完成/.test(guidance) ? '' : guidance

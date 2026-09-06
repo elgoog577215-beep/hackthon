@@ -970,13 +970,13 @@ def _objective_slide(
         position=0,
         layout="objective",
         slide_purpose="learning_objective",
-        eyebrow="本节任务",
+        eyebrow="本讲目标",
         title=section.title,
         key_message=_trim(section.learning_objective or problem or section.title, 150),
         blocks=slide_blocks,
         speaker_notes=_trim(
             "先用一个真实问题唤起学生已有经验，再明确本节结束时需要做到什么。\n"
-            f"本节目标是：{section.learning_objective or section.title}。\n"
+            f"本讲目标是：{section.learning_objective or section.title}。\n"
             f"{'完整知识坐标：' + '、'.join(knowledge_details) + '。' if knowledge_details else ''}\n"
             f"{'完整能力目标：' + '、'.join(ability_details) + '。' if ability_details else ''}\n"
             "不要在目标页提前给出结论；请让学生知道后续每一页如何帮助他们完成这个目标。",
@@ -1016,12 +1016,12 @@ def _compact_section_slide(
         position=0,
         layout=layout,
         slide_purpose="concept_and_reasoning",
-        eyebrow="核心教学",
+        eyebrow="重点讲解",
         title=section.title,
         key_message=_trim(section.learning_objective or _first_meaningful_line(blocks), 150),
         blocks=slide_blocks,
         speaker_notes=_trim(
-            f"围绕本节目标讲清概念并检查理解：{section.learning_objective or section.title}\n\n"
+            f"围绕本讲目标讲清概念并检查理解：{section.learning_objective or section.title}\n\n"
             + "\n\n".join(
                 _plain_text(_block_markdown(block))
                 for block in blocks
@@ -1057,7 +1057,7 @@ def _slide_for_block(
         "reasoning": "推理过程",
         "example": "例子映射",
         "application": "应用迁移",
-        "activity": "学习者行动",
+        "activity": "学生活动",
         "feedback": "检查反馈",
         "misconception": "误区辨析",
         "summary": "本节小结",
@@ -1068,7 +1068,7 @@ def _slide_for_block(
         position=0,
         layout=layout,
         slide_purpose=block.role,
-        eyebrow=purpose_labels.get(block.role, "核心教学"),
+        eyebrow=purpose_labels.get(block.role, "重点讲解"),
         title=_trim(title, 48),
         key_message=_trim(
             f"{_objective_focus_label(section.learning_objective)}｜{_block_key_message(block)}",

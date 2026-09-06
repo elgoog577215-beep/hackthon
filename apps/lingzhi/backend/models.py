@@ -464,11 +464,11 @@ class CourseGenerationRequest(BaseModel):
             raise ValueError("course_intent.type 必须与 course_type 一致")
         if self.course_type == "project":
             if not isinstance(self.course_intent, ProjectCourseIntent):
-                raise ValueError("项目实战课程必须提供 course_intent")
+                raise ValueError("项目实践课程必须提供 course_intent")
             if not self.course_intent.project_goal.strip():
-                raise ValueError("项目实战课程必须提供 project_goal")
+                raise ValueError("项目实践课程必须提供 project_goal")
             if not self.course_intent.expected_deliverable.strip():
-                raise ValueError("项目实战课程必须提供 expected_deliverable")
+                raise ValueError("项目实践课程必须提供 expected_deliverable")
         elif self.course_type == "inquiry":
             if not isinstance(self.course_intent, InquiryCourseIntent):
                 raise ValueError("问题探究课程必须提供 course_intent")

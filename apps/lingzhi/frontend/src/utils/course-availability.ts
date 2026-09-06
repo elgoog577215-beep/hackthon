@@ -19,7 +19,7 @@ const PRACTICE_COPY: Record<string, { title: string; body: string }> = {
   },
   question_review_pending: {
     title: '题目正在等待教师审核',
-    body: '候选题已经生成，但风险项尚未确认，因此不会提前展示给学生。',
+    body: '建议题已经生成，但风险项尚未确认，因此不会提前展示给学生。',
   },
   question_validation_failed: {
     title: '题目没有通过质量验证',
@@ -27,7 +27,7 @@ const PRACTICE_COPY: Record<string, { title: string; body: string }> = {
   },
   question_source_insufficient: {
     title: '课程资料不足以生成可靠题目',
-    body: '当前来源无法支撑可解、可评分的题目，请补充资料或由教师确认候选题。',
+    body: '当前来源无法支撑可解、可评分的题目，请补充资料或由教师确认建议题。',
   },
   node_assessment_not_enabled: {
     title: '当前节点未启用测评',

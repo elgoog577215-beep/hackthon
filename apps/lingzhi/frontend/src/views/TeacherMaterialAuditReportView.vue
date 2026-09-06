@@ -5,7 +5,7 @@
         <button type="button" :aria-label="returnLabel" @click="backToWorkbench"><ArrowLeft :size="17" /></button>
         <FolderOpen :size="18" />
         <h1>{{ courseName || t('courseFiles.untitledCourse', '未命名课程') }}</h1>
-        <small>{{ t('courseAuditUpdates.title', '审计与更新') }}</small>
+        <small>{{ t('courseAuditUpdates.title', '资料审阅与更新') }}</small>
       </div>
     </Teleport>
 
@@ -202,18 +202,18 @@
               </section>
 
               <section class="detail-section-selector" v-if="selectedTarget.structured_draft?.sections.length">
-                <small>{{ t('courseAuditUpdates.structuredPosition', '结构化位置') }}</small>
+                <small>{{ t('courseAuditUpdates.structuredPosition', '对应位置') }}</small>
                 <select v-model="selectedSectionId">
                   <option v-for="section in selectedTarget.structured_draft.sections" :key="section.section_id" :value="section.section_id">{{ section.title }}</option>
                 </select>
               </section>
 
               <section class="structured-preview">
-                <header><strong>{{ t('courseAuditUpdates.structuredPreview', '结构化内容预览') }}</strong><small>{{ selectedSection?.blocks.length || 0 }} {{ t('courseAuditUpdates.blocks', '个内容块') }}</small></header>
+                <header><strong>{{ t('courseAuditUpdates.structuredPreview', '整理后内容预览') }}</strong><small>{{ selectedSection?.blocks.length || 0 }} {{ t('courseAuditUpdates.blocks', '个内容段') }}</small></header>
                 <div v-if="selectedSection?.blocks.length">
                   <p v-for="block in selectedSection.blocks.slice(0, 5)" :key="block.block_id"><span>{{ block.kind }}</span>{{ block.text }}</p>
                 </div>
-                <p v-else class="preview-empty">{{ t('courseAuditUpdates.noPreview', '当前对象还没有可预览的结构化内容') }}</p>
+                <p v-else class="preview-empty">{{ t('courseAuditUpdates.noPreview', '当前内容还没有可预览的整理稿') }}</p>
               </section>
 
               <section class="material-decisions">
@@ -222,10 +222,10 @@
                 <label v-if="plan?.scope_options?.length"><span>{{ t('courseAuditUpdates.coursePosition', '课程位置') }}</span><select :value="selectedMaterial.absorption_decision?.target_scope_id || ''" :disabled="materialBusy" @change="changeScope"><option value="">{{ t('courseAuditUpdates.positionPending', '待确认') }}</option><option v-for="scope in plan.scope_options" :key="scope.scope_id" :value="scope.scope_id">{{ scope.label }}</option></select></label>
                 <label><span>{{ t('courseAuditUpdates.versionRole', '版本作用') }}</span><select :value="selectedMaterial.version_role || 'unknown'" :disabled="materialBusy" @change="changeVersion"><option value="current">{{ t('courseFiles.preparation.versionRoles.current', '当前版本') }}</option><option value="older">{{ t('courseFiles.preparation.versionRoles.older', '历史版本') }}</option><option value="reference">{{ t('courseFiles.preparation.versionRoles.reference', '参考资料') }}</option><option value="unknown">{{ t('courseFiles.preparation.versionRoles.unknown', '版本待确认') }}</option></select></label>
                 <label><span>{{ t('courseAuditUpdates.sourceRole', '来源作用') }}</span><select :value="selectedSourceRole" :disabled="materialBusy" @change="changeRole"><option value="primary">{{ t('courseWorkbench.materialAudit.primary', '主来源') }}</option><option value="reference">{{ t('courseWorkbench.materialAudit.reference', '参考来源') }}</option></select></label>
-                <label><span>{{ t('courseAuditUpdates.useMethod', '处理方式') }}</span><select :value="selectedMaterial.absorption_decision?.action || 'absorb'" :disabled="materialBusy" @change="changeAction"><option value="absorb">{{ t('courseFiles.materialAuditReport.absorb', '进入结构化同源链') }}</option><option value="reference_only">{{ t('courseFiles.materialAuditReport.referenceOnly', '仅作参考') }}</option><option value="ignore">{{ t('courseFiles.materialAuditReport.ignore', '本次不使用') }}</option></select></label>
+                <label><span>{{ t('courseAuditUpdates.useMethod', '处理方式') }}</span><select :value="selectedMaterial.absorption_decision?.action || 'absorb'" :disabled="materialBusy" @change="changeAction"><option value="absorb">{{ t('courseFiles.materialAuditReport.absorb', '进入内容一致链') }}</option><option value="reference_only">{{ t('courseFiles.materialAuditReport.referenceOnly', '仅作参考') }}</option><option value="ignore">{{ t('courseFiles.materialAuditReport.ignore', '本次不使用') }}</option></select></label>
               </section>
 
-              <section class="protection-note"><ShieldCheck :size="16" /><span><strong>{{ t('courseAuditUpdates.protectionTitle', '老师手工修改不会被覆盖') }}</strong><small>{{ t('courseAuditUpdates.protectionDetail', '系统只生成可审阅候选；已确认内容和原始文件继续保留。') }}</small></span></section>
+              <section class="protection-note"><ShieldCheck :size="16" /><span><strong>{{ t('courseAuditUpdates.protectionTitle', '老师手工修改不会被覆盖') }}</strong><small>{{ t('courseAuditUpdates.protectionDetail', '系统只生成可审阅建议；已确认内容和原始文件继续保留。') }}</small></span></section>
 
               <section class="execution-scope">
                 <strong>{{ t('courseAuditUpdates.executionScope', '执行范围') }}</strong>
@@ -376,7 +376,7 @@ const detailTitle = computed(() => detailMode.value === 'execution'
       : t('courseAuditUpdates.changeDetails', '变更详情'))
 const historyItems = computed(() => {
   if (detailMode.value === 'unaffected') return (plan.value?.targets || []).filter(target => !selectedMaterialTargets.value.some(item => item.target_id === target.target_id)).map(target => ({ key: target.target_id, title: target.title, detail: t('courseAuditUpdates.notReferenced', '未引用当前变化来源，保持当前版本'), time: '', status: 'unchanged' }))
-  const materialItems = (plan.value?.execution?.receipts || []).map(receipt => ({ key: receipt.bundle_id, title: t('courseAuditUpdates.materialExecution', '材料结构化执行'), detail: `${receipt.target_ids?.length || 0} ${t('courseAuditUpdates.objects', '个对象')} · ${receipt.status.includes('failed') ? t('courseAuditUpdates.needsAttention', '需处理') : t('courseAuditUpdates.executed', '已执行')}`, time: formatTime(receipt.executed_at), status: receipt.status.includes('failed') ? 'failed' : 'applied' }))
+  const materialItems = (plan.value?.execution?.receipts || []).map(receipt => ({ key: receipt.bundle_id, title: t('courseAuditUpdates.materialExecution', '材料整理记录'), detail: `${receipt.target_ids?.length || 0} ${t('courseAuditUpdates.objects', '项内容')} · ${receipt.status.includes('failed') ? t('courseAuditUpdates.needsAttention', '需处理') : t('courseAuditUpdates.executed', '已执行')}`, time: formatTime(receipt.executed_at), status: receipt.status.includes('failed') ? 'failed' : 'applied' }))
   const courseItems = center.courseChangeSources.map(source => ({ key: source.key, title: source.title, detail: sourceStatusLabel(source.status), time: formatTime(source.updatedAt), status: source.status }))
   return detailMode.value === 'version' ? [...courseItems, ...materialItems] : [...materialItems, ...courseItems.filter(item => item.status === 'applied')]
 })
@@ -438,7 +438,7 @@ function courseChangeMeta(source: CourseChangeListItem) {
 }
 function targetStatus(target: MaterialAuditTarget) { return target.issues?.length || target.review_items?.length ? 'warning' : executedTargetIds.value.has(target.target_id) ? 'synced' : 'pending' }
 function targetStatusLabel(target: MaterialAuditTarget) { return targetStatus(target) === 'warning' ? t('courseAuditUpdates.needsDecision', '需判断') : targetStatus(target) === 'synced' ? t('courseAuditUpdates.unchanged', '不变') : t('courseAuditUpdates.pendingUpdate', '待更新') }
-function relationshipItemSummary(target: MaterialAuditTarget) { const sections = target.structured_draft?.sections || []; const blocks = sections.reduce((total, section) => total + section.blocks.length, 0); return `${sections.length} ${t('courseAuditUpdates.sections', '个结构段')} · ${blocks} ${t('courseAuditUpdates.blocks', '个内容块')}` }
+function relationshipItemSummary(target: MaterialAuditTarget) { const sections = target.structured_draft?.sections || []; const blocks = sections.reduce((total, section) => total + section.blocks.length, 0); return `${sections.length} ${t('courseAuditUpdates.sections', '个内容部分')} · ${blocks} ${t('courseAuditUpdates.blocks', '个内容段')}` }
 function sourceRoleForTarget(target: MaterialAuditTarget) { return target.sources.find(source => source.asset_id === selectedMaterial.value?.asset_id)?.role === 'primary' ? t('courseAuditUpdates.primary', '主来源') : t('courseAuditUpdates.reference', '参考') }
 function formatTime(value: string) { if (!value) return ''; const date = new Date(value); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(date) }
 

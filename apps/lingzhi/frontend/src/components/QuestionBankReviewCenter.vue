@@ -88,7 +88,7 @@
                 <span class="review-course-row__copy">
                   <strong>{{ course.course_name }}</strong>
                   <small>
-                    {{ course.node_count || 0 }} {{ t('courseLibrary.nodes', '个学习节点') }}
+                    {{ course.node_count || 0 }} {{ t('courseLibrary.nodes', '个讲次') }}
                   </small>
                 </span>
                 <ChevronRight :size="15" />
@@ -102,7 +102,7 @@
                 <div>
                   <h3>{{ selectedCourse.course_name }}</h3>
                 </div>
-                <small>{{ selectedCourse.node_count || 0 }} {{ t('courseLibrary.nodes', '个学习节点') }}</small>
+                <small>{{ selectedCourse.node_count || 0 }} {{ t('courseLibrary.nodes', '个讲次') }}</small>
               </header>
               <QuestionBankReviewPanel
                 :key="selectedCourse.course_id"

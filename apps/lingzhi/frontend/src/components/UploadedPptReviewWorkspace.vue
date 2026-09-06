@@ -115,7 +115,7 @@
           </article>
 
           <section v-if="pendingCandidate" class="ppt-ai-candidate">
-            <header><Sparkles :size="15" /><strong>{{ t('courseWorkbench.pptReview.aiCandidate', 'AI 修改候选') }}</strong><span>{{ t('courseWorkbench.pptReview.notApplied', '尚未应用') }}</span></header>
+            <header><Sparkles :size="15" /><strong>{{ t('courseWorkbench.pptReview.aiCandidate', 'AI 修改建议') }}</strong><span>{{ t('courseWorkbench.pptReview.notApplied', '尚未应用') }}</span></header>
             <div>
               <p v-for="block in changedCandidateBlocks" :key="block.block_id">
                 <del><MathText :content="originalBlockText(block.block_id)" /></del>
@@ -344,7 +344,7 @@ async function requestAiFix(finding: ReviewFinding) {
       instruction: `针对审阅建议修改当前页：${finding.title}。${finding.detail}`,
     }, { headers: teacherIdentityHeaders() })
     review.value.ai_candidates = [...(review.value.ai_candidates || []).filter(item => item.status !== 'pending'), data.candidate]
-  } catch (value) { error.value = apiError(value, t('courseWorkbench.pptReview.aiFailed', 'AI 修改候选生成失败。')) }
+  } catch (value) { error.value = apiError(value, t('courseWorkbench.pptReview.aiFailed', 'AI 修改建议生成失败。')) }
   finally { busy.value = false }
 }
 
@@ -354,7 +354,7 @@ async function resolveCandidate(accept: boolean) {
   try {
     const response = await http.post(`/api/teacher/courses/${props.courseId}/lessons/${props.lessonId}/ppt-import/reviews/${review.value.review_id}/ai-candidates/${pendingCandidate.value.candidate_id}/resolve`, { accept }, teacherRequestConfig({ silentError: true }))
     review.value = response.data.review
-  } catch (value) { error.value = apiError(value, t('courseWorkbench.pptReview.resolveFailed', '无法处理 AI 修改候选。')) }
+  } catch (value) { error.value = apiError(value, t('courseWorkbench.pptReview.resolveFailed', '无法处理 AI 修改建议。')) }
   finally { busy.value = false }
 }
 

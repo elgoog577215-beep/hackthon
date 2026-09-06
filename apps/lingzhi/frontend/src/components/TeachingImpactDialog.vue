@@ -6,19 +6,19 @@
         :data-state="workspaceState"
         role="dialog"
         aria-modal="true"
-        :aria-label="t('teachingRepresentations.impactDialog.workspaceTitle', '同源影响工作台')"
+        :aria-label="t('teachingRepresentations.impactDialog.workspaceTitle', '内容联动范围')"
       >
         <header class="impact-workspace__header">
           <div class="impact-workspace__identity">
             <span><GitBranch :size="20" /></span>
             <div>
-              <small>{{ t('teachingRepresentations.impactDialog.eyebrow', '结构化同源 · 影响工作台') }}</small>
+              <small>{{ t('teachingRepresentations.impactDialog.eyebrow', '内容一致 · 影响工作台') }}</small>
               <h2>{{ dialogTitle }}</h2>
               <p>{{ dialogDescription }}</p>
             </div>
           </div>
 
-          <ol class="impact-progress" :aria-label="t('teachingRepresentations.impactDialog.progressLabel', '同源修改进度')">
+          <ol class="impact-progress" :aria-label="t('teachingRepresentations.impactDialog.progressLabel', '联动更新进度')">
             <li class="is-complete">
               <span><PencilLine :size="13" /></span>
               <div><b>01</b><small>{{ t('teachingRepresentations.impactDialog.stepChange', '识别修改') }}</small></div>
@@ -69,7 +69,7 @@
               <div class="source-change__transition">
                 <i></i>
                 <span><ArrowDown :size="16" /></span>
-                <strong>{{ semanticChange.summary || t('teachingRepresentations.impactDialog.understood', '系统理解语义变化') }}</strong>
+                <strong>{{ semanticChange.summary || t('teachingRepresentations.impactDialog.understood', '系统已理解内容变化') }}</strong>
               </div>
 
               <article class="source-change__card is-after">
@@ -98,10 +98,10 @@
               <DatabaseZap :size="16" />
               <div>
                 <strong>{{ receipt
-                  ? t('teachingRepresentations.impactDialog.sourceUpdated', '课程真源已生成新修订')
-                  : t('teachingRepresentations.impactDialog.sourceUntouched', '课程真源尚未改变') }}</strong>
+                  ? t('teachingRepresentations.impactDialog.sourceUpdated', '课程内容已生成新版本')
+                  : t('teachingRepresentations.impactDialog.sourceUntouched', '正式课程内容尚未改变') }}</strong>
                 <small>{{ receipt
-                  ? t('teachingRepresentations.impactDialog.sourceUpdatedHelp', '所有教学表达都以这次确认后的课程修订为准')
+                  ? t('teachingRepresentations.impactDialog.sourceUpdatedHelp', '所有教学表达都以这次确认后的课程版本为准')
                   : t('teachingRepresentations.impactDialog.sourceUntouchedHelp', '确认前只分析影响，不会静默改写课程') }}</small>
               </div>
             </div>
@@ -132,7 +132,7 @@
             <div class="impact-list-heading">
               <span>{{ receipt
                 ? t('teachingRepresentations.impactDialog.resultList', '同步结果')
-                : t('teachingRepresentations.impactDialog.affectedList', '预计联动位置') }}</span>
+                : t('teachingRepresentations.impactDialog.affectedList', '预计更新位置') }}</span>
               <small>{{ t('teachingRepresentations.impactDialog.selectHint', '点击查看依据与结果') }}</small>
             </div>
 
@@ -240,7 +240,7 @@
               <div class="impact-reason">
                 <span><GitBranch :size="15" /></span>
                 <div>
-                  <small>{{ t('teachingRepresentations.impactDialog.dependencyReason', '同源依赖依据') }}</small>
+                  <small>{{ t('teachingRepresentations.impactDialog.dependencyReason', '内容联动依据') }}</small>
                   <p>{{ selectedImpactItem.reason || previewReason(selectedImpactItem) }}</p>
                 </div>
               </div>
@@ -248,7 +248,7 @@
               <div v-if="selectedImpactItem.change_kind === 'content_changed'" class="actual-diff">
                 <div class="actual-diff__heading">
                   <strong>{{ t('teachingRepresentations.impactDialog.actualDiff', '本次实际修改') }}</strong>
-                  <small>{{ t('teachingRepresentations.impactDialog.actualDiffHelp', '来自安全重建后的正式同步回执') }}</small>
+                  <small>{{ t('teachingRepresentations.impactDialog.actualDiffHelp', '来自内容更新后的正式处理结果') }}</small>
                 </div>
                 <article class="is-before">
                   <small>{{ t('teachingRepresentations.impactDialog.before', '修改前') }}</small>
@@ -265,15 +265,15 @@
                 <span><ShieldCheck :size="19" /></span>
                 <div>
                   <strong>{{ t('teachingRepresentations.impactDialog.noRewriteTitle', '内容无需改写') }}</strong>
-                  <p>{{ t('teachingRepresentations.impactDialog.sourceVerified', '系统已用新课程修订重新校验来源，现有内容仍然正确。') }}</p>
+                  <p>{{ t('teachingRepresentations.impactDialog.sourceVerified', '系统已按新的课程版本重新核对来源，现有内容仍然正确。') }}</p>
                 </div>
               </div>
 
               <div v-else-if="receipt" class="verified-result is-generic">
                 <span><CircleCheck :size="19" /></span>
                 <div>
-                  <strong>{{ t('teachingRepresentations.impactDialog.syncedTitle', '已按新课程修订完成同步') }}</strong>
-                  <p>{{ t('teachingRepresentations.impactDialog.syncedHelp', '当前回执未提供逐字差异，但该单元已通过同源重建与质量检查。') }}</p>
+                  <strong>{{ t('teachingRepresentations.impactDialog.syncedTitle', '已按新的课程版本完成同步') }}</strong>
+                  <p>{{ t('teachingRepresentations.impactDialog.syncedHelp', '当前处理结果未提供逐字差异，但该项内容已经重新生成并通过质量检查。') }}</p>
                 </div>
               </div>
 
@@ -283,11 +283,11 @@
                   <i><ArrowRight :size="14" /></i>
                   <span><GitBranch :size="15" />{{ selectedImpactItem.role || representationLabel(selectedImpactItem.representation_type) }}</span>
                   <i><ArrowRight :size="14" /></i>
-                  <span><RefreshCw :size="15" />{{ t('teachingRepresentations.impactDialog.safeRebuild', '确认后安全重建') }}</span>
+                  <span><RefreshCw :size="15" />{{ t('teachingRepresentations.impactDialog.safeRebuild', '确认后更新相关内容') }}</span>
                 </div>
                 <div class="preview-path__notice">
                   <Sparkles :size="16" />
-                  <p>{{ t('teachingRepresentations.impactDialog.previewHonesty', '这里展示的是已经确认的依赖范围。最终改写文本将在确认后由课程真源重新编译，并在本页给出真实前后差异。') }}</p>
+                  <p>{{ t('teachingRepresentations.impactDialog.previewHonesty', '这里展示的是已经确认的联动范围。确认后系统会根据正式课程内容重新生成，并在本页给出真实的前后差异。') }}</p>
                 </div>
               </div>
             </article>
@@ -306,7 +306,7 @@
               <strong>{{ receipt ? changedCount : affectedCount }}</strong>
               <small>{{ receipt
                 ? t('teachingRepresentations.impactDialog.changed', '项实际更新')
-                : t('teachingRepresentations.impactDialog.affected', '处预计联动') }}</small>
+                : t('teachingRepresentations.impactDialog.affected', '处需要联动更新') }}</small>
             </span>
             <i></i>
             <span>
@@ -335,8 +335,8 @@
                 <LoaderCircle v-if="syncing" :size="16" class="spinning" />
                 <GitBranch v-else :size="16" />
                 {{ syncing
-                  ? t('teachingRepresentations.impactDialog.syncing', '正在精准同步…')
-                  : t('teachingRepresentations.impactDialog.confirmWithCounts', '确认联动 {affected} 处 · 保留 {unaffected} 处')
+                  ? t('teachingRepresentations.impactDialog.syncing', '正在更新相关内容…')
+                  : t('teachingRepresentations.impactDialog.confirmWithCounts', '确认更新 {affected} 处 · 保留 {unaffected} 处')
                     .replace('{affected}', String(affectedCount))
                     .replace('{unaffected}', String(unaffectedCount)) }}
               </button>
@@ -346,7 +346,7 @@
                 {{ t('teachingRepresentations.impactDialog.onlyCurrentMaterial', '只改当前{material}').replace('{material}', sourceMaterialLabel) }}
               </button>
               <button type="button" class="primary" :disabled="busy" @click="emit('propose')">
-                <GitBranch :size="16" />{{ t('teachingRepresentations.impactDialog.createPlan', '生成精准同步方案') }}
+                <GitBranch :size="16" />{{ t('teachingRepresentations.impactDialog.createPlan', '生成联动更新方案') }}
               </button>
             </template>
           </div>
@@ -469,14 +469,14 @@ const workspaceState = computed(() => {
   return 'preview'
 })
 const dialogTitle = computed(() => {
-  if (props.receipt) return t('teachingRepresentations.impactDialog.completedTitle', '一处改变，相关内容已精准联动')
+  if (props.receipt) return t('teachingRepresentations.impactDialog.completedTitle', '一处修改，相关内容已同步更新')
   if (props.syncing) return t('teachingRepresentations.impactDialog.syncingTitle', '正在只更新真正受影响的内容')
   if (props.proposalItem) return t('teachingRepresentations.impactDialog.confirmTitle', '影响范围已确认，等待教师决定')
   return t('teachingRepresentations.impactDialog.title', '系统理解了这次教学修改')
 })
 const dialogDescription = computed(() => {
-  if (props.receipt) return t('teachingRepresentations.impactDialog.completedDescription', '真实修改、来源校验与保持不变的内容都已在同一份回执中说明。')
-  if (props.proposalItem) return t('teachingRepresentations.impactDialog.confirmDescription', '课程真源尚未改变；确认后只重建有共同来源依赖的内容。')
+  if (props.receipt) return t('teachingRepresentations.impactDialog.completedDescription', '实际修改、来源检查与保持不变的内容都已在同一份处理结果中说明。')
+  if (props.proposalItem) return t('teachingRepresentations.impactDialog.confirmDescription', '正式课程内容尚未改变；确认后只更新有共同来源关系的内容。')
   return t('teachingRepresentations.impactDialog.descriptionTemplate', '从{material}修改出发，沿课程来源与教学作用精确计算影响范围。')
     .replace('{material}', sourceMaterialLabel.value)
 })
@@ -519,7 +519,7 @@ function representationRole(value: string, unit: Record<string, any>) {
 function itemStateLabel(item: Record<string, any>) {
   if (props.syncing) return t('teachingRepresentations.impactDialog.itemSyncing', '同步中')
   if (item.change_kind === 'content_changed') return t('teachingRepresentations.impactDialog.itemChanged', '已改写')
-  if (item.change_kind === 'source_verified') return t('teachingRepresentations.impactDialog.itemVerified', '已校验')
+  if (item.change_kind === 'source_verified') return t('teachingRepresentations.impactDialog.itemVerified', '已核对')
   if (props.receipt) return t('teachingRepresentations.impactDialog.itemSynced', '已同步')
   if (props.proposalItem) return t('teachingRepresentations.impactDialog.itemPending', '待确认')
   return t('teachingRepresentations.impactDialog.itemAffected', '将联动')
@@ -528,7 +528,7 @@ function itemStateLabel(item: Record<string, any>) {
 function previewReason(item: Record<string, any>) {
   return t(
     'teachingRepresentations.impactDialog.defaultReason',
-    '该教学表达与本次修改共享课程来源，确认后需要按新的课程修订重新校验。',
+    '该教学表达与本次修改使用同一课程来源，确认后需要按新的课程版本重新核对。',
   ).replace('{role}', item.role || representationLabel(item.representation_type))
 }
 
@@ -538,7 +538,7 @@ function impactPriority(left: Record<string, any>, right: Record<string, any>) {
     const role = String(item.role || '')
     if (type === 'lesson_plan') return 10
     if (type === 'handout') return 20
-    if (type === 'slide_deck' && /概念|推理|图解|核心讲解|例题|迁移|课堂课件/.test(role)) return 30
+    if (type === 'slide_deck' && /概念|推理|图解|重点讲解|核心讲解|例题|迁移|课堂课件/.test(role)) return 30
     if (type === 'slide_deck' && /检查|易错/.test(role)) return 40
     if (type === 'practice_sheet') return 50
     if (type === 'outline') return 60

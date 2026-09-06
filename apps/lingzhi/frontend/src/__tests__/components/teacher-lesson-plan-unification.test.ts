@@ -204,7 +204,7 @@ describe('统一教案页面', () => {
       .toBe('第一次修改')
   })
 
-  it('AI 候选在同一份教案中预览并采用', async () => {
+  it('AI 修改建议在同一份教案中预览并采用', async () => {
     const store = useTeacherLessonAuthoringStore()
     const candidatePlan = JSON.parse(JSON.stringify(lesson.plan.current_revision!.plan))
     candidatePlan.sections[0].learning_objective = 'AI 优化后的可观察目标'
@@ -234,7 +234,7 @@ describe('统一教案页面', () => {
     }).requestAiCandidate('增加可观察目标')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('AI 候选已嵌入教案正文')
+    expect(wrapper.text()).toContain('修改建议已嵌入教案正文')
     expect(wrapper.text()).toContain('AI 优化后的可观察目标')
     expect(wrapper.get('[data-ai-field="knowledge_objectives"]').classes()).toContain('ai-change-target')
     await (wrapper.vm as unknown as { resolveAiCandidate: (accept: boolean) => Promise<boolean> }).resolveAiCandidate(true)

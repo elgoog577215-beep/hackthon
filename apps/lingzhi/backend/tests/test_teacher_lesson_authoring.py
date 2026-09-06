@@ -1532,10 +1532,10 @@ def test_teacher_script_service_generates_self_contained_course_handout(monkeypa
     assert "师生共用的标准课程讲义" in captured["system_prompt"]
     assert "可独立阅读的电子教材或教辅" in captured["system_prompt"]
     assert "本节课型：概念建构" in captured["system_prompt"]
-    assert "学科类型与当前教学块策略" in captured["system_prompt"]
+    assert "学科类型与当前教学环节安排" in captured["system_prompt"]
     assert "前后小节连贯与课程总编约束" in captured["system_prompt"]
     assert "推导逐步说明依据" in captured["system_prompt"]
-    assert "检查与反馈是静态复习参考" in captured["system_prompt"]
+    assert "课堂评价与反馈是供师生使用的静态复习参考" in captured["system_prompt"]
     assert "不根据临时学生表现改变知识主线" in captured["system_prompt"]
     assert "## 核心教学" in captured["system_prompt"]
     assert "课堂表达均按上述原则转化为教材正文" in captured["system_prompt"]
@@ -2405,7 +2405,7 @@ def test_script_shard_keeps_valid_sibling_and_retries_only_failed_block(
 
     assert failed["status"] == "failed"
     assert failed["completed_blocks"] == 1
-    assert failed["error"]["message"].startswith("1 个教学块生成失败")
+    assert failed["error"]["message"].startswith("1 个教学环节生成失败")
     assert [
         item["block_id"] for item in failed["result_sections"][0]["blocks"]
     ] == [block_ids[0]]
@@ -2612,7 +2612,7 @@ def test_script_provider_failure_counts_every_block_in_failed_shard(
     ))
 
     assert failed["status"] == "failed"
-    assert failed["error"]["message"].startswith("7 个教学块生成失败")
+    assert failed["error"]["message"].startswith("7 个教学环节生成失败")
     assert len(failed["error"]["failed_blocks"]) == 7
     assert len(failed["error"]["failed_shards"]) == 1
     assert len(failed["error"]["failed_shards"][0]["block_ids"]) == 7
@@ -3698,8 +3698,8 @@ def test_plan_v3_projection_is_editable_and_never_serializes_module_json():
     view = teacher_lesson_section_content(section)
     assert view["learning_objective"] == "能够独立完成一次进制转换并核对结果。"
     assert "仅处理无符号整数" in view["key_difficulties"]
-    assert view["teacher_activities"] == ["核心讲解：围绕二进制转换；使用位权展开演示转换过程"]
-    assert view["student_activities"] == ["学习者行动：围绕二进制转换；学生独立完成一道转换题"]
+    assert view["teacher_activities"] == ["重点讲解：围绕二进制转换；使用位权展开演示转换过程"]
+    assert view["student_activities"] == ["学生活动：围绕二进制转换；学生独立完成一道转换题"]
 
     normalized = normalize_teacher_lesson_plan({"sections": [section]})
     projected = normalized["sections"][0]

@@ -714,7 +714,7 @@ def compile_fallback_node_content(node: dict[str, Any]) -> str:
     ]
     if not modules:
         modules = [{
-            "label": "核心教学",
+            "label": "重点讲解",
             "output_contract": "解释核心知识并给出可检查任务",
         }]
     blocks: list[str] = []

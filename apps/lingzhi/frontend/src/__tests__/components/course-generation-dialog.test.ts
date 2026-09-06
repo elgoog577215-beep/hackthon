@@ -197,7 +197,7 @@ describe('CourseGenerationDialog', () => {
     await wrapper.setProps({ modelValue: true })
     await flushPromises()
 
-    expect(wrapper.get('.generation-dialog__heading').text()).toContain('课程生产设置')
+    expect(wrapper.get('.generation-dialog__heading').text()).toContain('课程生成设置')
     expect((wrapper.get('#teacher-target-audience').element as HTMLInputElement).value).toBe('高中二年级')
     expect((wrapper.get('#teacher-total-hours').element as HTMLInputElement).value).toBe('24')
     expect((wrapper.get('#teacher-lecture-count').element as HTMLInputElement).value).toBe('8')
@@ -342,7 +342,7 @@ describe('CourseGenerationDialog', () => {
     expect(wrapper.get('[data-testid="secondary-pedagogy-mode"]').findAll('option').map(option => option.attributes('value'))).not.toContain('natural_science')
   })
 
-  it('项目实战提交独立的项目目标、交付成果与暂定学习起点', async () => {
+  it('项目实践提交独立的项目目标、交付成果与暂定学习起点', async () => {
     const wrapper = mount(CourseGenerationDialog, {
       props: { modelValue: true },
       global: {
@@ -511,7 +511,7 @@ describe('CourseGenerationDialog', () => {
     expect(wrapper.find('.material-section').exists()).toBe(false)
     expect(wrapper.findAll('.production-mode-options button')).toHaveLength(2)
     expect(wrapper.text()).toContain('每一阶段由老师主动开始')
-    expect(wrapper.text()).toContain('确认当前候选后继续下一阶段')
+    expect(wrapper.text()).toContain('确认当前建议后继续下一阶段')
 
     const formSections = wrapper.findAll('.generation-dialog__body > .form-section')
     const sectionOrder = formSections.map(section => section.classes())

@@ -197,7 +197,7 @@ describe('CourseEvolutionWorkspace', () => {
     await wrapper.get('.impact-tools button:last-child').trigger('click')
     expect(wrapper.get('.scope-counts').text()).toContain('排除1')
     await wrapper.get('.disposition-control select').setValue('reuse_rebind')
-    expect(wrapper.get('.review-actionbar').text()).toContain('候选需要更新')
+    expect(wrapper.get('.review-actionbar').text()).toContain('建议需要更新')
     await wrapper.get('.review-actionbar .button-primary').trigger('click')
     expect(review).toHaveBeenCalledWith('change-1', ['m2'], {
       migrationDispositions: { m1: 'reuse_rebind', m2: 'regenerate' },
@@ -254,7 +254,7 @@ describe('CourseEvolutionWorkspace', () => {
     wrapper.unmount()
   })
 
-  it('结构变化独立展示新旧课程树并在确认后生成联动候选', async () => {
+  it('结构变化独立展示新旧课程树并在确认后生成联动建议', async () => {
     const pinia = createPinia()
     const store = useCourseEvolutionStore(pinia)
     store.plans = [plan({
@@ -291,7 +291,7 @@ describe('CourseEvolutionWorkspace', () => {
     expect(wrapper.get('.migration-panel').text()).toContain('重新生成')
     expect(wrapper.get('.migration-panel').text()).toContain('需要按新结构重组')
     await wrapper.findAll('.structure-edit-row>input')[0]!.setValue('第三章 基础原理')
-    expect(wrapper.get('.migration-panel .button-primary').text()).toContain('确认方案并生成候选')
+    expect(wrapper.get('.migration-panel .button-primary').text()).toContain('确认方案并生成建议')
     expect(wrapper.get('.migration-panel .button-primary').attributes('disabled')).toBeUndefined()
     await wrapper.get('.migration-panel .button-primary').trigger('click')
     expect(review).toHaveBeenCalledWith('change-1', ['m1'], {
@@ -327,7 +327,7 @@ describe('CourseEvolutionWorkspace', () => {
     const generate = vi.spyOn(store, 'generateSuggested').mockResolvedValue({} as any)
     const wrapper = mountWorkspace(pinia)
 
-    expect(wrapper.get('.migration-panel .button-primary').text()).toContain('生成联动候选')
+    expect(wrapper.get('.migration-panel .button-primary').text()).toContain('生成联动建议')
     await wrapper.get('.migration-panel .button-primary').trigger('click')
     expect(generate).toHaveBeenCalledWith('change-1')
     expect(accept).not.toHaveBeenCalled()

@@ -26,7 +26,7 @@
           <div class="home-copy">
             <p>早上好，项老师</p>
             <h1>今天准备哪一门课？</h1>
-            <span>从课程生产、资料管理到课堂反馈，都在同一个教学空间里持续积累。</span>
+            <span>从课程准备、资料管理到课堂反馈，都在同一个教学空间里持续积累。</span>
             <div class="home-actions">
               <button type="button" class="primary" @click="openWorkbench"><PanelsTopLeft :size="17" />进入课程工作台<ArrowRight :size="15" /></button>
               <button type="button" class="secondary" @click="openVideo"><Video :size="17" />分析一段视频</button>
@@ -42,7 +42,7 @@
 
         <section class="workbench-entry">
           <header>
-            <div><p>核心工作区</p><h2>课程工作台</h2><span>课程是教学资产的长期容器，一门课对应大纲、分讲教案、多个 PPT 及课程文件。</span></div>
+            <div><p>核心工作区</p><h2>课程工作台</h2><span>课程工作台长期保存一门课的大纲、分讲教案、多个 PPT 及其他课程文件。</span></div>
             <button type="button" @click="openSpaces">查看全部课程<ArrowRight :size="15" /></button>
           </header>
           <div class="workbench-body">

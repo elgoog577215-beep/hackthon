@@ -244,7 +244,7 @@
           <div v-else class="ppt-smart-empty">
             <Sparkles :size="20" />
             <strong>{{ t('courseWorkbench.references.pptEmpty', '尚未添加补充资料') }}</strong>
-            <span>{{ t('courseWorkbench.references.pptEmptyHint', 'AI 将先使用当前可用讲义，新增资料会显示在这里。') }}</span>
+            <span>{{ t('courseWorkbench.references.pptEmptyHint', 'AI 将先使用当前讲义，新增资料会显示在这里。') }}</span>
           </div>
           <div class="ppt-smart-actions">
             <button type="button" :disabled="loading || saving" :class="{ dragging: dragRole === 'reference' }" @click="smartInput?.click()" @dragover.prevent="dragRole = 'reference'" @dragleave="dragRole = ''" @drop.prevent="handleSmartDrop"><Plus :size="16" />{{ t('courseWorkbench.references.pptAddSources', '添加资料') }}</button>

@@ -265,7 +265,7 @@
           <small>{{ Math.round(Number(coverage.coverage_ratio || 0) * 100) }}%</small>
         </article>
         <article>
-          <span>{{ t('questionBank.availableQuestions', '当前可用题目') }}</span>
+          <span>{{ t('questionBank.availableQuestions', '现有题目') }}</span>
           <strong>{{ publishedCount }} {{ t('questionBank.questionUnit', '道') }}</strong>
           <small>
             {{ t('questionBank.exceptionReviewHint', '普通题自动生效；{count} 道高风险题等待发布前确认')

@@ -34,7 +34,7 @@
 
           <main class="research-results">
             <header>
-              <div><strong>{{ t('courseWorkbench.webResearch.results', '来源候选') }}</strong><small v-if="session">{{ resultSummary }}</small></div>
+              <div><strong>{{ t('courseWorkbench.webResearch.results', '来源建议') }}</strong><small v-if="session">{{ resultSummary }}</small></div>
               <span v-if="session?.provider">{{ session.provider }}</span>
             </header>
 

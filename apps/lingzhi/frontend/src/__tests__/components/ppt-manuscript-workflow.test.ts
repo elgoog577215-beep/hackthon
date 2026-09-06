@@ -222,7 +222,7 @@ describe('PptManuscriptWorkflow', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('页面标题候选不足')
+    expect(wrapper.text()).toContain('页面标题建议不足')
     expect(wrapper.find('[data-testid="confirm-ppt-manuscript"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="generate-ppt-from-manuscript"]').exists()).toBe(false)
   })

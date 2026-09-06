@@ -48,7 +48,7 @@
               <dd>{{ matchedCount || '—' }}</dd>
             </div>
             <div>
-              <dt>{{ isReady ? t('courseEvolution.review.selectedNodes', '本次纳入') : t('courseEvolution.review.generatedNodes', '已生成候选') }}</dt>
+              <dt>{{ isReady ? t('courseEvolution.review.selectedNodes', '本次纳入') : t('courseEvolution.review.generatedNodes', '已生成建议') }}</dt>
               <dd>{{ isReady ? selectedCount : `${readyCount}/${matchedCount || '—'}` }}</dd>
             </div>
           </dl>
@@ -171,7 +171,7 @@
                   </section>
                   <ArrowRight :size="17" />
                   <section :class="{ pending: candidateStatus(operation) === 'generating' }">
-                    <small>{{ t('courseEvolution.review.aiCandidate', 'AI 候选') }}</small>
+                    <small>{{ t('courseEvolution.review.aiCandidate', '修改建议') }}</small>
                     <template v-if="candidatePreview(operation)">
                       <p>{{ candidatePreview(operation) }}</p>
                     </template>
@@ -186,7 +186,7 @@
                 <span>{{ String(operations.length + index).padStart(2, '0') }}</span>
                 <div>
                   <b>{{ t('courseEvolution.review.queuedNode', '等待扫描的课程节点') }}</b>
-                  <small>{{ t('courseEvolution.review.queuedNodeHint', '前一个候选完成后自动开始') }}</small>
+                  <small>{{ t('courseEvolution.review.queuedNodeHint', '前一个建议完成后自动开始') }}</small>
                 </div>
                 <LoaderCircle :size="15" />
               </li>
@@ -340,10 +340,10 @@ const scopeBoundaryLabel = computed(() => {
   return t('courseEvolution.scope.currentSection', '当前小节')
 })
 const headerEyebrow = computed(() => isGenerating.value
-  ? t('courseEvolution.review.liveEyebrow', '正在生成调整候选')
+  ? t('courseEvolution.review.liveEyebrow', '正在生成调整建议')
   : t('courseEvolution.review.eyebrow', '课程调整审阅'))
 const headerTitle = computed(() => isGenerating.value
-  ? t('courseEvolution.review.liveTitle', '正在逐项生成课程调整候选')
+  ? t('courseEvolution.review.liveTitle', '正在逐项生成课程调整建议')
   : generationError.value
     ? t('courseEvolution.review.failedTitle', '生成结果需要处理')
     : t('courseEvolution.review.title', '确认 AI 找到的每一个修改位置'))
@@ -351,19 +351,19 @@ const scanStatusTitle = computed(() => {
   if (generationError.value) return t('courseEvolution.review.scanFailed', '生成未完成')
   if (!props.plan) return t('courseEvolution.review.analyzingRequest', '正在理解要求并定位课程节点')
   if (isGenerating.value) {
-    return t('courseEvolution.review.scanningNodes', '已匹配 {count} 个节点，正在生成最新候选')
+    return t('courseEvolution.review.scanningNodes', '已匹配 {count} 个节点，正在生成最新建议')
       .replace('{count}', String(matchedCount.value))
   }
-  return t('courseEvolution.review.scanComplete', '候选已就绪，可以逐项审阅')
+  return t('courseEvolution.review.scanComplete', '建议已就绪，可以逐项审阅')
 })
 const scanStatusDetail = computed(() => {
   if (generationError.value) return generationError.value
   if (!props.plan) return t('courseEvolution.review.analyzingRequestHint', '系统正在读取当前课程结构、教学作用与知识契约，首个结果会自动出现。')
   if (isGenerating.value) {
-    return t('courseEvolution.review.scanProgressDetail', '{ready} 个候选已通过检查，结果会继续自动追加。')
+    return t('courseEvolution.review.scanProgressDetail', '{ready} 个建议已通过检查，结果会继续自动追加。')
       .replace('{ready}', String(readyCount.value))
   }
-  return t('courseEvolution.review.scanCompleteDetail', '所有候选均已完成结构化同源检查；正式课程仍未发生变化。')
+  return t('courseEvolution.review.scanCompleteDetail', '所有建议均已完成内容一致检查；正式课程仍未发生变化。')
 })
 
 function candidateStatus(operation: EvolutionOperation) {
@@ -380,7 +380,7 @@ function candidateStatus(operation: EvolutionOperation) {
 }
 function candidateStatusLabel(operation: EvolutionOperation) {
   const status = candidateStatus(operation)
-  if (status === 'ready') return t('courseEvolution.review.nodeReady', '候选已通过')
+  if (status === 'ready') return t('courseEvolution.review.nodeReady', '建议已通过')
   if (status === 'quality_failed') return t('courseEvolution.review.nodeFailed', '检查未通过')
   return t('courseEvolution.review.nodeGenerating', '正在生成')
 }

@@ -56,7 +56,7 @@
         <nav class="course-nav" aria-label="课程功能">
           <template v-if="role === 'teacher'">
             <button type="button" :class="{ active: teacherSection === 'overview' }" @click="teacherSection = 'overview'"><LayoutDashboard :size="17" />课程概览</button>
-            <button type="button" :class="{ active: teacherSection === 'production' }" @click="teacherSection = 'production'"><Sparkles :size="17" />课程生产<span class="nav-count">3</span></button>
+            <button type="button" :class="{ active: teacherSection === 'production' }" @click="teacherSection = 'production'"><Sparkles :size="17" />课程准备<span class="nav-count">3</span></button>
             <button type="button" :class="{ active: teacherSection === 'files' }" @click="teacherSection = 'files'"><FolderTree :size="17" />课程文件</button>
             <button type="button"><Send :size="17" />发布与学生</button>
             <button type="button"><BarChart3 :size="17" />反馈与数据</button>
@@ -81,12 +81,12 @@
         <section v-if="teacherSection !== 'overview'" class="teacher-stage" :class="{ 'teacher-stage--production': teacherSection === 'production' }">
           <header class="stage-heading">
             <div>
-              <p>{{ teacherSection === 'production' ? 'COURSE PRODUCTION' : 'COURSE FILES' }}</p>
-              <h2>{{ teacherSection === 'production' ? '课程生产' : '课程文件' }}</h2>
-              <span>{{ teacherSection === 'production' ? '大纲统领全课，按讲次持续生成教案、课件与发布版本。' : '保留真实目录层级；受管文档、上传文件与导出版本都在这里。' }}</span>
+              <p>{{ teacherSection === 'production' ? 'COURSE PREPARATION' : 'COURSE FILES' }}</p>
+              <h2>{{ teacherSection === 'production' ? '课程准备' : '课程文件' }}</h2>
+              <span>{{ teacherSection === 'production' ? '大纲统领全课，按讲次持续生成教案、讲义和课件。' : '保留真实目录层级；课程文件、上传文件与导出版本都在这里。' }}</span>
             </div>
             <div v-if="teacherSection === 'production'" class="stage-actions">
-              <button type="button" class="quiet-action" @click="notify('生产清单已准备，可导出为 Excel（模拟）')"><FileOutput :size="16" />导出生产清单</button>
+              <button type="button" class="quiet-action" @click="notify('备课清单已准备，可导出为 Excel（模拟）')"><FileOutput :size="16" />导出备课清单</button>
               <button type="button" class="primary-action" @click="selectProductionArtifact(lessons[5]!, 'lesson')"><Plus :size="16" />继续备课</button>
             </div>
             <button v-else type="button" class="quiet-action"><MoreHorizontal :size="17" />更多</button>
@@ -94,7 +94,7 @@
 
           <div v-if="teacherSection === 'production'" class="production-workspace" :class="{ 'inspector-open': selectedLesson }">
             <div class="production-main">
-              <section class="production-track" aria-label="课程生产阶段">
+              <section class="production-track" aria-label="备课阶段">
                 <div v-for="(stage, index) in stages" :key="stage.id" class="track-step" :class="stage.state">
                   <span><CircleCheck v-if="stage.state === 'done'" :size="15" /><template v-else>{{ index + 1 }}</template></span>
                   <div><strong>{{ stage.name }}</strong><small>{{ stage.label }}</small></div>
@@ -108,11 +108,11 @@
                   <div><strong>课程教学大纲</strong><span class="version-chip">v3</span><span class="state-chip is-ready">已完成</span></div>
                   <p>16 讲 · 32 学时 · 6 个课程目标 · 更新于今天 14:32</p>
                 </div>
-                <div class="outline-source__knowledge"><span>知识结构</span><strong>42 个节点</strong><small>本轮先展示来源，不自动级联覆盖</small></div>
+                <div class="outline-source__knowledge"><span>知识结构</span><strong>42 个知识点</strong><small>本轮只展示来源，不自动更新相关内容</small></div>
                 <button type="button" class="text-action" @click="notify('将打开现有大纲编辑器（模拟）')">编辑大纲<ChevronRight :size="14" /></button>
               </section>
 
-              <section class="production-summary" aria-label="课程生产概况">
+              <section class="production-summary" aria-label="课程准备概况">
                 <div><span>分讲教案</span><strong>8<small>/16</small></strong><em><i style="width:50%" /></em></div>
                 <div><span>课堂课件</span><strong>5<small>/16</small></strong><em><i style="width:31%" /></em></div>
                 <div><span>配套练习</span><strong>3<small>/16</small></strong><em><i style="width:19%" /></em></div>
@@ -122,7 +122,7 @@
               <section class="lesson-board">
                 <header class="lesson-board__toolbar">
                   <div>
-                    <h3>分讲生产</h3>
+                    <h3>分讲备课</h3>
                     <span>每一行是一讲；课件数量和同一课件的版本分别显示。</span>
                   </div>
                   <div class="board-tools">
@@ -133,7 +133,7 @@
                   </div>
                 </header>
 
-                <div class="lesson-table" role="table" aria-label="分讲课程生产状态">
+                <div class="lesson-table" role="table" aria-label="分讲备课状态">
                   <div class="lesson-table__head" role="row">
                     <span>讲次与主题</span><span>教案</span><span>PPT</span><span>学生版本</span><span />
                   </div>
@@ -202,10 +202,10 @@
                   </div>
 
                   <template v-if="selectedDeck">
-                    <div v-if="selectedDeck.stale" class="upstream-alert"><AlertTriangle :size="16" /><span><strong>上游教案已有新版本</strong>当前课件基于教案 {{ selectedDeck.sourceVersion }}，不会被自动覆盖。</span></div>
+                    <div v-if="selectedDeck.stale" class="upstream-alert"><AlertTriangle :size="16" /><span><strong>对应教案已有新版本</strong>当前课件基于教案 {{ selectedDeck.sourceVersion }}，不会被自动覆盖。</span></div>
                     <section class="current-version">
                       <div class="version-heading"><div><small>当前工作版本</small><h4>{{ selectedDeck.name }} <span>{{ selectedDeck.version }}</span></h4></div><span :class="`state-chip is-${selectedDeck.status}`">{{ selectedDeck.statusLabel }}</span></div>
-                      <dl><div><dt>生成依据</dt><dd>教案 {{ selectedDeck.sourceVersion }}</dd></div><div><dt>最近更新</dt><dd>{{ selectedDeck.updatedAt }}</dd></div><div><dt>页面</dt><dd>{{ selectedDeck.pages }} 页</dd></div></dl>
+                      <dl><div><dt>本次使用</dt><dd>教案 {{ selectedDeck.sourceVersion }}</dd></div><div><dt>最近更新</dt><dd>{{ selectedDeck.updatedAt }}</dd></div><div><dt>页面</dt><dd>{{ selectedDeck.pages }} 页</dd></div></dl>
                       <div class="version-actions"><button type="button" class="primary-action" @click="notify('将进入现有 PPT 工作台，生成接口保持不变（模拟）')"><Eye :size="15" />打开课件</button><button type="button" class="quiet-action" @click="notify('开始导出当前 PPTX（模拟）')"><Download :size="15" />下载</button><button type="button" class="icon-action" title="更多"><MoreHorizontal :size="16" /></button></div>
                       <button v-if="selectedDeck.stale" type="button" class="regenerate-action" :disabled="generationPending" @click="simulateGeneration"><RefreshCw :size="15" :class="{ spinning: generationPending }" />{{ generationPending ? '正在创建新版本…' : `基于教案 ${selectedLesson.lessonPlan.version} 生成新版本` }}</button>
                     </section>
@@ -223,7 +223,7 @@
                   <div v-if="selectedLesson.lessonPlan.version" class="lesson-plan-inspector">
                     <div class="document-mark"><FileText :size="21" /></div>
                     <small>当前工作版本</small><h4>第 {{ selectedLesson.order }} 讲教案 <span>{{ selectedLesson.lessonPlan.version }}</span></h4>
-                    <p>目标、课堂活动、案例、理解检查和课后任务都维护在同一份受管教案中。</p>
+                    <p>目标、课堂活动、案例、理解检查和课后任务都保存在同一份课程教案中。</p>
                     <div class="knowledge-tags"><span v-for="knowledge in selectedLesson.knowledge" :key="knowledge">{{ knowledge }}</span></div>
                     <div v-if="selectedLesson.lessonPlan.state === 'stale'" class="upstream-alert"><AlertTriangle :size="16" /><span><strong>大纲内容有更新</strong>请检查受影响段落，再保存本讲教案。</span></div>
                     <button type="button" class="primary-action wide-inspector-action" @click="notify('将打开现有教案编辑器（模拟）')"><FileText :size="15" />打开教案编辑器</button>
@@ -251,7 +251,7 @@
                   <button v-for="file in folder.children" :key="file.name" type="button" class="file-row file-row--file" :class="{ active: file.artifact === activeArtifact }" role="treeitem" @click="file.artifact && openArtifact(file.artifact)">
                     <span class="tree-spacer" /><Presentation v-if="file.kind === 'ppt'" :size="16" /><FileText v-else :size="16" />
                     <span><strong>{{ file.name }}</strong><em>{{ file.detail }}</em></span>
-                    <span v-if="file.managed" class="managed-tag">受管文档</span><span v-else>{{ file.status }}</span>
+                    <span v-if="file.managed" class="managed-tag">课程文件</span><span v-else>{{ file.status }}</span>
                   </button>
                 </div>
               </template>
@@ -260,12 +260,12 @@
                 <span><strong>{{ file.name }}</strong><em>{{ file.detail }}</em></span><span>{{ file.status }}</span>
               </button>
             </div>
-            <footer class="file-system-note"><Link2 :size="14" /><span>带“受管文档”的内容由课程生产生成；点击后仍打开右侧唯一原稿。其他文件保持真实文件形态。</span></footer>
+            <footer class="file-system-note"><Link2 :size="14" /><span>标为“课程文件”的内容由备课流程生成；点击后仍打开右侧唯一原稿。其他文件保持原有文件形态。</span></footer>
           </div>
         </section>
 
         <section v-if="teacherSection === 'overview'" class="teacher-overview">
-          <div class="overview-copy"><p>下午好，张老师</p><h2>下一步，完善第 9 讲教案</h2><span>大纲已经完成，课程内容会沿着同一条生产链继续生长。</span><button type="button" class="primary-action" @click="teacherSection = 'production'; activeArtifact = 'lesson'">继续备课<ArrowRight :size="16" /></button></div>
+          <div class="overview-copy"><p>下午好，张老师</p><h2>下一步，完善第 9 讲教案</h2><span>大纲已经完成，教案、讲义和 PPT 会按同一份课程内容继续准备。</span><button type="button" class="primary-action" @click="teacherSection = 'production'; activeArtifact = 'lesson'">继续备课<ArrowRight :size="16" /></button></div>
           <div class="overview-progress"><span>本学期准备度</span><strong>62%</strong><div><i /></div><small>8 / 16 讲已具备教案</small></div>
         </section>
 
@@ -274,7 +274,7 @@
             <div><small>在线内容 · {{ activeArtifactLabel }}</small><strong>{{ activeArtifactTitle }}</strong></div>
             <div class="editor-actions"><button v-if="activeArtifact !== 'lesson'" type="button" class="icon-action" title="历史版本"><History :size="16" /></button><button type="button" class="quiet-action"><WandSparkles :size="15" />AI 优化</button><button type="button" class="primary-action" @click="saved = true"><Save :size="15" />{{ saved ? '已保存' : '保存' }}</button></div>
           </header>
-          <div class="single-source-note"><Link2 :size="15" /><span><strong>这是唯一原稿。</strong> 从“课程生产”或“课程文件”进入，打开的都是这里。</span></div>
+          <div class="single-source-note"><Link2 :size="15" /><span><strong>这是唯一原稿。</strong> 从“课程准备”或“课程文件”进入，打开的都是这里。</span></div>
           <div class="document-canvas">
             <p class="doc-kicker">2026 秋季 · 高等数学</p>
             <h3>{{ activeArtifactTitle }}</h3>
@@ -363,7 +363,7 @@ const stages = [
   { id: 'requirements', name: '课程要求', detail: '培养目标、学时与考核约束', state: 'done', label: '已确认' },
   { id: 'outline', name: '教学大纲', detail: '16 讲结构与知识关系', state: 'done', label: '已完成' },
   { id: 'lesson', name: '分讲教案', detail: '继续完善第 9 讲', state: 'active', label: '8 / 16' },
-  { id: 'slides', name: '课件与练习', detail: '从当前可用教案生成', state: 'todo', label: '5 / 16' },
+  { id: 'slides', name: '课件与练习', detail: '从当前教案生成', state: 'todo', label: '5 / 16' },
   { id: 'publish', name: '发布准备', detail: '检查缺项并生成学生版本', state: 'todo', label: '未开始' },
 ]
 
@@ -439,7 +439,7 @@ const lessons: ProductionLesson[] = [
     id: 'lesson-5', order: 5, title: '导数概念与求导法则', knowledge: ['变化率', '导数定义', '求导法则'],
     lessonPlan: { version: 'v2', label: '大纲已更新', state: 'stale' },
     decks: [{ id: 'deck-5-main', name: '主课件', version: 'v2', status: 'published', statusLabel: '已发布', sourceVersion: 'v1', updatedAt: '8 月 1 日 14:26', pages: 39, stale: true, history: [{ version: 'v1', time: '7 月 29 日', label: '初始生成' }] }],
-    pptState: 'stale', pptLabel: '上游内容已更新', release: { state: 'published', label: '已发布', detail: '学生版本 v2' },
+    pptState: 'stale', pptLabel: '对应内容已更新', release: { state: 'published', label: '已发布', detail: '学生版本 v2' },
   },
   {
     id: 'lesson-6', order: 6, title: '微分与高阶导数', knowledge: ['微分', '高阶导数'],
@@ -485,9 +485,9 @@ const fileFolders = [
     { name: '第 9 讲教案', detail: '正在编辑', managed: true, artifact: 'lesson', kind: 'doc', status: '' },
   ] },
   { id: 'slides', name: '2、PPT', children: [
-    { name: '第 01 讲 · 主课件', detail: '受管课件 · v4 · 已发布', managed: true, artifact: 'slides', kind: 'ppt', status: '' },
-    { name: '第 04 讲 · 主课件', detail: '受管课件 · v4 · 上游已更新', managed: true, artifact: 'slides', kind: 'ppt', status: '' },
-    { name: '第 04 讲 · 补充案例', detail: '受管课件 · v2 · 已发布', managed: true, artifact: 'slides', kind: 'ppt', status: '' },
+    { name: '第 01 讲 · 主课件', detail: '课程课件 · v4 · 已发布', managed: true, artifact: 'slides', kind: 'ppt', status: '' },
+    { name: '第 04 讲 · 主课件', detail: '课程课件 · v4 · 对应教案已更新', managed: true, artifact: 'slides', kind: 'ppt', status: '' },
+    { name: '第 04 讲 · 补充案例', detail: '课程课件 · v2 · 已发布', managed: true, artifact: 'slides', kind: 'ppt', status: '' },
     { name: '第01讲主课件-已导出.pptx', detail: '导出快照 · 8.4 MB', managed: false, artifact: '', kind: 'ppt', status: '普通文件' },
   ] },
   { id: 'assignments', name: '3、作业与实验', children: [

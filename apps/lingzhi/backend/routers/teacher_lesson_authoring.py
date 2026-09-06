@@ -1744,7 +1744,7 @@ def _current_script_visual_context(
     if not blocks:
         raise TeacherLessonAuthoringError(
             "lesson_script_blocks_empty",
-            "当前讲义没有可绑定视觉表达的教学块。",
+            "当前讲义没有可绑定视觉表达的教学环节。",
         )
     return revision, blocks
 
@@ -2110,7 +2110,7 @@ async def update_lesson_type(
             lesson_unit_id=lesson_unit_id,
             source_outline_revision_id=outline_revision,
         )
-        # 大纲阶段只决定这一讲采用什么课型。教学块可以尚未生成；
+        # 大纲阶段只决定这一讲采用什么课型。教学环节可以尚未生成；
         # 生成教案时会补齐当前结构，并只对结构完整性做准入校验。
         repository.save_arrangement_revision(
             course_id,
@@ -4467,7 +4467,7 @@ async def generate_lesson_plan(
                         plan=plan,
                         instruction=(
                             "这是尚未交付的模型教案。请修复以下质量问题后返回完整候选，"
-                            "只改必要的教学表达与活动，不改小节、教学块身份、顺序、时间、知识事实和资料来源。"
+                            "只改必要的教学表达与活动，不改小节、教学环节身份、顺序、时间、知识事实和资料来源。"
                             + json.dumps(issues, ensure_ascii=False)
                         ),
                         lesson_context={"lesson_unit_id": lesson_unit_id, "requirements": effective_requirements},
@@ -5238,7 +5238,7 @@ async def generate_lesson_script(
                     if str(entry["contract"].get("learning_objective") or "")
                 )),
                 "module_plan": [
-                    {**module, "label": str(module.get("title") or "教学块")}
+                    {**module, "label": str(module.get("title") or "教学环节")}
                     for module in modules
                 ],
             })
@@ -5260,7 +5260,7 @@ async def generate_lesson_script(
                     if value
                 )),
                 "teaching_modules": [
-                    {**module, "label": str(module.get("title") or "教学块")}
+                    {**module, "label": str(module.get("title") or "教学环节")}
                     for module in modules
                 ],
             })
@@ -5365,7 +5365,7 @@ async def generate_lesson_script(
             if len(generated_blocks) != len(block_ids):
                 raise TeacherLessonAuthoringError(
                     "lesson_script_shard_incomplete",
-                    "讲义分片返回的教学块数量与教案不一致。",
+                    "讲义分片返回的教学环节数量与教案不一致。",
                 )
             return {
                 block_id: str(generated_blocks[index].get("content") or "").strip()
@@ -5683,7 +5683,7 @@ async def create_lesson_script_visual(
         if body.script_revision_id != revision_id:
             raise TeacherLessonAuthoringError(
                 "lesson_script_revision_conflict",
-                "讲义工作稿已经变化，请基于当前教学块重新生成视觉表达。",
+                "讲义工作稿已经变化，请基于当前教学环节重新生成视觉表达。",
             )
         block = next(
             (
@@ -5696,7 +5696,7 @@ async def create_lesson_script_visual(
         if block is None:
             raise TeacherLessonAuthoringError(
                 "lesson_script_visual_block_not_found",
-                "当前讲义教学块不存在，请重新载入。",
+                "当前讲义教学环节不存在，请重新载入。",
             )
         if body.expression_type == "animation" and not script_animation_runtime_enabled():
             raise TeacherLessonAuthoringError(

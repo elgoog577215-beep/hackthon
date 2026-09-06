@@ -160,7 +160,7 @@ function reasonFor(
 ): string {
   if (networkFailure) return t('appError.reasons.network', '请求没有收到服务响应，请检查网络连接后重试。')
   const known: Array<[RegExp, string]> = [
-    [/course_change_source_unavailable/i, t('appError.reasons.courseChangeSource', '当前课程还没有可分析的大纲或教学资产，请先完成课程大纲。')],
+    [/course_change_source_unavailable/i, t('appError.reasons.courseChangeSource', '当前课程还没有可分析的大纲或课程内容，请先完成课程大纲。')],
     [/lesson_sections_empty|sections_missing|outline_empty/i, t('appError.reasons.lessonPrerequisite', '当前讲次没有可生成教案的小节，请先补全课程大纲或课次小节。')],
     [/provider_rate_limited|too_many_requests|rate.?limit|\b429\b/i, t('appError.reasons.rateLimit', '服务请求过于频繁，当前操作尚未完成，请稍后重试。')],
     [/provider_quota_exhausted|insufficient_quota/i, t('appError.reasons.quota', 'AI 服务额度已用尽，继续重试不会成功，请先检查服务配置。')],

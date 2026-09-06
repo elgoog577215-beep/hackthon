@@ -865,7 +865,7 @@ async function loadWorkspace() {
   const requestedResumeTaskId = props.embedded ? '' : String(route.query?.resumeTaskId || '')
   store.setTeacherLessonScope(teacherLessonId.value)
   if (isTeacherSurface.value && !teacherLessonId.value) {
-    documentLoadError.value = '请先从课程生产页选择一讲，再进入 PPT 工作台。'
+    documentLoadError.value = '请先从课程准备页选择一讲，再进入 PPT 工作台。'
     initializing.value = false
     return
   }
@@ -1636,7 +1636,7 @@ async function resolvePptAiCandidate(accept: boolean) {
       'assistant',
       'receipt',
       accept
-        ? t('pptWorkspace.aiAccepted', '已形成新的 PPT 修订。')
+        ? t('pptWorkspace.aiAccepted', '已形成新的 PPT 版本。')
         : t('pptWorkspace.aiRejected', '已放弃这次修改。'),
     )
   } catch (error: any) {

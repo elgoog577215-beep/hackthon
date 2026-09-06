@@ -54,7 +54,7 @@
         <Sparkles v-else :size="13" />
         {{
           store.generating
-            ? t('courseEvolution.sectionGrowth.generating', '正在生成候选')
+            ? t('courseEvolution.sectionGrowth.generating', '正在生成建议')
             : props.surface === 'workspace'
               ? t('courseEvolution.sectionGrowth.generateWholeCourse', '开始分析')
               : requestScope === 'current_chapter'
@@ -160,7 +160,7 @@
         <div v-if="plan.generation_status === 'suggested'" class="challenge-suggestion">
           <span><BadgeCheck :size="14" />{{ t('courseEvolution.sectionGrowth.challengeReady', '当前难度已稳定通过') }}</span>
           <strong>{{ diagnosisFor(plan) }}</strong>
-          <p>{{ t('courseEvolution.sectionGrowth.masteryPreserved', '旧难度掌握记录会保留；先生成更高挑战候选，确认后才更新课程。') }}</p>
+          <p>{{ t('courseEvolution.sectionGrowth.masteryPreserved', '旧难度掌握记录会保留；先生成更高挑战建议，确认后才更新课程。') }}</p>
           <button type="button" :disabled="store.actingId === plan.change_set_id" @click="generateSuggested(plan)">
             <LoaderCircle v-if="store.actingId === plan.change_set_id" :size="13" class="spinning" />
             <ArrowRight v-else :size="13" />
@@ -272,7 +272,7 @@
         <div v-if="impactLabels(plan).length" class="evolution-impact">
           <span v-for="label in impactLabels(plan)" :key="label">{{ label }}</span>
           <small v-if="plan.impact_summary?.dependent_block_ids?.length">
-            {{ t('courseEvolution.dependentBlocks', '关联后续 {count} 个教学块').replace('{count}', String(plan.impact_summary.dependent_block_ids.length)) }}
+            {{ t('courseEvolution.dependentBlocks', '关联后续 {count} 个教学环节').replace('{count}', String(plan.impact_summary.dependent_block_ids.length)) }}
           </small>
         </div>
         <!-- Section-level blast radius. A broad request ("this chapter is too
@@ -301,7 +301,7 @@
                 <b>{{ operationLabel(operation.operation_type, operation.payload?.desired_role) }}</b>
                 <p>{{ operation.reason }}</p>
                 <details v-if="operation.payload?.after_preview">
-                  <summary>{{ t('courseEvolution.sectionGrowth.preview', '查看候选') }}</summary>
+                  <summary>{{ t('courseEvolution.sectionGrowth.preview', '查看建议') }}</summary>
                   <div v-if="operation.payload?.before_preview" class="candidate-before">
                     <small>{{ t('courseEvolution.sectionGrowth.before', '原内容') }}</small>
                     <p>{{ operation.payload.before_preview }}</p>
@@ -329,7 +329,7 @@
           </button>
           <p v-if="plan.impact_summary?.quality_report?.passed" class="same-source-check">
             <BadgeCheck :size="13" />
-            {{ t('courseEvolution.sectionGrowth.sameSourcePassed', '结构化同源检查已通过：所有候选仍绑定本节知识点、能力点与掌握标准') }}
+            {{ t('courseEvolution.sectionGrowth.sameSourcePassed', '内容一致检查已通过：所有建议仍绑定本节知识点、能力点与掌握标准') }}
           </p>
           <p class="validation-plan"><ScanSearch :size="13" /><b>{{ t('courseEvolution.validation', '效果复验') }}</b>{{ validationFor(plan) }}</p>
           <p class="protected"><ShieldCheck :size="13" />{{ t('courseEvolution.protected', '只修改当前课程所选范围；不修改其他课程、历史作答和笔记原文') }}</p>
@@ -383,7 +383,7 @@
           <ArrowRight :size="12" />
           <div>
             <small>{{ t('courseEvolution.verification.courseChange', '课程生长') }}</small>
-            <strong>{{ t('courseEvolution.verification.blockCount', '{count} 个教学块').replace('{count}', String(verificationFor(plan).course_change?.applied_block_count || 0)) }}</strong>
+            <strong>{{ t('courseEvolution.verification.blockCount', '{count} 个教学环节').replace('{count}', String(verificationFor(plan).course_change?.applied_block_count || 0)) }}</strong>
           </div>
           <ArrowRight :size="12" />
           <div>
@@ -502,7 +502,7 @@ const reviewSelectionIds = computed(() => (
 const growthSteps = computed(() => [
   { index: 1, label: t('courseEvolution.sectionGrowth.steps.request', '需求') },
   { index: 2, label: t('courseEvolution.sectionGrowth.steps.structure', '结构') },
-  { index: 3, label: t('courseEvolution.sectionGrowth.steps.candidates', '候选') },
+  { index: 3, label: t('courseEvolution.sectionGrowth.steps.candidates', '建议') },
   { index: 4, label: t('courseEvolution.sectionGrowth.steps.sameSource', '同源') },
   { index: 5, label: t('courseEvolution.sectionGrowth.steps.confirm', '确认') },
   { index: 6, label: t('courseEvolution.sectionGrowth.steps.validate', '复验') },
@@ -594,8 +594,8 @@ function sourceMessageFor(plan: CourseEvolutionPlan) {
     return t('courseEvolution.sectionGrowth.boundMaterialsOnly', '这次生成只会使用当前课程已绑定并允许引用的资料。')
   }
   return scene.source_requirement === 'verified_current_sources'
-    ? t('courseEvolution.sectionGrowth.currentSourcesRequired', '这个要求涉及最新、前沿或当前行业事实，目前需要可信时效资料；候选不会把模型记忆当成行业证据。')
-    : t('courseEvolution.sectionGrowth.materialsRequired', '这个要求需要可信资料；在资料完成绑定前，候选只生成不依赖外部事实的教学框架。')
+    ? t('courseEvolution.sectionGrowth.currentSourcesRequired', '这个要求涉及最新、前沿或当前行业事实，目前需要可信时效资料；建议不会把模型记忆当成行业证据。')
+    : t('courseEvolution.sectionGrowth.materialsRequired', '这个要求需要可信资料；在资料完成绑定前，建议只生成不依赖外部事实的教学框架。')
 }
 function validationFor(plan: CourseEvolutionPlan) { return String(plan.impact_summary?.validation_plan || hypothesisFor(plan)?.validation_plan || t('courseEvolution.validationFallback', '用后续同能力正式题检验调整是否有效')) }
 function evidenceLabel(source: EvolutionEvidence['source_type']) { return ({ learning_event: t('courseEvolution.sources.dialogue', '对话与反馈'), learning_record: t('courseEvolution.sources.record', '学习记录'), practice_attempt: t('courseEvolution.sources.practice', '正式练习') })[source] }
@@ -680,14 +680,14 @@ function readyOperationCount(plan: CourseEvolutionPlan) {
   return contentOperations(plan).filter(item => item.payload?.candidate_status === 'ready').length
 }
 function reviewPlanStatus(plan: CourseEvolutionPlan) {
-  if (plan.generation_status === 'generating') return t('courseEvolution.review.liveEyebrow', '正在生成调整候选')
+  if (plan.generation_status === 'generating') return t('courseEvolution.review.liveEyebrow', '正在生成调整建议')
   if (plan.generation_status === 'failed') return t('courseEvolution.review.scanFailed', '生成未完成')
-  return t('courseEvolution.review.scanComplete', '候选已就绪，可以逐项审阅')
+  return t('courseEvolution.review.scanComplete', '建议已就绪，可以逐项审阅')
 }
 function reviewPlanSummary(plan: CourseEvolutionPlan) {
   const matched = Number(plan.impact_summary?.matched_block_count || contentOperations(plan).length)
   if (plan.generation_status === 'generating') {
-    return t('courseEvolution.review.compactProgress', '已生成 {ready}/{total} 个候选，点击查看实时结果')
+    return t('courseEvolution.review.compactProgress', '已生成 {ready}/{total} 个建议，点击查看实时结果')
       .replace('{ready}', String(readyOperationCount(plan)))
       .replace('{total}', String(matched || '—'))
   }

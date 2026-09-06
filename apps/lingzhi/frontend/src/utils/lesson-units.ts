@@ -108,7 +108,7 @@ export function lessonUnitPreviewMarkdown(nodes: Node[], lessonUnit: Node): stri
   sections.push(
     '## 当前资产',
     `- 教案：${lessonUnitHasContent(nodes, lessonUnit) ? '已有当前内容，可继续编辑' : '等待生成'}`,
-    '- PPT：本讲教案和讲义当前可用后可独立制作',
+    '- PPT：本讲教案和讲义完成后可独立制作',
     '- 学生版：只读取已发布快照',
   )
   return sections.join('\n\n')

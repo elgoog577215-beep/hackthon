@@ -564,7 +564,7 @@ describe('SlideDeckWorkbench', () => {
     })
 
     expect(wrapper.get('[data-testid="ppt-schema-facts"]').text()).toContain(
-      '目标 V5 · 候选 V5 · 已发布 V3',
+      '目标 V5 · 建议 V5 · 已发布 V3',
     )
     expect(wrapper.get('[data-testid="ppt-manual-edit-status"]').text()).toContain(
       '部分页面需要人工调整',
@@ -666,7 +666,7 @@ describe('SlideDeckWorkbench', () => {
     expect(preview.text()).toContain('未发布问题预览')
     expect(preview.text()).toContain('slide:section-a')
     expect(preview.text()).toContain('概念')
-    expect(preview.text()).toContain('课程内容链路')
+    expect(preview.text()).toContain('课程内容生成')
     expect(preview.text()).toContain('页面要点数量超过版式容量。')
     expect(preview.text()).toContain('将可见要点压缩到版式允许的数量。')
     expect(wrapper.attributes('data-preview-source')).toBe('draft')
@@ -917,7 +917,7 @@ describe('SlideDeckWorkbench', () => {
     await flushPromises()
     expect(wrapper.find('.slide-inspector__confirmation').text()).toContain('回写课程目标真源')
     expect(document.body.querySelector('.impact-workspace')?.textContent).toContain('等待教师决定')
-    expect(document.body.querySelector('.impact-workspace__actions .primary')?.textContent).toContain('确认联动 5 处')
+    expect(document.body.querySelector('.impact-workspace__actions .primary')?.textContent).toContain('确认更新 5 处')
     expect(document.body.querySelector('.impact-workspace__actions .primary')?.textContent).toContain('保留 12 处')
 
     ;(document.body.querySelector('.impact-workspace__actions .primary') as HTMLButtonElement).click()
@@ -926,16 +926,16 @@ describe('SlideDeckWorkbench', () => {
     expect(wrapper.find('.slide-inspector__receipt').text()).toContain('1 项仅校验')
     expect(wrapper.find('.slide-inspector__receipt').text()).toContain('12 项确认无需处理')
     expect(wrapper.find('.slide-inspector__receipt').text()).toContain('1 改 · 0 验')
-    expect(document.body.querySelector('.impact-workspace')?.textContent).toContain('一处改变，相关内容已精准联动')
+    expect(document.body.querySelector('.impact-workspace')?.textContent).toContain('一处修改，相关内容已同步更新')
     expect(document.body.querySelector('.impact-workspace')?.textContent).toContain('教学重点放在概念关系与为什么成立')
     const resultItems = Array.from(document.body.querySelectorAll<HTMLButtonElement>('.impact-list > button'))
-    const verifiedItem = resultItems.find(button => button.textContent?.includes('已校验'))
+    const verifiedItem = resultItems.find(button => button.textContent?.includes('已核对'))
     verifiedItem?.click()
     await flushPromises()
     expect(document.body.querySelector('.impact-detail-card')?.textContent).toContain('内容无需改写')
-    expect(document.body.querySelector('.impact-detail-card')?.textContent).toContain('重新校验来源')
+    expect(document.body.querySelector('.impact-detail-card')?.textContent).toContain('重新核对来源')
     const openCourse = wrapper.get('.same-source-course-link')
-    expect(openCourse.text()).toContain('进入课程查看同源改动')
+    expect(openCourse.text()).toContain('进入课程查看相关修改')
     await openCourse.trigger('click')
     const savedState = JSON.parse(sessionStorage.getItem(PPT_SAME_SOURCE_STORAGE_KEY) || '{}')
     expect(savedState).toEqual(expect.objectContaining({

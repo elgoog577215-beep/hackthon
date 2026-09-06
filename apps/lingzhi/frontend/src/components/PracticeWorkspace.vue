@@ -1115,7 +1115,7 @@ async function rebuildQuestionBank() {
     if (job.status === 'waiting_review') {
       ElMessage.warning(t(
         'questionBook.generateReview',
-        '候选题已经生成，完成质量验证后会出现在题库本中。',
+        '建议题已经生成，完成质量验证后会出现在题库本中。',
       ))
     } else {
       ElMessage.success(t(

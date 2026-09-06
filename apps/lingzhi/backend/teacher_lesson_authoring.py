@@ -329,23 +329,23 @@ _MODULE_LABELS = {
     "core_explanation": "核心概念讲解",
     "learner_action": "学生解释与练习",
     "explained_example": "例题示范",
-    "guided_practice": "带支架练习",
-    "feedback_check": "检查与反馈",
+    "guided_practice": "分步练习",
+    "feedback_check": "课堂评价与反馈",
     "general_concept_model": "概念模型建构",
     "general_comparison": "对比辨析",
-    "general_explained_example": "例题推演",
-    "general_application": "迁移应用",
+    "general_explained_example": "例题讲解",
+    "general_application": "应用练习",
     "general_checklist": "课堂小结",
-    "summary_and_transfer": "总结与迁移",
+    "summary_and_transfer": "总结与应用",
     "assessment": "学习检查",
     "math_problem_strategy": "解题策略选择",
-    "math_worked_example": "例题推演",
-    "math_intuition": "直觉与问题导入",
-    "math_representation": "多重表征转换",
+    "math_worked_example": "例题讲解",
+    "math_intuition": "直观理解与问题导入",
+    "math_representation": "多种表示的转换",
     "math_formalization": "形式化推导",
     "math_variation": "变式练习",
 }
-_GENERIC_MODULE_LABEL = re.compile(r"^(?:环节|教学块|模块)\s*\d*$")
+_GENERIC_MODULE_LABEL = re.compile(r"^(?:环节|教学环节|教学块|模块)\s*\d*$")
 
 
 def _specific_module_label(module: dict[str, Any], index: int) -> str:
@@ -570,16 +570,16 @@ def teacher_lesson_section_content(section: dict[str, Any]) -> dict[str, Any]:
 
     def module_line(module: dict[str, Any]) -> str:
         labels = {
-            "lesson_goal": "本节目标",
-            "core_explanation": "核心讲解",
+            "lesson_goal": "本讲目标",
+            "core_explanation": "重点讲解",
             "math_problem_strategy": "策略选择",
-            "math_worked_example": "例题推演",
-            "math_intuition": "直觉导入",
-            "math_representation": "多重表征",
+            "math_worked_example": "例题讲解",
+            "math_intuition": "直观理解",
+            "math_representation": "多种表示",
             "math_formalization": "正式定义",
             "math_variation": "变式练习",
-            "learner_action": "学习者行动",
-            "feedback_check": "检查与反馈",
+            "learner_action": "学生活动",
+            "feedback_check": "课堂评价与反馈",
         }
         module_id = str(module.get("module_id") or "")
         label = str(module.get("label") or labels.get(module_id) or "教学活动")
@@ -690,13 +690,13 @@ def normalize_teacher_lesson_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 normalized_module.get("label")
                 or normalized_module.get("teaching_purpose")
                 or normalized_module.get("module_id")
-                or f"教学块 {index + 1}"
+                or f"教学环节 {index + 1}"
             ).strip()
             expected_output = str(
                 normalized_module.get("expected_output")
                 or (checks[0] if checks else "")
                 or normalized_module.get("student_activity")
-                or "完成本教学块的当堂任务并说明依据。"
+                or "完成本教学环节的当堂任务并说明依据。"
             ).strip()
             if not str(normalized_module.get("teaching_purpose") or "").strip():
                 normalized_module["teaching_purpose"] = label
@@ -708,12 +708,12 @@ def normalize_teacher_lesson_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 normalized_module["feedback_strategy"] = "根据当堂表现给出具体反馈，并决定直接推进、补充支架或重新示范。"
             if not _text_list(normalized_module.get("adaptation_options")):
                 normalized_module["adaptation_options"] = [
-                    "达到目标时进入下一教学块。",
+                    "达到目标时进入下一教学环节。",
                     "部分达到时补充提示或示例后再次检查。",
                     "未达到时缩小任务、重新示范并安排复查。",
                 ]
             if not str(normalized_module.get("transition") or "").strip():
-                normalized_module["transition"] = f"根据“{label}”的当堂证据决定是否进入下一教学块。"
+                normalized_module["transition"] = f"根据“{label}”的当堂证据决定是否进入下一教学环节。"
             if not _text_list(normalized_module.get("resource_refs")):
                 normalized_module["resource_refs"] = _text_list(next_section.get("resource_refs"))
             normalized_module["tools"] = _text_list(normalized_module.get("tools"))
@@ -849,7 +849,7 @@ def align_teacher_lesson_plan_to_arrangement(
                     source_module.get("adaptation_options")
                     or block.get("adaptation_options")
                 ) or [
-                    "达到目标时进入下一教学块。",
+                    "达到目标时进入下一教学环节。",
                     "部分达到时补充提示或示例后再次检查。",
                     "未达到时缩小任务、重新示范并安排复查。",
                 ],
@@ -865,7 +865,7 @@ def align_teacher_lesson_plan_to_arrangement(
                 "transition": str(
                     source_module.get("transition")
                     or block.get("transition")
-                    or f"根据“{block_name}”的当堂证据决定是否进入下一教学块。"
+                    or f"根据“{block_name}”的当堂证据决定是否进入下一教学环节。"
                 ).strip(),
                 "handout_ppt_mapping": str(
                     source_module.get("handout_ppt_mapping")
@@ -895,11 +895,11 @@ def align_teacher_lesson_plan_to_arrangement(
             section["in_class_checks"] = _unique_text([
                 str(item.get("expected_output") or "")
                 for item in arranged
-            ]) or ["根据本节目标完成一次当堂自检并说明依据。"]
+            ]) or ["根据本讲目标完成一次当堂自检并说明依据。"]
         if not _text_list(section.get("homework")):
             anchor = next(
                 iter(_text_list(section.get("key_points"))),
-                str(section.get("learning_objective") or "本节目标").strip(),
+                str(section.get("learning_objective") or "本讲目标").strip(),
             )
             section["homework"] = [
                 f"围绕“{anchor}”完成一次课后巩固与迁移练习。"
@@ -1026,7 +1026,7 @@ def validate_teacher_lesson_plan(
                 issue(
                     review,
                     "lesson_plan:block_contract",
-                    f"教学块缺少可执行字段：{'、'.join(missing)}。",
+                    f"教学环节缺少可执行字段：{'、'.join(missing)}。",
                     section_id,
                 )
         if not checks:
@@ -3500,7 +3500,7 @@ class TeacherLessonAuthoringRepository:
             if not isinstance(review, dict):
                 raise TeacherLessonAuthoringError("uploaded_ppt_review_not_found", "PPT 审阅记录不存在。")
             if review.get("revision_id") != base_revision_id:
-                raise TeacherLessonAuthoringError("uploaded_ppt_revision_conflict", "PPT 工作稿已更新，请重新生成 AI 候选。")
+                raise TeacherLessonAuthoringError("uploaded_ppt_revision_conflict", "PPT 当前版本已更新，请重新生成修改建议。")
             for item in review.get("ai_candidates") or []:
                 if isinstance(item, dict) and item.get("status") == "pending":
                     item["status"] = "superseded"
@@ -3626,7 +3626,7 @@ class TeacherLessonAuthoringRepository:
             ):
                 raise TeacherLessonAuthoringError(
                     "lesson_ppt_revision_conflict",
-                    "PPT 工作稿已经变化，请重新生成 AI 候选。",
+                    "PPT 当前版本已经变化，请重新生成修改建议。",
                 )
             for item in asset.get("v6_ai_candidates") or []:
                 if isinstance(item, dict) and item.get("status") == "pending":
@@ -4109,7 +4109,7 @@ class TeacherLessonAuthoringRepository:
             if lesson.get("working_script_revision_id") != base_revision_id:
                 raise TeacherLessonAuthoringError(
                     "lesson_script_revision_conflict",
-                    "讲义工作稿已经变化，请重新生成 AI 候选。",
+                    "讲义当前版本已经变化，请重新生成修改建议。",
                 )
             for item in lesson.get("script_ai_candidates") or []:
                 if isinstance(item, dict) and item.get("status") == "pending" and item.get("candidate_group_id", "") == candidate_group_id:
@@ -4222,7 +4222,7 @@ class TeacherLessonAuthoringRepository:
             if not isinstance(lesson, dict):
                 raise TeacherLessonAuthoringError("lesson_plan_not_found", "本讲还没有可优化的教案。")
             if lesson.get("working_revision_id") != base_revision_id:
-                raise TeacherLessonAuthoringError("lesson_plan_revision_conflict", "教案草稿已经变化，请重新生成 AI 候选。")
+                raise TeacherLessonAuthoringError("lesson_plan_revision_conflict", "教案草稿已经变化，请重新生成修改建议。")
             candidate = {
                 "candidate_id": f"tlpc-{uuid.uuid4().hex}",
                 "lesson_unit_id": lesson_unit_id,
@@ -4983,7 +4983,7 @@ class TeacherLessonAuthoringService:
             if not contract.get("modules"):
                 raise TeacherLessonAuthoringError(
                     "lesson_script_contract_empty",
-                    f"{contract.get('title') or section_id} 没有可生成的教学块。",
+                    f"{contract.get('title') or section_id} 没有可生成的教学环节。",
                 )
             contracts.append((outline_section, plan_section, contract))
 
@@ -5096,7 +5096,7 @@ class TeacherLessonAuthoringService:
             phase="lesson_script_generation",
             progress=max(5, int(90 * completed_count / max(1, total_blocks))),
             message=(
-                f"继续生成本讲讲义，已保留 {completed_count}/{total_blocks} 个教学块"
+                f"继续生成本讲讲义，已保留 {completed_count}/{total_blocks} 个教学环节"
                 if completed_count
                 else "正在按当前教案生成本讲讲义"
             ),
@@ -5193,7 +5193,7 @@ class TeacherLessonAuthoringService:
                 context = shard["context"]
                 block_ids = [str(module.get("block_id") or "") for module in modules]
                 block_titles = [
-                    str(module.get("title") or "教学块") for module in modules
+                    str(module.get("title") or "教学环节") for module in modules
                 ]
                 block_title = " / ".join(block_titles)
                 shard_id = str(shard.get("shard_id") or context.get("shard_id") or "")
@@ -5306,10 +5306,10 @@ class TeacherLessonAuthoringService:
                                     deepcopy(context),
                                 )
                             if not str(generated or "").strip():
-                                raise TeacherLessonAuthoringError("lesson_script_block_empty", "模型尚未返回教学块正文。")
+                                raise TeacherLessonAuthoringError("lesson_script_block_empty", "模型尚未返回教学环节正文。")
                             generated_map = {block_id: str(generated or "").strip()}
                     if not isinstance(generated_map, dict):
-                        raise TeacherLessonAuthoringError("lesson_script_shard_invalid", "模型没有返回可定位的教学块。")
+                        raise TeacherLessonAuthoringError("lesson_script_shard_invalid", "模型没有返回可定位的教学环节。")
                     return generated_map
 
                 try:
@@ -5329,7 +5329,7 @@ class TeacherLessonAuthoringService:
                     if not isinstance(generated_map, dict):
                         raise TeacherLessonAuthoringError(
                             "lesson_script_shard_invalid",
-                            f"{block_title} 没有返回可定位的教学块。",
+                            f"{block_title} 没有返回可定位的教学环节。",
                         )
                     candidates: list[dict[str, Any]] = []
                     candidate_failures: list[dict[str, Any]] = []
@@ -5560,7 +5560,7 @@ class TeacherLessonAuthoringService:
                         if str(block_id)
                     ]
                     block_id = block_ids[0] if block_ids else ""
-                    block_title = str(result.get("block_title") or "教学块")
+                    block_title = str(result.get("block_title") or "教学环节")
                     shard_id = str(result.get("shard_id") or block_id)
                     if result.get("error") is not None:
                         error = result["error"]
@@ -5596,7 +5596,7 @@ class TeacherLessonAuthoringService:
                             course_id,
                             job_id,
                             phase="lesson_script_block_failed",
-                            message=f"{block_title}生成失败，其他教学块继续",
+                            message=f"{block_title}生成失败，其他教学环节继续",
                             current_block_id=block_id,
                             current_block_title=block_title,
                             block_states=block_states,
@@ -5625,7 +5625,7 @@ class TeacherLessonAuthoringService:
                             "block_ids": failed_ids,
                             "shard_id": shard_id,
                             "title": " / ".join(
-                                str(item.get("title") or item.get("block_id") or "教学块")
+                                str(item.get("title") or item.get("block_id") or "教学环节")
                                 for item in shard_block_failures
                             ),
                             "code": str(
@@ -5634,7 +5634,7 @@ class TeacherLessonAuthoringService:
                             ),
                             "message": str(
                                 shard_block_failures[0].get("message")
-                                or "讲义教学块未通过校验"
+                                or "讲义教学环节未通过校验"
                             ),
                         })
                         self.repository.update_job_live(
@@ -5642,12 +5642,12 @@ class TeacherLessonAuthoringService:
                             job_id,
                             phase="lesson_script_block_failed",
                             message=(
-                                f"{len(shard_block_failures)} 个教学块未通过校验，"
-                                "其他教学块继续"
+                                f"{len(shard_block_failures)} 个教学环节未通过校验，"
+                                "其他教学环节继续"
                             ),
                             current_block_id=failed_ids[0],
                             current_block_title=str(
-                                shard_block_failures[0].get("title") or "教学块"
+                                shard_block_failures[0].get("title") or "教学环节"
                             ),
                             block_states=block_states,
                         )
@@ -5686,7 +5686,7 @@ class TeacherLessonAuthoringService:
                                             int(95 * completed_count / max(1, total_blocks)),
                                         ),
                                     ),
-                                    message=f"已生成 {completed_count}/{total_blocks} 个教学块",
+                                    message=f"已生成 {completed_count}/{total_blocks} 个教学环节",
                                     batch_id=f"{shard_id}:{generated_block_id}",
                                     event=event,
                                     delta=delta,
@@ -5703,7 +5703,7 @@ class TeacherLessonAuthoringService:
                             5,
                             min(95, int(95 * completed_count / max(1, total_blocks))),
                         ),
-                        message=f"已生成 {completed_count}/{total_blocks} 个教学块",
+                        message=f"已生成 {completed_count}/{total_blocks} 个教学环节",
                         completed_blocks=completed_count,
                         current_block_id="",
                         current_block_title="",
@@ -5719,10 +5719,10 @@ class TeacherLessonAuthoringService:
             if failed_blocks:
                 first = failed_blocks[0]
                 current_block_id = str(first.get("block_id") or "")
-                current_block_title = str(first.get("title") or "教学块")
+                current_block_title = str(first.get("title") or "教学环节")
                 raise TeacherLessonAuthoringError(
                     str(first.get("code") or "lesson_script_generation_failed"),
-                    f"{len(failed_blocks)} 个教学块生成失败，已保留其他成功结果。",
+                    f"{len(failed_blocks)} 个教学环节生成失败，已保留其他成功结果。",
                     details={
                         "failed_shards": failed_shards,
                         "failed_blocks": failed_blocks,
@@ -5894,7 +5894,7 @@ class TeacherLessonAuthoringService:
                 status="failed",
                 phase="lesson_script_failed",
                 progress=max(5, int(95 * completed_count / max(1, total_blocks))),
-                message=f"讲义生成失败，已保留 {completed_count}/{total_blocks} 个教学块",
+                message=f"讲义生成失败，已保留 {completed_count}/{total_blocks} 个教学环节",
                 completed_blocks=completed_count,
                 current_block_id=current_block_id,
                 current_block_title=current_block_title,

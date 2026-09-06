@@ -15,7 +15,7 @@
           </span>
           <div>
             <strong>{{ workspaceTitle }}</strong>
-            <small>{{ t('teachingRepresentations.eyebrow', '结构化同源') }}</small>
+            <small>{{ t('teachingRepresentations.eyebrow', '内容一致') }}</small>
           </div>
         </div>
 
@@ -68,8 +68,8 @@
           <section v-if="overviewMode" class="material-suite" aria-labelledby="material-suite-title">
             <div class="material-suite__heading">
               <div>
-                <small>{{ t('teachingRepresentations.materialSuite.eyebrow', '一份课程真源 · 六类教学材料') }}</small>
-                <h3 id="material-suite-title">{{ t('teachingRepresentations.materialSuite.title', '教学材料已一键生成，并保持同源连接') }}</h3>
+                <small>{{ t('teachingRepresentations.materialSuite.eyebrow', '同一份正式课程内容 · 六类教学材料') }}</small>
+                <h3 id="material-suite-title">{{ t('teachingRepresentations.materialSuite.title', '教学材料均依据正式课程内容生成') }}</h3>
                 <p>{{ t('teachingRepresentations.materialSuite.description', '大纲决定方向，教案与讲义承载细节，PPT、练习和图解共同引用同一份课程结构。') }}</p>
               </div>
               <button type="button" :disabled="store.building" @click="rebuild">
@@ -90,7 +90,7 @@
                 @click="selectType(item.representation_type)"
               >
                 <span>{{ typeLabel(item.representation_type) }}</span>
-                <strong>{{ t('teachingRepresentations.materialSuite.connected', '同源已连接') }}</strong>
+                <strong>{{ t('teachingRepresentations.materialSuite.connected', '内容来源一致') }}</strong>
                 <small>{{ statusLabel(item) }} · {{ t('teachingRepresentations.materialSuite.traceable', '可追溯到课程结构') }}</small>
               </button>
             </div>
@@ -117,7 +117,7 @@
           <div v-if="selected.representation_type === 'diagram'" class="diagram-preview">
             <div class="diagram-quality" :data-passed="String(Boolean(content.quality_report?.passed))">
               <strong>{{ content.quality_report?.passed ? t('teachingRepresentations.diagram.qualityPassed', '来源与结构校验通过') : t('teachingRepresentations.diagram.qualityReview', '图解需要检查') }}</strong>
-              <span>{{ t('teachingRepresentations.diagram.unitCount', '{count} 个同源图解单元').replace('{count}', String(content.quality_report?.unit_count ?? content.units?.length ?? 0)) }}</span>
+              <span>{{ t('teachingRepresentations.diagram.unitCount', '{count} 个对应课程内容的图解单元').replace('{count}', String(content.quality_report?.unit_count ?? content.units?.length ?? 0)) }}</span>
             </div>
             <article v-for="unit in content.units || []" :key="unit.unit_id" :class="{ stale: isStale(unit.unit_id) }">
               <header>
@@ -199,7 +199,7 @@
         <section class="material-editor" role="dialog" :aria-modal="materialEditorOpen" :aria-label="t('teachingRepresentations.materialEdit.dialogTitle', '编辑教学材料并分析联动')">
           <header>
             <div>
-              <small>{{ t('teachingRepresentations.materialEdit.eyebrow', '结构化同源 · 上游可编辑') }}</small>
+              <small>{{ t('teachingRepresentations.materialEdit.eyebrow', '内容一致 · 可返回讲义修改') }}</small>
               <h2>{{ materialEditorTitle }}</h2>
               <p>{{ t('teachingRepresentations.materialEdit.description', '修改会先形成影响预览；教师确认后，系统只更新共享同一来源的材料。') }}</p>
             </div>
@@ -218,7 +218,7 @@
             </label>
             <div class="material-editor__guard">
               <GitBranch :size="16" />
-              <span>{{ t('teachingRepresentations.materialEdit.guard', '分析阶段不会修改课程；确认后才写入课程真源。') }}</span>
+              <span>{{ t('teachingRepresentations.materialEdit.guard', '分析阶段不会修改课程；确认后才写入正式课程内容。') }}</span>
             </div>
           </div>
           <footer>
@@ -328,7 +328,7 @@ const workspaceTitle = computed(() => (
 ))
 const sourceSummary = computed(() => {
   const count = Object.keys(store.selectedSpec?.unit_bindings || {}).length
-  return t('teachingRepresentations.sourceSummary', '与当前课程同源 · {count} 个精确绑定').replace('{count}', String(count))
+  return t('teachingRepresentations.sourceSummary', '依据当前课程内容 · {count} 处对应关系').replace('{count}', String(count))
 })
 
 function typeLabel(type: RepresentationType) {
@@ -356,7 +356,7 @@ function diagramBindingSummary(unit: Record<string, any>) {
   const sections = Array.isArray(unit?.source_section_ids) ? unit.source_section_ids.length : 0
   const blocks = Array.isArray(unit?.source_block_ids) ? unit.source_block_ids.length : 0
   const knowledge = Array.isArray(unit?.knowledge_refs) ? unit.knowledge_refs.length : 0
-  return t('teachingRepresentations.diagram.bindingSummary', '{sections} 个章节 · {blocks} 个内容块 · {knowledge} 个知识点')
+  return t('teachingRepresentations.diagram.bindingSummary', '{sections} 个内容部分 · {blocks} 个内容段 · {knowledge} 个知识点')
     .replace('{sections}', String(sections))
     .replace('{blocks}', String(blocks))
     .replace('{knowledge}', String(knowledge))

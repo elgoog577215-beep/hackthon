@@ -667,7 +667,7 @@ describe('teacher course workbench outline streaming', () => {
 
     expect(wrapper.find('form.stage-form').exists()).toBe(false)
     expect(wrapper.find('[data-testid="outline-workspace"]').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="outline-workspace-loading"]').text()).toContain('正在载入可编辑讲次方案')
+    expect(wrapper.get('[data-testid="outline-workspace-loading"]').text()).toContain('正在载入讲次方案')
     expect(wrapper.get('[data-testid="outline-continue-action"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-testid="outline-manual-action"]').attributes('disabled')).toBeDefined()
     expect(wrapper.find('[data-testid="inline-outline-editor"]').exists()).toBe(false)
@@ -1014,7 +1014,7 @@ describe('teacher course workbench outline streaming', () => {
       } as any,
     })
 
-    expect(wrapper.get('.foundation-semantics').text()).toContain('教学编排')
+    expect(wrapper.get('.foundation-semantics').text()).toContain('教学安排')
     expect(wrapper.get('.foundation-semantics').text()).toContain('学习目的')
     expect(wrapper.get('.foundation-semantics').text()).toContain('学科类型')
     expect(wrapper.get('.foundation-semantics').text()).toContain('课程教学类型')
@@ -1049,9 +1049,9 @@ describe('teacher course workbench outline streaming', () => {
     expect(emitted.options.teacher_course_brief).not.toHaveProperty('section_count')
   })
 
-  it('项目实战与项目课分别写入学习目的和课程教学类型', async () => {
+  it('项目实践与项目课分别写入学习目的和课程教学类型', async () => {
     const wrapper = mountWorkbench()
-    const projectPurpose = wrapper.findAll('.foundation-semantic-options button').find(button => button.text().includes('项目实战'))
+    const projectPurpose = wrapper.findAll('.foundation-semantic-options button').find(button => button.text().includes('项目实践'))
     expect(projectPurpose).toBeTruthy()
     await projectPurpose!.trigger('click')
     await wrapper.get('.foundation-purpose-fields input').setValue('可运行原型与设计说明')
@@ -1352,7 +1352,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('[data-testid="lesson-outline-fixed"]').exists()).toBe(true)
     expect(wrapper.get('.lesson-generation-status').text()).toContain('正在生成第一讲')
     expect(wrapper.get('.lesson-generation-status').text()).toContain('正在确定各节教学重点')
-    expect(wrapper.get('.lesson-stream-document').text()).toContain('AI 工作稿')
+    expect(wrapper.get('.lesson-stream-document').text()).toContain('生成中的内容')
     expect(wrapper.get('.lesson-stream-document').text()).toContain('学生能够解释爬虫的工作流程')
     expect(wrapper.find('.lesson-stream-document .stream-caret').exists()).toBe(true)
     expect(wrapper.find('button[type="submit"]').exists()).toBe(false)
@@ -1719,8 +1719,8 @@ describe('teacher course workbench outline streaming', () => {
 
     expect(wrapper.find('[data-testid="lesson-outline-fixed"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="script-course-preview"]').text()).not.toContain('检查教案映射')
-    expect(wrapper.get('[data-testid="script-course-preview"]').text()).toContain('整门课程教案映射')
-    expect(wrapper.get('[data-testid="script-course-preview"]').text()).toContain('核心教学')
+    expect(wrapper.get('[data-testid="script-course-preview"]').text()).toContain('整门课程教案对应关系')
+    expect(wrapper.get('[data-testid="script-course-preview"]').text()).toContain('重点讲解')
     expect(wrapper.get('[data-testid="script-course-preview"]').text()).toContain('讲清第1讲的核心概念')
     expect(wrapper.get('[data-testid="script-course-preview"]').text()).not.toContain('填写讲义生成要求')
     expect(wrapper.get('[data-testid="script-course-preview-generate"]').text()).toBe('生成全部讲义')

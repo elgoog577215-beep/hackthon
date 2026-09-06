@@ -233,6 +233,7 @@ import {
   type TeacherLessonProjection,
 } from '../stores/teacherLessonAuthoring'
 import { toAppError } from '../utils/app-error'
+import { teacherFacingTeachingLabel } from '../utils/teaching-terminology'
 import type { GenerationProgress } from '../shared/generation-stream'
 
 const props = withDefaults(defineProps<{
@@ -319,21 +320,21 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.lessonDocument.applyAi': '采用',
   'courseWorkbench.lessonDocument.applyingAi': '正在采用…',
   'courseWorkbench.lessonDocument.aiFailed': 'AI 优化失败，请重试。',
-  'courseWorkbench.lessonDocument.candidateCanvasTitle': 'AI 候选已嵌入教案正文',
+  'courseWorkbench.lessonDocument.candidateCanvasTitle': '修改建议已嵌入教案正文',
   'courseWorkbench.lessonDocument.changeMarker': 'AI 修改',
   'courseWorkbench.aiCollaboration.selectionModify': 'AI 修改',
   'courseWorkbench.aiCollaboration.inlineComposerTitle': '告诉 AI 怎么改',
   'courseWorkbench.aiCollaboration.inlineGenerate': '生成修改',
-  'courseWorkbench.aiCollaboration.inlineWorking': '正在生成候选…',
+  'courseWorkbench.aiCollaboration.inlineWorking': '正在准备修改建议…',
   'courseWorkbench.aiCollaboration.inlineElapsed': '已等待 {seconds} 秒',
-  'courseWorkbench.aiCollaboration.candidateReady': '修改候选已生成',
+  'courseWorkbench.aiCollaboration.candidateReady': '修改建议已生成',
   'courseWorkbench.aiCollaboration.inlineSelectionScope': '修改选中内容',
   'courseWorkbench.aiCollaboration.inlineBlockScope': '修改当前段落',
   'courseWorkbench.aiCollaboration.selectTarget': '选择要修改的内容',
   'courseWorkbench.aiCollaboration.inlineDocumentScope': '修改当前教案',
-  'courseWorkbench.aiCollaboration.inlineBoundary': 'AI 只生成候选，采用后才会写入正式教案。',
-  'courseWorkbench.aiCollaboration.inlineCandidateBoundary': '原文仍然保留，只有采用后候选才会写入正式教案。',
-  'courseWorkbench.aiCollaboration.inlineCandidateActions': 'AI 候选操作',
+  'courseWorkbench.aiCollaboration.inlineBoundary': 'AI 只提出修改建议，采用后才会写入正式教案。',
+  'courseWorkbench.aiCollaboration.inlineCandidateBoundary': '原文仍然保留，只有采用后修改建议才会写入正式教案。',
+  'courseWorkbench.aiCollaboration.inlineCandidateActions': '修改建议操作',
   'courseWorkbench.aiCollaboration.iterateCandidate': '继续调整',
   'courseWorkbench.aiCollaboration.keepOriginal': '保留原文',
   'courseWorkbench.aiCollaboration.applyCandidate': '采用修改',
@@ -363,7 +364,7 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.lessonDocument.teacherActivity': '教师活动',
   'courseWorkbench.lessonDocument.studentActivity': '学生活动',
   'courseWorkbench.lessonDocument.check': '检查与产出',
-  'courseWorkbench.lessonDocument.blockGoalContent': '本块目标与内容',
+  'courseWorkbench.lessonDocument.blockGoalContent': '本环节目标与内容',
   'courseWorkbench.lessonDocument.expectedOutput': '课堂产出',
   'courseWorkbench.lessonDocument.attainmentCheck': '达成检查',
   'courseWorkbench.lessonDocument.classroomActivity': '课堂活动',
@@ -372,9 +373,9 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.lessonDocument.adaptationOptions': '不同达成状态下的处理',
   'courseWorkbench.lessonDocument.resourcesTools': '资料与工具',
   'courseWorkbench.lessonDocument.implementationPlan': '实施预案',
-  'courseWorkbench.lessonDocument.accessSupport': '进入支持',
+  'courseWorkbench.lessonDocument.accessSupport': '学习支持',
   'courseWorkbench.lessonDocument.grouping': '分组方式',
-  'courseWorkbench.lessonDocument.transition': '与前后教学块的衔接',
+  'courseWorkbench.lessonDocument.transition': '与前后教学环节的衔接',
   'courseWorkbench.lessonDocument.handoutPptMapping': '讲义与 PPT 对应关系',
   'courseWorkbench.lessonDocument.materialsAndRecords': '教学资料与活动记录',
   'courseWorkbench.lessonDocument.extensionReading': '拓展阅读',
@@ -383,7 +384,7 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.lessonDocument.submissionPending': '待教师确认提交渠道与截止时间',
   'courseWorkbench.lessonDocument.evaluation': '评价方式',
   'courseWorkbench.lessonDocument.nextLessonConnection': '与下一讲衔接',
-  'courseWorkbench.lessonDocument.overtimeBlock': '从本教学块开始超出本讲课堂时长，请调整分钟数。',
+  'courseWorkbench.lessonDocument.overtimeBlock': '从本教学环节开始超出本讲课堂时长，请调整分钟数。',
   'courseWorkbench.lessonDocument.themeNavigation': '讲内主题目录',
   'courseWorkbench.lessonDocument.theme': '内容主题',
   'courseWorkbench.lessonDocument.notes': '教学备注',
@@ -392,7 +393,7 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.lessonSection': '本讲教案',
   'courseWorkbench.minutes': '分钟',
   'courseWorkbench.lessonModules.goal': '教学目标',
-  'courseWorkbench.lessonModules.explanation': '核心讲解',
+  'courseWorkbench.lessonModules.explanation': '重点讲解',
   'courseWorkbench.lessonModules.activity': '课堂活动',
   'courseWorkbench.lessonModules.example': '案例示范',
   'courseWorkbench.lessonModules.practice': '练习反馈',
@@ -616,15 +617,15 @@ function moduleTitle(module: Record<string, any>, index: number): string {
   const phase = tr('courseWorkbench.lessonDocument.phaseFallback').replace('{count}', String(index + 1))
   const moduleId = String(module.module_id || '').trim()
   const rawLabel = String(module.label || '').trim()
-  const placeholder = /^(?:环节|教学块|模块)\s*\d*$/u.test(rawLabel)
+  const placeholder = /^(?:环节|教学环节|教学块|模块)\s*\d*$/u.test(rawLabel)
     || rawLabel === moduleId
   const purpose = (String(module.teaching_purpose || module.teaching_guidance || '')
     .split(/[，。；：]/u)[0] || '')
     .trim()
     .slice(0, 24)
-  const name = (!placeholder && rawLabel)
+  const name = teacherFacingTeachingLabel((!placeholder && rawLabel)
     || moduleLabels.value[moduleId]
-    || purpose
+    || purpose, moduleId)
   return name ? `${phase}：${name}` : phase
 }
 

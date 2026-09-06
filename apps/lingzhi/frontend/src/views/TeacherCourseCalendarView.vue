@@ -14,7 +14,7 @@
             </template>
             <span class="toolbar-spacer"></span>
             <span v-if="editable" class="calendar-revision" :class="{ dirty }" role="status">
-              {{ dirty ? t('teacherCalendar.unsaved', '未保存') : `${t('teacherCalendar.revision', '修订')} ${editable.revision || 0}` }}
+              {{ dirty ? t('teacherCalendar.unsaved', '未保存') : `${t('teacherCalendar.revision', '版本')} ${editable.revision || 0}` }}
             </span>
             <input ref="csvInput" class="visually-hidden" type="file" accept=".csv,text/csv" @change="importCsv" />
             <el-dropdown v-if="editable" trigger="click" @command="handleTransferCommand">
@@ -35,7 +35,7 @@
           </header>
 
           <div v-if="store.conflictRevision !== null" class="issue-bar" role="alert">
-            <TriangleAlert :size="16" /><strong>日历已在其他页面更新</strong><span>本地草稿仍保留。请复制必要内容后重新载入最新修订。</span><button type="button" @click="load">重新加载</button>
+            <TriangleAlert :size="16" /><strong>日历已在其他页面更新</strong><span>本地草稿仍保留。请复制必要内容后重新载入最新版本。</span><button type="button" @click="load">重新加载</button>
           </div>
           <div v-else-if="store.error" class="issue-bar" role="alert"><TriangleAlert :size="16" /><span>{{ store.error }}</span><button type="button" @click="load">重试</button></div>
 
@@ -59,7 +59,7 @@
                   <div><small>课程排期</small><strong>{{ monthLabel }}</strong></div>
                   <div><button type="button" aria-label="上个月" @click="moveMonth(-1)"><ChevronLeft :size="16" /></button><button type="button" @click="goToday">今天</button><button type="button" aria-label="下个月" @click="moveMonth(1)"><ChevronRight :size="16" /></button></div>
                 </header>
-                <div v-if="!editable.sessions.length" class="calendar-hint"><Sparkles :size="16" /><span>确认教学大纲后，可自动形成课次候选；候选不会覆盖人工排课。</span><button type="button" @click="deriveFromOutline">生成候选</button></div>
+                <div v-if="!editable.sessions.length" class="calendar-hint"><Sparkles :size="16" /><span>确认教学大纲后，可自动形成课次建议；建议不会覆盖人工排课。</span><button type="button" @click="deriveFromOutline">生成建议</button></div>
                 <div class="month-scroll"><TeachingCalendarMonthGrid :month="monthCursor" :sessions="editable.sessions" @select="focusSession" @day="addSessionForDate" /></div>
               </template>
 
@@ -180,7 +180,7 @@
             </div>
           </el-drawer>
 
-          <el-dialog v-model="deriveDialogOpen" title="大纲课次候选" width="min(720px, 92vw)" append-to-body>
+          <el-dialog v-model="deriveDialogOpen" title="大纲课次建议" width="min(720px, 92vw)" append-to-body>
             <template v-if="deriveProposal">
               <div class="derive-summary">
                 <strong>本次不会直接改动日历</strong>
@@ -194,7 +194,7 @@
                 </label>
               </div>
             </template>
-            <template #footer><button type="button" class="quiet-button" @click="deriveDialogOpen = false">取消</button><button type="button" class="primary-button" @click="applyDeriveProposal">采用所选候选</button></template>
+            <template #footer><button type="button" class="quiet-button" @click="deriveDialogOpen = false">取消</button><button type="button" class="primary-button" @click="applyDeriveProposal">采用所选建议</button></template>
           </el-dialog>
         </section>
       </main>
@@ -333,7 +333,7 @@ async function downloadExport(format: 'docx' | 'pdf' | 'xlsx' | 'csv') {
   if (!editable.value) return
   if (dirty.value) {
     try {
-      await ElMessageBox.confirm('正式导出只读取已保存修订。是否先保存当前修改？', '保存后导出', { type: 'info', confirmButtonText: '保存并导出', cancelButtonText: '取消' })
+      await ElMessageBox.confirm('正式导出只读取已保存版本。是否先保存当前修改？', '保存后导出', { type: 'info', confirmButtonText: '保存并导出', cancelButtonText: '取消' })
       if (!await save()) return
     } catch { return }
   }
@@ -349,7 +349,7 @@ async function downloadExport(format: 'docx' | 'pdf' | 'xlsx' | 'csv') {
     anchor.download = `${courseTitle.value.replace(/[\\/:*?"<>|]/g, '_') || '教学日历'}_教学日历_r${editable.value.revision}.${format}`
     anchor.click()
     URL.revokeObjectURL(url)
-    ElMessage.success(`${format.toUpperCase()} 已按修订 ${editable.value.revision} 导出`)
+    ElMessage.success(`${format.toUpperCase()} 已按版本 ${editable.value.revision} 导出`)
   } catch (error: any) {
     const detail = error?.response?.data?.detail
     ElMessage.error(detail?.message || `${format.toUpperCase()} 导出失败，请确认日历已保存且包含课次`)
@@ -367,13 +367,13 @@ async function importCsv(event: Event) {
     const duplicateCount = imported.length - additions.length
     await ElMessageBox.confirm(
       `识别到 ${imported.length} 条课次，可新增 ${additions.length} 条${duplicateCount ? `，跳过重复 ${duplicateCount} 条` : ''}。导入只合并到本地草稿，点击“保存日历”后才会生效。`,
-      '合并 CSV 课次候选',
+      '合并 CSV 课次建议',
       { type: 'info', confirmButtonText: '合并到草稿', cancelButtonText: '取消' },
     )
     additions.forEach(session => editable.value?.sessions.push(session))
     editable.value.sessions.forEach((session, index) => { session.sequence = index + 1 })
     if (additions.length) { selectSession(editable.value.sessions.length - additions.length); markDirty() }
-    ElMessage.success(additions.length ? `已合并 ${additions.length} 条课次候选` : '没有发现新的课次')
+    ElMessage.success(additions.length ? `已合并 ${additions.length} 条课次建议` : '没有发现新的课次')
   } catch (error: any) {
     if (error !== 'cancel') ElMessage.error(error?.message || 'CSV 识别失败')
   }
@@ -414,7 +414,7 @@ function applyDeriveProposal() {
   selectedIndex.value = editable.value.sessions.length ? 0 : null
   dirty.value = true
   deriveDialogOpen.value = false
-  ElMessage.success('所选候选已进入本地草稿；保存后才会同步总日历')
+  ElMessage.success('所选建议已进入本地草稿；保存后才会同步总日历')
 }
 async function save(): Promise<boolean> {
   if (!editable.value) return false

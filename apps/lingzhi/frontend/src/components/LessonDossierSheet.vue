@@ -99,7 +99,7 @@
                   :disabled="!row.knowledge_id"
                   :title="row.knowledge_id
                     ? t('courseGeneration.lessonPlan.openKnowledge', '在知识库中查看')
-                    : t('courseGeneration.lessonPlan.knowledgePending', '等待知识库编译')"
+                    : t('courseGeneration.lessonPlan.knowledgePending', '等待整理课程知识')"
                   @click="openKnowledge(row.knowledge_id)"
                 >{{ row.name }}</button>
                 <small>{{ ownershipLabel(row.ownership) }}</small>

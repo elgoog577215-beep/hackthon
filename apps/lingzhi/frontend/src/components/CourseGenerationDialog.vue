@@ -327,7 +327,7 @@
             <fieldset class="choice-group">
               <legend class="choice-group__title">
                 <span class="field-icon field-icon--rose"><Sparkles :size="14" /></span>
-                {{ t('teacherCourseCreate.productionMode', '生产模式') }}
+                {{ t('teacherCourseCreate.productionMode', '生成方式') }}
               </legend>
               <div class="production-mode-options">
                 <button type="button" :class="{ active: form.productionMode === 'manual' }" :aria-pressed="form.productionMode === 'manual'" :disabled="busy" @click="form.productionMode = 'manual'">
@@ -553,7 +553,7 @@ const learningPurposeOptions = computed(() => ([
   {
     value: 'project' as const,
     icon: Hammer,
-    label: t('courseGeneration.courseTypes.project.label', '项目实战'),
+    label: t('courseGeneration.courseTypes.project.label', '项目实践'),
     detail: t('courseGeneration.courseTypes.project.detail', '围绕真实成果，结合个人起点边做边学'),
     available: true,
   },

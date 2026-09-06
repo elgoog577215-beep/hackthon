@@ -177,8 +177,8 @@ MODULE_SIGNAL_RULES: dict[str, tuple[tuple[str, ...], str]] = {
     "math_error_analysis": (("误区", "错误", "易错", "注意"), "缺少错误原因分析"),
     "engineering_minimal_run": (("```",), "缺少可运行代码块"),
     "engineering_output": (("运行", "输出", "结果", "验证"), "缺少运行方式或预期结果"),
-    "engineering_modification": (("修改", "扩展", "尝试", "任务"), "缺少代码修改任务"),
-    "engineering_debugging": (("错误", "调试", "排查", "修复"), "缺少调试案例"),
+    "engineering_modification": (("修改", "扩展", "尝试", "任务"), "缺少代码改进练习"),
+    "engineering_debugging": (("错误", "调试", "排查", "修复"), "缺少调试与修正过程"),
     "science_evidence": (("实验", "观察", "数据", "证据"), "缺少实验、观察或数据证据"),
     "science_boundary": (("边界", "条件", "适用", "失效"), "缺少模型适用边界"),
     "life_location_structure": (("结构", "组成", "位于", "层级"), "缺少对象定位和结构"),
@@ -407,7 +407,7 @@ def evaluate_node_content(
             "duplicate_section_heading",
             "major",
             "正文重复使用了页面已经展示的节点标题，生成后会形成空引入块或重复标题",
-            "删除节点同名标题，直接从本节任务或真实引入模块开始",
+            "删除与本讲同名的重复标题，直接从本讲目标或问题引入开始",
             node_id,
         ))
     required_module_labels = [
@@ -1297,7 +1297,7 @@ def _feedback_structure_issues(text: str, node_id: str) -> list[dict[str, Any]]:
         issues.append(_issue(
             "feedback_structure_flat",
             "major",
-            "检查与反馈包含多个任务或长答案，但缺少任务级三级标题，渲染后会形成答案墙",
+            "课堂评价与反馈包含多个任务或长答案，但缺少任务级三级标题，渲染后会形成答案墙",
             "按 `### 任务 N：名称` 拆分每个任务，并在任务内区分核对标准、参考结论、依据和典型错误",
             node_id,
         ))
@@ -1308,7 +1308,7 @@ def _feedback_structure_issues(text: str, node_id: str) -> list[dict[str, Any]]:
         issues.append(_issue(
             "feedback_math_as_code",
             "major",
-            f"检查与反馈中有 {math_code_count} 处数学表达使用行内代码，公式语义和阅读排版会退化",
+            f"课堂评价与反馈中有 {math_code_count} 处数学表达使用行内代码，公式语义和阅读排版会退化",
             "将幂、上下标、分式、复杂度和数学关系改用 `$...$` 或 `$$...$$`，反引号只保留给程序代码",
             node_id,
         ))
@@ -1319,7 +1319,7 @@ def _feedback_module_body(text: str) -> str:
     matches = list(re.finditer(r"(?m)^##\s+(.+?)\s*$", text))
     for index, match in enumerate(matches):
         heading = _normalized_heading(match.group(1))
-        if not any(marker in heading for marker in ("检查与反馈", "答案与评价标准", "评价标准", "运行结果", "测试与质量")):
+        if not any(marker in heading for marker in ("课堂评价与反馈", "检查与反馈", "答案与评价标准", "评价标准", "运行结果与核对", "运行结果", "测试与结果分析", "测试与质量")):
             continue
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
         return text[match.end():end].strip()

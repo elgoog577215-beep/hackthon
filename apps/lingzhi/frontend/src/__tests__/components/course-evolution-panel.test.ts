@@ -130,7 +130,7 @@ describe('CourseEvolutionPanel', () => {
 
     expect(wrapper.findAll('.evolution-evidence span')).toHaveLength(3)
     expect(wrapper.get('.evolution-diagnosis').text()).toContain('学习者会执行计算，但尚未理解复合变换的先后顺序')
-    expect(wrapper.text()).toContain('关联后续 2 个教学块')
+    expect(wrapper.text()).toContain('关联后续 2 个教学环节')
     expect(wrapper.find('.evolution-details-toggle').exists()).toBe(true)
   })
 
@@ -955,7 +955,7 @@ describe('CourseEvolutionPanel', () => {
     await flushPromises()
 
     expect(wrapper.get('.review-workbench').attributes('data-state')).toBe('generating')
-    expect(wrapper.get('.review-workbench').text()).toContain('正在逐项生成课程调整候选')
+    expect(wrapper.get('.review-workbench').text()).toContain('正在逐项生成课程调整建议')
     expect(wrapper.get('.scan-empty-state').text()).toContain('首个结果会自动出现')
 
     resolveGeneration?.({})

@@ -165,13 +165,13 @@ describe('教案 AI 协作编辑模式', () => {
 
     expect(wrapper.classes()).not.toContain('is-ai-collaboration')
     expect(wrapper.find('.lesson-ai-workspace').exists()).toBe(false)
-    expect(composer.text()).toContain('AI 只生成候选，采用后才会写入正式教案')
+    expect(composer.text()).toContain('AI 只提出修改建议，采用后才会写入正式教案')
     await composer.get('textarea').setValue('把教学目标改成可观察行为')
     await composer.trigger('submit')
     await flushPromises()
 
     expect(createCandidate.mock.calls[0]![3]).toContain('把教学目标改成可观察行为')
-    expect(wrapper.get('.candidate-canvas-notice').text()).toContain('AI 候选已嵌入教案正文')
+    expect(wrapper.get('.candidate-canvas-notice').text()).toContain('修改建议已嵌入教案正文')
     expect(wrapper.get('.candidate-canvas-notice').text()).toContain('继续调整')
     expect(wrapper.get('.candidate-canvas-notice').text()).toContain('保留原文')
     expect(wrapper.get('.candidate-canvas-notice').text()).toContain('采用修改')
@@ -429,7 +429,7 @@ describe('教案 AI 协作编辑模式', () => {
 
     expect(wrapper.get('[data-ai-field="knowledge_objectives"]').classes()).toContain('ai-change-target')
     expect(wrapper.get('.objective-section').classes()).not.toContain('ai-change-target')
-    expect(wrapper.get('.candidate-canvas-notice').text()).toContain('AI 候选已嵌入教案正文')
+    expect(wrapper.get('.candidate-canvas-notice').text()).toContain('修改建议已嵌入教案正文')
     await wrapper.findAll('.candidate-canvas-notice button').find(button => button.text().includes('保留原文'))!.trigger('click')
     await flushPromises()
 

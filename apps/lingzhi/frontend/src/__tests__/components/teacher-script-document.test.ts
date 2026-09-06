@@ -75,7 +75,7 @@ describe('统一讲义页面', () => {
     expect(wrapper.text()).not.toContain('这是只存在于本次编辑的临时内容')
   })
 
-  it('讲稿跨教学块编辑时可以撤销和重做', async () => {
+  it('讲义跨教学环节编辑时可以撤销和重做', async () => {
     const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson } })
     ;(wrapper.vm as any).beginEditing()
     await flushPromises()
@@ -93,7 +93,7 @@ describe('统一讲义页面', () => {
     expect((wrapper.get('.script-body textarea').element as HTMLTextAreaElement).value).toBe('修改后的讲稿')
   })
 
-  it('按当前教案的教学块展示和逐块编辑讲稿', async () => {
+  it('按当前教案的教学环节展示和逐段编辑讲义', async () => {
     const structuredLesson = structuredClone(lesson)
     structuredLesson.script.sections[0] = {
       section_node_id: 'section-1',
@@ -110,8 +110,8 @@ describe('统一讲义页面', () => {
     const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson: structuredLesson } })
 
     expect(wrapper.findAll('.script-module')).toHaveLength(2)
-    expect(wrapper.text()).toContain('本节任务')
-    expect(wrapper.text()).toContain('核心教学')
+    expect(wrapper.text()).toContain('本讲目标')
+    expect(wrapper.text()).toContain('重点讲解')
     const firstModule = wrapper.findAll('.script-module')[0]!
     expect(firstModule.get('.script-streamed-block').element.nextElementSibling?.classList.contains('script-visual-studio')).toBe(true)
 
@@ -226,7 +226,7 @@ describe('统一讲义页面', () => {
       .toBeLessThan(directChildren.indexOf(wrapper.get('.script-generation-panel').element))
   })
 
-  it('无讲稿时先映射教案教学块，核对后直接触发生成', async () => {
+  it('无讲义时先核对教案教学环节，随后直接触发生成', async () => {
     const emptyLesson = structuredClone(lesson)
     emptyLesson.script = { ...emptyLesson.script, current_revision_id: '', ready: false, sections: [] }
     emptyLesson.plan.current_revision = {
@@ -246,9 +246,9 @@ describe('统一讲义页面', () => {
       props: { courseId: 'course-1', lesson: emptyLesson, canGenerate: true },
     })
 
-    expect(wrapper.get('.script-source-steps').text()).toContain('检查教案映射')
+    expect(wrapper.get('.script-source-steps').text()).toContain('检查教案对应')
     expect(wrapper.get('.script-source-steps').text()).toContain('生成讲义')
-    expect(wrapper.get('.script-source-blocks').text()).toContain('核心教学')
+    expect(wrapper.get('.script-source-blocks').text()).toContain('重点讲解')
     expect(wrapper.get('.script-source-blocks').text()).toContain('用界面实例讲清')
     expect(wrapper.find('.script-source-review textarea').exists()).toBe(false)
     await wrapper.get('.script-source-review').trigger('submit')
@@ -271,7 +271,7 @@ describe('统一讲义页面', () => {
     expect(blocked.text()).toContain('请先完成本讲教案，再生成讲义。')
     expect(blocked.find('svg').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('本讲讲义将按以下教案生成')
-    expect(wrapper.text()).not.toContain('教案中还没有可映射的教学块')
+    expect(wrapper.text()).not.toContain('教案中还没有可对应的教学环节')
     expect(wrapper.get('.script-source-review button').attributes('disabled')).toBeDefined()
   })
 
@@ -292,7 +292,7 @@ describe('统一讲义页面', () => {
     expect(blocked.text()).not.toContain('暂无可用教案')
   })
 
-  it('生成中展示临时内容，停止后丢弃并提供整单重试', async () => {
+  it('生成中展示已完成教学环节，失败后只提供继续剩余内容', async () => {
     const emptyLesson = structuredClone(lesson)
     emptyLesson.script = { ...emptyLesson.script, current_revision_id: '', ready: false, sections: [] }
     const generationJob: TeacherLessonJob = {
@@ -342,7 +342,7 @@ describe('统一讲义页面', () => {
     expect(wrapper.get('.script-source-review button').text()).toContain('生成本讲讲义')
   })
 
-  it('按当前教学块实时渲染流式增量文本', async () => {
+  it('按当前教学环节实时渲染流式增量文本', async () => {
     const emptyLesson = structuredClone(lesson)
     emptyLesson.script = { ...emptyLesson.script, current_revision_id: '', ready: false, sections: [] }
     emptyLesson.arrangement.blocks = [{
@@ -363,7 +363,7 @@ describe('统一讲义页面', () => {
       props: { courseId: 'course-1', lesson: emptyLesson, canGenerate: true, generating: true, generationJob },
     })
 
-    expect(wrapper.get('.script-module').text()).toContain('核心教学')
+    expect(wrapper.get('.script-module').text()).toContain('重点讲解')
     expect(wrapper.get('.script-module').text()).toContain('爬虫会先发起请求')
     expect(wrapper.find('.script-streamed-block .stream-caret').exists()).toBe(true)
 

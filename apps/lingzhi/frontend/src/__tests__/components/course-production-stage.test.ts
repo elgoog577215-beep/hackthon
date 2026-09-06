@@ -59,7 +59,7 @@ describe('CourseProductionStage', () => {
     expect(wrapper.text()).toContain('目录确认 · 已中断')
     expect(wrapper.text()).toContain('量子力学')
     expect(wrapper.text()).toContain('目录会在最终位置逐步出现')
-    expect(wrapper.text()).toContain('课程生产暂时中断')
+    expect(wrapper.text()).toContain('课程创建暂时中断')
     expect(wrapper.text()).toContain('课程需求与资料处理结果已保留')
     expect(wrapper.text()).toContain('AI 服务暂时无法完成身份校验')
     expect(wrapper.find('.production-progress').exists()).toBe(false)
@@ -77,11 +77,11 @@ describe('CourseProductionStage', () => {
     })
     const lifecycle = mount(CourseGenerationLifecycle, { props: { task: interruptedTask } })
 
-    expect(wrapper.text()).toContain('Course production was interrupted')
+    expect(wrapper.text()).toContain('Course creation was interrupted')
     expect(wrapper.text()).toContain('Course requirements and processed sources are saved')
     expect(wrapper.text()).not.toContain('已保留课程需求')
     expect(wrapper.text()).not.toContain('courseGeneration.')
-    expect(lifecycle.text()).toContain('Course production')
+    expect(lifecycle.text()).toContain('Course creation')
     expect(lifecycle.text()).not.toContain('课程生产')
   })
 

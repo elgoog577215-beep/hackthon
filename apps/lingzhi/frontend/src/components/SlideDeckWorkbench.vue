@@ -65,7 +65,7 @@
             <strong>{{ t('pptWorkspace.buildDetails', '生成详情') }}</strong>
             <small class="slide-workbench__schema-facts" data-testid="ppt-schema-facts">
               {{ t('pptWorkspace.targetSchema', '目标') }} {{ schemaLabel(targetSchema) }} ·
-              {{ t('pptWorkspace.candidateSchema', '候选') }} {{ schemaLabel(candidateSchema) }} ·
+              {{ t('pptWorkspace.candidateSchema', '建议') }} {{ schemaLabel(candidateSchema) }} ·
               {{ t('pptWorkspace.publishedSchema', '已发布') }} {{ schemaLabel(publishedSchema) }}
             </small>
             <small
@@ -110,7 +110,7 @@
                   v-if="page.page_goal || page.primary_claim || page.visible_copy?.length || page.composition_notes"
                   class="slide-workbench__manuscript-page"
                 >
-                  <p><strong>{{ t('pptWorkspace.pageContract', '页面合同') }}：</strong>{{ page.page_type || '—' }} · {{ page.layout_id || '—' }}</p>
+                  <p><strong>{{ t('pptWorkspace.pageContract', '页面安排') }}：</strong>{{ page.page_type || '—' }} · {{ page.layout_id || '—' }}</p>
                   <p v-if="page.page_goal"><strong>{{ t('pptWorkspace.pageGoal', '页面任务') }}：</strong><MathText :content="page.page_goal" /></p>
                   <p v-if="page.primary_claim"><strong>{{ t('pptWorkspace.primaryClaim', '核心结论') }}：</strong><MathText :content="page.primary_claim" /></p>
                   <p v-if="page.audience_question"><strong>{{ t('pptWorkspace.audienceQuestion', '学生问题') }}：</strong><MathText :content="page.audience_question" /></p>
@@ -147,7 +147,7 @@
               v-if="planningStatus?.visual_ai?.status"
               class="slide-workbench__manual-status"
               data-testid="ppt-visual-ai-status"
-            >{{ planningStatus.visual_ai.status === 'partial_degraded' ? `${t('pptWorkspace.layoutPlanningDegraded', '版式规划部分降级')} · ${planningStatus.visual_ai.degraded_page_count || 0} ${t('pptWorkspace.pagesNeedReview', '页需检查')}` : t('pptWorkspace.layoutPlanningComplete', '版式规划已完成') }}</small>
+            >{{ planningStatus.visual_ai.status === 'partial_degraded' ? `${t('pptWorkspace.layoutPlanningDegraded', '部分页面使用备用版式')} · ${planningStatus.visual_ai.degraded_page_count || 0} ${t('pptWorkspace.pagesNeedReview', '页需检查')}` : t('pptWorkspace.layoutPlanningComplete', '版式规划已完成') }}</small>
             <ul
               v-if="planningStatus?.visual_ai?.degraded_pages?.length"
               class="slide-workbench__degraded-visuals"
@@ -170,11 +170,11 @@
                 type="button"
                 data-testid="ppt-repair-degraded-visuals"
                 :disabled="building || !representationId"
-                :title="t('pptWorkspace.repairDegradedVisuals', '仅重新规划降级页面，保留已通过页面')"
+                :title="t('pptWorkspace.repairDegradedVisuals', '仅重新规划使用备用版式的页面，保留已通过页面')"
                 @click="repairDegradedVisuals"
               >
                 <RefreshCw :size="16" :class="{ spinning: building }" />
-                <span>{{ t('pptWorkspace.retryDegradedPages', '重试降级页') }}</span>
+                <span>{{ t('pptWorkspace.retryDegradedPages', '重新生成待完善页面') }}</span>
               </button>
               <button v-if="standalone" type="button" :title="t('pptWorkspace.materialsOverview', '教学材料总览')" @click="emit('open-materials')">
                 <Layers3 :size="16" /><span>{{ t('pptWorkspace.materialsOverview', '教学材料总览') }}</span>
@@ -346,7 +346,7 @@
           </section>
 
           <section>
-            <header><span>{{ t('teachingRepresentations.slides.source', '同源依据') }}</span><b>{{ sourceCount }}</b></header>
+            <header><span>{{ t('teachingRepresentations.slides.source', '内容来源') }}</span><b>{{ sourceCount }}</b></header>
             <div class="slide-inspector__refs">
               <MathText v-for="label in activeSlide.knowledge_labels || []" :key="label" :content="label" />
               <MathText v-for="label in activeSlide.ability_labels || []" :key="label" :content="label" data-kind="ability" />
@@ -390,12 +390,12 @@
                   </span>
                 </div>
               </div>
-              <small>{{ t('teachingRepresentations.preciseImpactSummary', '预计联动 {affected} 处，保持 {unaffected} 处不变')
+              <small>{{ t('teachingRepresentations.preciseImpactSummary', '预计更新 {affected} 处，保持 {unaffected} 处不变')
                 .replace('{affected}', String(editPreview.impact?.affected_unit_count || 0))
                 .replace('{unaffected}', String(editPreview.impact?.unaffected_unit_count || 0)) }}</small>
               <p class="protected"><ShieldCheck :size="12" />{{ t('teachingRepresentations.unrelatedProtected', '无来源关系的内容不会修改') }}</p>
               <button type="button" class="impact-open" @click="impactDialogOpen = true">
-                <GitBranch :size="13" />{{ t('teachingRepresentations.impactDialog.open', '进入同源影响工作台') }}<ArrowRight :size="13" />
+                <GitBranch :size="13" />{{ t('teachingRepresentations.impactDialog.open', '查看内容联动范围') }}<ArrowRight :size="13" />
               </button>
             </div>
             <div v-else-if="analysisQueued || (editBusy && changed)" class="slide-inspector__analyzing">
@@ -403,7 +403,7 @@
               <span>{{ t('teachingRepresentations.impactDialog.analyzing', '正在理解这次修改改变了什么教学目标…') }}</span>
             </div>
             <div v-if="pendingInlineItem" class="slide-inspector__confirmation" data-state="pending">
-              <strong><Sparkles :size="13" />{{ t('teachingRepresentations.confirmCourseChange', '确认课程语义变化') }}</strong>
+              <strong><Sparkles :size="13" />{{ t('teachingRepresentations.confirmCourseChange', '确认课程内容变化') }}</strong>
               <div class="objective-diff">
                 <MathText :content="proposalContent(pendingInlineItem.before)" />
                 <i>→</i>
@@ -420,7 +420,7 @@
               <TriangleAlert v-else :size="15" />
               <div>
                 <strong>{{ syncReceipt.status === 'synchronized'
-                  ? t('teachingRepresentations.syncComplete', '课程同源同步完成')
+                  ? t('teachingRepresentations.syncComplete', '相关课程内容已更新')
                   : t('teachingRepresentations.syncFallback', '课程已更新，教学资源暂用上一版') }}</strong>
                 <p v-if="syncReceipt.status === 'synchronized' && hasDetailedSyncReceipt">{{ t('teachingRepresentations.syncDetailedCounts', '{changed} 项实际更新，{verified} 项仅校验，{reused} 项确认无需处理')
                   .replace('{changed}', String(syncChangedCount))
@@ -449,7 +449,7 @@
                   class="same-source-course-link"
                   @click="openSameSourceCourse"
                 >
-                  {{ t('teachingRepresentations.openSameSourceCourse', '进入课程查看同源改动') }}
+                  {{ t('teachingRepresentations.openSameSourceCourse', '进入课程查看相关修改') }}
                   <ArrowRight :size="13" />
                 </button>
               </div>
@@ -876,7 +876,7 @@ const failureIssueSummary = computed(() => {
     process_result_missing: t('pptWorkspace.qualityIssueLabels.processResult', '过程结果'),
     raw_internal_label_visible: t('pptWorkspace.qualityIssueLabels.internalLabel', '内部标签'),
     worked_example_conclusion_missing: t('pptWorkspace.qualityIssueLabels.exampleConclusion', '例题结论'),
-    semantic_atom_split: t('pptWorkspace.qualityIssueLabels.semanticSplit', '语义拆页'),
+    semantic_atom_split: t('pptWorkspace.qualityIssueLabels.semanticSplit', '内容拆页'),
     duplicate_title: t('pptWorkspace.qualityIssueLabels.duplicateTitle', '重复标题'),
     body_density_overflow: t('pptWorkspace.qualityIssueLabels.bodyDensity', '正文过密'),
     slide_title_overflow: t('pptWorkspace.qualityIssueLabels.titleOverflow', '标题过长'),
@@ -974,7 +974,7 @@ const stageLabel = computed(() => ({
   story_plan: '正在读取课程逻辑',
   chapter_plan: '正在编排章节叙事',
   episode_progress: '正在生成教学场景',
-  layout_plan: '正在匹配语义版式',
+  layout_plan: '正在安排页面版式',
   slide_plan: t('teachingRepresentations.slides.stages.slidePlan', '正在规划页面'),
   visual_plan: '正在规划教学视觉',
   asset_compilation: '正在准备课程视觉素材',
@@ -1196,7 +1196,7 @@ async function applyEdit(decision: 'representation_only' | 'course_semantic') {
       inlineProposal.value = changeProposalsStore.findProposal(result.authoring_change?.proposal_id)
         || result.authoring_change
         || null
-      editResult.value = t('teachingRepresentations.courseCandidateReady', '已生成课程修改候选，请确认影响范围')
+      editResult.value = t('teachingRepresentations.courseCandidateReady', '已生成课程修改建议，请确认影响范围')
       impactDialogOpen.value = true
     } else {
       editResult.value = t('teachingRepresentations.representationSaved', '当前 PPT 已更新，课程正文保持不变')
@@ -1225,7 +1225,7 @@ async function confirmInlineChange() {
     inlineProposal.value = null
     editPreview.value = null
     syncReceipt.value = result?.representation_sync || null
-    editResult.value = t('teachingRepresentations.syncComplete', '课程同源同步完成')
+    editResult.value = t('teachingRepresentations.syncComplete', '相关课程内容已更新')
     impactDialogOpen.value = true
   } finally {
     syncing.value = false
@@ -1282,7 +1282,7 @@ async function rejectInlineChange() {
   try {
     await changeProposalsStore.rejectItem(proposal.proposal_id, item.item_id)
     inlineProposal.value = null
-    editResult.value = t('teachingRepresentations.changeRejected', '本次课程语义修改未应用')
+    editResult.value = t('teachingRepresentations.changeRejected', '本次课程内容修改未应用')
     impactDialogOpen.value = false
   } finally {
     editBusy.value = false
@@ -1335,11 +1335,11 @@ function layoutLabel(value: string) {
 
 function responsibilityLabel(value: string) {
   return ({
-    course_generation: '课程内容链路',
-    ppt_compiler: 'PPT 编译链路',
-    visual_planner: '视觉规划链路',
-    renderer: '页面渲染链路',
-  } as Record<string, string>)[value] || 'PPT 编译链路'
+    course_generation: '课程内容生成',
+    ppt_compiler: 'PPT 生成',
+    visual_planner: '页面视觉设计',
+    renderer: 'PPT 页面制作',
+  } as Record<string, string>)[value] || 'PPT 生成'
 }
 
 function effectiveSlideLayout(slide: Slide) {
@@ -1376,16 +1376,16 @@ function beatRoleLabel(value: string) {
     solution: '解答揭示',
     feedback: '反馈判断',
     repair: '错误修复',
-    mapping: '情境映射',
+    mapping: '联系实际情境',
     closure: '目标与检验',
   } as Record<string, string>)[value] || value
 }
 
 function classificationLabel(value: string) {
   return ({
-    presentation: t('teachingRepresentations.classification.presentation', '表现修改'),
-    equivalent_semantic: t('teachingRepresentations.classification.equivalent', '等义修改'),
-    semantic: t('teachingRepresentations.classification.semantic', '语义修改'),
+    presentation: t('teachingRepresentations.classification.presentation', '页面呈现调整'),
+    equivalent_semantic: t('teachingRepresentations.classification.equivalent', '等义改写'),
+    semantic: t('teachingRepresentations.classification.semantic', '课程内容修改'),
     ambiguous: t('teachingRepresentations.classification.ambiguous', '需要确认'),
   } as Record<string, string>)[value] || value
 }

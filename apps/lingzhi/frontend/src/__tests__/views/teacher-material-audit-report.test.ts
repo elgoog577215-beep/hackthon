@@ -136,7 +136,7 @@ describe('TeacherMaterialAuditReportView', () => {
     const wrapper = mountReport()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('审计与更新')
+    expect(wrapper.text()).toContain('资料审阅与更新')
     expect(wrapper.text()).toContain('变化来源')
     expect(wrapper.text()).toContain('课程材料')
     expect(wrapper.text()).toContain('待处理调整')

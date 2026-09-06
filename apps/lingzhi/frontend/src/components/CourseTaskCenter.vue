@@ -316,7 +316,7 @@
                     <span>{{ String(index + 1).padStart(2, '0') }}</span>
                     <div>
                       <strong>{{ section.name }}</strong>
-                      <p>{{ t('courseTasks.review.contentStats', '{characters} 字 · {blocks} 个内容块')
+                      <p>{{ t('courseTasks.review.contentStats', '{characters} 字 · {blocks} 个内容段')
                         .replace('{characters}', String(section.character_count || 0))
                         .replace('{blocks}', String(section.block_count || 0)) }}</p>
                     </div>
@@ -339,7 +339,7 @@
                   <ol class="quality-blocker-list">
                     <li v-for="(issue, index) in releaseIssues" :key="qualityIssueKey(issue, index)">
                       <div class="quality-blocker-list__meta">
-                        <code>{{ issue.code || issue.issue_id || t('courseTasks.review.qualityGate', '质量门禁') }}</code>
+                        <code>{{ issue.code || issue.issue_id || t('courseTasks.review.qualityGate', '检查标准') }}</code>
                         <span v-if="reviewIssueTarget(issue)">{{ t('courseTasks.review.target', '目标') }}：{{ reviewIssueTarget(issue) }}</span>
                       </div>
                       <strong>{{ reviewIssueMessage(issue) }}</strong>
@@ -987,8 +987,8 @@ function phaseLabel(phase: string | undefined, status: Task['status'], taskType?
     course_relation_validation: t('courseTasks.phases.courseRelationValidation', '检查旧版关系检查点'),
     course_graph_generation: t('courseTasks.phases.courseGraphGeneration', '迁移旧版知识关系图'),
     course_graph_validation: t('courseTasks.phases.courseGraphValidation', '检查旧版关系图结构'),
-    knowledge_mapping: t('courseTasks.phases.knowledgeMapping', '编译全课知识关系'),
-    course_knowledge_blueprint: t('courseTasks.phases.knowledgeMapping', '编译全课知识关系'),
+    knowledge_mapping: t('courseTasks.phases.knowledgeMapping', '整理全课知识关系'),
+    course_knowledge_blueprint: t('courseTasks.phases.knowledgeMapping', '整理全课知识关系'),
     knowledge_ready: t('courseTasks.phases.knowledgeReady', '迁移旧版知识确认点'),
     knowledge_confirmed: t('courseTasks.phases.knowledgeConfirmed', '旧版知识确认点已迁移'),
     blueprint_generation: t('courseTasks.phases.blueprintGeneration', '生成课程蓝图'),
@@ -1159,7 +1159,7 @@ function recoveryCheckpointLabel(task: TaskView) {
       ? t('courseTasks.recovery.requirementsCheckpoint', '已保存课程需求和资料处理结果；继续后将重新生成课程目录')
       : t('courseTasks.recovery.stageRetry', '尚未生成课程内容；继续后将重试当前阶段')
   }
-  return t('courseTasks.recovery.checkpoint', '已保留 {completed}/{total} 个内容块和 {drafts} 份草稿')
+  return t('courseTasks.recovery.checkpoint', '已保留 {completed}/{total} 个内容段和 {drafts} 份草稿')
     .replace('{completed}', String(checkpoint.completed_nodes || 0))
     .replace('{total}', String(checkpoint.total_nodes || 0))
     .replace('{drafts}', String(checkpoint.draft_node_ids?.length || 0))

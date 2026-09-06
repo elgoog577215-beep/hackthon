@@ -471,7 +471,7 @@ describe('CourseTaskCenter', () => {
 
     expect(wrapper.find('.guided-workflow').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('小节教案、知识库与关系图已由同一计划编译')
-    expect(wrapper.text()).toContain('题目合同与可判定性')
+    expect(wrapper.text()).toContain('题目要求与答案可判定性')
     expect(wrapper.text()).toContain('为什么出这道题')
     expect(wrapper.text()).toContain('它实际在考什么')
     expect(wrapper.text()).toContain('同时比较大小和方向')
@@ -522,7 +522,7 @@ describe('CourseTaskCenter', () => {
     expect(wrapper.find('.guided-workflow').exists()).toBe(false)
     expect(wrapper.text()).toContain('Review course content')
     expect(wrapper.text()).toContain('Course task center')
-    expect(wrapper.text()).toContain('Some lesson-plan units used the local fallback')
+    expect(wrapper.text()).toContain('Some lesson plans used a local backup method')
     expect(wrapper.text()).not.toContain('本地确定性保底')
     expect(wrapper.text()).not.toContain('courseTasks.')
     expect(wrapper.text()).not.toContain('确认课程内容')
@@ -666,7 +666,7 @@ describe('CourseTaskCenter', () => {
     const wrapper = mountCenter()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('已保留 2/5 个内容块和 1 份草稿')
+    expect(wrapper.text()).toContain('已保留 2/5 个内容段和 1 份草稿')
     expect(wrapper.text()).toContain('从保存点继续')
     await wrapper.get('.task-actions .primary-button').trigger('click')
     await flushPromises()
@@ -726,7 +726,7 @@ describe('CourseTaskCenter', () => {
     expect(wrapper.text()).toContain('生成中断，可以重试当前阶段')
     expect(wrapper.text()).toContain('已保存课程需求和资料处理结果')
     expect(wrapper.find('.task-actions .primary-button').text()).toContain('重试当前阶段')
-    expect(wrapper.text()).not.toContain('已保留 0/0 个内容块')
+    expect(wrapper.text()).not.toContain('已保留 0/0 个内容段')
     expect(wrapper.text()).not.toContain('已完成内容和中断草稿')
 
     await setLocale('en')
@@ -767,7 +767,7 @@ describe('CourseTaskCenter', () => {
     expect(wrapper.text()).toContain('查看技术原因')
     expect(wrapper.get('.task-error-detail code').text()).toContain('小节「线性映射」知识包缺少可验证掌握标准')
     expect(wrapper.text()).toContain('目录与旧版知识检查点已保留，完成 1/3')
-    expect(wrapper.text()).not.toContain('已保留 0/3 个内容块')
+    expect(wrapper.text()).not.toContain('已保留 0/3 个内容段')
   })
 
   it('把已发布警告显示为可学习建议，而不是失败任务', async () => {

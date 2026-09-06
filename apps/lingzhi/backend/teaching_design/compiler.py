@@ -1,7 +1,7 @@
 """灵知统一教学语义与两级编排规则。
 
 课程级先确定学习目的、学科类型和课程教学类型；讲次级再结合本讲目标、
-课堂条件与学习证据确定本讲课型并编排教学块。教学理论只进入版本化合同，
+课堂条件与学习证据确定本讲课型并编排教学环节。教学理论只进入版本化合同，
 不继续形成教师要理解的平行分类，也不留给 Prompt 临时发明。
 """
 
@@ -47,7 +47,7 @@ LEARNING_PURPOSES: dict[str, dict[str, Any]] = {
         "evidence_strategy": "用阶段整合、跨章任务和延迟复验共同证明结构已经形成。",
     },
     "project": {
-        "label": "项目实战",
+        "label": "项目实践",
         "result": "完成可展示、可评价的真实成果",
         "organizing_question": "学习者要交付什么成果，并用什么标准证明它真实可用？",
         "learning_arc": ["明确成果", "诊断缺口", "分段制作", "评审修订", "交付复盘"],
@@ -89,7 +89,7 @@ SUBJECT_TYPE_CONTRACTS: dict[str, dict[str, Any]] = {
     },
     "math_formal": {
         "epistemic_question": "定义、条件、推理和形式结果怎样严格成立？",
-        "professional_moves": ["多重表征", "正式定义", "完整推理", "变式求解", "错误诊断"],
+        "professional_moves": ["多种表示", "正式定义", "完整推理", "变式求解", "错误诊断"],
         "evidence": "能独立求解、证明或建立并检验形式模型。",
         "guardrails": ["直觉不能替代定义", "推导、例题和答案必须逻辑一致"],
     },
@@ -154,7 +154,7 @@ COURSE_TEACHING_TYPES: dict[str, dict[str, Any]] = {
     },
     "practice": {
         "label": "实践课",
-        "organizing_principle": "以示范、带支架练习、即时反馈和独立完成为主线。",
+        "organizing_principle": "以示范、分步练习、即时反馈和独立完成为主线。",
         "teacher_role": "示范关键判断，观察过程并给出可执行的就近反馈。",
         "learner_role": "实际操作、解释选择、根据反馈修正并独立复现。",
         "evidence_pattern": ["操作过程", "工作结果", "修订记录", "独立表现"],
@@ -503,7 +503,7 @@ def compile_teaching_block_contract(
     lesson_type: str,
     subject_standard_pack: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """把旧模块投影为可实施、可检查、可调整的教学块合同。"""
+    """把旧模块投影为可实施、可检查、可调整的教学环节合同。"""
     result = deepcopy(block)
     role = _value(result.get("role")) or "concept"
     role_contract = deepcopy(BLOCK_ROLE_CONTRACTS.get(role, BLOCK_ROLE_CONTRACTS["concept"]))
@@ -575,7 +575,7 @@ def compile_teaching_block_contract(
         result.get("adaptation_options")
         or discipline_recipe.get("adaptation_options")
         or [
-            f"达到标准：撤除当前支架，增加要求学习者独立完成“{transfer_focus}”的迁移挑战",
+            f"达到标准：逐步撤除提示，增加要求学生独立完成“{transfer_focus}”的拓展应用",
             f"部分达到：保留原目标，针对“{misconception_focus}”补充提示、表征或范例后再次检查",
             f"未达到：缩小任务，回到“{prerequisite_focus}”所需前置并重新取得同类证据",
         ]

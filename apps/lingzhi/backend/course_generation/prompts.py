@@ -48,7 +48,7 @@ def _course_planning_rules(brief: dict[str, Any]) -> str:
     if not learning_purpose:
         return _course_type_planning_rules(brief)
     if learning_purpose == "project":
-        return """9. 项目实战按真实交付物组织：起点不足时不得使用 `compressed`；尚未证实的能力使用
+        return """9. 项目实践按真实交付物组织：起点不足时不得使用 `compressed`；尚未证实的能力使用
    `verify_in_project`，明确缺口使用 `focus`，阶段成果使用 `milestone`。
 10. `verify_in_project` 的理由必须指向可检查的任务；`milestone` 必须指向交付物验收。
 11. `planning_stages` 使用空数组；项目进度由里程碑和学习路径角色表达。"""
@@ -73,7 +73,7 @@ def _course_type_planning_rules(brief: dict[str, Any]) -> str:
     contract = brief.get("course_type_contract") or {}
     required_stages = contract.get("required_planning_stages") or []
     if course_type == "project":
-        return """9. 仅项目实战使用以下路径规则：起点不足时不得使用 `compressed`；未证实能力使用
+        return """9. 仅项目实践使用以下路径规则：起点不足时不得使用 `compressed`；未证实能力使用
    `verify_in_project`，明确重点缺口使用 `focus`，阶段成果使用 `milestone`。
 10. `verify_in_project` 的理由必须指向可观察任务或检查点；`milestone` 必须指向交付物验收。
 11. `planning_stages` 使用空数组；项目阶段由里程碑和路径角色表达。"""
@@ -361,7 +361,7 @@ class CoursePromptComposer:
     {{
       "chapter_number": 1,
       "title": "章节名",
-      "planning_stages": ["专用规划器的一个或多个连续阶段；系统学习与项目实战为空数组"],
+      "planning_stages": ["专用规划器的一个或多个连续阶段；系统学习与项目实践为空数组"],
       "learning_focus": "本章独有的能力推进范围",
       "learning_path_role": "focus|standard|compressed|verify_in_project|milestone",
       "path_reason": "该章节为何以当前深度进入个人路径",
@@ -827,7 +827,7 @@ class CoursePromptComposer:
 ## 约束
 1. 必须严格返回 {end - start + 1} 个小节，并按 `expected_node_ids` 的顺序逐一对应。
 2. 每节只承担一个可观察且互不重复的责任，给出目标、范围和可检查验收任务。
-   学习目标使用“动作 + 对象 + 条件/标准”，不能写成“完成本节任务”或只替换主题词的套话。
+   学习目标使用“动作 + 对象 + 条件/标准”，不能写成“完成本讲目标”或只替换主题词的套话。
    达成检验必须写清学生提交、解释、推导、判错、比较、设计、实作或迁移出的具体证据，
    以及据此判断达成的标准；同章小节不得沿用同一检验句式只替换标题。
 3. 当前章内部只能引用编号更早的小节。第一节只有确需承接时才可引用
@@ -1330,7 +1330,7 @@ class CoursePromptComposer:
    只有输入已提供时才填写，否则 `homework_submission` 留空。`teaching_activity_photos` 只保留已有引用，
    不得生成照片、链接、课堂过程或参与情况。
 15. 正式教案外壳保持“本讲基本信息—教学目标—重点难点—本讲教学设计—教学资料与活动记录”；
-   具体教学块只放在课堂教学过程中。流程必须完整承担「进入问题或任务 → 核心教学 → 学习者行动
+   具体教学环节只放在课堂教学过程中。流程必须完整承担「进入问题或任务 → 重点讲解 → 学生活动
    → 就近证据 → 反馈调整 → 迁移或收束」，但块名称和顺序由学科、目标与本讲课型决定，
    不得把所有课程强套成「案例导入—理论讲授—实践操作」同一顺序。
 16. `resource_refs` 是给学生继续学习的推荐阅读，不能留空。优先使用已给定的课程资料或已确认来源，
@@ -1422,7 +1422,7 @@ class CoursePromptComposer:
         "module_id": "core_explanation",
         "teaching_purpose": "本节具体教学职责",
         "knowledge_keys": ["K001"],
-        "teaching_guidance": "正文必须体现的讲法或学习者行动",
+        "teaching_guidance": "正文必须体现的讲法或学生活动",
         "planned_minutes": 15,
         "teacher_activity": "教师演示或追问的具体动作",
         "student_activity": "学生完成的可观察动作",
@@ -1627,7 +1627,7 @@ class CoursePromptComposer:
 {course_knowledge_context}
 
 ## 教学模块
-{module_contract or '- `## 核心教学`：解释、示例、行动与检查。'}
+{module_contract or '- `## 重点讲解`：解释、示例、活动与检查。'}
 
 ## 允许证据
 {evidence_ids}
@@ -1693,7 +1693,7 @@ class CoursePromptComposer:
         system_prompt = f"""## 输出契约
 1. 只输出可直接保存的 Markdown 正文或续写，不输出寒暄、身份、计划、边界确认或任务复述。
 2. 只讲当前小节，不重写整章，不提前展开后续节点。
-3. `##` 二级标题是同级教学块的语义边界。每个必需模块都必须以契约中的原始标签输出一次（可在标签后用冒号补充说明）；`###` 及更深标题只用于模块内部。
+3. `##` 二级标题是同级教学环节的内容边界。每个必需环节都必须以约定名称输出一次（可在名称后用冒号补充说明）；`###` 及更深标题只用于环节内部。
 4. 不编造论文、来源、链接、年份、机构或未上传资料。
 5. 基础课程正文只服从持久化课程蓝图，不根据临时学习状态改变主线。
 6. 如果使用资料事实，必须在对应陈述后追加 `[[evidence:证据ID]]`；证据 ID 只能来自当前节点允许列表。
@@ -1701,8 +1701,8 @@ class CoursePromptComposer:
 8. 输出前完成内部一致性检查；正文不得保留“我的计算有误”“等待，更正”“请重新检查任务”等模型自我纠错痕迹，也不得让题干、答案和量规互相矛盾。
 9. 正文中的解释、例子、练习和反馈必须共享当前课程知识库的知识、能力、易错和掌握标准，不得各写各的。
 10. 当前节点名称已经由页面显示，正文不得把本节标题重复写成二级标题，也不得输出只有标题没有正文的空模块。
-11. 每个 `##` 教学块必须在首段明确写出它实际讲解、练习或检查的一个或多个知识点规范名称；不得只用“本概念”“上述方法”等代词。规范名称来自下方“当前课程知识库契约”，用于建立正文块到知识点的精确绑定。
-12. `## 检查与反馈` 是静态检查参考，不得声称已经评价当前学生。对应多个学习任务时，每个任务必须使用 `### 任务 N：名称` 作为内部边界，并在任务内清楚区分核对标准、参考结论、推导依据和典型错误；不得把所有答案压成一个长段落。
+11. 每个 `##` 教学环节必须在首段明确写出它实际讲解、练习或检查的一个或多个知识点规范名称；不得只用“本概念”“上述方法”等代词。规范名称来自下方“当前课程知识库契约”，用于建立正文与知识点的精确联系。
+12. `## 课堂评价与反馈` 是供师生使用的静态检查参考，不得声称已经评价当前学生。对应多个学习任务时，每个任务必须使用 `### 任务 N：名称` 作为内部边界，并在任务内清楚区分核对标准、参考结论、推导依据和典型错误；不得把所有答案压成一个长段落。
 13. Markdown 列表必须使用真实的 `1.` 或 `-` 列表语法并保留必要空行。任务级标题使用 `###`，不要用单独一行加粗文字伪装标题。Markdown 表格的每一行必须在同一行内完成，表头与数据行的列数必须一致。
 14. 数学表达必须使用 `$...$` 或 `$$...$$`，反引号只用于代码标识、函数调用、命令或程序片段，完整代码使用带语言标记的代码块；不得用反引号书写幂、上下标、分式、复杂度或数学关系，也不得使用 LaTeX 的 `\\texttt`、`\\verb` 或 `\\mathtt` 表示代码。
 15. 下方“总体教案对本节的引领”是课程内容选择与讲法的上位约束：正文必须推进总体成果、体现教学主线并产出对应评价证据；不得把教案条目原样抄成正文。
@@ -1760,8 +1760,8 @@ class CoursePromptComposer:
 - 允许的全部证据 ID：{'；'.join(allowed_evidence) or '无'}
 - 是否允许模型通用知识：{'是' if grounding_contract.get('allow_general_knowledge', True) else '否'}
 
-## 本节教学模块
-{module_contract or '- 使用通用本节任务、核心教学、学习者行动和反馈检查。'}
+## 本讲教学环节
+{module_contract or '- 使用通用的本讲目标、重点讲解、学生活动和课堂评价与反馈。'}
 
 ## 持久化上下文
 {context or '无额外资料或前置摘要。'}

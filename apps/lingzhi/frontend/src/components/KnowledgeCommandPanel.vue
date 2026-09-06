@@ -55,8 +55,8 @@
       </p>
 
       <!--
-        AI 拆分建议：模型只提建议，产出的仍是待确认候选，走同一套质量门。
-        与手工编辑共用下方的候选区，避免两套确认语义。
+        AI 拆分建议：模型只提建议，产出的仍是待确认建议，走同一套质量门。
+        与手工编辑共用下方的建议区，避免两套确认语义。
       -->
       <div class="knowledge-command-actions">
         <button type="button" class="is-propose" :disabled="busy" @click="proposeSplit">
@@ -91,13 +91,13 @@
       </div>
 
       <!--
-        候选区：这是"候选式确认"的界面表达。预览已经算出完整影响面，
+        建议区：这是"建议式确认"的界面表达。预览已经算出完整影响面，
         但活动知识库此刻仍未改变，教师看过影响再决定确认或放弃。
       -->
       <div v-if="candidate" class="knowledge-command-candidate">
         <header>
           <FileSearch :size="14" aria-hidden="true" />
-          <strong>{{ t('knowledgeCommands.candidateTitle', '待确认候选') }}</strong>
+          <strong>{{ t('knowledgeCommands.candidateTitle', '待确认建议') }}</strong>
           <span :class="['knowledge-command-badge', candidate.confirmable ? 'is-ok' : 'is-blocked']">
             {{ candidate.confirmable
               ? t('knowledgeCommands.confirmable', '可确认')
@@ -202,7 +202,7 @@
               : t('knowledgeCommands.confirm', '确认应用') }}
           </button>
           <button type="button" :disabled="busy" @click="discard">
-            {{ t('knowledgeCommands.discard', '放弃候选') }}
+            {{ t('knowledgeCommands.discard', '放弃建议') }}
           </button>
         </div>
       </div>
@@ -466,7 +466,7 @@ async function confirm(): Promise<void> {
     )
     candidate.value = null
     reason.value = ''
-    receiptText.value = t('knowledgeCommands.applied', '知识修订已生效，下游产物已标记待重建。')
+    receiptText.value = t('knowledgeCommands.applied', '知识内容修改已生效，相关课程内容已标记为待更新。')
     openGroup.value = ''
     historyRows.value = []
     rebuildAvailable.value = true
@@ -556,7 +556,7 @@ async function proposeSplit(): Promise<void> {
     const proposal = response.data?.proposal || {}
     const proposed = response.data?.candidate || null
     if (proposed) {
-      // AI 的建议进入与手工编辑同一个候选区，教师照样要看影响、再确认。
+      // AI 的建议进入与手工编辑同一个建议区，教师照样要看影响、再确认。
       candidate.value = proposed
       splitParts.value = proposal.parts || []
       splitVerdict.value = proposal.reason
@@ -599,10 +599,10 @@ async function triggerRebuild(): Promise<void> {
         + `：${summary.content_changed || 0} ${t('knowledgeCommands.rebuiltUnit', '个已更新')}`
         + `，${summary.stale || 0} ${t('knowledgeCommands.stillStaleUnit', '个仍待重建')}`
     } else if (rebuild.status === 'nothing_to_rebuild') {
-      rebuildNotice.value = t('knowledgeCommands.rebuildNothing', '当前没有需要重建的下游对象。')
+      rebuildNotice.value = t('knowledgeCommands.rebuildNothing', '当前没有需要更新的相关课程内容。')
     } else {
       rebuildNotice.value = rebuild.message
-        || t('knowledgeCommands.rebuildUnavailable', '下游重建管线尚未接入，本次未触发重建。')
+        || t('knowledgeCommands.rebuildUnavailable', '相关课程内容的更新功能尚未接入，本次未进行更新。')
     }
   } catch (error: any) {
     logger.error(error)

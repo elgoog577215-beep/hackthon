@@ -58,7 +58,7 @@
                   <small>{{ t('teacherCourseCreate.courseName', '课程名称') }}</small>
                   <strong>{{ original.course_name }}</strong>
                 </div>
-                <b>{{ t('courseFiles.workbench.revisionLabel', '修订 {revision}').replace('{revision}', String(envelope?.revision ?? 0)) }}</b>
+                <b>{{ t('courseFiles.workbench.revisionLabel', '版本 {revision}').replace('{revision}', String(envelope?.revision ?? 0)) }}</b>
               </section>
 
               <section v-for="group in viewGroups" :key="group.title" class="information-group">
@@ -122,7 +122,7 @@
               <ol>
                 <li v-for="version in envelope?.versions || []" :key="version.revision">
                   <span><History :size="15" /></span>
-                  <div><strong>{{ t('courseFiles.workbench.revisionLabel', '修订 {revision}').replace('{revision}', String(version.revision)) }}</strong><small>{{ version.current ? t('courseFiles.workbench.currentRevision', '当前使用') : formatDate(version.committed_at) }}</small></div>
+                  <div><strong>{{ t('courseFiles.workbench.revisionLabel', '版本 {revision}').replace('{revision}', String(version.revision)) }}</strong><small>{{ version.current ? t('courseFiles.workbench.currentRevision', '当前使用') : formatDate(version.committed_at) }}</small></div>
                   <b v-if="version.current">{{ t('courseFiles.workbench.currentRevision', '当前使用') }}</b>
                   <button v-else type="button" @click="prepareRestore(version)"><RotateCcw :size="14" />{{ t('courseFiles.workbench.restoreRevision', '恢复此版') }}</button>
                 </li>
@@ -260,7 +260,7 @@ let loadController: AbortController | null = null
 
 const learningPurposeOptions = computed(() => ([
   { value: 'systematic' as const, icon: BookOpen, label: t('courseGeneration.courseTypes.systematic.label', '系统学习') },
-  { value: 'project' as const, icon: Hammer, label: t('courseGeneration.courseTypes.project.label', '项目实战') },
+  { value: 'project' as const, icon: Hammer, label: t('courseGeneration.courseTypes.project.label', '项目实践') },
   { value: 'exam' as const, icon: Timer, label: t('courseGeneration.courseTypes.exam.label', '考试冲刺') },
 ]))
 const courseTeachingTypeOptions = computed(() => ([
@@ -602,7 +602,7 @@ async function saveChanges() {
     draft.value = clone(original.value)
     successMessage.value = restoreRevision.value === null
       ? t('courseFiles.workbench.courseInformationSaved', '课程基础信息已保存')
-      : t('courseFiles.workbench.courseInformationRestored', '已从历史设置创建新修订')
+      : t('courseFiles.workbench.courseInformationRestored', '已从历史设置创建新版本')
     restoreRevision.value = null; mode.value = 'view'
     emit('updated', envelope.value)
   } catch (reason: any) {

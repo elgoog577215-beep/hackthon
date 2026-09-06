@@ -1346,7 +1346,7 @@ export const useGenerationStore = defineStore('generation', {
         const style = (task?.style as TeachingStyle) || TEACHING_STYLES.ACADEMIC
         const requirement = t(
           'courseGeneration.regeneration.defaultRequirement',
-          '重新生成当前节点，保持原课程的难度契约和教学结构'
+          '重新生成当前内容，保持原课程的难度要求和教学结构'
         )
         const response = await fetch(withApiBase(`/api/courses/${cs.currentCourseId}/nodes/${nodeId}/redefine_stream`), {
           method: 'POST',

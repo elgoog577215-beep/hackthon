@@ -139,7 +139,7 @@
           <li v-for="(block, index) in mappedPlanBlocks" :key="block.id">
             <span>{{ String(index + 1).padStart(2, '0') }}</span>
             <div>
-              <strong><MathText :content="block.label" /></strong>
+              <strong><MathText :content="teacherFacingTeachingLabel(block.label)" /></strong>
               <MathText v-if="block.sectionTitle" tag="small" :content="block.sectionTitle" />
               <MathText tag="p" :content="block.summary" />
             </div>
@@ -191,10 +191,10 @@
         <div v-if="editing && node.blocks?.length" class="script-block-editor">
           <section v-for="block in node.blocks" :key="block.block_id">
             <header>
-              <div><span>{{ blockRoleLabel(block.role) }}</span><h5><MathText :content="block.title" /></h5></div>
+              <div><span>{{ blockRoleLabel(block.role) }}</span><h5><MathText :content="teacherFacingTeachingLabel(block.title, block.module_id)" /></h5></div>
               <small v-if="block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
             </header>
-            <textarea v-model="blockDrafts[block.block_id]" rows="10" :aria-label="block.title" @input="recordEditSnapshot" />
+            <textarea v-model="blockDrafts[block.block_id]" rows="10" :aria-label="teacherFacingTeachingLabel(block.title, block.module_id)" @input="recordEditSnapshot" />
           </section>
         </div>
         <textarea v-else-if="editing" v-model="drafts[node.section_node_id]" rows="24" :aria-label="node.title" @input="recordEditSnapshot" />
@@ -205,7 +205,7 @@
         <div v-else-if="node.blocks?.length" class="script-modules">
           <section v-for="block in node.blocks" :key="block.block_id" class="script-module">
             <header v-if="block.title || (!showWorkingPreview && lesson.script.ready)">
-              <div><span v-if="!showWorkingPreview && lesson.script.ready">{{ blockRoleLabel(block.role) }}</span><h5 v-if="block.title"><MathText :content="block.title" /></h5></div>
+              <div><span v-if="!showWorkingPreview && lesson.script.ready">{{ blockRoleLabel(block.role) }}</span><h5 v-if="block.title"><MathText :content="teacherFacingTeachingLabel(block.title, block.module_id)" /></h5></div>
               <small v-if="!showWorkingPreview && lesson.script.ready && block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
             </header>
             <div class="script-streamed-block" :data-streaming="blockIsStreaming(block.block_id) ? 'true' : undefined">
@@ -219,7 +219,7 @@
               :script-revision-id="lesson.script.current_revision_id"
               :section-node-id="node.section_node_id"
               :block-id="block.block_id"
-              :block-title="block.title"
+              :block-title="teacherFacingTeachingLabel(block.title, block.module_id)"
             />
           </section>
         </div>
@@ -251,6 +251,7 @@ import { useTeacherScriptVisualStore } from '../stores/teacherScriptVisuals'
 import type { TeacherLessonJob, TeacherLessonProjection, TeacherLessonScriptCandidate, TeacherLessonScriptState } from '../stores/teacherLessonAuthoring'
 import { toAppError } from '../utils/app-error'
 import { hasScriptPreviewContent, readableScriptTitle, scriptGenerationPresentation } from '../utils/teacher-script-presentation'
+import { teacherFacingTeachingLabel } from '../utils/teaching-terminology'
 
 const props = withDefaults(defineProps<{
   courseId: string
@@ -347,13 +348,13 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.aiCollaboration.selectionModify': 'AI 修改',
   'courseWorkbench.aiCollaboration.inlineComposerTitle': '告诉 AI 怎么改',
   'courseWorkbench.aiCollaboration.inlineGenerate': '生成修改',
-  'courseWorkbench.aiCollaboration.inlineWorking': '正在生成候选…',
+  'courseWorkbench.aiCollaboration.inlineWorking': '正在准备修改建议…',
   'courseWorkbench.aiCollaboration.inlineSelectionScope': '修改选中内容',
   'courseWorkbench.aiCollaboration.inlineBlockScope': '修改当前段落',
   'courseWorkbench.aiCollaboration.inlineDocumentScope': '修改当前讲义',
-  'courseWorkbench.aiCollaboration.inlineBoundary': 'AI 只生成候选，采用后才会写入正式讲义。',
-  'courseWorkbench.aiCollaboration.inlineCandidateBoundary': '原文仍然保留，只有采用后候选才会写入正式讲义。',
-  'courseWorkbench.aiCollaboration.inlineCandidateActions': 'AI 候选操作',
+  'courseWorkbench.aiCollaboration.inlineBoundary': 'AI 只提出修改建议，采用后才会写入正式讲义。',
+  'courseWorkbench.aiCollaboration.inlineCandidateBoundary': '原文仍然保留，只有采用后修改建议才会写入正式讲义。',
+  'courseWorkbench.aiCollaboration.inlineCandidateActions': '修改建议操作',
   'courseWorkbench.aiCollaboration.iterateCandidate': '继续调整',
   'courseWorkbench.aiCollaboration.keepOriginal': '保留原文',
   'courseWorkbench.aiCollaboration.applyCandidate': '采用修改',
@@ -361,7 +362,7 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.scriptDocument.generateAi': '生成方案',
   'courseWorkbench.scriptDocument.aiGenerating': '生成中…',
   'courseWorkbench.scriptDocument.aiCandidate': 'AI 方案',
-  'courseWorkbench.scriptDocument.candidateCanvasTitle': 'AI 候选已嵌入讲义正文',
+  'courseWorkbench.scriptDocument.candidateCanvasTitle': '修改建议已嵌入讲义正文',
   'courseWorkbench.scriptDocument.discardAi': '放弃',
   'courseWorkbench.scriptDocument.applyAi': '采用',
   'courseWorkbench.scriptDocument.applyingAi': '正在采用…',
@@ -375,18 +376,18 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.scriptDocument.statusCurrentReady': '当前正文可用',
   'courseWorkbench.scriptDocument.statusGenerated': '已生成',
   'courseWorkbench.scriptDocument.statusPreviousFailureDetail': '最近一次 AI 生成没有完成；当前展示的是已经单独保存并通过检查的正文，不是该次失败任务的输出。',
-  'courseWorkbench.scriptDocument.statusGeneratedDetail': '当前修订已是页面内容稿与 PPT 的生成依据。',
+  'courseWorkbench.scriptDocument.statusGeneratedDetail': '当前讲义已作为页面内容稿与 PPT 的内容来源。',
   'courseWorkbench.scriptDocument.flowLabel': '讲义生成步骤',
-  'courseWorkbench.scriptDocument.reviewPlan': '检查教案映射',
-  'courseWorkbench.scriptDocument.reviewPlanDetail': '核对本讲教学块',
+  'courseWorkbench.scriptDocument.reviewPlan': '检查教案内容',
+  'courseWorkbench.scriptDocument.reviewPlanDetail': '核对本讲教学环节',
   'courseWorkbench.scriptDocument.generateStep': '生成讲义',
-  'courseWorkbench.scriptDocument.generateStepDetail': '按映射内容直接生成',
+  'courseWorkbench.scriptDocument.generateStepDetail': '按教案内容直接生成',
   'courseWorkbench.scriptDocument.mappingTitle': '本讲讲义将按以下教案生成',
-  'courseWorkbench.scriptDocument.mappingReady': '教学块已映射，核对后可直接开始。',
+  'courseWorkbench.scriptDocument.mappingReady': '教学环节已与教案对应，核对后可直接开始。',
   'courseWorkbench.scriptDocument.mappingBlockedTitle': '暂无可用教案',
   'courseWorkbench.scriptDocument.mappingBlockedDetail': '请先完成本讲教案，再生成讲义。',
   'courseWorkbench.scriptDocument.generationBlockedTitle': '暂时无法生成讲义',
-  'courseWorkbench.scriptDocument.mappingEmpty': '教案中还没有可映射的教学块。',
+  'courseWorkbench.scriptDocument.mappingEmpty': '教案中还没有可用于讲义的教学环节。',
   'courseWorkbench.scriptDocument.generate': '生成本讲讲义',
   'courseWorkbench.scriptDocument.generating': '正在生成…',
   'courseWorkbench.scriptDocument.stopGeneration': '停止',
@@ -467,7 +468,7 @@ const scriptSections = computed<ScriptSection[]>(() => {
         block_id: blockId,
         module_id: arrangementBlock?.module_id || 'streaming',
         role: arrangementBlock?.role || '',
-        title: readableScriptTitle(arrangementBlock?.name, [blockId]),
+        title: readableScriptTitle(arrangementBlock?.name, [blockId], arrangementBlock?.module_id),
         content,
         planned_minutes: arrangementBlock?.planned_minutes,
       },
@@ -478,7 +479,7 @@ const scriptSections = computed<ScriptSection[]>(() => {
     title: readableScriptTitle(section.title, [section.section_node_id]) || props.lesson.title,
     blocks: section.blocks?.filter(block => block.content?.trim()).map(block => ({
       ...block,
-      title: readableScriptTitle(block.title, [block.block_id, block.module_id]),
+      title: readableScriptTitle(block.title, [block.block_id], block.module_id),
     })),
   })).filter(section => section.blocks?.length || section.content?.trim())
 })
@@ -520,7 +521,10 @@ const mappedPlanBlocks = computed<MappedPlanBlock[]>(() => {
       const arrangement = arrangementById.get(String(module.arrangement_block_id || ''))
       return {
         id: String(module.arrangement_block_id || `${section.node_id || 'section'}:${module.module_id || index}`),
-        label: String(module.label || arrangement?.name || blockRoleLabel(String(module.role || arrangement?.role || ''))),
+        label: teacherFacingTeachingLabel(
+          module.label || arrangement?.name || blockRoleLabel(String(module.role || arrangement?.role || '')),
+          String(module.module_id || arrangement?.module_id || ''),
+        ),
         sectionTitle,
         summary: String(module.teacher_activity || module.teaching_purpose || module.teaching_guidance || arrangement?.content_summary || arrangement?.purpose || ''),
         minutes: Number(module.planned_minutes || arrangement?.planned_minutes || 0),
@@ -530,7 +534,7 @@ const mappedPlanBlocks = computed<MappedPlanBlock[]>(() => {
   if (blocks.length) return blocks
   return (props.lesson.arrangement?.blocks || []).map((block, index) => ({
     id: block.block_id || `arrangement:${index}`,
-    label: block.name || blockRoleLabel(block.role),
+    label: teacherFacingTeachingLabel(block.name || blockRoleLabel(block.role), block.module_id),
     sectionTitle: block.section_title || '',
     summary: block.teacher_activity || block.content_summary || block.purpose || '',
     minutes: Number(block.planned_minutes || 0),

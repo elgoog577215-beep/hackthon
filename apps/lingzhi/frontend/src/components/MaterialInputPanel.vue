@@ -384,7 +384,7 @@ const statusLabel = (status: CourseMaterialDraft['upload_status']) => t(
 
 const parseStatusLabel = (status: string) => t(
   `courseGeneration.materials.parseStatus.${status}`,
-  ({ parsed: '解析完成', degraded: '降级解析', failed: '解析失败', metadata_only: '仅识别元数据' } as Record<string, string>)[status] || '解析状态未知',
+  ({ parsed: '解析完成', degraded: '完成基础解析', failed: '解析失败', metadata_only: '仅识别文件信息' } as Record<string, string>)[status] || '解析状态未知',
 )
 
 const statusClass = (status: CourseMaterialDraft['upload_status']) => ({

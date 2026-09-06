@@ -34,8 +34,8 @@
     <div v-if="state.generation_branch === 'original_ppt_review'" class="ppt-manuscript-workflow__original">
       <FileCheck2 :size="28" />
       <h2>{{ t('pptWorkspace.originalPptBranchTitle', '本讲已有原版 PPT') }}</h2>
-      <p>{{ t('pptWorkspace.originalPptBranchDescription', '请返回课程生产页，继续原版 PPT 的审阅与确认。') }}</p>
-      <button type="button" @click="emit('back')">{{ t('pptWorkspace.backToProduction', '返回课程生产页') }}</button>
+      <p>{{ t('pptWorkspace.originalPptBranchDescription', '请返回课程准备页，继续原版 PPT 的审阅与确认。') }}</p>
+      <button type="button" @click="emit('back')">{{ t('pptWorkspace.backToProduction', '返回课程准备页') }}</button>
     </div>
 
     <template v-else>
@@ -50,7 +50,7 @@
         <section v-if="narrativeBrief" class="ppt-manuscript-workflow__brief" data-testid="ppt-narrative-brief">
           <div><small>{{ t('pptWorkspace.narrativeQuestion', '整讲中心问题') }}</small><strong>{{ narrativeBrief.central_question }}</strong></div>
           <div><small>{{ t('pptWorkspace.learningPath', '学习路径') }}</small><span>{{ listText(narrativeBrief.learning_path) }}</span></div>
-          <div><small>{{ t('pptWorkspace.observableCheckpoints', '可观察检查点') }}</small><span>{{ listText(narrativeBrief.observable_checkpoints) }}</span></div>
+          <div><small>{{ t('pptWorkspace.observableCheckpoints', '课堂检查') }}</small><span>{{ listText(narrativeBrief.observable_checkpoints) }}</span></div>
           <span v-if="narrativeBrief.time_budget_minutes > 0" class="ppt-manuscript-workflow__time">{{ narrativeBrief.time_budget_minutes }} {{ t('pptWorkspace.minutes', '分钟') }}</span>
         </section>
 
@@ -107,8 +107,8 @@
               <div class="ppt-manuscript-workflow__field-grid">
                 <label><span>{{ t('pptWorkspace.pageGoal', '页面目标') }}</span><textarea v-if="editing" v-model="page.page_goal" :disabled="busy" rows="2" /><MathText v-else tag="p" :content="page.page_goal || '—'" /></label>
                 <label><span>{{ t('pptWorkspace.primaryClaim', '核心结论') }}</span><textarea v-if="editing" v-model="page.primary_claim" :disabled="busy" rows="2" /><MathText v-else tag="p" :content="page.primary_claim || '—'" /></label>
-                <label><span>{{ t('pptWorkspace.audienceQuestion', '学习者问题') }}</span><textarea v-if="editing" v-model="page.audience_question" :disabled="busy" rows="2" /><MathText v-else tag="p" :content="page.audience_question || '—'" /></label>
-                <label><span>{{ t('pptWorkspace.audienceAction', '学习者行动') }}</span><textarea v-if="editing" v-model="page.audience_action" :disabled="busy" rows="2" /><MathText v-else tag="p" :content="page.audience_action || '—'" /></label>
+                <label><span>{{ t('pptWorkspace.audienceQuestion', '学生思考的问题') }}</span><textarea v-if="editing" v-model="page.audience_question" :disabled="busy" rows="2" /><MathText v-else tag="p" :content="page.audience_question || '—'" /></label>
+                <label><span>{{ t('pptWorkspace.audienceAction', '学生活动') }}</span><textarea v-if="editing" v-model="page.audience_action" :disabled="busy" rows="2" /><MathText v-else tag="p" :content="page.audience_action || '—'" /></label>
                 <label><span>{{ t('pptWorkspace.expectedResponse', '预期反应') }}</span><textarea v-if="editing" v-model="page.expected_response" :disabled="busy" rows="2" /><MathText v-else tag="p" :content="page.expected_response || '—'" /></label>
                 <label><span>{{ t('pptWorkspace.observableEvidence', '达成证据') }}</span><textarea v-if="editing" v-model="page.observable_evidence" :disabled="busy" rows="2" /><MathText v-else tag="p" :content="page.observable_evidence || '—'" /></label>
               </div>
@@ -147,6 +147,7 @@ import TeacherDocumentCommandBar from './TeacherDocumentCommandBar.vue'
 import CompactPagination from './CompactPagination.vue'
 import AppErrorNotice from './AppErrorNotice.vue'
 import { pptFailurePresentation } from '../utils/ppt-workspace-error'
+import { teacherFacingTeachingLabel } from '../utils/teaching-terminology'
 
 const props = defineProps<{ title: string; state: Record<string, any>; embedded?: boolean; externalActions?: boolean; reviewOnly?: boolean; busy?: boolean; confirming?: boolean; saving?: boolean; regenerating?: boolean; error?: string; failure?: Record<string, any> | null }>()
 const emit = defineEmits<{
@@ -186,8 +187,8 @@ watch(() => props.reviewOnly, value => {
 
 watch(() => props.state.revision, () => {
   const pages = Array.isArray(manuscript.value?.pages) ? manuscript.value.pages : []
-  draftPages.value = JSON.parse(JSON.stringify(pages))
-  originalPages.value = JSON.parse(JSON.stringify(pages))
+  draftPages.value = teacherFacingPages(pages)
+  originalPages.value = teacherFacingPages(pages)
   draftPacing.value = manuscript.value?.pacing ? JSON.parse(JSON.stringify(manuscript.value.pacing)) : null
   selectedPageIds.value = new Set()
   if (finishRequested) { editing.value = false; finishRequested = false }
@@ -240,6 +241,17 @@ function canRegenerate(page: Record<string, any>) { return !page.teacher_locked 
 function setLines(page: Record<string, any>, field: string, event: Event) { page[field] = (event.target as HTMLTextAreaElement).value.split('\n').map(value => value.trim()).filter(Boolean) }
 function listLines(value: unknown) { return Array.isArray(value) ? value.join('\n') : '' }
 function listText(value: unknown) { return Array.isArray(value) ? value.join(' → ') : '' }
+function teacherFacingPages(pages: Record<string, any>[]) {
+  return JSON.parse(JSON.stringify(pages)).map((page: Record<string, any>) => {
+    const previousTitle = String(page.title || '')
+    const currentTitle = teacherFacingTeachingLabel(previousTitle)
+    page.title = currentTitle
+    if (Array.isArray(page.visible_copy)) {
+      page.visible_copy = page.visible_copy.map((line: unknown) => String(line || '') === previousTitle ? currentTitle : line)
+    }
+    return page
+  })
+}
 function pageIssues(pageId: string) { return allIssues.value.filter((item: any) => item.page_id === pageId) }
 function sourceIds(page: Record<string, any>, field: string): string[] { const values = page?.[field]; return Array.isArray(values) ? values.map(String).filter(Boolean) : [] }
 function hasSourceRefs(page: Record<string, any>) { return ['source_script_block_ids', 'source_section_ids', 'source_material_evidence_ids'].some(field => sourceIds(page, field).length) }

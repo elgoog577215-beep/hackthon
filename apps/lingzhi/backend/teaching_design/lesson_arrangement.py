@@ -1,7 +1,7 @@
-"""教师可见的本讲课型与教学块编排合同。
+"""教师可见的本讲课型与教学环节编排合同。
 
 内部学科画像和细课型只负责给出建议；本模块把它们投影为教师能直接调整的
-七类课型和有序教学块，并把确认结果重新编译给成熟的 V3 教案引擎。
+七类课型和有序教学环节，并把确认结果重新编译给成熟的 V3 教案引擎。
 """
 
 from __future__ import annotations
@@ -449,29 +449,29 @@ def validate_lesson_arrangement(
         issues.append({"code": "lesson_arrangement:lesson_type", "message": "请选择有效的本讲课型。"})
     blocks = [item for item in value.get("blocks") or [] if isinstance(item, dict)]
     if not blocks:
-        issues.append({"code": "lesson_arrangement:blocks_empty", "message": "本讲至少需要一个教学块。"})
+        issues.append({"code": "lesson_arrangement:blocks_empty", "message": "本讲至少需要一个教学环节。"})
     ids = [_text(item.get("block_id")) for item in blocks]
     if any(not value for value in ids) or len(ids) != len(set(ids)):
-        issues.append({"code": "lesson_arrangement:block_identity", "message": "教学块标识缺失或重复。"})
+        issues.append({"code": "lesson_arrangement:block_identity", "message": "教学环节标识缺失或重复。"})
     expected = set(expected_section_ids)
     actual_sections = {_text(item.get("section_node_id")) for item in blocks}
     if actual_sections - expected:
-        issues.append({"code": "lesson_arrangement:section_scope", "message": "教学块引用了本讲以外的小节。"})
+        issues.append({"code": "lesson_arrangement:section_scope", "message": "教学环节引用了本讲以外的小节。"})
     missing_sections = [section_id for section_id in expected_section_ids if section_id not in actual_sections]
     if missing_sections:
-        issues.append({"code": "lesson_arrangement:section_coverage", "message": "本讲每个小节至少需要一个教学块。"})
+        issues.append({"code": "lesson_arrangement:section_coverage", "message": "本讲每个小节至少需要一个教学环节。"})
     if any(not _text(item.get("name")) for item in blocks):
-        issues.append({"code": "lesson_arrangement:block_name", "message": "教学块名称不能为空。"})
+        issues.append({"code": "lesson_arrangement:block_name", "message": "教学环节名称不能为空。"})
     if any(int(item.get("planned_minutes") or 0) <= 0 for item in blocks):
-        issues.append({"code": "lesson_arrangement:block_minutes", "message": "每个教学块都需要有效时长。"})
+        issues.append({"code": "lesson_arrangement:block_minutes", "message": "每个教学环节都需要有效时长。"})
     if any(_text(item.get("engagement_mode")) not in {"passive", "active", "constructive", "interactive"} for item in blocks):
-        issues.append({"code": "lesson_arrangement:engagement_mode", "message": "每个教学块都需要明确可观察的认知投入方式。"})
+        issues.append({"code": "lesson_arrangement:engagement_mode", "message": "每个教学环节都需要明确可观察的认知投入方式。"})
     if any(not _text(item.get("check_method")) for item in blocks):
-        issues.append({"code": "lesson_arrangement:check_method", "message": "每个教学块都需要说明怎样取得学习证据。"})
+        issues.append({"code": "lesson_arrangement:check_method", "message": "每个教学环节都需要说明怎样取得学习证据。"})
     if any(not _text(item.get("feedback_strategy")) for item in blocks):
-        issues.append({"code": "lesson_arrangement:feedback_strategy", "message": "每个教学块都需要说明教师怎样依据证据作出下一步调整。"})
+        issues.append({"code": "lesson_arrangement:feedback_strategy", "message": "每个教学环节都需要说明教师怎样依据证据作出下一步调整。"})
     if any(not list(item.get("adaptation_options") or []) for item in blocks):
-        issues.append({"code": "lesson_arrangement:adaptation_options", "message": "每个教学块都需要保留达到、部分达到和未达到时的处理路径。"})
+        issues.append({"code": "lesson_arrangement:adaptation_options", "message": "每个教学环节都需要保留达到、部分达到和未达到时的处理路径。"})
     return issues
 
 

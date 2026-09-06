@@ -331,20 +331,20 @@ const fallbackMessages: Record<string, string> = {
   context: '当前编辑范围',
   sources: '资料范围',
   sourceCount: '{count} 份资料',
-  candidateReady: '修改候选',
+  candidateReady: '修改建议',
   coursePlanReady: '整课修改方案',
   coursePlanReview: '尚未应用',
   coursePlanNeedsDetail: '需要补充',
   openCoursePlan: '查看并确认',
   changeCount: '{count} 处修改',
   changedFields: '涉及：{fields}',
-  noChangedFields: '候选已显示在左侧，请核对高亮内容。',
+  noChangedFields: '建议已显示在左侧，请核对高亮内容。',
   locate: '定位',
   reject: '放弃',
   accept: '采用',
   candidateBlocked: '目标问题仍未解决',
-  candidateBlockedFallback: '这版候选未通过复审，请重试或放弃。',
-  candidateCannotApply: '候选通过目标问题校验后才能采用',
+  candidateBlockedFallback: '这版建议未通过复审，请重试或放弃。',
+  candidateCannotApply: '修改建议通过目标与问题检查后才能采用',
   retry: '重试',
   statusReady: '就绪',
   statusClarifying: '等待补充',
@@ -354,18 +354,18 @@ const fallbackMessages: Record<string, string> = {
   statusRejecting: '正在放弃',
   statusSuccess: '已完成',
   statusError: '需要处理',
-  workingGenerating: '正在生成结构化候选…',
-  workingAccepting: '正在形成新的教案修订…',
-  workingRejecting: '正在放弃当前候选…',
+  workingGenerating: '正在生成结构化建议…',
+  workingAccepting: '正在形成新的教案版本…',
+  workingRejecting: '正在放弃当前建议…',
   starterTitle: '从哪里开始修改？',
   starterHint: '选择一项常用操作，或直接描述你想要的结果。',
   quickPrompts: '快捷修改',
-  quickHint: '点击后生成可审阅候选',
+  quickHint: '点击后生成可审阅建议',
   composerLabel: '描述修改要求',
   placeholder: '告诉我具体想改什么…',
   send: '发送',
   composerHint: 'Enter 发送，Shift + Enter 换行',
-  followUpHint: '继续补充会替换当前候选，正式内容保持不变。',
+  followUpHint: '继续补充会替换当前建议，正式内容保持不变。',
   selectionContext: '已选内容',
   clearSelection: '取消选区',
   selectionPlaceholder: '告诉 AI 如何修改这段内容…',
@@ -412,17 +412,17 @@ const composerPlaceholder = computed(() => props.selectionText
   : props.placeholder || tr('placeholder'))
 const workingLabel = computed(() => {
   if (props.phase === 'accepting') {
-    if (props.domain === 'outline') return '正在应用大纲修订…'
+    if (props.domain === 'outline') return '正在更新课程大纲…'
     if (props.domain === 'question-bank') return '正在创建题库任务…'
-    if (props.domain === 'script') return '正在形成新的讲义修订…'
-    if (props.domain === 'ppt') return '正在形成新的 PPT 修订…'
+    if (props.domain === 'script') return '正在形成新的讲义版本…'
+    if (props.domain === 'ppt') return '正在形成新的 PPT 版本…'
     return tr('workingAccepting')
   }
   if (props.phase === 'rejecting') return tr('workingRejecting')
-  if (props.domain === 'outline') return '正在生成大纲调整候选…'
-  if (props.domain === 'question-bank') return '正在组织题库任务候选…'
-  if (props.domain === 'script') return '正在生成讲义表达候选…'
-  if (props.domain === 'ppt') return '正在生成 PPT 页面候选…'
+  if (props.domain === 'outline') return '正在生成大纲调整建议…'
+  if (props.domain === 'question-bank') return '正在组织题库任务建议…'
+  if (props.domain === 'script') return '正在生成讲义表达建议…'
+  if (props.domain === 'ppt') return '正在生成 PPT 页面建议…'
   return tr('workingGenerating')
 })
 

@@ -130,7 +130,7 @@ function taskUpdatedTime(task: Task): string {
 }
 
 export function courseProductionLiveSummary(task?: Task): string {
-  if (!task) return t('courseGeneration.production.livePreparing', '正在准备课程生产')
+  if (!task) return t('courseGeneration.production.livePreparing', '正在准备课程')
   const stage = courseProductionStageName(task)
 
   if (task.status === 'paused') {
@@ -192,7 +192,7 @@ export function courseProductionRecoveryDetail(task?: Task): string {
     return t('courseGeneration.production.recoveryQuality', '发布检查发现阻断项；修复后可从当前现场继续。')
   }
   if (reasonCode === 'version_conflict' || task?.status === 'conflict') {
-    return t('courseGeneration.production.recoveryConflict', '当前产物需要与课程最新修订对账，完整检查点仍然保留。')
+    return t('courseGeneration.production.recoveryConflict', '当前内容需要与课程最新版本核对，已经完成的内容仍然保留。')
   }
   if (stage === 'outline') {
     return t('courseGeneration.production.recoveryOutline', '课程需求与资料处理结果已保留；继续后会重新生成课程目录。')
@@ -208,7 +208,7 @@ export function courseProductionRecoveryDetail(task?: Task): string {
     return t('courseGeneration.production.recoveryRelease', '课程正文与正式引用已经保存；继续后只重新执行发布前检查。')
   }
   if (task?.status === 'paused') {
-    return t('courseGeneration.production.recoveryPaused', '课程生产已停在完整检查点，继续时不会新建重复课程。')
+    return t('courseGeneration.production.recoveryPaused', '课程创建已停在完整保存点，继续时不会新建重复课程。')
   }
   return t('courseGeneration.production.recoveryDefault', '继续时复用已保存的检查点，不会新建重复课程。')
 }

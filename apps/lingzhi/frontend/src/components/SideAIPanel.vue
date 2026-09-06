@@ -404,7 +404,7 @@
               personalizationScope === 'whole_course'
                 ? t('courseWorkspace.personalization.scopeWholeCourseNotice', 'AI 会先生成全课程影响预览；确认前不会修改任何内容。')
                 : personalizationScope === 'current_section'
-                  ? t('courseWorkspace.personalization.scopeSectionNotice', 'AI 只会在当前小节寻找候选；找到多处后转入居中审阅。')
+                  ? t('courseWorkspace.personalization.scopeSectionNotice', 'AI 只会在当前小节寻找建议；找到多处后转入居中审阅。')
                 : t('courseWorkspace.personalization.scopeCurrentNotice', '当前范围只会修改你正在查看的这个正文块。')
             }}
           </small>
@@ -455,14 +455,14 @@
             class="personalization-proposal-summary"
           >
             <LoaderCircle class="spin" :size="15" />
-            <span>{{ t('courseWorkspace.personalization.generatingPlan', '正在生成课程调整候选，关闭侧栏也不会丢失任务') }}</span>
+            <span>{{ t('courseWorkspace.personalization.generatingPlan', '正在生成课程调整建议，关闭侧栏也不会丢失任务') }}</span>
           </div>
           <div
             v-else-if="personalizationPlan.generation_status === 'failed'"
             class="personalization-error"
           >
             <AlertCircle :size="16" />
-            <span>{{ personalizationPlan.impact_summary?.generation_error || t('courseWorkspace.personalization.generateFailed', '课程调整候选生成失败，请重新发起') }}</span>
+            <span>{{ personalizationPlan.impact_summary?.generation_error || t('courseWorkspace.personalization.generateFailed', '课程调整建议生成失败，请重新发起') }}</span>
           </div>
           <div v-if="personalizationOperations.length" class="personalization-proposal-summary">
             <FileDiff :size="15" />
@@ -528,7 +528,7 @@
         <div v-if="personalizationApplied" class="personalization-apply-receipt">
           <CheckCircle2 :size="18" />
           <div>
-            <strong>{{ t('courseWorkspace.personalization.applied', '所选优化已写入课程真源') }}</strong>
+            <strong>{{ t('courseWorkspace.personalization.applied', '所选修改已写入正式课程内容') }}</strong>
             <span>{{ t('courseWorkspace.personalization.affectedBlocks', '影响课程块') }}：{{ personalizationAffectedBlockIds.join('、') }}</span>
             <span>{{ personalizationRepresentationSummary }}</span>
           </div>
@@ -860,7 +860,7 @@ const assistantEmptyTitle = computed(() => isTeacherMode.value
   ? t('courseWorkspace.teacherAgent.emptyTitle', '从教案与 PPT 开始协同备课')
   : t('courseWorkspace.aiTeacher.emptyTitle', '从当前学习现场开始提问'))
 const assistantEmptyDescription = computed(() => isTeacherMode.value
-  ? t('courseWorkspace.teacherAgent.emptyBody', '我会基于当前课程真源分析怎么教，正式改动会先说明影响。')
+  ? t('courseWorkspace.teacherAgent.emptyBody', '我会基于当前正式课程内容分析教学方式，修改前会先说明影响。')
   : t('courseWorkspace.aiTeacher.emptyBody', '可以解释概念、分析作答，也可以检查你是否真正理解。'))
 const panelClasses = computed(() => props.docked ? 'is-embedded is-docked' : props.embedded ? 'is-embedded' : 'is-fullscreen')
 const currentNode = computed(() => (
@@ -1274,7 +1274,7 @@ function courseAdjustmentInstruction(snapshot: PersonalizationTargetSnapshot) {
         )
       : t(
           'courseWorkspace.personalization.sectionInstruction',
-          '请在当前小节内找到需要协同调整的位置，并生成候选。',
+          '请在当前小节内找到需要协同调整的位置，并生成建议。',
         ),
     `${t('courseWorkspace.personalization.direction', '优化方向')}：${direction?.label || snapshot.direction}`,
     `${t('courseWorkspace.personalization.feedback', '你的反馈')}：${snapshot.feedback}`,

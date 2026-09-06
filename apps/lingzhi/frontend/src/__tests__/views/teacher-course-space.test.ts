@@ -144,9 +144,9 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.get('.category-navigation').text()).not.toContain('练习')
     expect(wrapper.find('.category-table').exists()).toBe(false)
     expect(wrapper.get('.category-detail-pane')).toBeTruthy()
-    expect(wrapper.get('.category-navigation').text()).toContain('课程生产')
+    expect(wrapper.get('.category-navigation').text()).toContain('课程准备')
     expect(wrapper.get('.category-progress').text()).toContain('备课进度')
-    expect(wrapper.get('.workbench-brief-bar').text()).toContain('课程定调')
+    expect(wrapper.get('.workbench-brief-bar').text()).toContain('课程设置')
     expect(wrapper.get('.category-console').text()).toContain('开始生成大纲')
     expect(wrapper.get('.category-navigation').text()).not.toContain('0/0')
     await wrapper.get('.workbench-settings-button').trigger('click')
@@ -665,7 +665,7 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.emitted('openScript')?.[0]).toEqual(['lesson-1'])
     const source = readFileSync(resolve(process.cwd(), 'src/views/TeacherCourseSpaceView.vue'), 'utf8')
     expect(source).toContain('async function exportManagedNode')
-    expect(zhMessages.courseFiles.relationship.content).toContain('不要求先生成实体文件')
+    expect(zhMessages.courseFiles.relationship.content).toContain('不需要预先保存为单独文件')
   })
 
   it('课次练习文件只把范围交给学生预览题库本，不在教师文件区直接出题', async () => {

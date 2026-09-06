@@ -153,7 +153,7 @@ export const useTeachingCalendarStore = defineStore('teaching-calendar', {
         )
         return response.data
       } catch (error) {
-        this.error = messageFromError(error, '无法从教学大纲生成课次候选')
+        this.error = messageFromError(error, '无法从教学大纲生成课次建议')
         throw error
       } finally {
         this.deriving = false

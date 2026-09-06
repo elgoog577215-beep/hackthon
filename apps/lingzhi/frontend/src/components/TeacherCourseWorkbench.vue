@@ -10,7 +10,7 @@
       'is-context-collapsed': !contextPaneVisible && activeStage !== 'question-bank',
     }"
   >
-    <aside v-show="!aiCollaborationOpen || activeStage !== 'question-bank'" class="stage-rail" :aria-label="t('courseWorkbench.stageNavigation', '课程生产阶段')">
+    <aside v-show="!aiCollaborationOpen || activeStage !== 'question-bank'" class="stage-rail" :aria-label="t('courseWorkbench.stageNavigation', '备课阶段')">
       <header>
         <strong class="stage-rail-title">{{ t('courseWorkbench.title', '课程工作台') }}</strong>
       </header>
@@ -234,7 +234,7 @@
         <section class="foundation-semantics" aria-labelledby="foundation-semantics-title">
           <header>
             <div>
-              <strong id="foundation-semantics-title">{{ t('courseWorkbench.form.teachingPlan', '教学编排') }}</strong>
+              <strong id="foundation-semantics-title">{{ t('courseWorkbench.form.teachingPlan', '教学安排') }}</strong>
               <span>{{ t('courseWorkbench.form.teachingPlanHelp', '学习目的决定结果，学科类型决定专业方法，课程教学类型决定整课怎样组织。') }}</span>
             </div>
             <small>{{ t('courseWorkbench.form.courseLevel', '整课级') }}</small>
@@ -300,7 +300,7 @@
         </section>
         <label class="form-field form-field--wide"><span>{{ t('courseWorkbench.form.requirements', '补充要求') }}</span><textarea v-model.trim="foundation.requirements" rows="4" :placeholder="t('courseWorkbench.form.requirementsPlaceholder', '例如：部分讲次安排案例讨论，兼顾理论与实践')" /></label>
         <footer>
-          <span>{{ t('courseWorkbench.form.semanticHint', '系统先规划整课的课型分布，再为每一讲编排可调整的教学块。') }}</span>
+          <span>{{ t('courseWorkbench.form.semanticHint', '系统先规划整课的课型分布，再为每一讲编排可调整的教学环节。') }}</span>
           <button class="primary" type="submit" :disabled="generationStarting || !foundationReady || referenceGenerationBlocked" :title="referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"><Sparkles :size="16" />{{ t('courseWorkbench.generateOutline', '生成课程大纲') }}</button>
         </footer>
       </form>
@@ -656,7 +656,7 @@
             <header>
               <div class="script-course-preview__intro">
                 <div>
-                  <strong>{{ t('courseWorkbench.scriptBatch.previewTitle', '整门课程教案映射') }}</strong>
+                  <strong>{{ t('courseWorkbench.scriptBatch.previewTitle', '整门课程教案对应关系') }}</strong>
                 </div>
               </div>
               <button
@@ -697,7 +697,7 @@
                     <span>{{ String(index + 1).padStart(2, '0') }}</span>
                     <h3><MathText :content="lessonDisplayName(lesson)" /></h3>
                     <small :data-state="lessonPlanIsReady(lesson) ? 'ready' : 'pending'">{{ lessonPlanIsReady(lesson)
-                      ? t('courseWorkbench.scriptBatch.planMapped', '教案已映射')
+                      ? t('courseWorkbench.scriptBatch.planMapped', '教案已对应')
                       : t('courseWorkbench.scriptBatch.planPending', '教案待生成') }}</small>
                   </div>
                   <div v-if="lessonPlanBlocks(lesson).length" class="script-course-preview__block-line">
@@ -706,7 +706,7 @@
                       <small v-if="block.minutes">{{ block.minutes }} {{ t('courseWorkbench.scriptBatch.minutes', '分钟') }}</small>
                     </span>
                   </div>
-                  <p v-else class="lesson-course-preview__pending">{{ t('courseWorkbench.scriptBatch.structurePending', '完成本讲教案后，教学块会自动映射到这里。') }}</p>
+                  <p v-else class="lesson-course-preview__pending">{{ t('courseWorkbench.scriptBatch.structurePending', '完成本讲教案后，教学环节会自动显示在这里。') }}</p>
                 </summary>
                 <ol v-if="lessonPlanBlocks(lesson).length">
                   <li v-for="block in lessonPlanBlocks(lesson)" :key="block.id">
@@ -1089,7 +1089,7 @@
             <button
               type="button"
               :disabled="outlineQualityActionBusy"
-              :title="outlineQualityActionBusy ? t('courseWorkbench.outlineReview.finishCandidateFirst', '请先处理当前 修改建议') : undefined"
+              :title="outlineQualityActionBusy ? t('courseWorkbench.outlineReview.finishCandidateFirst', '请先处理当前修改建议') : undefined"
               @click="handleOutlineQualityIssue(issue)"
             >
               <LoaderCircle v-if="activeOutlineQualityIssueCode === issue.code && aiCollaborationBusy" :size="14" class="spin" />
@@ -1124,6 +1124,7 @@ import TeacherDocumentCommandBar from './TeacherDocumentCommandBar.vue'
 import TeacherLessonPlanDocument from './TeacherLessonPlanDocument.vue'
 import TeacherScriptDocument from './TeacherScriptDocument.vue'
 import { hasScriptPreviewContent, scriptGenerationPresentation } from '../utils/teacher-script-presentation'
+import { teacherFacingTeachingLabel } from '../utils/teaching-terminology'
 import UploadedPptReviewWorkspace from './UploadedPptReviewWorkspace.vue'
 import PptWorkspace from './PptWorkspace.vue'
 import UiWorkflowSteps from './UiWorkflowSteps.vue'
@@ -3146,12 +3147,12 @@ function appendRestoredAiCandidate() {
   appendAiMessage(
     'assistant',
     'text',
-    t('courseWorkbench.aiCollaboration.restoredCandidate', '已恢复上次未处理的修改候选，请核对左侧高亮内容。'),
+    t('courseWorkbench.aiCollaboration.restoredCandidate', '已恢复上次未处理的修改建议，请核对左侧高亮内容。'),
   )
   appendAiMessage(
     'assistant',
     'candidate',
-    t('courseWorkbench.aiCollaboration.candidateSummary', '候选已显示在左侧，请核对高亮内容。'),
+    t('courseWorkbench.aiCollaboration.candidateSummary', '建议已显示在左侧，请核对高亮内容。'),
   )
 }
 function resetAiSession() {
@@ -3361,7 +3362,7 @@ function replacePreviousCandidateMessage() {
   const previousCandidate = [...aiMessages.value].reverse().find(message => message.kind === 'candidate')
   if (!previousCandidate) return
   previousCandidate.kind = 'receipt'
-  previousCandidate.text = t('courseWorkbench.aiCollaboration.replacedReceipt', '上一版候选已由本轮要求替换。')
+  previousCandidate.text = t('courseWorkbench.aiCollaboration.replacedReceipt', '上一版建议已由本轮要求替换。')
 }
 async function generateAiCandidateFromConversation(instructionOverride = '') {
   const document = activeAiDocument.value
@@ -3394,8 +3395,8 @@ async function generateAiCandidateFromConversation(instructionOverride = '') {
       : aiDomain.value === 'question-bank'
         ? '出题任务已在左侧展示，请核对范围与资料。'
       : aiDomain.value === 'script'
-        ? t('courseWorkbench.aiCollaboration.scriptCandidateSummary', '讲义候选已在左侧高亮，请核对表达和事实。')
-        : t('courseWorkbench.aiCollaboration.candidateSummary', '候选已显示在左侧，请核对高亮内容。'),
+        ? t('courseWorkbench.aiCollaboration.scriptCandidateSummary', '讲义建议已在左侧高亮，请核对表达和事实。')
+        : t('courseWorkbench.aiCollaboration.candidateSummary', '建议已显示在左侧，请核对高亮内容。'),
   )
   transitionAi({ type: 'CANDIDATE_READY' })
   lastAiOperation.value = candidate.can_apply === false ? 'generate' : ''
@@ -3541,8 +3542,8 @@ function handleAiResolved(result: { accept: boolean }) {
       ? 'courseWorkbench.aiCollaboration.candidateReceiptApplied'
       : 'courseWorkbench.aiCollaboration.candidateReceiptDiscarded',
     result.accept
-      ? '候选已采用，并形成新的{asset}工作修订。'
-      : '候选已放弃，当前{asset}保持不变。',
+      ? '建议已采用，并形成新的{asset}版本。'
+      : '建议已放弃，当前{asset}保持不变。',
   ).replace('{asset}', objectName)
   const candidateMessage = [...aiMessages.value].reverse().find(message => message.kind === 'candidate')
   if (candidateMessage) {
@@ -4018,7 +4019,10 @@ function lessonPlanBlocks(lesson: TeacherLessonProjection): ScriptPlanPreviewBlo
       const arrangement = arrangementById.get(String(module.arrangement_block_id || ''))
       return {
         id: `${section.node_id || 'section'}:${module.arrangement_block_id || module.module_id || index}`,
-        label: String(module.label || arrangement?.name || t('courseWorkbench.scriptBatch.blockFallback', '教学块')),
+        label: teacherFacingTeachingLabel(
+          module.label || arrangement?.name || t('courseWorkbench.scriptBatch.blockFallback', '教学环节'),
+          String(module.module_id || arrangement?.module_id || ''),
+        ),
         summary: String(module.teacher_activity || module.teaching_purpose || module.teaching_guidance || arrangement?.content_summary || arrangement?.purpose || ''),
         minutes: Number(module.planned_minutes || arrangement?.planned_minutes || 0),
       }
@@ -4027,7 +4031,10 @@ function lessonPlanBlocks(lesson: TeacherLessonProjection): ScriptPlanPreviewBlo
   if (mapped.length) return mapped
   return (lesson.arrangement?.blocks || []).map((block, index) => ({
     id: block.block_id || `arrangement:${index}`,
-    label: block.name || t('courseWorkbench.scriptBatch.blockFallback', '教学块'),
+    label: teacherFacingTeachingLabel(
+      block.name || t('courseWorkbench.scriptBatch.blockFallback', '教学环节'),
+      block.module_id,
+    ),
     summary: block.teacher_activity || block.content_summary || block.purpose || '',
     minutes: Number(block.planned_minutes || 0),
   }))

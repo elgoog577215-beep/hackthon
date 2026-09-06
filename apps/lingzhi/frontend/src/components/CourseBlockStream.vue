@@ -42,7 +42,7 @@
           </dl>
         </aside>
           <span v-if="!shouldShowBlockTitle(item.block, index)" class="block-role">{{ blockLabel(item.block.type) }}</span>
-          <h4 v-if="shouldShowBlockTitle(item.block, index)"><MathText :content="item.block.title" /></h4>
+          <h4 v-if="shouldShowBlockTitle(item.block, index)"><MathText :content="teacherFacingTeachingLabel(item.block.title)" /></h4>
         </header>
         <button
           v-if="canImproveBlock(item.block.block_id)"
@@ -154,6 +154,7 @@ import {
   readPptSameSourceHighlight,
 } from '../utils/ppt-same-source'
 import type { PptSameSourceHighlightState } from '../utils/ppt-same-source'
+import { teacherFacingTeachingLabel } from '../utils/teaching-terminology'
 
 const props = withDefaults(defineProps<{
   node: Node

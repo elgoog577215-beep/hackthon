@@ -2736,7 +2736,7 @@ def build_outline_generation_context(
         "- 统一产物是一本适合自学的电子课程资料，不拆考试导向或普通学习方向。",
         "- 必须覆盖完整、结构清晰、少废话、适合自学。",
         "- 必须遵守教学画像和模块计划，不能把所有学科压成同一正文结构。",
-        "- 关键知识点要规划学习者行动、反馈、误区和验收标准。",
+        "- 关键知识点要规划学生活动、反馈、误区和评价标准。",
         "- 未上传资料不得伪装成已读依据。",
     ])
 
@@ -3129,7 +3129,7 @@ def _format_pedagogy_profile(profile: dict[str, Any]) -> str:
 
 def _format_module_plan(modules: list[dict[str, Any]]) -> str:
     if not modules:
-        return "- 使用通用本节任务、核心教学、学习者行动和反馈检查。"
+        return "- 使用通用的本讲目标、重点讲解、学生活动和课堂评价与反馈。"
     return "\n".join(
         f"- [{item.get('module_id')}] {item.get('label')}：{item.get('output_contract')}"
         for item in modules

@@ -21,7 +21,7 @@ const ACTION_FALLBACKS: Record<string, string> = {
   start_due_review: '开始到期复习',
   start_next_chapter: '进入下一章',
   view_chapter_result: '查看章节结果',
-  repair_course_assets: '等待课程资产修复',
+  repair_course_assets: '等待课程文件修复',
 }
 
 const TASK_KINDS = new Set(['practice', 'diagnostic', 'remediation', 'validation'])

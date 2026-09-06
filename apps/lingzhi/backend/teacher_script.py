@@ -64,7 +64,7 @@ _INCOMPLETE_END_PATTERN = re.compile(
 )
 _PLACEHOLDER_PATTERN = re.compile(
     r"本块内容完整|本块用于形成一个完整|已确认的当前知识范围|"
-    r"当前教学块围绕|形式化检查锦标|"
+    r"当前教学环节围绕|形式化检查锦标|"
     r"(?:^|[。；\n])(?:内容与方法|展开过程|任务与检验)："
 )
 _CANNED_DISCOURSE_PATTERN = re.compile(
@@ -782,7 +782,7 @@ def normalize_teacher_script_section(
                 ),
                 "module_id": module_id,
                 "role": role,
-                "title": _text(raw.get("title") or module.get("title") or f"教学块 {index}"),
+                "title": _text(raw.get("title") or module.get("title") or f"教学环节 {index}"),
                 "content": _text(raw.get("content")),
                 "required": bool(raw.get("required", module.get("required", True))),
                 "knowledge_names": _text_list(
@@ -849,12 +849,12 @@ def validate_teacher_script_section(
     if not normalized["section_node_id"]:
         add(blocking, "teacher_script:section_identity", "讲义小节缺少稳定标识。")
     if not blocks:
-        add(blocking, "teacher_script:blocks_empty", "讲义没有可用的教学块。")
+        add(blocking, "teacher_script:blocks_empty", "讲义没有可用的教学环节。")
     if any(not _text(block.get("content")) for block in blocks):
-        add(blocking, "teacher_script:block_empty", "讲义仍有空白教学块。")
+        add(blocking, "teacher_script:block_empty", "讲义仍有空白教学环节。")
     block_ids = [_text(block.get("block_id")) for block in blocks]
     if any(not block_id for block_id in block_ids) or len(block_ids) != len(set(block_ids)):
-        add(blocking, "teacher_script:block_identity", "讲义教学块标识缺失或重复。")
+        add(blocking, "teacher_script:block_identity", "讲义教学环节标识缺失或重复。")
     expected_ids = [_text(item.get("module_id")) for item in expected]
     actual_ids = [_text(item.get("module_id")) for item in blocks]
     if expected_ids and actual_ids != expected_ids:
@@ -1175,7 +1175,7 @@ def validate_teacher_script_revision(
         target = blocking if len(duplicate_pairs) >= 2 else review
         target.append({
             "code": "teacher_script:repetitive_blocks",
-            "message": "多个教学块高度复读，未形成随知识内容推进的有效讲解。",
+            "message": "多个教学环节高度复读，未形成随知识内容推进的有效讲解。",
             "block_pairs": duplicate_pairs[:8],
             "repeated_clause_groups": repeated_clause_groups[:8],
         })
@@ -1193,7 +1193,7 @@ def validate_teacher_script_revision(
     if repeated_canned_phrases:
         review.append({
             "code": "teacher_script:repetitive_canned_transitions",
-            "message": "多个教学块反复使用同一套程式化连接词，讲义应按知识关系自然组织解释，不必添加课堂话术。",
+            "message": "多个教学环节反复使用同一套程式化连接词，讲义应按知识关系自然组织解释，不必添加课堂话术。",
             "phrase_blocks": repeated_canned_phrases,
         })
 

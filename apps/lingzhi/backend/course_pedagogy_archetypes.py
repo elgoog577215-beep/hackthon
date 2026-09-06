@@ -116,7 +116,7 @@ LESSON_ARCHETYPES: dict[str, LessonArchetypeSpec] = {
 
     # 数学与形式科学：强调表征、推理、问题解决和建模之间的往返。
     "math_intuition_representation": _archetype(
-        "math_intuition_representation", "math_formal", "直觉与多重表征",
+        "math_intuition_representation", "math_formal", "直观理解与多种表示",
         "从问题或表征建立直觉，再连接正式定义、符号和条件。",
         ("math_intuition", "math_representation", "math_formalization"),
         ("直觉", "图像", "表示", "定义", "概念", "认识"),
@@ -173,7 +173,7 @@ LESSON_ARCHETYPES: dict[str, LessonArchetypeSpec] = {
     ),
     "engineering_guided_build": _archetype(
         "engineering_guided_build", "programming_engineering", "引导式实现",
-        "从需求和分解进入实现，再通过修改任务检验理解。",
+        "从需求分析和任务分解进入实现，再通过改进练习检验理解。",
         ("engineering_design", "engineering_minimal_run", "engineering_modification"),
         ("实现", "构建", "功能", "模块", "接口", "项目"),
         ("foundation", "development"),

@@ -1,4 +1,4 @@
-"""课程块编排画像与确定性编译器。
+"""课程教学安排画像与确定性编译器。
 
 教学结构先决定一个学科必须有哪些模块，课程编排偏好再增加跨学科节奏，
 目标难度随后选择对应的块配方，最后把节级难度契约投影到每个模块实例。
@@ -51,9 +51,9 @@ class CompositionPreset:
 PRESETS: dict[CourseCompositionStyle, CompositionPreset] = {
     CourseCompositionStyle.BALANCED: CompositionPreset(
         CourseCompositionStyle.BALANCED,
-        "智能均衡",
-        "保留学科最佳教学结构，在讲解、示范、行动与反馈之间维持均衡。",
-        ("目标", "讲解", "示范或应用", "学习者行动", "检查反馈"),
+        "综合安排",
+        "保留学科合适的教学结构，在讲解、示范、学生活动与反馈之间维持均衡。",
+        ("目标", "讲解", "示范或应用", "学生活动", "评价反馈"),
         ("concept", "example", "application", "activity", "feedback"),
         (),
     ),
@@ -61,23 +61,23 @@ PRESETS: dict[CourseCompositionStyle, CompositionPreset] = {
         CourseCompositionStyle.THEORY_DRIVEN,
         "理论推导",
         "增加推理链、条件边界和反例检验，让结论能够被逐步解释。",
-        ("概念", "深入推演", "边界检验", "例子", "练习反馈"),
+        ("概念", "深入讲解与推理", "条件检验", "例子", "练习反馈"),
         ("concept", "reasoning", "counterexample"),
         ("composition_deep_reasoning", "composition_boundary"),
     ),
     CourseCompositionStyle.EXAMPLE_DRIVEN: CompositionPreset(
         CourseCompositionStyle.EXAMPLE_DRIVEN,
-        "案例实战",
-        "增加典型案例与真实场景，让抽象知识通过判断过程和使用条件落地。",
-        ("讲解", "补充案例", "真实场景", "学习者行动", "检查反馈"),
+        "案例教学",
+        "增加典型案例与情境应用，让抽象知识通过判断过程和使用条件落地。",
+        ("讲解", "补充案例", "情境应用", "学生活动", "评价反馈"),
         ("example", "application", "activity"),
         ("composition_case_extension", "composition_real_application"),
     ),
     CourseCompositionStyle.PROJECT_DRIVEN: CompositionPreset(
         CourseCompositionStyle.PROJECT_DRIVEN,
         "项目驱动",
-        "让课程从真实场景逐步进入阶段任务，并在后半程形成可验收成果。",
-        ("场景", "必要知识", "项目任务", "执行反馈", "成果迁移"),
+        "让课程从具体情境逐步进入阶段任务，并在后半程形成可评价成果。",
+        ("情境", "必要知识", "项目任务", "过程反馈", "成果应用"),
         ("application", "activity", "feedback", "transfer"),
         ("composition_real_application", "composition_project_task"),
     ),
