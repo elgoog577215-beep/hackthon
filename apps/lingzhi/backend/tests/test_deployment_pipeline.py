@@ -1,7 +1,49 @@
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_default_app_starts_without_optional_ppt_pdf_runtime(tmp_path) -> None:
+    """Disabled three-stage tooling must not become a whole-app dependency."""
+    result = subprocess.run(
+        [sys.executable, "-c", """
+import importlib.abc
+import sys
+
+class WithoutPptPdf(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "pypdf" or fullname.startswith("pypdf."):
+            raise ModuleNotFoundError("optional PPT PDF runtime is not installed")
+
+sys.meta_path.insert(0, WithoutPptPdf())
+import main
+from ppt_teaching_flags import three_stage_enabled
+from template_layout_contract import compile_builtin_template_layout_contract_v1
+
+assert not three_stage_enabled()
+assert main.app is not None
+assert compile_builtin_template_layout_contract_v1("academic-editorial").layouts
+assert "pypdf" not in sys.modules
+"""],
+        cwd=ROOT / "backend",
+        env={**os.environ, "PPT_THREE_STAGE_ENABLED": "false",
+             "LINGZHI_TASK_RUNTIME_MODE": "read_only",
+             "LINGZHI_DATA_DIR": str(tmp_path / "data"),
+             "ZJU_QWEN_BASE_URL": "http://127.0.0.1:9/v1",
+             "ZJU_QWEN_API_KEY": "test-only-no-network",
+             "AI_LOCAL_PROVIDER": "http",
+             "AI_API_BASE": "http://127.0.0.1:9/v1",
+             "AI_API_KEY": "test-only-no-network",
+             "AI_MODEL": "qwen3.8-27b",
+             "AI_MODEL_FAST": "qwen3.8-27b"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_server_activation_script_never_builds_application() -> None:

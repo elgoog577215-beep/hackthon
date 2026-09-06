@@ -1,6 +1,6 @@
 # PPT 三阶段运行依赖
 
-`ubuntu-24.04-amd64.json` 固定 Ubuntu 24.04 amd64 上的 LibreOffice、Poppler 安装包版本、官方路径和 SHA-256，以及项目中文字体摘要。Python 库版本由 `backend/requirements.txt` 固定。`ppt_runtime_identity.py` 同时记录实际 Python、Pillow/FreeType、字体和原生工具身份，确认稿导出时必须匹配。
+`ubuntu-24.04-amd64.json` 固定 Ubuntu 24.04 amd64 上的 LibreOffice、Poppler 安装包版本、官方路径和 SHA-256，以及项目中文字体摘要。三阶段引擎的 Python 库版本由 `backend/requirements-ppt.txt` 固定，开发与 CI 通过 `requirements-dev.txt` 安装；主应用的 `requirements.txt` 保持既有运行依赖，普通发布不隐式升级三阶段运行时。`ppt_runtime_identity.py` 同时记录实际 Python、Pillow/FreeType、字体和原生工具身份，确认稿导出时必须匹配。
 
 只读检查：
 
@@ -8,10 +8,11 @@
 python3 scripts/provision_ppt_runtime.py
 ```
 
-显式安装（仅在目标平台，需 root）：
+显式安装（在独立运行时准备阶段，原生工具仅限目标平台且需 root；Python 库安装到待认证的项目虚拟环境）：
 
 ```sh
 sudo python3 scripts/provision_ppt_runtime.py --install
+python -m pip install -r backend/requirements.txt -r backend/requirements-ppt.txt
 ```
 
 安装器下载官方安装包、核对摘要再安装，并把项目字体安装到系统字体目录。平台、版本或摘要不符即失败，不自动接受替代版本；脚本不启动或重启服务。普通发布脚本不调用此安装器，生产安装应安排在独立的运行依赖变更中。
