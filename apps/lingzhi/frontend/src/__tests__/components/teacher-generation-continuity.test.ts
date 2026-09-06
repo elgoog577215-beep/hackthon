@@ -26,7 +26,10 @@ const strictProductionSnapshot = (
   course_id: 'course-1',
   preparation_state: 'preparing',
   stages: {
-    outline: strictProductionStage(stageOverrides.outline),
+    outline: strictProductionStage(stageOverrides.outline ?? {
+      display_state: 'available', availability: 'usable', source_state: 'current',
+      counts: { total: 1, available: 1, generating: 0, failed: 0, stale: 0 },
+    }),
     lesson_plan: strictProductionStage(stageOverrides.lesson_plan),
     script: strictProductionStage(stageOverrides.script),
     ppt: strictProductionStage(stageOverrides.ppt),

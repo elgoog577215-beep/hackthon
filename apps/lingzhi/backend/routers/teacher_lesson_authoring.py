@@ -21,7 +21,7 @@ from teacher_asset_readiness import (
     teacher_lesson_plan_covers_sections as _plan_revision_covers_sections,
     teacher_lesson_script_can_generate,
 )
-from teacher_outline_source import has_teaching_structure, matches_course_shell, read_teacher_outline_source
+from teacher_outline_source import has_complete_teacher_outline, has_teaching_structure, matches_course_shell, read_teacher_outline_source
 from course_production_state import (
     read_course_production_state,
     teacher_asset_job_can_resume,
@@ -885,6 +885,14 @@ def _canonical_outline_revision(source: dict[str, Any]) -> str:
     )
 
 
+def _require_complete_outline(source: dict[str, Any]) -> None:
+    if not has_complete_teacher_outline(source):
+        raise TeacherLessonAuthoringError(
+            "teacher_outline_incomplete",
+            "完整大纲尚未就绪，请返回大纲完成生成后继续。",
+        )
+
+
 def _course_material_evidence(
     course_id: str,
     actor: str,
@@ -1210,6 +1218,7 @@ def _lesson_projection(
     authoring_state: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     course_id = str(source.get("course_id") or "")
+    outline_ready = has_complete_teacher_outline(source)
     assets = (authoring_state if authoring_state is not None else repository.view(course_id)).get("lessons") or {}
     nodes = [item for item in source.get("nodes") or [] if isinstance(item, dict)]
     lessons = [
@@ -1277,7 +1286,7 @@ def _lesson_projection(
             arrangement,
             expected_section_ids=expected_section_ids,
         )
-        plan_can_generate = not arrangement_issues
+        plan_can_generate = outline_ready and not arrangement_issues
         working_script_revision_id = str(plan_asset.get("working_script_revision_id") or "")
         script_revision = next(
             (
@@ -1309,7 +1318,7 @@ def _lesson_projection(
             ),
             None,
         )
-        script_can_generate = teacher_lesson_script_can_generate(plan_asset, expected_section_ids)
+        script_can_generate = outline_ready and teacher_lesson_script_can_generate(plan_asset, expected_section_ids)
         script_source_state = (
             "stale"
             if (
@@ -1345,6 +1354,8 @@ def _lesson_projection(
             "generation_unavailable_reason": (
                 ""
                 if plan_can_generate
+                else "teacher_outline_incomplete"
+                if not outline_ready
                 else str(
                     (arrangement_issues[0] if arrangement_issues else {}).get("code")
                     or "lesson_arrangement_unavailable"
@@ -1392,6 +1403,8 @@ def _lesson_projection(
                 "generation_unavailable_reason": (
                     ""
                     if script_can_generate
+                    else "teacher_outline_incomplete"
+                    if not outline_ready
                     else "lesson_plan_scope_stale"
                     if plan_ready
                     else str(
@@ -4027,7 +4040,8 @@ async def generate_lesson_plan(
 ):
     try:
         _validate_new_attempt(repository, course_id, lesson_unit_id, "teacher_lesson_plan_generation", body)
-        source = _source_course(tm, course_id)
+        source = _source_course(tm, course_id, allow_empty=True)
+        _require_complete_outline(source)
         scope = lesson_scope(source, lesson_unit_id)
         outline_revision = _canonical_outline_revision(source)
         if (
@@ -4364,7 +4378,8 @@ async def generate_all_lesson_plans(
 ):
     """Queue every lecture at once; each child reports its own real status."""
     try:
-        source = _source_course(tm, course_id)
+        source = _source_course(tm, course_id, allow_empty=True)
+        _require_complete_outline(source)
         outline_revision = _canonical_outline_revision(source)
         lessons = _lesson_projection(source, repository)
         if not lessons:
@@ -4821,7 +4836,8 @@ async def generate_lesson_script(
 ):
     try:
         _validate_new_attempt(repository, course_id, lesson_unit_id, "teacher_lesson_script_generation", body)
-        source = _source_course(tm, course_id)
+        source = _source_course(tm, course_id, allow_empty=True)
+        _require_complete_outline(source)
         scope = lesson_scope(source, lesson_unit_id)
         lesson, plan_revision = _current_plan_revision(
             repository,
@@ -5284,7 +5300,8 @@ async def generate_all_lesson_scripts(
 ):
     """Queue all current lesson scripts while keeping each lesson independent."""
     try:
-        source = _source_course(tm, course_id)
+        source = _source_course(tm, course_id, allow_empty=True)
+        _require_complete_outline(source)
         lessons = _lesson_projection(source, repository)
         if not lessons:
             raise TeacherLessonAuthoringError(

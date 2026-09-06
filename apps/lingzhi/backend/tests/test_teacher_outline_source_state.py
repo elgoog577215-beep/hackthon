@@ -15,6 +15,10 @@ def source(count=3):
         "outline_generation_status": "completed",
         "generation_status": "teacher_outline_ready",
         "course_knowledge_scope_contract": {"revision_id": "outline-current"},
+        "course_plan": {"chapters": [
+            {"node_id": f"lesson-{i}", "sections": [{"node_id": f"section-{i}"}]}
+            for i in range(count)
+        ]},
         "nodes": [
             node
             for i in range(count)
@@ -74,6 +78,63 @@ def test_last_usable_outline_survives_a_failed_attempt():
     assert state["stages"]["outline"]["display_state"] == "available"
     assert state["stages"]["outline"]["latest_attempt_failed"] is True
     assert state["stages"]["lesson_plan"]["allowed_actions"] == ["generate"]
+
+
+@pytest.mark.parametrize("status", ["waiting_for_input", "running", "paused", "failed", "cancelled"])
+def test_incomplete_course_shell_with_nodes_and_old_assets_never_unlocks_downstream(status):
+    shell = {**source(), "outline_framework_only": True}
+    old_assets = {"lesson-0": {"working_revision_id": "old-plan", "revisions": []}}
+    tm, repo = reader(shell, old_assets, status=status)
+    before = deepcopy(shell)
+    state = read_course_production_state(shell, repo, tm)
+    assert state["stages"]["outline"]["availability"] == "missing"
+    assert state["stages"]["outline"]["display_state"] != "available"
+    for stage in ("lesson_plan", "script", "ppt"):
+        assert not set(state["stages"][stage]["allowed_actions"]) & {
+            "generate", "retry_generation", "resume_generation", "regenerate_from_latest_source",
+        }
+        assert all("generate" not in lesson["stages"][stage]["allowed_actions"] for lesson in state["lessons"])
+    assert shell == before
+    # The same directory becomes actionable once its complete source is saved.
+    tm, repo = reader(source(), old_assets)
+    ready = read_course_production_state(source(), repo, tm)
+    assert ready["stages"]["outline"]["availability"] == "usable"
+    assert "generate" in ready["stages"]["lesson_plan"]["allowed_actions"]
+
+
+def test_partial_plan_cannot_use_a_complete_navigation_directory():
+    shell = source()
+    shell["course_plan"]["chapters"].pop()
+    tm, repo = reader(shell)
+    state = read_course_production_state(shell, repo, tm)
+    assert state["stages"]["outline"]["availability"] == "missing"
+    assert "generate" not in state["stages"]["lesson_plan"]["allowed_actions"]
+
+
+def test_orphan_assets_do_not_prove_that_an_outline_exists():
+    tm, repo = reader(None, {"lesson-0": {"working_revision_id": "old-plan"}})
+    state = read_course_production_state({"course_id": "course-1"}, repo, tm)
+    assert state["stages"]["outline"]["availability"] == "missing"
+    assert "generate" not in state["stages"]["lesson_plan"]["allowed_actions"]
+
+
+@pytest.mark.parametrize("status", ["running", "paused", "failed"])
+def test_incomplete_outline_blocks_old_batch_recovery_but_keeps_stop_controls(status):
+    shell = {**source(), "outline_framework_only": True}
+    tm, _ = reader(shell, status="running")
+    job = {
+        "id": "old-job", "course_id": "course-1", "lesson_unit_id": "lesson-0",
+        "type": "teacher_lesson_plan_generation", "parent_job_id": "old-batch",
+        "status": status, "error": {"retryable": True},
+    }
+    repo = SimpleNamespace(view=lambda _id: {"lessons": {}, "jobs": {"old-job": job}})
+    state = read_course_production_state(shell, repo, tm)
+    for asset in (state["stages"]["lesson_plan"], state["lessons"][0]["stages"]["lesson_plan"]):
+        assert not {"generate", "retry_generation", "resume_generation"} & set(asset["allowed_actions"])
+        assert not {"retry_generation", "resume_generation"} & set(asset["action_targets"])
+        if status in {"running", "paused"}:
+            assert "cancel_generation" in asset["allowed_actions"]
+            assert asset["action_targets"]["cancel_generation"] == ["old-job"]
 
 
 def test_outline_source_read_failure_preserves_content_and_disables_new_generation():

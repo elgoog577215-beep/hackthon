@@ -237,9 +237,23 @@ def test_batch_resume_requires_explicit_authorized_job_identity(job, expected):
     assert lesson_router._teacher_asset_job_can_resume(job) is expected
 
 
+def _complete_batch_outline(count):
+    return {
+        "course_id": "course-1",
+        "nodes": [node for index in range(1, count + 1) for node in (
+            {"node_id": f"lesson-{index}", "node_level": 1, "parent_node_id": "root"},
+            {"node_id": f"section-{index}", "node_level": 2, "parent_node_id": f"lesson-{index}"},
+        )],
+        "course_plan": {"chapters": [
+            {"node_id": f"lesson-{index}", "sections": [{"node_id": f"section-{index}"}]}
+            for index in range(1, count + 1)
+        ]},
+    }
+
+
 @pytest.mark.asyncio
 async def test_generate_all_lesson_plans_returns_parent_and_independent_queue_metadata(monkeypatch):
-    source = {"course_id": "course-1"}
+    source = _complete_batch_outline(2)
     projected_lessons = [
         {
             "lesson_unit_id": "lesson-1",
@@ -254,7 +268,7 @@ async def test_generate_all_lesson_plans_returns_parent_and_independent_queue_me
             "plan": {"can_generate": True},
         },
     ]
-    monkeypatch.setattr(lesson_router, "_source_course", lambda _tm, _course_id: source)
+    monkeypatch.setattr(lesson_router, "_source_course", lambda _tm, _course_id, **_kwargs: source)
     monkeypatch.setattr(lesson_router, "_canonical_outline_revision", lambda _source: "outline-1")
     monkeypatch.setattr(lesson_router, "_lesson_projection", lambda _source, _repository: projected_lessons)
     monkeypatch.setattr(lesson_router, "validate_lesson_arrangement", lambda *_args, **_kwargs: [])
@@ -355,7 +369,7 @@ async def test_lesson_plan_batch_resumes_only_paused_and_failed_lessons(monkeypa
             "error": {"retryable": True},
         },
     }
-    monkeypatch.setattr(lesson_router, "_source_course", lambda *_args: {"course_id": "course-1"})
+    monkeypatch.setattr(lesson_router, "_source_course", lambda *_args, **_kwargs: _complete_batch_outline(12))
     monkeypatch.setattr(lesson_router, "_canonical_outline_revision", lambda _source: "outline-1")
     monkeypatch.setattr(lesson_router, "_lesson_projection", lambda *_args: lessons)
     monkeypatch.setattr(lesson_router, "validate_lesson_arrangement", lambda *_args, **_kwargs: [])
@@ -437,7 +451,7 @@ async def test_lesson_script_batch_resumes_only_paused_and_failed_lessons(monkey
             "error": {"retryable": True},
         },
     }
-    monkeypatch.setattr(lesson_router, "_source_course", lambda *_args: {"course_id": "course-1"})
+    monkeypatch.setattr(lesson_router, "_source_course", lambda *_args, **_kwargs: _complete_batch_outline(12))
     monkeypatch.setattr(lesson_router, "_lesson_projection", lambda *_args: lessons)
     monkeypatch.setattr(
         lesson_router,

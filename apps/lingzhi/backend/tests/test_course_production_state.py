@@ -25,14 +25,17 @@ def _course(count: int) -> dict:
         "course_id": "course-1",
         "course_profile": {"planned_lecture_count": count},
         "nodes": [
-            {
-                "node_id": f"lesson-{index}",
-                "node_name": f"第 {index} 讲",
-                "node_level": 1,
-                "parent_node_id": "root",
-            }
+            node
             for index in range(1, count + 1)
+            for node in (
+                {"node_id": f"lesson-{index}", "node_name": f"第 {index} 讲", "node_level": 1, "parent_node_id": "root"},
+                {"node_id": f"section-{index}", "node_level": 2, "parent_node_id": f"lesson-{index}"},
+            )
         ],
+        "course_plan": {"chapters": [
+            {"node_id": f"lesson-{index}", "sections": [{"node_id": f"section-{index}"}]}
+            for index in range(1, count + 1)
+        ]},
     }
 
 

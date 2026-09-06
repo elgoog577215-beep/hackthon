@@ -16,7 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from teacher_outline_source import read_teacher_outline_source
+from teacher_outline_source import has_complete_teacher_outline, read_teacher_outline_source
 from teacher_asset_readiness import (
     teacher_lesson_plan_readiness,
     teacher_lesson_plan_revision_has_content,
@@ -1588,7 +1588,7 @@ def compile_course_production_state(
         ))
 
     # A revision identity alone does not prove that a readable outline exists.
-    outline_last_good = bool(units)
+    outline_last_good = has_complete_teacher_outline(course)
     outline_task = _latest(tasks_by_stage["outline"])
     outline_state = _asset_state(
         stage="outline",
@@ -1632,6 +1632,28 @@ def compile_course_production_state(
             tasks_by_stage[stage],
             total=formal_total,
         )
+
+    if not outline_last_good:
+        # Task aggregation can reintroduce retry/resume actions, so gate both
+        # the individual assets and the final stage projection. Keep stop and
+        # inspection actions available for jobs created by older versions.
+        blocked_actions = {
+            ProductionAction.GENERATE, ProductionAction.REGENERATE_FROM_LATEST_SOURCE,
+            ProductionAction.RETRY_GENERATION, ProductionAction.RESUME_GENERATION,
+        }
+        for stage in ("lesson_plan", "script", "ppt"):
+            for state in [*stage_items[stage], stages[stage]]:
+                state.allowed_actions = [action for action in state.allowed_actions if action not in blocked_actions]
+                state.action_targets = {
+                    action: targets for action, targets in state.action_targets.items()
+                    if action not in blocked_actions
+                }
+            stages[stage].issues.append(_issue(
+                stage=stage,
+                code="teacher_outline_incomplete",
+                summary="完整大纲尚未就绪，请返回大纲完成生成后继续。",
+                action="complete_outline",
+            ))
 
     outline_blocking, outline_review = _outline_quality_issues(course, authoring)
     _attach_stage_issues(

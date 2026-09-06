@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Any
 
 from course_document import course_view_from_document
+from lesson_identity import resolve_lesson_chapter
 
 
 def has_teaching_structure(source: Any) -> bool:
@@ -41,6 +42,39 @@ def matches_course_shell(source: Any, course_id: str) -> bool:
         return True
     document = source.get("course_document")
     return isinstance(document, dict) and str(document.get("course_id") or "") == course_id
+
+
+def has_complete_teacher_outline(source: Any) -> bool:
+    """Require the same complete lecture scope that the lesson planner consumes.
+
+    Navigation nodes and old authoring assets alone are not a generation source.
+    This check is deliberately structural; editorial suggestions do not block it.
+    """
+    if not has_teaching_structure(source):
+        return False
+    plan = source.get("course_plan") or source.get("course_outline")
+    if not isinstance(plan, dict):
+        return False
+    nodes = [node for node in source.get("nodes") or [] if isinstance(node, dict)]
+    lessons = [node for node in nodes if int(node.get("node_level") or 0) == 1]
+    if not lessons:
+        return False
+    for lesson in lessons:
+        lesson_id = str(lesson.get("node_id") or "")
+        chapter = resolve_lesson_chapter(plan, lesson_id)
+        if chapter is None:
+            return False
+        expected = {
+            str(node.get("node_id") or "") for node in nodes
+            if str(node.get("parent_node_id") or "") == lesson_id
+        }
+        actual = {
+            str(section.get("node_id") or "") for section in chapter.get("sections") or []
+            if isinstance(section, dict)
+        }
+        if not expected or "" in expected or actual != expected:
+            return False
+    return True
 
 
 def read_teacher_outline_source(

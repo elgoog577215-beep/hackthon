@@ -15,7 +15,7 @@
         <strong class="stage-rail-title">{{ t('courseWorkbench.title', '课程工作台') }}</strong>
       </header>
       <nav>
-        <button v-for="stage in stages" :key="stage.id" type="button" :class="{ active: activeStage === stage.id }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== stage.id)" @click="requestStageChange(stage.id)">
+        <button v-for="stage in stages" :key="stage.id" type="button" :class="{ active: activeStage === stage.id }" :disabled="stageSwitching || stagePrerequisiteBlocked(stage.id) || (aiCandidatePending && activeStage !== stage.id)" :title="stagePrerequisiteBlocked(stage.id) ? outlinePrerequisiteReason : undefined" @click="requestStageChange(stage.id)">
           <span>{{ stage.step }}</span><component :is="stage.icon" :size="18" /><strong>{{ stage.label }}</strong>
           <span
             class="stage-state"
@@ -27,6 +27,7 @@
           ><Check v-if="stageReady(stage.id)" :size="12" aria-hidden="true" /></span>
         </button>
       </nav>
+      <p v-if="activeStage === 'foundation' && !outlineAvailableForLessons" class="stage-prerequisite-reason" role="status">{{ outlinePrerequisiteReason }}</p>
       <section class="companion-entry">
         <small>{{ t('courseWorkbench.supporting.group', '其他课程文件') }}</small>
         <button type="button" :class="{ active: activeStage === 'question-bank' }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== 'question-bank')" @click="requestStageChange('question-bank')">
@@ -465,13 +466,19 @@
         </nav>
         <div v-if="lessonStageBlocked && ['lesson', 'script'].includes(activeStage)" class="lesson-generation-actions">
           <button class="primary-action" type="button" disabled>{{ t(activeStage === 'lesson' ? 'courseWorkbench.lessonBatch.generateAll' : 'courseWorkbench.scriptBatch.generateAll') }}</button>
-          <p class="generation-unavailable-reason" role="status">{{ activeStage === 'lesson' ? lessonGenerationBlockedReason : scriptGenerationBlockedReason }}</p>
+          <p v-if="outlineAvailableForLessons" class="generation-unavailable-reason" role="status">{{ activeStage === 'lesson' ? lessonGenerationBlockedReason : scriptGenerationBlockedReason }}</p>
         </div>
         <AppErrorNotice v-if="activeStage === 'question-bank' && lessonStageBlocked && lessonPrerequisiteError" class="prerequisite-error" :presentation="lessonPrerequisiteError" compact>
           <template #action><button type="button" :disabled="lessonStore.loading" @click="resolveLessonPrerequisite">{{ lessonPrerequisiteState.action }}</button></template>
         </AppErrorNotice>
         <div v-else-if="lessonStageBlocked" class="prerequisite" :data-state="lessonPrerequisiteState.kind" aria-live="polite">
-          <template v-if="!lessonPrerequisiteError">
+          <template v-if="!outlineAvailableForLessons">
+            <FileText :size="24" />
+            <strong>{{ t('courseWorkbench.lessonPrerequisite.missing') }}</strong>
+            <span>{{ outlinePrerequisiteReason }}</span>
+            <button type="button" data-testid="return-to-outline" @click="requestStageChange('foundation')">{{ t('courseWorkbench.lessonPrerequisite.returnToOutline') }}</button>
+          </template>
+          <template v-else-if="!lessonPrerequisiteError">
             <LoaderCircle v-if="lessonPrerequisiteState.kind === 'loading'" :size="24" class="spin" />
             <FileText v-else :size="24" />
             <strong>{{ lessonPrerequisiteState.title }}</strong>
@@ -899,7 +906,7 @@
               <LoaderCircle v-if="recoveryStarting" :size="15" class="spin" /><RotateCcw v-else :size="15" />
               {{ recoveryStarting ? t('courseWorkbench.contextPane.retrying', '正在重试…') : t('courseWorkbench.recovery.retryOriginal') }}
             </button>
-            <button type="button" :disabled="recoveryStarting" @click="openRegenerationPreparation">{{ t('courseWorkbench.recovery.reviseAndGenerate') }}</button>
+            <button type="button" :disabled="recoveryStarting || stagePrerequisiteBlocked(activeStage)" @click="openRegenerationPreparation">{{ t('courseWorkbench.recovery.reviseAndGenerate') }}</button>
           </template>
           <button v-if="referenceWorkflowState === 'generating' && referenceWorkflowCanPause" type="button" @click="pauseReferenceWorkflow"><Pause :size="14" />{{ t('courseWorkbench.pause', '暂停') }}</button>
           <button v-if="referenceWorkflowState === 'paused' && referenceWorkflowCanResume" class="primary-status-action" type="button" @click="resumeReferenceWorkflow"><Play :size="14" />{{ t('courseWorkbench.continue', '继续') }}</button>
@@ -1975,6 +1982,19 @@ const outlineFullReady = computed(() => Boolean(
   && !generationFailed.value
   && (!generationTask.value || ['completed', 'completed_with_warnings'].includes(taskStatus.value)),
 ))
+const outlineAvailableForLessons = computed(() => {
+  const outline = productionState.value?.stages.outline
+  if (outline) return outline.availability === 'usable'
+  // Compatibility while the server projection loads. A running/paused/failed
+  // outline task must not be mistaken for a complete outline just from nodes.
+  if (generationTask.value && !['completed', 'completed_with_warnings'].includes(taskStatus.value)) return false
+  return outlineFullReady.value || Boolean(lessonStore.outlineRevisionId
+    || lessonStore.lessons.some(lesson => lesson.arrangement?.source_outline_revision_id))
+})
+const outlinePrerequisiteReason = computed(() => t('courseWorkbench.lessonPrerequisite.outlineRequired'))
+function stagePrerequisiteBlocked(stage: StageId) {
+  return ['lesson', 'script', 'ppt'].includes(stage) && !outlineAvailableForLessons.value
+}
 const outlineRegenerationAvailable = computed(() => Boolean(
   outlineFullReady.value
   && (productionState.value && !outlineLocalEventPendingProjection.value
@@ -2125,9 +2145,9 @@ const batchReadyRecoveryAvailable = computed(() => (
   ))
 ))
 const lessonBatchActionBlocked = computed(() => (
-  batchRecoveryAvailable.value || batchResumeAvailable.value
+  !outlineAvailableForLessons.value || (batchRecoveryAvailable.value || batchResumeAvailable.value
     ? referenceRelationshipSaving.value
-    : referenceGenerationBlocked.value
+    : referenceGenerationBlocked.value)
 ))
 const lessonBatchLaunchVisible = computed(() => (
   activeStage.value === 'lesson'
@@ -2137,6 +2157,7 @@ const lessonBatchLaunchVisible = computed(() => (
   && !batchPaused.value
 ))
 const lessonGenerationBlockedReason = computed(() => {
+  if (!outlineAvailableForLessons.value) return outlinePrerequisiteReason.value
   if (lessonBatchLaunchVisible.value || batchStarting.value || batchRunning.value || batchPaused.value) return ''
   if (workingLessonRevision.value) return ''
   const outline = productionState.value?.stages.outline
@@ -2726,6 +2747,7 @@ const contextErrorPresentation = computed(() => {
 const contextFailureVisible = computed(() => !pptContext.value && !contextErrorPresentation.value && referenceWorkflowState.value === 'failed')
 const contextFailureJob = computed(() => contextFailureVisible.value ? selectedFailureJob.value : null)
 const contextFailureCanRetry = computed(() => {
+  if (stagePrerequisiteBlocked(activeStage.value)) return false
   const job = contextFailureJob.value
   if (!job?.error?.retryable || !referenceWorkflowCanRetry.value) return false
   return !productionState.value || productionActionTaskIds(activeProjectedProduction.value, 'retry_generation').includes(job.id)
@@ -2810,11 +2832,13 @@ const contextStatusDetail = computed(() => {
   return activeStageDefinition.value.label
 })
 const lessonStageBlocked = computed(() => (
-  lessonStore.loading
+  stagePrerequisiteBlocked(activeStage.value)
+  || lessonStore.loading
   || !lessonStore.lessons.length
 ))
 const lessonSyncNeedsRecovery = computed(() => (
   ['lesson', 'script', 'ppt'].includes(activeStage.value)
+  && outlineAvailableForLessons.value
   && !lessonStore.lessons.length
   && Boolean(hasOutline.value || lessonStore.outlineRevisionId)
 ))
@@ -2872,6 +2896,7 @@ function productionStageKey(stage: CoreStageId): CourseProductionStageKey {
   return stage === 'foundation' ? 'outline' : stage === 'lesson' ? 'lesson_plan' : stage
 }
 function stageReady(stage: CoreStageId) {
+  if (stage === 'foundation' && !outlineAvailableForLessons.value) return false
   const projected = productionState.value?.stages[productionStageKey(stage)]
   if (projected) return projected.display_state === 'available'
   if (stage === 'foundation') return outlineFullReady.value
@@ -3061,6 +3086,7 @@ function openRegenerationPreparation() {
   regenerationDialogOpen.value = true
 }
 async function retrySelectedFailure() {
+  if (stagePrerequisiteBlocked(activeStage.value)) return
   const job = selectedFailureJob.value
   if (!job || recoveryStarting.value || !job.error?.retryable) return
   recoveryStarting.value = true
@@ -3770,7 +3796,7 @@ async function updateOutlineLessonType(payload: { lessonUnitId: string; lessonTy
 }
 async function generateSelectedLessonPlan(requirements = '', forceNew = false) {
   const lesson = selectedLesson.value
-  if (!lesson || lessonGenerationActive.value || referenceGenerationBlocked.value) return
+  if (!outlineAvailableForLessons.value || !lesson || lessonGenerationActive.value || referenceGenerationBlocked.value) return
   if (!productionState.value && !teacherLessonPlanCanGenerate(lesson)) {
     arrangementError.value = t('courseWorkbench.arrangement.structureRequired', '本讲教学结构尚未生成，请稍后重试。')
     return
@@ -4103,6 +4129,7 @@ function lessonGenerationStateLabel(lesson: any): string {
 }
 async function handleScriptSaved() { scriptDocumentError.value = ''; await lessonStore.load(props.courseId) }
 async function generateScript(requirements = '', forceNew = false) {
+  if (!outlineAvailableForLessons.value) return
   const resumeJobId = !forceNew && !requirements.trim() && !productionState.value && ['failed', 'cancelled', 'paused'].includes(String(scriptJob.value?.status || ''))
     ? scriptJob.value?.id || ''
     : ''
@@ -4136,6 +4163,7 @@ async function generateScript(requirements = '', forceNew = false) {
   }
 }
 async function generateAllScripts(requestedAction?: 'generate' | 'resume_generation' | 'retry_generation' | Event) {
+  if (!outlineAvailableForLessons.value) return
   const explicitAction = typeof requestedAction === 'string' ? requestedAction : undefined
   const action = explicitAction || (scriptBatchRecoveryAvailable.value
     ? 'retry_generation'
@@ -4312,7 +4340,7 @@ async function continueOutlineDetails() {
   }
 }
 async function requestStageChange(stage: StageId) {
-  if (stage === activeStage.value || stageSwitching.value) return
+  if (stage === activeStage.value || stageSwitching.value || stagePrerequisiteBlocked(stage)) return
   stageSwitching.value = true
   try {
     if (!await finishEditing()) return
@@ -4496,6 +4524,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.stage-prerequisite-reason { margin: 8px 12px 16px; color: #64748b; font-size: 15px; line-height: 1.6; }
 .is-ppt-stage .lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;align-items:center;min-height:58px}
 
 .stage-rail nav button{--stage-state-center:#fff}

@@ -60,7 +60,10 @@ const strictProductionSnapshot = (
   course_id: 'course-1',
   preparation_state: 'preparing',
   stages: {
-    outline: strictProductionStage(stageOverrides.outline),
+    outline: strictProductionStage(stageOverrides.outline ?? {
+      display_state: 'available', availability: 'usable', source_state: 'current',
+      counts: { total: 1, available: 1, generating: 0, failed: 0, stale: 0 },
+    }),
     lesson_plan: strictProductionStage(stageOverrides.lesson_plan),
     script: strictProductionStage(stageOverrides.script),
     ppt: strictProductionStage(stageOverrides.ppt),
@@ -81,6 +84,10 @@ let outlineResolvedQualityReport: Record<string, any> | null = null
 
 const mountWorkbench = (props: Record<string, unknown> = {}) => {
   const courseId = String(props.courseId || 'course-1')
+  // Older fixtures store the response's outline revision on each lesson.
+  const lessonStore = useTeacherLessonAuthoringStore()
+  const fixtureRevision = (lessonStore.lessons[0] as any)?.source_outline_revision_id
+  if (fixtureRevision && !lessonStore.outlineRevisionId) lessonStore.outlineRevisionId = fixtureRevision
   const legacyTestProjection = useTeacherLessonAuthoringStore().productionState
   if (legacyTestProjection && !useCourseStore().teacherProductionStates[courseId]) {
     useCourseStore().setTeacherProductionState(courseId, legacyTestProjection)
@@ -200,6 +207,64 @@ describe('teacher course workbench outline streaming', () => {
     expect(outlineState.attributes('style')).toContain('--stage-progress-angle: 144deg')
     expect(wrapper.find('.stage-rail > footer').exists()).toBe(false)
   })
+
+  it.each(['waiting_for_input', 'running', 'paused', 'failed', 'cancelled'] as const)(
+    '大纲 %s 时目录和旧失败记录不能解锁下游，可返回大纲并在完成后继续', async status => {
+      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => zhMessages })))
+      await setLocale('zh')
+      const courseStore = useCourseStore()
+      courseStore.nodes = [{ node_id: 'L1-1', node_level: 1, node_name: '第一讲' }] as any
+      const lessonStore = useTeacherLessonAuthoringStore()
+      lessonStore.courseId = 'course-1'
+      lessonStore.lessons = [{
+        lesson_unit_id: 'L1-1', number: 1, title: '第一讲', source_outline_revision_id: 'preview-outline',
+        duration_minutes: 45, sections: [],
+        arrangement: { blocks: [{ block_id: 'preview-block' }] },
+        plan: { working_revision_id: '', source_state: 'current', ready: false, can_generate: true, ppt_assets: [] },
+        script: { ready: false, sections: [] },
+      }] as any
+      const task = useGenerationStore().createTask('outline-task', 'course-1', '测试课程')
+      task.status = status as any
+      const blocked = strictProductionSnapshot({
+        outline: { display_state: status === 'failed' ? 'failed' : 'generating', task_state: status },
+        // Even a stale downstream action must not bypass the outline gate.
+        lesson_plan: { allowed_actions: ['generate'] },
+      }) as any
+      courseStore.setTeacherProductionState('course-1', blocked)
+      const generate = vi.spyOn(lessonStore, 'generateAllLessons').mockResolvedValue({ jobs: [] } as any)
+      const wrapper = mountWorkbench({ initialStage: 'lesson' })
+      const nav = wrapper.findAll('.stage-rail nav button')
+      expect(nav[0]!.attributes('disabled')).toBeUndefined()
+      expect(nav[0]!.get('.stage-state').attributes('data-state')).not.toBe('complete')
+      for (const button of nav.slice(1)) {
+        expect(button.attributes('disabled')).toBeDefined()
+        expect(button.attributes('title')).toContain('完整大纲尚未就绪')
+        await button.trigger('click')
+      }
+      expect(wrapper.find('[data-testid="lesson-course-preview-generate"]').exists()).toBe(false)
+      const blockedGenerate = wrapper.get('.lesson-generation-actions button')
+      expect(blockedGenerate.attributes('disabled')).toBeDefined()
+      await blockedGenerate.trigger('click')
+      expect(generate).not.toHaveBeenCalled()
+      await wrapper.get('[data-testid="return-to-outline"]').trigger('click')
+      expect(nav[0]!.classes()).toContain('active')
+
+      useGenerationStore().getTask('course-1')!.status = 'completed'
+      courseStore.setTeacherProductionState('course-1', strictProductionSnapshot({
+        lesson_plan: { allowed_actions: ['generate'] },
+      }) as any)
+      await flushPromises()
+      expect(nav[0]!.get('.stage-state').attributes('data-state')).toBe('complete')
+      expect(nav[1]!.attributes('disabled')).toBeUndefined()
+      await nav[1]!.trigger('click')
+      await flushPromises()
+      await wrapper.get('[data-testid="lesson-course-preview-generate"]').trigger('click')
+      await flushPromises()
+      expect(generate).toHaveBeenCalledTimes(1)
+      wrapper.unmount()
+      vi.unstubAllGlobals()
+    },
+  )
 
   it('把课程信息入口事件交给课程工作区打开弹窗', async () => {
     const wrapper = mountWorkbench()
@@ -1125,6 +1190,7 @@ describe('teacher course workbench outline streaming', () => {
   })
 
   it('教案批量生成只承诺教学结构已就绪的讲次', () => {
+    useTeacherLessonAuthoringStore().outlineRevisionId = 'outline-1'
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2].map(number => ({
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45,
@@ -1633,6 +1699,7 @@ describe('teacher course workbench outline streaming', () => {
   })
 
   it('讲义未生成时先平铺全课教案映射，再一次提交全部讲义', async () => {
+    useTeacherLessonAuthoringStore().outlineRevisionId = 'outline-1'
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2].map(number => ({
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45,
@@ -1673,6 +1740,7 @@ describe('teacher course workbench outline streaming', () => {
   })
 
   it('讲义批量生成只承诺有当前教案的讲次', async () => {
+    useTeacherLessonAuthoringStore().outlineRevisionId = 'outline-1'
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2].map(number => ({
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45,
@@ -1764,6 +1832,7 @@ describe('teacher course workbench outline streaming', () => {
   })
 
   it('讲义批量启动失败在右栏反馈并保留当前预览', async () => {
+    useTeacherLessonAuthoringStore().outlineRevisionId = 'outline-1'
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
@@ -1790,6 +1859,7 @@ describe('teacher course workbench outline streaming', () => {
   })
 
   it('资料未就绪时讲义批量按钮显示禁用原因且不发起请求', async () => {
+    useTeacherLessonAuthoringStore().outlineRevisionId = 'outline-1'
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
@@ -1815,6 +1885,7 @@ describe('teacher course workbench outline streaming', () => {
   })
 
   it('讲义批次失败后由原批量按钮继续原任务', async () => {
+    useTeacherLessonAuthoringStore().outlineRevisionId = 'outline-1'
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
@@ -2216,6 +2287,7 @@ describe('teacher course workbench outline streaming', () => {
   })
 
   it.each(['paused', 'failed', 'cancelled'] as const)('讲义%s后继续显示已经收到的正文，不返回教案映射', status => {
+    useTeacherLessonAuthoringStore().outlineRevisionId = 'outline-1'
     const store = useTeacherLessonAuthoringStore()
     store.lessons = [{
       lesson_unit_id: 'L1-1', number: 1, title: '第一讲', sections: [],
@@ -2319,6 +2391,7 @@ describe('teacher course workbench outline streaming', () => {
   })
 
   it('教案、讲义和 PPT 开始生成后显示双行讲次目录，正文不再出现小节 Tab', async () => {
+    useTeacherLessonAuthoringStore().outlineRevisionId = 'outline-1'
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2].map(number => ({
       lesson_unit_id: `L1-${number}`, number, title: `第${number}讲 主题${number}`, duration_minutes: 45,
@@ -2448,6 +2521,7 @@ describe('teacher course workbench outline streaming', () => {
   })
 
   it('PPT 任务状态只投影到同一课程的当前讲次', async () => {
+    useTeacherLessonAuthoringStore().outlineRevisionId = 'outline-1'
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
@@ -2482,6 +2556,7 @@ describe('teacher course workbench outline streaming', () => {
   })
 
   it('从资料栏重新生成在当前工作台打开设置，不跳转页面', async () => {
+    useTeacherLessonAuthoringStore().outlineRevisionId = 'outline-1'
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
@@ -2694,7 +2769,7 @@ describe('teacher course workbench outline streaming', () => {
     useCourseStore().setTeacherProductionState('course-1', {
       schema_version: 'course_production_state_v1', course_id: 'course-1', preparation_state: 'preparing',
       stages: {
-        outline: stage(), lesson_plan: stage(), script: stage(),
+        outline: stage({ display_state: 'available', availability: 'usable', source_state: 'current', counts: { total: 1, available: 1, generating: 0, failed: 0, stale: 0 } }), lesson_plan: stage(), script: stage(),
         ppt: stage({ display_state: 'generating', task_state: 'paused', task_ids: ['ppt-real'], action_targets: { resume_generation: ['ppt-real'], cancel_generation: ['ppt-real'] }, allowed_actions: ['resume_generation', 'cancel_generation'], latest_attempt: { attempt_id: 'ppt-attempt', task_ids: ['ppt-real'], task_state: 'paused', target_count: 1, completed: 0, failed: 0, progress: 42, lesson_unit_ids: ['L1-1'], message: '已暂停', updated_at: '2026-09-05T02:00:00Z' } }),
       },
       lessons: [{ lesson_unit_id: 'L1-1', title: '第一讲', stages: { ppt: pptAsset } }], issues: [],
@@ -2737,7 +2812,7 @@ describe('teacher course workbench outline streaming', () => {
     const asset = { display_state: 'available', task_state: 'failed', availability: 'usable', source_state: 'current', latest_attempt_failed: true, update_required: false, task_ids: ['ppt-failed'], action_targets: { retry_generation: ['ppt-failed'] }, allowed_actions: ['retry_generation'], issues: [issue] }
     const snapshot = {
       schema_version: 'course_production_state_v1', course_id: 'course-1', preparation_state: 'prepared',
-      stages: { outline: stage(), lesson_plan: stage(), script: stage(), ppt: stage({ ...asset, counts: { total: 1, available: 1, generating: 0, failed: 0, stale: 0 } }) },
+      stages: { outline: stage({ display_state: 'available', availability: 'usable', source_state: 'current', counts: { total: 1, available: 1, generating: 0, failed: 0, stale: 0 } }), lesson_plan: stage(), script: stage(), ppt: stage({ ...asset, counts: { total: 1, available: 1, generating: 0, failed: 0, stale: 0 } }) },
       lessons: [{ lesson_unit_id: 'L1-1', title: '第一讲', stages: { ppt: asset } }], issues: [issue],
     } as any
     const courseStore = useCourseStore()
@@ -2788,7 +2863,7 @@ describe('teacher course workbench outline streaming', () => {
     const asset = stage(overrides)
     useCourseStore().setTeacherProductionState('course-1', {
       schema_version: 'course_production_state_v1', course_id: 'course-1', preparation_state: 'preparing',
-      stages: { outline: stage(), lesson_plan: stage(), script: stage(), ppt: stage({ ...asset, counts: { total: 1, available: 0, generating: overrides.task_state === 'running' ? 1 : 0, failed: overrides.task_state === 'unknown' ? 1 : 0, stale: 0 } }) },
+      stages: { outline: stage({ display_state: 'available', availability: 'usable', source_state: 'current', counts: { total: 1, available: 1, generating: 0, failed: 0, stale: 0 } }), lesson_plan: stage(), script: stage(), ppt: stage({ ...asset, counts: { total: 1, available: 0, generating: overrides.task_state === 'running' ? 1 : 0, failed: overrides.task_state === 'unknown' ? 1 : 0, stale: 0 } }) },
       lessons: [{ lesson_unit_id: 'L1-1', title: '第一讲', stages: { ppt: asset } }], issues: [],
     } as any)
 
@@ -2826,7 +2901,7 @@ describe('teacher course workbench outline streaming', () => {
     const asset = stage(projectedOverrides)
     const snapshot = {
       schema_version: 'course_production_state_v1', course_id: 'course-1', preparation_state: 'prepared',
-      stages: { outline: stage(), lesson_plan: stage(), script: stage(), ppt: stage({ ...asset, counts: { total: 1, available: projectedOverrides.display_state === 'available' ? 1 : 0, generating: 0, failed: 0, stale: projectedOverrides.source_state === 'stale' ? 1 : 0 } }) },
+      stages: { outline: stage({ display_state: 'available', availability: 'usable', source_state: 'current', counts: { total: 1, available: 1, generating: 0, failed: 0, stale: 0 } }), lesson_plan: stage(), script: stage(), ppt: stage({ ...asset, counts: { total: 1, available: projectedOverrides.display_state === 'available' ? 1 : 0, generating: 0, failed: 0, stale: projectedOverrides.source_state === 'stale' ? 1 : 0 } }) },
       lessons: [{ lesson_unit_id: 'L1-1', title: '第一讲', stages: { ppt: asset } }], issues: [],
     } as any
     const courseStore = useCourseStore()
@@ -2869,7 +2944,7 @@ describe('teacher course workbench outline streaming', () => {
     useCourseStore().setTeacherProductionState('course-1', {
       schema_version: 'course_production_state_v1', course_id: 'course-1', preparation_state: 'prepared',
       stages: {
-        outline: stage(), lesson_plan: stage(),
+        outline: stage({ display_state: 'available', availability: 'usable', source_state: 'current', counts: { total: 1, available: 1, generating: 0, failed: 0, stale: 0 } }), lesson_plan: stage(),
         script: stage({ task_state: 'failed', latest_attempt_failed: true, task_ids: ['script-failed'], action_targets: { retry_generation: ['script-failed'] }, allowed_actions: ['retry_generation'], issues: [issue] }),
         ppt: stage({ display_state: 'not_generated', task_state: 'idle', availability: 'missing', source_state: 'missing', counts: { total: 1, available: 0, generating: 0, failed: 0, stale: 0 } }),
       },

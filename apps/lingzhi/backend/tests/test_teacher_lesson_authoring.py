@@ -144,6 +144,42 @@ def lecture_course_data():
     return source
 
 
+@pytest.mark.parametrize("endpoint", [
+    "lesson-plans/generate-all", "lessons/L1-2/plan/generate",
+    "lesson-scripts/generate-all", "lessons/L1-2/script/generate",
+])
+@pytest.mark.parametrize("source_kind", ["framework", "detailing", "failed", "partial", "nodes_only"])
+def test_generation_rejects_incomplete_outline_before_creating_any_job(tmp_path, endpoint, source_kind):
+    from types import SimpleNamespace
+
+    source = course_data()
+    if source_kind == "framework":
+        source["outline_framework_only"] = True
+    elif source_kind == "detailing":
+        source["generation_status"] = "outline_detail_generation"
+    elif source_kind == "failed":
+        source["generation_status"] = "outline_detail_failed"
+    elif source_kind == "partial":
+        source["course_plan"]["chapters"].pop()
+    else:
+        source.pop("course_plan")
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    before = repository.view("course-1")
+    tm = SimpleNamespace(storage=SimpleNamespace(load_course=lambda _id: deepcopy(source)))
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: tm
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: repository
+    with TestClient(app) as client:
+        response = client.post(f"/api/teacher/courses/course-1/{endpoint}", json={})
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "teacher_outline_incomplete"
+    after = repository.view("course-1")
+    assert after["jobs"] == before["jobs"] == {}
+    assert after["lessons"] == before["lessons"] == {}
+    assert list(tmp_path.glob("*.json")) == []
+
+
 def standard_lesson_plan():
     return {
         "schema_version": "course_teaching_plan_v3",
@@ -6127,7 +6163,7 @@ def test_explicit_resume_validation_matches_projection_and_rejects_conflicts(
     }
 
 
-def test_generate_all_lesson_plans_skips_lessons_without_teaching_structure(
+def test_generate_all_lesson_plans_rejects_partial_outline_before_launch(
     tmp_path,
     monkeypatch,
 ):
@@ -6193,16 +6229,10 @@ def test_generate_all_lesson_plans_skips_lessons_without_teaching_structure(
             json={"request_id": "ready-plans-only"},
         )
 
-    assert response.status_code == 202
-    payload = response.json()
-    assert len(payload["parent_job"]["child_job_ids"]) == 1
-    assert payload["skipped_lesson_ids"] == ["L1-2"]
-    assert payload["skipped_lessons"] == [{
-        "lesson_unit_id": "L1-2",
-        "reason": "lesson_arrangement:blocks_empty",
-    }]
-    assert [item[0] for item in requested_children] == ["L1-1"]
-    assert requested_children[0][1].batch_size == 1
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "teacher_outline_incomplete"
+    assert requested_children == []
+    assert repository.view("course-1")["jobs"] == {}
 
 
 def test_generate_all_lesson_scripts_queues_every_lesson_with_one_parent(
