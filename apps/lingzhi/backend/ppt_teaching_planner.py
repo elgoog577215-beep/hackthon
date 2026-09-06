@@ -116,7 +116,6 @@ class PageRevision(Contract):
     observable_evidence: str = ""
     transition: str = ""
     composition_notes: str = ""
-    content_contract: PageContentContract | None = None
     teaching: PageTeachingV2
     split_reason: str = ""
 
