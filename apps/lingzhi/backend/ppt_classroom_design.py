@@ -135,9 +135,8 @@ def layout_fields(content, execution, theme_id, place, positions, slots, styles)
     return title, background
 
 
-def page_furniture(content, execution, theme_id, title, positions, slots, *, page_number=0):
+def page_furniture(content, execution, theme_id, title, positions, slots, *, make_object, page_number=0):
     """Template-only furniture. Never contains model-authored teaching claims."""
-    from ppt_page_scene import SceneObject
     palette = colors(theme_id)
     slug = execution.component_id.rsplit("/", 1)[-1]
     dark = slug in {"cover", "section"}
@@ -145,11 +144,11 @@ def page_furniture(content, execution, theme_id, title, positions, slots, *, pag
     result = []
     def shape(name, frame, color):
         x, y, w, h = frame
-        result.append(SceneObject(object_id=name, slot_id="decoration", kind="shape", text="", lines=[],
+        result.append(make_object(object_id=name, slot_id="decoration", kind="shape", text="", lines=[],
             x=x, y=y, width=w, height=h, font_size=12, fill=color, stroke=color, editability="native_shape"))
     def label(name, value, frame, size, color, *, align="left", visible_with=""):
         x, y, w, h = frame
-        result.append(SceneObject(object_id=name, slot_id="decoration", text=value,
+        result.append(make_object(object_id=name, slot_id="decoration", text=value,
             lines=validate_text_frame(value, w, h, size, execution.font_sha256), x=x, y=y, width=w, height=h,
             font_size=size, color=color, fill=bg, stroke=bg, bold=True, text_align=align, visible_with=visible_with))
     if dark:

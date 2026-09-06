@@ -353,7 +353,8 @@ def resolve_page_scenes(*, page_id: str, title: str, content: PageTeachingV2, la
     if capacity_errors:
         raise ValueError("; ".join(capacity_errors) + "; revise the draft: concise conditions and fewer dimensions; preserve selected artifacts exactly")
     if authored_title:
-        all_objects.extend(page_furniture(content, execution, template.theme_id, title, positions, slots, page_number=page_number))
+        all_objects.extend(page_furniture(content, execution, template.theme_id, title, positions, slots,
+                                           make_object=SceneObject, page_number=page_number))
     elif fixed_title_frame:
         # Qizhi's restrained header hierarchy, shared by preview and PPTX.
         all_objects.append(SceneObject(object_id="header-rule", slot_id="decoration", kind="shape", text="", lines=[],
