@@ -69,6 +69,8 @@ const strictProductionSnapshot = (
   issues,
 })
 
+const pptPrepareToLeave = vi.fn(async () => true)
+const pptRequestGeneration = vi.fn(async () => undefined)
 const outlineFinishEditing = vi.fn(async () => true)
 const outlineRequestAiCandidate = vi.fn(async () => null as Record<string, any> | null)
 const outlineResolveAiCandidate = vi.fn(async (_accept: boolean) => true)
@@ -99,6 +101,11 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => {
         props: ['modelValue', 'scopeTargetId', 'scopeTargetLabel', 'previousScopeTargetId', 'workflowState', 'workflowDetail', 'workflowProgress', 'workflowCanRetry', 'hideWorkflowStatus', 'readonly', 'deferPersistence', 'showCourseInformation'],
         template: '<aside data-testid="reference-tray-stub" :data-readonly="readonly ? \'true\' : \'false\'"><span v-if="hideWorkflowStatus === undefined">{{ workflowDetail }}</span><i data-testid="workflow-progress">{{ workflowProgress }}</i><button v-if="showCourseInformation !== false" data-testid="open-course-information" type="button" @click="$emit(\'open-course-information\')">课程信息</button><button v-if="workflowCanRetry && hideWorkflowStatus === undefined" data-testid="retry-workflow" type="button" @click="$emit(\'retry-workflow\')">重试生成</button><slot name="workflow-action" /></aside>',
         emits: ['open-course-information', 'retry-workflow', 'regenerate-workflow', 'source-state-change', 'update:modelValue'],
+      },
+      PptWorkspace: {
+        name: 'PptWorkspace', props: ['canGenerate', 'sourceReady', 'generationAction', 'lessonId'],
+        template: '<section data-testid="inline-ppt"><slot name="source-actions" /></section>',
+        setup(_props: unknown, { expose }: any) { expose({ prepareToLeave: pptPrepareToLeave, requestGeneration: pptRequestGeneration }); return {} },
       },
       CompanionDocumentStudio: true,
       QuestionBankReviewPanel: true,
@@ -141,6 +148,9 @@ describe('teacher course workbench outline streaming', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.restoreAllMocks()
+    pptPrepareToLeave.mockReset()
+    pptPrepareToLeave.mockResolvedValue(true)
+    pptRequestGeneration.mockReset()
     outlineFinishEditing.mockReset()
     outlineFinishEditing.mockResolvedValue(true)
     outlineRequestAiCandidate.mockReset()
@@ -1573,13 +1583,16 @@ describe('teacher course workbench outline streaming', () => {
 
     const pptWrapper = mountWorkbench({ initialStage: 'ppt' })
     await flushPromises()
+    expect(pptWrapper.find('.context-pane').exists()).toBe(false)
+    await pptWrapper.get('[data-testid="ppt-source-settings"]').trigger('click')
+    await flushPromises()
     expect(pptWrapper.get('.lesson-navigator').text()).toContain('第一讲')
     expect(pptWrapper.find('.lesson-toolbar-status').exists()).toBe(false)
     expect(pptWrapper.get('.context-pane-heading').text()).toContain('准备资料')
     expect(pptWrapper.get('.context-pane-heading').text()).toContain('待生成')
     expect(pptWrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('未生成')
-    expect(pptWrapper.get('.ppt-upload-secondary').attributes('disabled')).toBeUndefined()
-    expect(pptWrapper.get('.ppt-generate-primary').attributes('disabled')).toBeDefined()
+    expect(pptWrapper.get('[data-testid="ppt-upload"]').attributes('disabled')).toBeUndefined()
+    expect(pptWrapper.getComponent({ name: 'PptWorkspace' }).props('canGenerate')).toBe(false)
   })
 
   it('讲义生成完成后停留当前阶段，由左侧四步流程负责切换', async () => {
@@ -2297,7 +2310,10 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'ppt' })
     await flushPromises()
-    expect(wrapper.get('.ppt-generate-primary').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('.context-pane').exists()).toBe(false)
+    await wrapper.get('[data-testid="ppt-source-settings"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.getComponent({ name: 'PptWorkspace' }).props('canGenerate')).toBe(true)
   })
 
   it('教案、讲义和 PPT 开始生成后显示双行讲次目录，正文不再出现小节 Tab', async () => {
@@ -2326,11 +2342,13 @@ describe('teacher course workbench outline streaming', () => {
       expect(wrapper.find('.lesson-outline-sections').exists()).toBe(false)
       expect(wrapper.find('.lesson-selector').exists()).toBe(false)
       expect(wrapper.find('.lesson-section-tabs').exists()).toBe(false)
-      expect(wrapper.find('.lesson-navigator .lesson-switch-actions').exists()).toBe(false)
+      expect(wrapper.find('.lesson-navigator .lesson-switch-actions').exists()).toBe(stage === 'ppt')
       expect(wrapper.get('.lesson-switch-actions').text()).toContain('上一讲')
       expect(wrapper.get('.lesson-switch-actions').text()).toContain('下一讲')
 
+      await flushPromises()
       await chapterButtons[1]!.trigger('click')
+      await flushPromises()
       expect(wrapper.get('.lesson-current-title').text()).toContain('第2讲 主题2')
       expect(wrapper.get('.lesson-current-title').text()).not.toContain('2/2')
       if (stage === 'script') {
@@ -2414,12 +2432,15 @@ describe('teacher course workbench outline streaming', () => {
     }] as any
     const routePush = vi.spyOn(router, 'push').mockResolvedValue(undefined as any)
     const pptWrapper = mountWorkbench({ initialStage: 'ppt' })
+    await flushPromises()
+    expect(pptWrapper.find('.context-pane').exists()).toBe(false)
+    await pptWrapper.get('[data-testid="ppt-source-settings"]').trigger('click')
     pptWrapper.findComponent({ name: 'CourseReferenceTray' }).vm.$emit('source-state-change', {
       busy: true, blocked: true, reason: '正在更新资料…',
     })
     await flushPromises()
 
-    expect(pptWrapper.get('.ppt-generate-primary').attributes('disabled')).toBeDefined()
+    expect(pptWrapper.getComponent({ name: 'PptWorkspace' }).props('canGenerate')).toBe(false)
     pptWrapper.findComponent({ name: 'CourseReferenceTray' }).vm.$emit('regenerate-workflow')
     await flushPromises()
     expect(routePush).not.toHaveBeenCalled()
@@ -2439,17 +2460,28 @@ describe('teacher course workbench outline streaming', () => {
     pptStore.buildProgress = 47
 
     const wrapper = mountWorkbench({ initialStage: 'ppt' })
+    await flushPromises()
+    expect(wrapper.find('.context-pane').exists()).toBe(false)
+    await wrapper.get('[data-testid="ppt-source-settings"]').trigger('click')
     let tray = wrapper.findComponent({ name: 'CourseReferenceTray' })
     expect(tray.props('workflowState')).not.toBe('generating')
+    expect(wrapper.get('[data-testid="ppt-upload"]').attributes('disabled')).toBeUndefined()
 
     pptStore.teacherLessonId = 'L1-1'
     await flushPromises()
     tray = wrapper.findComponent({ name: 'CourseReferenceTray' })
     expect(tray.props('workflowState')).toBe('generating')
     expect(tray.props('workflowProgress')).toBe(47)
+    expect(wrapper.get('[data-testid="ppt-upload"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.getComponent({ name: 'UploadedPptReviewWorkspace' }).props('uploadBlocked')).toBe(true)
+    const inputClick = vi.spyOn(wrapper.get('input[type="file"]').element as HTMLInputElement, 'click')
+    ;(wrapper.get('[data-testid="ppt-upload"]').element as HTMLButtonElement).disabled = false
+    await wrapper.get('[data-testid="ppt-upload"]').trigger('click')
+    await flushPromises()
+    expect(inputClick).not.toHaveBeenCalled()
   })
 
-  it('从资料栏重新生成时经 SPA 返回 PPT 工作台，并携带一次性重建意图', async () => {
+  it('从资料栏重新生成在当前工作台打开设置，不跳转页面', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
@@ -2465,20 +2497,16 @@ describe('teacher course workbench outline streaming', () => {
     }] as any
     const routePush = vi.spyOn(router, 'push').mockResolvedValue(undefined as any)
     const wrapper = mountWorkbench({ initialStage: 'ppt' })
+    await flushPromises()
+    expect(wrapper.find('.context-pane').exists()).toBe(false)
+    await wrapper.get('[data-testid="ppt-source-settings"]').trigger('click')
 
     await wrapper.get('.context-pane-heading .primary-status-action').trigger('click')
     await wrapper.get('.regeneration-dialog__actions .primary').trigger('click')
     await flushPromises()
 
-    expect(routePush).toHaveBeenCalledWith({
-      name: 'ppt-workspace',
-      params: { courseId: 'course-1' },
-      query: expect.objectContaining({
-        lesson: 'L1-1',
-        returnTo: expect.any(String),
-        regenerate: '1',
-      }),
-    })
+    expect(routePush).not.toHaveBeenCalled()
+    expect(pptRequestGeneration).toHaveBeenCalledWith('regenerate_from_latest_source', '')
   })
 
   it('旧 lessonStore 投影不得遮住 courseStore 的新原子快照', () => {
@@ -2683,6 +2711,9 @@ describe('teacher course workbench outline streaming', () => {
     const resume = vi.spyOn(pptStore, 'resumeBuild').mockResolvedValue(undefined as any)
 
     const wrapper = mountWorkbench({ initialStage: 'ppt', initialLessonId: 'L1-1' })
+    await flushPromises()
+    expect(wrapper.find('.context-pane').exists()).toBe(false)
+    await wrapper.get('[data-testid="ppt-source-settings"]').trigger('click')
     await wrapper.get('.context-pane-heading__actions .primary-status-action').trigger('click')
     await flushPromises()
 
@@ -2717,26 +2748,24 @@ describe('teacher course workbench outline streaming', () => {
     const routePush = vi.spyOn(router, 'push').mockResolvedValue(undefined as any)
     const wrapper = mountWorkbench({ initialStage: 'ppt', initialLessonId: 'L1-1' })
     await flushPromises()
+    expect(wrapper.find('.context-pane').exists()).toBe(false)
+    await wrapper.get('[data-testid="ppt-source-settings"]').trigger('click')
+    await flushPromises()
     expect(wrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('可使用')
     expect(wrapper.get('.context-pane-heading').text()).toContain('可使用')
     expect(wrapper.get('.context-pane-heading').text()).toContain('最近一次生成失败')
     const retry = wrapper.get('.context-pane-heading__actions .primary-status-action')
     expect(retry.text()).toContain('重新生成')
-    const primary = wrapper.get('.ppt-generate-primary')
-    expect(primary.text()).toContain('AI 生成')
-    expect(primary.attributes('disabled')).toBeDefined()
-    await primary.trigger('click')
+    const primary = wrapper.getComponent({ name: 'PptWorkspace' })
+    expect(primary.props('generationAction')).toBeUndefined()
+    expect(primary.props('canGenerate')).toBe(false)
+    wrapper.getComponent({ name: 'UploadedPptReviewWorkspace' }).vm.$emit('generate')
+    await flushPromises()
     expect(routePush).not.toHaveBeenCalled()
     await retry.trigger('click')
     await flushPromises()
-    expect(routePush).toHaveBeenCalledWith({
-      name: 'ppt-workspace',
-      params: { courseId: 'course-1' },
-      query: expect.objectContaining({
-        lesson: 'L1-1',
-        resumeTaskId: 'ppt-failed',
-      }),
-    })
+    expect(routePush).not.toHaveBeenCalled()
+    expect(pptRequestGeneration).toHaveBeenCalledWith('retry_generation', 'ppt-failed')
   })
 
   it.each([
@@ -2768,11 +2797,17 @@ describe('teacher course workbench outline streaming', () => {
     const routePush = vi.spyOn(router, 'push').mockResolvedValue(undefined as any)
     const wrapper = mountWorkbench({ initialStage: 'ppt', initialLessonId: 'L1-1' })
     await flushPromises()
-    const primary = wrapper.get('.ppt-generate-primary')
-    expect(primary.attributes('disabled')).toBeDefined()
-    await primary.trigger('click')
+    expect(wrapper.find('.context-pane').exists()).toBe(false)
+    await wrapper.get('[data-testid="ppt-source-settings"]').trigger('click')
+    await flushPromises()
+    const primary = wrapper.getComponent({ name: 'PptWorkspace' })
+    expect(primary.props('canGenerate')).toBe(false)
+    wrapper.getComponent({ name: 'UploadedPptReviewWorkspace' }).vm.$emit('generate')
+    await flushPromises()
     expect(routePush).not.toHaveBeenCalled()
-    expect(wrapper.get('.ppt-upload-secondary').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-testid="ppt-upload"]').attributes('disabled') !== undefined).toBe(
+      ['running', 'paused', 'waiting_for_input', 'waiting_for_review'].includes(overrides.task_state),
+    )
   })
 
   it.each([
@@ -2804,19 +2839,17 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'ppt', initialLessonId: 'L1-1' })
     await flushPromises()
-    const primary = wrapper.get('.ppt-generate-primary')
-    expect(primary.attributes('disabled')).toBeUndefined()
-    expect(primary.text()).toContain(label)
-    await primary.trigger('click')
+    expect(wrapper.find('.context-pane').exists()).toBe(false)
+    await wrapper.get('[data-testid="ppt-source-settings"]').trigger('click')
     await flushPromises()
-    expect(routePush).toHaveBeenCalledWith({
-      name: 'ppt-workspace',
-      params: { courseId: 'course-1' },
-      query: expect.objectContaining({
-        lesson: 'L1-1',
-        ...(regenerating ? { regenerate: '1' } : {}),
-      }),
-    })
+    const primary = wrapper.getComponent({ name: 'PptWorkspace' })
+    expect(primary.props('canGenerate')).toBe(true)
+    expect(wrapper.getComponent({ name: 'UploadedPptReviewWorkspace' }).props('generateLabel')).toContain(label)
+    wrapper.getComponent({ name: 'UploadedPptReviewWorkspace' }).vm.$emit('generate')
+    await flushPromises()
+    await flushPromises()
+    expect(routePush).not.toHaveBeenCalled()
+    expect(pptRequestGeneration).toHaveBeenCalledWith(regenerating ? 'regenerate_from_latest_source' : 'generate', '')
   })
 
   it('讲义 last-good 不被最新失败覆盖，右栏与批量恢复入口保持同一语义', () => {

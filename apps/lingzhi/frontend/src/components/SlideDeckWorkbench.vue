@@ -1,5 +1,5 @@
 <template>
-  <section class="slide-workbench" :class="{ 'is-standalone': standalone, 'has-build-progress': building }" :data-theme="previewTheme" :data-preview-source="previewSource" :data-engine-status="engineStatus">
+  <section class="slide-workbench" :class="{ 'is-standalone': standalone, 'is-embedded': embedded, 'is-inspector-open': embeddedInspectorOpen, 'has-build-progress': building }" :data-theme="previewTheme" :data-preview-source="previewSource" :data-engine-status="engineStatus">
     <header class="slide-workbench__toolbar">
       <div class="slide-workbench__identity">
         <button v-if="standalone" type="button" class="slide-workbench__back" :title="t('pptWorkspace.backToCourse', '返回课程')" @click="emit('back')">
@@ -20,6 +20,8 @@
         </small>
       </div>
       <div class="slide-workbench__commands">
+        <button v-if="embedded" type="button" :disabled="!activeSlide || building" @click="askAi"><Pencil :size="16" />{{ t('pptWorkspace.flow.aiEdit') }}</button>
+        <button v-if="embedded" type="button" :aria-expanded="embeddedInspectorOpen" @click="embeddedInspectorOpen = !embeddedInspectorOpen"><SlidersHorizontal :size="16" />{{ t('pptWorkspace.flow.pageDetails') }}</button>
         <select
           v-if="bundleParts.length > 1"
           class="slide-workbench__part-selector"
@@ -51,7 +53,7 @@
             <SlidersHorizontal :size="15" />
           </button>
         </div>
-        <button v-if="standalone" type="button" class="slide-workbench__configure-compact" :disabled="building || generationBlocked" title="选择模式与风格" @click="emit('configure')">
+        <button v-if="standalone || embedded" type="button" class="slide-workbench__configure-compact" :disabled="building || generationBlocked" title="选择模式与风格" @click="emit('configure')">
           <SlidersHorizontal :size="16" />
         </button>
         <details class="slide-workbench__more" data-testid="ppt-build-details">
@@ -177,7 +179,7 @@
               <button v-if="standalone" type="button" :title="t('pptWorkspace.materialsOverview', '教学材料总览')" @click="emit('open-materials')">
                 <Layers3 :size="16" /><span>{{ t('pptWorkspace.materialsOverview', '教学材料总览') }}</span>
               </button>
-              <button type="button" :disabled="!activeSlide || building" :title="t('teachingRepresentations.slides.askAi', '交给 AI 老师讨论')" @click="askAi">
+              <button v-if="!embedded" type="button" :disabled="!activeSlide || building" :title="t('teachingRepresentations.slides.askAi', '交给 AI 老师讨论')" @click="askAi">
                 <Sparkles :size="16" /><span>{{ t('teachingRepresentations.slides.askAi', '交给 AI 老师') }}</span>
               </button>
             </div>
@@ -220,6 +222,7 @@
       :progress-v2="buildProgressV2"
       :estimated-slide-count="estimatedSlideCount"
       :variant="standalone ? 'toolbar' : 'embedded'"
+      :compact="embedded"
     />
 
     <div class="slide-workbench__body">
@@ -235,7 +238,7 @@
           <div class="slide-thumbnail" :data-layout="effectiveSlideLayout(slide)">
             <i></i>
             <strong><MathText :content="slide.title" /></strong>
-            <small>{{ layoutLabel(effectiveSlideLayout(slide)) }}</small>
+            <small v-if="!embedded">{{ layoutLabel(effectiveSlideLayout(slide)) }}</small>
           </div>
         </button>
         <div v-if="building" class="slide-thumbnails__generating">
@@ -605,6 +608,7 @@ interface Slide {
   }
 }
 
+const embeddedInspectorOpen = ref(false)
 const props = withDefaults(defineProps<{
   courseId: string
   representationId: string
@@ -625,6 +629,7 @@ const props = withDefaults(defineProps<{
   logicUpgradeError?: string
   quality?: Record<string, any> | null
   previewSource?: SlideDeckPreviewSource
+  embedded?: boolean
   standalone?: boolean
   mode?: SlideDeckMode
   theme?: SlideDeckTheme
@@ -920,6 +925,13 @@ const sourceCount = computed(() => {
     ...(slide.mastery_criterion_refs || []),
   ]).size
 })
+function prepareToLeave() {
+  if (!changed.value && !editBusy.value && !pendingInlineItem.value) return true
+  embeddedInspectorOpen.value = true
+  return false
+}
+const dirty = computed(() => changed.value || editBusy.value || Boolean(pendingInlineItem.value))
+defineExpose({ prepareToLeave, dirty })
 const changed = computed(() => Boolean(activeSlide.value) && editValue.value.trim() !== currentFieldValue.value.trim())
 const currentFieldValue = computed(() => String((activeSlide.value as Record<string, any> | null)?.[editField.value] || ''))
 const pendingInlineItem = computed<ChangeProposalItem | null>(() => (
@@ -1762,4 +1774,19 @@ function formatDuration(value: unknown) {
   .deck-presentation > main > aside { position:absolute; inset:auto 8px 66px; width:auto; max-height:32vh; }
   .deck-presentation > footer small { display:none; }
 }
+.slide-workbench.is-embedded{width:100%;height:660px;min-width:0;min-height:0;border:1px solid #e0e4ea;border-radius:12px;background:#fff}
+.is-embedded .slide-workbench__toolbar{flex-wrap:wrap;gap:10px;padding:12px;background:#fff;color:#334155;border-bottom:1px solid #e0e4ea}
+.is-embedded .slide-workbench__identity>div,.is-embedded .slide-workbench__engine-status,.is-embedded .slide-workbench__theme{display:none}
+.is-embedded .slide-workbench__configure-compact{display:inline-flex !important}
+.is-embedded .slide-workbench__commands{flex-wrap:wrap;gap:8px;margin-left:auto}
+.is-embedded .slide-workbench__commands button{font-size:15px;min-height:36px}
+.is-embedded .slide-workbench__body{grid-template-columns:140px minmax(0,1fr);min-width:0}
+.is-embedded .slide-inspector{display:none}
+.is-embedded .slide-stage{min-width:0;padding:16px}
+.is-embedded .slide-thumbnails{min-width:0}
+.is-embedded .slide-workbench__body{position:relative}
+.is-embedded.is-inspector-open .slide-inspector{display:flex;position:absolute;right:0;top:0;bottom:0;width:min(360px,100%);z-index:5;box-shadow:-8px 0 24px rgba(30,41,59,.1)}
+.is-embedded{grid-template-rows:auto minmax(0,1fr)}
+.is-embedded .slide-workbench__status,.is-embedded .slide-workbench__count,.is-embedded .slide-workbench__more>summary{font-size:15px;line-height:1.5}
+.is-embedded .slide-thumbnails>button>span{font-size:15px}
 </style>

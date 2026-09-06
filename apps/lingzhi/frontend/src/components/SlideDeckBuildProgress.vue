@@ -2,6 +2,7 @@
   <section
     class="slide-build-progress"
     :data-variant="variant"
+    :class="{ 'is-compact': compact }"
     :data-stage="stage"
     data-testid="slide-build-progress"
     aria-live="polite"
@@ -30,6 +31,8 @@
 
     <p class="slide-build-progress__detail">{{ currentDetailLabel }}</p>
 
+    <details class="slide-build-progress__breakdown" :open="!compact">
+      <summary v-if="compact">{{ t('pptWorkspace.flow.progressDetails') }}</summary>
     <ol v-if="!progressV2" class="slide-build-progress__steps" aria-label="课件生成步骤">
       <li
         v-for="(step, index) in steps"
@@ -125,11 +128,13 @@
         </li>
       </ul>
     </section>
+    </details>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { t } from '../shared/i18n'
 import { CircleCheck, LoaderCircle } from 'lucide-vue-next'
 import type {
   SlideBuildProgressV2,
@@ -145,6 +150,7 @@ interface BuildStep {
 }
 
 const props = withDefaults(defineProps<{
+  compact?: boolean
   progress: number
   stage: string
   detail?: SlideDeckBuildDetail | null
@@ -469,6 +475,10 @@ function stepState(index: number) {
 </script>
 
 <style scoped>
+.slide-build-progress__breakdown>summary{cursor:pointer;font-size:15px;color:#475467;padding:8px 0}
+.is-compact .slide-build-progress__current strong,.is-compact .slide-build-progress__detail{font-size:15px;line-height:1.65}
+.is-compact .slide-build-progress__current small{display:none}
+
 .slide-build-progress {
   --build-accent:#2556d8;
   --build-accent-soft:#eaf0ff;

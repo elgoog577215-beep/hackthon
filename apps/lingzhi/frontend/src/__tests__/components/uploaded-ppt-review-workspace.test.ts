@@ -34,6 +34,25 @@ const review = {
 describe('uploaded PPT review workspace', () => {
   beforeEach(() => vi.restoreAllMocks())
 
+  it('选择文件后任务开始时也不上传或切换来源', async () => {
+    vi.spyOn(http, 'get').mockResolvedValue({ data: { review: null } })
+    const post = vi.spyOn(http, 'post')
+    const wrapper = mount(UploadedPptReviewWorkspace, {
+      props: { courseId: 'course-1', courseTitle: 'C 语言', lessonId: 'L1-1', lessonTitle: '第一讲', canGenerate: true },
+    })
+    await flushPromises()
+    const input = wrapper.get('input[type="file"]')
+    Object.defineProperty(input.element, 'files', { value: [new File(['ppt'], '原稿.pptx')] })
+    await wrapper.setProps({ uploadBlocked: true })
+    // The file picker may already be open when the task becomes active.
+    input.element.dispatchEvent(new Event('change'))
+    await flushPromises()
+    expect(post).not.toHaveBeenCalled()
+    expect(wrapper.get('.ppt-upload-secondary').attributes('disabled')).toBeDefined()
+    expect(await (wrapper.vm as any).prepareToLeave()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('显示客观对照依据，且手动修改以新修订保存', async () => {
     const sourceSlide = review.slides[0]!
     const sourceTitle = sourceSlide.blocks[0]!
@@ -98,4 +117,31 @@ describe('uploaded PPT review workspace', () => {
     expect(wrapper.text()).toContain('PPT 服务暂时不可用')
     expect(wrapper.text()).not.toContain('Request failed with status code 502')
   })
+  it('saves original-PPT edits before leaving and keeps failed edits for retry', async () => {
+    vi.spyOn(http, 'get').mockResolvedValue({ data: { review } })
+    const patch = vi.spyOn(http, 'patch').mockRejectedValueOnce(new Error('保存失败'))
+    const wrapper = mount(UploadedPptReviewWorkspace, {
+      props: { courseId: 'course-1', courseTitle: '课程', lessonId: 'L1-1', lessonTitle: '第一讲', canGenerate: true },
+    })
+    await flushPromises()
+    await wrapper.get('.ppt-slide-workarea>header button').trigger('click')
+    await wrapper.findAll('textarea')[0]!.setValue('不应丢失的原稿修改')
+    expect(await wrapper.vm.prepareToLeave()).toBe(false)
+    expect((wrapper.findAll('textarea')[0]!.element as HTMLTextAreaElement).value).toBe('不应丢失的原稿修改')
+    patch.mockResolvedValue({ data: { review: { ...review, revision_id: 'revision-2' } } })
+    expect(await wrapper.vm.prepareToLeave()).toBe(true)
+    expect(patch).toHaveBeenLastCalledWith(expect.stringContaining('/lessons/L1-1/'), expect.objectContaining({ blocks: expect.arrayContaining([expect.objectContaining({ text: '不应丢失的原稿修改' })]) }), expect.any(Object))
+    wrapper.unmount()
+  })
+  it('keeps pending original-PPT AI candidates in view before leaving', async () => {
+    vi.spyOn(http, 'get').mockResolvedValue({ data: { review: { ...review, ai_candidates: [{ candidate_id: 'candidate-1', status: 'pending', proposed_blocks: [] }] } } })
+    const wrapper = mount(UploadedPptReviewWorkspace, {
+      props: { courseId: 'course-1', courseTitle: '课程', lessonId: 'L1-1', lessonTitle: '第一讲', canGenerate: true },
+    })
+    await flushPromises()
+    expect(await wrapper.vm.prepareToLeave()).toBe(false)
+    expect(wrapper.find('.ppt-review-error').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
 })

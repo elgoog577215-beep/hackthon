@@ -1,11 +1,20 @@
 <template>
   <section class="ppt-review" :aria-busy="busy">
-    <input ref="fileInput" class="sr-only" type="file" accept=".pptx" @change="handleFile" />
+    <input ref="fileInput" class="sr-only" type="file" accept=".pptx" :disabled="busy || uploadBlocked" @change="handleFile" />
 
     <div v-if="loading && !review" class="ppt-review-state">
       <LoaderCircle :size="22" class="spin" />
       <span>{{ t('courseWorkbench.pptReview.loading', '正在读取 PPT 审阅状态…') }}</span>
     </div>
+
+    <div v-else-if="!review && loadFailed && $slots.generation" class="ppt-review-start" role="alert">
+      <p class="ppt-review-error">{{ error }}</p>
+      <button type="button" @click="loadReview">{{ t('common.retry', '重试') }}</button>
+    </div>
+    <template v-else-if="!review && $slots.generation">
+      <p v-if="error" class="ppt-review-error" role="alert">{{ error }}</p>
+      <slot name="generation" :upload="chooseFile" :busy="busy" />
+    </template>
 
     <div v-else-if="!review" class="ppt-review-start">
       <div class="ppt-review-start-actions">
@@ -19,7 +28,7 @@
           <Sparkles :size="19" />
           {{ generateLabel || t('courseWorkbench.pptReview.aiGenerate', 'AI 生成') }}
         </button>
-        <button class="ppt-upload-secondary" type="button" :disabled="busy" @click="fileInput?.click()">
+        <button class="ppt-upload-secondary" type="button" :disabled="busy || uploadBlocked" @click="chooseFile">
           <LoaderCircle v-if="busy" :size="19" class="spin" />
           <Upload v-else :size="19" />
           {{ busy ? t('courseWorkbench.pptReview.analyzing', '正在解析与建立索引…') : t('courseWorkbench.pptReview.uploadReview', '上传并审阅') }}
@@ -46,7 +55,7 @@
             <FileSearch :size="14" />{{ t('courseWorkbench.pptReview.report', '审阅报告') }}
             <i v-if="openFindings.length">{{ openFindings.length }}</i>
           </button>
-          <button type="button" :disabled="busy" @click="fileInput?.click()"><RefreshCw :size="14" />{{ t('courseWorkbench.pptReview.replace', '更换原稿') }}</button>
+          <button type="button" :disabled="busy || uploadBlocked" @click="chooseFile"><RefreshCw :size="14" />{{ t('courseWorkbench.pptReview.replace', '更换原稿') }}</button>
           <button type="button" :disabled="busy" @click="downloadRevision"><Download :size="14" />{{ t('courseWorkbench.pptReview.download', '下载修订稿') }}</button>
           <button class="confirm" type="button" :disabled="busy || review.source_state !== 'current' || review.status === 'confirmed'" @click="confirmReview">
             <Check :size="15" />
@@ -156,7 +165,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { Check, CheckCircle2, Download, FileSearch, LoaderCircle, Pencil, RefreshCw, Sparkles, TriangleAlert, Upload, X } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 import http, { teacherIdentityHeaders, teacherReadRequestConfig, teacherRequestConfig } from '../utils/http'
@@ -179,8 +188,9 @@ type PptReview = {
   ai_candidates: AiCandidate[]
 }
 
-const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; lessonId: string; lessonTitle: string; canGenerate: boolean; generateLabel?: string; referenceCount?: number; prepareSources?: () => Promise<void> }>(), {
+const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; lessonId: string; lessonTitle: string; canGenerate: boolean; uploadBlocked?: boolean; generateLabel?: string; referenceCount?: number; prepareSources?: () => Promise<void> }>(), {
   generateLabel: '',
+  uploadBlocked: false,
   referenceCount: 0,
 })
 const emit = defineEmits<{ generate: []; confirmed: [] }>()
@@ -188,6 +198,8 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const review = ref<PptReview | null>(null)
 const selectedSlideId = ref('')
 const loading = ref(true)
+const loadFailed = ref(false)
+let loadAttempt = 0
 const busy = ref(false)
 const editing = ref(false)
 const reportOpen = ref(false)
@@ -209,7 +221,7 @@ function apiError(value: unknown, fallback: string) {
   const detail = candidate?.response?.data?.detail
   return (typeof detail === 'object' ? detail?.message : detail) || candidate?.message || fallback
 }
-function selectSlide(slideId: string) { selectedSlideId.value = slideId; editing.value = false; hydrateDraft() }
+async function selectSlide(slideId: string) { if (!await prepareToLeave()) return; selectedSlideId.value = slideId; editing.value = false; hydrateDraft() }
 function findingCount(slideId: string) { return openFindings.value.filter(item => item.slide_id === slideId).length }
 function originalBlockText(blockId: string) { return selectedSlide.value?.blocks.find(item => item.block_id === blockId)?.text || '' }
 function confidenceLabel(confidence: ReviewFinding['confidence']) {
@@ -221,18 +233,42 @@ function hydrateDraft() { editableBlocks.value.forEach(block => { editDraft[bloc
 function toggleEditing() { editing.value = !editing.value; if (editing.value) hydrateDraft() }
 function startEditing() { editing.value = true; hydrateDraft() }
 
+const dirty = computed(() => editing.value && editableBlocks.value.some(block => (editDraft[block.block_id] ?? block.text) !== block.text))
+async function prepareToLeave(): Promise<boolean> {
+  if (busy.value || loading.value || pendingCandidate.value) {
+    error.value = t('pptWorkspace.flow.finishEditing')
+    return false
+  }
+  return dirty.value ? await saveManualEdit() : true
+}
+function protectUnsavedReview(event: BeforeUnloadEvent) {
+  if (!dirty.value && !busy.value && !pendingCandidate.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+onMounted(() => window.addEventListener('beforeunload', protectUnsavedReview))
+onUnmounted(() => { loadAttempt += 1; window.removeEventListener('beforeunload', protectUnsavedReview) })
+defineExpose({ prepareToLeave })
+
 async function loadReview() {
+  const attempt = ++loadAttempt
+  loadFailed.value = false
+  editing.value = false
   if (!props.courseId || !props.lessonId) { review.value = null; loading.value = false; return }
   loading.value = true
+  review.value = null
   error.value = ''
   try {
     const response = await http.get(`/api/teacher/courses/${props.courseId}/lessons/${props.lessonId}/ppt-import/reviews/current`, teacherReadRequestConfig({ silentError: true }))
+    if (attempt !== loadAttempt) return
     review.value = response.data?.review || null
     selectedSlideId.value = review.value?.slides[0]?.slide_id || ''
   } catch (value) {
+    if (attempt !== loadAttempt) return
+    loadFailed.value = true
     error.value = apiError(value, t('courseWorkbench.pptReview.loadFailed', '暂时无法读取 PPT 审阅状态。'))
   } finally {
-    loading.value = false
+    if (attempt === loadAttempt) loading.value = false
   }
 }
 
@@ -249,11 +285,16 @@ async function ensurePackage() {
   }, teacherRequestConfig({ silentError: true }))).data
 }
 
+function chooseFile() {
+  if (!busy.value && !props.uploadBlocked) fileInput.value?.click()
+}
 async function handleFile(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
+  if (props.uploadBlocked) { error.value = t('pptWorkspace.flow.uploadBlocked'); return }
+  if (!await prepareToLeave() || props.uploadBlocked) return
   if (!file.name.toLowerCase().endsWith('.pptx')) { error.value = t('courseWorkbench.pptReview.pptxOnly', '请选择 .pptx 文件。'); return }
   busy.value = true
   error.value = ''
@@ -279,7 +320,7 @@ async function handleFile(event: Event) {
 }
 
 async function saveManualEdit() {
-  if (!review.value || !selectedSlide.value) return
+  if (!review.value || !selectedSlide.value || busy.value) return false
   busy.value = true; error.value = ''
   try {
     const response = await http.patch(`/api/teacher/courses/${props.courseId}/lessons/${props.lessonId}/ppt-import/reviews/${review.value.review_id}/slides/${selectedSlide.value.slide_id}`, {
@@ -288,7 +329,8 @@ async function saveManualEdit() {
     }, teacherRequestConfig({ silentError: true }))
     review.value = response.data.review
     editing.value = false
-  } catch (value) { error.value = apiError(value, t('courseWorkbench.pptReview.saveFailed', '修改保存失败。')) }
+    return true
+  } catch (value) { error.value = apiError(value, t('courseWorkbench.pptReview.saveFailed', '修改保存失败。')); return false }
   finally { busy.value = false }
 }
 

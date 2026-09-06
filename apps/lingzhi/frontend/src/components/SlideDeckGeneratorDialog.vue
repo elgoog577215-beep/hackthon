@@ -1,11 +1,11 @@
 <template>
-  <div v-if="open" class="deck-generator" role="dialog" aria-modal="true" aria-labelledby="deck-generator-title">
+  <div v-if="open" class="deck-generator" :class="{ 'is-inline': inline }" :role="inline ? undefined : 'dialog'" :aria-modal="inline ? undefined : true" :aria-labelledby="inline ? undefined : 'deck-generator-title'">
     <div class="deck-generator__panel">
       <header>
         <div>
-          <small>PPT GENERATOR</small>
+          <small v-if="!inline">PPT GENERATOR</small>
           <h2 id="deck-generator-title">{{ manuscriptFirst ? t('pptWorkspace.generateManuscript', '生成页面内容稿') : '生成课程课件' }}</h2>
-          <p>{{ manuscriptFirst ? t('pptWorkspace.manuscriptDialogDescription', '先生成逐页页面内容稿，确认后再生成可编辑 PPT。') : '课程正文将原样进入课件，AI 只负责分页、排版与审核。' }}</p>
+          <p>{{ inline ? t('pptWorkspace.flow.manuscriptHint') : manuscriptFirst ? t('pptWorkspace.manuscriptDialogDescription', '先生成逐页页面内容稿，确认后再生成可编辑 PPT。') : '课程正文将原样进入课件，AI 只负责分页、排版与审核。' }}</p>
         </div>
         <button v-if="closable" type="button" aria-label="关闭" @click="emit('close')"><X :size="18" /></button>
       </header>
@@ -21,6 +21,8 @@
             :key="item.value"
             type="button"
             :class="{ active: modelMode === item.value }"
+            :disabled="busy"
+            :aria-pressed="modelMode === item.value"
             @click="modelMode = item.value"
           >
             <span><component :is="item.icon" :size="19" /></span>
@@ -58,6 +60,8 @@
             type="button"
             :data-theme="item.value"
             :class="{ active: modelTheme === item.value }"
+            :disabled="busy"
+            :aria-pressed="modelTheme === item.value"
             @click="selectBuiltinTheme(item.value)"
           >
             <div class="deck-theme-preview-real">
@@ -105,7 +109,8 @@
         </div>
       </section>
 
-      <section>
+      <details class="deck-generator__advanced" :open="!inline || modelWebImageRetrieval">
+        <summary v-if="inline">{{ t('pptWorkspace.flow.moreOptions') }}</summary>
         <div class="deck-generator__section-title">
           <div><span>03</span><strong>联网教学图片</strong></div>
           <small>可选；默认关闭</small>
@@ -122,14 +127,14 @@
             <small>仅使用公共领域、CC0 或 CC BY 图片；没有安全匹配时继续使用可编辑图示。</small>
           </span>
         </label>
-      </section>
+      </details>
 
       <footer>
         <div>
           <ShieldCheck :size="16" />
           <span>原文哈希校验 · 失败不覆盖旧版本 · PPTX 保持可编辑</span>
         </div>
-        <button type="button" :disabled="busy" @click="confirm">
+        <button type="button" :disabled="busy || disabled" @click="confirm">
           <LoaderCircle v-if="busy" :size="17" class="spinning" />
           <Sparkles v-else :size="17" />
           {{ busy ? t('pptWorkspace.generatingManuscript', '正在生成页面内容稿…') : manuscriptFirst ? t('pptWorkspace.generateManuscript', '生成页面内容稿') : '开始生成课件' }}
@@ -170,6 +175,8 @@ const props = withDefaults(defineProps<{
   personalTemplates?: PersonalPptTemplatePack[]
   personalTemplatesEnabled?: boolean
   manuscriptFirst?: boolean
+  inline?: boolean
+  disabled?: boolean
 }>(), {
   mode: 'teaching',
   theme: 'academic-editorial',
@@ -419,4 +426,26 @@ button[data-theme="grid-notebook"] .deck-theme-preview { background-image:linear
   .deck-generator__personal-templates { grid-template-columns:repeat(2,1fr); }
   .deck-generator__panel > footer { align-items:flex-start; flex-direction:column; }
 }
+.deck-generator.is-inline{position:relative;inset:auto;display:block;padding:0;background:transparent;backdrop-filter:none;z-index:auto}
+.is-inline .deck-generator__panel{width:100%;max-height:none;border:0;border-radius:0;box-shadow:none;overflow:visible}
+.is-inline .deck-generator__panel>header{padding:20px 22px 0;background:transparent;border:0}
+.is-inline .deck-generator__panel>header h2{font-size:20px;line-height:1.5;color:#27344a}
+.is-inline .deck-generator__panel>header p{font-size:15px;color:#526076;line-height:1.65}
+.is-inline .deck-generator__panel>section{padding:20px 22px 0}
+.is-inline .deck-generator__section-title span,.is-inline .deck-generator__section-title>small,.is-inline .deck-generator__modes i{display:none}
+.is-inline .deck-generator__section-title strong,.is-inline .deck-generator__modes strong,.is-inline .deck-generator__themes strong{font-size:15px}
+.is-inline .deck-generator__modes>button{min-height:0;display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:12px;border-radius:9px;box-shadow:none;transform:none}
+.is-inline .deck-generator__modes>button>span{display:none}
+.is-inline .deck-generator__modes small{font-size:14px;line-height:1.6;color:#526076}
+.is-inline .deck-generator__themes{grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}
+.is-inline .deck-generator__themes>button{padding:8px 8px 12px;border-radius:9px;box-shadow:none;transform:none}
+.is-inline .deck-generator__themes>button.active,.is-inline .deck-generator__modes>button.active{border-color:#6256d7;background:#f5f3ff}
+.is-inline .deck-theme-preview-real{grid-template-columns:minmax(0,1fr);background:#f1f3f7;border-radius:5px}
+.is-inline .deck-theme-preview-real>:nth-child(n+2){display:none}
+.is-inline .deck-generator__themes small{font-size:14px;line-height:1.5;color:#526076}
+.deck-generator__advanced{padding:20px 22px 0}.deck-generator__advanced>summary{font-size:15px;cursor:pointer;color:#475467;margin-bottom:12px}
+.is-inline .deck-generator__panel>footer{margin-top:20px;padding:16px 22px;justify-content:flex-end}
+.is-inline .deck-generator__panel>footer>div{display:none}
+.is-inline .deck-generator__panel>footer>button{min-height:40px;border-radius:8px;background:#5141d9;box-shadow:none;font-size:15px}
+.is-inline button:focus-visible{outline:2px solid #5b57e8;outline-offset:3px}
 </style>

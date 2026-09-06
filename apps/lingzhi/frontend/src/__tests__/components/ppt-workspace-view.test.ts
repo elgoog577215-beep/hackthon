@@ -18,6 +18,7 @@ vi.mock('@/utils/http', () => ({
 }))
 
 vi.mock('vue-router', () => ({
+  onBeforeRouteLeave: vi.fn(),
   useRoute: () => (routeState.route ||= reactive({ params: { courseId: 'course-1' } })),
   useRouter: () => routerMock,
 }))

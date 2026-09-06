@@ -47,7 +47,8 @@ describe('resource workspace shell', () => {
   it('keeps PPT out of teaching resources and exposes it as the fourth course workspace tab', () => {
     const courseTabs = readSource('../../components/CourseWorkspaceTabs.vue')
     const teachingResources = readSource('../../components/TeachingRepresentationsOverlay.vue')
-    const pptWorkspace = readSource('../../views/PptWorkspaceView.vue')
+    const pptWorkspace = readSource('../../components/PptWorkspace.vue')
+    expect(readSource('../../views/PptWorkspaceView.vue')).toContain('<PptWorkspace')
 
     expect(courseTabs).toContain('data-workspace-item="ppt"')
     expect(courseTabs).toContain("emit('ppt')")

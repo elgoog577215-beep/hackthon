@@ -1751,9 +1751,7 @@ async function primaryAction(node: WorkspaceNode) {
     return
   }
   if (node.type === 'ppt') {
-    node.status === 'missing'
-      ? emit('openPpt', node.lessonId || '')
-      : router.push({ name: 'ppt-workspace', params: { courseId: props.courseId }, query: { lesson: node.lessonId } })
+    emit('openPpt', node.lessonId || '')
     return
   }
   if (node.type === 'practice') { node.status === 'missing' ? openCreateDialog('practice', node.lessonId) : emit('openPractice', node.lessonId || ''); return }
@@ -2248,7 +2246,7 @@ async function submitCreate() {
         }
         const lessonId = createForm.value.lessonId
         closeCreateDialog()
-        await router.push({ name: 'ppt-workspace', params: { courseId: props.courseId }, query: { lesson: lessonId } })
+        emit('openPpt', lessonId)
         return
       }
     } else if (createForm.value.file) {

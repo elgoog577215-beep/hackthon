@@ -575,3 +575,22 @@ The workspace SHALL show a page directory and one active page with its saved sce
 #### Scenario: An original PPT is under review
 - **WHEN** the workspace enters the original PPT review branch
 - **THEN** it preserves the original review route and does not offer manuscript generation or export actions
+
+### Requirement: 教师在备课工作台原地完成 PPT 三步操作
+系统 SHALL 在当前课程讲次内展示内容稿、渲染 PPT、查看与使用三个步骤，复用既有稿件与成品能力，不建立另一套生成状态。
+
+#### Scenario: 确认内容稿后等待教师启动渲染
+- **WHEN** 教师确认当前页面内容稿
+- **THEN** 界面进入第二步且显示渲染按钮，尚未启动生成；点击后才调用既有确定性生成路径
+
+#### Scenario: 离开讲次保存失败
+- **WHEN** 教师修改内容稿后切换讲次或阶段，保存请求失败
+- **THEN** 系统保留当前讲次与输入，显示错误并允许重试，不将修改写入其他讲
+
+#### Scenario: 来源变更仍能阅读最后成品
+- **WHEN** 上游教案或讲义不可用于新生成但已有成功 PPT
+- **THEN** 第三步仍可查看最后成品并说明版本状态，新生成继续遵守源与任务准入
+
+#### Scenario: 保留旧入口与原版审阅
+- **WHEN** 教师从文件空间打开 PPT，或打开既有独立链接
+- **THEN** 文件空间进入工作台对应讲次，独立链接复用同一 PPT 组件；上传原版继续使用原件审阅、编辑确认和下载

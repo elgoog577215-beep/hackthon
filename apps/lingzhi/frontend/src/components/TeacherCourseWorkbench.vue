@@ -7,7 +7,7 @@
       'is-ai-collaboration': aiCollaborationOpen && activeStage === 'question-bank',
       'is-question-bank-workspace': activeStage === 'question-bank',
       'is-ppt-stage': activeStage === 'ppt',
-      'is-context-collapsed': contextPaneCollapsed && activeStage !== 'question-bank',
+      'is-context-collapsed': !contextPaneVisible && activeStage !== 'question-bank',
     }"
   >
     <aside v-show="!aiCollaborationOpen || activeStage !== 'question-bank'" class="stage-rail" :aria-label="t('courseWorkbench.stageNavigation', '课程生产阶段')">
@@ -50,7 +50,7 @@
       }"
     >
       <button
-        v-if="contextPaneCollapsed && activeStage !== 'question-bank'"
+        v-if="!contextPaneVisible && activeStage !== 'question-bank' && activeStage !== 'ppt'"
         class="context-pane-reopen"
         type="button"
         :title="t('courseWorkbench.contextPane.expand', '展开当前内容信息')"
@@ -61,45 +61,19 @@
         <div><h2>{{ activeStageDefinition.label }}</h2></div>
       </header>
 
-      <nav
+      <UiWorkflowSteps
         v-if="activeStage === 'foundation' && !outlineFullReady"
         class="outline-flow-steps"
-        :aria-label="t('courseWorkbench.outlineFlow.title', '大纲生成步骤')"
+        :label="t('courseWorkbench.outlineFlow.title', '大纲生成步骤')"
+        :model-value="outlineFlowStep"
+        :steps="[
+          { value: 1, label: t('courseWorkbench.outlineFlow.courseInfo'), complete: outlineFlowStep > 1 },
+          { value: 2, label: t('courseWorkbench.outlineFlow.lightPlan'), complete: outlineFlowStep > 2, disabled: outlineFlowStep < 2 },
+          { value: 3, label: t('courseWorkbench.outlineFlow.fullOutline'), complete: outlineFullReady, disabled: outlineFlowStep < 3 },
+        ]"
         data-testid="outline-flow-steps"
-      >
-        <button
-          type="button"
-          :class="{ active: outlineFlowStep === 1, complete: outlineFlowStep > 1 }"
-          :aria-current="outlineFlowStep === 1 ? 'step' : undefined"
-          @click="emit('open-course-information')"
-        >
-          <span>1</span>
-          <strong>{{ t('courseWorkbench.outlineFlow.courseInfo', '填写课程信息') }}</strong>
-          <Check v-if="outlineFlowStep > 1" :size="14" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          :class="{ active: outlineFlowStep === 2, complete: outlineFlowStep > 2 }"
-          :aria-current="outlineFlowStep === 2 ? 'step' : undefined"
-          :disabled="outlineFlowStep < 2"
-          @click="scrollOutlineIntoView"
-        >
-          <span>2</span>
-          <strong>{{ t('courseWorkbench.outlineFlow.lightPlan', '轻量讲次方案') }}</strong>
-          <Check v-if="outlineFlowStep > 2" :size="14" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          :class="{ active: outlineFlowStep === 3, complete: outlineFullReady }"
-          :aria-current="outlineFlowStep === 3 && !outlineFullReady ? 'step' : undefined"
-          :disabled="outlineFlowStep < 3"
-          @click="scrollOutlineIntoView"
-        >
-          <span>3</span>
-          <strong>{{ t('courseWorkbench.outlineFlow.fullOutline', '完整大纲') }}</strong>
-          <Check v-if="outlineFullReady" :size="14" aria-hidden="true" />
-        </button>
-      </nav>
+        @select="$event === 1 ? emit('open-course-information') : scrollOutlineIntoView()"
+      />
 
       <template v-if="showOutlineWorkspace && !aiCandidatePending">
         <TeacherDocumentCommandBar
@@ -428,6 +402,10 @@
               <span v-if="selectedLessonTypeLabel" class="lesson-type-context">{{ selectedLessonTypeLabel }}</span>
             </div>
           </div>
+          <nav v-if="activeStage === 'ppt'" class="lesson-switch-actions" :aria-label="t('courseWorkbench.lessonNavigation', '课次导航')">
+            <button type="button" :disabled="!previousLesson || aiCandidatePending" @click="selectLesson(previousLesson?.lesson_unit_id)"><ChevronLeft :size="15" />{{ t('courseWorkbench.previousLesson', '上一讲') }}</button>
+            <button type="button" :disabled="!nextLesson || aiCandidatePending" @click="selectLesson(nextLesson?.lesson_unit_id)">{{ t('courseWorkbench.nextLesson', '下一讲') }}<ChevronRight :size="15" /></button>
+          </nav>
         </header>
         <TeacherDocumentCommandBar
           v-if="activeStage === 'lesson' && lessonToolbarVisible && !aiCandidatePending"
@@ -478,7 +456,7 @@
             </template>
         </TeacherDocumentCommandBar>
         <nav
-          v-else-if="lessonStore.lessons.length && activeStage !== 'script'"
+          v-else-if="lessonStore.lessons.length && !['script', 'ppt'].includes(activeStage)"
           class="lesson-switch-actions lesson-switch-actions--standalone"
           :aria-label="t('courseWorkbench.lessonNavigation', '课次导航')"
         >
@@ -815,18 +793,44 @@
 
         <template v-else-if="activeStage === 'ppt'">
           <UploadedPptReviewWorkspace
+            ref="uploadedPptWorkspace"
             v-if="selectedLesson"
             :course-id="courseId"
             :course-title="courseTitle"
             :lesson-id="selectedLesson.lesson_unit_id"
             :lesson-title="selectedLesson.title"
             :can-generate="pptGenerationEntryEnabled"
+            :upload-blocked="pptSourceChangeBlocked"
             :generate-label="pptGenerationEntryLabel"
             :reference-count="activeReferences.length"
             :prepare-sources="preparePptSources"
             @generate="startPptGenerationFromEntry"
+            :key="`${courseId}:${selectedLesson.lesson_unit_id}`"
             @confirmed="lessonStore.load(courseId)"
-          />
+          >
+            <template #generation="{ upload, busy }">
+              <PptWorkspace
+                ref="pptWorkspace"
+                embedded
+                :external-busy="busy"
+                :course-id="courseId"
+                :lesson-id="selectedLesson.lesson_unit_id"
+                :title="selectedLesson.title"
+                :can-generate="pptGenerationEntryEnabled"
+                :source-ready="currentLessonPlanReady && currentScriptReady"
+                :before-generate="preparePptSources"
+                :generation-action="pptGenerationEntryAction || undefined"
+                @changed="refreshPptProjection"
+                @open-script="requestStageChange('script')"
+                @open-source="openPptSource"
+              >
+                <template #source-actions>
+                  <button type="button" class="ppt-source-action" :disabled="busy || pptSourceChangeBlocked" :title="pptSourceChangeBlocked ? t('pptWorkspace.flow.uploadBlocked') : undefined" data-testid="ppt-upload" @click="uploadPptAfterSave(upload)"><Upload :size="15" />{{ t('pptWorkspace.flow.upload') }}</button>
+                  <button type="button" class="ppt-source-action" :aria-expanded="pptContextOpen" data-testid="ppt-source-settings" @click="pptContextOpen = !pptContextOpen">{{ t('pptWorkspace.flow.sources') }}</button>
+                </template>
+              </PptWorkspace>
+            </template>
+          </UploadedPptReviewWorkspace>
         </template>
           </div>
         </div>
@@ -850,7 +854,7 @@
       @keydown="resizeAiPaneWithKeyboard"
     ><GripVertical :size="14" /></div>
 
-    <aside v-if="activeStage !== 'question-bank' && !contextPaneCollapsed" class="context-pane" :aria-label="t('courseWorkbench.contextPane.title', '当前内容信息')">
+    <aside v-if="activeStage !== 'question-bank' && contextPaneVisible" class="context-pane" :aria-label="t('courseWorkbench.contextPane.title', '当前内容信息')">
       <header class="context-pane-heading" :data-phase="contextPhase">
         <div class="context-pane-heading__status" role="status" aria-live="polite" aria-atomic="true">
           <span class="context-pane-heading__signal" aria-hidden="true">
@@ -870,7 +874,7 @@
           type="button"
           :title="t('courseWorkbench.contextPane.collapse', '收起当前内容信息')"
           :aria-label="t('courseWorkbench.contextPane.collapse', '收起当前内容信息')"
-          @click="contextPaneCollapsed = true"
+          @click="activeStage === 'ppt' ? pptContextOpen = false : contextPaneCollapsed = true"
         ><PanelRightClose :size="17" /></button>
         <div v-if="hasContextNotices" class="context-pane-notices" data-testid="context-pane-notices">
           <AppErrorNotice v-if="contextErrorPresentation" class="workbench-error" :presentation="contextErrorPresentation" compact>
@@ -1095,7 +1099,7 @@
 
 <script setup lang="ts">
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { BookOpenText, Check, CheckSquare2, ChevronLeft, ChevronRight, ClipboardCheck, ClipboardList, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, PanelRightClose, PanelRightOpen, Pause, Pencil, Play, Presentation, RotateCcw, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
+import { BookOpenText, Check, CheckSquare2, ChevronLeft, ChevronRight, ClipboardCheck, ClipboardList, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, PanelRightClose, PanelRightOpen, Pause, Pencil, Play, Presentation, RotateCcw, Sparkles, TriangleAlert, Upload, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
@@ -1110,6 +1114,8 @@ import TeacherLessonPlanDocument from './TeacherLessonPlanDocument.vue'
 import TeacherScriptDocument from './TeacherScriptDocument.vue'
 import { hasScriptPreviewContent, scriptGenerationPresentation } from '../utils/teacher-script-presentation'
 import UploadedPptReviewWorkspace from './UploadedPptReviewWorkspace.vue'
+import PptWorkspace from './PptWorkspace.vue'
+import UiWorkflowSteps from './UiWorkflowSteps.vue'
 import {
   buildTeacherCourseChangeInstruction,
   buildTeacherProductionAiInstruction,
@@ -1164,7 +1170,6 @@ import { useTeachingRepresentationsStore } from '../stores/teachingRepresentatio
 import { toAppError } from '../utils/app-error'
 import http, { teacherReadRequestConfig, teacherRequestConfig } from '../utils/http'
 import { createUuid } from '../utils/client-id'
-import router from '../router'
 
 type CoreStageId = 'foundation' | 'lesson' | 'script' | 'ppt'
 type StageId = CoreStageId | 'question-bank' | 'companion'
@@ -2375,6 +2380,12 @@ const selectedPptAttempt = computed(() => {
   const attempt = productionState.value?.stages.ppt.latest_attempt
   return attempt?.lesson_unit_ids.includes(selectedLessonId.value) ? attempt : undefined
 })
+const pptSourceChangeBlocked = computed(() => (
+  (pptBuildMatchesSelection.value && (teachingRepresentationsStore.building || teachingRepresentationsStore.buildPaused))
+  || ['queued', 'running', 'paused', 'waiting_for_input', 'waiting_for_review'].includes(
+    selectedPptProduction.value?.task_state || selectedPptAttempt.value?.task_state || '',
+  )
+))
 const projectedPptTaskId = computed(() => {
   return String(selectedPptProduction.value?.task_ids?.[0] || '')
 })
@@ -3831,6 +3842,8 @@ function beginScriptEditing() { scriptDocument.value?.beginEditing() }
 function cancelScriptEditing() { scriptDocument.value?.cancelEditing() }
 async function saveScriptDraft() { await scriptDocument.value?.saveDraft() }
 async function finishEditing(): Promise<boolean> {
+  if (activeStage.value === 'ppt' && uploadedPptWorkspace.value && !await uploadedPptWorkspace.value.prepareToLeave()) return false
+  if (activeStage.value === 'ppt' && pptWorkspace.value && !await pptWorkspace.value.prepareToLeave()) return false
   if (aiCandidatePending.value) return false
   if (activeStage.value === 'foundation' && outlineEditor.value) return outlineEditor.value.finishEditing()
   const editor = activeStage.value === 'lesson' ? lessonPlanDocument.value : activeStage.value === 'script' ? scriptDocument.value : null
@@ -4171,6 +4184,23 @@ async function pauseScriptGeneration() {
   scriptGenerationError.value = ''
   await lessonStore.pauseJob(props.courseId, scriptJob.value.id).catch(() => undefined)
 }
+const uploadedPptWorkspace = ref<InstanceType<typeof UploadedPptReviewWorkspace> | null>(null)
+const pptWorkspace = ref<InstanceType<typeof PptWorkspace> | null>(null)
+const pptContextOpen = ref(false)
+const contextPaneVisible = computed(() => activeStage.value === 'ppt' ? pptContextOpen.value : !contextPaneCollapsed.value)
+async function uploadPptAfterSave(upload: () => void) {
+  if (pptSourceChangeBlocked.value) return
+  const lessonId = selectedLessonId.value
+  if (await finishEditing() && !pptSourceChangeBlocked.value && lessonId === selectedLessonId.value) upload()
+}
+async function refreshPptProjection() {
+  await Promise.all([lessonStore.load(props.courseId), refreshProductionProjection()])
+}
+async function openPptSource(sectionId: string) {
+  if (!await finishEditing()) return
+  await requestStageChange('lesson')
+  selectedLessonSectionId.value = sectionId
+}
 async function startPptGenerationFromEntry() {
   const action = pptGenerationEntryAction.value
   if (!action || !pptGenerationEntryEnabled.value) return
@@ -4192,18 +4222,7 @@ async function openPptWorkspace(
   } else if (action === 'retry_generation') {
     return
   }
-  await preparePptSources()
-  const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`
-  await router.push({
-    name: 'ppt-workspace',
-    params: { courseId: props.courseId },
-    query: {
-      lesson: selectedLessonId.value,
-      returnTo,
-      ...(action === 'regenerate_from_latest_source' ? { regenerate: '1' } : {}),
-      ...(resumeTaskId ? { resumeTaskId } : {}),
-    },
-  })
+  await pptWorkspace.value?.requestGeneration(action, resumeTaskId)
 }
 async function preparePptSources() {
   if (!selectedLesson.value) return
@@ -4441,6 +4460,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.is-ppt-stage .lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;align-items:center;min-height:58px}
+
 .stage-rail nav button{--stage-state-center:#fff}
 .stage-rail nav button:hover{--stage-state-center:#f6f7fb}
 .stage-rail nav button.active{--stage-state-center:#eef0ff}
@@ -4626,17 +4647,6 @@ onBeforeUnmount(() => {
 @media(max-width:900px){.lesson-heading-cluster{gap:5px}.lesson-type-context{display:none}.lesson-switch-actions button{width:34px;padding:0;justify-content:center;font-size:0}}
 
 /* The outline has one explicit three-step flow; generation never advances to another asset on its own. */
-.outline-flow-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;max-width:860px;margin:0 auto 14px;padding:3px;border:1px solid #dfe4ed;border-radius:11px;background:#eef1f6}
-.outline-flow-steps button{min-width:0;min-height:42px;display:grid;grid-template-columns:24px minmax(0,1fr) 16px;align-items:center;gap:7px;padding:0 10px;border:0;border-radius:8px;color:#69768a;background:transparent;text-align:left;cursor:pointer}
-.outline-flow-steps button>span{width:22px;height:22px;display:grid;place-items:center;border:1px solid #cbd3df;border-radius:50%;color:#69768a;font-size:13px;font-weight:800}
-.outline-flow-steps button>strong{min-width:0;overflow:hidden;font-size:14px;font-weight:700;text-overflow:ellipsis;white-space:nowrap}
-.outline-flow-steps button>svg{color:#168044}
-.outline-flow-steps button:hover:not(:disabled){color:#37348c;background:rgba(255,255,255,.7)}
-.outline-flow-steps button.active{color:#312e81;background:#fff;box-shadow:0 2px 8px rgba(30,41,59,.08)}
-.outline-flow-steps button.active>span{border-color:#6965d8;color:#fff;background:#6965d8}
-.outline-flow-steps button.complete>span{border-color:#a7d9ba;color:#168044;background:#edf9f1}
-.outline-flow-steps button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
-.outline-flow-steps button:disabled{opacity:.48;cursor:not-allowed}
 
 /* The lesson rail and document are separate white content layers on the quiet workspace surface. */
 .workbench-center.is-lesson-workspace:has(.lesson-stage.has-lesson-outline){overflow:hidden;padding:0;background:#f5f6f8}
@@ -4775,12 +4785,26 @@ onBeforeUnmount(() => {
 .context-pane-notices :deep(.app-error-notice p){margin-top:8px;color:#475467;font-size:15px;line-height:1.6}
 .context-pane-notices :deep(.app-error-notice details){margin-top:10px;color:#596579;font-size:15px}
 .context-pane-notices :deep(.app-error-notice__action){display:grid;margin-top:16px}
+.outline-flow-steps{max-width:860px;margin:0 auto 14px}
+.ppt-source-action{display:inline-flex;align-items:center;gap:6px;min-height:38px;padding:8px 10px;border:1px solid #d7ddeb;border-radius:8px;background:#fff;color:#475569;cursor:pointer;font-size:15px}
+.ppt-source-action:hover:not(:disabled){color:#4338a8;border-color:#bdb5eb;background:#f5f3ff}
+.ppt-source-action:focus-visible{outline:2px solid #5b57e8;outline-offset:3px}
+.ppt-source-action:disabled{opacity:.55;cursor:not-allowed}
+.is-ppt-stage .lesson-stage-content{padding-bottom:20px!important}
 </style>
 
 <style scoped>
+.is-ppt-stage .lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;align-items:center;min-height:58px}
+
 .outline-review-evidence { margin-top: 10px; font-size: 15px; line-height: 1.65; color: #475467; }
 .outline-review-evidence summary { cursor: pointer; color: #514cb0; }
 .outline-review-evidence summary:focus-visible { outline: 2px solid #6366f1; outline-offset: 3px; }
 .outline-review-evidence p { margin: 8px 0 0; overflow-wrap: anywhere; }
 .generation-unavailable-reason { margin: 8px 0; color: #475467; font-size: 15px; line-height: 1.6; }
+.outline-flow-steps{max-width:860px;margin:0 auto 14px}
+.ppt-source-action{display:inline-flex;align-items:center;gap:6px;min-height:38px;padding:8px 10px;border:1px solid #d7ddeb;border-radius:8px;background:#fff;color:#475569;cursor:pointer;font-size:15px}
+.ppt-source-action:hover:not(:disabled){color:#4338a8;border-color:#bdb5eb;background:#f5f3ff}
+.ppt-source-action:focus-visible{outline:2px solid #5b57e8;outline-offset:3px}
+.ppt-source-action:disabled{opacity:.55;cursor:not-allowed}
+.is-ppt-stage .lesson-stage-content{padding-bottom:20px!important}
 </style>

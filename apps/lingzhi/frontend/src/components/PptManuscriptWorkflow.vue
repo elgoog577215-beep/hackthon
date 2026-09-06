@@ -1,8 +1,8 @@
 <template>
-  <section class="ppt-manuscript-workflow" data-testid="ppt-manuscript-workflow">
+  <section class="ppt-manuscript-workflow" :class="{ 'is-embedded': embedded }" data-testid="ppt-manuscript-workflow">
     <header class="ppt-manuscript-workflow__header">
-      <button type="button" :aria-label="t('pptWorkspace.backToProduction')" class="ppt-manuscript-workflow__back" @click="emit('back')"><ArrowLeft :size="18" /></button>
-      <div>
+      <button v-if="!embedded" type="button" :aria-label="t('pptWorkspace.backToProduction')" class="ppt-manuscript-workflow__back" @click="emit('back')"><ArrowLeft :size="18" /></button>
+      <div v-if="!embedded">
         <h1><MathText :content="title" /></h1>
       </div>
       <footer v-if="state.generation_branch !== 'original_ppt_review'" class="ppt-manuscript-workflow__actions">
@@ -16,7 +16,7 @@
           <button type="button" :disabled="busy || selectedPageIds.size === 0 || dirty" data-testid="regenerate-selected-ppt-pages" @click="emit('regenerate-pages', [...selectedPageIds])"><RefreshCw :size="17" />{{ regenerating ? t('pptWorkspace.regeneratingPages', '正在重新生成…') : t('pptWorkspace.regenerateSelectedPages', '重新生成选中页') }}</button>
           <button type="button" :disabled="busy || !dirty" data-testid="save-ppt-manuscript" @click="saveDraft"><Save :size="17" />{{ saving ? t('pptWorkspace.savingManuscript', '正在保存…') : t('pptWorkspace.saveManuscript', '保存修改') }}</button>
           <button v-if="state.status === 'draft'" type="button" class="is-primary" :disabled="busy || dirty || !state.confirmable" data-testid="confirm-ppt-manuscript" @click="emit('confirm-manuscript')"><Check :size="17" />{{ confirming ? t('pptWorkspace.confirmingManuscript', '正在确认…') : t('pptWorkspace.confirmManuscript', '确认页面内容稿') }}</button>
-          <button v-else type="button" class="is-primary" :disabled="busy || dirty || !state.can_generate_ppt" data-testid="generate-ppt-from-manuscript" @click="emit('generate-ppt')"><Presentation :size="17" />{{ busy ? t('pptWorkspace.generatingDeck', '正在生成 PPT…') : t('pptWorkspace.generateDeck', '根据已确认页面内容稿生成 PPT') }}</button>
+          <button v-else type="button" class="is-primary" :disabled="busy || dirty || !state.can_generate_ppt" data-testid="generate-ppt-from-manuscript" @click="emit('generate-ppt')"><Presentation :size="17" />{{ busy ? t('pptWorkspace.generatingDeck', '正在生成 PPT…') : embedded ? t('pptWorkspace.flow.continueToRender') : t('pptWorkspace.generateDeck', '根据已确认页面内容稿生成 PPT') }}</button>
         </template>
       </footer>
     </header>
@@ -29,7 +29,7 @@
     </div>
 
     <template v-else>
-      <div v-if="state.source_state === 'stale'" class="ppt-manuscript-workflow__warning"><TriangleAlert :size="18" /><span>{{ t('pptWorkspace.manuscriptStale', '教案、讲义或资料已经变化，请重新生成页面内容稿。') }}</span></div>
+      <div v-if="manuscript && state.source_state === 'stale'" class="ppt-manuscript-workflow__warning"><TriangleAlert :size="18" /><span>{{ t('pptWorkspace.manuscriptStale', '教案、讲义或资料已经变化，请重新生成页面内容稿。') }}</span></div>
       <div v-if="failureView" class="ppt-manuscript-workflow__warning is-error" role="alert" data-testid="ppt-manuscript-failure"><TriangleAlert :size="18" /><div><strong>{{ failureView.title }}</strong><p>{{ failureView.message }}</p><small v-if="failureView.code">{{ t('pptWorkspace.failureCode', '问题代码') }}：<code>{{ failureView.code }}</code></small></div></div>
 
       <main v-if="manuscript" class="ppt-manuscript-workflow__content">
@@ -123,7 +123,7 @@ import PptTeachingEditor from './PptTeachingEditor.vue'
 import PptSceneCanvas from './PptSceneCanvas.vue'
 import UiSegmentedControl from './UiSegmentedControl.vue'
 
-const props = defineProps<{ title: string; state: Record<string, any>; busy?: boolean; confirming?: boolean; saving?: boolean; regenerating?: boolean; error?: string; failure?: Record<string, any> | null }>()
+const props = defineProps<{ title: string; state: Record<string, any>; embedded?: boolean; busy?: boolean; confirming?: boolean; saving?: boolean; regenerating?: boolean; error?: string; failure?: Record<string, any> | null }>()
 const emit = defineEmits<{
   (event: 'back'): void
   (event: 'generate-manuscript'): void
@@ -132,6 +132,7 @@ const emit = defineEmits<{
   (event: 'generate-ppt'): void
   (event: 'save-manuscript', updates: Record<string, any>[], pacing?: Record<string, any>): void
   (event: 'regenerate-pages', pageIds: string[]): void
+  (event: 'dirty-change', dirty: boolean): void
 }>()
 
 const manuscript = computed(() => props.state.manuscript || null)
@@ -172,6 +173,11 @@ const dirtyUpdates = computed(() => draftPages.value.flatMap((page, index): Reco
 }))
 const pacingDirty = computed(() => JSON.stringify(draftPacing.value) !== JSON.stringify(manuscript.value?.pacing || null))
 const dirty = computed(() => dirtyUpdates.value.length > 0 || pacingDirty.value)
+watch(dirty, value => emit('dirty-change', value), { immediate: true })
+function pendingChanges() {
+  return { updates: dirtyUpdates.value, pacing: pacingDirty.value && draftPacing.value ? draftPacing.value : undefined }
+}
+defineExpose({ pendingChanges })
 const allIssues = computed(() => props.state.quality_report ? [...props.state.quality_report.issues, ...props.state.quality_report.suggestions] : [...(manuscript.value?.quality_issues || []), ...(manuscript.value?.quality_suggestions || [])])
 const lessonIssues = computed(() => allIssues.value.filter((item: any) => !item.page_id))
 const saveStateLabel = computed(() => props.saving ? t('pptWorkspace.savingManuscript', '正在保存…') : dirty.value ? t('pptWorkspace.manuscriptUnsaved', '有未保存修改') : t('pptWorkspace.manuscriptSaved', '已保存'))
@@ -245,4 +251,11 @@ function hasSourceRefs(page: Record<string, any>) { return ['source_script_block
 .ppt-manuscript-workflow__warning{display:flex;align-items:flex-start;gap:10px;margin-bottom:16px;padding:12px 16px;background:#fff7e8;color:#85520b;border-radius:8px}.ppt-manuscript-workflow__warning.is-error{background:#fff0f0;color:#8f1712}.ppt-manuscript-workflow__warning p{margin:4px 0}
 .ppt-manuscript-workflow__issues{padding:12px 16px 12px 32px;background:#fff7e8;color:#85520b;border-radius:8px}
 .ppt-manuscript-workflow__empty,.ppt-manuscript-workflow__original{padding:60px 24px;text-align:center;color:#475467}.ppt-manuscript-workflow__empty h2{font-size:24px}
+.ppt-manuscript-workflow.is-embedded{width:100%;height:auto;padding:0;background:transparent;overflow:visible}
+.is-embedded .ppt-manuscript-workflow__header{padding:0;margin-bottom:14px;min-height:0;flex-wrap:wrap}
+.is-embedded .ppt-manuscript-workflow__actions{margin-left:0;flex:1;justify-content:flex-end}
+.is-embedded .ppt-manuscript-workflow__content{overflow:visible;padding:0}
+.is-embedded .ppt-manuscript-workflow__pages{grid-template-columns:200px minmax(0,1fr)}
+.is-embedded .ppt-manuscript-workflow__page-list{max-height:640px;overflow:auto}
+.is-embedded .ppt-manuscript-workflow__pages article{min-width:0;padding:16px;background:#fff}
 </style>

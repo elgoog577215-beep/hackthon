@@ -36,9 +36,10 @@ describe('teacher/student shared capability isolation', () => {
       nodeId: 'lesson-2',
       returnTo: '/course/course-1/workspace/build?stage=ppt',
     })).toEqual({
-      name: 'ppt-workspace',
-      params: { courseId: 'course-1' },
+      name: 'course-workspace',
+      params: { courseId: 'course-1', mode: 'build' },
       query: {
+        stage: 'ppt',
         lesson: 'lesson-2',
         returnTo: '/course/course-1/workspace/build?stage=ppt',
       },

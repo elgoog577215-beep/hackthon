@@ -36,7 +36,7 @@ const productionAcademicSurfaces = [
   'components/TeacherScriptDocument.vue',
   'components/TeachingRepresentationsOverlay.vue',
   'components/UploadedPptReviewWorkspace.vue',
-  'views/PptWorkspaceView.vue',
+  'components/PptWorkspace.vue',
 ] as const
 
 describe('生产界面的公式渲染合同', () => {
