@@ -3128,4 +3128,22 @@ describe('teacher course workbench outline streaming', () => {
       resumeJobIds: ['script-current'],
     })
   })
+  it('已确认稿件的渲染准入独立于重新生成内容稿的权限', async () => {
+    useTeacherLessonAuthoringStore().lessons = [{
+      lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
+      script: { current_revision_id: 'script-1', source_lesson_plan_revision_id: 'plan-1', source_state: 'current', ready: true, sections: [] },
+    }] as any
+    const asset = strictProductionStage({ display_state: 'failed', task_state: 'completed', task_ids: ['manuscript-complete'], allowed_actions: ['inspect_failure'] })
+    const snapshot = strictProductionSnapshot({ ppt: asset }) as any
+    snapshot.lessons = [{ lesson_unit_id: 'L1-1', title: '第一讲', stages: { ppt: asset } }]
+    useCourseStore().setTeacherProductionState('course-1', snapshot)
+    pptSidebarContext = { phase: 'after', label: '内容稿已确认', detail: '', actions: [{ id: 'render', label: '开始渲染 PPT', primary: true, disabled: false }] }
+    const wrapper = mountWorkbench({ initialStage: 'ppt', initialLessonId: 'L1-1' })
+    await flushPromises()
+    expect(wrapper.getComponent({ name: 'PptWorkspace' }).props('canGenerate')).toBe(false)
+    await wrapper.get('[data-testid="ppt-context-render"]').trigger('click')
+    expect(pptRunContextAction).toHaveBeenCalledWith('render')
+  })
+
 })

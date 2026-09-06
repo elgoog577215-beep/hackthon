@@ -4204,8 +4204,8 @@ const pptContextActions = computed(() => {
   if (referenceWorkflowCanResume.value) taskActions.push({ id: 'resume', label: t('pptWorkspace.flow.resume'), primary: true })
   if (referenceWorkflowCanCancel.value) taskActions.push({ id: 'cancel', label: t('common.cancel') })
   if (referenceWorkflowUsesDedicatedWaitingAction.value || ['generating', 'paused'].includes(referenceWorkflowState.value)) return taskActions
+  // Final rendering uses the manuscript API's can_generate_ppt gate, independently of content generation.
   const actions = (pptContext.value?.actions || []).filter(action => !['pause', 'resume', 'cancel'].includes(action.id))
-    .map(action => ({ ...action, disabled: action.disabled || (action.id === 'render' && !pptGenerationEntryEnabled.value) }))
   if (referenceWorkflowCanRetry.value && pptActionTaskId('retry_generation')) {
     return [{ id: 'retry', label: t('courseWorkbench.recovery.retryOriginal'), primary: true, disabled: referenceWorkflowRetryBlocked.value }, ...actions.filter(action => !['render', 'generate'].includes(action.id))]
   }
