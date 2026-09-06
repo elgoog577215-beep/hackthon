@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Start the complete release image without production data, networking or ports.
 set -Eeuo pipefail
-if [[ $# -lt 1 || $# -gt 2 ]]; then
-  printf 'Usage: %s IMAGE [ENV_FILE]\n' "$0" >&2
+if [[ $# -ne 2 ]]; then
+  printf 'Usage: %s IMAGE ENV_FILE\n' "$0" >&2
   exit 2
 fi
 image="$1"
@@ -13,8 +13,7 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-options=(--detach --network none)
-if [[ $# == 2 ]]; then options+=(--env-file "$2"); fi
+options=(--detach --network none --env-file "$2")
 container_id="$(docker run "${options[@]}" "$image")"
 for attempt in $(seq 1 60); do
   if docker exec "$container_id" python -c \
