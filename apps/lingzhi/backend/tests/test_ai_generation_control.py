@@ -812,3 +812,22 @@ async def test_new_legacy_generation_is_retired_but_teacher_creation_remains(tmp
     assert not manager.tasks
     result = await manager.create_generation_job({'subject':'教师课程','teacher_authoring_mode':'lesson_assets_v1'})
     assert result['job_id']
+
+
+@pytest.mark.asyncio
+async def test_failed_claim_restores_pre_unification_empty_draft(tmp_path, monkeypatch):
+    from storage import Storage
+    from course_repository import CourseDocumentRepository
+    manager, _, _ = _lifecycle_manager(tmp_path, monkeypatch)
+    storage = Storage(str(tmp_path / "real-storage"))
+    manager.storage = storage
+    manager._course_document_repository = CourseDocumentRepository(storage)
+    await manager._course_document_repository.create_teacher_draft("old-draft", title="旧空课程", metadata={"owner_id":"teacher-a"})
+    def old_format(raw):
+        raw.pop("teacher_production_schema", None)
+        return raw
+    before = storage.update_course_data("old-draft", old_format)
+    manager.create_task = AsyncMock(side_effect=OSError("tasks persistence failed"))
+    with pytest.raises(OSError, match="tasks persistence failed"):
+        await manager.create_generation_job({"subject":"旧空课程", "target_course_id":"old-draft", "teacher_authoring_mode":"lesson_assets_v1"})
+    assert storage.load_course("old-draft") == before

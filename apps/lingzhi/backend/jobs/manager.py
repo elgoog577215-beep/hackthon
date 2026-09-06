@@ -1114,7 +1114,15 @@ class TaskManager:
         except BaseException:
             raw = self.storage.load_course(course_id) if self.storage else None
             if draft_snapshot is not None and self.storage:
-                await self.storage.save_course(course_id, draft_snapshot)
+                atomic_update = getattr(self.storage, "update_course_data", None)
+                if callable(atomic_update) and isinstance(raw, dict) and raw.get("generation_job_id") == task_id:
+                    def restore_claim(current):
+                        if current != raw:
+                            raise CourseDocumentConflict("Teacher draft changed during failed claim recovery")
+                        return deepcopy(draft_snapshot)
+                    await asyncio.to_thread(atomic_update, course_id, restore_claim)
+                elif not callable(atomic_update):
+                    await self.storage.save_course(course_id, draft_snapshot)
             elif isinstance(raw, dict) and raw.get("generation_job_id") == task_id:
                 await self._delete_stored_course(course_id)
             if workspace_created:
