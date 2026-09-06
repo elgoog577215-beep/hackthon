@@ -110,6 +110,7 @@ class ChartExpression(Contract):
     chart_type: Literal["horizontal_bar"] = "horizontal_bar"
     points: list[ChartPoint] = Field(min_length=2, max_length=6)
     unit_element_id: str
+    explanation_element_ids: list[str] = Field(default_factory=list, max_length=1)
 
 
 def chart_number(text):
@@ -349,8 +350,8 @@ class PageTeachingV2(Contract):
         elif isinstance(expression, ChartExpression):
             context = [expression.unit_element_id, *(p.label_element_id for p in expression.points)]
             values = [p.value_element_id for p in expression.points]
-            known(context + values)
-            if set(context + values) != ids:
+            known(context + values + expression.explanation_element_ids)
+            if set(context + values + expression.explanation_element_ids) != ids:
                 raise ValueError("chart_element_binding_incomplete")
             unit = elements[expression.unit_element_id]
             if unit.kind not in {"quote", "data"} and not unit.exact:

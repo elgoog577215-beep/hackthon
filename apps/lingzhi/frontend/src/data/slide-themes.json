@@ -1,6 +1,6 @@
 {
   "schema_version": "slide_theme_pack_v1",
-  "version": "2026.08.12.7",
+  "version": "2026.09.07.1",
   "themes": {
     "qizhi-classroom": {
       "label": "启智课堂",
@@ -249,6 +249,25 @@
           "source_path": "frontend/public/presentation-assets/qizhi-classroom/interior-evidence.jpg",
           "alt": "带有精确轨迹和纸张层次的证据页背景"
         }
+      },
+      "component_tokens": {
+        "canvas": "FFFDF7",
+        "ink": "34465C",
+        "muted": "6D7D91",
+        "accent": "2F6FE4",
+        "accent_soft": "DCE9FF",
+        "card": "FFFDF7",
+        "card_border": "DDE5EE",
+        "rule": "DDE5EE",
+        "icon": "2F6FE4",
+        "chart": [
+          "2F6FE4",
+          "16856B",
+          "F29D38",
+          "C45443"
+        ],
+        "radius": 0.14,
+        "line_width_pt": 1.5
       }
     },
     "academic-editorial": {
@@ -520,6 +539,25 @@
           "source_path": "frontend/public/presentation-assets/academic-editorial/motif-cluster.png",
           "alt": "学术网格装饰簇"
         }
+      },
+      "component_tokens": {
+        "canvas": "FBFAF7",
+        "ink": "45515D",
+        "muted": "727A82",
+        "accent": "315E7D",
+        "accent_soft": "DCE6EB",
+        "card": "FBFAF7",
+        "card_border": "D7D9D6",
+        "rule": "D7D9D6",
+        "icon": "315E7D",
+        "chart": [
+          "315E7D",
+          "4F6D64",
+          "8B6B3E",
+          "824C45"
+        ],
+        "radius": 0.08,
+        "line_width_pt": 1.5
       }
     },
     "grid-notebook": {
@@ -791,6 +829,25 @@
           "source_path": "frontend/public/presentation-assets/grid-notebook/motif-cluster.png",
           "alt": "笔记轨迹装饰簇"
         }
+      },
+      "component_tokens": {
+        "canvas": "FAF8F0",
+        "ink": "40524D",
+        "muted": "73817C",
+        "accent": "2D7464",
+        "accent_soft": "D9EAE3",
+        "card": "FAF8F0",
+        "card_border": "D9D5C7",
+        "rule": "D9D5C7",
+        "icon": "2D7464",
+        "chart": [
+          "2D7464",
+          "648B57",
+          "D18A32",
+          "B75A48"
+        ],
+        "radius": 0.1,
+        "line_width_pt": 1.5
       }
     },
     "modern-geometric": {
@@ -1063,6 +1120,25 @@
           "source_path": "frontend/public/presentation-assets/modern-geometric/motif-cluster.png",
           "alt": "几何节点装饰簇"
         }
+      },
+      "component_tokens": {
+        "canvas": "F6F3FF",
+        "ink": "463D62",
+        "muted": "746C8B",
+        "accent": "6548E8",
+        "accent_soft": "DDD4FF",
+        "card": "F6F3FF",
+        "card_border": "DED8F2",
+        "rule": "DED8F2",
+        "icon": "6548E8",
+        "chart": [
+          "6548E8",
+          "138D85",
+          "F08B3E",
+          "D45168"
+        ],
+        "radius": 0.16,
+        "line_width_pt": 1.5
       }
     },
     "dark-tech": {
@@ -1335,6 +1411,277 @@
           "source_path": "frontend/public/presentation-assets/dark-tech/motif-cluster.png",
           "alt": "发光节点装饰簇"
         }
+      },
+      "component_tokens": {
+        "canvas": "0C1321",
+        "ink": "D7E3F2",
+        "muted": "91A6BE",
+        "accent": "4DB5FF",
+        "accent_soft": "183C5A",
+        "card": "0C1321",
+        "card_border": "2B4565",
+        "rule": "2B4565",
+        "icon": "4DB5FF",
+        "chart": [
+          "4DB5FF",
+          "40D6B1",
+          "FFB35A",
+          "FF7385"
+        ],
+        "radius": 0.14,
+        "line_width_pt": 1.5
+      }
+    },
+    "editorial-terracotta": {
+      "label": "编辑社论暖色",
+      "surface": "F8F7F4",
+      "canvas": "F8F7F4",
+      "chart_bg": "E4E7E9",
+      "title": "2D3E50",
+      "ink": "333333",
+      "muted": "666666",
+      "accent": "C45C3E",
+      "accent_soft": "E8D5C4",
+      "green": "2D3E50",
+      "green_soft": "E8D5C4",
+      "amber": "C45C3E",
+      "amber_soft": "F1E6DA",
+      "red": "C45C3E",
+      "red_soft": "F1E6DA",
+      "code": "2D3E50",
+      "title_font": "Noto Serif SC",
+      "title_east_asian_font": "SimSun",
+      "body_font": "Noto Sans SC",
+      "body_east_asian_font": "Microsoft YaHei",
+      "math_font": "Times New Roman",
+      "image_treatment": "muted-documentary",
+      "prompt_style": "restrained academic editorial illustration, natural materials, generous negative space",
+      "layout_weights": {
+        "figure-first": 0.9,
+        "split-visual": 1.1,
+        "diagram-full": 1
+      },
+      "template": {
+        "template_id": "editorial-terracotta-v1",
+        "template_version": "2026.08.12.7",
+        "aspect_ratio": "16:9",
+        "design_intent": "米白、砖红与深蓝灰的结构化教育社论风格",
+        "reference_deck": "/presentation-templates/academic-editorial-v2.pptx",
+        "preview_path": "/presentation-assets/academic-editorial/cover-editorial.jpg",
+        "accent_rail_owner": "card-shell"
+      },
+      "typography": {
+        "deck_title_pt": 50,
+        "slide_title_pt": 36,
+        "section_label_pt": 11,
+        "body_pt": 17,
+        "body_dense_pt": 16,
+        "callout_pt": 20,
+        "caption_pt": 10,
+        "line_height": 1.5
+      },
+      "geometry": {
+        "page_margin_in": 0.82,
+        "content_gutter_in": 0.3,
+        "card_radius_in": 0.08,
+        "card_border": "D7D9D6",
+        "card_surface": "FFFFFF",
+        "card_shadow": "print",
+        "accent_rule_in": 0.055
+      },
+      "background_profiles": {
+        "content": {
+          "asset": "interior_content",
+          "layouts": [
+            "roadmap",
+            "agenda-linear",
+            "objective",
+            "concept",
+            "hero-statement",
+            "hero-claim",
+            "editorial-body",
+            "balanced-two-column",
+            "two-column",
+            "classification-3",
+            "parallel-examples",
+            "case-study",
+            "comparison"
+          ]
+        },
+        "reasoning": {
+          "asset": "interior_reasoning",
+          "layouts": [
+            "process",
+            "process-sequence",
+            "worked-example",
+            "derivation-steps",
+            "method-flow",
+            "application-mapping"
+          ]
+        },
+        "practice": {
+          "asset": "interior_practice",
+          "layouts": [
+            "practice",
+            "question",
+            "question-prompt",
+            "practice-sequence",
+            "practice-feedback",
+            "misconception",
+            "misconception-repair"
+          ]
+        },
+        "evidence": {
+          "asset": "interior_evidence",
+          "layouts": [
+            "code",
+            "formula",
+            "formula-explanation",
+            "figure-text",
+            "diagram-full",
+            "table-evidence",
+            "data-highlight",
+            "code-focus",
+            "formula-focus"
+          ]
+        }
+      },
+      "text_box_styles": {
+        "standard": {
+          "fill": "FFFFFF",
+          "border": "D7D9D6",
+          "depth": "CFD2D0",
+          "accent": "315E7D",
+          "text": "45515D"
+        },
+        "message": {
+          "fill": "EDF2F4",
+          "border": "CBD8DE",
+          "depth": "BECBD2",
+          "accent": "315E7D",
+          "text": "273340"
+        },
+        "definition": {
+          "fill": "FFFDF8",
+          "border": "D8D3C8",
+          "depth": "CAC4B8",
+          "accent": "315E7D",
+          "text": "273340"
+        },
+        "boundary": {
+          "fill": "EEF3F0",
+          "border": "CBDAD4",
+          "depth": "BDCFC8",
+          "accent": "4F6D64",
+          "text": "45515D"
+        },
+        "reasoning": {
+          "fill": "F3F5F5",
+          "border": "D5DCDF",
+          "depth": "C6CFD3",
+          "accent": "315E7D",
+          "text": "45515D"
+        },
+        "practice": {
+          "fill": "F7F1E6",
+          "border": "E2D3B9",
+          "depth": "D5C39F",
+          "accent": "8B6B3E",
+          "text": "45515D"
+        },
+        "feedback": {
+          "fill": "EAF0ED",
+          "border": "C9D8D2",
+          "depth": "B9CCC4",
+          "accent": "4F6D64",
+          "text": "45515D"
+        },
+        "misconception": {
+          "fill": "F5E9E6",
+          "border": "E1C6C1",
+          "depth": "D4B5AE",
+          "accent": "824C45",
+          "text": "45515D"
+        },
+        "evidence": {
+          "fill": "252E35",
+          "border": "384650",
+          "depth": "151D23",
+          "accent": "7FB2D0",
+          "text": "F4F6F7"
+        },
+        "note": {
+          "fill": "F3F2EE",
+          "border": "D8D7D1",
+          "depth": "CBCAC4",
+          "accent": "727A82",
+          "text": "45515D"
+        }
+      },
+      "semantic_layout_weights": {
+        "chapter-question": 1.22,
+        "prerequisite-recall": 1.08,
+        "definition-focus": 1.12,
+        "definition-boundary": 1.08,
+        "positive-negative": 1.1,
+        "reasoning-route": 1.12,
+        "derivation-steps": 1.08,
+        "method-flow": 1.14,
+        "decision-branch": 1.08,
+        "example-prompt": 1.12,
+        "example-strategy": 1.1,
+        "example-reveal": 1.1,
+        "result-validation": 1.08,
+        "practice-prompt": 1.15,
+        "feedback-mastery": 1.14,
+        "misconception-repair": 1.12,
+        "application-mapping": 1.14,
+        "chapter-knowledge-map": 1.12,
+        "chapter-closure": 1.2,
+        "formula-focus": 1.06,
+        "code-focus": 1.06,
+        "table-evidence": 1.25,
+        "figure-text": 1.05
+      },
+      "decorative_assets": {
+        "card_depth": {
+          "web_path": "/presentation-assets/academic-editorial/card-depth.png",
+          "source_path": "frontend/public/presentation-assets/academic-editorial/card-depth.png",
+          "alt": "文献纸卡错位底板"
+        },
+        "section_tab": {
+          "web_path": "/presentation-assets/academic-editorial/section-tab.png",
+          "source_path": "frontend/public/presentation-assets/academic-editorial/section-tab.png",
+          "alt": "页签式强调装饰"
+        },
+        "corner_accent": {
+          "web_path": "/presentation-assets/academic-editorial/corner-accent.png",
+          "source_path": "frontend/public/presentation-assets/academic-editorial/corner-accent.png",
+          "alt": "出版规则线角标"
+        },
+        "motif_cluster": {
+          "web_path": "/presentation-assets/academic-editorial/motif-cluster.png",
+          "source_path": "frontend/public/presentation-assets/academic-editorial/motif-cluster.png",
+          "alt": "学术网格装饰簇"
+        }
+      },
+      "component_tokens": {
+        "canvas": "F8F7F4",
+        "ink": "333333",
+        "muted": "666666",
+        "accent": "C45C3E",
+        "accent_soft": "E8D5C4",
+        "card": "FFFFFF",
+        "card_border": "D9D9D9",
+        "rule": "D9D9D9",
+        "icon": "2D3E50",
+        "chart": [
+          "E8D5C4",
+          "C45C3E",
+          "2D3E50"
+        ],
+        "radius": 0.12,
+        "line_width_pt": 1.5
       }
     }
   }

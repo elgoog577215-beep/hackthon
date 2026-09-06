@@ -21,6 +21,17 @@ from ppt_source_quotes import source_excerpt_catalog
 from ppt_adopted_visuals import AdoptedDiagramDraft, lower_adopted_diagram
 
 
+class PageContentContract(Contract):
+    """Content-first contract selected before any fixed layout fields are written."""
+    intent: str = Field(default="explain", max_length=24)
+    core_claim: str = Field(default="", max_length=160)
+    objects: list[str] = Field(default_factory=list, max_length=8)
+    relation: str = Field(default="", max_length=32)
+    evidence: list[str] = Field(default_factory=list, max_length=8)
+    composition: str = Field(default="", max_length=48)
+    capacities: dict[str, int] = Field(default_factory=dict)
+
+
 class PlannedPage(Contract):
     page_id: str = Field(min_length=1)
     teaching_unit_id: str = Field(min_length=1)
@@ -35,6 +46,7 @@ class PlannedPage(Contract):
     observable_evidence: str = ""
     transition: str = ""
     composition_notes: str = ""
+    content_contract: PageContentContract | None = None
 
 
 class NarrativeResponse(Contract):
@@ -49,6 +61,7 @@ class NarrativeTaskDraft(Contract):
     title: str = Field(min_length=1, max_length=60)
     layout_id: str = Field(min_length=1)
     page_goal: str = Field(min_length=1)
+    content_contract: PageContentContract | None = None
 
 
 class NarrativeDraft(Contract):
@@ -57,10 +70,27 @@ class NarrativeDraft(Contract):
     pages: list[NarrativeTaskDraft] = Field(min_length=1)
 
 
+def _ensure_page_content_contract(page: dict) -> dict:
+    """Materialize the content-first contract even for older provider responses."""
+    value = dict(page)
+    if value.get("content_contract"):
+        return value
+    layout_id = str(value.get("layout_id") or "")
+    composition = layout_id.rsplit("/", 1)[-1] if layout_id else ""
+    value["content_contract"] = PageContentContract(
+        core_claim=str(value.get("primary_claim") or value.get("page_goal") or ""),
+        evidence=list(value.get("observable_evidence") and [value["observable_evidence"]] or []),
+        composition=composition,
+    ).model_dump(mode="json")
+    return value
+
+
 def normalize_narrative_response(response, graph):
     """The model selects contiguous evidence ranges, code binds exact IDs."""
     pages = response.get("pages") if isinstance(response, dict) else None
     if not isinstance(pages, list) or not any(isinstance(p, dict) and ("source_first" in p or "source_last" in p) for p in pages):
+        if isinstance(response, dict) and isinstance(pages, list):
+            return {**response, "pages": [_ensure_page_content_contract(page) if isinstance(page, dict) else page for page in pages]}
         return response
     draft = NarrativeDraft.model_validate(response)
     owners = {b: u.teaching_unit_id for u in graph.units for b in u.primary_block_ids}
@@ -71,7 +101,8 @@ def normalize_narrative_response(response, graph):
         sources = graph.formal_block_ids[page.source_first - 1:page.source_last]
         pages.append({**page.model_dump(exclude={"source_first", "source_last"}), "page_id": f"page-{number}",
             "teaching_unit_id": owners[sources[0]], "source_block_ids": sources})
-    return {"narrative_brief": draft.narrative_brief, "pacing": draft.pacing.model_dump(mode="json"), "pages": pages}
+    return {"narrative_brief": draft.narrative_brief, "pacing": draft.pacing.model_dump(mode="json"),
+            "pages": [_ensure_page_content_contract(page) for page in pages]}
 
 
 class PageRevision(Contract):
@@ -85,6 +116,7 @@ class PageRevision(Contract):
     observable_evidence: str = ""
     transition: str = ""
     composition_notes: str = ""
+    content_contract: PageContentContract | None = None
     teaching: PageTeachingV2
     split_reason: str = ""
 
@@ -188,7 +220,8 @@ def normalize_page_response(response, sources, catalog=None):
 
 
 def revised_plan(plan, revision):
-    return {**plan, **revision, "layout_id": revision.get("layout_id") or plan["layout_id"]}
+    value = {**plan, **revision, "layout_id": revision.get("layout_id") or plan["layout_id"]}
+    return _ensure_page_content_contract(value)
 
 
 def page_failure_message(error):
@@ -399,6 +432,8 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
                 "An agenda names the route; an explanation develops it; a recap consolidates what was established. "
                 "Question pages cost two physical pages; reserve them for actual learner work, not rhetorical headings."
                 " Select chart only for source-exact comparable values and one common unit; select code only for an actual source code excerpt."
+                " For every page, fill content_contract before layout fields: intent, core_claim, objects, relation, evidence, composition and capacities."
+                " Choose four_stage for four related phases, flow6 for five or six sequential steps, triad or mechanism_stack for three parallel mechanisms/scenes, radial for one center with three connected concepts, and chart_explanation for exact data with a short conclusion."
             )
             if not any(e.get("kind") == "image" and e.get("assets") for e in source_context.get("accepted_visual_expressions", [])):
                 request["layout_capabilities"]["available_layouts"] = [

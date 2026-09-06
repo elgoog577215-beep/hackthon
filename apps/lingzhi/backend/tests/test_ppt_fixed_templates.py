@@ -241,7 +241,7 @@ def test_v1_template_and_scene_digest_remain_readable():
     _, _, current = fixture()
     legacy = compile_fixed_template(current.theme_id, version=LEGACY_VERSION)
     assert legacy.template_digest == "tmpl_bcf315cab5f4ec471efa3399"
-    assert len(legacy.layouts) == 10 and len(current.layouts) == 12
+    assert len(legacy.layouts) == 10 and len(current.layouts) == 18
     data = normalize_page_response(lower_fixed_response(response("flow"),
         {"layout_id": legacy.layout_id("flow"), "page_goal": "明确目标"}), source())
     scene = resolve_page_scenes(page_id="p", title=data["title"], content=PageTeachingV2.model_validate(data["teaching"]),

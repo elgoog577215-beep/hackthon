@@ -11,36 +11,26 @@ from ppt_layout_schema import LayoutExecution
 from slide_theme import load_slide_theme_pack
 
 from ppt_classroom_design import VERSION
+from ppt_compositions import COMPOSITIONS, LEGACY_LAYOUTS, composition_capability, layout_tuple
 LEGACY_VERSION = "fixed_classroom_v1"
 VERSIONS = {LEGACY_VERSION, VERSION}
 COMPONENT_PREFIX = "fixed-classroom/"
 
 # Each entry is both the planner's field contract and the scene's layout key.
-LAYOUTS = {
-    "cover": ("cover", "封面", 1, 60),
-    "agenda": ("agenda", "提纲", 5, 36),
-    "section": ("cover", "章节引入", 1, 60),
-    "bullets": ("evidence", "要点", 5, 52),
-    "summary": ("recap", "小结", 4, 52),
-    "question": ("exercise", "问题与答案", 2, 140),
-    "comparison": ("comparison", "双对象对比", 3, 48),
-    "flow": ("process", "三至四步流程", 4, 38),
-    "formula": ("derivation", "公式与解释", 2, 160),
-    "figure": ("evidence", "图片与说明", 3, 52),
-}
-AUTHORED_LAYOUTS = {
-    **LAYOUTS,
-    "chart": ("chart", "数据比较", 6, 24),
-    "code": ("evidence", "代码与解释", 2, 140),
-}
+LAYOUTS = {slug: layout_tuple(slug) for slug in LEGACY_LAYOUTS}
+AUTHORED_LAYOUTS = {slug: layout_tuple(slug) for slug in COMPOSITIONS}
 
 FIELD_NAMES = {
     "cover": ["subtitle"], "section": ["subtitle"], "agenda": ["points"],
     "bullets": ["points"], "summary": ["points"], "question": ["question", "answer"],
     "comparison": ["condition", "left_subject", "right_subject", "rows", "conclusion"],
-    "flow": ["steps"], "formula": ["formula", "explanation"], "figure": ["image", "caption", "explanation"],
-    "chart": ["unit", "points"], "code": ["code", "explanation"],
+    "flow": ["steps"], "flow6": ["steps"], "formula": ["formula", "explanation"],
+    "figure": ["image", "caption", "explanation"], "chart": ["unit", "points"],
+    "chart_explanation": ["unit", "points", "explanation"], "code": ["code", "explanation"],
+    "four_stage": ["points"], "triad": ["points"], "mechanism_stack": ["points"],
+    "radial": ["center", "satellites"],
 }
+
 
 
 def is_fixed_template(template):
@@ -80,7 +70,8 @@ def compile_fixed_template(theme_id, *, version=VERSION):
             web_renderer_adapter="teaching-scene-web-v2", pptx_renderer_adapter="teaching-scene-pptx-v2",
             execution=LayoutExecution(mode="component_render", component_id=COMPONENT_PREFIX + slug,
                 component_version=version, expression_kinds=[kind], font_sha256=font_digest,
-                font_floor_pt=22, max_subjects=2, max_dimensions=3, max_nodes=4),
+                font_floor_pt=22, max_subjects=2, max_dimensions=3,
+                max_nodes=6 if slug in {"flow6", "radial"} else 4),
         ))
     payload = {"version": version, "theme": theme_id, "layouts": [l.model_dump(mode="json") for l in layouts]}
     return TemplateLayoutPackContractV1(template_id=theme_id, template_version=version,
@@ -93,7 +84,8 @@ def fixed_capabilities(template, selected_id=""):
         slug = fixed_slug(layout.template_layout_id)
         kind, name, count, chars = layout_limits(layout.template_layout_id)
         entries.append({"layout_id": layout.template_layout_id, "name": name, "expression_kinds": [kind],
-                        "max_items": count, "max_text_chars": chars, "title_max_chars": 28})
+                        "max_items": count, "max_text_chars": chars, "title_max_chars": 28,
+                        **composition_capability(slug)})
     return {"available_layouts": entries,
             "selected_layout": next((e for e in entries if e["layout_id"] == selected_id), None)}
 

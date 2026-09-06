@@ -54,9 +54,14 @@ def form_type(slug, *, authored=False):
         fields = {"formula": required(ExactField), "explanation": (TextField | None, None)}
     elif slug == "code":
         fields = {"code": required(ExactField), "explanation": (text_type(60) | None, None)}
-    elif slug == "chart":
+    elif slug in {"chart", "chart_explanation"}:
         point_type = create_model("ChartField", label=required(text_type(6)), value=required(ExactField), __base__=Contract)
         fields = {"unit": required(ExactField), "points": (list[point_type], Field(min_length=2, max_length=6))}
+        if slug == "chart_explanation":
+            fields["explanation"] = (text_type(44) | None, None)
+    elif slug == "radial":
+        satellite_type = create_model("RadialSatellite", text=(str, Field(min_length=1, max_length=36)), sources=(list[QuoteChoice], Field(min_length=1)), __base__=Contract)
+        fields = {"center": required(text_type(36)), "satellites": (list[satellite_type], Field(min_length=3, max_length=3))}
     elif slug == "figure":
         fields = {"asset_id": required(str), "caption": required(text_type(30)),
                   "explanation": (TextField | None, None)}
@@ -64,9 +69,13 @@ def form_type(slug, *, authored=False):
         fields = {"subtitle": required(TextField)}
     else:
         point = ExplainedPoint if authored and slug in {"bullets", "summary"} else text_type(28 if slug == "flow" else 32)
-        count = min(3, LAYOUTS[slug][2]) if authored and slug in {"bullets", "summary"} else LAYOUTS[slug][2]
-        fields = {"steps" if slug == "flow" else "points": (list[point],
-                    Field(min_length=3 if slug == "flow" else 1, max_length=count))}
+        count = min(3, LAYOUTS[slug][2]) if authored and slug in {"bullets", "summary"} else layout_limits(f"x@{VERSION}/{slug}")[2]
+        if slug == "flow6":
+            minimum = 5
+        else:
+            minimum = 3 if slug == "flow" else 1
+        fields = {"steps" if slug in {"flow", "flow6"} else "points": (list[point],
+                    Field(min_length=minimum, max_length=count))}
     return create_model("Fixed" + slug.title(), __base__=FixedDraft, **fields)
 
 
@@ -97,6 +106,14 @@ def lower_fixed_response(response, plan, assets=()):
             raise ValueError(f"fixed_field_text_too_long:{key}:maximum={layout_limits(plan['layout_id'])[3]}")
         return {**value, "key": key, "role": role, "kind": kind, "show_from": stage}
 
+    if slug == "radial":
+        center = element(data["center"], "center", role="claim")
+        satellites = [element(item, f"satellite-{i}") for i, item in enumerate(data["satellites"])]
+        elements = [center, *satellites]
+        relations = [{"source_key": "center", "target_key": f"satellite-{i}",
+                      "kind": "association", "sources": center["sources"] + satellites[i]["sources"]}
+                     for i in range(3)]
+        return {**base, "expression_kind": "concept", "elements": elements, "relations": relations}
     if slug == "comparison":
         rows = data["rows"]
         return {**base, "expression_kind": "comparison",
@@ -108,14 +125,17 @@ def lower_fixed_response(response, plan, assets=()):
             "conclusion": element(data["conclusion"], "conclusion") if data["conclusion"] else None}
     kind = layout_limits(plan["layout_id"])[0]
     relations = []
-    if slug == "chart":
+    if slug in {"chart", "chart_explanation"}:
         elements = [{**element(data["unit"], "unit", kind="quote"), "use_source_text": True}]
         points = []
         for i, point in enumerate(data["points"]):
             label, value = f"label-{i}", f"value-{i}"
             elements.extend([element(point["label"], label), {**element(point["value"], value, kind="data"), "use_source_text": True}])
             points.append({"label_element_id": label, "value_element_id": value})
-        return {**base, "expression_kind": "chart", "elements": elements, "chart_points": points, "chart_unit_key": "unit"}
+        if slug == "chart_explanation" and data.get("explanation"):
+            elements.append(element(data["explanation"], "explanation", role="claim"))
+        return {**base, "expression_kind": "chart", "elements": elements, "chart_points": points,
+                "chart_unit_key": "unit", "chart_explanation_key": "explanation" if slug == "chart_explanation" and data.get("explanation") else ""}
     elif slug == "question":
         question = element(data["question"], "question", role="question")
         answer = element(data["answer"], "answer", role="answer", stage=2)
@@ -139,7 +159,7 @@ def lower_fixed_response(response, plan, assets=()):
     elif slug in {"cover", "section"}:
         elements = [element(data["subtitle"], "subtitle")]
     else:
-        values = data["steps" if slug == "flow" else "points"]
+        values = data["steps" if slug in {"flow", "flow6"} else "points"]
         elements = []
         for i, value in enumerate(values):
             value = dict(value)
@@ -147,7 +167,7 @@ def lower_fixed_response(response, plan, assets=()):
             if heading:
                 elements.append(element({"text": heading, "sources": value["sources"]}, f"item-{i}-heading"))
             elements.append(element(value, f"item-{i}"))
-        if slug == "flow":
+        if slug in {"flow", "flow6"}:
             relations = [{"source_key": a["key"], "target_key": b["key"], "kind": "sequence",
                           "sources": a["sources"] + b["sources"]} for a, b in zip(elements, elements[1:])]
     return {**base, "expression_kind": kind, "elements": elements, "relations": relations}
@@ -175,7 +195,9 @@ async def invoke_fixed_form(planner, request):
             "from its explanation; never repeat the heading in its body. Do not reduce substantive source material to generic slogans. "
             "A short list of topic names belongs on an agenda, not a standalone explanation page. "
             "Never return geometry, fonts or a different layout. "
-            "A flow lists actual sequential steps, not unrelated concepts. A comparison aligns both objects by common dimensions. "
+            "A flow lists actual sequential steps, not unrelated concepts. flow6 is reserved for five or six real steps. "
+            "four_stage contains four related phases; triad and mechanism_stack contain three parallel scenes or mechanisms; radial contains one center and three connected concepts. "
+            "A comparison aligns both objects by common dimensions. "
             "For formula, code, chart values and units select exact source quotes; never rewrite them. "
             "Charts support only nonnegative decimal values in one common unit; never invent data or labels. "
             "Code preserves indentation and has room for a short excerpt, not an entire program. "

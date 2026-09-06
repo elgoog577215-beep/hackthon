@@ -33,6 +33,7 @@ class TeachingPageDraft(DraftMetadata):
     reveal_notes: list[str] = Field(min_length=1, max_length=12)
     chart_points: list[ChartPoint] = Field(default_factory=list, max_length=6)
     chart_unit_key: str = ""
+    chart_explanation_key: str = ""
 
 
 class LinearTeachingPageDraft(TeachingPageDraft):
@@ -40,6 +41,7 @@ class LinearTeachingPageDraft(TeachingPageDraft):
     relations: list[DraftRelation] = Field(default_factory=list, max_length=0)
     chart_points: list[ChartPoint] = Field(default_factory=list, max_length=0)
     chart_unit_key: Literal[""] = ""
+    chart_explanation_key: Literal[""] = ""
 
 
 class GraphTeachingPageDraft(TeachingPageDraft):
@@ -47,6 +49,7 @@ class GraphTeachingPageDraft(TeachingPageDraft):
     relations: list[DraftRelation] = Field(min_length=1, max_length=24)
     chart_points: list[ChartPoint] = Field(default_factory=list, max_length=0)
     chart_unit_key: Literal[""] = ""
+    chart_explanation_key: Literal[""] = ""
 
 
 class ChartTeachingPageDraft(TeachingPageDraft):
@@ -54,6 +57,7 @@ class ChartTeachingPageDraft(TeachingPageDraft):
     relations: list[DraftRelation] = Field(default_factory=list, max_length=0)
     chart_points: list[ChartPoint] = Field(min_length=2, max_length=6)
     chart_unit_key: str = Field(min_length=1)
+    chart_explanation_key: str = ""
 
 
 
@@ -91,7 +95,8 @@ def lower_teaching_draft(value, sources):
         if draft.relations:
             raise ValueError("chart_cannot_discard_relations")
         expression = {"kind": "chart", "points": [p.model_dump() for p in draft.chart_points],
-                      "unit_element_id": draft.chart_unit_key}
+                      "unit_element_id": draft.chart_unit_key,
+                      "explanation_element_ids": [draft.chart_explanation_key] if draft.chart_explanation_key else []}
     else:
         if draft.relations:
             raise ValueError(f"linear_expression_cannot_discard_relations:{draft.expression_kind}: "
@@ -106,7 +111,7 @@ def lower_teaching_draft(value, sources):
     content = PageTeachingV2.model_validate({"elements": elements, "expression": expression,
         "must_show": list(stages), "source_dispositions": dispositions,
         "states": states})
-    if draft.expression_kind != "chart" and (draft.chart_points or draft.chart_unit_key):
+    if draft.expression_kind != "chart" and (draft.chart_points or draft.chart_unit_key or draft.chart_explanation_key):
         raise ValueError("chart_binding_requires_chart_expression")
-    metadata = draft.model_dump(mode="json", exclude={"expression_kind", "elements", "relations", "reveal_notes", "chart_points", "chart_unit_key"})
+    metadata = draft.model_dump(mode="json", exclude={"expression_kind", "elements", "relations", "reveal_notes", "chart_points", "chart_unit_key", "chart_explanation_key"})
     return {**metadata, "teaching": content.model_dump(mode="json")}

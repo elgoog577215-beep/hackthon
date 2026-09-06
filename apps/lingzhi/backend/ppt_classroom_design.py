@@ -4,15 +4,28 @@ All coordinates are slide points on the shared 960 x 540 canvas. Choosing among
 the finite item-count variants happens before confirmation, never during export.
 """
 from ppt_layout_execution import validate_text_frame
+from slide_theme import slide_theme
 
 VERSION = "fixed_classroom_v2"
 
 
 def colors(theme_id):
-    # Preserve Qizhi's blue cover / purple divider / dark body hierarchy.
-    return ({"accent": "305AC7", "cover": "203C66", "section": "305AC7", "pale": "EEF3FB"}
-            if theme_id == "academic-editorial" else
-            {"accent": "4E4376", "cover": "2B5876", "section": "4E4376", "pale": "EEF0FB"})
+    """Resolve authored layout colors from the shared theme token layer."""
+    if theme_id == "academic-editorial":
+        return {"accent": "305AC7", "cover": "203C66", "section": "305AC7", "pale": "EEF3FB", "canvas": "FFFFFF", "muted": "677185", "rule": "E7EAF2"}
+    if theme_id == "qizhi-classroom":
+        return {"accent": "4E4376", "cover": "2B5876", "section": "4E4376", "pale": "EEF0FB", "canvas": "FFFFFF", "muted": "677185", "rule": "E7EAF2"}
+    theme = slide_theme(theme_id)
+    tokens = theme.get("component_tokens") or {}
+    return {
+        "accent": str(tokens.get("accent") or theme.get("accent") or "305AC7"),
+        "cover": str(tokens.get("ink") or theme.get("title") or "203C66"),
+        "section": str(tokens.get("accent") or theme.get("accent") or "305AC7"),
+        "pale": str(tokens.get("accent_soft") or theme.get("accent_soft") or "EEF3FB"),
+        "canvas": str(tokens.get("canvas") or theme.get("surface") or "FFFFFF"),
+        "muted": str(tokens.get("muted") or theme.get("muted") or "677185"),
+        "rule": str(tokens.get("rule") or "E7EAF2"),
+    }
 
 
 def layout_fields(content, execution, theme_id, place, positions, slots, styles):
@@ -20,7 +33,7 @@ def layout_fields(content, execution, theme_id, place, positions, slots, styles)
     palette = colors(theme_id)
     expression = content.expression
     elements = {e.element_id: e for e in content.elements}
-    background = palette["cover"] if slug == "cover" else palette["section"] if slug == "section" else "FFFFFF"
+    background = palette["cover"] if slug == "cover" else palette["section"] if slug == "section" else palette["canvas"]
     title = dict(frame=(64, 30, 848, 96), font_size=32, color="1F2733", fill=background)
     if slug in {"cover", "section"}:
         title.update(frame=(72, 174, 808, 148), font_size=44, color="FFFFFF")
@@ -38,7 +51,7 @@ def layout_fields(content, execution, theme_id, place, positions, slots, styles)
             raise ValueError("fixed_comparison_requires_two_subjects_and_up_to_three_dimensions")
         if len(expression.condition_element_ids) != 1 or len(expression.conclusion_element_ids) > 1 or expression.prompt_element_ids:
             raise ValueError("fixed_comparison_context_capacity_exceeded")
-        put(expression.condition_element_ids[0], (64, 130, 832, 40), "condition", size=20, color="677185")
+        put(expression.condition_element_ids[0], (64, 130, 832, 40), "condition", size=20, color=palette["muted"])
         for j, subject in enumerate(expression.subjects):
             put(subject.label_element_id, (228 + j * 342, 176, 326, 52), f"subject.{j}",
                 size=24, bold=True, color="FFFFFF", fill=palette["accent"] if j == 0 else palette["cover"], valign="middle")
@@ -56,27 +69,61 @@ def layout_fields(content, execution, theme_id, place, positions, slots, styles)
                     size=22, fill=palette["pale"] if i % 2 == 0 else "F7F8FA", valign="middle")
         if expression.conclusion_element_ids:
             put(expression.conclusion_element_ids[0], (64, 480, 748, 38), "conclusion", size=20, bold=True)
-    elif slug == "flow":
+    elif slug in {"flow", "flow6"}:
         ids = expression.node_element_ids
         expected = {(a, b) for a, b in zip(ids, ids[1:])}
-        if not 3 <= len(ids) <= 4 or expression.condition_element_ids or expression.conclusion_element_ids:
-            raise ValueError("fixed_flow_requires_three_or_four_steps")
+        minimum = 5 if slug == "flow6" else 3
+        maximum = 6 if slug == "flow6" else 4
+        if not minimum <= len(ids) <= maximum or expression.condition_element_ids or expression.conclusion_element_ids:
+            raise ValueError(f"fixed_{slug}_step_count_invalid")
         if len(expression.relations) != len(expected) or {(r.source_id, r.target_id) for r in expression.relations} != expected or any(r.kind != "sequence" or r.label for r in expression.relations):
             raise ValueError("fixed_flow_requires_ordered_sequence")
-        width, gap = (248, 44) if len(ids) == 3 else (184, 32)
+        if slug == "flow6":
+            width, gap = 128, 22
+            y, height = 206, 142
+        else:
+            width, gap = ((248, 44) if len(ids) == 3 else (184, 32))
+            y, height = 258, 156
         for i, key in enumerate(ids):
-            put(key, (64 + i * (width + gap), 258, width, 156), f"step.{i}", size=24 if len(ids) == 3 else 22,
+            put(key, (48 + i * (width + gap), y, width, height), f"step.{i}", size=23 if len(ids) <= 3 else 19,
                 bold=True, fill=palette["pale"], align="center", valign="middle")
-    elif slug == "chart":
+    elif slug in {"four_stage", "triad", "mechanism_stack"}:
+        ids = expression.ordered_element_ids
+        expected = 4 if slug == "four_stage" else 3
+        if len(ids) != expected:
+            raise ValueError(f"fixed_{slug}_requires_{expected}_items")
+        if slug == "four_stage":
+            frames = [(54, 138, 402, 142), (504, 138, 402, 142), (54, 330, 402, 142), (504, 330, 402, 142)]
+        else:
+            frames = [(48, 160, 272, 288), (344, 160, 272, 288), (640, 160, 272, 288)]
+        for i, key in enumerate(ids):
+            put(key, frames[i], f"card.{i}", size=22 if slug == "four_stage" else 21,
+                bold=False, fill=palette["pale"], valign="top")
+    elif slug == "radial":
+        ids = expression.node_element_ids
+        if len(ids) != 4 or len(expression.relations) != 3:
+            raise ValueError("fixed_radial_requires_center_and_three_satellites")
+        center = ids[0]
+        satellites = ids[1:]
+        frames = {center: (360, 214, 240, 112), satellites[0]: (48, 146, 250, 106),
+                  satellites[1]: (662, 146, 250, 106), satellites[2]: (270, 410, 420, 92)}
+        if {r.source_id for r in expression.relations} != {center} or {r.target_id for r in expression.relations} != set(satellites):
+            raise ValueError("fixed_radial_relations_invalid")
+        for i, key in enumerate(ids):
+            put(key, frames[key], "center" if key == center else f"satellite.{i - 1}", size=24 if key == center else 21,
+                bold=key == center, fill=palette["pale"], align="center" if key == center else "left", valign="middle")
+    elif slug in {"chart", "chart_explanation"}:
         from ppt_teaching_content import chart_number
         values = [chart_number(elements[p.value_element_id].text) for p in expression.points]
-        put(expression.unit_element_id, (64, 130, 832, 42), "chart.unit", size=20, color="677185")
+        put(expression.unit_element_id, (64, 130, 832, 42), "chart.unit", size=20, color=palette["muted"])
         count = len(values)
         pitch = {2: 138, 3: 94, 4: 72, 5: 58, 6: 48}[count]
         for i, point in enumerate(expression.points):
             y = 184 + i * pitch
             put(point.label_element_id, (64, y, 176, pitch - 4), f"chart.label.{i}", size=22, valign="middle")
             put(point.value_element_id, (820, y, 76, pitch - 4), f"chart.value.{i}", size=22, bold=True, valign="middle")
+        if slug == "chart_explanation" and "explanation" in elements:
+            put("explanation", (64, 470, 832, 38), "chart.explanation", size=20, bold=True, color=palette["accent"])
     else:
         ids = expression.ordered_element_ids
         if slug in {"cover", "section"}:
@@ -103,7 +150,7 @@ def layout_fields(content, execution, theme_id, place, positions, slots, styles)
             put(ids[0], (64, 146, 516, 344), "image")
             put(ids[1], (620, 156, 276, 128), "caption.0", size=24, bold=True)
             if len(ids) == 3:
-                put(ids[2], (620, 306, 276, 174), "caption.1", size=22, color="677185")
+                put(ids[2], (620, 306, 276, 174), "caption.1", size=22, color=palette["muted"])
         else:
             # Optional heading/body pairs remain separate editable content objects.
             groups = []
@@ -140,7 +187,7 @@ def page_furniture(content, execution, theme_id, title, positions, slots, *, mak
     palette = colors(theme_id)
     slug = execution.component_id.rsplit("/", 1)[-1]
     dark = slug in {"cover", "section"}
-    bg = palette["cover"] if slug == "cover" else palette["section"] if dark else "FFFFFF"
+    bg = palette["cover"] if slug == "cover" else palette["section"] if dark else palette["canvas"]
     result = []
     def shape(name, frame, color):
         x, y, w, h = frame
@@ -158,7 +205,7 @@ def page_furniture(content, execution, theme_id, title, positions, slots, *, mak
             label("section-page-marker", f"{page_number:02d}", (72, 72, 340, 188), 128, "8278A4")
     else:
         shape("header-rule", (43, 40, 8, 48), palette["accent"])
-        shape("footer-rule", (64, 520, 752, 1), "E7EAF2")
+        shape("footer-rule", (64, 520, 752, 1), palette["rule"])
     if page_number:
         label("page-number", f"{page_number:02d}", (840, 512, 56, 26), 10,
               "DFE5FF" if dark else "8A93A2", align="right")
@@ -170,10 +217,14 @@ def page_furniture(content, execution, theme_id, title, positions, slots, *, mak
             heading_key = next((k for k, s in slots.items() if s == f"heading.{index}"), key)
             _, y, _, height = positions[heading_key]
             label(f"ordinal-{index}", f"{index + 1:02d}", (64, y, 64, max(48, min(height, 66))), 26, palette["accent"])
-    elif slug == "flow":
+    elif slug in {"flow", "flow6"}:
         for i, key in enumerate(content.expression.node_element_ids):
-            x, _, w, _ = positions[key]
-            label(f"step-number-{i}", f"{i + 1:02d}", (x, 194, w, 54), 30, palette["accent"], align="center")
+            x, y, w, _ = positions[key]
+            label(f"step-number-{i}", f"{i + 1:02d}", (x, y - 62, w, 56), 24 if slug == "flow6" else 30, palette["accent"], align="center")
+        if slug == "flow6":
+            label("flow6-phase-1", "准备", (48, 378, 272, 36), 14, palette["accent"], align="center")
+            label("flow6-phase-2", "执行", (344, 378, 272, 36), 14, palette["accent"], align="center")
+            label("flow6-phase-3", "结算", (640, 378, 272, 36), 14, palette["accent"], align="center")
     elif slug == "question":
         question, answer = content.expression.ordered_element_ids
         label("question-label", "Q", (56, 160, 40, 46), 22, palette["accent"])
