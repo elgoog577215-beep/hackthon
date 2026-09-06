@@ -482,7 +482,8 @@ describe('统一讲义页面', () => {
 
     expect(wrapper.text()).not.toContain('恢复草稿')
     expect(wrapper.text()).not.toContain('当前稿包含本地恢复内容')
-    expect(wrapper.text()).toContain('讲义生成失败')
+    expect(wrapper.text()).not.toContain('生成失败')
+    expect(wrapper.text()).toContain('已暂停')
     expect(wrapper.get('.script-source-review button').text()).toContain('生成本讲讲义')
     expect(wrapper.find('.script-footer').exists()).toBe(false)
   })
@@ -514,6 +515,15 @@ describe('统一讲义页面', () => {
     expect(wrapper.text()).not.toContain('不是该次失败任务的输出')
     expect(wrapper.text()).not.toContain('讲稿生成失败')
     expect(wrapper.find('.script-footer').exists()).toBe(false)
+  })
+  it('未生成讲义也不展示后台生成错误', () => {
+    const empty = structuredClone(lesson)
+    empty.script.ready = false
+    const wrapper = mount(TeacherScriptDocument, { props: {
+      courseId: 'course-1', lesson: empty, generationError: '生成失败：内部诊断',
+    } })
+    expect(wrapper.text()).not.toContain('内部诊断')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
   })
   it('无修改不写新版本，保存失败保留草稿并返回失败', async () => {
     const store = useTeacherLessonAuthoringStore()

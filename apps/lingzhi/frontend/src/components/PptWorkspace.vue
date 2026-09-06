@@ -149,7 +149,7 @@
         :build-detail="store.buildDetail"
         :build-progress-v2="store.slideBuildProgressV2"
         :estimated-slide-count="store.buildEstimatedSlideCount"
-        :error="externalControls ? '' : store.buildError"
+        :error="externalControls || teacherLessonId ? '' : store.buildError"
         :build-failure="externalControls ? null : effectiveBuildFailure"
         :build-resumable="store.buildPaused"
         :logic-upgrading="logicUpgrading"

@@ -1014,8 +1014,10 @@ describe('teaching representation progressive build', () => {
       '/api/teacher/courses/course-1/lesson-jobs/teacher-ppt-running',
     )
     expect(store.building).toBe(false)
-    expect(store.buildError).toBe('teacher_lesson_v6_failed')
-    expect(store.buildFailure?.message).toBe('生成中断')
+    expect(store.buildError).toBe('')
+    expect(store.buildFailure).toBeNull()
+    expect(store.buildPaused).toBe(true)
+    expect(store.liveSlides).toEqual([])
     vi.useRealTimers()
   })
 

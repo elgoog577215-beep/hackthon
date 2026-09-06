@@ -150,7 +150,7 @@
       </form>
       <div v-if="generationJob && !externalToolbar" class="script-generation-progress" :data-status="generationJob.status">
         <div>
-          <span>{{ generating ? generationPresentation.title : generationJob.message }}</span>
+          <span>{{ generating ? generationPresentation.title : tr('teacherProductionState.states.paused') }}</span>
           <span class="script-generation-progress__actions">
             <strong>{{ generationJob.completed_blocks || 0 }}/{{ generationJob.total_blocks || 0 }}</strong>
             <button v-if="generating" type="button" @click="emit('pause-generation')">{{ tr('courseWorkbench.pause') }}</button>
@@ -328,10 +328,6 @@ const documentError = computed(() => {
     title: tr('courseWorkbench.scriptDocument.aiFailed').replace(/，?请重试。?$/, ''),
     fallback: tr('courseWorkbench.scriptDocument.aiFailed'),
   })
-  if (props.generationError && !props.lesson.script.ready) return toAppError(props.generationError, {
-    title: tr('courseWorkbench.scriptDocument.generateFailed'),
-    fallback: props.generationError,
-  })
   if (props.externalError) return toAppError(props.externalError, {
     title: tr('courseWorkbench.scriptDocument.operationFailed'),
     fallback: props.externalError,
@@ -491,7 +487,7 @@ const waitingForScriptContent = computed(() => (
   && (!props.lesson.script.ready || showWorkingPreview.value)
   && !scriptSections.value.some(section => section.blocks?.some(block => blockIsStreaming(block.block_id)))
 ))
-const generationProgress = computed(() => Math.max(0, Math.min(100, Number(props.generationJob?.progress || 0))))
+const generationProgress = computed(() => props.generating ? Math.max(0, Math.min(100, Number(props.generationJob?.progress || 0))) : 0)
 const showGenerationForm = computed(() => (
   !props.generating
   && !['completed', 'completed_with_warnings'].includes(String(props.generationJob?.status || ''))

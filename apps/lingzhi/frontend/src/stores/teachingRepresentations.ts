@@ -1108,6 +1108,15 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         this.building = true
         this.buildPaused = false
       }
+      if (this.teacherLessonId && ['failed', 'paused', 'cancelled'].includes(status)) {
+        this.buildError = ''
+        this.buildFailure = null
+        this.buildPaused = status !== 'cancelled'
+        this.buildStage = status === 'cancelled' ? 'cancelled' : 'paused'
+        this.liveSlides = []
+        this.draftSlideQuality = null
+        this.buildProgress = 0
+      }
       if (!this.slideBuildProgressV2) {
         this.buildDisplayStep = advanceSlideBuildStep(
           this.buildDisplayStep,
