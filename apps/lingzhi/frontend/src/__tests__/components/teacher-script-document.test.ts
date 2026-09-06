@@ -292,7 +292,7 @@ describe('统一讲义页面', () => {
     expect(blocked.text()).not.toContain('暂无可用教案')
   })
 
-  it('生成中展示已完成教学块，失败后只提供继续剩余内容', async () => {
+  it('生成中展示临时内容，停止后丢弃并提供整单重试', async () => {
     const emptyLesson = structuredClone(lesson)
     emptyLesson.script = { ...emptyLesson.script, current_revision_id: '', ready: false, sections: [] }
     const generationJob: TeacherLessonJob = {
@@ -315,9 +315,9 @@ describe('统一讲义页面', () => {
       props: { courseId: 'course-1', lesson: emptyLesson, canGenerate: true, generationJob },
     })
 
-    expect(wrapper.get('.script-generation-progress').text()).toContain('1/2')
-    expect(wrapper.findComponent(MarkdownRenderer).props('content')).toBe('先说明目标。')
-    expect(wrapper.get('.script-source-review button').text()).toContain('继续生成剩余内容')
+    expect(wrapper.get('.script-generation-progress').text()).toContain('0/2')
+    expect(wrapper.findComponent(MarkdownRenderer).exists()).toBe(false)
+    expect(wrapper.get('.script-source-review button').text()).toContain('继续生成')
 
     await wrapper.get('.script-source-review').trigger('submit')
     expect(wrapper.emitted('generate')).toEqual([['']])
@@ -339,7 +339,7 @@ describe('统一讲义页面', () => {
       generating: false,
       generationJob: { ...generationJob, status: 'cancelled', message: '已停止生成，已完成内容仍然保留' },
     })
-    expect(wrapper.get('.script-source-review button').text()).toContain('继续生成剩余内容')
+    expect(wrapper.get('.script-source-review button').text()).toContain('生成本讲讲义')
   })
 
   it('按当前教学块实时渲染流式增量文本', async () => {
@@ -484,7 +484,7 @@ describe('统一讲义页面', () => {
     expect(wrapper.text()).not.toContain('当前稿包含本地恢复内容')
     expect(wrapper.text()).not.toContain('生成失败')
     expect(wrapper.text()).toContain('已暂停')
-    expect(wrapper.get('.script-source-review button').text()).toContain('生成本讲讲义')
+    expect(wrapper.get('.script-source-review button').text()).toContain('继续生成')
     expect(wrapper.find('.script-footer').exists()).toBe(false)
   })
 

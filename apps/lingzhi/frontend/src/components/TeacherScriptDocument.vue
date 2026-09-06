@@ -152,7 +152,7 @@
         <div>
           <span>{{ generating ? generationPresentation.title : tr('teacherProductionState.states.paused') }}</span>
           <span class="script-generation-progress__actions">
-            <strong>{{ generationJob.completed_blocks || 0 }}/{{ generationJob.total_blocks || 0 }}</strong>
+            <strong>{{ generating ? generationJob.completed_blocks || 0 : 0 }}/{{ generationJob.total_blocks || 0 }}</strong>
             <button v-if="generating" type="button" @click="emit('pause-generation')">{{ tr('courseWorkbench.pause') }}</button>
             <button v-if="generating" type="button" @click="emit('cancel-generation')">{{ tr('common.cancel') }}</button>
           </span>
@@ -431,6 +431,7 @@ watch(() => [props.lesson.lesson_unit_id, props.generationJob?.id], () => { prev
 const scriptSections = computed<ScriptSection[]>(() => {
   if (editing.value) return editSections.value
   if (props.lesson.script.ready && !showWorkingPreview.value) return props.lesson.script.sections || []
+  if (!hasWorkingPreview.value) return []
   const sections = (props.generationJob?.result_sections || []).map(section => ({
     ...section,
     blocks: section.blocks?.map(block => ({ ...block })),
