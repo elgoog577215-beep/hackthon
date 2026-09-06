@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# dependencies
+node_modules/
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# Env
+.venv
+.env
+.env.local
+.env.dev
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
+# Archive
+*.tar*
+
+# File
+uploads/
+
+# Test Results
+**/tests/*.json
+
+.claude/
+CLAUDE.md
+
+# 验证产物（截图 / Excel 导出 / 日志等）
+tmp/
+
+plugins/essay_check/essay_images/*
+tests/load/*.csv
+
+# Local caches, machine settings and verification output
+.gradle/
+.vite/
+xcuserdata/
+local.properties
+.playwright-cli/
+output/
+*.db
+*.sqlite*
+*.pem
+*.key

@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">启智</string>
+    <string name="app_name_en">MentorAI</string>
+
+    <!-- Tabs -->
+    <string name="tab_chat">对话</string>
+    <string name="tab_resource_analysis">资源分析</string>
+    <string name="tab_profile">我的</string>
+
+    <!-- Login -->
+    <string name="login_subtitle">使用浙大通行证登录</string>
+    <string name="login_button">浙大通行证登录</string>
+    <string name="login_button_loading">正在打开登录…</string>
+    <string name="login_footer">登录即表示您同意通过浙江大学统一身份认证完成登录。</string>
+    <string name="login_failed_title">登录失败</string>
+    <string name="login_failed_default">登录失败。</string>
+    <string name="login_failed_unknown">未知错误。</string>
+
+    <!-- Profile -->
+    <string name="profile_section_title">个人资料</string>
+    <string name="profile_field_user_id">用户 ID</string>
+    <string name="profile_field_zju_id">学工号</string>
+    <string name="profile_field_phone">电话</string>
+    <string name="profile_field_email">邮箱</string>
+    <string name="profile_field_create_time">注册时间</string>
+    <string name="profile_loading">正在加载用户信息…</string>
+    <string name="profile_load_error_title">无法加载用户信息</string>
+    <string name="profile_no_user">尚未加载用户信息。</string>
+    <string name="profile_sign_out">退出登录</string>
+    <string name="profile_sign_out_confirm">确定要退出登录吗？</string>
+    <string name="common_retry">重试</string>
+    <string name="common_cancel">取消</string>
+    <string name="common_confirm">确定</string>
+
+    <!-- Splash -->
+    <string name="splash_loading">正在启动启智…</string>
+
+    <!-- Chat -->
+    <string name="chat_new_title">新对话</string>
+    <string name="chat_default_title">对话</string>
+    <string name="chat_input_placeholder">发送消息</string>
+    <string name="chat_send_label">发送</string>
+    <string name="chat_stop_label">停止</string>
+    <string name="chat_attach_label">添加附件</string>
+    <string name="chat_remove_attachment">移除</string>
+    <string name="chat_empty_title">还没有对话</string>
+    <string name="chat_empty_subtitle">点击右上角的笔图标开启新对话</string>
+    <string name="chat_empty_new">新对话</string>
+    <string name="chat_list_error_title">加载会话失败</string>
+    <string name="chat_session_delete_confirm">删除后将无法恢复，确定要删除该对话吗？</string>
+    <string name="chat_session_delete_title_named">删除「%1$s」</string>
+    <string name="chat_session_delete_title_generic">删除该对话</string>
+    <string name="chat_common_delete">删除</string>
+    <string name="chat_welcome_greeting">你好，我是启智</string>
+    <string name="chat_welcome_subtitle">可以帮你备课、出题、分析资料，试试下面的问题</string>
+    <string name="chat_uploading">上传中…</string>
+    <string name="chat_session_error_retry">重试</string>
+
+    <!-- Video analysis -->
+    <string name="video_local_section">本地视频</string>
+    <string name="video_empty_title">暂无视频</string>
+    <string name="video_empty_subtitle">点击右上角的 + 添加智云课堂或本地视频</string>
+    <string name="video_list_error_title">加载视频失败</string>
+    <string name="video_status_unstarted">未开始分析</string>
+    <string name="video_status_waiting">分析中</string>
+    <string name="video_status_success">已完成</string>
+    <string name="video_status_failed">分析失败</string>
+    <string name="video_delete_confirm">删除后将无法恢复，确定要删除该视频吗？</string>
+    <string name="video_delete_title_named">删除「%1$s」</string>
+    <string name="video_delete_title_generic">删除该视频</string>
+    <string name="video_new_title">新建视频分析</string>
+    <string name="video_new_source_section">选择来源</string>
+    <string name="video_new_source_zhiyun_title">智云课堂</string>
+    <string name="video_new_source_zhiyun_subtitle">按时间筛选课程，导入后在详情页选择分析方式</string>
+    <string name="video_new_source_zhiyun_subtitle_testmode">需要浙大通行证登录后才可使用</string>
+    <string name="video_new_source_local_title">本地视频</string>
+    <string name="video_new_source_local_subtitle">从「文件」中选择视频，上传后在详情页选择分析方式</string>
+    <string name="video_new_footer">分片上传按 5 MB 一片串行发送，过程中请保持页面前台。</string>
+
+    <!-- Video list: in-flight add-video task banner (智云 import / 本地 upload, run in background) -->
+    <string name="video_task_running_label">正在%1$s「%2$s」%3$s</string>
+    <string name="video_task_done_label">「%1$s」已%2$s，可在详情页开始分析</string>
+    <string name="video_task_failed_label">「%1$s」%2$s失败</string>
+    <string name="video_task_close">关闭</string>
+
+    <!-- Video list: 本地分析「分析中」预计剩余时间 (uses estimated_seconds) -->
+    <string name="video_eta_imminent">即将完成</string>
+    <string name="video_eta_remaining_h_m">预计剩余约%1$d小时%2$d分钟</string>
+    <string name="video_eta_remaining_h">预计剩余约%1$d小时</string>
+    <string name="video_eta_remaining_m">预计剩余约%1$d分钟</string>
+
+    <!-- Zhiyun import -->
+    <string name="zhiyun_title">智云课堂</string>
+    <string name="zhiyun_filter_section">筛选条件</string>
+    <string name="zhiyun_begin_date">起始日期</string>
+    <string name="zhiyun_end_date">结束日期</string>
+    <string name="zhiyun_course_filter_hint">课程名称（可选）</string>
+    <string name="zhiyun_search">查询课程</string>
+    <string name="zhiyun_searching">正在查询课程…</string>
+    <string name="zhiyun_no_results">未查询到课程。</string>
+    <string name="zhiyun_import_confirm_title_named">导入「%1$s」</string>
+    <string name="zhiyun_import_confirm_message">章节：%1$s\n将开始下载并分析，可返回列表查看进度。确定导入吗？</string>
+    <string name="zhiyun_import_button">导入</string>
+    <string name="zhiyun_importing">导入中</string>
+    <string name="zhiyun_cancel_import">取消导入</string>
+    <string name="zhiyun_import_done">导入完成</string>
+    <string name="zhiyun_done">完成</string>
+
+    <!-- Local video upload -->
+    <string name="upload_title">本地视频</string>
+    <string name="upload_file_section">文件</string>
+    <string name="upload_file_name">文件名</string>
+    <string name="upload_file_size">大小</string>
+    <string name="upload_chunks_label">分片</string>
+    <string name="upload_video_name_section">视频名称</string>
+    <string name="upload_video_name_hint">用于在列表中识别</string>
+    <string name="upload_status_ready">准备就绪</string>
+    <string name="upload_status_uploading">上传中</string>
+    <string name="upload_status_creating">创建中…</string>
+    <string name="upload_status_done_template">已创建「%1$s」，分析将自动开始</string>
+    <string name="upload_start">开始上传</string>
+    <string name="upload_cancel">取消上传</string>
+    <string name="upload_close">关闭</string>
+    <string name="upload_footer">上传将在列表中显示进度，可随时返回；完成后在详情页选择分析方式（云端 / 本地）。</string>
+    <string name="back_label">返回</string>
+
+    <!-- Feedback -->
+    <string name="feedback_title">评价与反馈</string>
+    <string name="feedback_close">关闭</string>
+    <string name="feedback_profile_subtitle">告诉我们您的使用体验</string>
+    <string name="feedback_section_rating">评分</string>
+    <string name="feedback_section_content">反馈内容</string>
+    <string name="feedback_content_placeholder">请描述您的使用体验或遇到的问题…</string>
+    <string name="feedback_section_attachments_optional">附件（可选）</string>
+    <string name="feedback_attachment_max_hint">最多 %1$d 个附件</string>
+    <string name="feedback_pick_attachments">选择附件</string>
+    <string name="feedback_submitting">正在提交…</string>
+    <string name="feedback_submit">提交反馈</string>
+    <string name="feedback_remove_attachment">移除附件</string>
+</resources>

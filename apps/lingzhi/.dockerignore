@@ -1,0 +1,28 @@
+node_modules
+dist
+.DS_Store
+.git
+.gitignore
+.vscode
+.idea
+__pycache__
+*.pyc
+venv
+.env
+.env.*
+backend/venv
+backend/__pycache__
+frontend/node_modules
+frontend/dist
+
+# The Lingzhi image uses the root application only.
+qizhi/
+
+# Local course state is supplied through a data volume, never baked into images.
+backend/data/
+backend/tasks.json
+backend/static/
+artifacts/
+output/
+tmp/
+demo_videos/

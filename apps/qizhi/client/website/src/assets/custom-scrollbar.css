@@ -1,0 +1,74 @@
+/* 隐藏原生滚动条（由 JS 挂载自定义滑轨） */
+.cscroll-native {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.cscroll-native::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* 外层：承接原 flex 占位，滑轨相对此层固定不随内容滚动 */
+.cscroll-outer {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  align-self: stretch;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cscroll-outer > .cscroll-native {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+
+/* 无上下箭头；轨道透明；滑块短粗，悬停变淡 */
+.cscroll-track {
+  position: absolute;
+  top: 8px;
+  right: 4px;
+  bottom: 8px;
+  width: 10px;
+  background: transparent;
+  pointer-events: none;
+  z-index: 30;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.cscroll-outer:hover .cscroll-track,
+.cscroll-outer.is-scrolling .cscroll-track,
+.cscroll-outer.is-dragging .cscroll-track {
+  opacity: 1;
+}
+
+.cscroll-thumb {
+  position: absolute;
+  left: 1px;
+  top: 0;
+  width: 8px;
+  min-height: 36px;
+  border-radius: 999px;
+  background: rgba(19, 88, 228, 0.52);
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  transition: background-color 0.15s ease;
+  will-change: top;
+}
+
+.cscroll-thumb:hover {
+  background: rgba(19, 88, 228, 0.3);
+}
+
+.cscroll-outer.is-dragging .cscroll-thumb {
+  cursor: grabbing;
+  background: rgba(19, 88, 228, 0.3);
+}

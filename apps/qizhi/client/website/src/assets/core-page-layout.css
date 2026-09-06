@@ -1,0 +1,240 @@
+/* 四个核心功能页统一版式：我的资源 / 我的课程 / 智能对话 / 资源分析 */
+
+.core-app-page {
+  --page-inline-pad: 200px;
+  --page-bottom-gap: 86px;
+  --toolbar-top-gap: 64px;
+  --toolbar-content-gap: 48px;
+  /* 与 route-slide-page 同节点：覆盖 route-slide.css 默认 #fff，透出 body 背景图 */
+  --route-slide-bg: transparent;
+  width: 100%;
+  height: calc(100vh - var(--app-nav-height, 64px));
+  min-height: calc(100vh - var(--app-nav-height, 64px));
+  max-height: calc(100vh - var(--app-nav-height, 64px));
+  background: transparent;
+  background-color: transparent;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.app-container--fill .core-app-page--chat {
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+}
+
+/* 智能对话：略小于其它核心页的底边距 */
+.core-app-page--chat {
+  --page-bottom-gap: 56px;
+}
+
+.core-app-page .toolbar {
+  background-color: transparent;
+  flex-shrink: 0;
+  padding: var(--toolbar-top-gap) var(--page-inline-pad) 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: none;
+  gap: 16px;
+  flex-wrap: nowrap;
+  position: relative;
+  z-index: 1;
+  overflow: visible;
+  box-sizing: border-box;
+}
+
+.core-app-page .toolbar-left {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  min-width: 0;
+  gap: 16px;
+}
+
+.core-app-page .toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.core-app-page .page-title {
+  font-size: 30px;
+  font-weight: 700;
+  color: #333;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.core-app-page .content-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0 var(--page-inline-pad) var(--page-bottom-gap);
+  padding: var(--toolbar-content-gap) 0 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+  background: transparent;
+  background-color: transparent;
+}
+
+/* 我的资源 / 我的课程 / 资源分析：页面随内容增高，卡片自然向下排布，不预留 86px 底栏空白 */
+.core-app-page--flow {
+  height: auto;
+  min-height: calc(100vh - var(--app-nav-height, 64px));
+  max-height: none;
+  overflow: visible;
+}
+
+.core-app-page--flow .content-area {
+  flex: none;
+  min-height: 0;
+  margin: 0 var(--page-inline-pad);
+  padding: var(--toolbar-content-gap) 0 32px;
+  overflow: visible;
+}
+
+.core-app-page--chat .chat-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0 50px var(--page-bottom-gap) 70px;
+  padding-top: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: transparent;
+  background-color: transparent;
+}
+
+/* 工具栏右侧胶囊主按钮（新建课程 / 新建分析 / 生成新资源等） */
+.core-app-page .toolbar-right .btn-primary,
+.core-app-page .toolbar-right .dropdown-btn.is-capsule-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: 40px;
+  min-width: 0;
+  width: auto;
+  padding: 0 14px;
+  background-color: #000;
+  border: 1px solid #000;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 13px;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.core-app-page .toolbar-right .btn-primary-icon,
+.core-app-page .toolbar-right .dropdown-btn.is-capsule-primary .dropdown-btn-icon {
+  flex-shrink: 0;
+}
+
+.core-app-page .toolbar-right .btn-primary:hover,
+.core-app-page .toolbar-right .dropdown-btn.is-capsule-primary:hover {
+  background-color: #333;
+  border-color: #333;
+  color: #fff;
+}
+
+@media (max-width: 1400px) {
+  .core-app-page {
+    --page-inline-pad: 120px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .core-app-page {
+    --page-inline-pad: 48px;
+    --page-bottom-gap: 48px;
+    --toolbar-top-gap: 40px;
+    --toolbar-content-gap: 40px;
+  }
+
+  .core-app-page--chat {
+    --page-bottom-gap: 32px;
+  }
+
+  .core-app-page--chat .chat-layout {
+    margin-left: 32px;
+    margin-right: 32px;
+  }
+}
+
+@media (max-width: 768px) {
+  .core-app-page {
+    --page-inline-pad: 24px;
+    --page-bottom-gap: 32px;
+    --toolbar-top-gap: 24px;
+    --toolbar-content-gap: 32px;
+  }
+
+  .core-app-page--chat {
+    --page-bottom-gap: 20px;
+  }
+
+  .core-app-page--chat .chat-layout {
+    margin-left: 24px;
+    margin-right: 24px;
+  }
+
+  .core-app-page .toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .core-app-page .toolbar-left .page-title {
+    overflow: visible;
+    text-overflow: clip;
+    font-size: 24px;
+  }
+
+  .core-app-page .toolbar-right {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .core-app-page .toolbar-right .search-box {
+    min-width: 100%;
+    max-width: 100%;
+  }
+
+  .core-app-page .toolbar-right .dropdown-wrapper,
+  .core-app-page .toolbar-right .btn-primary {
+    width: 100%;
+  }
+
+  .core-app-page .toolbar-right .dropdown-btn.is-capsule-primary,
+  .core-app-page .toolbar-right .btn-primary {
+    justify-content: center;
+  }
+
+  .core-app-page .toolbar-right .dropdown-menu {
+    width: 100%;
+    right: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .core-app-page {
+    --page-inline-pad: 16px;
+  }
+
+  .core-app-page--chat .chat-layout {
+    margin-left: 16px;
+    margin-right: 16px;
+  }
+}

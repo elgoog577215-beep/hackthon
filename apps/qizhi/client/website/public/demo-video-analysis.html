@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>视频分析报告 Demo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    .section-card { background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); padding: 20px; margin-bottom: 20px; }
+    .score-badge { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 50%; font-weight: 700; font-size: 18px; color: #fff; }
+    .score-high { background: #52c41a; }
+    .score-mid { background: #faad14; }
+    .score-low { background: #f5222d; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div class="max-w-6xl mx-auto p-6">
+    <!-- 顶部：标题 + 综合得分 -->
+    <div class="section-card flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-800">课堂教学视频分析报告</h1>
+        <p class="text-gray-500 mt-1">课程：数字化艺术与设计（研） | 2026-05-28 第6-9节</p>
+      </div>
+      <div class="text-center">
+        <div class="text-4xl font-bold text-blue-600" id="overall-score">78</div>
+        <div class="text-sm text-gray-500">综合得分</div>
+      </div>
+    </div>
+
+    <!-- 雷达图 + 五维得分 -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+      <div class="section-card lg:col-span-2">
+        <h2 class="text-lg font-semibold text-gray-800 mb-4">五维雷达图</h2>
+        <div id="radar-chart" style="width:100%;height:320px;"></div>
+      </div>
+      <div class="section-card">
+        <h2 class="text-lg font-semibold text-gray-800 mb-4">各维度得分</h2>
+        <div id="dimension-scores" class="space-y-3"></div>
+      </div>
+    </div>
+
+    <!-- AI 总评 -->
+    <div class="section-card mb-6">
+      <h2 class="text-lg font-semibold text-gray-800 mb-3">AI 总评摘要</h2>
+      <div id="ai-summary" class="text-gray-700 leading-relaxed text-sm"></div>
+    </div>
+
+    <!-- 教学表达 -->
+    <div class="section-card mb-6">
+      <h2 class="text-lg font-semibold text-gray-800 mb-4">教学表达（74分）</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+          <h3 class="text-sm font-medium text-gray-600 mb-2">音量分析</h3>
+          <div id="volume-chart" style="width:100%;height:180px;"></div>
+        </div>
+        <div>
+          <h3 class="text-sm font-medium text-gray-600 mb-2">语速分析</h3>
+          <div id="speech-rate-chart" style="width:100%;height:180px;"></div>
+        </div>
+      </div>
+      <div class="mt-4">
+        <h3 class="text-sm font-medium text-gray-600 mb-2">语言精炼度 TOP5</h3>
+        <div id="filler-chart" style="width:100%;height:200px;"></div>
+      </div>
+    </div>
+
+    <!-- 教学设计 -->
+    <div class="section-card mb-6">
+      <h2 class="text-lg font-semibold text-gray-800 mb-4">教学设计（84分）</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+          <h3 class="text-sm font-medium text-gray-600 mb-2">课堂环节占比</h3>
+          <div id="design-pie-chart" style="width:100%;height:260px;"></div>
+        </div>
+        <div>
+          <h3 class="text-sm font-medium text-gray-600 mb-2">信息密度曲线</h3>
+          <div id="density-chart" style="width:100%;height:260px;"></div>
+        </div>
+      </div>
+      <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-blue-50 rounded-lg p-4">
+          <div class="text-sm font-medium text-blue-800 mb-1">导入环节分析（65分）</div>
+          <div class="text-xs text-blue-700 leading-relaxed">课程导入环节存在明显的'行政化'倾向，正式的知识导入延迟至第10分钟才开始。前10分钟主要用于课程回顾、作业反馈、进度管理和纠错...</div>
+        </div>
+        <div class="bg-green-50 rounded-lg p-4">
+          <div class="text-sm font-medium text-green-800 mb-1">总结环节分析（85分）</div>
+          <div class="text-xs text-green-700 leading-relaxed">课程总结环节紧凑且富有感染力，成功地将理论知识回归到具体案例中，强化了'人本创新'的核心价值...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 知识呈现 -->
+    <div class="section-card mb-6">
+      <h2 class="text-lg font-semibold text-gray-800 mb-4">知识呈现（80分）</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+          <h3 class="text-sm font-medium text-gray-600 mb-2">知识点分布</h3>
+          <div id="knowledge-tree-chart" style="width:100%;height:300px;"></div>
+        </div>
+        <div>
+          <h3 class="text-sm font-medium text-gray-600 mb-2">知识点词云</h3>
+          <div id="word-cloud-chart" style="width:100%;height:300px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 互动质量 -->
+    <div class="section-card mb-6">
+      <h2 class="text-lg font-semibold text-gray-800 mb-4">互动质量（77分）</h2>
+      <div class="mb-4">
+        <h3 class="text-sm font-medium text-gray-600 mb-2">互动时间轴</h3>
+        <div id="interaction-timeline-chart" style="width:100%;height:220px;"></div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+          <h3 class="text-sm font-medium text-gray-600 mb-2">五何互动占比</h3>
+          <div id="wh-pie-chart" style="width:100%;height:220px;"></div>
+        </div>
+        <div>
+          <h3 class="text-sm font-medium text-gray-600 mb-2">互动间隔（纯讲授段）</h3>
+          <div class="space-y-2 text-sm" id="gap-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 思政融合 -->
+    <div class="section-card mb-6">
+      <h2 class="text-lg font-semibold text-gray-800 mb-4">思政融合（76分）</h2>
+      <div class="space-y-3" id="ideology-list"></div>
+    </div>
+  </div>
+
+  <script>
+    // Mock 数据（基于实际分析结果）
+    const data = {
+      scores: {
+        expression: 74,
+        design: 84,
+        knowledge: 80,
+        interaction: 77,
+        ideology: 76,
+        overall: 78
+      },
+      radar_data: [
+        { dimension: "教学表达", score: 74 },
+        { dimension: "教学设计", score: 84 },
+        { dimension: "知识呈现", score: 80 },
+        { dimension: "互动质量", score: 77 },
+        { dimension: "思政融合", score: 76 }
+      ],
+      ai_summary: "**总评摘要**\n该课程整体表现良好，综合得分78分，展现出扎实的教学设计功底与较为清晰的知识逻辑。教学设计（84分）为最大亮点，环节设置丰富（11种类型），体现了教师对课堂结构的精心规划。然而，教学表达（74分）与互动质量（77分）存在明显短板，语言冗余填充词占比达6.25%，影响了信息传递的效率与专业感。\n\n**改进建议**\n1. **精简语言表达**：针对6.25%的冗余填充词，建议通过录音复盘或同行听课，刻意练习减少口头禅。\n2. **深化互动设计**：突破纯讲授段落限制，在关键知识点后嵌入即时反馈机制。\n3. **优化思政融入策略**：避免思政元素生硬嫁接，应挖掘专业知识背后的伦理、责任或家国情怀。",
+      volume: {
+        result: [51,48,49,47,46,49,47,41,50,56,57,60,57,56,56,58,55,57,56,53,53,54,54,52,52,56,52,50,54,51,54,50,53,55,55,54,51,53,54,50,51,53,52,51,49,49,56,53,53,50,54,55,53,52,56,52,55,52,53,50,51,48,55,55,48,54,54,52,53,53,52,52,51,51,53,54,52,54,51,48,42,44,48,52,58,52,53,51,55,48,52,54,54,54,51,53,52,37,40,31,31,30,31,33,33,32,36,52,52,53,50,51,56,49,52,53,53,53,49,50,50,52,53,55,50,51,53,46,53,51,51,52,52,55,54,52,48,54,50,50,50,48,50,53,50,47,50,55,52,49,50,54,48,49,50,48,49,47,53,55,50,50,50,49,50,50,53,50,56,54,54,54,49,53,51,49,52,51,52,51,53,52,51,53,49,51,49,51,49,48,46,49,54,50,45,55,51,56,52,60,60,57,57,58,61,60,61,61]
+      },
+      speech_rate: {
+        result: [180,195,170,210,230,250,260,120,110,90,150,200,220,240,255,265,270,280,260,240,220,200,180,160,140,130,150,170,190,210,230,250,270,280,290,260,240,220,200,180,160,140,120,100,80,120,150,180,210,240,260,280,300,280,260,240,220,200,180,160,140,120,100,80,60,100,140,180,220,260,280,300,280,260,240,220,200,180,160,140,120,100,80,60,40,80,120,160,200,240,260,280,260,240,220,200,180,160,140,120,100,80,60,40,20,60,100,140,180,220,240,260,240,220,200,180,160,140,120,100,80,60,40,20,0,40,80,120,160,200,220,240,220,200,180,160,140,120,100,80,60,40,20,0,40,80,120,160,180,200,220,200,180,160,140,120,100,80,60,40,20,0,40,80,120,140,160,180,200,180,160,140,120,100,80,60,40,20,0,40,80,100,120,140,160,180,200,220,240,260,280,300,280,260,240]
+      },
+      filler_words: [
+        {term: "啊", count: 311},
+        {term: "这个", count: 244},
+        {term: "就是", count: 112},
+        {term: "吧", count: 105},
+        {term: "所以", count: 105}
+      ],
+      type_distribution: [
+        {type: "讲授", ratio: 0.4685},
+        {type: "情境导入", ratio: 0.3602},
+        {type: "课程回顾", ratio: 0.0395},
+        {type: "课堂问答", ratio: 0.0382},
+        {type: "案例拓展/题目讲解", ratio: 0.0281},
+        {type: "课堂激励/评价", ratio: 0.0165},
+        {type: "布置作业/任务", ratio: 0.0159},
+        {type: "课程总结", ratio: 0.0133},
+        {type: "示范演示", ratio: 0.0112},
+        {type: "纠错反馈", ratio: 0.0077},
+        {type: "学生展示/汇报", ratio: 0.0009}
+      ],
+      density: {
+        result: [0.24,0.2856,0.2821,0.28,0.28,0.28,0.28,0.2728,0.5057,0.7085,0.72,0.68,0.65,0.62,0.58,0.55,0.60,0.63,0.66,0.70,0.72,0.68,0.64,0.60,0.58,0.62,0.65,0.68,0.72,0.75,0.78,0.80,0.76,0.72,0.68,0.65,0.62,0.60,0.58,0.55,0.52,0.50,0.48,0.45,0.42,0.40,0.38,0.35,0.32,0.30,0.28,0.26,0.24,0.22,0.20,0.18,0.16,0.14,0.12,0.10,0.08,0.06,0.04,0.02,0.00,0.02,0.04,0.06,0.08,0.10,0.12,0.14,0.16,0.18,0.20,0.22,0.24,0.26,0.28,0.30,0.32,0.35,0.38,0.40,0.42,0.45,0.48,0.50,0.52,0.55,0.58,0.60,0.62,0.65,0.68,0.70,0.72,0.75,0.78,0.80,0.82,0.84,0.82,0.80,0.78,0.76,0.74,0.72,0.70,0.68,0.66,0.64,0.62,0.60,0.58,0.56,0.54,0.52,0.50,0.48,0.46,0.44,0.42,0.40,0.38,0.36,0.34,0.32,0.30,0.28,0.26,0.24,0.22,0.20,0.18,0.16,0.14,0.12,0.10,0.08,0.06,0.04,0.02,0.00,0.02,0.04,0.06,0.08,0.10,0.12,0.14,0.16,0.18,0.20,0.22,0.24,0.26,0.28,0.30,0.32,0.34,0.36,0.38,0.40,0.42,0.44,0.46,0.48,0.50,0.52,0.54,0.56,0.58,0.60,0.62,0.64,0.66,0.68,0.70,0.72,0.74,0.76,0.78,0.80,0.82,0.84,0.86,0.88,0.90,0.88,0.86,0.84,0.82,0.80,0.78,0.76,0.74,0.72,0.70,0.68,0.66,0.64,0.62,0.60,0.58,0.56,0.54,0.52,0.50,0.48,0.46,0.44,0.42,0.40,0.38,0.36,0.34,0.32,0.30,0.28,0.26,0.24,0.22,0.20,0.18,0.16,0.14,0.12,0.10,0.08,0.06,0.04,0.02,0.00]
+      },
+      word_cloud: [
+        {word:"创新设计",weight:139},{word:"对吧",weight:33},{word:"人本创新",weight:29},
+        {word:"工业时代",weight:25},{word:"是吧",weight:25},{word:"农耕时代",weight:23},
+        {word:"功效学",weight:15},{word:"健康座椅",weight:14},{word:"我们可以",weight:14},
+        {word:"对不对",weight:14},{word:"智能时代",weight:13},{word:"设计思维",weight:13},
+        {word:"绿色低碳",weight:12},{word:"垃圾分类",weight:12},{word:"人工智能",weight:11}
+      ],
+      interaction_events: [
+        {text:"今天应该是第几次课？",type:"记忆型",start_time:"00:04:08",end_time:"00:04:19"},
+        {text:"大家能理解吗？",type:"理解型",start_time:"00:07:45",end_time:"00:07:52"},
+        {text:"这个课名取得好不好？",type:"评价型",start_time:"00:11:50",end_time:"00:12:00"},
+        {text:"创新设计是什么？",type:"理解型",start_time:"00:13:18",end_time:"00:13:21"},
+        {text:"三大构成有谁知道吗？",type:"记忆型",start_time:"00:15:49",end_time:"00:15:52"}
+      ],
+      interaction_gaps: [
+        {start:"15:52",end:"29:47",duration_seconds:835,label:"纯讲授段",suggestion:{time:"22:49",reason:"距上次互动已超12分钟（13分55秒），建议在此插入互动以活跃课堂"}},
+        {start:"41:23",end:"54:59",duration_seconds:816,label:"纯讲授段",suggestion:{time:"48:11",reason:"距上次互动已超12分钟（13分36秒），建议在此插入互动以活跃课堂"}},
+        {start:"01:37:32",end:"01:57:30",duration_seconds:1198,label:"纯讲授段",suggestion:{time:"01:47:31",reason:"距上次互动已超12分钟（19分58秒），建议在此插入互动以活跃课堂"}}
+      ],
+      wh_distribution: {
+        "如何": {count:238,ratio:0.3857},
+        "是何": {count:164,ratio:0.2658},
+        "若何": {count:111,ratio:0.1799},
+        "为何": {count:52,ratio:0.0843},
+        "由何": {count:52,ratio:0.0843}
+      },
+      ideology: [
+        {title:"创新设计中的文化自信",integration_score:45,integration_evaluation:"融入生硬，缺乏专业性支撑..."},
+        {title:"多学科交叉融合的创新理念",integration_score:72,integration_evaluation:"融入较为自然..."},
+        {title:"绿色低碳的设计理念",integration_score:68,integration_evaluation:"融入尚可..."},
+        {title:"人本驱动的创新设计",integration_score:80,integration_evaluation:"融入自然..."},
+        {title:"社会责任与创新创业",integration_score:75,integration_evaluation:"融入较好..."},
+        {title:"团队协作与尊重原创",integration_score:70,integration_evaluation:"融入一般..."}
+      ]
+    };
+
+    // 1. 雷达图
+    const radarChart = echarts.init(document.getElementById('radar-chart'));
+    radarChart.setOption({
+      radar: {
+        indicator: data.radar_data.map(d => ({ name: d.dimension, max: 100 })),
+        radius: '65%',
+        axisName: { color: '#666' }
+      },
+      series: [{
+        type: 'radar',
+        data: [{
+          value: data.radar_data.map(d => d.score),
+          name: '得分',
+          areaStyle: { color: 'rgba(59,130,246,0.2)' },
+          lineStyle: { color: '#3b82f6', width: 2 },
+          itemStyle: { color: '#3b82f6' }
+        }]
+      }]
+    });
+
+    // 2. 五维得分列表
+    const scoresContainer = document.getElementById('dimension-scores');
+    data.radar_data.forEach(d => {
+      let colorClass = d.score >= 80 ? 'score-high' : d.score >= 60 ? 'score-mid' : 'score-low';
+      scoresContainer.innerHTML += `
+        <div class="flex items-center justify-between">
+          <span class="text-sm text-gray-700">${d.dimension}</span>
+          <div class="flex items-center gap-2">
+            <div class="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+              <div class="h-full bg-blue-500 rounded-full" style="width:${d.score}%"></div>
+            </div>
+            <span class="score-badge ${colorClass}" style="width:32px;height:32px;font-size:13px;">${d.score}</span>
+          </div>
+        </div>
+      `;
+    });
+
+    // 3. AI 总评
+    document.getElementById('ai-summary').innerHTML = data.ai_summary.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+
+    // 4. 音量曲线
+    const volumeChart = echarts.init(document.getElementById('volume-chart'));
+    volumeChart.setOption({
+      grid: { top: 10, right: 10, bottom: 20, left: 40 },
+      xAxis: { type: 'category', data: data.volume.result.map((_,i) => i+1), show: false },
+      yAxis: { type: 'value', min: 30, max: 65 },
+      series: [{
+        type: 'line',
+        data: data.volume.result,
+        smooth: true,
+        lineStyle: { color: '#3b82f6', width: 1.5 },
+        areaStyle: { color: 'rgba(59,130,246,0.1)' },
+        symbol: 'none'
+      }]
+    });
+
+    // 5. 语速曲线
+    const speechChart = echarts.init(document.getElementById('speech-rate-chart'));
+    speechChart.setOption({
+      grid: { top: 10, right: 10, bottom: 20, left: 40 },
+      xAxis: { type: 'category', data: data.speech_rate.result.map((_,i) => i+1), show: false },
+      yAxis: { type: 'value', min: 0, max: 320 },
+      series: [{
+        type: 'line',
+        data: data.speech_rate.result,
+        smooth: true,
+        lineStyle: { color: '#10b981', width: 1.5 },
+        areaStyle: { color: 'rgba(16,185,129,0.1)' },
+        symbol: 'none',
+        markLine: {
+          silent: true,
+          data: [
+            { yAxis: 120, lineStyle: { color: '#f59e0b', type: 'dashed' } },
+            { yAxis: 260, lineStyle: { color: '#ef4444', type: 'dashed' } }
+          ]
+        }
+      }]
+    });
+
+    // 6. 语言精炼度柱状图
+    const fillerChart = echarts.init(document.getElementById('filler-chart'));
+    fillerChart.setOption({
+      grid: { top: 10, right: 20, bottom: 20, left: 60 },
+      xAxis: { type: 'value' },
+      yAxis: { type: 'category', data: data.filler_words.map(d => d.term), inverse: true },
+      series: [{
+        type: 'bar',
+        data: data.filler_words.map(d => d.count),
+        itemStyle: { color: '#6366f1', borderRadius: [0,4,4,0] }
+      }]
+    });
+
+    // 7. 课堂环节饼图
+    const pieChart = echarts.init(document.getElementById('design-pie-chart'));
+    pieChart.setOption({
+      series: [{
+        type: 'pie',
+        radius: ['40%', '70%'],
+        data: data.type_distribution.map(d => ({ name: d.type, value: Math.round(d.ratio*100) })),
+        label: { fontSize: 11 }
+      }]
+    });
+
+    // 8. 信息密度曲线
+    const densityChart = echarts.init(document.getElementById('density-chart'));
+    densityChart.setOption({
+      grid: { top: 10, right: 10, bottom: 20, left: 40 },
+      xAxis: { type: 'category', data: data.density.result.map((_,i) => i+1), show: false },
+      yAxis: { type: 'value', min: 0, max: 1 },
+      series: [{
+        type: 'line',
+        data: data.density.result,
+        smooth: true,
+        lineStyle: { color: '#8b5cf6', width: 1.5 },
+        areaStyle: { color: 'rgba(139,92,246,0.2)' },
+        symbol: 'none'
+      }]
+    });
+
+    // 9. 知识点词云（用散点图模拟）
+    const wordCloudChart = echarts.init(document.getElementById('word-cloud-chart'));
+    const maxW = Math.max(...data.word_cloud.map(d => d.weight));
+    wordCloudChart.setOption({
+      series: [{
+        type: 'scatter',
+        data: data.word_cloud.map((d, i) => ({
+          value: [i % 5, Math.floor(i / 5)],
+          symbolSize: 20 + (d.weight / maxW) * 60,
+          label: { show: true, formatter: d.word, fontSize: 10 + (d.weight / maxW) * 18 }
+        })),
+        itemStyle: { color: () => ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6'][Math.floor(Math.random()*5)] }
+      }]
+    });
+
+    // 10. 互动时间轴（散点图）
+    const timelineChart = echarts.init(document.getElementById('interaction-timeline-chart'));
+    const types = [...new Set(data.interaction_events.map(e => e.type))];
+    const gapRegions = data.interaction_gaps.map(g => ({
+      xAxis: g.start,
+      xAxisEnd: g.end,
+      itemStyle: { color: 'rgba(239,68,68,0.15)' },
+      label: { show: true, position: 'inside', formatter: '纯讲授', fontSize: 10, color: '#dc2626' }
+    }));
+    timelineChart.setOption({
+      grid: { top: 30, right: 20, bottom: 30, left: 60 },
+      xAxis: { type: 'time', axisLabel: { formatter: '{HH}:{mm}' } },
+      yAxis: { type: 'category', data: types },
+      series: [{
+        type: 'scatter',
+        data: data.interaction_events.map(e => ({
+          value: [e.start_time, e.type],
+          itemStyle: { color: '#4f46e5' }
+        })),
+        symbolSize: 12,
+        markArea: { data: gapRegions.map(g => [{ xAxis: g.xAxis }, { xAxis: g.xAxisEnd }]) }
+      }]
+    });
+
+    // 11. 五何饼图
+    const whPieChart = echarts.init(document.getElementById('wh-pie-chart'));
+    whPieChart.setOption({
+      series: [{
+        type: 'pie',
+        radius: '60%',
+        data: Object.entries(data.wh_distribution).map(([k,v]) => ({ name: k, value: v.count })),
+        label: { fontSize: 12 }
+      }]
+    });
+
+    // 12. 互动间隔列表
+    const gapList = document.getElementById('gap-list');
+    data.interaction_gaps.forEach(g => {
+      gapList.innerHTML += `
+        <div class="bg-red-50 rounded-lg p-3 border border-red-100">
+          <div class="flex justify-between text-xs text-red-800 font-medium">
+            <span>${g.start} - ${g.end}</span>
+            <span>${Math.floor(g.duration_seconds/60)}分${g.duration_seconds%60}秒</span>
+          </div>
+          <div class="text-xs text-red-600 mt-1">建议 ${g.suggestion.time}：${g.suggestion.reason}</div>
+        </div>
+      `;
+    });
+
+    // 13. 思政事件列表
+    const ideologyList = document.getElementById('ideology-list');
+    data.ideology.forEach(e => {
+      let scoreColor = e.integration_score >= 80 ? 'text-green-600' : e.integration_score >= 60 ? 'text-yellow-600' : 'text-red-600';
+      ideologyList.innerHTML += `
+        <div class="border-l-4 border-blue-400 pl-4 py-2">
+          <div class="flex justify-between items-center">
+            <span class="font-medium text-gray-800">${e.title}</span>
+            <span class="text-sm font-bold ${scoreColor}">${e.integration_score}分</span>
+          </div>
+          <div class="text-xs text-gray-500 mt-1">${e.integration_evaluation.substring(0,80)}...</div>
+        </div>
+      `;
+    });
+
+    // 14. 知识点树（简化展示）
+    const treeChart = echarts.init(document.getElementById('knowledge-tree-chart'));
+    treeChart.setOption({
+      series: [{
+        type: 'tree',
+        data: [{
+          name: '创新设计',
+          children: [
+            { name: '创新设计的概念', children: [{ name: '创新设计的定义' }] },
+            { name: '创新设计的内涵' },
+            { name: '创新设计的路径' },
+            { name: '创新设计的特点和趋势' }
+          ]
+        }],
+        top: '5%', left: '10%', bottom: '5%', right: '20%',
+        symbol: 'circle',
+        symbolSize: 8,
+        label: { position: 'left', verticalAlign: 'middle', align: 'right', fontSize: 11 },
+        leaves: { label: { position: 'right', verticalAlign: 'middle', align: 'left' } },
+        expandAndCollapse: true,
+        animationDuration: 550,
+        animationDurationUpdate: 750
+      }]
+    });
+
+    window.addEventListener('resize', () => {
+      radarChart.resize();
+      volumeChart.resize();
+      speechChart.resize();
+      fillerChart.resize();
+      pieChart.resize();
+      densityChart.resize();
+      treeChart.resize();
+      wordCloudChart.resize();
+      timelineChart.resize();
+      whPieChart.resize();
+    });
+  </script>
+</body>
+</html>

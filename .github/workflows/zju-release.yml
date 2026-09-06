@@ -1,0 +1,61 @@
+name: ZJU Release Package
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      zju: ${{ steps.targets.outputs.zju }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: targets
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 scripts/release_targets.py --base "$BASE" --head "$GITHUB_SHA" --github-output "$GITHUB_OUTPUT"
+  qizhi:
+    needs: plan
+    if: ${{ needs.plan.outputs.zju == 'true' }}
+    uses: ./.github/workflows/qizhi-checks.yml
+  lingzhi:
+    needs: plan
+    if: ${{ needs.plan.outputs.zju == 'true' }}
+    uses: ./.github/workflows/lingzhi-checks.yml
+  package:
+    needs: [qizhi, lingzhi]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/lingzhi/frontend/package-lock.json
+      - name: Verify school-authenticated Lingzhi build
+        working-directory: apps/lingzhi/frontend
+        env:
+          VITE_BASE_PATH: /lingzhi/
+          VITE_API_BASE_URL: /lingzhi
+          VITE_QIZHI_AUTH_REQUIRED: 'true'
+        run: npm ci && npm run build
+      - name: Build immutable school source package
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 deploy/zju/build.py --base "$BASE" --commit "$GITHUB_SHA" --output "$RUNNER_TEMP/zju-source.tgz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zju-source-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/zju-source.tgz
+            ${{ runner.temp }}/zju-source.tgz.sha256
+          retention-days: 14
+# School authentication and unattended runner are not configured yet.
+# This workflow builds artifacts only; it never reads server secrets or activates services.

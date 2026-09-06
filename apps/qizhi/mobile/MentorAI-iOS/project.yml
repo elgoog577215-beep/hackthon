@@ -1,0 +1,55 @@
+name: MentorAI
+options:
+  bundleIdPrefix: com.mentorai
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  defaultConfig: Debug
+  developmentLanguage: en
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    GENERATE_INFOPLIST_FILE: NO
+configs:
+  Debug: debug
+  Release: release
+packages:
+  MarkdownUI:
+    url: https://github.com/gonzalezreal/swift-markdown-ui
+    from: 2.4.1
+targets:
+  MentorAI:
+    type: application
+    platform: iOS
+    sources:
+      - path: MentorAI
+        excludes:
+          - "Resources/Info.plist"
+    resources:
+      - path: MentorAI/Resources/Assets.xcassets
+      - path: MentorAI/Preview Content/Preview Assets.xcassets
+    dependencies:
+      - package: MarkdownUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mentorai.app
+        INFOPLIST_FILE: MentorAI/Resources/Info.plist
+        DEVELOPMENT_ASSET_PATHS: "\"MentorAI/Preview Content\""
+        ENABLE_PREVIEWS: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_EMIT_LOC_STRINGS: YES
+schemes:
+  MentorAI:
+    build:
+      targets:
+        MentorAI: all
+    run:
+      config: Debug
+    archive:
+      config: Release
