@@ -2,7 +2,7 @@
   <section
     ref="workspaceRoot"
     class="ppt-workspace-view"
-    :class="{ 'is-ai-open': aiVisible, 'is-embedded': embedded }"
+    :class="{ 'is-ai-open': aiVisible, 'is-embedded': embedded, 'is-manuscript-open': embedded && activeStep === 1 && !!pptManuscriptState?.manuscript && !generatorOpen && !store.building }"
     :style="{ '--ppt-ai-width': `${pptAiPaneWidth}px` }"
   >
     <header v-if="embedded" class="ppt-workspace-flow">
@@ -10,7 +10,9 @@
       <div class="ppt-workspace-flow__actions"><slot name="source-actions" /></div>
     </header>
     <p v-if="embedded && activeStep === 3 && (!sourceReady || pptManuscriptState?.source_state === 'stale' || !renderedCurrentManuscript)" class="ppt-workspace-source-notice" role="status">{{ t('pptWorkspace.flow.previousDeck') }}</p>
-    <div v-if="embedded && store.buildPaused && activeStep !== 2" class="ppt-workspace-recovery"><p>{{ buildErrorLabel || t('pptWorkspace.flow.paused') }}</p><button type="button" @click="resumeCurrentBuild">{{ t('pptWorkspace.flow.resume') }}</button></div>
+    <div v-if="embedded && store.buildPaused && activeStep !== 2 && !renderFailure" class="ppt-workspace-recovery"><p>{{ buildErrorLabel || t('pptWorkspace.flow.paused') }}</p><button type="button" @click="resumeCurrentBuild">{{ t('pptWorkspace.flow.resume') }}</button></div>
+    <div v-if="embedded && activeStep === 1 && renderFailure" class="ppt-workspace-render-notice" role="status" data-testid="ppt-render-failure-link"><span>{{ t('pptWorkspace.editor.renderDraftPreserved') }}</span><button type="button" :disabled="externalBusy || manuscriptDirty" @click="selectFlowStep(2)">{{ t('pptWorkspace.editor.viewRenderFailure') }}<ArrowRight :size="15" /></button></div>
+    <AppErrorNotice v-if="!embedded && renderFailure && renderErrorPresentation" :presentation="renderErrorPresentation" compact data-testid="ppt-render-failure" />
     <p v-if="leaveError" class="ppt-workspace-source-notice" role="alert">{{ leaveError }}</p>
     <p v-if="externalBusy" class="ppt-workspace-source-notice" role="status">{{ t('pptWorkspace.flow.importing') }}</p>
     <div class="ppt-workspace-body" :inert="externalBusy || undefined">
@@ -50,16 +52,17 @@
     </div>
 
     <div v-else-if="embedded && activeStep === 2" class="ppt-workspace-preparation" data-testid="ppt-render-step">
-      <h2>{{ renderedCurrentManuscript ? t('pptWorkspace.flow.rendered') : t('pptWorkspace.flow.readyToRender') }}</h2>
-      <p>{{ renderedCurrentManuscript ? t('pptWorkspace.flow.renderedHint') : t('pptWorkspace.flow.renderHint') }}</p>
-      <p v-if="buildErrorLabel || pptManuscriptConfirmError" role="alert">{{ pptManuscriptConfirmError || buildErrorLabel }}</p>
+      <h2>{{ renderedCurrentManuscript ? t('pptWorkspace.flow.rendered') : !pptManuscriptState?.can_generate_ppt ? t('pptWorkspace.editor.confirmBeforeRender') : t('pptWorkspace.flow.readyToRender') }}</h2>
+      <p>{{ renderedCurrentManuscript ? t('pptWorkspace.flow.renderedHint') : !pptManuscriptState?.can_generate_ppt ? t('pptWorkspace.editor.confirmBeforeRenderHint') : t('pptWorkspace.flow.renderHint') }}</p>
+      <AppErrorNotice v-if="renderErrorPresentation" :presentation="renderErrorPresentation" compact data-testid="ppt-render-failure" />
       <button v-if="renderedCurrentManuscript" type="button" class="is-primary" @click="selectFlowStep(3)">{{ t('pptWorkspace.flow.viewDeck') }}</button>
+      <button v-else-if="!pptManuscriptState?.can_generate_ppt" type="button" class="is-primary" @click="selectFlowStep(1)">{{ t('pptWorkspace.editor.backToManuscript') }}</button>
       <button v-else-if="store.buildPaused" type="button" class="is-primary" @click="resumeCurrentBuild">{{ t('pptWorkspace.flow.resume') }}</button>
       <button v-else type="button" class="is-primary" :disabled="!pptManuscriptState?.can_generate_ppt || manuscriptDirty || !sourceReady" data-testid="render-confirmed-ppt" @click="generatePptFromConfirmedManuscript"><Presentation :size="17" />{{ t('pptWorkspace.flow.renderAction') }}</button>
     </div>
 
     <div v-else-if="embedded && activeStep === 1 && (generatorOpen || !pptManuscriptState?.manuscript)" class="ppt-workspace-preparation is-generator">
-      <p v-if="pptManuscriptConfirmError || buildErrorLabel" role="alert">{{ pptManuscriptConfirmError || buildErrorLabel }}</p>
+      <AppErrorNotice v-if="manuscriptErrorPresentation" :presentation="manuscriptErrorPresentation" compact />
       <SlideDeckGeneratorDialog inline open :mode="selectedMode" :theme="selectedTheme" :web-image-retrieval="selectedWebImageRetrieval"
         :busy="store.building || externalBusy" :disabled="!canGenerate || !sourceReady || externalBusy" :closable="Boolean(pptManuscriptState?.manuscript)" manuscript-first
         :fragment-count="estimatedFragmentCount" :duration-minutes="lessonDurationMinutes"
@@ -78,8 +81,8 @@
       :confirming="pptManuscriptConfirming"
       :saving="pptManuscriptSaving"
       :regenerating="pptManuscriptRegenerating"
-      :error="pptManuscriptConfirmError || buildErrorLabel"
-      :failure="effectiveBuildFailure"
+      :error="pptManuscriptConfirmError || (renderFailure ? '' : buildErrorLabel)"
+      :failure="renderFailure ? null : effectiveBuildFailure"
       @back="closeManuscriptWorkflow"
       @generate-manuscript="openGenerator(false)"
       @regenerate-manuscript="openGenerator(true)"
@@ -283,7 +286,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, GripVertical, Presentation, Sparkles } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, GripVertical, Presentation, Sparkles } from 'lucide-vue-next'
 import SideAIPanel from './SideAIPanel.vue'
 import MathText from './MathText.vue'
 import TeacherLessonAiWorkspace, { type TeacherAiQuickAction } from './TeacherLessonAiWorkspace.vue'
@@ -291,6 +294,8 @@ import SlideDeckBuildProgress from './SlideDeckBuildProgress.vue'
 import SlideDeckWorkbench from './SlideDeckWorkbench.vue'
 import SlideDeckGeneratorDialog from './SlideDeckGeneratorDialog.vue'
 import PptManuscriptWorkflow from './PptManuscriptWorkflow.vue'
+import AppErrorNotice from './AppErrorNotice.vue'
+import { pptFailurePresentation } from '../utils/ppt-workspace-error'
 import UiWorkflowSteps from './UiWorkflowSteps.vue'
 import PptTemplateCreatorDialog from './PptTemplateCreatorDialog.vue'
 import TeachingRepresentationsOverlay from './TeachingRepresentationsOverlay.vue'
@@ -486,7 +491,7 @@ const renderedCurrentManuscript = computed(() => Boolean(slideRepresentation.val
 const flowSteps = computed(() => [
   { value: 1, label: t('pptWorkspace.flow.manuscript'), disabled: props.externalBusy, complete: pptManuscriptState.value?.status === 'confirmed' && !manuscriptDirty.value },
   { value: 2, label: t('pptWorkspace.flow.render'), complete: renderedCurrentManuscript.value,
-    disabled: props.externalBusy || manuscriptDirty.value || (!renderedCurrentManuscript.value && pptManuscriptState.value?.status !== 'confirmed') },
+    disabled: props.externalBusy || manuscriptDirty.value || (!renderedCurrentManuscript.value && !renderFailure.value && pptManuscriptState.value?.status !== 'confirmed') },
   { value: 3, label: t('pptWorkspace.flow.use'), complete: renderedCurrentManuscript.value,
     disabled: props.externalBusy || manuscriptDirty.value || !slideRepresentation.value },
 ])
@@ -764,6 +769,15 @@ const registryCourseLogicFailure = computed<TeachingRepresentationBuildFailure |
 })
 const effectiveBuildFailure = computed(() => (
   store.buildFailure || registryCourseLogicFailure.value
+))
+const renderFailure = computed(() => Boolean(
+  effectiveBuildFailure.value && store.buildResumeOptions?.manuscriptOnly === false,
+))
+const manuscriptErrorPresentation = computed(() => pptFailurePresentation(
+  effectiveBuildFailure.value, pptManuscriptConfirmError.value || buildErrorLabel.value, 'manuscript', Boolean(pptManuscriptState.value?.manuscript),
+))
+const renderErrorPresentation = computed(() => pptFailurePresentation(
+  effectiveBuildFailure.value, pptManuscriptConfirmError.value || buildErrorLabel.value, 'render', true,
 ))
 const buildErrorLabel = computed(() => (
   effectiveBuildFailure.value?.action === 'upgrade_course_logic'
@@ -1388,6 +1402,7 @@ async function generatePptFromConfirmedManuscript() {
       mode: state.mode || selectedMode.value,
       theme: state.theme || selectedTheme.value,
       engineVersion: 'v6',
+      manuscriptOnly: false,
     })
     if (!isCurrentAttempt(launchCourseId, launchAttempt)) return
     await loadPptManuscriptState(launchCourseId, launchAttempt)
@@ -1664,6 +1679,13 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.ppt-workspace-render-notice{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:4px 0 0;padding:9px 12px;color:#85520b;background:#fff8ec;font-size:15px;line-height:1.6}
+.ppt-workspace-render-notice button{display:inline-flex;align-items:center;gap:6px;flex:none;min-height:32px;padding:4px 9px;border:1px solid #e3cf9d;border-radius:6px;background:#fff;color:#85520b;font:inherit;cursor:pointer}
+.ppt-workspace-render-notice button:disabled{opacity:.55;cursor:not-allowed}
+.ppt-workspace-render-notice button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
+.ppt-workspace-preparation :deep(.app-error-notice){width:100%;margin-bottom:16px;text-align:left;box-sizing:border-box}
+.ppt-workspace-preparation :deep(.app-error-notice :is(strong,p,summary)){font-size:15px}
+
 .ppt-workspace-source-notice,.ppt-workspace-recovery{margin:0 0 16px;padding:12px 16px;border-radius:8px;background:#fff7e8;color:#85520b;font-size:15px;line-height:1.6}
 .ppt-workspace-recovery{display:flex;align-items:center;justify-content:space-between;gap:16px}.ppt-workspace-recovery p{margin:0}.ppt-workspace-recovery button{padding:8px 12px;border:1px solid currentColor;border-radius:6px;background:white;color:inherit;font:inherit;cursor:pointer}
 .ppt-workspace-view { position:relative; width:100%; height:100%; display:flex; min-width:0; min-height:0; overflow:hidden; border-radius:var(--lz-radius-surface); background:#e9edf3; }
@@ -1713,6 +1735,8 @@ onUnmounted(() => {
 }
 .ppt-workspace-view.is-embedded{height:auto;min-height:560px;flex-direction:column;overflow:visible;border-radius:0;background:transparent}
 .is-embedded .ppt-workspace-body{min-height:500px}
+.ppt-workspace-view.is-embedded.is-manuscript-open{height:calc(100dvh - 190px);min-height:540px;overflow:hidden}
+.is-embedded.is-manuscript-open .ppt-workspace-body{min-height:0}
 .ppt-workspace-flow{display:flex;align-items:center;gap:12px;margin:0 0 16px}
 .ppt-workspace-flow>.workflow-steps{flex:1}
 .ppt-workspace-flow__actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}

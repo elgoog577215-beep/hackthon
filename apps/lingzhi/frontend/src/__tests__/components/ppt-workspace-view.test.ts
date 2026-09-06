@@ -3,6 +3,8 @@ import { nextTick, reactive } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PptWorkspaceView from '@/views/PptWorkspaceView.vue'
+import { setLocale } from '@/shared/i18n'
+import messages from '../../../public/locales/zh/translation.json'
 import { useCourseStore } from '@/stores/course'
 import { useCourseEvolutionStore } from '@/stores/courseEvolution'
 import { useTeachingRepresentationsStore } from '@/stores/teachingRepresentations'
@@ -23,7 +25,8 @@ vi.mock('vue-router', () => ({
   useRouter: () => routerMock,
 }))
 
-beforeEach(() => {
+beforeEach(async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => messages } as Response); await setLocale('zh')
   setActivePinia(createPinia())
   httpMock.get.mockReset()
   httpMock.post.mockReset()
@@ -325,10 +328,7 @@ describe('PptWorkspaceView', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.ppt-manuscript-workflow__title-field input').element).toHaveProperty(
-      'value',
-      '函数复合的定义域',
-    )
+    expect(wrapper.get('[data-testid="ppt-page-reading"]').text()).toContain('函数复合的定义域')
     expect(wrapper.find('[data-testid="generate-ppt-from-manuscript"]').exists()).toBe(false)
     await wrapper.get('[data-testid="confirm-ppt-manuscript"]').trigger('click')
     await flushPromises()
@@ -337,7 +337,7 @@ describe('PptWorkspaceView', () => {
       '/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/manuscript/confirm',
       { manuscript_revision: 'pptman-1' },
     )
-    expect(wrapper.get('[data-testid="generate-ppt-from-manuscript"]').text()).toContain('根据已确认页面内容稿生成 PPT')
+    expect(wrapper.get('[data-testid="generate-ppt-from-manuscript"]').text()).toContain('生成 PPT')
   })
 
   it('保存当前修订后只重新生成教师选中的页面', async () => {
@@ -414,6 +414,7 @@ describe('PptWorkspaceView', () => {
     })
     await flushPromises()
 
+    await wrapper.get('[data-testid="edit-ppt-manuscript"]').trigger('click')
     await wrapper.get('.ppt-manuscript-workflow__title-field input').setValue('函数复合受两层定义域约束')
     await wrapper.get('[data-testid="save-ppt-manuscript"]').trigger('click')
     await flushPromises()
@@ -428,6 +429,7 @@ describe('PptWorkspaceView', () => {
       }),
     )
 
+    await wrapper.get('[data-testid="select-ppt-pages"]').trigger('click')
     await wrapper.get('.ppt-manuscript-workflow__page-rail input').trigger('change')
     await wrapper.get('[data-testid="regenerate-selected-ppt-pages"]').trigger('click')
     await flushPromises()
@@ -1185,7 +1187,7 @@ describe('PptWorkspaceView', () => {
     await flushPromises()
 
     expect(wrapper.find('.ppt-workspace-state__migrate').exists()).toBe(false)
-    expect(wrapper.text()).toContain('加载课程源失败，请重试')
+    expect(wrapper.text()).toContain('页面内容稿读取失败')
     expect(ensure).toHaveBeenCalledTimes(2)
     expect(ensure).toHaveBeenLastCalledWith('course-2', {
       loadSelectedSpec: false,

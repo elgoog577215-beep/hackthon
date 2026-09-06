@@ -102,7 +102,7 @@ function selectOption(option: UiSegmentedOption) {
   color:#64748b;
   background:transparent;
   font:inherit;
-  font-size:12px;
+  font-size:var(--ui-segment-font-size,12px);
   font-weight:700;
   white-space:nowrap;
   cursor:pointer;

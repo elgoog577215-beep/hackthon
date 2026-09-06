@@ -2,12 +2,14 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import PptWorkspace from '@/components/PptWorkspace.vue'
+import { setLocale } from '@/shared/i18n'
+import messages from '../../../public/locales/zh/translation.json'
 import { useTeachingRepresentationsStore } from '@/stores/teachingRepresentations'
 import { useCourseStore } from '@/stores/course'
 
 const http = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn() }))
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }))
-vi.mock('@/utils/http', () => ({ default: http, withApiBase: (path: string) => path, learnerIdentityHeaders: () => ({}) }))
+vi.mock('@/utils/http', () => ({ default: http, withApiBase: (path: string) => path, learnerIdentityHeaders: () => ({}), identityScopeHeaders: (_scope: string, headers: Record<string, string>) => headers }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: {}, query: {}, meta: {} }), useRouter: () => router }))
 const source = { course_id: 'course-1', course_name: '整门课程', source_format: 'canonical', document: { schema_version: 'course_document_v1', course_id: 'course-1', title: '单讲来源', document_revision: 'doc-1', sections: [], blocks: [] } }
 function manuscript(overrides: Record<string, any> = {}) {
@@ -36,7 +38,8 @@ function open(props: Record<string, any> = {}) {
   wrappers.push(wrapper)
   return wrapper
 }
-beforeEach(() => {
+beforeEach(async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => messages } as Response); await setLocale('zh')
   setActivePinia(createPinia())
   vi.clearAllMocks()
   state = manuscript()
@@ -68,6 +71,62 @@ describe('PPT inside the course workbench', () => {
     expect(build).toHaveBeenCalledWith('course-1', expect.objectContaining({ engineVersion: 'v6' }))
     expect(router.push).not.toHaveBeenCalled()
   })
+  it('keeps saved content readable and assigns export failures to rendering', async () => {
+    state = manuscript({ status: 'confirmed', can_generate_ppt: true })
+    const store = setupStore()
+    vi.mocked(store.recoverDurableBuild).mockImplementation(async () => {
+      store.buildResumeOptions = { mode: 'teaching', theme: 'academic-editorial', manuscriptOnly: false }
+      store.buildFailure = { code: 'quality_gate_failed', message: 'exported_text_frame_overflow', retryable: true }
+      store.buildError = 'quality_gate_failed'
+      return null as any
+    })
+    const wrapper = open()
+    await flushPromises()
+    expect(wrapper.get('[data-testid="ppt-render-failure"]').text()).toContain('PPT 渲染未完成')
+    expect(wrapper.get('[data-testid="ppt-render-failure"] details').attributes('open')).toBeUndefined()
+    await wrapper.get('[data-testid="ppt-flow-steps"]').findAll('button')[0]!.trigger('click')
+    expect(wrapper.find('[data-testid="ppt-manuscript-failure"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="ppt-render-failure-link"]').text()).toContain('内容稿已保留')
+    expect(wrapper.get('[data-testid="ppt-page-reading"]').text()).toContain('相同条件下比较')
+    expect(wrapper.text()).not.toContain('exported_text_frame_overflow')
+    expect(wrapper.text()).not.toContain('页面内容稿未生成')
+    await wrapper.get('[data-testid="edit-ppt-manuscript"]').trigger('click')
+    await wrapper.get('.ppt-manuscript-workflow__title-field input').setValue('修订后待确认')
+    await wrapper.get('[data-testid="save-ppt-manuscript"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="ppt-render-failure-link"] button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="ppt-render-step"]').text()).toContain('内容稿待确认')
+    expect(wrapper.find('[data-testid="render-confirmed-ppt"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="ppt-render-failure"]').text()).toContain('PPT 渲染未完成')
+  })
+  it('assigns a direct render failure to rendering without a refresh', async () => {
+    state = manuscript({ status: 'confirmed', can_generate_ppt: true })
+    const store = setupStore()
+    const wrapper = open()
+    await flushPromises()
+    vi.mocked(fetch).mockRejectedValueOnce({ code: 'quality_gate_failed', message: 'exported_text_frame_overflow' })
+    await wrapper.get('[data-testid="render-confirmed-ppt"]').trigger('click')
+    await flushPromises()
+    expect(fetch).toHaveBeenCalledWith('/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/build/stream', expect.objectContaining({ method: 'POST' }))
+    expect(store.buildResumeOptions?.manuscriptOnly).toBe(false)
+    expect(wrapper.get('[data-testid="ppt-render-failure"]').text()).toContain('PPT 渲染未完成')
+    await wrapper.get('[data-testid="ppt-flow-steps"]').findAll('button')[0]!.trigger('click')
+    expect(wrapper.find('[data-testid="ppt-manuscript-failure"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="ppt-page-reading"]').text()).toContain('相同条件下比较')
+    expect(wrapper.get('[data-testid="ppt-render-failure-link"]').text()).toContain('内容稿已保留')
+  })
+  it('keeps render errors visible in the legacy workspace', async () => {
+    state = manuscript({ status: 'confirmed', can_generate_ppt: true })
+    setupStore()
+    const wrapper = open({ embedded: false })
+    await flushPromises()
+    vi.mocked(fetch).mockRejectedValueOnce({ code: 'quality_gate_failed', message: 'exported_text_frame_overflow' })
+    await wrapper.get('[data-testid="generate-ppt-from-manuscript"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="ppt-render-failure"]').text()).toContain('PPT 渲染未完成')
+    expect(wrapper.find('[data-testid="ppt-manuscript-failure"]').exists()).toBe(false)
+  })
   it('reads the last available deck when upstream sources are unavailable', async () => {
     state = manuscript({ status: 'confirmed', source_state: 'stale', can_generate_ppt: false, generated_representation_id: 'deck-1' })
     setupStore(true)
@@ -82,6 +141,7 @@ describe('PPT inside the course workbench', () => {
     setupStore()
     const wrapper = open()
     await flushPromises()
+    await wrapper.get('[data-testid="edit-ppt-manuscript"]').trigger('click')
     await wrapper.get('.ppt-manuscript-workflow__title-field input').setValue('教师正在编辑的标题')
     await wrapper.setProps({ sourceReady: false })
     await flushPromises()
@@ -93,6 +153,7 @@ describe('PPT inside the course workbench', () => {
     setupStore()
     const wrapper = open()
     await flushPromises()
+    await wrapper.get('[data-testid="edit-ppt-manuscript"]').trigger('click')
     await wrapper.get('.ppt-manuscript-workflow__title-field input').setValue('必须保留的修改')
     http.patch.mockRejectedValueOnce({ response: { data: { detail: { message: '保存冲突，请重试' } } } })
     expect(await wrapper.vm.prepareToLeave()).toBe(false)

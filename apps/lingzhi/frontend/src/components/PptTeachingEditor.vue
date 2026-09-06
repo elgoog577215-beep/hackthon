@@ -1,5 +1,26 @@
 <template>
   <div class="ppt-teaching-editor">
+    <div v-if="readonly" class="ppt-teaching-reading">
+      <PptTeachingElement v-for="element in readingElements" :key="element.element_id" :element="element" />
+      <table v-if="page.teaching.expression.kind === 'comparison'">
+        <thead><tr><th>{{ t('pptWorkspace.comparisonDimension') }}</th><th v-for="subject in page.teaching.expression.subjects" :key="subject.subject_id"><PptTeachingElement :element="elementById(subject.label_element_id)" /></th></tr></thead>
+        <tbody><tr v-for="dimension in page.teaching.expression.dimensions" :key="dimension.dimension_id"><th><PptTeachingElement :element="elementById(dimension.label_element_id)" /></th><td v-for="subject in page.teaching.expression.subjects" :key="subject.subject_id"><PptTeachingElement v-for="element in cellElements(subject.subject_id, dimension.dimension_id)" :key="element.element_id" :element="element" /></td></tr></tbody>
+      </table>
+      <table v-else-if="page.teaching.expression.kind === 'chart'" data-testid="ppt-reading-chart">
+        <thead><tr><th>{{ t('pptWorkspace.editor.chartObject') }}</th><th>{{ t('pptWorkspace.editor.chartValue') }} · <MathText :content="elementText(page.teaching.expression.unit_element_id)" /></th></tr></thead>
+        <tbody><tr v-for="point in page.teaching.expression.points" :key="point.label_element_id"><th><PptTeachingElement :element="elementById(point.label_element_id)" /></th><td><PptTeachingElement :element="elementById(point.value_element_id)" /></td></tr></tbody>
+      </table>
+      <div v-for="edge in page.teaching.expression.relations || []" :key="edge.relation_id" class="ppt-teaching-reading__relation">
+        <PptTeachingElement :element="elementById(edge.source_id)" />
+        <span>{{ relationSymbol(edge.kind) }} {{ edge.label || t(`pptWorkspace.editor.relations.${edge.kind}`) }}</span>
+        <PptTeachingElement :element="elementById(edge.target_id)" />
+        <div v-if="edge.condition_element_ids?.length" class="ppt-teaching-reading__conditions">
+          <strong>{{ t('pptWorkspace.editor.relationConditions') }}</strong>
+          <PptTeachingElement v-for="id in edge.condition_element_ids" :key="id" :element="elementById(id)" />
+        </div>
+      </div>
+    </div>
+    <template v-else>
     <template v-if="section === 'layout'">
     <label v-if="compatibleLayouts.length"><span>{{ t('pptWorkspace.pageLayout') }}</span><select v-model="page.layout_id" :disabled="disabled || compatibleLayouts.length < 2" data-testid="ppt-page-layout"><option v-for="layout in compatibleLayouts" :key="layout.id" :value="layout.id">{{ t(`pptWorkspace.layoutNames.${layout.slug}`, layout.slug) }}</option></select></label>
     <label><span>{{ t('pptWorkspace.presentationMode') }}</span>
@@ -31,7 +52,7 @@
     <fieldset v-if="page.teaching.expression.relations?.length"><legend>{{ t('pptWorkspace.teachingRelations') }}</legend>
       <div v-for="edge in page.teaching.expression.relations" :key="edge.relation_id" class="ppt-teaching-editor__relation">
         <select v-model="edge.source_id" :disabled="disabled || !!page.teaching.adopted_diagram" :aria-label="t('pptWorkspace.relationSource')"><option v-for="element in relationElements" :key="element.element_id" :value="element.element_id">{{ element.text }}</option></select>
-        <span>→</span>
+        <span>{{ relationSymbol(edge.kind) }}</span>
         <select v-model="edge.target_id" :disabled="disabled || !!page.teaching.adopted_diagram" :aria-label="t('pptWorkspace.relationTarget')"><option v-for="element in relationElements" :key="element.element_id" :value="element.element_id">{{ element.text }}</option></select>
         <input v-model="edge.label" :disabled="disabled || !!page.teaching.adopted_diagram" :aria-label="t('pptWorkspace.relationMeaning')">
       </div>
@@ -44,13 +65,16 @@
       <label v-for="element in page.teaching.elements" :key="element.element_id" class="ppt-teaching-editor__choice"><input v-model="state.visible_element_ids" type="checkbox" :value="element.element_id" :disabled="disabled">{{ element.text }}</label>
     </fieldset>
     </details>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import { t } from '../shared/i18n'
-const props = withDefaults(defineProps<{ page: Record<string, any>; disabled: boolean; section?: string; layouts?: Record<string, any>[] }>(), { layouts: () => [], section: 'layout' })
+import MathText from './MathText.vue'
+import PptTeachingElement from './PptTeachingElement.vue'
+const props = withDefaults(defineProps<{ page: Record<string, any>; disabled: boolean; readonly?: boolean; section?: string; layouts?: Record<string, any>[] }>(), { layouts: () => [], section: 'layout' })
 const compatibleLayouts = computed(() => props.layouts.filter(layout => layout.page_ids?.includes(props.page.page_id)))
 const hasAnswers = computed(() => props.page.teaching.elements.some((e: any) => e.role === 'answer'))
 function checkpoint(id: string) { return props.page.teaching.presentation?.checkpoints.find((c: any) => c.state_id === id) }
@@ -78,11 +102,27 @@ function cellElements(subject: string, dimension: string) {
 }
 const comparisonCellIds = computed(() => new Set<string>(props.page.teaching.expression.cells?.flatMap((c: any) => c.element_ids) || []))
 const relationElements = computed(() => props.page.teaching.elements.filter((e: any) => props.page.teaching.expression.node_element_ids?.includes(e.element_id) || comparisonCellIds.value.has(e.element_id)))
+function relationSymbol(kind: string) {
+  return kind === 'equivalent' ? '＝' : ['association', 'contrasts'].includes(kind) ? '—' : '→'
+}
+const readingElements = computed(() => {
+  const expression = props.page.teaching.expression
+  let elements = standaloneElements.value
+  if (expression.ordered_element_ids?.length) {
+    elements = expression.ordered_element_ids.map(elementById).filter(Boolean)
+  } else if (expression.kind === 'chart') {
+    const chartIds = new Set([expression.unit_element_id, ...expression.points.flatMap((point: any) => [point.label_element_id, point.value_element_id])])
+    elements = elements.filter((element: any) => !chartIds.has(element.element_id))
+  }
+  return elements.filter((element: any) => element.text !== props.page.title || !['text', undefined].includes(element.kind))
+})
 const standaloneElements = computed(() => props.page.teaching.expression.kind === 'comparison'
   ? props.page.teaching.elements.filter((e: any) => !e.subject_id && !e.dimension_id)
   : props.page.teaching.elements)
 </script>
 
 <style scoped>
+.ppt-teaching-reading{font-size:17px;line-height:1.9}.ppt-teaching-reading :deep(p){margin:0 0 16px}.ppt-teaching-reading__relation{display:flex;flex-wrap:wrap;gap:10px}.ppt-teaching-reading__conditions{flex-basis:100%}.ppt-teaching-reading__conditions strong{font-size:15px}.ppt-teaching-reading table{font-size:16px}.ppt-teaching-reading th{font-weight:650;background:#f7f8fb}
+
 .ppt-teaching-editor{font-size:16px;line-height:1.6}.ppt-teaching-editor label{display:flex;flex-direction:column;gap:6px;margin:14px 0}.ppt-teaching-editor textarea,.ppt-teaching-editor input:not([type=checkbox]),.ppt-teaching-editor select{font:inherit;padding:8px;border:1px solid #cdd3df;border-radius:5px;background:#fff;width:100%;color:#172033}.ppt-teaching-editor :is(textarea,input,select):focus-visible{outline:2px solid #3857d6;outline-offset:2px}.ppt-teaching-editor table{border-collapse:collapse;width:100%;margin:18px 0}.ppt-teaching-editor td,.ppt-teaching-editor th{padding:10px;border-bottom:1px solid #e1e5ec;text-align:left}.ppt-teaching-editor fieldset{border:0;border-top:1px solid #e1e5ec;padding:16px 0;margin:18px 0}.ppt-teaching-editor legend{font-weight:650}.ppt-teaching-editor__relation{display:grid;grid-template-columns:1fr 24px 1fr 1fr;gap:8px;align-items:center;margin:10px 0}.ppt-teaching-editor label.ppt-teaching-editor__choice{flex-direction:row;align-items:flex-start;gap:9px}.ppt-teaching-editor__choice input{margin-top:7px}.ppt-teaching-editor__checkpoint{display:flex;align-items:baseline;gap:10px}.ppt-teaching-editor input[type=checkbox]{width:auto}.ppt-teaching-editor details{margin-top:18px}.ppt-teaching-editor summary{cursor:pointer}.ppt-teaching-editor :deep(.ppt-scene){margin:14px 0;border:1px solid #e1e5ec}
 </style>

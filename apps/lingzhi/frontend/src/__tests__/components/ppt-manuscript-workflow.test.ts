@@ -1,5 +1,9 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import { setLocale } from '@/shared/i18n'
+import messages from '../../../public/locales/zh/translation.json'
+beforeEach(async () => { vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => messages } as Response); await setLocale('zh') })
+afterEach(() => vi.restoreAllMocks())
 import PptManuscriptWorkflow from '@/components/PptManuscriptWorkflow.vue'
 
 const emptyState = {
@@ -43,6 +47,9 @@ describe('PptManuscriptWorkflow', () => {
       },
     })
 
+    expect(wrapper.find('.ppt-manuscript-workflow__title-field').exists()).toBe(false)
+    await wrapper.get('[data-testid="ppt-lesson-arrangement"]').trigger('click')
+    await wrapper.get('[data-testid="edit-ppt-manuscript"]').trigger('click')
     expect(wrapper.get('[data-testid="ppt-narrative-brief"]').text()).toContain('变化率怎样连接局部变化与整体累积')
     await wrapper.get('.ppt-manuscript-workflow__title-field input').setValue('平均变化率连接两个增量')
     await wrapper.get('[data-testid="save-ppt-manuscript"]').trigger('click')
@@ -76,6 +83,8 @@ describe('PptManuscriptWorkflow', () => {
       },
     })
 
+    expect(wrapper.find('[data-testid="regenerate-selected-ppt-pages"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="select-ppt-pages"]').trigger('click')
     const selectors = wrapper.findAll('.ppt-manuscript-workflow__page-rail input')
     expect(selectors[0]!.attributes('disabled')).toBeUndefined()
     expect(selectors[1]!.attributes('disabled')).toBeDefined()
@@ -83,6 +92,7 @@ describe('PptManuscriptWorkflow', () => {
     await wrapper.get('[data-testid="regenerate-selected-ppt-pages"]').trigger('click')
     expect(wrapper.emitted('regenerate-pages')).toEqual([[['page-1']]])
 
+    await wrapper.get('[data-testid="edit-ppt-manuscript"]').trigger('click')
     await wrapper.findAll('.ppt-manuscript-workflow__lock')[0]!.trigger('click')
     expect(wrapper.get('[data-testid="regenerate-selected-ppt-pages"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-testid="save-ppt-manuscript"]').attributes('disabled')).toBeUndefined()
@@ -97,6 +107,7 @@ describe('PptManuscriptWorkflow', () => {
     } }
     const wrapper = mount(PptManuscriptWorkflow, { props: { title: '课堂', state } })
     expect(wrapper.findAll('.ppt-manuscript-workflow__page-copy')).toHaveLength(1)
+    await wrapper.get('[data-testid="edit-ppt-manuscript"]').trigger('click')
     await wrapper.get('.ppt-manuscript-workflow__title-field input').setValue('已编辑')
     await wrapper.get('[data-page-id="p2"]').trigger('click')
     expect((wrapper.get('.ppt-manuscript-workflow__title-field input').element as HTMLInputElement).value).toBe('第二页')
@@ -105,6 +116,21 @@ describe('PptManuscriptWorkflow', () => {
     await wrapper.get('[data-page-id="p2"]').trigger('click')
     await wrapper.setProps({ state: { ...state, revision: 'two' } })
     expect(wrapper.get('[data-page-id="p2"]').attributes('aria-current')).toBe('page')
+  })
+
+  it('reads content first and cancels draft edits without overwriting the saved page', async () => {
+    const state = { ...emptyState, revision: 'one', status: 'confirmed', can_generate_ppt: true, manuscript: {
+      pages: [{ page_id: 'p1', title: '已保存标题', visible_copy: ['已保存正文'] }], page_count: 1,
+    } }
+    const wrapper = mount(PptManuscriptWorkflow, { props: { title: '课堂', state } })
+    expect(wrapper.get('[data-testid="ppt-page-reading"]').text()).toContain('已保存正文')
+    expect(wrapper.find('textarea').exists()).toBe(false)
+    await wrapper.get('[data-testid="edit-ppt-manuscript"]').trigger('click')
+    await wrapper.get('.ppt-manuscript-workflow__title-field input').setValue('未保存标题')
+    await wrapper.get('[data-testid="cancel-ppt-edit"]').trigger('click')
+    expect(wrapper.get('[data-testid="ppt-page-reading"]').text()).toContain('已保存标题')
+    expect(wrapper.emitted('save-manuscript')).toBeUndefined()
+    expect((wrapper.vm as any).pendingChanges().updates).toEqual([])
   })
 
   it('offers source-impact regeneration while keeping the full rebuild path', async () => {
@@ -128,7 +154,7 @@ describe('PptManuscriptWorkflow', () => {
     })
 
     expect(wrapper.text()).toContain('只重新生成受影响页')
-    expect(wrapper.get('[data-testid="generate-ppt-manuscript"]').text()).toContain('重新生成整份页面内容稿')
+    expect(wrapper.get('[data-testid="generate-ppt-manuscript"]').text()).toContain('重新生成页面内容稿')
     await wrapper.get('[data-testid="regenerate-affected-ppt-pages"]').trigger('click')
     expect(wrapper.emitted('regenerate-pages')).toEqual([[[]]])
   })
@@ -210,6 +236,8 @@ describe('PptManuscriptWorkflow', () => {
     const wrapper = mount(PptManuscriptWorkflow, { props: { title: '执行方式', state } })
     expect(wrapper.get('[data-testid="confirm-ppt-manuscript"]').attributes('disabled')).toBeDefined()
     expect(wrapper.findAll('[role="alert"]')).toHaveLength(1)
+    await wrapper.get('[data-testid="ppt-lesson-arrangement"]').trigger('click')
+    await wrapper.get('[data-testid="edit-ppt-manuscript"]').trigger('click')
     await wrapper.get('[data-testid="ppt-pacing-budget"]').setValue('4')
     await wrapper.get('[data-testid="save-ppt-manuscript"]').trigger('click')
     expect(wrapper.emitted('save-manuscript')).toEqual([[[], expect.objectContaining({ max_physical_pages: 4 })]])
