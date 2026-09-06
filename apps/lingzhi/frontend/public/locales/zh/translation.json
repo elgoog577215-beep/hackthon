@@ -1900,6 +1900,8 @@
     "previewState": "画面",
     "pageLayout": "本页版式",
     "layoutNames": {
+      "chart": "数据比较",
+      "code": "代码与解释",
       "cover": "封面",
       "agenda": "提纲",
       "section": "章节引入",

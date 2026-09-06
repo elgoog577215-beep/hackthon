@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, model_serializer
 
 from course_document import stable_hash
 from ppt_layout_execution import LayoutExecution, tool_identity, validate_text_frame
@@ -35,6 +35,9 @@ class SceneObject(Contract):
     color: str = "17243B"
     fill: str = "FFFFFF"
     stroke: str = "FFFFFF"
+    text_align: Literal["left", "center", "right"] = "left"
+    vertical_align: Literal["top", "middle", "bottom"] = "top"
+    visible_with: str = ""
     asset_id: str = ""
     asset_digest: str = ""
     asset_course_id: str = ""
@@ -42,6 +45,15 @@ class SceneObject(Contract):
     subject_id: str = ""
     dimension_id: str = ""
     editability: Literal["text", "image_object", "formula_source_text", "native_shape"] = "text"
+
+    @model_serializer(mode="wrap")
+    def serialize(self, handler):
+        value = handler(self)
+        # Old frozen scenes retain byte-equivalent hashes when loaded by V2.
+        for key, default in (("text_align", "left"), ("vertical_align", "top"), ("visible_with", "")):
+            if value.get(key) == default:
+                value.pop(key, None)
+        return value
 
 
 class SceneEdge(Contract):
@@ -145,7 +157,7 @@ def _graph_positions(ids: list[str], relations, frame):
 
 
 def resolve_page_scenes(*, page_id: str, title: str, content: PageTeachingV2, layout, template,
-                        source_document_revision: str) -> list[ResolvedPageScene]:
+                        source_document_revision: str, page_number: int = 0) -> list[ResolvedPageScene]:
     execution = layout.execution
     if execution is None or content.expression.kind not in execution.expression_kinds:
         raise ValueError("teaching_layout_incompatible")
@@ -189,11 +201,19 @@ def resolve_page_scenes(*, page_id: str, title: str, content: PageTeachingV2, la
             styles[element_id] = {"fill": fill, "bold": bold}
 
     fixed_title_frame = None
+    authored_title = None
+    background = "FFFFFF"
     from ppt_fixed_templates import COMPONENT_PREFIX, place_fixed_fields
+    from ppt_classroom_design import VERSION as AUTHORED_VERSION, layout_fields, page_furniture, colors
     if execution.component_id.startswith(COMPONENT_PREFIX):
         if len(title) > 28:
             raise ValueError("fixed_title_too_long:maximum=28")
-        fixed_title_frame = place_fixed_fields(content, execution, place, positions, slots, styles)
+        if execution.component_version == AUTHORED_VERSION:
+            authored_title, background = layout_fields(content, execution, template.theme_id, place, positions, slots, styles)
+            fixed_title_frame = authored_title["frame"]
+            accent = colors(template.theme_id)["accent"]
+        else:
+            fixed_title_frame = place_fixed_fields(content, execution, place, positions, slots, styles)
     elif isinstance(expression, ComparisonExpression):
         if len(expression.subjects) > execution.max_subjects or len(expression.dimensions) > execution.max_dimensions:
             raise ValueError("comparison_layout_capacity_exceeded")
@@ -301,9 +321,10 @@ def resolve_page_scenes(*, page_id: str, title: str, content: PageTeachingV2, la
                 raise ValueError("native_cell_connector_unsupported")
     all_objects = []
     tx, ty, tw, th = title_frame
-    title_lines = validate_text_frame(title, tw, th, 30, execution.font_sha256)
+    title_style = {k: v for k, v in authored_title.items() if k != "frame"} if authored_title else {"font_size": 30, "color": accent}
+    title_lines = validate_text_frame(title, tw, th, title_style["font_size"], execution.font_sha256)
     all_objects.append(SceneObject(object_id="title", slot_id="title", text=title, lines=title_lines,
-                                   x=tx, y=ty, width=tw, height=th, font_size=30, bold=True, color=accent))
+                                   x=tx, y=ty, width=tw, height=th, bold=True, **title_style))
     capacity_errors = []
     for element_id, element in elements.items():
         x, y, width, height = positions[element_id]
@@ -315,7 +336,7 @@ def resolve_page_scenes(*, page_id: str, title: str, content: PageTeachingV2, la
             displayed_text = display_element_text(element)
             lines = [] if element.kind == "image" else validate_text_frame(displayed_text, width, height, font_size, execution.font_sha256)
         except ValueError as exc:
-            capacity_errors.append(f"{exc}:{element_id}: frame={width:g}x{height:g}pt, font={execution.font_floor_pt:g}pt")
+            capacity_errors.append(f"{exc}:{element_id}: frame={width:g}x{height:g}pt, font={font_size:g}pt")
             continue
         adopted = next((a for a in content.adopted_assets if a.asset_id == element.asset_id), None)
         all_objects.append(SceneObject(
@@ -331,11 +352,13 @@ def resolve_page_scenes(*, page_id: str, title: str, content: PageTeachingV2, la
         ))
     if capacity_errors:
         raise ValueError("; ".join(capacity_errors) + "; revise the draft: concise conditions and fewer dimensions; preserve selected artifacts exactly")
-    if fixed_title_frame:
+    if authored_title:
+        all_objects.extend(page_furniture(content, execution, template.theme_id, title, positions, slots, page_number=page_number))
+    elif fixed_title_frame:
         # Qizhi's restrained header hierarchy, shared by preview and PPTX.
         all_objects.append(SceneObject(object_id="header-rule", slot_id="decoration", kind="shape", text="", lines=[],
             x=28, y=24, width=4, height=48, font_size=22, fill=accent, stroke=accent, editability="native_shape"))
-    if isinstance(expression, ChartExpression):
+    if isinstance(expression, ChartExpression) and not authored_title:
         all_objects.extend(chart_bars)
         all_objects.append(SceneObject(object_id="chart-zero", slot_id="chart.zero", text="0", lines=["0"],
             x=250, y=462, width=40, height=40, font_size=20))
@@ -393,8 +416,8 @@ def resolve_page_scenes(*, page_id: str, title: str, content: PageTeachingV2, la
                 x1=x1, y1=y1, x2=x2, y2=y2, start_site=start_site, end_site=end_site))
         payload = dict(logical_page_id=page_id, state_id=state.state_id, layout_id=layout.template_layout_id,
             template_digest=template.template_digest, source_document_revision=source_document_revision,
-            accent_color=accent,
-            objects=[o.model_dump(mode="json") for o in all_objects if not o.element_id or o.element_id in visible],
+            accent_color=accent, background=background,
+            objects=[o.model_dump(mode="json") for o in all_objects if (not o.element_id or o.element_id in visible) and (not o.visible_with or o.visible_with in visible)],
             edges=[e.model_dump(mode="json") for e in edges], emphasized_element_ids=state.emphasized_element_ids,
             execution=execution.model_dump(mode="json"), tools=tools)
         scene = ResolvedPageScene(scene_digest="", **payload)

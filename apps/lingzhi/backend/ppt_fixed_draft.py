@@ -4,13 +4,11 @@ Source IDs, reveal bookkeeping and geometry stay in code. Model requests carry
 only the chosen form, source excerpts and teacher context, never layout code.
 """
 from copy import deepcopy
-from typing import Literal
-
 from pydantic import Field, create_model
 
 from ppt_draft_common import QuoteChoice
 from ppt_teaching_content import Contract
-from ppt_fixed_templates import LAYOUTS, fixed_slug
+from ppt_fixed_templates import LAYOUTS, VERSION, fixed_slug, layout_limits
 
 
 class TextField(Contract):
@@ -20,6 +18,11 @@ class TextField(Contract):
 
 class ExactField(Contract):
     sources: list[QuoteChoice] = Field(min_length=1, max_length=1)
+
+
+class ExplainedPoint(TextField):
+    text: str = Field(min_length=1, max_length=52)
+    heading: str = Field(default="", max_length=18)
 
 
 class FixedDraft(Contract):
@@ -34,30 +37,41 @@ class ComparisonRow(Contract):
     right: TextField
 
 
-def form_type(slug):
+def form_type(slug, *, authored=False):
     def required(kind):
         return (kind, ...)
+    def text_type(limit):
+        return create_model(f"TextUpTo{limit}", __base__=TextField, text=(str, Field(min_length=1, max_length=limit))) if authored else TextField
     if slug == "comparison":
-        fields = {"condition": required(TextField), "left_subject": required(TextField), "right_subject": required(TextField),
-                  "rows": (list[ComparisonRow], Field(min_length=1, max_length=3)),
-                  "conclusion": (TextField | None, None)}
+        row_type = create_model("AlignedRow", dimension=required(text_type(12)), left=required(text_type(28)),
+                                right=required(text_type(28)), __base__=Contract) if authored else ComparisonRow
+        fields = {"condition": required(text_type(38)), "left_subject": required(text_type(12)), "right_subject": required(text_type(12)),
+                  "rows": (list[row_type], Field(min_length=1, max_length=3)),
+                  "conclusion": (text_type(32) | None, None)}
     elif slug == "question":
-        fields = {"question": required(TextField), "answer": required(TextField)}
+        fields = {"question": required(text_type(112)), "answer": required(TextField)}
     elif slug == "formula":
         fields = {"formula": required(ExactField), "explanation": (TextField | None, None)}
+    elif slug == "code":
+        fields = {"code": required(ExactField), "explanation": (text_type(60) | None, None)}
+    elif slug == "chart":
+        point_type = create_model("ChartField", label=required(text_type(6)), value=required(ExactField), __base__=Contract)
+        fields = {"unit": required(ExactField), "points": (list[point_type], Field(min_length=2, max_length=6))}
     elif slug == "figure":
-        fields = {"asset_id": required(str), "caption": required(TextField),
+        fields = {"asset_id": required(str), "caption": required(text_type(30)),
                   "explanation": (TextField | None, None)}
     elif slug in {"cover", "section"}:
         fields = {"subtitle": required(TextField)}
     else:
-        fields = {"steps" if slug == "flow" else "points": (list[TextField],
-                    Field(min_length=3 if slug == "flow" else 1, max_length=LAYOUTS[slug][2]))}
+        point = ExplainedPoint if authored and slug in {"bullets", "summary"} else text_type(28 if slug == "flow" else 32)
+        count = min(3, LAYOUTS[slug][2]) if authored and slug in {"bullets", "summary"} else LAYOUTS[slug][2]
+        fields = {"steps" if slug == "flow" else "points": (list[point],
+                    Field(min_length=3 if slug == "flow" else 1, max_length=count))}
     return create_model("Fixed" + slug.title(), __base__=FixedDraft, **fields)
 
 
 def form_schema(layout_id):
-    form = form_type(fixed_slug(layout_id))
+    form = form_type(fixed_slug(layout_id), authored=f"@{VERSION}/" in layout_id)
     # A capacity repair may split only this task, in the same authored layout.
     group = create_model("FixedPageGroup", pages=(list[form], Field(min_length=1, max_length=4)))
     from pydantic import TypeAdapter
@@ -73,14 +87,14 @@ def lower_fixed_response(response, plan, assets=()):
         if len(parts) > 1 and any(not str(p.get("split_reason") or "").strip() for p in parts):
             raise ValueError("fixed_page_split_reason_required")
         return {"pages": [lower_fixed_response(p, plan, assets) for p in parts]}
-    data = form_type(slug).model_validate(response).model_dump(mode="json")
+    data = form_type(slug, authored=f"@{VERSION}/" in plan["layout_id"]).model_validate(response).model_dump(mode="json")
     base = {"title": data["title"], "layout_id": plan["layout_id"],
             "page_goal": plan["page_goal"], "split_reason": data["split_reason"],
             "reveal_notes": [data["notes"]], "presentation": {"mode": "complete"}}
 
     def element(value, key, *, role="evidence", kind="text", stage=1):
-        if kind == "text" and len(value["text"]) > LAYOUTS[slug][3]:
-            raise ValueError(f"fixed_field_text_too_long:{key}:maximum={LAYOUTS[slug][3]}")
+        if kind == "text" and len(value["text"]) > layout_limits(plan["layout_id"])[3]:
+            raise ValueError(f"fixed_field_text_too_long:{key}:maximum={layout_limits(plan['layout_id'])[3]}")
         return {**value, "key": key, "role": role, "kind": kind, "show_from": stage}
 
     if slug == "comparison":
@@ -92,16 +106,24 @@ def lower_fixed_response(response, plan, assets=()):
             "cells": [{"subject_key": side, "dimension_key": f"dim-{i}", "content": [element(r[side], f"{side}-{i}")]}
                       for i, r in enumerate(rows) for side in ("left", "right")],
             "conclusion": element(data["conclusion"], "conclusion") if data["conclusion"] else None}
-    kind = LAYOUTS[slug][0]
+    kind = layout_limits(plan["layout_id"])[0]
     relations = []
-    if slug == "question":
+    if slug == "chart":
+        elements = [{**element(data["unit"], "unit", kind="quote"), "use_source_text": True}]
+        points = []
+        for i, point in enumerate(data["points"]):
+            label, value = f"label-{i}", f"value-{i}"
+            elements.extend([element(point["label"], label), {**element(point["value"], value, kind="data"), "use_source_text": True}])
+            points.append({"label_element_id": label, "value_element_id": value})
+        return {**base, "expression_kind": "chart", "elements": elements, "chart_points": points, "chart_unit_key": "unit"}
+    elif slug == "question":
         question = element(data["question"], "question", role="question")
         answer = element(data["answer"], "answer", role="answer", stage=2)
         answer["answers_question_id"] = "question"
         elements = [question, answer]
         base.update(presentation={"mode": "question_answer"}, reveal_notes=[data["notes"], data["notes"]])
-    elif slug == "formula":
-        elements = [{**element(data["formula"], "formula", kind="formula"), "use_source_text": True}]
+    elif slug in {"formula", "code"}:
+        elements = [{**element(data[slug], slug, kind=slug), "use_source_text": True}]
         if data["explanation"]:
             elements.append(element(data["explanation"], "explanation"))
     elif slug == "figure":
@@ -118,7 +140,13 @@ def lower_fixed_response(response, plan, assets=()):
         elements = [element(data["subtitle"], "subtitle")]
     else:
         values = data["steps" if slug == "flow" else "points"]
-        elements = [element(v, f"item-{i}") for i, v in enumerate(values)]
+        elements = []
+        for i, value in enumerate(values):
+            value = dict(value)
+            heading = value.pop("heading", "")
+            if heading:
+                elements.append(element({"text": heading, "sources": value["sources"]}, f"item-{i}-heading"))
+            elements.append(element(value, f"item-{i}"))
         if slug == "flow":
             relations = [{"source_key": a["key"], "target_key": b["key"], "kind": "sequence",
                           "sources": a["sources"] + b["sources"]} for a, b in zip(elements, elements[1:])]
@@ -133,14 +161,25 @@ async def invoke_fixed_form(planner, request):
     slug = fixed_slug(plan["layout_id"])
     compact = {"teaching_request": "fixed_fields", "page": {k: plan[k] for k in ("title", "page_goal", "layout_id")},
         "response_contract": form_schema(plan["layout_id"]),
-        "field_limits": {"text_max_chars": LAYOUTS[slug][3], "title_max_chars": 28},
+        "field_limits": {"text_max_chars": layout_limits(plan["layout_id"])[3], "title_max_chars": 28},
         "literal_source_ranges": request.get("literal_source_ranges", []),
         "accepted_visual_expressions": request.get("accepted_visual_expressions", []),
+        "accepted_question_bank_items": request.get("accepted_question_bank_items", []),
+        "lesson_context": request.get("narrative_brief", {}),
+        "page_sequence": request.get("page_sequence", []),
+        "physical_page_budget": request.get("physical_page_budget"),
         "validation_error": request.get("validation_error", ""),
         "instruction": "Fill only this predesigned layout. Cite supplied quote_id for each field. "
-            "Keep ordinary text concise, full explanations in notes. Never return geometry, fonts or a different layout. "
+            "Keep ordinary text concise, full explanations in notes. Every page must add a distinct teaching point, example, "
+            "decision or explanation, rather than repeat the agenda. Use optional short headings to separate a point's name "
+            "from its explanation; never repeat the heading in its body. Do not reduce substantive source material to generic slogans. "
+            "A short list of topic names belongs on an agenda, not a standalone explanation page. "
+            "Never return geometry, fonts or a different layout. "
             "A flow lists actual sequential steps, not unrelated concepts. A comparison aligns both objects by common dimensions. "
-            "For formula select one exact quote; never rewrite it. If this task cannot fit, return pages of the same form, "
+            "For formula, code, chart values and units select exact source quotes; never rewrite them. "
+            "Charts support only nonnegative decimal values in one common unit; never invent data or labels. "
+            "Code preserves indentation and has room for a short excerpt, not an entire program. "
+            "If this task cannot fit, return pages of the same form, "
             "each with a split_reason; preserve complete questions and do not omit essential content."}
     response = await planner(compact)
     try:

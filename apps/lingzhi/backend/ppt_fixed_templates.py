@@ -10,7 +10,9 @@ from ppt_layout_execution import FONT_PATH, file_digest
 from ppt_layout_schema import LayoutExecution
 from slide_theme import load_slide_theme_pack
 
-VERSION = "fixed_classroom_v1"
+from ppt_classroom_design import VERSION
+LEGACY_VERSION = "fixed_classroom_v1"
+VERSIONS = {LEGACY_VERSION, VERSION}
 COMPONENT_PREFIX = "fixed-classroom/"
 
 # Each entry is both the planner's field contract and the scene's layout key.
@@ -26,17 +28,32 @@ LAYOUTS = {
     "formula": ("derivation", "公式与解释", 2, 160),
     "figure": ("evidence", "图片与说明", 3, 52),
 }
+AUTHORED_LAYOUTS = {
+    **LAYOUTS,
+    "chart": ("chart", "数据比较", 6, 24),
+    "code": ("evidence", "代码与解释", 2, 140),
+}
 
 FIELD_NAMES = {
     "cover": ["subtitle"], "section": ["subtitle"], "agenda": ["points"],
     "bullets": ["points"], "summary": ["points"], "question": ["question", "answer"],
     "comparison": ["condition", "left_subject", "right_subject", "rows", "conclusion"],
     "flow": ["steps"], "formula": ["formula", "explanation"], "figure": ["image", "caption", "explanation"],
+    "chart": ["unit", "points"], "code": ["code", "explanation"],
 }
 
 
 def is_fixed_template(template):
-    return template.template_version == VERSION
+    return template.template_version in VERSIONS
+
+
+def layout_limits(layout_id):
+    slug = fixed_slug(layout_id)
+    kind, name, count, chars = AUTHORED_LAYOUTS[slug]
+    if f"@{VERSION}/" in layout_id:
+        count = min(count, 3) if slug in {"bullets", "summary"} else count
+        chars = {"agenda": 32, "flow": 28}.get(slug, chars)
+    return kind, name, count, chars
 
 
 def fixed_slug(layout_id):
@@ -45,15 +62,16 @@ def fixed_slug(layout_id):
 
 def compile_fixed_template(theme_id, *, version=VERSION):
     from template_layout_contract import TemplateLayoutContractV1, TemplateLayoutPackContractV1, TemplateSlotContractV1
-    if version != VERSION:
+    if version not in VERSIONS:
         raise ValueError("fixed_template_version_missing")
     if theme_id not in load_slide_theme_pack()["themes"]:
         raise KeyError(theme_id)
     font_digest = file_digest(FONT_PATH)
     layouts = []
-    for slug, (kind, name, count, chars) in LAYOUTS.items():
+    for slug in (AUTHORED_LAYOUTS if version == VERSION else LAYOUTS):
+        kind, name, count, chars = layout_limits(f"{theme_id}@{version}/{slug}")
         layouts.append(TemplateLayoutContractV1(
-            template_layout_id=f"{theme_id}@{VERSION}/{slug}", layout_slug=slug,
+            template_layout_id=f"{theme_id}@{version}/{slug}", layout_slug=slug,
             teaching_intents=[kind],
             slots=[TemplateSlotContractV1(slot_id="title", slot_kind="title", max_chars=28),
                    *(TemplateSlotContractV1(slot_id=field, slot_kind="items" if field in {"points", "steps", "rows"} else "body",
@@ -61,11 +79,11 @@ def compile_fixed_template(theme_id, *, version=VERSION):
                      for field in FIELD_NAMES[slug])],
             web_renderer_adapter="teaching-scene-web-v2", pptx_renderer_adapter="teaching-scene-pptx-v2",
             execution=LayoutExecution(mode="component_render", component_id=COMPONENT_PREFIX + slug,
-                component_version=VERSION, expression_kinds=[kind], font_sha256=font_digest,
+                component_version=version, expression_kinds=[kind], font_sha256=font_digest,
                 font_floor_pt=22, max_subjects=2, max_dimensions=3, max_nodes=4),
         ))
-    payload = {"version": VERSION, "theme": theme_id, "layouts": [l.model_dump(mode="json") for l in layouts]}
-    return TemplateLayoutPackContractV1(template_id=theme_id, template_version=VERSION,
+    payload = {"version": version, "theme": theme_id, "layouts": [l.model_dump(mode="json") for l in layouts]}
+    return TemplateLayoutPackContractV1(template_id=theme_id, template_version=version,
         template_digest=stable_hash(payload, prefix="tmpl_"), theme_id=theme_id, layouts=layouts)
 
 
@@ -73,7 +91,7 @@ def fixed_capabilities(template, selected_id=""):
     entries = []
     for layout in template.layouts:
         slug = fixed_slug(layout.template_layout_id)
-        kind, name, count, chars = LAYOUTS[slug]
+        kind, name, count, chars = layout_limits(layout.template_layout_id)
         entries.append({"layout_id": layout.template_layout_id, "name": name, "expression_kinds": [kind],
                         "max_items": count, "max_text_chars": chars, "title_max_chars": 28})
     return {"available_layouts": entries,

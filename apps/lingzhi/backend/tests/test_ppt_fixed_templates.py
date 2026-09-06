@@ -208,3 +208,140 @@ def test_fixed_figure_uses_the_existing_adopted_asset_catalog():
     with pytest.raises(ValueError, match="asset_unavailable"):
         lower_fixed_response({"title": "课堂学习", "notes": "观察图片", "asset_id": "unknown", "caption": field("明确目标")},
             {"layout_id": template.layout_id("figure"), "page_goal": "明确目标"})
+
+
+def test_authored_styles_survive_export_and_tampering_is_detected(tmp_path):
+    from ppt_native_scene import render_scene, audit_scene
+    from pptx.util import Pt
+    from pptx.dml.color import RGBColor
+    _, _, template = fixture()
+    value = lowered("flow")
+    scene = resolve_page_scenes(page_id="p", title=value["title"], content=PageTeachingV2.model_validate(value["teaching"]),
+        layout=template.get_layout(template.layout_id("flow")), template=template, source_document_revision="doc")[0]
+    prs = Presentation()
+    prs.slide_width, prs.slide_height = Pt(960), Pt(540)
+    render_scene(prs.slides.add_slide(prs.slide_layouts[6]), scene)
+    path = tmp_path / "centered.pptx"
+    prs.save(path)
+    slide = Presentation(path).slides[0]
+    audit_scene(slide, scene)
+    node = next(s for s in slide.shapes if s.name == "teaching:item-0")
+    from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+    assert node.text_frame.vertical_anchor == MSO_ANCHOR.MIDDLE
+    assert node.text_frame.paragraphs[0].alignment == PP_ALIGN.CENTER
+    node.text_frame.paragraphs[0].font.color.rgb = RGBColor.from_string("FFFFFF")
+    with pytest.raises(ValueError, match="text_style_mismatch"):
+        audit_scene(slide, scene)
+
+
+def test_v1_template_and_scene_digest_remain_readable():
+    from course_document import stable_hash
+    from ppt_fixed_templates import LEGACY_VERSION
+    from ppt_page_scene import ResolvedPageScene, verify_scene
+    _, _, current = fixture()
+    legacy = compile_fixed_template(current.theme_id, version=LEGACY_VERSION)
+    assert legacy.template_digest == "tmpl_bcf315cab5f4ec471efa3399"
+    assert len(legacy.layouts) == 10 and len(current.layouts) == 12
+    data = normalize_page_response(lower_fixed_response(response("flow"),
+        {"layout_id": legacy.layout_id("flow"), "page_goal": "明确目标"}), source())
+    scene = resolve_page_scenes(page_id="p", title=data["title"], content=PageTeachingV2.model_validate(data["teaching"]),
+        layout=legacy.get_layout(legacy.layout_id("flow")), template=legacy, source_document_revision="doc")[0]
+    stored = scene.model_dump(mode="json")
+    assert all("text_align" not in o and "vertical_align" not in o and "visible_with" not in o for o in stored["objects"])
+    assert stable_hash({k: v for k, v in stored.items() if k != "scene_digest"}, prefix="scene_") == stored["scene_digest"]
+    verify_scene(ResolvedPageScene.model_validate(stored))
+
+
+def test_explanation_headings_keep_sources_and_fit_their_own_fields():
+    _, _, template = fixture()
+    data = response("bullets")
+    data["points"][0]["heading"] = "准备"
+    value = normalize_page_response(lower_fixed_response(data,
+        {"layout_id": template.layout_id("bullets"), "page_goal": "明确目标"}), source())
+    content = PageTeachingV2.model_validate(value["teaching"])
+    scene = resolve_page_scenes(page_id="p", title=value["title"], content=content,
+        layout=template.get_layout(template.layout_id("bullets")), template=template, source_document_revision="doc")[0]
+    heading = next(o for o in scene.objects if o.element_id == "item-0-heading")
+    body = next(o for o in scene.objects if o.element_id == "item-0")
+    assert heading.font_size > body.font_size and heading.y + heading.height <= body.y
+    assert {s.block_id for e in content.elements for s in e.sources} == {"b"}
+
+
+@pytest.mark.parametrize("slug", ["chart", "code"])
+def test_data_and_code_remain_source_exact_in_real_pptx(slug, tmp_path):
+    from ppt_native_scene import render_scene, audit_scene
+    from pptx.util import Pt
+    _, _, template = fixture()
+    code = "for item in items:\n    print(item)"
+    raw = {"b": {"block_id": "b", "block_revision": "r", "full_text": "甲 10，乙 20，单位：人。\n" + code}}
+    exact = lambda quote: {"sources": [{"block_id": "b", "quote": quote}]}
+    text = lambda value: {"text": value, **exact(raw["b"]["full_text"])}
+    data = {"title": "课堂学习", "notes": "使用示例数据"}
+    data.update({"unit": exact("人"), "points": [{"label": text("甲"), "value": exact("10")}, {"label": text("乙"), "value": exact("20")}]}
+                if slug == "chart" else {"code": exact(code), "explanation": text("逐项执行")})
+    value = normalize_page_response(lower_fixed_response(data,
+        {"layout_id": template.layout_id(slug), "page_goal": "明确目标"}), raw)
+    scene = resolve_page_scenes(page_id="p", title=value["title"], content=PageTeachingV2.model_validate(value["teaching"]),
+        layout=template.get_layout(template.layout_id(slug)), template=template, source_document_revision="doc")[0]
+    prs = Presentation()
+    prs.slide_width, prs.slide_height = Pt(960), Pt(540)
+    render_scene(prs.slides.add_slide(prs.slide_layouts[6]), scene)
+    path = tmp_path / f"{slug}.pptx"
+    prs.save(path)
+    slide = Presentation(path).slides[0]
+    audit_scene(slide, scene)
+    if slug == "chart":
+        bars = [s for s in slide.shapes if s.name.startswith("teaching:chart-bar-")]
+        assert bars[0].left == bars[1].left and bars[1].width == bars[0].width * 2
+        assert {e.text for e in PageTeachingV2.model_validate(value["teaching"]).elements if e.kind == "data"} == {"10", "20"}
+    else:
+        assert next(s.text for s in slide.shapes if s.name == "teaching:code") == code
+
+
+def test_fixed_request_preserves_adopted_materials_and_lesson_context():
+    from ppt_fixed_draft import invoke_fixed_form
+    _, _, template = fixture()
+    async def planner(request):
+        import json
+        json.dumps(request)
+        assert request["lesson_context"]["central_question"] == "明确目标"
+        assert request["accepted_question_bank_items"] == [{"question": "为什么先准备？"}]
+        assert request["page_sequence"] == [{"title": "课堂学习", "page_goal": "明确目标"}]
+        return response("bullets")
+    result = asyncio.run(invoke_fixed_form(planner, {"page": {"title": "课堂学习", "page_goal": "明确目标", "layout_id": template.layout_id("bullets")},
+        "narrative_brief": {"central_question": "明确目标"}, "accepted_question_bank_items": [{"question": "为什么先准备？"}],
+        "page_sequence": [{"title": "课堂学习", "page_goal": "明确目标"}]}))
+    assert result["expression_kind"] == "evidence"
+
+
+def test_authored_cover_has_no_hairline_and_figure_keeps_adopted_image(tmp_path):
+    from ppt_native_scene import render_scene, audit_scene
+    from .test_ppt_adopted_visuals import adopted_fixture
+    from ppt_adopted_visuals import bind_adopted_assets, current_visual_catalog
+    from pptx.util import Pt
+    _, _, template = fixture()
+    value = lowered("cover")
+    scene = resolve_page_scenes(page_id="p", title=value["title"], content=PageTeachingV2.model_validate(value["teaching"]),
+        layout=template.get_layout(template.layout_id("cover")), template=template, source_document_revision="doc")[0]
+    prs = Presentation()
+    prs.slide_width, prs.slide_height = Pt(960), Pt(540)
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    render_scene(slide, scene)
+    assert scene.background == "2B5876"
+    title = next(s for s in slide.shapes if s.name == "teaching:title")
+    assert title._element.xpath('./p:spPr/a:ln/a:noFill')
+    assert title.text_frame.paragraphs[0].font.size == Pt(44)
+    assets, asset, item, _, raw = adopted_fixture(tmp_path)
+    catalog = current_visual_catalog([item], course_id='course', script_revision_id='script-r1', sources=raw, asset_repository=assets)
+    data = {"title": "执行方式", "notes": "观察图示", "asset_id": asset.asset_id,
+        "caption": {"text": "执行方式示意", "sources": [{"block_id": "b", "quote": raw["b"]}]}}
+    value = normalize_page_response(lower_fixed_response(data,
+        {"layout_id": template.layout_id("figure"), "page_goal": "理解执行方式"}, catalog),
+        {"b": {"block_id": "b", "block_revision": "r", "full_text": raw["b"]}})
+    content = bind_adopted_assets(PageTeachingV2.model_validate(value["teaching"]), catalog, {"b"})
+    scene = resolve_page_scenes(page_id="figure", title=value["title"], content=content,
+        layout=template.get_layout(template.layout_id("figure")), template=template, source_document_revision="doc")[0]
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    render_scene(slide, scene, assets=assets)
+    audit_scene(slide, scene)
+    assert next(s for s in slide.shapes if s.name == "teaching:image").image.blob == assets.resolve(asset.asset_id).read_bytes()

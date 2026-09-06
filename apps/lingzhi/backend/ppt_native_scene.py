@@ -28,13 +28,13 @@ def _shape_text(shape, obj, scene):
     frame.clear()
     frame.word_wrap = False
     frame.auto_size = MSO_AUTO_SIZE.NONE
-    frame.vertical_anchor = MSO_ANCHOR.TOP
+    frame.vertical_anchor = {"top": MSO_ANCHOR.TOP, "middle": MSO_ANCHOR.MIDDLE, "bottom": MSO_ANCHOR.BOTTOM}[obj.vertical_align]
     frame.margin_left = frame.margin_right = Pt(8)
     frame.margin_top = frame.margin_bottom = Pt(6)
     for index, source_paragraph in enumerate(obj.text.split("\n")):
         paragraph = frame.paragraphs[0] if index == 0 else frame.add_paragraph()
         paragraph.space_before = paragraph.space_after = Pt(0)
-        paragraph.alignment = PP_ALIGN.LEFT
+        paragraph.alignment = {"left": PP_ALIGN.LEFT, "center": PP_ALIGN.CENTER, "right": PP_ALIGN.RIGHT}[obj.text_align]
         paragraph.line_spacing = Pt(obj.font_size * 1.3)
         font = paragraph.font
         font.name, font.size, font.bold, font.color.rgb = scene.execution.font_family, Pt(obj.font_size), obj.bold, _color(obj.color)
@@ -177,6 +177,9 @@ def _transparent_picture():
 
 def render_scene(slide, scene: ResolvedPageScene, *, assets=None):
     verify_scene(scene)
+    if scene.execution.mode != "native_fill":
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = _color(scene.background)
     shapes_by_id = {}
     for obj in scene.objects:
         if scene.execution.mode == "native_fill":
@@ -216,8 +219,13 @@ def render_scene(slide, scene: ResolvedPageScene, *, assets=None):
             shape._element.spPr.append(OxmlElement("a:effectLst"))
             shape.fill.solid()
             shape.fill.fore_color.rgb = _color(obj.fill)
-            shape.line.color.rgb = _color(scene.accent_color if obj.element_id in scene.emphasized_element_ids else obj.stroke)
-            shape.line.width = Pt(1.5 if obj.element_id in scene.emphasized_element_ids else 0)
+            if obj.element_id in scene.emphasized_element_ids:
+                shape.line.color.rgb = _color(scene.accent_color)
+                shape.line.width = Pt(1.5)
+            else:
+                # A zero-width white line is still rendered as a hairline by
+                # some Office engines, especially on the dark title slides.
+                shape.line.fill.background()
         if obj.kind == "text":
             _shape_text(shape, obj, scene)
         if hasattr(shape, "name"):
@@ -297,6 +305,12 @@ def audit_scene(slide, scene: ResolvedPageScene) -> dict:
                 raise ValueError(f"export_element_position_mismatch:{obj.object_id}")
             if any(p.font.name != scene.execution.font_family or p.font.size != Pt(obj.font_size) for p in shape.text_frame.paragraphs):
                 raise ValueError("export_font_mismatch")
+            if any(str(p.font.color.rgb) != obj.color or bool(p.font.bold) != obj.bold
+                   or p.alignment != {"left": PP_ALIGN.LEFT, "center": PP_ALIGN.CENTER, "right": PP_ALIGN.RIGHT}[obj.text_align]
+                   for p in shape.text_frame.paragraphs):
+                raise ValueError("export_text_style_mismatch")
+            if shape.text_frame.vertical_anchor != {"top": MSO_ANCHOR.TOP, "middle": MSO_ANCHOR.MIDDLE, "bottom": MSO_ANCHOR.BOTTOM}[obj.vertical_align]:
+                raise ValueError("export_text_alignment_mismatch")
         elif obj.kind == "shape":
             actual = (shape.left / 12700, shape.top / 12700, shape.width / 12700, shape.height / 12700)
             if any(abs(a - b) > 0.01 for a, b in zip(actual, (obj.x, obj.y, obj.width, obj.height))):
@@ -424,8 +438,8 @@ def render_teaching_deck(deck, output_path: Path, *, assets=None, source_path=No
             from slide_speaker_notes import _speaker_notes
             if slide.notes_slide.notes_text_frame.text != _speaker_notes(page):
                 raise ValueError("export_notes_mismatch")
-        from ppt_fixed_templates import VERSION, COMPONENT_PREFIX
-        fixed_objects = all(p.resolved_scene.execution.component_version == VERSION
+        from ppt_fixed_templates import VERSIONS, COMPONENT_PREFIX
+        fixed_objects = all(p.resolved_scene.execution.component_version in VERSIONS
                             and p.resolved_scene.execution.component_id.startswith(COMPONENT_PREFIX)
                             for p in deck.pages)
         if not fixed_objects:

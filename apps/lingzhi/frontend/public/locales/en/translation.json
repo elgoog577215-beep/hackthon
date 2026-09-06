@@ -1900,6 +1900,8 @@
     "previewState": "View",
     "pageLayout": "Page layout",
     "layoutNames": {
+      "chart": "Data comparison",
+      "code": "Code and explanation",
       "cover": "Cover",
       "agenda": "Agenda",
       "section": "Section introduction",

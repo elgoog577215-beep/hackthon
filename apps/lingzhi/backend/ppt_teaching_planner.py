@@ -392,6 +392,13 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
                 "objects and up to three common dimensions, flow for three or four sequential steps. "
                 "Use question only for a real question with a source-supported answer. Never select figure without an adopted image. "
                 "Do not return composition instructions; the named layout already owns all positions and fonts."
+                " Each page must have a distinct learning purpose and add content: a definition with its boundary, "
+                "a concrete example, an aligned comparison, a procedure, or a source-supported explanation. "
+                "Do not create multiple pages that merely paraphrase the same three keywords. "
+                "Omit cover, agenda, divider and recap when they would pad a short lesson segment. "
+                "An agenda names the route; an explanation develops it; a recap consolidates what was established. "
+                "Question pages cost two physical pages; reserve them for actual learner work, not rhetorical headings."
+                " Select chart only for source-exact comparable values and one common unit; select code only for an actual source code excerpt."
             )
             if not any(e.get("kind") == "image" and e.get("assets") for e in source_context.get("accepted_visual_expressions", [])):
                 request["layout_capabilities"]["available_layouts"] = [
@@ -541,12 +548,14 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
                 if isinstance(request_candidate, dict):
                     request_plan.update({key: request_candidate[key] for key in ("title", "page_goal", "layout_id") if request_candidate.get(key)})
             response = await invoke({"teaching_request": "page", "page": request_plan,
+                "page_sequence": [{"title": p.title, "page_goal": p.page_goal} for p in narrative.pages],
                 "narrative_brief": narrative.narrative_brief, "response_contract": page_response_contract(request_candidate, split_required=repair_parts is not None),
                 "physical_page_budget": {"advisory": True, "lesson_suggested": narrative.pacing.max_physical_pages, "already_used": used_pages, "suggested_for_this_task": available_pages, "rationale": narrative.pacing.rationale},
                 "comparison_instruction": "Fill every subject-by-dimension cell with source-backed content. Do not return empty cells: use show_from to reveal values later. All object/dimension labels and shared conditions must appear before any cell. reveal_notes has one note per reveal step. The compiler assigns IDs and source ranges; you provide only semantic keys and exact quotes.",
                 "sources": [sources[b] for b in plan.source_block_ids], "layout_capabilities": planning_layout_context(template, request_plan["layout_id"]),
                 "literal_source_ranges": source_excerpt_catalog({b: sources[b] for b in plan.source_block_ids}),
                 "accepted_visual_expressions": [v for v in source_context.get("accepted_visual_expressions", []) if v["source_block_id"] in plan.source_block_ids],
+                "accepted_question_bank_items": source_context.get("accepted_question_bank_items", []),
                 "source_instruction": "Prefer sources=[{quote_id: supplied_id}]. For formula/code/data/quote set use_source_text=true and omit text; the compiler copies the selected quote exactly, including delimiters and whitespace. Choose a range containing only the desired artifact, not its surrounding paragraph. For ordinary text write a concise summary and cite supporting quote IDs.",
                 "validation_error": error, "previous_candidate": request_candidate,
                 "repair_scope": ("Return only the failing subpage shown in previous_candidate, or split that subpage into pages. "
@@ -644,6 +653,7 @@ async def regenerate_teaching_pages(manuscript, target_page_ids, planner, *, tim
         for attempt in range(3):
             previous_candidate = single_page_candidate(previous_candidate)
             request = {"teaching_request": "revision", "response_contract": page_response_contract(previous_candidate),
+                "page_sequence": [{"title": p.title, "page_goal": p.page_goal} for p in manuscript.pages],
                 "current_page": page.model_dump(mode="json", exclude={"resolved_scenes", "regions", "speaker_notes"}),
                 "narrative_brief": manuscript.narrative_brief.model_dump(mode="json"),
                 "physical_page_budget": manuscript.pacing.model_dump(mode="json") if manuscript.pacing else None,

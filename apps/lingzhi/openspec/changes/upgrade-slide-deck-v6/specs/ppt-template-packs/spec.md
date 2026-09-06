@@ -118,3 +118,24 @@ The system SHALL provide versioned fixed classroom layouts adapted from Qizhi's 
 - **THEN** the real PPTX is read back and checked for text, geometry, fonts, relations, notes and object overflow before completion
 - **AND** its shared-scene browser preview is not described as PDF or PPTX pixel evidence
 - **AND** enhanced and personal native templates retain their original PDF certification requirements
+
+
+### Requirement: 固定模板保留完整视觉层级与精确教学表达
+
+新建内置模板 SHALL 使用独立版本的完整视觉构图，明确背景、标题层级、内容字段、对齐与页脚；SHALL 保持历史模板及场景摘要可读。模型 SHALL 仅填写预设字段，不生成位置、字号或背景。
+
+#### Scenario: 解释页具有短标题与具体解释
+- **WHEN** 一页包含多个需要说明的教学要点
+- **THEN** 内容稿可分别保存每项短标题和正文及其来源，模板以不同字号和位置呈现，不把解释丢入备注后只剩口号
+
+#### Scenario: 数据与代码源文保真
+- **WHEN** 使用数据比较或代码版式
+- **THEN** 数值、单位、代码从精确引用读取，数据图使用共同零点与比例，代码保持换行和缩进；无有效来源或超过版式容量时在内容稿阶段报错
+
+#### Scenario: 预览与文件共享文字样式
+- **WHEN** 确认稿件后导出 PPTX
+- **THEN** 网页与文件使用相同背景、字号、颜色和水平/垂直对齐，文件回读校验对应文字样式；无边框对象不得产生零宽度细白线
+
+#### Scenario: 老稿保持原版式
+- **WHEN** 读取 fixed_classroom_v1 稿件
+- **THEN** 按旧模板摘要和旧场景恢复，不自动换成新构图或改写已确认内容

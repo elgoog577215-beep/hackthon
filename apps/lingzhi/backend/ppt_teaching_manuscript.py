@@ -72,7 +72,7 @@ def resolve_manuscript_page(page, template, source_revision):
     if layout is None:
         raise ValueError("teaching_layout_unavailable")
     page.resolved_scenes = resolve_page_scenes(page_id=page.page_id, title=page.title, content=page.teaching,
-        layout=layout, template=template, source_document_revision=source_revision)
+        layout=layout, template=template, source_document_revision=source_revision, page_number=page.page_number)
     page.visible_copy = [page.title, *(display_element_text(e) for e in page.teaching.elements)]
     page.regions = [SlideRegionV6(region_id=f"{page.page_id}:title", slot_id="title", content_kind="title",
         content=page.title, source_block_ids=page.source_script_block_ids)]
@@ -321,7 +321,7 @@ def physical_pages(manuscript):
             regions = {r.slot_id: r for r in logical.regions}
             visible_regions = []
             for obj in scene.objects:
-                if obj.kind == "shape" and obj.slot_id == "decoration" and not obj.element_id and not obj.text:
+                if obj.slot_id == "decoration" and not obj.element_id:
                     continue
                 region = regions.get(obj.element_id or "title")
                 if region is None or region.content != obj.text:

@@ -10,8 +10,8 @@
       </template>
       <template v-else>
         <rect :x="obj.x" :y="obj.y" :width="obj.width" :height="obj.height" :fill="scene.execution.mode === 'native_fill' ? 'none' : `#${obj.fill}`" :stroke="scene.emphasized_element_ids.includes(obj.element_id) ? `#${accentColor}` : `#${obj.stroke}`" :stroke-width="scene.emphasized_element_ids.includes(obj.element_id) ? 1.5 : 0" />
-        <text v-if="obj.kind === 'text'" :x="obj.x + 8" :y="obj.y + 6 + obj.font_size" :fill="`#${obj.color}`" :font-size="obj.font_size" :font-weight="obj.bold ? 700 : 400" :font-family="scene.execution.font_family" xml:space="preserve">
-          <tspan v-for="(line, index) in obj.lines" :key="index" :x="obj.x + 8" :dy="index ? obj.font_size * 1.3 : 0">{{ line }}</tspan>
+        <text v-if="obj.kind === 'text'" :x="textX(obj)" :y="textY(obj)" :text-anchor="obj.text_align === 'center' ? 'middle' : obj.text_align === 'right' ? 'end' : 'start'" :fill="`#${obj.color}`" :font-size="obj.font_size" :font-weight="obj.bold ? 700 : 400" :font-family="scene.execution.font_family" xml:space="preserve">
+          <tspan v-for="(line, index) in obj.lines" :key="index" :x="textX(obj)" :dy="index ? obj.font_size * 1.3 : 0">{{ line }}</tspan>
         </text>
       </template>
     </g>
@@ -31,6 +31,13 @@ const assetUrls = ref<Record<string, string>>({})
 const assetErrors = ref<Record<string, boolean>>({})
 const accentColor = computed(() => props.scene.accent_color || '305AC7')
 const markerId = computed(() => `arrow-${props.scene.scene_digest}`)
+function textX(obj: Record<string, any>) {
+  return obj.text_align === 'center' ? obj.x + obj.width / 2 : obj.text_align === 'right' ? obj.x + obj.width - 8 : obj.x + 8
+}
+function textY(obj: Record<string, any>) {
+  const spare = Math.max(0, obj.height - 12 - obj.lines.length * obj.font_size * 1.3)
+  return obj.y + 6 + obj.font_size + (obj.vertical_align === 'middle' ? spare / 2 : obj.vertical_align === 'bottom' ? spare : 0)
+}
 let loadVersion = 0
 function clearAssets() { Object.values(assetUrls.value).forEach(URL.revokeObjectURL); assetUrls.value = {}; assetErrors.value = {} }
 watch(() => [props.scene.scene_digest, props.courseId, props.representationId], async () => {
