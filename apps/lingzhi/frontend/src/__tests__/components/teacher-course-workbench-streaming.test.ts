@@ -111,6 +111,11 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => {
         template: '<aside data-testid="reference-tray-stub" :data-readonly="readonly ? \'true\' : \'false\'"><span v-if="hideWorkflowStatus === undefined">{{ workflowDetail }}</span><i data-testid="workflow-progress">{{ workflowProgress }}</i><button v-if="showCourseInformation !== false" data-testid="open-course-information" type="button" @click="$emit(\'open-course-information\')">课程信息</button><button v-if="workflowCanRetry && hideWorkflowStatus === undefined" data-testid="retry-workflow" type="button" @click="$emit(\'retry-workflow\')">重试生成</button><slot name="workflow-action" /></aside>',
         emits: ['open-course-information', 'retry-workflow', 'regenerate-workflow', 'source-state-change', 'update:modelValue'],
       },
+      // These fixtures exercise the retained legacy PPT recovery path.
+      PptProjectWorkspace: {
+        template: '<section />',
+        mounted() { this.$emit('legacy') },
+      },
       PptWorkspace: {
         name: 'PptWorkspace', props: ['canGenerate', 'sourceReady', 'generationAction', 'lessonId'],
         template: '<section data-testid="inline-ppt"><slot name="source-actions" /></section>',
@@ -189,7 +194,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.findAll('.companion-entry button').map(button => button.text())).toEqual(['题库', '评分细则', '考试课程材料自查清单'])
     expect(wrapper.findAll('.companion-entry button').every(button => button.findAll('svg').length === 1)).toBe(true)
     expect(wrapper.find('.stage-rail > footer').exists()).toBe(false)
-    expect(wrapper.findAll('.stage-state')).toHaveLength(4)
+    expect(wrapper.findAll('.stage-state')).toHaveLength(3) // PPT projects can span lectures and report their own state.
     expect(wrapper.findAll('.stage-state').every(state => state.attributes('data-state') === 'pending')).toBe(true)
     expect(wrapper.findAll('.stage-state').every(state => state.attributes('data-progress') === '0')).toBe(true)
   })
@@ -236,11 +241,12 @@ describe('teacher course workbench outline streaming', () => {
       const nav = wrapper.findAll('.stage-rail nav button')
       expect(nav[0]!.attributes('disabled')).toBeUndefined()
       expect(nav[0]!.get('.stage-state').attributes('data-state')).not.toBe('complete')
-      for (const button of nav.slice(1)) {
+      for (const button of nav.slice(1, 3)) {
         expect(button.attributes('disabled')).toBeDefined()
         expect(button.attributes('title')).toContain('完整大纲尚未就绪')
         await button.trigger('click')
       }
+      expect(nav[3]!.attributes('disabled')).toBeUndefined() // Uploaded sources do not require an outline.
       expect(wrapper.find('[data-testid="lesson-course-preview-generate"]').exists()).toBe(false)
       const blockedGenerate = wrapper.get('.lesson-generation-actions button')
       expect(blockedGenerate.attributes('disabled')).toBeDefined()
@@ -2393,6 +2399,7 @@ describe('teacher course workbench outline streaming', () => {
     })) as any
     for (const stage of ['lesson', 'script', 'ppt']) {
       const wrapper = mountWorkbench({ initialStage: stage })
+      await flushPromises()
       const outline = wrapper.get('[data-testid="lesson-outline-fixed"]')
       const chapterButtons = outline.findAll('.lesson-outline-chapter-button')
 

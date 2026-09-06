@@ -13,14 +13,14 @@ describe('teacher course preview', () => {
     expect(workbench).not.toContain('/lesson-authoring/publish')
   })
 
-  it('loads the teacher current projection as a complete student learning surface', () => {
+  it('routes teacher trials to the disposable component without mounting learner runtime', () => {
     const learningView = source('src/views/LearningView.vue')
-    const contentArea = source('src/components/ContentArea.vue')
-
-    expect(learningView).toContain("previewSurface: 'teacher'")
-    expect(learningView).toContain("taskType: 'teacher_outline_generation'")
-    expect(learningView).toContain(':teacher-preview="isTeacherPreview"')
-    expect(learningView).toContain("courseStore.currentCourseProjection === 'generation_preview' && !isTeacherPreview.value")
-    expect(contentArea).toContain("courseStore.currentCourseProjection === 'generation_preview' && !props.teacherPreview")
+    const trial = source('src/views/TeacherCoursePreview.vue')
+    expect(learningView).toContain('<TeacherCoursePreview v-if="teacherPreview" />')
+    expect(learningView).toContain('<LearnerCourseView v-else />')
+    expect(trial).toContain('/preview')
+    expect(trial).not.toContain('useLearningProgressStore')
+    expect(trial).not.toContain('useNoteStore')
+    expect(trial).not.toContain('localStorage')
   })
 })

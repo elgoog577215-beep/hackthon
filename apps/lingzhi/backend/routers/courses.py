@@ -828,7 +828,9 @@ async def create_course_generation_job(
     request: Request,
     tm: TaskManager = Depends(require_task_manager),
 ):
-    """Create the sole persisted generation job and return immediately."""
+    """Create the sole persisted teacher outline job and return immediately."""
+    if req.teacher_authoring_mode != "lesson_assets_v1":
+        raise HTTPException(410, detail={"code": "legacy_course_generation_retired", "message": "整课生成入口已停用，请从教师工作台创建课程。已有任务仍可继续。"})
     actor_id = (
         require_actor_id(request.headers.get("X-User-Id"))
         if req.target_course_id

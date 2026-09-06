@@ -428,7 +428,7 @@ function closeOpenMenusOnOutsidePointer(event: PointerEvent) {
 
 function openBlankCourse() {
   closeCreateMenu()
-  createDialogOpen.value = true
+  void router.push({ name: 'course-library', query: { create: 'course' } })
 }
 
 function openMarkdownImport() {

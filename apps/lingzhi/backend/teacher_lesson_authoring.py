@@ -1,9 +1,7 @@
 """Teacher-only lesson plan assets and jobs.
 
-This module deliberately does not write ``CourseDocument``.  It is the
-authoring boundary for a teacher lesson (one L1 node plus all direct L2
-sections) while the existing learner course-generation pipeline remains
-unchanged.
+The authoring boundary owns plans and drafts; accepted handouts are committed
+through teacher_course_content and stored here as canonical references.
 """
 
 from __future__ import annotations
@@ -11,6 +9,7 @@ from __future__ import annotations
 from ppt_manuscript_quality import manuscript_quality_passed
 
 import asyncio
+import fcntl
 import inspect
 import json
 import os
@@ -1401,7 +1400,8 @@ def _default_root() -> Path:
     configured = os.getenv("TEACHER_LESSON_AUTHORING_DIR", "").strip()
     if configured:
         return Path(configured)
-    return Path(__file__).resolve().parent / "data" / "teacher_lesson_authoring"
+    from storage import DATA_DIR
+    return Path(DATA_DIR) / "teacher_lesson_authoring"
 
 
 def lesson_scope(course_data: dict[str, Any], lesson_unit_id: str) -> dict[str, Any]:
@@ -1544,6 +1544,25 @@ def teacher_lesson_v6_source(
     while the CourseDocument revision changes with the teacher plan. Nothing is
     persisted to the learner CourseDocument repository.
     """
+    if course_data.get("teacher_production_schema") == "unified_teacher_v1":
+        from course_document import CourseDocument, course_view_from_document, refresh_document_revision
+        binding = (course_data.get("teacher_handouts") or {}).get(lesson_unit_id) or {}
+        if binding.get("revision_id") != script_revision.get("revision_id"):
+            raise TeacherLessonAuthoringError("handout_revision_conflict", "PPT 来源已变化，请刷新讲义。")
+        document = CourseDocument.model_validate(course_data["course_document"])
+        document.sections = [s for s in document.sections if s.section_id == lesson_unit_id or s.parent_section_id == lesson_unit_id]
+        ids = {s.section_id for s in document.sections}
+        document.blocks = [b for b in document.blocks if b.section_id in ids and b.status != "retired"]
+        document = refresh_document_revision(document)
+        view = course_view_from_document(course_data, document)
+        view["course_teaching_plan"] = normalize_teacher_lesson_plan(plan_revision.get("plan") or {})
+        view["teacher_lesson_source"] = {"real_course_id": document.course_id, "lesson_unit_id": lesson_unit_id,
+            "lesson_plan_revision_id": plan_revision.get("revision_id"), "script_revision_id": script_revision.get("revision_id"),
+            "document_revision": course_data.get("course_document_revision"), "lecture_content_revision": document.document_revision}
+        # Keep the existing per-lecture artifact directory and export URLs;
+        # this is only a storage scope, never another course/body identity.
+        scope_key = "teacher-lesson-" + hashlib.sha256(f"{document.course_id}:{lesson_unit_id}".encode()).hexdigest()[:20]
+        return document, view, scope_key
     scope = lesson_scope(course_data, lesson_unit_id)
     plan = normalize_teacher_lesson_plan(plan_revision.get("plan") or {})
     plan_sections = {
@@ -1867,11 +1886,43 @@ def _interrupted_teacher_job_fields(job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+class _AuthoringFileLock:
+    """Serialize a complete read/modify/save transaction across workers."""
+    def __init__(self, path):
+        self.path = path
+        self.mutex = threading.RLock()
+        self.local = threading.local()
+
+    def __enter__(self):
+        self.mutex.acquire()
+        depth = getattr(self.local, "depth", 0)
+        try:
+            if depth == 0:
+                self.local.handle = self.path.open("a+")
+                fcntl.flock(self.local.handle.fileno(), fcntl.LOCK_EX)
+            self.local.depth = depth + 1
+        except BaseException:
+            self.mutex.release()
+            raise
+        return self
+
+    def __exit__(self, *args):
+        self.local.depth -= 1
+        if self.local.depth == 0:
+            fcntl.flock(self.local.handle.fileno(), fcntl.LOCK_UN)
+            self.local.handle.close()
+        self.mutex.release()
+
+
 class TeacherLessonAuthoringRepository:
-    def __init__(self, root: str | Path | None = None):
+    def __init__(self, root: str | Path | None = None, *, canonical_storage=None):
+        if canonical_storage is None and root is None:
+            from storage import storage
+            canonical_storage = storage
+        self.canonical_storage = canonical_storage
         self.root = Path(root) if root is not None else _default_root()
         self.root.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.RLock()
+        self._lock = _AuthoringFileLock(self.root / ".authoring.lock")
         self._deleted_courses: set[str] = set()
         self._runtime_jobs: dict[str, set[asyncio.Task]] = {}
         self._live_stream_jobs: dict[str, dict[str, dict[str, Any]]] = {}
@@ -1964,6 +2015,7 @@ class TeacherLessonAuthoringRepository:
                     "教师讲次资产读取失败。",
                 ) from exc
             value = data if isinstance(data, dict) else self._empty(course_id)
+            value = self._hydrate(value)
             for lesson in (value.get("lessons") or {}).values():
                 for revision in lesson.get("script_revisions") or []:
                     for section in revision.get("sections") or []:
@@ -1976,12 +2028,35 @@ class TeacherLessonAuthoringRepository:
                         revision["quality_contract_version"] = SCRIPT_QUALITY_VERSION
             return self._overlay_live_stream_jobs_locked(course_id, value)
 
+    def _hydrate(self, value: dict[str, Any]) -> dict[str, Any]:
+        if self.canonical_storage is not None:
+            from teacher_course_content import hydrate_authoring, unified
+            raw = self.canonical_storage.load_course(value["course_id"])
+            if unified(raw):
+                return hydrate_authoring(raw, value)
+        return value
+
     def _save(self, value: dict[str, Any]) -> dict[str, Any]:
         course_id = str(value.get("course_id") or "")
         if course_id in self._deleted_courses:
             raise TeacherLessonAuthoringError("teacher_course_deleted", "课程已删除，不能再写入讲次资产。")
         path = self._path(course_id)
         payload = deepcopy(value)
+        commit_error = None
+        if self.canonical_storage is not None:
+            from teacher_course_content import commit_authoring
+            from course_repository import CourseDocumentConflict
+            try:
+                payload = commit_authoring(self.canonical_storage, payload)
+            except CourseDocumentConflict as exc:
+                # Keep the rejected revision as an editable candidate, never
+                # replace the last usable canonical handout.
+                commit_error = exc
+                for lesson in (payload.get("lessons") or {}).values():
+                    for revision in lesson.get("script_revisions") or []:
+                        if revision.get("revision_id") == lesson.get("working_script_revision_id") and not revision.get("canonical_ref"):
+                            revision["commit_conflict"] = str(exc)
+        payload.pop("_canonical_baselines", None)
         for job in (payload.get("jobs") or {}).values():
             if not isinstance(job, dict):
                 continue
@@ -2003,7 +2078,9 @@ class TeacherLessonAuthoringRepository:
         finally:
             if os.path.exists(temp_name):
                 os.unlink(temp_name)
-        return payload
+        if commit_error is not None:
+            raise TeacherLessonAuthoringError("handout_revision_conflict", str(commit_error)) from commit_error
+        return self._hydrate(payload)
 
     def set_outline(
         self,

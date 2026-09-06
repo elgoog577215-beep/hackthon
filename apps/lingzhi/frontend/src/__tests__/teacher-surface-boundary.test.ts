@@ -258,7 +258,7 @@ describe('calendar and course file-space boundary', () => {
   })
 
   it('keeps teacher authoring assets out of the student page and routes practice through the question book', () => {
-    const learning = source('views/LearningView.vue')
+    const learning = source('views/LearnerCourseView.vue')
     const dock = source('components/LearningDock.vue')
 
     expect(learning).not.toContain('<CourseWorkspaceTabs')

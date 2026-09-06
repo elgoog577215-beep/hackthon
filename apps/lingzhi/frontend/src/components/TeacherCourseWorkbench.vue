@@ -7,7 +7,7 @@
       'is-ai-collaboration': aiCollaborationOpen && activeStage === 'question-bank',
       'is-question-bank-workspace': activeStage === 'question-bank',
       'is-ppt-stage': activeStage === 'ppt',
-      'is-context-collapsed': !contextPaneVisible && activeStage !== 'question-bank',
+      'is-context-collapsed': (!contextPaneVisible || (activeStage === 'ppt' && !legacyPptOpen)) && activeStage !== 'question-bank',
     }"
   >
     <aside v-show="!aiCollaborationOpen || activeStage !== 'question-bank'" class="stage-rail" :aria-label="t('courseWorkbench.stageNavigation', '备课阶段')">
@@ -18,6 +18,7 @@
         <button v-for="stage in stages" :key="stage.id" type="button" :class="{ active: activeStage === stage.id }" :disabled="stageSwitching || stagePrerequisiteBlocked(stage.id) || (aiCandidatePending && activeStage !== stage.id)" :title="stagePrerequisiteBlocked(stage.id) ? stagePrerequisiteReason(stage.id) : undefined" @click="requestStageChange(stage.id)">
           <span>{{ stage.step }}</span><component :is="stage.icon" :size="18" /><strong>{{ stage.label }}</strong>
           <span
+            v-if="stage.id !== 'ppt' || legacyPptOpen"
             class="stage-state"
             :data-state="stageReady(stage.id) ? 'complete' : stageProgress(stage.id) > 0 ? 'progress' : 'pending'"
             :data-progress="stageProgress(stage.id)"
@@ -51,7 +52,7 @@
       }"
     >
       <button
-        v-if="!contextPaneVisible && activeStage !== 'question-bank'"
+        v-if="!contextPaneVisible && !['question-bank', 'ppt'].includes(activeStage)"
         class="context-pane-reopen"
         type="button"
         :title="t('courseWorkbench.contextPane.expand', '展开当前内容信息')"
@@ -389,7 +390,7 @@
             :class="{ 'is-course-preview': lessonCoursePreviewVisible || scriptCoursePreviewVisible }"
           >
         <header
-          v-if="lessonStore.lessons.length"
+          v-if="lessonStore.lessons.length && (activeStage !== 'ppt' || legacyPptOpen)"
           class="lesson-navigator"
           :class="{ 'has-document-actions': lessonPageHeaderVisible }"
         >
@@ -799,9 +800,11 @@
         </template>
 
         <template v-else-if="activeStage === 'ppt'">
+          <PptProjectWorkspace v-if="!legacyPptOpen" ref="pptProjectWorkspace" :key="courseId" :course-id="courseId" :initial-lesson-id="selectedLessonId" embedded @legacy="legacyPptOpen = true" />
+          <button v-else type="button" class="secondary" @click="legacyPptOpen = false">{{ t('pptProject.backToNew') }}</button>
           <UploadedPptReviewWorkspace
             ref="uploadedPptWorkspace"
-            v-if="selectedLesson"
+            v-if="legacyPptOpen && selectedLesson"
             :course-id="courseId"
             :course-title="courseTitle"
             :lesson-id="selectedLesson.lesson_unit_id"
@@ -857,7 +860,7 @@
       @keydown="resizeAiPaneWithKeyboard"
     ><GripVertical :size="14" /></div>
 
-    <aside v-if="activeStage !== 'question-bank' && contextPaneVisible" class="context-pane" :aria-label="t('courseWorkbench.contextPane.title', '当前内容信息')">
+    <aside v-if="activeStage !== 'question-bank' && contextPaneVisible && (activeStage !== 'ppt' || legacyPptOpen)" class="context-pane" :aria-label="t('courseWorkbench.contextPane.title', '当前内容信息')">
       <header class="context-pane-heading" :data-phase="contextPhase">
         <div class="context-pane-heading__status" role="status" aria-live="polite" aria-atomic="true">
           <span class="context-pane-heading__signal" aria-hidden="true">
@@ -1127,6 +1130,7 @@ import { hasScriptPreviewContent, scriptGenerationPresentation } from '../utils/
 import { teacherFacingTeachingLabel } from '../utils/teaching-terminology'
 import UploadedPptReviewWorkspace from './UploadedPptReviewWorkspace.vue'
 import PptWorkspace from './PptWorkspace.vue'
+import PptProjectWorkspace from './PptProjectWorkspace.vue'
 import UiWorkflowSteps from './UiWorkflowSteps.vue'
 import {
   buildTeacherCourseChangeInstruction,
@@ -1183,6 +1187,8 @@ import { toAppError } from '../utils/app-error'
 import http, { teacherReadRequestConfig, teacherRequestConfig } from '../utils/http'
 import { createUuid } from '../utils/client-id'
 
+const legacyPptOpen = ref(false)
+const pptProjectWorkspace = ref<InstanceType<typeof PptProjectWorkspace> | null>(null)
 type CoreStageId = 'foundation' | 'lesson' | 'script' | 'ppt'
 type StageId = CoreStageId | 'question-bank' | 'companion'
 type CompanionTemplateId = typeof GRADING_RUBRIC_TEMPLATE_ID | typeof MATERIAL_CHECKLIST_TEMPLATE_ID
@@ -1994,9 +2000,9 @@ const outlineAvailableForLessons = computed(() => {
 })
 const outlinePrerequisiteReason = computed(() => t('courseWorkbench.lessonPrerequisite.outlineRequired'))
 function stagePrerequisiteBlocked(stage: StageId) {
+  if (stage === 'ppt') return false
   if (['lesson', 'script', 'ppt'].includes(stage) && !outlineAvailableForLessons.value) return true
   if (stage === 'script') return !(productionState.value?.stages.lesson_plan.counts.available || productionState.value?.stages.script.task_ids.length || lessonStore.lessons.some(lessonPlanIsReady) || lessonStore.lessons.some(lessonScriptIsReady))
-  if (stage === 'ppt') return !(productionState.value?.stages.script.counts.available || productionState.value?.stages.ppt.task_ids.length || lessonStore.lessons.some(lessonPlanIsReady) || lessonStore.lessons.some(lesson => teacherLessonPptIsReady(lesson)))
   return false
 }
 function stagePrerequisiteReason(stage: StageId): string {
@@ -2365,7 +2371,7 @@ const lessonOutlineVisible = computed(() => {
   if (activeStage.value === 'script') {
     return scriptBatchStarting.value || scriptGenerating.value || lessonStore.lessons.some(lesson => lessonGenerationState(lesson) !== 'pending')
   }
-  return activeStage.value === 'ppt'
+  return activeStage.value === 'ppt' && legacyPptOpen.value
 })
 const effectiveScriptGenerationError = computed(() => String(
   productionState.value
@@ -3885,6 +3891,7 @@ function beginScriptEditing() { scriptDocument.value?.beginEditing() }
 function cancelScriptEditing() { scriptDocument.value?.cancelEditing() }
 async function saveScriptDraft() { await scriptDocument.value?.saveDraft() }
 async function finishEditing(): Promise<boolean> {
+  if (activeStage.value === 'ppt' && pptProjectWorkspace.value && !pptProjectWorkspace.value.prepareToLeave()) return false
   if (activeStage.value === 'ppt' && uploadedPptWorkspace.value && !await uploadedPptWorkspace.value.prepareToLeave()) return false
   if (activeStage.value === 'ppt' && pptWorkspace.value && !await pptWorkspace.value.prepareToLeave()) return false
   if (aiCandidatePending.value) return false

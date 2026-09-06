@@ -84,7 +84,13 @@ def form_schema(layout_id):
     # A capacity repair may split only this task, in the same authored layout.
     group = create_model("FixedPageGroup", pages=(list[form], Field(min_length=1, max_length=4)))
     from pydantic import TypeAdapter
-    return TypeAdapter(form | group).json_schema()
+    schema = TypeAdapter(form | group).json_schema()
+    items = schema["$defs"]["FixedPageGroup"]["properties"]["pages"]["items"]
+    schema["$defs"]["FixedPageGroup"]["properties"]["pages"]["items"] = {"allOf":[items,
+        {"type":"object", "required":["split_reason"], "properties":{"split_reason":{"type":"string", "minLength":1}}}]}
+    schema["$defs"]["QuoteChoice"] = {"type":"object", "additionalProperties":False,
+        "required":["quote_id"], "properties":{"quote_id":{"type":"string", "minLength":1}}}
+    return schema
 
 
 def lower_fixed_response(response, plan, assets=()):

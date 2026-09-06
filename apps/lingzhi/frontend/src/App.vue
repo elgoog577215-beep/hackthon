@@ -110,7 +110,7 @@
     </main>
 
     <AppErrorCenter />
-    <KnowledgeLibrary v-if="!isPublicConceptRoute" :learning-mode="isLearningRoute" />
+    <KnowledgeLibrary v-if="!isPublicConceptRoute && !isTeacherPreview" :learning-mode="isLearningRoute" />
   </div>
 </template>
 
@@ -154,7 +154,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', reconcileVisibleGenerationTasks)
 })
 
-const isLearningRoute = computed(() => route.name === 'learning')
+const isTeacherPreview = computed(() => route.name === 'learning' && route.query.teacherPreview === '1')
+const isLearningRoute = computed(() => route.name === 'learning' && !isTeacherPreview.value)
 const isCourseWorkspaceRoute = computed(() => ['course-workspace', 'course-audit-updates'].includes(String(route.name || '')))
 const isPublicConceptRoute = computed(() => route.meta.publicConcept === true)
 const isFullscreenConceptRoute = computed(() => route.meta.fullscreenConcept === true)

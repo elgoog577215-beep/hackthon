@@ -203,7 +203,7 @@ def test_teacher_classroom_contract_is_seeded_into_the_official_teaching_plan():
     ],
 )
 async def test_new_course_types_create_generation_jobs(payload):
-    request = CourseGenerationRequest.model_validate(payload)
+    request = CourseGenerationRequest.model_validate({**payload, "teacher_authoring_mode": "lesson_assets_v1"})
 
     class FakeTaskManager:
         snapshot = None

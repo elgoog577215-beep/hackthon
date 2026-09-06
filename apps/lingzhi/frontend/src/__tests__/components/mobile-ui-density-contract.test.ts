@@ -11,7 +11,7 @@ const workbenchSource = source('src/components/CourseWorkbench.vue')
 const taskCenterSource = source('src/components/CourseTaskCenter.vue')
 const reviewCenterSource = source('src/components/QuestionBankReviewCenter.vue')
 const reviewPanelSource = source('src/components/QuestionBankReviewPanel.vue')
-const learningSource = source('src/views/LearningView.vue')
+const learningSource = source('src/views/LearnerCourseView.vue')
 
 describe('mobile UI density contract', () => {
   it('keeps course pagination in content flow and brings courses into the first screen', () => {

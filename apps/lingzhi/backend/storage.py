@@ -360,6 +360,9 @@ class Storage:
             course_id: 课程 ID。
             data: 课程数据字典。
         """
+        if data.get("teacher_production_schema") == "unified_teacher_v1" or self.load_course(course_id).get("teacher_production_schema") == "unified_teacher_v1":
+            self.save_course_sync(course_id, data)
+            return
         lock = await self._get_lock(course_id)
         async with lock:
             filepath = Path(self._courses_dir) / f"{course_id}.json"
@@ -454,13 +457,28 @@ class Storage:
             course_id: 课程 ID。
             data: 课程数据字典。
         """
-        self._ensure_cache()
-        self.courses_cache[course_id] = data
-
-        filepath = os.path.join(self._courses_dir, f"{course_id}.json")
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-
+        def replace(current):
+            if current.get("teacher_production_schema") == "unified_teacher_v1":
+                if data.get("teacher_production_schema") != "unified_teacher_v1":
+                    from course_repository import CourseDocumentConflict
+                    raise CourseDocumentConflict("Teacher course migrated; reload before saving")
+                if current.get("course_document_revision") != data.get("course_document_revision"):
+                    from course_repository import CourseDocumentConflict
+                    raise CourseDocumentConflict("Course document revision changed")
+                if current.get("course_document") != data.get("course_document"):
+                    from course_repository import CourseDocumentConflict
+                    raise CourseDocumentConflict("Teacher handouts require the shared commit service")
+            merged = deepcopy(data)
+            if current.get("teacher_production_schema") == "unified_teacher_v1":
+                for key in ("teacher_handouts", "teacher_handout_history", "teacher_ppt_projects",
+                            "teacher_ppt_uploads", "teacher_outline_committed"):
+                    if key in current:
+                        merged[key] = deepcopy(current[key])
+                existing_log = deepcopy(current.get("course_operation_log") or [])
+                command_ids = {item.get("command_id") for item in existing_log}
+                merged["course_operation_log"] = [*existing_log, *(item for item in data.get("course_operation_log") or [] if item.get("command_id") not in command_ids)][-200:]
+            return merged
+        self.update_course_data(course_id, replace)
         self._mark_dirty()
 
     def load_course(self, course_id: str) -> dict:
@@ -475,7 +493,39 @@ class Storage:
             课程数据字典，不存在时返回空字典。
         """
         self._ensure_cache()
-        return self.courses_cache.get(course_id, {})
+        path = Path(self._courses_dir) / f"{course_id}.json"
+        if Path(course_id).name != course_id:
+            return {}
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            self.courses_cache.pop(course_id, None)
+            return {}
+        self.courses_cache[course_id] = deepcopy(value)
+        return value
+
+    def update_course_data(self, course_id: str, updater: Callable[[dict], dict]) -> dict:
+        """Read/modify/replace one course under a cross-process file lock.
+
+        Used by lesson-scoped commits: each writer sees other lectures' latest
+        blocks, and the document, source bindings and receipt commit together.
+        """
+        if not course_id or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for c in course_id):
+            raise ValueError("Invalid course id")
+        path = Path(self._courses_dir) / f"{course_id}.json"
+        with _generic_data_thread_lock:
+            with open(path.with_suffix(".lock"), "a+") as lock:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+                try:
+                    current = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+                    updated = updater(deepcopy(current))
+                    if updated != current:
+                        self._atomic_save_generic_data(path, updated)
+                    self._ensure_cache()
+                    self.courses_cache[course_id] = deepcopy(updated)
+                    return deepcopy(updated)
+                finally:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
     def delete_course(self, course_id: str) -> None:
         """删除课程及其所有快照。

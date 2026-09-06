@@ -952,6 +952,8 @@ class TaskManager:
         self, request_snapshot: dict[str, Any]
     ) -> dict[str, Any]:
         """Create one durable job, a canonical shell, and an isolated generation workspace."""
+        if request_snapshot.get("teacher_authoring_mode") != "lesson_assets_v1":
+            raise ValueError("legacy_course_generation_retired: use the teacher workbench")
         request_snapshot = dict(request_snapshot)
         async with self._creation_lock:
             request_id = str(request_snapshot.get("request_id") or "").strip()
@@ -1055,6 +1057,7 @@ class TaskManager:
             "course_id": course_id,
             "course_name": subject,
             "generation_schema_version": PIPELINE_VERSION,
+            "teacher_production_schema": "unified_teacher_v1",
             "generation_status": "queued",
             "nodes": [],
             "generation_request": request_snapshot,
@@ -9101,6 +9104,9 @@ class TaskManager:
         if not task:
             return
         course_id = str(task["course_id"])
+        if task.get("type") == "teacher_outline_generation" and course_data.get("generation_status") == "teacher_outline_ready":
+            from teacher_course_content import commit_outline
+            await asyncio.to_thread(commit_outline, self.storage, course_data)
         workspace_id = task.get("workspace_id")
         if workspace_id:
             await asyncio.to_thread(

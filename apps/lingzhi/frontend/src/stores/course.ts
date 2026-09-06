@@ -617,6 +617,9 @@ export const useCourseStore = defineStore('course', {
                 identityReadRequestConfig(surface === 'teacher' ? 'teacher' : 'learner', { silentError: true }),
             )
             const preview = response.data
+            // Completed teacher assets are loaded through the formal document below.
+            // They must not fabricate a pending generation task or overlay live drafts.
+            if ((preview as { projection?: string }).projection === 'canonical') return false
             if (
                 this.currentCourseId !== courseId
                 || this.generationPreviewRequestVersion !== requestVersion

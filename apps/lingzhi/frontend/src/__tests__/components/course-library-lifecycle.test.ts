@@ -382,7 +382,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.get('[data-testid="course-cover-course-general"]').attributes('data-cover-preset')).toBe('general')
   })
 
-  it('新建课程后直接进入同一门课程的生成现场', async () => {
+  it('新建课程进入教师入口，不再启动旧整课生成', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
@@ -411,13 +411,11 @@ describe('CourseLibraryView generation lifecycle', () => {
 
     await wrapper.get('[data-testid="create-course-menu-trigger"]').trigger('click')
     await wrapper.get('[data-testid="create-blank-course"]').trigger('click')
-    await wrapper.get('.generate-now').trigger('click')
     await flushPromises()
 
-    expect(router.currentRoute.value.name).toBe('course-workspace')
-    expect(router.currentRoute.value.params.courseId).toBe('course-live')
-    expect(router.currentRoute.value.params.mode).toBe('build')
-    expect(router.currentRoute.value.query.section).toBe('outline')
+    expect(router.currentRoute.value.path).toBe('/courses')
+    expect(router.currentRoute.value.query.create).toBe('course')
+    expect(courses.generateCourse).not.toHaveBeenCalled()
     expect(wrapper.findComponent({ name: 'CourseWorkbench' }).props('modelValue')).toBe(false)
   })
 
@@ -501,7 +499,9 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.get('[data-testid="create-course-menu-trigger"]').attributes('aria-expanded')).toBe('false')
 
     await wrapper.get('[data-testid="create-blank-course-trigger"]').trigger('click')
-    expect(wrapper.find('.generate-now').exists()).toBe(true)
+    await flushPromises()
+    expect(router.currentRoute.value.query.create).toBe('course')
+    expect(wrapper.find('.generate-now').exists()).toBe(false)
 
     await wrapper.get('[data-testid="create-course-menu-trigger"]').trigger('click')
 

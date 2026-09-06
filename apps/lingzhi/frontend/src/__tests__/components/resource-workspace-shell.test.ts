@@ -48,7 +48,7 @@ describe('resource workspace shell', () => {
     const courseTabs = readSource('../../components/CourseWorkspaceTabs.vue')
     const teachingResources = readSource('../../components/TeachingRepresentationsOverlay.vue')
     const pptWorkspace = readSource('../../components/PptWorkspace.vue')
-    expect(readSource('../../views/PptWorkspaceView.vue')).toContain('<PptWorkspace')
+    expect(readSource('../../views/PptWorkspaceView.vue')).toContain('<PptProjectWorkspace')
 
     expect(courseTabs).toContain('data-workspace-item="ppt"')
     expect(courseTabs).toContain("emit('ppt')")
