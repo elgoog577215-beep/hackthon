@@ -1,8 +1,8 @@
-"""可直接讲授的教师讲义结构真源与确定性质量门。
+"""师生共用的课程讲义结构真源与确定性质量门。
 
 讲义不重新选择学科类型、课型或教学模板。它把当前可用教案中的教学模块编译为
-教师站在讲台上可以自然说出的完整讲述：既讲清知识，也写出过渡、提问、活动指令、
-可能回应和反馈。机械舞台标签仍留在教案，真实教师语言进入讲义。
+学生可独立阅读、教师可据以授课的电子教材，覆盖知识解释、推导、例题、练习与
+参考反馈。沿用 script 的数据身份和存储接口，不要求课堂话术或模拟师生回应。
 """
 
 from __future__ import annotations
@@ -17,8 +17,9 @@ from teacher_visible_language import has_unnatural_system_language
 
 
 SCRIPT_SCHEMA_VERSION = "teacher_script_v2"
+# Retain pipeline identity so existing drafts and checkpoints remain usable.
 SCRIPT_PIPELINE_VERSION = "direct_teaching_script_v8"
-SCRIPT_QUALITY_VERSION = "teacher_script_quality_v10"
+SCRIPT_QUALITY_VERSION = "teacher_script_quality_v11"
 SCRIPT_SINGLE_REQUEST_TARGET_CHARACTERS = 6400
 SCRIPT_SINGLE_REQUEST_MAX_CHARACTERS = 12000
 SCRIPT_SHARD_TARGET_CHARACTERS = 4200
@@ -52,10 +53,6 @@ _LESSON_PLAN_VOICE_PATTERN = re.compile(
 _DIRECT_TEACHING_PATTERN = re.compile(
     r"我们|大家|同学|你们|请|先看|来看|想一想|试一试|注意|"
     r"接下来|回到|到这里|现在|下面|不妨|可以发现|再看"
-)
-_TRANSITION_PATTERN = re.compile(
-    r"接下来|刚才|现在|再看|回到|带着这个|下面|前面|到这里|"
-    r"到这一步|最后|因此|接着|由此|进一步"
 )
 _INTERNAL_PROCESS_PATTERN = re.compile(
     r"全链路验收|不冒充模型生成|模型生成|内部提示词|"
@@ -352,7 +349,7 @@ def teacher_script_artifact_contract(
         "general": "内容必须落到具体情境、操作、产物或可检查判断，不能停留在摘要和口号。",
     }[discipline]
     if role == "activity":
-        guidance += " 练习必须用教师可直接说出的语言写清任务情境、已知条件、输出要求、等待点、可能回应与验收标准。"
+        guidance += " 练习须写清任务情境、已知条件、操作步骤与输出要求，并单列参考解法或验收标准，供学生独立完成和核对。"
     elif role == "feedback":
         guidance += " 辨析必须包含核对标准、典型错误、修正原因和再次验证。"
     elif role in {"reasoning", "example"}:
@@ -369,11 +366,10 @@ def teacher_script_length_contract(
     role: str,
     planned_minutes: Any,
 ) -> dict[str, int]:
-    """Give every module a complete but bounded direct-teaching budget.
+    """Keep the existing bounded request budget for each handout module.
 
-    The script is a polished teacher utterance, not a raw transcript and not a
-    short cue card. The minute budget controls depth while leaving room for
-    explanation, transitions, questions, likely responses and feedback.
+    Minutes remain a depth hint, not a speaking-rate limit. Generation and
+    editorial advice must preserve necessary explanations and worked solutions.
     """
     compact_roles = {
         "orientation", "prerequisite", "objective", "checkpoint", "summary",
@@ -909,7 +905,7 @@ def validate_teacher_script_section(
                 "teacher_script:block_too_long",
                 (
                     f"“{_text(block.get('title'))}”过长（{len(content)} 字），"
-                    f"讲义单块上限为 {max_characters} 字。"
+                    f"建议篇幅为 {max_characters} 字以内；只精简重复或旁支，保留必要推导与完整解法。"
                 ),
             )
         artifact = expected[index].get("artifact_contract") or {}
@@ -954,13 +950,13 @@ def validate_teacher_script_section(
             add(
                 review,
                 "teacher_script:classroom_delivery_cue",
-                f"“{_text(block.get('title'))}”仍用机械的提问、板书、巡视或等待标签，没有改写成自然教师语言。",
+                f"“{_text(block.get('title'))}”仍用提问、板书、巡视或等待标签，应改为可独立阅读的解释、题目、操作步骤或参考解答。",
             )
         if _LESSON_PLAN_VOICE_PATTERN.search(content):
             add(
                 review,
                 "teacher_script:lesson_plan_voice",
-                f"“{_text(block.get('title'))}”仍在描述教师或学生应当做什么，没有写成教师可以直接说的话。",
+                f"“{_text(block.get('title'))}”仍用师生活动安排代替正文，应展开实际知识、任务条件、步骤和核对标准，不要改成教师口播稿。",
             )
         if (
             _INTERNAL_PROCESS_PATTERN.search(content)
@@ -975,14 +971,14 @@ def validate_teacher_script_section(
             add(
                 blocking,
                 "teacher_script:placeholder_content",
-                f"“{_text(block.get('title'))}”仍是恢复模板或占位文字，不是可直接授课的讲义正文。",
+                f"“{_text(block.get('title'))}”仍是恢复模板或占位文字，不是可独立阅读的讲义正文。",
             )
         canned_count = len(_CANNED_DISCOURSE_PATTERN.findall(content))
         if canned_count >= 4:
             add(
                 review,
                 "teacher_script:canned_discourse",
-                f"“{_text(block.get('title'))}”连续使用程式化连接词，课堂语言仍有明显模板感。",
+                f"“{_text(block.get('title'))}”连续使用程式化连接词，应按知识关系自然组织解释。",
             )
         visible_tail = re.sub(r"```\s*$", "", content).rstrip()
         if visible_tail and _INCOMPLETE_END_PATTERN.search(visible_tail):
@@ -1029,21 +1025,6 @@ def validate_teacher_script_section(
                 ),
             )
     combined_content = "\n".join(_text(block.get("content")) for block in blocks)
-    if len(combined_content) >= 120 and not _DIRECT_TEACHING_PATTERN.search(combined_content):
-        add(
-            review,
-            "teacher_script:not_directly_teachable",
-            "整节讲义缺少自然讲解、提问或引导语言，仍像教材正文，不能直接站在讲台上讲。",
-        )
-    if len(blocks) > 1 and not any(
-        _TRANSITION_PATTERN.search(_text(block.get("content")))
-        for block in blocks[1:]
-    ):
-        add(
-            review,
-            "teacher_script:missing_transition",
-            "相邻教学块之间没有自然承接，教师实际讲授时会出现明显跳段。",
-        )
     return {
         "schema_version": SCRIPT_QUALITY_VERSION,
         "pipeline_version": SCRIPT_PIPELINE_VERSION,
@@ -1212,7 +1193,7 @@ def validate_teacher_script_revision(
     if repeated_canned_phrases:
         review.append({
             "code": "teacher_script:repetitive_canned_transitions",
-            "message": "多个教学块反复使用同一套程式化连接词，讲义需要改成随内容自然推进的课堂语言。",
+            "message": "多个教学块反复使用同一套程式化连接词，讲义应按知识关系自然组织解释，不必添加课堂话术。",
             "phrase_blocks": repeated_canned_phrases,
         })
 
@@ -1261,11 +1242,12 @@ def validate_teacher_script_revision(
 
 def upgrade_script_quality_report(report: dict[str, Any]) -> dict[str, Any]:
     """Reclassify known reports without rewriting prose or calling a model."""
-    if report.get("schema_version") not in {"teacher_script_quality_v8", "teacher_script_quality_v9"} or report.get("pipeline_version") != SCRIPT_PIPELINE_VERSION:
+    if report.get("schema_version") not in {
+        "teacher_script_quality_v8", "teacher_script_quality_v9", "teacher_script_quality_v10",
+    } or report.get("pipeline_version") != SCRIPT_PIPELINE_VERSION:
         return report
     result = deepcopy(report)
     advisory = {
-        "teacher_script:not_directly_teachable", "teacher_script:missing_transition",
         "teacher_script:canned_discourse", "teacher_script:repetitive_canned_transitions",
         "teacher_script:block_too_long", "teacher_script:practice_not_complete",
         "teacher_script:feedback_not_checkable", "teacher_script:classroom_delivery_cue",
@@ -1278,9 +1260,14 @@ def upgrade_script_quality_report(report: dict[str, Any]) -> dict[str, Any]:
             and "block_pairs" in item and len(item["block_pairs"]) < 2
             and bool(item.get("repeated_clause_groups"))
         )
-    issues = result.get("blocking_issues") or []
+    # Retire speech-marker heuristics without rewriting existing course prose.
+    retired = {"teacher_script:not_directly_teachable", "teacher_script:missing_transition"}
+    issues = [item for item in result.get("blocking_issues") or [] if item.get("code") not in retired]
     result["blocking_issues"] = [item for item in issues if not is_advice(item)]
-    result["review_issues"] = [*(result.get("review_issues") or []), *(item for item in issues if is_advice(item))]
+    result["review_issues"] = [
+        *(item for item in result.get("review_issues") or [] if item.get("code") not in retired),
+        *(item for item in issues if is_advice(item)),
+    ]
     result["schema_version"] = SCRIPT_QUALITY_VERSION
     result["passed"] = not result["blocking_issues"]
     if "publication_eligible" in result:

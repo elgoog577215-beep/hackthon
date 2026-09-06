@@ -247,7 +247,7 @@ def test_advice_upgrade_keeps_structural_failures_and_requires_known_contract():
     }
     upgraded = upgrade_script_quality_report(report)
     assert [i["code"] for i in upgraded["blocking_issues"]] == ["teacher_script:block_empty"]
-    assert len(upgraded["review_issues"]) == 1 and not upgraded["passed"]
+    assert upgraded["review_issues"] == [] and not upgraded["passed"]
     old = {**report, "schema_version": "unknown"}
     assert upgrade_script_quality_report(old) == old
 

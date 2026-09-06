@@ -159,7 +159,7 @@ def test_auxiliary_plan_fields_are_advice_while_missing_teaching_content_blocks(
     assert not validate_teacher_lesson_plan(plan)["passed"]
 
 
-@pytest.mark.parametrize("version", ["v8", "v9"])
+@pytest.mark.parametrize("version", ["v8", "v9", "v10"])
 def test_old_reports_reclassify_advice_without_erasing_real_failure(version):
     report = {"schema_version": f"teacher_script_quality_{version}", "pipeline_version": SCRIPT_PIPELINE_VERSION,
               "passed": False, "publication_eligible": False, "blocking_issues": [
@@ -168,10 +168,31 @@ def test_old_reports_reclassify_advice_without_erasing_real_failure(version):
     before = deepcopy(report)
     current = upgrade_script_quality_report(report)
     assert report == before
-    assert current["schema_version"] == "teacher_script_quality_v10"
+    assert current["schema_version"] == "teacher_script_quality_v11"
     assert not current["passed"]
     assert [i["code"] for i in current["blocking_issues"]] == ["teacher_script:block_empty"]
     assert current["review_issues"] == [{"code": "teacher_script:lesson_too_shallow"}]
+
+
+def test_old_speech_requirements_are_retired_without_hiding_content_failure():
+    report = {
+        "schema_version": "teacher_script_quality_v10",
+        "pipeline_version": SCRIPT_PIPELINE_VERSION,
+        "passed": False,
+        "publication_eligible": False,
+        "blocking_issues": [
+            {"code": "teacher_script:not_directly_teachable"},
+            {"code": "teacher_script:unclosed_math_delimiter"},
+        ],
+        "review_issues": [{"code": "teacher_script:missing_transition"}],
+    }
+    before = deepcopy(report)
+    current = upgrade_script_quality_report(report)
+    assert report == before
+    assert not current["passed"]
+    assert not current["publication_eligible"]
+    assert current["blocking_issues"] == [{"code": "teacher_script:unclosed_math_delimiter"}]
+    assert current["review_issues"] == []
 
 
 def test_quality_improvement_prioritizes_real_failure_over_new_advice():
@@ -188,7 +209,7 @@ def test_optional_script_optimization_timeout_keeps_usable_draft(monkeypatch):
         calls.append(True)
         if len(calls) > 1:
             raise TimeoutError("optional optimization timeout")
-        return "## 概念\n\n" + "函数为每个输入指定唯一输出，对应关系满足单值条件。" * 8
+        return "## 概念\n\n【板书】" + "函数为每个输入指定唯一输出，对应关系满足单值条件。" * 8
     monkeypatch.setattr(service, "_call_llm", model)
     result = asyncio.run(service.generate_teacher_script_section(
         course_id="isolated-test", outline_section={"node_id": "s", "module_plan": [{"module_id": "core_explanation", "label": "概念"}]},

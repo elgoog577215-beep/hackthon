@@ -1317,7 +1317,7 @@ def test_teacher_script_stale_quality_contract_is_never_publishable():
             "publication_eligible": True,
         },
     }) is False
-    assert SCRIPT_QUALITY_VERSION == "teacher_script_quality_v10"
+    assert SCRIPT_QUALITY_VERSION == "teacher_script_quality_v11"
 
 
 def test_teacher_script_revision_reports_canned_transitions_as_advice():
@@ -1452,7 +1452,42 @@ def test_teacher_script_reports_language_and_uncertain_ending_as_advice():
     }
 
 
-def test_teacher_script_service_generates_direct_teaching_script(monkeypatch):
+def test_teacher_script_textbook_blocks_need_no_speech_or_transition_markers():
+    modules = [
+        {"module_id": "core_explanation", "label": "概念解释", "block_role": "concept"},
+        {"module_id": "summary", "label": "知识小结", "block_role": "summary"},
+    ]
+    contract = compile_teacher_script_module_contract(
+        {"node_id": "section-textbook", "module_plan": modules},
+        {"node_id": "section-textbook", "teaching_modules": modules},
+    )
+    markdown = (
+        "## 概念解释\n\n函数为定义域内的每个输入指定唯一输出。"
+        "单值条件限制同一个输入对应的输出数量，不限制不同输入具有相同输出。"
+        "例如平方函数在输入为正一和负一时均输出一，仍然满足单值条件。"
+        "判断对应关系是否为函数，必须检查定义域内所有输入是否都有输出，且每个输入是否只有一个输出。\n\n"
+        "## 知识小结\n\n函数的定义包含定义域、对应关系与单值条件。不同输入具有相同输出并不违反函数定义。"
+    )
+    result = compile_teacher_script_section(markdown, contract)
+    assert result["quality_report"]["passed"]
+    assert result["quality_report"]["review_issues"] == []
+    assert result["content"] == markdown
+
+
+def test_teacher_script_activity_contract_requires_self_study_answers():
+    module = {"module_id": "practice", "label": "练习", "block_role": "activity"}
+    contract = compile_teacher_script_module_contract(
+        {"node_id": "activity", "module_plan": [module]},
+        {"node_id": "activity", "teaching_modules": [module]},
+    )
+    guidance = contract["modules"][0]["artifact_contract"]["guidance"]
+    assert "单列参考解法或验收标准" in guidance
+    assert "供学生独立完成和核对" in guidance
+    assert "教师可直接说出" not in guidance
+    assert "可能回应" not in guidance
+
+
+def test_teacher_script_service_generates_self_contained_course_handout(monkeypatch):
     service = CourseService()
     captured = {}
 
@@ -1460,7 +1495,7 @@ def test_teacher_script_service_generates_direct_teaching_script(monkeypatch):
         captured["user_prompt"] = user_prompt
         captured["system_prompt"] = system_prompt
         captured["kwargs"] = kwargs
-        return "## 核心教学\n\n我们先看核心概念怎样成立：它由定义、成立条件和适用边界共同构成。正例满足全部条件，反例则显示概念边界。"
+        return "## 核心教学\n\n概念由定义、成立条件和适用边界共同构成。正例满足全部条件，反例则显示概念边界。"
 
     monkeypatch.setattr(service, "_call_llm", fake_call)
     result = asyncio.run(service.generate_teacher_script_section(
@@ -1490,20 +1525,25 @@ def test_teacher_script_service_generates_direct_teaching_script(monkeypatch):
             }],
         },
         lesson_context={"lesson_title": "第一讲"},
-        requirements="贴近课堂表达",
+        requirements="保留定义、推导和完整参考解答",
     ))
 
     assert result["quality_report"]["passed"] is True
-    assert "教师站在讲台上实际说的完整讲义" in captured["system_prompt"]
+    assert "师生共用的标准课程讲义" in captured["system_prompt"]
+    assert "可独立阅读的电子教材或教辅" in captured["system_prompt"]
     assert "本节课型：概念建构" in captured["system_prompt"]
     assert "学科类型与当前教学块策略" in captured["system_prompt"]
     assert "前后小节连贯与课程总编约束" in captured["system_prompt"]
-    assert "提问写出问题原话" in captured["system_prompt"]
+    assert "推导逐步说明依据" in captured["system_prompt"]
+    assert "检查与反馈是静态复习参考" in captured["system_prompt"]
+    assert "不根据临时学生表现改变知识主线" in captured["system_prompt"]
     assert "## 核心教学" in captured["system_prompt"]
-    assert "改写为教师当场会说的话" in captured["system_prompt"]
+    assert "课堂表达均按上述原则转化为教材正文" in captured["system_prompt"]
     assert "当前生成不得输出 `$$`" in captured["system_prompt"]
-    assert "不得超过" in captured["system_prompt"]
-    assert "自学课程的完整小节" not in captured["system_prompt"]
+    assert "不按课堂语速删减必要内容" in captured["system_prompt"]
+    assert "供学生独立阅读复习、教师备课授课" in captured["user_prompt"]
+    for retired_instruction in ("不是教材正文", "改写为教师当场会说的话", "直接开口讲", "等待点、可能回应"):
+        assert retired_instruction not in captured["system_prompt"] + captured["user_prompt"]
     assert captured["kwargs"]["use_fast_model"] is True
     assert captured["kwargs"]["enable_thinking"] is False
     assert captured["kwargs"]["max_attempts"] == 2
@@ -3400,7 +3440,8 @@ def test_generated_plan_is_repaired_before_formal_save(tmp_path, repair_kind):
         assert completed["auto_improvement"]["quality_report"]["review_issues"]
 
 
-def test_script_editorial_advice_triggers_automatic_improvement(monkeypatch):
+@pytest.mark.parametrize("classroom_draft", [False, True])
+def test_script_textbook_prose_does_not_trigger_speech_repair(monkeypatch, classroom_draft):
     service = CourseService()
     calls = []
     prose = (
@@ -3412,17 +3453,21 @@ def test_script_editorial_advice_triggers_automatic_improvement(monkeypatch):
     )
     async def model(user_prompt, system_prompt, **_kwargs):
         calls.append(system_prompt)
-        return "## 核心教学\n\n" + ("我们先看条件与结论之间的关系。" if len(calls) > 1 else "") + prose
+        return "## 核心教学\n\n" + ("【板书】教师应解释条件。" if classroom_draft and len(calls) == 1 else "") + prose
     monkeypatch.setattr(service, "_call_llm", model)
     result = asyncio.run(service.generate_teacher_script_section(
         course_id="auto-script", outline_section={"node_id": "L2-1-1", "node_name": "逻辑条件",
             "module_plan": [{"module_id": "core_explanation", "label": "核心教学"}]},
         current_plan_section={"node_id": "L2-1-1", "teaching_modules": [{"module_id": "core_explanation"}]},
     ))
-    assert len(calls) == 2
-    assert "teacher_script:not_directly_teachable" in calls[1]
+    assert len(calls) == (2 if classroom_draft else 1)
+    if classroom_draft:
+        assert "teacher_script:classroom_delivery_cue" in calls[1]
+        assert "应改为可独立阅读的解释" in calls[1]
+    assert all("teacher_script:not_directly_teachable" not in prompt for prompt in calls)
+    assert result["content"] == "## 核心教学\n\n" + prose
     assert not result["quality_report"]["review_issues"]
-    assert result["auto_improvement"]["attempts"] == 1
+    assert result["auto_improvement"]["attempts"] == int(classroom_draft)
 
 
 def test_plan_job_stream_updates_do_not_block_event_loop(tmp_path):
