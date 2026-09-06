@@ -576,8 +576,8 @@ The workspace SHALL show a page directory and one active page with its saved sce
 - **WHEN** the workspace enters the original PPT review branch
 - **THEN** it preserves the original review route and does not offer manuscript generation or export actions
 
-### Requirement: 教师在备课工作台原地完成 PPT 三步操作
-系统 SHALL 在当前课程讲次内展示内容稿、渲染 PPT、查看与使用三个步骤，复用既有稿件与成品能力，不建立另一套生成状态。
+### Requirement: 教师在备课工作台原地完成 PPT 制作
+系统 SHALL 在当前课程讲次内展示内容稿与 PPT 两个步骤，第二步承载渲染与成品使用。步骤条、状态操作侧栏及资料准备 SHALL 复用现有工作台结构，中央保留稿件和成品，错误只在侧栏显示一次，不建立另一套生成状态。
 
 #### Scenario: 确认内容稿后等待教师启动渲染
 - **WHEN** 教师确认当前页面内容稿
@@ -589,8 +589,17 @@ The workspace SHALL show a page directory and one active page with its saved sce
 
 #### Scenario: 来源变更仍能阅读最后成品
 - **WHEN** 上游教案或讲义不可用于新生成但已有成功 PPT
-- **THEN** 第三步仍可查看最后成品并说明版本状态，新生成继续遵守源与任务准入
+- **THEN** 第二步仍可查看最后成品并说明版本状态，新生成继续遵守源与任务准入
 
 #### Scenario: 保留旧入口与原版审阅
 - **WHEN** 教师从文件空间打开 PPT，或打开既有独立链接
 - **THEN** 文件空间进入工作台对应讲次，独立链接复用同一 PPT 组件；上传原版继续使用原件审阅、编辑确认和下载
+
+
+#### Scenario: 资料设置按需展开
+- **WHEN** 教师阅读当前 PPT 内容稿或成品
+- **THEN** 右栏沿用其他阶段的只读资料摘要，不显示常驻资料编辑；进入生成准备时才打开共用资料准备弹窗
+
+#### Scenario: 同一右栏恢复任务
+- **WHEN** PPT 任务暂停或失败，教师从共用右栏恢复
+- **THEN** 系统只使用当前讲生产投影授权的精确任务 ID；历史渲染错误不覆盖新的保存错误，中央保留当前稿件

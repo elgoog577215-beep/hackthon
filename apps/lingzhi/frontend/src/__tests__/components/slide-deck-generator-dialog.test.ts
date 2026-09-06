@@ -127,4 +127,15 @@ describe('SlideDeckGeneratorDialog', () => {
     expect(wrapper.emitted('create-template')).toHaveLength(1)
     expect(wrapper.text()).not.toContain('.pptpack')
   })
+  it('allows external confirmation without duplicating its footer and guards disabled execution', async () => {
+    const wrapper = mount(SlideDeckGeneratorDialog, { props: { open: true, inline: true, externalActions: true } })
+    expect(wrapper.find('.deck-generator__footer').exists()).toBe(false)
+    await wrapper.setProps({ disabled: true })
+    wrapper.vm.confirm()
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+    await wrapper.setProps({ disabled: false })
+    wrapper.vm.confirm()
+    expect(wrapper.emitted('confirm')).toHaveLength(1)
+  })
+
 })

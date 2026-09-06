@@ -1,15 +1,18 @@
 <template>
-  <section class="ppt-manuscript-workflow" :class="{ 'is-embedded': embedded }" data-testid="ppt-manuscript-workflow">
-    <header class="ppt-manuscript-workflow__header">
+  <section class="ppt-manuscript-workflow" :class="{ 'is-embedded': embedded, 'has-external-actions': externalActions }" data-testid="ppt-manuscript-workflow">
+    <header v-if="!reviewOnly" class="ppt-manuscript-workflow__header">
       <button v-if="!embedded" type="button" :aria-label="t('pptWorkspace.backToProduction')" class="ppt-manuscript-workflow__back" @click="emit('back')"><ArrowLeft :size="18" /></button>
       <div v-if="!embedded">
         <h1><MathText :content="title" /></h1>
       </div>
       <TeacherDocumentCommandBar v-if="state.generation_branch !== 'original_ppt_review'"
         class="ppt-manuscript-command-bar" :label="t('pptWorkspace.editor.actions')"
-        :show-status="Boolean(manuscript)" :status-label="saveStateLabel" :status-tone="saving ? 'busy' : dirty ? 'warning' : 'normal'">
-        <template #context><span v-if="manuscript" class="ppt-manuscript-page-count">{{ manuscriptPageCounts }}</span></template>
-        <template v-if="manuscript && state.source_state === 'stale'">
+        :show-status="Boolean(manuscript) && (!externalActions || editing)" :status-label="saveStateLabel" :status-tone="saving ? 'busy' : dirty ? 'warning' : 'normal'">
+        <template v-if="manuscript" #context>
+          <CompactPagination v-if="externalActions" style="--pagination-font-size:15px" :page="activePageNumber" :page-count="draftPages.length" range-text="" :label="t('pptWorkspace.editor.pages')" :previous-label="t('pptWorkspace.sidebar.previousPage')" :next-label="t('pptWorkspace.sidebar.nextPage')" :page-select-label="t('pptWorkspace.sidebar.selectPage')" test-id-prefix="ppt-manuscript" @update:page="selectPage(draftPages[$event - 1]?.page_id)" />
+          <span v-if="!externalActions" class="ppt-manuscript-page-count">{{ manuscriptPageCounts }}</span>
+        </template>
+        <template v-if="!externalActions && manuscript && state.source_state === 'stale'">
           <button type="button" :disabled="busy || dirty" data-testid="regenerate-affected-ppt-pages" @click="emit('regenerate-pages', [])"><RefreshCw :size="16" />{{ t('pptWorkspace.regenerateAffectedPages') }}</button>
           <button type="button" class="primary-action" :disabled="busy" data-testid="generate-ppt-manuscript" @click="emit('generate-manuscript')">{{ t('pptWorkspace.regenerateManuscript') }}</button>
         </template>
@@ -19,10 +22,11 @@
           <button type="button" class="primary-action" :disabled="busy" data-testid="save-ppt-manuscript" @click="finishEditing"><Check :size="16" />{{ saving ? t('pptWorkspace.savingManuscript') : t('pptWorkspace.editor.finishEditing') }}</button>
         </template>
         <template v-else>
+          <button v-if="externalActions" type="button" :disabled="busy || dirty" :aria-pressed="selectingPages" data-testid="select-ppt-pages" @click="togglePageSelection">{{ selectingPages ? t('common.cancel') : t('pptWorkspace.editor.selectPages') }}</button>
           <button type="button" :disabled="busy" :aria-expanded="arrangementOpen" data-testid="ppt-lesson-arrangement" @click="arrangementOpen = !arrangementOpen"><ListTree :size="16" />{{ t('pptWorkspace.lessonArrangement') }}</button>
           <button type="button" :disabled="busy" data-testid="edit-ppt-manuscript" @click="editing = true"><Pencil :size="16" />{{ t('pptWorkspace.editor.editPage') }}</button>
-          <button v-if="state.status === 'draft'" type="button" class="primary-action" :disabled="busy || dirty || !state.confirmable" data-testid="confirm-ppt-manuscript" @click="emit('confirm-manuscript')"><Check :size="16" />{{ confirming ? t('pptWorkspace.confirmingManuscript') : t('pptWorkspace.confirmManuscript') }}</button>
-          <button v-else type="button" class="primary-action" :disabled="busy || dirty || !state.can_generate_ppt" data-testid="generate-ppt-from-manuscript" @click="emit('generate-ppt')">{{ embedded ? t('pptWorkspace.flow.continueToRender') : t('pptWorkspace.generateDeck') }}<ArrowRight :size="16" /></button>
+          <button v-if="!externalActions && state.status === 'draft'" type="button" class="primary-action" :disabled="busy || dirty || !state.confirmable" data-testid="confirm-ppt-manuscript" @click="emit('confirm-manuscript')"><Check :size="16" />{{ confirming ? t('pptWorkspace.confirmingManuscript') : t('pptWorkspace.confirmManuscript') }}</button>
+          <button v-else-if="!externalActions" type="button" class="primary-action" :disabled="busy || dirty || !state.can_generate_ppt" data-testid="generate-ppt-from-manuscript" @click="emit('generate-ppt')">{{ embedded ? t('pptWorkspace.flow.continueToRender') : t('pptWorkspace.generateDeck') }}<ArrowRight :size="16" /></button>
         </template>
       </TeacherDocumentCommandBar>
     </header>
@@ -35,10 +39,13 @@
     </div>
 
     <template v-else>
-      <div v-if="manuscript && state.source_state === 'stale'" class="ppt-manuscript-workflow__warning"><TriangleAlert :size="18" /><span>{{ t('pptWorkspace.manuscriptStale', '教案、讲义或资料已经变化，请重新生成页面内容稿。') }}</span></div>
-      <AppErrorNotice v-if="failureView" :presentation="failureView" compact data-testid="ppt-manuscript-failure" />
+      <div v-if="!externalActions && manuscript && state.source_state === 'stale'" class="ppt-manuscript-workflow__warning"><TriangleAlert :size="18" /><span>{{ t('pptWorkspace.manuscriptStale', '教案、讲义或资料已经变化，请重新生成页面内容稿。') }}</span></div>
+      <AppErrorNotice v-if="!externalActions && failureView" :presentation="failureView" compact data-testid="ppt-manuscript-failure" />
 
       <main v-if="manuscript" class="ppt-manuscript-workflow__content">
+        <div v-if="externalActions && reviewOnly" class="ppt-manuscript-pagination">
+          <CompactPagination style="--pagination-font-size:15px" :page="activePageNumber" :page-count="draftPages.length" range-text="" :label="t('pptWorkspace.editor.pages')" :previous-label="t('pptWorkspace.sidebar.previousPage')" :next-label="t('pptWorkspace.sidebar.nextPage')" :page-select-label="t('pptWorkspace.sidebar.selectPage')" test-id-prefix="ppt-manuscript" @update:page="selectPage(draftPages[$event - 1]?.page_id)" />
+        </div>
         <section v-if="arrangementOpen" class="ppt-manuscript-workflow__lesson-plan">
         <section v-if="narrativeBrief" class="ppt-manuscript-workflow__brief" data-testid="ppt-narrative-brief">
           <div><small>{{ t('pptWorkspace.narrativeQuestion', '整讲中心问题') }}</small><strong>{{ narrativeBrief.central_question }}</strong></div>
@@ -55,8 +62,8 @@
         </section>
         <ul v-if="lessonIssues.length" class="ppt-manuscript-workflow__issues" role="alert"><li v-for="issue in lessonIssues" :key="issue.code">{{ issue.message }}</li></ul>
         <div class="ppt-manuscript-workflow__pages">
-          <nav class="ppt-manuscript-workflow__page-list" :aria-label="t('pptWorkspace.pageNavigation')">
-            <header class="ppt-page-list-heading"><strong>{{ t('pptWorkspace.editor.pages') }}</strong><button type="button" :disabled="busy || dirty" :aria-pressed="selectingPages" data-testid="select-ppt-pages" @click="togglePageSelection">{{ selectingPages ? t('common.cancel') : t('pptWorkspace.editor.selectPages') }}</button></header>
+          <nav v-if="!externalActions || selectingPages" class="ppt-manuscript-workflow__page-list" :aria-label="t('pptWorkspace.pageNavigation')">
+            <header class="ppt-page-list-heading"><strong>{{ t('pptWorkspace.editor.pages') }}</strong><button v-if="!reviewOnly && !externalActions" type="button" :disabled="busy || dirty" :aria-pressed="selectingPages" data-testid="select-ppt-pages" @click="togglePageSelection">{{ selectingPages ? t('common.cancel') : t('pptWorkspace.editor.selectPages') }}</button></header>
             <div v-if="selectingPages" class="ppt-page-list-selection"><button type="button" :disabled="busy || selectedPageIds.size === 0 || dirty" data-testid="regenerate-selected-ppt-pages" @click="emit('regenerate-pages', [...selectedPageIds])"><RefreshCw :size="15" />{{ t('pptWorkspace.editor.regenerateSelected').replace('{count}', String(selectedPageIds.size)) }}</button></div>
             <div v-for="item in draftPages" :key="item.page_id" class="ppt-manuscript-workflow__page-rail" :class="{ 'is-active': activePageId === item.page_id }">
               <input v-if="selectingPages" type="checkbox" :aria-label="`${t('pptWorkspace.selectPage')} ${item.page_number}`" :checked="selectedPageIds.has(item.page_id)" :disabled="busy || !canRegenerate(item)" @change="toggleSelected(item.page_id)">
@@ -137,10 +144,11 @@ import PptTeachingEditor from './PptTeachingEditor.vue'
 import PptSceneCanvas from './PptSceneCanvas.vue'
 import UiSegmentedControl from './UiSegmentedControl.vue'
 import TeacherDocumentCommandBar from './TeacherDocumentCommandBar.vue'
+import CompactPagination from './CompactPagination.vue'
 import AppErrorNotice from './AppErrorNotice.vue'
 import { pptFailurePresentation } from '../utils/ppt-workspace-error'
 
-const props = defineProps<{ title: string; state: Record<string, any>; embedded?: boolean; busy?: boolean; confirming?: boolean; saving?: boolean; regenerating?: boolean; error?: string; failure?: Record<string, any> | null }>()
+const props = defineProps<{ title: string; state: Record<string, any>; embedded?: boolean; externalActions?: boolean; reviewOnly?: boolean; busy?: boolean; confirming?: boolean; saving?: boolean; regenerating?: boolean; error?: string; failure?: Record<string, any> | null }>()
 const emit = defineEmits<{
   (event: 'back'): void
   (event: 'generate-manuscript'): void
@@ -169,8 +177,12 @@ let finishRequested = false
 const sceneIndex = ref(0)
 const editorModes = computed(() => [{ value: 'content', label: t('pptWorkspace.editPageContent') }, { value: 'layout', label: t('pptWorkspace.editPageLayout') }])
 const focusedPages = computed(() => draftPages.value.filter(page => page.page_id === activePageId.value))
+const activePageNumber = computed(() => Math.max(1, draftPages.value.findIndex(page => page.page_id === activePageId.value) + 1))
 const activeScene = computed(() => focusedPages.value[0]?.resolved_scenes?.[sceneIndex.value])
 watch(activePageId, () => { sceneIndex.value = 0 })
+watch(() => props.reviewOnly, value => {
+  if (value) { editing.value = false; selectingPages.value = false; arrangementOpen.value = false }
+})
 
 watch(() => props.state.revision, () => {
   const pages = Array.isArray(manuscript.value?.pages) ? manuscript.value.pages : []
@@ -290,4 +302,9 @@ function hasSourceRefs(page: Record<string, any>) { return ['source_script_block
 .ppt-manuscript-workflow.is-embedded{padding:12px 0 0;background:transparent}
 .ppt-manuscript-workflow.is-embedded :deep(.teacher-document-command-bar__context){gap:12px;flex-wrap:wrap;white-space:normal}
 @media (max-width:1366px){.ppt-manuscript-workflow__pages{grid-template-columns:180px minmax(0,1fr)}.ppt-manuscript-workflow__pages article{padding:18px 24px 32px}.ppt-manuscript-page-count{display:none}}
+.has-external-actions .ppt-manuscript-workflow__pages{display:flex;flex-direction:column;border:0;border-radius:0;min-height:0}
+.has-external-actions .ppt-manuscript-workflow__pages article{flex:1;padding:24px 28px 40px}
+.has-external-actions .ppt-manuscript-workflow__page-list{max-height:240px;border-right:0;border-bottom:1px solid #e5e9f0}
+.ppt-manuscript-pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 24px;border-bottom:1px solid #e5e9f0;background:#fff}
+.has-external-actions .ppt-manuscript-workflow__page-copy{max-width:860px}
 </style>

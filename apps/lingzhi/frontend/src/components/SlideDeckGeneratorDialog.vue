@@ -129,7 +129,7 @@
         </label>
       </details>
 
-      <footer>
+      <footer v-if="!externalActions">
         <div>
           <ShieldCheck :size="16" />
           <span>原文哈希校验 · 失败不覆盖旧版本 · PPTX 保持可编辑</span>
@@ -176,6 +176,7 @@ const props = withDefaults(defineProps<{
   personalTemplatesEnabled?: boolean
   manuscriptFirst?: boolean
   inline?: boolean
+  externalActions?: boolean
   disabled?: boolean
 }>(), {
   mode: 'teaching',
@@ -325,6 +326,7 @@ function selectPersonalTemplate(template: PersonalPptTemplatePack) {
 }
 
 function confirm() {
+  if (props.busy || props.disabled) return
   const value: {
     mode: SlideDeckMode
     theme: V3Theme
@@ -345,6 +347,7 @@ function confirm() {
   }
   emit('confirm', value)
 }
+defineExpose({ confirm })
 </script>
 
 <style scoped>

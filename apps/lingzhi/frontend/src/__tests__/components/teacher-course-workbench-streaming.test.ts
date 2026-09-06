@@ -69,6 +69,8 @@ const strictProductionSnapshot = (
   issues,
 })
 
+let pptSidebarContext: Record<string, any> | null = null
+const pptRunContextAction = vi.fn(async () => undefined)
 const pptPrepareToLeave = vi.fn(async () => true)
 const pptRequestGeneration = vi.fn(async () => undefined)
 const outlineFinishEditing = vi.fn(async () => true)
@@ -105,7 +107,7 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => {
       PptWorkspace: {
         name: 'PptWorkspace', props: ['canGenerate', 'sourceReady', 'generationAction', 'lessonId'],
         template: '<section data-testid="inline-ppt"><slot name="source-actions" /></section>',
-        setup(_props: unknown, { expose }: any) { expose({ prepareToLeave: pptPrepareToLeave, requestGeneration: pptRequestGeneration }); return {} },
+        setup(_props: unknown, { expose }: any) { expose({ prepareToLeave: pptPrepareToLeave, requestGeneration: pptRequestGeneration, get context() { return pptSidebarContext }, runContextAction: pptRunContextAction }); return {} },
       },
       CompanionDocumentStudio: true,
       QuestionBankReviewPanel: true,
@@ -151,6 +153,8 @@ describe('teacher course workbench outline streaming', () => {
     pptPrepareToLeave.mockReset()
     pptPrepareToLeave.mockResolvedValue(true)
     pptRequestGeneration.mockReset()
+    pptSidebarContext = null
+    pptRunContextAction.mockReset()
     outlineFinishEditing.mockReset()
     outlineFinishEditing.mockResolvedValue(true)
     outlineRequestAiCandidate.mockReset()
@@ -1583,8 +1587,7 @@ describe('teacher course workbench outline streaming', () => {
 
     const pptWrapper = mountWorkbench({ initialStage: 'ppt' })
     await flushPromises()
-    expect(pptWrapper.find('.context-pane').exists()).toBe(false)
-    await pptWrapper.get('[data-testid="ppt-source-settings"]').trigger('click')
+    expect(pptWrapper.find('.context-pane').exists()).toBe(true)
     await flushPromises()
     expect(pptWrapper.get('.lesson-navigator').text()).toContain('第一讲')
     expect(pptWrapper.find('.lesson-toolbar-status').exists()).toBe(false)
@@ -2310,8 +2313,7 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'ppt' })
     await flushPromises()
-    expect(wrapper.find('.context-pane').exists()).toBe(false)
-    await wrapper.get('[data-testid="ppt-source-settings"]').trigger('click')
+    expect(wrapper.find('.context-pane').exists()).toBe(true)
     await flushPromises()
     expect(wrapper.getComponent({ name: 'PptWorkspace' }).props('canGenerate')).toBe(true)
   })
@@ -2433,8 +2435,7 @@ describe('teacher course workbench outline streaming', () => {
     const routePush = vi.spyOn(router, 'push').mockResolvedValue(undefined as any)
     const pptWrapper = mountWorkbench({ initialStage: 'ppt' })
     await flushPromises()
-    expect(pptWrapper.find('.context-pane').exists()).toBe(false)
-    await pptWrapper.get('[data-testid="ppt-source-settings"]').trigger('click')
+    expect(pptWrapper.find('.context-pane').exists()).toBe(true)
     pptWrapper.findComponent({ name: 'CourseReferenceTray' }).vm.$emit('source-state-change', {
       busy: true, blocked: true, reason: '正在更新资料…',
     })
@@ -2461,8 +2462,7 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'ppt' })
     await flushPromises()
-    expect(wrapper.find('.context-pane').exists()).toBe(false)
-    await wrapper.get('[data-testid="ppt-source-settings"]').trigger('click')
+    expect(wrapper.find('.context-pane').exists()).toBe(true)
     let tray = wrapper.findComponent({ name: 'CourseReferenceTray' })
     expect(tray.props('workflowState')).not.toBe('generating')
     expect(wrapper.get('[data-testid="ppt-upload"]').attributes('disabled')).toBeUndefined()
@@ -2498,8 +2498,7 @@ describe('teacher course workbench outline streaming', () => {
     const routePush = vi.spyOn(router, 'push').mockResolvedValue(undefined as any)
     const wrapper = mountWorkbench({ initialStage: 'ppt' })
     await flushPromises()
-    expect(wrapper.find('.context-pane').exists()).toBe(false)
-    await wrapper.get('[data-testid="ppt-source-settings"]').trigger('click')
+    expect(wrapper.find('.context-pane').exists()).toBe(true)
 
     await wrapper.get('.context-pane-heading .primary-status-action').trigger('click')
     await wrapper.get('.regeneration-dialog__actions .primary').trigger('click')
@@ -2679,7 +2678,8 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.context-pane-heading__actions button:not(.context-pane-heading__collapse)').exists()).toBe(false)
   })
 
-  it('PPT 继续仅恢复并控制当前讲投影中的真实 task_id', async () => {
+  it.each([false, true])('PPT 继续仅恢复并控制当前讲投影中的真实 task_id（共享操作栏 %s）', async shared => {
+    if (shared) pptSidebarContext = { phase: 'during', label: '已暂停', detail: '42%', actions: [{ id: 'resume', label: '继续', primary: true }], progress: 42 }
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
@@ -2712,8 +2712,7 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'ppt', initialLessonId: 'L1-1' })
     await flushPromises()
-    expect(wrapper.find('.context-pane').exists()).toBe(false)
-    await wrapper.get('[data-testid="ppt-source-settings"]').trigger('click')
+    expect(wrapper.find('.context-pane').exists()).toBe(true)
     await wrapper.get('.context-pane-heading__actions .primary-status-action').trigger('click')
     await flushPromises()
 
@@ -2748,8 +2747,7 @@ describe('teacher course workbench outline streaming', () => {
     const routePush = vi.spyOn(router, 'push').mockResolvedValue(undefined as any)
     const wrapper = mountWorkbench({ initialStage: 'ppt', initialLessonId: 'L1-1' })
     await flushPromises()
-    expect(wrapper.find('.context-pane').exists()).toBe(false)
-    await wrapper.get('[data-testid="ppt-source-settings"]').trigger('click')
+    expect(wrapper.find('.context-pane').exists()).toBe(true)
     await flushPromises()
     expect(wrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('可使用')
     expect(wrapper.get('.context-pane-heading').text()).toContain('可使用')
@@ -2797,8 +2795,7 @@ describe('teacher course workbench outline streaming', () => {
     const routePush = vi.spyOn(router, 'push').mockResolvedValue(undefined as any)
     const wrapper = mountWorkbench({ initialStage: 'ppt', initialLessonId: 'L1-1' })
     await flushPromises()
-    expect(wrapper.find('.context-pane').exists()).toBe(false)
-    await wrapper.get('[data-testid="ppt-source-settings"]').trigger('click')
+    expect(wrapper.find('.context-pane').exists()).toBe(true)
     await flushPromises()
     const primary = wrapper.getComponent({ name: 'PptWorkspace' })
     expect(primary.props('canGenerate')).toBe(false)
@@ -2839,8 +2836,7 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'ppt', initialLessonId: 'L1-1' })
     await flushPromises()
-    expect(wrapper.find('.context-pane').exists()).toBe(false)
-    await wrapper.get('[data-testid="ppt-source-settings"]').trigger('click')
+    expect(wrapper.find('.context-pane').exists()).toBe(true)
     await flushPromises()
     const primary = wrapper.getComponent({ name: 'PptWorkspace' })
     expect(primary.props('canGenerate')).toBe(true)

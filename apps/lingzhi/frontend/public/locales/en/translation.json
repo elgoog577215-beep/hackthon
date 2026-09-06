@@ -1569,6 +1569,16 @@
     }
   },
   "pptWorkspace": {
+    "sidebar": {
+      "previousPage": "Previous page",
+      "nextPage": "Next page",
+      "selectPage": "Select page",
+      "pptStep": "PPT",
+      "waitingContent": "Content will appear here when it is ready.",
+      "rendering": "Rendering PPT",
+      "prepare": "Prepare manuscript",
+      "pageCount": "{count} manuscript pages"
+    },
     "editor": {
       "actions": "Content draft actions",
       "finishEditing": "Finish editing",

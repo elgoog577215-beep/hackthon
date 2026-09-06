@@ -80,7 +80,7 @@ function selectPage(event: Event) {
   gap: 18px;
   color: #7c8798;
   background: #fff;
-  font-size: 11px;
+  font-size: var(--pagination-font-size, 11px);
 }
 
 .compact-pagination__range {

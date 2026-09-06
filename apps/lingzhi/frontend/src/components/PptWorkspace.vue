@@ -2,26 +2,26 @@
   <section
     ref="workspaceRoot"
     class="ppt-workspace-view"
-    :class="{ 'is-ai-open': aiVisible, 'is-embedded': embedded, 'is-manuscript-open': embedded && activeStep === 1 && !!pptManuscriptState?.manuscript && !generatorOpen && !store.building }"
+    :class="{ 'is-ai-open': aiVisible, 'is-embedded': embedded, 'is-manuscript-open': embedded && (activeStep === 1 || (externalControls && activeStep === 2)) && !!pptManuscriptState?.manuscript && !generatorOpen && (!store.building || externalControls) }"
     :style="{ '--ppt-ai-width': `${pptAiPaneWidth}px` }"
   >
     <header v-if="embedded" class="ppt-workspace-flow">
-      <UiWorkflowSteps :label="t('pptWorkspace.flow.label')" :model-value="activeStep" :steps="flowSteps" data-testid="ppt-flow-steps" @select="selectFlowStep" />
-      <div class="ppt-workspace-flow__actions"><slot name="source-actions" /></div>
+      <UiWorkflowSteps :label="t('pptWorkspace.flow.label')" :model-value="activeStep === 3 ? 2 : activeStep" :steps="flowSteps" data-testid="ppt-flow-steps" @select="selectFlowStep" />
+      <div v-if="!externalControls" class="ppt-workspace-flow__actions"><slot name="source-actions" /></div>
     </header>
-    <p v-if="embedded && activeStep === 3 && (!sourceReady || pptManuscriptState?.source_state === 'stale' || !renderedCurrentManuscript)" class="ppt-workspace-source-notice" role="status">{{ t('pptWorkspace.flow.previousDeck') }}</p>
-    <div v-if="embedded && store.buildPaused && activeStep !== 2 && !renderFailure" class="ppt-workspace-recovery"><p>{{ buildErrorLabel || t('pptWorkspace.flow.paused') }}</p><button type="button" @click="resumeCurrentBuild">{{ t('pptWorkspace.flow.resume') }}</button></div>
-    <div v-if="embedded && activeStep === 1 && renderFailure" class="ppt-workspace-render-notice" role="status" data-testid="ppt-render-failure-link"><span>{{ t('pptWorkspace.editor.renderDraftPreserved') }}</span><button type="button" :disabled="externalBusy || manuscriptDirty" @click="selectFlowStep(2)">{{ t('pptWorkspace.editor.viewRenderFailure') }}<ArrowRight :size="15" /></button></div>
+    <p v-if="embedded && !externalControls && activeStep === 3 && (!sourceReady || pptManuscriptState?.source_state === 'stale' || !renderedCurrentManuscript)" class="ppt-workspace-source-notice" role="status">{{ t('pptWorkspace.flow.previousDeck') }}</p>
+    <div v-if="embedded && !externalControls && store.buildPaused && activeStep !== 2 && !renderFailure" class="ppt-workspace-recovery"><p>{{ buildErrorLabel || t('pptWorkspace.flow.paused') }}</p><button type="button" @click="resumeCurrentBuild">{{ t('pptWorkspace.flow.resume') }}</button></div>
+    <div v-if="embedded && !externalControls && activeStep === 1 && renderFailure" class="ppt-workspace-render-notice" role="status" data-testid="ppt-render-failure-link"><span>{{ t('pptWorkspace.editor.renderDraftPreserved') }}</span><button type="button" :disabled="externalBusy || manuscriptDirty" @click="selectFlowStep(2)">{{ t('pptWorkspace.editor.viewRenderFailure') }}<ArrowRight :size="15" /></button></div>
     <AppErrorNotice v-if="!embedded && renderFailure && renderErrorPresentation" :presentation="renderErrorPresentation" compact data-testid="ppt-render-failure" />
-    <p v-if="leaveError" class="ppt-workspace-source-notice" role="alert">{{ leaveError }}</p>
-    <p v-if="externalBusy" class="ppt-workspace-source-notice" role="status">{{ t('pptWorkspace.flow.importing') }}</p>
+    <p v-if="leaveError && !externalControls" class="ppt-workspace-source-notice" role="alert">{{ leaveError }}</p>
+    <p v-if="externalBusy && !externalControls" class="ppt-workspace-source-notice" role="status">{{ t('pptWorkspace.flow.importing') }}</p>
     <div class="ppt-workspace-body" :inert="externalBusy || undefined">
-    <div v-if="initializing || (embedded && store.building && activeStep !== 3) || (!slideRepresentation && store.building && !store.liveSlides.length)" class="ppt-workspace-state">
+    <div v-if="initializing || (embedded && store.building && activeStep !== 3 && (!externalControls || !pptManuscriptState?.manuscript)) || (!slideRepresentation && store.building && !store.liveSlides.length && (!externalControls || !pptManuscriptState?.manuscript))" class="ppt-workspace-state">
       <div class="ppt-workspace-state__mark"><Presentation :size="34" /></div>
       <h1><MathText :content="courseTitle" /></h1>
       <p v-if="!store.building">{{ t('pptWorkspace.loading', '正在读取同源课件与页面结构') }}</p>
       <SlideDeckBuildProgress
-        v-if="store.building"
+        v-if="store.building && !externalControls"
         :progress="store.buildProgress"
         :stage="store.buildStage"
         :step-index="store.buildDisplayStep"
@@ -31,8 +31,8 @@
         variant="initial"
         :compact="embedded"
       />
-      <b v-else>···</b>
-      <div v-if="store.buildTaskId" class="ppt-workspace-state__task-actions">
+      <p v-else-if="store.building">{{ t('pptWorkspace.sidebar.waitingContent') }}</p><b v-else>···</b>
+      <div v-if="store.buildTaskId && !externalControls" class="ppt-workspace-state__task-actions">
         <button v-if="store.building" type="button" @click="pauseBuild">暂停</button>
         <button type="button" @click="cancelBuild">取消</button>
       </div>
@@ -40,7 +40,7 @@
 
     <div v-else-if="embedded && !sourceReady && !pptManuscriptState?.manuscript && !slideRepresentation" class="ppt-workspace-preparation" data-testid="ppt-source-required">
       <p>{{ t('pptWorkspace.flow.sourceRequired') }}</p>
-      <button type="button" @click="emit('open-script')">{{ t('pptWorkspace.flow.openScript') }}</button>
+      <button v-if="!externalControls" type="button" @click="emit('open-script')">{{ t('pptWorkspace.flow.openScript') }}</button>
     </div>
 
     <div v-else-if="documentLoadError && !slideRepresentation && !pptManuscriptState?.manuscript" class="ppt-workspace-state is-empty">
@@ -51,7 +51,7 @@
       <button v-if="embedded" type="button" @click="loadWorkspace">{{ t('common.retry', '重试') }}</button>
     </div>
 
-    <div v-else-if="embedded && activeStep === 2" class="ppt-workspace-preparation" data-testid="ppt-render-step">
+    <div v-else-if="embedded && activeStep === 2 && !externalControls" class="ppt-workspace-preparation" data-testid="ppt-render-step">
       <h2>{{ renderedCurrentManuscript ? t('pptWorkspace.flow.rendered') : !pptManuscriptState?.can_generate_ppt ? t('pptWorkspace.editor.confirmBeforeRender') : t('pptWorkspace.flow.readyToRender') }}</h2>
       <p>{{ renderedCurrentManuscript ? t('pptWorkspace.flow.renderedHint') : !pptManuscriptState?.can_generate_ppt ? t('pptWorkspace.editor.confirmBeforeRenderHint') : t('pptWorkspace.flow.renderHint') }}</p>
       <AppErrorNotice v-if="renderErrorPresentation" :presentation="renderErrorPresentation" compact data-testid="ppt-render-failure" />
@@ -62,8 +62,8 @@
     </div>
 
     <div v-else-if="embedded && activeStep === 1 && (generatorOpen || !pptManuscriptState?.manuscript)" class="ppt-workspace-preparation is-generator">
-      <AppErrorNotice v-if="manuscriptErrorPresentation" :presentation="manuscriptErrorPresentation" compact />
-      <SlideDeckGeneratorDialog inline open :mode="selectedMode" :theme="selectedTheme" :web-image-retrieval="selectedWebImageRetrieval"
+      <AppErrorNotice v-if="!externalControls && manuscriptErrorPresentation" :presentation="manuscriptErrorPresentation" compact />
+      <SlideDeckGeneratorDialog ref="generator" :external-actions="externalControls" inline open :mode="selectedMode" :theme="selectedTheme" :web-image-retrieval="selectedWebImageRetrieval"
         :busy="store.building || externalBusy" :disabled="!canGenerate || !sourceReady || externalBusy" :closable="Boolean(pptManuscriptState?.manuscript)" manuscript-first
         :fragment-count="estimatedFragmentCount" :duration-minutes="lessonDurationMinutes"
         :personal-templates="templatePacksStore.personal" :personal-templates-enabled="templateStore.personalTemplatesEnabled"
@@ -72,9 +72,11 @@
     </div>
 
     <PptManuscriptWorkflow
-      v-else-if="showManuscriptWorkflow && pptManuscriptState"
+      v-else-if="(showManuscriptWorkflow || (externalControls && activeStep === 2)) && pptManuscriptState"
       ref="manuscriptEditor"
       :embedded="embedded"
+      :external-actions="externalControls"
+      :review-only="externalControls && activeStep === 2"
       :title="courseTitle"
       :state="pptManuscriptState"
       :busy="externalBusy || store.building || pptManuscriptSaving || pptManuscriptRegenerating || pptManuscriptConfirming"
@@ -147,8 +149,8 @@
         :build-detail="store.buildDetail"
         :build-progress-v2="store.slideBuildProgressV2"
         :estimated-slide-count="store.buildEstimatedSlideCount"
-        :error="store.buildError"
-        :build-failure="effectiveBuildFailure"
+        :error="externalControls ? '' : store.buildError"
+        :build-failure="externalControls ? null : effectiveBuildFailure"
         :build-resumable="store.buildPaused"
         :logic-upgrading="logicUpgrading"
         :logic-upgrade-error="logicUpgradeError"
@@ -172,7 +174,7 @@
         :manuscript-status="pptManuscriptState?.status || ''"
         :manuscript-confirming="pptManuscriptConfirming"
         :manuscript-confirmation-required="isTeacherSurface && Boolean(content?.ppt_manuscript)"
-        :manuscript-confirm-error="pptManuscriptConfirmError"
+        :manuscript-confirm-error="externalControls ? '' : pptManuscriptConfirmError"
         @back="backToCourse"
         @rebuild="rebuild"
         @configure="openGenerator(false)"
@@ -418,6 +420,7 @@ const props = withDefaults(defineProps<{
   lessonId?: string
   title?: string
   embedded?: boolean
+  externalControls?: boolean
   externalBusy?: boolean
   canGenerate?: boolean
   generationAction?: string
@@ -428,6 +431,7 @@ const emit = defineEmits<{ changed: []; 'open-script': []; 'open-source': [secti
 const deckWorkbench = ref<InstanceType<typeof SlideDeckWorkbench> | null>(null)
 const leaveError = ref('')
 let observingRecoveredBuild = false
+const generator = ref<InstanceType<typeof SlideDeckGeneratorDialog> | null>(null)
 const manuscriptEditor = ref<InstanceType<typeof PptManuscriptWorkflow> | null>(null)
 const activeStep = ref(1)
 const manuscriptDirty = ref(false)
@@ -490,14 +494,12 @@ const renderedCurrentManuscript = computed(() => Boolean(slideRepresentation.val
 )))
 const flowSteps = computed(() => [
   { value: 1, label: t('pptWorkspace.flow.manuscript'), disabled: props.externalBusy, complete: pptManuscriptState.value?.status === 'confirmed' && !manuscriptDirty.value },
-  { value: 2, label: t('pptWorkspace.flow.render'), complete: renderedCurrentManuscript.value,
+  { value: 2, label: t('pptWorkspace.sidebar.pptStep'), complete: renderedCurrentManuscript.value,
     disabled: props.externalBusy || manuscriptDirty.value || (!renderedCurrentManuscript.value && !renderFailure.value && pptManuscriptState.value?.status !== 'confirmed') },
-  { value: 3, label: t('pptWorkspace.flow.use'), complete: renderedCurrentManuscript.value,
-    disabled: props.externalBusy || manuscriptDirty.value || !slideRepresentation.value },
 ])
 async function selectFlowStep(value: number) {
   if (flowSteps.value.find(step => step.value === value)?.disabled || !await prepareToLeave()) return
-  activeStep.value = value
+  activeStep.value = value === 2 && renderedCurrentManuscript.value ? 3 : value
   generatorOpen.value = false
 }
 async function prepareToLeave(): Promise<boolean> {
@@ -534,7 +536,7 @@ async function resumeCurrentBuild() {
   await store.resumeBuild()
   if (isCurrentAttempt(id, attempt)) await loadWorkspace()
 }
-defineExpose({ prepareToLeave, requestGeneration })
+
 
 const showManuscriptWorkflow = computed(() => {
   if (!isTeacherSurface.value || !pptManuscriptState.value) return false
@@ -779,6 +781,73 @@ const manuscriptErrorPresentation = computed(() => pptFailurePresentation(
 const renderErrorPresentation = computed(() => pptFailurePresentation(
   effectiveBuildFailure.value, pptManuscriptConfirmError.value || buildErrorLabel.value, 'render', true,
 ))
+type ContextActionId = 'generate' | 'confirm' | 'render' | 'resume' | 'pause' | 'cancel' | 'edit' | 'configure' | 'view' | 'script' | 'sources'
+type ContextAction = { id: ContextActionId; label: string; primary?: boolean; disabled?: boolean; reason?: string }
+const context = computed(() => {
+  const state = pptManuscriptState.value
+  const hasDraft = Boolean(state?.manuscript)
+  const busy = Boolean(props.externalBusy || initializing.value || pptManuscriptSaving.value || pptManuscriptConfirming.value || pptManuscriptRegenerating.value)
+  const operationError = leaveError.value || pptManuscriptConfirmError.value
+  const error = pptFailurePresentation(operationError ? null : effectiveBuildFailure.value, operationError || buildErrorLabel.value, renderFailure.value ? 'render' : 'manuscript', hasDraft)
+  const actions: ContextAction[] = []
+  const action = (id: ContextActionId, label: string, primary = false, disabled = false, reason = '') => actions.push({ id, label, primary, disabled: busy || disabled, reason })
+  if (store.building) {
+    if (store.buildTaskId) { action('pause', t('courseWorkbench.pause')); action('cancel', t('common.cancel')) }
+  } else if (store.buildPaused && store.buildTaskId) {
+    action('resume', t('pptWorkspace.flow.resume'), true)
+    action('cancel', t('common.cancel'))
+  } else if (!props.sourceReady && !hasDraft) {
+    action('script', t('pptWorkspace.flow.openScript'), true)
+  } else if (activeStep.value === 1 && (generatorOpen.value || !hasDraft)) {
+    action('generate', t('pptWorkspace.generateManuscript'), true, !props.canGenerate || !props.sourceReady, !props.canGenerate ? t('pptWorkspace.flow.generationUnavailable') : '')
+    action('sources', t('pptWorkspace.flow.sources'))
+    if (hasDraft) action('edit', t('pptWorkspace.editor.backToManuscript'))
+  } else if (activeStep.value === 1 && state?.status === 'draft') {
+    action('confirm', t('pptWorkspace.confirmManuscript'), true, manuscriptDirty.value || !state.confirmable)
+    action('configure', t('pptWorkspace.regenerateManuscript'), false, !props.canGenerate || !props.sourceReady || manuscriptDirty.value)
+  } else if (activeStep.value === 1) {
+    action('view', t('pptWorkspace.flow.continueToRender'), true, manuscriptDirty.value || !state?.can_generate_ppt)
+    action('configure', t('pptWorkspace.regenerateManuscript'), false, !props.canGenerate || !props.sourceReady || manuscriptDirty.value)
+  } else if (activeStep.value === 3 && renderedCurrentManuscript.value) {
+    action('edit', t('pptWorkspace.editor.backToManuscript'), true)
+  } else {
+    action('render', t('pptWorkspace.flow.renderAction'), true, !state?.can_generate_ppt || manuscriptDirty.value || !props.sourceReady)
+    action('edit', t('pptWorkspace.editor.backToManuscript'))
+  }
+  const phase: 'before' | 'during' | 'after' | 'failed' = store.building || store.buildPaused ? 'during' : error ? 'failed' : hasDraft ? 'after' : 'before'
+  const label = store.building ? t(store.buildResumeOptions?.manuscriptOnly ? 'pptWorkspace.generatingManuscript' : 'pptWorkspace.sidebar.rendering')
+    : store.buildPaused ? t('courseWorkbench.contextPane.pausedStatus')
+    : props.externalBusy ? t('pptWorkspace.flow.importing')
+    : initializing.value ? t('pptWorkspace.loading')
+    : error ? t('courseWorkbench.contextPane.failed')
+    : renderedCurrentManuscript.value ? t('pptWorkspace.flow.rendered')
+    : state?.status === 'confirmed' ? t('pptWorkspace.flow.readyToRender')
+    : hasDraft ? t('pptWorkspace.editor.confirmBeforeRender') : t('pptWorkspace.sidebar.prepare')
+  const detail = manuscriptDirty.value ? t('pptWorkspace.manuscriptUnsaved')
+    : activeStep.value === 3 && (!props.sourceReady || state?.source_state === 'stale' || !renderedCurrentManuscript.value) ? t('pptWorkspace.flow.previousDeck')
+    : state?.source_state === 'stale' ? t('pptWorkspace.manuscriptStale')
+    : store.building ? `${Math.round(store.buildProgress)}%`
+    : hasDraft ? t('pptWorkspace.sidebar.pageCount').replace('{count}', String(state?.manuscript?.pages?.length || 0))
+    : !props.sourceReady ? t('pptWorkspace.flow.sourceRequired') : t('pptWorkspace.flow.manuscriptHint')
+  return { phase, label, detail, error, actions, preparing: activeStep.value === 1 && (generatorOpen.value || !hasDraft), progress: store.building || store.buildPaused ? store.buildProgress : null }
+})
+async function runContextAction(id: ContextActionId) {
+  if (!context.value.actions.some(action => action.id === id && !action.disabled)) return
+  switch (id) {
+    case 'generate': generator.value?.confirm(); break
+    case 'confirm': await confirmPptManuscript(); break
+    case 'render': await generatePptFromConfirmedManuscript(); break
+    case 'resume': await resumeCurrentBuild(); break
+    case 'pause': await pauseBuild(); break
+    case 'cancel': await cancelBuild(); break
+    case 'edit': await openManuscriptWorkflow(); break
+    case 'configure': await openGenerator(true); break
+    case 'view': await selectFlowStep(2); break
+    case 'script': emit('open-script'); break
+  }
+}
+defineExpose({ prepareToLeave, requestGeneration, context, runContextAction })
+
 const buildErrorLabel = computed(() => (
   effectiveBuildFailure.value?.action === 'upgrade_course_logic'
     ? effectiveBuildFailure.value.message

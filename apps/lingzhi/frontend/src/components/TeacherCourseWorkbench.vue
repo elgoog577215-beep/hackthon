@@ -50,7 +50,7 @@
       }"
     >
       <button
-        v-if="!contextPaneVisible && activeStage !== 'question-bank' && activeStage !== 'ppt'"
+        v-if="!contextPaneVisible && activeStage !== 'question-bank'"
         class="context-pane-reopen"
         type="button"
         :title="t('courseWorkbench.contextPane.expand', '展开当前内容信息')"
@@ -808,10 +808,11 @@
             :key="`${courseId}:${selectedLesson.lesson_unit_id}`"
             @confirmed="lessonStore.load(courseId)"
           >
-            <template #generation="{ upload, busy }">
+            <template #generation="{ busy }">
               <PptWorkspace
                 ref="pptWorkspace"
                 embedded
+                external-controls
                 :external-busy="busy"
                 :course-id="courseId"
                 :lesson-id="selectedLesson.lesson_unit_id"
@@ -823,12 +824,7 @@
                 @changed="refreshPptProjection"
                 @open-script="requestStageChange('script')"
                 @open-source="openPptSource"
-              >
-                <template #source-actions>
-                  <button type="button" class="ppt-source-action" :disabled="busy || pptSourceChangeBlocked" :title="pptSourceChangeBlocked ? t('pptWorkspace.flow.uploadBlocked') : undefined" data-testid="ppt-upload" @click="uploadPptAfterSave(upload)"><Upload :size="15" />{{ t('pptWorkspace.flow.upload') }}</button>
-                  <button type="button" class="ppt-source-action" :aria-expanded="pptContextOpen" data-testid="ppt-source-settings" @click="pptContextOpen = !pptContextOpen">{{ t('pptWorkspace.flow.sources') }}</button>
-                </template>
-              </PptWorkspace>
+              />
             </template>
           </UploadedPptReviewWorkspace>
         </template>
@@ -874,7 +870,7 @@
           type="button"
           :title="t('courseWorkbench.contextPane.collapse', '收起当前内容信息')"
           :aria-label="t('courseWorkbench.contextPane.collapse', '收起当前内容信息')"
-          @click="activeStage === 'ppt' ? pptContextOpen = false : contextPaneCollapsed = true"
+          @click="contextPaneCollapsed = true"
         ><PanelRightClose :size="17" /></button>
         <div v-if="hasContextNotices" class="context-pane-notices" data-testid="context-pane-notices">
           <AppErrorNotice v-if="contextErrorPresentation" class="workbench-error" :presentation="contextErrorPresentation" compact>
@@ -894,6 +890,10 @@
           <p v-if="showCourseIssueSummary" class="production-issue-detail" data-testid="production-issue-detail">{{ activeProductionIssueSummary }}</p>
         </div>
         <div class="context-pane-heading__actions" :class="{ 'is-paired': contextPhase === 'during' }" :aria-busy="recoveryStarting">
+          <template v-if="pptContext">
+            <button v-for="action in pptContextActions" :key="action.id" type="button" :class="{ 'primary-status-action': action.primary, 'danger-status-action': action.id === 'cancel' }" :disabled="action.disabled" :title="action.reason || undefined" :data-testid="`ppt-context-${action.id}`" @click="runPptContextAction(action.id)">{{ action.label }}</button>
+          </template>
+          <template v-else>
           <template v-if="contextFailureJob">
             <button v-if="contextFailureCanRetry" class="primary-status-action" type="button" :disabled="recoveryStarting" @click="retrySelectedFailure">
               <LoaderCircle v-if="recoveryStarting" :size="15" class="spin" /><RotateCcw v-else :size="15" />
@@ -913,10 +913,13 @@
             :title="referenceGenerationBlocked ? referenceGenerationBlockReason : t('courseWorkbench.contextPane.prepareRegeneration', '准备重新生成')"
             @click="openRegenerationPreparation"
           ><RotateCcw :size="14" />{{ t('courseWorkbench.contextPane.regenerate', '重新生成') }}</button>
+          </template>
+          <button v-if="activeStage === 'ppt' && (!pptContext || pptContext.preparing)" type="button" :disabled="uploadedPptWorkspace?.busy || pptSourceChangeBlocked" :title="pptSourceChangeBlocked ? t('pptWorkspace.flow.uploadBlocked') : undefined" data-testid="ppt-upload" @click="uploadPptAfterSave(() => uploadedPptWorkspace?.chooseFile())"><Upload :size="15" />{{ t('pptWorkspace.flow.upload') }}</button>
         </div>
-        <div v-if="!outlineAwaitingContinuation && ['generating', 'paused'].includes(referenceWorkflowState)" class="context-pane-heading__progress" role="progressbar" :aria-label="contextStatusLabel" :aria-valuenow="referenceWorkflowProgress" aria-valuemin="0" aria-valuemax="100">
+        <div v-if="!pptContext && !outlineAwaitingContinuation && ['generating', 'paused'].includes(referenceWorkflowState)" class="context-pane-heading__progress" role="progressbar" :aria-label="contextStatusLabel" :aria-valuenow="referenceWorkflowProgress" aria-valuemin="0" aria-valuemax="100">
           <i :style="{ transform: `scaleX(${referenceWorkflowProgress / 100})` }" />
         </div>
+        <div v-if="pptContext?.progress != null" class="context-pane-heading__progress" role="progressbar" :aria-label="contextStatusLabel" :aria-valuenow="pptContext.progress" aria-valuemin="0" aria-valuemax="100"><i :style="{ transform: `scaleX(${pptContext.progress / 100})` }" /></div>
       </header>
 
       <section
@@ -951,7 +954,7 @@
         :refresh-token="materialRefreshToken"
         :workflow-state="referenceWorkflowState"
         :workflow-detail="referenceWorkflowDetail"
-        :workflow-progress="referenceWorkflowProgress"
+        :workflow-progress="pptContext?.progress ?? referenceWorkflowProgress"
         :workflow-can-pause="referenceWorkflowCanPause"
         :workflow-can-resume="referenceWorkflowCanResume"
         :workflow-can-cancel="referenceWorkflowCanCancel"
@@ -971,7 +974,7 @@
       v-model="regenerationDialogOpen"
       class="regeneration-dialog"
       data-testid="regeneration-dialog"
-      :title="t('courseWorkbench.contextPane.prepareRegeneration', '准备重新生成')"
+      :title="activeStage === 'ppt' ? t('pptWorkspace.flow.sources') : t('courseWorkbench.contextPane.prepareRegeneration', '准备重新生成')"
       width="min(620px, 92vw)"
       append-to-body
       destroy-on-close
@@ -999,6 +1002,7 @@
       />
       <template #footer>
         <div class="regeneration-dialog__actions">
+          <button v-if="activeStage === 'ppt'" type="button" :disabled="uploadedPptWorkspace?.busy || pptSourceChangeBlocked" @click="uploadPptAfterSave(() => { regenerationDialogOpen = false; uploadedPptWorkspace?.chooseFile() })">{{ t('pptWorkspace.flow.upload') }}</button>
           <button type="button" @click="regenerationDialogOpen = false">{{ t('common.cancel', '取消') }}</button>
           <button
             type="button"
@@ -1009,7 +1013,7 @@
           >
             <LoaderCircle v-if="regenerationStarting" :size="14" class="spin" />
             <RotateCcw v-else :size="14" />
-            {{ t('courseWorkbench.contextPane.startRegeneration', '开始重新生成') }}
+            {{ activeStage === 'ppt' ? t('common.continue', '继续') : t('courseWorkbench.contextPane.startRegeneration', '开始重新生成') }}
           </button>
         </div>
       </template>
@@ -2710,6 +2714,7 @@ const pendingSourceReviewCount = computed(() => Math.max(
   Number(productionState.value?.source_summary?.pending_review_count || 0),
 ))
 const contextErrorPresentation = computed(() => {
+  if (pptContext.value) return pptContext.value.error
   if (activeStage.value === 'foundation') return generationErrorPresentation.value
   if (['lesson', 'script', 'ppt'].includes(activeStage.value) && lessonStageBlocked.value && lessonPrerequisiteError.value) return lessonPrerequisiteError.value
   if (activeStage.value === 'lesson') return lessonBatchStartErrorPresentation.value || (
@@ -2718,7 +2723,7 @@ const contextErrorPresentation = computed(() => {
   if (activeStage.value === 'script') return scriptBatchStartErrorPresentation.value
   return null
 })
-const contextFailureVisible = computed(() => !contextErrorPresentation.value && referenceWorkflowState.value === 'failed')
+const contextFailureVisible = computed(() => !pptContext.value && !contextErrorPresentation.value && referenceWorkflowState.value === 'failed')
 const contextFailureJob = computed(() => contextFailureVisible.value ? selectedFailureJob.value : null)
 const contextFailureCanRetry = computed(() => {
   const job = contextFailureJob.value
@@ -2729,12 +2734,13 @@ const contextFailureTitle = computed(() => projectedLastGoodFailure.value
   ? t('teacherProductionState.auxiliary.recentFailure', '最近一次生成失败')
   : contextFailureJob.value?.message || t('teacherProductionState.courseIssueTitle', '课程生成问题'))
 const showCourseIssueSummary = computed(() => Boolean(
-  activeProductionIssue.value && !['generating', 'paused'].includes(referenceWorkflowState.value),
+  !pptContext.value && activeProductionIssue.value && !['generating', 'paused'].includes(referenceWorkflowState.value),
 ))
 const hasContextNotices = computed(() => Boolean(
   showCourseIssueSummary.value || contextErrorPresentation.value || contextFailureVisible.value,
 ))
 const contextPhase = computed<'before' | 'during' | 'after' | 'failed'>(() => {
+  if (pptContext.value) return pptContext.value.phase
   if (outlineAwaitingContinuation.value) return 'after'
   if (contextErrorPresentation.value) return 'failed'
   if (['generating', 'paused'].includes(referenceWorkflowState.value)) return 'during'
@@ -2769,6 +2775,7 @@ const regenerationAvailable = computed(() => {
     : true
 })
 const contextStatusLabel = computed(() => {
+  if (pptContext.value) return pptContext.value.label
   if (outlineAwaitingContinuation.value) return t('courseWorkbench.outlineFlow.readyToContinue', '讲次方案已就绪')
   if (contextErrorPresentation.value) return t('courseWorkbench.contextPane.failed', '需要处理')
   const projectedTaskState = activeProjectedProduction.value?.task_state
@@ -2785,6 +2792,7 @@ const contextStatusLabel = computed(() => {
   return t('courseWorkbench.contextPane.prepare', '准备资料')
 })
 const contextStatusDetail = computed(() => {
+  if (pptContext.value) return pptContext.value.detail
   if (aiCollaborationOpen.value) return t('courseWorkbench.contextPane.aiInProgress', '正在处理本次 AI 修改')
   if (activeProjectedProduction.value?.task_state === 'waiting_for_input' || outlineWaitingForInput.value) return t('courseWorkbench.outlineFlow.lightPlan', '轻量讲次方案')
   if (activeProjectedProduction.value?.task_state === 'waiting_for_review') return activeProjectedProduction.value.issues[0]?.summary || t('teacherProductionState.auxiliary.waitingForReview', '待审阅确认')
@@ -3077,7 +3085,9 @@ async function confirmRegeneration() {
     .map(item => ({ ...item }))
   regenerationDialogOpen.value = false
   try {
-    if (selectedFailureJob.value && selectedLesson.value) {
+    if (activeStage.value === 'ppt') {
+      await openPptWorkspace(pptContext.value?.preparing ? (pptGenerationEntryAction.value || 'generate') : 'regenerate_from_latest_source')
+    } else if (selectedFailureJob.value && selectedLesson.value) {
       const previous = selectedFailureJob.value.id
       const requirements = regenerationRequirements.value.trim()
       if (activeStage.value === 'lesson') await lessonStore.generateLesson(props.courseId, selectedLesson.value.lesson_unit_id, activeLessonGenerationSource(), requirements, activeCourseReferences.value.map(item => item.material_asset_id), '', previous)
@@ -4186,8 +4196,34 @@ async function pauseScriptGeneration() {
 }
 const uploadedPptWorkspace = ref<InstanceType<typeof UploadedPptReviewWorkspace> | null>(null)
 const pptWorkspace = ref<InstanceType<typeof PptWorkspace> | null>(null)
-const pptContextOpen = ref(false)
-const contextPaneVisible = computed(() => activeStage.value === 'ppt' ? pptContextOpen.value : !contextPaneCollapsed.value)
+const pptContext = computed(() => activeStage.value === 'ppt' ? pptWorkspace.value?.context : null)
+// Reuse the workbench's projected permissions and exact task controls for sidebar actions.
+const pptContextActions = computed(() => {
+  const taskActions: { id: string; label: string; primary?: boolean; disabled?: boolean; reason?: string }[] = []
+  if (referenceWorkflowCanPause.value) taskActions.push({ id: 'pause', label: t('courseWorkbench.pause') })
+  if (referenceWorkflowCanResume.value) taskActions.push({ id: 'resume', label: t('pptWorkspace.flow.resume'), primary: true })
+  if (referenceWorkflowCanCancel.value) taskActions.push({ id: 'cancel', label: t('common.cancel') })
+  if (referenceWorkflowUsesDedicatedWaitingAction.value || ['generating', 'paused'].includes(referenceWorkflowState.value)) return taskActions
+  const actions = (pptContext.value?.actions || []).filter(action => !['pause', 'resume', 'cancel'].includes(action.id))
+    .map(action => ({ ...action, disabled: action.disabled || (action.id === 'render' && !pptGenerationEntryEnabled.value) }))
+  if (referenceWorkflowCanRetry.value && pptActionTaskId('retry_generation')) {
+    return [{ id: 'retry', label: t('courseWorkbench.recovery.retryOriginal'), primary: true, disabled: referenceWorkflowRetryBlocked.value }, ...actions.filter(action => !['render', 'generate'].includes(action.id))]
+  }
+  return actions
+})
+async function runPptContextAction(id: string) {
+  if (!pptContextActions.value.some(action => action.id === id && !action.disabled)) return
+  if (id === 'pause') return pauseReferenceWorkflow()
+  if (id === 'resume') return resumeReferenceWorkflow()
+  if (id === 'cancel') return cancelReferenceWorkflow()
+  if (id === 'retry') return retryReferenceWorkflow()
+  if (id === 'configure' || id === 'sources') {
+    if (await finishEditing()) openRegenerationPreparation()
+    return
+  }
+  return pptWorkspace.value?.runContextAction(id as Parameters<NonNullable<typeof pptWorkspace.value>['runContextAction']>[0])
+}
+const contextPaneVisible = computed(() => !contextPaneCollapsed.value)
 async function uploadPptAfterSave(upload: () => void) {
   if (pptSourceChangeBlocked.value) return
   const lessonId = selectedLessonId.value
@@ -4553,9 +4589,6 @@ onBeforeUnmount(() => {
 @keyframes lesson-outline-in{from{opacity:.5;transform:translateX(-50%) translateY(-5px) scale(.985)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
 @media(min-width:1051px){.teacher-workbench:not(.is-ai-collaboration){grid-template-columns:196px minmax(520px,1fr) 310px}}
 .teacher-workbench.is-question-bank-workspace:not(.is-ai-collaboration){grid-template-columns:196px minmax(0,1fr)}
-.is-ppt-stage>.workbench-center{padding:24px 30px 0}
-.is-ppt-stage>.workbench-center>.center-heading,.is-ppt-stage .lesson-stage{width:100%;max-width:none}
-.is-ppt-stage .lesson-stage{overflow:hidden;border-radius:14px}
 .is-question-bank-workspace>.workbench-center{padding:24px 30px 0}
 .is-question-bank-workspace>.workbench-center>.center-heading,.is-question-bank-workspace .lesson-stage,.is-question-bank-workspace .question-workbench-surface{width:100%;max-width:none}
 .is-question-bank-workspace>.workbench-center.is-lesson-workspace>.lesson-stage{width:100%;max-width:none;margin-inline:0}
@@ -4786,11 +4819,6 @@ onBeforeUnmount(() => {
 .context-pane-notices :deep(.app-error-notice details){margin-top:10px;color:#596579;font-size:15px}
 .context-pane-notices :deep(.app-error-notice__action){display:grid;margin-top:16px}
 .outline-flow-steps{max-width:860px;margin:0 auto 14px}
-.ppt-source-action{display:inline-flex;align-items:center;gap:6px;min-height:38px;padding:8px 10px;border:1px solid #d7ddeb;border-radius:8px;background:#fff;color:#475569;cursor:pointer;font-size:15px}
-.ppt-source-action:hover:not(:disabled){color:#4338a8;border-color:#bdb5eb;background:#f5f3ff}
-.ppt-source-action:focus-visible{outline:2px solid #5b57e8;outline-offset:3px}
-.ppt-source-action:disabled{opacity:.55;cursor:not-allowed}
-.is-ppt-stage .lesson-stage-content{padding-bottom:20px!important}
 </style>
 
 <style scoped>
@@ -4802,9 +4830,4 @@ onBeforeUnmount(() => {
 .outline-review-evidence p { margin: 8px 0 0; overflow-wrap: anywhere; }
 .generation-unavailable-reason { margin: 8px 0; color: #475467; font-size: 15px; line-height: 1.6; }
 .outline-flow-steps{max-width:860px;margin:0 auto 14px}
-.ppt-source-action{display:inline-flex;align-items:center;gap:6px;min-height:38px;padding:8px 10px;border:1px solid #d7ddeb;border-radius:8px;background:#fff;color:#475569;cursor:pointer;font-size:15px}
-.ppt-source-action:hover:not(:disabled){color:#4338a8;border-color:#bdb5eb;background:#f5f3ff}
-.ppt-source-action:focus-visible{outline:2px solid #5b57e8;outline-offset:3px}
-.ppt-source-action:disabled{opacity:.55;cursor:not-allowed}
-.is-ppt-stage .lesson-stage-content{padding-bottom:20px!important}
 </style>

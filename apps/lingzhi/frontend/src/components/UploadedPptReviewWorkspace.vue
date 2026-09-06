@@ -248,7 +248,7 @@ function protectUnsavedReview(event: BeforeUnloadEvent) {
 }
 onMounted(() => window.addEventListener('beforeunload', protectUnsavedReview))
 onUnmounted(() => { loadAttempt += 1; window.removeEventListener('beforeunload', protectUnsavedReview) })
-defineExpose({ prepareToLeave })
+defineExpose({ prepareToLeave, chooseFile, busy })
 
 async function loadReview() {
   const attempt = ++loadAttempt

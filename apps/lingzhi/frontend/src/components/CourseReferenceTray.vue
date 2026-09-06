@@ -1,6 +1,6 @@
 <template>
   <aside class="reference-tray" :class="{ 'is-compact': compact, 'is-question-bank': variant === 'question-bank', 'is-ppt': stage === 'ppt' }" :data-workflow-state="effectiveWorkflowState" :aria-label="trayTitle">
-    <header v-if="stage === 'ppt' || variant !== 'default' || showClose" class="reference-tray__header" :class="{ 'is-close-only': variant === 'default' && stage !== 'ppt' }">
+    <header v-if="(stage === 'ppt' && !readonly) || variant !== 'default' || showClose" class="reference-tray__header" :class="{ 'is-close-only': variant === 'default' && stage !== 'ppt' }">
       <div v-if="stage === 'ppt' || variant !== 'default'" class="reference-tray__title">
         <span v-if="stage === 'ppt'"><Sparkles :size="16" /></span>
         <div>

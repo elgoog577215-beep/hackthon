@@ -1569,6 +1569,16 @@
     }
   },
   "pptWorkspace": {
+    "sidebar": {
+      "previousPage": "上一页",
+      "nextPage": "下一页",
+      "selectPage": "选择页面",
+      "pptStep": "PPT",
+      "waitingContent": "内容生成后会在这里显示。",
+      "rendering": "正在渲染 PPT",
+      "prepare": "准备内容稿",
+      "pageCount": "共 {count} 页内容稿"
+    },
     "editor": {
       "actions": "内容稿操作",
       "finishEditing": "完成编辑",
