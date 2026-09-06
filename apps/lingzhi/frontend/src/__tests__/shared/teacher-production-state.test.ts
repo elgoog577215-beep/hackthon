@@ -262,7 +262,7 @@ describe('teacher production state actions', () => {
       },
     ]
 
-    expect(productionPrimaryIssue(issues)?.issue_id).toBe('retry-second')
+    expect(productionPrimaryIssue(issues)).toBeUndefined()
   })
 
   const assetActionCases: Array<[

@@ -14,6 +14,7 @@ def test_new_confirmed_export_does_not_resume_its_planning_checkpoint(tmp_path, 
     state = {"task_id": "content-planning", "manuscript": manuscript.model_dump(mode="json")}
     repo = SimpleNamespace(
         root=tmp_path,
+        get_job=lambda *_: {"request_snapshot": {}},
         current_imported_ppt_review=lambda *_: None,
         current_v6_ppt_manuscript=lambda *_: state,
         create_job=lambda *_, **__: {"id": "new-export"},
@@ -33,4 +34,4 @@ def test_new_confirmed_export_does_not_resume_its_planning_checkpoint(tmp_path, 
         "course", "lesson", routes.TeacherLessonV6BuildRequest(resume_task_id=resume_id),
         Request({"type": "http", "headers": []}), tm=None, repository=repo))
     assert result.status_code == 200
-    assert clones == ([(resume_id, "new-export")] if resume_id else [])
+    assert clones == []  # Continuing starts a fresh export, never the failed checkpoint.

@@ -823,7 +823,13 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             this.buildFailure = failure
             this.buildError = failure.code
           }
-          if (['paused', 'build_paused'].includes(event.event)) this.buildPaused = true
+          if (['paused', 'build_paused'].includes(event.event) || (this.teacherLessonId && ['build_failed', 'build_blocked', 'error'].includes(event.event))) {
+            this.buildPaused = true
+            this.buildError = ''
+            this.buildFailure = null
+            this.liveSlides = []
+            this.draftSlideQuality = null
+          }
           if (['cancelled', 'build_cancelled'].includes(event.event)) {
             this.buildPaused = false
             this.buildError = ''

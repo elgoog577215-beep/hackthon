@@ -86,7 +86,7 @@ def test_projection_contract_locks_schema_and_enums():
     assert result["schema_version"] == "course_production_state_v1"
     assert list(result["stages"]) == ["outline", "lesson_plan", "script", "ppt"]
     assert {item.value for item in DisplayState} == {
-        "not_generated", "generating", "available", "failed"
+        "not_generated", "generating", "available", "paused"
     }
     assert {item.value for item in ProductionStage} == {
         "outline", "lesson_plan", "script", "ppt"
@@ -241,7 +241,7 @@ def test_unreadable_authoring_owner_blocks_assets_but_keeps_outline_controls():
     assert result["stages"]["outline"]["allowed_actions"] == []
     for stage_name in ("lesson_plan", "script", "ppt"):
         stage = result["stages"][stage_name]
-        assert stage["display_state"] == "failed"
+        assert stage["display_state"] == "paused"
         assert stage["task_state"] == "unknown"
         assert stage["allowed_actions"] == ["inspect_failure"]
         assert stage["action_targets"] == {}
@@ -408,7 +408,7 @@ def test_authoring_jobs_feed_the_projection_without_explicit_task_injection():
     }
     assert stage["latest_attempt"]["target_count"] == 1
     assert stage["latest_attempt"]["failed"] == 1
-    assert lesson["display_state"] == "failed"
+    assert lesson["display_state"] == "paused"
     assert lesson["task_state"] == "failed"
     assert lesson["issues"][0]["task_id"] == "script-retry-16"
     assert lesson["issues"][0]["block_id"] == "block-16-3"
@@ -503,7 +503,7 @@ def test_teacher_ppt_v6_authoring_job_is_the_projected_attempt_owner():
 
     stage = result["stages"]["ppt"]
     lesson = result["lessons"][0]["stages"]["ppt"]
-    assert stage["display_state"] == "available"
+    assert stage["display_state"] == "paused"
     assert stage["counts"] == {
         "total": 1,
         "available": 1,
@@ -567,7 +567,7 @@ def test_error_attempt_projects_failure_and_honors_explicit_retryability():
             }],
         )["stages"]["outline"]
 
-        assert stage["display_state"] == "failed"
+        assert stage["display_state"] == "paused"
         assert stage["task_state"] == "failed"
         assert stage["latest_attempt_failed"] is True
         assert stage["latest_attempt"]["task_ids"] == [task_id]
@@ -615,7 +615,7 @@ def test_conflict_attempt_projects_failure_for_inspection_without_resume():
         }],
     )["stages"]["outline"]
 
-    assert stage["display_state"] == "failed"
+    assert stage["display_state"] == "paused"
     assert stage["task_state"] == "failed"
     assert stage["latest_attempt_failed"] is True
     assert stage["latest_attempt"]["task_ids"] == [task_id]
@@ -692,7 +692,7 @@ def test_unknown_nonempty_task_state_is_never_collapsed_to_idle():
         }],
     )["stages"]["outline"]
 
-    assert stage["display_state"] == "failed"
+    assert stage["display_state"] == "paused"
     assert stage["task_state"] == "unknown"
     assert stage["latest_attempt_failed"] is False
     assert stage["task_ids"] == [task_id]
@@ -744,7 +744,7 @@ def test_quality_blocked_warning_uses_recovery_authority(
         }],
     )["stages"]["outline"]
 
-    assert stage["display_state"] == "failed"
+    assert stage["display_state"] == "paused"
     assert stage["task_state"] == "failed"
     assert stage["latest_attempt_failed"] is True
     assert stage["task_ids"] == [task_id]
@@ -791,11 +791,11 @@ def test_completed_with_warnings_requires_published_nonblocking_evidence():
     assert published["display_state"] == "available"
     assert published["task_state"] == "completed"
     assert published["allowed_actions"] == []
-    assert blocked["display_state"] == "failed"
+    assert blocked["display_state"] == "paused"
     assert blocked["task_state"] == "failed"
     assert blocked["allowed_actions"] == ["inspect_failure"]
     assert blocked["issues"][0]["code"] == "quality_blocked"
-    assert unverified["display_state"] == "failed"
+    assert unverified["display_state"] == "paused"
     assert unverified["task_state"] == "failed"
     assert unverified["allowed_actions"] == ["inspect_failure"]
 
@@ -811,7 +811,7 @@ def test_completed_task_without_formal_asset_fails_closed_for_inspection():
         }],
     )["stages"]["outline"]
 
-    assert stage["display_state"] == "failed"
+    assert stage["display_state"] == "paused"
     assert stage["task_state"] == "completed"
     assert stage["allowed_actions"] == ["inspect_failure"]
     assert stage["issues"][0]["code"] == "completed_without_asset"
@@ -872,9 +872,9 @@ def test_paused_authoring_job_without_recovery_uses_repository_lifecycle():
         ("running", "generating"),
         ("waiting_for_input", "generating"),
         ("waiting_for_review", "generating"),
-        ("paused", "generating"),
-        ("failed", "failed"),
-        ("provider_half_closed", "failed"),
+        ("paused", "paused"),
+        ("failed", "paused"),
+        ("provider_half_closed", "paused"),
     ],
 )
 def test_anonymous_actionable_task_has_no_write_actions(status, expected_display):
@@ -1200,7 +1200,7 @@ def test_last_good_keeps_available_while_problem_and_inspection_remain_visible(
         }],
     )["lessons"][0]["stages"]["lesson_plan"]
 
-    assert lesson["display_state"] == "available"
+    assert lesson["display_state"] == ("paused" if expected_code == "quality_gate_unchanged" else "available")
     assert lesson["task_ids"] == ["plan-problem"]
     assert lesson["allowed_actions"] == ["inspect_failure"]
     assert lesson["issues"][0]["code"] == expected_code
@@ -1229,10 +1229,10 @@ def test_last_good_remains_available_when_latest_regeneration_fails():
     lesson_state = result["lessons"][0]["stages"]["lesson_plan"]
     stage_state = result["stages"]["lesson_plan"]
 
-    assert lesson_state["display_state"] == "available"
+    assert lesson_state["display_state"] == "paused"
     assert lesson_state["availability"] == "usable"
     assert lesson_state["latest_attempt_failed"] is True
-    assert stage_state["display_state"] == "available"
+    assert stage_state["display_state"] == "paused"
     assert stage_state["latest_attempt_failed"] is True
     assert lesson_state["issues"][0]["code"] == "provider_unavailable"
 
@@ -1375,7 +1375,7 @@ def test_outline_structure_blocker_fails_only_without_last_good_outline():
         authoring_state={"course_id": "course-1", "outline_revision_id": "outline-empty"},
     )["stages"]["outline"]
 
-    assert stage["display_state"] == "failed"
+    assert stage["display_state"] == "paused"
     assert stage["availability"] == "missing"
     assert [item["code"] for item in stage["blocking_issues"]] == [
         "outline_structure:missing_lesson_units"
@@ -1485,7 +1485,7 @@ def test_required_source_failures_return_stable_blocker_and_recovery(
     stage = result["stages"]["lesson_plan"]
     blocker = stage["blocking_issues"][0]
 
-    assert stage["display_state"] == "failed"
+    assert stage["display_state"] == "paused"
     assert result["preparation_state"] == "preparing"
     assert result["source_summary"]["required_blocked_count"] == 1
     assert result["source_summary"]["pending_review_count"] == 0

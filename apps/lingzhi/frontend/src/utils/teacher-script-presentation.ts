@@ -19,7 +19,7 @@ export function scriptGenerationPresentation(job?: TeacherLessonJob) {
       : 'writing'
   return {
     title: t(`courseWorkbench.scriptDocument.progress.${state}Title`),
-    detail: t(`courseWorkbench.scriptDocument.progress.${phase === 'lesson_script_block_failed' ? 'partialFailure' : state}Detail`),
+    detail: t(`courseWorkbench.scriptDocument.progress.${state}Detail`),
   }
 }
 

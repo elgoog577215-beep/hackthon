@@ -665,7 +665,7 @@ function productionAuxiliaryLabel(state?: AssetProductionState | null): string {
   if (state.task_state === 'unknown') return t('teacherProductionState.auxiliary.unknown', '状态待处理')
   if (state.task_state === 'paused') return t('teacherProductionState.auxiliary.paused', '已暂停')
   if (state.issues.some(issue => issue.code.includes('quality'))) return t('teacherProductionState.auxiliary.qualityBlocked', '质量检查未通过')
-  if (state.latest_attempt_failed) return t('teacherProductionState.auxiliary.recentFailure', '最近一次生成失败')
+
   if (state.update_required || state.availability === 'stale' || state.source_state === 'stale') return t('teacherProductionState.auxiliary.stale', '来源已更新')
   const issue = productionStagePrimaryIssue(state)
   return issue ? issue.summary : ''

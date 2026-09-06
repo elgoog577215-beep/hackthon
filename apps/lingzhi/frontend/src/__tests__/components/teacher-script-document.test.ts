@@ -510,8 +510,8 @@ describe('统一讲义页面', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('教师编辑 · 当前讲义可用')
-    expect(wrapper.text()).toContain('不是该次失败任务的输出')
+    expect(wrapper.text()).toContain('教师编辑 · 已生成')
+    expect(wrapper.text()).not.toContain('不是该次失败任务的输出')
     expect(wrapper.text()).not.toContain('讲稿生成失败')
     expect(wrapper.find('.script-footer').exists()).toBe(false)
   })

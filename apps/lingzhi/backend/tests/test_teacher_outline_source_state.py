@@ -75,7 +75,7 @@ def test_incomplete_or_foreign_workspace_never_grants_generation(patch):
 def test_last_usable_outline_survives_a_failed_attempt():
     tm, repo = reader(source(), status="failed")
     state = read_course_production_state({"course_id": "course-1"}, repo, tm)
-    assert state["stages"]["outline"]["display_state"] == "available"
+    assert state["stages"]["outline"]["display_state"] == "paused"
     assert state["stages"]["outline"]["latest_attempt_failed"] is True
     assert state["stages"]["lesson_plan"]["allowed_actions"] == ["generate"]
 

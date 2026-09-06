@@ -5333,7 +5333,7 @@ def test_script_generation_edit_candidate_and_ppt_share_one_asset_chain(tmp_path
 
 
     assert FakeCourseService.registered is True
-    assert len(FakeCourseService.script_calls) == 2
+    assert len(FakeCourseService.script_calls) == 3
     assert material_evidence_calls[:2] == [["material-1"], ["material-1"]]
     assert material_evidence_calls[-1] == ["material-2"]
     assert len(
@@ -5344,7 +5344,7 @@ def test_script_generation_edit_candidate_and_ppt_share_one_asset_chain(tmp_path
         ["script_shard_context"]["budget_mode"]
         == "single_request"
     )
-    assert [call["requirements"] for call in FakeCourseService.script_calls] == ["增加案例", "补充实验器材条件"]
+    assert [call["requirements"] for call in FakeCourseService.script_calls] == ["增加案例", "增加案例", "补充实验器材条件"]
     generation_context = FakeCourseService.script_calls[0]["lesson_context"]
     assert generation_context["selected_material_evidence"][0]["text"] == "资料中的可靠案例"
     rewrite_context = json.loads(FakeCourseService.rewrite_calls[0]["course_context"])

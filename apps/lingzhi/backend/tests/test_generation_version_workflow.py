@@ -977,12 +977,10 @@ async def test_teacher_outline_empty_result_fails_instead_of_unlocking_lessons(
     })
 
     assert await manager._task_queue.get() == job["job_id"]
-    await manager._process_task(job["job_id"])
+    with pytest.raises(ValueError, match="teacher_outline_generation_invalid"):
+        await manager._process_task(job["job_id"])
+    assert manager.tasks[job["job_id"]]["status"] != "completed"
 
-    failed = manager.tasks[job["job_id"]]
-    assert failed["status"] == "failed"
-    assert failed["phase"] == "teacher_outline_failed"
-    assert failed["error_detail"]["code"] == "teacher_outline_generation_invalid"
 
 
 @pytest.mark.asyncio

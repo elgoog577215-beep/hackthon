@@ -170,13 +170,13 @@ describe('教师生成过程与当前讲保持一致', () => {
     expect(wrapper.get('.context-pane-heading__progress').attributes('aria-valuenow')).toBe('24')
     wrapper.unmount()
   })
-  it('暂停教案后保留文字并停止光标', async () => {
+  it('暂停教案后丢弃临时文字并停止光标', async () => {
     const {store,snapshot,publish}=auditSetup()
     const wrapper=mountWorkbench({initialStage:'lesson',initialLessonId:'L1-1'})
     expect(wrapper.get('.lesson-stream-document').text()).toContain('已经生成的部分教案内容')
     store.jobs = mergeLessonJobSnapshots(store.jobs, [{ ...store.jobs[0]!, status: 'paused', stream_batches: {} }]);snapshot.lessons[0].stages.lesson_plan.task_state='paused';publish();await flushPromises()
-    expect(store.jobs[0]!.stream_batches?.['TP-B01']).toContain('已经生成的部分教案内容')
-    expect(wrapper.get('.lesson-stream-document').text()).toContain('已经生成的部分教案内容')
+    expect(store.jobs[0]!.stream_batches).toEqual({})
+    expect(wrapper.find('.lesson-stream-document').exists()).toBe(false)
     expect(wrapper.find('.stream-caret').exists()).toBe(false)
     expect(wrapper.find('[data-testid="lesson-course-preview"]').exists()).toBe(false)
     wrapper.unmount()
@@ -194,7 +194,7 @@ describe('教师生成过程与当前讲保持一致', () => {
     const row=wrapper.findAll('.lesson-outline-chapter-button')[0]!
     expect(row.get('.lesson-outline-status').attributes('data-state')).toBe('stale')
     expect(row.find('small').text()).toContain('需更新')
-    expect(row.attributes('aria-label')).toContain('可使用')
+    expect(row.attributes('aria-label')).toContain('已生成')
     expect(row.attributes('aria-label')).toContain('需更新')
     wrapper.unmount()
   })

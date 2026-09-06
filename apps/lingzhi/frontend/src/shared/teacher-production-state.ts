@@ -3,7 +3,7 @@ import { t } from './i18n'
 export const COURSE_PRODUCTION_STAGE_KEYS = ['outline', 'lesson_plan', 'script', 'ppt'] as const
 
 export type CourseProductionStageKey = typeof COURSE_PRODUCTION_STAGE_KEYS[number]
-export type CourseProductionDisplayState = 'not_generated' | 'generating' | 'available' | 'failed'
+export type CourseProductionDisplayState = 'not_generated' | 'generating' | 'available' | 'paused' | 'failed'
 export type CourseProductionTaskState =
   | 'idle'
   | 'queued'
@@ -172,7 +172,7 @@ type LegacyCourse = {
   }
 }
 
-const DISPLAY_STATES = new Set<CourseProductionDisplayState>(['not_generated', 'generating', 'available', 'failed'])
+const DISPLAY_STATES = new Set<CourseProductionDisplayState>(['not_generated', 'generating', 'available', 'paused', 'failed'])
 const AVAILABILITY_STATES = new Set<CourseProductionAvailability>(['missing', 'usable', 'stale'])
 const SOURCE_STATES = new Set<CourseProductionSourceState>(['missing', 'current', 'stale', 'mixed'])
 const TASK_STATES = new Set<CourseProductionTaskState>([
@@ -442,7 +442,7 @@ const PRODUCTION_ISSUE_ACTION_PRIORITY = new Map([
 export function productionPrimaryIssue(
   issues: CourseProductionIssue[],
 ): CourseProductionIssue | undefined {
-  return [...issues].sort((left, right) => {
+  return issues.filter(issue => !issue.task_id && !['inspect_failure', 'retry_generation', 'resume_generation'].includes(issue.recovery.action)).sort((left, right) => {
     const leftPriority = PRODUCTION_ISSUE_ACTION_PRIORITY.get(left.recovery.action)
       ?? (left.blocking ? 4 : 5)
     const rightPriority = PRODUCTION_ISSUE_ACTION_PRIORITY.get(right.recovery.action)
@@ -753,10 +753,11 @@ export function productionStageLabel(stage: CourseProductionStageKey): string {
 
 export function productionDisplayStateLabel(state: CourseProductionDisplayState): string {
   const fallback: Record<CourseProductionDisplayState, string> = {
-    not_generated: '未生成',
+    not_generated: '待生成',
     generating: '生成中',
-    available: '可使用',
-    failed: '生成失败',
+    available: '已生成',
+    failed: '已暂停',
+    paused: '已暂停',
   }
   return t(`teacherProductionState.states.${state}`, fallback[state])
 }
@@ -770,7 +771,7 @@ export function productionTaskStateLabel(state: CourseProductionTaskState): stri
     waiting_for_input: '等待补充信息',
     waiting_for_review: '等待审阅',
     cancelled: '已取消',
-    failed: '生成失败',
+    failed: '已暂停',
     completed: '已完成',
     unknown: '状态异常',
   }

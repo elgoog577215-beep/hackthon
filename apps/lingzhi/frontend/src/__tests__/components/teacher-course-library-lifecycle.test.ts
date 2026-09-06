@@ -278,13 +278,12 @@ describe('teacher course library management', () => {
 
     expect(wrapper.get('.course-production-summary').text()).toBe('备课中')
     expect(wrapper.find('.course-production-detail').exists()).toBe(false)
-    expect(wrapper.get('.course-action').text()).toContain('处理问题')
+    expect(wrapper.get('.course-action').text()).toContain('继续备课')
     await wrapper.get('.course-action').trigger('click')
     await flushPromises()
 
     expect(router.currentRoute.value.query).toMatchObject({
-      stage: 'lesson', lesson: 'L1-16', block: 'block-3', task: 'task-16',
-      issue: 'lesson-plan-L1-16-task-16', expandIssue: '1',
+      stage: 'script',
     })
     const writeMethods = fetchMock.mock.calls
       .map(([, options]) => String(options?.method || 'GET').toUpperCase())
@@ -292,7 +291,7 @@ describe('teacher course library management', () => {
     expect(writeMethods).toEqual([])
   })
 
-  it('不把 issues 数组顺序当优先级，优先定位可重试问题', async () => {
+  it('生成问题不再产生失败深链，继续进入备课阶段', async () => {
     const courses = useCourseStore()
     const stage = (display_state: string, total: number, available: number, issues: any[] = []) => ({
       display_state, task_state: 'idle', availability: available > 0 ? 'usable' : 'missing', source_state: 'current',
@@ -327,7 +326,7 @@ describe('teacher course library management', () => {
     await flushPromises()
 
     expect(router.currentRoute.value.query).toMatchObject({
-      stage: 'lesson', lesson: 'L1-2', task: 'task-2', issue: 'retry-second', expandIssue: '1',
+      stage: 'script',
     })
   })
 

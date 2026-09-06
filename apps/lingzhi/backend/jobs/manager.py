@@ -1962,7 +1962,7 @@ class TaskManager:
             raise ValueError(messages or "The editable course framework is invalid")
 
         previous_revision = str(outline_stage.get("skeleton_revision_id") or "")
-        if previous_revision and previous_revision != skeleton.get("revision_id"):
+        if previous_revision:
             outline_stage["batches"] = {}
             outline_stage["detail_batches"] = {}
             outline_stage["fallback_units"] = []
@@ -2062,11 +2062,10 @@ class TaskManager:
             draft=draft,
         )
         if workspace_id:
-            await asyncio.to_thread(
-                self._generation_workspace_repository.set_status,
-                workspace_id,
-                "active",
-            )
+            workspace = self._generation_workspace_repository.load(workspace_id)
+            result = deepcopy(workspace.get("result") or {})
+            result["restart_input"] = deepcopy(course_data)
+            await asyncio.to_thread(self._generation_workspace_repository.set_status, workspace_id, "active", result=result)
         async with self._lock:
             current = self.tasks.get(task_id)
             if current is None:
@@ -5047,13 +5046,79 @@ class TaskManager:
             draft["updated_at"] = datetime.now().isoformat()
             task = self._commit_task_draft(task_id, draft)
         await self._cancel_runtime_tasks(task_id)
+        if task.get("type") == "teacher_outline_generation":
+            await self._discard_teacher_outline_attempt(task_id)
         await self._push_progress(task_id)
+
+    async def _discard_teacher_outline_attempt(self, task_id: str) -> None:
+        task = self.tasks.get(task_id) or {}
+        workspace_id = str(task.get("workspace_id") or "")
+        if not workspace_id:
+            return
+        workspace = self._generation_workspace_repository.load(workspace_id)
+        original = (workspace.get("result") or {}).get("restart_input")
+        if original:
+            self._generation_workspace_repository.clear_node_drafts(workspace_id)
+            await self._save_task_course(task_id, deepcopy(original))
+        async with self._lock:
+            draft = deepcopy(self.tasks[task_id])
+            draft.update(progress=0, phase_progress=0, phase_detail={}, current_nodes=[], completed_nodes=0)
+            self._commit_task_draft(task_id, draft)
+
+    async def _restart_teacher_outline_attempt(self, task_id: str, *, automatic: bool = False) -> bool:
+        async with self._lock:
+            task = self.tasks[task_id]
+            allowed = {"pending", "running"} if automatic else {"paused", "failed"}
+            if task.get("status") not in allowed:
+                return False
+            task = deepcopy(task)
+            task.update(status="pending", phase="restart_preparing", error=None)
+            self._commit_task_draft(task_id, task)
+        workspace_id = str(task.get("workspace_id") or "")
+        workspace = self._generation_workspace_repository.load(workspace_id)
+        result = workspace.get("result") or {}
+        original = deepcopy(result.get("restart_input"))
+        if not original:
+            course = self._load_task_course(task_id) or {}
+            if task.get("outline_detail_requested"):
+                original = await self._compile_teacher_outline_framework(task_id, course)
+            else:
+                request = deepcopy(course.get("generation_request") or task.get("request_snapshot") or {})
+                original = {"course_id": task["course_id"], "course_name": task.get("course_name"),
+                            "nodes": [], "generation_request": request, "generation_status": "queued",
+                            "course_type": request.get("course_type", "systematic"),
+                            "authoring_surface": "teacher", "generation_mode": "review_blueprint"}
+            result = {**result, "restart_input": deepcopy(original)}
+        self._generation_workspace_repository.clear_node_drafts(workspace_id)
+        await self._save_task_course(task_id, original)
+        self._generation_workspace_repository.set_status(workspace_id, "active", result=result)
+        async with self._lock:
+            current = self.tasks[task_id]
+            if current.get("status") != "pending" or current.get("phase") != "restart_preparing":
+                return False
+            draft = deepcopy(current)
+            draft.update(request_snapshot=deepcopy(original.get("generation_request") or task.get("request_snapshot") or {}),
+                         status="pending", phase="queued", current_phase="queued", progress=0,
+                         phase_progress=0, phase_detail={}, current_nodes=[], completed_nodes=0,
+                         current_node_name="", error=None, error_detail=None, error_code=None,
+                         error_user_message=None, message="正在重新生成", next_retry_at=None,
+                         attempt_number=int(current.get("attempt_number") or 0) + 1,
+                         updated_at=datetime.now().isoformat(), heartbeat_at=datetime.now().isoformat())
+            self._node_retries[task_id] = {}
+            self._commit_task_draft(task_id, draft)
+        self._reset_course_service_runtime(str(task["course_id"]), preserve_course=True)
+        return True
 
     async def resume_task(self, task_id: str) -> dict[str, Any]:
         """Resume one durable generation job from its existing checkpoint."""
         task = self.tasks.get(task_id)
         if not task:
             raise KeyError(task_id)
+        if task.get("type") == "teacher_outline_generation" and task.get("status") in {"paused", "failed"}:
+            if await self._restart_teacher_outline_attempt(task_id):
+                await self._task_queue.put(task_id)
+            await self._push_progress(task_id)
+            return {"status": "resumed", "task": self._task_view(self.tasks[task_id])}
         recovery_task_type = task.get("type")
 
         def observe(
@@ -5851,6 +5916,54 @@ class TaskManager:
 
     async def _run_job(self, task_id: str) -> None:
         try:
+            if (self.tasks.get(task_id) or {}).get("type") == "teacher_outline_generation":
+                while True:
+                    task = self.tasks.get(task_id) or {}
+                    if task.get("status") not in {"pending", "running"}:
+                        return
+                    due = float(task.get("next_retry_at") or 0)
+                    while time.time() < due:
+                        await asyncio.sleep(min(1, due - time.time()))
+                        if (self.tasks.get(task_id) or {}).get("status") not in {"pending", "running"}:
+                            return
+                    if due:
+                        if not await self._restart_teacher_outline_attempt(task_id, automatic=True):
+                            return
+                    else:
+                        workspace_id = str(task.get("workspace_id") or "")
+                        if workspace_id:
+                            workspace = self._generation_workspace_repository.load(workspace_id)
+                            result = deepcopy(workspace.get("result") or {})
+                            if not result.get("restart_input"):
+                                result["restart_input"] = deepcopy(self._load_task_course(task_id))
+                                self._generation_workspace_repository.set_status(workspace_id, "active", result=result)
+                    try:
+                        async with self._course_semaphore:
+                            await self._process_task(task_id)
+                        if (self.tasks.get(task_id) or {}).get("status") != "failed":
+                            return
+                        failure = {"retryable": True, "code": "teacher_outline_generation_invalid"}
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        failure = classify_generation_failure(exc)
+                    current = self.tasks.get(task_id) or {}
+                    if current.get("status") in {"paused", "cancelled", "waiting_for_input"}:
+                        return
+                    await self._discard_teacher_outline_attempt(task_id)
+                    draft = deepcopy(self.tasks[task_id])
+                    if not failure.get("retryable"):
+                        draft.update(status="paused", phase="paused", message="已暂停", error=None,
+                                     last_attempt_error=failure)
+                        self._commit_task_draft(task_id, draft)
+                        await self._push_progress(task_id)
+                        return
+                    delay = min(300, 2 ** min(int(draft.get("attempt_number") or 0) + 1, 9))
+                    draft.update(status="pending", phase="retry_wait", current_phase="retry_wait", progress=0,
+                                 next_retry_at=time.time() + delay, last_attempt_error=failure,
+                                 error=None, error_detail=None, phase_detail={}, message="正在准备重新生成")
+                    self._commit_task_draft(task_id, draft)
+                    await self._push_progress(task_id)
             async with self._course_semaphore:
                 task = self.tasks.get(task_id) or {}
                 record_task_wait(
@@ -7461,28 +7574,7 @@ class TaskManager:
                 await self._push_progress(task_id)
                 return
             if not _teacher_outline_result_ready(course_data):
-                await self._save_task_course(task_id, course_data)
-                await self._update_phase(
-                    task_id,
-                    "teacher_outline_failed",
-                    int(task.get("progress") or 0),
-                    "课程大纲生成结果为空或结构无效",
-                    phase_progress=100,
-                    phase_detail={"artifact_type": "course_outline"},
-                )
-                await self._update_task_status(
-                    task_id,
-                    "failed",
-                    message="课程大纲生成失败，请重试",
-                    error="模型未返回可用的课程大纲结构。",
-                    error_detail={
-                        "code": "teacher_outline_generation_invalid",
-                        "message": "模型未返回可用的课程大纲结构。",
-                        "retryable": True,
-                    },
-                )
-                await self._push_progress(task_id)
-                return
+                raise ValueError("teacher_outline_generation_invalid: empty or invalid outline")
             course_data["generation_status"] = "teacher_outline_ready"
             course_data["outline_framework_only"] = False
             course_data["outline_generation_status"] = "completed"

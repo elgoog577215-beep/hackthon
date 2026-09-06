@@ -417,13 +417,6 @@ const sourceLabel = computed(() => {
 })
 const scriptStatusNotice = computed(() => {
   if (!props.lesson.script.ready || showWorkingPreview.value) return null
-  if (['failed', 'cancelled'].includes(String(props.generationJob?.status || ''))) {
-    return {
-      state: 'info',
-      title: `${sourceLabel.value} · ${tr('courseWorkbench.scriptDocument.statusCurrentReady')}`,
-      detail: tr('courseWorkbench.scriptDocument.statusPreviousFailureDetail'),
-    }
-  }
   if (!props.lesson.script.generation_source && !props.lesson.script.quality_report) return null
   return {
     state: 'ready',
@@ -433,7 +426,7 @@ const scriptStatusNotice = computed(() => {
 })
 const previewSelected = ref(true)
 const hasWorkingPreview = computed(() => (
-  ['pending', 'running', 'paused', 'failed', 'cancelled'].includes(String(props.generationJob?.status || ''))
+  ['pending', 'running'].includes(String(props.generationJob?.status || ''))
   && !(props.lesson.script.ready && Date.parse(props.lesson.script.updated_at || '') > Date.parse(props.generationJob?.updated_at || ''))
   && hasScriptPreviewContent(props.generationJob)
 ))

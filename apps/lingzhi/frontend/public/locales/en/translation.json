@@ -240,10 +240,38 @@
     "courseFailureSummary": "{count} course item(s) failed to generate.",
     "courseIssueSummary": "{count} course item(s) need attention.",
     "pendingSourceReviewSummary": "Available · {count} source item(s) pending review",
-    "localFailure": { "lesson_plan": "This lesson plan failed to generate" },
-    "states": { "not_generated": "Not generated", "generating": "Generating", "available": "Available", "failed": "Generation failed" },
-    "stages": { "outline": "Outline", "lesson_plan": "Lesson plan", "script": "Lecture notes", "ppt": "PPT" },
-    "auxiliary": { "idle": "Not started", "queued": "Queued", "running": "Generating", "waitingForInput": "More information required", "waitingForReview": "Review required", "paused": "Paused", "cancelled": "Cancelled", "failed": "Generation failed", "completed": "Completed", "unknown": "State requires attention", "qualityBlocked": "Quality check failed", "stale": "Source updated", "pendingReview": "Pending review", "recentFailure": "Most recent generation failed" }
+    "localFailure": {
+      "lesson_plan": "This lesson plan failed to generate"
+    },
+    "states": {
+      "not_generated": "Not generated",
+      "generating": "Generating",
+      "available": "Generated",
+      "failed": "Paused",
+      "paused": "Paused"
+    },
+    "stages": {
+      "outline": "Outline",
+      "lesson_plan": "Lesson plan",
+      "script": "Lecture notes",
+      "ppt": "PPT"
+    },
+    "auxiliary": {
+      "idle": "Not started",
+      "queued": "Queued",
+      "running": "Generating",
+      "waitingForInput": "More information required",
+      "waitingForReview": "Review required",
+      "paused": "Paused",
+      "cancelled": "Cancelled",
+      "failed": "Paused",
+      "completed": "Completed",
+      "unknown": "State requires attention",
+      "qualityBlocked": "Quality check failed",
+      "stale": "Source updated",
+      "pendingReview": "Pending review",
+      "recentFailure": "Paused"
+    }
   },
   "teacherWorkbench": {
     "courseWorkbench": "Course workbench",
@@ -283,7 +311,7 @@
     "courseCode": "Course code (optional)",
     "goal": "Course goal",
     "goalPlaceholder": "Students will be able to…",
-    "scheduleTitle": "Add scheduling basics",
+    "scheduleTitle": "Class schedule",
     "academicYear": "Academic year",
     "term": "Term",
     "termUnset": "Not set",
@@ -764,7 +792,7 @@
       "collapse": "Collapse current content details",
       "expand": "Expand current content details",
       "aiInProgress": "Working on this AI edit",
-      "paused": "Paused with the source snapshot and progress preserved",
+      "paused": "Continue to regenerate with the original inputs",
       "retryAvailable": "Current sources are preserved and generation can be retried",
       "prepareSources": "Adjust the sources for this generation below",
       "regenerate": "Regenerate",
@@ -1258,7 +1286,7 @@
       "collectingTitle": "Prepare sources for this stage", "collectingDetail": "Upload one source file and add reference files when needed.",
       "readyTitle": "Sources ready", "readyDetail": "{count} selected. This panel will show their live usage after generation starts.",
       "generatingTitle": "{stage} is using these sources", "generatingDetail": "AI is reading the sources and building the content.",
-      "pausedTitle": "Generation paused", "pausedDetail": "Sources and progress are preserved. Continue or cancel when ready.",
+      "pausedTitle": "Generation paused", "pausedDetail": "Continue to regenerate with the original inputs.",
       "completedTitle": "Current content complete", "completedDetail": "The current content uses these sources. Changes require regeneration.",
       "currentSourcesTitle": "Sources used", "currentWithoutSources": "No sources used",
       "adjustSources": "Adjust sources", "continueAdjustingSources": "Continue adjusting sources", "adjustSourcesHint": "Upload controls appear only after you choose to adjust sources. Generated content will not change automatically.",
@@ -1647,7 +1675,7 @@
       "pageDetails": "Page details",
       "moreOptions": "More options",
       "previousDeck": "Showing the previous PPT. The draft or sources have changed; confirm the new draft and render again.",
-      "paused": "Generation is paused. Progress has been saved."
+      "paused": "Generation is paused. Continue to regenerate."
     },
     "open": "Open PPT workspace",
     "shortTitle": "PPT workspace",

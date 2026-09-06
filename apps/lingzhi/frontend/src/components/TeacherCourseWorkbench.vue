@@ -15,7 +15,7 @@
         <strong class="stage-rail-title">{{ t('courseWorkbench.title', '课程工作台') }}</strong>
       </header>
       <nav>
-        <button v-for="stage in stages" :key="stage.id" type="button" :class="{ active: activeStage === stage.id }" :disabled="stageSwitching || stagePrerequisiteBlocked(stage.id) || (aiCandidatePending && activeStage !== stage.id)" :title="stagePrerequisiteBlocked(stage.id) ? outlinePrerequisiteReason : undefined" @click="requestStageChange(stage.id)">
+        <button v-for="stage in stages" :key="stage.id" type="button" :class="{ active: activeStage === stage.id }" :disabled="stageSwitching || stagePrerequisiteBlocked(stage.id) || (aiCandidatePending && activeStage !== stage.id)" :title="stagePrerequisiteBlocked(stage.id) ? stagePrerequisiteReason(stage.id) : undefined" @click="requestStageChange(stage.id)">
           <span>{{ stage.step }}</span><component :is="stage.icon" :size="18" /><strong>{{ stage.label }}</strong>
           <span
             class="stage-state"
@@ -124,10 +124,10 @@
 
       <section v-if="showStreaming" class="generation-surface" aria-live="polite">
         <header>
-          <div><TriangleAlert v-if="generationFailed" :size="18" /><LoaderCircle v-else :size="18" class="spin" /><span><strong>{{ generationFailed ? t('courseWorkbench.generationInterrupted', '生成已中断') : t('courseWorkbench.generating', '正在生成课程大纲') }}</strong><small v-if="!generationFailed">{{ currentGenerationLabel }}</small></span></div>
+          <div><Pause v-if="generationFailed" :size="18" /><LoaderCircle v-else :size="18" class="spin" /><span><strong>{{ generationFailed ? t('courseWorkbench.contextPane.pausedStatus', '生成已暂停') : t('courseWorkbench.generating', '正在生成课程大纲') }}</strong><small v-if="!generationFailed">{{ currentGenerationLabel }}</small></span></div>
           <div v-if="generationRunning && (referenceWorkflowCanPause || referenceWorkflowCanCancel)" class="generation-header-actions">
             <button v-if="referenceWorkflowCanPause" type="button" @click="pauseReferenceWorkflow"><Pause :size="15" />{{ t('courseWorkbench.pause', '暂停') }}</button>
-            <button v-if="referenceWorkflowCanCancel" type="button" @click="cancelReferenceWorkflow"><X :size="15" />{{ t('common.cancel', '取消') }}</button>
+            <button v-if="referenceWorkflowCanCancel" type="button" :disabled="recoveryStarting" @click="cancelReferenceWorkflow"><X :size="15" />{{ t('common.cancel', '取消') }}</button>
           </div>
         </header>
         <div class="generation-progress"><i :style="{ transform: `scaleX(${generationProgress / 100})` }" /></div>
@@ -162,14 +162,14 @@
                 </span>
                 <div>
                   <strong><MathText :content="outlineLessonStatusTitle(lessonStatus, index)" /></strong>
-                  <small>{{ lessonStatus.message || outlineLessonStatusLabel(lessonStatus) }}</small>
+                  <small>{{ outlineLessonStatusLabel(lessonStatus) }}</small>
                 </div>
                 <em>{{ Math.max(0, Math.min(100, Math.round(Number(lessonStatus.progress || 0)))) }}%</em>
               </div>
               <div class="outline-detail-stream__progress" aria-hidden="true">
                 <i :style="{ transform: `scaleX(${Math.max(0, Math.min(100, Number(lessonStatus.progress || 0))) / 100})` }" />
               </div>
-              <pre v-if="lessonStatus.stream_preview" class="outline-detail-stream__preview"><MathText :content="lessonStatus.stream_preview" /><span v-if="outlineLessonStatusState(lessonStatus) === 'running'" class="stream-caret" /></pre>
+              <pre v-if="lessonStatus.stream_preview && ['running', 'completed'].includes(outlineLessonStatusState(lessonStatus))" class="outline-detail-stream__preview"><MathText :content="lessonStatus.stream_preview" /><span v-if="outlineLessonStatusState(lessonStatus) === 'running'" class="stream-caret" /></pre>
             </article>
           </section>
           <div v-if="!outlineGrowth && !outlineLessonStatuses.length && !generationFailed" class="stream-waiting"><LoaderCircle :size="20" class="spin" />{{ outlineContinuing
@@ -909,8 +909,8 @@
             <button type="button" :disabled="recoveryStarting || stagePrerequisiteBlocked(activeStage)" @click="openRegenerationPreparation">{{ t('courseWorkbench.recovery.reviseAndGenerate') }}</button>
           </template>
           <button v-if="referenceWorkflowState === 'generating' && referenceWorkflowCanPause" type="button" @click="pauseReferenceWorkflow"><Pause :size="14" />{{ t('courseWorkbench.pause', '暂停') }}</button>
-          <button v-if="referenceWorkflowState === 'paused' && referenceWorkflowCanResume" class="primary-status-action" type="button" @click="resumeReferenceWorkflow"><Play :size="14" />{{ t('courseWorkbench.continue', '继续') }}</button>
-          <button v-if="referenceWorkflowCanCancel" class="danger-status-action" type="button" @click="cancelReferenceWorkflow"><X :size="14" />{{ t('common.cancel', '取消') }}</button>
+          <button v-if="referenceWorkflowState === 'paused' && referenceWorkflowCanResume" class="primary-status-action" type="button" :disabled="recoveryStarting || stagePrerequisiteBlocked(activeStage)" @click="resumeReferenceWorkflow"><Play :size="14" />{{ t('courseWorkbench.continue', '继续') }}</button>
+          <button v-if="referenceWorkflowCanCancel" class="danger-status-action" type="button" :disabled="recoveryStarting" @click="cancelReferenceWorkflow"><X :size="14" />{{ t('common.cancel', '取消') }}</button>
           <button v-if="referenceWorkflowState === 'failed' && referenceWorkflowCanRetry && !['lesson', 'script'].includes(activeStage)" class="primary-status-action" type="button" :disabled="referenceWorkflowRetryBlocked" @click="retryReferenceWorkflow"><RotateCcw :size="14" />{{ t('courseWorkbench.contextPane.regenerate', '重新生成') }}</button>
           <button
             v-if="regenerationAvailable"
@@ -1089,7 +1089,7 @@
             <button
               type="button"
               :disabled="outlineQualityActionBusy"
-              :title="outlineQualityActionBusy ? t('courseWorkbench.outlineReview.finishCandidateFirst', '请先处理当前 AI 候选') : undefined"
+              :title="outlineQualityActionBusy ? t('courseWorkbench.outlineReview.finishCandidateFirst', '请先处理当前 修改建议') : undefined"
               @click="handleOutlineQualityIssue(issue)"
             >
               <LoaderCircle v-if="activeOutlineQualityIssueCode === issue.code && aiCollaborationBusy" :size="14" class="spin" />
@@ -1393,7 +1393,7 @@ const foundation = reactive({
 })
 const learningPurposeOptions = computed(() => [
   { value: 'systematic' as const, label: t('courseWorkbench.form.learningPurposes.systematic', '系统学习'), description: t('courseWorkbench.form.learningPurposes.systematicHelp', '形成完整知识与能力结构') },
-  { value: 'project' as const, label: t('courseWorkbench.form.learningPurposes.project', '项目实战'), description: t('courseWorkbench.form.learningPurposes.projectHelp', '完成可展示、可评价的成果') },
+  { value: 'project' as const, label: t('courseWorkbench.form.learningPurposes.project', '项目实践'), description: t('courseWorkbench.form.learningPurposes.projectHelp', '完成可展示、可评价的成果') },
   { value: 'exam' as const, label: t('courseWorkbench.form.learningPurposes.exam', '期末冲刺'), description: t('courseWorkbench.form.learningPurposes.examHelp', '限时补齐重点并通过测评') },
 ])
 const subjectTypeOptions = computed(() => [
@@ -1872,7 +1872,7 @@ const lessonHeaderStatusLabel = computed(() => {
   if (['lesson', 'script'].includes(activeStage.value) && selectedLesson.value && productionState.value) return lessonGenerationStateLabel(selectedLesson.value)
   if (activeStage.value === 'script' && scriptGenerationBusy.value) return t('courseWorkbench.scriptDocument.generating', '正在生成…')
   if (activeStage.value === 'lesson' && lessonGenerationActive.value) return t('courseWorkbench.lessonOutline.status.generating', '生成中')
-  if (activeStage.value === 'lesson' && String(lessonJob.value?.status || '') === 'failed') return t('courseWorkbench.lessonOutline.status.failed', '失败')
+  if (activeStage.value === 'lesson' && String(lessonJob.value?.status || '') === 'failed') return productionDisplayStateLabel('paused')
   if (aiCandidatePending.value) return t('courseWorkbench.lessonDocument.aiCandidatePending', 'AI 方案待处理')
   if (activeStage.value === 'script' && scriptDocumentEditing.value) return t('courseWorkbench.scriptDocument.editing', '编辑中')
   if (activeStage.value === 'lesson' && lessonDocumentEditing.value) return t('courseWorkbench.lessonDocument.editing', '编辑中')
@@ -1886,13 +1886,13 @@ const lessonHeaderStatusLabel = computed(() => {
 const generationTask = computed(() => generationStore.getTask(props.courseId))
 const taskStatus = computed(() => String(generationTask.value?.status || ''))
 const taskInFlight = computed(() => ['pending', 'running'].includes(taskStatus.value))
-const taskPaused = computed(() => taskStatus.value === 'paused')
+const taskPaused = computed(() => ['paused', 'failed', 'error'].includes(taskStatus.value))
 const generationFailed = computed(() => generationTask.value
   ? ['error', 'failed', 'conflict'].includes(taskStatus.value)
   : generationStore.generationStatus === 'error')
 const generationRunning = computed(() => taskInFlight.value)
 const showStreaming = computed(() => activeStage.value === 'foundation'
-  && (generationRequested.value || outlineContinuing.value || taskInFlight.value || taskPaused.value || generationFailed.value))
+  && (generationRequested.value || outlineContinuing.value || taskInFlight.value))
 const hasOutline = computed(() => courseStore.nodes.some(node => Number(node.node_level || 0) <= 2))
 const freshOutlineGenerationStarting = computed(() => generationRequested.value
   && !taskInFlight.value
@@ -1993,7 +1993,16 @@ const outlineAvailableForLessons = computed(() => {
 })
 const outlinePrerequisiteReason = computed(() => t('courseWorkbench.lessonPrerequisite.outlineRequired'))
 function stagePrerequisiteBlocked(stage: StageId) {
-  return ['lesson', 'script', 'ppt'].includes(stage) && !outlineAvailableForLessons.value
+  if (['lesson', 'script', 'ppt'].includes(stage) && !outlineAvailableForLessons.value) return true
+  if (stage === 'script') return !(productionState.value?.stages.lesson_plan.counts.available || productionState.value?.stages.script.task_ids.length || lessonStore.lessons.some(lessonPlanIsReady) || lessonStore.lessons.some(lessonScriptIsReady))
+  if (stage === 'ppt') return !(productionState.value?.stages.script.counts.available || productionState.value?.stages.ppt.task_ids.length || lessonStore.lessons.some(lessonPlanIsReady) || lessonStore.lessons.some(lesson => teacherLessonPptIsReady(lesson)))
+  return false
+}
+function stagePrerequisiteReason(stage: StageId): string {
+  if (!outlineAvailableForLessons.value) return outlinePrerequisiteReason.value
+  return stage === 'script'
+    ? t('courseWorkbench.lessonPrerequisite.planRequired', '请先生成教案')
+    : t('courseWorkbench.lessonPrerequisite.scriptRequired', '请先生成讲义')
 }
 const outlineRegenerationAvailable = computed(() => Boolean(
   outlineFullReady.value
@@ -2021,12 +2030,6 @@ const currentGenerationLabel = computed(() => outlineContinuing.value
       freshOutlineGenerationStarting.value ? '' : generationTask.value?.currentStep,
     ))
 const generationError = computed(() => generationFailed.value ? String(generationTask.value?.error || generationStore.failureReport?.failed_nodes?.[0]?.error || t('courseWorkbench.generationFailed', '生成中断，可以从当前结果重试。')) : '')
-const generationErrorPresentation = computed(() => generationError.value ? toAppError(generationError.value, {
-  title: t('courseWorkbench.outlineGenerationFailed', '课程大纲生成失败'),
-  fallback: t('courseWorkbench.generationFailed', '生成中断，可以从当前结果重试。'),
-  code: String(generationTask.value?.errorCode || ''),
-  requestId: String(generationTask.value?.id || ''),
-}) : null)
 const lessonJob = computed(() => currentJobForLesson(selectedLessonId.value, 'lesson_plan'))
 const selectedLessonPlanProduction = computed(() => lessonProductionState(productionState.value, selectedLessonId.value, 'lesson_plan'))
 const selectedPptProduction = computed(() => lessonProductionState(productionState.value, selectedLessonId.value, 'ppt'))
@@ -2217,7 +2220,7 @@ function currentLessonStreamJob(job: TeacherLessonJob | undefined, stage: 'lesso
 }
 const lessonStreamSegments = computed(() => {
   const job = currentLessonStreamJob(lessonJob.value, 'lesson_plan')
-  return job && ['pending', 'running', 'paused', 'failed', 'cancelled'].includes(job.status)
+  return job && ['pending', 'running'].includes(job.status)
     ? lessonPlanStreamSegments(job.stream_batches)
     : []
 })
@@ -2500,8 +2503,8 @@ function projectedReferenceWorkflowState(
 ): CourseReferenceWorkflowState {
   if (['queued', 'running'].includes(projected.task_state)) return 'generating'
   if (['waiting_for_input', 'waiting_for_review'].includes(projected.task_state)) return 'generating'
-  if (projected.task_state === 'paused') return 'paused'
-  if (['failed', 'unknown'].includes(projected.task_state) || projected.latest_attempt_failed || projected.display_state === 'failed') return 'failed'
+  if (projected.task_state === 'paused' || projected.display_state === 'paused') return 'paused'
+  if (['failed', 'unknown'].includes(projected.task_state) || projected.latest_attempt_failed || projected.display_state === 'failed') return 'paused'
   if (projected.display_state === 'available') return 'completed'
   return activeCourseReferences.value.length ? 'ready' : 'collecting'
 }
@@ -2513,7 +2516,7 @@ const referenceWorkflowState = computed<CourseReferenceWorkflowState>(() => {
     }
     if (props.generationStarting || taskInFlight.value) return 'generating'
     if (taskPaused.value) return 'paused'
-    if (generationFailed.value) return 'failed'
+    if (generationFailed.value) return 'paused'
     if (hasOutline.value) return 'completed'
     return activeCourseReferences.value.length ? 'ready' : 'collecting'
   }
@@ -2522,7 +2525,7 @@ const referenceWorkflowState = computed<CourseReferenceWorkflowState>(() => {
     if (projected) return projectedReferenceWorkflowState(projected)
     if (batchRunning.value || batchStarting.value || lessonGenerationActive.value) return 'generating'
     if (batchPaused.value || lessonJob.value?.status === 'paused') return 'paused'
-    if (batchRecoveryAvailable.value || lessonGenerationRequestError.value) return 'failed'
+    if (batchRecoveryAvailable.value || lessonGenerationRequestError.value) return 'paused'
     if (currentLessonPlanReady.value) return 'completed'
     return activeCourseReferences.value.length ? 'ready' : 'collecting'
   }
@@ -2531,7 +2534,7 @@ const referenceWorkflowState = computed<CourseReferenceWorkflowState>(() => {
     if (projected) return projectedReferenceWorkflowState(projected)
     if (scriptBatchRunning.value || scriptBatchStarting.value || scriptGenerationBusy.value) return 'generating'
     if (scriptBatchPaused.value || scriptJob.value?.status === 'paused') return 'paused'
-    if (scriptBatchRecoveryAvailable.value || ['failed'].includes(String(scriptJob.value?.status || '')) || scriptBatchStartError.value || effectiveScriptGenerationError.value) return 'failed'
+    if (scriptBatchRecoveryAvailable.value || ['failed'].includes(String(scriptJob.value?.status || '')) || scriptBatchStartError.value || effectiveScriptGenerationError.value) return 'paused'
     if (currentScriptReady.value) return 'completed'
     return activeCourseReferences.value.length ? 'ready' : 'collecting'
   }
@@ -2541,12 +2544,13 @@ const referenceWorkflowState = computed<CourseReferenceWorkflowState>(() => {
     }
     if (pptBuildMatchesSelection.value && teachingRepresentationsStore.building) return 'generating'
     if (pptBuildMatchesSelection.value && teachingRepresentationsStore.buildPaused) return 'paused'
-    if (pptBuildMatchesSelection.value && (teachingRepresentationsStore.buildFailure || teachingRepresentationsStore.buildError)) return 'failed'
+    if (pptBuildMatchesSelection.value && (teachingRepresentationsStore.buildFailure || teachingRepresentationsStore.buildError)) return 'paused'
     return currentPptAsset.value ? 'completed' : activeCourseReferences.value.length ? 'ready' : 'collecting'
   }
   return activeCourseReferences.value.length ? 'ready' : 'collecting'
 })
 const referenceWorkflowDetail = computed(() => {
+  if (referenceWorkflowState.value === 'paused') return ''
   if (['generating', 'paused'].includes(referenceWorkflowState.value)) {
     if (activeStage.value === 'lesson') return lessonJob.value?.message || ''
     if (activeStage.value === 'script') return scriptGenerationPresentation(scriptJob.value).detail
@@ -2655,20 +2659,20 @@ const referenceWorkflowCanPause = computed(() => (
 ))
 const referenceWorkflowCanResume = computed(() => (
   !referenceWorkflowUsesDedicatedWaitingAction.value
-  && (activeStage.value === 'foundation' ? productionState.value && !outlineLocalEventPendingProjection.value
-    ? productionAllowsTaskAction(productionState.value.stages.outline, 'resume_generation')
+  && (referenceWorkflowCanRetry.value || (activeStage.value === 'foundation' ? productionState.value && !outlineLocalEventPendingProjection.value
+    ? (productionAllowsTaskAction(productionState.value.stages.outline, 'resume_generation') || productionAllowsTaskAction(productionState.value.stages.outline, 'retry_generation'))
     : taskPaused.value
     : activeStage.value === 'lesson' ? productionState.value
-      ? productionAllowsTaskAction(productionState.value.stages.lesson_plan, 'resume_generation')
+      ? (productionAllowsTaskAction(productionState.value.stages.lesson_plan, 'resume_generation') || productionAllowsTaskAction(productionState.value.stages.lesson_plan, 'retry_generation'))
       : batchPaused.value || lessonJob.value?.status === 'paused'
       : activeStage.value === 'script' ? productionState.value
-        ? productionAllowsTaskAction(productionState.value.stages.script, 'resume_generation')
+        ? (productionAllowsTaskAction(productionState.value.stages.script, 'resume_generation') || productionAllowsTaskAction(productionState.value.stages.script, 'retry_generation'))
         : scriptBatchPaused.value || scriptJob.value?.status === 'paused'
         : activeStage.value === 'ppt' ? selectedPptProduction.value && !pptLocalEventPendingProjection.value
-          ? productionAllowsTaskAction(selectedPptProduction.value, 'resume_generation')
+          ? (productionAllowsTaskAction(selectedPptProduction.value, 'resume_generation') || productionAllowsTaskAction(selectedPptProduction.value, 'retry_generation'))
           : pptBuildMatchesSelection.value && teachingRepresentationsStore.buildPaused
         : false)
-))
+)))
 const referenceWorkflowCanCancel = computed(() => (
   !referenceWorkflowUsesDedicatedWaitingAction.value
   && (activeStage.value === 'foundation' ? productionState.value && !outlineLocalEventPendingProjection.value
@@ -2687,7 +2691,7 @@ const referenceWorkflowCanCancel = computed(() => (
 ))
 const referenceWorkflowCanRetry = computed(() => {
   if (referenceWorkflowUsesDedicatedWaitingAction.value) return false
-  if (referenceWorkflowState.value !== 'failed') return false
+  if (!['failed', 'paused'].includes(referenceWorkflowState.value)) return false
   if (activeStage.value === 'foundation' && productionState.value && !outlineLocalEventPendingProjection.value) {
     return productionAllowsTaskAction(productionState.value.stages.outline, 'retry_generation')
   }
@@ -2735,8 +2739,8 @@ const pendingSourceReviewCount = computed(() => Math.max(
   Number(productionState.value?.source_summary?.pending_review_count || 0),
 ))
 const contextErrorPresentation = computed(() => {
-  if (pptContext.value) return pptContext.value.error
-  if (activeStage.value === 'foundation') return generationErrorPresentation.value
+  if (pptContext.value) return null
+  if (activeStage.value === 'foundation') return null
   if (['lesson', 'script', 'ppt'].includes(activeStage.value) && lessonStageBlocked.value && lessonPrerequisiteError.value) return lessonPrerequisiteError.value
   if (activeStage.value === 'lesson') return lessonBatchStartErrorPresentation.value || (
     arrangementError.value ? toAppError(arrangementError.value) : null
@@ -2744,7 +2748,7 @@ const contextErrorPresentation = computed(() => {
   if (activeStage.value === 'script') return scriptBatchStartErrorPresentation.value
   return null
 })
-const contextFailureVisible = computed(() => !pptContext.value && !contextErrorPresentation.value && referenceWorkflowState.value === 'failed')
+const contextFailureVisible = computed(() => false)
 const contextFailureJob = computed(() => contextFailureVisible.value ? selectedFailureJob.value : null)
 const contextFailureCanRetry = computed(() => {
   if (stagePrerequisiteBlocked(activeStage.value)) return false
@@ -2819,7 +2823,7 @@ const contextStatusDetail = computed(() => {
   if (activeProjectedProduction.value?.task_state === 'waiting_for_input' || outlineWaitingForInput.value) return t('courseWorkbench.outlineFlow.lightPlan', '轻量讲次方案')
   if (activeProjectedProduction.value?.task_state === 'waiting_for_review') return activeProjectedProduction.value.issues[0]?.summary || t('teacherProductionState.auxiliary.waitingForReview', '待审阅确认')
   if (referenceWorkflowState.value === 'generating') return referenceWorkflowDetail.value || currentGenerationLabel.value
-  if (referenceWorkflowState.value === 'paused') return t('courseWorkbench.contextPane.paused', '已暂停，资料快照和进度均已保留')
+  if (referenceWorkflowState.value === 'paused') return t('courseWorkbench.contextPane.paused', '已暂停，继续后按原条件重新生成')
   if (referenceWorkflowState.value === 'failed') return projectedLastGoodFailure.value
     ? t('courseWorkbench.contextPane.currentContentUsable', '当前内容仍可使用')
     : ''
@@ -3012,6 +3016,8 @@ async function pauseReferenceWorkflow() {
 }
 async function resumeReferenceWorkflow() {
   if (referenceWorkflowUsesDedicatedWaitingAction.value) return
+  if (selectedFailureJob.value && !selectedFailureJob.value.parent_job_id && selectedFailureJob.value.error?.retryable && ['lesson', 'script'].includes(activeStage.value)) return retrySelectedFailure()
+  if (referenceWorkflowCanRetry.value) return retryReferenceWorkflow()
   const outlineTaskId = outlineActionTaskId('resume_generation')
   if (activeStage.value === 'foundation' && outlineTaskId) {
     await generationStore.resumeTask(props.courseId, outlineTaskId)
@@ -3964,7 +3970,7 @@ function outlineLessonNumber(lessonId: string): number {
 }
 function outlineLessonStatusState(item: OutlineLessonStatus): 'queued' | 'running' | 'completed' | 'failed' {
   if (['completed', 'completed_with_warnings'].includes(item.status) || item.stage === 'outline_detail_completed') return 'completed'
-  if (['failed', 'retry_required', 'cancelled'].includes(item.status) || item.stage === 'outline_detail_failed') return 'failed'
+  if (['failed', 'retry_required', 'cancelled'].includes(item.status) || item.stage === 'outline_detail_failed') return 'queued'
   if (item.status === 'running' || item.stage === 'outline_detail_generation') return 'running'
   return 'queued'
 }
@@ -4031,12 +4037,12 @@ function lessonJobForStage(lesson: any): TeacherLessonJob | undefined {
   if (activeStage.value === 'lesson') return currentJobForLesson(lesson.lesson_unit_id, 'lesson_plan')
   return undefined
 }
-function lessonGenerationState(lesson: any): 'pending' | 'queued' | 'generating' | 'ready' | 'stale' | 'failed' {
+function lessonGenerationState(lesson: any): 'pending' | 'queued' | 'generating' | 'ready' | 'stale' | 'paused' {
   const stage = activeStage.value === 'lesson' ? 'lesson_plan' : activeStage.value === 'script' ? 'script' : activeStage.value === 'ppt' ? 'ppt' : null
   const projected = stage ? lessonProductionState(productionState.value, lesson.lesson_unit_id, stage) : null
   if (projected?.display_state === 'available') return projected.update_required || projected.source_state === 'stale' ? 'stale' : 'ready'
   if (projected?.display_state === 'generating') return ['paused', 'queued'].includes(projected.task_state) ? 'queued' : 'generating'
-  if (projected?.display_state === 'failed') return 'failed'
+  if (['paused', 'failed'].includes(projected?.display_state || '')) return 'paused'
   if (projected?.display_state === 'not_generated') return 'pending'
   if (productionState.value) {
     if (activeStage.value === 'script' && lesson.script?.source_state === 'stale') return 'stale'
@@ -4056,7 +4062,7 @@ function lessonGenerationState(lesson: any): 'pending' | 'queued' | 'generating'
   const jobStatus = String(job?.status || '')
   if (jobStatus === 'running') return 'generating'
   if (['pending', 'paused'].includes(jobStatus)) return 'queued'
-  if (jobStatus === 'failed') return 'failed'
+  if (jobStatus === 'failed') return 'paused'
   if (jobStatus === 'cancelled') return 'pending'
   if (activeStage.value === 'script' && lesson.script?.source_state === 'stale') return 'stale'
   if (activeStage.value === 'lesson' && lesson.plan?.source_state === 'stale') return 'stale'
@@ -4099,8 +4105,8 @@ function lessonGenerationStateLabel(lesson: any): string {
       labels.push(productionTaskStateLabel(projected.task_state))
     }
     if (projected.update_required || projected.source_state === 'stale') labels.push(t('courseWorkbench.lessonOutline.status.stale', '需更新'))
-    if (projected.latest_attempt_failed && projected.display_state !== 'failed') labels.push(productionTaskStateLabel('failed'))
-    return labels.join(' · ')
+
+    return [...new Set(labels)].join(' · ')
   }
   if (productionState.value) {
     const labels = {
@@ -4109,7 +4115,7 @@ function lessonGenerationStateLabel(lesson: any): string {
       generating: productionDisplayStateLabel('generating'),
       ready: productionDisplayStateLabel('available'),
       stale: productionDisplayStateLabel('available'),
-      failed: productionDisplayStateLabel('failed'),
+      paused: productionDisplayStateLabel('paused'),
     }
     return labels[state]
   }
@@ -4123,7 +4129,7 @@ function lessonGenerationStateLabel(lesson: any): string {
     generating: productionDisplayStateLabel('generating'),
     ready: productionDisplayStateLabel('available'),
     stale: productionDisplayStateLabel('available'),
-    failed: productionDisplayStateLabel('failed'),
+    paused: productionDisplayStateLabel('paused'),
   }
   return labels[state]
 }
@@ -4231,7 +4237,7 @@ const pptContextActions = computed(() => {
   if (referenceWorkflowCanPause.value) taskActions.push({ id: 'pause', label: t('courseWorkbench.pause') })
   if (referenceWorkflowCanResume.value) taskActions.push({ id: 'resume', label: t('pptWorkspace.flow.resume'), primary: true })
   if (referenceWorkflowCanCancel.value) taskActions.push({ id: 'cancel', label: t('common.cancel') })
-  if (referenceWorkflowUsesDedicatedWaitingAction.value || ['generating', 'paused'].includes(referenceWorkflowState.value)) return taskActions
+  if (referenceWorkflowUsesDedicatedWaitingAction.value || referenceWorkflowState.value === 'generating' || (referenceWorkflowState.value === 'paused' && activeProjectedProduction.value?.task_state !== 'completed')) return taskActions
   // Final rendering uses the manuscript API's can_generate_ppt gate, independently of content generation.
   const actions = (pptContext.value?.actions || []).filter(action => !['pause', 'resume', 'cancel'].includes(action.id))
   if (referenceWorkflowCanRetry.value && pptActionTaskId('retry_generation')) {

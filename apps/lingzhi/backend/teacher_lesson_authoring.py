@@ -2461,6 +2461,9 @@ class TeacherLessonAuthoringRepository:
         changes: dict[str, Any],
     ) -> dict[str, Any]:
         job.update(deepcopy(changes))
+        if job.get("restart_whole") and changes.get("status") in {"paused", "cancelled"}:
+            job.update(checkpoint={}, result_sections=[], staged_lesson=None, staged_base=None,
+                       completed_blocks=0, stream_batches={}, stream_events=[], last_stream_event={})
         if "phase" in changes:
             job["stage"] = str(changes.get("phase") or "")
         timestamp = _now()
@@ -2494,6 +2497,15 @@ class TeacherLessonAuthoringRepository:
                 raise TeacherLessonAuthoringError("teacher_job_not_found", "教师讲次任务不存在。")
             if str(job.get("status") or "") in TEACHER_JOB_FROZEN_STATUSES:
                 return deepcopy(job)
+            if changes.get("restart_whole") and not job.get("restart_whole"):
+                changes["generation_base"] = deepcopy((value.get("lessons") or {}).get(job["lesson_unit_id"]))
+                previous = (value.get("jobs") or {}).get(changes.get("resume_from_job_id")) or {}
+                if previous:
+                    changes["attempt_number"] = int(previous.get("attempt_number") or 0) + 1
+                    changes["next_retry_at"] = previous.get("next_retry_at")
+            if job.get("restart_whole") and changes.get("status") == "completed" and job.get("staged_lesson"):
+                changes = {**changes, "status": "running", "phase": "result_ready", "progress": 95,
+                           "stream_complete": False, "message": "正在完成本次生成"}
             job = self._apply_job_changes_locked(job, changes)
             value["jobs"][job_id] = job
             saved = self._save(value)
@@ -2504,6 +2516,64 @@ class TeacherLessonAuthoringRepository:
                 # still arriving concurrently for other plan/script shards.
                 self._live_stream_jobs[course_id][job_id] = job
             return deepcopy(saved["jobs"][job_id])
+
+    def finish_generation_attempt(self, course_id: str, job_id: str, failure: dict[str, Any]) -> dict[str, Any]:
+        """Record retry intent in the existing job; no failed result is published."""
+        job = self.get_job(course_id, job_id)
+        if not job.get("restart_whole"):
+            return self.update_job(course_id, job_id, status="failed", error=failure)
+        retryable = bool(failure.get("retryable")) and failure.get("category") not in {"conflict", "missing_input"}
+        return self.update_job(
+            course_id, job_id, status="pending" if retryable else "paused",
+            phase="retry_wait" if retryable else "paused", progress=0,
+            message="正在准备重新生成" if retryable else "已暂停",
+            last_attempt_error=failure, error=None, checkpoint={}, result_sections=[],
+            staged_lesson=None, staged_base=None, completed_blocks=0, block_states={},
+            stream_batches={}, stream_events=[], stream_complete=False,
+        )
+
+    def reset_generation_attempt(self, course_id: str, job_ids: list[str], expected_attempt: int | None = None) -> bool:
+        with self._lock:
+            value = self.load(course_id)
+            jobs = [(value.get("jobs") or {}).get(key) for key in job_ids]
+            if any(not job or job.get("status") not in TEACHER_JOB_ACTIVE_STATUSES for job in jobs):
+                return False
+            latest_attempt = max(int(job.get("attempt_number") or 0) for job in jobs)
+            if expected_attempt is not None and latest_attempt != expected_attempt:
+                return False
+            for job in jobs:
+                job.update(status="pending", phase="queued", stage="queued", progress=0,
+                           attempt_number=latest_attempt + 1,
+                           checkpoint={}, result_sections=[], staged_lesson=None, staged_base=None,
+                           result_revision_id="", completed_blocks=0, block_states={}, auto_recovery={},
+                           stream_batches={}, stream_events=[], last_stream_event={}, stream_complete=False,
+                           error=None, next_retry_at=None, updated_at=_now(), heartbeat_at=_now())
+                self._drop_live_stream_job_locked(course_id, job["id"])
+            self._save(value)
+            return True
+
+    def publish_generation_attempt(self, course_id: str, job_ids: list[str]) -> bool:
+        """Commit a whole launch set in one existing repository atomic write."""
+        with self._lock:
+            value = self.load(course_id)
+            jobs = [(value.get("jobs") or {}).get(key) for key in job_ids]
+            if any(not job or job.get("status") != "running" or job.get("phase") != "result_ready" for job in jobs):
+                return False
+            for job in jobs:
+                current = (value.get("lessons") or {}).get(job["lesson_unit_id"])
+                if current != job.get("staged_base") or (
+                    value.get("outline_revision_id") and job.get("source_outline_revision_id") != value["outline_revision_id"]
+                ):
+                    raise TeacherLessonAuthoringError("lesson_source_changed", "生成依据已变化。")
+            for job in jobs:
+                value.setdefault("lessons", {})[job["lesson_unit_id"]] = job.pop("staged_lesson")
+                job.pop("staged_base", None)
+                job.update(status="completed", phase="completed", stage="completed", progress=100,
+                           stream_complete=True, completed_at=_now(), updated_at=_now(), message="已生成")
+            self._save(value)
+            for key in job_ids:
+                self._drop_live_stream_job_locked(course_id, key)
+            return True
 
     def reserve_generation_retry(
         self, course_id: str, job_id: str, unit_id: str, failure: dict[str, Any],
@@ -2644,6 +2714,14 @@ class TeacherLessonAuthoringRepository:
                 "completed_at": timestamp,
                 "updated_at": timestamp,
             })
+            if job.get("restart_whole"):
+                for sibling in value["jobs"].values():
+                    if sibling["id"] == job_id or (job.get("parent_job_id") and sibling.get("parent_job_id") == job["parent_job_id"]):
+                        if sibling.get("status") in {"pending", "running", "paused", "cancelled"}:
+                            sibling.update(status="cancelled", phase="cancelled", progress=0,
+                                           checkpoint={}, result_sections=[], staged_lesson=None, staged_base=None,
+                                           stream_batches={}, stream_events=[], last_stream_event={}, stream_complete=True)
+                            self._drop_live_stream_job_locked(course_id, sibling["id"])
             value["jobs"][job_id] = job
             saved = self._save(value)
             self._drop_live_stream_job_locked(course_id, job_id)
@@ -2665,7 +2743,7 @@ class TeacherLessonAuthoringRepository:
             job.update({
                 "status": "paused",
                 "phase": "teacher_asset_job_paused",
-                "message": "生成已暂停，继续时将沿用已保存进度",
+                "message": "已暂停",
                 "pause_requested": True,
                 "cancel_requested": True,
                 "stream_sequence": int(job.get("stream_sequence") or 0) + 1,
@@ -2674,6 +2752,16 @@ class TeacherLessonAuthoringRepository:
                 "error": None,
                 "updated_at": timestamp,
             })
+            if job.get("restart_whole"):
+                for sibling in value["jobs"].values():
+                    if sibling["id"] == job_id or (job.get("parent_job_id") and sibling.get("parent_job_id") == job["parent_job_id"]):
+                        if sibling.get("status") in {"pending", "running", "paused"}:
+                            sibling.update(status="paused", phase="paused", stage="paused", message="已暂停",
+                                           pause_requested=True, cancel_requested=True, progress=0,
+                                           checkpoint={}, result_sections=[], staged_lesson=None, staged_base=None,
+                                           completed_blocks=0, block_states={}, stream_batches={}, stream_events=[],
+                                           last_stream_event={}, stream_complete=True, updated_at=timestamp)
+                            self._drop_live_stream_job_locked(course_id, sibling["id"])
             value["jobs"][job_id] = job
             saved = self._save(value)
             self._drop_live_stream_job_locked(course_id, job_id)
@@ -2699,6 +2787,7 @@ class TeacherLessonAuthoringRepository:
     ) -> dict[str, Any]:
         with self._lock:
             value = self.load(course_id)
+            original_lesson = deepcopy((value.get("lessons") or {}).get(lesson_unit_id))
             if active_job_id:
                 active_job = (value.get("jobs") or {}).get(active_job_id)
                 if (
@@ -2782,6 +2871,16 @@ class TeacherLessonAuthoringRepository:
                     review["source_state"] = "stale"
             if source_outline_revision_id and not value.get("outline_revision_id"):
                 value["outline_revision_id"] = source_outline_revision_id
+            if active_job_id and active_job.get("restart_whole"):
+                active_job["staged_lesson"] = deepcopy(lesson)
+                active_job["staged_base"] = deepcopy(active_job.get("generation_base", original_lesson))
+                if original_lesson is None:
+                    value["lessons"].pop(lesson_unit_id, None)
+                else:
+                    value["lessons"][lesson_unit_id] = original_lesson
+                self._save(value)
+                self._drop_live_stream_job_locked(course_id, active_job_id)
+                return deepcopy(lesson)
             saved = self._save(value)
             return deepcopy(saved["lessons"][lesson_unit_id])
 
@@ -3814,6 +3913,7 @@ class TeacherLessonAuthoringRepository:
         revision_id = revision_id_override or teacher_lesson_script_sections_revision(normalized_sections)
         with self._lock:
             value = self.load(course_id)
+            original_lesson = deepcopy((value.get("lessons") or {}).get(lesson_unit_id))
             if active_job_id:
                 active_job = (value.get("jobs") or {}).get(active_job_id)
                 if (
@@ -3916,6 +4016,16 @@ class TeacherLessonAuthoringRepository:
                 source_revision = str(review.get("source_script_revision_id") or "")
                 if source_revision and source_revision != revision_id:
                     review["source_state"] = "stale"
+            if active_job_id and active_job.get("restart_whole"):
+                active_job["staged_lesson"] = deepcopy(lesson)
+                active_job["staged_base"] = deepcopy(active_job.get("generation_base", original_lesson))
+                if original_lesson is None:
+                    value["lessons"].pop(lesson_unit_id, None)
+                else:
+                    value["lessons"][lesson_unit_id] = original_lesson
+                self._save(value)
+                self._drop_live_stream_job_locked(course_id, active_job_id)
+                return deepcopy(lesson)
             saved = self._save(value)
             return deepcopy(saved["lessons"][lesson_unit_id])
 
@@ -4418,6 +4528,8 @@ class TeacherLessonAuthoringService:
                 lesson = (view.get("lessons") or {}).get(str(job.get("lesson_unit_id") or "")) or {}
                 if lesson.get("working_revision_id") != source_plan_revision_id or lesson.get("source_state", "current") != "current":
                     raise TeacherLessonAuthoringError("lesson_plan_revision_conflict", "教案已变化，请按当前来源生成。")
+            if job.get("restart_whole"):
+                return await generate()
             try:
                 return await generate()
             except asyncio.CancelledError:
@@ -4822,6 +4934,8 @@ class TeacherLessonAuthoringService:
                 course_id,
                 job_id,
             )
+            if current_job.get("restart_whole"):
+                return self.repository.finish_generation_attempt(course_id, job_id, generation_failure(exc, code))
             return await asyncio.to_thread(
                 self.repository.update_job,
                 course_id,
@@ -5772,6 +5886,8 @@ class TeacherLessonAuthoringService:
                 else "lesson_script_generation_failed"
             )
             current_job = self.repository.get_job(course_id, job_id)
+            if current_job.get("restart_whole"):
+                return self.repository.finish_generation_attempt(course_id, job_id, generation_failure(exc, code))
             return self.repository.update_job(
                 course_id,
                 job_id,

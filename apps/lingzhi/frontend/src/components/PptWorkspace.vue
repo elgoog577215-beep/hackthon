@@ -770,7 +770,7 @@ const registryCourseLogicFailure = computed<TeachingRepresentationBuildFailure |
   return null
 })
 const effectiveBuildFailure = computed(() => (
-  store.buildFailure || registryCourseLogicFailure.value
+  teacherLessonId.value ? null : store.buildFailure || registryCourseLogicFailure.value
 ))
 const renderFailure = computed(() => Boolean(
   effectiveBuildFailure.value && store.buildResumeOptions?.manuscriptOnly === false,
@@ -848,7 +848,7 @@ async function runContextAction(id: ContextActionId) {
 }
 defineExpose({ prepareToLeave, requestGeneration, context, runContextAction })
 
-const buildErrorLabel = computed(() => (
+const buildErrorLabel = computed(() => teacherLessonId.value ? '' : (
   effectiveBuildFailure.value?.action === 'upgrade_course_logic'
     ? effectiveBuildFailure.value.message
     : store.buildError === 'deck_split_required'

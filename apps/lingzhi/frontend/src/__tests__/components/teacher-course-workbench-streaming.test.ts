@@ -437,7 +437,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.stream-waiting').exists()).toBe(true)
   })
 
-  it('大纲失败后的重试沿用原任务检查点，不新建重复课程', async () => {
+  it('大纲继续沿用原任务身份重生成，不新建重复课程', async () => {
     const generation = useGenerationStore()
     const task = generation.createTask('job-failed', 'course-1', 'C 语言程序设计')
     task.status = 'error'
@@ -446,7 +446,7 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench()
     expect(wrapper.find('.workbench-center [role="alert"]').exists()).toBe(false)
-    expect(wrapper.get('.context-pane .workbench-error').text()).toContain('AI 服务身份校验未通过')
+    expect(wrapper.find('.context-pane .workbench-error').exists()).toBe(false)
     await wrapper.get('.context-pane-heading__actions .primary-status-action').trigger('click')
     await flushPromises()
 
@@ -1312,8 +1312,8 @@ describe('teacher course workbench outline streaming', () => {
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
     const buttons = wrapper.findAll('.lesson-outline-chapter-button')
     expect(buttons.map(button => button.attributes('aria-label'))).toEqual([
-      '第1讲，未生成', '第2讲，正在生成，40%', '第3讲，可使用',
-      '第4讲，可使用', '第5讲，可使用', '第6讲，生成失败',
+      '第1讲，待生成', '第2讲，正在生成，40%', '第3讲，已生成',
+      '第4讲，已生成', '第5讲，已生成', '第6讲，已暂停',
     ])
     expect(buttons[1]!.find('.lesson-outline-status').attributes('data-state')).toBe('generating')
     expect(buttons[1]!.find('small').exists()).toBe(false)
@@ -1496,8 +1496,8 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
 
-    expect(wrapper.get('.context-pane-heading').text()).toContain('生成未完成')
-    expect(wrapper.get('.context-pane-heading').text()).toContain('知识骨架汇编失败')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('已暂停')
+    expect(wrapper.get('.context-pane-heading').text()).not.toContain('知识骨架汇编失败')
     expect(wrapper.get('[data-testid="reference-tray-stub"]').text()).not.toContain('知识骨架汇编失败')
     expect(wrapper.find('.context-pane-heading .primary-status-action').exists()).toBe(true)
     const retry = wrapper.get('[data-testid="lesson-course-preview-generate"]')
@@ -1567,22 +1567,15 @@ describe('teacher course workbench outline streaming', () => {
       initialStage: 'lesson', initialLessonId: 'L1-2', initialIssueId: issue.issue_id, expandIssue: true,
     })
 
-    const banner = wrapper.get('.context-pane [data-testid="production-issue-detail"]')
-    expect(wrapper.findAll('.context-pane .generation-recovery')).toHaveLength(1)
-    expect(banner.text()).toContain('本课程有 1 项内容生成失败')
-    expect(banner.text()).not.toContain('知识骨架汇编失败')
+    expect(wrapper.find('[data-testid="production-issue-detail"]').exists()).toBe(false)
+    expect(wrapper.find('.generation-recovery').exists()).toBe(false)
     expect(wrapper.find('.workbench-center [role="alert"]').exists()).toBe(false)
-    expect(wrapper.find('.workbench-center .generation-recovery').exists()).toBe(false)
-    expect(wrapper.get('.context-pane .generation-recovery').text()).toContain('知识骨架汇编失败')
-    expect(wrapper.get('.context-pane-heading').text()).toContain('知识骨架汇编失败')
-    expect(wrapper.text().match(/知识骨架汇编失败/g)).toHaveLength(1)
     expect(wrapper.get('[data-testid="lesson-batch-start"]').text()).toBe('重新生成')
     await wrapper.get('.context-pane-heading__collapse').trigger('click')
     expect(wrapper.find('.context-pane').exists()).toBe(false)
-    expect(wrapper.find('.workbench-center [role="alert"]').exists()).toBe(false)
     await wrapper.get('.context-pane-reopen').trigger('click')
-    expect(wrapper.get('.context-pane [data-testid="production-issue-detail"]').text()).toContain('本课程有 1 项内容生成失败')
-    expect(wrapper.get('.context-pane .generation-recovery').text()).toContain('知识骨架汇编失败')
+    expect(wrapper.find('.generation-recovery').exists()).toBe(false)
+
   })
 
   it('右栏从可用内容的失败尝试切换到生成、暂停和完成，不残留旧错误或重试按钮', async () => {
@@ -1604,9 +1597,8 @@ describe('teacher course workbench outline streaming', () => {
     let finishRetry: (() => void) | undefined
     const retry = vi.spyOn(lessonStore, 'generateLesson').mockImplementation(() => new Promise(resolve => { finishRetry = () => resolve({} as any) }))
     const wrapper = mountWorkbench({ initialStage: 'lesson', initialLessonId: 'L1-1', initialIssueId: issue.issue_id, expandIssue: true })
-    expect(wrapper.get('.context-pane-heading').attributes('data-phase')).toBe('after')
-    expect(wrapper.find('.context-pane-heading__signal .lucide-check').exists()).toBe(true)
-    expect(wrapper.get('.generation-recovery').text()).toContain(issue.summary)
+    expect(wrapper.get('.context-pane-heading').attributes('data-phase')).toBe('during')
+    expect(wrapper.find('.generation-recovery').exists()).toBe(false)
     await wrapper.get('.context-pane-heading__actions .primary-status-action').trigger('click')
     expect(retry).toHaveBeenCalledWith('course-1', 'L1-1', undefined, '', [], 'job-1')
     expect(wrapper.get('.context-pane-heading__actions').attributes('aria-busy')).toBe('true')
@@ -1639,7 +1631,7 @@ describe('teacher course workbench outline streaming', () => {
     }] as any
     const lessonWrapper = mountWorkbench({ initialStage: 'lesson' })
 
-    expect(lessonWrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('可使用')
+    expect(lessonWrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('已生成')
     expect(lessonWrapper.text()).toContain('1.1 程序运行过程')
     expect(lessonWrapper.text()).toContain('演示源码如何编译运行')
     expect(lessonWrapper.find('.lesson-toolbar-status').exists()).toBe(false)
@@ -1659,7 +1651,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(pptWrapper.find('.lesson-toolbar-status').exists()).toBe(false)
     expect(pptWrapper.get('.context-pane-heading').text()).toContain('准备资料')
     expect(pptWrapper.get('.context-pane-heading').text()).toContain('待生成')
-    expect(pptWrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('未生成')
+    expect(pptWrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('待生成')
     expect(pptWrapper.get('[data-testid="ppt-upload"]').attributes('disabled')).toBeUndefined()
     expect(pptWrapper.getComponent({ name: 'PptWorkspace' }).props('canGenerate')).toBe(false)
   })
@@ -2142,7 +2134,7 @@ describe('teacher course workbench outline streaming', () => {
 
     expect(wrapper.get('[data-testid="script-course-preview-generate"]').attributes('disabled')).toBeDefined()
     expect(wrapper.find('[data-testid="script-batch-start"]').exists()).toBe(false)
-    expect(wrapper.get('.context-pane-heading').text()).toContain('生成未完成')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('已暂停')
   })
 
   it('统一投影暂停且旧 jobs 缺失时使用真实 attempt 继续原批次', async () => {
@@ -2219,7 +2211,7 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'script' })
 
-    expect(wrapper.get('.context-pane-heading').text()).toContain('上游教案已变化')
+    expect(wrapper.get('.context-pane-heading').text()).not.toContain('上游教案已变化')
     expect(wrapper.find('.context-pane-heading .primary-status-action').exists()).toBe(false)
   })
 
@@ -2243,7 +2235,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(outline.get('header').text()).toContain('已完成 1/2')
     expect(lessons[0]!.find('.lesson-outline-status').attributes('data-state')).toBe('ready')
     expect(lessons[1]!.find('.lesson-outline-status').attributes('data-state')).toBe('pending')
-    expect(lessons[1]!.text()).toContain('未生成')
+    expect(lessons[1]!.text()).toContain('待生成')
     expect(lessons[1]!.find('.lesson-outline-status svg').exists()).toBe(false)
   })
 
@@ -2354,8 +2346,8 @@ describe('teacher course workbench outline streaming', () => {
     const statuses = wrapper.findAll('.lesson-outline-status')
     expect(statuses[0]!.attributes('data-state')).toBe('ready')
     expect(statuses[0]!.find('.lucide-check').exists()).toBe(true)
-    expect(statuses[1]!.attributes('data-state')).toBe('failed')
-    expect(statuses[1]!.find('.lucide-triangle-alert').exists()).toBe(true)
+    expect(statuses[1]!.attributes('data-state')).toBe('paused')
+    expect(statuses[1]!.find('.lucide-triangle-alert').exists()).toBe(false)
     expect(values()).toEqual(['40'])
     wrapper.unmount()
   })
@@ -2704,7 +2696,7 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'foundation' })
 
-    expect(wrapper.get('.context-pane-heading').text()).toContain('结构检查未通过')
+    expect(wrapper.get('.context-pane-heading').text()).not.toContain('结构检查未通过')
     expect(wrapper.find('.context-pane-heading__actions .primary-status-action').exists()).toBe(false)
   })
 
@@ -2824,11 +2816,11 @@ describe('teacher course workbench outline streaming', () => {
     await flushPromises()
     expect(wrapper.find('.context-pane').exists()).toBe(true)
     await flushPromises()
-    expect(wrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('可使用')
-    expect(wrapper.get('.context-pane-heading').text()).toContain('可使用')
-    expect(wrapper.get('.context-pane-heading').text()).toContain('最近一次生成失败')
+    expect(wrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('已生成')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('已暂停')
+    expect(wrapper.get('.context-pane-heading').text()).not.toContain('最近一次生成失败')
     const retry = wrapper.get('.context-pane-heading__actions .primary-status-action')
-    expect(retry.text()).toContain('重新生成')
+    expect(retry.text()).toContain('继续')
     const primary = wrapper.getComponent({ name: 'PptWorkspace' })
     expect(primary.props('generationAction')).toBeUndefined()
     expect(primary.props('canGenerate')).toBe(false)
@@ -2957,11 +2949,10 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'script', initialLessonId: 'L1-1' })
 
-    expect(wrapper.get('.context-pane-heading').text()).toContain('内容已就绪')
-    expect(wrapper.get('.context-pane-heading').text()).toContain('可使用')
-    expect(wrapper.get('.context-pane-heading').text()).toContain('最近一次生成失败')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('已暂停')
+    expect(wrapper.get('.context-pane-heading').text()).not.toContain('最近一次生成失败')
     expect(wrapper.get('[data-testid="script-batch-start"]').text()).toContain('重新生成')
-    expect(wrapper.find('.context-pane-heading__actions .primary-status-action').exists()).toBe(false)
+    expect(wrapper.find('.context-pane-heading__actions .primary-status-action').exists()).toBe(true)
   })
 
   it('旧 v1 投影仍用服务端明确恢复身份显示讲义重新生成并提交原 job ID', async () => {
@@ -3094,8 +3085,8 @@ describe('teacher course workbench outline streaming', () => {
 
     await wrapper.findAll('.lesson-outline-chapter-button')[1]!.trigger('click')
 
-    expect(wrapper.get('.context-pane-heading').text()).toContain('生成未完成')
-    expect(wrapper.get('.context-pane-heading').text()).toContain('第二讲模型暂时不可用')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('已暂停')
+    expect(wrapper.get('.context-pane-heading').text()).not.toContain('第二讲模型暂时不可用')
     expect(wrapper.get('[data-testid="script-batch-start"]').text()).toContain('重新生成')
   })
 

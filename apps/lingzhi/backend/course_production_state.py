@@ -64,7 +64,8 @@ class DisplayState(_StringEnum):
     NOT_GENERATED = "not_generated"
     GENERATING = "generating"
     AVAILABLE = "available"
-    FAILED = "failed"
+    PAUSED = "paused"
+    FAILED = "paused"  # compatibility alias; teacher display has four states
 
 
 class ProductionStage(_StringEnum):
@@ -493,6 +494,10 @@ def _task_allowed_actions(task: dict[str, Any] | None) -> list[ProductionAction]
         TaskState.UNKNOWN,
     }:
         return [ProductionAction.INSPECT_FAILURE]
+    if state == TaskState.PAUSED and _task_id(task) and (
+        owner == "teacher_asset" or task_type == "teacher_outline_generation"
+    ):
+        return [ProductionAction.RESUME_GENERATION, ProductionAction.CANCEL_GENERATION]
     recovery = _task_recovery(task)
     recovery_state = str(recovery.get("state") or "")
     if recovery and (
@@ -1276,12 +1281,16 @@ def _asset_state(
         TaskState.WAITING_FOR_INPUT,
         TaskState.WAITING_FOR_REVIEW,
     }
-    if last_good:
+    if task_state in {TaskState.PAUSED, TaskState.FAILED}:
+        display = DisplayState.PAUSED
+    elif task_state in {TaskState.QUEUED, TaskState.RUNNING}:
+        display = DisplayState.GENERATING
+    elif last_good:
         display = DisplayState.AVAILABLE
     elif task_state in active_states:
         display = DisplayState.GENERATING
     elif task_state in {TaskState.FAILED, TaskState.UNKNOWN, TaskState.COMPLETED}:
-        display = DisplayState.FAILED
+        display = DisplayState.PAUSED
     else:
         display = DisplayState.NOT_GENERATED
     if control_issue_code:
@@ -1334,11 +1343,11 @@ def _aggregate_stage(
         item.display_state == DisplayState.GENERATING for item in states
     )
     failed = sum(
-        item.display_state == DisplayState.FAILED for item in states
+        item.task_state == TaskState.FAILED and item.availability == Availability.MISSING for item in states
     )
     last_good_count = usable + stale
-    if total > 0 and last_good_count >= total:
-        display = DisplayState.AVAILABLE
+    if task_state in {TaskState.PAUSED, TaskState.FAILED}:
+        display = DisplayState.PAUSED
     elif generating:
         display = DisplayState.GENERATING
     elif task_state in {
@@ -1349,8 +1358,10 @@ def _aggregate_stage(
         TaskState.WAITING_FOR_REVIEW,
     }:
         display = DisplayState.GENERATING
-    elif failed or task_state == TaskState.UNKNOWN:
-        display = DisplayState.FAILED
+    elif total > 0 and last_good_count >= total:
+        display = DisplayState.AVAILABLE
+    elif failed or task_state in {TaskState.UNKNOWN, TaskState.COMPLETED} and not last_good_count:
+        display = DisplayState.PAUSED
     elif last_good_count:
         display = DisplayState.AVAILABLE
     else:

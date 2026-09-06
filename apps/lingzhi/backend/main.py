@@ -77,6 +77,9 @@ async def lifespan(app: FastAPI):
         await representation_reconciliation_service.start()
     if task_manager:
         await task_manager.start()
+        from routers.teacher_lesson_authoring import recover_teacher_generation_jobs
+        from dependencies import get_teacher_lesson_authoring_repository
+        await recover_teacher_generation_jobs(task_manager, get_teacher_lesson_authoring_repository())
     yield
     # Shutdown
     if task_manager:

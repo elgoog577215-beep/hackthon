@@ -78,12 +78,12 @@ describe('TeacherTeachingCalendarView production state', () => {
     await wrapper.get('.week-session').trigger('click')
     await flushPromises()
     const outline = wrapper.findAll('.preparation-list article')[0]!
-    expect(outline.text()).toContain('可使用')
-    expect(outline.text()).toContain('最近一次生成失败')
+    expect(outline.text()).toContain('已生成')
+    expect(outline.text()).not.toContain('最近一次生成失败')
 
     await wrapper.get('.inspector-actions .primary').trigger('click')
     await flushPromises()
-    expect(router.currentRoute.value.query.stage).toBe('foundation')
+    expect(router.currentRoute.value.query.stage).toBe('lesson')
     wrapper.unmount()
   })
 })

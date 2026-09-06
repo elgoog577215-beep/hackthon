@@ -211,7 +211,8 @@ describe('TeacherCourseSpaceView', () => {
 
     await wrapper.findAll('.file-row').find(row => row.text().includes('教学大纲'))!.trigger('click')
     const outlineRow = wrapper.findAll('.file-row').find(row => row.text().includes('在线教学大纲'))!
-    expect(outlineRow.text()).toContain('可使用 · 最近一次生成失败')
+    expect(outlineRow.text()).toContain('已生成')
+    expect(outlineRow.text()).not.toContain('最近一次生成失败')
   })
 
   it('按对象类型提供文件夹、固定资产和上传文件的安全操作', async () => {

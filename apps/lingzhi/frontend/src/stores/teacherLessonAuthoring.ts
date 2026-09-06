@@ -303,6 +303,7 @@ export interface TeacherLessonJob {
   batch_position?: number
   batch_size?: number
   pause_requested?: boolean
+  attempt_number?: number
   stream_sequence?: number
   stream_batches?: Record<string, string>
   stream_events?: TeacherLessonStreamDeltaEvent[]
@@ -542,8 +543,11 @@ export function mergeLessonJobSnapshot(
   incoming: TeacherLessonJob,
 ): TeacherLessonJob {
   if (!previous || previous.id !== incoming.id) return incoming
+  const attemptDelta = Number(incoming.attempt_number || 0) - Number(previous.attempt_number || 0)
+  if (attemptDelta < 0) return previous
+  if (attemptDelta > 0) return { ...incoming, stream_batches: incoming.stream_batches || {}, result_sections: incoming.result_sections || [], streamed_block_content: incoming.streamed_block_content || {} }
   if (['paused', 'failed', 'cancelled'].includes(incoming.status) && !Object.keys(incoming.stream_batches || {}).length) {
-    incoming = { ...incoming, stream_batches: previous.stream_batches }
+    incoming = { ...incoming, stream_batches: {}, result_sections: [], streamed_block_content: {} }
   }
   const previousTimestamp = lessonJobTimestamp(previous)
   const incomingTimestamp = lessonJobTimestamp(incoming)

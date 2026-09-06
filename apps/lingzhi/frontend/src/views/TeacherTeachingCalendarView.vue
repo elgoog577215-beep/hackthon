@@ -279,7 +279,6 @@ import { activeLocale, t } from '../shared/i18n'
 import {
   lessonProductionState,
   productionDisplayStateLabel,
-  productionStagePrimaryIssue,
   readCourseProductionState,
   type AssetProductionState,
   type CourseProductionState,
@@ -559,36 +558,14 @@ function preparationState(tone: PreparationTone, labelKey: string, detailKey: st
   }
 }
 function projectedPreparation(state: AssetProductionState, readyDetailKey: string): PreparationState {
-  const issue = productionStagePrimaryIssue(state)
-  const auxiliaryTone: PreparationTone | null = ['paused', 'waiting_for_input', 'waiting_for_review'].includes(state.task_state)
-    ? 'working'
-    : state.task_state === 'unknown' || state.latest_attempt_failed
-      ? 'error'
-      : state.update_required || state.availability === 'stale' || state.source_state === 'stale'
-        ? 'warning'
-        : issue
-          ? issue.blocking === false ? 'review' : 'error'
-          : null
-  const tone: PreparationTone = auxiliaryTone || (state.display_state === 'available'
-    ? 'ready'
-    : state.display_state === 'generating' ? 'working' : state.display_state === 'failed' ? 'error' : 'missing')
-  const detail = state.task_state === 'waiting_for_input'
-    ? t('teacherProductionState.auxiliary.waitingForInput', '待补充信息')
-    : state.task_state === 'waiting_for_review'
-      ? t('teacherProductionState.auxiliary.waitingForReview', '待审阅确认')
-      : state.task_state === 'unknown'
-        ? t('teacherProductionState.auxiliary.unknown', '状态待处理')
-        : state.task_state === 'paused'
-    ? t('teacherProductionState.auxiliary.paused', '已暂停')
-    : state.issues.some(item => item.code.includes('quality'))
-      ? t('teacherProductionState.auxiliary.qualityBlocked', '质量检查未通过')
-      : state.latest_attempt_failed
-      ? t('teacherProductionState.auxiliary.recentFailure', '最近一次生成失败')
-      : state.update_required || state.availability === 'stale' || state.source_state === 'stale'
-        ? t('teacherProductionState.auxiliary.stale', '来源已更新')
-        : issue?.summary || t(`teacherHome.sessionPanel.details.${readyDetailKey}`)
-  return { tone, label: productionDisplayStateLabel(state.display_state), detail }
+  const working = ['generating', 'paused'].includes(state.display_state)
+  return {
+    tone: working ? 'working' : state.display_state === 'available' ? 'ready' : 'missing',
+    label: productionDisplayStateLabel(state.display_state),
+    detail: working ? '' : t(`teacherHome.sessionPanel.details.${readyDetailKey}`),
+  }
 }
+
 function latestSessionJob(kind: 'plan' | 'ppt'): TeacherLessonJob | undefined {
   const lessonId = selectedSession.value?.lesson_unit_id
   if (!lessonId) return undefined
