@@ -317,7 +317,8 @@ class PageTeachingV2(Contract):
                     )
                 if elements[relation.source_id].subject_id != elements[relation.target_id].subject_id:
                     raise ValueError(f"comparison_relation_crosses_subjects:{relation.relation_id}: "
-                                     f"{relation.source_id}->{relation.target_id}; use a graph layout for cross-subject edges")
+                                     f"{relation.source_id}->{relation.target_id}; remove redundant edges when table alignment already expresses the comparison. "
+                                     "Use a graph layout only when the cross-subject edge carries an essential relationship not expressed by the comparison cells.")
         elif isinstance(expression, GraphExpression):
             known(expression.node_element_ids)
             known(expression.condition_element_ids)

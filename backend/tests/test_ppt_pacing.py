@@ -216,6 +216,8 @@ def test_model_field_repair_preserves_unmodified_content_and_rejects_unknown_fie
     assert revised["elements"] == value["elements"]
     assert revised["split_reason"] == "独立观察两个分支"
     assert value == before and revised["elements"] is not value["elements"]
+    wrapped = apply_page_repair({"patch": {"split_reason": "独立观察两个分支"}}, {"pages": [value]})
+    assert wrapped == revised
     for patch in [{"source_block_ids": ["invented"]}, {}]:
         with pytest.raises(ValueError, match="patch_fields_invalid"):
             apply_page_repair({"patch": patch}, value)

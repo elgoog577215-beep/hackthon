@@ -114,10 +114,17 @@ def draft_type(candidate):
     return ChartTeachingPageDraft if kind == "chart" else LinearTeachingPageDraft
 
 
+def single_page_candidate(candidate):
+    if isinstance(candidate, dict) and set(candidate) == {"pages"} and isinstance(candidate["pages"], list) and len(candidate["pages"]) == 1:
+        return candidate["pages"][0]
+    return candidate
+
+
 def apply_page_repair(response, candidate):
     """Model-authored field replacements preserve everything it did not edit."""
     if "patch" not in response:
         return response
+    candidate = single_page_candidate(candidate)
     if set(response) != {"patch"} or not isinstance(candidate, dict) or "pages" in candidate:
         raise ValueError("teaching_page_patch_target_invalid")
     patch = response["patch"]
@@ -129,6 +136,7 @@ def apply_page_repair(response, candidate):
 
 
 def page_response_contract(repair_candidate=None, *, split_required=False):
+    repair_candidate = single_page_candidate(repair_candidate)
     schema = TypeAdapter(PageResponseDraft | PageGroupDraft).json_schema()
     group_items = schema["$defs"]["PageGroupDraft"]["properties"]["pages"]["items"]
     schema["$defs"]["PageGroupDraft"]["properties"]["pages"]["items"] = {"allOf": [group_items,
@@ -483,7 +491,7 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
                 continue
         for attempt in range(3):
             request_plan = plan.model_dump(mode="json")
-            request_candidate = previous_candidate
+            request_candidate = single_page_candidate(previous_candidate)
             if repair_parts is not None:
                 request_candidate = repair_parts[repair_index]
                 if isinstance(request_candidate, dict):
@@ -567,6 +575,7 @@ async def regenerate_teaching_pages(manuscript, target_page_ids, planner, *, tim
         error = ""
         previous_candidate = None
         for attempt in range(3):
+            previous_candidate = single_page_candidate(previous_candidate)
             request = {"teaching_request": "revision", "response_contract": page_response_contract(previous_candidate),
                 "current_page": page.model_dump(mode="json", exclude={"resolved_scenes", "regions", "speaker_notes"}),
                 "narrative_brief": manuscript.narrative_brief.model_dump(mode="json"),
