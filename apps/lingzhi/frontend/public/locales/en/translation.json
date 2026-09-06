@@ -1008,7 +1008,7 @@
       "generate": "Generate this handout",
       "generating": "Generating…",
       "stopGeneration": "Stop",
-      "continueGenerating": "Continue remaining blocks",
+      "continueGenerating": "Continue generating",
       "waitingForNextBlock": "Continuing the lecture notes…",
       "progress": {
         "preparingTitle": "Preparing lecture notes",

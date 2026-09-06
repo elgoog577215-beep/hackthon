@@ -1008,7 +1008,7 @@
       "generate": "生成本讲讲义",
       "generating": "正在生成…",
       "stopGeneration": "停止",
-      "continueGenerating": "继续生成剩余内容",
+      "continueGenerating": "继续生成",
       "waitingForNextBlock": "正在继续撰写…",
       "progress": {
         "preparingTitle": "正在准备讲义",

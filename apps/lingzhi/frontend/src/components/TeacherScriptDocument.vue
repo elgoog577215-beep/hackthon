@@ -390,7 +390,7 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.scriptDocument.generate': '生成本讲讲义',
   'courseWorkbench.scriptDocument.generating': '正在生成…',
   'courseWorkbench.scriptDocument.stopGeneration': '停止',
-  'courseWorkbench.scriptDocument.continueGenerating': '继续生成剩余内容',
+  'courseWorkbench.scriptDocument.continueGenerating': '继续生成',
   'courseWorkbench.scriptDocument.waitingForNextBlock': '正在继续撰写…',
   'courseWorkbench.scriptDocument.generateFailed': '讲义生成失败',
   'courseWorkbench.scriptDocument.planRequired': '请先生成本讲教案',
@@ -494,7 +494,7 @@ const showGenerationForm = computed(() => (
 ))
 const generationActionLabel = computed(() => {
   if (props.generating) return tr('courseWorkbench.scriptDocument.generating')
-  if (['failed', 'cancelled'].includes(String(props.generationJob?.status || '')) && Number(props.generationJob?.completed_blocks || 0) > 0) {
+  if (['paused', 'failed'].includes(String(props.generationJob?.status || ''))) {
     return tr('courseWorkbench.scriptDocument.continueGenerating')
   }
   return tr('courseWorkbench.scriptDocument.generate')
