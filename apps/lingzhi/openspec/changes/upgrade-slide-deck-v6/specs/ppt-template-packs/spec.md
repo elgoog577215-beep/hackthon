@@ -94,3 +94,27 @@ The system SHALL publish themes separately from the semantic structures they sty
 - **THEN** a new draft binding is capacity-checked and reviewed before confirmation
 - **AND** source facts and expression relations remain intact
 - **AND** an incompatible layout reports a gap rather than silently modifying content
+
+
+### Requirement: Fixed Classroom Templates Share One Field And Scene Contract
+The system SHALL provide versioned fixed classroom layouts adapted from Qizhi's basic deck, with explicit named fields, capacities and authored positions. New built-in teacher manuscripts SHALL use this fixed version unless the enhanced-engine switch is explicitly enabled.
+
+#### Scenario: A teacher creates a manuscript with a built-in theme
+- **WHEN** no personal template is selected and enhanced mode is disabled
+- **THEN** planning selects a fixed layout and sends only that layout's field form to the page model
+- **AND** the existing manuscript editor and native export consume its same resolved scene
+
+#### Scenario: A fixed page cannot fit
+- **WHEN** text or object count exceeds the declared capacity
+- **THEN** draft preparation reports the affected page and retries only that task
+- **AND** a split needs a reason before confirmation; final rendering never silently shrinks fonts, changes layout or drops content
+
+#### Scenario: A historical manuscript is opened
+- **WHEN** its locked template version predates the fixed classroom version
+- **THEN** reading, editing and export resolve that historical contract rather than upgrading it implicitly
+
+#### Scenario: Fixed classroom output is generated without optional PDF tools
+- **WHEN** a confirmed code-authored fixed scene is exported
+- **THEN** the real PPTX is read back and checked for text, geometry, fonts, relations, notes and object overflow before completion
+- **AND** its shared-scene browser preview is not described as PDF or PPTX pixel evidence
+- **AND** enhanced and personal native templates retain their original PDF certification requirements

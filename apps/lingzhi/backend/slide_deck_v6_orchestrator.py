@@ -1184,7 +1184,10 @@ class SlideDeckV6Orchestrator:
                             audit_exported_pptx,
                             review_path,
                             expected_slide_count=len(deck.pages),
-                            require_pixel_audit=self.require_pixel_audit,
+                            # Fixed, authored scenes are checked against actual
+                            # OOXML objects by the exporter. PDF/OCR certification
+                            # remains mandatory for the older enhanced engine.
+                            require_pixel_audit=self.require_pixel_audit and not template.template_version.startswith("fixed_classroom_"),
                         ),
                         tracker=tracker,
                         callback=progress_callback,

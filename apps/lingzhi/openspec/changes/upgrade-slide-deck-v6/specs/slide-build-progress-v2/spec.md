@@ -93,3 +93,12 @@ The system SHALL represent content preparation, layout binding and deterministic
 - **WHEN** the confirmed scene is unchanged and only an execution item failed
 - **THEN** the same task can retry that item and its dependent validation/output items
 - **AND** content-planning models are not called and healthy content remains unchanged
+
+
+### Requirement: Fixed Page Filling Reuses Durable Per Page Work
+The system SHALL fill up to four independent fixed-template pages concurrently through the existing model provider and persist accepted page groups using existing checkpoints.
+
+#### Scenario: One page fails while other pages complete
+- **WHEN** a fixed page task fails
+- **THEN** other in-flight results are saved before terminal failure is reported with the failed page and work item IDs
+- **AND** retry preserves accepted pages and original page order without repeating the narrative model call

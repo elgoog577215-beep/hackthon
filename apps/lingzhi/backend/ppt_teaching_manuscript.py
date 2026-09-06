@@ -212,6 +212,9 @@ def template_for_manuscript(manuscript):
         if manuscript.template_id.startswith("pptp-"):
             from ppt_template_packs import ppt_template_pack_repository
             template, _ = ppt_template_pack_repository.resolve_render_bundle_internal(manuscript.template_id, manuscript.template_version)
+        elif manuscript.template_version.startswith("fixed_classroom_"):
+            from ppt_fixed_templates import compile_fixed_template
+            template = compile_fixed_template(manuscript.template_id, version=manuscript.template_version)
         else:
             template = compile_teaching_template(manuscript.template_id, version=manuscript.template_version)
     except (ValueError, FileNotFoundError) as exc:
@@ -318,6 +321,8 @@ def physical_pages(manuscript):
             regions = {r.slot_id: r for r in logical.regions}
             visible_regions = []
             for obj in scene.objects:
+                if obj.kind == "shape" and obj.slot_id == "decoration" and not obj.element_id and not obj.text:
+                    continue
                 region = regions.get(obj.element_id or "title")
                 if region is None or region.content != obj.text:
                     raise _failure("teaching_scene_content_mismatch", logical.page_id)

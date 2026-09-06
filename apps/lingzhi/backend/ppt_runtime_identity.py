@@ -44,7 +44,16 @@ def tool_identity() -> dict:
         "lxml": importlib.metadata.version("lxml"),
         "pillow": importlib.metadata.version("Pillow"),
         "freetype": features.version_module("freetype2"),
-        "pypdf": importlib.metadata.version("pypdf"),
+        "pypdf": _optional_version("pypdf"),
         "libreoffice": _tool_version(("soffice", "libreoffice"), "--version"),
         "poppler": _tool_version(("pdftoppm",), "-v"),
     }
+
+
+def _optional_version(name):
+    # Preview and fixed native-object export do not require PDF conversion.
+    # Certified templates still require the exact PDF tool identity and audit.
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return "unavailable"

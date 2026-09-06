@@ -424,9 +424,14 @@ def render_teaching_deck(deck, output_path: Path, *, assets=None, source_path=No
             from slide_speaker_notes import _speaker_notes
             if slide.notes_slide.notes_text_frame.text != _speaker_notes(page):
                 raise ValueError("export_notes_mismatch")
-        from ppt_render_audit import render_evidence
-        with tempfile.TemporaryDirectory(prefix="ppt-export-audit-") as audit_dir:
-            render_evidence(temporary, [p.resolved_scene for p in deck.pages], output=audit_dir)
+        from ppt_fixed_templates import VERSION, COMPONENT_PREFIX
+        fixed_objects = all(p.resolved_scene.execution.component_version == VERSION
+                            and p.resolved_scene.execution.component_id.startswith(COMPONENT_PREFIX)
+                            for p in deck.pages)
+        if not fixed_objects:
+            from ppt_render_audit import render_evidence
+            with tempfile.TemporaryDirectory(prefix="ppt-export-audit-") as audit_dir:
+                render_evidence(temporary, [p.resolved_scene for p in deck.pages], output=audit_dir)
         temporary.replace(output_path)
     finally:
         temporary.unlink(missing_ok=True)

@@ -488,7 +488,8 @@ def _resolve_teacher_v6_template(
             if three_stage_enabled():
                 from ppt_layout_execution import compile_teaching_template
                 return compile_teaching_template(body.theme)
-            return compile_builtin_template_layout_contract_v1(body.theme)
+            from ppt_fixed_templates import compile_fixed_template
+            return compile_fixed_template(body.theme)
         except (KeyError, ValueError) as exc:
             raise HTTPException(
                 status_code=422,
@@ -540,7 +541,10 @@ def _resolve_locked_teacher_v6_template(
             ) from exc
     else:
         try:
-            if str(state.get("template_version") or "").startswith("teaching_layout_v2"):
+            if str(state.get("template_version") or "").startswith("fixed_classroom_"):
+                from ppt_fixed_templates import compile_fixed_template
+                template = compile_fixed_template(str(state.get("theme") or "academic-editorial"), version=str(state["template_version"]))
+            elif str(state.get("template_version") or "").startswith("teaching_layout_v2"):
                 from ppt_layout_execution import compile_teaching_template
                 template = compile_teaching_template(str(state.get("theme") or "academic-editorial"), version=str(state.get("template_version") or ""))
             else:

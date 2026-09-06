@@ -158,12 +158,17 @@ def page_response_contract(repair_candidate=None, *, split_required=False):
 
 
 def planning_layout_context(template, selected_id=""):
+    from ppt_fixed_templates import is_fixed_template, fixed_capabilities
+    if is_fixed_template(template):
+        return fixed_capabilities(template, selected_id)
     capabilities = capability_summary(template)
     return {"available_layouts": [{k: v for k, v in item.items() if k != "composition_guidance"} for item in capabilities],
         "selected_layout": next((item for item in capabilities if item["layout_id"] == selected_id), None)}
 
 
 def normalize_page_response(response, sources, catalog=None):
+    if "_fixed_form_error" in response:
+        raise ValueError(response["_fixed_form_error"])
     response = deepcopy(response)
     policy = response.pop("presentation", None)
     if "adopted_diagram_id" in response:
@@ -241,6 +246,11 @@ async def invoke_teaching_provider(provider, request):
     response = await call(
         json.dumps(compact_teaching_request(request), ensure_ascii=False, separators=(",", ":")),
         system_prompt=(
+            "Return JSON matching response_contract only, in the handout's language. "
+            "Fill this fixed classroom template with concise, source-grounded screen text and teacher notes. "
+            "Cite supplied quote_id values. Never invent facts, formulas or assets. "
+            "Geometry and reveal timing are owned by the template; do not return layout instructions. "
+        ) if request.get("teaching_request") == "fixed_fields" else (
             "Return JSON matching response_contract only. Plan the supplied classroom lesson in the handout's language. "
             "This request plans the whole-lesson learning path, not detailed slide elements or reveal notes. "
             "Group related contiguous source numbers into coherent learner tasks. Cover every supplied source in first-use order; "
@@ -299,7 +309,8 @@ async def invoke_teaching_provider(provider, request):
         ),
         model_role="ppt_story", use_fast_model=False, json_mode=True,
         enable_thinking=False,
-        max_tokens=10000, max_input_tokens=26000, max_input_chars=70000,
+        max_tokens=4096 if request.get("teaching_request") == "fixed_fields" else 10000,
+        max_input_tokens=26000, max_input_chars=70000,
         reject_truncated=True, raise_on_failure=True, retry_count=1, max_attempts=2,
         telemetry_sink=telemetry.append,
     )
@@ -342,6 +353,9 @@ def _bind_exact_quotes(value, sources):
 
 
 async def plan_teaching_manuscript(document, graph, template, planner, *, source_context=None, checkpoint=None, on_checkpoint=None):
+    from ppt_fixed_templates import is_fixed_template
+    from ppt_fixed_draft import invoke_fixed_form
+    fixed = is_fixed_template(template)
     from slide_planning_telemetry import _provider_attempts_from
     from slide_deck_v6_models import SlideNarrativeBriefV1, V6BuildError
     source_context = source_context or {}
@@ -364,15 +378,28 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
     checkpoint.setdefault("page_groups", {})
     checkpoint.setdefault("calls", [])
 
+    checkpoint_lock = asyncio.Lock()
     async def save(event):
         if on_checkpoint:
-            await on_checkpoint(deepcopy(checkpoint), event)
+            async with checkpoint_lock:
+                await on_checkpoint(deepcopy(checkpoint), event)
 
     async def invoke(request, item_id):
+        if fixed and request.get("teaching_request") == "narrative":
+            request["planning_instruction"] += (
+                " Select a fixed layout before writing its fields. Cover, agenda and section pages are optional; "
+                "do not add them for every topic. Use bullets for concise explanation, comparison for exactly two "
+                "objects and up to three common dimensions, flow for three or four sequential steps. "
+                "Use question only for a real question with a source-supported answer. Never select figure without an adopted image. "
+                "Do not return composition instructions; the named layout already owns all positions and fonts."
+            )
+            if not any(e.get("kind") == "image" and e.get("assets") for e in source_context.get("accepted_visual_expressions", [])):
+                request["layout_capabilities"]["available_layouts"] = [
+                    l for l in request["layout_capabilities"]["available_layouts"] if not l["layout_id"].endswith("/figure")]
         await save({"phase": "started", "item_id": item_id})
         start = time.monotonic()
         try:
-            response = await asyncio.wait_for(planner(request), timeout=300)
+            response = await asyncio.wait_for(invoke_fixed_form(planner, request) if fixed and request.get("page") else planner(request), timeout=300)
         except Exception as exc:
             records = _provider_attempts_from(exc)
             checkpoint["calls"].append({"item_id": item_id, "duration_ms": round((time.monotonic() - start) * 1000),
@@ -380,7 +407,8 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
                 "input_tokens": sum(r.input_tokens for r in records), "output_tokens": sum(r.output_tokens for r in records),
                 "physical_requests": sum(r.physical_request_count for r in records)})
             await save({"phase": "failed", "item_id": item_id})
-            raise V6BuildError(stage="story", code="teaching_provider_failed", message="指定模型未完成页面内容规划，可恢复重试。", retryable=True) from exc
+            raise V6BuildError(stage="story", code="teaching_provider_failed", message="指定模型未完成页面内容规划，可恢复重试。",
+                page_id=str((request.get("page") or {}).get("page_id") or ""), batch_id=item_id, retryable=True) from exc
         records = _provider_attempts_from(response)
         checkpoint["calls"].append({"item_id": item_id, "duration_ms": round((time.monotonic() - start) * 1000), "status": "returned",
             "attempts": [r.model_dump(mode="json") for r in records], "input_tokens": sum(r.input_tokens for r in records),
@@ -449,9 +477,9 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
             raise V6BuildError(stage="story", code="teaching_narrative_invalid", message=error, retryable=True)
     narrative = NarrativeResponse.model_validate(checkpoint["narrative"])
     # Accepted task groups survive failure and restart; every group shares the lesson budget.
-    for plan in narrative.pages:
+    async def fill_page(plan):
         if plan.page_id in checkpoint["pages"]:
-            continue
+            return
         item_id = f"teaching-page-{plan.page_id}"
         error = next((c.get("validation_error", "") for c in reversed(checkpoint["calls"]) if c["item_id"] == item_id), "")
         previous_candidate = checkpoint["draft_pages"].get(plan.page_id)
@@ -504,7 +532,7 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
             except (ValueError, V6BuildError) as exc:
                 error = page_failure_message(exc)
             else:
-                continue
+                return
         for attempt in range(3):
             request_plan = plan.model_dump(mode="json")
             request_candidate = single_page_candidate(previous_candidate)
@@ -561,10 +589,31 @@ async def plan_teaching_manuscript(document, graph, template, planner, *, source
                 break
             except (ValueError, V6BuildError) as exc:
                 error = page_failure_message(exc)
-                checkpoint["calls"][-1]["validation_error"] = error
+                next(c for c in reversed(checkpoint["calls"]) if c["item_id"] == item_id)["validation_error"] = error
                 await save({"phase": "repair", "item_id": item_id})
         else:
-            raise V6BuildError(stage="manuscript", code="teaching_page_validation_failed", message=error, page_id=plan.page_id, retryable=True)
+            raise V6BuildError(stage="manuscript", code="teaching_page_validation_failed", message=error, page_id=plan.page_id, batch_id=item_id, retryable=True)
+    if fixed:
+        # Qizhi's page-sized parallel work, on Lingzhi's existing checkpoints.
+        # Drain siblings before reporting failure so successful pages survive.
+        semaphore = asyncio.Semaphore(4)
+        async def bounded_page(plan):
+            async with semaphore:
+                await fill_page(plan)
+        jobs = [asyncio.create_task(bounded_page(plan)) for plan in narrative.pages]
+        try:
+            results = await asyncio.gather(*jobs, return_exceptions=True)
+        except BaseException:
+            for job in jobs:
+                job.cancel()
+            await asyncio.gather(*jobs, return_exceptions=True)
+            raise
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
+    else:
+        for plan in narrative.pages:
+            await fill_page(plan)
     manuscript = compile_teaching_manuscript(document, graph, template, narrative.narrative_brief,
         [part for p in narrative.pages for part in checkpoint["page_groups"].get(p.page_id, [
             {**revised_plan(p.model_dump(mode="json"), checkpoint["page_revisions"].get(p.page_id, {})), "teaching": checkpoint["pages"][p.page_id]}])], source_context=source_context, pacing=narrative.pacing)
@@ -577,6 +626,8 @@ async def regenerate_teaching_pages(manuscript, target_page_ids, planner, *, tim
     from slide_deck_v6_models import V6BuildError
     from ppt_teaching_manuscript import revise_teaching_manuscript, template_for_manuscript, resolve_manuscript_page, refresh_manuscript
     template = template_for_manuscript(manuscript)
+    from ppt_fixed_templates import is_fixed_template
+    from ppt_fixed_draft import invoke_fixed_form
     page_map = {p.page_id: p for p in manuscript.pages}
     candidate_base = manuscript.model_copy(deep=True)
     replacements = {}
@@ -602,7 +653,7 @@ async def regenerate_teaching_pages(manuscript, target_page_ids, planner, *, tim
                 "accepted_visual_expressions": accepted_visual_expressions or [], "validation_error": error,
                 "previous_candidate": previous_candidate, "patch_instruction": PATCH_INSTRUCTION}
             try:
-                response = await asyncio.wait_for(planner(request), timeout=timeout_seconds)
+                response = await asyncio.wait_for(invoke_fixed_form(planner, request) if is_fixed_template(template) else planner(request), timeout=timeout_seconds)
             except Exception as exc:
                 raise V6BuildError(stage="story", code="teaching_provider_failed", message="指定模型未完成选定页重生，原稿已保留。", page_id=page_id, retryable=True) from exc
             try:

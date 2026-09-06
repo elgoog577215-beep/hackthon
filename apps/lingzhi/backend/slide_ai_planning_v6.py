@@ -5441,7 +5441,7 @@ def build_ai_base_story_planner_v6() -> Planner:
     provider = AIBase(provider_profile="ppt")
 
     async def planner(request: dict[str, Any]) -> dict[str, Any]:
-        if request.get("teaching_request") in {"narrative", "page", "revision"}:
+        if request.get("teaching_request") in {"narrative", "page", "revision", "fixed_fields"}:
             from ppt_teaching_planner import invoke_teaching_provider
             return await invoke_teaching_provider(provider, request)
         telemetry: list[dict[str, Any]] = []

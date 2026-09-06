@@ -188,7 +188,13 @@ def resolve_page_scenes(*, page_id: str, title: str, content: PageTeachingV2, la
             slots[element_id] = f"{prefix}.{i}"
             styles[element_id] = {"fill": fill, "bold": bold}
 
-    if isinstance(expression, ComparisonExpression):
+    fixed_title_frame = None
+    from ppt_fixed_templates import COMPONENT_PREFIX, place_fixed_fields
+    if execution.component_id.startswith(COMPONENT_PREFIX):
+        if len(title) > 28:
+            raise ValueError("fixed_title_too_long:maximum=28")
+        fixed_title_frame = place_fixed_fields(content, execution, place, positions, slots, styles)
+    elif isinstance(expression, ComparisonExpression):
         if len(expression.subjects) > execution.max_subjects or len(expression.dimensions) > execution.max_dimensions:
             raise ValueError("comparison_layout_capacity_exceeded")
         if execution.component_id == "compare-visual" and not expression.relations and not any(e.kind in {"image", "formula"} for e in content.elements):
@@ -280,7 +286,7 @@ def resolve_page_scenes(*, page_id: str, title: str, content: PageTeachingV2, la
             y += height + gap
     if set(positions) != set(elements):
         raise ValueError("teaching_element_layout_binding_incomplete")
-    title_frame = (42, 10, 876, 76)
+    title_frame = fixed_title_frame or (42, 10, 876, 76)
     if execution.mode == "native_fill":
         for key, slot in {"title": "title", **slots}.items():
             target = execution.targets.get(slot)
@@ -301,11 +307,13 @@ def resolve_page_scenes(*, page_id: str, title: str, content: PageTeachingV2, la
     capacity_errors = []
     for element_id, element in elements.items():
         x, y, width, height = positions[element_id]
+        style = dict(styles[element_id])
+        font_size = style.pop("font_size", execution.font_floor_pt)
         if min(x, y) < 0 or x + width > 960 or y + height > 540:
             raise ValueError("teaching_geometry_out_of_bounds")
         try:
             displayed_text = display_element_text(element)
-            lines = [] if element.kind == "image" else validate_text_frame(displayed_text, width, height, execution.font_floor_pt, execution.font_sha256)
+            lines = [] if element.kind == "image" else validate_text_frame(displayed_text, width, height, font_size, execution.font_sha256)
         except ValueError as exc:
             capacity_errors.append(f"{exc}:{element_id}: frame={width:g}x{height:g}pt, font={execution.font_floor_pt:g}pt")
             continue
@@ -313,16 +321,20 @@ def resolve_page_scenes(*, page_id: str, title: str, content: PageTeachingV2, la
         all_objects.append(SceneObject(
             object_id=element_id, element_id=element_id, slot_id=slots[element_id],
             kind="image" if element.kind == "image" else "text", text=displayed_text, lines=lines,
-            x=x, y=y, width=width, height=height, font_size=execution.font_floor_pt,
+            x=x, y=y, width=width, height=height, font_size=font_size,
             asset_id=element.asset_id, asset_digest=element.asset_digest,
             asset_course_id=adopted.course_id if adopted else "",
             asset_representation_id=adopted.representation_id if adopted else "",
             subject_id=element.subject_id, dimension_id=element.dimension_id,
             editability="image_object" if element.kind == "image" else "formula_source_text" if element.kind == "formula" else "text",
-            **styles[element_id],
+            **style,
         ))
     if capacity_errors:
         raise ValueError("; ".join(capacity_errors) + "; revise the draft: concise conditions and fewer dimensions; preserve selected artifacts exactly")
+    if fixed_title_frame:
+        # Qizhi's restrained header hierarchy, shared by preview and PPTX.
+        all_objects.append(SceneObject(object_id="header-rule", slot_id="decoration", kind="shape", text="", lines=[],
+            x=28, y=24, width=4, height=48, font_size=22, fill=accent, stroke=accent, editability="native_shape"))
     if isinstance(expression, ChartExpression):
         all_objects.extend(chart_bars)
         all_objects.append(SceneObject(object_id="chart-zero", slot_id="chart.zero", text="0", lines=["0"],
