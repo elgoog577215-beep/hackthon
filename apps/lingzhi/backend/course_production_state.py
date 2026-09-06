@@ -11,7 +11,7 @@ import hashlib
 import json
 from collections.abc import Iterable
 from copy import deepcopy
-from enum import StrEnum
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -53,26 +53,33 @@ _PROJECTION_READ_FAILURES = {
 }
 
 
-class DisplayState(StrEnum):
+class _StringEnum(str, Enum):
+    """String-valued states, including the Python 3.10 production runtime."""
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class DisplayState(_StringEnum):
     NOT_GENERATED = "not_generated"
     GENERATING = "generating"
     AVAILABLE = "available"
     FAILED = "failed"
 
 
-class ProductionStage(StrEnum):
+class ProductionStage(_StringEnum):
     OUTLINE = "outline"
     LESSON_PLAN = "lesson_plan"
     SCRIPT = "script"
     PPT = "ppt"
 
 
-class PreparationState(StrEnum):
+class PreparationState(_StringEnum):
     PREPARING = "preparing"
     PREPARED = "prepared"
 
 
-class TaskState(StrEnum):
+class TaskState(_StringEnum):
     IDLE = "idle"
     QUEUED = "queued"
     RUNNING = "running"
@@ -85,7 +92,7 @@ class TaskState(StrEnum):
     UNKNOWN = "unknown"
 
 
-class ProductionAction(StrEnum):
+class ProductionAction(_StringEnum):
     GENERATE = "generate"
     PAUSE_GENERATION = "pause_generation"
     CANCEL_GENERATION = "cancel_generation"
@@ -97,25 +104,25 @@ class ProductionAction(StrEnum):
     REGENERATE_FROM_LATEST_SOURCE = "regenerate_from_latest_source"
 
 
-class Availability(StrEnum):
+class Availability(_StringEnum):
     MISSING = "missing"
     USABLE = "usable"
     STALE = "stale"
 
 
-class SourceState(StrEnum):
+class SourceState(_StringEnum):
     MISSING = "missing"
     CURRENT = "current"
     STALE = "stale"
     MIXED = "mixed"
 
 
-class SourceRequirement(StrEnum):
+class SourceRequirement(_StringEnum):
     REQUIRED = "required"
     OPTIONAL = "optional"
 
 
-class SourceReviewState(StrEnum):
+class SourceReviewState(_StringEnum):
     VERIFIED = "verified"
     PENDING_REVIEW = "pending_review"
     BLOCKED = "blocked"

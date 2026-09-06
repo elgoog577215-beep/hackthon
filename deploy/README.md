@@ -46,6 +46,12 @@ python3 deploy/zju/build.py --commit HEAD --output /tmp/zju-source.tgz
 ./scripts/qizhi.sh check
 ```
 
+镜像构建后、接入生产数据前，运行完整应用启动检查；依赖未变化、复用原运行底座时也必须执行。检查容器不挂载生产数据、不开放端口、不连接网络，退出时移除自身，不能只用模型请求或 PPT 导出来代替应用启动验收：
+
+```bash
+./deploy/zju/smoke-lingzhi-image.sh edu-ai-home-lingzhi:<release-tag>
+```
+
 联合 Compose 位于 `deploy/zju/docker-compose.yml`。启智从 `apps/qizhi` 构建，灵知从 `apps/lingzhi` 构建，启用 `VITE_QIZHI_AUTH_REQUIRED=true`。项目名 `edu-ai-home` 和三个原有数据卷名均保留。
 
 当前工作流只构建产物，不连接学校、不读取学校部署凭据、不激活服务器。当前没有学校网络内的无人值守 runner；手动 H2/aTrust 登录也不等于 GitHub 已经能自动发布。

@@ -1,7 +1,9 @@
+import json
 from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
+from pydantic import TypeAdapter
 
 from course_production_state import (
     Availability,
@@ -1645,3 +1647,18 @@ async def test_teaching_calendar_get_adds_same_projection_without_changing_saved
     assert result["sessions"] == saved_calendar["sessions"]
     assert result["course_production_state"]["stages"]["script"]["counts"]["available"] == 1
     assert saved_calendar["revision"] == 3
+
+
+@pytest.mark.parametrize("enum_type", [
+    DisplayState, ProductionStage, PreparationState, TaskState,
+    ProductionAction, Availability, SourceState, SourceRequirement,
+    SourceReviewState,
+])
+def test_state_enum_string_and_json_contract(enum_type):
+    adapter = TypeAdapter(enum_type)
+    for member in enum_type:
+        assert str(member) == member.value
+        assert f"{member}" == member.value
+        assert json.loads(json.dumps(member)) == member.value
+        assert adapter.dump_json(member) == json.dumps(member.value).encode()
+        assert adapter.validate_json(json.dumps(member.value)) is member
