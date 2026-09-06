@@ -476,7 +476,6 @@ function stepState(index: number) {
 
 <style scoped>
 .slide-build-progress__breakdown>summary{cursor:pointer;font-size:15px;color:#475467;padding:8px 0}
-.is-compact .slide-build-progress__current strong,.is-compact .slide-build-progress__detail{font-size:15px;line-height:1.65}
 .is-compact .slide-build-progress__current small{display:none}
 
 .slide-build-progress {
@@ -556,6 +555,9 @@ function stepState(index: number) {
 .slide-build-progress[data-variant="initial"] .slide-build-progress__detail { font-size:11px; }
 .slide-build-progress[data-variant="initial"] .slide-build-progress__steps { grid-template-columns:repeat(5,minmax(0,1fr)); gap:14px 10px; margin-top:15px; }
 .slide-build-progress[data-variant="initial"] .slide-build-progress__steps strong { font-size:10px; }
+.slide-build-progress.is-compact .slide-build-progress__current strong,
+.slide-build-progress.is-compact .slide-build-progress__detail { font-size:15px;line-height:1.65;white-space:normal;overflow:visible;text-overflow:clip; }
+.slide-build-progress.is-compact .slide-build-progress__header > b { font-size:15px; }
 .spinning { animation:build-progress-spin .8s linear infinite; }
 @keyframes build-progress-spin { to { transform:rotate(360deg); } }
 @media (max-width:1180px) and (min-width:841px) {
