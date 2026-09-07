@@ -5842,6 +5842,32 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
     assert generated_revision["quality_report"]["passed"] is True
 
 
+@pytest.mark.asyncio
+async def test_batch_lesson_generation_starts_at_most_four_children(
+    monkeypatch,
+):
+    monkeypatch.setenv("TEACHER_ASSET_BATCH_CONCURRENCY", "4")
+    loop = asyncio.get_running_loop()
+    teacher_lesson_router._batch_generation_slots.pop(loop, None)
+    active = 0
+    peak = 0
+
+    async def run() -> None:
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+
+    batch_job = {"parent_job_id": "batch-1", "batch_size": 16}
+    await asyncio.gather(*[
+        teacher_lesson_router._run_with_batch_generation_slot(batch_job, run)
+        for _ in range(16)
+    ])
+
+    assert peak == 4
+
+
 def test_generate_all_lesson_plans_queues_lecture_v1_lessons(
     tmp_path,
     monkeypatch,
