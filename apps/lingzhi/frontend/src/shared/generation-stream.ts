@@ -77,6 +77,7 @@ export async function postGenerationStream<T>(
     headers?: HeadersInit
     signal?: AbortSignal
     onProgress?: (progress: GenerationProgress) => void
+    onDelta?: (delta: string, payload: Record<string, unknown>) => void
   } = {},
 ): Promise<T> {
   const headers = new Headers(options.headers || {})
@@ -109,6 +110,9 @@ export async function postGenerationStream<T>(
     const payload = (data || {}) as Record<string, unknown>
     if (event === 'started' || event === 'heartbeat') {
       options.onProgress?.(payload as GenerationProgress)
+    } else if (event === 'delta' || event === 'chunk') {
+      const delta = String(payload.delta || payload.text || payload.content || '')
+      if (delta) options.onDelta?.(delta, payload)
     } else if (event === 'complete') {
       options.onProgress?.(payload as GenerationProgress)
       result = payload.result as T
