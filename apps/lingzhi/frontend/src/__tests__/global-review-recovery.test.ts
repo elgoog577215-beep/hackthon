@@ -161,7 +161,7 @@ it('find and replace submits exact text including empty replacement and excludes
  const pinia=createPinia(),store=useCourseEvolutionStore(pinia)
  const create=vi.spyOn(store,'createCoursePlan').mockResolvedValue({course_evolution_plans:[]})
  const w=mountWorkspace(pinia);wrappers.push(w);await flushPromises()
- await w.get('.request-modes button:nth-child(2)').trigger('click')
+ await w.get('.request-modes button[title="查找替换"]').trigger('click')
  await w.get('.literal-replacement input[type=text]').setValue('  原词  ')
  await w.get('.request-composer form').trigger('submit');await flushPromises()
  expect(create).toHaveBeenCalledWith(expect.objectContaining({literalReplacement:{before:'  原词  ',after:''}}))
