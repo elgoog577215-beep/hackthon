@@ -33,7 +33,7 @@ FORM: User-pinned three-step workspace. Existing manuscript editor and renderer 
         </section>
       </div>
       <section v-if="catalog?.projects?.length" class="existing-projects"><h2>{{ t('pptProject.recent') }}</h2><button v-for="item in catalog.projects" :key="item.project_id" type="button" :disabled="busy" @click="openProject(item.project_id)"><Presentation :size="15" /><span>{{ item.title }}</span><ChevronRight :size="16" /></button></section>
-      <footer class="selection-footer"><span>{{ selectionSummary }}</span><button v-if="!embedded" type="button" class="primary" :disabled="busy || (!lessonIds.length && !assetIds.length)" @click="prepare">{{ busy ? t('pptProject.working') : (project && !selectionMatches ? t('pptProject.newFromSelection') : t('pptProject.next')) }}<ArrowRight :size="16" /></button></footer>
+      <footer class="selection-footer"><span>{{ selectionSummary }}</span><button v-if="!embedded" type="button" class="primary" :disabled="busy || !selectionReady" @click="prepare">{{ busy ? t('pptProject.working') : (project && !selectionMatches ? t('pptProject.newFromSelection') : t('pptProject.next')) }}<ArrowRight :size="16" /></button></footer>
     </section>
     <template v-else>
       <div v-if="running" class="project-progress" role="status"><LoaderCircle :size="18" class="spinning" /><span>{{ project?.status === 'rendering' ? t('pptProject.rendering') : t('pptProject.preparing') }}</span><progress :value="project?.job?.progress || 0" max="100" /><button type="button" @click="pause">{{ t('pptProject.pause') }}</button></div>
@@ -65,7 +65,7 @@ import PptManuscriptWorkflow from './PptManuscriptWorkflow.vue'
 import SlideCanvas from './SlideCanvas.vue'
 import UiSegmentedControl from './UiSegmentedControl.vue'
 import { adaptSlideDeckV6ForWeb } from '../utils/slide-deck-v6-adapter'
-const props = defineProps<{courseId:string; initialLessonId?:string; embedded?:boolean}>()
+const props = defineProps<{courseId:string; initialLessonId?:string; sourceRevision?:string; embedded?:boolean}>()
 const emit = defineEmits<{(event:'legacy'):void}>()
 const router = useRouter(), fileInput = ref<HTMLInputElement>(), editor = ref<InstanceType<typeof PptManuscriptWorkflow>>()
 const catalog = ref<any>(), project = ref<any>(), lessonIds = ref<string[]>([]), assetIds = ref<string[]>([])
@@ -73,11 +73,14 @@ const step = ref(1), page = ref(0), error = ref(''), busy = ref(false), saving =
 let timer: ReturnType<typeof setTimeout> | undefined
 let disposed = false
 let controller = new AbortController()
-let contextVersion = 0, pollVersion = 0
+let contextVersion = 0, pollVersion = 0, catalogVersion = 0
 const base = () => `/api/teacher/courses/${encodeURIComponent(props.courseId)}/ppt-projects`
 const url = (action='') => `${base()}/${project.value.project_id}${action ? '/' + action : ''}`
 const config = () => identityRequestConfig('teacher', {signal:controller.signal})
 const selectionMatches = computed(() => project.value && JSON.stringify(lessonIds.value) === JSON.stringify(project.value.lesson_ids || []) && JSON.stringify(assetIds.value) === JSON.stringify(project.value.asset_ids || []))
+const selectionReady = computed(() => !!catalog.value && (lessonIds.value.length > 0 || assetIds.value.length > 0)
+ && lessonIds.value.every(id => catalog.value.lectures?.some((item:any) => item.lesson_id === id && item.ready))
+ && assetIds.value.every(id => catalog.value.uploads?.some((item:any) => item.asset_id === id)))
 const stepLabels = computed(() => [t('pptProject.select'),t('pptProject.review'),t('pptProject.finish')])
 const stepOptions = computed(() => stepLabels.value.map((label, index) => ({ label, value: String(index + 1), disabled: !canStep(index + 1) })))
 const running = computed(() => ['building','rendering'].includes(project.value?.status))
@@ -97,7 +100,7 @@ const context = computed(() => {
  const actions: {id:string;label:string;primary?:boolean;disabled?:boolean;reason?:string}[] = []
  if (running.value) actions.push({id:'pause',label:t('pptProject.pause'),disabled:busy.value})
  else if (project.value?.status === 'paused') actions.push({id:'resume',label:t('pptProject.retry'),primary:true,disabled:blocked || stale})
- if (step.value === 1) actions.push({id:'prepare',label:project.value && !selectionMatches.value ? t('pptProject.newFromSelection') : t('pptWorkspace.generateManuscript'),primary:true,disabled:blocked || (!lessonIds.value.length && !assetIds.value.length)})
+ if (step.value === 1) actions.push({id:'prepare',label:project.value && !selectionMatches.value ? t('pptProject.newFromSelection') : t('pptWorkspace.generateManuscript'),primary:true,disabled:blocked || !selectionReady.value})
  else {
   actions.push({id:'sources',label:t('pptProject.select'),disabled:blocked})
   if (project.value?.manuscript) actions.push({id:'review',label:t('pptProject.review'),disabled:blocked})
@@ -121,13 +124,14 @@ async function runContextAction(id:string) {
  if (id === 'resume') return resume()
 }
 function failure(e:any) { if (e?.code === 'ERR_CANCELED') return; const detail=e?.response?.data?.detail; error.value = (typeof detail === 'object' ? detail?.message : typeof detail === 'string' ? detail : '') || (e?.response?.status === 409 ? t('pptProject.conflict') : t('pptProject.failed')) }
-async function loadCatalog() { const version=contextVersion; try {const {data}=await http.get(base(),config());if(version===contextVersion)catalog.value=data} catch(e){if(version===contextVersion)failure(e)} }
+async function loadCatalog() { const version=contextVersion, request=++catalogVersion; try {const {data}=await http.get(base(),config());if(version===contextVersion && request===catalogVersion){catalog.value=data;if(step.value===1)lessonIds.value=lessonIds.value.filter(id=>data.lectures?.some((item:any)=>item.lesson_id===id && item.ready))}} catch(e){if(version===contextVersion && request===catalogVersion)failure(e)} }
 function canStep(target:number) {return !dirty.value && !busy.value && (target === 1 || (target === 2 && project.value) || (target === 3 && (canRender.value || project.value?.last_good_render)))}
 function selectStep(target:number) {if(canStep(target)) step.value=target}
 async function poll() {if(timer)clearTimeout(timer);if(disposed || !project.value) return; const version=contextVersion, request=++pollVersion, id=project.value.project_id; try {const {data}=await http.get(url(),config());if(version!==contextVersion || request!==pollVersion || project.value?.project_id!==id)return;project.value=data} catch(e){if(version===contextVersion)failure(e)}; if(running.value && !disposed && version===contextVersion && request===pollVersion) timer=setTimeout(poll,1800)}
 async function openProject(id:string) {if(busy.value || dirty.value)return;busy.value=true;project.value={project_id:id};page.value=0;try{await poll();lessonIds.value=[...(project.value?.lesson_ids || [])];assetIds.value=[...(project.value?.asset_ids || [])];step.value=project.value?.status==='ready'?3:2}finally{busy.value=false}}
 async function upload(event:Event) {const files=Array.from((event.target as HTMLInputElement).files || []);busy.value=true;error.value='';try{for(const file of files){const form=new FormData();form.append('file',file);const {data}=await http.post(`${base()}/uploads`,form,config());assetIds.value.push(data.asset_id)}await loadCatalog()}catch(e){failure(e)}finally{busy.value=false;(event.target as HTMLInputElement).value=''}}
 async function prepare(){
+ if(busy.value || !selectionReady.value)return
  const reuse=selectionMatches.value && project.value?.source_state !== 'stale'
  if(reuse && (project.value?.manuscript || running.value)){step.value=2;return}
  busy.value=true;error.value=''
@@ -149,6 +153,7 @@ async function download(){busy.value=true;try{const {data}=await http.get(url('e
 function prepareToLeave(){if(dirty.value){error.value=t('pptProject.unsaved');return false}return true}
 function back(){if(prepareToLeave())router.push({name:'course-workspace',params:{courseId:props.courseId,mode:'build'}})}
 watch(()=>props.courseId,()=>{contextVersion++;pollVersion++;controller.abort();controller=new AbortController();if(timer)clearTimeout(timer);project.value=null;catalog.value=null;step.value=1;page.value=0;error.value='';dirty.value=false;busy.value=false;lessonIds.value=props.initialLessonId?[props.initialLessonId]:[];assetIds.value=[];void loadCatalog()},{immediate:true})
+watch(()=>props.sourceRevision,()=>{void loadCatalog();if(project.value && !dirty.value && !busy.value)void poll()})
 function protectUnsaved(event:BeforeUnloadEvent){if(!dirty.value)return;event.preventDefault();event.returnValue=''}
 onMounted(()=>window.addEventListener('beforeunload',protectUnsaved))
 onBeforeUnmount(()=>{window.removeEventListener('beforeunload',protectUnsaved);disposed=true;controller.abort();if(timer)clearTimeout(timer)})

@@ -44,6 +44,16 @@ def test_multi_lecture_selection_keeps_real_ids_and_never_generates_during_selec
     assert not svc.source_current(project)
 
 
+def test_missing_handout_is_not_reported_as_a_revision_conflict(fixture):
+    svc, storage, doc = fixture
+    storage.update_course_data('c', lambda raw: {**raw, 'course_document': {
+        **raw['course_document'], 'blocks': []}})
+    with pytest.raises(TeacherLessonAuthoringError) as error:
+        svc.create('c', ['l1'], [], title='', expected_revision=doc.document_revision)
+    assert error.value.code == 'ppt_project_handout_unavailable'
+    assert not storage.load_course('c').get('teacher_ppt_projects')
+
+
 def test_upload_only_source_is_parsed_on_prepare_and_has_stable_evidence(fixture):
     svc,storage,doc=fixture
     asset=asyncio.run(svc.materials.save_upload(UploadFile(BytesIO('上传资料正文。'.encode()),filename='notes.md')))

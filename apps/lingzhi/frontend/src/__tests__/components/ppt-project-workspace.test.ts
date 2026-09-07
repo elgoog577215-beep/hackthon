@@ -24,6 +24,39 @@ it('uses the workbench sidebar actions without an embedded step wizard', async()
  wrapper.unmount()
 })
 beforeEach(async()=>{ vi.clearAllMocks();vi.spyOn(globalThis,'fetch').mockResolvedValue({ok:true,json:async()=>messages} as Response);await setLocale('zh') })
+it('blocks an unavailable default lecture and refreshes when its teacher revision is ready', async()=>{
+ const router=createRouter({history:createMemoryHistory(),routes:[{path:'/',component:{template:'<div />'}}]});await router.push('/')
+ let ready=false
+ vi.mocked(http.get).mockImplementation(async()=>({data:{document_revision:'doc',lectures:[{lesson_id:'l1',title:'第一讲',ready}],uploads:[],projects:[]}}))
+ const wrapper=mount(PptProjectWorkspace,{props:{courseId:'c',initialLessonId:'l1',sourceRevision:'pending',embedded:true},global:{plugins:[router],stubs:{PptManuscriptWorkflow:true,SlideCanvas:true}}})
+ await flushPromises()
+ const vm=wrapper.vm as any
+ expect((wrapper.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(false)
+ expect(vm.context.actions.find((action:any)=>action.id==='prepare').disabled).toBe(true)
+ await vm.runContextAction('prepare')
+ expect(http.post).not.toHaveBeenCalled()
+ ready=true
+ await wrapper.setProps({sourceRevision:'ready-r1'});await flushPromises()
+ expect(wrapper.get('input[type="checkbox"]').attributes('disabled')).toBeUndefined()
+ await wrapper.get('input[type="checkbox"]').setValue(true)
+ expect(vm.context.actions.find((action:any)=>action.id==='prepare').disabled).toBe(false)
+ expect(http.get).toHaveBeenCalledTimes(2)
+ wrapper.unmount()
+})
+
+it('does not overwrite a new source catalog with a late older response', async()=>{
+ const router=createRouter({history:createMemoryHistory(),routes:[{path:'/',component:{template:'<div />'}}]});await router.push('/')
+ let resolveOld:(value:any)=>void=()=>{}
+ vi.mocked(http.get).mockImplementationOnce(()=>new Promise(resolve=>{resolveOld=resolve}))
+  .mockResolvedValue({data:{document_revision:'new',lectures:[{lesson_id:'l1',title:'第一讲',ready:true}],uploads:[],projects:[]}})
+ const wrapper=mount(PptProjectWorkspace,{props:{courseId:'c',initialLessonId:'l1',sourceRevision:'pending'},global:{plugins:[router],stubs:{PptManuscriptWorkflow:true,SlideCanvas:true}}})
+ await wrapper.setProps({sourceRevision:'ready'});await flushPromises()
+ resolveOld({data:{document_revision:'old',lectures:[{lesson_id:'l1',title:'第一讲',ready:false}],uploads:[],projects:[]}});await flushPromises()
+ expect(wrapper.get('input[type="checkbox"]').attributes('disabled')).toBeUndefined()
+ expect((wrapper.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(true)
+ wrapper.unmount()
+})
+
 it('selects multiple lectures and starts only after Next', async()=>{
  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/',component:{template:'<div />'}}]});await router.push('/')
  vi.mocked(http.get).mockImplementation(async(url:any)=>({data:String(url).endsWith('/ppt-projects')?{document_revision:'doc',lectures:[{lesson_id:'l1',title:'第一讲',ready:true},{lesson_id:'l2',title:'第二讲',ready:true}],uploads:[],projects:[]}:{project_id:'p',revision:'r2',status:'paused'}}))

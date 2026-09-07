@@ -91,7 +91,7 @@ class PptProjectService:
             section_ids = {s.section_id for s in doc.sections if s.parent_section_id == lid or s.section_id == lid}
             current = [b for b in doc.blocks if b.section_id in section_ids and b.status == "final"]
             if not current:
-                raise conflict("所选讲次尚无正式讲义。")
+                raise TeacherLessonAuthoringError("ppt_project_handout_unavailable", "所选讲次尚无可用讲义，请先完成本讲讲义。")
             blocks.extend(current)
         uploads = raw.get("teacher_ppt_uploads") or {}
         assets = []

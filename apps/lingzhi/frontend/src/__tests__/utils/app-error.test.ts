@@ -26,6 +26,18 @@ function axiosError(overrides: Record<string, unknown> = {}) {
 }
 
 describe('application error presentation', () => {
+  it('does not describe an unavailable PPT handout as a version conflict', () => {
+    const result = toAppError(axiosError({
+      config: { method: 'post', url: '/api/teacher/courses/c/ppt-projects' },
+      response: { status: 409, data: { detail: {
+        code: 'ppt_project_handout_unavailable',
+        message: '所选讲次尚无可用讲义，请先完成本讲讲义。',
+      } } },
+    }))
+    expect(result.title).not.toContain('版本冲突')
+    expect(result.summary).toBe('所选讲次尚无可用讲义，请先完成本讲讲义。')
+  })
+
   it('提供预设中文名、归纳原因和可追踪技术详情', () => {
     const result = toAppError(axiosError(), { title: '教案保存失败' })
 

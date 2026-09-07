@@ -800,7 +800,7 @@
         </template>
 
         <template v-else-if="activeStage === 'ppt'">
-          <PptProjectWorkspace v-if="!legacyPptOpen" ref="pptProjectWorkspace" :key="courseId" :course-id="courseId" :initial-lesson-id="selectedLessonId" embedded @legacy="legacyPptOpen = true" />
+          <PptProjectWorkspace v-if="!legacyPptOpen" ref="pptProjectWorkspace" :key="courseId" :course-id="courseId" :initial-lesson-id="selectedLessonId" :source-revision="pptSourceRevision" embedded @legacy="legacyPptOpen = true" />
           <button v-else type="button" class="secondary" @click="legacyPptOpen = false">{{ t('pptProject.backToNew') }}</button>
           <UploadedPptReviewWorkspace
             ref="uploadedPptWorkspace"
@@ -1197,6 +1197,7 @@ import { createUuid } from '../utils/client-id'
 
 const legacyPptOpen = ref(false)
 const pptProjectWorkspace = ref<InstanceType<typeof PptProjectWorkspace> | null>(null)
+const pptSourceRevision = computed(() => lessonStore.lessons.map(lesson => `${lesson.lesson_unit_id}:${lesson.script.current_revision_id}:${lesson.script.ready}`).join('|'))
 type CoreStageId = 'foundation' | 'lesson' | 'script' | 'ppt'
 type StageId = CoreStageId | 'question-bank' | 'companion'
 type CompanionTemplateId = typeof GRADING_RUBRIC_TEMPLATE_ID | typeof MATERIAL_CHECKLIST_TEMPLATE_ID
