@@ -52,7 +52,7 @@
       }"
     >
       <button
-        v-if="!contextPaneVisible && activeStage !== 'question-bank' && (activeStage !== 'ppt' || legacyPptOpen)"
+        v-if="!contextPaneVisible && !['question-bank', 'ppt'].includes(activeStage)"
         class="context-pane-reopen"
         type="button"
         :title="t('courseWorkbench.contextPane.expand', '展开当前内容信息')"
@@ -801,7 +801,12 @@
 
         <template v-else-if="activeStage === 'ppt'">
           <LessonPptWorkspace v-if="!legacyPptOpen && selectedLesson" ref="pptProjectWorkspace" :key="courseId" :course-id="courseId" :initial-lesson-id="selectedLessonId" :title="selectedLesson.title" :source-revision="pptSourceRevision" embedded @legacy="legacyPptOpen = true" />
-          <button v-else type="button" class="secondary" @click="legacyPptOpen = false">{{ t('pptProject.backToNew') }}</button>
+          <TeacherDocumentCommandBar v-else-if="legacyPptOpen" class="ppt-review-toolbar" :label="t('pptWorkspace.editor.actions')" :show-status="contextPhase === 'during' || contextPhase === 'failed'" :status-label="contextStatusLabel" :status-tone="contextPhase === 'failed' ? 'warning' : 'busy'">
+            <template #context><button type="button" @click="legacyPptOpen = false">{{ t('pptProject.backToNew') }}</button></template>
+            <button v-for="action in pptContextActions" :key="action.id" type="button" :class="{ 'primary-status-action': action.primary }" :disabled="action.disabled" :title="action.reason || undefined" :data-testid="`ppt-context-${action.id}`" @click="runPptContextAction(action.id)">{{ action.label }}</button>
+            <button v-if="!pptContext && regenerationAvailable" class="primary-status-action" type="button" :disabled="referenceGenerationBlocked" @click="openRegenerationPreparation"><RotateCcw :size="15" />{{ t('courseWorkbench.contextPane.regenerate') }}</button>
+            <button type="button" :disabled="uploadedPptWorkspace?.busy || pptSourceChangeBlocked" data-testid="ppt-upload" @click="uploadPptAfterSave(() => uploadedPptWorkspace?.chooseFile())"><Upload :size="15" />{{ t('pptWorkspace.flow.upload') }}</button>
+          </TeacherDocumentCommandBar>
           <UploadedPptReviewWorkspace
             ref="uploadedPptWorkspace"
             v-if="legacyPptOpen && selectedLesson"
@@ -4254,12 +4259,12 @@ async function pauseScriptGeneration() {
 const uploadedPptWorkspace = ref<InstanceType<typeof UploadedPptReviewWorkspace> | null>(null)
 const pptWorkspace = ref<InstanceType<typeof PptWorkspace> | null>(null)
 const pptContext = computed(() => activeStage.value === 'ppt' ? (legacyPptOpen.value ? pptWorkspace.value?.context : pptProjectWorkspace.value?.context) : null)
-// Reuse the workbench's projected permissions and exact task controls for sidebar actions.
+// Reuse projected permissions and exact task controls in the PPT toolbar.
 const pptContextActions = computed(() => {
   if (activeStage.value === 'ppt' && !legacyPptOpen.value) return pptContext.value?.actions || []
   const taskActions: { id: string; label: string; primary?: boolean; disabled?: boolean; reason?: string }[] = []
   if (referenceWorkflowCanPause.value) taskActions.push({ id: 'pause', label: t('courseWorkbench.pause') })
-  if (referenceWorkflowCanResume.value) taskActions.push({ id: 'resume', label: t('pptWorkspace.flow.resume'), primary: true })
+  if (referenceWorkflowCanResume.value) taskActions.push({ id: 'resume', label: t('courseWorkbench.continue', '继续'), primary: true })
   if (referenceWorkflowCanCancel.value) taskActions.push({ id: 'cancel', label: t('common.cancel') })
   if (referenceWorkflowUsesDedicatedWaitingAction.value || referenceWorkflowState.value === 'generating' || (referenceWorkflowState.value === 'paused' && activeProjectedProduction.value?.task_state !== 'completed')) return taskActions
   // Final rendering uses the manuscript API's can_generate_ppt gate, independently of content generation.
@@ -4282,7 +4287,7 @@ async function runPptContextAction(id: string) {
   }
   return pptWorkspace.value?.runContextAction(id as Parameters<NonNullable<typeof pptWorkspace.value>['runContextAction']>[0])
 }
-const contextPaneVisible = computed(() => (activeStage.value !== 'ppt' || legacyPptOpen.value) && !contextPaneCollapsed.value)
+const contextPaneVisible = computed(() => activeStage.value !== 'ppt' && !contextPaneCollapsed.value)
 async function uploadPptAfterSave(upload: () => void) {
   if (pptSourceChangeBlocked.value) return
   const lessonId = selectedLessonId.value

@@ -1651,12 +1651,12 @@ describe('teacher course workbench outline streaming', () => {
 
     const pptWrapper = mountWorkbench({ initialStage: 'ppt' })
     await flushPromises()
-    expect(pptWrapper.find('.context-pane').exists()).toBe(true)
+    expect(pptWrapper.find('.context-pane').exists()).toBe(false)
+    expect(pptWrapper.find('.context-pane-reopen').exists()).toBe(false)
     await flushPromises()
     expect(pptWrapper.get('.lesson-navigator').text()).toContain('第一讲')
     expect(pptWrapper.find('.lesson-toolbar-status').exists()).toBe(false)
-    expect(pptWrapper.get('.context-pane-heading').text()).toContain('准备资料')
-    expect(pptWrapper.get('.context-pane-heading').text()).toContain('待生成')
+    expect(pptWrapper.find('.ppt-review-toolbar').exists()).toBe(true)
     expect(pptWrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('待生成')
     expect(pptWrapper.get('[data-testid="ppt-upload"]').attributes('disabled')).toBeUndefined()
     expect(pptWrapper.getComponent({ name: 'PptWorkspace' }).props('canGenerate')).toBe(false)
@@ -2383,7 +2383,8 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'ppt' })
     await flushPromises()
-    expect(wrapper.find('.context-pane').exists()).toBe(true)
+    expect(wrapper.find('.context-pane').exists()).toBe(false)
+    expect(wrapper.find('.context-pane-reopen').exists()).toBe(false)
     await flushPromises()
     expect(wrapper.getComponent({ name: 'PptWorkspace' }).props('canGenerate')).toBe(true)
   })
@@ -2507,14 +2508,15 @@ describe('teacher course workbench outline streaming', () => {
     const routePush = vi.spyOn(router, 'push').mockResolvedValue(undefined as any)
     const pptWrapper = mountWorkbench({ initialStage: 'ppt' })
     await flushPromises()
-    expect(pptWrapper.find('.context-pane').exists()).toBe(true)
-    pptWrapper.findComponent({ name: 'CourseReferenceTray' }).vm.$emit('source-state-change', {
+    expect(pptWrapper.find('.context-pane').exists()).toBe(false)
+    expect(pptWrapper.find('.context-pane-reopen').exists()).toBe(false)
+    ;(pptWrapper.vm as any).handleReferenceSourceState({
       busy: true, blocked: true, reason: '正在更新资料…',
     })
     await flushPromises()
 
     expect(pptWrapper.getComponent({ name: 'PptWorkspace' }).props('canGenerate')).toBe(false)
-    pptWrapper.findComponent({ name: 'CourseReferenceTray' }).vm.$emit('regenerate-workflow')
+    pptWrapper.getComponent({ name: 'UploadedPptReviewWorkspace' }).vm.$emit('generate')
     await flushPromises()
     expect(routePush).not.toHaveBeenCalled()
   })
@@ -2535,16 +2537,15 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'ppt' })
     await flushPromises()
-    expect(wrapper.find('.context-pane').exists()).toBe(true)
-    let tray = wrapper.findComponent({ name: 'CourseReferenceTray' })
-    expect(tray.props('workflowState')).not.toBe('generating')
+    expect(wrapper.find('.context-pane').exists()).toBe(false)
+    expect(wrapper.find('.context-pane-reopen').exists()).toBe(false)
+    expect((wrapper.vm as any).referenceWorkflowState).not.toBe('generating')
     expect(wrapper.get('[data-testid="ppt-upload"]').attributes('disabled')).toBeUndefined()
 
     pptStore.teacherLessonId = 'L1-1'
     await flushPromises()
-    tray = wrapper.findComponent({ name: 'CourseReferenceTray' })
-    expect(tray.props('workflowState')).toBe('generating')
-    expect(tray.props('workflowProgress')).toBe(47)
+    expect((wrapper.vm as any).referenceWorkflowState).toBe('generating')
+    expect((wrapper.vm as any).referenceWorkflowProgress).toBe(47)
     expect(wrapper.get('[data-testid="ppt-upload"]').attributes('disabled')).toBeDefined()
     expect(wrapper.getComponent({ name: 'UploadedPptReviewWorkspace' }).props('uploadBlocked')).toBe(true)
     const inputClick = vi.spyOn(wrapper.get('input[type="file"]').element as HTMLInputElement, 'click')
@@ -2554,7 +2555,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(inputClick).not.toHaveBeenCalled()
   })
 
-  it('从资料栏重新生成在当前工作台打开设置，不跳转页面', async () => {
+  it('从 PPT 顶部重新生成在当前工作台打开设置，不跳转页面', async () => {
     useTeacherLessonAuthoringStore().outlineRevisionId = 'outline-1'
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
@@ -2572,9 +2573,10 @@ describe('teacher course workbench outline streaming', () => {
     const routePush = vi.spyOn(router, 'push').mockResolvedValue(undefined as any)
     const wrapper = mountWorkbench({ initialStage: 'ppt' })
     await flushPromises()
-    expect(wrapper.find('.context-pane').exists()).toBe(true)
+    expect(wrapper.find('.context-pane').exists()).toBe(false)
+    expect(wrapper.find('.context-pane-reopen').exists()).toBe(false)
 
-    await wrapper.get('.context-pane-heading .primary-status-action').trigger('click')
+    await wrapper.get('.ppt-review-toolbar .primary-status-action').trigger('click')
     await wrapper.get('.regeneration-dialog__actions .primary').trigger('click')
     await flushPromises()
 
@@ -2786,8 +2788,9 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'ppt', initialLessonId: 'L1-1' })
     await flushPromises()
-    expect(wrapper.find('.context-pane').exists()).toBe(true)
-    await wrapper.get('.context-pane-heading__actions .primary-status-action').trigger('click')
+    expect(wrapper.find('.context-pane').exists()).toBe(false)
+    expect(wrapper.find('.context-pane-reopen').exists()).toBe(false)
+    await wrapper.get('.ppt-review-toolbar .primary-status-action').trigger('click')
     await flushPromises()
 
     expect(recover).toHaveBeenCalledWith('course-1', 'ppt-real')
@@ -2821,12 +2824,13 @@ describe('teacher course workbench outline streaming', () => {
     const routePush = vi.spyOn(router, 'push').mockResolvedValue(undefined as any)
     const wrapper = mountWorkbench({ initialStage: 'ppt', initialLessonId: 'L1-1' })
     await flushPromises()
-    expect(wrapper.find('.context-pane').exists()).toBe(true)
+    expect(wrapper.find('.context-pane').exists()).toBe(false)
+    expect(wrapper.find('.context-pane-reopen').exists()).toBe(false)
     await flushPromises()
     expect(wrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('已生成')
-    expect(wrapper.get('.context-pane-heading').text()).toContain('已暂停')
-    expect(wrapper.get('.context-pane-heading').text()).not.toContain('最近一次生成失败')
-    const retry = wrapper.get('.context-pane-heading__actions .primary-status-action')
+    expect(wrapper.get('.ppt-review-toolbar').text()).toContain('已暂停')
+    expect(wrapper.get('.ppt-review-toolbar').text()).not.toContain('最近一次生成失败')
+    const retry = wrapper.get('.ppt-review-toolbar .primary-status-action')
     expect(retry.text()).toContain('继续')
     const primary = wrapper.getComponent({ name: 'PptWorkspace' })
     expect(primary.props('generationAction')).toBeUndefined()
@@ -2869,7 +2873,8 @@ describe('teacher course workbench outline streaming', () => {
     const routePush = vi.spyOn(router, 'push').mockResolvedValue(undefined as any)
     const wrapper = mountWorkbench({ initialStage: 'ppt', initialLessonId: 'L1-1' })
     await flushPromises()
-    expect(wrapper.find('.context-pane').exists()).toBe(true)
+    expect(wrapper.find('.context-pane').exists()).toBe(false)
+    expect(wrapper.find('.context-pane-reopen').exists()).toBe(false)
     await flushPromises()
     const primary = wrapper.getComponent({ name: 'PptWorkspace' })
     expect(primary.props('canGenerate')).toBe(false)
@@ -2910,7 +2915,8 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'ppt', initialLessonId: 'L1-1' })
     await flushPromises()
-    expect(wrapper.find('.context-pane').exists()).toBe(true)
+    expect(wrapper.find('.context-pane').exists()).toBe(false)
+    expect(wrapper.find('.context-pane-reopen').exists()).toBe(false)
     await flushPromises()
     const primary = wrapper.getComponent({ name: 'PptWorkspace' })
     expect(primary.props('canGenerate')).toBe(true)

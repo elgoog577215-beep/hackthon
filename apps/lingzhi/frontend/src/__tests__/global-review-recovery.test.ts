@@ -157,7 +157,7 @@ it.each(['lesson','script'] as const)('lecture deletion from %s must route to wh
  expect(routeTeacherProductionRequest(domain,'删除第10讲，后续讲次补位上来').capability).toBe('plan_course_change')
 })
 
-it('find and replace submits exact text including empty replacement and excludes PPT', async () => {
+it('find and replace submits exact text including empty replacement and includes available PPT manuscripts', async () => {
  const pinia=createPinia(),store=useCourseEvolutionStore(pinia)
  const create=vi.spyOn(store,'createCoursePlan').mockResolvedValue({course_evolution_plans:[]})
  const w=mountWorkspace(pinia);wrappers.push(w);await flushPromises()
@@ -165,7 +165,7 @@ it('find and replace submits exact text including empty replacement and excludes
  await w.get('.literal-replacement input[type=text]').setValue('  原词  ')
  await w.get('.request-composer form').trigger('submit');await flushPromises()
  expect(create).toHaveBeenCalledWith(expect.objectContaining({literalReplacement:{before:'  原词  ',after:''}}))
- expect(create.mock.calls[0]![0].assetTypes).not.toContain('ppt')
+ expect(create.mock.calls[0]![0].assetTypes).toContain('ppt')
 })
 it('history is reachable from the embedded center and includes undone plans', async () => {
  const pinia=createPinia(),store=useCourseEvolutionStore(pinia)
