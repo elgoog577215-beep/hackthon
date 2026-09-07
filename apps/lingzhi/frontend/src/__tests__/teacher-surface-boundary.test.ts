@@ -6,6 +6,12 @@ const sourceRoot = resolve(process.cwd(), 'src')
 const source = (path: string) => readFileSync(resolve(sourceRoot, path), 'utf8')
 
 describe('calendar and course file-space boundary', () => {
+  it('observes scalar job status sources without refetching on every streamed token', () => {
+    const workspace = source('views/CourseWorkspaceView.vue')
+    expect(workspace).toContain("watch(\n  [\n    () => courseId.value,\n    () => generationStore.getTask(courseId.value)?.status || '',\n    () => lessonStore.jobs.map(job => `${job.id}:${job.status}`).join('|'),")
+    expect(workspace).not.toContain("watch(\n  () => [\n    courseId.value,")
+  })
+
   it('keeps both primary home tabs and makes the calendar rail an explicit course filter', () => {
     const workspace = source('views/CourseWorkspaceView.vue')
     const workbench = source('components/TeacherCourseWorkbench.vue')

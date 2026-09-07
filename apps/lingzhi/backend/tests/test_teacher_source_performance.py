@@ -13,6 +13,25 @@ from backend.tests.test_teacher_lesson_authoring import standard_lesson_plan, si
 from backend.tests.test_unified_teacher_content import course, authoring
 
 
+def test_teacher_draft_can_start_with_different_generation_title(tmp_path):
+    import pytest
+    from storage import Storage
+    from course_repository import CourseDocumentConflict
+    storage = Storage(data_dir=str(tmp_path))
+    repository = CourseDocumentRepository(storage)
+    asyncio.run(repository.create_teacher_draft('draft', title='Course shell', metadata={'owner_id': 'teacher'}))
+    asyncio.run(repository.claim_teacher_draft_for_generation('draft', title='Generation topic', job_id='job-1'))
+    saved = storage.load_course('draft')
+    assert saved['course_name'] == 'Generation topic'
+    assert saved['course_document']['title'] == 'Generation topic'
+    assert saved['course_document']['blocks'] == []
+    assert saved['generation_job_id'] == 'job-1'
+    assert saved['owner_id'] == 'teacher'
+    with pytest.raises(CourseDocumentConflict):
+        asyncio.run(repository.claim_teacher_draft_for_generation('draft', title='Other', job_id='job-2'))
+    assert storage.load_course('draft') == saved
+
+
 def test_teacher_body_is_the_only_read_source_for_preview_and_ppt(course):
     storage, _ = course
     repo = TeacherLessonAuthoringRepository(Path(storage._courses_dir).parent / 'teacher_lesson_authoring')

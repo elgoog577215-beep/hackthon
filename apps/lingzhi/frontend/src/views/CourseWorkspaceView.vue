@@ -445,10 +445,10 @@ watch(courseId, (value, previous) => {
   if (value && value !== previous) void loadWorkspace()
 })
 watch(
-  () => [
-    courseId.value,
-    generationStore.getTask(courseId.value)?.status || '',
-    lessonStore.jobs.map(job => `${job.id}:${job.status}`).join('|'),
+  [
+    () => courseId.value,
+    () => generationStore.getTask(courseId.value)?.status || '',
+    () => lessonStore.jobs.map(job => `${job.id}:${job.status}`).join('|'),
   ],
   ([currentCourseId], previous) => {
     if (!currentCourseId || currentCourseId !== previous?.[0]) return

@@ -221,6 +221,7 @@ class CourseDocumentRepository:
         document = CourseDocument.model_validate(raw["course_document"])
         if document.sections or document.blocks:
             raise CourseDocumentConflict("Course draft already has structured content")
+        expected_revision = raw.get("course_document_revision")
 
         if title and title != document.title:
             document.title = title
@@ -236,7 +237,21 @@ class CourseDocumentRepository:
             "course_status": "generating",
             "authoring_surface": "teacher",
         })
-        await self._save_raw(course_id, raw)
+        if hasattr(self.storage, "update_course_data"):
+            def claim(latest: dict[str, Any]) -> dict[str, Any]:
+                if (latest.get("course_status") != "draft"
+                        or latest.get("generation_job_id")
+                        or latest.get("course_document_revision") != expected_revision):
+                    raise CourseDocumentConflict("Course draft changed before generation")
+                latest.update(self._generated_metadata(metadata or {}))
+                latest.update({key: deepcopy(raw[key]) for key in (
+                    "course_name", "course_document", "course_document_revision",
+                    "course_revision_vector", "generation_job_id", "generation_status",
+                    "course_status", "authoring_surface")})
+                return latest
+            self.storage.update_course_data(course_id, claim)
+        else:
+            await self._save_raw(course_id, raw)
         return self.document_envelope(course_id)
 
     async def update_generation_state(
