@@ -153,6 +153,25 @@ async def _run_with_batch_generation_slot(
         await run()
 
 
+def _batch_publish_group(
+    job: dict[str, Any],
+    siblings: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """Return the four-child window that can be published independently."""
+    total = max(1, int(job.get("batch_size") or 1))
+    if not job.get("parent_job_id") or total < 2:
+        return siblings, total
+    limit = _batch_generation_concurrency()
+    position = max(1, int(job.get("batch_position") or 1))
+    first_position = ((position - 1) // limit) * limit + 1
+    last_position = min(total, first_position + limit - 1)
+    group = [
+        item for item in siblings
+        if first_position <= int(item.get("batch_position") or 1) <= last_position
+    ]
+    return group, last_position - first_position + 1
+
+
 def get_teacher_script_visual_service() -> TeacherScriptVisualService:
     return teacher_script_visual_service
 
@@ -193,10 +212,11 @@ async def _run_lesson_plan_job(
             if int(job.get("attempt_number") or 0) != attempt:
                 break
             state = await run_in_threadpool(repository.view, course_id)
-            siblings = [item for item in (state.get("jobs") or {}).values()
-                        if item.get("id") == job_id or (
-                            job.get("parent_job_id") and item.get("parent_job_id") == job["parent_job_id"])]
-            if len(siblings) < int(job.get("batch_size") or 1):
+            all_siblings = [item for item in (state.get("jobs") or {}).values()
+                            if item.get("id") == job_id or (
+                                job.get("parent_job_id") and item.get("parent_job_id") == job["parent_job_id"])]
+            siblings, expected_siblings = _batch_publish_group(job, all_siblings)
+            if len(siblings) < expected_siblings:
                 await asyncio.sleep(0.2)
                 continue
             if any(item.get("status") in {"paused", "cancelled", "failed"} for item in siblings):

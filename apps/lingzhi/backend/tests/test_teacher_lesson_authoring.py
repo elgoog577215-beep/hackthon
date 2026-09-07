@@ -5868,6 +5868,40 @@ async def test_batch_lesson_generation_starts_at_most_four_children(
     assert peak == 4
 
 
+@pytest.mark.parametrize(
+    ("batch_position", "expected_positions"),
+    [
+        (1, [1, 2, 3, 4]),
+        (4, [1, 2, 3, 4]),
+        (5, [5, 6, 7, 8]),
+        (16, [13, 14, 15, 16]),
+    ],
+)
+def test_batch_lesson_generation_publishes_each_group_of_four(
+    monkeypatch,
+    batch_position,
+    expected_positions,
+):
+    monkeypatch.setenv("TEACHER_ASSET_BATCH_CONCURRENCY", "4")
+    siblings = [
+        {
+            "parent_job_id": "batch-1",
+            "batch_position": position,
+            "batch_size": 16,
+        }
+        for position in range(1, 17)
+    ]
+    current = siblings[batch_position - 1]
+
+    group, expected_count = teacher_lesson_router._batch_publish_group(
+        current,
+        siblings,
+    )
+
+    assert [item["batch_position"] for item in group] == expected_positions
+    assert expected_count == len(expected_positions)
+
+
 def test_generate_all_lesson_plans_queues_lecture_v1_lessons(
     tmp_path,
     monkeypatch,
