@@ -4,6 +4,7 @@ from ppt_manuscript_quality import manuscript_quality_passed, quality_report
 
 import asyncio
 import json
+import os
 import re
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -124,6 +125,32 @@ from slide_deck_v6 import (
 
 router = APIRouter(prefix="/teacher", tags=["teacher-lesson-authoring"])
 _background_jobs: set[asyncio.Task] = set()
+_batch_generation_slots: dict[asyncio.AbstractEventLoop, asyncio.Semaphore] = {}
+
+
+def _batch_generation_concurrency() -> int:
+    try:
+        return max(1, int(os.getenv("TEACHER_ASSET_BATCH_CONCURRENCY", "4")))
+    except ValueError:
+        return 4
+
+
+async def _run_with_batch_generation_slot(
+    job: dict[str, Any],
+    run: Callable[[], Awaitable[None]],
+) -> None:
+    """Start batch children in small groups before they reach the model queue."""
+    if not job.get("parent_job_id") or int(job.get("batch_size") or 0) < 2:
+        await run()
+        return
+    loop = asyncio.get_running_loop()
+    slots = _batch_generation_slots.get(loop)
+    limit = _batch_generation_concurrency()
+    if slots is None:
+        slots = asyncio.Semaphore(limit)
+        _batch_generation_slots[loop] = slots
+    async with slots:
+        await run()
 
 
 def get_teacher_script_visual_service() -> TeacherScriptVisualService:
@@ -154,7 +181,7 @@ async def _run_lesson_plan_job(
         attempt = int(job.get("attempt_number") or 0)
         if job.get("phase") not in {"result_ready", "retry_wait"}:
             try:
-                await run()
+                await _run_with_batch_generation_slot(job, run)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
