@@ -40,27 +40,24 @@
           <p v-if="coverage && workspaceState !== 'request' && workspaceState !== 'scanning'" class="coverage-status">{{ t('courseEvolution.workspace.scanCoverage').replace('{done}', String(coverage.scanned_units ?? coverage.ranked_candidates ?? 0)).replace('{total}', String(coverage.indexed_units || 0)) }}</p>
           <div class="workspace-stage">
             <main v-if="workspaceState === 'request'" class="request-state">
-              <section class="readiness-strip" aria-live="polite">
-                <header>
+              <details class="readiness-strip">
+                <summary>
                   <span :data-ready="Boolean(context?.ready)"><LoaderCircle v-if="store.contextLoading" :size="16" class="spinning" /><CircleCheckBig v-else-if="context?.ready" :size="16" /><TriangleAlert v-else :size="16" /></span>
                   <div><small>{{ t('courseEvolution.workspace.courseReadiness', '课程准备情况') }}</small><strong>{{ contextStatusTitle }}</strong></div>
-                  <b>{{ readyAssetCount }}/{{ contextAssets.length }}</b>
-                </header>
+                  <ChevronDown :size="16" />
+                </summary>
                 <ul><li v-for="asset in contextAssets" :key="asset.asset_type" :data-state="asset.state"><i /><span>{{ assetLabel(asset.asset_type) }}</span><small>{{ assetStateLabel(asset.state) }}</small></li></ul>
-              </section>
+              </details>
               <section class="request-composer">
                 <div class="request-heading"><h3>{{ t('courseEvolution.workspace.requestTitle', '这次想让课程怎么变？') }}</h3></div>
                 <form @submit.prevent="submitRequest">
-                  <div class="request-modes" role="group" :aria-label="t('courseEvolution.workspace.changeMode')">
-                    <button v-for="mode in (['describe', 'replace', 'structure'] as const)" :key="mode" type="button" class="button-secondary" :aria-pressed="requestMode === mode" @click="requestMode = mode">{{ t(`courseEvolution.workspace.mode_${mode}`) }}</button>
-                  </div>
+                  <UiSegmentedControl class="request-modes" style="--ui-segment-font-size:15px" :model-value="requestMode" :options="requestModeOptions" :accessibility-label="t('courseEvolution.workspace.changeMode')" @update:model-value="requestMode = $event as typeof requestMode" />
                   <div v-if="requestMode === 'replace'" class="literal-replacement">
                     <label>{{ t('courseEvolution.workspace.findText') }}<input v-model="findText" type="text" maxlength="2000" /></label>
                     <label>{{ t('courseEvolution.workspace.replaceWith') }}<input v-model="replacementText" type="text" maxlength="2000" /></label>
                     <fieldset><legend>{{ t('courseEvolution.workspace.replaceScope') }}</legend><label v-for="asset in contextAssets.filter(a => ['outline', 'lesson_plan', 'script', 'course_content'].includes(a.asset_type))" :key="asset.asset_type"><input v-model="requestAssetTypes" type="checkbox" :value="asset.asset_type" />{{ assetLabel(asset.asset_type) }}</label></fieldset>
                   </div>
-                  <textarea v-else-if="requestMode === 'describe'" ref="requestInputRef" v-model="requestText" rows="4" :placeholder="t('courseEvolution.workspace.requestPlaceholder', '例如：以后所有例子都讲得更详细一点，并同步更新讲义和 PPT')" :disabled="store.generating || contextUnavailable" />
-                  <div v-if="requestMode === 'describe'" class="request-suggestions" :aria-label="t('courseEvolution.workspace.requestSuggestionsLabel', '常用修改示例')"><button v-for="item in requestSuggestions" :key="item" type="button" @click="requestText = item">{{ item }}</button></div>
+                  <textarea v-else-if="requestMode === 'describe'" ref="requestInputRef" v-model="requestText" rows="5" :aria-label="t('courseEvolution.workspace.mode_describe')" :placeholder="t('courseEvolution.workspace.requestPlaceholder', '例如：以后所有例子都讲得更详细一点，并同步更新讲义和 PPT')" :disabled="store.generating || contextUnavailable" />
                   <p v-if="store.generationError || actionError" class="inline-error" role="alert"><TriangleAlert :size="15" />{{ store.generationError || actionError }}</p>
                   <footer><button type="submit" class="button-primary button-submit" :disabled="store.generating || !requestCanSubmit || contextUnavailable"><Sparkles :size="16" />{{ t('courseEvolution.workspace.startAnalysis', '分析全课影响') }}</button></footer>
                 </form>
@@ -135,6 +132,7 @@ import { computed, nextTick, ref, watch, type Component } from 'vue'
 import { ArrowLeft, ArrowRight, BookOpenText, BookText, BrainCircuit, Check, ChevronDown, ChevronUp, CircleCheckBig, ClipboardList, CopyPlus, FileQuestion, GitBranchPlus, GitMerge, History, LoaderCircle, PencilLine, Plus, Presentation, RefreshCw, RotateCcw, ScanSearch, ScrollText, Search, ShieldCheck, Sparkles, Trash2, TriangleAlert, X } from 'lucide-vue-next'
 import { createUuid } from '../utils/client-id'
 import { activeLocale, t } from '../shared/i18n'
+import UiSegmentedControl from './UiSegmentedControl.vue'
 import { useCourseEvolutionStore, observeCourseChangeProgress, type CourseEvolutionApplicationPresentation, type CourseEvolutionPlan, type TeacherCourseChangeContext, type TeacherCourseOutlineReviewNode, type TeacherMigrationDisposition } from '../stores/courseEvolution'
 
 type WorkspaceState = 'request' | 'scanning' | 'interpreting' | 'content' | 'structure' | 'applied'
@@ -149,6 +147,7 @@ const requestInputRef = ref<HTMLTextAreaElement | null>(null)
 const previousFocus = ref<HTMLElement | null>(null)
 const requestText = ref('')
 const requestMode = ref<'describe' | 'replace' | 'structure'>('describe')
+const requestModeOptions = computed(() => ['describe', 'replace', 'structure'].map(value => ({value, label:t(`courseEvolution.workspace.mode_${value}`), disabled:store.generating})))
 const findText = ref('')
 const replacementText = ref('')
 const requestAssetTypes = ref(['outline', 'lesson_plan', 'script', 'course_content'])
@@ -168,6 +167,7 @@ const selectedSection = ref('')
 const dispositionOverrides = ref<Record<string, TeacherMigrationDisposition>>({})
 const outlineDraft = ref<TeacherCourseOutlineReviewNode[]>([])
 const discardConfirm = ref(false)
+let workspaceEpoch = 0
 const titleId = `course-change-${Math.random().toString(36).slice(2)}`
 
 const context = computed(() => store.courseContext)
@@ -207,7 +207,6 @@ const protectedRequirements = computed(() => [...(planning.value?.intent.hard_co
 const contextUnavailable = computed(() => store.contextLoading || !context.value?.ready)
 const contextAssets = computed(() => context.value?.assets || emptyAssets)
 const availableContextAssets = computed(() => contextAssets.value.filter(item => item.state !== 'missing'))
-const readyAssetCount = computed(() => availableContextAssets.value.length)
 const contextStatusTitle = computed(() => store.contextLoading ? t('courseEvolution.workspace.indexLoading', '正在连接课程文件') : context.value?.ready ? t('courseEvolution.workspace.indexReady', '已连接真实课程文件') : t('courseEvolution.workspace.indexUnavailable', '尚无可分析内容'))
 const affectedUnits = computed<AffectedUnit[]>(() => Array.isArray(focusedPlan.value?.impact_summary?.affected_units) ? focusedPlan.value?.impact_summary?.affected_units as AffectedUnit[] : [])
 const affectedAssets = computed(() => { const counts = new Map<string, number>(); affectedUnits.value.forEach(item => counts.set(item.asset_type, (counts.get(item.asset_type) || 0) + 1)); return [...counts].map(([key, count]) => ({ key, count, label: assetLabel(key) })) })
@@ -311,7 +310,6 @@ const receiptItems = computed<Array<{ migration_id?: string; operation_id?: stri
   return Array.isArray(values) ? values : []
 })
 watch(() => [props.modelValue, props.courseId] as const, ([open, courseId], _, onCleanup) => { if (open && courseId) onCleanup(observeCourseChangeProgress(store, courseId)) }, { immediate: true })
-const requestSuggestions = computed(() => [t('courseEvolution.workspace.suggestDetailedExamples', '所有案例都补充完整推导、反例和适用边界'), t('courseEvolution.workspace.suggestRestructure', '按新的教学逻辑重构章节，并迁移可以保留的内容'), t('courseEvolution.workspace.suggestVersionUpdate', '统一更新大纲、教案、讲义和 PPT 中过时的模型版本')])
 const emptyAssets = (['outline', 'lesson_plan', 'script', 'ppt', 'question_bank'] as string[]).map(asset_type => ({ asset_type, label: asset_type, state: 'missing', count: 0, source: '', revision: '' })) as ContextAsset[]
 const listSeparator = computed(() => activeLocale.value === 'en' ? '; ' : '；')
 
@@ -326,7 +324,21 @@ watch(() => focusedPlan.value?.change_set_id, () => {
   selectedSection.value = ''
   discardConfirm.value = false
 }, { immediate: true })
-watch(() => props.modelValue, async open => { if (!open) return; previousFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null; forceRequest.value = false; selectedPlanId.value = props.focusPlanId; await reloadWorkspace(); await nextTick(); workspaceRef.value?.focus(); if (workspaceState.value === 'request') requestInputRef.value?.focus() }, { immediate: true })
+watch(() => [props.modelValue, props.courseId] as const, async ([open, courseId], previous) => {
+  const epoch = ++workspaceEpoch
+  if (previous && previous[1] !== courseId) {
+    requestText.value = ''; findText.value = ''; replacementText.value = ''
+    correctionText.value = ''; correctionOpen.value = false; actionError.value = ''
+  }
+  if (!open || !courseId) return
+  previousFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  forceRequest.value = false; selectedPlanId.value = props.focusPlanId
+  await reloadWorkspace()
+  await nextTick()
+  if (epoch !== workspaceEpoch) return
+  workspaceRef.value?.focus()
+  if (workspaceState.value === 'request') requestInputRef.value?.focus()
+}, { immediate: true })
 watch(() => props.focusPlanId, value => {
   if (!props.modelValue || !value) return
   selectedPlanId.value = value
@@ -424,17 +436,23 @@ function mergeOutlineNode(index: number, control: HTMLSelectElement) { const tar
 function recentPlanStatus(plan: CourseEvolutionPlan) { if (plan.status === 'applied') return t('courseEvolution.workspace.recentApplied', '已应用'); if (plan.status === 'undo_partial') return t('courseEvolution.workspace.recentUndoPartial', '撤销未完成'); if (plan.status === 'undone') return t('courseEvolution.workspace.recentUndone', '已撤销'); if (plan.impact_summary?.superseded_by_plan_id) return t('courseEvolution.workspace.supersededPlan', '已有新版本'); if (plan.status === 'rejected') return t('courseEvolution.workspace.recentRejected', '已放弃'); return plan.impact_summary?.scope_review?.reviewed_at ? t('courseEvolution.workspace.recentReviewed', '已审阅') : t('courseEvolution.workspace.recentPending', '待审阅') }
 function formatPlanTime(plan: CourseEvolutionPlan) { const value = plan.teacher_change_planning?.updated_at || plan.teacher_change_planning?.created_at; if (!value) return ''; const date = new Date(value); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(activeLocale.value === 'en' ? 'en-US' : 'zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(date) }
 function readableError(error: any, fallback: string) { if (Number(error?.response?.status) === 404) return t('courseEvolution.workspace.courseMissing', '未找到当前课程，请返回课程列表重新进入。'); return String(error?.response?.data?.detail?.message || error?.response?.data?.detail || error?.message || fallback) }
-async function reloadWorkspace() { actionError.value = ''; try { await Promise.all([store.refreshProgress(props.courseId), store.loadCourseContext(props.courseId)]) } catch (error: any) { actionError.value = readableError(error, '课程文件读取失败，请重试。') } }
+async function reloadWorkspace() {
+  const epoch = workspaceEpoch
+  actionError.value = ''
+  try { await Promise.all([store.refreshProgress(props.courseId), store.loadCourseContext(props.courseId)]) }
+  catch (error: any) { if (epoch === workspaceEpoch) actionError.value = readableError(error, '课程文件读取失败，请重试。') }
+}
 async function submitRequest() {
-  if (!requestCanSubmit.value || contextUnavailable.value) return
+  if (!requestCanSubmit.value || contextUnavailable.value || store.generating || store.actingId) return
+  const epoch = workspaceEpoch
   actionError.value = ''; forceRequest.value = false
   const requestId = createUuid()
   const courseId = props.courseId
   const instruction = requestMode.value === 'replace' ? t('courseEvolution.workspace.replaceInstruction').replace('{before}', findText.value).replace('{after}', replacementText.value) : requestMode.value === 'structure' ? '编辑讲次结构' : requestText.value.trim()
   try {
     const result = await store.createCoursePlan({ courseId, requestId, instruction, assetTypes: requestMode.value === 'replace' ? requestAssetTypes.value : ['outline', 'lesson_plan', 'script', 'course_content', 'question_bank'], ...(requestMode.value === 'replace' ? { literalReplacement: { before: findText.value, after: replacementText.value } } : {}) })
-    if (props.courseId === courseId) selectCreatedPlan(result, requestId)
-  } catch (error: any) { if (props.courseId === courseId) { actionError.value = readableError(error, t('courseEvolution.workspace.analysisFailed')); forceRequest.value = true } }
+    if (epoch === workspaceEpoch) selectCreatedPlan(result, requestId)
+  } catch (error: any) { if (epoch === workspaceEpoch) { actionError.value = readableError(error, t('courseEvolution.workspace.analysisFailed')); forceRequest.value = true } }
 }
 function selectCreatedPlan(payload: Record<string, any>, requestId = '') {
   const plans: CourseEvolutionPlan[] = payload.course_evolution_plans || payload.change_sets || store.plans
@@ -442,17 +460,69 @@ function selectCreatedPlan(payload: Record<string, any>, requestId = '') {
   if (created) { selectedPlanId.value = created.change_set_id; emit('planSelected', created.change_set_id) }
 }
 function openCorrection() { correctionText.value = ''; correctionOpen.value = true }
-async function submitCorrection() { if (!correctionText.value.trim() || !focusedPlan.value) return; const requestId = createUuid(); const courseId = props.courseId; const combined = `${rawRequest.value}\n补充修正：${correctionText.value.trim()}`.trim(); actionError.value = ''; try { const result = await store.createCoursePlan({ courseId, requestId, instruction: combined, supersedesPlanId: focusedPlan.value.change_set_id, assetTypes: ['outline', 'lesson_plan', 'script', 'course_content', 'question_bank'] }); if (props.courseId === courseId) { correctionOpen.value = false; selectCreatedPlan(result, requestId) } } catch (error: any) { actionError.value = String(error?.response?.data?.detail?.message || error?.message || '重新分析失败，请重试。') } }
+async function submitCorrection() {
+  if (!correctionText.value.trim()) return
+  const requestId = createUuid(), courseId = props.courseId
+  const combined = `${rawRequest.value}\n补充修正：${correctionText.value.trim()}`.trim()
+  await runPlanAction(async (plan, isCurrent) => {
+    const result = await store.createCoursePlan({ courseId, requestId, instruction: combined, supersedesPlanId: plan.change_set_id, assetTypes: ['outline', 'lesson_plan', 'script', 'course_content', 'question_bank'] })
+    if (isCurrent()) { correctionOpen.value = false; selectCreatedPlan(result, requestId) }
+  }, '重新分析失败，请重试。')
+}
 function reviewedMigrationIds() { return affectedUnits.value.filter(item => !excludedUnitIds.value.has(item.migration_id)).map(item => item.migration_id) }
 function reviewedDispositions() { return Object.fromEntries(affectedUnits.value.map(item => [item.migration_id, effectiveDisposition(item)]).filter(([, disposition]) => disposition !== 'blocked')) as Record<string, TeacherMigrationDisposition> }
-async function saveScopeReview() { if (!focusedPlan.value) return; actionError.value = ''; const planId = focusedPlan.value.change_set_id; try { await store.reviewCoursePlan(planId, reviewedMigrationIds(), { migrationDispositions: reviewedDispositions() }); if (!structuralPlan.value) await store.generateSuggested(planId) } catch (error: any) { actionError.value = String(error?.response?.data?.detail?.message || error?.message || '影响范围确认或建议生成失败，请重试。') } }
-async function confirmStructure() { if (!focusedPlan.value || !proposedOutline.value.length || !validOutlineDraft.value) return; actionError.value = ''; const planId = focusedPlan.value.change_set_id; try { await store.reviewCoursePlan(planId, reviewedMigrationIds(), { confirmStructure: true, migrationDispositions: reviewedDispositions(), proposedOutline: normalizeOutline(proposedOutline.value) }); await store.generateSuggested(planId) } catch (error: any) { actionError.value = String(error?.response?.data?.detail?.message || error?.message || '结构确认或联动建议生成失败，请重试。') } }
-async function generateReviewedCandidates() { if (!focusedPlan.value) return; actionError.value = ''; try { await store.generateSuggested(focusedPlan.value.change_set_id) } catch (error: any) { actionError.value = String(error?.response?.data?.detail?.message || error?.message || '联动建议生成失败，请重试。') } }
-async function retryCandidateFailures() { if (!focusedPlan.value) return; actionError.value = ''; try { await store.generateSuggested(focusedPlan.value.change_set_id) } catch (error: any) { actionError.value = String(error?.response?.data?.detail?.message || error?.message || '失败项重试失败，已保留其他成功建议。') } }
-async function applyCourseChange() { if (!focusedPlan.value) return; const operationIds = Array.from(new Set([...selectedApplicableOperationIds.value, ...(structureConfirmed.value ? structureOperationIds.value : [])])); if (!operationIds.length) return; actionError.value = ''; try { await store.accept(focusedPlan.value.change_set_id, 'current', operationIds); const applied = store.plans.find(item => item.change_set_id === focusedPlan.value?.change_set_id); const firstOperation = applied?.operations.find(item => operationIds.includes(item.operation_id)); emit('courseApplied', { planId: applied?.change_set_id || focusedPlan.value.change_set_id, affectedSectionIds: Array.from(new Set((applied?.operations || []).filter(item => operationIds.includes(item.operation_id)).map(item => item.target_section_id).filter(Boolean))), appliedBlockIds: applied?.applied_block_ids || [], operationIds, targetSectionId: firstOperation?.target_section_id || '', targetBlockId: firstOperation?.target_block_id || '', targetOperationId: firstOperation?.operation_id || '' }) } catch (error: any) { actionError.value = String(error?.response?.data?.detail?.message || error?.message || '应用课程修改失败，请重试。') } }
-async function undoCourseChange() { if (!focusedPlan.value) return; actionError.value = ''; try { await store.undo(focusedPlan.value.change_set_id) } catch (error: any) { actionError.value = String(error?.response?.data?.detail?.message || error?.message || '撤销失败，请重试。') } }
-async function retryApplicationFailures() { if (!focusedPlan.value || !retryableFailedOperationIds.value.length) return; actionError.value = ''; try { await store.accept(focusedPlan.value.change_set_id, focusedPlan.value.selected_scope || 'current', retryableFailedOperationIds.value, { retryFailed: true }) } catch (error: any) { actionError.value = String(error?.response?.data?.detail?.message || error?.message || '失败资产重试失败，已成功项未重复执行。') } }
-async function discardPlan() { if (!focusedPlan.value) return; if (!discardConfirm.value) { discardConfirm.value = true; return } actionError.value = ''; try { await store.reject(focusedPlan.value.change_set_id, '教师在审阅工作区主动放弃方案'); discardConfirm.value = false; startNewRequest() } catch (error: any) { actionError.value = String(error?.response?.data?.detail?.message || error?.message || '放弃方案失败，请重试。') } }
+let pendingActionEpoch: number | null = null
+async function runPlanAction(action: (plan: CourseEvolutionPlan, isCurrent: () => boolean) => Promise<void>, fallback: string) {
+  if (!focusedPlan.value || store.actingId || store.generating || pendingActionEpoch === workspaceEpoch) return
+  const plan = focusedPlan.value, epoch = workspaceEpoch
+  pendingActionEpoch = epoch
+  const isCurrent = () => epoch === workspaceEpoch
+  actionError.value = ''
+  try { await action(plan, isCurrent) }
+  catch (error: any) { if (isCurrent()) actionError.value = readableError(error, fallback) }
+  finally { if (pendingActionEpoch === epoch) pendingActionEpoch = null }
+}
+async function saveScopeReview() {
+  const structural = structuralPlan.value
+  await runPlanAction(async (plan, isCurrent) => {
+    await store.reviewCoursePlan(plan.change_set_id, reviewedMigrationIds(), { migrationDispositions: reviewedDispositions() })
+    if (isCurrent() && !structural) await store.generateSuggested(plan.change_set_id)
+  }, '影响范围确认或建议生成失败，请重试。')
+}
+async function confirmStructure() {
+  if (!proposedOutline.value.length || !validOutlineDraft.value) return
+  await runPlanAction(async (plan, isCurrent) => {
+    await store.reviewCoursePlan(plan.change_set_id, reviewedMigrationIds(), { confirmStructure: true, migrationDispositions: reviewedDispositions(), proposedOutline: normalizeOutline(proposedOutline.value) })
+    if (isCurrent()) await store.generateSuggested(plan.change_set_id)
+  }, '结构确认或联动建议生成失败，请重试。')
+}
+async function generateReviewedCandidates() { await runPlanAction(async plan => { await store.generateSuggested(plan.change_set_id) }, '联动建议生成失败，请重试。') }
+async function retryCandidateFailures() { await runPlanAction(async plan => { await store.generateSuggested(plan.change_set_id) }, '失败项重试失败，已保留其他成功建议。') }
+async function applyCourseChange() {
+  const operationIds = Array.from(new Set([...selectedApplicableOperationIds.value, ...(structureConfirmed.value ? structureOperationIds.value : [])]))
+  if (!operationIds.length) return
+  await runPlanAction(async (plan, isCurrent) => {
+    await store.accept(plan.change_set_id, 'current', operationIds)
+    if (!isCurrent()) return
+    const applied = store.plans.find(item => item.change_set_id === plan.change_set_id)
+    const firstOperation = applied?.operations.find(item => operationIds.includes(item.operation_id))
+    emit('courseApplied', { planId: plan.change_set_id, affectedSectionIds: Array.from(new Set((applied?.operations || []).filter(item => operationIds.includes(item.operation_id)).map(item => item.target_section_id).filter(Boolean))), appliedBlockIds: applied?.applied_block_ids || [], operationIds, targetSectionId: firstOperation?.target_section_id || '', targetBlockId: firstOperation?.target_block_id || '', targetOperationId: firstOperation?.operation_id || '' })
+  }, '应用课程修改失败，请重试。')
+}
+async function undoCourseChange() { await runPlanAction(async plan => { await store.undo(plan.change_set_id) }, '撤销失败，请重试。') }
+async function retryApplicationFailures() {
+  const operationIds = retryableFailedOperationIds.value
+  if (!operationIds.length) return
+  await runPlanAction(async plan => { await store.accept(plan.change_set_id, plan.selected_scope || 'current', operationIds, { retryFailed: true }) }, '失败资产重试失败，已成功项未重复执行。')
+}
+async function discardPlan() {
+  if (!focusedPlan.value || store.actingId || store.generating) return
+  if (!discardConfirm.value) { discardConfirm.value = true; return }
+  await runPlanAction(async (plan, isCurrent) => {
+    await store.reject(plan.change_set_id, '教师在审阅工作区主动放弃方案')
+    if (isCurrent()) { discardConfirm.value = false; startNewRequest() }
+  }, '放弃方案失败，请重试。')
+}
 function startNewRequest() { forceRequest.value = true; selectedPlanId.value = ''; requestText.value = ''; correctionOpen.value = false; actionError.value = ''; store.generationError = ''; nextTick(() => requestInputRef.value?.focus()) }
 function openPlan(id: string) { selectedPlanId.value = id; forceRequest.value = false }
 function close() { emit('update:modelValue', false); nextTick(() => previousFocus.value?.focus()) }
@@ -492,4 +562,30 @@ defineExpose({ reloadWorkspace, openPlan, startNewRequest, showHistory })
 .course-change-workspace .button-secondary:disabled{opacity:.45;cursor:not-allowed}
 .course-change-workspace button:focus-visible{outline:2px solid #5148dc;outline-offset:2px}
 @media(prefers-reduced-motion:reduce){.spinning{animation:none}}
+.course-change-workspace{display:flex;flex-direction:column;background:var(--lz-bg-surface,#fff);font-size:15px;letter-spacing:0;border-radius:8px}
+.workspace-header,.journey,.workspace-context-stack{flex:none}.workspace-header{min-height:64px}.workspace-stage{flex:1}
+.workspace-title h2,.request-heading h3,.review-header h3{letter-spacing:0}
+.workspace-mark{background:transparent;color:var(--lz-brand-strong);box-shadow:none}
+.workspace-title small{display:none}.course-identity{background:transparent;font-size:15px;max-width:360px}.course-identity span{white-space:normal;overflow-wrap:anywhere}
+.journey{padding:14px 24px}.journey ol{max-width:1000px;margin:auto;gap:16px}.journey li{font-size:15px;line-height:1.5}.journey li::after{display:none}.journey li>span{font-size:15px}.journey li.active>span{box-shadow:none;border-width:1px}
+.request-state,.is-update-center .request-state{max-width:860px;gap:24px;padding-top:24px}
+.request-composer,.is-update-center .request-composer{padding:0;border:0;border-radius:0;box-shadow:none;background:transparent}
+.request-heading{margin-bottom:20px}.request-heading h3{font-size:24px;line-height:1.5}
+.course-change-workspace .request-modes{display:inline-grid;width:fit-content;margin-bottom:20px;gap:0}
+.request-composer form>textarea{font-family:inherit;font-size:17px;font-weight:400;line-height:1.8;min-height:160px;padding:14px 16px;border-radius:7px}
+.request-composer form>textarea:focus{outline:none;border-color:var(--lz-brand-strong)}
+.request-composer form>textarea:focus-visible{outline:2px solid var(--lz-brand-strong);outline-offset:2px}
+.readiness-strip{display:block;padding:0 0 18px;border:0;border-bottom:1px solid var(--lz-border);border-radius:0;background:transparent}
+.readiness-strip>summary{display:flex;align-items:center;gap:10px;cursor:pointer;color:var(--lz-text-secondary);list-style:none;min-height:30px}.readiness-strip>summary::-webkit-details-marker{display:none}
+.readiness-strip>summary>span{display:flex;color:var(--lz-text-secondary)}.readiness-strip>summary>span[data-ready=true]{color:#087354}
+.readiness-strip>summary>div{display:flex;align-items:baseline;gap:16px;flex:1;flex-wrap:wrap}.readiness-strip>summary small,.readiness-strip>summary strong{font-size:15px;font-weight:400}
+.readiness-strip[open]>summary>svg{transform:rotate(180deg)}.readiness-strip ul{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px;margin-top:12px}
+.readiness-strip li{padding:9px 0;border-radius:0;background:transparent;font-size:15px;grid-template-columns:7px minmax(0,1fr) auto}.readiness-strip li small{font-size:15px}
+.course-change-workspace .button-primary,.course-change-workspace .button-secondary,.course-change-workspace .button-quiet,.course-change-workspace .button-danger{border-radius:7px;min-height:38px;font-weight:500;box-shadow:none}
+.recent-changes>header,.recent-changes>p,.recent-changes li b,.recent-changes li small,.recent-changes li>span{font-size:15px}.recent-changes li b{white-space:normal;overflow-wrap:anywhere;font-weight:500}
+.scan-main,.scanning-state>aside,.clarification-state>section,.receipt-state>section{box-shadow:none;border-radius:0}
+.impact-review{display:flex;flex-direction:column}.impact-list{flex:1}.impact-list article{border-radius:7px}.source-preview{border-radius:0}.tree-comparison>section{border-radius:7px}
+.course-change-workspace :is(.review-header>span,.review-header small,.impact-copy>header small,.impact-copy>footer,.impact-nav>header p,.scope-counts dt,.review-actionbar>div p,.review-actionbar>div strong,.migration-panel dt,.migration-panel>p,.receipt-state dt,.receipt-state>section>p,.inline-error){font-size:15px;line-height:1.6}
+.review-header{align-items:flex-start;flex-wrap:wrap}.review-header>span{padding:0;background:transparent}.literal-replacement fieldset{flex-wrap:wrap}
+.course-change-workspace :is(input,textarea,select){min-width:0;box-sizing:border-box}.course-change-workspace summary:focus-visible{outline:2px solid var(--lz-brand-strong);outline-offset:2px}
 </style>

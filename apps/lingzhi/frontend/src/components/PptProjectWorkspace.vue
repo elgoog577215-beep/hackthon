@@ -15,7 +15,7 @@ FORM: User-pinned three-step workspace. Existing manuscript editor and renderer 
       <button v-if="embedded" class="project-legacy" type="button" :disabled="dirty" @click="emit('legacy')">{{ t('pptProject.originalReview') }}</button>
       <button v-else type="button" @click="back">{{ t('pptProject.back') }}</button>
     </header>
-    <div v-if="error" class="project-message is-error" role="alert">{{ error }}</div>
+    <div v-if="error || syncError" class="project-message is-error" role="alert">{{ error || syncError }}</div>
     <div v-if="project?.source_state === 'stale'" class="project-message" role="status">{{ t('pptProject.stale') }}</div>
     <section v-if="step === 1" class="project-selection">
       <div class="selection-columns">
@@ -36,9 +36,12 @@ FORM: User-pinned three-step workspace. Existing manuscript editor and renderer 
       <footer class="selection-footer"><span>{{ selectionSummary }}</span><button v-if="!embedded" type="button" class="primary" :disabled="busy || !selectionReady" @click="prepare">{{ busy ? t('pptProject.working') : (project && !selectionMatches ? t('pptProject.newFromSelection') : t('pptProject.next')) }}<ArrowRight :size="16" /></button></footer>
     </section>
     <template v-else>
-      <div v-if="running" class="project-progress" role="status"><LoaderCircle :size="18" class="spinning" /><span>{{ project?.status === 'rendering' ? t('pptProject.rendering') : t('pptProject.preparing') }}</span><progress :value="project?.job?.progress || 0" max="100" /><button type="button" @click="pause">{{ t('pptProject.pause') }}</button></div>
+      <div v-if="running" class="project-progress" role="status"><LoaderCircle :size="18" class="spinning" /><span>{{ project?.status === 'rendering' ? t('pptProject.rendering') : t('pptProject.preparing') }}</span><progress :value="project?.job?.progress || 0" max="100" /><button type="button" :disabled="busy" @click="pause">{{ t('pptProject.pause') }}</button></div>
       <div v-if="project?.status === 'paused'" class="project-message"><span>{{ t('pptProject.paused') }}</span><button type="button" :disabled="busy || project.source_state === 'stale'" @click="resume">{{ t('pptProject.retry') }}</button></div>
       <template v-if="step === 2">
+        <section v-if="running && streamBatches.length" class="project-live-copy" :aria-label="t('pptProject.liveDraft')" :aria-busy="true" data-testid="ppt-live-draft">
+          <section v-for="batch in streamBatches" :key="batch.id" :data-batch-id="batch.id"><MathText tag="div" :content="batch.text" /></section>
+        </section>
         <PptManuscriptWorkflow v-if="project?.manuscript" ref="editor" embedded :external-actions="embedded" :allow-page-regeneration="false" :title="project.title" :state="manuscriptState" :busy="busy || running || project.source_state === 'stale'"
           :saving="saving" :confirming="confirming" @save-manuscript="save" @confirm-manuscript="confirm"
           @generate-ppt="selectStep(3)" @dirty-change="dirty = $event" @generate-manuscript="rebuild" @regenerate-manuscript="rebuild" />
@@ -46,11 +49,12 @@ FORM: User-pinned three-step workspace. Existing manuscript editor and renderer 
       </template>
       <section v-else class="project-render">
         <header><div><h1>{{ project?.title }}</h1><p>{{ renderedCurrent ? t('pptProject.ready') : t('pptProject.renderHint') }}</p></div>
+          <CompactPagination v-if="slides.length" style="--pagination-font-size:15px" :page="page + 1" :page-count="slides.length" range-text="" :label="t('pptProject.pages')" :previous-label="t('pptWorkspace.sidebar.previousPage')" :next-label="t('pptWorkspace.sidebar.nextPage')" :page-select-label="t('pptWorkspace.sidebar.selectPage')" test-id-prefix="ppt-result" @update:page="page = $event - 1" />
           <button v-if="!embedded && project?.last_good_render" type="button" :disabled="busy" @click="download"><Download :size="16" />{{ t('pptProject.export') }}</button>
           <button v-if="!embedded && !renderedCurrent" type="button" class="primary" :disabled="busy || running || !canRender" @click="render"><Presentation :size="16" />{{ t('pptProject.render') }}</button>
         </header>
         <p v-if="project?.last_good_render && !renderedCurrent" class="empty-copy">{{ t('pptProject.previous') }}</p>
-        <div v-if="slides.length" class="project-deck"><nav :aria-label="t('pptProject.pages')"><button v-for="(slide, index) in slides" :key="index" type="button" :class="{active:page === index}" @click="page = index"><span>{{ index + 1 }}</span>{{ slide.title }}</button></nav><div class="project-canvas"><SlideCanvas :slide="slides[page] as any" :page-number="page + 1" :page-count="slides.length" :deck-title="project.title" :theme="project.theme" :course-id="courseId" /></div></div>
+        <div v-if="slides.length" class="project-deck"><nav :aria-label="t('pptProject.pages')"><button v-for="(slide, index) in slides" :key="index" type="button" :class="{active:page === index}" :aria-current="page === index ? 'page' : undefined" @click="page = index"><span class="page-number">{{ index + 1 }}</span><MathText :content="slide.title" /></button></nav><div class="project-canvas"><SlideCanvas :slide="slides[page] as any" :page-number="page + 1" :page-count="slides.length" :deck-title="project.title" :theme="project.theme" :course-id="courseId" /></div></div>
       </section>
     </template>
   </section>
@@ -59,20 +63,26 @@ FORM: User-pinned three-step workspace. Existing manuscript editor and renderer 
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowRight, ChevronRight, Download, FileText, LoaderCircle, Plus, Presentation, Upload } from 'lucide-vue-next'
-import http, { identityRequestConfig } from '../utils/http'
+import http, { identityRequestConfig, teacherIdentityHeaders, withApiBase } from '../utils/http'
+import { consumeEventStream } from '../shared/generation-stream'
 import { t } from '../shared/i18n'
 import PptManuscriptWorkflow from './PptManuscriptWorkflow.vue'
 import SlideCanvas from './SlideCanvas.vue'
 import UiSegmentedControl from './UiSegmentedControl.vue'
+import CompactPagination from './CompactPagination.vue'
+import MathText from './MathText.vue'
 import { adaptSlideDeckV6ForWeb } from '../utils/slide-deck-v6-adapter'
 const props = defineProps<{courseId:string; initialLessonId?:string; sourceRevision?:string; embedded?:boolean}>()
 const emit = defineEmits<{(event:'legacy'):void}>()
 const router = useRouter(), fileInput = ref<HTMLInputElement>(), editor = ref<InstanceType<typeof PptManuscriptWorkflow>>()
 const catalog = ref<any>(), project = ref<any>(), lessonIds = ref<string[]>([]), assetIds = ref<string[]>([])
 const step = ref(1), page = ref(0), error = ref(''), busy = ref(false), saving = ref(false), confirming = ref(false), dirty = ref(false)
+const syncError = ref('')
 let timer: ReturnType<typeof setTimeout> | undefined
 let disposed = false
 let controller = new AbortController()
+let streamController: AbortController | undefined
+const liveJob = ref<any>()
 let contextVersion = 0, pollVersion = 0, catalogVersion = 0
 const base = () => `/api/teacher/courses/${encodeURIComponent(props.courseId)}/ppt-projects`
 const url = (action='') => `${base()}/${project.value.project_id}${action ? '/' + action : ''}`
@@ -84,6 +94,10 @@ const selectionReady = computed(() => !!catalog.value && (lessonIds.value.length
 const stepLabels = computed(() => [t('pptProject.select'),t('pptProject.review'),t('pptProject.finish')])
 const stepOptions = computed(() => stepLabels.value.map((label, index) => ({ label, value: String(index + 1), disabled: !canStep(index + 1) })))
 const running = computed(() => ['building','rendering'].includes(project.value?.status))
+const streamBatches = computed(() => {
+ const job = liveJob.value?.id === project.value?.job_id && Number(liveJob.value?.stream_sequence || 0) >= Number(project.value?.job?.stream_sequence || 0) ? liveJob.value : project.value?.job
+ return Object.entries(job?.stream_batches || {}).filter(([,text]) => !!text).map(([id,text]) => ({id,text:String(text)}))
+})
 const canRender = computed(() => project.value?.confirmed_revision && project.value?.confirmed_revision === project.value?.manuscript?.manuscript_revision && project.value?.source_state !== 'stale' && !dirty.value)
 const renderedCurrent = computed(() => project.value?.last_good_render?.manuscript_revision === project.value?.manuscript?.manuscript_revision && project.value?.last_good_render && project.value?.source_state !== 'stale')
 const slides = computed(() => project.value?.last_good_render ? adaptSlideDeckV6ForWeb(project.value.last_good_render.deck) : [])
@@ -94,7 +108,7 @@ const sources = computed(() => ({
  files: (catalog.value?.uploads || []).filter((item:any) => assetIds.value.includes(item.asset_id)),
 }))
 const context = computed(() => {
- const phase: 'before'|'during'|'after'|'failed' = error.value || project.value?.error ? 'failed' : running.value || project.value?.status === 'paused' ? 'during' : project.value?.manuscript ? 'after' : 'before'
+ const phase: 'before'|'during'|'after'|'failed' = error.value || syncError.value || project.value?.error ? 'failed' : running.value || project.value?.status === 'paused' ? 'during' : project.value?.manuscript ? 'after' : 'before'
  const blocked = busy.value || running.value || dirty.value
  const stale = project.value?.source_state === 'stale'
  const actions: {id:string;label:string;primary?:boolean;disabled?:boolean;reason?:string}[] = []
@@ -109,7 +123,7 @@ const context = computed(() => {
   if (project.value?.last_good_render) actions.push({id:'preview',label:t('courseFiles.openPpt'),disabled:blocked},{id:'download',label:t('pptProject.export'),disabled:busy.value})
   if (!project.value?.manuscript && !running.value && project.value?.status !== 'paused') actions.push({id:'prepare',label:t('pptProject.retry'),primary:true,disabled:blocked || stale})
  }
- return { phase, preparing: false, label: running.value ? (project.value?.status === 'rendering' ? t('pptProject.rendering') : t('pptProject.preparing')) : project.value?.status === 'paused' ? t('pptProject.paused') : phase === 'failed' ? t('courseWorkbench.contextPane.failed') : project.value?.manuscript ? t('courseWorkbench.contextPane.ready') : t('courseWorkbench.contextPane.prepare'), detail:error.value || project.value?.error?.message || (stale ? t('pptProject.stale') : selectionSummary.value), progress:running.value ? project.value?.job?.progress || 0 : null, actions }
+ return { phase, preparing: false, label: running.value ? (project.value?.status === 'rendering' ? t('pptProject.rendering') : t('pptProject.preparing')) : project.value?.status === 'paused' ? t('pptProject.paused') : phase === 'failed' ? t('courseWorkbench.contextPane.failed') : project.value?.manuscript ? t('courseWorkbench.contextPane.ready') : t('courseWorkbench.contextPane.prepare'), detail:error.value || syncError.value || project.value?.error?.message || (stale ? t('pptProject.stale') : selectionSummary.value), progress:running.value ? project.value?.job?.progress || 0 : null, actions }
 })
 async function runContextAction(id:string) {
  if (!context.value.actions.some(item => item.id === id && !item.disabled)) return
@@ -123,40 +137,117 @@ async function runContextAction(id:string) {
  if (id === 'pause') return pause()
  if (id === 'resume') return resume()
 }
-function failure(e:any) { if (e?.code === 'ERR_CANCELED') return; const detail=e?.response?.data?.detail; error.value = (typeof detail === 'object' ? detail?.message : typeof detail === 'string' ? detail : '') || (e?.response?.status === 409 ? t('pptProject.conflict') : t('pptProject.failed')) }
+function failure(e:any, target = error) { if (e?.code === 'ERR_CANCELED') return; const detail=e?.response?.data?.detail; target.value = (typeof detail === 'object' ? detail?.message : typeof detail === 'string' ? detail : '') || (e?.response?.status === 409 ? t('pptProject.conflict') : t('pptProject.failed')) }
+function current(version:number) {return !disposed && version === contextVersion}
+function stopPolling() {pollVersion++;if(timer)clearTimeout(timer);timer=undefined}
+async function observeJob(jobId:string, version:number, signal:AbortSignal) {
+ try {
+  const response = await fetch(withApiBase(`/api/teacher/courses/${encodeURIComponent(props.courseId)}/lesson-jobs/${encodeURIComponent(jobId)}/stream`), {headers:teacherIdentityHeaders({Accept:'text/event-stream'}),signal})
+  if(!response.ok) return
+  await consumeEventStream(response, ({data}) => {
+   const job = (data as any)?.job
+   if(signal.aborted || !current(version) || project.value?.job_id !== jobId || job?.id !== jobId) return
+   if(Number(job.stream_sequence || 0) < Math.max(Number(liveJob.value?.stream_sequence || 0),Number(project.value?.job?.stream_sequence || 0))) return
+   liveJob.value = job
+   if(!['pending','running'].includes(job.status) && !busy.value) void poll()
+  })
+ } catch { /* Polling remains the recovery path when the stream disconnects. */ }
+}
+function beginAction() {stopPolling();busy.value=true;error.value='';return contextVersion}
 async function loadCatalog() { const version=contextVersion, request=++catalogVersion; try {const {data}=await http.get(base(),config());if(version===contextVersion && request===catalogVersion){catalog.value=data;if(step.value===1)lessonIds.value=lessonIds.value.filter(id=>data.lectures?.some((item:any)=>item.lesson_id===id && item.ready))}} catch(e){if(version===contextVersion && request===catalogVersion)failure(e)} }
 function canStep(target:number) {return !dirty.value && !busy.value && (target === 1 || (target === 2 && project.value) || (target === 3 && (canRender.value || project.value?.last_good_render)))}
 function selectStep(target:number) {if(canStep(target)) step.value=target}
-async function poll() {if(timer)clearTimeout(timer);if(disposed || !project.value) return; const version=contextVersion, request=++pollVersion, id=project.value.project_id; try {const {data}=await http.get(url(),config());if(version!==contextVersion || request!==pollVersion || project.value?.project_id!==id)return;project.value=data} catch(e){if(version===contextVersion)failure(e)}; if(running.value && !disposed && version===contextVersion && request===pollVersion) timer=setTimeout(poll,1800)}
-async function openProject(id:string) {if(busy.value || dirty.value)return;busy.value=true;project.value={project_id:id};page.value=0;try{await poll();lessonIds.value=[...(project.value?.lesson_ids || [])];assetIds.value=[...(project.value?.asset_ids || [])];step.value=project.value?.status==='ready'?3:2}finally{busy.value=false}}
-async function upload(event:Event) {const files=Array.from((event.target as HTMLInputElement).files || []);busy.value=true;error.value='';try{for(const file of files){const form=new FormData();form.append('file',file);const {data}=await http.post(`${base()}/uploads`,form,config());assetIds.value.push(data.asset_id)}await loadCatalog()}catch(e){failure(e)}finally{busy.value=false;(event.target as HTMLInputElement).value=''}}
+async function poll() {
+ if(timer)clearTimeout(timer)
+ if(disposed || !project.value) return
+ const version=contextVersion, request=++pollVersion, id=project.value.project_id
+ try {
+  const {data}=await http.get(url(),config())
+  if(!current(version) || request!==pollVersion || project.value?.project_id!==id)return
+  if(!dirty.value)project.value=data
+  syncError.value=''
+ } catch(e){if(current(version) && request===pollVersion)failure(e,syncError)}
+ if(running.value && current(version) && request===pollVersion)timer=setTimeout(poll,1800)
+}
+async function openProject(id:string) {
+ if(busy.value || dirty.value)return
+ const version=beginAction()
+ try {
+  const {data}=await http.get(`${base()}/${encodeURIComponent(id)}`,config())
+  if(!current(version))return
+  project.value=data;page.value=0;syncError.value=''
+  lessonIds.value=[...(data.lesson_ids || [])];assetIds.value=[...(data.asset_ids || [])]
+  step.value=data.status==='ready'?3:2
+  if(running.value)timer=setTimeout(poll,1800)
+ }catch(e){if(current(version))failure(e)}finally{if(current(version))busy.value=false}
+}
+async function upload(event:Event) {
+ if(busy.value)return
+ const input=event.target as HTMLInputElement, files=Array.from(input.files || []), version=beginAction()
+ try {
+  for(const file of files){
+   const form=new FormData();form.append('file',file)
+   const {data}=await http.post(`${base()}/uploads`,form,config())
+   if(!current(version))return
+   assetIds.value.push(data.asset_id)
+  }
+  await loadCatalog()
+ }catch(e){if(current(version))failure(e)}finally{if(current(version))busy.value=false;input.value=''}
+}
 async function prepare(){
  if(busy.value || !selectionReady.value)return
  const reuse=selectionMatches.value && project.value?.source_state !== 'stale'
  if(reuse && (project.value?.manuscript || running.value)){step.value=2;return}
- busy.value=true;error.value=''
+ const version=beginAction()
  try{
-  if(!reuse){project.value=(await http.post(base(),{lesson_ids:lessonIds.value,asset_ids:assetIds.value,expected_revision:catalog.value.document_revision},config())).data}
+  if(!reuse){
+   const {data}=await http.post(base(),{lesson_ids:[...lessonIds.value],asset_ids:[...assetIds.value],expected_revision:catalog.value.document_revision},config())
+   if(!current(version))return
+   project.value=data
+  }
   step.value=2
-  await http.post(url('prepare'),{expected_revision:project.value.revision},config())
+  const {data}=await http.post(url('prepare'),{expected_revision:project.value.revision},config())
+  if(!current(version))return
+  project.value=data
   await poll();await loadCatalog()
- }catch(e){failure(e)}finally{busy.value=false}
+ }catch(e){if(current(version))failure(e)}finally{if(current(version))busy.value=false}
 }
-async function action(name:string){busy.value=true;error.value='';try{project.value=(await http.post(url(name),{expected_revision:project.value.revision},config())).data;await poll()}catch(e){failure(e)}finally{busy.value=false}}
-async function save(updates:Record<string,any>[],pacing?:Record<string,any>){saving.value=true;busy.value=true;try{project.value=(await http.patch(url('manuscript'),{expected_revision:project.value.revision,page_updates:updates,pacing},config())).data;dirty.value=false;await poll()}catch(e){failure(e)}finally{saving.value=false;busy.value=false}}
-async function confirm(){confirming.value=true;await action('confirm');confirming.value=false;if(canRender.value && !props.embedded)step.value=3}
+async function action(name:string){
+ if(busy.value || !project.value)return
+ const version=beginAction()
+ try{
+  const {data}=await http.post(url(name),{expected_revision:project.value.revision},config())
+  if(!current(version))return
+  project.value=data;await poll()
+ }catch(e){if(current(version)){failure(e);await poll()}}finally{if(current(version))busy.value=false}
+}
+async function save(updates:Record<string,any>[],pacing?:Record<string,any>){
+ if(busy.value || !project.value)return
+ const version=beginAction();saving.value=true
+ try{
+  const {data}=await http.patch(url('manuscript'),{expected_revision:project.value.revision,page_updates:updates,pacing},config())
+  if(!current(version))return
+  project.value=data;dirty.value=false;await poll()
+ }catch(e){if(current(version))failure(e)}finally{if(current(version)){saving.value=false;busy.value=false}}
+}
+async function confirm(){if(busy.value)return;const version=contextVersion;confirming.value=true;await action('confirm');if(!current(version))return;confirming.value=false;if(canRender.value && !props.embedded)step.value=3}
 async function render(){await action('render')}
 async function rebuild(){if(!dirty.value)await action('prepare')}
 async function pause(){await action('pause')}
 async function resume(){await action(project.value?.job?.request_snapshot?.render?'render':'prepare')}
-async function download(){busy.value=true;try{const {data}=await http.get(url('export'),{...config(),responseType:'blob'});const link=document.createElement('a');link.href=URL.createObjectURL(data);link.download=`${project.value.title}.pptx`;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000)}catch(e){failure(e)}finally{busy.value=false}}
+async function download(){if(busy.value || !project.value)return;const version=beginAction(),title=project.value.title;try{const {data}=await http.get(url('export'),{...config(),responseType:'blob'});if(!current(version))return;const link=document.createElement('a');link.href=URL.createObjectURL(data);link.download=`${title}.pptx`;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000)}catch(e){if(current(version))failure(e)}finally{if(current(version)){busy.value=false;if(running.value)timer=setTimeout(poll,1800)}}}
 function prepareToLeave(){if(dirty.value){error.value=t('pptProject.unsaved');return false}return true}
 function back(){if(prepareToLeave())router.push({name:'course-workspace',params:{courseId:props.courseId,mode:'build'}})}
-watch(()=>props.courseId,()=>{contextVersion++;pollVersion++;controller.abort();controller=new AbortController();if(timer)clearTimeout(timer);project.value=null;catalog.value=null;step.value=1;page.value=0;error.value='';dirty.value=false;busy.value=false;lessonIds.value=props.initialLessonId?[props.initialLessonId]:[];assetIds.value=[];void loadCatalog()},{immediate:true})
+watch(()=>props.courseId,()=>{contextVersion++;stopPolling();controller.abort();controller=new AbortController();project.value=null;catalog.value=null;step.value=1;page.value=0;error.value='';syncError.value='';dirty.value=false;busy.value=false;saving.value=false;confirming.value=false;lessonIds.value=props.initialLessonId?[props.initialLessonId]:[];assetIds.value=[];void loadCatalog()},{immediate:true})
+watch(()=>slides.value.length, count=>{page.value=Math.min(page.value,Math.max(0,count-1))})
+watch([()=>props.courseId,()=>project.value?.job_id,running],()=>{
+ streamController?.abort();liveJob.value=undefined
+ if(running.value && project.value?.job_id){streamController=new AbortController();void observeJob(project.value.job_id,contextVersion,streamController.signal)}
+})
 watch(()=>props.sourceRevision,()=>{void loadCatalog();if(project.value && !dirty.value && !busy.value)void poll()})
 function protectUnsaved(event:BeforeUnloadEvent){if(!dirty.value)return;event.preventDefault();event.returnValue=''}
 onMounted(()=>window.addEventListener('beforeunload',protectUnsaved))
-onBeforeUnmount(()=>{window.removeEventListener('beforeunload',protectUnsaved);disposed=true;controller.abort();if(timer)clearTimeout(timer)})
+onBeforeUnmount(()=>{window.removeEventListener('beforeunload',protectUnsaved);disposed=true;controller.abort();streamController?.abort();if(timer)clearTimeout(timer)})
 defineExpose({prepareToLeave, context, runContextAction, sources})
 </script>
 <style scoped>
@@ -187,6 +278,8 @@ defineExpose({prepareToLeave, context, runContextAction, sources})
 .project-render{padding:24px;flex:1;min-height:0;display:flex;flex-direction:column}.project-render>header{display:flex;align-items:center;gap:12px;margin-bottom:24px}.project-render>header>div{flex:1;min-width:0}.project-render h1{color:var(--lz-text-primary);font-size:20px;font-weight:600;margin:0 0 6px;overflow-wrap:anywhere}.project-render p{font-size:15px;color:var(--lz-text-secondary);margin:0}
 .project-deck{display:grid;grid-template-columns:160px minmax(0,1fr);min-height:350px;gap:20px;margin-top:20px;flex:1}.project-deck>nav{overflow:auto}.project-deck>nav button{display:flex;width:100%;text-align:left;align-items:flex-start;margin-bottom:6px;overflow-wrap:anywhere}.project-deck>nav button span{color:var(--lz-text-secondary)}.project-deck>nav button.active{background:var(--lz-bg-page);color:var(--lz-brand-strong)}
 .project-canvas{align-self:center;min-width:0;width:100%}
+.project-live-copy{padding:0 24px 24px;max-width:820px;width:100%;box-sizing:border-box;margin:0 auto;font-size:17px;line-height:1.85;white-space:pre-wrap;overflow-wrap:anywhere}.project-live-copy>section{padding:20px 0;border-bottom:1px solid var(--lz-border)}
+.project-render>header{flex-wrap:wrap;margin-bottom:16px}.project-render>header>div{min-width:180px}.project-deck{grid-template-columns:minmax(140px,190px) minmax(0,1fr);align-items:start;min-height:0}.project-deck>nav{max-height:65vh;scrollbar-gutter:stable}.project-deck>nav button{gap:12px;padding:12px 10px;line-height:1.6}.project-deck .page-number{flex:0 0 22px;font-variant-numeric:tabular-nums}.project-deck>nav button.active{font-weight:600}.project-canvas{align-self:start;aspect-ratio:16/9}.project-render :deep(.compact-pagination){flex:0 0 auto}
 .spinning{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spinning{animation:none}}
 .ppt-project-workspace :deep(.ppt-manuscript-workflow){border:0;border-radius:0;box-shadow:none;flex:1;min-height:440px;background:transparent}
 .ppt-project-workspace :deep(.ppt-manuscript-workflow__pages){min-height:420px}

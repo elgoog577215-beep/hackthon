@@ -113,7 +113,8 @@ describe('统一讲义页面', () => {
     expect(wrapper.text()).toContain('本讲目标')
     expect(wrapper.text()).toContain('重点讲解')
     const firstModule = wrapper.findAll('.script-module')[0]!
-    expect(firstModule.get('.script-streamed-block').element.nextElementSibling?.classList.contains('script-visual-studio')).toBe(true)
+    expect(wrapper.find('.script-visual-studio').exists()).toBe(false)
+    expect(useTeacherScriptVisualStore().load).not.toHaveBeenCalled()
 
     await wrapper.findAll('.script-actions button').find(button => button.text().includes('编辑讲义'))!.trigger('click')
     const editors = wrapper.findAll('.script-block-editor textarea')

@@ -63,3 +63,39 @@ describe('PPT manuscript reading preserves teaching structure', () => {
     expect(relation.get('.ppt-teaching-reading__conditions').text()).toContain('相同输入')
   })
 })
+
+describe('PPT content editing', () => {
+  function editablePage() {
+    return { title: '比较两种方法', teaching: {
+      elements: [
+        { element_id: 'a', text: '方法甲', role: 'evidence' },
+        { element_id: 'b', text: '方法乙', role: 'evidence' },
+      ],
+      expression: { kind: 'concept', node_element_ids: ['a', 'b'], relations: [
+        { relation_id: 'relation-1', source_id: 'a', target_id: 'b', kind: 'contrasts', label: '比较', condition_element_ids: [] },
+      ] },
+      states: [{ state_id: 'state-1', teaching_note: '请学生说明依据', visible_element_ids: ['a', 'b'] }],
+      presentation: { mode: 'complete', checkpoints: [] },
+    } }
+  }
+
+  it('keeps relations collapsed and edits visible speaker notes without changing structure', async () => {
+    const page = editablePage()
+    const originalExpression = JSON.parse(JSON.stringify(page.teaching.expression))
+    const wrapper = mount(PptTeachingEditor, { props: { page, disabled: false, section: 'content' } })
+    expect((wrapper.get('details').element as HTMLDetailsElement).open).toBe(false)
+    expect(wrapper.find('[data-testid="ppt-page-layout"]').exists()).toBe(false)
+    expect(wrapper.get('.ppt-teaching-editor__notes').find('details').exists()).toBe(false)
+    await wrapper.get('.ppt-teaching-editor__notes textarea').setValue('先比较条件，再让学生说明依据')
+    expect(page.teaching.states).toEqual([
+      { state_id: 'state-1', teaching_note: '先比较条件，再让学生说明依据', visible_element_ids: ['a', 'b'] },
+    ])
+    expect(page.teaching.expression).toEqual(originalExpression)
+    expect(page.teaching.elements.map(element => element.element_id)).toEqual(['a', 'b'])
+    await wrapper.setProps({ section: 'layout' })
+    expect(wrapper.find('.ppt-teaching-editor__notes').exists()).toBe(false)
+    await wrapper.setProps({ section: 'content', disabled: true })
+    expect(wrapper.get('.ppt-teaching-editor__notes textarea').attributes('disabled')).toBeDefined()
+    expect((wrapper.get('.ppt-teaching-editor__notes textarea').element as HTMLTextAreaElement).value).toBe('先比较条件，再让学生说明依据')
+  })
+})

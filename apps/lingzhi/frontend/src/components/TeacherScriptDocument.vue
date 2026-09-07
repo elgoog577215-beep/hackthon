@@ -212,15 +212,6 @@
               <MarkdownRenderer :key="block.block_id" :content="block.content" />
               <span v-if="blockIsStreaming(block.block_id)" class="stream-caret" aria-hidden="true" />
             </div>
-            <ScriptVisualStudio
-              v-if="!showWorkingPreview && lesson.script.ready"
-              :course-id="courseId"
-              :lesson-unit-id="lesson.lesson_unit_id"
-              :script-revision-id="lesson.script.current_revision_id"
-              :section-node-id="node.section_node_id"
-              :block-id="block.block_id"
-              :block-title="teacherFacingTeachingLabel(block.title, block.module_id)"
-            />
           </section>
         </div>
         <div v-else-if="contentFor(node)" class="script-content" data-state="current"><MarkdownRenderer :content="contentFor(node)" /></div>
@@ -237,17 +228,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { Check, LoaderCircle, Pencil, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import MathText from './MathText.vue'
-import ScriptVisualStudio from './ScriptVisualStudio.vue'
 import TextSelectionAiAction, { type TeacherInlineAiRequest } from './TextSelectionAiAction.vue'
 import { useDocumentEditHistory } from '../composables/useDocumentEditHistory'
 import { t } from '../shared/i18n'
 import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring'
-import { useTeacherScriptVisualStore } from '../stores/teacherScriptVisuals'
 import type { TeacherLessonJob, TeacherLessonProjection, TeacherLessonScriptCandidate, TeacherLessonScriptState } from '../stores/teacherLessonAuthoring'
 import { toAppError } from '../utils/app-error'
 import { hasScriptPreviewContent, readableScriptTitle, scriptGenerationPresentation } from '../utils/teacher-script-presentation'
@@ -294,7 +283,6 @@ const emit = defineEmits<{
 }>()
 
 const lessonStore = useTeacherLessonAuthoringStore()
-const scriptVisualStore = useTeacherScriptVisualStore()
 const selectedNodeId = ref('')
 const editing = ref(false)
 const editBaseline = ref('')
@@ -311,7 +299,6 @@ const pendingCandidate = ref<TeacherLessonScriptCandidate | null>(null)
 const candidateRef = ref<HTMLElement | null>(null)
 const documentRoot = ref<HTMLElement | null>(null)
 const inlineAiAction = ref<{ openForDocument: (text?: string) => void } | null>(null)
-onUnmounted(() => scriptVisualStore.releaseAssets())
 type ScriptEditSnapshot = { drafts: Record<string, string>; blockDrafts: Record<string, string> }
 const editHistory = useDocumentEditHistory<ScriptEditSnapshot>(snapshot => {
   Object.keys(drafts).forEach(key => { delete drafts[key] })
@@ -728,20 +715,6 @@ watch(() => props.lesson.lesson_unit_id, () => {
   emit('ai-candidate-change', null)
   aiError.value = null
   selectedNodeId.value = scriptSections.value[0]?.section_node_id || ''
-}, { immediate: true })
-
-watch(() => ({
-  courseId: props.courseId,
-  lessonUnitId: props.lesson.lesson_unit_id,
-  scriptRevisionId: props.lesson.script.current_revision_id,
-  ready: props.lesson.script.ready,
-}), ({ courseId, lessonUnitId, scriptRevisionId, ready }) => {
-  if (!ready || !courseId || !lessonUnitId || !scriptRevisionId) return
-  const current = scriptVisualStore.view(courseId, lessonUnitId)
-  const force = Boolean(current && current.script_revision_id !== scriptRevisionId)
-  void scriptVisualStore.load(courseId, lessonUnitId, force).catch(() => {
-    // Each block keeps the scoped load error visible without interrupting script reading.
-  })
 }, { immediate: true })
 
 watch(() => [

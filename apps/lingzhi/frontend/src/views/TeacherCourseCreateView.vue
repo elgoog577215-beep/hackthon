@@ -120,7 +120,7 @@ const form = reactive({
   credits: 2, weeklyHours: 2, totalHours: 32,
   prerequisiteCourses: '', academicYear: '', term: '', defaultLocation: '',
   activeWeekStart: 1, activeWeekEnd: 16, weekRangeMode: 'academic_calendar' as WeekRangeMode,
-  scheduleSlots: [] as CourseScheduleSlot[], plannedLectureCount: 16,
+  scheduleSlots: [] as CourseScheduleSlot[], plannedLectureCount: 6,
 })
 
 const automaticWeekRange = computed(() => zjuTeachingWeekRange(form.term))

@@ -6678,6 +6678,8 @@
     "failed": "操作未完成，请重试。"
   },
   "pptProject": {
+    "speakerNotes": "讲课备注",
+    "liveDraft": "正在生成内容稿",
     "newFromSelection": "用所选内容新建",
     "steps": "PPT 制作步骤",
     "originalReview": "原版 PPT 审阅",

@@ -5443,13 +5443,22 @@ def _deterministic_source_bound_visual_response(
     }
 
 
-def build_ai_base_story_planner_v6() -> Planner:
+def build_ai_base_story_planner_v6(*, on_content_stream=None) -> Planner:
     provider = AIBase(provider_profile="ppt")
 
     async def planner(request: dict[str, Any]) -> dict[str, Any]:
         if request.get("teaching_request") in {"narrative", "page", "revision", "fixed_fields"}:
             from ppt_teaching_planner import invoke_teaching_provider
-            return await invoke_teaching_provider(provider, request)
+            if on_content_stream is None:
+                return await invoke_teaching_provider(provider, request)
+            page = request.get("page") or request.get("current_page") or {}
+            batch_id = str(page.get("page_id") or "narrative")
+            async def emit(event, delta=""):
+                await on_content_stream({"batch_id":batch_id, "event":event, "delta":delta})
+            result = await invoke_teaching_provider(provider, request,
+                on_content_delta=lambda delta: emit("delta", delta), on_content_reset=lambda: emit("reset"))
+            await emit("complete")
+            return result
         telemetry: list[dict[str, Any]] = []
         try:
             with generation_stage(

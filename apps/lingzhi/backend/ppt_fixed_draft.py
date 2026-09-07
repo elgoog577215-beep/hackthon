@@ -185,7 +185,7 @@ async def invoke_fixed_form(planner, request):
     if not plan:
         return await planner(request)
     slug = fixed_slug(plan["layout_id"])
-    compact = {"teaching_request": "fixed_fields", "page": {k: plan[k] for k in ("title", "page_goal", "layout_id")},
+    compact = {"teaching_request": "fixed_fields", "page": {k: plan[k] for k in ("page_id", "title", "page_goal", "layout_id") if k in plan},
         "response_contract": form_schema(plan["layout_id"]),
         "field_limits": {"text_max_chars": layout_limits(plan["layout_id"])[3], "title_max_chars": 28},
         "literal_source_ranges": request.get("literal_source_ranges", []),

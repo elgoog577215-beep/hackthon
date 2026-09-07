@@ -300,13 +300,19 @@ async def _await_with_heartbeats(
     callback: ProgressCallback | None,
 ) -> Any:
     task = asyncio.create_task(awaitable)
-    while not task.done():
-        try:
-            return await asyncio.wait_for(asyncio.shield(task), timeout=1.0)
-        except asyncio.TimeoutError:
-            if tracker.heartbeat_due():
-                await _emit(callback, tracker.heartbeat())
-    return await task
+    try:
+        while not task.done():
+            try:
+                return await asyncio.wait_for(asyncio.shield(task), timeout=1.0)
+            except asyncio.TimeoutError:
+                if tracker.heartbeat_due():
+                    await _emit(callback, tracker.heartbeat())
+        return await task
+    finally:
+        # A pause/source fence must also stop the shielded planner, not just its waiter.
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 def _storyboard_summary(story: SlideStoryPlanV3) -> dict[str, Any]:
