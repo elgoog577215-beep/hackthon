@@ -1,4 +1,33 @@
 {
+  "courseReviewDetails": {
+      "sourceAndChecks": "Sources and checks",
+      "revision": "Source revision",
+      "fields": "Source fields",
+      "unknown": "Not recorded",
+      "formula": "Formulas",
+      "answer": "Answers",
+      "citation": "Citations",
+      "check": "Present; review before applying",
+      "notDetected": "No clear marker found; check the source",
+      "render": "Slide preview",
+      "renderAfterApply": "Preview updates from the applied manuscript"
+  },
+  "pptLive": {
+      "manuscript": "Content",
+      "render": "Slides",
+      "edit": "Edit content",
+      "history": "PPT history",
+      "stale": "The handout changed. Some pages need to be synced.",
+      "sync": "Sync affected pages",
+      "previousPreview": "Showing the previous preview. Recent edits are not rendered yet.",
+      "previewing": "Preparing preview…",
+      "previewUnavailable": "No preview available",
+      "missing": "This lesson has no PPT manuscript yet",
+      "complete": "Complete manuscript",
+      "candidate": "Proposed sync",
+      "accept": "Apply changes",
+      "reject": "Keep original"
+  },
   "common": {
     "cancel": "Cancel",
     "confirm": "Confirm",

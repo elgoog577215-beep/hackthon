@@ -452,6 +452,7 @@ class PptManuscriptV1(_StrictModel):
     """讲义与模板渲染之间的唯一逐页内容合同。"""
 
     schema_version: Literal["ppt_manuscript_v1"] = "ppt_manuscript_v1"
+    generation_contract_version: str = ""
     teaching_content_contract_version: Literal[
         "legacy", "page_teaching_v1", "page_teaching_v2"
     ] = "legacy"
@@ -481,6 +482,8 @@ class PptManuscriptV1(_StrictModel):
     @model_serializer(mode="wrap")
     def serialize_compatible(self, handler):
         payload = handler(self)
+        if not self.generation_contract_version:
+            payload.pop("generation_contract_version", None)
         if not self.quality_suggestions:
             payload.pop("quality_suggestions", None)
         if not self.quality_contract_version:

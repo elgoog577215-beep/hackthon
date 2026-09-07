@@ -8394,6 +8394,11 @@ class CourseService(AIBase):
         on_content_delta: Callable[[str], Awaitable[None] | None] | None = None,
         on_content_reset: Callable[[], Awaitable[None] | None] | None = None,
         allow_partial_quality: bool = False,
+        generation_contract_version: str = "",
+        ppt_template: dict[str, Any] | None = None,
+        bundle_seed_blocks: dict[str, Any] | None = None,
+        immutable_handout: bool = False,
+        on_bundle_checkpoint=None,
     ) -> dict[str, Any]:
         """Generate a self-contained course handout from the current plan.
 
@@ -8549,6 +8554,8 @@ class CourseService(AIBase):
             *,
             output_tokens: int,
             allow_secondary_attempt: bool = True,
+            stream_delta=on_content_delta,
+            stream_reset=on_content_reset,
         ) -> str | None:
             common = {
                 "retry_count": 1,
@@ -8557,14 +8564,14 @@ class CourseService(AIBase):
                 "reject_truncated": True,
                 "raise_on_failure": True,
                 "max_tokens": output_tokens,
-                "on_content_delta": on_content_delta,
-                "on_content_reset": on_content_reset,
+                "on_content_delta": stream_delta,
+                "on_content_reset": stream_reset,
             }
 
             async def reset_visible_stream() -> None:
-                if not on_content_reset:
+                if not stream_reset:
                     return
-                result = on_content_reset()
+                result = stream_reset()
                 if inspect.isawaitable(result):
                     await result
 
@@ -8609,6 +8616,16 @@ class CourseService(AIBase):
                 # Both configured roles use the required text model. Only
                 # retry a recoverable request; optional polish keeps its draft.
                 return await call_with_shared_capacity(use_fast_model=False)
+
+        if generation_contract_version == "script_ppt_bundle_v1":
+            from teacher_script_ppt import generate_bundle
+            from template_layout_contract import TemplateLayoutPackContractV1
+            return await generate_bundle(
+                invoke=call_script_model, contract=contract, instructions=system_prompt,
+                template=TemplateLayoutPackContractV1.model_validate(ppt_template),
+                on_delta=on_content_delta, on_reset=on_content_reset,
+                seed_blocks=bundle_seed_blocks, on_checkpoint=on_bundle_checkpoint, immutable_handout=immutable_handout,
+            )
 
         last_report: dict[str, Any] = {}
         last_text = ""

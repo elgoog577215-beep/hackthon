@@ -112,7 +112,7 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => {
         emits: ['open-course-information', 'retry-workflow', 'regenerate-workflow', 'source-state-change', 'update:modelValue'],
       },
       // These fixtures exercise the retained legacy PPT recovery path.
-      PptProjectWorkspace: {
+      LessonPptWorkspace: {
         template: '<section />',
         mounted() { this.$emit('legacy') },
       },

@@ -1,4 +1,33 @@
 {
+  "courseReviewDetails": {
+      "sourceAndChecks": "来源与核对",
+      "revision": "来源版本",
+      "fields": "来源字段",
+      "unknown": "未记录",
+      "formula": "公式",
+      "answer": "答案",
+      "citation": "引用",
+      "check": "涉及，采用前请核对",
+      "notDetected": "未检出明显标记，请结合原文核对",
+      "render": "PPT 预览",
+      "renderAfterApply": "采用后按内容稿更新预览"
+  },
+  "pptLive": {
+      "manuscript": "内容",
+      "render": "渲染",
+      "edit": "编辑内容",
+      "history": "历史 PPT",
+      "stale": "讲义已更新，部分页面需要同步。",
+      "sync": "同步受影响页",
+      "previousPreview": "当前显示上次预览，最新修改尚未渲染。",
+      "previewing": "正在准备预览…",
+      "previewUnavailable": "暂无可用预览",
+      "missing": "本讲尚无 PPT 内容稿",
+      "complete": "补齐内容稿",
+      "candidate": "同步候选",
+      "accept": "采用修改",
+      "reject": "保留原稿"
+  },
   "common": {
     "cancel": "取消",
     "confirm": "确定",

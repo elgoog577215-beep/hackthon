@@ -52,7 +52,7 @@
       }"
     >
       <button
-        v-if="!contextPaneVisible && activeStage !== 'question-bank'"
+        v-if="!contextPaneVisible && activeStage !== 'question-bank' && (activeStage !== 'ppt' || legacyPptOpen)"
         class="context-pane-reopen"
         type="button"
         :title="t('courseWorkbench.contextPane.expand', '展开当前内容信息')"
@@ -331,7 +331,7 @@
           >
             <header>
               <strong>{{ t('courseWorkbench.lessonOutline.title', '讲次目录') }}</strong>
-              <small>{{ t('courseWorkbench.lessonOutline.completedCount', '已完成 {completed}/{total}')
+              <small v-if="activeStage !== 'ppt' || legacyPptOpen">{{ t('courseWorkbench.lessonOutline.completedCount', '已完成 {completed}/{total}')
                 .replace('{completed}', String(lessonCompletedCount))
                 .replace('{total}', String(lessonStore.lessons.length)) }}</small>
             </header>
@@ -353,12 +353,12 @@
                     <strong><MathText :content="lessonDisplayName(lesson)" /></strong>
                   </span>
                   <small
-                    v-if="showLessonAuxiliaryState(lesson) || !['ready', 'generating'].includes(lessonGenerationState(lesson))"
+                    v-if="(activeStage !== 'ppt' || legacyPptOpen) && (showLessonAuxiliaryState(lesson) || !['ready', 'generating'].includes(lessonGenerationState(lesson)))"
                     :data-state="lessonGenerationState(lesson)"
                   >{{ lessonGenerationStateLabel(lesson) }}</small>
                 </span>
                 <span
-                  class="lesson-outline-status"
+                  v-if="activeStage !== 'ppt' || legacyPptOpen" class="lesson-outline-status"
                   :data-state="lessonGenerationState(lesson)"
                   :aria-hidden="lessonGenerationProgressFor(lesson) === null ? true : undefined"
                 >
@@ -800,7 +800,7 @@
         </template>
 
         <template v-else-if="activeStage === 'ppt'">
-          <PptProjectWorkspace v-if="!legacyPptOpen" ref="pptProjectWorkspace" :key="courseId" :course-id="courseId" :initial-lesson-id="selectedLessonId" :source-revision="pptSourceRevision" embedded @legacy="legacyPptOpen = true" />
+          <LessonPptWorkspace v-if="!legacyPptOpen && selectedLesson" ref="pptProjectWorkspace" :key="courseId" :course-id="courseId" :initial-lesson-id="selectedLessonId" :title="selectedLesson.title" :source-revision="pptSourceRevision" embedded @legacy="legacyPptOpen = true" />
           <button v-else type="button" class="secondary" @click="legacyPptOpen = false">{{ t('pptProject.backToNew') }}</button>
           <UploadedPptReviewWorkspace
             ref="uploadedPptWorkspace"
@@ -1138,7 +1138,7 @@ import { hasScriptPreviewContent, scriptGenerationPresentation } from '../utils/
 import { teacherFacingTeachingLabel } from '../utils/teaching-terminology'
 import UploadedPptReviewWorkspace from './UploadedPptReviewWorkspace.vue'
 import PptWorkspace from './PptWorkspace.vue'
-import PptProjectWorkspace from './PptProjectWorkspace.vue'
+import LessonPptWorkspace from './LessonPptWorkspace.vue'
 import UiWorkflowSteps from './UiWorkflowSteps.vue'
 import {
   buildTeacherCourseChangeInstruction,
@@ -1196,7 +1196,7 @@ import http, { teacherReadRequestConfig, teacherRequestConfig } from '../utils/h
 import { createUuid } from '../utils/client-id'
 
 const legacyPptOpen = ref(false)
-const pptProjectWorkspace = ref<InstanceType<typeof PptProjectWorkspace> | null>(null)
+const pptProjectWorkspace = ref<InstanceType<typeof LessonPptWorkspace> | null>(null)
 const pptSourceRevision = computed(() => lessonStore.lessons.map(lesson => `${lesson.lesson_unit_id}:${lesson.script.current_revision_id}:${lesson.script.ready}`).join('|'))
 type CoreStageId = 'foundation' | 'lesson' | 'script' | 'ppt'
 type StageId = CoreStageId | 'question-bank' | 'companion'
@@ -2380,7 +2380,7 @@ const lessonOutlineVisible = computed(() => {
   if (activeStage.value === 'script') {
     return scriptBatchStarting.value || scriptGenerating.value || lessonStore.lessons.some(lesson => lessonGenerationState(lesson) !== 'pending')
   }
-  return activeStage.value === 'ppt' && legacyPptOpen.value
+  return activeStage.value === 'ppt'
 })
 const effectiveScriptGenerationError = computed(() => String(
   productionState.value
@@ -3900,7 +3900,7 @@ function beginScriptEditing() { scriptDocument.value?.beginEditing() }
 function cancelScriptEditing() { scriptDocument.value?.cancelEditing() }
 async function saveScriptDraft() { await scriptDocument.value?.saveDraft() }
 async function finishEditing(): Promise<boolean> {
-  if (activeStage.value === 'ppt' && pptProjectWorkspace.value && !pptProjectWorkspace.value.prepareToLeave()) return false
+  if (activeStage.value === 'ppt' && pptProjectWorkspace.value && !await pptProjectWorkspace.value.prepareToLeave()) return false
   if (activeStage.value === 'ppt' && uploadedPptWorkspace.value && !await uploadedPptWorkspace.value.prepareToLeave()) return false
   if (activeStage.value === 'ppt' && pptWorkspace.value && !await pptWorkspace.value.prepareToLeave()) return false
   if (aiCandidatePending.value) return false
@@ -4282,7 +4282,7 @@ async function runPptContextAction(id: string) {
   }
   return pptWorkspace.value?.runContextAction(id as Parameters<NonNullable<typeof pptWorkspace.value>['runContextAction']>[0])
 }
-const contextPaneVisible = computed(() => !contextPaneCollapsed.value)
+const contextPaneVisible = computed(() => (activeStage.value !== 'ppt' || legacyPptOpen.value) && !contextPaneCollapsed.value)
 async function uploadPptAfterSave(upload: () => void) {
   if (pptSourceChangeBlocked.value) return
   const lessonId = selectedLessonId.value

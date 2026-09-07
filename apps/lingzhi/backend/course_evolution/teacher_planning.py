@@ -296,6 +296,20 @@ def _authoring_units(authoring: dict[str, Any]) -> list[TeacherCourseChangeUnit]
                     metadata={"module_id": str(block.get("module_id") or "")},
                 ))
 
+        state = lesson.get("ppt_manuscript") or {}
+        manuscript = state.get("manuscript") or {}
+        if manuscript.get("pages"):
+            from .manuscript_changes import manuscript_fields
+            for page in manuscript["pages"]:
+                fields = manuscript_fields(page)
+                result.append(TeacherCourseChangeUnit(
+                    unit_id=f"ppt:{lesson_id}:{page['page_id']}", asset_type="ppt", unit_type="manuscript_page",
+                    title=page["title"], text="\n".join(fields.values()), full_text_fields=fields,
+                    section_ids=page.get("source_section_ids") or [str(lesson_id)], parent_id=str(lesson_id),
+                    source_revision=str(state.get("revision") or ""), source_state=str(state.get("source_state") or "current"),
+                    metadata={"manuscript": True},
+                ))
+            continue
         for asset in lesson.get("ppt_assets") or []:
             if not isinstance(asset, dict):
                 continue
@@ -340,6 +354,8 @@ def _ppt_units(
     result: list[TeacherCourseChangeUnit] = []
     for lesson_id, lesson in (authoring.get("lessons") or {}).items():
         if not isinstance(lesson, dict):
+            continue
+        if (lesson.get("ppt_manuscript") or {}).get("manuscript"):
             continue
         for asset in lesson.get("ppt_assets") or []:
             if not isinstance(asset, dict):
@@ -1477,6 +1493,8 @@ def _unit_migrations(
                 "section_ids": unit.section_ids,
                 "role": unit.role,
                 "source_state": unit.source_state,
+                "source_fields": list(unit.full_text_fields),
+                "source_revision": unit.source_revision,
                 "content_patches": deepcopy(item.get("content_patches") or []),
                 "literal_replacement": deepcopy(item.get("literal_replacement") or {}),
             },
@@ -1869,7 +1887,9 @@ async def create_teacher_course_change_plan(
 ) -> CourseEvolutionState:
     if not context.ready:
         raise TeacherCourseChangeSourceUnavailable("当前课程尚未形成可分析的大纲或教学资产")
-    if asset_types:
+    if asset_types is not None:
+        if not asset_types:
+            raise ValueError("请选择至少一种课程文件")
         context = context.model_copy(update={"units": [unit for unit in context.units if unit.asset_type in asset_types]})
     normalized_instruction = _compact(instruction, 5000)
     if not normalized_instruction:
@@ -2063,6 +2083,15 @@ async def create_teacher_course_change_plan(
             "before_preview": str(item.metadata.get("before_preview") or ""),
             "before_content": str(item.metadata.get("before_content") or ""),
             "matched_fields": list(item.metadata.get("matched_fields") or []),
+            "source_fields": list(item.metadata.get("source_fields") or []),
+            "source_revision": str(item.metadata.get("source_revision") or ""),
+            "lesson_id": str(item.metadata.get("parent_id") or ""),
+            "requires_review": item.requires_review,
+            "review_signals": {
+                "formula": bool(re.search(r"\$|\\\\\(|\\\\\[|公式|formula|latex", str(item.metadata.get("before_content") or ""), re.I)),
+                "answer": bool(re.search(r"答案|解答|answer|solution", str(item.metadata.get("before_content") or "") + " ".join(item.metadata.get("source_fields") or []), re.I)),
+                "citation": bool(re.search(r"引用|参考文献|https?://|citation|reference", str(item.metadata.get("before_content") or ""), re.I)),
+            },
             "section_ids": item.metadata.get("section_ids") or [],
             "source_state": str(item.metadata.get("source_state") or "current"),
             "disposition": item.disposition,
@@ -2097,6 +2126,7 @@ async def create_teacher_course_change_plan(
         allowed_scopes=["current"] if executable_operations else [],
         operations=executable_operations,
         impact_summary={
+            "request_asset_types": list(asset_types) if asset_types is not None else sorted({unit.asset_type for unit in context.units}),
             "request_id": request_id,
             "analysis_mode": analysis.get("analysis_mode"),
             "source_mode": context.source_mode,

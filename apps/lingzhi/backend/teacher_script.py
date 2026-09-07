@@ -451,7 +451,7 @@ def compile_teacher_script_module_contract(
             actual.get("planned_minutes"),
         )
         modules.append({
-            "block_id": _stable_block_id(section_id, module_id, index),
+            "block_id": _text(actual.get("block_id")) or _stable_block_id(section_id, module_id, index),
             "module_id": module_id,
             "role": role,
             "title": label,
@@ -801,6 +801,8 @@ def normalize_teacher_script_section(
                     raw.get("generation_source")
                     or module.get("generation_source")
                 ),
+                **({key: deepcopy(raw[key]) for key in ("ppt_pages", "ppt_errors", "ppt_page_groups", "ppt_repair_attempts", "generation_contract_version") if key in raw}
+                   if raw.get("generation_contract_version") == "script_ppt_bundle_v1" else {}),
             })
     else:
         content = _text(value.get("content"))

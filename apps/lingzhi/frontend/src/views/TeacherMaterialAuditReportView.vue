@@ -5,7 +5,7 @@
         <button type="button" :aria-label="returnLabel" @click="backToWorkbench"><ArrowLeft :size="17" /></button>
         <FolderOpen :size="18" />
         <h1>{{ courseName || t('courseFiles.untitledCourse', '未命名课程') }}</h1>
-        <small>{{ t('courseAuditUpdates.title', '资料审阅与更新') }}</small>
+        <small>{{ route.query.mode === 'semantic' ? t('courseAuditUpdates.globalSemantic') : t('courseAuditUpdates.title', '资料审阅与更新') }}</small>
       </div>
     </Teleport>
 
@@ -25,8 +25,8 @@
         <TriangleAlert :size="15" />{{ center.error || auditStore.error }}
       </p>
 
-      <div class="update-center-grid" :class="{ 'is-course-change': isCourseChangeMode }">
-        <aside class="source-ledger">
+      <div class="update-center-grid" :class="{ 'is-course-change': isCourseChangeMode, 'is-semantic-review': route.query.mode === 'semantic' && isCourseChangeMode }">
+        <aside v-if="route.query.mode !== 'semantic' || !isCourseChangeMode" class="source-ledger">
           <header>
             <div class="source-heading">
               <h2>{{ t('courseAuditUpdates.changeSources', '变化来源') }}</h2>
@@ -1145,4 +1145,5 @@ onMounted(() => { if (courseId.value) void loadCenter() })
 @media (prefers-reduced-motion: reduce) {
   .spin { animation: none; }
 }
+.update-center-grid.is-semantic-review { grid-template-columns: minmax(0, 1fr); }
 </style>

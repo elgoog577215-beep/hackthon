@@ -610,6 +610,12 @@ async def _generate_ppt_candidates(
     operations: list[CourseEvolutionOperation] = []
     for lesson_id, items in _group(migrations, "ppt").items():
         try:
+            if items[0].metadata.get("manuscript"):
+                from .manuscript_changes import generate_manuscript_candidate
+                payload = await generate_manuscript_candidate(course_id=course_id, lesson_id=lesson_id, plan=plan,
+                    items=items, repository=repository, course_service=course_service)
+                operations.append(_operation(plan=plan, domain="ppt", migrations=items, payload=payload))
+                continue
             first = items[0].metadata or {}
             synthetic_course_id = str(first.get("synthetic_course_id") or "")
             representation_id = str(first.get("representation_id") or "")
@@ -1860,6 +1866,20 @@ def _reconciled_operation_receipt(
             return receipt
         return None
 
+    if domain == "ppt" and payload.get("action") == "edit_manuscript":
+        state = authoring_repository.current_v6_ppt_manuscript(course_id, lesson_id) or {}
+        if state.get("revision") != payload.get("candidate_revision_id"):
+            return None
+        receipt.update({
+            "status": "applied",
+            "detail": "已与 PPT 内容稿修订对账，无需重复应用",
+            "previous_revision_id": str(payload.get("base_revision_id") or ""),
+            "result_revision_id": str(state["revision"]),
+            "lesson_unit_id": lesson_id,
+            "retryable": False,
+        })
+        return receipt
+
     if domain == "ppt":
         lesson = authoring_repository.lesson(course_id, lesson_id)
         asset = next(
@@ -2049,7 +2069,10 @@ def build_domain_candidate_applier(
                     if domain == "script"
                     else ""
                 )
-                if domain == "ppt":
+                if domain == "ppt" and action == "edit_manuscript":
+                    entry.expected_result_revision_id = str(payload.get("candidate_revision_id") or "")
+                    entry.previous_revision_id = str(payload.get("base_revision_id") or "")
+                elif domain == "ppt":
                     lesson = authoring_repository.lesson(
                         course_id,
                         str(payload.get("lesson_unit_id") or ""),
@@ -2143,6 +2166,11 @@ def build_domain_candidate_applier(
                             entry.expected_result_revision_id
                         ),
                     )
+                elif domain == "ppt" and payload.get("action") == "edit_manuscript":
+                    from .manuscript_changes import apply_manuscript_candidate
+                    receipt["previous_revision_id"] = payload["base_revision_id"]
+                    receipt["result_revision_id"] = apply_manuscript_candidate(authoring_repository, course_id, payload)
+                    receipt["lesson_unit_id"] = lesson_id
                 elif domain == "ppt":
                     result_spec_id, result_binding_id, previous_binding_id = _apply_ppt_candidate(
                         course_data=course_data,
@@ -2473,6 +2501,9 @@ def build_domain_candidate_undoer(
                         expected_working_revision_id=result,
                         actor=user_id,
                     )
+                elif domain == "ppt" and payload.get("action") == "edit_manuscript":
+                    from .manuscript_changes import apply_manuscript_candidate
+                    apply_manuscript_candidate(authoring_repository, course_id, payload, undo=True)
                 elif domain == "ppt":
                     lesson = authoring_repository.lesson(course_id, lesson_id)
                     asset = next(

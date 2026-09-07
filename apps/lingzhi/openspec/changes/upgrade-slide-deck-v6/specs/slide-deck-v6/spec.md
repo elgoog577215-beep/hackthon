@@ -1,5 +1,31 @@
 ## ADDED Requirements
 
+### Requirement: Teacher Scripts And Pages Share One Generation
+New teacher script jobs SHALL freeze `script_ppt_bundle_v1` and produce complete Markdown and typed fixed-template page fields in the same model response per shard. This requirement supersedes separate story/visual planning and manual confirmation prerequisites for this contract; historical manuscripts retain their original behavior.
+
+#### Scenario: A normal lecture is generated
+- **WHEN** all generated blocks and pages pass source and template validation
+- **THEN** the teacher repository atomically binds the manuscript to the actual script revision
+- **AND** entering PPT reads the saved manuscript without a project or another model request
+
+#### Scenario: Only pages fail
+- **WHEN** the handout is valid but a page is missing or invalid
+- **THEN** successful text and pages remain checkpointed and only failed page work receives at most two automatic repairs
+- **AND** cancellation, source conflicts and stale writes never overwrite teacher edits
+
+### Requirement: Preview Is Independent Of File Export
+The system SHALL preview a saved source-current manuscript through a revision-checked API without model calls, file export or a confirmation gate. Web and PPTX SHALL share the same resolved scene.
+
+#### Scenario: A teacher edits a page
+- **WHEN** the revision-checked save succeeds
+- **THEN** the response identifies changed pages and the client refreshes only those pages after 400ms debounced saving
+- **AND** out-of-order replies cannot replace newer edits or another lecture
+
+#### Scenario: The teacher downloads PPTX
+- **WHEN** a source-current manuscript passes its hard checks
+- **THEN** a durable export task freezes that exact revision and performs file-level audits
+- **AND** file failure preserves the last available result and never rewrites content
+
 The enhanced requirements below govern new `page_teaching_v2` manuscripts. Previously stored versions retain their original read/export behavior; migrating them requires an explicit new draft rather than silent normalization.
 
 ### Requirement: V6 Freezes Every Authoritative Input

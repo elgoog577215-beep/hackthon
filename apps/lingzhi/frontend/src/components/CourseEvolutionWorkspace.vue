@@ -51,10 +51,10 @@
               <section class="request-composer">
                 <div class="request-heading"><h3>{{ t('courseEvolution.workspace.requestTitle', '这次想让课程怎么变？') }}</h3></div>
                 <form @submit.prevent="submitRequest">
-                  <UiSegmentedControl class="request-modes" style="--ui-segment-font-size:15px" :model-value="requestMode" :options="requestModeOptions" :accessibility-label="t('courseEvolution.workspace.changeMode')" @update:model-value="requestMode = $event as typeof requestMode" />
+                  <UiSegmentedControl v-if="initialMode !== 'replace'" class="request-modes" style="--ui-segment-font-size:15px" :model-value="requestMode" :options="requestModeOptions" :accessibility-label="t('courseEvolution.workspace.changeMode')" @update:model-value="requestMode = $event as typeof requestMode" />
                   <div v-if="requestMode === 'replace'" class="literal-replacement">
                     <div class="semantic-presets" role="group" :aria-label="t('courseEvolution.workspace.semanticPresets', '常用语义修改')">
-                      <button v-for="preset in semanticPresets" :key="preset.id" type="button" @click="requestText = preset.prompt">{{ preset.label }}</button>
+                      <button v-for="preset in semanticPresets" :key="preset.id" type="button" :disabled="store.generating" @click="appendPreset(preset.prompt)">{{ preset.label }}</button>
                     </div>
                     <textarea ref="requestInputRef" v-model="requestText" rows="5" :aria-label="t('courseEvolution.workspace.mode_replace')" :placeholder="t('courseEvolution.workspace.semanticPlaceholder', '例如：统一术语、优化表达或调整逻辑，并说明哪些内容必须保持不变。')" :disabled="store.generating || contextUnavailable" />
                     <details class="literal-advanced">
@@ -62,7 +62,7 @@
                       <label>{{ t('courseEvolution.workspace.findText') }}<input v-model="findText" type="text" maxlength="2000" /></label>
                       <label>{{ t('courseEvolution.workspace.replaceWith') }}<input v-model="replacementText" type="text" maxlength="2000" /></label>
                     </details>
-                    <fieldset><legend>{{ t('courseEvolution.workspace.replaceScope') }}</legend><label v-for="asset in contextAssets.filter(a => ['outline', 'lesson_plan', 'script', 'course_content'].includes(a.asset_type))" :key="asset.asset_type"><input v-model="requestAssetTypes" type="checkbox" :value="asset.asset_type" />{{ assetLabel(asset.asset_type) }}</label></fieldset>
+                    <fieldset><legend>{{ t('courseEvolution.workspace.replaceScope') }}</legend><label v-for="asset in contextAssets.filter(a => ['outline', 'lesson_plan', 'script', 'course_content', 'ppt'].includes(a.asset_type))" :key="asset.asset_type"><input v-model="requestAssetTypes" type="checkbox" :value="asset.asset_type" :disabled="asset.state === 'missing' || store.generating" />{{ assetLabel(asset.asset_type) }}</label></fieldset>
                   </div>
                   <textarea v-else ref="requestInputRef" v-model="requestText" rows="5" :aria-label="t('courseEvolution.workspace.mode_structure')" :placeholder="t('courseEvolution.workspace.structurePlaceholder', '例如：把导数应用放到第 2 讲，并重新安排后续讲次')" :disabled="store.generating || contextUnavailable" />
                   <p v-if="store.generationError || actionError" class="inline-error" role="alert"><TriangleAlert :size="15" />{{ store.generationError || actionError }}</p>
@@ -108,7 +108,8 @@
                 </div>
                 <div class="impact-list">
                   <article v-for="item in visibleAffectedUnits" :key="item.migration_id" :class="{ excluded: !isUnitSelected(item.migration_id) }">
-                    <label class="impact-check"><input type="checkbox" :checked="isUnitSelected(item.migration_id)" @change="toggleUnit(item.migration_id)" /><span /></label>
+                    <label class="impact-check"><input type="checkbox" :aria-label="item.title" :checked="isUnitSelected(item.migration_id)" :disabled="candidatesGenerating || Boolean(store.actingId)" @change="toggleUnit(item.migration_id)" /><span /></label>
+                    <CourseChangeCandidateDetails :item="item" :outline="context?.outline || []" />
                     <div class="impact-copy"><header><div><small>{{ assetLabel(item.asset_type) }}</small><h4>{{ item.title }}</h4></div><label class="disposition-control"><span>{{ t('courseEvolution.workspace.handlingMethod', '处理方式') }}</span><select :value="effectiveDisposition(item)" @change="setDisposition(item, ($event.target as HTMLSelectElement).value)"><option v-for="option in dispositionOptions(item)" :key="option.value" :value="option.value">{{ option.label }}</option></select></label></header><p class="impact-reason">{{ item.reason }}</p><div v-if="(item.after_content || item.after_preview) && item.candidate_status === 'ready'" class="candidate-diff"><section class="source-preview"><small>{{ t('courseEvolution.workspace.beforeChange', '修改前') }}</small><p>{{ item.before_content || item.before_preview }}</p></section><ArrowRight :size="16" /><section class="source-preview is-after"><small>{{ t('courseEvolution.workspace.afterChange', '修改后') }}</small><p>{{ item.after_content || item.after_preview }}</p></section></div><section v-else-if="item.before_preview" class="source-preview"><small>{{ t('courseEvolution.workspace.currentSource', '当前内容摘录') }}</small><p>{{ item.before_content || item.before_preview }}</p></section><p v-if="item.candidate_error" class="candidate-error"><TriangleAlert :size="13" />{{ item.candidate_error }}<button v-if="item.candidate_error_detail?.retryable !== false" type="button" :disabled="candidatesGenerating" @click="retryCandidateFailures">{{ t('courseEvolution.workspace.retryThisFailure', '重试失败项') }}</button><button v-else type="button" @click="openCorrection">{{ t('courseEvolution.workspace.answerAndReanalyze') }}</button></p><footer><span v-if="item.source_state === 'stale'"><TriangleAlert :size="13" />{{ t('courseEvolution.workspace.sourceStale', '来源与当前课程版本不一致') }}</span><span v-else-if="item.operation_id && candidateReviewReady"><CircleCheckBig :size="13" />{{ item.change_count }} {{ t('courseEvolution.workspace.exactChanges', '处精确修改') }}</span><span>{{ confidenceLabel(item.confidence) }}</span></footer></div>
                   </article>
                   <p v-if="!visibleAffectedUnits.length" class="empty-impact">{{ t('courseEvolution.workspace.noAffectedForAsset', '这一类资产没有被判定为必改内容。') }}</p>
@@ -140,6 +141,7 @@ import { ArrowLeft, ArrowRight, BookOpenText, BookText, BrainCircuit, Check, Che
 import { createUuid } from '../utils/client-id'
 import { activeLocale, t } from '../shared/i18n'
 import UiSegmentedControl from './UiSegmentedControl.vue'
+import CourseChangeCandidateDetails from './CourseChangeCandidateDetails.vue'
 import { useCourseEvolutionStore, observeCourseChangeProgress, type CourseEvolutionApplicationPresentation, type CourseEvolutionPlan, type TeacherCourseChangeContext, type TeacherCourseOutlineReviewNode, type TeacherMigrationDisposition } from '../stores/courseEvolution'
 
 type WorkspaceState = 'request' | 'scanning' | 'interpreting' | 'content' | 'structure' | 'applied'
@@ -163,7 +165,11 @@ const semanticPresets = computed(() => [
   { id: 'logic', label: t('courseEvolution.workspace.semanticLogic', '逻辑调整'), prompt: t('courseEvolution.workspace.semanticLogicPrompt', '调整内容顺序和衔接，让论述逻辑更清楚，不新增知识。') },
   { id: 'explain', label: t('courseEvolution.workspace.semanticExplain', '增强解释'), prompt: t('courseEvolution.workspace.semanticExplainPrompt', '补足必要解释，让学生更容易理解，保留原有知识范围。') },
 ])
-const requestAssetTypes = ref(['outline', 'lesson_plan', 'script', 'course_content'])
+const requestAssetTypes = ref(['outline', 'lesson_plan', 'script', 'course_content', 'ppt'])
+function appendPreset(prompt: string) {
+  if (!requestText.value.includes(prompt)) requestText.value = [requestText.value.trim(), prompt].filter(Boolean).join('\n')
+  void nextTick(() => requestInputRef.value?.focus())
+}
 const requestCanSubmit = computed(() => requestMode.value === 'replace'
   ? Boolean(requestText.value.trim() || (findText.value && findText.value !== replacementText.value) ) && Boolean(requestAssetTypes.value.length)
   : Boolean(requestText.value.trim()))
@@ -213,7 +219,9 @@ const workspaceState = computed<WorkspaceState>(() => {
   if (structuralPlan.value && (scopeAlreadyReviewed.value || !focusedPlan.value?.impact_summary?.affected_units?.length || focusedPlan.value?.impact_summary?.analysis_mode === 'deterministic_structure')) return 'structure'
   return 'content'
 })
-const journeySteps = computed(() => [{ index: 1, label: t('courseEvolution.workspace.journeyRequest', '输入想法') }, { index: 2, label: t('courseEvolution.workspace.journeyAnalyze', '选择影响范围') }, { index: 3, label: t('courseEvolution.workspace.journeyReview', '审阅修改方案') }, { index: 4, label: t('courseEvolution.workspace.journeyApply', '确认应用') }])
+const journeySteps = computed(() => props.initialMode === 'replace'
+  ? [{ index: 1, label: t('courseEvolution.workspace.journeyRequest') }, { index: 2, label: t('courseEvolution.workspace.journeyReview') }, { index: 3, label: t('courseEvolution.workspace.journeyApply') }]
+  : [{ index: 1, label: t('courseEvolution.workspace.journeyRequest', '输入想法') }, { index: 2, label: t('courseEvolution.workspace.journeyAnalyze', '选择影响范围') }, { index: 3, label: t('courseEvolution.workspace.journeyReview', '审阅修改方案') }, { index: 4, label: t('courseEvolution.workspace.journeyApply', '确认应用') }])
 const candidateOperationCount = computed(() => Number(focusedPlan.value?.impact_summary?.candidate_bundle?.operation_count || 0))
 const hasGeneratedCandidates = computed(() => planning.value?.status === 'candidate_ready' && candidateOperationCount.value > 0)
 const rawRequest = computed(() => planning.value?.intent.raw_request || focusedPlan.value?.request_text || '')
@@ -260,6 +268,7 @@ const dispositionDirty = computed(() => affectedUnits.value.some(item => effecti
 const reviewDirty = computed(() => selectionDirty.value || dispositionDirty.value)
 const candidateReviewReady = computed(() => hasGeneratedCandidates.value && !reviewDirty.value)
 const currentJourneyStep = computed(() => {
+  if (props.initialMode === 'replace') return workspaceState.value === 'applied' ? 3 : workspaceState.value === 'request' ? 1 : 2
   if (workspaceState.value === 'content') return candidateReviewReady.value ? 4 : scopeSaved.value ? 3 : 2
   if (workspaceState.value === 'structure') return candidateReviewReady.value ? 4 : 3
   return ({ request: 1, scanning: 2, interpreting: 2, applied: 4 })[workspaceState.value]
@@ -467,7 +476,7 @@ async function submitRequest() {
     ? [requestText.value.trim(), findText.value ? t('courseEvolution.workspace.replaceInstruction').replace('{before}', findText.value).replace('{after}', replacementText.value) : ''].filter(Boolean).join('\n')
     : requestText.value.trim()
   try {
-    const result = await store.createCoursePlan({ courseId, requestId, instruction, assetTypes: requestMode.value === 'replace' ? requestAssetTypes.value : ['outline', 'lesson_plan', 'script', 'course_content', 'question_bank'], ...(requestMode.value === 'replace' && findText.value ? { literalReplacement: { before: findText.value, after: replacementText.value } } : {}) })
+    const result = await store.createCoursePlan({ courseId, requestId, instruction, assetTypes: requestMode.value === 'replace' ? requestAssetTypes.value.filter(type => contextAssets.value.some(asset => asset.asset_type === type && asset.state !== 'missing')) : ['outline', 'lesson_plan', 'script', 'course_content', 'question_bank'], ...(requestMode.value === 'replace' && findText.value ? { literalReplacement: { before: findText.value, after: replacementText.value } } : {}) })
     if (epoch === workspaceEpoch) selectCreatedPlan(result, requestId)
   } catch (error: any) { if (epoch === workspaceEpoch) { actionError.value = readableError(error, t('courseEvolution.workspace.analysisFailed')); forceRequest.value = true } }
 }
@@ -482,7 +491,8 @@ async function submitCorrection() {
   const requestId = createUuid(), courseId = props.courseId
   const combined = `${rawRequest.value}\n补充修正：${correctionText.value.trim()}`.trim()
   await runPlanAction(async (plan, isCurrent) => {
-    const result = await store.createCoursePlan({ courseId, requestId, instruction: combined, supersedesPlanId: plan.change_set_id, assetTypes: ['outline', 'lesson_plan', 'script', 'course_content', 'question_bank'] })
+    const originalScope = plan.impact_summary?.request_asset_types || Array.from(new Set(plan.teacher_change_planning?.unit_migrations.map(item => item.asset_type) || requestAssetTypes.value))
+    const result = await store.createCoursePlan({ courseId, requestId, instruction: combined, supersedesPlanId: plan.change_set_id, assetTypes: originalScope })
     if (isCurrent()) { correctionOpen.value = false; selectCreatedPlan(result, requestId) }
   }, '重新分析失败，请重试。')
 }
@@ -606,4 +616,7 @@ defineExpose({ reloadWorkspace, openPlan, startNewRequest, showHistory })
 .course-change-workspace :is(.review-header>span,.review-header small,.impact-copy>header small,.impact-copy>footer,.impact-nav>header p,.scope-counts dt,.review-actionbar>div p,.review-actionbar>div strong,.migration-panel dt,.migration-panel>p,.receipt-state dt,.receipt-state>section>p,.inline-error){font-size:15px;line-height:1.6}
 .review-header{align-items:flex-start;flex-wrap:wrap}.review-header>span{padding:0;background:transparent}.literal-replacement fieldset{flex-wrap:wrap}
 .course-change-workspace :is(input,textarea,select){min-width:0;box-sizing:border-box}.course-change-workspace summary:focus-visible{outline:2px solid var(--lz-brand-strong);outline-offset:2px}
+.impact-list article > .impact-copy { grid-column: 2; grid-row: 1; }
+.impact-list article > .impact-check { grid-column: 1; grid-row: 1 / span 2; }
+.impact-list article > .candidate-details { grid-column: 2; grid-row: 2; }
 </style>

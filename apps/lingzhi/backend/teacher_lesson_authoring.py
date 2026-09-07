@@ -2596,6 +2596,67 @@ class TeacherLessonAuthoringRepository:
                 self._live_stream_jobs[course_id][job_id] = job
             return deepcopy(saved["jobs"][job_id])
 
+    def resume_ppt_completion(self, course_id: str, lesson_id: str, job_id: str, script_revision: str) -> dict:
+        with self._course_lock(course_id):
+            value = self.load(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_id) or {}
+            state = lesson.get("ppt_manuscript") or {}
+            job = (value.get("jobs") or {}).get(job_id) or {}
+            if lesson.get("working_script_revision_id") != script_revision or state.get("task_id") != job_id or job.get("lesson_unit_id") != lesson_id:
+                raise TeacherLessonAuthoringError("lesson_ppt_source_stale", "讲义或原任务已变化。")
+            if job.get("status") in TEACHER_JOB_ACTIVE_STATUSES:
+                raise TeacherLessonAuthoringError("lesson_ppt_job_running", "原任务仍在运行。")
+            if state.get("manuscript"):
+                raise TeacherLessonAuthoringError("lesson_ppt_manuscript_revision_conflict", "内容稿已存在，请编辑或同步当前稿件。")
+            if job.get("source_lesson_plan_revision_id") != lesson.get("working_revision_id"):
+                raise TeacherLessonAuthoringError("lesson_ppt_source_stale", "教案已变化，请使用当前讲义。")
+            for block in (job.get("bundle_blocks") or {}).values():
+                block.pop("ppt_repair_attempts", None)
+            job["source_script_revision_id"] = script_revision
+            job.update(status="running", phase="ppt_content_repair", progress=5, restart_whole=False,
+                       cancel_requested=False, pause_requested=False, stream_complete=False, error=None,
+                       heartbeat_at=_now(), updated_at=_now())
+            self._save(value)
+            return deepcopy(job)
+
+    def bind_ppt_completion(self, course_id: str, lesson_id: str, job_id: str, script_id: str, plan_id: str, template: dict) -> dict:
+        from course_document import stable_hash
+        with self._course_lock(course_id):
+            value = self.load(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_id) or {}
+            if lesson.get("working_script_revision_id") != script_id or lesson.get("working_revision_id") != plan_id or lesson.get("ppt_manuscript"):
+                raise TeacherLessonAuthoringError("lesson_ppt_manuscript_revision_conflict", "讲义或内容稿已变化，请刷新后重试。")
+            job = (value.get("jobs") or {}).get(job_id) or {}
+            if job.get("status") not in TEACHER_JOB_ACTIVE_STATUSES or job.get("lesson_unit_id") != lesson_id:
+                raise TeacherLessonAuthoringError("teacher_job_not_active", "任务已停止。")
+            job.update(status="running", phase="ppt_content_repair", source_lesson_plan_revision_id=plan_id,
+                       source_script_revision_id=script_id, request_snapshot={"generation_contract_version": "script_ppt_bundle_v1", "ppt_template": template})
+            lesson["ppt_manuscript"] = {"revision": "", "status": "generating", "source_state": "current", "manuscript": None,
+                "task_id": job_id, "generation_contract_version": "script_ppt_bundle_v1", "source_script_revision_id": script_id,
+                "source_lesson_plan_revision_id": plan_id, "source_material_revision": stable_hash([], prefix="pptrefs_"),
+                **{key: template[key] for key in ("template_id", "template_version", "template_digest")}, "theme": template["theme_id"]}
+            self._save(value)
+            return deepcopy(job)
+
+    def save_script_bundle_checkpoint(self, course_id: str, job_id: str, block: dict) -> None:
+        with self._course_lock(course_id):
+            value = self.load(course_id)
+            job = (value.get("jobs") or {}).get(job_id) or {}
+            lesson = (value.get("lessons") or {}).get(job.get("lesson_unit_id")) or {}
+            if job.get("status") not in TEACHER_JOB_ACTIVE_STATUSES or job.get("cancel_requested") or job.get("pause_requested"):
+                raise asyncio.CancelledError
+            if lesson.get("working_revision_id") != job.get("source_lesson_plan_revision_id") or lesson.get("source_state", "current") != "current":
+                raise TeacherLessonAuthoringError("lesson_plan_revision_conflict", "教案已变化，生成结果未写入。")
+            snapshot = job.get("request_snapshot") or {}
+            script_id = job.get("source_script_revision_id") if job.get("phase") == "ppt_content_repair" else snapshot.get("expected_script_revision")
+            if script_id is not None and str(lesson.get("working_script_revision_id") or "") != script_id:
+                raise TeacherLessonAuthoringError("lesson_script_revision_conflict", "讲义已变化，迟到结果未写入。")
+            job.setdefault("bundle_blocks", {})[block["block_id"]] = deepcopy(block)
+            job["heartbeat_at"] = job["updated_at"] = _now()
+            self._save(value)
+            if job_id in (self._live_stream_jobs.get(course_id) or {}):
+                self._live_stream_jobs[course_id][job_id] = job
+
     def finish_generation_attempt(self, course_id: str, job_id: str, failure: dict[str, Any]) -> dict[str, Any]:
         """Record retry intent in the existing job; no failed result is published."""
         job = self.get_job(course_id, job_id)
@@ -3174,6 +3235,8 @@ class TeacherLessonAuthoringRepository:
         template_version: str = "",
         template_digest: str = "",
         template_pack_id: str = "",
+        expected_manuscript_revision: str | None = None,
+        active_job_id: str = "",
     ) -> dict[str, Any]:
         """保存无原版 PPT 分支的独立页面内容稿工作稿，不提前创建 PPT 资产。"""
         with self._course_lock(course_id):
@@ -3196,6 +3259,12 @@ class TeacherLessonAuthoringRepository:
                 )
             previous = lesson.get("ppt_manuscript")
             previous = previous if isinstance(previous, dict) else {}
+            if expected_manuscript_revision is not None and str(previous.get("revision") or "") != expected_manuscript_revision:
+                raise TeacherLessonAuthoringError("lesson_ppt_manuscript_revision_conflict", "内容稿已修改，生成结果未覆盖当前内容。")
+            if active_job_id:
+                active = (value.get("jobs") or {}).get(active_job_id) or {}
+                if active.get("status") not in TEACHER_JOB_ACTIVE_STATUSES or active.get("cancel_requested") or active.get("pause_requested"):
+                    raise TeacherLessonAuthoringError("teacher_job_not_active", "任务已停止，结果未写入。")
             previous_manuscript = previous.get("manuscript")
             previous_manuscript = (
                 deepcopy(previous_manuscript)
@@ -3212,7 +3281,8 @@ class TeacherLessonAuthoringRepository:
                 last_good = previous_manuscript
             state = {
                 "revision": str(manuscript.get("manuscript_revision") or ""),
-                "status": "draft",
+                "status": "ready" if manuscript.get("generation_contract_version") == "script_ppt_bundle_v1" else "draft",
+                "generation_contract_version": manuscript.get("generation_contract_version", ""),
                 "source_state": "current",
                 "source_lesson_plan_revision_id": source_lesson_plan_revision_id,
                 "source_script_revision_id": source_script_revision_id,
@@ -3318,7 +3388,7 @@ class TeacherLessonAuthoringRepository:
             ):
                 state["last_good_manuscript"] = deepcopy(current_manuscript)
             state["revision"] = str(manuscript.get("manuscript_revision") or "")
-            state["status"] = "draft"
+            state["status"] = "ready" if manuscript.get("generation_contract_version") == "script_ppt_bundle_v1" else "draft"
             if source_rebase:
                 state["source_state"] = "current"
                 state["source_lesson_plan_revision_id"] = (
@@ -3341,6 +3411,40 @@ class TeacherLessonAuthoringRepository:
         lesson = self.lesson(course_id, lesson_unit_id)
         state = lesson.get("ppt_manuscript")
         return deepcopy(state) if isinstance(state, dict) and state else None
+
+    def save_ppt_sync_candidate(self, course_id: str, lesson_id: str, *, expected_revision: str, manuscript: dict,
+                                source_plan_id: str, source_script_id: str, material_revision: str, source_rebase: bool, affected_ids: list) -> dict:
+        with self._course_lock(course_id):
+            value = self.load(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_id) or {}
+            state = lesson.get("ppt_manuscript") or {}
+            if state.get("revision") != expected_revision or lesson.get("working_script_revision_id") != source_script_id or lesson.get("working_revision_id") != source_plan_id:
+                raise TeacherLessonAuthoringError("lesson_ppt_manuscript_revision_conflict", "内容已变化，候选未覆盖当前稿件。")
+            candidate = {"candidate_id": f"ppt-sync-{uuid.uuid4().hex}", "status": "pending", "base_revision": expected_revision,
+                "source_plan_id": source_plan_id, "source_script_id": source_script_id, "material_revision": material_revision,
+                "source_rebase": source_rebase, "affected_page_ids": affected_ids, "manuscript": deepcopy(manuscript)}
+            state["sync_candidate"] = candidate
+            self._save(value)
+            return deepcopy(candidate)
+
+    def resolve_ppt_sync_candidate(self, course_id: str, lesson_id: str, candidate_id: str, *, accept: bool) -> dict:
+        with self._course_lock(course_id):
+            value = self.load(course_id)
+            state = ((value.get("lessons") or {}).get(lesson_id) or {}).get("ppt_manuscript") or {}
+            candidate = state.get("sync_candidate") or {}
+            if candidate.get("candidate_id") != candidate_id or candidate.get("status") != "pending":
+                raise TeacherLessonAuthoringError("lesson_ppt_candidate_not_found", "同步候选不存在或已处理。")
+            if accept:
+                self.update_v6_ppt_manuscript_draft(course_id, lesson_id, expected_manuscript_revision=candidate["base_revision"],
+                    manuscript=candidate["manuscript"], source_rebase=candidate["source_rebase"],
+                    source_lesson_plan_revision_id=candidate["source_plan_id"], source_script_revision_id=candidate["source_script_id"],
+                    source_material_revision=candidate["material_revision"])
+                value = self.load(course_id)
+                state = value["lessons"][lesson_id]["ppt_manuscript"]
+                state["affected_page_ids"] = []
+            state.pop("sync_candidate", None)
+            self._save(value)
+            return deepcopy(state)
 
     def confirm_v6_ppt_manuscript_draft(
         self,
@@ -3394,7 +3498,7 @@ class TeacherLessonAuthoringRepository:
             state = (lesson or {}).get("ppt_manuscript")
             if (
                 not isinstance(state, dict)
-                or state.get("status") != "confirmed"
+                or (state.get("status") != "confirmed" and not (state.get("status") == "ready" and state.get("generation_contract_version") == "script_ppt_bundle_v1"))
                 or state.get("source_state") != "current"
                 or state.get("revision") != manuscript_revision
             ):
@@ -3947,6 +4051,8 @@ class TeacherLessonAuthoringRepository:
         revision_id_override: str = "",
         rollback_from_revision_id: str = "",
         active_job_id: str = "",
+        ppt_bundle_state: dict[str, Any] | None = None,
+        expected_manuscript_revision: str | None = None,
     ) -> dict[str, Any]:
         normalized_sections = []
         for item in sections:
@@ -3979,6 +4085,11 @@ class TeacherLessonAuthoringRepository:
                 or quality_report.get("pipeline_version")
                 or SCRIPT_PIPELINE_VERSION
             )
+            # Generated page forms live in task checkpoints; only the manuscript
+            # is editable after publication, never a second copy in the handout.
+            for block in normalized.get("blocks") or []:
+                for key in ("ppt_pages", "ppt_errors", "ppt_page_groups", "ppt_repair_attempts", "generation_contract_version"):
+                    block.pop(key, None)
             normalized_sections.append(normalized)
         if not normalized_sections or any(
             not item["section_node_id"]
@@ -4017,7 +4128,7 @@ class TeacherLessonAuthoringRepository:
                 )
             if (
                 expected_working_revision_id is not None
-                and lesson.get("working_script_revision_id")
+                and str(lesson.get("working_script_revision_id") or "")
                 != expected_working_revision_id
             ):
                 raise TeacherLessonAuthoringError(
@@ -4033,6 +4144,8 @@ class TeacherLessonAuthoringRepository:
                     "当前教案已经变化，请基于最新教案生成讲义。",
                 )
             revisions = lesson.setdefault("script_revisions", [])
+            if expected_manuscript_revision is not None and str((lesson.get("ppt_manuscript") or {}).get("revision") or "") != expected_manuscript_revision:
+                raise TeacherLessonAuthoringError("lesson_ppt_manuscript_revision_conflict", "PPT 内容稿已修改，生成结果未覆盖当前内容。")
             existing = next(
                 (
                     item for item in revisions
@@ -4095,6 +4208,22 @@ class TeacherLessonAuthoringRepository:
                 and manuscript.get("source_script_revision_id") != revision_id
             ):
                 manuscript["source_state"] = "stale"
+                before = next((r for r in (original_lesson or {}).get("script_revisions") or []
+                               if r.get("revision_id") == manuscript.get("source_script_revision_id")), {})
+                old_blocks = {b["block_id"]: b.get("content") for s in before.get("sections") or [] for b in s.get("blocks") or []}
+                new_blocks = {b["block_id"]: b.get("content") for s in normalized_sections for b in s.get("blocks") or []}
+                changed = {bid for bid in old_blocks.keys() | new_blocks.keys() if old_blocks.get(bid) != new_blocks.get(bid)}
+                manuscript["affected_page_ids"] = [p["page_id"] for p in (manuscript.get("manuscript") or {}).get("pages") or []
+                                                   if changed.intersection(p.get("source_script_block_ids") or [])]
+            if ppt_bundle_state is not None:
+                if ppt_bundle_state.get("source_script_revision_id") != revision_id:
+                    raise TeacherLessonAuthoringError("lesson_script_revision_conflict", "PPT 内容稿与讲义修订不一致。")
+                lesson["ppt_manuscript"] = {
+                    **deepcopy(ppt_bundle_state),
+                    "last_good_manuscript": deepcopy((ppt_bundle_state.get("manuscript") or (manuscript or {}).get("last_good_manuscript"))),
+                    "last_confirmed_manuscript": deepcopy((manuscript or {}).get("last_confirmed_manuscript")),
+                    "updated_at": _now(),
+                }
             for review in lesson.get("imported_ppt_reviews") or []:
                 if not isinstance(review, dict):
                     continue
@@ -5049,6 +5178,9 @@ class TeacherLessonAuthoringService:
         requirements: str = "",
         material_asset_ids: list[str] | None = None,
         actor: str = "teacher",
+        ppt_bundle_builder=None,
+        expected_script_revision: str | None = None,
+        expected_manuscript_revision: str | None = None,
     ) -> dict[str, Any]:
         """Generate one lesson's stable teaching blocks in a bounded wave.
 
@@ -5127,6 +5259,7 @@ class TeacherLessonAuthoringService:
                 previous = existing.get(block_id)
                 if previous:
                     candidate = {
+                        **{key: deepcopy(previous[key]) for key in ("ppt_pages", "ppt_errors", "ppt_page_groups", "ppt_repair_attempts", "generation_contract_version") if key in previous},
                         **deepcopy(module),
                         "content": str(previous.get("content") or "").strip(),
                         "generation_source": str(
@@ -5392,7 +5525,9 @@ class TeacherLessonAuthoringService:
                                 )
                             if not str(generated or "").strip():
                                 raise TeacherLessonAuthoringError("lesson_script_block_empty", "模型尚未返回教学环节正文。")
-                            generated_map = {block_id: str(generated or "").strip()}
+                            generated_map = {block_id: deepcopy(generated) if isinstance(generated, dict) else str(generated or "").strip()}
+                            if isinstance(generated, dict):
+                                generated_map = {block_id: generated}
                     if not isinstance(generated_map, dict):
                         raise TeacherLessonAuthoringError("lesson_script_shard_invalid", "模型没有返回可定位的教学环节。")
                     return generated_map
@@ -5426,7 +5561,8 @@ class TeacherLessonAuthoringService:
                         module = entry["module"]
                         contract = entry["contract"]
                         block_id = str(module.get("block_id") or "")
-                        content = str(generated_map.get(block_id) or "").strip()
+                        generated_block = generated_map.get(block_id)
+                        content = str((generated_block.get("content") if isinstance(generated_block, dict) else generated_block) or "").strip()
                         if not content:
                             candidate_failures.append({
                                 "block_id": block_id,
@@ -5442,6 +5578,8 @@ class TeacherLessonAuthoringService:
                             **deepcopy(module),
                             "content": content,
                             "generation_source": "model",
+                            **({key: deepcopy(generated_block[key]) for key in ("ppt_pages", "ppt_errors", "generation_contract_version") if key in generated_block}
+                               if isinstance(generated_block, dict) else {}),
                         }
                         candidate_report = validate_teacher_script_section(
                             {
@@ -5558,8 +5696,10 @@ class TeacherLessonAuthoringService:
                                         )
                                 repaired_candidate = {
                                     **deepcopy(module),
-                                    "content": str(repaired or "").strip(),
+                                    "content": str((repaired.get("content") if isinstance(repaired, dict) else repaired) or "").strip(),
                                     "generation_source": "model",
+                                    **({key: deepcopy(repaired[key]) for key in ("ppt_pages", "ppt_errors", "generation_contract_version") if key in repaired}
+                                       if isinstance(repaired, dict) else {}),
                                 }
                                 repaired_report = validate_teacher_script_section(
                                     {
@@ -5880,7 +6020,7 @@ class TeacherLessonAuthoringService:
                     })
                     async with semaphore:
                         content = await asyncio.wait_for(repair_generator(outline, plan_section, module, context), timeout=120)
-                    return str(block["block_id"]), str(content or "").strip()
+                    return str(block["block_id"]), content if isinstance(content, dict) else str(content or "").strip()
 
                 calls = []
                 for outline, plan_section, contract in contracts:
@@ -5901,7 +6041,11 @@ class TeacherLessonAuthoringService:
                     contract = next(c for _, _, c in contracts if c["section_node_id"] == section["section_node_id"])
                     for block in section["blocks"]:
                         if block["block_id"] in replacements:
-                            block["content"] = replacements[block["block_id"]]
+                            replacement = replacements[block["block_id"]]
+                            if isinstance(replacement, dict):
+                                block.update({key: deepcopy(replacement[key]) for key in ("content", "ppt_pages", "ppt_errors", "generation_contract_version") if key in replacement})
+                            else:
+                                block["content"] = replacement
                     section["quality_report"] = validate_teacher_script_section(section, contract)
                 candidate_quality = validate_teacher_script_revision(candidate_sections, generation_source="model_block_pipeline")
                 improved = _quality_improves(candidate_quality, revision_quality)
@@ -5924,6 +6068,7 @@ class TeacherLessonAuthoringService:
                     f"本讲讲义未通过硬校验：{messages or '请重试'}",
                     details={"quality_report": deepcopy(revision_quality)},
                 )
+            bundle_state = ppt_bundle_builder(final_sections) if ppt_bundle_builder else None
             lesson = self.repository.save_script_revision(
                 course_id,
                 lesson_unit_id,
@@ -5934,6 +6079,9 @@ class TeacherLessonAuthoringService:
                 material_asset_ids=material_asset_ids or [],
                 actor=actor,
                 active_job_id=job_id,
+                ppt_bundle_state=bundle_state,
+                expected_working_revision_id=expected_script_revision,
+                expected_manuscript_revision=expected_manuscript_revision,
             )
             current_job = self.repository.get_job(course_id, job_id)
             return self.repository.update_job(
@@ -5942,11 +6090,11 @@ class TeacherLessonAuthoringService:
                 status="completed",
                 phase="lesson_script_ready",
                 progress=100,
-                message="本讲讲义已生成",
+                message="本讲讲义已生成，PPT 内容稿待修复" if bundle_state and bundle_state.get("status") == "failed" else "本讲讲义与 PPT 内容稿已生成" if bundle_state else "本讲讲义已生成",
                 completed_blocks=total_blocks,
                 result_sections=final_sections,
                 result_revision_id=str(lesson.get("working_script_revision_id") or ""),
-                warnings=[],
+                warnings=deepcopy(bundle_state.get("page_errors") or []) if bundle_state else [],
                 current_block_id="",
                 current_block_title="",
                 stream_sequence=int(current_job.get("stream_sequence") or 0) + 1,

@@ -1,6 +1,6 @@
 <template>
   <section class="ppt-manuscript-workflow" :class="{ 'is-embedded': embedded, 'has-external-actions': externalActions }" data-testid="ppt-manuscript-workflow">
-    <header v-if="!reviewOnly" class="ppt-manuscript-workflow__header">
+    <header v-if="!reviewOnly && !continuous" class="ppt-manuscript-workflow__header">
       <button v-if="!embedded" type="button" :aria-label="t('pptWorkspace.backToProduction')" class="ppt-manuscript-workflow__back" @click="emit('back')"><ArrowLeft :size="18" /></button>
       <div v-if="!embedded">
         <h1><MathText :content="title" /></h1>
@@ -73,10 +73,10 @@
               </button>
             </div>
           </nav>
-          <article v-for="page in focusedPages" :key="page.page_id" :class="{ 'is-selected': selectedPageIds.has(page.page_id), 'is-locked': page.teacher_locked }">
+          <article v-for="page in focusedPages" :key="page.page_id" :data-page-id="page.page_id" :class="{ 'is-selected': selectedPageIds.has(page.page_id), 'is-locked': page.teacher_locked }" @focusin="activePageId = page.page_id" @click="activePageId = page.page_id">
             <div class="ppt-manuscript-workflow__page-copy">
               <div class="ppt-manuscript-workflow__page-meta">
-                <UiSegmentedControl style="--ui-segment-font-size:15px" v-model="editorMode" :options="editorModes" :accessibility-label="t('pptWorkspace.pageEditing')" />
+                <UiSegmentedControl v-if="!continuous" style="--ui-segment-font-size:15px" v-model="editorMode" :options="editorModes" :accessibility-label="t('pptWorkspace.pageEditing')" />
                 <button v-if="editing" type="button" class="ppt-manuscript-workflow__lock" :disabled="busy" @click="toggleLock(page)"><Lock v-if="page.teacher_locked" :size="15" /><Unlock v-else :size="15" />{{ page.teacher_locked ? t('pptWorkspace.pageLocked', '已锁定') : t('pptWorkspace.lockPage', '锁定本页') }}</button>
               </div>
 
@@ -136,7 +136,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { ArrowLeft, ArrowRight, Check, FileCheck2, ListTree, Lock, Pencil, RefreshCw, ScrollText, Sparkles, TriangleAlert, Unlock, X } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 import MathText from './MathText.vue'
@@ -149,7 +149,7 @@ import AppErrorNotice from './AppErrorNotice.vue'
 import { pptFailurePresentation } from '../utils/ppt-workspace-error'
 import { teacherFacingTeachingLabel } from '../utils/teaching-terminology'
 
-const props = withDefaults(defineProps<{ title: string; state: Record<string, any>; allowPageRegeneration?: boolean; embedded?: boolean; externalActions?: boolean; reviewOnly?: boolean; busy?: boolean; confirming?: boolean; saving?: boolean; regenerating?: boolean; error?: string; failure?: Record<string, any> | null }>(), { allowPageRegeneration: true })
+const props = withDefaults(defineProps<{ title: string; state: Record<string, any>; allowPageRegeneration?: boolean; continuous?: boolean; embedded?: boolean; externalActions?: boolean; reviewOnly?: boolean; busy?: boolean; confirming?: boolean; saving?: boolean; regenerating?: boolean; error?: string; failure?: Record<string, any> | null }>(), { allowPageRegeneration: true })
 const emit = defineEmits<{
   (event: 'back'): void
   (event: 'generate-manuscript'): void
@@ -159,6 +159,8 @@ const emit = defineEmits<{
   (event: 'save-manuscript', updates: Record<string, any>[], pacing?: Record<string, any>): void
   (event: 'regenerate-pages', pageIds: string[]): void
   (event: 'dirty-change', dirty: boolean): void
+  (event: 'pending-change'): void
+  (event: 'page-change', pageId: string): void
 }>()
 
 const manuscript = computed(() => props.state.manuscript || null)
@@ -177,17 +179,31 @@ const selectingPages = ref(false)
 let finishRequested = false
 const sceneIndex = ref(0)
 const editorModes = computed(() => [{ value: 'content', label: t('pptWorkspace.editPageContent') }, { value: 'layout', label: t('pptWorkspace.editPageLayout') }])
-const focusedPages = computed(() => draftPages.value.filter(page => page.page_id === activePageId.value))
+const focusedPages = computed(() => props.continuous ? draftPages.value : draftPages.value.filter(page => page.page_id === activePageId.value))
 const activePageNumber = computed(() => Math.max(1, draftPages.value.findIndex(page => page.page_id === activePageId.value) + 1))
 const activeScene = computed(() => focusedPages.value[0]?.resolved_scenes?.[sceneIndex.value])
-watch(activePageId, () => { sceneIndex.value = 0 })
+watch(activePageId, value => { sceneIndex.value = 0; emit('page-change', value) })
 watch(() => props.reviewOnly, value => {
   if (value) { editing.value = false; selectingPages.value = false; arrangementOpen.value = false }
 })
 
+let submittedUpdates: Record<string, any>[] | null = null
+function acknowledgeSave(updates: Record<string, any>[]) { submittedUpdates = JSON.parse(JSON.stringify(updates)) }
 watch(() => props.state.revision, () => {
   const pages = Array.isArray(manuscript.value?.pages) ? manuscript.value.pages : []
-  draftPages.value = teacherFacingPages(pages)
+  const incoming = teacherFacingPages(pages)
+  if (props.continuous && submittedUpdates) {
+    for (const page of incoming) {
+      const local = draftPages.value.find(p => p.page_id === page.page_id)
+      const baseline = submittedUpdates.find(p => p.page_id === page.page_id) || originalPages.value.find(p => p.page_id === page.page_id)
+      if (!local || !baseline) continue
+      for (const field of ['title', 'teaching', 'layout_id', 'page_goal', 'primary_claim', 'audience_question', 'audience_action', 'expected_response', 'observable_evidence', 'transition', 'composition_notes', 'teacher_locked', 'visible_copy']) {
+        if (JSON.stringify(local[field]) !== JSON.stringify(baseline[field]) && field in baseline) page[field] = JSON.parse(JSON.stringify(local[field] ?? null))
+      }
+    }
+  }
+  submittedUpdates = null
+  draftPages.value = incoming
   originalPages.value = teacherFacingPages(pages)
   draftPacing.value = manuscript.value?.pacing ? JSON.parse(JSON.stringify(manuscript.value.pacing)) : null
   selectedPageIds.value = new Set()
@@ -209,10 +225,11 @@ const dirtyUpdates = computed(() => draftPages.value.flatMap((page, index): Reco
 const pacingDirty = computed(() => JSON.stringify(draftPacing.value) !== JSON.stringify(manuscript.value?.pacing || null))
 const dirty = computed(() => dirtyUpdates.value.length > 0 || pacingDirty.value)
 watch(dirty, value => emit('dirty-change', value), { immediate: true })
+watch([dirtyUpdates, draftPacing], () => { if (props.continuous && dirty.value) emit('pending-change') }, { deep: true })
 function pendingChanges() {
   return { updates: dirtyUpdates.value, pacing: pacingDirty.value && draftPacing.value ? draftPacing.value : undefined }
 }
-defineExpose({ pendingChanges })
+defineExpose({ pendingChanges, acknowledgeSave, selectPage, editing, finishEditing, beginEditing: () => { editing.value = true } })
 const allIssues = computed(() => props.state.quality_report ? [...props.state.quality_report.issues, ...props.state.quality_report.suggestions] : [...(manuscript.value?.quality_issues || []), ...(manuscript.value?.quality_suggestions || [])])
 const lessonIssues = computed(() => allIssues.value.filter((item: any) => !item.page_id))
 const saveStateLabel = computed(() => props.saving ? t('pptWorkspace.savingManuscript', '正在保存…') : dirty.value ? t('pptWorkspace.manuscriptUnsaved', '有未保存修改') : t('pptWorkspace.manuscriptSaved', '已保存'))
@@ -221,7 +238,12 @@ const failureView = computed(() => pptFailurePresentation(props.failure, props.e
 const retryLabel = computed(() => failureView.value ? t('pptWorkspace.retryManuscript', '重新生成页面内容稿') : t('pptWorkspace.generateManuscript', '生成页面内容稿'))
 
 function togglePageSelection() { selectingPages.value = !selectingPages.value; selectedPageIds.value = new Set() }
-function selectPage(pageId: string) { activePageId.value = pageId }
+function selectPage(pageId: string) {
+  activePageId.value = pageId
+  if (props.continuous) void nextTick(() => {
+    document.querySelector(`article[data-page-id="${CSS.escape(pageId)}"]`)?.scrollIntoView({ block: 'start' })
+  })
+}
 function cancelEditing() {
   draftPages.value = JSON.parse(JSON.stringify(originalPages.value))
   draftPacing.value = manuscript.value?.pacing ? JSON.parse(JSON.stringify(manuscript.value.pacing)) : null

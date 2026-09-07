@@ -137,15 +137,7 @@
       @course-applied="handleCourseAdjustmentApplied"
     />
 
-    <Teleport to="body">
-      <div v-if="globalChangeChoiceOpen" class="global-change-choice" role="dialog" aria-modal="true" :aria-labelledby="globalChangeChoiceTitle">
-        <button class="global-change-choice__backdrop" type="button" :aria-label="t('courseAuditUpdates.closeChoice', '关闭修改类型选择')" @click="globalChangeChoiceOpen = false" />
-        <section class="global-change-choice__panel">
-          <header>
-            <small>{{ t('courseAuditUpdates.globalChangeKicker', '课程内容维护') }}</small>
-            <h2 :id="globalChangeChoiceTitle">{{ t('courseAuditUpdates.globalChangeChoiceTitle', '这次要修改什么？') }}</h2>
-            <p>{{ t('courseAuditUpdates.globalChangeChoiceHint', '结构调整会回到大纲；内容修改会先生成候选，确认后再应用。') }}</p>
-          </header>
+    <CourseDialogShell v-if="globalChangeChoiceOpen" :title="t('courseAuditUpdates.globalChangeChoiceTitle')" @close="globalChangeChoiceOpen = false">
           <div class="global-change-choice__options">
             <button type="button" @click="chooseGlobalChange('structure')">
               <span class="choice-icon"><LayoutGrid :size="20" /></span>
@@ -158,9 +150,7 @@
               <ArrowRight :size="17" />
             </button>
           </div>
-        </section>
-      </div>
-    </Teleport>
+    </CourseDialogShell>
 
   </main>
 </template>
@@ -173,6 +163,7 @@ import AppErrorNotice from '../components/AppErrorNotice.vue'
 import CourseBaselineDialog from '../components/CourseBaselineDialog.vue'
 import CoursePreparationDialog from '../components/CoursePreparationDialog.vue'
 import CourseEvolutionWorkspace from '../components/CourseEvolutionWorkspace.vue'
+import CourseDialogShell from '../components/CourseDialogShell.vue'
 import TeacherCourseWorkbench from '../components/TeacherCourseWorkbench.vue'
 import TeacherCourseCalendarView from './TeacherCourseCalendarView.vue'
 import TeacherCourseSpaceView from './TeacherCourseSpaceView.vue'
@@ -206,7 +197,6 @@ const calendarOpen = ref(false)
 const courseInformationOpen = ref(false)
 const courseAdjustmentOpen = ref(false)
 const globalChangeChoiceOpen = ref(false)
-const globalChangeChoiceTitle = `global-change-choice-${Math.random().toString(36).slice(2)}`
 const courseAdjustmentPlanId = ref('')
 const generationStarting = ref(false)
 const materialRefreshToken = ref(0)
@@ -386,7 +376,7 @@ function handleCourseAdjustmentApplied() {
   ])
 }
 
-function openGlobalChange() { globalChangeChoiceOpen.value = true }
+async function openGlobalChange() { if (await finishWorkbenchEditing()) globalChangeChoiceOpen.value = true }
 function chooseGlobalChange(kind: 'structure' | 'semantic') {
   globalChangeChoiceOpen.value = false
   if (kind === 'structure') { openOutlineEditor(); return }
@@ -539,7 +529,7 @@ onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(cour
 .global-change-choice__panel header small { color:var(--lz-brand-strong); font-size:13px; font-weight:700; }
 .global-change-choice__panel h2 { margin:7px 0 6px; font-size:24px; line-height:1.35; }
 .global-change-choice__panel header p { margin:0 0 22px; color:var(--lz-text-secondary); font-size:15px; line-height:1.6; }
-.global-change-choice__options { display:grid; gap:10px; }
+.global-change-choice__options { display:grid; gap:10px; padding:20px; }
 .global-change-choice__options button { display:grid; grid-template-columns:40px minmax(0,1fr) 18px; align-items:center; gap:12px; min-height:70px; padding:12px 14px; border:1px solid var(--lz-border); border-radius:8px; color:var(--lz-text-primary); background:#fff; text-align:left; cursor:pointer; }
 .global-change-choice__options button:hover { border-color:var(--lz-brand); background:var(--lz-brand-soft); }
 .global-change-choice__options button:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
