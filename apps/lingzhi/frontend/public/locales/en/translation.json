@@ -6497,6 +6497,8 @@
     "failed": "Could not complete the request. Please try again."
   },
   "pptProject": {
+    "speakerNotes": "Speaker notes",
+    "liveDraft": "Live manuscript",
     "newFromSelection": "Create from selection",
     "steps": "PPT workflow",
     "originalReview": "Review original PPT",

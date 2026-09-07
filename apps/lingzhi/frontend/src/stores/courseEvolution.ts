@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import http, { activeIdentityHeaders } from '../utils/http'
 import { createUuid } from '../utils/client-id'
 import { postGenerationStream } from '../shared/generation-stream'
+import { t } from '../shared/i18n'
 
 export interface EvolutionEvidence {
   evidence_id: string
@@ -281,10 +282,15 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
     ),
   },
   actions: {
+    assertActionIdle() {
+      if (this.actingId || this.generating) throw new Error(t('courseEvolution.workspace.actionInProgress'))
+    },
     selectCourse(courseId: string) {
       if (this.courseId === courseId) return
       this.courseId = courseId
       this.courseEpoch += 1
+      this.contextRequestSequence += 1
+      this.payloadRequestSequence += 1
       this.loading = false
       this.contextLoading = false
       this.courseContext = null
@@ -328,6 +334,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
     },
     async load(courseId: string) {
       this.selectCourse(courseId)
+      if (this.actingId || this.generating) return null
       const sequence = ++this.payloadRequestSequence
       this.loading = true
       try {
@@ -353,6 +360,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
     },
     async evaluate(courseId: string) {
       this.selectCourse(courseId)
+      if (this.actingId || this.generating) return null
       const sequence = ++this.payloadRequestSequence
       this.loading = true
       try {
@@ -384,6 +392,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       const targetCourseId = input.courseId || this.courseId
       if (!targetCourseId) throw new Error('course_change_course_required')
       this.selectCourse(targetCourseId)
+      this.assertActionIdle()
       const epoch = this.courseEpoch
       const sequence = ++this.payloadRequestSequence
       this.generating = true
@@ -425,6 +434,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         proposedOutline?: TeacherCourseOutlineReviewNode[]
       } = {},
     ) {
+      this.assertActionIdle()
       const targetCourseId = this.courseId
       const epoch = this.courseEpoch
       const sequence = ++this.payloadRequestSequence
@@ -450,6 +460,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       }
     },
     async createPlan(input: CreateCourseAdjustmentInput) {
+      this.assertActionIdle()
       const targetCourseId = this.courseId
       const epoch = this.courseEpoch
       const sequence = ++this.payloadRequestSequence
@@ -499,6 +510,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       })
     },
     async generateSuggested(planId: string) {
+      this.assertActionIdle()
       const targetCourseId = this.courseId
       const epoch = this.courseEpoch
       const sequence = ++this.payloadRequestSequence
@@ -538,6 +550,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       selectedOperationIds?: string[],
       options: { retryFailed?: boolean } = {},
     ) {
+      this.assertActionIdle()
       const targetCourseId = this.courseId
       const epoch = this.courseEpoch
       const sequence = ++this.payloadRequestSequence
@@ -559,6 +572,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       }
     },
     async reject(planId: string, reason = '') {
+      this.assertActionIdle()
       const targetCourseId = this.courseId
       const epoch = this.courseEpoch
       const sequence = ++this.payloadRequestSequence
@@ -575,6 +589,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       }
     },
     async undo(planId: string) {
+      this.assertActionIdle()
       const targetCourseId = this.courseId
       const epoch = this.courseEpoch
       const sequence = ++this.payloadRequestSequence
@@ -590,6 +605,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       }
     },
     async adjust(planId: string) {
+      this.assertActionIdle()
       const targetCourseId = this.courseId
       const epoch = this.courseEpoch
       const sequence = ++this.payloadRequestSequence

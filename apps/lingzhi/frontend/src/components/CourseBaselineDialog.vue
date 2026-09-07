@@ -353,7 +353,7 @@ function emptyInformation(): CourseInformation {
     course_profile: {
       english_name: '', course_code: '', course_goal: '', default_location: '', target_grade: '', course_category: '',
       target_major: '', credits: null, weekly_hours: null, total_hours: null, prerequisite_courses: '', weekday: '', periods: '', assessment_method: '', course_intro: '', teaching_goals: '',
-      course_period_minutes: 45, active_week_start: 1, active_week_end: 16, week_range_mode: 'academic_calendar', schedule_slots: [], planned_lecture_count: 16,
+      course_period_minutes: 45, active_week_start: 1, active_week_end: 16, week_range_mode: 'academic_calendar', schedule_slots: [], planned_lecture_count: 6,
     },
     generation_request: {
       subject: '', target_audience: '大学生', difficulty: 'intermediate', learning_purpose: 'systematic',

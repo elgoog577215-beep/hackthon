@@ -9,6 +9,7 @@ import asyncio
 from copy import deepcopy
 from pathlib import Path
 import uuid
+import time
 from functools import wraps
 
 
@@ -28,6 +29,7 @@ from ppt_teaching_manuscript import manuscript_layout_options, validate_reviewab
 from slide_ai_planning_v6 import build_ai_base_story_planner_v6, build_ai_base_visual_planner_v2
 from slide_deck_v6 import PptManuscriptV1, revise_ppt_manuscript_v1, compile_slide_deck_v6_from_manuscript
 from slide_deck_v6_orchestrator import SlideDeckV6CandidateRepository, SlideDeckV6Orchestrator
+from slide_deck_v6_models import V6BuildError
 from template_layout_contract import compile_builtin_template_layout_contract_v1
 from teaching_representations import teaching_representation_repository
 from teacher_lesson_authoring import TeacherLessonAuthoringError
@@ -222,9 +224,9 @@ class PptProjectService:
         jid = job["id"]
         try:
             previous_job_id = project.get("job_id")
-            if previous_job_id and project.get("status") == "paused":
+            if previous_job_id:
                 previous_job = self.jobs.get_job(course_id, previous_job_id)
-                if bool((previous_job.get("request_snapshot") or {}).get("render")) == render:
+                if previous_job.get("status") in {"paused", "failed"} and bool((previous_job.get("request_snapshot") or {}).get("render")) == render:
                     try:
                         self.candidates.clone_checkpoint(previous_job_id, jid)
                     except FileNotFoundError:
@@ -238,10 +240,24 @@ class PptProjectService:
         self.jobs.track_runtime_job(course_id, task)
         return project
 
+    @authoring_transaction
+    def pause(self, course_id, project_id, expected):
+        project = self.load(course_id, project_id)
+        if project["revision"] != expected:
+            raise conflict("PPT 任务已变化，请刷新后重试。")
+        if project.get("job_id") and project["status"] in {"building", "rendering"}:
+            self.jobs.update_job(course_id, project["job_id"], status="paused", phase="paused")
+            return self.update(course_id, project_id, {"status":"paused"}, expected=expected)
+        return project
+
     async def run(self, project, *, render):
         cid, pid, jid = project["course_id"], project["project_id"], project["job_id"]
         try:
-            self.jobs.update_job(cid, jid, status="running", phase="parsing", message="正在解析所选资料")
+            with self.jobs._course_lock(cid):
+                active = self.load(cid, pid)
+                if active.get("job_id") != jid or active["status"] not in {"building", "rendering"} or self.jobs.get_job(cid, jid)["status"] not in {"pending", "running"}:
+                    return
+                self.jobs.update_job(cid, jid, status="running", phase="parsing", message="正在解析所选资料")
             for source in project["sources"]["materials"]:
                 await parse_material_asset(self.materials, self.materials.get_asset(source["asset_id"]))
             document = self.document(project)
@@ -256,9 +272,35 @@ class PptProjectService:
                 if not current():
                     raise conflict("来源已变化或任务已暂停。")
                 self.jobs.update_job_live(cid, jid, phase=str(value.get("stage") or "building"), progress=int(value.get("percent") or 0))
+            stream_buffers, stream_previews, stream_pushed_at = {}, {}, {}
+            async def content_stream(event):
+                from ppt_teaching_planner import project_ppt_stream_text
+                bid = event["batch_id"]
+                if event["event"] == "reset":
+                    stream_buffers[bid] = ""
+                else:
+                    stream_buffers[bid] = stream_buffers.get(bid, "") + event.get("delta", "")
+                now = time.monotonic()
+                if event["event"] == "delta" and now - stream_pushed_at.get(bid, 0) < 0.12:
+                    return
+                stream_pushed_at[bid] = now
+                if not current():
+                    raise conflict("来源已变化或任务已暂停。")
+                text = project_ppt_stream_text(stream_buffers[bid])
+                previous = stream_previews.get(bid, "")
+                if text == previous:
+                    return
+                job = self.jobs.get_job(cid, jid)
+                fields = dict(phase="story", progress=int(job.get("progress") or 0),
+                    message="正在生成页面内容稿", batch_id=bid, stream_mode="model")
+                if not text.startswith(previous):
+                    self.jobs.update_job_stream(cid, jid, **fields, event="reset")
+                    previous = ""
+                self.jobs.update_job_stream(cid, jid, **fields, event="delta", delta=text[len(previous):])
+                stream_previews[bid], stream_pushed_at[bid] = text, now
             template = self.template(project)
             result = await self.orchestrator.build(task_id=jid, document=document, course_data=view, mode=project["mode"], theme=project["theme"],
-                story_planner=build_ai_base_story_planner_v6(), visual_planner=build_ai_base_visual_planner_v2(),
+                story_planner=build_ai_base_story_planner_v6(on_content_stream=content_stream) if not render else build_ai_base_story_planner_v6(), visual_planner=build_ai_base_visual_planner_v2(),
                 source_revision_provider=current, template_contract=template, template_digest_provider=lambda: template.template_digest,
                 publish_result=False, manuscript_only=not render,
                 confirmed_manuscript=PptManuscriptV1.model_validate(project["manuscript"]) if render else None,
@@ -280,8 +322,19 @@ class PptProjectService:
             if isinstance(exc, (KeyboardInterrupt, SystemExit)):
                 raise
             from teacher_lesson_authoring import generation_failure
+            if isinstance(exc, V6BuildError):
+                detail = exc.public_detail()
+                exc = TeacherLessonAuthoringError(detail["code"], detail["message"], details=detail)
             failure = generation_failure(exc, "ppt_project_build_failed")
             with self.jobs._course_lock(cid):
+                try:
+                    job = self.jobs.get_job(cid, jid)
+                except TeacherLessonAuthoringError as missing:
+                    if missing.code == "teacher_job_not_found":
+                        return
+                    raise
+                if job.get("status") not in {"pending", "running"}:
+                    return
                 self.jobs.update_job(cid, jid, status="paused", phase="paused", error=failure)
                 try:
                     self.update(cid, pid, {"status":"paused", "error":failure}, job_id=jid)

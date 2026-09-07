@@ -69,6 +69,7 @@ describe('CourseGenerationDialog', () => {
           schema_version: 'teacher_course_brief_v1',
           target_audience: '大学生',
           total_class_hours: 16,
+          lecture_count: 6,
           lesson_duration_minutes: 45,
           additional_requirements: '保留完整推导，并提供独立练习',
         }),

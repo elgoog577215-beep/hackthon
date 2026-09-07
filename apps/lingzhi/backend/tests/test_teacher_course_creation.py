@@ -9,6 +9,34 @@ from storage import Storage
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("requested,nested,expected", [
+    (None, None, 6), (4, None, 4), (None, 9, 9), (4, 9, 4),
+])
+async def test_creation_defaults_to_six_but_preserves_explicit_lecture_count(monkeypatch, requested, nested, expected):
+    repository = SimpleNamespace(create_teacher_draft=AsyncMock())
+    monkeypatch.setattr(courses, "get_course_document_repository", lambda: repository)
+    monkeypatch.setattr(courses, "teacher_course_space_repository", SimpleNamespace(
+        create_package=MagicMock(return_value={"package_id": "tcs-default"}),
+    ))
+    body = courses.TeacherCourseCreateRequest.model_validate({
+        "course_name": "微积分", "target_grade": "本科生", "course_category": "学科基础课",
+        "term": "秋冬",
+        "credits": 4, "weekly_hours": 4, "planned_lecture_count": requested,
+        "active_week_start": 1, "active_week_end": 16,
+        "schedule_slots": [{"weekday": 2, "period": 3}, {"weekday": 4, "period": 3}],
+        "generation_request": {"subject": "微积分", "teacher_course_brief": {
+            "target_audience": "本科生", "total_class_hours": 32,
+            **({"lecture_count": nested} if nested is not None else {}),
+        }},
+    })
+    await courses.create_teacher_course(body, SimpleNamespace(headers={"X-User-Id": "teacher-default"}))
+    metadata = repository.create_teacher_draft.await_args.kwargs["metadata"]
+    assert metadata["course_profile"]["planned_lecture_count"] == expected
+    assert metadata["generation_request"]["teacher_course_brief"]["lecture_count"] == expected
+    assert metadata["course_profile"]["active_week_end"] == 16
+
+
+@pytest.mark.asyncio
 async def test_create_teacher_course_persists_baseline_without_starting_generation(monkeypatch):
     repository = SimpleNamespace(create_teacher_draft=AsyncMock())
     package_repository = SimpleNamespace(
@@ -185,6 +213,7 @@ async def test_empty_teacher_course_stays_draft_in_teacher_list_and_hidden_from_
     assert teacher_course["is_published"] is False
     assert teacher_course["generation_job_id"] is None
     assert teacher_course["updated_at"]
+    assert repository.load_course_view(result["course_id"])["course_profile"]["planned_lecture_count"] == 6
     assert courses._list_courses_with_resume("learner-a", set()) == []
 
 

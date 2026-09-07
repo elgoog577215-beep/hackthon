@@ -49,19 +49,24 @@
       <thead><tr><th>{{ t('pptWorkspace.comparisonDimension') }}</th><th v-for="subject in page.teaching.expression.subjects" :key="subject.subject_id"><input v-model="elementById(subject.label_element_id).text" :disabled="disabled" :aria-label="t('pptWorkspace.comparisonSubject')"></th></tr></thead>
       <tbody><tr v-for="dimension in page.teaching.expression.dimensions" :key="dimension.dimension_id"><th><input v-model="elementById(dimension.label_element_id).text" :disabled="disabled" :aria-label="t('pptWorkspace.comparisonDimension')"></th><td v-for="subject in page.teaching.expression.subjects" :key="subject.subject_id"><textarea v-for="element in cellElements(subject.subject_id, dimension.dimension_id)" :key="element.element_id" v-model="element.text" :disabled="disabled || !!page.teaching.adopted_diagram" rows="2" :aria-label="`${elementText(subject.label_element_id)} · ${elementText(dimension.label_element_id)}`" /></td></tr></tbody>
     </table>
-    <fieldset v-if="page.teaching.expression.relations?.length"><legend>{{ t('pptWorkspace.teachingRelations') }}</legend>
+    <details v-if="page.teaching.expression.relations?.length"><summary>{{ t('pptWorkspace.teachingRelations') }}</summary>
       <div v-for="edge in page.teaching.expression.relations" :key="edge.relation_id" class="ppt-teaching-editor__relation">
         <select v-model="edge.source_id" :disabled="disabled || !!page.teaching.adopted_diagram" :aria-label="t('pptWorkspace.relationSource')"><option v-for="element in relationElements" :key="element.element_id" :value="element.element_id">{{ element.text }}</option></select>
         <span>{{ relationSymbol(edge.kind) }}</span>
         <select v-model="edge.target_id" :disabled="disabled || !!page.teaching.adopted_diagram" :aria-label="t('pptWorkspace.relationTarget')"><option v-for="element in relationElements" :key="element.element_id" :value="element.element_id">{{ element.text }}</option></select>
         <input v-model="edge.label" :disabled="disabled || !!page.teaching.adopted_diagram" :aria-label="t('pptWorkspace.relationMeaning')">
       </div>
-    </fieldset>
+    </details>
+    <section class="ppt-teaching-editor__notes" :aria-label="t('pptProject.speakerNotes')">
+      <label v-for="(state, index) in page.teaching.states" :key="state.state_id">
+        <span>{{ t('pptProject.speakerNotes') }}<template v-if="page.teaching.states.length > 1"> · {{ index + 1 }}</template></span>
+        <textarea v-model="state.teaching_note" :disabled="disabled" :aria-label="`${t('pptProject.speakerNotes')} ${index + 1}`" rows="2" />
+      </label>
+    </section>
     </template>
     <details v-if="section === 'layout'"><summary>{{ t('pptWorkspace.narrationDetails') }}</summary>
     <fieldset v-for="(state, index) in page.teaching.states" :key="state.state_id">
       <legend>{{ t('pptWorkspace.teachingRevealState') }} {{ index + 1 }}</legend>
-      <input v-model="state.teaching_note" :disabled="disabled" :aria-label="t('pptWorkspace.teachingRevealState')">
       <label v-for="element in page.teaching.elements" :key="element.element_id" class="ppt-teaching-editor__choice"><input v-model="state.visible_element_ids" type="checkbox" :value="element.element_id" :disabled="disabled">{{ element.text }}</label>
     </fieldset>
     </details>
@@ -123,6 +128,7 @@ const standaloneElements = computed(() => props.page.teaching.expression.kind ==
 
 <style scoped>
 .ppt-teaching-reading{font-size:17px;line-height:1.9}.ppt-teaching-reading :deep(p){margin:0 0 16px}.ppt-teaching-reading__relation{display:flex;flex-wrap:wrap;gap:10px}.ppt-teaching-reading__conditions{flex-basis:100%}.ppt-teaching-reading__conditions strong{font-size:15px}.ppt-teaching-reading table{font-size:16px}.ppt-teaching-reading th{font-weight:650;background:#f7f8fb}
+.ppt-teaching-editor{min-width:0}.ppt-teaching-editor :is(textarea,input,select){box-sizing:border-box;min-width:0}.ppt-teaching-editor textarea{resize:vertical;line-height:1.7}.ppt-teaching-editor__notes{border-top:1px solid var(--lz-border);margin-top:28px;padding-top:6px}.ppt-teaching-editor summary{padding:10px 0}.ppt-teaching-editor summary:focus-visible{outline:2px solid var(--lz-brand-strong);outline-offset:2px}
 
 .ppt-teaching-editor{font-size:16px;line-height:1.6}.ppt-teaching-editor label{display:flex;flex-direction:column;gap:6px;margin:14px 0}.ppt-teaching-editor textarea,.ppt-teaching-editor input:not([type=checkbox]),.ppt-teaching-editor select{font:inherit;padding:8px;border:1px solid #cdd3df;border-radius:5px;background:#fff;width:100%;color:#172033}.ppt-teaching-editor :is(textarea,input,select):focus-visible{outline:2px solid #3857d6;outline-offset:2px}.ppt-teaching-editor table{border-collapse:collapse;width:100%;margin:18px 0}.ppt-teaching-editor td,.ppt-teaching-editor th{padding:10px;border-bottom:1px solid #e1e5ec;text-align:left}.ppt-teaching-editor fieldset{border:0;border-top:1px solid #e1e5ec;padding:16px 0;margin:18px 0}.ppt-teaching-editor legend{font-weight:650}.ppt-teaching-editor__relation{display:grid;grid-template-columns:1fr 24px 1fr 1fr;gap:8px;align-items:center;margin:10px 0}.ppt-teaching-editor label.ppt-teaching-editor__choice{flex-direction:row;align-items:flex-start;gap:9px}.ppt-teaching-editor__choice input{margin-top:7px}.ppt-teaching-editor__checkpoint{display:flex;align-items:baseline;gap:10px}.ppt-teaching-editor input[type=checkbox]{width:auto}.ppt-teaching-editor details{margin-top:18px}.ppt-teaching-editor summary{cursor:pointer}.ppt-teaching-editor :deep(.ppt-scene){margin:14px 0;border:1px solid #e1e5ec}
 </style>

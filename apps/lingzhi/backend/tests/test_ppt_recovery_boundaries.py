@@ -8,6 +8,30 @@ import pytest
 from .test_ppt_teaching_content import compiled_manuscript
 
 
+@pytest.mark.parametrize('cancel_parent', [False, True])
+def test_heartbeat_failure_or_cancellation_drains_model_task(cancel_parent):
+    from slide_deck_v6_orchestrator import _await_with_heartbeats
+    async def scenario():
+        entered, stopped = asyncio.Event(), asyncio.Event()
+        async def model():
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                stopped.set()
+        async def progress(_):
+            raise RuntimeError('source changed or paused')
+        tracker = SimpleNamespace(heartbeat_due=lambda: True, heartbeat=lambda: {})
+        parent = asyncio.create_task(_await_with_heartbeats(model(), tracker=tracker, callback=progress))
+        await entered.wait()
+        if cancel_parent:
+            parent.cancel()
+        with pytest.raises(asyncio.CancelledError if cancel_parent else RuntimeError):
+            await parent
+        assert stopped.is_set()
+    asyncio.run(scenario())
+
+
 def test_provider_failure_persists_accepted_pages_for_a_new_planner_instance(tmp_path):
     from ppt_teaching_planner import plan_teaching_manuscript
     from slide_deck_v6_models import V6BuildError

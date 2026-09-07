@@ -269,7 +269,35 @@ def compact_teaching_request(request):
     return payload
 
 
-async def invoke_teaching_provider(provider, request):
+def project_ppt_stream_text(content):
+    """Project only teacher-facing text from incomplete provider JSON."""
+    from pydantic_core import from_json
+    try:
+        value = from_json(content, allow_partial="trailing-strings")
+    except ValueError:
+        return ""
+    visible_fields = {"title", "text", "heading", "notes", "central_question", "page_goal",
+                      "primary_claim", "audience_question", "audience_action", "expected_response",
+                      "observable_evidence", "transition", "visible_copy", "reveal_notes"}
+    hidden_fields = {"sources", "source", "source_refs", "content_contract", "response_contract",
+                     "quote_choices", "literal_source_ranges", "reasoning", "reasoning_content"}
+    lines = []
+    def visit(item, visible=False):
+        if isinstance(item, str):
+            if visible and item.strip():
+                lines.append(item)
+        elif isinstance(item, list):
+            for child in item:
+                visit(child, visible)
+        elif isinstance(item, dict):
+            for key, child in item.items():
+                if key not in hidden_fields:
+                    visit(child, key in visible_fields)
+    visit(value)
+    return "\n\n".join(lines)
+
+
+async def invoke_teaching_provider(provider, request, *, on_content_delta=None, on_content_reset=None):
     """Use the already configured AIBase; no deterministic/provider fallback."""
     from slide_planning_telemetry import _AIPlannerResponse, _sanitize_provider_attempts
     telemetry = []
@@ -349,6 +377,7 @@ async def invoke_teaching_provider(provider, request):
         max_input_tokens=26000, max_input_chars=70000,
         reject_truncated=True, raise_on_failure=True, retry_count=1, max_attempts=2,
         telemetry_sink=telemetry.append,
+        **({"on_content_delta": on_content_delta, "on_content_reset": on_content_reset} if on_content_delta else {}),
     )
     from slide_planning_telemetry import AIPlannerInvocationError
     try:

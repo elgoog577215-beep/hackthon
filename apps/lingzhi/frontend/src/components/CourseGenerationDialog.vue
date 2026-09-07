@@ -533,7 +533,7 @@ const form = reactive({
   lessonDurationMinutes: 45,
   classSize: undefined as number | undefined,
   classProfile: '',
-  lectureCount: 16,
+  lectureCount: 6,
   productionMode: 'manual' as 'manual' | 'automatic',
 })
 
@@ -619,7 +619,7 @@ function resetFormForOpen() {
     lessonDurationMinutes: 45,
     classSize: undefined,
     classProfile: '',
-    lectureCount: 16,
+    lectureCount: 6,
     productionMode: 'manual' as const,
   })
 }
@@ -650,7 +650,7 @@ function hydrateInitialOptions(options?: CourseGenerationOptions) {
     form.lessonDurationMinutes = 45
     form.classSize = brief.class_size
     form.classProfile = brief.class_profile || ''
-    form.lectureCount = Number(brief.lecture_count || brief.chapter_count || brief.section_count || 16)
+    form.lectureCount = Number(brief.lecture_count || brief.chapter_count || brief.section_count || 6)
     if (!form.requirements && brief.additional_requirements) form.requirements = brief.additional_requirements
   }
   if (!intent) return

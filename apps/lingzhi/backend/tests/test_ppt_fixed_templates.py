@@ -304,11 +304,12 @@ def test_fixed_request_preserves_adopted_materials_and_lesson_context():
     async def planner(request):
         import json
         json.dumps(request)
+        assert request["page"]["page_id"] == "page-3"
         assert request["lesson_context"]["central_question"] == "明确目标"
         assert request["accepted_question_bank_items"] == [{"question": "为什么先准备？"}]
         assert request["page_sequence"] == [{"title": "课堂学习", "page_goal": "明确目标"}]
         return response("bullets")
-    result = asyncio.run(invoke_fixed_form(planner, {"page": {"title": "课堂学习", "page_goal": "明确目标", "layout_id": template.layout_id("bullets")},
+    result = asyncio.run(invoke_fixed_form(planner, {"page": {"page_id": "page-3", "title": "课堂学习", "page_goal": "明确目标", "layout_id": template.layout_id("bullets")},
         "narrative_brief": {"central_question": "明确目标"}, "accepted_question_bank_items": [{"question": "为什么先准备？"}],
         "page_sequence": [{"title": "课堂学习", "page_goal": "明确目标"}]}))
     assert result["expression_kind"] == "evidence"

@@ -133,6 +133,47 @@ describe('PptManuscriptWorkflow', () => {
     expect((wrapper.vm as any).pendingChanges().updates).toEqual([])
   })
 
+  it('saves body and speaker notes together while preserving teaching identities and sources', async () => {
+    const teaching = {
+      schema_version: 'page_teaching_v2',
+      elements: [{ element_id: 'evidence-1', role: 'evidence', kind: 'text', text: '先观察增量', source_block_ids: ['script-1'] }],
+      expression: { kind: 'evidence', ordered_element_ids: ['evidence-1'] },
+      states: [{ state_id: 'state-1', visible_element_ids: ['evidence-1'], teaching_note: '请学生说出观察结果' }],
+      presentation: { mode: 'complete', checkpoints: [] },
+    }
+    const state = { ...emptyState, revision: 'one', status: 'draft', manuscript: {
+      page_count: 1, pages: [{ page_id: 'p1', title: '观察变化', teaching, source_script_block_ids: ['script-1'] }],
+    } }
+    const wrapper = mount(PptManuscriptWorkflow, { props: { title: '课堂', state, externalActions: true } })
+    await wrapper.get('[data-testid="edit-ppt-manuscript"]').trigger('click')
+    expect((wrapper.get('.ppt-manuscript-workflow__teaching-notes').element as HTMLDetailsElement).open).toBe(false)
+    expect((wrapper.get('.ppt-manuscript-workflow__sources').element as HTMLDetailsElement).open).toBe(false)
+    await wrapper.get('.ppt-teaching-editor > label textarea').setValue('比较两个区间的增量')
+    await wrapper.get('.ppt-teaching-editor__notes textarea').setValue('等待学生比较，再追问理由')
+    await wrapper.get('[data-testid="save-ppt-manuscript"]').trigger('click')
+    const saved = (wrapper.emitted('save-manuscript')![0]![0] as Record<string, any>[])[0]!
+    expect(saved.page_id).toBe('p1')
+    expect(saved.teaching).toEqual({
+      ...teaching,
+      elements: [{ ...teaching.elements[0], text: '比较两个区间的增量' }],
+      states: [{ ...teaching.states[0], teaching_note: '等待学生比较，再追问理由' }],
+    })
+    expect(teaching.elements[0]!.text).toBe('先观察增量')
+    expect(teaching.states[0]!.teaching_note).toBe('请学生说出观察结果')
+    await wrapper.setProps({ state: { ...state, revision: 'two', manuscript: { ...state.manuscript,
+      pages: [{ ...state.manuscript.pages[0]!, ...saved }],
+    } } })
+    expect(wrapper.find('[data-testid="save-ppt-manuscript"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="ppt-page-reading"]').text()).toContain('比较两个区间的增量')
+    await wrapper.get('[data-testid="edit-ppt-manuscript"]').trigger('click')
+    await wrapper.get('.ppt-teaching-editor__notes textarea').setValue('尚未保存的备注')
+    await wrapper.get('[data-testid="cancel-ppt-edit"]').trigger('click')
+    await wrapper.get('[data-testid="edit-ppt-manuscript"]').trigger('click')
+    expect((wrapper.get('.ppt-teaching-editor__notes textarea').element as HTMLTextAreaElement).value).toBe('等待学生比较，再追问理由')
+    expect((wrapper.vm as any).pendingChanges().updates).toEqual([])
+    expect(wrapper.emitted('save-manuscript')).toHaveLength(1)
+  })
+
   it('offers source-impact regeneration while keeping the full rebuild path', async () => {
     const wrapper = mount(PptManuscriptWorkflow, {
       props: {

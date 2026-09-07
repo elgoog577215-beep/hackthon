@@ -26,7 +26,6 @@ from course_schedule import (
     legacy_schedule_labels,
     normalize_schedule_slots,
     resolve_active_week_range,
-    suggested_lecture_count,
 )
 from course_space_publication import (
     MISSING_TEACHER_IDENTITY,
@@ -589,10 +588,10 @@ async def create_teacher_course(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     schedule_slots = normalize_schedule_slots(body.schedule_slots)
     projected_weekday, projected_periods = legacy_schedule_labels(schedule_slots)
-    planned_lecture_count = body.planned_lecture_count or suggested_lecture_count(
-        schedule_slots,
-        active_week_start,
-        active_week_end,
+    planned_lecture_count = (
+        body.planned_lecture_count
+        or (generation_request.get("teacher_course_brief") or {}).get("lecture_count")
+        or 6
     )
     if generation_request:
         teacher_brief = dict(generation_request.get("teacher_course_brief") or {})

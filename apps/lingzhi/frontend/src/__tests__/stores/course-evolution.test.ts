@@ -39,6 +39,62 @@ beforeEach(() => {
 })
 
 describe('course evolution store', () => {
+  it('discards old progress and context responses after switching away and back', async () => {
+    let resolveProgress!: (value: any) => void
+    let resolveContext!: (value: any) => void
+    httpMock.get.mockImplementation((url: string) => new Promise(resolve => {
+      if (url.endsWith('course-context')) resolveContext = resolve
+      else resolveProgress = resolve
+    }))
+    const store = useCourseEvolutionStore()
+    const progress = store.refreshProgress('course-1')
+    const context = store.loadCourseContext('course-1')
+    store.selectCourse('course-2')
+    store.selectCourse('course-1')
+    resolveProgress({ data: payload() })
+    resolveContext({ data: { course_id: 'course-1', ready: true } })
+    await Promise.all([progress, context])
+    expect(store.plans).toEqual([])
+    expect(store.courseContext).toBeNull()
+    expect(store.contextLoading).toBe(false)
+  })
+
+  it('keeps an in-flight application authoritative when another surface reloads', async () => {
+    let resolveAccept!: (value: any) => void
+    httpMock.post.mockImplementation(() => new Promise(resolve => { resolveAccept = resolve }))
+    const store = useCourseEvolutionStore()
+    store.selectCourse('course-1')
+    const applying = store.accept('plan-1', 'current')
+    await store.load('course-1')
+    await store.evaluate('course-1')
+    expect(httpMock.get).not.toHaveBeenCalled()
+    expect(httpMock.post).toHaveBeenCalledTimes(1)
+    resolveAccept({ data: payload('applied') })
+    await applying
+    expect(store.appliedPlans).toHaveLength(1)
+    expect(store.actingId).toBe('')
+  })
+
+  it('rejects duplicate writes across entry points and releases the guard after failure', async () => {
+    let rejectAccept!: (error: Error) => void
+    httpMock.post.mockImplementationOnce(() => new Promise((_, reject) => { rejectAccept = reject }))
+    const store = useCourseEvolutionStore()
+    store.selectCourse('course-1')
+    const applying = store.accept('plan-1', 'current')
+    const failed = expect(applying).rejects.toThrow('connection failed')
+    await expect(store.accept('plan-1', 'current')).rejects.toThrow()
+    await expect(store.reject('plan-1')).rejects.toThrow()
+    await expect(store.createCoursePlan({ instruction: '另一项修改' })).rejects.toThrow()
+    expect(httpMock.post).toHaveBeenCalledTimes(1)
+    rejectAccept(new Error('connection failed'))
+    await failed
+    expect(store.actingId).toBe('')
+    httpMock.post.mockResolvedValueOnce({ data: payload('applied') })
+    await store.accept('plan-1', 'current')
+    expect(store.appliedPlans).toHaveLength(1)
+    expect(httpMock.post).toHaveBeenCalledTimes(2)
+  })
+
   it('loads plans and explicit current-course permissions from the canonical API', async () => {
     httpMock.get.mockResolvedValue({ data: payload() })
     const store = useCourseEvolutionStore()

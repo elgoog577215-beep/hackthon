@@ -11,6 +11,7 @@ from material_storage import MaterialStorageError, material_repository
 from ppt_projects import PptProjectService
 from routers.teacher_preview import owned_course
 from slide_deck_v6_renderer import export_slide_deck_v6_pptx
+from slide_deck_v6_models import V6BuildError
 from storage import storage
 from teacher_lesson_authoring import TeacherLessonAuthoringError
 
@@ -26,6 +27,8 @@ def call(action):
         return action()
     except TeacherLessonAuthoringError as exc:
         raise HTTPException(409, detail={"code":exc.code, "message":str(exc)}) from exc
+    except V6BuildError as exc:
+        raise HTTPException(422, detail=exc.public_detail()) from exc
 
 
 @router.get("")
@@ -111,14 +114,9 @@ async def render(course_id: str, project_id: str, body: ProjectRevision, request
 
 
 @router.post("/{project_id}/pause")
-def pause(course_id: str, project_id: str, request: Request, svc=Depends(service)):
+def pause(course_id: str, project_id: str, body: ProjectRevision, request: Request, svc=Depends(service)):
     owned_course(course_id, request)
-    with svc.jobs._course_lock(course_id):
-        project = call(lambda:svc.load(course_id, project_id))
-        if project.get("job_id") and project.get("status") in {"building", "rendering"}:
-            svc.jobs.update_job(course_id, project["job_id"], status="paused", phase="paused")
-            return call(lambda:svc.update(course_id, project_id, {"status":"paused"}, expected=project["revision"]))
-        return project
+    return call(lambda:svc.pause(course_id, project_id, body.expected_revision))
 
 
 @router.get("/{project_id}/export")

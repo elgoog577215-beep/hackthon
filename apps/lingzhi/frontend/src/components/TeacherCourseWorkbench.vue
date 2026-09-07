@@ -1398,7 +1398,7 @@ const activeReferenceLessonId = computed(() => ['lesson', 'script', 'ppt'].inclu
 const foundation = reactive({
   goal: '',
   totalHours: 32,
-  lectureCount: 16,
+  lectureCount: 6,
   requirements: '',
   learningPurpose: 'systematic' as LearningPurpose,
   subjectType: 'auto' as PedagogyModeSelection,
@@ -4447,7 +4447,7 @@ watch(() => props.generationOptions, options => {
   foundation.subjectType = (canonical.pedagogy_mode || 'auto') as PedagogyModeSelection
   foundation.courseTeachingType = (canonical.course_teaching_type || 'comprehensive') as CourseTeachingType
   foundation.totalHours = Number(brief?.total_class_hours || 32)
-  foundation.lectureCount = Number(brief?.lecture_count || brief?.section_count || 16)
+  foundation.lectureCount = Number(brief?.lecture_count || brief?.section_count || 6)
   foundation.requirements = String(canonical.requirements || '')
 }, { immediate: true, deep: true })
 watch([
