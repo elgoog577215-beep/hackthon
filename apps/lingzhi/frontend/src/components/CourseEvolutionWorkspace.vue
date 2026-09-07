@@ -53,8 +53,15 @@
                 <form @submit.prevent="submitRequest">
                   <UiSegmentedControl class="request-modes" style="--ui-segment-font-size:15px" :model-value="requestMode" :options="requestModeOptions" :accessibility-label="t('courseEvolution.workspace.changeMode')" @update:model-value="requestMode = $event as typeof requestMode" />
                   <div v-if="requestMode === 'replace'" class="literal-replacement">
-                    <label>{{ t('courseEvolution.workspace.findText') }}<input v-model="findText" type="text" maxlength="2000" /></label>
-                    <label>{{ t('courseEvolution.workspace.replaceWith') }}<input v-model="replacementText" type="text" maxlength="2000" /></label>
+                    <div class="semantic-presets" role="group" :aria-label="t('courseEvolution.workspace.semanticPresets', '常用语义修改')">
+                      <button v-for="preset in semanticPresets" :key="preset.id" type="button" @click="requestText = preset.prompt">{{ preset.label }}</button>
+                    </div>
+                    <textarea ref="requestInputRef" v-model="requestText" rows="5" :aria-label="t('courseEvolution.workspace.mode_replace')" :placeholder="t('courseEvolution.workspace.semanticPlaceholder', '例如：统一术语、优化表达或调整逻辑，并说明哪些内容必须保持不变。')" :disabled="store.generating || contextUnavailable" />
+                    <details class="literal-advanced">
+                      <summary>{{ t('courseEvolution.workspace.exactReplaceAdvanced', '需要精确替换时展开') }}</summary>
+                      <label>{{ t('courseEvolution.workspace.findText') }}<input v-model="findText" type="text" maxlength="2000" /></label>
+                      <label>{{ t('courseEvolution.workspace.replaceWith') }}<input v-model="replacementText" type="text" maxlength="2000" /></label>
+                    </details>
                     <fieldset><legend>{{ t('courseEvolution.workspace.replaceScope') }}</legend><label v-for="asset in contextAssets.filter(a => ['outline', 'lesson_plan', 'script', 'course_content'].includes(a.asset_type))" :key="asset.asset_type"><input v-model="requestAssetTypes" type="checkbox" :value="asset.asset_type" />{{ assetLabel(asset.asset_type) }}</label></fieldset>
                   </div>
                   <textarea v-else ref="requestInputRef" v-model="requestText" rows="5" :aria-label="t('courseEvolution.workspace.mode_structure')" :placeholder="t('courseEvolution.workspace.structurePlaceholder', '例如：把导数应用放到第 2 讲，并重新安排后续讲次')" :disabled="store.generating || contextUnavailable" />
@@ -139,19 +146,27 @@ type WorkspaceState = 'request' | 'scanning' | 'interpreting' | 'content' | 'str
 type ContextAsset = TeacherCourseChangeContext['assets'][number]
 type AffectedUnit = { migration_id: string; unit_id: string; asset_type: string; unit_type: string; title: string; before_preview: string; before_content?: string; after_content?: string; after_preview?: string; section_ids: string[]; source_state: string; disposition: string; reason: string; confidence: number; candidate_status: string; candidate_error?: string; candidate_error_detail?: { retryable?: boolean }; operation_id?: string; change_count?: number }
 
-const props = withDefaults(defineProps<{ modelValue: boolean; courseId: string; sectionId?: string; courseTitle?: string; sectionTitle?: string; focusPlanId?: string; standalone?: boolean; embeddedInCenter?: boolean }>(), { sectionId: '', courseTitle: '', sectionTitle: '', focusPlanId: '', standalone: false, embeddedInCenter: false })
+const props = withDefaults(defineProps<{ modelValue: boolean; courseId: string; sectionId?: string; courseTitle?: string; sectionTitle?: string; focusPlanId?: string; standalone?: boolean; embeddedInCenter?: boolean; initialMode?: 'replace' | 'structure' }>(), { sectionId: '', courseTitle: '', sectionTitle: '', focusPlanId: '', standalone: false, embeddedInCenter: false, initialMode: 'structure' })
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; courseApplied: [presentation: CourseEvolutionApplicationPresentation]; planSelected: [planId: string] }>()
 const store = useCourseEvolutionStore()
 const workspaceRef = ref<HTMLElement | null>(null)
 const requestInputRef = ref<HTMLTextAreaElement | null>(null)
 const previousFocus = ref<HTMLElement | null>(null)
 const requestText = ref('')
-const requestMode = ref<'replace' | 'structure'>('structure')
+const requestMode = ref<'replace' | 'structure'>(props.initialMode)
 const requestModeOptions = computed(() => ['structure', 'replace'].map(value => ({value, label:t(`courseEvolution.workspace.mode_${value}`), disabled:store.generating})))
 const findText = ref('')
 const replacementText = ref('')
+const semanticPresets = computed(() => [
+  { id: 'terminology', label: t('courseEvolution.workspace.semanticTerminology', '统一术语'), prompt: t('courseEvolution.workspace.semanticTerminologyPrompt', '统一全文术语，保持公式、答案和引用不变。') },
+  { id: 'iterate', label: t('courseEvolution.workspace.semanticIterate', '词语迭代'), prompt: t('courseEvolution.workspace.semanticIteratePrompt', '把表达改得更准确、自然，保留原意和信息量。') },
+  { id: 'logic', label: t('courseEvolution.workspace.semanticLogic', '逻辑调整'), prompt: t('courseEvolution.workspace.semanticLogicPrompt', '调整内容顺序和衔接，让论述逻辑更清楚，不新增知识。') },
+  { id: 'explain', label: t('courseEvolution.workspace.semanticExplain', '增强解释'), prompt: t('courseEvolution.workspace.semanticExplainPrompt', '补足必要解释，让学生更容易理解，保留原有知识范围。') },
+])
 const requestAssetTypes = ref(['outline', 'lesson_plan', 'script', 'course_content'])
-const requestCanSubmit = computed(() => requestMode.value === 'replace' ? Boolean(findText.value && findText.value !== replacementText.value && requestAssetTypes.value.length) : Boolean(requestText.value.trim()))
+const requestCanSubmit = computed(() => requestMode.value === 'replace'
+  ? Boolean(requestText.value.trim() || (findText.value && findText.value !== replacementText.value) ) && Boolean(requestAssetTypes.value.length)
+  : Boolean(requestText.value.trim()))
 const candidatesGenerating = computed(() => focusedPlan.value?.status === 'pending' && focusedPlan.value?.generation_status === 'generating')
 const coverage = computed(() => focusedPlan.value?.impact_summary?.coverage)
 const historyRef = ref<HTMLElement | null>(null)
@@ -448,9 +463,11 @@ async function submitRequest() {
   actionError.value = ''; forceRequest.value = false
   const requestId = createUuid()
   const courseId = props.courseId
-  const instruction = requestMode.value === 'replace' ? t('courseEvolution.workspace.replaceInstruction').replace('{before}', findText.value).replace('{after}', replacementText.value) : requestText.value.trim()
+  const instruction = requestMode.value === 'replace'
+    ? [requestText.value.trim(), findText.value ? t('courseEvolution.workspace.replaceInstruction').replace('{before}', findText.value).replace('{after}', replacementText.value) : ''].filter(Boolean).join('\n')
+    : requestText.value.trim()
   try {
-    const result = await store.createCoursePlan({ courseId, requestId, instruction, assetTypes: requestMode.value === 'replace' ? requestAssetTypes.value : ['outline', 'lesson_plan', 'script', 'course_content', 'question_bank'], ...(requestMode.value === 'replace' ? { literalReplacement: { before: findText.value, after: replacementText.value } } : {}) })
+    const result = await store.createCoursePlan({ courseId, requestId, instruction, assetTypes: requestMode.value === 'replace' ? requestAssetTypes.value : ['outline', 'lesson_plan', 'script', 'course_content', 'question_bank'], ...(requestMode.value === 'replace' && findText.value ? { literalReplacement: { before: findText.value, after: replacementText.value } } : {}) })
     if (epoch === workspaceEpoch) selectCreatedPlan(result, requestId)
   } catch (error: any) { if (epoch === workspaceEpoch) { actionError.value = readableError(error, t('courseEvolution.workspace.analysisFailed')); forceRequest.value = true } }
 }
@@ -546,6 +563,7 @@ defineExpose({ reloadWorkspace, openPlan, startNewRequest, showHistory })
 .impact-tools{grid-template-columns:minmax(180px,1fr) minmax(120px,.55fr) auto auto auto}.impact-tools>select{min-width:0;height:34px;padding:0 28px 0 9px;border:1px solid #d4dae4;border-radius:8px;color:#4f5d70;background:#fff;font:600 10px inherit}
 @media(max-width:1100px){.impact-tools{grid-template-columns:minmax(160px,1fr) minmax(110px,.55fr) auto auto}.impact-tools>span{display:none}.review-actionbar{grid-template-columns:minmax(0,1fr) repeat(2,auto)}.tree-comparison{grid-template-columns:minmax(140px,.5fr) 16px minmax(360px,1.5fr)}}
 .request-modes{display:flex;gap:8px;margin-bottom:16px}.request-modes button[aria-pressed=true]{color:var(--color-primary,#5148dc);border-color:currentColor}.literal-replacement{display:grid;gap:16px}.literal-replacement label{display:grid;gap:8px;font-size:15px}.literal-replacement input[type=text]{padding:10px;border:1px solid #cbd2de;border-radius:8px;font:inherit}.literal-replacement fieldset{display:flex;gap:16px;border:0;padding:0}.literal-replacement fieldset label{display:flex;align-items:center}.literal-replacement legend{margin-bottom:8px}.workspace-status-progress,.coverage-status{display:flex;align-items:center;gap:8px;margin:8px 20px;font-size:15px}.candidate-diff .source-preview p,.source-preview p{white-space:pre-wrap;display:block;-webkit-line-clamp:unset;overflow:visible;max-height:none;font-size:15px;line-height:1.7}.candidate-diff{align-items:start}.candidate-error{font-size:15px}.receipt-items li small{font-size:15px;white-space:normal}
+.semantic-presets{display:flex;flex-wrap:wrap;gap:8px}.semantic-presets button{min-height:34px;padding:0 11px;border:1px solid var(--lz-border);border-radius:7px;color:var(--lz-text-secondary);background:#fff;font-size:15px;cursor:pointer}.semantic-presets button:hover{border-color:var(--lz-brand);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.literal-advanced{display:grid;gap:12px}.literal-advanced summary{width:max-content;color:var(--lz-text-secondary);font-size:14px;cursor:pointer}.literal-advanced[open]{padding:12px;border:1px solid var(--lz-border);border-radius:7px}
 .course-change-workspace .button-primary,.course-change-workspace .button-secondary,.course-change-workspace .button-danger,.course-change-workspace .button-quiet,
 .course-change-workspace .request-suggestions button,.course-change-workspace .request-context button,
 .course-change-workspace .impact-nav nav button,.course-change-workspace .impact-reason,.course-change-workspace .protected-scope p,

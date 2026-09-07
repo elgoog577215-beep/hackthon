@@ -137,13 +137,38 @@
       @course-applied="handleCourseAdjustmentApplied"
     />
 
+    <Teleport to="body">
+      <div v-if="globalChangeChoiceOpen" class="global-change-choice" role="dialog" aria-modal="true" :aria-labelledby="globalChangeChoiceTitle">
+        <button class="global-change-choice__backdrop" type="button" :aria-label="t('courseAuditUpdates.closeChoice', '关闭修改类型选择')" @click="globalChangeChoiceOpen = false" />
+        <section class="global-change-choice__panel">
+          <header>
+            <small>{{ t('courseAuditUpdates.globalChangeKicker', '课程内容维护') }}</small>
+            <h2 :id="globalChangeChoiceTitle">{{ t('courseAuditUpdates.globalChangeChoiceTitle', '这次要修改什么？') }}</h2>
+            <p>{{ t('courseAuditUpdates.globalChangeChoiceHint', '结构调整会回到大纲；内容修改会先生成候选，确认后再应用。') }}</p>
+          </header>
+          <div class="global-change-choice__options">
+            <button type="button" @click="chooseGlobalChange('structure')">
+              <span class="choice-icon"><LayoutGrid :size="20" /></span>
+              <span><strong>{{ t('courseAuditUpdates.adjustStructure', '调整结构') }}</strong><small>{{ t('courseAuditUpdates.adjustStructureHint', '编辑讲次和课程顺序') }}</small></span>
+              <ArrowRight :size="17" />
+            </button>
+            <button type="button" @click="chooseGlobalChange('semantic')">
+              <span class="choice-icon"><ScanSearch :size="20" /></span>
+              <span><strong>{{ t('courseAuditUpdates.globalSemantic', '全局语义') }}</strong><small>{{ t('courseAuditUpdates.globalSemanticHint', '用一句话说明要怎样改内容') }}</small></span>
+              <ArrowRight :size="17" />
+            </button>
+          </div>
+        </section>
+      </div>
+    </Teleport>
+
   </main>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Eye, FolderOpen, FolderTree, LayoutGrid, LoaderCircle, ScanSearch, Search, X } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, Eye, FolderOpen, FolderTree, LayoutGrid, LoaderCircle, ScanSearch, Search, X } from 'lucide-vue-next'
 import AppErrorNotice from '../components/AppErrorNotice.vue'
 import CourseBaselineDialog from '../components/CourseBaselineDialog.vue'
 import CoursePreparationDialog from '../components/CoursePreparationDialog.vue'
@@ -180,6 +205,8 @@ const outlineEditing = ref(false)
 const calendarOpen = ref(false)
 const courseInformationOpen = ref(false)
 const courseAdjustmentOpen = ref(false)
+const globalChangeChoiceOpen = ref(false)
+const globalChangeChoiceTitle = `global-change-choice-${Math.random().toString(36).slice(2)}`
 const courseAdjustmentPlanId = ref('')
 const generationStarting = ref(false)
 const materialRefreshToken = ref(0)
@@ -359,8 +386,15 @@ function handleCourseAdjustmentApplied() {
   ])
 }
 
-function openGlobalChange() {
-  void router.push({ name: 'course-audit-updates', params: { courseId: courseId.value }, query: auditCenterReturnQuery('changes') })
+function openGlobalChange() { globalChangeChoiceOpen.value = true }
+function chooseGlobalChange(kind: 'structure' | 'semantic') {
+  globalChangeChoiceOpen.value = false
+  if (kind === 'structure') { openOutlineEditor(); return }
+  void router.push({
+    name: 'course-audit-updates',
+    params: { courseId: courseId.value },
+    query: { ...auditCenterReturnQuery('changes'), mode: 'semantic' },
+  })
 }
 
 function openMaterialAudit() {
@@ -499,6 +533,21 @@ onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(cour
 .workspace-error :deep(.app-error-notice) { width:min(620px,100%); }
 .drawer-empty { min-height:240px; display:grid; place-items:center; color:var(--lz-text-muted); }
 :global(.teaching-calendar-drawer .el-drawer__body) { min-height:0; overflow:hidden; padding:0; }
+.global-change-choice { position:fixed; inset:0; z-index:1400; display:grid; place-items:center; padding:24px; }
+.global-change-choice__backdrop { position:absolute; inset:0; width:100%; height:100%; border:0; background:rgba(15,23,42,.42); cursor:default; }
+.global-change-choice__panel { position:relative; width:min(560px,100%); padding:30px; border:1px solid var(--lz-border); border-radius:12px; color:var(--lz-text-strong); background:#fff; box-shadow:0 24px 70px rgba(15,23,42,.2); }
+.global-change-choice__panel header small { color:var(--lz-brand-strong); font-size:13px; font-weight:700; }
+.global-change-choice__panel h2 { margin:7px 0 6px; font-size:24px; line-height:1.35; }
+.global-change-choice__panel header p { margin:0 0 22px; color:var(--lz-text-secondary); font-size:15px; line-height:1.6; }
+.global-change-choice__options { display:grid; gap:10px; }
+.global-change-choice__options button { display:grid; grid-template-columns:40px minmax(0,1fr) 18px; align-items:center; gap:12px; min-height:70px; padding:12px 14px; border:1px solid var(--lz-border); border-radius:8px; color:var(--lz-text-primary); background:#fff; text-align:left; cursor:pointer; }
+.global-change-choice__options button:hover { border-color:var(--lz-brand); background:var(--lz-brand-soft); }
+.global-change-choice__options button:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
+.global-change-choice__options button>span:nth-child(2) { display:grid; gap:3px; }
+.global-change-choice__options strong { font-size:16px; }
+.global-change-choice__options small { color:var(--lz-text-secondary); font-size:14px; }
+.choice-icon { width:36px; height:36px; display:grid; place-items:center; border-radius:8px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
+.global-change-choice__options button>svg { color:var(--lz-text-muted); }
 .spin { animation:spin 1s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 @media (max-width:1050px) {
@@ -530,5 +579,10 @@ onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(cour
   .workspace-surface-enter-active,.workspace-surface-leave-active { transition:none; }
   .workspace-load-enter-from,.workspace-load-leave-to,
   .workspace-surface-enter-from,.workspace-surface-leave-to { transform:none; }
+}
+@media (max-width:560px) {
+  .global-change-choice { padding:16px; }
+  .global-change-choice__panel { padding:22px; }
+  .global-change-choice__panel h2 { font-size:21px; }
 }
 </style>

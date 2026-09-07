@@ -99,14 +99,15 @@
         </aside>
 
         <section v-if="isCourseChangeMode" class="course-change-surface">
-          <CourseEvolutionWorkspace
+            <CourseEvolutionWorkspace
             ref="evolutionWorkspaceRef"
             :key="`course-change-${courseId}`"
             :model-value="true"
             standalone
             embedded-in-center
-            :course-id="courseId"
-            :course-title="courseName"
+              :course-id="courseId"
+              :course-title="courseName"
+              :initial-mode="route.query.mode === 'semantic' ? 'replace' : 'structure'"
             :focus-plan-id="activeCoursePlanId"
             @update:model-value="backToWorkbench"
             @plan-selected="center.selectSource(`course-change:${$event}`)"
