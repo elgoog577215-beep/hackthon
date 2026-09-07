@@ -2553,7 +2553,7 @@ class TeacherLessonAuthoringRepository:
             return True
 
     def publish_generation_attempt(self, course_id: str, job_ids: list[str]) -> bool:
-        """Commit a whole launch set in one existing repository atomic write."""
+        """Publish the requested ready lesson jobs in one repository write."""
         with self._lock:
             value = self.load(course_id)
             jobs = [(value.get("jobs") or {}).get(key) for key in job_ids]
@@ -2715,13 +2715,18 @@ class TeacherLessonAuthoringRepository:
                 "updated_at": timestamp,
             })
             if job.get("restart_whole"):
-                for sibling in value["jobs"].values():
-                    if sibling["id"] == job_id or (job.get("parent_job_id") and sibling.get("parent_job_id") == job["parent_job_id"]):
-                        if sibling.get("status") in {"pending", "running", "paused", "cancelled"}:
-                            sibling.update(status="cancelled", phase="cancelled", progress=0,
-                                           checkpoint={}, result_sections=[], staged_lesson=None, staged_base=None,
-                                           stream_batches={}, stream_events=[], last_stream_event={}, stream_complete=True)
-                            self._drop_live_stream_job_locked(course_id, sibling["id"])
+                job.update(
+                    progress=0,
+                    checkpoint={},
+                    result_sections=[],
+                    staged_lesson=None,
+                    staged_base=None,
+                    completed_blocks=0,
+                    block_states={},
+                    stream_batches={},
+                    stream_events=[],
+                    last_stream_event={},
+                )
             value["jobs"][job_id] = job
             saved = self._save(value)
             self._drop_live_stream_job_locked(course_id, job_id)
@@ -2753,15 +2758,18 @@ class TeacherLessonAuthoringRepository:
                 "updated_at": timestamp,
             })
             if job.get("restart_whole"):
-                for sibling in value["jobs"].values():
-                    if sibling["id"] == job_id or (job.get("parent_job_id") and sibling.get("parent_job_id") == job["parent_job_id"]):
-                        if sibling.get("status") in {"pending", "running", "paused"}:
-                            sibling.update(status="paused", phase="paused", stage="paused", message="已暂停",
-                                           pause_requested=True, cancel_requested=True, progress=0,
-                                           checkpoint={}, result_sections=[], staged_lesson=None, staged_base=None,
-                                           completed_blocks=0, block_states={}, stream_batches={}, stream_events=[],
-                                           last_stream_event={}, stream_complete=True, updated_at=timestamp)
-                            self._drop_live_stream_job_locked(course_id, sibling["id"])
+                job.update(
+                    progress=0,
+                    checkpoint={},
+                    result_sections=[],
+                    staged_lesson=None,
+                    staged_base=None,
+                    completed_blocks=0,
+                    block_states={},
+                    stream_batches={},
+                    stream_events=[],
+                    last_stream_event={},
+                )
             value["jobs"][job_id] = job
             saved = self._save(value)
             self._drop_live_stream_job_locked(course_id, job_id)
