@@ -235,7 +235,7 @@ async def test_delete_running_initial_job_cleans_shell_workspace_and_runtime(
     tmp_path, monkeypatch
 ):
     manager, storage, workspaces = _lifecycle_manager(tmp_path, monkeypatch)
-    job = await manager.create_generation_job({"subject": "生命周期测试"})
+    job = await manager._create_generation_job({"subject": "生命周期测试"})
     task_id = job["task_id"]
     course_id = job["course_id"]
     running = asyncio.create_task(asyncio.sleep(60))
@@ -253,7 +253,7 @@ async def test_delete_running_initial_job_cleans_shell_workspace_and_runtime(
 @pytest.mark.asyncio
 async def test_delete_task_preserves_already_published_course(tmp_path, monkeypatch):
     manager, storage, workspaces = _lifecycle_manager(tmp_path, monkeypatch)
-    job = await manager.create_generation_job({"subject": "已发布课程"})
+    job = await manager._create_generation_job({"subject": "已发布课程"})
     task_id = job["task_id"]
     course_id = job["course_id"]
     published = storage.load_course(course_id)
@@ -274,7 +274,7 @@ async def test_delete_course_cascades_running_job_before_formal_course(
     tmp_path, monkeypatch
 ):
     manager, storage, workspaces = _lifecycle_manager(tmp_path, monkeypatch)
-    job = await manager.create_generation_job({"subject": "级联删除测试"})
+    job = await manager._create_generation_job({"subject": "级联删除测试"})
     task_id = job["task_id"]
     course_id = job["course_id"]
     running = asyncio.create_task(asyncio.sleep(60))
@@ -298,7 +298,7 @@ async def test_generation_creation_failure_rolls_back_shell_and_workspace(
     manager.create_task = AsyncMock(side_effect=OSError("tasks persistence failed"))
 
     with pytest.raises(OSError, match="tasks persistence failed"):
-        await manager.create_generation_job({"subject": "补偿事务测试"})
+        await manager._create_generation_job({"subject": "补偿事务测试"})
 
     assert storage.courses == {}
     assert list(workspaces.root_dir.glob("*.json")) == []
@@ -312,8 +312,8 @@ async def test_generation_creation_is_idempotent_for_same_request_id(
     request = {"request_id": "request-course-0001", "subject": "幂等课程"}
 
     first, second = await asyncio.gather(
-        manager.create_generation_job(request),
-        manager.create_generation_job(request),
+        manager.create_generation_job({**request, "teacher_authoring_mode":"lesson_assets_v1"}),
+        manager.create_generation_job({**request, "teacher_authoring_mode":"lesson_assets_v1"}),
     )
 
     assert first["task_id"] == second["task_id"]
@@ -335,7 +335,7 @@ async def test_teacher_outline_generation_claims_existing_draft_course(
         metadata={"owner_id": "teacher-a"},
     )
 
-    job = await manager.create_generation_job({
+    job = await manager._create_generation_job({
         "subject": "人工智能通识课",
         "target_course_id": "draft-course-1",
         "teacher_authoring_mode": "lesson_assets_v1",
@@ -362,7 +362,7 @@ async def test_failed_teacher_draft_claim_restores_empty_course(
     manager.create_task = AsyncMock(side_effect=OSError("tasks persistence failed"))
 
     with pytest.raises(OSError, match="tasks persistence failed"):
-        await manager.create_generation_job({
+        await manager._create_generation_job({
             "subject": "数据结构",
             "target_course_id": "draft-course-2",
             "teacher_authoring_mode": "lesson_assets_v1",
@@ -421,7 +421,7 @@ async def test_generation_job_migrates_inline_material_without_persisting_conten
         workspace_repository=GenerationWorkspaceRepository(tmp_path / "workspaces"),
         document_repository=CourseDocumentRepository(storage),
     )
-    job = await manager.create_generation_job({
+    job = await manager._create_generation_job({
         "subject": "Calculus",
         "materials": [{
             "filename": "notes.md",
@@ -752,7 +752,7 @@ async def test_course_deletion_removes_teacher_assets_and_cancels_only_its_worke
     spaces = TeacherCourseSpaceRepository(tmp_path / 'course-spaces')
     monkeypatch.setattr(dependencies, '_teacher_lesson_authoring_repository', authoring)
     monkeypatch.setattr(teacher_course_space, 'teacher_course_space_repository', spaces)
-    course_id = (await manager.create_generation_job({'subject': '删除范围测试'}))['course_id']
+    course_id = (await manager._create_generation_job({'subject': '删除范围测试'}))['course_id']
     job = authoring.create_job(course_id, 'lesson-1')
     authoring.update_job_live(course_id, job['id'], progress=24)
     other = authoring.create_job('other-course', 'lesson-1')
@@ -802,3 +802,32 @@ async def test_course_deletion_removes_teacher_assets_and_cancels_only_its_worke
     finally:
         other_worker.cancel()
         await asyncio.gather(other_worker, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_new_legacy_generation_is_retired_but_teacher_creation_remains(tmp_path, monkeypatch):
+    manager, _, _ = _lifecycle_manager(tmp_path, monkeypatch)
+    with pytest.raises(ValueError, match='legacy_course_generation_retired'):
+        await manager.create_generation_job({'subject':'旧请求'})
+    assert not manager.tasks
+    result = await manager.create_generation_job({'subject':'教师课程','teacher_authoring_mode':'lesson_assets_v1'})
+    assert result['job_id']
+
+
+@pytest.mark.asyncio
+async def test_failed_claim_restores_pre_unification_empty_draft(tmp_path, monkeypatch):
+    from storage import Storage
+    from course_repository import CourseDocumentRepository
+    manager, _, _ = _lifecycle_manager(tmp_path, monkeypatch)
+    storage = Storage(str(tmp_path / "real-storage"))
+    manager.storage = storage
+    manager._course_document_repository = CourseDocumentRepository(storage)
+    await manager._course_document_repository.create_teacher_draft("old-draft", title="旧空课程", metadata={"owner_id":"teacher-a"})
+    def old_format(raw):
+        raw.pop("teacher_production_schema", None)
+        return raw
+    before = storage.update_course_data("old-draft", old_format)
+    manager.create_task = AsyncMock(side_effect=OSError("tasks persistence failed"))
+    with pytest.raises(OSError, match="tasks persistence failed"):
+        await manager.create_generation_job({"subject":"旧空课程", "target_course_id":"old-draft", "teacher_authoring_mode":"lesson_assets_v1"})
+    assert storage.load_course("old-draft") == before

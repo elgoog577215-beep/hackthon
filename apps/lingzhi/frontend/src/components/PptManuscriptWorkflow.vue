@@ -13,7 +13,7 @@
           <span v-if="!externalActions" class="ppt-manuscript-page-count">{{ manuscriptPageCounts }}</span>
         </template>
         <template v-if="!externalActions && manuscript && state.source_state === 'stale'">
-          <button type="button" :disabled="busy || dirty" data-testid="regenerate-affected-ppt-pages" @click="emit('regenerate-pages', [])"><RefreshCw :size="16" />{{ t('pptWorkspace.regenerateAffectedPages') }}</button>
+          <button v-if="allowPageRegeneration !== false" type="button" :disabled="busy || dirty" data-testid="regenerate-affected-ppt-pages" @click="emit('regenerate-pages', [])"><RefreshCw :size="16" />{{ t('pptWorkspace.regenerateAffectedPages') }}</button>
           <button type="button" class="primary-action" :disabled="busy" data-testid="generate-ppt-manuscript" @click="emit('generate-manuscript')">{{ t('pptWorkspace.regenerateManuscript') }}</button>
         </template>
         <button v-else-if="!manuscript" type="button" class="primary-action" :disabled="busy" data-testid="generate-ppt-manuscript" @click="emit('generate-manuscript')"><Sparkles :size="16" />{{ busy ? t('pptWorkspace.generatingManuscript') : retryLabel }}</button>
@@ -22,7 +22,7 @@
           <button type="button" class="primary-action" :disabled="busy" data-testid="save-ppt-manuscript" @click="finishEditing"><Check :size="16" />{{ saving ? t('pptWorkspace.savingManuscript') : t('pptWorkspace.editor.finishEditing') }}</button>
         </template>
         <template v-else>
-          <button v-if="externalActions" type="button" :disabled="busy || dirty" :aria-pressed="selectingPages" data-testid="select-ppt-pages" @click="togglePageSelection">{{ selectingPages ? t('common.cancel') : t('pptWorkspace.editor.selectPages') }}</button>
+          <button v-if="externalActions && allowPageRegeneration !== false" type="button" :disabled="busy || dirty" :aria-pressed="selectingPages" data-testid="select-ppt-pages" @click="togglePageSelection">{{ selectingPages ? t('common.cancel') : t('pptWorkspace.editor.selectPages') }}</button>
           <button type="button" :disabled="busy" :aria-expanded="arrangementOpen" data-testid="ppt-lesson-arrangement" @click="arrangementOpen = !arrangementOpen"><ListTree :size="16" />{{ t('pptWorkspace.lessonArrangement') }}</button>
           <button type="button" :disabled="busy" data-testid="edit-ppt-manuscript" @click="editing = true"><Pencil :size="16" />{{ t('pptWorkspace.editor.editPage') }}</button>
           <button v-if="!externalActions && state.status === 'draft'" type="button" class="primary-action" :disabled="busy || dirty || !state.confirmable" data-testid="confirm-ppt-manuscript" @click="emit('confirm-manuscript')"><Check :size="16" />{{ confirming ? t('pptWorkspace.confirmingManuscript') : t('pptWorkspace.confirmManuscript') }}</button>
@@ -63,7 +63,7 @@
         <ul v-if="lessonIssues.length" class="ppt-manuscript-workflow__issues" role="alert"><li v-for="issue in lessonIssues" :key="issue.code">{{ issue.message }}</li></ul>
         <div class="ppt-manuscript-workflow__pages">
           <nav v-if="!externalActions || selectingPages" class="ppt-manuscript-workflow__page-list" :aria-label="t('pptWorkspace.pageNavigation')">
-            <header class="ppt-page-list-heading"><strong>{{ t('pptWorkspace.editor.pages') }}</strong><button v-if="!reviewOnly && !externalActions" type="button" :disabled="busy || dirty" :aria-pressed="selectingPages" data-testid="select-ppt-pages" @click="togglePageSelection">{{ selectingPages ? t('common.cancel') : t('pptWorkspace.editor.selectPages') }}</button></header>
+            <header class="ppt-page-list-heading"><strong>{{ t('pptWorkspace.editor.pages') }}</strong><button v-if="!reviewOnly && !externalActions && allowPageRegeneration !== false" type="button" :disabled="busy || dirty" :aria-pressed="selectingPages" data-testid="select-ppt-pages" @click="togglePageSelection">{{ selectingPages ? t('common.cancel') : t('pptWorkspace.editor.selectPages') }}</button></header>
             <div v-if="selectingPages" class="ppt-page-list-selection"><button type="button" :disabled="busy || selectedPageIds.size === 0 || dirty" data-testid="regenerate-selected-ppt-pages" @click="emit('regenerate-pages', [...selectedPageIds])"><RefreshCw :size="15" />{{ t('pptWorkspace.editor.regenerateSelected').replace('{count}', String(selectedPageIds.size)) }}</button></div>
             <div v-for="item in draftPages" :key="item.page_id" class="ppt-manuscript-workflow__page-rail" :class="{ 'is-active': activePageId === item.page_id }">
               <input v-if="selectingPages" type="checkbox" :aria-label="`${t('pptWorkspace.selectPage')} ${item.page_number}`" :checked="selectedPageIds.has(item.page_id)" :disabled="busy || !canRegenerate(item)" @change="toggleSelected(item.page_id)">
@@ -149,7 +149,7 @@ import AppErrorNotice from './AppErrorNotice.vue'
 import { pptFailurePresentation } from '../utils/ppt-workspace-error'
 import { teacherFacingTeachingLabel } from '../utils/teaching-terminology'
 
-const props = defineProps<{ title: string; state: Record<string, any>; embedded?: boolean; externalActions?: boolean; reviewOnly?: boolean; busy?: boolean; confirming?: boolean; saving?: boolean; regenerating?: boolean; error?: string; failure?: Record<string, any> | null }>()
+const props = withDefaults(defineProps<{ title: string; state: Record<string, any>; allowPageRegeneration?: boolean; embedded?: boolean; externalActions?: boolean; reviewOnly?: boolean; busy?: boolean; confirming?: boolean; saving?: boolean; regenerating?: boolean; error?: string; failure?: Record<string, any> | null }>(), { allowPageRegeneration: true })
 const emit = defineEmits<{
   (event: 'back'): void
   (event: 'generate-manuscript'): void

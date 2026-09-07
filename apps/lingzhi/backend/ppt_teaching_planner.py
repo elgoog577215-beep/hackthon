@@ -181,6 +181,10 @@ def page_response_contract(repair_candidate=None, *, split_required=False):
         schema["anyOf"].append({"type": "object", "required": ["patch"], "additionalProperties": False,
             "properties": {"patch": {"type": "object", "minProperties": 1, "additionalProperties": False,
                 "properties": fields["properties"]}}})
+    # The model chooses an immutable range; repeated quote text or block IDs
+    # create conflicting authorities and are only supported for legacy reads.
+    schema["$defs"]["QuoteChoice"] = {"type":"object", "additionalProperties":False,
+        "required":["quote_id"], "properties":{"quote_id":{"type":"string", "minLength":1}}}
     def compact(value):
         if isinstance(value, dict):
             return {k: compact(v) for k, v in value.items() if k != "default" and not (k == "title" and isinstance(v, str))}

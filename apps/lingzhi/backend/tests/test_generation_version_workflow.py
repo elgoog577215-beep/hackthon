@@ -23,6 +23,12 @@ class MemoryStorage:
     def load_course(self, _course_id):
         return deepcopy(self.course)
 
+    def update_course_data(self, _course_id, update):
+        course = deepcopy(self.course)
+        result = update(course)
+        self.course = course
+        return result
+
     async def save_course(self, _course_id, data):
         self.course = deepcopy(data)
 
@@ -534,7 +540,7 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
         workspace_repository=workspaces,
         document_repository=CourseDocumentRepository(storage),
     )
-    job = await manager.create_generation_job({
+    job = await manager._create_generation_job({
         "subject": "概念课",
         "generation_mode": "fast",
         "course_purpose": "systematic",
@@ -689,7 +695,7 @@ async def test_teacher_outline_waits_through_restart_and_explicit_continue_reuse
         workspace_repository=workspaces,
         document_repository=CourseDocumentRepository(storage),
     )
-    job = await manager.create_generation_job({
+    job = await manager._create_generation_job({
         "subject": "教师章节骨架",
         "teacher_authoring_mode": "lesson_assets_v1",
         "teacher_course_brief": {"total_class_hours": 16},
@@ -904,7 +910,7 @@ async def test_teacher_outline_framework_is_editable_and_has_no_review_report(
         workspace_repository=workspaces,
         document_repository=CourseDocumentRepository(storage),
     )
-    job = await manager.create_generation_job({
+    job = await manager._create_generation_job({
         "subject": "教师十讲课程",
         "teacher_authoring_mode": "lesson_assets_v1",
         "teacher_course_brief": {"chapter_count": 10, "lesson_duration_minutes": 90},
@@ -969,7 +975,7 @@ async def test_teacher_outline_empty_result_fails_instead_of_unlocking_lessons(
         workspace_repository=GenerationWorkspaceRepository(tmp_path / "teacher-empty-outline-workspaces"),
         document_repository=CourseDocumentRepository(MemoryStorage()),
     )
-    job = await manager.create_generation_job({
+    job = await manager._create_generation_job({
         "subject": "空大纲失败样例",
         "teacher_authoring_mode": "lesson_assets_v1",
         "teacher_course_brief": {"lecture_count": 2},
@@ -1000,7 +1006,7 @@ async def test_guided_job_requires_teaching_confirmation_before_content(
         workspace_repository=GenerationWorkspaceRepository(tmp_path / "workspaces"),
         document_repository=CourseDocumentRepository(storage),
     )
-    job = await manager.create_generation_job({"subject": "概念课"})
+    job = await manager._create_generation_job({"subject": "概念课"})
     assert await manager._task_queue.get() == job["job_id"]
     await asyncio.wait_for(manager._process_task(job["job_id"]), timeout=20)
     await manager.confirm_generation_step(job["course_id"], "outline")
@@ -1195,7 +1201,7 @@ async def test_generation_workspace_survives_manager_restart(tmp_path, monkeypat
         workspace_repository=workspaces,
         document_repository=documents,
     )
-    job = await manager.create_generation_job({"subject": "断点续跑课程"})
+    job = await manager._create_generation_job({"subject": "断点续跑课程"})
     workspaces.update_course(
         job["job_id"],
         lambda course: {**course, "checkpoint_marker": "saved-before-restart"},
@@ -1238,7 +1244,7 @@ async def test_failed_teacher_outline_resume_hydrates_request_from_workspace(
         workspace_repository=workspaces,
         document_repository=documents,
     )
-    job = await manager.create_generation_job({
+    job = await manager._create_generation_job({
         "subject": "线性代数",
         "requirements": "完整学期课",
         "teacher_authoring_mode": "lesson_assets_v1",
@@ -1296,7 +1302,7 @@ async def test_waiting_confirmation_survives_restart_without_skipping_gate(tmp_p
         workspace_repository=workspaces,
         document_repository=documents,
     )
-    job = await manager.create_generation_job({"subject": "等待确认恢复课程"})
+    job = await manager._create_generation_job({"subject": "等待确认恢复课程"})
     assert await manager._task_queue.get() == job["job_id"]
     await manager._process_task(job["job_id"])
     assert manager.tasks[job["job_id"]]["status"] == "waiting_for_review"
@@ -1336,7 +1342,7 @@ async def test_legacy_compact_review_rebuilds_on_restart(tmp_path, monkeypatch, 
         workspace_repository=workspaces,
         document_repository=documents,
     )
-    job = await manager.create_generation_job({"subject": "旧版三章六节课程"})
+    job = await manager._create_generation_job({"subject": "旧版三章六节课程"})
     assert await manager._task_queue.get() == job["job_id"]
     await manager._process_task(job["job_id"])
 

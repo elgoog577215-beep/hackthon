@@ -119,6 +119,7 @@ export const useCourseStore = defineStore('course', {
   state: () => ({
     // --- 核心课程状态 ---
     courseList: [] as Course[],
+    teacherPreviewSnapshot: null as any,
     teacherProductionStates: {} as Record<string, CourseProductionState>,
     currentCourseId: '' as string,
     currentCourseVersionId: '' as string,
@@ -319,6 +320,7 @@ export const useCourseStore = defineStore('course', {
         taskType?: string
         monitorTask?: boolean
         previewSurface?: 'student' | 'teacher'
+        teacherTrial?: boolean
         silentError?: boolean
     } = {}) {
         const loadVersion = ++this.courseLoadVersion
@@ -333,11 +335,23 @@ export const useCourseStore = defineStore('course', {
         this.currentTeachingPlan = null
         this.nodes = []
         this.courseTree = []
+        this.teacherPreviewSnapshot = null
         const noteStore = this._noteStore()
         noteStore.notes = []
         const genStore = this._genStore()
 
         try {
+            if (options.teacherTrial) {
+                const { data } = await http.get(`/api/teacher/courses/${courseId}/preview`, identityReadRequestConfig('teacher'))
+                if (this.currentCourseId !== courseId || this.courseLoadVersion !== loadVersion) return
+                this.teacherPreviewSnapshot = data
+                this.applyCourseDocumentEnvelope({
+                    course_id: courseId, course_name: data.document.title,
+                    current_course_version_id: data.document.document_revision,
+                    source_format: 'canonical', migration: { required: false }, document: data.document,
+                })
+                return
+            }
             let backendTask: Record<string, any> | null = null
             try {
                 const taskTypeQuery = options.taskType
@@ -384,10 +398,7 @@ export const useCourseStore = defineStore('course', {
 
             if (
                 options.previewSurface === 'teacher'
-                || (
-                    backendTask
-                    && GENERATION_PREVIEW_STATUSES.has(String(backendTask.status || ''))
-                )
+                || (backendTask && GENERATION_PREVIEW_STATUSES.has(String(backendTask.status || '')))
             ) {
                 const previewAvailable = await this.refreshGenerationPreview(courseId, options.previewSurface)
                 if (this.currentCourseId !== courseId || this.courseLoadVersion !== loadVersion) return
@@ -617,6 +628,9 @@ export const useCourseStore = defineStore('course', {
                 identityReadRequestConfig(surface === 'teacher' ? 'teacher' : 'learner', { silentError: true }),
             )
             const preview = response.data
+            // Completed teacher assets are loaded through the formal document below.
+            // They must not fabricate a pending generation task or overlay live drafts.
+            if ((preview as { projection?: string }).projection === 'canonical') return false
             if (
                 this.currentCourseId !== courseId
                 || this.generationPreviewRequestVersion !== requestVersion

@@ -171,6 +171,16 @@ def test_server_activation_creates_and_restore_verifies_versioned_backup() -> No
     assert 'rm -f -- "${backups[index]}.sha256"' in script
 
 
+def test_teacher_body_preflight_stops_before_service_or_data_changes() -> None:
+    script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
+    gate = script.index('teacher_content_data="$STATE_DIR/backend-data"')
+    stop = script.index('systemctl stop "$SERVICE_NAME"', gate)
+    check = script[gate:stop]
+    assert '--mode preflight --require-teacher-bodies' in check
+    assert 'trap - ERR' in check
+    assert 'exit 76' in check
+
+
 def test_server_activation_preflights_and_recovers_systemd_runtime() -> None:
     script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
 

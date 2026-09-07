@@ -3,6 +3,7 @@ import type { RouteRecordRaw } from 'vue-router'
 import logger from '../utils/logger'
 import { trackClientError } from '../utils/usage-tracker'
 import { setActiveRequestIdentityScope, type RequestIdentityScope } from '../utils/http'
+import { setTeacherPreviewCourse } from '../utils/teacher-preview'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -90,6 +91,7 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
+  setTeacherPreviewCourse(to.name === 'learning' && to.query.teacherPreview === '1' ? String(to.params.courseId) : '')
   const scope = to.name === 'learning' && to.query.teacherPreview === '1'
     ? 'teacher'
     : to.meta.identityScope || 'learner'

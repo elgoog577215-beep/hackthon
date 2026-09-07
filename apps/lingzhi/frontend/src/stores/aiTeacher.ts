@@ -7,7 +7,10 @@ import http, {
   withApiBase,
   type RequestIdentityScope,
 } from '../utils/http'
+import { isTeacherPreviewCourse } from '../utils/teacher-preview'
+import { consumeEventStream } from '../shared/generation-stream'
 import { useLearningProgressStore } from './learningProgress'
+import { useCourseStore } from './course'
 import logger from '../utils/logger'
 import { createUuid } from '../utils/client-id'
 
@@ -193,6 +196,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
   const suggestion = ref<AISuggestion | null>(null)
   const abortController = ref<AbortController | null>(null)
   let requestSequence = 0
+  let previewSession = false
 
   const currentConversation = computed(() => (
     conversations.value.find(item => item.conversation_id === currentConversationId.value) || null
@@ -211,6 +215,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
   }
 
   function persistCache() {
+    if (previewSession || isTeacherPreviewCourse(courseId.value)) return
     if (!courseId.value) return
     try {
       localStorage.setItem(cacheKey(courseId.value, identityScope.value), JSON.stringify({
@@ -244,9 +249,17 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     targetIdentityScope: RequestIdentityScope = getActiveRequestIdentityScope(),
   ) {
     if (!targetCourseId) return
+    const continuingPreview = previewSession && courseId.value === targetCourseId
     const sequence = ++requestSequence
+    previewSession = isTeacherPreviewCourse(targetCourseId)
     courseId.value = targetCourseId
     identityScope.value = targetIdentityScope
+    if (isTeacherPreviewCourse(targetCourseId)) {
+      if (!continuingPreview || !currentConversation.value) {
+        conversations.value = []; currentConversationId.value = ''; await createConversation()
+      }
+      return
+    }
     loadCache(targetCourseId, targetIdentityScope)
     loadingConversations.value = true
     try {
@@ -271,6 +284,13 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
 
   async function createConversation(title = '', retrievalEnabled = false) {
     if (!courseId.value) return null
+    if (isTeacherPreviewCourse(courseId.value)) {
+      const stamp = new Date().toISOString()
+      const conversation: AIConversation = { conversation_id: `trial-${createUuid()}`, course_id: courseId.value,
+        title, revision: 1, messages: [], retrieval_enabled: false, created_at: stamp, updated_at: stamp }
+      replaceConversation(conversation); currentConversationId.value = conversation.conversation_id
+      return conversation
+    }
     const response = await http.post('/api/ai-teacher/conversations', {
       course_id: courseId.value,
       title,
@@ -285,6 +305,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
 
   async function selectConversation(conversationId: string) {
     currentConversationId.value = conversationId
+    if (isTeacherPreviewCourse(courseId.value)) return
     persistCache()
     const response = await http.get(`/api/ai-teacher/conversations/${conversationId}`, identityRequestConfig(identityScope.value, {
       params: { course_id: courseId.value },
@@ -293,6 +314,12 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
   }
 
   async function deleteConversation(conversationId: string) {
+    if (isTeacherPreviewCourse(courseId.value)) {
+      conversations.value = conversations.value.filter(c => c.conversation_id !== conversationId)
+      currentConversationId.value = conversations.value[0]?.conversation_id || ''
+      if (!currentConversationId.value) await createConversation()
+      return
+    }
     await http.delete(`/api/ai-teacher/conversations/${conversationId}`, identityRequestConfig(identityScope.value, {
       params: { course_id: courseId.value },
     }))
@@ -310,6 +337,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
   }
 
   async function updateRetrievalEnabled(enabled: boolean) {
+    if (isTeacherPreviewCourse(courseId.value)) return
     const conversation = currentConversation.value
     if (!conversation || retrievalUpdating.value) return
     retrievalUpdating.value = true
@@ -377,6 +405,28 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     const controller = new AbortController()
     abortController.value = controller
     try {
+      if (isTeacherPreviewCourse(payload.courseId)) {
+        const snapshot = useCourseStore().teacherPreviewSnapshot
+        const response = await fetch(withApiBase(`/api/teacher/courses/${payload.courseId}/preview/ask`), {
+          method: 'POST', signal: controller.signal,
+          headers: identityScopeHeaders('teacher', { 'Content-Type':'application/json', Accept:'text/event-stream' }),
+          body: JSON.stringify({
+          preview_revision: snapshot.preview_revision, question: payload.question, section_id: payload.nodeId || '',
+          messages: conversation.messages.slice(0, -2).filter(m => m.role !== 'system').slice(-12).map(m => ({ role: m.role, content: m.content })),
+          }),
+        })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        let completed = false
+        await consumeEventStream(response, ({event, data}) => {
+          if (controller.signal.aborted || !isTeacherPreviewCourse(payload.courseId)) return
+          if (event === 'complete') completed = true
+          else handleEvent(`event: ${event}\ndata: ${JSON.stringify(data)}`, assistantMessage, conversation, localUserId)
+        })
+        if (controller.signal.aborted || !isTeacherPreviewCourse(payload.courseId)) return
+        if (!completed && assistantMessage.status !== 'failed') throw new Error('preview_stream_incomplete')
+        assistantMessage.status = assistantMessage.status === 'failed' ? 'failed' : 'complete'
+        return
+      }
       const response = await fetch(withApiBase('/api/ask_events'), {
         method: 'POST',
         // Keep the streaming write in the same user namespace as the Axios
@@ -528,6 +578,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
   }
 
   async function refreshConversation(conversationId: string) {
+    if (isTeacherPreviewCourse(courseId.value)) return
     const response = await http.get(`/api/ai-teacher/conversations/${conversationId}`, identityRequestConfig(identityScope.value, {
       params: { course_id: courseId.value },
     }))
@@ -538,12 +589,29 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     abortController.value?.abort()
   }
 
+  function clearPreviewSession() {
+    if (!previewSession) return
+    cancel()
+    requestSequence++
+    conversations.value = []
+    currentConversationId.value = ''
+    courseId.value = ''
+    currentContext.value = null
+    suggestion.value = null
+    loading.value = false
+    loadingConversations.value = false
+    error.value = null
+    // Retain the no-cache guard until the next explicit load; an aborted
+    // request can still execute its finally block after leaving the route.
+  }
+
   async function proposeForMessage(
     message: AIMessage,
     actionType: 'create_note' | 'create_issue' | 'create_review_task' | 'create_bookmark',
     payload: Record<string, any>,
     targetRef: Record<string, any>,
   ) {
+    if (previewSession || isTeacherPreviewCourse(courseId.value)) return undefined
     const response = await http.post('/api/ai-teacher/proposals', {
       course_id: courseId.value,
       conversation_id: currentConversationId.value,
@@ -561,6 +629,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
   }
 
   async function confirmProposal(message: AIMessage, proposal?: AIActionProposal) {
+    if (previewSession || isTeacherPreviewCourse(courseId.value)) return null
     const target = proposal || message.proposal
     if (!target) return null
     const response = await http.post(`/api/ai-teacher/proposals/${target.proposal_id}/confirm`, {
@@ -586,6 +655,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     feedback: AIAnswerFeedback,
     payload: SubmitAIAnswerFeedbackPayload,
   ) {
+    if (previewSession || isTeacherPreviewCourse(courseId.value)) return { status: 'recorded' as const, event_id: '', feedback }
     const response = await http.post(
       `/api/ai-teacher/conversations/${currentConversationId.value}/messages/${message.message_id}/feedback`,
       {
@@ -602,6 +672,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
   }
 
   async function rejectProposal(message: AIMessage, reason: 'not_now' | 'irrelevant' | 'already_done' | 'never' = 'not_now') {
+    if (previewSession || isTeacherPreviewCourse(courseId.value)) return
     if (!message.proposal) return
     await http.post(`/api/ai-teacher/proposals/${message.proposal.proposal_id}/reject`, {
       course_id: courseId.value,
@@ -612,6 +683,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
   }
 
   async function undoReceipt(message: AIMessage) {
+    if (previewSession || isTeacherPreviewCourse(courseId.value)) return null
     if (!message.receipt) return null
     const response = await http.post(`/api/ai-teacher/receipts/${message.receipt.receipt_id}/undo`, {
       course_id: courseId.value,
@@ -641,6 +713,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
    * server-side. This function only asks; it never decides.
    */
   async function checkSuggestion(moment: SuggestionMoment, nodeId?: string) {
+    if (isTeacherPreviewCourse(courseId.value)) { suggestion.value = null; return }
     if (!courseId.value) return null
     try {
       const response = await http.get('/api/ai-teacher/trigger', identityRequestConfig(identityScope.value, {
@@ -663,6 +736,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
 
   /** Spend one unit of the interruption budget once the card is really visible. */
   async function markSuggestionShown(candidate: AISuggestion) {
+    if (previewSession || isTeacherPreviewCourse(courseId.value)) return
     if (!candidate?.trigger_id || !courseId.value) return
     try {
       await http.post('/api/ai-teacher/trigger/shown', {
@@ -691,6 +765,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
    * device. `not_now` additionally gets a 24-hour floor server-side.
    */
   async function suppressSuggestion(candidate: AISuggestion, reason: 'not_now' | 'never') {
+    if (previewSession || isTeacherPreviewCourse(courseId.value)) return
     if (!candidate?.dedupe_key || !courseId.value) return
     try {
       await http.post('/api/ai-teacher/trigger/suppress', {
@@ -723,6 +798,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     updateRetrievalEnabled,
     sendMessage,
     cancel,
+    clearPreviewSession,
     proposeForMessage,
     confirmProposal,
     submitAnswerFeedback,

@@ -402,6 +402,19 @@ describe('course generation lifecycle reconciliation', () => {
     expect(get).not.toHaveBeenCalledWith('/api/courses/course-teacher-current/document')
   })
 
+  it('正式教师兼容响应不覆盖正文，也不创建虚假的生成任务', async () => {
+    const courses = useCourseStore()
+    const generation = useGenerationStore()
+    courses.currentCourseId = 'formal-course'
+    courses.nodes = [{ node_id: 'b', node_content: '正式正文' }] as any
+    vi.spyOn(http, 'get').mockResolvedValue({ data: {
+      projection: 'canonical', course_id: 'formal-course', nodes: [],
+    } })
+    expect(await courses.refreshGenerationPreview('formal-course', 'teacher')).toBe(false)
+    expect(courses.nodes[0]?.node_content).toBe('正式正文')
+    expect(generation.getTask('formal-course')).toBeUndefined()
+  })
+
   it('刷新后保留大纲等待继续状态并读取可编辑投影', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()

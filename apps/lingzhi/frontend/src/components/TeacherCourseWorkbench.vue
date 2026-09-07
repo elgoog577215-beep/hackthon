@@ -18,6 +18,7 @@
         <button v-for="stage in stages" :key="stage.id" type="button" :class="{ active: activeStage === stage.id }" :disabled="stageSwitching || stagePrerequisiteBlocked(stage.id) || (aiCandidatePending && activeStage !== stage.id)" :title="stagePrerequisiteBlocked(stage.id) ? stagePrerequisiteReason(stage.id) : undefined" @click="requestStageChange(stage.id)">
           <span>{{ stage.step }}</span><component :is="stage.icon" :size="18" /><strong>{{ stage.label }}</strong>
           <span
+            v-if="stage.id !== 'ppt' || legacyPptOpen"
             class="stage-state"
             :data-state="stageReady(stage.id) ? 'complete' : stageProgress(stage.id) > 0 ? 'progress' : 'pending'"
             :data-progress="stageProgress(stage.id)"
@@ -389,7 +390,7 @@
             :class="{ 'is-course-preview': lessonCoursePreviewVisible || scriptCoursePreviewVisible }"
           >
         <header
-          v-if="lessonStore.lessons.length"
+          v-if="lessonStore.lessons.length && (activeStage !== 'ppt' || legacyPptOpen)"
           class="lesson-navigator"
           :class="{ 'has-document-actions': lessonPageHeaderVisible }"
         >
@@ -799,9 +800,11 @@
         </template>
 
         <template v-else-if="activeStage === 'ppt'">
+          <PptProjectWorkspace v-if="!legacyPptOpen" ref="pptProjectWorkspace" :key="courseId" :course-id="courseId" :initial-lesson-id="selectedLessonId" :source-revision="pptSourceRevision" embedded @legacy="legacyPptOpen = true" />
+          <button v-else type="button" class="secondary" @click="legacyPptOpen = false">{{ t('pptProject.backToNew') }}</button>
           <UploadedPptReviewWorkspace
             ref="uploadedPptWorkspace"
-            v-if="selectedLesson"
+            v-if="legacyPptOpen && selectedLesson"
             :course-id="courseId"
             :course-title="courseTitle"
             :lesson-id="selectedLesson.lesson_unit_id"
@@ -861,7 +864,7 @@
       <header class="context-pane-heading" :data-phase="contextPhase">
         <div class="context-pane-heading__status" role="status" aria-live="polite" aria-atomic="true">
           <span class="context-pane-heading__signal" aria-hidden="true">
-            <LoaderCircle v-if="contextPhase === 'during' && referenceWorkflowState === 'generating' && !outlineAwaitingContinuation" :size="16" class="spin" />
+            <LoaderCircle v-if="contextPhase === 'during' && (pptContext?.progress != null || referenceWorkflowState === 'generating') && !outlineAwaitingContinuation" :size="16" class="spin" />
             <Pause v-else-if="contextPhase === 'during' && referenceWorkflowState === 'paused'" :size="16" />
             <Check v-else-if="contextPhase === 'after'" :size="16" />
             <TriangleAlert v-else-if="contextPhase === 'failed'" :size="16" />
@@ -946,7 +949,15 @@
         </button>
       </section>
 
-      <CourseReferenceTray
+      <section v-if="activeStage === 'ppt' && !legacyPptOpen" class="ppt-context-sources">
+        <h3>{{ t('pptProject.lectures') }}</h3>
+        <p v-if="!pptProjectWorkspace?.sources.lectures.length">{{ t('pptProject.noLectures') }}</p>
+        <p v-for="lecture in pptProjectWorkspace?.sources.lectures" :key="lecture.lesson_id"><FileText :size="16" /><span>{{ lecture.title }}</span></p>
+        <h3>{{ t('pptProject.materials') }}</h3>
+        <p v-if="!pptProjectWorkspace?.sources.files.length">{{ t('courseWorkbench.contextPane.noFiles', '未使用文件') }}</p>
+        <p v-for="file in pptProjectWorkspace?.sources.files" :key="file.asset_id"><FileText :size="16" /><span>{{ file.filename }}</span></p>
+      </section>
+      <CourseReferenceTray v-else
         v-model="activeReferences"
         class="context-pane-references"
         :course-id="courseId"
@@ -1127,6 +1138,7 @@ import { hasScriptPreviewContent, scriptGenerationPresentation } from '../utils/
 import { teacherFacingTeachingLabel } from '../utils/teaching-terminology'
 import UploadedPptReviewWorkspace from './UploadedPptReviewWorkspace.vue'
 import PptWorkspace from './PptWorkspace.vue'
+import PptProjectWorkspace from './PptProjectWorkspace.vue'
 import UiWorkflowSteps from './UiWorkflowSteps.vue'
 import {
   buildTeacherCourseChangeInstruction,
@@ -1183,6 +1195,9 @@ import { toAppError } from '../utils/app-error'
 import http, { teacherReadRequestConfig, teacherRequestConfig } from '../utils/http'
 import { createUuid } from '../utils/client-id'
 
+const legacyPptOpen = ref(false)
+const pptProjectWorkspace = ref<InstanceType<typeof PptProjectWorkspace> | null>(null)
+const pptSourceRevision = computed(() => lessonStore.lessons.map(lesson => `${lesson.lesson_unit_id}:${lesson.script.current_revision_id}:${lesson.script.ready}`).join('|'))
 type CoreStageId = 'foundation' | 'lesson' | 'script' | 'ppt'
 type StageId = CoreStageId | 'question-bank' | 'companion'
 type CompanionTemplateId = typeof GRADING_RUBRIC_TEMPLATE_ID | typeof MATERIAL_CHECKLIST_TEMPLATE_ID
@@ -1994,9 +2009,9 @@ const outlineAvailableForLessons = computed(() => {
 })
 const outlinePrerequisiteReason = computed(() => t('courseWorkbench.lessonPrerequisite.outlineRequired'))
 function stagePrerequisiteBlocked(stage: StageId) {
+  if (stage === 'ppt') return false
   if (['lesson', 'script', 'ppt'].includes(stage) && !outlineAvailableForLessons.value) return true
   if (stage === 'script') return !(productionState.value?.stages.lesson_plan.counts.available || productionState.value?.stages.script.task_ids.length || lessonStore.lessons.some(lessonPlanIsReady) || lessonStore.lessons.some(lessonScriptIsReady))
-  if (stage === 'ppt') return !(productionState.value?.stages.script.counts.available || productionState.value?.stages.ppt.task_ids.length || lessonStore.lessons.some(lessonPlanIsReady) || lessonStore.lessons.some(lesson => teacherLessonPptIsReady(lesson)))
   return false
 }
 function stagePrerequisiteReason(stage: StageId): string {
@@ -2365,7 +2380,7 @@ const lessonOutlineVisible = computed(() => {
   if (activeStage.value === 'script') {
     return scriptBatchStarting.value || scriptGenerating.value || lessonStore.lessons.some(lesson => lessonGenerationState(lesson) !== 'pending')
   }
-  return activeStage.value === 'ppt'
+  return activeStage.value === 'ppt' && legacyPptOpen.value
 })
 const effectiveScriptGenerationError = computed(() => String(
   productionState.value
@@ -3885,6 +3900,7 @@ function beginScriptEditing() { scriptDocument.value?.beginEditing() }
 function cancelScriptEditing() { scriptDocument.value?.cancelEditing() }
 async function saveScriptDraft() { await scriptDocument.value?.saveDraft() }
 async function finishEditing(): Promise<boolean> {
+  if (activeStage.value === 'ppt' && pptProjectWorkspace.value && !pptProjectWorkspace.value.prepareToLeave()) return false
   if (activeStage.value === 'ppt' && uploadedPptWorkspace.value && !await uploadedPptWorkspace.value.prepareToLeave()) return false
   if (activeStage.value === 'ppt' && pptWorkspace.value && !await pptWorkspace.value.prepareToLeave()) return false
   if (aiCandidatePending.value) return false
@@ -4237,9 +4253,10 @@ async function pauseScriptGeneration() {
 }
 const uploadedPptWorkspace = ref<InstanceType<typeof UploadedPptReviewWorkspace> | null>(null)
 const pptWorkspace = ref<InstanceType<typeof PptWorkspace> | null>(null)
-const pptContext = computed(() => activeStage.value === 'ppt' ? pptWorkspace.value?.context : null)
+const pptContext = computed(() => activeStage.value === 'ppt' ? (legacyPptOpen.value ? pptWorkspace.value?.context : pptProjectWorkspace.value?.context) : null)
 // Reuse the workbench's projected permissions and exact task controls for sidebar actions.
 const pptContextActions = computed(() => {
+  if (activeStage.value === 'ppt' && !legacyPptOpen.value) return pptContext.value?.actions || []
   const taskActions: { id: string; label: string; primary?: boolean; disabled?: boolean; reason?: string }[] = []
   if (referenceWorkflowCanPause.value) taskActions.push({ id: 'pause', label: t('courseWorkbench.pause') })
   if (referenceWorkflowCanResume.value) taskActions.push({ id: 'resume', label: t('pptWorkspace.flow.resume'), primary: true })
@@ -4254,6 +4271,7 @@ const pptContextActions = computed(() => {
 })
 async function runPptContextAction(id: string) {
   if (!pptContextActions.value.some(action => action.id === id && !action.disabled)) return
+  if (!legacyPptOpen.value) return pptProjectWorkspace.value?.runContextAction(id)
   if (id === 'pause') return pauseReferenceWorkflow()
   if (id === 'resume') return resumeReferenceWorkflow()
   if (id === 'cancel') return cancelReferenceWorkflow()
@@ -4792,6 +4810,7 @@ onBeforeUnmount(() => {
 .context-pane-reopen:hover{border-color:#aaa7e8;color:#37348c;background:#fafaff}
 .context-pane-reopen:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .context-pane{display:flex;flex-direction:column;background:#fff}
+.ppt-context-sources{padding:20px 16px;overflow:auto}.ppt-context-sources h3{font-size:15px;color:var(--lz-text-primary);margin:12px 0 16px}.ppt-context-sources h3:not(:first-child){margin-top:32px}.ppt-context-sources p{display:flex;align-items:flex-start;gap:8px;margin:0;padding:12px 0;color:var(--lz-text-secondary);font-size:15px;line-height:1.6;border-bottom:1px solid var(--lz-border);overflow-wrap:anywhere}.ppt-context-sources svg{flex-shrink:0;margin-top:4px}
 /* Status takes the full reading width; task controls have their own row. */
 .context-pane-heading{flex:none;max-height:65%;overflow-y:auto;display:grid;grid-template-columns:minmax(0,1fr) 32px;align-items:start;gap:16px 8px;margin:0;padding:18px 16px;border-bottom:1px solid #e4e8ef;background:var(--teacher-component-surface,#fff);scrollbar-gutter:stable}
 .context-pane-heading__status{min-width:0;display:grid;grid-template-columns:20px minmax(0,1fr);align-items:start;gap:8px}

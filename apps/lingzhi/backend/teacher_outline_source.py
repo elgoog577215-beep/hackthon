@@ -88,6 +88,8 @@ def read_teacher_outline_source(
     incomplete framework/detail previews never grant generation permission.
     """
     course_id = str(course.get("course_id") or "")
+    if course.get("teacher_production_schema") == "unified_teacher_v1" and course.get("teacher_outline_committed"):
+        return course_view_from_document(course, course["course_document"])
     getter = getattr(task_manager, "get_generation_workspace_course_for_task", None)
     selected = (
         getter(

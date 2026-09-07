@@ -72,5 +72,12 @@ describe('App home navigation', () => {
     expect(router.currentRoute.value.name).toBe('course-workspace')
     expect(wrapper.get('a.brand-button').classes()).toContain('is-route-hidden')
     expect(wrapper.classes()).toContain('is-course-workspace-route')
+
+    await router.push('/course/course-1/learn?teacherPreview=1')
+    await flushPromises()
+    expect(wrapper.findComponent({name:'KnowledgeLibrary'}).exists()).toBe(true)
+    expect(wrapper.findComponent({name:'KnowledgeLibrary'}).props('learningMode')).toBe(true)
+    expect(wrapper.find('.header-search').exists()).toBe(true)
+    wrapper.unmount()
   })
 })

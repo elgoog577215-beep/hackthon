@@ -178,6 +178,7 @@ async def test_material_backed_generate_course_creates_one_generation_job(client
     monkeypatch.setattr(deps_module, "_task_manager", fake_manager)
 
     resp = await client.post("/api/course-generation/generate", json={
+        "teacher_authoring_mode": "lesson_assets_v1",
         "subject": "AI",
         "difficulty": "advanced",
         "style": "socratic",

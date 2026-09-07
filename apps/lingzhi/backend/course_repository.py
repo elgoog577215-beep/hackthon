@@ -94,12 +94,16 @@ class CourseDocumentRepository:
 
     def load_document(self, course_id: str) -> tuple[CourseDocument, bool]:
         raw = self.load_raw(course_id)
+        from teacher_content_projection import project_teacher_content
+        raw = project_teacher_content(raw, storage=self.storage)
         if self.is_canonical(raw):
             return CourseDocument.model_validate(raw["course_document"]), True
         return document_from_legacy_course(raw), False
 
     def load_course_view(self, course_id: str) -> dict[str, Any]:
         raw = self.load_raw(course_id)
+        from teacher_content_projection import project_teacher_content
+        raw = project_teacher_content(raw, storage=self.storage)
         if not self.is_canonical(raw):
             return raw
         return course_view_from_document(raw, raw["course_document"])
@@ -194,6 +198,7 @@ class CourseDocumentRepository:
             "generation_status": "draft",
             "course_status": "draft",
             "authoring_surface": "teacher",
+            "teacher_production_schema": "unified_teacher_v1",
             "course_operation_log": [],
         })
         await self._save_raw(course_id, raw)
@@ -216,6 +221,7 @@ class CourseDocumentRepository:
         document = CourseDocument.model_validate(raw["course_document"])
         if document.sections or document.blocks:
             raise CourseDocumentConflict("Course draft already has structured content")
+        expected_revision = raw.get("course_document_revision")
 
         if title and title != document.title:
             document.title = title
@@ -231,7 +237,21 @@ class CourseDocumentRepository:
             "course_status": "generating",
             "authoring_surface": "teacher",
         })
-        await self._save_raw(course_id, raw)
+        if hasattr(self.storage, "update_course_data"):
+            def claim(latest: dict[str, Any]) -> dict[str, Any]:
+                if (latest.get("course_status") != "draft"
+                        or latest.get("generation_job_id")
+                        or latest.get("course_document_revision") != expected_revision):
+                    raise CourseDocumentConflict("Course draft changed before generation")
+                latest.update(self._generated_metadata(metadata or {}))
+                latest.update({key: deepcopy(raw[key]) for key in (
+                    "course_name", "course_document", "course_document_revision",
+                    "course_revision_vector", "generation_job_id", "generation_status",
+                    "course_status", "authoring_surface")})
+                return latest
+            self.storage.update_course_data(course_id, claim)
+        else:
+            await self._save_raw(course_id, raw)
         return self.document_envelope(course_id)
 
     async def update_generation_state(
@@ -492,6 +512,8 @@ class CourseDocumentRepository:
         prepared_legacy_course: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         raw = self.load_raw(course_id)
+        from teacher_content_projection import project_teacher_content
+        raw = project_teacher_content(raw, storage=self.storage)
         canonical = self.is_canonical(raw)
         if canonical:
             document = CourseDocument.model_validate(raw["course_document"])
@@ -505,6 +527,14 @@ class CourseDocumentRepository:
             "subject_pedagogy_profile": deepcopy(raw.get("subject_pedagogy_profile")),
             "generation_quality_report": deepcopy(raw.get("generation_quality_report")),
             "teaching_plan": project_course_teaching_plan(raw),
+            "teacher_content": {
+                "schema": raw.get("teacher_production_schema"),
+                "document_revision": document.document_revision,
+                "lectures": {lid: {key: binding.get(key) for key in (
+                    "revision_id", "source_lesson_plan_revision_id", "source_outline_revision_id")}
+                    for lid, binding in (raw.get("teacher_handouts") or {}).items()},
+                "reading_available": any(b.status == "final" for b in document.blocks),
+            },
             "source_format": "canonical" if canonical else "legacy_projection",
             "migration": {
                 "required": not canonical,
@@ -615,6 +645,8 @@ class CourseDocumentRepository:
         if current.document_revision != expected_revision:
             raise CourseDocumentConflict("Course document revision changed")
 
+        if raw.get("teacher_production_schema") == "unified_teacher_v1" and current.blocks != document.blocks:
+            raise CourseDocumentConflict("请通过教师讲义保存或候选采用提交正文，以保持教案来源和讲义修订一致。")
         updated = refresh_document_revision(document)
         receipt = {
             "command_id": command_id,
@@ -648,7 +680,18 @@ class CourseDocumentRepository:
         raw["course_revision_vector"] = revision_change.current.model_dump(mode="json")
         raw["current_course_version_id"] = updated.document_revision
         raw.pop("nodes", None)
-        await self._save_raw(course_id, raw)
+        if hasattr(self.storage, "update_course_data"):
+            def commit(latest):
+                if latest.get("course_document_revision") != expected_revision:
+                    raise CourseDocumentConflict("Course document revision changed")
+                latest.update({key: deepcopy(raw[key]) for key in (
+                    "course_document", "course_document_revision", "course_revision_vector",
+                    "current_course_version_id", "course_operation_log")})
+                latest.pop("nodes", None)
+                return latest
+            self.storage.update_course_data(course_id, commit)
+        else:
+            await self._save_raw(course_id, raw)
         _publish_course_revision(course_id, receipt)
         return receipt
 

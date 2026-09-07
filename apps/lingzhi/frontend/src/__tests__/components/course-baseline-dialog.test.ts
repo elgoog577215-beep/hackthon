@@ -130,7 +130,7 @@ describe('CourseBaselineDialog', () => {
     await flushPromises()
 
     await wrapper.get('.secondary-button').trigger('click')
-    expect(wrapper.get('.history-panel').text()).toContain('修订 0')
+    expect(wrapper.get('.history-panel').text()).toContain('版本 0')
     expect(wrapper.text()).not.toContain('恢复旧设置会创建一个新修订')
     await wrapper.get('.history-panel li:last-child button').trigger('click')
     expect(wrapper.get('.review-panel').text()).toContain('恢复历史设置')

@@ -1,9 +1,7 @@
 """Teacher-only lesson plan assets and jobs.
 
-This module deliberately does not write ``CourseDocument``.  It is the
-authoring boundary for a teacher lesson (one L1 node plus all direct L2
-sections) while the existing learner course-generation pipeline remains
-unchanged.
+The authoring boundary owns complete plans and handout revisions. Readers
+project these assets without persisting a second course body.
 """
 
 from __future__ import annotations
@@ -11,7 +9,9 @@ from __future__ import annotations
 from ppt_manuscript_quality import manuscript_quality_passed
 
 import asyncio
+import fcntl
 import inspect
+import logging
 import json
 import os
 import re
@@ -46,6 +46,7 @@ from teacher_visible_language import has_unnatural_system_language
 
 
 SCHEMA_VERSION = "teacher_lesson_authoring_v1"
+logger = logging.getLogger(__name__)
 LESSON_PLAN_PIPELINE_VERSION = "standard_lesson_plan_v1"
 LESSON_PLAN_FORMAL_FIELD_POLICY_VERSION = "teacher_lesson_formal_fields_v1"
 TEACHER_ASSET_JOB_SCHEMA_VERSION = "teacher_asset_job_v1"
@@ -1401,7 +1402,8 @@ def _default_root() -> Path:
     configured = os.getenv("TEACHER_LESSON_AUTHORING_DIR", "").strip()
     if configured:
         return Path(configured)
-    return Path(__file__).resolve().parent / "data" / "teacher_lesson_authoring"
+    from storage import DATA_DIR
+    return Path(DATA_DIR) / "teacher_lesson_authoring"
 
 
 def lesson_scope(course_data: dict[str, Any], lesson_unit_id: str) -> dict[str, Any]:
@@ -1544,6 +1546,31 @@ def teacher_lesson_v6_source(
     while the CourseDocument revision changes with the teacher plan. Nothing is
     persisted to the learner CourseDocument repository.
     """
+    if course_data.get("teacher_production_schema") == "unified_teacher_v1":
+        from teacher_content_projection import project_teacher_content
+        course_data = project_teacher_content(course_data, authoring={
+            "outline_revision_id": plan_revision.get("source_outline_revision_id", ""),
+            "lessons": {lesson_unit_id: {"working_revision_id": plan_revision.get("revision_id"),
+                "working_script_revision_id": script_revision.get("revision_id"),
+                "script_revisions": [script_revision]}}})
+        from course_document import CourseDocument, course_view_from_document, refresh_document_revision
+        binding = (course_data.get("teacher_handouts") or {}).get(lesson_unit_id) or {}
+        if binding.get("revision_id") != script_revision.get("revision_id"):
+            raise TeacherLessonAuthoringError("handout_revision_conflict", "PPT 来源已变化，请刷新讲义。")
+        document = CourseDocument.model_validate(course_data["course_document"])
+        document.sections = [s for s in document.sections if s.section_id == lesson_unit_id or s.parent_section_id == lesson_unit_id]
+        ids = {s.section_id for s in document.sections}
+        document.blocks = [b for b in document.blocks if b.section_id in ids and b.status != "retired"]
+        document = refresh_document_revision(document)
+        view = course_view_from_document(course_data, document)
+        view["course_teaching_plan"] = normalize_teacher_lesson_plan(plan_revision.get("plan") or {})
+        view["teacher_lesson_source"] = {"real_course_id": document.course_id, "lesson_unit_id": lesson_unit_id,
+            "lesson_plan_revision_id": plan_revision.get("revision_id"), "script_revision_id": script_revision.get("revision_id"),
+            "document_revision": course_data.get("course_document_revision"), "lecture_content_revision": document.document_revision}
+        # Keep the existing per-lecture artifact directory and export URLs;
+        # this is only a storage scope, never another course/body identity.
+        scope_key = "teacher-lesson-" + hashlib.sha256(f"{document.course_id}:{lesson_unit_id}".encode()).hexdigest()[:20]
+        return document, view, scope_key
     scope = lesson_scope(course_data, lesson_unit_id)
     plan = normalize_teacher_lesson_plan(plan_revision.get("plan") or {})
     plan_sections = {
@@ -1867,15 +1894,58 @@ def _interrupted_teacher_job_fields(job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+class _AuthoringFileLock:
+    """Serialize a complete read/modify/save transaction across workers."""
+    def __init__(self, path):
+        self.path = path
+        self.mutex = threading.RLock()
+        self.local = threading.local()
+
+    def __enter__(self):
+        started = time.monotonic()
+        self.mutex.acquire()
+        depth = getattr(self.local, "depth", 0)
+        try:
+            if depth == 0:
+                self.local.handle = self.path.open("a+")
+                fcntl.flock(self.local.handle.fileno(), fcntl.LOCK_EX)
+            self.local.depth = depth + 1
+            if depth == 0:
+                logger.debug("teacher_timing phase=lock_wait elapsed_ms=%.3f", (time.monotonic() - started) * 1000)
+        except BaseException:
+            self.mutex.release()
+            raise
+        return self
+
+    def __exit__(self, *args):
+        self.local.depth -= 1
+        if self.local.depth == 0:
+            fcntl.flock(self.local.handle.fileno(), fcntl.LOCK_UN)
+            self.local.handle.close()
+        self.mutex.release()
+
+
 class TeacherLessonAuthoringRepository:
-    def __init__(self, root: str | Path | None = None):
+    def __init__(self, root: str | Path | None = None, *, canonical_storage=None):
+        if canonical_storage is None and root is None:
+            from storage import storage
+            canonical_storage = storage
+        self.canonical_storage = canonical_storage
         self.root = Path(root) if root is not None else _default_root()
         self.root.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.RLock()
+        self._locks: dict[str, _AuthoringFileLock] = {}
+        self._locks_guard = threading.Lock()
         self._deleted_courses: set[str] = set()
         self._runtime_jobs: dict[str, set[asyncio.Task]] = {}
         self._live_stream_jobs: dict[str, dict[str, dict[str, Any]]] = {}
         self._live_stream_touched_at: dict[tuple[str, str], float] = {}
+
+    def _course_lock(self, course_id: str) -> _AuthoringFileLock:
+        path = self._path(course_id).with_suffix(".lock")
+        with self._locks_guard:
+            if course_id not in self._locks:
+                self._locks[course_id] = _AuthoringFileLock(path)
+            return self._locks[course_id]
 
     def track_runtime_job(self, course_id: str, task: asyncio.Task) -> None:
         """Track only runtime handles; persisted job IDs remain the task truth."""
@@ -1889,7 +1959,7 @@ class TeacherLessonAuthoringRepository:
     async def delete_course(self, course_id: str) -> None:
         # Fence late model/thread callbacks before cancellation or removal. They
         # must never recreate an authoring file after the teacher deletes it.
-        with self._lock:
+        with self._course_lock(course_id):
             path = self._path(course_id)
             self._deleted_courses.add(course_id)
             self._live_stream_jobs.pop(course_id, None)
@@ -1949,7 +2019,7 @@ class TeacherLessonAuthoringRepository:
                 self._live_stream_jobs.pop(course_id, None)
         self._live_stream_touched_at.pop((course_id, job_id), None)
     def load(self, course_id: str) -> dict[str, Any]:
-        with self._lock:
+        with self._course_lock(course_id):
             path = self._path(course_id)
             if not path.exists():
                 return self._overlay_live_stream_jobs_locked(
@@ -1964,6 +2034,10 @@ class TeacherLessonAuthoringRepository:
                     "教师讲次资产读取失败。",
                 ) from exc
             value = data if isinstance(data, dict) else self._empty(course_id)
+            if any(r.get("canonical_ref") for lesson in (value.get("lessons") or {}).values()
+                   for r in lesson.get("script_revisions") or []):
+                raise TeacherLessonAuthoringError(
+                    "teacher_content_migration_required", "讲义仍是旧正文引用，请先完成教师正文恢复。")
             for lesson in (value.get("lessons") or {}).values():
                 for revision in lesson.get("script_revisions") or []:
                     for section in revision.get("sections") or []:
@@ -1977,11 +2051,13 @@ class TeacherLessonAuthoringRepository:
             return self._overlay_live_stream_jobs_locked(course_id, value)
 
     def _save(self, value: dict[str, Any]) -> dict[str, Any]:
+        started = time.monotonic()
         course_id = str(value.get("course_id") or "")
         if course_id in self._deleted_courses:
             raise TeacherLessonAuthoringError("teacher_course_deleted", "课程已删除，不能再写入讲次资产。")
         path = self._path(course_id)
         payload = deepcopy(value)
+        payload.pop("_canonical_baselines", None)
         for job in (payload.get("jobs") or {}).values():
             if not isinstance(job, dict):
                 continue
@@ -2003,6 +2079,7 @@ class TeacherLessonAuthoringRepository:
         finally:
             if os.path.exists(temp_name):
                 os.unlink(temp_name)
+        logger.info("teacher_timing phase=save elapsed_ms=%.3f", (time.monotonic() - started) * 1000)
         return payload
 
     def set_outline(
@@ -2017,7 +2094,7 @@ class TeacherLessonAuthoringRepository:
         Structured same-source audit owns the later decision to invalidate
         lesson plans, scripts, and decks after an outline change.
         """
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             original = deepcopy(value)
             value["outline_revision_id"] = outline_revision_id
@@ -2091,7 +2168,7 @@ class TeacherLessonAuthoringRepository:
     ) -> dict[str, Any]:
         """Persist one idempotent structure rebind without copying lesson bodies."""
 
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             records = value.setdefault("structure_reference_rebinds", [])
             existing = next(
@@ -2243,7 +2320,7 @@ class TeacherLessonAuthoringRepository:
     ) -> dict[str, Any]:
         """CAS-restore only fields changed by one structure rebind operation."""
 
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             record = next(
                 (
@@ -2310,7 +2387,7 @@ class TeacherLessonAuthoringRepository:
         source_outline_revision_id: str,
         actor: str = "teacher",
     ) -> dict[str, Any]:
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = value.setdefault("lessons", {}).setdefault(
                 lesson_unit_id,
@@ -2388,7 +2465,7 @@ class TeacherLessonAuthoringRepository:
     ) -> dict[str, Any]:
         if job_type not in JOB_TYPES:
             raise TeacherLessonAuthoringError("unsupported_teacher_job", "不支持的教师讲次任务。")
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             if request_id:
                 existing = next(
@@ -2490,12 +2567,14 @@ class TeacherLessonAuthoringRepository:
 
     def update_job(self, course_id: str, job_id: str, **changes: Any) -> dict[str, Any]:
         """Persist a semantic checkpoint or a lifecycle state transition."""
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             job = (value.get("jobs") or {}).get(job_id)
             if not isinstance(job, dict):
                 raise TeacherLessonAuthoringError("teacher_job_not_found", "教师讲次任务不存在。")
             if str(job.get("status") or "") in TEACHER_JOB_FROZEN_STATUSES:
+                return deepcopy(job)
+            if job_id not in self._live_stream_jobs.get(course_id, {}) and all(key in job and job[key] == value for key, value in changes.items()):
                 return deepcopy(job)
             if changes.get("restart_whole") and not job.get("restart_whole"):
                 changes["generation_base"] = deepcopy((value.get("lessons") or {}).get(job["lesson_unit_id"]))
@@ -2533,7 +2612,7 @@ class TeacherLessonAuthoringRepository:
         )
 
     def reset_generation_attempt(self, course_id: str, job_ids: list[str], expected_attempt: int | None = None) -> bool:
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             jobs = [(value.get("jobs") or {}).get(key) for key in job_ids]
             if any(not job or job.get("status") not in TEACHER_JOB_ACTIVE_STATUSES for job in jobs):
@@ -2553,8 +2632,8 @@ class TeacherLessonAuthoringRepository:
             return True
 
     def publish_generation_attempt(self, course_id: str, job_ids: list[str]) -> bool:
-        """Commit a whole launch set in one existing repository atomic write."""
-        with self._lock:
+        """Publish the requested ready lesson jobs in one repository write."""
+        with self._course_lock(course_id):
             value = self.load(course_id)
             jobs = [(value.get("jobs") or {}).get(key) for key in job_ids]
             if any(not job or job.get("status") != "running" or job.get("phase") != "result_ready" for job in jobs):
@@ -2579,7 +2658,7 @@ class TeacherLessonAuthoringRepository:
         self, course_id: str, job_id: str, unit_id: str, failure: dict[str, Any],
     ) -> int:
         """Consume a bounded retry in the existing job, including concurrent shards."""
-        with self._lock:
+        with self._course_lock(course_id):
             job = self.get_job(course_id, job_id)
             if job.get("cancel_requested") or job.get("status") not in TEACHER_JOB_ACTIVE_STATUSES:
                 return 0
@@ -2599,7 +2678,7 @@ class TeacherLessonAuthoringRepository:
         **changes: Any,
     ) -> dict[str, Any]:
         """Publish progress and heartbeat changes without rewriting course JSON."""
-        with self._lock:
+        with self._course_lock(course_id):
             live_jobs = self._live_stream_jobs.setdefault(course_id, {})
             job = live_jobs.get(job_id)
             if not isinstance(job, dict):
@@ -2631,7 +2710,7 @@ class TeacherLessonAuthoringRepository:
         stream_mode: str = "",
     ) -> dict[str, Any]:
         """Publish one model delta to the same-process SSE projection only."""
-        with self._lock:
+        with self._course_lock(course_id):
             live_jobs = self._live_stream_jobs.setdefault(course_id, {})
             job = live_jobs.get(job_id)
             if not isinstance(job, dict):
@@ -2686,7 +2765,7 @@ class TeacherLessonAuthoringRepository:
 
     def cancel_job(self, course_id: str, job_id: str) -> dict[str, Any]:
         """Cancel one durable teacher job while preserving its last checkpoint."""
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             job = (value.get("jobs") or {}).get(job_id)
             if not isinstance(job, dict):
@@ -2715,13 +2794,18 @@ class TeacherLessonAuthoringRepository:
                 "updated_at": timestamp,
             })
             if job.get("restart_whole"):
-                for sibling in value["jobs"].values():
-                    if sibling["id"] == job_id or (job.get("parent_job_id") and sibling.get("parent_job_id") == job["parent_job_id"]):
-                        if sibling.get("status") in {"pending", "running", "paused", "cancelled"}:
-                            sibling.update(status="cancelled", phase="cancelled", progress=0,
-                                           checkpoint={}, result_sections=[], staged_lesson=None, staged_base=None,
-                                           stream_batches={}, stream_events=[], last_stream_event={}, stream_complete=True)
-                            self._drop_live_stream_job_locked(course_id, sibling["id"])
+                job.update(
+                    progress=0,
+                    checkpoint={},
+                    result_sections=[],
+                    staged_lesson=None,
+                    staged_base=None,
+                    completed_blocks=0,
+                    block_states={},
+                    stream_batches={},
+                    stream_events=[],
+                    last_stream_event={},
+                )
             value["jobs"][job_id] = job
             saved = self._save(value)
             self._drop_live_stream_job_locked(course_id, job_id)
@@ -2729,7 +2813,7 @@ class TeacherLessonAuthoringRepository:
 
     def pause_job(self, course_id: str, job_id: str) -> dict[str, Any]:
         """Pause one job at its next safe checkpoint without discarding progress."""
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             job = (value.get("jobs") or {}).get(job_id)
             if not isinstance(job, dict):
@@ -2753,15 +2837,18 @@ class TeacherLessonAuthoringRepository:
                 "updated_at": timestamp,
             })
             if job.get("restart_whole"):
-                for sibling in value["jobs"].values():
-                    if sibling["id"] == job_id or (job.get("parent_job_id") and sibling.get("parent_job_id") == job["parent_job_id"]):
-                        if sibling.get("status") in {"pending", "running", "paused"}:
-                            sibling.update(status="paused", phase="paused", stage="paused", message="已暂停",
-                                           pause_requested=True, cancel_requested=True, progress=0,
-                                           checkpoint={}, result_sections=[], staged_lesson=None, staged_base=None,
-                                           completed_blocks=0, block_states={}, stream_batches={}, stream_events=[],
-                                           last_stream_event={}, stream_complete=True, updated_at=timestamp)
-                            self._drop_live_stream_job_locked(course_id, sibling["id"])
+                job.update(
+                    progress=0,
+                    checkpoint={},
+                    result_sections=[],
+                    staged_lesson=None,
+                    staged_base=None,
+                    completed_blocks=0,
+                    block_states={},
+                    stream_batches={},
+                    stream_events=[],
+                    last_stream_event={},
+                )
             value["jobs"][job_id] = job
             saved = self._save(value)
             self._drop_live_stream_job_locked(course_id, job_id)
@@ -2785,7 +2872,9 @@ class TeacherLessonAuthoringRepository:
         rollback_from_revision_id: str = "",
         active_job_id: str = "",
     ) -> dict[str, Any]:
-        with self._lock:
+        normalized_plan = normalize_teacher_lesson_plan(plan)
+        effective_quality = deepcopy(quality_report or validate_teacher_lesson_plan(normalized_plan))
+        with self._course_lock(course_id):
             value = self.load(course_id)
             original_lesson = deepcopy((value.get("lessons") or {}).get(lesson_unit_id))
             if active_job_id:
@@ -2798,10 +2887,6 @@ class TeacherLessonAuthoringRepository:
                         "teacher_job_not_active",
                         "任务已停止，迟到的教案结果未保存。",
                     )
-            normalized_plan = normalize_teacher_lesson_plan(plan)
-            effective_quality = deepcopy(
-                quality_report or validate_teacher_lesson_plan(normalized_plan)
-            )
             lesson = value.setdefault("lessons", {}).setdefault(
                 lesson_unit_id,
                 _empty_lesson_asset(lesson_unit_id),
@@ -2898,7 +2983,7 @@ class TeacherLessonAuthoringRepository:
         This is an internal compensating action for the course-wide AI update
         flow, not a user-facing history browser or a legacy-data restore path.
         """
-        with self._lock:
+        with self._course_lock(course_id):
             lesson = self.lesson(course_id, lesson_unit_id)
             current_revision_id = str(lesson.get("working_revision_id") or "")
             if current_revision_id != expected_working_revision_id:
@@ -2948,7 +3033,7 @@ class TeacherLessonAuthoringRepository:
         ppt_manuscript_status: str = "draft",
     ) -> dict[str, Any]:
         """Register one real V6 representation without copying it into student data."""
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             if not isinstance(lesson, dict):
@@ -3021,7 +3106,7 @@ class TeacherLessonAuthoringRepository:
         overwriting a later teacher edit.
         """
 
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             if not isinstance(lesson, dict):
@@ -3091,7 +3176,7 @@ class TeacherLessonAuthoringRepository:
         template_pack_id: str = "",
     ) -> dict[str, Any]:
         """保存无原版 PPT 分支的独立页面内容稿工作稿，不提前创建 PPT 资产。"""
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             if not isinstance(lesson, dict):
@@ -3174,7 +3259,7 @@ class TeacherLessonAuthoringRepository:
     ) -> dict[str, Any]:
         """Save one optimistic manuscript edit while retaining recoverable drafts."""
 
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             state = (lesson or {}).get("ppt_manuscript")
@@ -3265,7 +3350,7 @@ class TeacherLessonAuthoringRepository:
         manuscript_revision: str,
     ) -> dict[str, Any]:
         """确认独立 页面内容稿；确认后才可进入 PPT 编译。"""
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             state = (lesson or {}).get("ppt_manuscript")
@@ -3303,7 +3388,7 @@ class TeacherLessonAuthoringRepository:
         manuscript_revision: str,
         representation_id: str,
     ) -> dict[str, Any]:
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             state = (lesson or {}).get("ppt_manuscript")
@@ -3333,7 +3418,7 @@ class TeacherLessonAuthoringRepository:
         manuscript_revision: str,
     ) -> dict[str, Any]:
         """确认逐页 页面内容稿，作为正式导出的显式门。"""
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             if not isinstance(lesson, dict):
@@ -3393,7 +3478,7 @@ class TeacherLessonAuthoringRepository:
         source_script_revision_id: str,
         actor: str,
     ) -> dict[str, Any]:
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = value.setdefault("lessons", {}).setdefault(
                 lesson_unit_id, _empty_lesson_asset(lesson_unit_id)
@@ -3452,7 +3537,7 @@ class TeacherLessonAuthoringRepository:
         report: dict[str, Any],
         actor: str,
     ) -> dict[str, Any]:
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             review = next(
@@ -3493,7 +3578,7 @@ class TeacherLessonAuthoringRepository:
         instruction: str,
         proposed_blocks: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             review = next((item for item in (lesson or {}).get("imported_ppt_reviews") or [] if isinstance(item, dict) and item.get("review_id") == review_id), None)
@@ -3528,7 +3613,7 @@ class TeacherLessonAuthoringRepository:
     ) -> dict[str, Any]:
         if status not in {"accepted", "rejected", "superseded"}:
             raise ValueError("unsupported imported PPT candidate status")
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             review = next((item for item in (lesson or {}).get("imported_ppt_reviews") or [] if isinstance(item, dict) and item.get("review_id") == review_id), None)
@@ -3549,7 +3634,7 @@ class TeacherLessonAuthoringRepository:
         review_id: str,
         revision_id: str,
     ) -> dict[str, Any]:
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             review = next((item for item in (lesson or {}).get("imported_ppt_reviews") or [] if isinstance(item, dict) and item.get("review_id") == review_id), None)
@@ -3599,7 +3684,7 @@ class TeacherLessonAuthoringRepository:
         changed_fields: list[str],
         page_changes: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             asset = next(
@@ -3684,7 +3769,7 @@ class TeacherLessonAuthoringRepository:
     ) -> dict[str, Any]:
         if status not in {"accepted", "rejected", "superseded"}:
             raise ValueError("unsupported V6 candidate status")
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             candidate = next(
@@ -3711,7 +3796,7 @@ class TeacherLessonAuthoringRepository:
             return deepcopy(candidate)
 
     def get_job(self, course_id: str, job_id: str) -> dict[str, Any]:
-        with self._lock:
+        with self._course_lock(course_id):
             live_job = (self._live_stream_jobs.get(course_id) or {}).get(job_id)
             if isinstance(live_job, dict):
                 return deepcopy(live_job)
@@ -3729,7 +3814,7 @@ class TeacherLessonAuthoringRepository:
         stale_after_seconds: int = LESSON_JOB_STALE_SECONDS,
     ) -> dict[str, Any]:
         """Close an orphaned generation job left behind by a process reload."""
-        with self._lock:
+        with self._course_lock(course_id):
             live_job = (self._live_stream_jobs.get(course_id) or {}).get(job_id)
             touched_at = self._live_stream_touched_at.get((course_id, job_id))
             if isinstance(live_job, dict) and touched_at is not None:
@@ -3792,7 +3877,7 @@ class TeacherLessonAuthoringRepository:
         stale_after_seconds: int = LESSON_JOB_STALE_SECONDS,
     ) -> dict[str, Any]:
         """Expire all orphaned jobs with one repository read and at most one write."""
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             changed = False
             expired_job_ids: list[str] = []
@@ -3911,7 +3996,7 @@ class TeacherLessonAuthoringRepository:
         )
         publication_eligible = bool(revision_quality.get("publication_eligible"))
         revision_id = revision_id_override or teacher_lesson_script_sections_revision(normalized_sections)
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             original_lesson = deepcopy((value.get("lessons") or {}).get(lesson_unit_id))
             if active_job_id:
@@ -4043,7 +4128,7 @@ class TeacherLessonAuthoringRepository:
         This compensating action is intentionally internal to CourseEvolutionPlan.
         It is not exposed as a teacher history browser or arbitrary restore API.
         """
-        with self._lock:
+        with self._course_lock(course_id):
             lesson = self.lesson(course_id, lesson_unit_id)
             current_revision_id = str(lesson.get("working_script_revision_id") or "")
             if current_revision_id != expected_working_revision_id:
@@ -4098,7 +4183,7 @@ class TeacherLessonAuthoringRepository:
         section_replacements: dict[str, str] | None = None,
         block_replacements: dict[str, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             if not isinstance(lesson, dict):
@@ -4179,7 +4264,7 @@ class TeacherLessonAuthoringRepository:
     ) -> dict[str, Any]:
         if status not in {"accepted", "rejected", "superseded"}:
             raise ValueError("unsupported script candidate status")
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             candidate = next(
@@ -4216,7 +4301,7 @@ class TeacherLessonAuthoringRepository:
         selected_text: str = "",
         material_asset_ids: list[str] | None = None,
     ) -> dict[str, Any]:
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             if not isinstance(lesson, dict):
@@ -4257,7 +4342,7 @@ class TeacherLessonAuthoringRepository:
         actor: str = "teacher",
         result_revision_id_override: str = "",
     ) -> dict[str, Any]:
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             if not isinstance(lesson, dict):
@@ -4295,7 +4380,7 @@ class TeacherLessonAuthoringRepository:
             revision_id_override=result_revision_id_override,
         )
         result_revision_id = str(saved_lesson.get("working_revision_id") or "")
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             candidate = next(
@@ -4331,7 +4416,7 @@ class TeacherLessonAuthoringRepository:
                 "material_absorption_bundle_invalid",
                 "材料吸收执行包不属于当前课程。",
             )
-        with self._lock:
+        with self._course_lock(course_id):
             value = self.load(course_id)
             existing = next(
                 (
@@ -4818,7 +4903,7 @@ class TeacherLessonAuthoringService:
             # Generated drafts are repaired before becoming a formal revision.
             # Manual edits/candidate acceptance never enter this job path.
             for attempt in range(2):
-                issues = [*(quality_report.get("blocking_issues") or []), *(quality_report.get("review_issues") or [])]
+                issues = list(quality_report.get("blocking_issues") or [])
                 if not repairer or not issues or any(
                     item.get("code") in {"lesson_plan:stale_outline", "lesson_plan:knowledge_conflict"}
                     for item in issues
@@ -5762,20 +5847,13 @@ class TeacherLessonAuthoringService:
             # Review the assembled lecture too: individually valid shards can
             # still repeat each other or miss transitions across shard boundaries.
             for attempt in range(2):
-                findings = [*(revision_quality.get("blocking_issues") or []), *(revision_quality.get("review_issues") or [])]
+                findings = list(revision_quality.get("blocking_issues") or [])
                 if not repair_generator or not findings:
                     break
                 block_order = {str(block.get("block_id") or ""): index for index, block in enumerate(
                     block for section in final_sections for block in section["blocks"]
                 )}
                 targets = _teacher_script_retry_block_ids(revision_quality, block_order)
-                for issue in revision_quality.get("review_issues") or []:
-                    section_id = issue.get("section_node_id")
-                    for section in final_sections:
-                        if section_id == section.get("section_node_id"):
-                            targets.update(str(b.get("block_id") or "") for b in section["blocks"])
-                    for block_ids in (issue.get("phrase_blocks") or {}).values():
-                        targets.update(block_ids[1:])
                 if not targets:
                     break
                 current = self.repository.get_job(course_id, job_id)

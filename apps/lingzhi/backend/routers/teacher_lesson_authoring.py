@@ -164,7 +164,7 @@ async def _run_lesson_plan_job(
     repository: TeacherLessonAuthoringRepository,
     run: Callable[[], Awaitable[None]],
 ) -> None:
-    """Run/retry the existing launch set, publishing only when every child is ready."""
+    """Run, publish, and retry one lesson independently of its batch siblings."""
     while True:
         job = await run_in_threadpool(repository.get_job, course_id, job_id)
         if job.get("status") not in {"pending", "running"}:
@@ -178,52 +178,45 @@ async def _run_lesson_plan_job(
                 await asyncio.sleep(1)
                 continue
             repository.update_job(course_id, job_id, next_retry_at=None)
-        attempt = int(job.get("attempt_number") or 0)
-        if job.get("phase") not in {"result_ready", "retry_wait"}:
+        if job.get("phase") == "result_ready":
             try:
-                await _run_with_batch_generation_slot(job, run)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                repository.finish_generation_attempt(course_id, job_id, generation_failure(exc, "lesson_generation_failed"))
-        while True:
-            job = await run_in_threadpool(repository.get_job, course_id, job_id)
-            if job.get("status") not in {"pending", "running"}:
-                return
-            if int(job.get("attempt_number") or 0) != attempt:
-                break
-            state = await run_in_threadpool(repository.view, course_id)
-            siblings = [item for item in (state.get("jobs") or {}).values()
-                        if item.get("id") == job_id or (
-                            job.get("parent_job_id") and item.get("parent_job_id") == job["parent_job_id"])]
-            if len(siblings) < int(job.get("batch_size") or 1):
-                await asyncio.sleep(0.2)
-                continue
-            if any(item.get("status") in {"paused", "cancelled", "failed"} for item in siblings):
+                await run_in_threadpool(repository.publish_generation_attempt, course_id, [job_id])
+            except TeacherLessonAuthoringError as exc:
+                repository.finish_generation_attempt(course_id, job_id, generation_failure(exc, exc.code))
                 repository.pause_job(course_id, job_id)
-                return
-            ids = [item["id"] for item in siblings]
-            if all(item.get("phase") == "result_ready" for item in siblings):
-                try:
-                    if await run_in_threadpool(repository.publish_generation_attempt, course_id, ids):
-                        return
-                except TeacherLessonAuthoringError as exc:
-                    repository.finish_generation_attempt(course_id, job_id, generation_failure(exc, exc.code))
-                    repository.pause_job(course_id, job_id)
-                    return
-            if all(item.get("phase") in {"result_ready", "retry_wait"} for item in siblings):
-                due = max(str(item.get("next_retry_at") or "") for item in siblings)
-                if not due:
-                    delay = min(300, 2 ** min(attempt + 1, 9))
-                    due = (datetime.now(timezone.utc) + timedelta(seconds=delay)).isoformat()
-                    for item in siblings:
-                        repository.update_job(course_id, item["id"], next_retry_at=due,
-                                              message="正在准备重新生成")
-                if datetime.now(timezone.utc) >= datetime.fromisoformat(due):
-                    await run_in_threadpool(repository.reset_generation_attempt, course_id, ids, attempt)
-                    break
+            return
+        if job.get("phase") == "retry_wait":
+            attempt = int(job.get("attempt_number") or 0)
+            if not due:
+                delay = min(300, 2 ** min(attempt + 1, 9))
+                due = (datetime.now(timezone.utc) + timedelta(seconds=delay)).isoformat()
+                repository.update_job(
+                    course_id,
+                    job_id,
+                    next_retry_at=due,
+                    message="正在准备重新生成",
+                )
+            if datetime.now(timezone.utc) >= datetime.fromisoformat(str(due)):
+                await run_in_threadpool(
+                    repository.reset_generation_attempt,
+                    course_id,
+                    [job_id],
+                    attempt,
+                )
+                continue
             await asyncio.sleep(1)
             repository.update_job_live(course_id, job_id, heartbeat_at=datetime.now(timezone.utc).isoformat())
+            continue
+        try:
+            await _run_with_batch_generation_slot(job, run)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            repository.finish_generation_attempt(
+                course_id,
+                job_id,
+                generation_failure(exc, "lesson_generation_failed"),
+            )
 
 
 async def recover_teacher_generation_jobs(tm: TaskManager, repository: TeacherLessonAuthoringRepository) -> None:

@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, ref } from 'vue'
-import LearningView from '@/views/LearningView.vue'
+import LearningView from '@/views/LearnerCourseView.vue'
 import { useAITeacherStore } from '@/stores/aiTeacher'
 import { useChangeProposalsStore } from '@/stores/changeProposals'
 import { useCourseStore } from '@/stores/course'
@@ -271,101 +271,6 @@ describe('LearningView 正文任务覆盖层', () => {
     wrapper.unmount()
   })
 
-  it('教师预览复用完整学生学习现场，并把笔记放在右侧栏', async () => {
-    const router = (globalThis as any).__learningTestRouter
-    await router.replace('/course/c1/learn/n1?teacherPreview=1')
-    const course = useCourseStore()
-    const notes = useNoteStore()
-    const progress = useLearningProgressStore()
-    const ai = useAITeacherStore()
-    const workspace = useCourseWorkspaceStore()
-    vi.mocked(course.loadCourse).mockImplementation(async () => {
-      course.currentCourseProjection = 'generation_preview'
-    })
-
-    const wrapper = mount(LearningView, {
-      attachTo: document.body,
-      global: {
-        plugins: [(globalThis as any).__learningTestPinia, router],
-        stubs: {
-          ContentArea: ContentAreaStub,
-          LearningTaskOverlay: TaskOverlayStub,
-          CourseNavigator: true,
-          LearningStats: LearningStatsStub,
-          MistakeNotebookPanel: true,
-          NotesPanel: NotesPanelStub,
-          SideAIPanel: { template: '<aside class="ai-panel-stub">AI 老师</aside>' },
-          TeachingRepresentationsOverlay: true,
-          Teleport: true,
-          Transition: false,
-        },
-      },
-    })
-    await flushPromises()
-
-    expect(wrapper.find('.teacher-preview-bar').exists()).toBe(false)
-    expect(wrapper.find('.learning-context-bar').exists()).toBe(false)
-    expect(wrapper.get('#content-scroll-container').attributes('data-read-only')).toBe('false')
-    expect(wrapper.find('[data-testid="open-content-practice"]').exists()).toBe(false)
-    expect(wrapper.find('[title="打开 AI 老师"]').exists()).toBe(false)
-    expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['笔记本', '题库本1', '学习概况', '知识库', '智能助教'])
-    expect(course.loadCourse).toHaveBeenCalledWith('c1', {
-      includeLearningRecords: false,
-      monitorTask: false,
-      previewSurface: 'teacher',
-      silentError: true,
-      taskType: 'teacher_outline_generation',
-    })
-    expect(notes.loadCourseRecords).toHaveBeenCalledWith('c1')
-    expect(progress.load).toHaveBeenCalledWith('c1', 'n1')
-    expect(ai.load).toHaveBeenCalledWith('c1', 'n1')
-    expect(workspace.loadMistakeBook).toHaveBeenCalledWith('c1')
-
-    course.currentNode = { ...node, node_id: 'teacher-draft-node' }
-    await flushPromises()
-    expect(progress.startNode).not.toHaveBeenCalledWith('c1', 'teacher-draft-node')
-
-    await wrapper.get('[data-domain="notebook"]').trigger('click')
-    expect(wrapper.find('.notebook-side-panel').exists()).toBe(true)
-    expect(wrapper.get('.notes-panel-stub').attributes('data-mode')).toBe('sidebar')
-    await wrapper.get('.close-notes').trigger('click')
-
-    await wrapper.get('[data-domain="question-book"]').trigger('click')
-    expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
-    wrapper.unmount()
-  })
-
-  it('教师预览在移动端把笔记本放入全屏弹层', async () => {
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
-    const router = (globalThis as any).__learningTestRouter
-    await router.replace('/course/c1/learn/n1?teacherPreview=1')
-
-    const wrapper = mount(LearningView, {
-      attachTo: document.body,
-      global: {
-        plugins: [(globalThis as any).__learningTestPinia, router],
-        stubs: {
-          ContentArea: ContentAreaStub,
-          LearningTaskOverlay: TaskOverlayStub,
-          CourseNavigator: true,
-          LearningStats: LearningStatsStub,
-          MistakeNotebookPanel: true,
-          NotesPanel: NotesPanelStub,
-          SideAIPanel: true,
-          TeachingRepresentationsOverlay: true,
-          Teleport: true,
-          Transition: false,
-        },
-      },
-    })
-    await flushPromises()
-
-    await wrapper.get('[data-domain="notebook"]').trigger('click')
-    expect(wrapper.find('.notebook-side-panel').exists()).toBe(false)
-    expect(wrapper.find('.notebook-overlay').exists()).toBe(true)
-    expect(wrapper.get('.notes-panel-stub').attributes('data-mode')).toBeUndefined()
-    wrapper.unmount()
-  })
 
   it('课程生长块携带的独立复验题不会在跨组件转发时丢失', async () => {
     const wrapper = mount(LearningView, {

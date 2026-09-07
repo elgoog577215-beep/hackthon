@@ -761,6 +761,7 @@ import { useChangeProposalsStore } from '../stores/changeProposals'
 import { activeLocale, t } from '../shared/i18n'
 import type { CourseBlockEditTarget } from '../stores/types'
 import { createUuid } from '../utils/client-id'
+import { isTeacherPreviewCourse } from '../utils/teacher-preview'
 import type {
   ChangeProposal,
   ChangeProposalAfterPayload,
@@ -1623,6 +1624,12 @@ function clearBlockTarget() {
 
 async function saveAnswerAsNote(message: AIMessage) {
   const target = contextRef()
+  if (isTeacherPreviewCourse(courseStore.currentCourseId)) {
+    await noteStore.createNote({ id: `trial-note-${createUuid()}`, nodeId: target.node_id || '',
+      highlightId: '', quote: quoteVisible.value ? props.quoteText || '' : '', content: message.content,
+      title: message.content.slice(0, 80), color: 'yellow', createdAt: Date.now(), sourceType: 'ai', recordType: 'note' })
+    return
+  }
   const proposal = await aiStore.proposeForMessage(message, 'create_note', {
     node_id: target.node_id,
     title: message.content.slice(0, 80),

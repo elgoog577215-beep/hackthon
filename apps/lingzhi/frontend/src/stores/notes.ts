@@ -4,6 +4,7 @@
  */
 import { defineStore } from 'pinia'
 import http from '../utils/http'
+import { isTeacherPreviewCourse } from '../utils/teacher-preview'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
 import type { LearningRecord, LearningRecordType, Note } from './types'
@@ -85,6 +86,7 @@ export const useNoteStore = defineStore('notes', {
     focusNoteId: null as string | null,
     courseId: '',
     loading: false,
+    previewSession: false,
   }),
   getters: {
     getNotesByNodeId: (state) => (nodeId: string) => state.notes.filter(n => n.nodeId === nodeId),
@@ -95,6 +97,8 @@ export const useNoteStore = defineStore('notes', {
     },
 
     async loadCourseRecords(courseId: string) {
+      if (isTeacherPreviewCourse(courseId)) { if (!this.previewSession || this.courseId !== courseId) this.notes = []; this.previewSession = true; this.courseId = courseId; return this.notes }
+      this.previewSession = false
       if (!courseId) return []
       this.loading = true
       this.courseId = courseId
@@ -125,6 +129,7 @@ export const useNoteStore = defineStore('notes', {
     },
 
     async createNote(note: Note) {
+      if (isTeacherPreviewCourse()) { const saved = { ...note, revision: 1, syncState: 'saved' as const }; this.notes = [...this.notes.filter(n => n.id !== note.id), saved]; return saved }
       if (note.sourceType === 'format') {
         this.addNote(note)
         return note
@@ -198,6 +203,7 @@ export const useNoteStore = defineStore('notes', {
 
     async updateRecordStatus(id: string, status: string) {
       const note = this.notes.find(item => item.id === id)
+      if (isTeacherPreviewCourse()) { if (note) note.status = status; return note }
       if (!note?.revision || note.sourceType === 'format') return null
       try {
         const res = await http.patch(`/api/courses/${this.courseId}/learning-records/${id}`, {
@@ -219,7 +225,7 @@ export const useNoteStore = defineStore('notes', {
     async updateNote(id: string, content: string) {
       const note = this.notes.find(n => n.id === id)
       if (note) {
-        if (note.sourceType === 'format') {
+        if (note.sourceType === 'format' || isTeacherPreviewCourse()) {
           note.content = content
           return note
         }
@@ -309,6 +315,7 @@ export const useNoteStore = defineStore('notes', {
           ...new Set([...(Array.isArray(current.metadata?.ai_message_ids) ? current.metadata.ai_message_ids : []), payload.messageId]),
         ],
       }
+      if (isTeacherPreviewCourse()) { current.syncState = 'saved'; return current }
       current.syncState = 'saving'
       persistRecordDraft(this.courseId, current)
       try {
@@ -331,6 +338,7 @@ export const useNoteStore = defineStore('notes', {
     },
 
     async deleteNote(id: string) {
+      if (isTeacherPreviewCourse()) { this.notes = this.notes.filter(n => n.id !== id); return }
       const index = this.notes.findIndex(n => n.id === id)
       if (index !== -1) {
         const note = this.notes[index]
@@ -362,6 +370,7 @@ export const useNoteStore = defineStore('notes', {
       const note = this.notes.find(n => n.id === id)
       if (note) {
         note.tags = tags
+        if (isTeacherPreviewCourse()) return
         try {
           const res = await http.patch(`/api/courses/${this.courseId}/learning-records/${id}`, {
             expected_revision: note.revision,
@@ -379,6 +388,7 @@ export const useNoteStore = defineStore('notes', {
       const note = this.notes.find(n => n.id === id)
       if (note) {
         note.category = category
+        if (isTeacherPreviewCourse()) return
         try {
           const res = await http.patch(`/api/courses/${this.courseId}/learning-records/${id}`, {
             expected_revision: note.revision,
@@ -396,6 +406,7 @@ export const useNoteStore = defineStore('notes', {
       const note = this.notes.find(n => n.id === id)
       if (note) {
         note.priority = priority
+        if (isTeacherPreviewCourse()) return
         try {
           const res = await http.patch(`/api/courses/${this.courseId}/learning-records/${id}`, {
             expected_revision: note.revision,

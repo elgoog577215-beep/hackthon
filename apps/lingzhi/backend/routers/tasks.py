@@ -131,6 +131,15 @@ def get_teacher_course_generation_preview(
     tm: TaskManager = Depends(require_task_manager),
     teacher_repository=Depends(get_teacher_lesson_authoring_repository),
 ):
+    from routers.teacher_preview import owned_course, read_preview
+    raw = tm.storage.load_course(course_id)
+    if raw.get("teacher_production_schema") == "unified_teacher_v1" and raw.get("teacher_outline_committed"):
+        from course_document import course_view_from_document
+        preview = read_preview(course_id, request)
+        safe_doc = preview["document"]
+        view = course_view_from_document({"course_id": course_id}, safe_doc)
+        return {**preview, "schema_version": "generation_preview_v2", "course_name": safe_doc["title"],
+            "nodes": view["nodes"], "projection": "canonical", "course_document_revision": safe_doc["document_revision"]}
     _require_latest_course_task_access(
         tm,
         course_id,

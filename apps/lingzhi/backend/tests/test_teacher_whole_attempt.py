@@ -1,4 +1,4 @@
-"""Whole-launch retries keep the existing job owner and atomic asset repository."""
+"""Lesson retries keep each job independent and preserve atomic publication."""
 import asyncio
 
 import pytest
@@ -22,35 +22,46 @@ def stage(repo, job, content="new"):
     repo.update_job("course-1", job["id"], status="completed", result_revision_id=result["working_revision_id"])
 
 
-def test_batch_restarts_every_child_and_publishes_once(tmp_path):
+def test_batch_retries_only_failed_child_and_publishes_each_lesson(tmp_path):
     repo = TeacherLessonAuthoringRepository(tmp_path)
     repo.set_outline("course-1", "outline-v1")
     jobs = [make_job(repo, lesson, batch="batch-1", size=2) for lesson in ["L1-1", "L1-2"]]
     calls = [0, 0]
+    release_failed_child = asyncio.Event()
 
     async def run_one(index):
         calls[index] += 1
         current = repo.get_job("course-1", jobs[index]["id"])
         assert current.get("checkpoint") == {}
         assert not current.get("staged_lesson")
-        if calls[index] == 1:
-            assert not repo.lesson("course-1", "L1-1")["working_revision_id"]
         if index == 1 and calls[index] == 1:
+            await release_failed_child.wait()
             raise TimeoutError("provider timeout")
         stage(repo, jobs[index], f"attempt-{calls[index]}")
 
     async def execute():
-        await asyncio.wait_for(asyncio.gather(*[
-            _run_lesson_plan_job(course_id="course-1", job_id=job["id"], repository=repo,
-                                 run=lambda i=index: run_one(i))
+        tasks = [
+            asyncio.create_task(_run_lesson_plan_job(
+                course_id="course-1",
+                job_id=job["id"],
+                repository=repo,
+                run=lambda i=index: run_one(i),
+            ))
             for index, job in enumerate(jobs)
-        ]), timeout=10)
+        ]
+        while repo.get_job("course-1", jobs[0]["id"])["status"] != "completed":
+            await asyncio.sleep(0.01)
+        assert repo.get_job("course-1", jobs[1]["id"])["status"] == "pending"
+        assert repo.lesson("course-1", "L1-1")["working_revision_id"]
+        assert not repo.lesson("course-1", "L1-2")["working_revision_id"]
+        release_failed_child.set()
+        await asyncio.wait_for(asyncio.gather(*tasks), timeout=10)
     asyncio.run(execute())
-    assert calls == [2, 2]
-    for job in jobs:
+    assert calls == [1, 2]
+    for index, job in enumerate(jobs):
         asset = repo.lesson("course-1", job["lesson_unit_id"])
         assert len(asset["revisions"]) == 1
-        assert asset["revisions"][0]["plan"]["generation_note"] == "attempt-2"
+        assert asset["revisions"][0]["plan"]["generation_note"] == f"attempt-{index + 1}"
         assert repo.get_job("course-1", job["id"])["status"] == "completed"
 
 
@@ -67,19 +78,21 @@ def test_staged_result_survives_reload_but_is_not_formal(tmp_path):
     assert reloaded.lesson("course-1", "L1-1")["working_revision_id"] != old["working_revision_id"]
 
 
-def test_pause_discards_batch_and_blocks_late_publication(tmp_path):
+def test_pause_affects_only_selected_lesson(tmp_path):
     repo = TeacherLessonAuthoringRepository(tmp_path)
     jobs = [make_job(repo, lesson, batch="batch-1", size=2) for lesson in ["L1-1", "L1-2"]]
     for job in jobs:
         stage(repo, job)
     repo.pause_job("course-1", jobs[0]["id"])
-    for job in jobs:
-        saved = repo.get_job("course-1", job["id"])
-        assert saved["status"] == "paused"
-        assert saved["checkpoint"] == {}
-        assert not saved.get("staged_lesson")
-    assert not repo.publish_generation_attempt("course-1", [j["id"] for j in jobs])
-    assert not repo.reset_generation_attempt("course-1", [j["id"] for j in jobs])
+    paused = repo.get_job("course-1", jobs[0]["id"])
+    sibling = repo.get_job("course-1", jobs[1]["id"])
+    assert paused["status"] == "paused"
+    assert paused["checkpoint"] == {}
+    assert not paused.get("staged_lesson")
+    assert sibling["status"] == "running"
+    assert sibling["phase"] == "result_ready"
+    assert repo.publish_generation_attempt("course-1", [jobs[1]["id"]])
+    assert repo.get_job("course-1", jobs[1]["id"])["status"] == "completed"
 
 
 def test_concurrent_edit_is_not_overwritten(tmp_path):
@@ -122,16 +135,20 @@ def test_recovered_attempt_keeps_retry_due_and_count(tmp_path):
     assert new["checkpoint"] == {}
 
 
-def test_cancel_clears_whole_launch(tmp_path):
+def test_cancel_affects_only_selected_lesson(tmp_path):
     repo = TeacherLessonAuthoringRepository(tmp_path)
     jobs = [make_job(repo, x, batch="b", size=2) for x in ["L1-1", "L1-2"]]
     for job in jobs:
         stage(repo, job)
     repo.cancel_job("course-1", jobs[0]["id"])
-    for job in jobs:
-        saved = repo.get_job("course-1", job["id"])
-        assert saved["status"] == "cancelled"
-        assert not saved.get("staged_lesson")
+    cancelled = repo.get_job("course-1", jobs[0]["id"])
+    sibling = repo.get_job("course-1", jobs[1]["id"])
+    assert cancelled["status"] == "cancelled"
+    assert not cancelled.get("staged_lesson")
+    assert sibling["status"] == "running"
+    assert sibling["phase"] == "result_ready"
+    assert repo.publish_generation_attempt("course-1", [jobs[1]["id"]])
+    assert repo.get_job("course-1", jobs[1]["id"])["status"] == "completed"
 
 
 def test_ppt_retry_uses_new_execution_and_same_confirmed_manuscript(tmp_path, monkeypatch):

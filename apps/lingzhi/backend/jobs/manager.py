@@ -952,6 +952,8 @@ class TaskManager:
         self, request_snapshot: dict[str, Any]
     ) -> dict[str, Any]:
         """Create one durable job, a canonical shell, and an isolated generation workspace."""
+        if request_snapshot.get("teacher_authoring_mode") != "lesson_assets_v1":
+            raise ValueError("legacy_course_generation_retired: use the teacher workbench")
         request_snapshot = dict(request_snapshot)
         async with self._creation_lock:
             request_id = str(request_snapshot.get("request_id") or "").strip()
@@ -1055,6 +1057,7 @@ class TaskManager:
             "course_id": course_id,
             "course_name": subject,
             "generation_schema_version": PIPELINE_VERSION,
+            "teacher_production_schema": "unified_teacher_v1",
             "generation_status": "queued",
             "nodes": [],
             "generation_request": request_snapshot,
@@ -1111,7 +1114,15 @@ class TaskManager:
         except BaseException:
             raw = self.storage.load_course(course_id) if self.storage else None
             if draft_snapshot is not None and self.storage:
-                await self.storage.save_course(course_id, draft_snapshot)
+                atomic_update = getattr(self.storage, "update_course_data", None)
+                if callable(atomic_update) and isinstance(raw, dict) and raw.get("generation_job_id") == task_id:
+                    def restore_claim(current):
+                        if current != raw:
+                            raise CourseDocumentConflict("Teacher draft changed during failed claim recovery")
+                        return deepcopy(draft_snapshot)
+                    await asyncio.to_thread(atomic_update, course_id, restore_claim)
+                elif not callable(atomic_update):
+                    await self.storage.save_course(course_id, draft_snapshot)
             elif isinstance(raw, dict) and raw.get("generation_job_id") == task_id:
                 await self._delete_stored_course(course_id)
             if workspace_created:
@@ -9101,6 +9112,9 @@ class TaskManager:
         if not task:
             return
         course_id = str(task["course_id"])
+        if task.get("type") == "teacher_outline_generation" and course_data.get("generation_status") == "teacher_outline_ready":
+            from teacher_course_content import commit_outline
+            await asyncio.to_thread(commit_outline, self.storage, course_data)
         workspace_id = task.get("workspace_id")
         if workspace_id:
             await asyncio.to_thread(

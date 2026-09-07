@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
 import http, { activeIdentityHeaders, teacherReadRequestConfig, teacherRequestConfig } from '../utils/http'
+import { isTeacherPreviewCourse } from '../utils/teacher-preview'
+import { useCourseStore } from './course'
 import { postGenerationStream } from '../shared/generation-stream'
 import { createUuid } from '../utils/client-id'
 import { t } from '../shared/i18n'
@@ -163,7 +165,39 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     saving: false,
   }),
   actions: {
+    previewQuestions(nodeId?: string) {
+      const snapshot = useCourseStore().teacherPreviewSnapshot
+      const ids = new Set([nodeId, ...(snapshot?.document.sections || []).filter((s: any) => s.parent_section_id === nodeId).map((s: any) => s.section_id)])
+      return (snapshot?.questions || []).filter((q: any) => !nodeId || ids.has(q.node_id) || (q.node_ids || []).some((id: string) => ids.has(id)))
+    },
+    async previewAction(courseId: string, action: 'grade' | 'hint' | 'solution', hintLevel = 1) {
+      const snapshot = useCourseStore().teacherPreviewSnapshot
+      if (!snapshot || snapshot.course_id !== courseId) throw new Error('preview_not_loaded')
+      const attempt = this.currentAttempt
+      const data = (await http.post(`/api/teacher/courses/${courseId}/preview/grade`, {
+        preview_revision: snapshot.preview_revision,
+        question_revision_id: this.currentPracticeQuestion?.revision_id,
+        answer_payload: this.currentDraft, action, hint_level: hintLevel,
+      }, teacherRequestConfig())).data
+      if (!isTeacherPreviewCourse(courseId) || useCourseStore().teacherPreviewSnapshot !== snapshot || this.currentAttempt !== attempt) throw new Error('preview_context_changed')
+      return data
+    },
+    async loadPreviewKnowledge(courseId: string) {
+      const snapshot = useCourseStore().teacherPreviewSnapshot
+      if (!snapshot || snapshot.course_id !== courseId || !isTeacherPreviewCourse(courseId)) throw new Error('preview_not_loaded')
+      if (snapshot.assets) return snapshot.assets
+      const { data } = await http.get(`/api/teacher/courses/${courseId}/preview`, teacherRequestConfig({ params: { include_assets: true } }))
+      if (!isTeacherPreviewCourse(courseId) || useCourseStore().teacherPreviewSnapshot !== snapshot || data.preview_revision !== snapshot.preview_revision) throw new Error('preview_source_changed')
+      snapshot.assets = data.assets
+      return data.assets
+    },
     async loadAssets(courseId: string, nodeId?: string) {
+      if (isTeacherPreviewCourse(courseId)) {
+        const questions = this.previewQuestions(nodeId)
+        this.assets = { course_id: courseId, plan: {}, quality_report: {}, assets: { questions },
+          course_availability: { schema_version: 'course_learning_availability_v1', mode: 'standard', reason_code: '', capabilities: {} } }
+        return this.assets
+      }
       this.loading = true
       try {
         const res = await http.get(`/api/courses/${courseId}/learning-assets`, {
@@ -176,6 +210,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       }
     },
     async checkPracticeAvailability(courseId: string, nodeId: string) {
+      if (isTeacherPreviewCourse(courseId)) return this.previewQuestions(nodeId).length > 0
       const res = await http.get(`/api/courses/${courseId}/practice`, {
         params: { scope: 'node', node_id: nodeId },
       })
@@ -187,6 +222,23 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       ) > 0
     },
     async loadPractice(courseId: string, nodeId?: string, scope: 'node' | 'final' | 'all' = 'node') {
+      if (isTeacherPreviewCourse(courseId)) {
+        const questions = this.previewQuestions(scope === 'node' ? nodeId : undefined)
+        this.practice = { course_id: courseId, node_id: nodeId, scope, questions, batch_size: questions.length,
+          question_count: questions.length, available_question_count: questions.length, batch_policy: 'all', active_attempts: [], summary: {},
+          course_availability: { schema_version: 'course_learning_availability_v1', mode: 'standard', reason_code: '', capabilities: {} },
+          practice_availability: { status: questions.length ? 'available' : 'empty', reason_code: '', scope, node_id: nodeId } }
+        this.currentQuestionIndex = Math.min(this.currentQuestionIndex, Math.max(0, questions.length - 1))
+        if (this.currentAttempt?.task_revision_id !== this.currentPracticeQuestion?.revision_id) {
+          this.currentAttempt = null
+          this.currentDraft = {}
+          this.practiceResult = null
+          this.revealedHints = []
+          this.revealedSolution = null
+        }
+        this.diagnosticWorkflow = null
+        return this.practice
+      }
       this.loading = true
       this.practiceLoading = true
       try {
@@ -247,6 +299,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       }
     },
     async loadDiagnosticWorkflow(courseId: string, nodeId?: string) {
+      if (isTeacherPreviewCourse(courseId)) { this.diagnosticWorkflow = null; return null }
       const res = await http.get(`/api/courses/${courseId}/diagnostics/active`, {
         params: nodeId ? { node_id: nodeId } : undefined,
       })
@@ -322,6 +375,17 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       forceNew = false,
       context?: { originAttemptId: string; practiceIntent: 'targeted_retry' },
     ) {
+      if (isTeacherPreviewCourse(courseId)) {
+        if (!forceNew && this.currentAttempt?.task_revision_id === taskRevisionId) return this.currentAttempt
+        const attempt: PracticeAttempt = { attempt_id: requestId(), task_revision_id: taskRevisionId,
+          revision: 1, status: 'in_progress', attempt_number: 1, answer_payload: {}, revealed_hint_levels: [],
+          solution_revealed: false, ai_support_level: 0, active_seconds: 0, node_id: this.currentPracticeQuestion?.node_id,
+          ...(context ? { origin_attempt_id: context.originAttemptId, practice_intent: context.practiceIntent } : {}) }
+        this.applyPracticeAttempt(courseId, attempt)
+        this.practiceResult = null
+        this.practiceStartedAt = Date.now()
+        return attempt
+      }
       const res = await http.post(`/api/courses/${courseId}/practice/attempts`, {
         task_revision_id: taskRevisionId,
         practice_run_id: this.practiceRunId(courseId),
@@ -365,6 +429,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     async savePracticeDraft(courseId: string) {
       const attempt = this.currentAttempt
       if (!attempt || attempt.status !== 'in_progress') return attempt
+      if (isTeacherPreviewCourse(courseId)) { attempt.answer_payload = { ...this.currentDraft }; this.practiceSaveState = 'saved'; return attempt }
       const cached = {
         revision: attempt.revision,
         answer_payload: this.currentDraft,
@@ -400,6 +465,11 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     async revealPracticeHint(courseId: string, level: number) {
       const attempt = this.currentAttempt
       if (!attempt) return null
+      if (isTeacherPreviewCourse(courseId)) {
+        const data = await this.previewAction(courseId, 'hint', level)
+        if (!attempt.revealed_hint_levels.includes(level)) { attempt.revealed_hint_levels.push(level); this.revealedHints.push(data.hint) }
+        return { ...data, attempt }
+      }
       const res = await http.post(`/api/courses/${courseId}/practice/attempts/${attempt.attempt_id}/hints/${level}`, {
         expected_revision: attempt.revision,
       })
@@ -413,6 +483,18 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     async recordPracticeAiSupport(courseId: string, level = 1, message = '') {
       const attempt = this.currentAttempt
       if (!attempt) return null
+      if (isTeacherPreviewCourse(courseId)) {
+        if (!message) return { attempt }
+        const snapshot = useCourseStore().teacherPreviewSnapshot
+        const { data } = await http.post(`/api/teacher/courses/${courseId}/preview/ask`, {
+          preview_revision: snapshot.preview_revision, section_id: this.currentPracticeQuestion?.node_id || '',
+          question: `${this.currentPracticeQuestion?.prompt || ''}\n${message}`, messages: [],
+        }, teacherRequestConfig())
+        if (!isTeacherPreviewCourse(courseId) || useCourseStore().teacherPreviewSnapshot !== snapshot || this.currentAttempt !== attempt) throw new Error('preview_context_changed')
+        attempt.ai_support_level = Math.max(attempt.ai_support_level, level)
+        attempt.guidance_turns = [...(attempt.guidance_turns || []), { role: 'user', text: message, status: 'ok' }, { role: 'assistant', text: data.answer, status: 'ok' }]
+        return { attempt }
+      }
       const data = await postGenerationStream<Record<string, any>>(`/api/courses/${courseId}/practice/attempts/${attempt.attempt_id}/ai-support`, {
         expected_revision: attempt.revision,
         level,
@@ -428,6 +510,12 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     async revealPracticeSolution(courseId: string) {
       const attempt = this.currentAttempt
       if (!attempt) return null
+      if (isTeacherPreviewCourse(courseId)) {
+        const data = await this.previewAction(courseId, 'solution')
+        attempt.solution_revealed = true
+        this.revealedSolution = data.solution
+        return { ...data, attempt }
+      }
       const res = await http.post(`/api/courses/${courseId}/practice/attempts/${attempt.attempt_id}/solution`, {
         expected_revision: attempt.revision,
       })
@@ -439,6 +527,16 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     async submitCurrentPractice(courseId: string) {
       const attempt = this.currentAttempt
       if (!attempt) return null
+      if (isTeacherPreviewCourse(courseId)) {
+        const data = await this.previewAction(courseId, 'grade')
+        attempt.status = 'graded'; attempt.answer_payload = { ...this.currentDraft }; attempt.result = data.feedback
+        this.practiceResult = data.feedback
+        const history = (this.practiceHistory?.attempts || []).filter((item: PracticeAttempt) => item.attempt_id !== attempt.attempt_id)
+        this.practiceHistory = { attempts: [...history, { ...attempt }] }
+        this.mistakeBookAttempts = unresolvedMistakeAttempts(this.practiceHistory.attempts)
+        this.practiceNeedsReviewCount = this.mistakeBookAttempts.length
+        return { attempt, result: data.feedback }
+      }
       if (this.practiceSaveState === 'saving') throw new Error('practice_draft_is_saving')
       if (this.practiceSaveState === 'conflict') throw new Error('practice_draft_has_conflict')
       this.practiceSubmitRequestId ||= requestId()
@@ -470,6 +568,10 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       nodeId?: string,
       scope: 'node' | 'final' | 'all' = 'node',
     ) {
+      if (isTeacherPreviewCourse(courseId)) {
+        this.currentQuestionIndex = (this.currentQuestionIndex + 1) % Math.max(1, this.practice?.questions.length || 0)
+        return this.retryCurrentPractice(courseId)
+      }
       const question = this.currentPracticeQuestion
       const currentTaskRevisionId = question?.task_revision_id || question?.revision_id
       if (!question || !currentTaskRevisionId) return null
@@ -589,6 +691,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       return attempt
     },
     async loadPracticeHistory(courseId: string, view: 'all' | 'needs_review' | 'legacy' = 'all', nodeId?: string) {
+      if (isTeacherPreviewCourse(courseId)) return this.practiceHistory || { attempts: [] }
       const res = await http.get(`/api/courses/${courseId}/practice/history`, {
         params: { view, ...(nodeId ? { node_id: nodeId } : {}) },
       })
@@ -597,6 +700,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       return res.data
     },
     async loadMistakeBook(courseId: string) {
+      if (isTeacherPreviewCourse(courseId)) return { attempts: this.mistakeBookAttempts }
       const res = await http.get(`/api/courses/${courseId}/practice/history`, {
         params: { view: 'all' },
       })
@@ -608,6 +712,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       }
     },
     async migrateLegacyPracticeData(courseId: string, courseNodeIds: string[]) {
+      if (isTeacherPreviewCourse(courseId)) return { created: 0 }
       const wrong = this.readLegacyArray('quiz_wrong_answers')
       const history = this.readLegacyArray('quiz_history')
       const allowed = new Set(courseNodeIds)
@@ -648,6 +753,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       this.targetedRetryContext = null
     },
     readPracticeDraft(courseId: string, attemptId: string) {
+      if (isTeacherPreviewCourse(courseId)) return null
       try {
         return JSON.parse(localStorage.getItem(practiceDraftKey(courseId, attemptId)) || 'null')
       } catch {
@@ -785,6 +891,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       return res.data
     },
     async syncLearningTask(courseId: string) {
+      if (isTeacherPreviewCourse(courseId)) return
       const learningSession = useLearningSessionStore()
       const learningProgress = useLearningProgressStore()
       const workflow = this.diagnosticWorkflow

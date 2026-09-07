@@ -812,6 +812,7 @@ def test_generation_route_creates_one_persisted_job():
     client = TestClient(app)
 
     response = client.post("/api/course-generation/generate", json={
+        "teacher_authoring_mode": "lesson_assets_v1",
         "subject": "微积分",
         "difficulty": "intermediate",
         "style": "academic",

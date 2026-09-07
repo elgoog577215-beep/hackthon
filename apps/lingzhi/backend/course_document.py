@@ -287,7 +287,8 @@ def course_view_from_document(
 
     blocks_by_section: dict[str, list[CourseBlock]] = {}
     for block in sorted(doc.blocks, key=lambda item: (item.section_id, item.position)):
-        blocks_by_section.setdefault(block.section_id, []).append(block)
+        if block.status != "retired":
+            blocks_by_section.setdefault(block.section_id, []).append(block)
 
     for section in sorted(doc.sections, key=lambda item: item.position):
         legacy_blocks = [_legacy_block(block) for block in blocks_by_section.get(section.section_id, [])]

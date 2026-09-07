@@ -217,4 +217,4 @@ def test_optional_script_optimization_timeout_keeps_usable_draft(monkeypatch):
     ))
     assert result["quality_report"]["passed"]
     assert result["quality_report"]["review_issues"]
-    assert len(calls) == 2
+    assert len(calls) == 1
