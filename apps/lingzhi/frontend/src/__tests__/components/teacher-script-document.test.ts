@@ -112,7 +112,6 @@ describe('统一讲义页面', () => {
     expect(wrapper.findAll('.script-module')).toHaveLength(2)
     expect(wrapper.text()).toContain('本讲目标')
     expect(wrapper.text()).toContain('重点讲解')
-    const firstModule = wrapper.findAll('.script-module')[0]!
     expect(wrapper.find('.script-visual-studio').exists()).toBe(false)
     expect(useTeacherScriptVisualStore().load).not.toHaveBeenCalled()
 

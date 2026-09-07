@@ -57,7 +57,7 @@
                     <label>{{ t('courseEvolution.workspace.replaceWith') }}<input v-model="replacementText" type="text" maxlength="2000" /></label>
                     <fieldset><legend>{{ t('courseEvolution.workspace.replaceScope') }}</legend><label v-for="asset in contextAssets.filter(a => ['outline', 'lesson_plan', 'script', 'course_content'].includes(a.asset_type))" :key="asset.asset_type"><input v-model="requestAssetTypes" type="checkbox" :value="asset.asset_type" />{{ assetLabel(asset.asset_type) }}</label></fieldset>
                   </div>
-                  <textarea v-else-if="requestMode === 'describe'" ref="requestInputRef" v-model="requestText" rows="5" :aria-label="t('courseEvolution.workspace.mode_describe')" :placeholder="t('courseEvolution.workspace.requestPlaceholder', '例如：以后所有例子都讲得更详细一点，并同步更新讲义和 PPT')" :disabled="store.generating || contextUnavailable" />
+                  <textarea v-else ref="requestInputRef" v-model="requestText" rows="5" :aria-label="t('courseEvolution.workspace.mode_structure')" :placeholder="t('courseEvolution.workspace.structurePlaceholder', '例如：把导数应用放到第 2 讲，并重新安排后续讲次')" :disabled="store.generating || contextUnavailable" />
                   <p v-if="store.generationError || actionError" class="inline-error" role="alert"><TriangleAlert :size="15" />{{ store.generationError || actionError }}</p>
                   <footer><button type="submit" class="button-primary button-submit" :disabled="store.generating || !requestCanSubmit || contextUnavailable"><Sparkles :size="16" />{{ t('courseEvolution.workspace.startAnalysis', '分析全课影响') }}</button></footer>
                 </form>
@@ -146,12 +146,12 @@ const workspaceRef = ref<HTMLElement | null>(null)
 const requestInputRef = ref<HTMLTextAreaElement | null>(null)
 const previousFocus = ref<HTMLElement | null>(null)
 const requestText = ref('')
-const requestMode = ref<'describe' | 'replace' | 'structure'>('describe')
-const requestModeOptions = computed(() => ['describe', 'replace', 'structure'].map(value => ({value, label:t(`courseEvolution.workspace.mode_${value}`), disabled:store.generating})))
+const requestMode = ref<'replace' | 'structure'>('structure')
+const requestModeOptions = computed(() => ['structure', 'replace'].map(value => ({value, label:t(`courseEvolution.workspace.mode_${value}`), disabled:store.generating})))
 const findText = ref('')
 const replacementText = ref('')
 const requestAssetTypes = ref(['outline', 'lesson_plan', 'script', 'course_content'])
-const requestCanSubmit = computed(() => requestMode.value === 'replace' ? Boolean(findText.value && findText.value !== replacementText.value && requestAssetTypes.value.length) : requestMode.value === 'structure' || Boolean(requestText.value.trim()))
+const requestCanSubmit = computed(() => requestMode.value === 'replace' ? Boolean(findText.value && findText.value !== replacementText.value && requestAssetTypes.value.length) : Boolean(requestText.value.trim()))
 const candidatesGenerating = computed(() => focusedPlan.value?.status === 'pending' && focusedPlan.value?.generation_status === 'generating')
 const coverage = computed(() => focusedPlan.value?.impact_summary?.coverage)
 const historyRef = ref<HTMLElement | null>(null)
@@ -448,7 +448,7 @@ async function submitRequest() {
   actionError.value = ''; forceRequest.value = false
   const requestId = createUuid()
   const courseId = props.courseId
-  const instruction = requestMode.value === 'replace' ? t('courseEvolution.workspace.replaceInstruction').replace('{before}', findText.value).replace('{after}', replacementText.value) : requestMode.value === 'structure' ? '编辑讲次结构' : requestText.value.trim()
+  const instruction = requestMode.value === 'replace' ? t('courseEvolution.workspace.replaceInstruction').replace('{before}', findText.value).replace('{after}', replacementText.value) : requestText.value.trim()
   try {
     const result = await store.createCoursePlan({ courseId, requestId, instruction, assetTypes: requestMode.value === 'replace' ? requestAssetTypes.value : ['outline', 'lesson_plan', 'script', 'course_content', 'question_bank'], ...(requestMode.value === 'replace' ? { literalReplacement: { before: findText.value, after: replacementText.value } } : {}) })
     if (epoch === workspaceEpoch) selectCreatedPlan(result, requestId)

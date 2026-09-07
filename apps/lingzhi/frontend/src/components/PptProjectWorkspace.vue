@@ -21,8 +21,8 @@ FORM: User-pinned three-step workspace. Existing manuscript editor and renderer 
       <div class="selection-columns">
         <section><h2>{{ t('pptProject.lectures') }}</h2>
           <p v-if="!catalog?.lectures?.length" class="empty-copy">{{ t('pptProject.noLectures') }}</p>
-          <label v-for="lecture in catalog?.lectures || []" :key="lecture.lesson_id" class="source-row" :class="{ unavailable: !lecture.ready }">
-            <input v-model="lessonIds" type="checkbox" :value="lecture.lesson_id" :disabled="!lecture.ready || busy" />
+            <label v-for="lecture in catalog?.lectures || []" :key="lecture.lesson_id" class="source-row" :class="{ unavailable: !lecture.ready }">
+            <input :checked="lessonIds.includes(lecture.lesson_id)" type="radio" name="ppt-lesson" :disabled="!lecture.ready || busy" @change="lessonIds = [lecture.lesson_id]" />
             <span>{{ lecture.title }}</span><small v-if="!lecture.ready">{{ t('pptProject.noHandout') }}</small>
           </label>
         </section>

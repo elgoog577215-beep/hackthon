@@ -2719,6 +2719,7 @@
       "mode_describe": "Describe a change",
       "mode_replace": "Find and replace",
       "mode_structure": "Edit lectures",
+      "structurePlaceholder": "For example: move derivative applications to Lecture 2 and reschedule the following lectures",
       "findText": "Find",
       "replaceWith": "Replace with (empty removes the text)",
       "replaceScope": "Scope",

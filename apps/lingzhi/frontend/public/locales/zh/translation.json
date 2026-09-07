@@ -2719,6 +2719,7 @@
       "mode_describe": "描述要求",
       "mode_replace": "查找替换",
       "mode_structure": "调整讲次",
+      "structurePlaceholder": "例如：把导数应用放到第 2 讲，并重新安排后续讲次",
       "findText": "查找",
       "replaceWith": "替换为（留空表示删除该文字）",
       "replaceScope": "修改范围",
