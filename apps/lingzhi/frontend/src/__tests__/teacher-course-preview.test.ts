@@ -13,14 +13,12 @@ describe('teacher course preview', () => {
     expect(workbench).not.toContain('/lesson-authoring/publish')
   })
 
-  it('routes teacher trials to the disposable component without mounting learner runtime', () => {
+  it('keeps the original learning interface with teacher preview I/O', () => {
     const learningView = source('src/views/LearningView.vue')
-    const trial = source('src/views/TeacherCoursePreview.vue')
-    expect(learningView).toContain('<TeacherCoursePreview v-if="teacherPreview" />')
-    expect(learningView).toContain('<LearnerCourseView v-else />')
-    expect(trial).toContain('/preview')
-    expect(trial).not.toContain('useLearningProgressStore')
-    expect(trial).not.toContain('useNoteStore')
-    expect(trial).not.toContain('localStorage')
+    expect(learningView).toContain('<LearnerCourseView />')
+    expect(learningView).not.toContain('TeacherCoursePreview')
+    expect(source('src/stores/course.ts')).toContain('/preview')
+    expect(source('src/stores/courseWorkspace.ts')).toContain('/preview/grade')
+    expect(source('src/stores/aiTeacher.ts')).toContain('/preview/ask')
   })
 })

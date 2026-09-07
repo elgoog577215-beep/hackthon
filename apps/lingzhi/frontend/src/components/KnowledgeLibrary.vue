@@ -147,7 +147,7 @@
                 <span>{{ detectedSkillCount }} {{ t('knowledgeLibrary.skillUnit', '项能力') }}</span>
               </div>
               <button
-                v-if="libraryView && libraryView.lifecycle_status !== 'accepted'"
+                v-if="libraryView && libraryView.lifecycle_status !== 'accepted' && !isTeacherPreviewCourse(courseStore.currentCourseId)"
                 data-testid="knowledge-rebuild"
                 type="button"
                 :disabled="governanceActing"
@@ -382,7 +382,7 @@
                   </section>
 
                   <KnowledgeCommandPanel
-                    v-if="selectedNode.node_type === 'knowledge_point' && courseStore.currentCourseId"
+                    v-if="selectedNode.node_type === 'knowledge_point' && courseStore.currentCourseId && !isTeacherPreviewCourse(courseStore.currentCourseId)"
                     :course-id="courseStore.currentCourseId"
                     :point="commandPanelPoint"
                     @applied="loadLibrary({ quiet: true })"
@@ -449,6 +449,8 @@ import MathText from './MathText.vue'
 import { knowledgeSourceLabel } from '@/utils/knowledge-source'
 import { t } from '../shared/i18n'
 import http from '../utils/http'
+import { isTeacherPreviewCourse } from '../utils/teacher-preview'
+import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import logger from '../utils/logger'
 import type {
   BoundCriterion,
@@ -780,8 +782,9 @@ async function loadLibrary(options: { quiet?: boolean } = {}): Promise<void> {
   if (!options.quiet) loading.value = true
   loadError.value = ''
   try {
-    const response = await http.get(`/api/courses/${courseId}/learning-assets`)
-    const assets = response.data?.assets || {}
+    const assets = isTeacherPreviewCourse(courseId)
+      ? await useCourseWorkspaceStore().loadPreviewKnowledge(courseId)
+      : (await http.get(`/api/courses/${courseId}/learning-assets`)).data?.assets || {}
     const view = assets.knowledge_library?.[0]
     if (!view || view.schema_version !== 'knowledge_library_view_v3') {
       throw new Error(t('knowledgeLibrary.unsupported', '当前课程尚未接入课程知识库 v2'))
@@ -819,6 +822,7 @@ async function loadLibrary(options: { quiet?: boolean } = {}): Promise<void> {
 async function rebuildLibrary(): Promise<void> {
   const courseId = courseStore.currentCourseId
   if (!courseId) return
+  if (isTeacherPreviewCourse(courseId)) { await loadLibrary(); return }
   governanceActing.value = true
   governanceError.value = ''
   try {

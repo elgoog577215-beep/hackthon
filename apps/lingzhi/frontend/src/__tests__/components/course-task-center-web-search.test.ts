@@ -140,7 +140,7 @@ describe('CourseTaskCenter 联网资料审阅', () => {
     })
     const panel = wrapper.find('[data-testid="web-search-summary"]')
 
-    expect(panel.text()).toContain('已降级为仅用导入资料')
+    expect(panel.text()).toContain('本次仅使用导入资料')
     expect(panel.text()).not.toContain('web_search_provider_failed')
   })
 

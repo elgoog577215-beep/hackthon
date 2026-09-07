@@ -5136,7 +5136,12 @@ class CourseService(AIBase):
                                 ),
                             },
                         )
-            yield
+            acquired_at = time.monotonic()
+            logger.info("teacher_timing phase=queue operation=%s elapsed_ms=%.3f", phase, (acquired_at - started_at) * 1000)
+            try:
+                yield
+            finally:
+                logger.info("teacher_timing phase=model_slot operation=%s elapsed_ms=%.3f", phase, (time.monotonic() - acquired_at) * 1000)
         finally:
             if acquired:
                 self._teaching_plan_semaphore.release()
@@ -8609,8 +8614,8 @@ class CourseService(AIBase):
         last_text = ""
         last_compiled: dict[str, Any] = {}
         best_usable: dict[str, Any] | None = None
-        outer_repair = bool(((lesson_context or {}).get("script_shard_context") or {}).get("quality_feedback"))
         for attempt in range(3):
+            logger.info("teacher_timing phase=script_request attempt=%d repair=%s", attempt + 1, bool(attempt))
             repair = ""
             if attempt:
                 blocking_codes = {
@@ -8656,11 +8661,6 @@ class CourseService(AIBase):
                 best_codes = {item.get("code") for item in (best_usable or {}).get("quality_report", {}).get("review_issues") or []}
                 if best_usable is None or review_codes < best_codes:
                     best_usable = deepcopy(compiled)
-                if review_codes and attempt < 2 and not outer_repair:
-                    last_compiled = deepcopy(best_usable)
-                    last_report = last_compiled["quality_report"]
-                    last_text = last_compiled.get("content") or last_text
-                    continue
                 compiled = best_usable
                 compiled["auto_improvement"] = {"attempts": attempt, "status": "partial" if compiled["quality_report"].get("review_issues") else "completed"}
                 self._record_generation_quality(

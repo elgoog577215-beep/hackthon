@@ -226,8 +226,7 @@ watch(aiVisible, visible => {
   if (!isNarrow.value) sessionStorage.setItem(assistantPanelStorageKey, visible ? 'open' : 'closed')
 })
 const isTeacherPreview = computed(() => String(route.query.teacherPreview || '') === '1')
-// 教师学生预览虽然读取当前教师课程投影，但它仍是完整学习现场。
-// 只有普通生成预览需要关闭记录、练习和 AI 等会写入学习事实的能力。
+// Keep the full learning UI; teacher trials use only session state and teacher APIs.
 const isGenerationPreview = computed(() => (
   courseStore.currentCourseProjection === 'generation_preview' && !isTeacherPreview.value
 ))
@@ -327,6 +326,11 @@ watch(() => route.params.courseId, async value => {
   taskOpen.value = false
   workspaceStore.mistakeBookAttempts = []
   workspaceStore.practiceNeedsReviewCount = 0
+  if (isTeacherPreview.value) {
+    workspaceStore.$reset()
+    noteStore.$reset()
+    aiTeacherStore.clearPreviewSession()
+  }
   await Promise.all([
     courseStore.fetchCourseList({ surface: isTeacherPreview.value ? 'teacher' : 'student' }),
     courseStore.loadCourse(courseId, isTeacherPreview.value ? {
@@ -334,10 +338,11 @@ watch(() => route.params.courseId, async value => {
       taskType: 'teacher_outline_generation',
       monitorTask: false,
       previewSurface: 'teacher',
+      teacherTrial: true,
       silentError: true,
     } : {}),
   ])
-  generationStore.observeCourse(courseId)
+  if (!isTeacherPreview.value) generationStore.observeCourse(courseId)
   if (isGenerationPreview.value) {
     selectInitialNode()
     return
@@ -367,6 +372,7 @@ async function loadLearningContext(courseId: string) {
     workspaceStore.loadMistakeBook(courseId).catch(() => undefined),
   ])
   loadedLearningCourseId.value = courseId
+  if (isTeacherPreview.value) return
   void changeProposalsStore.fetchChangeProposals(courseId)
   // Natural pause #3: arriving at the course, before any reading has started.
   void aiTeacherStore.checkSuggestion('course_entered', String(route.params.nodeId || '') || undefined)
@@ -396,6 +402,7 @@ watch(() => courseStore.currentNode, async node => {
     !node
     || !courseStore.currentCourseId
     || isGenerationPreview.value
+    || isTeacherPreview.value
     || (isTeacherCurrentProjection.value && !node.objective_id)
   ) return
   if (isStartableLearningObjective(node)) {
@@ -450,11 +457,16 @@ async function refreshCurrentPracticeAvailability() {
 }
 
 onMounted(() => {
-  generationStore.restoreGenerationState()
+  if (!isTeacherPreview.value) generationStore.restoreGenerationState()
   window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
+  aiTeacherStore.clearPreviewSession()
+  if (noteStore.previewSession) {
+    noteStore.$reset()
+    workspaceStore.$reset()
+  }
   window.removeEventListener('resize', handleResize)
   generationStore.unobserveCourse(courseStore.currentCourseId)
   if (courseGrowthLocationTimer) clearTimeout(courseGrowthLocationTimer)
@@ -566,8 +578,8 @@ async function declineSuggestion(payload: { suggestion: AISuggestion; reason: 'n
 }
 
 function openBlockImprovement(target: CourseBlockEditTarget) {
-  aiBlockTarget.value = target
-  aiQuote.value = ''
+  aiBlockTarget.value = isTeacherPreview.value ? undefined : target
+  aiQuote.value = isTeacherPreview.value ? String(target.block.payload?.markdown || '') : ''
   aiNodeId.value = target.nodeId
   aiAnchor.value = {
     block_id: target.block.block_id,

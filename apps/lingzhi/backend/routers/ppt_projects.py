@@ -113,7 +113,7 @@ async def render(course_id: str, project_id: str, body: ProjectRevision, request
 @router.post("/{project_id}/pause")
 def pause(course_id: str, project_id: str, request: Request, svc=Depends(service)):
     owned_course(course_id, request)
-    with svc.jobs._lock:
+    with svc.jobs._course_lock(course_id):
         project = call(lambda:svc.load(course_id, project_id))
         if project.get("job_id") and project.get("status") in {"building", "rendering"}:
             svc.jobs.update_job(course_id, project["job_id"], status="paused", phase="paused")
@@ -134,5 +134,14 @@ async def export(course_id: str, project_id: str, request: Request, svc=Depends(
     path = svc.jobs.root / "ppt_project_exports" / f"{project_id}-{rendered['task_id']}.pptx"
     path.parent.mkdir(parents=True, exist_ok=True)
     import asyncio
-    await asyncio.to_thread(export_slide_deck_v6_pptx, content, path)
+    def export_once():
+        if path.exists():
+            return
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix=".ppt-export-", dir=path.parent) as temporary:
+            ready = Path(temporary) / "deck.pptx"
+            export_slide_deck_v6_pptx(content, ready)
+            os.replace(ready, path)
+    await asyncio.to_thread(export_once)
     return FileResponse(path, media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation", filename=f"{project['title']}.pptx")

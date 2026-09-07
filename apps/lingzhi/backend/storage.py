@@ -22,6 +22,14 @@ logger = logging.getLogger(__name__)
 
 _DataT = TypeVar("_DataT")
 _generic_data_thread_lock = threading.RLock()
+_course_data_thread_locks: dict[str, threading.RLock] = {}
+_course_data_locks_guard = threading.Lock()
+
+
+def _course_data_thread_lock(path: Path):
+    key = str(path.resolve())
+    with _course_data_locks_guard:
+        return _course_data_thread_locks.setdefault(key, threading.RLock())
 
 # 运行时数据根目录。默认是仓库内的 `backend/data`；`LINGZHI_DATA_DIR` 可以把
 # 整棵数据树重定向到别处。所有派生仓库（learning_records、practice_attempts、
@@ -513,7 +521,7 @@ class Storage:
         if not course_id or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for c in course_id):
             raise ValueError("Invalid course id")
         path = Path(self._courses_dir) / f"{course_id}.json"
-        with _generic_data_thread_lock:
+        with _course_data_thread_lock(path):
             with open(path.with_suffix(".lock"), "a+") as lock:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
                 try:

@@ -14,9 +14,9 @@ from functools import wraps
 
 def authoring_transaction(method):
     @wraps(method)
-    def locked(self, *args, **kwargs):
-        with self.jobs._lock:
-            return method(self, *args, **kwargs)
+    def locked(self, course_id, *args, **kwargs):
+        with self.jobs._course_lock(course_id):
+            return method(self, course_id, *args, **kwargs)
     return locked
 
 from course_document import CourseDocument, CourseBlock, CourseSection, course_view_from_document, refresh_document_revision, stable_hash
@@ -44,12 +44,18 @@ class PptProjectService:
         self.orchestrator = SlideDeckV6Orchestrator(representation_repository=teaching_representation_repository,
             candidate_repository=self.candidates, progress_root=jobs.root / "v6_progress")
 
+    def reading_source(self, course_id, raw=None):
+        from teacher_content_projection import project_teacher_content
+        raw = self.storage.load_course(course_id) if raw is None else raw
+        return project_teacher_content(raw, storage=self.storage, authoring=self.jobs.load(course_id))
+
     def load(self, course_id, project_id):
         project = (self.storage.load_course(course_id).get("teacher_ppt_projects") or {}).get(project_id)
         if not project:
             raise TeacherLessonAuthoringError("ppt_project_not_found", "PPT 工作区不存在。")
         return deepcopy(project)
 
+    @authoring_transaction
     def update(self, course_id, project_id, changes, *, expected=None, job_id=None, require_running=False, source_snapshot=None):
         result = {}
         def commit(raw):
@@ -75,7 +81,7 @@ class PptProjectService:
         return result
 
     def sources(self, course_id, lesson_ids, asset_ids, *, raw=None):
-        raw = self.storage.load_course(course_id) if raw is None else raw
+        raw = self.reading_source(course_id, raw)
         doc = CourseDocument.model_validate(raw["course_document"])
         lectures = {s.section_id: s for s in doc.sections if s.level == 1}
         if len(set(lesson_ids)) != len(lesson_ids) or any(lid not in lectures for lid in lesson_ids):
@@ -101,8 +107,9 @@ class PptProjectService:
         return {"blocks": [{"block_id": b.block_id, "revision": b.internal_revision} for b in blocks],
             "lectures": [{"lesson_id": lid, "title": lectures[lid].title} for lid in lesson_ids], "materials": assets}
 
+    @authoring_transaction
     def create(self, course_id, lesson_ids, asset_ids, *, title, expected_revision):
-        raw = self.storage.load_course(course_id)
+        raw = self.reading_source(course_id)
         if raw.get("course_document_revision") != expected_revision:
             raise conflict()
         sources = self.sources(course_id, lesson_ids, asset_ids)
@@ -113,7 +120,7 @@ class PptProjectService:
             "manuscript": None, "last_good_render": None, "source_state": "current"}
         project["revision"] = stable_hash(project, prefix="pptp_")
         def save(latest):
-            if latest.get("course_document_revision") != expected_revision:
+            if self.reading_source(course_id, latest).get("course_document_revision") != expected_revision:
                 raise conflict()
             latest.setdefault("teacher_ppt_projects", {})[project["project_id"]] = project
             return latest
@@ -129,7 +136,7 @@ class PptProjectService:
     def document(self, project):
         if not self.source_current(project):
             raise conflict()
-        raw = self.storage.load_course(project["course_id"])
+        raw = self.reading_source(project["course_id"])
         doc = CourseDocument.model_validate(raw["course_document"])
         ids = {b["block_id"] for b in project["sources"]["blocks"]}
         doc.blocks = [b for b in doc.blocks if b.block_id in ids]
@@ -175,7 +182,6 @@ class PptProjectService:
             project["layouts"] = manuscript_layout_options(manuscript, template) if manuscript.teaching_content_contract_version == "page_teaching_v2" else []
         return project
 
-    @authoring_transaction
     def edit(self, course_id, project_id, expected, page_updates, pacing=None):
         project = self.load(course_id, project_id)
         if project["status"] in {"building", "rendering"}:
@@ -204,6 +210,8 @@ class PptProjectService:
         project = self.load(course_id, project_id)
         if project["revision"] != expected or not self.source_current(project):
             raise conflict()
+        if render and project.get("last_good_render") and project["last_good_render"].get("manuscript_revision") == project.get("confirmed_revision") == (project.get("manuscript") or {}).get("manuscript_revision"):
+            return self.view(course_id, project_id)
         if project.get("job_id"):
             job = self.jobs.expire_stale_job(course_id, project["job_id"])
             if job.get("status") in {"pending", "running"}:
@@ -263,7 +271,7 @@ class PptProjectService:
                     "source_revision":document.document_revision, "deck":candidate["deck"], "ppt_manuscript":project["manuscript"]}}
             else:
                 changes = {"status":"draft", "manuscript":result["ppt_manuscript"], "confirmed_revision":""}
-            with self.jobs._lock:
+            with self.jobs._course_lock(cid):
                 if self.jobs.get_job(cid, jid).get("status") != "running":
                     raise conflict("PPT 任务已暂停。")
                 self.update(cid, pid, changes, job_id=jid, require_running=True, source_snapshot=project["sources"])
@@ -273,7 +281,7 @@ class PptProjectService:
                 raise
             from teacher_lesson_authoring import generation_failure
             failure = generation_failure(exc, "ppt_project_build_failed")
-            with self.jobs._lock:
+            with self.jobs._course_lock(cid):
                 self.jobs.update_job(cid, jid, status="paused", phase="paused", error=failure)
                 try:
                     self.update(cid, pid, {"status":"paused", "error":failure}, job_id=jid)

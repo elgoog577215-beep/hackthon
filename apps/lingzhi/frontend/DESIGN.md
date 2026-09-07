@@ -3,11 +3,11 @@ name: 教师 PPT 工作台
 description: 选择来源、编辑确认、渲染成品的安静桌面工作区
 colors:
   surface: "#ffffff"
-  foreground: "#252525"
-  primary: "#292929"
-  secondary: "#666666"
-  divider: "#e6e6e6"
-  selected: "#efefef"
+  foreground: "var(--lz-text-primary)"
+  primary: "var(--lz-brand-strong)"
+  secondary: "var(--lz-text-secondary)"
+  divider: "var(--lz-border)"
+  selected: "var(--lz-bg-page)"
 typography:
   body:
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif'
@@ -19,19 +19,19 @@ rounded:
 
 ## Overview
 
-仅适用于 PptProjectWorkspace.vue 及其嵌入的 PPT 编辑区，其他页面沿用现有体系。操作模式：教师按“选择内容 → 内容与排版 → 生成成品”完成一次制作。用户指定 macOS/Codex 风格。
+仅适用于 PptProjectWorkspace.vue 及其嵌入的 PPT 编辑区。按用户最新确认，PPT 复用大纲、教案与讲义的工作台页面逻辑，不保留独立 macOS/Codex 视觉方案。其他页面和学生预览不重设计。
 
 ## Colors
 
-白色内容面、石墨色文字和主操作、浅灰分隔。状态色仅用于必要的错误或焦点反馈。
+直接消费现有教师工作台语义颜色，正文、主操作、分隔和状态不另设配色。
 
 ## Typography
 
-系统字体，正文与主要操作 15px，主标题 26px。完整显示讲次、文件名，以字号、字重、间距建立层级。
+系统字体，正文与主要操作 15px，工作区标题 24px。完整显示讲次、文件名，以字号、字重、间距建立层级。
 
 ## Layout
 
-顶部紧凑步骤导航；选源页采用讲义多选列表与资料列表，下一步位于页尾。第二步复用逐页编辑器，第三步采用页列表与画布。不重复工作台讲次侧栏或生产右栏。桌面端验收，不扩展移动端。
+复用既有左侧备课导航、主区文档和右侧内容信息栏。主区选择来源或阅读编辑内容稿、查看成品；右侧使用真实 PPT 状态，承载来源、确认、生成与导出。编辑操作仍由共享 TeacherDocumentCommandBar 承载。仅独立兼容路由保留视图切换；嵌入工作台不另设步骤条。桌面端验收，不扩展移动端。
 
 ## Elevation & Depth
 
@@ -43,7 +43,7 @@ rounded:
 
 ## Components
 
-主操作使用石墨色实心按钮，次操作有轻边界或分组边界。保留悬停、焦点、加载与禁用状态。未保存时保护输入；任务暂停可重试，来源过期需重新选择，最后成功成品仍可导出。
+主操作与次操作复用工作台控件和样式。保留悬停、焦点、加载与禁用状态。未保存时保护输入；任务暂停可重试，来源过期需重新选择，最后成功成品仍可导出。
 
 ## Do's and Don'ts
 

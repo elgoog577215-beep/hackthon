@@ -7,7 +7,7 @@
       'is-ai-collaboration': aiCollaborationOpen && activeStage === 'question-bank',
       'is-question-bank-workspace': activeStage === 'question-bank',
       'is-ppt-stage': activeStage === 'ppt',
-      'is-context-collapsed': (!contextPaneVisible || (activeStage === 'ppt' && !legacyPptOpen)) && activeStage !== 'question-bank',
+      'is-context-collapsed': !contextPaneVisible && activeStage !== 'question-bank',
     }"
   >
     <aside v-show="!aiCollaborationOpen || activeStage !== 'question-bank'" class="stage-rail" :aria-label="t('courseWorkbench.stageNavigation', '备课阶段')">
@@ -52,7 +52,7 @@
       }"
     >
       <button
-        v-if="!contextPaneVisible && !['question-bank', 'ppt'].includes(activeStage)"
+        v-if="!contextPaneVisible && activeStage !== 'question-bank'"
         class="context-pane-reopen"
         type="button"
         :title="t('courseWorkbench.contextPane.expand', '展开当前内容信息')"
@@ -860,11 +860,11 @@
       @keydown="resizeAiPaneWithKeyboard"
     ><GripVertical :size="14" /></div>
 
-    <aside v-if="activeStage !== 'question-bank' && contextPaneVisible && (activeStage !== 'ppt' || legacyPptOpen)" class="context-pane" :aria-label="t('courseWorkbench.contextPane.title', '当前内容信息')">
+    <aside v-if="activeStage !== 'question-bank' && contextPaneVisible" class="context-pane" :aria-label="t('courseWorkbench.contextPane.title', '当前内容信息')">
       <header class="context-pane-heading" :data-phase="contextPhase">
         <div class="context-pane-heading__status" role="status" aria-live="polite" aria-atomic="true">
           <span class="context-pane-heading__signal" aria-hidden="true">
-            <LoaderCircle v-if="contextPhase === 'during' && referenceWorkflowState === 'generating' && !outlineAwaitingContinuation" :size="16" class="spin" />
+            <LoaderCircle v-if="contextPhase === 'during' && (pptContext?.progress != null || referenceWorkflowState === 'generating') && !outlineAwaitingContinuation" :size="16" class="spin" />
             <Pause v-else-if="contextPhase === 'during' && referenceWorkflowState === 'paused'" :size="16" />
             <Check v-else-if="contextPhase === 'after'" :size="16" />
             <TriangleAlert v-else-if="contextPhase === 'failed'" :size="16" />
@@ -949,7 +949,15 @@
         </button>
       </section>
 
-      <CourseReferenceTray
+      <section v-if="activeStage === 'ppt' && !legacyPptOpen" class="ppt-context-sources">
+        <h3>{{ t('pptProject.lectures') }}</h3>
+        <p v-if="!pptProjectWorkspace?.sources.lectures.length">{{ t('pptProject.noLectures') }}</p>
+        <p v-for="lecture in pptProjectWorkspace?.sources.lectures" :key="lecture.lesson_id"><FileText :size="16" /><span>{{ lecture.title }}</span></p>
+        <h3>{{ t('pptProject.materials') }}</h3>
+        <p v-if="!pptProjectWorkspace?.sources.files.length">{{ t('courseWorkbench.contextPane.noFiles', '未使用文件') }}</p>
+        <p v-for="file in pptProjectWorkspace?.sources.files" :key="file.asset_id"><FileText :size="16" /><span>{{ file.filename }}</span></p>
+      </section>
+      <CourseReferenceTray v-else
         v-model="activeReferences"
         class="context-pane-references"
         :course-id="courseId"
@@ -4244,9 +4252,10 @@ async function pauseScriptGeneration() {
 }
 const uploadedPptWorkspace = ref<InstanceType<typeof UploadedPptReviewWorkspace> | null>(null)
 const pptWorkspace = ref<InstanceType<typeof PptWorkspace> | null>(null)
-const pptContext = computed(() => activeStage.value === 'ppt' ? pptWorkspace.value?.context : null)
+const pptContext = computed(() => activeStage.value === 'ppt' ? (legacyPptOpen.value ? pptWorkspace.value?.context : pptProjectWorkspace.value?.context) : null)
 // Reuse the workbench's projected permissions and exact task controls for sidebar actions.
 const pptContextActions = computed(() => {
+  if (activeStage.value === 'ppt' && !legacyPptOpen.value) return pptContext.value?.actions || []
   const taskActions: { id: string; label: string; primary?: boolean; disabled?: boolean; reason?: string }[] = []
   if (referenceWorkflowCanPause.value) taskActions.push({ id: 'pause', label: t('courseWorkbench.pause') })
   if (referenceWorkflowCanResume.value) taskActions.push({ id: 'resume', label: t('pptWorkspace.flow.resume'), primary: true })
@@ -4261,6 +4270,7 @@ const pptContextActions = computed(() => {
 })
 async function runPptContextAction(id: string) {
   if (!pptContextActions.value.some(action => action.id === id && !action.disabled)) return
+  if (!legacyPptOpen.value) return pptProjectWorkspace.value?.runContextAction(id)
   if (id === 'pause') return pauseReferenceWorkflow()
   if (id === 'resume') return resumeReferenceWorkflow()
   if (id === 'cancel') return cancelReferenceWorkflow()
@@ -4799,6 +4809,7 @@ onBeforeUnmount(() => {
 .context-pane-reopen:hover{border-color:#aaa7e8;color:#37348c;background:#fafaff}
 .context-pane-reopen:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .context-pane{display:flex;flex-direction:column;background:#fff}
+.ppt-context-sources{padding:20px 16px;overflow:auto}.ppt-context-sources h3{font-size:15px;color:var(--lz-text-primary);margin:12px 0 16px}.ppt-context-sources h3:not(:first-child){margin-top:32px}.ppt-context-sources p{display:flex;align-items:flex-start;gap:8px;margin:0;padding:12px 0;color:var(--lz-text-secondary);font-size:15px;line-height:1.6;border-bottom:1px solid var(--lz-border);overflow-wrap:anywhere}.ppt-context-sources svg{flex-shrink:0;margin-top:4px}
 /* Status takes the full reading width; task controls have their own row. */
 .context-pane-heading{flex:none;max-height:65%;overflow-y:auto;display:grid;grid-template-columns:minmax(0,1fr) 32px;align-items:start;gap:16px 8px;margin:0;padding:18px 16px;border-bottom:1px solid #e4e8ef;background:var(--teacher-component-surface,#fff);scrollbar-gutter:stable}
 .context-pane-heading__status{min-width:0;display:grid;grid-template-columns:20px minmax(0,1fr);align-items:start;gap:8px}

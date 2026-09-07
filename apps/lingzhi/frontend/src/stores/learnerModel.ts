@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import http from '../utils/http'
+import { isTeacherPreviewCourse } from '../utils/teacher-preview'
 
 export type EvidenceConfidence = 'insufficient' | 'low' | 'medium' | 'high'
 export type EvidenceSufficiency = 'none' | 'limited' | 'moderate' | 'strong'
@@ -104,6 +105,7 @@ export const useLearnerModelStore = defineStore('learnerModel', {
   }),
   actions: {
     async load(courseId: string) {
+      if (isTeacherPreviewCourse(courseId)) { this.clear(); return null }
       if (!courseId) return null
       const request = ++this.requestSequence
       this.loading = true

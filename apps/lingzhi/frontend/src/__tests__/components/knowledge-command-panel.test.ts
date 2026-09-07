@@ -106,7 +106,7 @@ describe('知识维护面板', () => {
     const wrapper = await mountPanel()
     await fillAndPreview(wrapper)
 
-    expect(wrapper.text()).toContain('待确认候选')
+    expect(wrapper.text()).toContain('待确认建议')
     expect(wrapper.text()).toContain('当前知识库尚未改变，确认后才会生效。')
     const impact = wrapper.findAll('.knowledge-command-impact strong').map(n => n.text())
     expect(impact).toEqual(['1', '2', '0'])
@@ -130,7 +130,7 @@ describe('知识维护面板', () => {
     expect(body.command_id).toBe('kc-ckc_1')
     expect(body.knowledge_id).toBe('ckp_capacity')
     expect(wrapper.emitted('applied')).toHaveLength(1)
-    expect(wrapper.text()).toContain('知识修订已生效')
+    expect(wrapper.text()).toContain('知识内容修改已生效')
   })
 
   it('不可确认的候选禁用确认按钮并展示阻断原因', async () => {
@@ -470,7 +470,7 @@ describe('下游重建入口', () => {
     await wrapper.get('.knowledge-command-rebuild button').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('.knowledge-command-rebuild').text()).toContain('没有需要重建')
+    expect(wrapper.get('.knowledge-command-rebuild').text()).toContain('没有需要更新')
   })
 })
 

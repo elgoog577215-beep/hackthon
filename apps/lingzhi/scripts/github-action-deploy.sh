@@ -698,6 +698,18 @@ if systemctl is-active --quiet "$SERVICE_NAME"; then
     fi
 fi
 
+teacher_content_data="$STATE_DIR/backend-data"
+if [ -d "$CURRENT_LINK/backend/data" ]; then
+    teacher_content_data="$CURRENT_LINK/backend/data"
+fi
+log "只读核验教师完整正文；旧正文引用必须先离线恢复，标准发布不修改正文"
+if ! "$VENV/bin/python" "$release_path/scripts/migrate_teacher_content.py" \
+    --data-dir "$teacher_content_data" --mode preflight --require-teacher-bodies; then
+    log "教师正文尚不能安全切换，保留当前服务与数据"
+    trap - ERR
+    exit 76
+fi
+
 if [ -d "$CURRENT_LINK/backend/data" ] && [ ! "$CURRENT_LINK/backend/data" -ef "$STATE_DIR/backend-data" ]; then
     log "冻结服务并迁移持久化数据"
     systemctl stop "$SERVICE_NAME"

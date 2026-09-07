@@ -191,7 +191,7 @@ def test_content_prompt_exposes_stable_module_heading_and_role_contract():
     # 模块契约是节点专属的，现在在 user 消息里；输出规则仍在 system。
     assert "必需模块 `## 本节任务` [角色=objective]" in user_prompt
     assert "当前节点名称已经由页面显示" in system_prompt
-    assert "`###` 及更深标题只用于模块内部" in system_prompt
+    assert "`###` 及更深标题只用于环节内部" in system_prompt
     assert "完整代码使用带语言标记的代码块" in system_prompt
     assert "Markdown 表格的每一行必须在同一行内完成" in system_prompt
     assert "\\texttt" in system_prompt
@@ -456,7 +456,7 @@ def test_content_prompts_share_one_stable_course_prefix_across_nodes():
         "## 全课总编契约",
         "## 当前节点难度契约",
         "## 当前节点证据契约",
-        "## 本节教学模块",
+        "## 本讲教学环节",
         "## 持久化上下文",
     ):
         assert heading not in system_prompt

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import http from '../utils/http'
+import { isTeacherPreviewCourse } from '../utils/teacher-preview'
 import logger from '../utils/logger'
 import type { LearnerModelSummary } from './learnerModel'
 import { useCourseEvolutionStore } from './courseEvolution'
@@ -272,6 +273,7 @@ export const useLearningProgressStore = defineStore('learningProgress', {
     },
 
     async load(courseId: string, nodeId?: string) {
+      if (isTeacherPreviewCourse(courseId)) { this.courseId = courseId; this.projection = null; this.runtime = null; this.continuation = null; return null }
       if (!courseId) return null
       this.loading = true
       if (this.courseId !== courseId) this.pendingNodeId = ''
@@ -291,6 +293,7 @@ export const useLearningProgressStore = defineStore('learningProgress', {
     },
 
     async startNode(courseId: string, nodeId: string) {
+      if (isTeacherPreviewCourse(courseId)) return null
       if (!courseId || !nodeId || this.pendingNodeId === nodeId) return this.nodeProgress(nodeId)
       const current = this.nodeProgress(nodeId)
       if (current && current.reading_status !== 'not_started') {
@@ -309,6 +312,7 @@ export const useLearningProgressStore = defineStore('learningProgress', {
     },
 
     async completeReading(courseId: string, nodeId: string) {
+      if (isTeacherPreviewCourse(courseId)) return null
       if (!courseId || !nodeId) return null
       const res = await http.post(`/api/courses/${courseId}/learning-progress/nodes/${nodeId}`, { action: 'complete_reading' })
       this.projection = res.data.projection
@@ -317,6 +321,7 @@ export const useLearningProgressStore = defineStore('learningProgress', {
     },
 
     async loadRuntime(courseId: string, nodeId?: string) {
+      if (isTeacherPreviewCourse(courseId)) return null
       if (!courseId) return null
       const requestSeq = ++this.runtimeRequestSeq
       this.runtimeLoading = true
@@ -424,6 +429,7 @@ export const useLearningProgressStore = defineStore('learningProgress', {
     },
 
     async migrateLegacy(courseId: string) {
+      if (isTeacherPreviewCourse(courseId)) return { created: 0 }
       if (localStorage.getItem(migrationKey(courseId))) return
       const nodeIds = legacyCompletedNodeIds()
       if (nodeIds.length) {

@@ -2314,7 +2314,7 @@ let initializedLearningCourseId = ''
 let contentMounted = false
 const initializeLearningPosition = async () => {
     const courseId = courseStore.currentCourseId
-    if (isGenerationPreview.value || !contentMounted || !courseId || courseStore.loading || !flatNodes.value.length || initializedLearningCourseId === courseId) return
+    if (props.teacherPreview || isGenerationPreview.value || !contentMounted || !courseId || courseStore.loading || !flatNodes.value.length || initializedLearningCourseId === courseId) return
     initializedLearningCourseId = courseId
     const snapshot = await learningSessionStore.load(courseId)
     if (!snapshot) {

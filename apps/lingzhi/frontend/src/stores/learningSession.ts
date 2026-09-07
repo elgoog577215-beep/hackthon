@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { learnerIdentityHeaders, withApiBase } from '@/utils/http'
+import { isTeacherPreviewCourse } from '../utils/teacher-preview'
 import type { ViewportContentAnchor } from '@/utils/learning-position'
 import { createUuid } from '@/utils/client-id'
 import type { LearningTaskRef } from './learningProgress'
@@ -93,9 +94,11 @@ export const useLearningSessionStore = defineStore('learningSession', {
     resolution: null as AnchorResolution | null,
     status: 'idle' as LearningSyncStatus,
     restored: false,
+    previewSession: false,
   }),
   actions: {
     loadLocal(courseId: string): LocalEnvelope | null {
+      if (isTeacherPreviewCourse(courseId)) return null
       try {
         const raw = localStorage.getItem(cacheKey(courseId))
         return raw ? JSON.parse(raw) as LocalEnvelope : null
@@ -105,12 +108,14 @@ export const useLearningSessionStore = defineStore('learningSession', {
     },
 
     persistLocal(pending: boolean) {
+      if (this.previewSession || isTeacherPreviewCourse(this.courseId)) return
       if (!this.snapshot?.course_id) return
       const envelope: LocalEnvelope = { snapshot: this.snapshot, resolution: this.resolution, pending }
       localStorage.setItem(cacheKey(this.snapshot.course_id), JSON.stringify(envelope))
     },
 
     acceptVersionTransition(snapshot: LearningSnapshot | null, resolution: AnchorResolution | null) {
+      if (this.previewSession || isTeacherPreviewCourse(this.courseId)) return
       if (saveTimer !== null) {
         window.clearTimeout(saveTimer)
         saveTimer = null
@@ -128,6 +133,8 @@ export const useLearningSessionStore = defineStore('learningSession', {
     },
 
     async load(courseId: string): Promise<LearningSnapshot | null> {
+      this.previewSession = isTeacherPreviewCourse(courseId)
+      if (isTeacherPreviewCourse(courseId)) { this.courseId = courseId; this.snapshot = null; this.resolution = null; this.restored = true; return null }
       this.courseId = courseId
       this.status = 'loading'
       this.restored = false
@@ -171,6 +178,7 @@ export const useLearningSessionStore = defineStore('learningSession', {
     },
 
     migrateLegacy(courseId: string, courseVersionId: string, nodeId: string, nodeName: string, scrollTop: number) {
+      if (this.previewSession || isTeacherPreviewCourse(courseId)) return null
       if (this.snapshot || !nodeId) return null
       const timestamp = now()
       this.snapshot = this.newSnapshot({
@@ -189,6 +197,7 @@ export const useLearningSessionStore = defineStore('learningSession', {
     },
 
     updatePosition(position: PositionUpdate) {
+      if (this.previewSession || isTeacherPreviewCourse(position.courseId)) return
       const previous = this.snapshot
       if (
         previous?.course_version_id
@@ -221,6 +230,7 @@ export const useLearningSessionStore = defineStore('learningSession', {
     },
 
     setTaskContext(taskRef: LearningTaskRef) {
+      if (this.previewSession || isTeacherPreviewCourse(this.courseId)) return false
       const context = taskRef.context || {}
       if (!this.snapshot && context.course_id && context.node_id) {
         const timestamp = now()
@@ -332,6 +342,7 @@ export const useLearningSessionStore = defineStore('learningSession', {
     },
 
     async flush(retried = false): Promise<boolean> {
+      if (this.previewSession || isTeacherPreviewCourse(this.courseId)) return true
       if (!this.snapshot || !this.courseId) return false
       if (saveTimer !== null) {
         window.clearTimeout(saveTimer)

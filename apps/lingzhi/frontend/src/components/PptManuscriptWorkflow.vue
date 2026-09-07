@@ -22,7 +22,7 @@
           <button type="button" class="primary-action" :disabled="busy" data-testid="save-ppt-manuscript" @click="finishEditing"><Check :size="16" />{{ saving ? t('pptWorkspace.savingManuscript') : t('pptWorkspace.editor.finishEditing') }}</button>
         </template>
         <template v-else>
-          <button v-if="externalActions" type="button" :disabled="busy || dirty" :aria-pressed="selectingPages" data-testid="select-ppt-pages" @click="togglePageSelection">{{ selectingPages ? t('common.cancel') : t('pptWorkspace.editor.selectPages') }}</button>
+          <button v-if="externalActions && allowPageRegeneration !== false" type="button" :disabled="busy || dirty" :aria-pressed="selectingPages" data-testid="select-ppt-pages" @click="togglePageSelection">{{ selectingPages ? t('common.cancel') : t('pptWorkspace.editor.selectPages') }}</button>
           <button type="button" :disabled="busy" :aria-expanded="arrangementOpen" data-testid="ppt-lesson-arrangement" @click="arrangementOpen = !arrangementOpen"><ListTree :size="16" />{{ t('pptWorkspace.lessonArrangement') }}</button>
           <button type="button" :disabled="busy" data-testid="edit-ppt-manuscript" @click="editing = true"><Pencil :size="16" />{{ t('pptWorkspace.editor.editPage') }}</button>
           <button v-if="!externalActions && state.status === 'draft'" type="button" class="primary-action" :disabled="busy || dirty || !state.confirmable" data-testid="confirm-ppt-manuscript" @click="emit('confirm-manuscript')"><Check :size="16" />{{ confirming ? t('pptWorkspace.confirmingManuscript') : t('pptWorkspace.confirmManuscript') }}</button>

@@ -233,7 +233,7 @@ jobs:
             < scripts/github-action-deploy.sh
           deployment_status=$?
           set -e
-          if [ "$deployment_status" -eq 75 ]; then
+          if [ "$deployment_status" -eq 75 ] || [ "$deployment_status" -eq 76 ]; then
             printf 'LINGZHI_DEPLOY_BUSY=true\n' >> "$GITHUB_ENV"
           fi
           exit "$deployment_status"

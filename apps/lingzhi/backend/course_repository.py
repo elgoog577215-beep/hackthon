@@ -94,12 +94,16 @@ class CourseDocumentRepository:
 
     def load_document(self, course_id: str) -> tuple[CourseDocument, bool]:
         raw = self.load_raw(course_id)
+        from teacher_content_projection import project_teacher_content
+        raw = project_teacher_content(raw, storage=self.storage)
         if self.is_canonical(raw):
             return CourseDocument.model_validate(raw["course_document"]), True
         return document_from_legacy_course(raw), False
 
     def load_course_view(self, course_id: str) -> dict[str, Any]:
         raw = self.load_raw(course_id)
+        from teacher_content_projection import project_teacher_content
+        raw = project_teacher_content(raw, storage=self.storage)
         if not self.is_canonical(raw):
             return raw
         return course_view_from_document(raw, raw["course_document"])
@@ -493,6 +497,8 @@ class CourseDocumentRepository:
         prepared_legacy_course: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         raw = self.load_raw(course_id)
+        from teacher_content_projection import project_teacher_content
+        raw = project_teacher_content(raw, storage=self.storage)
         canonical = self.is_canonical(raw)
         if canonical:
             document = CourseDocument.model_validate(raw["course_document"])

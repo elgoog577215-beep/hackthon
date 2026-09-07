@@ -54,7 +54,7 @@ describe('教师教案 AI 协作状态机', () => {
     expect(prompt).not.toContain('0：')
     expect(prompt).toContain('只修改实现教师要求所必需的字段')
     expect(prompt).toContain('保持原有总时长')
-    expect(prompt).toContain('只生成候选，不确认、不发布')
+    expect(prompt).toContain('只生成建议，不确认、不发布')
     expect(prompt.length).toBeLessThanOrEqual(1900)
   })
 
@@ -150,14 +150,14 @@ describe('教师课程生产 AI 领域适配', () => {
       domain: 'ppt', courseTitle: '测试课程', primaryTitle: '并发的基本概念', secondaryTitle: '第 3 页', referenceCount: 1,
       references: [{ id: 'block-7', label: '课程源 1', role: 'primary' }],
     })
-    expect(outlinePrompt).toContain('结构调整候选')
+    expect(outlinePrompt).toContain('结构调整建议')
     expect(outlinePrompt).toContain('章节增删、顺序')
-    expect(scriptPrompt).toContain('表达修改候选')
-    expect(scriptPrompt).toContain('保持当前可用教案')
+    expect(scriptPrompt).toContain('表达修改建议')
+    expect(scriptPrompt).toContain('保持当前教案')
     expect(scriptPrompt).toContain('不确认、不发布')
     expect(scriptPrompt).toContain('本轮只围绕此内容修改')
     expect(scriptPrompt).toContain('这段定义重复了两次')
-    expect(questionPrompt).toContain('重建任务候选')
+    expect(questionPrompt).toContain('重建任务建议')
     expect(questionPrompt).toContain('整门课程题库')
     expect(questionPrompt).toContain('保持已确认的课程范围')
     expect(questionPrompt).not.toContain('当前讲次')

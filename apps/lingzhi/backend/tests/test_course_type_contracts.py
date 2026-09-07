@@ -387,7 +387,7 @@ def test_project_brief_compiles_personal_starting_point_and_contract():
     starting = brief["learner_starting_profile"]
 
     assert brief["course_type"] == "project"
-    assert brief["course_type_label"] == "项目实战"
+    assert brief["course_type_label"] == "项目实践"
     assert brief["course_intent"]["schema_version"] == "course_intent_v1"
     assert brief["course_intent"]["expected_deliverable"] == "产品设计方案与可验证原型"
     assert "熟悉产品造型与结构" in starting["self_reported_strengths"]
@@ -446,7 +446,7 @@ def test_outline_prompt_and_blueprint_expose_type_and_path_reason():
         adaptation_decision={},
         material_context="",
     )
-    assert "学习目的：项目实战" in prompt
+    assert "学习目的：项目实践" in prompt
     assert "课程教学类型：项目课" in prompt
     assert "verify_in_project" in prompt
     assert "项目里程碑" in prompt

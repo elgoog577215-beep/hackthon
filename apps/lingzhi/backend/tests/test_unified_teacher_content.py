@@ -83,19 +83,16 @@ def test_interruption_repair_invalid_draft_history_and_retired_blocks(course):
     assert storage.load_course('c1') == raw
 
 
-def test_repository_shared_save_compacts_and_preserves_conflict(course,tmp_path):
+def test_repository_save_keeps_body_without_cross_writing(course,tmp_path):
     storage, _ = course
     repo = TeacherLessonAuthoringRepository(tmp_path/'authoring', canonical_storage=storage)
+    original = deepcopy(storage.load_course('c1'))
     saved = repo._save(authoring())
     assert saved['lessons']['l1']['script_revisions'][0]['sections']
     disk = json.loads((tmp_path/'authoring/c1.json').read_text())
     assert '_canonical_baselines' not in disk
-    assert 'sections' not in disk['lessons']['l1']['script_revisions'][0]
-    from teacher_lesson_authoring import TeacherLessonAuthoringError
-    with pytest.raises(TeacherLessonAuthoringError, match='已变化'):
-        repo._save(authoring(rev='late'))
-    assert 'commit_conflict' in json.loads((tmp_path/'authoring/c1.json').read_text())['lessons']['l1']['script_revisions'][0]
-    assert storage.load_course('c1')['teacher_handouts']['l1']['revision_id'] == 'r1'
+    assert disk['lessons']['l1']['script_revisions'][0]['sections']
+    assert storage.load_course('c1') == original
 
 
 def test_stale_general_write_cannot_overwrite_handout(course):

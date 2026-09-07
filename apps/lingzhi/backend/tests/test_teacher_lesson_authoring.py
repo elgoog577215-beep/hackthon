@@ -1658,7 +1658,7 @@ def test_teacher_script_treats_length_budget_as_advice():
     }
 
 
-def test_teacher_script_service_improves_length_advice(monkeypatch):
+def test_teacher_script_service_delivers_length_advice_without_rewriting(monkeypatch):
     service = CourseService()
     calls = []
 
@@ -1692,8 +1692,9 @@ def test_teacher_script_service_improves_length_advice(monkeypatch):
         },
     ))
 
-    assert len(calls) == 3
-    assert len(result["blocks"][0]["content"]) < 200
+    assert len(calls) == 1
+    assert result["blocks"][0]["content"] == "重复讲解。" * 400
+    assert result["quality_report"]["review_issues"]
     assert result["quality_report"]["passed"] is True
 
 
@@ -3407,7 +3408,7 @@ def test_generated_plan_is_repaired_before_formal_save(tmp_path, repair_kind):
     service = TeacherLessonAuthoringService(repository)
     job = repository.create_job("course-1", "L1-1", request_id="auto-plan", source_outline_revision_id="outline-v1")
     draft = standard_lesson_plan()
-    draft["sections"][0]["teaching_modules"][0]["teacher_activity"] = "建立问题、价值与任务边界"
+    draft["sections"][0]["teaching_modules"][0]["teacher_activity"] = ""
     calls = []
 
     async def planner(*_):
@@ -3434,8 +3435,8 @@ def test_generated_plan_is_repaired_before_formal_save(tmp_path, repair_kind):
         assert lesson["working_revision_id"]
         assert completed["auto_improvement"]["quality_report"]["passed"]
     else:
-        assert completed["status"] == "completed"
-        assert repository.lesson("course-1", "L1-1").get("working_revision_id")
+        assert completed["status"] == "failed"
+        assert not repository.lesson("course-1", "L1-1").get("working_revision_id")
         assert completed["auto_improvement"]["plan"]["sections"][0]["node_id"] == "L2-1-1"
         assert completed["auto_improvement"]["quality_report"]["review_issues"]
 
@@ -3460,14 +3461,11 @@ def test_script_textbook_prose_does_not_trigger_speech_repair(monkeypatch, class
             "module_plan": [{"module_id": "core_explanation", "label": "核心教学"}]},
         current_plan_section={"node_id": "L2-1-1", "teaching_modules": [{"module_id": "core_explanation"}]},
     ))
-    assert len(calls) == (2 if classroom_draft else 1)
-    if classroom_draft:
-        assert "teacher_script:classroom_delivery_cue" in calls[1]
-        assert "应改为可独立阅读的解释" in calls[1]
+    assert len(calls) == 1
     assert all("teacher_script:not_directly_teachable" not in prompt for prompt in calls)
-    assert result["content"] == "## 核心教学\n\n" + prose
-    assert not result["quality_report"]["review_issues"]
-    assert result["auto_improvement"]["attempts"] == int(classroom_draft)
+    assert result["content"] == "## 核心教学\n\n" + ("【板书】教师应解释条件。" if classroom_draft else "") + prose
+    assert bool(result["quality_report"]["review_issues"]) == classroom_draft
+    assert result["auto_improvement"]["attempts"] == 0
 
 
 def test_plan_job_stream_updates_do_not_block_event_loop(tmp_path):
