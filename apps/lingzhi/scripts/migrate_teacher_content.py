@@ -17,6 +17,6 @@ args=parser.parse_args()
 os.environ['LINGZHI_DATA_DIR']=str(args.data_dir.resolve())
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'backend'))
 from teacher_content_migration import migrate
-report=migrate(args.data_dir,mode=args.mode,backup_dir=args.backup_dir,course_ids=args.course_id)
+report=migrate(args.data_dir,mode=args.mode,backup_dir=args.backup_dir,course_ids=args.course_id,activation_check=args.require_teacher_bodies)
 print(json.dumps(report,ensure_ascii=False,indent=2))
 sys.exit(1 if any(c['status'] in {'conflict','not_migrated'} or (args.require_teacher_bodies and c.get('reference_revisions')) for c in report['courses']) else 0)

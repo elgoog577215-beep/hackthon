@@ -17,10 +17,11 @@ from course_repository import CourseDocumentConflict
 from teacher_course_content import hydrate_authoring, _sections
 
 
-def prepare(raw, authoring, source=None):
+def prepare(raw, authoring, source=None, *, allow_paused=False):
     if raw.get("authoring_surface") != "teacher":
         return {"status": "historical_student", "course": raw, "authoring": authoring}
-    if any(j.get("status") in {"pending", "running", "queued", "paused"}
+    unsafe_statuses = {"pending", "running", "queued"} | (set() if allow_paused else {"paused"})
+    if any(j.get("status") in unsafe_statuses
            for j in (authoring.get("jobs") or {}).values()):
         raise CourseDocumentConflict("课程仍有活动或可恢复任务，请自然结束后转换。")
     restored = hydrate_authoring(raw, authoring)
@@ -73,9 +74,11 @@ def atomic(path, data):
             os.unlink(name)
 
 
-def migrate(data_dir, *, mode="preflight", backup_dir=None, course_ids=None):
+def migrate(data_dir, *, mode="preflight", backup_dir=None, course_ids=None, activation_check=False):
     if mode not in {"preflight", "apply", "verify"}:
         raise ValueError("Unknown migration mode")
+    if activation_check and mode != "preflight":
+        raise ValueError("Activation checks must be read-only")
     root = Path(data_dir).resolve()
     if mode == "apply":
         preflight = migrate(root, mode="preflight", course_ids=course_ids)
@@ -103,7 +106,7 @@ def migrate(data_dir, *, mode="preflight", backup_dir=None, course_ids=None):
             author = json.loads(ap.read_text()) if ap.exists() else {"course_id": cid, "lessons": {}}
             inputs = [path] + ([ap] if ap.exists() else [])
             hashes = {str(p.relative_to(root)): digest(p) for p in inputs}
-            result = prepare(raw, author)
+            result = prepare(raw, author, allow_paused=activation_check)
             status = result["status"]
             if mode == "verify" and status == "ready":
                 status = "not_migrated"
