@@ -35,7 +35,7 @@ AI Agent 的正式执行规则位于 [AGENTS.md](./AGENTS.md)。它主要面向 
 ## 技术栈
 
 - 前端：Vue 3、Vite、Pinia、Element Plus、Tailwind CSS、Mermaid、KaTeX。
-- 后端：FastAPI、Python 3.10+。
+- 后端：FastAPI、Python 3.11+。
 - AI：浙大自建 OpenAI 兼容接口，文本模型固定为 `qwen3.8-27b`。
 - 代码执行：独立 `runner/` 服务。
 - 规格：OpenSpec。

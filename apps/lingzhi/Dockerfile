@@ -16,7 +16,7 @@ COPY frontend/ .
 RUN npm run build
 
 # Build backend
-FROM python:3.10-slim
+FROM python:3.11-slim
 ARG PIP_INDEX_URL=https://pypi.org/simple
 WORKDIR /app
 
