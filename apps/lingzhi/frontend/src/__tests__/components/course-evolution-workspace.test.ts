@@ -230,6 +230,43 @@ describe('CourseEvolutionWorkspace', () => {
     wrapper.unmount()
   })
 
+  it('需要澄清时始终提供确认当前理解并继续分析的操作', async () => {
+    const pinia = createPinia()
+    const store = useCourseEvolutionStore(pinia)
+    const basePlanning = planning()
+    store.plans = [plan({
+      teacher_change_planning: planning({
+        status: 'needs_clarification',
+        intent: {
+          ...basePlanning.intent,
+          blocking_questions: ['实践项目是否必须可运行？'],
+          can_proceed_without_clarification: false,
+        },
+      }),
+      impact_summary: {
+        request_asset_types: ['outline', 'lesson_plan', 'script'],
+        coverage: { scanned_units: 19, indexed_units: 116 },
+      },
+    })]
+    const create = vi.spyOn(store, 'createCoursePlan').mockResolvedValue({
+      analysis_task: { id: 'analysis-task-2', status: 'pending' },
+    } as any)
+    const wrapper = mountWorkspace(pinia)
+
+    expect(wrapper.get('.clarification-actions').text()).toContain('确认当前理解')
+    await wrapper.get('.clarification-actions .button-primary').trigger('click')
+
+    expect(create).toHaveBeenCalledWith({
+      courseId: 'course-1',
+      requestId: expect.any(String),
+      instruction: '所有案例都补充完整推导，但保留原始资料。',
+      supersedesPlanId: 'change-1',
+      assetTypes: ['outline', 'lesson_plan', 'script'],
+      confirmedInterpretation: true,
+    })
+    wrapper.unmount()
+  })
+
   it('精确候选直接展示前后差异并以一个操作组应用勾选项', async () => {
     const pinia = createPinia()
     const store = useCourseEvolutionStore(pinia)

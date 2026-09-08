@@ -386,6 +386,61 @@ async def test_complete_semantic_scan_has_no_top_eighty_limit_and_reports_batch_
 
 
 @pytest.mark.asyncio
+async def test_teacher_confirmation_clears_model_questions_but_not_incomplete_scan_blockers(tmp_path):
+    _, _, repo, context = fixture(tmp_path)
+    unit_id = context.units[0].unit_id
+
+    async def questioning(overview, candidates, instruction):
+        return {
+            "analysis_mode": "ai_ranked",
+            "signal_kind": "semantic",
+            "affected_units": [{
+                "unit_id": unit_id,
+                "disposition": "regenerate",
+                "reason": "每讲都需要实践项目",
+                "confidence": 0.9,
+            }],
+            "blocking_questions": ["实践项目是否必须可运行？"],
+            "structure": {"required": False},
+        }
+
+    confirmed = await create_teacher_course_change_plan(
+        context=context,
+        user_id="teacher",
+        request_id="confirmed-understanding",
+        instruction="每讲安排一个实践项目",
+        repository=repo,
+        analyzer=questioning,
+        confirmed_interpretation=True,
+    )
+    confirmed_plan = confirmed.change_sets[0]
+    assert confirmed_plan.teacher_change_planning.status != "needs_clarification"
+    assert confirmed_plan.teacher_change_planning.intent.blocking_questions == []
+    assert confirmed_plan.impact_summary["clarification_confirmation"]["acknowledged_questions"] == [
+        "实践项目是否必须可运行？"
+    ]
+
+    async def timeout(overview, candidates, instruction):
+        raise TimeoutError("provider timeout")
+
+    incomplete = await create_teacher_course_change_plan(
+        context=context,
+        user_id="teacher",
+        request_id="confirmed-but-incomplete",
+        instruction="每讲安排一个实践项目",
+        repository=repo,
+        analyzer=timeout,
+        confirmed_interpretation=True,
+    )
+    incomplete_plan = incomplete.change_sets[-1]
+    assert incomplete_plan.teacher_change_planning.status == "needs_clarification"
+    assert any(
+        "未完成检查" in question
+        for question in incomplete_plan.teacher_change_planning.intent.blocking_questions
+    )
+
+
+@pytest.mark.asyncio
 async def test_teacher_exact_delete_is_structural_and_keeps_stable_survivor_ids(tmp_path):
     doc = refresh_document_revision(
         CourseDocument(
