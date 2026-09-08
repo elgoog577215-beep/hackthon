@@ -387,6 +387,7 @@
             </nav>
           </aside>
           <div
+            ref="lessonStageContent"
             class="lesson-stage-content"
             :class="{ 'is-course-preview': lessonCoursePreviewVisible || scriptCoursePreviewVisible }"
           >
@@ -1323,6 +1324,7 @@ const stageSwitching = ref(false)
 const selectedLessonSectionId = ref('')
 const workbenchRoot = ref<HTMLElement | null>(null)
 const workbenchCenter = ref<HTMLElement | null>(null)
+const lessonStageContent = ref<HTMLElement | null>(null)
 const lessonPlanDocument = ref<LessonPlanDocumentHandle | null>(null)
 const scriptDocument = ref<ScriptDocumentHandle | null>(null)
 const questionBankPanel = ref<ProductionAiDocumentHandle | null>(null)
@@ -3972,6 +3974,11 @@ onMounted(() => window.addEventListener('beforeunload', protectUnsavedEdits))
 onBeforeUnmount(() => window.removeEventListener('beforeunload', protectUnsavedEdits))
 defineExpose({ finishEditing })
 
+function resetLessonViewport() {
+  if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0
+  if (lessonStageContent.value) lessonStageContent.value.scrollTop = 0
+}
+
 async function selectLesson(lessonId?: string) {
   if (!lessonId) return
   if (aiCandidatePending.value && selectedLessonId.value !== lessonId) return
@@ -3981,6 +3988,10 @@ async function selectLesson(lessonId?: string) {
   selectedLessonId.value = lessonId
   if (lessonChanged || !lesson?.sections.some(section => section.section_node_id === selectedLessonSectionId.value)) {
     selectedLessonSectionId.value = lesson?.sections[0]?.section_node_id || ''
+  }
+  if (lessonChanged) {
+    await nextTick()
+    resetLessonViewport()
   }
 }
 function preferredLessonId(lessons: typeof lessonStore.lessons): string {
@@ -4436,6 +4447,8 @@ async function requestStageChange(stage: StageId) {
   try {
     if (!await finishEditing()) return
     activeStage.value = stage
+    await nextTick()
+    resetLessonViewport()
   } finally {
     stageSwitching.value = false
   }

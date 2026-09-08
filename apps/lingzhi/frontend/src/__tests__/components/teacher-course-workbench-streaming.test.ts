@@ -2435,6 +2435,31 @@ describe('teacher course workbench outline streaming', () => {
     }
   })
 
+  it('切换讲次后把嵌套内容区恢复到顶部，避免 PPT 空状态和生成按钮滚出视口', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.outlineRevisionId = 'outline-1'
+    lessonStore.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲 主题${number}`, duration_minutes: 45,
+      sections: [{ section_node_id: `L2-${number}-1`, title: `${number}.1 小节` }],
+      script: { current_revision_id: `script-${number}`, source_lesson_plan_revision_id: `plan-${number}`, source_state: 'current', ready: true, sections: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`, source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
+    })) as any
+
+    const wrapper = mountWorkbench({ initialStage: 'ppt', initialLessonId: 'L1-1' })
+    await flushPromises()
+    const center = wrapper.get('.workbench-center').element as HTMLElement
+    const content = wrapper.get('.lesson-stage-content').element as HTMLElement
+    center.scrollTop = 480
+    content.scrollTop = 960
+
+    await wrapper.findAll('.lesson-outline-chapter-button')[1]!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.lesson-current-title').text()).toContain('第2讲 主题2')
+    expect(center.scrollTop).toBe(0)
+    expect(content.scrollTop).toBe(0)
+  })
+
   it('右侧资料随当前讲次切换且不会串到其他讲次', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2].map(number => ({
