@@ -56,6 +56,7 @@ final result: passed
 
 - Source visual truth: `C:\Users\Lenovo\AppData\Local\Temp\codex-clipboard-2c5aa724-e28a-48a5-adca-ef747ff73719.png` (`1644 × 558`).
 - Implementation capture: Codex in-app browser local QA page at the same `1644 × 558` viewport; the temporary QA entry was removed after verification.
+- Production URL: `https://tuotuzju.com/lingzhi/`, deployed version `bf09c4f7fa53ce165da7886c7112192ed978ee82`.
 - Responsive check: `390 × 844`, Chinese, light theme.
 - States checked: whole course, continuous range from lesson 2 to lesson 4, empty custom selection, custom lessons 1 and 3.
 

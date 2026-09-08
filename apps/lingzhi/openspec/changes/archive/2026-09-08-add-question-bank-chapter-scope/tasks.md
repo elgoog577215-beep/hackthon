@@ -15,4 +15,4 @@
 
 - [x] 3.1 Run focused question-bank component tests and the production frontend build.
 - [x] 3.2 Verify the generation screen at desktop and mobile widths in the browser and record design QA.
-- [ ] 3.3 Validate the OpenSpec change, review the diff, push, deploy and verify production health.
+- [x] 3.3 Validate the OpenSpec change, review the diff, push, deploy and verify production health.
