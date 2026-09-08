@@ -8563,7 +8563,7 @@ class CourseService(AIBase):
                 return await self._call_llm(
                     prompt, instructions, use_fast_model=True,
                     retry_count=1, max_attempts=1, enable_thinking=False,
-                    reject_truncated=True, raise_on_failure=True,
+                    wait_for_capacity=True, reject_truncated=True, raise_on_failure=True,
                     max_tokens=output_tokens,
                     request_timeout_seconds=float(
                         self._generation_budget.teacher_script_request_timeout_seconds

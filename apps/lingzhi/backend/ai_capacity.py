@@ -227,6 +227,7 @@ class ProviderCapacityController:
 
     async def acquire(
         self, model_id: str, *, on_wait_activity: Callable[[], None] | None = None,
+        wait_during_cooldown: bool = False,
     ) -> CapacityLease:
         wait_started = time.monotonic()
         wait_reason = ""
@@ -238,7 +239,7 @@ class ProviderCapacityController:
                 while True:
                     state = self._state(model_id)
                     now = time.monotonic()
-                    if state.cooldown_until > now and not self.wait_during_cooldown:
+                    if state.cooldown_until > now and not (self.wait_during_cooldown or wait_during_cooldown):
                         raise ModelCapacityCoolingDown(model_id, state.cooldown_until - now)
                     ready_at = max(self._next_provider_start, state.cooldown_until)
                     if (state.in_flight < state.limit

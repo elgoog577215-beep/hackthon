@@ -153,3 +153,29 @@ async def test_duplicate_route_reuses_frozen_job_and_interruption_retains_text(t
     assert list(saved["streamed_block_content"].values()) == ["没有换行的真实片段"]
     assert not saved.get("auto_recovery")
     assert not repo.lesson("course-1", "L1-1")["working_script_revision_id"]
+
+
+@pytest.mark.asyncio
+async def test_queued_handout_waits_through_rate_limit_without_a_paid_retry(monkeypatch):
+    monkeypatch.setenv("AI_API_KEY", "isolated-test-key")
+    monkeypatch.setenv("AI_PROVIDER_START_INTERVAL_SECONDS", "0")
+    monkeypatch.setenv("AI_PROVIDER_RATE_LIMIT_BACKOFF_SECONDS", ".1")
+    reset_provider_capacity_controllers()
+    ai = AIBase()
+    monkeypatch.setattr(ai, "_models_for", lambda *args: [])  # Circuit currently hides the model.
+    monkeypatch.setattr(ai, "_configured_models_for", lambda *args: ["isolated-model"])
+    calls = []
+    async def stream():
+        yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="完成"), finish_reason=None)])
+    async def create(**kwargs):
+        calls.append(kwargs)
+        return stream()
+    ai.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    capacity = get_provider_capacity_controller(ai._primary_provider_scope())
+    await capacity.report_failure("isolated-model", failure_kind="rate_limited", cooldown_seconds=.1)
+    task = asyncio.create_task(ai._call_llm("test", wait_for_capacity=True, retry_count=1, max_attempts=1,
+                                          request_timeout_seconds=1, raise_on_failure=True))
+    await asyncio.sleep(.02)
+    assert not task.done() and not calls
+    assert await asyncio.wait_for(task, 1) == "完成"
+    assert len(calls) == 1

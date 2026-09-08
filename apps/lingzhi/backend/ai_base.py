@@ -1207,6 +1207,7 @@ class AIBase:
         max_input_tokens: int | None = None,
         max_input_chars: int | None = None,
         max_attempts: int | None = None,
+        wait_for_capacity: bool = False,
         request_timeout_seconds: float | None = None,
         reject_truncated: bool = False,
         raise_on_failure: bool = False,
@@ -1273,7 +1274,8 @@ class AIBase:
             requested_max_tokens * 2,
         )
         primary_models = (
-            self._models_for(use_fast_model, model_role)
+            (self._configured_models_for(use_fast_model, model_role)
+             if wait_for_capacity else self._models_for(use_fast_model, model_role))
             if self.api_key and not self._active_provider_failure()
             else []
         )
@@ -1441,6 +1443,7 @@ class AIBase:
                     lease = await capacity.acquire(
                         model_id,
                         on_wait_activity=on_stream_activity,
+                        wait_during_cooldown=wait_for_capacity,
                     )
                     # 优先用队列自己量的等待时长；取不到再退回本地秒表。
                     lease_wait_ms = getattr(lease, "queue_wait_ms", None)
