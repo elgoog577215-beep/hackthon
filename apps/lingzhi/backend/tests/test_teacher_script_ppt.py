@@ -7,7 +7,7 @@ import pytest
 from course_document import stable_hash
 from ppt_fixed_templates import compile_fixed_template
 from ppt_source_quotes import source_excerpt_catalog
-from teacher_script_ppt import CONTRACT, generate_bundle, validate_block_pages
+from teacher_script_ppt import CONTRACT, describe_bundle_failure, generate_bundle, validate_block_pages
 
 TEXT = "串行按顺序逐项执行，并行同时执行多个任务。相同任务条件下，应根据任务之间的依赖选择执行方式。独立任务可并行，存在依赖的任务需按先后顺序执行。"
 
@@ -118,6 +118,29 @@ def test_frozen_handout_page_repair_receives_selectable_literal_quote_ids():
     assert "sources 只返回 quote_id" in calls[0][1]
     assert result["blocks"][0]["ppt_pages"] == [repaired]
     assert not result["blocks"][0]["ppt_errors"]
+
+
+def test_source_grounding_failure_names_the_failed_step_and_block():
+    failure = describe_bundle_failure(
+        ValueError(
+            "source_excerpt_mismatch:tsb-fb9d8c62c7fd: "
+            "choose a supplied quote_id or copy a literal source quote"
+        )
+    )
+
+    assert failure == {
+        "code": "lesson_ppt_source_grounding_failed",
+        "message": "页面引用未能匹配讲义原文，系统没有保存来源不可靠的内容稿。",
+        "category": "quality",
+        "recovery_action": "retry_original",
+        "retryable": True,
+        "failed_step": "sources",
+        "failed_block_id": "tsb-fb9d8c62c7fd",
+        "technical_detail": (
+            "source_excerpt_mismatch:tsb-fb9d8c62c7fd: "
+            "choose a supplied quote_id or copy a literal source quote"
+        ),
+    }
 
 
 def test_page_failure_exhaustion_returns_usable_handout_and_reusable_checkpoint():
