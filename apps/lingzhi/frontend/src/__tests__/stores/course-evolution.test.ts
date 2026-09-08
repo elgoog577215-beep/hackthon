@@ -181,6 +181,43 @@ describe('course evolution store', () => {
     ])
   })
 
+  it('keeps whole-course analysis attached to a durable task across request timeout boundaries', async () => {
+    httpMock.post.mockResolvedValueOnce({ data: {
+      analysis_task: {
+        id: 'analysis-task-1',
+        type: 'teacher_course_change_analysis',
+        status: 'pending',
+        message: '整课影响分析已进入后台',
+      },
+    } })
+    const store = useCourseEvolutionStore()
+    store.courseId = 'course-1'
+
+    await store.createCoursePlan({
+      instruction: '每讲安排一个实践项目',
+      requestId: 'analysis-request-1',
+    })
+
+    expect(store.generating).toBe(true)
+    expect(store.analysisTask?.id).toBe('analysis-task-1')
+    expect(store.generationMessage).toBe('整课影响分析已进入后台')
+
+    httpMock.get.mockResolvedValueOnce({ data: {
+      ...payload(),
+      analysis_task: {
+        id: 'analysis-task-1',
+        type: 'teacher_course_change_analysis',
+        status: 'completed',
+        message: '整课影响分析完成',
+      },
+    } })
+    await store.refreshProgress('course-1')
+
+    expect(store.generating).toBe(false)
+    expect(store.pendingPlans).toHaveLength(1)
+    expect(store.generationError).toBe('')
+  })
+
   it('allows the embedded teacher assistant to target the current course without preloading the change workspace', async () => {
     httpMock.post.mockResolvedValue({ data: payload() })
     const store = useCourseEvolutionStore()

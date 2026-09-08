@@ -12,7 +12,13 @@ from backend.tests.test_task_manager_runtime_durability import build_manager
 from backend.tests.test_teacher_lesson_authoring import single_section_course_data, standard_lesson_plan
 from course_document import CourseDocument, CourseSection, refresh_document_revision
 from course_evolution.core import CourseEvolutionRepository
-from course_evolution.jobs import enqueue_candidates, run_candidates
+from course_evolution.jobs import (
+    ANALYSIS_TASK_TYPE,
+    enqueue_analysis,
+    enqueue_candidates,
+    run_analysis,
+    run_candidates,
+)
 from course_evolution.teacher_execution import (
     build_domain_candidate_applier,
     build_domain_candidate_undoer,
@@ -200,6 +206,51 @@ async def test_durable_enqueue_is_idempotent_and_restart_reuses_checkpoint(tmp_p
         representation_repository=TeachingRepresentationRepository(tmp_path / "representations"),
     )
     assert [op.operation_id for op in repo.load("teacher", "course-1").change_sets[0].operations] == ids
+
+
+@pytest.mark.asyncio
+async def test_whole_course_analysis_uses_a_durable_task_instead_of_one_long_request(tmp_path, monkeypatch):
+    manager = build_manager(tmp_path, monkeypatch)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def create_teacher_plan(**kwargs):
+        started.set()
+        await release.wait()
+        return SimpleNamespace(change_sets=[SimpleNamespace(
+            change_set_id="plan-1",
+            impact_summary={"request_id": kwargs["request_id"]},
+        )])
+
+    service = SimpleNamespace(create_teacher_plan=create_teacher_plan)
+    task = await enqueue_analysis(
+        manager=manager,
+        user_id="teacher",
+        course_id="course-1",
+        request_id="analysis-request-1",
+        instruction="每讲安排一个实践项目",
+        asset_types=["outline", "lesson_plan", "script"],
+    )
+
+    assert task["type"] == ANALYSIS_TASK_TYPE
+    assert task["status"] == "pending"
+
+    running = asyncio.create_task(run_analysis(manager, task["id"], service=service))
+    await started.wait()
+    assert manager.get_task_summary(task["id"])["status"] == "running"
+    release.set()
+    await running
+
+    completed = manager.get_task_summary(task["id"])
+    assert completed["status"] == "completed"
+    assert completed["phase_detail"] == {
+        "request_id": "analysis-request-1",
+        "plan_id": "plan-1",
+    }
+
+    manager.tasks[task["id"]]["status"] = "running"
+    assert await manager._reconcile_task_after_restart(task["id"])
+    assert manager.tasks[task["id"]]["status"] == "pending"
 
 
 def test_search_and_replacement_share_prose_and_preserve_identifiers():
