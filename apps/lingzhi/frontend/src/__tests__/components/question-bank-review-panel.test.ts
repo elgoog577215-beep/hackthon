@@ -262,6 +262,49 @@ describe('QuestionBankReviewPanel', () => {
     expect(audit.text()).toContain('item-history-1')
   })
 
+  it('按讲次分层浏览题目并只显示当前讲次题目', async () => {
+    get.mockResolvedValueOnce({
+      data: {
+        bundle_revision_id: 'qbb-by-lesson',
+        assessment_profile: {},
+        assessment_objectives: [],
+        coverage: {},
+        review_queue: {},
+        web_enrichment: {},
+        chapter_rebuild: {},
+        items: [
+          { item_id: 'l1-q1', revision_id: 'l1-r1', prompt: '第一讲第一题', assessment_role: 'concept', lifecycle_status: 'approved', risk_flags: [], node_id: 'lesson-1', quality_report: { passed: true } },
+          { item_id: 'l1-q2', revision_id: 'l1-r2', prompt: '第一讲第二题', assessment_role: 'practice', lifecycle_status: 'approved', risk_flags: [], node_id: 'lesson-1', quality_report: { passed: true } },
+          { item_id: 'l2-q1', revision_id: 'l2-r1', prompt: '第二讲唯一题目', assessment_role: 'transfer', lifecycle_status: 'rejected', risk_flags: [], node_id: 'lesson-2', quality_report: { passed: false } },
+        ],
+      },
+    })
+    const wrapper = mount(QuestionBankReviewPanel, {
+      props: {
+        courseId: 'course-1',
+        chapterOptions: [
+          { node_id: 'lesson-1', number: 1, title: '游戏逻辑基础' },
+          { node_id: 'lesson-2', number: 2, title: '状态机与存档' },
+        ],
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-testid="question-chapter-item"]')).toHaveLength(2)
+    expect(wrapper.get('[data-testid="question-chapter-lesson-1"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(2)
+    expect(wrapper.text()).toContain('第一讲第二题')
+    expect(wrapper.text()).not.toContain('第二讲唯一题目')
+
+    await wrapper.get('[data-testid="question-chapter-lesson-2"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="question-chapter-lesson-2"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
+    expect(wrapper.text()).toContain('第二讲唯一题目')
+    expect(wrapper.text()).not.toContain('第一讲第一题')
+    expect(wrapper.get('.question-reader__header').text()).toContain('第 2 讲 · 状态机与存档')
+  })
+
   it('题目列表按每页十条分页并在筛选时回到第一页', async () => {
     const paginatedItems = Array.from({ length: 23 }, (_, index) => ({
       item_id: `page-item-${index + 1}`,
@@ -918,6 +961,8 @@ describe('QuestionBankReviewPanel', () => {
       '给定材料，完成跨章节分析并检查结论。',
     )
     const progress = wrapper.get('[role="progressbar"]')
+    expect(progress.classes()).toContain('question-bank-progress--compact')
+    expect(progress.get('[data-testid="question-progress-details"]').element.tagName).toBe('DETAILS')
     expect(progress.attributes('aria-valuenow')).toBe('48')
     expect(progress.text()).toContain(
       '重新生成失败，当前有效题库保持不变',
