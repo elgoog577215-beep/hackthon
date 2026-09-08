@@ -379,7 +379,7 @@ function handleCourseAdjustmentApplied() {
 async function openGlobalChange() { if (await finishWorkbenchEditing()) globalChangeChoiceOpen.value = true }
 function chooseGlobalChange(kind: 'structure' | 'semantic') {
   globalChangeChoiceOpen.value = false
-  if (kind === 'structure') { openOutlineEditor(); return }
+  if (kind === 'structure') { openCourseAdjustment(); return }
   void router.push({
     name: 'course-audit-updates',
     params: { courseId: courseId.value },
