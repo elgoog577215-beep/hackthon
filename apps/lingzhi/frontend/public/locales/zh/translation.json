@@ -6762,6 +6762,7 @@
     "backToNew": "返回 PPT 制作"
   },
   "teacherInlineEdit": {
+    "edit": "修改",
     "open": "AI 修改",
     "title": "局部修改",
     "placeholder": "说明这段内容要怎样修改…",

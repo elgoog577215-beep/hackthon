@@ -164,11 +164,11 @@ describe('文中 AI 修改的完整操作', () => {
     await wrapper.setProps({ candidatePending: false })
     expect(document.querySelector('textarea')).toBeNull()
   })
-  it('按学生端悬停显示解释、举例、简化、提问，快捷操作直接生成', async () => {
+  it('按学生端悬停显示解释、举例、简化、修改，快捷操作直接生成', async () => {
     const host = fixture()
     host.querySelector('p')!.dispatchEvent(new Event('pointerover', { bubbles: true }))
     await nextTick()
-    expect(Array.from(document.querySelectorAll('.block-ai-menu button')).map(button => button.textContent?.trim())).toEqual(['explain','example','simplify','ask'])
+    expect(Array.from(document.querySelectorAll('.block-ai-menu button')).map(button => button.textContent?.trim())).toEqual(['explain','example','simplify','edit'])
     ;(document.querySelector('[data-action=example]') as HTMLButtonElement).click()
     await nextTick()
     expect(wrapper.emitted('invoke')?.[0]?.[0]).toMatchObject({ instruction:'examplePrompt',source:'block' })

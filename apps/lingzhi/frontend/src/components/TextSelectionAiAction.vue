@@ -322,7 +322,7 @@ const actions = computed(() => [
   {
     key: 'ask' as const,
     icon: CircleHelp,
-    label: t('courseWorkspace.inlineAi.ask'),
+    label: tr('edit'),
   },
 ])
 const actionLabel = computed(

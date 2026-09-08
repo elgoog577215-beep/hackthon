@@ -6581,6 +6581,7 @@
     "backToNew": "Back to PPT creation"
   },
   "teacherInlineEdit": {
+    "edit": "Edit",
     "open": "AI edit",
     "title": "Edit this content",
     "placeholder": "Describe how this content should change…",
