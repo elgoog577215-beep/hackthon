@@ -273,7 +273,7 @@ describe('QuestionBankReviewPanel', () => {
         web_enrichment: {},
         chapter_rebuild: {},
         items: [
-          { item_id: 'l1-q1', revision_id: 'l1-r1', prompt: '第一讲第一题', assessment_role: 'concept', lifecycle_status: 'approved', risk_flags: [], node_id: 'lesson-1', quality_report: { passed: true } },
+          { item_id: 'l1-q1', revision_id: 'l1-r1', prompt: '第一讲第一题', assessment_role: 'concept', lifecycle_status: 'approved', risk_flags: [], node_id: 'lesson-1-section-1', quality_report: { passed: true } },
           { item_id: 'l1-q2', revision_id: 'l1-r2', prompt: '第一讲第二题', assessment_role: 'practice', lifecycle_status: 'approved', risk_flags: [], node_id: 'lesson-1', quality_report: { passed: true } },
           { item_id: 'l2-q1', revision_id: 'l2-r1', prompt: '第二讲唯一题目', assessment_role: 'transfer', lifecycle_status: 'rejected', risk_flags: [], node_id: 'lesson-2', quality_report: { passed: false } },
           { item_id: 'legacy-q1', revision_id: 'legacy-r1', prompt: '历史导入题目', assessment_role: 'imported', lifecycle_status: 'approved', risk_flags: [], node_id: 'legacy-node', quality_report: { passed: true } },
@@ -284,7 +284,7 @@ describe('QuestionBankReviewPanel', () => {
       props: {
         courseId: 'course-1',
         chapterOptions: [
-          { node_id: 'lesson-1', number: 1, title: '游戏逻辑基础' },
+          { node_id: 'lesson-1', number: 1, title: '游戏逻辑基础', node_ids: ['lesson-1', 'lesson-1-section-1'] },
           { node_id: 'lesson-2', number: 2, title: '状态机与存档' },
         ],
       },
@@ -308,6 +308,39 @@ describe('QuestionBankReviewPanel', () => {
     await wrapper.get('[data-testid="question-chapter-__unassigned__"]').trigger('click')
     expect(wrapper.text()).toContain('其他题目')
     expect(wrapper.text()).toContain('历史导入题目')
+  })
+
+  it('讲次节点无法覆盖任何题目时回退到全部题目列表', async () => {
+    get.mockResolvedValueOnce({
+      data: {
+        bundle_revision_id: 'qbb-unmapped',
+        assessment_profile: {},
+        assessment_objectives: [],
+        coverage: {},
+        review_queue: {},
+        web_enrichment: {},
+        chapter_rebuild: {},
+        items: [
+          { item_id: 'old-q1', revision_id: 'old-r1', prompt: '旧课程第一题', assessment_role: 'legacy', lifecycle_status: 'approved', risk_flags: [], node_id: 'old-section-1', quality_report: { passed: true } },
+          { item_id: 'old-q2', revision_id: 'old-r2', prompt: '旧课程第二题', assessment_role: 'legacy', lifecycle_status: 'approved', risk_flags: [], node_id: 'old-section-2', quality_report: { passed: true } },
+        ],
+      },
+    })
+    const wrapper = mount(QuestionBankReviewPanel, {
+      props: {
+        courseId: 'course-1',
+        chapterOptions: [
+          { node_id: 'new-lesson-1', number: 1, title: '新版第一讲' },
+          { node_id: 'new-lesson-2', number: 2, title: '新版第二讲' },
+        ],
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="question-chapter-item"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(2)
+    expect(wrapper.text()).toContain('旧课程第一题')
+    expect(wrapper.text()).toContain('旧课程第二题')
   })
 
   it('题目列表按每页十条分页并在筛选时回到第一页', async () => {

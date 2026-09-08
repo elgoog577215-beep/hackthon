@@ -997,6 +997,7 @@ interface AssessmentObjective {
 
 interface QuestionBankChapterOption {
   node_id: string
+  node_ids?: string[]
   number?: number
   title: string
 }
@@ -1093,11 +1094,15 @@ let rebuildAbortController: AbortController | null = null
 const QUESTION_PAGE_SIZE = 10
 const COVERED_OBJECTIVE_PAGE_SIZE = 10
 
-const chapterOptions = computed<QuestionBankChapterOption[]>(() => {
+const chapterOptions = computed(() => {
   const seen = new Set<string>()
   return props.chapterOptions
     .map((chapter, index) => ({
       node_id: String(chapter.node_id || '').trim(),
+      node_ids: [...new Set([
+        String(chapter.node_id || '').trim(),
+        ...(chapter.node_ids || []).map(nodeId => String(nodeId || '').trim()),
+      ].filter(Boolean))],
       number: Number(chapter.number || index + 1),
       title: String(chapter.title || '').trim(),
     }))
@@ -1243,10 +1248,18 @@ const canContinueGeneration = computed(() => Boolean(
   && completedChapters.value > 0
   && remainingChapters.value > 0,
 ))
-const questionChapterGroupingEnabled = computed(() => chapterOptions.value.length > 0)
+const mappedQuestionCount = computed(() => activeItems.value.filter(item => (
+  chapterOptions.value.some(chapter => (
+    chapter.node_ids.includes(String(item.node_id || ''))
+  ))
+)).length)
+const questionChapterGroupingEnabled = computed(() => (
+  chapterOptions.value.length > 0
+  && (!activeItems.value.length || mappedQuestionCount.value > 0)
+))
 const questionChapterGroups = computed(() => chapterOptions.value.map(chapter => {
   const chapterItems = activeItems.value.filter(
-    item => String(item.node_id || '') === chapter.node_id,
+    item => chapter.node_ids.includes(String(item.node_id || '')),
   )
   return {
     ...chapter,
@@ -1261,7 +1274,7 @@ const questionChapterGroups = computed(() => chapterOptions.value.map(chapter =>
 }))
 const unassignedQuestionItems = computed(() => {
   const knownChapterIds = new Set(
-    chapterOptions.value.map(chapter => chapter.node_id),
+    chapterOptions.value.flatMap(chapter => chapter.node_ids),
   )
   return activeItems.value.filter(
     item => !knownChapterIds.has(String(item.node_id || '')),
@@ -1271,6 +1284,7 @@ const visibleQuestionChapterGroups = computed(() => {
   if (!unassignedQuestionItems.value.length) return questionChapterGroups.value
   return [...questionChapterGroups.value, {
     node_id: '__unassigned__',
+    node_ids: [],
     number: 0,
     title: t('questionBank.unassignedQuestions', '其他题目'),
     item_count: unassignedQuestionItems.value.length,
@@ -1303,7 +1317,9 @@ const chapterScopedItems = computed(() => {
   if (!chapterId) return []
   if (chapterId === '__unassigned__') return unassignedQuestionItems.value
   return activeItems.value.filter(
-    item => String(item.node_id || '') === chapterId,
+    item => activeQuestionChapter.value?.node_ids.includes(
+      String(item.node_id || ''),
+    ),
   )
 })
 const questionListTitle = computed(() => {
