@@ -342,9 +342,10 @@
                 class="lesson-outline-chapter-button"
                 type="button"
                 :class="{ active: selectedLessonId === lesson.lesson_unit_id }"
-                :disabled="aiCandidatePending && selectedLessonId !== lesson.lesson_unit_id"
+                :disabled="lessonNavigationBlocked(lesson) || (aiCandidatePending && selectedLessonId !== lesson.lesson_unit_id)"
                 :aria-current="selectedLessonId === lesson.lesson_unit_id ? 'page' : undefined"
                 :aria-label="lessonNavigationLabel(lesson)"
+                :title="lessonNavigationBlocked(lesson) ? lessonNavigationBlockReason(lesson) : undefined"
                 @click="selectLesson(lesson.lesson_unit_id)"
               >
                 <span class="lesson-outline-chapter-copy">
@@ -1173,6 +1174,7 @@ import {
   readCourseProductionState,
   type AssetProductionState,
   type CourseProductionAllowedAction,
+  type CourseProductionIssue,
   type CourseProductionPrimaryAction,
   type CourseProductionStageKey,
 } from '../shared/teacher-production-state'
@@ -2013,17 +2015,61 @@ const outlineAvailableForLessons = computed(() => {
     || lessonStore.lessons.some(lesson => lesson.arrangement?.source_outline_revision_id))
 })
 const outlinePrerequisiteReason = computed(() => t('courseWorkbench.lessonPrerequisite.outlineRequired'))
+const PREREQUISITE_ISSUE_CATEGORY = 'prerequisite'
+function productionPrerequisiteIssue(projected: AssetProductionState | null | undefined): CourseProductionIssue | undefined {
+  return projected?.issues.find(issue => issue.category === PREREQUISITE_ISSUE_CATEGORY || [
+    'teacher_outline_incomplete',
+    'teacher_lesson_plan_incomplete',
+    'teacher_lesson_script_incomplete',
+  ].includes(issue.code))
+}
+function stageHasOpenLesson(stage: Exclude<CourseProductionStageKey, 'outline'>): boolean {
+  if (productionState.value?.lessons.length) {
+    return productionState.value.lessons.some(lesson => {
+      const projected = lesson.stages[stage]
+      if (!projected) return false
+      if (['queued', 'running', 'paused', 'waiting_for_input', 'waiting_for_review', 'failed', 'unknown'].includes(projected.task_state)) return true
+      if (projected.availability !== 'missing') return true
+      return !productionPrerequisiteIssue(projected)
+    })
+  }
+  if (stage === 'script') return lessonStore.lessons.some(lesson => lessonPlanIsReady(lesson) || lessonScriptIsReady(lesson))
+  if (stage === 'ppt') return lessonStore.lessons.some(lesson => lessonScriptIsReady(lesson))
+  return false
+}
 function stagePrerequisiteBlocked(stage: StageId) {
-  if (stage === 'ppt') return false
   if (['lesson', 'script', 'ppt'].includes(stage) && !outlineAvailableForLessons.value) return true
-  if (stage === 'script') return !(productionState.value?.stages.lesson_plan.counts.available || productionState.value?.stages.script.task_ids.length || lessonStore.lessons.some(lessonPlanIsReady) || lessonStore.lessons.some(lessonScriptIsReady))
+  if (stage === 'script') return !stageHasOpenLesson('script')
+  if (stage === 'ppt') return !stageHasOpenLesson('ppt')
   return false
 }
 function stagePrerequisiteReason(stage: StageId): string {
   if (!outlineAvailableForLessons.value) return outlinePrerequisiteReason.value
-  return stage === 'script'
-    ? t('courseWorkbench.lessonPrerequisite.planRequired', '请先生成教案')
-    : t('courseWorkbench.lessonPrerequisite.scriptRequired', '请先生成讲义')
+  if (stage === 'script') return t('courseWorkbench.lessonPrerequisite.planRequired', '请先生成教案')
+  return t('courseWorkbench.lessonPrerequisite.scriptRequired', '请先生成讲义')
+}
+function lessonNavigationBlocked(lesson: TeacherLessonProjection): boolean {
+  if (!['lesson', 'script', 'ppt'].includes(activeStage.value)) return false
+  if (activeStage.value === 'lesson') return false
+  const stage = activeStage.value === 'script' ? 'script' : 'ppt'
+  const projected = lessonProductionState(productionState.value, lesson.lesson_unit_id, stage)
+  if (projected) {
+    return projected.availability === 'missing'
+      && !['queued', 'running', 'paused', 'waiting_for_input', 'waiting_for_review', 'failed', 'unknown'].includes(projected.task_state)
+      && Boolean(productionPrerequisiteIssue(projected))
+  }
+  if (!outlineAvailableForLessons.value) return true
+  if (activeStage.value === 'script') return !lessonPlanIsReady(lesson)
+  return !lessonScriptIsReady(lesson)
+}
+function lessonNavigationBlockReason(lesson: TeacherLessonProjection): string {
+  const stage = activeStage.value === 'script' ? 'script' : activeStage.value === 'ppt' ? 'ppt' : null
+  const issue = stage ? productionPrerequisiteIssue(lessonProductionState(productionState.value, lesson.lesson_unit_id, stage)) : undefined
+  if (issue?.summary) return issue.summary
+  if (!outlineAvailableForLessons.value) return outlinePrerequisiteReason.value
+  return activeStage.value === 'ppt'
+    ? t('courseWorkbench.lessonPrerequisite.scriptRequired', '请先生成讲义')
+    : t('courseWorkbench.lessonPrerequisite.planRequired', '请先生成教案')
 }
 const outlineRegenerationAvailable = computed(() => Boolean(
   outlineFullReady.value
@@ -4065,9 +4111,10 @@ function lessonJobForStage(lesson: any): TeacherLessonJob | undefined {
   if (activeStage.value === 'lesson') return currentJobForLesson(lesson.lesson_unit_id, 'lesson_plan')
   return undefined
 }
-function lessonGenerationState(lesson: any): 'pending' | 'queued' | 'generating' | 'ready' | 'stale' | 'paused' {
+function lessonGenerationState(lesson: any): 'locked' | 'pending' | 'queued' | 'generating' | 'ready' | 'stale' | 'paused' {
   const stage = activeStage.value === 'lesson' ? 'lesson_plan' : activeStage.value === 'script' ? 'script' : activeStage.value === 'ppt' ? 'ppt' : null
   const projected = stage ? lessonProductionState(productionState.value, lesson.lesson_unit_id, stage) : null
+  if (projected?.display_state === 'not_generated' && productionPrerequisiteIssue(projected)) return 'locked'
   if (projected?.display_state === 'available') return projected.update_required || projected.source_state === 'stale' ? 'stale' : 'ready'
   if (projected?.display_state === 'generating') return ['paused', 'queued'].includes(projected.task_state) ? 'queued' : 'generating'
   if (['paused', 'failed'].includes(projected?.display_state || '')) return 'paused'
@@ -4127,6 +4174,9 @@ function lessonGenerationStateLabel(lesson: any): string {
   const stage = activeStage.value === 'lesson' ? 'lesson_plan' : activeStage.value === 'script' ? 'script' : activeStage.value === 'ppt' ? 'ppt' : null
   const projected = stage ? lessonProductionState(productionState.value, lesson.lesson_unit_id, stage) : null
   if (projected) {
+    if (projected.display_state === 'not_generated' && productionPrerequisiteIssue(projected)) {
+      return t('courseWorkbench.lessonPrerequisite.locked', '未解锁')
+    }
     const labels = [productionDisplayStateLabel(projected.display_state)]
     if (['paused', 'queued', 'waiting_for_input', 'waiting_for_review'].includes(projected.task_state)) {
       if (projected.display_state === 'generating') labels.length = 0
@@ -4138,6 +4188,7 @@ function lessonGenerationStateLabel(lesson: any): string {
   }
   if (productionState.value) {
     const labels = {
+      locked: t('courseWorkbench.lessonPrerequisite.locked', '未解锁'),
       pending: productionDisplayStateLabel('not_generated'),
       queued: productionDisplayStateLabel('generating'),
       generating: productionDisplayStateLabel('generating'),
@@ -4152,6 +4203,7 @@ function lessonGenerationStateLabel(lesson: any): string {
   if (state === 'queued' && job?.status === 'paused') return t('courseWorkbench.lessonBatch.status.paused', '已暂停')
   if (state === 'queued' && job?.message) return job.message
   const labels = {
+    locked: t('courseWorkbench.lessonPrerequisite.locked', '未解锁'),
     pending: productionDisplayStateLabel('not_generated'),
     queued: productionDisplayStateLabel('generating'),
     generating: productionDisplayStateLabel('generating'),
@@ -4644,6 +4696,7 @@ onBeforeUnmount(() => {
 .lesson-outline-status{width:18px;height:18px;display:grid;place-items:center;justify-self:end;color:#a8b2c1}
 .lesson-outline-status[data-state="generating"],.lesson-outline-status[data-state="ready"]{color:#625dd7}
 .lesson-outline-status[data-state="failed"],.lesson-outline-status[data-state="stale"]{color:#c94c5a}
+.lesson-outline-status[data-state="locked"]{color:#b5bfce}
 .lesson-outline-status i{width:7px;height:7px;border:1px solid #b8c2d0;border-radius:50%;background:#fff}
 .lesson-progress-ring circle{fill:none;stroke-width:4}
 .lesson-progress-ring__track{stroke:#dbe2ea}
@@ -4776,6 +4829,7 @@ onBeforeUnmount(() => {
 .lesson-outline--fixed .lesson-outline-status[data-state="generating"]{color:#5b57e8}
 .lesson-outline--fixed .lesson-outline-status[data-state="ready"]{color:#168044}
 .lesson-outline--fixed .lesson-outline-status[data-state="stale"],.lesson-outline--fixed .lesson-outline-status[data-state="failed"]{color:#b9404e}
+.lesson-outline--fixed .lesson-outline-status[data-state="locked"]{color:#b5bfce}
 .lesson-outline--fixed .lesson-outline-chapter-button:hover:not(:disabled){background:#f7f8fa}
 .lesson-outline--fixed .lesson-outline-chapter-button.active{background:#f1f1fb}
 .lesson-outline--fixed .lesson-outline-chapter-button.active .lesson-outline-chapter-index{color:#4338ca}

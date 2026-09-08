@@ -77,6 +77,14 @@ def _ready_lesson(index: int) -> dict:
     }
 
 
+def _plan_only_lesson(index: int) -> dict:
+    lesson = _ready_lesson(index)
+    lesson["working_script_revision_id"] = ""
+    lesson["script_revisions"] = []
+    lesson["ppt_assets"] = []
+    return lesson
+
+
 def test_projection_contract_locks_schema_and_enums():
     result = compile_course_production_state(
         _course(1),
@@ -116,6 +124,62 @@ def test_projection_contract_locks_schema_and_enums():
     assert result["stages"]["outline"]["action_targets"] == {}
     assert result["stages"]["outline"]["has_unconfirmed_draft"] is False
     assert CourseProductionState.model_validate(result).course_id == "course-1"
+
+
+def test_lesson_prerequisites_are_projected_per_lesson():
+    result = compile_course_production_state(
+        _course(6),
+        authoring_state={
+            "course_id": "course-1",
+            "lessons": {
+                **{f"lesson-{index}": _plan_only_lesson(index) for index in (1, 3, 5)},
+                **{f"lesson-{index}": {} for index in (2, 4, 6)},
+            },
+        },
+    )
+
+    by_id = {item["lesson_unit_id"]: item for item in result["lessons"]}
+    assert [by_id[f"lesson-{index}"]["stages"]["script"]["allowed_actions"] for index in range(1, 7)] == [
+        ["generate"],
+        [],
+        ["generate"],
+        [],
+        ["generate"],
+        [],
+    ]
+    assert by_id["lesson-2"]["stages"]["script"]["issues"][0]["code"] == "teacher_lesson_plan_incomplete"
+    assert by_id["lesson-2"]["stages"]["script"]["issues"][0]["summary"] == "教案未完成"
+    assert by_id["lesson-1"]["stages"]["ppt"]["allowed_actions"] == []
+    assert by_id["lesson-1"]["stages"]["ppt"]["issues"][0]["code"] == "teacher_lesson_script_incomplete"
+    assert result["stages"]["script"]["counts"] == {
+        "total": 6,
+        "available": 0,
+        "generating": 0,
+        "failed": 0,
+        "stale": 0,
+    }
+    assert result["stages"]["script"]["allowed_actions"] == ["generate"]
+
+
+def test_incomplete_outline_locks_downstream_assets_in_projection():
+    course = _course(2)
+    course.pop("course_plan")
+
+    result = compile_course_production_state(
+        course,
+        authoring_state={
+            "course_id": "course-1",
+            "lessons": {"lesson-1": _ready_lesson(1), "lesson-2": _ready_lesson(2)},
+        },
+    )
+
+    for lesson in result["lessons"]:
+        for stage_name in ("lesson_plan", "script", "ppt"):
+            projected = lesson["stages"][stage_name]
+            assert "generate" not in projected["allowed_actions"]
+            assert "regenerate_from_latest_source" not in projected["allowed_actions"]
+            assert projected["issues"][0]["code"] == "teacher_outline_incomplete"
+            assert projected["issues"][0]["summary"] == "大纲未完成"
 
 
 def test_projection_is_pure_and_does_not_mutate_owner_snapshots():
@@ -542,7 +606,7 @@ def test_cancelled_attempt_is_not_reported_as_generation_failure():
     assert stage["task_state"] == "cancelled"
     assert stage["latest_attempt_failed"] is False
     assert stage["counts"]["failed"] == 0
-    assert stage["issues"] == []
+    assert all(item["category"] == "prerequisite" for item in stage["issues"])
     assert lesson["display_state"] == "not_generated"
     assert lesson["task_state"] == "cancelled"
 
@@ -859,10 +923,10 @@ def test_paused_authoring_job_without_recovery_uses_repository_lifecycle():
         },
     )["lessons"][0]["stages"]["script"]
 
-    assert lesson["allowed_actions"] == [
-        "resume_generation",
-        "cancel_generation",
-    ]
+    assert lesson["allowed_actions"] == ["cancel_generation"]
+    assert "teacher_lesson_plan_incomplete" in {
+        item["code"] for item in lesson["issues"]
+    }
 
 
 @pytest.mark.parametrize(
@@ -920,7 +984,7 @@ def test_anonymous_unscoped_teacher_asset_task_remains_visible(
     assert stage["task_ids"] == []
     assert stage["allowed_actions"] == ["inspect_failure"]
     assert stage["action_targets"] == {}
-    assert [item["code"] for item in stage["issues"]] == ["missing_task_id"]
+    assert "missing_task_id" in [item["code"] for item in stage["issues"]]
 
 
 def test_mixed_batch_action_targets_do_not_expand_retry_scope():
@@ -1153,7 +1217,13 @@ def test_teacher_asset_job_without_recovery_requires_explicit_retryability(
     )["lessons"][0]["stages"]["script"]
 
     assert lesson["task_ids"] == ["teacher-asset-failed"]
-    assert lesson["allowed_actions"] == [expected_action]
+    if retryable is True:
+        assert lesson["allowed_actions"] == []
+        assert "teacher_lesson_plan_incomplete" in {
+            item["code"] for item in lesson["issues"]
+        }
+    else:
+        assert lesson["allowed_actions"] == [expected_action]
     assert lesson["issues"][0]["task_id"] == "teacher-asset-failed"
 
 

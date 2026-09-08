@@ -1091,6 +1091,7 @@
       "syncPendingHelp": "The system is preparing sessions from the current outline automatically. No repeated action is needed.",
       "missing": "No usable course outline yet",
       "missingHelp": "Generate the complete outline first; lesson plans are available as soon as it is ready.",
+      "locked": "Locked",
       "outlineRequired": "The full outline is not ready. Lesson plans, scripts and PPT are unavailable until you finish generating the outline.",
       "returnToOutline": "Back to outline",
       "createOutline": "Generate course outline"

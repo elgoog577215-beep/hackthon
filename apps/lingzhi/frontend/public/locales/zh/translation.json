@@ -1091,6 +1091,7 @@
       "syncPendingHelp": "系统正在按当前大纲自动准备课次，无需重复操作。",
       "missing": "尚未生成可用的课程大纲",
       "missingHelp": "请先生成完整大纲，完成后即可进入教案。",
+      "locked": "未解锁",
       "outlineRequired": "完整大纲尚未就绪，教案、讲义和 PPT 暂不可用。请先在大纲中完成生成。",
       "returnToOutline": "返回大纲",
       "createOutline": "生成课程大纲"

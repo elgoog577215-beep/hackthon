@@ -1447,6 +1447,7 @@ def _aggregate_stage(
         action_targets = _merge_action_targets(
             item.action_targets for item in states
         )
+    stage_issues = list(unique_issues.values())
     return StageProductionState(
         display_state=display,
         task_state=task_state,
@@ -1465,10 +1466,48 @@ def _aggregate_stage(
             stale=stale,
         ),
         latest_attempt=latest_attempt,
-        issues=list(unique_issues.values()),
-        blocking_issues=[],
-        review_issues=[],
+        issues=stage_issues,
+        blocking_issues=[issue for issue in stage_issues if issue.blocking],
+        review_issues=[issue for issue in stage_issues if not issue.blocking],
     )
+
+
+def _lock_asset_for_prerequisite(
+    state: AssetProductionState,
+    *,
+    stage: str,
+    lesson_unit_id: str,
+    code: str,
+    summary: str,
+    action: str,
+) -> None:
+    issue = _issue(
+        stage=stage,
+        lesson_unit_id=lesson_unit_id,
+        code=code,
+        summary=summary,
+        action=action,
+        blocking=True,
+        category="prerequisite",
+    )
+    blocked_actions = {
+        ProductionAction.GENERATE,
+        ProductionAction.REGENERATE_FROM_LATEST_SOURCE,
+        ProductionAction.RETRY_GENERATION,
+        ProductionAction.RESUME_GENERATION,
+    }
+    state.allowed_actions = [
+        item for item in state.allowed_actions if item not in blocked_actions
+    ]
+    state.action_targets = {
+        item: targets
+        for item, targets in state.action_targets.items()
+        if item not in blocked_actions
+    }
+    state.issues = list({
+        item.issue_id: item
+        for item in [*state.issues, issue]
+    }.values())
 
 
 def compile_course_production_state(
@@ -1544,6 +1583,8 @@ def compile_course_production_state(
         if stage:
             tasks_by_stage[stage].append(task)
 
+    # A revision identity alone does not prove that a readable outline exists.
+    outline_last_good = has_complete_teacher_outline(course)
     units, formal_total = _formal_lesson_units(course, authoring)
     lessons = authoring.get("lessons")
     lessons = lessons if isinstance(lessons, dict) else {}
@@ -1556,9 +1597,11 @@ def compile_course_production_state(
         lesson = lessons.get(lesson_id)
         lesson = lesson if isinstance(lesson, dict) else {}
         stages: dict[str, AssetProductionState] = {}
+        plan_facts = _plan_facts(lesson)
+        script_facts = _script_facts(lesson)
         for stage, facts in (
-            ("lesson_plan", _plan_facts(lesson)),
-            ("script", _script_facts(lesson)),
+            ("lesson_plan", plan_facts),
+            ("script", script_facts),
             ("ppt", _ppt_facts(lesson)),
         ):
             lesson_task = _latest(
@@ -1597,6 +1640,33 @@ def compile_course_production_state(
                         action for action in state.allowed_actions
                         if action not in {ProductionAction.GENERATE, ProductionAction.REGENERATE_FROM_LATEST_SOURCE}
                     ]
+            if not outline_last_good:
+                _lock_asset_for_prerequisite(
+                    state,
+                    stage=stage,
+                    lesson_unit_id=lesson_id,
+                    code="teacher_outline_incomplete",
+                    summary="大纲未完成",
+                    action="complete_outline",
+                )
+            elif stage == "script" and plan_facts[1] != Availability.USABLE:
+                _lock_asset_for_prerequisite(
+                    state,
+                    stage=stage,
+                    lesson_unit_id=lesson_id,
+                    code="teacher_lesson_plan_incomplete",
+                    summary="教案未完成",
+                    action="complete_lesson_plan",
+                )
+            elif stage == "ppt" and script_facts[1] != Availability.USABLE:
+                _lock_asset_for_prerequisite(
+                    state,
+                    stage=stage,
+                    lesson_unit_id=lesson_id,
+                    code="teacher_lesson_script_incomplete",
+                    summary="讲义未完成",
+                    action="complete_lesson_script",
+                )
             stages[stage] = state
             stage_items[stage].append(state)
         unit_states.append(LessonProductionState(
@@ -1605,8 +1675,6 @@ def compile_course_production_state(
             stages=stages,
         ))
 
-    # A revision identity alone does not prove that a readable outline exists.
-    outline_last_good = has_complete_teacher_outline(course)
     outline_task = _latest(tasks_by_stage["outline"])
     outline_state = _asset_state(
         stage="outline",
