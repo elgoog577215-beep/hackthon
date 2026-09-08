@@ -410,7 +410,7 @@ const scriptStatusNotice = computed(() => {
 })
 const previewSelected = ref(true)
 const hasWorkingPreview = computed(() => (
-  ['pending', 'running'].includes(String(props.generationJob?.status || ''))
+  ['pending', 'running', 'paused', 'failed', 'cancelled'].includes(String(props.generationJob?.status || ''))
   && !(props.lesson.script.ready && Date.parse(props.lesson.script.updated_at || '') > Date.parse(props.generationJob?.updated_at || ''))
   && hasScriptPreviewContent(props.generationJob)
 ))

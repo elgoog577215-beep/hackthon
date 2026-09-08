@@ -101,7 +101,7 @@ def test_stopping_task_during_recovery_never_restarts_it(tmp_path, status):
 
 
 @pytest.mark.parametrize("first_result", ["timeout", "empty"])
-def test_script_retries_failed_unit_without_regenerating_successful_sibling(tmp_path, first_result):
+def test_script_preserves_successful_sibling_without_automatic_retry(tmp_path, first_result):
     repo = TeacherLessonAuthoringRepository(tmp_path)
     plan = standard_lesson_plan()
     plan["sections"][0]["teaching_modules"].append({"module_id": "summary", "planned_minutes": 2})
@@ -127,9 +127,9 @@ def test_script_retries_failed_unit_without_regenerating_successful_sibling(tmp_
         source_plan_revision_id=lesson["working_revision_id"], outline_sections=[outline],
         plan_sections={"L2-1-1": plan["sections"][0]}, generator=generator,
     ))
-    assert result["status"] == "completed", result
-    assert counts == {"core_explanation": 1, "summary": 2}
-    assert result["completed_blocks"] == 2
+    assert result["status"] == "failed", result
+    assert counts == {"core_explanation": 1, "summary": 1}
+    assert result["completed_blocks"] == 1
     assert len(repo.view("course-1")["jobs"]) == 1
 
 
@@ -168,10 +168,10 @@ def test_old_reports_reclassify_advice_without_erasing_real_failure(version):
     before = deepcopy(report)
     current = upgrade_script_quality_report(report)
     assert report == before
-    assert current["schema_version"] == "teacher_script_quality_v11"
+    assert current["schema_version"] == "teacher_script_quality_v12"
     assert not current["passed"]
     assert [i["code"] for i in current["blocking_issues"]] == ["teacher_script:block_empty"]
-    assert current["review_issues"] == [{"code": "teacher_script:lesson_too_shallow"}]
+    assert current["review_issues"] == []
 
 
 def test_old_speech_requirements_are_retired_without_hiding_content_failure():
@@ -189,9 +189,9 @@ def test_old_speech_requirements_are_retired_without_hiding_content_failure():
     before = deepcopy(report)
     current = upgrade_script_quality_report(report)
     assert report == before
-    assert not current["passed"]
-    assert not current["publication_eligible"]
-    assert current["blocking_issues"] == [{"code": "teacher_script:unclosed_math_delimiter"}]
+    assert current["passed"]
+    assert current["publication_eligible"]
+    assert current["blocking_issues"] == []
     assert current["review_issues"] == []
 
 
@@ -216,5 +216,5 @@ def test_optional_script_optimization_timeout_keeps_usable_draft(monkeypatch):
         current_plan_section={"node_id": "s", "teaching_modules": [{"module_id": "core_explanation"}]},
     ))
     assert result["quality_report"]["passed"]
-    assert result["quality_report"]["review_issues"]
+    assert result["quality_report"]["review_issues"] == []
     assert len(calls) == 1

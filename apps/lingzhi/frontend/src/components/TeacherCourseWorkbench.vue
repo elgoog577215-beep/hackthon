@@ -1359,7 +1359,7 @@ const regenerationDialogOpen = ref(false)
 const regenerationRequirements = ref('')
 const recoveryStarting = ref(false)
 const selectedFailureJob = computed(() => { const job = activeStage.value === 'lesson' ? lessonJob.value : activeStage.value === 'script' ? scriptJob.value : null; return job?.status === 'failed' ? job : null })
-const failureDetails = computed(() => [...(selectedFailureJob.value?.error?.quality_report?.blocking_issues || []).map(item => item.message), ...(selectedFailureJob.value?.error?.blocking_questions || []), ...(selectedFailureJob.value?.error?.missing_fields || [])])
+const failureDetails = computed(() => [...(selectedFailureJob.value?.error?.message ? [selectedFailureJob.value.error.message] : []), ...(selectedFailureJob.value?.error?.quality_report?.blocking_issues || []).map(item => item.message), ...(selectedFailureJob.value?.error?.blocking_questions || []), ...(selectedFailureJob.value?.error?.missing_fields || [])])
 const regenerationReferences = ref<CourseReferenceItem[]>([])
 const regenerationSourceState = reactive<CourseReferenceSourceState>({ busy: false, blocked: false, reason: '' })
 const regenerationStarting = ref(false)
@@ -3881,7 +3881,7 @@ async function generateSelectedLessonPlan(requirements = '', forceNew = false) {
       activeLessonGenerationSource(),
       requirements,
       activeCourseReferences.value.map(item => item.material_asset_id),
-      !forceNew && !requirements.trim() && !productionState.value && ['failed', 'cancelled', 'paused'].includes(String(lessonJob.value?.status || '')) ? lessonJob.value?.id || '' : '',
+      !forceNew && !requirements.trim() && ['failed', 'cancelled', 'paused'].includes(String(lessonJob.value?.status || '')) ? lessonJob.value?.id || '' : '',
     )
   } catch {
     arrangementError.value = lessonStore.error || t('courseWorkbench.arrangement.generateFailed', '本讲教案生成失败，请重试。')

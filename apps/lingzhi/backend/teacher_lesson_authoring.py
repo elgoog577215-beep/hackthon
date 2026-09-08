@@ -22,6 +22,7 @@ import uuid
 import hashlib
 from collections import Counter
 from copy import deepcopy
+from ai_capacity import provider_request_schedule
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -38,6 +39,7 @@ from teacher_script import (
     compile_teacher_script_module_contract,
     compile_teacher_script_shard_context,
     normalize_teacher_script_section,
+    repair_teacher_script_section_formats,
     teacher_script_revision_is_publishable,
     validate_teacher_script_section,
     validate_teacher_script_revision,
@@ -2063,6 +2065,11 @@ class TeacherLessonAuthoringRepository:
                 continue
             # Raw model deltas are only a same-process SSE projection. Durable
             # recovery is based on validated plan batches and teaching blocks.
+            if job.get("type") == "teacher_lesson_script_generation" and not job.get("restart_whole"):
+                job["streamed_block_content"] = {
+                    key: text for key, text in (job.get("streamed_block_content") or {}).items()
+                    if (job.get("block_states") or {}).get(key) != "completed"
+                }
             job["stream_batches"] = {}
             job["stream_events"] = []
             job["last_stream_event"] = {}
@@ -2462,11 +2469,19 @@ class TeacherLessonAuthoringRepository:
         job_type: str = "teacher_lesson_plan_generation",
         request_id: str = "",
         source_outline_revision_id: str = "",
-    ) -> dict[str, Any]:
+        return_created: bool = False,
+    ) -> dict[str, Any] | tuple[dict[str, Any], bool]:
         if job_type not in JOB_TYPES:
             raise TeacherLessonAuthoringError("unsupported_teacher_job", "不支持的教师讲次任务。")
         with self._course_lock(course_id):
             value = self.load(course_id)
+            if job_type == "teacher_lesson_script_generation":
+                existing = next((job for job in (value.get("jobs") or {}).values()
+                                 if job.get("lesson_unit_id") == lesson_unit_id
+                                 and job.get("type") == job_type
+                                 and job.get("status") in TEACHER_JOB_ACTIVE_STATUSES), None)
+                if existing:
+                    return (deepcopy(existing), False) if return_created else deepcopy(existing)
             if request_id:
                 existing = next(
                     (
@@ -2479,7 +2494,7 @@ class TeacherLessonAuthoringRepository:
                     None,
                 )
                 if existing:
-                    return deepcopy(existing)
+                    return (deepcopy(existing), False) if return_created else deepcopy(existing)
             job_id = f"tlj-{uuid.uuid4().hex}"
             asset_type = (
                 "script"
@@ -2530,7 +2545,7 @@ class TeacherLessonAuthoringRepository:
             }
             value.setdefault("jobs", {})[job_id] = job
             self._save(value)
-            return deepcopy(job)
+            return (deepcopy(job), True) if return_created else deepcopy(job)
 
     def _apply_job_changes_locked(
         self,
@@ -2624,7 +2639,11 @@ class TeacherLessonAuthoringRepository:
         with self._course_lock(course_id):
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_id) or {}
-            if lesson.get("working_script_revision_id") != script_id or lesson.get("working_revision_id") != plan_id or lesson.get("ppt_manuscript"):
+            state = lesson.get("ppt_manuscript") or {}
+            previous_job = (value.get("jobs") or {}).get(state.get("task_id")) or {}
+            if (lesson.get("working_script_revision_id") != script_id or lesson.get("working_revision_id") != plan_id
+                    or state.get("manuscript")
+                    or (previous_job.get("status") in TEACHER_JOB_ACTIVE_STATUSES and previous_job.get("id") != job_id)):
                 raise TeacherLessonAuthoringError("lesson_ppt_manuscript_revision_conflict", "讲义或内容稿已变化，请刷新后重试。")
             job = (value.get("jobs") or {}).get(job_id) or {}
             if job.get("status") not in TEACHER_JOB_ACTIVE_STATUSES or job.get("lesson_unit_id") != lesson_id:
@@ -2788,6 +2807,13 @@ class TeacherLessonAuthoringRepository:
                 batches[batch_id] = (
                     str(batches.get(batch_id) or "") + str(delta or "")
                 )[-200_000:]
+            if job.get("type") == "teacher_lesson_script_generation" and block_id:
+                fragments = dict(job.get("streamed_block_content") or {})
+                if event == "reset":
+                    fragments[block_id] = ""
+                elif event == "delta":
+                    fragments[block_id] = (str(fragments.get(block_id) or "") + str(delta or ""))[-200_000:]
+                job["streamed_block_content"] = fragments
             sequence = int(job.get("stream_sequence") or 0) + 1
             stream_event = {
                 "event": event,
@@ -3919,6 +3945,9 @@ class TeacherLessonAuthoringRepository:
     ) -> dict[str, Any]:
         """Close an orphaned generation job left behind by a process reload."""
         with self._course_lock(course_id):
+            if any(task.get_name() == job_id and not task.done()
+                   for task in tuple(self._runtime_jobs.get(course_id, ()))):
+                return self.get_job(course_id, job_id)
             live_job = (self._live_stream_jobs.get(course_id) or {}).get(job_id)
             touched_at = self._live_stream_touched_at.get((course_id, job_id))
             if isinstance(live_job, dict) and touched_at is not None:
@@ -3989,6 +4018,9 @@ class TeacherLessonAuthoringRepository:
             for job_id, job in (value.get("jobs") or {}).items():
                 if not isinstance(job, dict) or str(job.get("status") or "") not in {"pending", "running"}:
                     continue
+                if any(task.get_name() == job_id and not task.done()
+                       for task in tuple(self._runtime_jobs.get(course_id, ()))):
+                    continue
                 try:
                     updated_at = datetime.fromisoformat(
                         str(job.get("updated_at") or "").replace("Z", "+00:00")
@@ -4058,7 +4090,7 @@ class TeacherLessonAuthoringRepository:
         for item in sections:
             if not isinstance(item, dict):
                 continue
-            normalized = normalize_teacher_script_section(item)
+            normalized = repair_teacher_script_section_formats(normalize_teacher_script_section(item))
             quality_report = deepcopy(item.get("quality_report") or {})
             if not quality_report:
                 compatibility_modules = [
@@ -4742,7 +4774,7 @@ class TeacherLessonAuthoringService:
                 lesson = (view.get("lessons") or {}).get(str(job.get("lesson_unit_id") or "")) or {}
                 if lesson.get("working_revision_id") != source_plan_revision_id or lesson.get("source_state", "current") != "current":
                     raise TeacherLessonAuthoringError("lesson_plan_revision_conflict", "教案已变化，请按当前来源生成。")
-            if job.get("restart_whole"):
+            if job.get("restart_whole") or job.get("type") == "teacher_lesson_script_generation":
                 return await generate()
             try:
                 return await generate()
@@ -5266,6 +5298,7 @@ class TeacherLessonAuthoringService:
                             previous.get("generation_source") or "model"
                         ),
                     }
+                    candidate = repair_teacher_script_section_formats({"blocks": [candidate]})["blocks"][0]
                     single_contract = {
                         **deepcopy(contract),
                         "modules": [deepcopy(module)],
@@ -5403,8 +5436,6 @@ class TeacherLessonAuthoringService:
                     block_states=block_states,
                 )
 
-            semaphore = asyncio.Semaphore(4)
-
             async def generate_shard(shard: dict[str, Any]) -> dict[str, Any]:
                 entries = list(shard.get("entries") or [])
                 modules = [entry["module"] for entry in entries]
@@ -5477,7 +5508,11 @@ class TeacherLessonAuthoringService:
                     if request_count:
                         await persist_stream_reset()
                     request_count += 1
-                    async with semaphore:
+                    with provider_request_schedule(
+                        actor=actor, course=course_id,
+                        lecture=int(started_job.get("lecture_position") or started_job.get("batch_position") or 1),
+                        block=min(block_order[key] for key in block_ids),
+                    ):
                         current = await asyncio.to_thread(
                             self.repository.get_job,
                             course_id,
@@ -5553,10 +5588,6 @@ class TeacherLessonAuthoringService:
                         )
                     candidates: list[dict[str, Any]] = []
                     candidate_failures: list[dict[str, Any]] = []
-                    entries_by_block_id = {
-                        str(entry["module"].get("block_id") or ""): entry
-                        for entry in entries
-                    }
                     for entry in entries:
                         module = entry["module"]
                         contract = entry["contract"]
@@ -5581,6 +5612,7 @@ class TeacherLessonAuthoringService:
                             **({key: deepcopy(generated_block[key]) for key in ("ppt_pages", "ppt_errors", "generation_contract_version") if key in generated_block}
                                if isinstance(generated_block, dict) else {}),
                         }
+                        candidate = repair_teacher_script_section_formats({"blocks": [candidate]})["blocks"][0]
                         candidate_report = validate_teacher_script_section(
                             {
                                 "section_node_id": str(
@@ -5615,142 +5647,6 @@ class TeacherLessonAuthoringService:
                             "candidate": candidate,
                         })
 
-                    # A batched response may be good as a whole while one
-                    # individual block still misses its direct-teaching
-                    # contract.  Repair that exact block once before pausing
-                    # the durable job; valid siblings remain checkpointed and
-                    # are never paid for or generated again.
-                    if repair_generator and candidate_failures:
-                        remaining_failures: list[dict[str, Any]] = []
-                        for failure in candidate_failures:
-                            failed_block_id = str(failure.get("block_id") or "")
-                            entry = entries_by_block_id.get(failed_block_id)
-                            if not entry:
-                                remaining_failures.append(failure)
-                                continue
-                            module = entry["module"]
-                            contract = entry["contract"]
-                            repair_context = {
-                                **compile_teacher_script_shard_context(
-                                    contract,
-                                    module,
-                                ),
-                                "repair_of_shard_id": shard_id,
-                                "quality_feedback": deepcopy(
-                                    (failure.get("quality_report") or {}).get(
-                                        "blocking_issues"
-                                    )
-                                    or [failure.get("message")]
-                                ),
-                            }
-                            try:
-                                self.repository.update_job_live(
-                                    course_id,
-                                    job_id,
-                                    phase="lesson_script_block_repair",
-                                    message=(
-                                        f"正在精确修复："
-                                        f"{module.get('title') or failed_block_id}"
-                                    ),
-                                    current_block_id=failed_block_id,
-                                    current_block_title=str(
-                                        module.get("title") or failed_block_id
-                                    ),
-                                )
-                                parameters = inspect.signature(
-                                    repair_generator
-                                ).parameters
-                                supports_stream_callbacks = (
-                                    "on_content_delta" in parameters
-                                    and "on_content_reset" in parameters
-                                ) or any(
-                                    parameter.kind
-                                    == inspect.Parameter.VAR_KEYWORD
-                                    for parameter in parameters.values()
-                                )
-                                async with semaphore:
-                                    if supports_stream_callbacks:
-                                        repaired = await repair_generator(
-                                            entry["outline_section"],
-                                            entry["plan_section"],
-                                            module,
-                                            repair_context,
-                                            on_content_delta=lambda delta: (
-                                                persist_stream_delta(
-                                                    failed_block_id,
-                                                    delta,
-                                                )
-                                            ),
-                                            on_content_reset=lambda: (
-                                                persist_stream_reset(
-                                                    failed_block_id
-                                                )
-                                            ),
-                                        )
-                                    else:
-                                        repaired = await repair_generator(
-                                            entry["outline_section"],
-                                            entry["plan_section"],
-                                            module,
-                                            repair_context,
-                                        )
-                                repaired_candidate = {
-                                    **deepcopy(module),
-                                    "content": str((repaired.get("content") if isinstance(repaired, dict) else repaired) or "").strip(),
-                                    "generation_source": "model",
-                                    **({key: deepcopy(repaired[key]) for key in ("ppt_pages", "ppt_errors", "generation_contract_version") if key in repaired}
-                                       if isinstance(repaired, dict) else {}),
-                                }
-                                repaired_report = validate_teacher_script_section(
-                                    {
-                                        "section_node_id": str(
-                                            contract.get("section_node_id") or ""
-                                        ),
-                                        "title": contract.get("title"),
-                                        "blocks": [repaired_candidate],
-                                    },
-                                    {
-                                        **deepcopy(contract),
-                                        "modules": [deepcopy(module)],
-                                    },
-                                )
-                                if not repaired_report.get("passed"):
-                                    repair_messages = "；".join(
-                                        str(item.get("message") or "未知讲义错误")
-                                        for item in repaired_report.get(
-                                            "blocking_issues"
-                                        )
-                                        or []
-                                        if isinstance(item, dict)
-                                    )
-                                    remaining_failures.append({
-                                        **failure,
-                                        "message": (
-                                            f"{module.get('title') or failed_block_id}"
-                                            f"精确修复后仍未通过硬校验："
-                                            f"{repair_messages or '请重试'}"
-                                        ),
-                                        "quality_report": deepcopy(repaired_report),
-                                        "repair_attempted": True,
-                                    })
-                                    continue
-                                candidates.append({
-                                    "section_id": str(
-                                        contract.get("section_node_id") or ""
-                                    ),
-                                    "candidate": repaired_candidate,
-                                })
-                            except asyncio.CancelledError:
-                                raise
-                            except Exception as repair_error:
-                                remaining_failures.append({
-                                    **failure,
-                                    "message": str(repair_error) or str(
-                                        failure.get("message") or ""
-                                    ),
-                                    "repair_attempted": True,
-                                })
-                        candidate_failures = remaining_failures
                     return {
                         "block_ids": block_ids,
                         "block_title": block_title,
@@ -5984,79 +5880,6 @@ class TeacherLessonAuthoringService:
                 final_sections,
                 generation_source="model_block_pipeline",
             )
-            # Review the assembled lecture too: individually valid shards can
-            # still repeat each other or miss transitions across shard boundaries.
-            for attempt in range(2):
-                findings = list(revision_quality.get("blocking_issues") or [])
-                if not repair_generator or not findings:
-                    break
-                block_order = {str(block.get("block_id") or ""): index for index, block in enumerate(
-                    block for section in final_sections for block in section["blocks"]
-                )}
-                targets = _teacher_script_retry_block_ids(revision_quality, block_order)
-                if not targets:
-                    break
-                current = self.repository.get_job(course_id, job_id)
-                if current.get("cancel_requested"):
-                    raise asyncio.CancelledError
-                if str(current.get("status") or "") not in TEACHER_JOB_ACTIVE_STATUSES:
-                    return current
-                self.repository.update_job(
-                    course_id, job_id, phase="lesson_script_auto_improvement", progress=95,
-                    message="正在自动优化整讲衔接并复审",
-                    auto_improvement={"attempts": attempt + 1, "status": "running", "quality_report": deepcopy(revision_quality)},
-                    result_sections=deepcopy(final_sections),
-                )
-                candidate_sections = deepcopy(final_sections)
-
-                async def improve_block(outline, plan_section, contract, module, block):
-                    context = compile_teacher_script_shard_context(contract, module)
-                    context.update({
-                        "quality_feedback": deepcopy(findings),
-                        "current_content": str(block.get("content") or ""),
-                        "neighboring_content": [str(other.get("content") or "")[:1500]
-                                                for section in final_sections for other in section["blocks"]
-                                                if other.get("block_id") != block.get("block_id")],
-                    })
-                    async with semaphore:
-                        content = await asyncio.wait_for(repair_generator(outline, plan_section, module, context), timeout=120)
-                    return str(block["block_id"]), content if isinstance(content, dict) else str(content or "").strip()
-
-                calls = []
-                for outline, plan_section, contract in contracts:
-                    modules = {str(m["block_id"]): m for m in contract["modules"]}
-                    section = next(s for s in final_sections if s["section_node_id"] == contract["section_node_id"])
-                    for block in section["blocks"]:
-                        block_id = str(block["block_id"])
-                        if block_id in targets:
-                            calls.append(improve_block(outline, plan_section, contract, modules[block_id], block))
-                results = await asyncio.gather(*calls, return_exceptions=True)
-                current = self.repository.get_job(course_id, job_id)
-                if current.get("cancel_requested"):
-                    raise asyncio.CancelledError
-                if str(current.get("status") or "") not in TEACHER_JOB_ACTIVE_STATUSES:
-                    return current
-                replacements = {item[0]: item[1] for item in results if isinstance(item, tuple) and item[1]}
-                for section in candidate_sections:
-                    contract = next(c for _, _, c in contracts if c["section_node_id"] == section["section_node_id"])
-                    for block in section["blocks"]:
-                        if block["block_id"] in replacements:
-                            replacement = replacements[block["block_id"]]
-                            if isinstance(replacement, dict):
-                                block.update({key: deepcopy(replacement[key]) for key in ("content", "ppt_pages", "ppt_errors", "generation_contract_version") if key in replacement})
-                            else:
-                                block["content"] = replacement
-                    section["quality_report"] = validate_teacher_script_section(section, contract)
-                candidate_quality = validate_teacher_script_revision(candidate_sections, generation_source="model_block_pipeline")
-                improved = _quality_improves(candidate_quality, revision_quality)
-                if improved:
-                    final_sections, revision_quality = candidate_sections, candidate_quality
-                self.repository.update_job(
-                    course_id, job_id, result_sections=deepcopy(final_sections),
-                    auto_improvement={"attempts": attempt + 1, "status": "reviewed", "quality_report": deepcopy(revision_quality)},
-                )
-                if not improved:
-                    break
             if not revision_quality.get("passed"):
                 messages = "；".join(
                     str(item.get("message") or "未知讲义错误")
@@ -6120,7 +5943,7 @@ class TeacherLessonAuthoringService:
                 status="failed",
                 phase="lesson_script_failed",
                 progress=max(5, int(95 * completed_count / max(1, total_blocks))),
-                message=f"讲义生成失败，已保留 {completed_count}/{total_blocks} 个教学环节",
+                message=f"讲义生成中断，已保留 {completed_count}/{total_blocks} 个教学环节及收到的片段",
                 completed_blocks=completed_count,
                 current_block_id=current_block_id,
                 current_block_title=current_block_title,

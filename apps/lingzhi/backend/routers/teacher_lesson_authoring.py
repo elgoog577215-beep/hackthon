@@ -9,6 +9,7 @@ import re
 import uuid
 from datetime import datetime, timezone, timedelta
 from copy import deepcopy
+from contextlib import suppress
 from typing import Any, Awaitable, Callable, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -157,6 +158,9 @@ def get_teacher_script_visual_service() -> TeacherScriptVisualService:
     return teacher_script_visual_service
 
 
+_TEACHER_JOB_HEARTBEAT_SECONDS = 5.0
+
+
 async def _run_lesson_plan_job(
     *,
     course_id: str,
@@ -169,8 +173,24 @@ async def _run_lesson_plan_job(
         job = await run_in_threadpool(repository.get_job, course_id, job_id)
         if job.get("status") not in {"pending", "running"}:
             return
-        if not job.get("restart_whole"):
-            await run()
+        if not job.get("restart_whole") or job.get("type") == "teacher_lesson_script_generation":
+            if job.get("restart_whole"):
+                repository.update_job(course_id, job_id, restart_whole=False)
+            async def heartbeat():
+                ticks = 0
+                while True:
+                    await asyncio.sleep(_TEACHER_JOB_HEARTBEAT_SECONDS)
+                    ticks += 1
+                    update = repository.update_job if ticks % 3 == 0 else repository.update_job_live
+                    await asyncio.to_thread(update, course_id, job_id,
+                                            heartbeat_at=datetime.now(timezone.utc).isoformat())
+            pulse = asyncio.create_task(heartbeat())
+            try:
+                await run()
+            finally:
+                pulse.cancel()
+                with suppress(asyncio.CancelledError):
+                    await pulse
             return
         due = job.get("next_retry_at")
         if due and job.get("phase") not in {"result_ready", "retry_wait"}:
@@ -227,6 +247,15 @@ async def recover_teacher_generation_jobs(tm: TaskManager, repository: TeacherLe
             continue
         groups: dict[str, list[dict[str, Any]]] = {}
         for job in state.get("jobs", {}).values():
+            if (job.get("type") == "teacher_lesson_script_generation"
+                    and job.get("status") in {"pending", "running"}):
+                # Startup has no surviving provider stream. Keep persisted work;
+                # only an explicit user action may start another model request.
+                repository.update_job(path.stem, str(job["id"]), status="failed", restart_whole=False,
+                    phase="lesson_script_interrupted", stream_complete=True,
+                    message="服务重启，讲义生成已中断；已保存内容可以继续查看。",
+                    error={"code": "lesson_script_generation_interrupted", "message": "服务重启，原模型连接已断开。", "retryable": True})
+                continue
             if job.get("restart_whole") and job.get("status") in {"pending", "running"}:
                 groups.setdefault(job.get("parent_job_id") or job["id"], []).append(job)
         for group in groups.values():
@@ -318,7 +347,7 @@ def _validated_teacher_asset_resume_job(
     elif str(candidate.get(source_revision_field) or "") != source_revision_id:
         reason = "source_revision_changed"
     elif not _teacher_asset_job_can_resume(candidate) and not (
-        candidate.get("parent_job_id") and candidate.get("status") in {"completed", "completed_with_warnings"}
+        job_type != "teacher_lesson_script_generation" and candidate.get("parent_job_id") and candidate.get("status") in {"completed", "completed_with_warnings"}
         and any(item.get("parent_job_id") == candidate["parent_job_id"] and item.get("status") in {"paused", "failed"}
                 for item in repository.view(course_id).get("jobs", {}).values())
     ):
@@ -5160,6 +5189,12 @@ async def generate_lesson_script(
         source = _source_course(tm, course_id, allow_empty=True)
         _require_complete_outline(source)
         scope = lesson_scope(source, lesson_unit_id)
+        active = next((job for job in repository.view(course_id).get("jobs", {}).values()
+                       if job.get("lesson_unit_id") == lesson_unit_id
+                       and job.get("type") == "teacher_lesson_script_generation"
+                       and job.get("status") in {"pending", "running"}), None)
+        if active:
+            return {"job": active}
         lesson, plan_revision = _current_plan_revision(
             repository,
             course_id,
@@ -5230,33 +5265,36 @@ async def generate_lesson_script(
             "requirements": effective_requirements,
             "material_asset_ids": sorted(selected_material_ids),
         }, prefix="teacher-script-input")
-        seed_sections: list[dict[str, Any]] = []
+        seed_sections = deepcopy((previous or {}).get("result_sections")
+                                 or ((previous or {}).get("checkpoint") or {}).get("result_sections") or [])
 
-        from teacher_script_ppt import CONTRACT as bundle_contract, DEFAULT_THEME, compile_bundle_manuscript
-        from ppt_fixed_templates import compile_fixed_template
-        bundle_version = str((previous.get("request_snapshot") or {}).get("generation_contract_version") or "") if previous else bundle_contract
-        frozen_template = (previous.get("request_snapshot") or {}).get("ppt_template") if previous else None
-        if bundle_version and not frozen_template:
-            frozen_template = compile_fixed_template(DEFAULT_THEME).model_dump(mode="json")
-        expected_script_revision = str(lesson.get("working_script_revision_id") or "")
-        expected_ppt_revision = str((lesson.get("ppt_manuscript") or {}).get("revision") or "")
+        expected_script_revision = str(
+            (previous.get("request_snapshot") or {}).get("expected_script_revision", lesson.get("working_script_revision_id") or "")
+            if previous else lesson.get("working_script_revision_id") or ""
+        )
 
-        job = repository.create_job(
+        job, created = repository.create_job(
             course_id,
             lesson_unit_id,
             job_type="teacher_lesson_script_generation",
+            return_created=True,
             request_id=body.request_id,
             source_outline_revision_id=_canonical_outline_revision(source),
         )
+        # create_job performs the atomic same-lecture check across callers.
+        if not created:
+            return {"job": job}
+        lecture_ids = [str(item.get("lesson_unit_id") or "") for item in _lesson_projection(source, repository)]
         job = repository.update_job(
             course_id,
             str(job["id"]),
             source_lesson_plan_revision_id=plan_revision_id,
             input_fingerprint=input_fingerprint,
             retry_of_job_id=body.retry_of_job_id,
-            attempt_mode="revised_inputs" if body.retry_of_job_id else "restart_original" if body.resume_job_id else "initial",
+            attempt_mode="revised_inputs" if body.retry_of_job_id else "continue_missing" if body.resume_job_id else "initial",
             resume_from_job_id=body.resume_job_id,
-            restart_whole=not bool(bundle_version),
+            restart_whole=False,
+            lecture_position=lecture_ids.index(lesson_unit_id) + 1 if lesson_unit_id in lecture_ids else 1,
             requirements=effective_requirements,
             material_asset_ids=selected_material_ids,
             actor=actor,
@@ -5264,12 +5302,9 @@ async def generate_lesson_script(
                 "source_lesson_plan_revision_id": plan_revision_id,
                 "requirements": effective_requirements,
                 "material_asset_ids": selected_material_ids,
-                "generation_contract_version": bundle_version,
-                "ppt_template": frozen_template,
+                "generation_contract_version": "handout_prose_v1",
                 "expected_script_revision": expected_script_revision,
-                "expected_manuscript_revision": expected_ppt_revision,
             },
-            **({"bundle_blocks": deepcopy(previous.get("bundle_blocks") or {})} if previous and bundle_version else {}),
             **({
                 "parent_job_id": body.batch_parent_job_id,
                 "batch_position": body.batch_position,
@@ -5295,42 +5330,6 @@ async def generate_lesson_script(
         lesson_section_titles = [
             str(item.get("node_name") or "") for item in scope["sections"]
         ]
-
-        def bundle_arguments():
-            if not bundle_version:
-                return {}
-            return {
-                "generation_contract_version": bundle_version,
-                "ppt_template": frozen_template,
-                "bundle_seed_blocks": repository.get_job(course_id, str(job["id"])).get("bundle_blocks") or {},
-                "on_bundle_checkpoint": lambda block: repository.save_script_bundle_checkpoint(course_id, str(job["id"]), block),
-            }
-
-        def build_bundle_state(sections):
-            from template_layout_contract import TemplateLayoutPackContractV1
-            from teacher_lesson_authoring import teacher_lesson_script_sections_revision
-            script_id = teacher_lesson_script_sections_revision(sections)
-            template = TemplateLayoutPackContractV1.model_validate(frozen_template)
-            state = {
-                "generation_contract_version": bundle_version, "revision": "", "status": "failed",
-                "source_state": "current", "source_lesson_plan_revision_id": plan_revision_id,
-                "source_script_revision_id": script_id, "source_material_revision": stable_hash([], prefix="pptrefs_"),
-                "task_id": str(job["id"]), "mode": "teaching", "theme": template.theme_id,
-                "template_id": template.template_id, "template_version": template.template_version,
-                "template_digest": template.template_digest, "template_pack_id": "", "manuscript": None,
-                "page_errors": [e for s in sections for b in s["blocks"] for e in b.get("ppt_errors") or []],
-            }
-            try:
-                document, _, _ = teacher_lesson_v6_source(source, lesson_unit_id=lesson_unit_id,
-                    plan_revision=plan_revision, script_revision={"revision_id": script_id, "sections": sections,
-                        "publication_eligible": True, "source_lesson_plan_revision_id": plan_revision_id})
-                manuscript = compile_bundle_manuscript(document, template, sections,
-                    plan_revision_id=plan_revision_id, script_revision_id=script_id)
-                state.update(status="ready", revision=manuscript.manuscript_revision,
-                             manuscript=manuscript.model_dump(mode="json"), page_errors=[])
-            except (ValueError, V6BuildError) as error:
-                state["page_errors"].append({"code": "script_ppt_compile_failed", "message": str(error)})
-            return state
 
         async def generate_block(
             outline_section: dict[str, Any],
@@ -5399,7 +5398,6 @@ async def generate_lesson_script(
                     user_id=actor,
                     on_content_delta=forward_stream_delta,
                     on_content_reset=forward_stream_reset,
-                    **bundle_arguments(),
                 )
             except (
                 asyncio.TimeoutError,
@@ -5436,6 +5434,12 @@ async def generate_lesson_script(
                         )[:1000]
                     },
                 ) from exc
+            finally:
+                # Even a disconnect before the first newline must retain the
+                # received fragment instead of leaving it in a local buffer.
+                if stream_prefix["buffer"] and on_content_delta:
+                    await on_content_delta(stream_prefix["buffer"])
+                    stream_prefix["buffer"] = ""
             blocks = [
                 item for item in generated.get("blocks") or [] if isinstance(item, dict)
             ]
@@ -5445,164 +5449,7 @@ async def generate_lesson_script(
                     "lesson_script_block_empty",
                     f"{module.get('title') or module_id} 没有生成有效内容，请重试。",
                 )
-            return blocks[0] if bundle_version else content
-
-        async def generate_script_shard(
-            entries: list[dict[str, Any]],
-            shard_context: dict[str, Any],
-            *,
-            on_block_delta,
-            on_shard_reset,
-        ) -> dict[str, str]:
-            if not entries:
-                return {}
-            modules = [deepcopy(entry["module"]) for entry in entries]
-            shard_id = str(shard_context.get("shard_id") or uuid.uuid4().hex)
-            synthetic_node_id = f"{lesson_unit_id}:{shard_id}"
-            combined_outline = deepcopy(entries[0]["outline_section"])
-            combined_outline.update({
-                "node_id": synthetic_node_id,
-                "node_name": lesson_title or "当前讲次",
-                "learning_objective": "；".join(dict.fromkeys(
-                    str(entry["contract"].get("learning_objective") or "")
-                    for entry in entries
-                    if str(entry["contract"].get("learning_objective") or "")
-                )),
-                "module_plan": [
-                    {**module, "label": str(module.get("title") or "教学环节")}
-                    for module in modules
-                ],
-            })
-            combined_plan = deepcopy(entries[0]["plan_section"])
-            combined_plan.update({
-                "node_id": synthetic_node_id,
-                "title": lesson_title or "当前讲次",
-                "learning_objective": combined_outline["learning_objective"],
-                "key_points": list(dict.fromkeys(
-                    value
-                    for entry in entries
-                    for value in entry["contract"].get("key_points") or []
-                    if value
-                )),
-                "key_difficulties": list(dict.fromkeys(
-                    value
-                    for entry in entries
-                    for value in entry["contract"].get("key_difficulties") or []
-                    if value
-                )),
-                "teaching_modules": [
-                    {**module, "label": str(module.get("title") or "教学环节")}
-                    for module in modules
-                ],
-            })
-            block_ids = [str(module.get("block_id") or "") for module in modules]
-            stream_parser = {"buffer": "", "block_index": -1}
-
-            async def forward_shard_reset():
-                stream_parser.update({"buffer": "", "block_index": -1})
-                await on_shard_reset()
-
-            async def emit_current(value: str):
-                index = int(stream_parser["block_index"])
-                if value and 0 <= index < len(block_ids):
-                    await on_block_delta(block_ids[index], value)
-
-            async def forward_shard_delta(delta: str):
-                stream_parser["buffer"] += str(delta or "")
-                while stream_parser["buffer"]:
-                    buffer = str(stream_parser["buffer"])
-                    if buffer.startswith("## "):
-                        newline = buffer.find("\n")
-                        if newline < 0:
-                            return
-                        stream_parser["block_index"] = min(
-                            int(stream_parser["block_index"]) + 1,
-                            len(block_ids) - 1,
-                        )
-                        stream_parser["buffer"] = buffer[newline + 1:]
-                        continue
-                    if int(stream_parser["block_index"]) < 0:
-                        heading = buffer.find("## ")
-                        if heading < 0:
-                            return
-                        stream_parser["buffer"] = buffer[heading:]
-                        continue
-                    boundary = buffer.find("\n## ")
-                    if boundary >= 0:
-                        await emit_current(buffer[:boundary])
-                        stream_parser["buffer"] = buffer[boundary + 1:]
-                        continue
-                    last_newline = buffer.rfind("\n")
-                    if last_newline >= 0 and buffer[last_newline + 1:].startswith("#"):
-                        await emit_current(buffer[:last_newline + 1])
-                        stream_parser["buffer"] = buffer[last_newline + 1:]
-                        return
-                    await emit_current(buffer)
-                    stream_parser["buffer"] = ""
-
-            try:
-                generated = await tm.course_service.generate_teacher_script_section(
-                    course_id=course_id,
-                    outline_section=combined_outline,
-                    current_plan_section=combined_plan,
-                    lesson_context={
-                        "lesson_title": lesson_title,
-                        "lesson_sections": lesson_section_titles,
-                        "script_shard_context": deepcopy(shard_context),
-                        "material_asset_ids": selected_material_ids,
-                        "selected_material_evidence": prompt_evidence,
-                    },
-                    requirements=effective_requirements,
-                    user_id=actor,
-                    on_content_delta=forward_shard_delta,
-                    on_content_reset=forward_shard_reset,
-                    allow_partial_quality=True,
-                    **bundle_arguments(),
-                )
-            except (
-                asyncio.TimeoutError,
-                AIProviderRequestError,
-                AIProviderUnavailable,
-            ) as exc:
-                error_detail = str(exc).strip()
-                timeout_failed = isinstance(
-                    exc,
-                    (TeacherScriptGenerationTimeout, asyncio.TimeoutError),
-                )
-                raise TeacherLessonAuthoringError(
-                    (
-                        "lesson_script_model_timeout"
-                        if timeout_failed
-                        else "lesson_script_block_quality_failed"
-                        if error_detail.startswith("讲义未通过当前教案的质量检查")
-                        else "lesson_script_provider_failed"
-                    ),
-                    (
-                        f"讲义分片模型调用超时：{error_detail or '请重试'}"
-                        if timeout_failed
-                        else f"讲义分片生成失败：{error_detail or '请重试'}"
-                    ),
-                    details={
-                        "retryable": getattr(exc, "retryable", True),
-                        "reason": (
-                            error_detail or "讲义模型调用超时"
-                        )[:1000],
-                        "shard_id": shard_id,
-                    },
-                ) from exc
-            generated_blocks = [
-                item for item in generated.get("blocks") or []
-                if isinstance(item, dict)
-            ]
-            if len(generated_blocks) != len(block_ids):
-                raise TeacherLessonAuthoringError(
-                    "lesson_script_shard_incomplete",
-                    "讲义分片返回的教学环节数量与教案不一致。",
-                )
-            return {
-                block_id: generated_blocks[index] if bundle_version else str(generated_blocks[index].get("content") or "").strip()
-                for index, block_id in enumerate(block_ids)
-            }
+            return content
 
         async def run_current_lesson() -> None:
             await TeacherLessonAuthoringService(repository).run_script_job(
@@ -5613,15 +5460,11 @@ async def generate_lesson_script(
                 outline_sections=scope["sections"],
                 plan_sections=plan_sections,
                 generator=generate_block,
-                shard_generator=generate_script_shard,
-                repair_generator=generate_block,
                 seed_sections=seed_sections,
                 requirements=effective_requirements,
                 material_asset_ids=selected_material_ids,
                 actor=actor,
-                ppt_bundle_builder=build_bundle_state if bundle_version else None,
-                expected_script_revision=expected_script_revision if bundle_version else None,
-                expected_manuscript_revision=expected_ppt_revision if bundle_version else None,
+                expected_script_revision=expected_script_revision,
             )
 
         if any(task.get_name() == str(job["id"]) and not task.done() for task in _background_jobs):
@@ -5659,6 +5502,7 @@ async def generate_all_lesson_scripts(
             )
         actor = resolve_user_id(request.headers.get("X-User-Id"))
         skipped_lessons: list[dict[str, str]] = []
+        reused_jobs: list[dict[str, Any]] = []
         target_lessons: list[dict[str, Any]] = []
         lessons_by_id = {
             str(lesson.get("lesson_unit_id") or ""): lesson
@@ -5669,11 +5513,6 @@ async def generate_all_lesson_scripts(
         resume_jobs_by_lesson: dict[str, dict[str, Any]] = {}
         plan_revision_ids: dict[str, str] = {}
         restart_ids = list(dict.fromkeys(body.resume_job_ids))
-        selected_jobs = [repository.get_job(course_id, key) for key in restart_ids]
-        parent_ids = {item.get("parent_job_id") for item in selected_jobs if item.get("parent_job_id")}
-        for item in prior_jobs:
-            if item.get("parent_job_id") in parent_ids and item.get("id") not in restart_ids:
-                restart_ids.append(item["id"])
         for resume_job_id in restart_ids:
             try:
                 candidate = repository.get_job(course_id, resume_job_id)
@@ -5746,6 +5585,8 @@ async def generate_all_lesson_scripts(
                     "lesson_unit_id": lesson_unit_id,
                     "reason": "already_ready",
                 })
+            elif latest_script_status in {"pending", "running"}:
+                reused_jobs.append(deepcopy(latest_script_job))
             elif latest_script_status not in {"", "cancelled", "canceled"}:
                 skipped_lessons.append({
                     "lesson_unit_id": lesson_unit_id,
@@ -5787,7 +5628,7 @@ async def generate_all_lesson_scripts(
 
         parent_job_id = f"tls-batch-{body.request_id or uuid.uuid4().hex}"
         request_prefix = body.request_id.strip() or parent_job_id
-        jobs: list[dict[str, Any]] = []
+        jobs: list[dict[str, Any]] = reused_jobs
         for batch_position, lesson in enumerate(target_lessons, start=1):
             lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
             material_scope = material_scopes[lesson_unit_id]

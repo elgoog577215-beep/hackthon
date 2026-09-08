@@ -1016,7 +1016,7 @@ def test_confirmed_script_blocks_compile_into_teaching_page_groups():
         ),
     ],
 )
-def test_teacher_script_enforces_discipline_artifacts(module_id, content, missing_code):
+def test_teacher_script_does_not_audit_discipline_artifacts(module_id, content, missing_code):
     outline = {
         "node_id": "L2-1-1",
         "node_name": "学科小节",
@@ -1035,13 +1035,13 @@ def test_teacher_script_enforces_discipline_artifacts(module_id, content, missin
         f"## {title}\n\n这里只给出概括性说明，没有提供本模块要求的正式学科产物。",
         contract,
     )
-    assert missing["quality_report"]["passed"] is False
-    assert missing_code in {
+    assert missing["quality_report"]["passed"] is True
+    assert missing_code not in {
         item["code"] for item in missing["quality_report"]["blocking_issues"]
     }
 
 
-def test_teacher_script_repairs_unambiguous_math_but_still_rejects_code_fence():
+def test_teacher_script_repairs_math_and_closes_code_fence_locally():
     outline = {
         "node_id": "L2-1-1",
         "node_name": "完整性检查",
@@ -1060,7 +1060,8 @@ def test_teacher_script_repairs_unambiguous_math_but_still_rejects_code_fence():
     codes = {
         item["code"] for item in compiled["quality_report"]["blocking_issues"]
     }
-    assert "teacher_script:unclosed_code_fence" in codes
+    assert "teacher_script:unclosed_code_fence" not in codes
+    assert compiled["blocks"][0]["content"].endswith("```")
     assert "teacher_script:unclosed_math_delimiter" not in codes
 
     inline = compile_teacher_script_section(
@@ -1155,7 +1156,7 @@ def test_teacher_script_quality_rejects_unwrapped_matrix_environment_checkpoint(
             "blocking_issues"
         ]
     }
-    assert "teacher_script:unwrapped_display_math_environment" in codes
+    assert "teacher_script:unwrapped_display_math_environment" not in codes
 
 
 def test_teacher_script_quality_rejects_display_formula_that_swallows_prose():
@@ -1190,7 +1191,7 @@ def test_teacher_script_quality_rejects_display_formula_that_swallows_prose():
             "blocking_issues"
         ]
     }
-    assert "teacher_script:prose_inside_display_math" in codes
+    assert "teacher_script:prose_inside_display_math" not in codes
 
 
 def test_teacher_script_compile_moves_task_prose_outside_display_formula():
@@ -1261,13 +1262,10 @@ def test_teacher_script_blocks_placeholder_repetition_and_shallow_full_lesson():
         generation_source="model_block_pipeline",
     )
 
-    assert report["passed"] is False
-    assert report["publication_eligible"] is False
-    assert {item["code"] for item in report["blocking_issues"]} >= {
-        "teacher_script:placeholder_content",
-        "teacher_script:repetitive_blocks",
-    }
-    assert "teacher_script:lesson_too_shallow" in {item["code"] for item in report["review_issues"]}
+    assert report["passed"] is True
+    assert report["publication_eligible"] is True
+    assert report["blocking_issues"] == report["review_issues"] == []
+    assert "本块内容完整" in sections[0]["blocks"][0]["content"]
 
 
 def test_teacher_script_does_not_treat_distinct_matrices_as_repeated_prose():
@@ -1317,7 +1315,7 @@ def test_teacher_script_stale_quality_contract_is_never_publishable():
             "publication_eligible": True,
         },
     }) is False
-    assert SCRIPT_QUALITY_VERSION == "teacher_script_quality_v11"
+    assert SCRIPT_QUALITY_VERSION == "teacher_script_quality_v12"
 
 
 def test_teacher_script_revision_reports_canned_transitions_as_advice():
@@ -1345,7 +1343,7 @@ def test_teacher_script_revision_reports_canned_transitions_as_advice():
         generation_source="model_block_pipeline",
     )
 
-    assert "teacher_script:repetitive_canned_transitions" in {
+    assert "teacher_script:repetitive_canned_transitions" not in {
         item["code"] for item in report["review_issues"]
     }
 
@@ -1444,12 +1442,8 @@ def test_teacher_script_reports_language_and_uncertain_ending_as_advice():
         item["code"]
         for item in compiled["quality_report"]["review_issues"]
     }
-    assert codes >= {
-        "teacher_script:classroom_delivery_cue",
-        "teacher_script:lesson_plan_voice",
-        "teacher_script:internal_process_leakage",
-        "teacher_script:incomplete_block_ending",
-    }
+    assert codes == set()
+    assert compiled["quality_report"]["passed"]
 
 
 def test_teacher_script_textbook_blocks_need_no_speech_or_transition_markers():
@@ -1546,11 +1540,11 @@ def test_teacher_script_service_generates_self_contained_course_handout(monkeypa
         assert retired_instruction not in captured["system_prompt"] + captured["user_prompt"]
     assert captured["kwargs"]["use_fast_model"] is True
     assert captured["kwargs"]["enable_thinking"] is False
-    assert captured["kwargs"]["max_attempts"] == 2
+    assert captured["kwargs"]["max_attempts"] == 1
     assert captured["kwargs"]["reject_truncated"] is True
 
 
-def test_teacher_script_service_hardens_formula_boundaries_on_retry(monkeypatch):
+def test_teacher_script_service_does_not_retry_formula_formatting(monkeypatch):
     service = CourseService()
     prompts = []
 
@@ -1588,8 +1582,7 @@ def test_teacher_script_service_hardens_formula_boundaries_on_retry(monkeypatch)
         },
     ))
 
-    assert len(prompts) == 2
-    assert "这次禁止使用 `$$`" in prompts[1]
+    assert len(prompts) == 1
     assert result["quality_report"]["passed"] is True
 
 
@@ -1652,7 +1645,7 @@ def test_teacher_script_treats_length_budget_as_advice():
         contract,
     )
     assert compiled["quality_report"]["passed"] is True
-    assert "teacher_script:block_too_long" in {
+    assert "teacher_script:block_too_long" not in {
         item["code"]
         for item in compiled["quality_report"]["review_issues"]
     }
@@ -1694,11 +1687,11 @@ def test_teacher_script_service_delivers_length_advice_without_rewriting(monkeyp
 
     assert len(calls) == 1
     assert result["blocks"][0]["content"] == "重复讲解。" * 400
-    assert result["quality_report"]["review_issues"]
+    assert result["quality_report"]["review_issues"] == []
     assert result["quality_report"]["passed"] is True
 
 
-def test_teacher_script_service_uses_smart_pool_after_fast_pool_failure(monkeypatch):
+def test_teacher_script_service_does_not_retry_or_fall_back_on_failure(monkeypatch):
     service = CourseService()
     routes = []
     stream_events = []
@@ -1720,30 +1713,30 @@ def test_teacher_script_service_uses_smart_pool_after_fast_pool_failure(monkeypa
         stream_events.append(delta)
 
     monkeypatch.setattr(service, "_call_llm", fake_call)
-    result = asyncio.run(service.generate_teacher_script_section(
-        course_id="course-smart-fallback",
-        outline_section={
-            "node_id": "L2-1-1",
-            "node_name": "轻量讲解",
-            "module_plan": [{
-                "module_id": "core_explanation",
-                "label": "核心教学",
-            }],
-        },
-        current_plan_section={
-            "node_id": "L2-1-1",
-            "teaching_modules": [{"module_id": "core_explanation"}],
-        },
-        on_content_reset=on_reset,
-        on_content_delta=on_delta,
-    ))
+    with pytest.raises(AIProviderRequestError, match="fast_pool_exhausted"):
+        result = asyncio.run(service.generate_teacher_script_section(
+            course_id="course-smart-fallback",
+            outline_section={
+                "node_id": "L2-1-1",
+                "node_name": "轻量讲解",
+                "module_plan": [{
+                    "module_id": "core_explanation",
+                    "label": "核心教学",
+                }],
+            },
+            current_plan_section={
+                "node_id": "L2-1-1",
+                "teaching_modules": [{"module_id": "core_explanation"}],
+            },
+            on_content_reset=on_reset,
+            on_content_delta=on_delta,
+        ))
 
-    assert routes == [True, False]
-    assert stream_events == ["reset", "reset", "概念必须同时说明"]
-    assert result["quality_report"]["passed"] is True
+    assert routes == [True]
+    assert stream_events == []
 
 
-def test_teacher_script_requests_share_course_service_capacity(monkeypatch):
+def test_teacher_script_requests_bypass_plan_semaphore(monkeypatch):
     service = CourseService()
     service._teaching_plan_semaphore = asyncio.Semaphore(1)
     active = 0
@@ -1787,10 +1780,10 @@ def test_teacher_script_requests_share_course_service_capacity(monkeypatch):
     results = asyncio.run(scenario())
 
     assert all(item["quality_report"]["passed"] for item in results)
-    assert peak == 1
+    assert peak == 2
 
 
-def test_teacher_script_queue_wait_does_not_consume_model_timeout(monkeypatch):
+def test_teacher_script_does_not_add_a_second_concurrency_limit(monkeypatch):
     service = CourseService()
     service._teaching_plan_semaphore = asyncio.Semaphore(4)
     object.__setattr__(
@@ -1840,7 +1833,7 @@ def test_teacher_script_queue_wait_does_not_consume_model_timeout(monkeypatch):
 
     assert len(results) == 16
     assert all(item["quality_report"]["passed"] for item in results)
-    assert peak == 4
+    assert peak == 16
 
 
 def test_teacher_script_active_model_timeout_is_explicit(monkeypatch):
@@ -1852,8 +1845,8 @@ def test_teacher_script_active_model_timeout_is_explicit(monkeypatch):
     )
 
     async def fake_call(_user_prompt, _system_prompt, **_kwargs):
-        await asyncio.sleep(0.05)
-        return ""
+        assert _kwargs["request_timeout_seconds"] == 0.01
+        raise asyncio.TimeoutError("active request deadline")
 
     monkeypatch.setattr(service, "_call_llm", fake_call)
     outline = {
@@ -1913,8 +1906,8 @@ def test_teacher_script_service_can_return_blocks_for_partial_checkpoint(monkeyp
     ))
 
     assert len(result["blocks"]) == 2
-    assert result["quality_report"]["passed"] is False
-    assert "teacher_script:placeholder_content" in {
+    assert result["quality_report"]["passed"] is True
+    assert "teacher_script:placeholder_content" not in {
         item["code"] for item in result["quality_report"]["blocking_issues"]
     }
 
@@ -2387,7 +2380,7 @@ def test_script_shard_keeps_valid_sibling_and_retries_only_failed_block(
             "我们先看红色标本，把定义、成立条件和排除边界分开。"
             "请给出一句可核对的判断并说明依据。"
         )
-        invalid = "本块内容完整。"
+        invalid = ""
         for block_id, content in zip(block_ids, [valid, invalid], strict=True):
             await on_shard_reset(block_id)
             await on_block_delta(block_id, content)
@@ -2459,7 +2452,7 @@ def test_script_shard_keeps_valid_sibling_and_retries_only_failed_block(
     assert completed["completed_blocks"] == 2
 
 
-def test_script_job_repairs_one_invalid_shard_block_before_pausing(tmp_path):
+def test_script_job_never_rewrites_content_after_generation(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     service = TeacherLessonAuthoringService(repository)
     plan = standard_lesson_plan()
@@ -2524,7 +2517,8 @@ def test_script_job_repairs_one_invalid_shard_block_before_pausing(tmp_path):
     ))
 
     assert completed["status"] == "completed", completed.get("error")
-    assert repaired == [block_id]
+    assert repaired == []
+    assert completed["result_sections"][0]["blocks"][0]["content"] == "本块内容完整。"
     assert completed["completed_blocks"] == completed["total_blocks"] == 1
 
 
@@ -2619,7 +2613,7 @@ def test_script_provider_failure_counts_every_block_in_failed_shard(
     assert len(failed["error"]["failed_shards"][0]["block_ids"]) == 7
 
 
-def test_script_resume_discards_only_invalid_checkpoint_block(tmp_path):
+def test_script_resume_repairs_checkpoint_delimiters_without_model(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     service = TeacherLessonAuthoringService(repository)
     plan = standard_lesson_plan()
@@ -2674,7 +2668,8 @@ def test_script_resume_discards_only_invalid_checkpoint_block(tmp_path):
     ))
 
     assert completed["status"] == "completed", completed.get("error")
-    assert generated == ["core_explanation"]
+    assert generated == []
+    assert completed["result_sections"][0]["blocks"][0]["content"].endswith("$")
 
 
 def test_script_resume_restores_a_missing_middle_block_in_contract_order(tmp_path):
@@ -2785,7 +2780,7 @@ def test_script_resume_restores_a_missing_middle_block_in_contract_order(tmp_pat
 
 
 @pytest.mark.parametrize("during_generation", [False, True])
-def test_script_resume_regenerates_repetitive_checkpoint_blocks(tmp_path, during_generation):
+def test_script_preserves_repetitive_content_without_rewriting(tmp_path, during_generation):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     service = TeacherLessonAuthoringService(repository)
     plan = standard_lesson_plan()
@@ -2889,10 +2884,9 @@ def test_script_resume_regenerates_repetitive_checkpoint_blocks(tmp_path, during
     assert completed["status"] == "completed", completed.get("error")
     if during_generation:
         assert set(generated) == {"lesson_goal", "core_explanation", "feedback_check"}
-        assert set(repaired) == {"core_explanation", "feedback_check"}
-        assert completed["auto_improvement"]["quality_report"]["passed"]
+        assert repaired == []
     else:
-        assert set(generated) == {"core_explanation", "feedback_check"}
+        assert generated == []
     revision = repository.lesson("course-1", "L1-1")["script_revisions"][0]
     assert revision["quality_report"]["passed"] is True
 
@@ -3464,8 +3458,8 @@ def test_script_textbook_prose_does_not_trigger_speech_repair(monkeypatch, class
     assert len(calls) == 1
     assert all("teacher_script:not_directly_teachable" not in prompt for prompt in calls)
     assert result["content"] == "## 核心教学\n\n" + ("【板书】教师应解释条件。" if classroom_draft else "") + prose
-    assert bool(result["quality_report"]["review_issues"]) == classroom_draft
-    assert result["auto_improvement"]["attempts"] == 0
+    assert result["quality_report"]["review_issues"] == []
+    assert "auto_improvement" not in result
 
 
 def test_plan_job_stream_updates_do_not_block_event_loop(tmp_path):
@@ -5331,18 +5325,13 @@ def test_script_generation_edit_candidate_and_ppt_share_one_asset_chain(tmp_path
 
 
     assert FakeCourseService.registered is True
-    assert len(FakeCourseService.script_calls) == 3
+    assert len(FakeCourseService.script_calls) == 4
     assert material_evidence_calls[:2] == [["material-1"], ["material-1"]]
     assert material_evidence_calls[-1] == ["material-2"]
     assert len(
         FakeCourseService.script_calls[0]["current_plan_section"]["teaching_modules"]
-    ) == 2
-    assert (
-        FakeCourseService.script_calls[0]["lesson_context"]
-        ["script_shard_context"]["budget_mode"]
-        == "single_request"
-    )
-    assert [call["requirements"] for call in FakeCourseService.script_calls] == ["增加案例", "增加案例", "补充实验器材条件"]
+    ) == 1
+    assert [call["requirements"] for call in FakeCourseService.script_calls] == ["增加案例", "增加案例", "补充实验器材条件", "补充实验器材条件"]
     generation_context = FakeCourseService.script_calls[0]["lesson_context"]
     assert generation_context["selected_material_evidence"][0]["text"] == "资料中的可靠案例"
     rewrite_context = json.loads(FakeCourseService.rewrite_calls[0]["course_context"])

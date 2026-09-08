@@ -70,7 +70,7 @@ const physicalPages = ref<Record<string, any>>({}), manifest = ref<Record<string
 const tabs = computed(() => [{ value: 'manuscript', label: t('pptLive.manuscript') }, { value: 'render', label: t('pptLive.render') }])
 const pages = computed(() => state.value.manuscript?.pages || [])
 const pageCountLabel = computed(() => t('pptWorkspace.sidebar.pageCount', '{count} 页').replace('{count}', String(state.value.manuscript?.page_count || 0)))
-const emptyDescription = computed(() => t('pptLive.missingDescription', '讲义生成完成后会自动形成内容稿；旧讲义可以在这里补齐。'))
+const emptyDescription = computed(() => t('pptLive.missingDescription', '讲义已独立保存。点击生成，将当前讲义整理为 PPT 页面内容稿。'))
 const busy = computed(() => exporting.value || syncing.value || ['pending', 'running'].includes(job.value?.status || ''))
 const candidateState = computed(() => ({ revision: state.value.sync_candidate?.candidate_id, manuscript: { ...state.value.sync_candidate?.manuscript, pages: (state.value.sync_candidate?.manuscript?.pages || []).filter((p: any) => state.value.sync_candidate.affected_page_ids.includes(p.page_id)) } }))
 const visibleSlides = computed(() => {

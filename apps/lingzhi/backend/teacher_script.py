@@ -19,7 +19,7 @@ from teacher_visible_language import has_unnatural_system_language
 SCRIPT_SCHEMA_VERSION = "teacher_script_v2"
 # Retain pipeline identity so existing drafts and checkpoints remain usable.
 SCRIPT_PIPELINE_VERSION = "direct_teaching_script_v8"
-SCRIPT_QUALITY_VERSION = "teacher_script_quality_v11"
+SCRIPT_QUALITY_VERSION = "teacher_script_quality_v12"
 SCRIPT_SINGLE_REQUEST_TARGET_CHARACTERS = 6400
 SCRIPT_SINGLE_REQUEST_MAX_CHARACTERS = 12000
 SCRIPT_SHARD_TARGET_CHARACTERS = 4200
@@ -888,176 +888,18 @@ def validate_teacher_script_section(
             "teacher_script:role_contract",
             "讲义块角色必须沿用当前教学模块。",
         )
-    for index, block in enumerate(blocks):
-        if index >= len(expected):
-            continue
-        allowed_knowledge = set(_text_list(expected[index].get("knowledge_names")))
-        actual_knowledge = set(_text_list(block.get("knowledge_names")))
-        if actual_knowledge - allowed_knowledge:
-            add(
-                blocking,
-                "teacher_script:knowledge_scope",
-                f"“{_text(block.get('title'))}”引用了当前教案范围外的知识。",
-            )
-        content = _text(block.get("content"))
-        max_characters = int(expected[index].get("max_characters") or 0)
-        if max_characters and len(content) > max_characters:
-            add(
-                review,
-                "teacher_script:block_too_long",
-                (
-                    f"“{_text(block.get('title'))}”过长（{len(content)} 字），"
-                    f"建议篇幅为 {max_characters} 字以内；只精简重复或旁支，保留必要推导与完整解法。"
-                ),
-            )
-        artifact = expected[index].get("artifact_contract") or {}
-        hard_artifact = _text(artifact.get("hard_artifact"))
-        if hard_artifact == "fenced_code" and "```" not in content:
-            add(
-                blocking,
-                "teacher_script:required_code_artifact",
-                f"“{_text(block.get('title'))}”缺少可直接运行的完整代码围栏。",
-            )
-        if hard_artifact == "formula" and not re.search(
-            r"\$\$|\$[^$\n]+\$|\\\(|\\\[",
-            content,
-        ):
-            add(
-                blocking,
-                "teacher_script:required_math_artifact",
-                f"“{_text(block.get('title'))}”缺少完整公式或形式化表达。",
-            )
-        role = _text(block.get("role"))
-        if role == "activity" and not (
-            _ACTIVITY_TASK_PATTERN.search(content)
-            and _ACTIVITY_RESULT_PATTERN.search(content)
-        ):
-            add(
-                review,
-                "teacher_script:practice_not_complete",
-                f"“{_text(block.get('title'))}”没有同时写清任务条件与结果、解法或验收标准。",
-            )
-        if role in {"feedback", "misconception"} and not (
-            _FEEDBACK_ERROR_PATTERN.search(content)
-            and _FEEDBACK_REPAIR_PATTERN.search(content)
-        ):
-            add(
-                review,
-                "teacher_script:feedback_not_checkable",
-                f"“{_text(block.get('title'))}”没有同时给出典型错误与可执行的修正、核对标准。",
-            )
-    for block in blocks:
-        content = _text(block.get("content"))
-        if _DELIVERY_CUE_PATTERN.search(content):
-            add(
-                review,
-                "teacher_script:classroom_delivery_cue",
-                f"“{_text(block.get('title'))}”仍用提问、板书、巡视或等待标签，应改为可独立阅读的解释、题目、操作步骤或参考解答。",
-            )
-        if _LESSON_PLAN_VOICE_PATTERN.search(content):
-            add(
-                review,
-                "teacher_script:lesson_plan_voice",
-                f"“{_text(block.get('title'))}”仍用师生活动安排代替正文，应展开实际知识、任务条件、步骤和核对标准，不要改成教师口播稿。",
-            )
-        if (
-            _INTERNAL_PROCESS_PATTERN.search(content)
-            or has_unnatural_system_language(content)
-        ):
-            add(
-                review,
-                "teacher_script:internal_process_leakage",
-                f"“{_text(block.get('title'))}”泄露了模型、质量门或内部生成过程语言。",
-            )
-        if _PLACEHOLDER_PATTERN.search(content):
-            add(
-                blocking,
-                "teacher_script:placeholder_content",
-                f"“{_text(block.get('title'))}”仍是恢复模板或占位文字，不是可独立阅读的讲义正文。",
-            )
-        canned_count = len(_CANNED_DISCOURSE_PATTERN.findall(content))
-        if canned_count >= 4:
-            add(
-                review,
-                "teacher_script:canned_discourse",
-                f"“{_text(block.get('title'))}”连续使用程式化连接词，应按知识关系自然组织解释。",
-            )
-        visible_tail = re.sub(r"```\s*$", "", content).rstrip()
-        if visible_tail and _INCOMPLETE_END_PATTERN.search(visible_tail):
-            add(
-                review,
-                "teacher_script:incomplete_block_ending",
-                f"“{_text(block.get('title'))}”结尾似乎被截断，未形成完整语义。",
-            )
-        if content.count("```") % 2:
-            add(
-                blocking,
-                "teacher_script:unclosed_code_fence",
-                f"“{_text(block.get('title'))}”的代码块缺少开头或结尾标记。",
-            )
-        delimiter_state = _markdown_math_delimiter_state(content)
-        if (
-            delimiter_state["display_open"]
-            or delimiter_state["inline_open"]
-            or delimiter_state["inline_cross_line"]
-            or delimiter_state["latex_stack"]
-            or delimiter_state["unexpected"]
-        ):
-            add(
-                blocking,
-                "teacher_script:unclosed_math_delimiter",
-                f"“{_text(block.get('title'))}”的公式定界符没有成对出现。",
-            )
-        if _has_unwrapped_display_math_environment(content):
-            add(
-                blocking,
-                "teacher_script:unwrapped_display_math_environment",
-                (
-                    f"“{_text(block.get('title'))}”把矩阵或分段公式环境拆在 "
-                    "$$ 分隔符之外，无法作为 PPT 的可靠公式真源。"
-                ),
-            )
-        if _display_math_contains_teaching_prose(content):
-            add(
-                blocking,
-                "teacher_script:prose_inside_display_math",
-                (
-                    f"“{_text(block.get('title'))}”的块级公式分隔符吞入了题目、"
-                    "解法或讲解正文，无法可靠渲染或生成 PPT。"
-                ),
-            )
-    combined_content = "\n".join(_text(block.get("content")) for block in blocks)
+    for block, module in zip(blocks, expected):
+        if set(_text_list(block.get("knowledge_names"))) - set(_text_list(module.get("knowledge_names"))):
+            add(blocking, "teacher_script:knowledge_scope", "讲义块的知识绑定与当前教案不一致。")
     return {
         "schema_version": SCRIPT_QUALITY_VERSION,
         "pipeline_version": SCRIPT_PIPELINE_VERSION,
         "passed": not blocking,
         "blocking_issues": blocking,
-        "review_issues": review,
+        "review_issues": [],
         "metrics": {
-            "block_count": len(blocks),
-            "module_count": len(expected),
+            "block_count": len(blocks), "module_count": len(expected),
             "character_count": sum(len(_text(block.get("content"))) for block in blocks),
-            "code_fence_count": sum(
-                _text(block.get("content")).count("```") for block in blocks
-            ),
-            "formula_block_count": sum(
-                1
-                for block in blocks
-                if re.search(r"\$\$|\$[^$\n]+\$|\\\(|\\\[", _text(block.get("content")))
-            ),
-            "classroom_delivery_cue_count": sum(
-                len(_DELIVERY_CUE_PATTERN.findall(_text(block.get("content"))))
-                for block in blocks
-            ),
-            "lesson_plan_voice_count": sum(
-                len(_LESSON_PLAN_VOICE_PATTERN.findall(_text(block.get("content"))))
-                for block in blocks
-            ),
-            "direct_teaching_cue_count": len(_DIRECT_TEACHING_PATTERN.findall(combined_content)),
-            "internal_process_leakage_count": sum(
-                len(_INTERNAL_PROCESS_PATTERN.findall(_text(block.get("content"))))
-                for block in blocks
-            ),
         },
     }
 
@@ -1076,200 +918,64 @@ def _normalized_repetition_text(value: Any) -> str:
 
 
 def validate_teacher_script_revision(
-    sections: list[dict[str, Any]],
-    *,
-    generation_source: str,
+    sections: list[dict[str, Any]], *, generation_source: str,
 ) -> dict[str, Any]:
-    """Apply the same publication gate to model, edit, recovery and legacy paths."""
+    """Check storage integrity only; content review is no longer a delivery gate."""
     blocking: list[dict[str, Any]] = []
-    review: list[dict[str, Any]] = []
     blocks: list[dict[str, Any]] = []
-    total_minutes = 0.0
-
+    section_ids: set[str] = set()
     for section in sections:
         if not isinstance(section, dict):
+            blocking.append({"code": "teacher_script:section_identity", "message": "讲义小节结构无效。"})
             continue
         section_id = _text(section.get("section_node_id"))
-        report = section.get("quality_report") or {}
-        if (
-            report.get("schema_version") != SCRIPT_QUALITY_VERSION
-            or report.get("pipeline_version") != SCRIPT_PIPELINE_VERSION
-        ):
-            blocking.append({
-                "code": "teacher_script:quality_contract_stale",
-                "message": "讲义尚未按当前质量规则重新检查，请重新保存或生成。",
-                "section_node_id": section_id,
-            })
+        if not section_id or section_id in section_ids:
+            blocking.append({"code": "teacher_script:section_identity", "message": "讲义小节标识缺失或重复。"})
+        section_ids.add(section_id)
+        report = upgrade_script_quality_report(section.get("quality_report") or {})
+        # Preserve contract mismatches found by the source-aware section check.
         for issue in report.get("blocking_issues") or []:
-            if isinstance(issue, dict):
+            if issue.get("code") in _SCRIPT_STRUCTURE_CODES:
                 blocking.append({**deepcopy(issue), "section_node_id": section_id})
-        for issue in report.get("review_issues") or []:
-            if isinstance(issue, dict):
-                review.append({**deepcopy(issue), "section_node_id": section_id})
-        for block in section.get("blocks") or []:
-            if not isinstance(block, dict):
-                continue
-            blocks.append(block)
-            try:
-                total_minutes += max(0.0, float(block.get("planned_minutes") or 0))
-            except (TypeError, ValueError):
-                pass
-
-    source = _text(generation_source)
-    if "fallback" in source or "recovery" in source:
-        blocking.append({
-            "code": "teacher_script:recovery_draft_not_publishable",
-            "message": "当前稿包含提供方失败后的本地恢复内容，只能继续编辑或重新生成，不能确认或生成 PPT。",
-        })
-    if source.startswith("legacy"):
-        blocking.append({
-            "code": "teacher_script:legacy_source_not_revalidated",
-            "message": "旧正文没有绑定当前教案质量契约，需重新编辑保存或重新生成后才能发布。",
-        })
-
-    normalized_blocks = [
-        (_text(block.get("block_id")), _normalized_repetition_text(block.get("content")))
-        for block in blocks
-        if len(_normalized_repetition_text(block.get("content"))) >= 28
-    ]
-    duplicate_pairs: list[tuple[str, str]] = []
-    repeated_clauses: dict[str, set[str]] = {}
-    for block in blocks:
-        block_id = _text(block.get("block_id"))
-        # Numeric examples commonly reuse the same matrix or cases *shape*
-        # while changing coefficients and conclusions.  The repetition
-        # normalizer intentionally abstracts numbers for prose boilerplate,
-        # so feeding display formulae into it collapses distinct matrices into
-        # the same token stream and creates an unrecoverable retry loop.  Whole
-        # block duplication still covers copied formula blocks; clause-level
-        # repetition is reserved for explanatory prose.
-        repetition_prose = re.sub(
-            r"\$\$.+?\$\$|\\\[.+?\\\]",
-            "",
-            _text(block.get("content")),
-            flags=re.DOTALL,
-        )
-        clauses = {
-            _normalized_repetition_text(item)
-            for item in re.split(r"[。！？!?；;\n]+", repetition_prose)
-            if len(_normalized_repetition_text(item)) >= 14
-        }
-        for clause in clauses:
-            repeated_clauses.setdefault(clause, set()).add(block_id)
-    for index, (left_id, left) in enumerate(normalized_blocks):
-        for right_id, right in normalized_blocks[index + 1:]:
-            shorter = min(len(left), len(right))
-            if shorter < 28:
-                continue
-            prefix = 0
-            while prefix < shorter and left[prefix] == right[prefix]:
-                prefix += 1
-            if left == right or prefix / shorter >= 0.82:
-                duplicate_pairs.append((left_id, right_id))
-    repeated_clause_groups = [
-        sorted(block_ids)
-        for block_ids in repeated_clauses.values()
-        if len(block_ids) >= 3
-    ]
-    if len(duplicate_pairs) >= 2 or repeated_clause_groups:
-        # Reusing a sentence across examples is advice. Several near-identical
-        # whole blocks still mean that the lesson content is missing.
-        target = blocking if len(duplicate_pairs) >= 2 else review
-        target.append({
-            "code": "teacher_script:repetitive_blocks",
-            "message": "多个教学环节高度复读，未形成随知识内容推进的有效讲解。",
-            "block_pairs": duplicate_pairs[:8],
-            "repeated_clause_groups": repeated_clause_groups[:8],
-        })
-
-    canned_phrase_blocks: dict[str, set[str]] = {}
-    for block in blocks:
-        block_id = _text(block.get("block_id"))
-        for phrase in set(_CANNED_DISCOURSE_PATTERN.findall(_text(block.get("content")))):
-            canned_phrase_blocks.setdefault(phrase, set()).add(block_id)
-    repeated_canned_phrases = {
-        phrase: sorted(block_ids)
-        for phrase, block_ids in canned_phrase_blocks.items()
-        if len(block_ids) >= 4
-    }
-    if repeated_canned_phrases:
-        review.append({
-            "code": "teacher_script:repetitive_canned_transitions",
-            "message": "多个教学环节反复使用同一套程式化连接词，讲义应按知识关系自然组织解释，不必添加课堂话术。",
-            "phrase_blocks": repeated_canned_phrases,
-        })
-
-    character_count = sum(len(_text(block.get("content"))) for block in blocks)
-    minimum_lesson_characters = int(total_minutes * 55)
-    if len(blocks) >= 4 and total_minutes >= 30 and character_count < minimum_lesson_characters:
-        review.append({
-            "code": "teacher_script:lesson_too_shallow",
-            "message": (
-                f"整讲约 {total_minutes:g} 分钟，但正文只有 {character_count} 字，"
-                "建议结合讲解、实验或讨论的实际安排检查是否需要补充。"
-            ),
-        })
-
-    unique_blocking: list[dict[str, Any]] = []
-    seen: set[tuple[str, str, str]] = set()
-    for issue in blocking:
-        key = (
-            _text(issue.get("code")),
-            _text(issue.get("section_node_id")),
-            _text(issue.get("message")),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        unique_blocking.append(issue)
+        actual = [b for b in section.get("blocks") or [] if isinstance(b, dict)]
+        if not actual:
+            blocking.append({"code": "teacher_script:blocks_empty", "message": "讲义小节没有正文块。"})
+        blocks.extend(actual)
+    if not sections:
+        blocking.append({"code": "teacher_script:blocks_empty", "message": "讲义没有正文。"})
+    ids = [_text(b.get("block_id")) for b in blocks]
+    if any(not key for key in ids) or len(ids) != len(set(ids)):
+        blocking.append({"code": "teacher_script:block_identity", "message": "讲义块标识缺失或重复。"})
+    if any(not _text(b.get("content")) for b in blocks):
+        blocking.append({"code": "teacher_script:block_empty", "message": "讲义仍有空白教学环节。"})
     return {
         "schema_version": SCRIPT_QUALITY_VERSION,
         "pipeline_version": SCRIPT_PIPELINE_VERSION,
-        "passed": not unique_blocking,
-        "publication_eligible": not unique_blocking,
-        "blocking_issues": unique_blocking,
-        "review_issues": review,
-        "metrics": {
-            "section_count": len(sections),
-            "block_count": len(blocks),
-            "character_count": character_count,
-            "planned_minutes": total_minutes,
-            "minimum_lesson_characters": minimum_lesson_characters,
-            "duplicate_pair_count": len(duplicate_pairs),
-            "repeated_clause_group_count": len(repeated_clause_groups),
-            "repeated_canned_phrase_count": len(repeated_canned_phrases),
-        },
+        "passed": not blocking, "publication_eligible": not blocking,
+        "blocking_issues": blocking, "review_issues": [],
+        "metrics": {"section_count": len(sections), "block_count": len(blocks),
+                    "character_count": sum(len(_text(b.get("content"))) for b in blocks)},
     }
+
+
+_SCRIPT_STRUCTURE_CODES = {
+    "teacher_script:section_identity", "teacher_script:blocks_empty",
+    "teacher_script:block_empty", "teacher_script:block_identity",
+    "teacher_script:module_contract", "teacher_script:block_contract",
+    "teacher_script:module_heading", "teacher_script:role_contract", "teacher_script:knowledge_scope",
+}
 
 
 def upgrade_script_quality_report(report: dict[str, Any]) -> dict[str, Any]:
-    """Reclassify known reports without rewriting prose or calling a model."""
+    """Retire old content checks without rewriting stored prose."""
     if report.get("schema_version") not in {
-        "teacher_script_quality_v8", "teacher_script_quality_v9", "teacher_script_quality_v10",
+        f"teacher_script_quality_v{version}" for version in range(8, 13)
     } or report.get("pipeline_version") != SCRIPT_PIPELINE_VERSION:
         return report
     result = deepcopy(report)
-    advisory = {
-        "teacher_script:canned_discourse", "teacher_script:repetitive_canned_transitions",
-        "teacher_script:block_too_long", "teacher_script:practice_not_complete",
-        "teacher_script:feedback_not_checkable", "teacher_script:classroom_delivery_cue",
-        "teacher_script:lesson_plan_voice", "teacher_script:internal_process_leakage",
-        "teacher_script:incomplete_block_ending", "teacher_script:lesson_too_shallow",
-    }
-    def is_advice(item):
-        return item.get("code") in advisory or (
-            item.get("code") == "teacher_script:repetitive_blocks"
-            and "block_pairs" in item and len(item["block_pairs"]) < 2
-            and bool(item.get("repeated_clause_groups"))
-        )
-    # Retire speech-marker heuristics without rewriting existing course prose.
-    retired = {"teacher_script:not_directly_teachable", "teacher_script:missing_transition"}
-    issues = [item for item in result.get("blocking_issues") or [] if item.get("code") not in retired]
-    result["blocking_issues"] = [item for item in issues if not is_advice(item)]
-    result["review_issues"] = [
-        *(item for item in result.get("review_issues") or [] if item.get("code") not in retired),
-        *(item for item in issues if is_advice(item)),
-    ]
+    result["blocking_issues"] = [item for item in result.get("blocking_issues") or []
+                                 if item.get("code") in _SCRIPT_STRUCTURE_CODES]
+    result["review_issues"] = []
     result["schema_version"] = SCRIPT_QUALITY_VERSION
     result["passed"] = not result["blocking_issues"]
     if "publication_eligible" in result:
@@ -1280,11 +986,12 @@ def upgrade_script_quality_report(report: dict[str, Any]) -> dict[str, Any]:
 def teacher_script_revision_is_publishable(revision: dict[str, Any]) -> bool:
     quality = upgrade_script_quality_report(revision.get("quality_report") or {})
     return bool(
-        quality.get("publication_eligible", revision.get("publication_eligible"))
-        and quality.get("passed")
-        and quality.get("publication_eligible")
+        quality.get("publication_eligible") and quality.get("passed")
         and quality.get("schema_version") == SCRIPT_QUALITY_VERSION
         and quality.get("pipeline_version") == SCRIPT_PIPELINE_VERSION
+        and validate_teacher_script_revision(
+            revision.get("sections") or [], generation_source=str(revision.get("generation_source") or ""),
+        )["passed"]
     )
 
 
@@ -1292,14 +999,31 @@ def compile_teacher_script_section(
     markdown: str,
     contract: dict[str, Any],
 ) -> dict[str, Any]:
-    section = normalize_teacher_script_section(
-        {
-            "section_node_id": contract.get("section_node_id"),
-            "title": contract.get("title"),
-            "content": markdown,
-        },
-        contract,
-    )
+    modules = [m for m in contract.get("modules") or [] if isinstance(m, dict)]
+    if len(modules) == 1 and markdown.strip():
+        markdown = re.sub(r"\A\s*```(?:markdown|md)\s*\n([\s\S]*?)\n```\s*\Z", r"\1", markdown)
+        markdown = re.sub(r"\A\s*#{1,2}[^\n]*\n", "", markdown).strip()
+        raw = {"section_node_id": contract.get("section_node_id"), "title": contract.get("title"),
+               "blocks": [{**deepcopy(modules[0]), "content": markdown}]}
+        section = normalize_teacher_script_section(raw, contract)
+    else:
+        section = normalize_teacher_script_section(
+            {
+                "section_node_id": contract.get("section_node_id"),
+                "title": contract.get("title"),
+                "content": markdown,
+            },
+            contract,
+        )
+    section = repair_teacher_script_section_formats(section)
+    section["quality_report"] = validate_teacher_script_section(section, contract)
+    section["pipeline_version"] = SCRIPT_PIPELINE_VERSION
+    return section
+
+
+def repair_teacher_script_section_formats(section: dict[str, Any]) -> dict[str, Any]:
+    """Repair delimiters only; never add missing facts or teaching content."""
+    section = deepcopy(section)
     format_repairs: list[dict[str, Any]] = []
     for block in section.get("blocks") or []:
         if not isinstance(block, dict):
@@ -1307,6 +1031,19 @@ def compile_teacher_script_section(
         from canonical_content_repair import repair_display_math_shape
 
         original = str(block.get("content") or "")
+        fence = None
+        for line in original.splitlines():
+            match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+            if match:
+                marker, tail = match.groups()
+                if fence is None:
+                    fence = marker
+                elif marker[0] == fence[0] and len(marker) >= len(fence) and not tail.strip():
+                    fence = None
+        if fence:
+            original = original.rstrip() + "\n" + fence
+            block["content"] = original
+            format_repairs.append({"block_id": str(block.get("block_id") or ""), "repairs": ["close:code-fence"]})
         shape_repaired = repair_display_math_shape(original).strip()
         shape_repairs: list[str] = []
         if shape_repaired != original.strip():
@@ -1330,6 +1067,4 @@ def compile_teacher_script_section(
         section.get("blocks") or []
     )
     section["format_repairs"] = format_repairs
-    section["quality_report"] = validate_teacher_script_section(section, contract)
-    section["pipeline_version"] = SCRIPT_PIPELINE_VERSION
     return section

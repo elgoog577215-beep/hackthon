@@ -546,7 +546,7 @@ export function mergeLessonJobSnapshot(
   const attemptDelta = Number(incoming.attempt_number || 0) - Number(previous.attempt_number || 0)
   if (attemptDelta < 0) return previous
   if (attemptDelta > 0) return { ...incoming, stream_batches: incoming.stream_batches || {}, result_sections: incoming.result_sections || [], streamed_block_content: incoming.streamed_block_content || {} }
-  if (['paused', 'failed', 'cancelled'].includes(incoming.status) && !Object.keys(incoming.stream_batches || {}).length) {
+  if (incoming.type !== 'teacher_lesson_script_generation' && ['paused', 'failed', 'cancelled'].includes(incoming.status) && !Object.keys(incoming.stream_batches || {}).length) {
     incoming = { ...incoming, stream_batches: {}, result_sections: [], streamed_block_content: {} }
   }
   const previousTimestamp = lessonJobTimestamp(previous)

@@ -1207,6 +1207,7 @@ class AIBase:
         max_input_tokens: int | None = None,
         max_input_chars: int | None = None,
         max_attempts: int | None = None,
+        request_timeout_seconds: float | None = None,
         reject_truncated: bool = False,
         raise_on_failure: bool = False,
         json_mode: bool = False,
@@ -1451,88 +1452,95 @@ class AIBase:
                     queue_wait_reason = getattr(
                         lease, "queue_wait_reason", ""
                     )
+                    request_started = time.perf_counter()
+                    response = None
                     try:
-                        try:
-                            await self._wait_for_request_slot()
-                            await _notify_stream_callback(on_content_reset)
-                            physical_request_count += 1
-                            response = await self.client.chat.completions.create(
-                                **request_options
-                            )
-                        except Exception as format_error:
-                            status_400 = (
-                                self._error_status_code(format_error) == 400
-                            )
-                            # 埋点绝不能把一次本来能成功的请求变成失败：
-                            # provider 拒绝 stream_options 时退掉该选项重试，
-                            # 并记住，后续调用不再白跑一次 400。
-                            if (
-                                status_400
-                                and "stream_options" in request_options
-                            ):
-                                self._remember_stream_usage_unsupported(
-                                    self.api_base,
-                                    model_id,
-                                )
-                                request_options.pop("stream_options", None)
+                        async with asyncio.timeout(request_timeout_seconds):
+                            try:
                                 await self._wait_for_request_slot()
+                                await _notify_stream_callback(on_content_reset)
                                 physical_request_count += 1
-                                response = (
-                                    await self.client.chat.completions.create(
-                                        **request_options
+                                response = await self.client.chat.completions.create(
+                                    **request_options
+                                )
+                            except Exception as format_error:
+                                status_400 = (
+                                    self._error_status_code(format_error) == 400
+                                )
+                                # 埋点绝不能把一次本来能成功的请求变成失败：
+                                # provider 拒绝 stream_options 时退掉该选项重试，
+                                # 并记住，后续调用不再白跑一次 400。
+                                if (
+                                    status_400
+                                    and "stream_options" in request_options
+                                ):
+                                    self._remember_stream_usage_unsupported(
+                                        self.api_base,
+                                        model_id,
                                     )
-                                )
-                            elif not (json_mode and status_400):
-                                raise
-                            else:
-                                # Remember the rejection: without this every
-                                # later call pays the same wasted 400 round
-                                # trip.
-                                self._remember_json_mode_unsupported(
-                                    self.api_base,
-                                    model_id,
-                                )
-                                request_options.pop("response_format", None)
-                                await self._wait_for_request_slot()
-                                physical_request_count += 1
-                                response = (
-                                    await self.client.chat.completions.create(
-                                        **request_options
+                                    request_options.pop("stream_options", None)
+                                    await self._wait_for_request_slot()
+                                    physical_request_count += 1
+                                    response = (
+                                        await self.client.chat.completions.create(
+                                            **request_options
+                                        )
                                     )
-                                )
+                                elif not (json_mode and status_400):
+                                    raise
+                                else:
+                                    # Remember the rejection: without this every
+                                    # later call pays the same wasted 400 round
+                                    # trip.
+                                    self._remember_json_mode_unsupported(
+                                        self.api_base,
+                                        model_id,
+                                    )
+                                    request_options.pop("response_format", None)
+                                    await self._wait_for_request_slot()
+                                    physical_request_count += 1
+                                    response = (
+                                        await self.client.chat.completions.create(
+                                            **request_options
+                                        )
+                                    )
 
-                        # 聚合流式响应；内容和推理分片都表示调用仍活跃。
-                        full_content = ""
-                        reasoning_chars = 0
-                        truncated = False
-                        async for chunk in response:
-                            usage_pair = self._chunk_usage(chunk)
-                            if usage_pair is not None:
-                                real_usage = usage_pair
-                            if chunk.choices:
-                                reasoning = self._delta_reasoning(
-                                    chunk.choices[0].delta
-                                )
-                                if reasoning:
-                                    reasoning_chars += len(reasoning)
-                                    if on_stream_activity:
-                                        on_stream_activity()
-
-                                delta = chunk.choices[0].delta
-                                if delta.content:
-                                    if first_token_at is None:
-                                        first_token_at = time.perf_counter()
-                                    full_content += delta.content
-                                    if on_stream_activity:
-                                        on_stream_activity()
-                                    await _notify_stream_callback(
-                                        on_content_delta,
-                                        delta.content,
+                            # 聚合流式响应；内容和推理分片都表示调用仍活跃。
+                            full_content = ""
+                            reasoning_chars = 0
+                            truncated = False
+                            async for chunk in response:
+                                usage_pair = self._chunk_usage(chunk)
+                                if usage_pair is not None:
+                                    real_usage = usage_pair
+                                if chunk.choices:
+                                    reasoning = self._delta_reasoning(
+                                        chunk.choices[0].delta
                                     )
-                                if getattr(chunk.choices[0], "finish_reason", None) == "length":
-                                    truncated = True
+                                    if reasoning:
+                                        reasoning_chars += len(reasoning)
+                                        if on_stream_activity:
+                                            on_stream_activity()
+
+                                    delta = chunk.choices[0].delta
+                                    if delta.content:
+                                        if first_token_at is None:
+                                            first_token_at = time.perf_counter()
+                                        full_content += delta.content
+                                        if on_stream_activity:
+                                            on_stream_activity()
+                                        await _notify_stream_callback(
+                                            on_content_delta,
+                                            delta.content,
+                                        )
+                                    if getattr(chunk.choices[0], "finish_reason", None) == "length":
+                                        truncated = True
                     finally:
-                        await lease.release()
+                        try:
+                            if response is not None and callable(getattr(response, "close", None)):
+                                await response.close()
+                        finally:
+                            await lease.release()
 
                     if truncated:
                         logger.warning(
@@ -1615,7 +1623,11 @@ class AIBase:
                         model_id,
                         model_role,
                     )
-                    await capacity.report_success(model_id)
+                    await capacity.report_success(
+                        model_id, duration_seconds=time.perf_counter() - request_started,
+                        output_characters=len(full_content),
+                        first_token_seconds=(first_token_at - request_started) if first_token_at else 0.0,
+                    )
                     logger.debug(
                         "AI reasoning received (Model: %s, chars=%d)",
                         model_id,
@@ -1680,6 +1692,8 @@ class AIBase:
                 raise AIProviderUnavailable(
                     provider_failure
                 ) from last_error
+            if request_timeout_seconds is not None and isinstance(last_error, asyncio.TimeoutError):
+                raise last_error
             if last_error is not None:
                 raise AIProviderRequestError(str(last_error)) from last_error
             raise AIProviderRequestError("empty_response")

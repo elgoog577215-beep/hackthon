@@ -132,3 +132,18 @@
 - **WHEN** 原 job 的延迟重试意图已持久化而进程重启
 - **THEN** 系统 MUST 从原生成入口恢复执行，保留原输入与后台诊断
 - **AND** 已暂停或已取消任务 MUST NOT 自动恢复
+
+### Requirement: Handout requests deliver prose without automatic regeneration
+New handout jobs SHALL generate prose only, use the shared adaptive provider capacity with actor/course fairness and ascending lecture priority, and SHALL NOT invoke content review, model-based formatting repair, or automatic retries. PPT manuscript generation SHALL remain an explicit downstream action. Source ownership, revision conflicts, block identity and nonempty output checks SHALL remain enforced.
+
+#### Scenario: Provider interruption after partial output
+- **WHEN** a handout request stops after receiving partial content
+- **THEN** completed blocks and received fragments remain available, the interruption is reported truthfully, and no model request is replayed automatically
+
+#### Scenario: Repeated generation request for an active lecture
+- **WHEN** another request arrives for the same lecture while its handout job is pending or running
+- **THEN** the existing job is returned without changing its frozen inputs
+
+#### Scenario: Earlier lecture is waiting
+- **WHEN** provider capacity becomes available and multiple lectures from the same course are queued
+- **THEN** earlier lectures receive that course's capacity first, with spare capacity usable by later lectures and fair turns for other users/courses

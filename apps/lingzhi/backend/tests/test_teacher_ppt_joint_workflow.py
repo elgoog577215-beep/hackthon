@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from routers import teacher_lesson_authoring as routes
 from teacher_lesson_authoring import TeacherLessonAuthoringRepository, TeacherLessonAuthoringError
-from teacher_script import compile_teacher_script_module_contract
+from teacher_script import compile_teacher_script_module_contract, compile_teacher_script_section
 from teacher_script_ppt import generate_bundle, CONTRACT
 from template_layout_contract import TemplateLayoutPackContractV1
 from backend.tests.test_teacher_lesson_authoring import single_section_course_data, standard_lesson_plan
@@ -32,6 +32,11 @@ def workflow(tmp_path, monkeypatch):
 
         async def generate_teacher_script_section(self, **kwargs):
             contract = compile_teacher_script_module_contract(kwargs["outline_section"], kwargs["current_plan_section"])
+            if not kwargs.get("immutable_handout"):
+                assert not kwargs.get("ppt_template")
+                assert not kwargs.get("generation_contract_version")
+                calls.append("handout")
+                return compile_teacher_script_section(TEXT, contract)
             template = TemplateLayoutPackContractV1.model_validate(kwargs["ppt_template"])
             async def invoke(prompt, instructions, **options):
                 calls.append(prompt)
@@ -67,10 +72,24 @@ def generate(client):
             break
         time.sleep(.01)
     assert job["status"] == "completed", job.get("error")
-    return job
+    assert job["request_snapshot"]["generation_contract_version"] == "handout_prose_v1"
+    assert not job.get("bundle_blocks")
+    state = client.get("/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/manuscript").json()["ppt_manuscript_state"]
+    assert not state.get("manuscript")
+    response = client.post("/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/manuscript/complete",
+                           json={"source_script_revision_id": state["source_script_revision_id"]})
+    assert response.status_code == 202, response.text
+    ppt_job_id = response.json()["job"]["id"]
+    for _ in range(300):
+        ppt_job = client.get(f"/api/teacher/courses/course-1/lesson-jobs/{ppt_job_id}").json()["job"]
+        if ppt_job["status"] not in {"pending", "running"}:
+            break
+        time.sleep(.01)
+    assert ppt_job["status"] == "completed", ppt_job.get("error")
+    return ppt_job
 
 
-def test_joint_route_saves_real_revision_and_preview_edit_use_no_model(workflow):
+def test_prose_then_explicit_ppt_saves_real_revision_and_preview_edit_use_no_model(workflow):
     client, repository, calls = workflow
     job = generate(client)
     lesson = repository.lesson("course-1", "L1-1")
@@ -85,7 +104,7 @@ def test_joint_route_saves_real_revision_and_preview_edit_use_no_model(workflow)
     assert state["source_script_revision_id"] == lesson["working_script_revision_id"]
     assert state["manuscript"]["source_script_revision_id"] == lesson["working_script_revision_id"]
     assert state["generation_contract_version"] == CONTRACT
-    assert len(calls) == 1
+    assert len(calls) == 2
     base = "/api/teacher/courses/course-1/lessons/L1-1/ppt-v6"
     page = state["manuscript"]["pages"][0]
     response = client.post(base + "/preview", json={"expected_manuscript_revision": state["revision"], "page_ids": [page["page_id"]]})
@@ -98,7 +117,7 @@ def test_joint_route_saves_real_revision_and_preview_edit_use_no_model(workflow)
     assert repository.lesson("course-1", "L1-1")["working_script_revision_id"] == lesson["working_script_revision_id"]
     assert client.patch(base + "/manuscript", json={"expected_manuscript_revision": state["revision"], "page_updates": []}).status_code == 409
     assert client.post(base + "/preview", json={"expected_manuscript_revision": state["revision"]}).status_code == 409
-    assert len(calls) == 1
+    assert len(calls) == 2
     assert not repository.lesson("course-1", "L1-1").get("ppt_assets")
     assert job["bundle_blocks"]
 

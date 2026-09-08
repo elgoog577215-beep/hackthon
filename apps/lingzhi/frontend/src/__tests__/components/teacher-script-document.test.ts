@@ -316,7 +316,7 @@ describe('统一讲义页面', () => {
     })
 
     expect(wrapper.get('.script-generation-progress').text()).toContain('0/2')
-    expect(wrapper.findComponent(MarkdownRenderer).exists()).toBe(false)
+    expect(wrapper.findComponent(MarkdownRenderer).exists()).toBe(true)
     expect(wrapper.get('.script-source-review button').text()).toContain('继续生成')
 
     await wrapper.get('.script-source-review').trigger('submit')

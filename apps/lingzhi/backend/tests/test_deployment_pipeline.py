@@ -367,3 +367,25 @@ def test_release_artifact_validates_production_i18n_contract() -> None:
 
     assert archive < tests < build < locale_validation
     subprocess.run(["bash", "-n", str(script_path)], check=True)
+
+
+def test_active_task_checker_exit_code_prevents_service_stop(tmp_path):
+    import subprocess
+    import sys
+    import shlex
+    source = (Path(__file__).resolve().parents[2] / "scripts/github-action-deploy.sh").read_text()
+    function = source[source.index("assert_no_unsafe_active_tasks() {"):source.index("create_verified_data_backup() {")]
+    release = tmp_path / "release"
+    (release / "scripts").mkdir(parents=True)
+    (release / "scripts/check_deploy_task_safety.py").write_text("raise SystemExit(75)\n")
+    (tmp_path / "runtime/bin").mkdir(parents=True)
+    (tmp_path / "runtime/bin/python").symlink_to(sys.executable)
+    script = "\n".join([
+        "set -u",
+        "release_path=" + shlex.quote(str(release)),
+        "VENV=" + shlex.quote(str(tmp_path / "runtime")),
+        "STATE_DIR=" + shlex.quote(str(tmp_path)),
+        "CURRENT_LINK=" + shlex.quote(str(tmp_path)),
+        "log() { :; }", function, "assert_no_unsafe_active_tasks",
+    ])
+    assert subprocess.run(["bash", "-c", script], capture_output=True).returncode == 75

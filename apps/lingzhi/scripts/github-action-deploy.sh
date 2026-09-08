@@ -397,8 +397,9 @@ assert_no_unsafe_active_tasks() {
     if result="$("$VENV/bin/python" "$checker" "$task_index" "$teacher_jobs_dir")"; then
         log "活动任务检查通过：$result"
         return 0
+    else
+        status=$?
     fi
-    status=$?
     log "发布延迟：存在不可安全中断的任务，或任务索引无法核验：$result"
     return "$status"
 }

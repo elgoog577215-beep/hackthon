@@ -8557,65 +8557,22 @@ class CourseService(AIBase):
             stream_delta=on_content_delta,
             stream_reset=on_content_reset,
         ) -> str | None:
-            common = {
-                "retry_count": 1,
-                "max_attempts": 2,
-                "enable_thinking": False,
-                "reject_truncated": True,
-                "raise_on_failure": True,
-                "max_tokens": output_tokens,
-                "on_content_delta": stream_delta,
-                "on_content_reset": stream_reset,
-            }
-
-            async def reset_visible_stream() -> None:
-                if not stream_reset:
-                    return
-                result = stream_reset()
-                if inspect.isawaitable(result):
-                    await result
-
-            async def call_with_shared_capacity(*, use_fast_model: bool) -> str | None:
-                await reset_visible_stream()
-                async with self._teaching_plan_request_slot(
-                    on_phase=None,
-                    phase="lesson_script_block_generation",
-                    progress=50,
-                    heartbeat_message="正在等待讲义生成资源",
-                    phase_detail={
-                        "section_node_id": str(contract.get("section_node_id") or ""),
-                        "block_ids": [
-                            str(item.get("block_id") or "") for item in modules
-                        ],
-                    },
-                ):
-                    timeout_seconds = float(
-                        self._generation_budget.teacher_script_request_timeout_seconds
-                    )
-                    try:
-                        return await asyncio.wait_for(
-                            self._call_llm(
-                                prompt,
-                                instructions,
-                                use_fast_model=use_fast_model,
-                                **common,
-                            ),
-                            timeout=timeout_seconds,
-                        )
-                    except asyncio.TimeoutError as exc:
-                        raise TeacherScriptGenerationTimeout(
-                            "讲义模型调用超时："
-                            f"取得模型资源后 {int(timeout_seconds)} 秒仍未完成。"
-                        ) from exc
-
+            # Provider acquisition owns the only concurrency queue. The request
+            # deadline starts after acquisition, so queue time cannot expire it.
             try:
-                return await call_with_shared_capacity(use_fast_model=True)
-            except (AIProviderRequestError, AIProviderUnavailable) as exc:
-                if not allow_secondary_attempt or getattr(exc, "retryable", True) is False:
-                    raise
-                # Both configured roles use the required text model. Only
-                # retry a recoverable request; optional polish keeps its draft.
-                return await call_with_shared_capacity(use_fast_model=False)
+                return await self._call_llm(
+                    prompt, instructions, use_fast_model=True,
+                    retry_count=1, max_attempts=1, enable_thinking=False,
+                    reject_truncated=True, raise_on_failure=True,
+                    max_tokens=output_tokens,
+                    request_timeout_seconds=float(
+                        self._generation_budget.teacher_script_request_timeout_seconds
+                    ),
+                    on_content_delta=stream_delta, on_content_reset=stream_reset,
+                )
+            except asyncio.TimeoutError as exc:
+                raise TeacherScriptGenerationTimeout("讲义模型调用超时，已保留收到的内容。") from exc
+
 
         if generation_contract_version == "script_ppt_bundle_v1":
             from teacher_script_ppt import generate_bundle
@@ -8627,138 +8584,18 @@ class CourseService(AIBase):
                 seed_blocks=bundle_seed_blocks, on_checkpoint=on_bundle_checkpoint, immutable_handout=immutable_handout,
             )
 
-        last_report: dict[str, Any] = {}
-        last_text = ""
-        last_compiled: dict[str, Any] = {}
-        best_usable: dict[str, Any] | None = None
-        for attempt in range(3):
-            logger.info("teacher_timing phase=script_request attempt=%d repair=%s", attempt + 1, bool(attempt))
-            repair = ""
-            if attempt:
-                blocking_codes = {
-                    str(item.get("code") or "")
-                    for item in last_report.get("blocking_issues") or []
-                    if isinstance(item, dict)
-                }
-                formula_boundary_repair = (
-                    "\n这次禁止使用 `$$`。所有展示公式只能写成独占行的 "
-                    "`\\[...\\]`，写完 `\\]` 后空一行，再写题目、解法或解释正文。"
-                    if blocking_codes & {
-                        "teacher_script:prose_inside_display_math",
-                        "teacher_script:unclosed_math_delimiter",
-                        "teacher_script:unwrapped_display_math_environment",
-                    }
-                    else ""
-                )
-                repair = "\n\n交付前自动复审发现以下问题。保留既定模块顺序、正确事实和推理，只修正受影响内容，返回完整讲义。不要只为消除检查词而改写。问题：" + json.dumps(
-                    [*(last_report.get("blocking_issues") or []), *(last_report.get("review_issues") or [])], ensure_ascii=False
-                ) + formula_boundary_repair + "\n上一版讲义：\n" + last_text
-            max_output_characters = sum(
-                int(item.get("max_characters") or 900)
-                for item in modules
-            )
-            try:
-                response = await call_script_model(
-                    user_prompt,
-                    system_prompt + repair,
-                    output_tokens=max(700, min(6000, int(max_output_characters * 1.1))),
-                    allow_secondary_attempt=best_usable is None,
-                )
-            except (AIProviderRequestError, AIProviderUnavailable, asyncio.TimeoutError):
-                if best_usable is None:
-                    raise
-                best_usable["auto_improvement"] = {"attempts": attempt, "status": "partial", "error_code": "provider_unavailable"}
-                return best_usable
-            last_text = self.clean_response_text(response) if response else ""
-            compiled = compile_teacher_script_section(last_text, contract)
-            last_compiled = compiled
-            last_report = compiled.get("quality_report") or {}
-            if last_report.get("passed"):
-                review_codes = {item.get("code") for item in last_report.get("review_issues") or []}
-                best_codes = {item.get("code") for item in (best_usable or {}).get("quality_report", {}).get("review_issues") or []}
-                if best_usable is None or review_codes < best_codes:
-                    best_usable = deepcopy(compiled)
-                compiled = best_usable
-                compiled["auto_improvement"] = {"attempts": attempt, "status": "partial" if compiled["quality_report"].get("review_issues") else "completed"}
-                self._record_generation_quality(
-                    output_type="teacher_script_section",
-                    output_text=compiled.get("content") or "",
-                    context_text=system_prompt,
-                    source="course_service.generate_teacher_script_section",
-                    course_id=course_id,
-                    node_id=str(outline_section.get("node_id") or ""),
-                    node_name=str(outline_section.get("node_name") or ""),
-                    require_markdown_structure=True,
-                )
-                return compiled
-            if attempt >= 1:
-                break  # Keep the existing two-pass hard-repair/compaction bound.
-        if best_usable is not None:
-            best_usable["auto_improvement"] = {"attempts": 2, "status": "partial"}
-            return best_usable
-        blocking_codes = {
-            str(item.get("code") or "")
-            for item in last_report.get("blocking_issues") or []
-            if isinstance(item, dict)
-        }
-        if last_text and blocking_codes and blocking_codes <= {
-            "teacher_script:block_too_long",
-        }:
-            length_rules = "\n".join(
-                f"- `## {item.get('title')}` 正文不超过 {item.get('max_characters')} 字"
-                for item in modules
-            )
-            compacted_response = await call_script_model(
-                (
-                    "请精简下面的课程讲义。保留正确事实、定义与边界、完整推导、公式、例题或实验链、"
-                    "练习条件、参考解法与核对标准；只删同义反复和旁支扩写，不省略必要中间步骤。\n\n"
-                    + last_text
-                ),
-                (
-                    "你是课程教材编辑。只输出精简后的 Markdown，保持学生可独立阅读的教材式说明，不改成教师口播稿。"
-                    "标题、顺序、教学事实和参考答案不得改变，优先保证知识与解法完整。\n"
-                    + length_rules
-                ),
-                output_tokens=max(
-                    600,
-                    min(6000, int(max_output_characters * 1.05)),
-                ),
-            )
-            compacted_text = self.clean_response_text(
-                compacted_response
-            ) if compacted_response else ""
-            compacted = compile_teacher_script_section(
-                compacted_text,
-                contract,
-            )
-            last_compiled = compacted
-            if (compacted.get("quality_report") or {}).get("passed"):
-                self._record_generation_quality(
-                    output_type="teacher_script_section",
-                    output_text=compacted.get("content") or "",
-                    context_text=system_prompt,
-                    source="course_service.generate_teacher_script_section.compacted",
-                    course_id=course_id,
-                    node_id=str(outline_section.get("node_id") or ""),
-                    node_name=str(outline_section.get("node_name") or ""),
-                    require_markdown_structure=True,
-                )
-                return compacted
-            last_report = compacted.get("quality_report") or last_report
-        if allow_partial_quality and last_compiled.get("blocks"):
-            # The durable lesson job validates and checkpoints each returned
-            # block independently. Keep the provider output available there
-            # instead of discarding every valid sibling because one block or
-            # one cross-block rule still failed after the repair attempts.
-            return last_compiled
-        issues = "；".join(
-            str(item.get("message") or "")
-            for item in last_report.get("blocking_issues") or []
-            if isinstance(item, dict)
+        # One provider request per handout block. Formatting is repaired locally;
+        # pedagogical heuristics never cause paid regeneration or gate delivery.
+        max_characters = sum(int(item.get("max_characters") or 900) for item in modules)
+        response = await call_script_model(
+            user_prompt, system_prompt,
+            output_tokens=max(700, min(6000, int(max_characters * 1.1))),
         )
-        raise AIProviderRequestError(
-            f"讲义未通过当前教案的质量检查：{issues or '模型没有返回完整教学环节'}"
-        )
+        text = self.clean_response_text(response) if response else ""
+        compiled = compile_teacher_script_section(text, contract)
+        if not (compiled.get("quality_report") or {}).get("passed"):
+            raise AIProviderRequestError("模型没有返回完整教学环节正文，已保留收到的内容。")
+        return compiled
 
     async def redefine_content(
         self,

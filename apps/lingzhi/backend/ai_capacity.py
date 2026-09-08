@@ -11,8 +11,35 @@ import asyncio
 import math
 import os
 import time
+from contextvars import ContextVar
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Callable
+
+
+# Metadata follows asyncio child tasks; all requests still share one real queue.
+_request_schedule: ContextVar[tuple[str, str, int, int]] = ContextVar(
+    "provider_request_schedule", default=("", "", 0, 0),
+)
+
+
+@contextmanager
+def provider_request_schedule(*, actor: str, course: str, lecture: int, block: int = 0):
+    token = _request_schedule.set((actor, course, lecture, block))
+    try:
+        yield
+    finally:
+        _request_schedule.reset(token)
+
+
+@dataclass(eq=False)
+class _Waiter:
+    model: str
+    actor: str
+    course: str
+    lecture: int
+    block: int
+    sequence: int
 
 
 def _env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
@@ -45,6 +72,10 @@ class ModelCapacityState:
     # 慢启动：没见过失败之前，每成功一次就放宽一位；见到第一次失败即退出，
     # 之后回到保守的 AIMD（每 successes_to_grow 次成功才 +1）。
     slow_start: bool = True
+    seconds_per_character: float = 0.0
+    first_token_seconds: float = 0.0
+    slow_samples: int = 0
+    latency_reductions: int = 0
 
 
 class ModelCapacityCoolingDown(RuntimeError):
@@ -129,6 +160,11 @@ class ProviderCapacityController:
         self._provider_success_streak = 0
         self._provider_slow_start = True
         self._next_provider_start = 0.0
+        self._waiters: list[_Waiter] = []
+        self._sequence = 0
+        self._served = 0
+        self._actor_turn: dict[str, int] = {}
+        self._course_turn: dict[tuple[str, str], int] = {}
 
     async def configure_last_resort(
         self,
@@ -179,82 +215,63 @@ class ProviderCapacityController:
             ),
         )
 
+    def _next_waiter(self, now: float) -> _Waiter | None:
+        eligible = [w for w in self._waiters
+                    if self._state(w.model).in_flight < self._state(w.model).limit
+                    and self._state(w.model).cooldown_until <= now]
+        return min(eligible, key=lambda w: (
+            self._actor_turn.get(w.actor, 0),
+            self._course_turn.get((w.actor, w.course), 0),
+            w.lecture, w.block, w.sequence,
+        ), default=None)
+
     async def acquire(
-        self,
-        model_id: str,
-        *,
-        on_wait_activity: Callable[[], None] | None = None,
+        self, model_id: str, *, on_wait_activity: Callable[[], None] | None = None,
     ) -> CapacityLease:
         wait_started = time.monotonic()
-        # 只记第一次让出的原因：那是这次请求真正被什么挡住的原因，后续轮次
-        # 往往只是被唤醒后重新检查条件。
         wait_reason = ""
-        while True:
-            async with self._condition:
-                state = self._state(model_id)
-                now = time.monotonic()
-                if (
-                    state.cooldown_until > now
-                    and not self.wait_during_cooldown
-                ):
-                    raise ModelCapacityCoolingDown(
-                        model_id,
-                        state.cooldown_until - now,
-                    )
-                ready_at = max(
-                    self._next_provider_start,
-                    state.cooldown_until
-                    if self.wait_during_cooldown
-                    else 0.0,
-                )
-                if (
-                    state.in_flight < state.limit
-                    and self._provider_in_flight < self._provider_limit
-                    and now >= ready_at
-                ):
-                    state.in_flight += 1
-                    self._provider_in_flight += 1
-                    state.started += 1
-                    self._next_provider_start = (
-                        now + self.start_interval_seconds
-                    )
-                    waited = now - wait_started
-                    state.queue_wait_seconds_total += waited
-                    lease = CapacityLease(self, model_id, waited)
-                    lease.queue_wait_reason = wait_reason
-                    return lease
-
-                if not wait_reason:
-                    if state.in_flight >= state.limit:
-                        wait_reason = "model_concurrency"
-                    elif self._provider_in_flight >= self._provider_limit:
-                        wait_reason = "provider_concurrency"
-                    elif (
-                        self.wait_during_cooldown
-                        and state.cooldown_until > now
-                    ):
-                        wait_reason = "cooldown"
-                    else:
-                        wait_reason = "start_interval"
-                    state.queue_wait_events += 1
-
-                # A release will notify capacity waiters.  A cooldown/spacing
-                # window needs a bounded timer so it can wake without traffic.
-                timeout = None
-                if now < ready_at:
-                    timeout = max(0.01, ready_at - now)
-                if on_wait_activity:
-                    on_wait_activity()
-                    timeout = min(timeout, 5.0) if timeout else 5.0
-                try:
-                    if timeout is None:
-                        await self._condition.wait()
-                    else:
-                        await asyncio.wait_for(
-                            self._condition.wait(), timeout=timeout
-                        )
-                except asyncio.TimeoutError:
-                    pass
+        self._sequence += 1
+        waiter = _Waiter(model_id, *_request_schedule.get(), self._sequence)
+        async with self._condition:
+            self._waiters.append(waiter)
+            try:
+                while True:
+                    state = self._state(model_id)
+                    now = time.monotonic()
+                    if state.cooldown_until > now and not self.wait_during_cooldown:
+                        raise ModelCapacityCoolingDown(model_id, state.cooldown_until - now)
+                    ready_at = max(self._next_provider_start, state.cooldown_until)
+                    if (state.in_flight < state.limit
+                            and self._provider_in_flight < self._provider_limit
+                            and now >= ready_at and self._next_waiter(now) is waiter):
+                        state.in_flight += 1
+                        self._provider_in_flight += 1
+                        state.started += 1
+                        self._served += 1
+                        self._actor_turn[waiter.actor] = self._served
+                        self._course_turn[(waiter.actor, waiter.course)] = self._served
+                        self._next_provider_start = now + self.start_interval_seconds
+                        waited = now - wait_started
+                        state.queue_wait_seconds_total += waited
+                        lease = CapacityLease(self, model_id, waited)
+                        lease.queue_wait_reason = wait_reason
+                        return lease
+                    if not wait_reason:
+                        wait_reason = ("model_concurrency" if state.in_flight >= state.limit
+                                       else "provider_concurrency" if self._provider_in_flight >= self._provider_limit
+                                       else "cooldown" if state.cooldown_until > now
+                                       else "start_interval" if now < ready_at else "fair_queue")
+                        state.queue_wait_events += 1
+                    if on_wait_activity:
+                        on_wait_activity()
+                    timeout = min(5.0, max(0.01, ready_at - now)) if now < ready_at else 5.0
+                    try:
+                        await asyncio.wait_for(self._condition.wait(), timeout=timeout)
+                    except asyncio.TimeoutError:
+                        pass
+            finally:
+                self._waiters.remove(waiter)
+                self._condition.notify_all()
 
     async def release(self, model_id: str) -> None:
         async with self._condition:
@@ -270,10 +287,33 @@ class ProviderCapacityController:
             )
             self._condition.notify_all()
 
-    async def report_success(self, model_id: str) -> None:
+    async def report_success(
+        self, model_id: str, *, duration_seconds: float = 0.0,
+        output_characters: int = 0, first_token_seconds: float = 0.0,
+    ) -> None:
         async with self._condition:
             state = self._state(model_id)
             state.succeeded += 1
+            # Compare per-character decode cost and first-token delay, excluding
+            # our own queue. Two degraded samples lower capacity; never replay work.
+            if duration_seconds > 0 and output_characters >= 100:
+                cost = max(0.001, duration_seconds - first_token_seconds) / output_characters
+                degraded = (state.seconds_per_character > 0 and cost > state.seconds_per_character * 1.8)
+                degraded = degraded or (state.first_token_seconds > 0 and first_token_seconds > max(5.0, state.first_token_seconds * 2))
+                state.slow_samples = state.slow_samples + 1 if degraded else 0
+                state.seconds_per_character = (0.9 * state.seconds_per_character + 0.1 * cost) if state.seconds_per_character else cost
+                state.first_token_seconds = (0.9 * state.first_token_seconds + 0.1 * first_token_seconds) if state.first_token_seconds else first_token_seconds
+                if state.slow_samples >= 2:
+                    state.limit = max(1, state.limit - 1)
+                    self._provider_limit = max(1, self._provider_limit - 1)
+                    state.latency_reductions += 1
+                    state.slow_samples = state.success_streak = self._provider_success_streak = 0
+                    state.slow_start = self._provider_slow_start = False
+                    self._condition.notify_all()
+                    return
+                if degraded:
+                    state.success_streak = self._provider_success_streak = 0
+                    return
             state.success_streak += 1
             self._provider_success_streak += 1
             state.cooldown_until = 0.0
@@ -355,6 +395,8 @@ class ProviderCapacityController:
                 )
             else:
                 state.transient_failures += 1
+                state.limit = max(1, math.ceil(state.limit / 2))
+                self._provider_limit = max(1, math.ceil(self._provider_limit / 2))
             self._condition.notify_all()
 
     def snapshot(self) -> dict[str, Any]:
@@ -367,12 +409,16 @@ class ProviderCapacityController:
             "wait_during_cooldown": self.wait_during_cooldown,
             "limit": self._provider_limit,
             "in_flight": self._provider_in_flight,
+            "queued": len(self._waiters),
             "models": {
                 model_id: {
                     "limit": state.limit,
                     "in_flight": state.in_flight,
                     "started": state.started,
                     "succeeded": state.succeeded,
+                    "seconds_per_character": round(state.seconds_per_character, 6),
+                    "first_token_seconds": round(state.first_token_seconds, 3),
+                    "latency_reductions": state.latency_reductions,
                     "rate_limited": state.rate_limited,
                     "quota_exhausted": state.quota_exhausted,
                     "transient_failures": state.transient_failures,

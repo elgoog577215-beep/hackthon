@@ -351,5 +351,5 @@ def test_lesson_length_advice_does_not_force_checkpoint_regeneration():
     ]
     report = validate_teacher_script_revision(sections, generation_source="model_block_pipeline")
     assert report["passed"]
-    assert any(i["code"] == "teacher_script:lesson_too_shallow" for i in report["review_issues"])
+    assert report["review_issues"] == []
     assert not _teacher_script_retry_block_ids(report, {str(i): i for i in range(4)}), report
