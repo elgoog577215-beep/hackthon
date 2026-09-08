@@ -477,7 +477,7 @@ async function submitRequest() {
     : requestText.value.trim()
   try {
     const result = await store.createCoursePlan({ courseId, requestId, instruction, assetTypes: requestMode.value === 'replace' ? requestAssetTypes.value.filter(type => contextAssets.value.some(asset => asset.asset_type === type && asset.state !== 'missing')) : ['outline', 'lesson_plan', 'script', 'course_content', 'question_bank'], ...(requestMode.value === 'replace' && findText.value ? { literalReplacement: { before: findText.value, after: replacementText.value } } : {}) })
-    if (epoch === workspaceEpoch) selectCreatedPlan(result, requestId)
+    if (epoch === workspaceEpoch && !result.analysis_task) selectCreatedPlan(result, requestId)
   } catch (error: any) { if (epoch === workspaceEpoch) { actionError.value = readableError(error, t('courseEvolution.workspace.analysisFailed')); forceRequest.value = true } }
 }
 function selectCreatedPlan(payload: Record<string, any>, requestId = '') {

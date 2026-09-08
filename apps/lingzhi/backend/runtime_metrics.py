@@ -26,6 +26,8 @@ _TASK_TYPES = {
     "teacher_outline_generation",
     "teacher_lesson_plan_generation",
     "teacher_lesson_script_generation",
+    "teacher_course_change_analysis",
+    "teacher_course_change_generation",
     "teaching_representation_build",
     "slide_deck_variant_build",
 }

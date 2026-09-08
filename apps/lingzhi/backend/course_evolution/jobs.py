@@ -9,7 +9,186 @@ from typing import Any
 from .core import CourseEvolutionPlan, CourseEvolutionRepository, CourseEvolutionState, course_evolution_repository
 from .teacher_execution import generate_teacher_course_change_candidates
 
-TASK_TYPE = "teacher_course_change_generation"
+ANALYSIS_TASK_TYPE = "teacher_course_change_analysis"
+CANDIDATE_TASK_TYPE = "teacher_course_change_generation"
+TASK_TYPE = CANDIDATE_TASK_TYPE
+_ACTIVE_STATUSES = {"pending", "running"}
+
+
+def latest_analysis_task(manager: Any, user_id: str, course_id: str) -> dict[str, Any] | None:
+    """Return the newest whole-course analysis task owned by this teacher."""
+
+    candidates = [
+        task
+        for task in manager.tasks.values()
+        if task.get("type") == ANALYSIS_TASK_TYPE
+        and str(task.get("course_id") or "") == course_id
+        and str(task.get("owner_id") or "") == user_id
+    ]
+    if not candidates:
+        return None
+    candidates.sort(
+        key=lambda item: str(item.get("updated_at") or item.get("created_at") or ""),
+        reverse=True,
+    )
+    return manager.get_task_summary(str(candidates[0]["id"]))
+
+
+async def enqueue_analysis(
+    *,
+    manager: Any,
+    user_id: str,
+    course_id: str,
+    request_id: str,
+    instruction: str,
+    supersedes_plan_id: str = "",
+    literal_replacement: dict[str, str] | None = None,
+    asset_types: list[str] | None = None,
+) -> dict[str, Any]:
+    """Persist whole-course analysis before any model call and return immediately."""
+
+    async with manager._creation_lock:
+        owned = [
+            task
+            for task in manager.tasks.values()
+            if task.get("type") == ANALYSIS_TASK_TYPE
+            and str(task.get("course_id") or "") == course_id
+            and str(task.get("owner_id") or "") == user_id
+        ]
+        duplicate = next(
+            (
+                task
+                for task in owned
+                if str((task.get("request_snapshot") or {}).get("request_id") or "")
+                == request_id
+            ),
+            None,
+        )
+        if duplicate is not None:
+            return manager.get_task_summary(str(duplicate["id"]))
+        if any(str(task.get("status") or "") in _ACTIVE_STATUSES for task in owned):
+            raise ValueError("当前课程已有整课影响分析正在运行，请等待完成后再提交")
+
+        job_id = f"course-change-analysis-{uuid.uuid4().hex}"
+        await manager.create_task(
+            course_id,
+            ANALYSIS_TASK_TYPE,
+            task_id=job_id,
+            enqueue=False,
+            request_snapshot={
+                "request_id": request_id,
+                "instruction": instruction,
+                "supersedes_plan_id": supersedes_plan_id,
+                "literal_replacement": literal_replacement,
+                "asset_types": asset_types,
+                "_retrieval_actor_id": user_id,
+            },
+        )
+        try:
+            await manager._update_phase(
+                job_id,
+                "course_change_analysis_queued",
+                0,
+                "整课影响分析已进入后台",
+                phase_detail={"request_id": request_id},
+            )
+            await manager._task_queue.put(job_id)
+        except BaseException:
+            async with manager._lock:
+                manager._remove_task_strict(job_id)
+            raise
+        return manager.get_task_summary(job_id)
+
+
+async def run_analysis(manager: Any, job_id: str, *, service: Any = None) -> None:
+    """Run one restart-safe whole-course analysis task."""
+
+    task = manager.tasks[job_id]
+    request = task.get("request_snapshot") or {}
+    course_id = str(task.get("course_id") or "")
+    user_id = str(task.get("owner_id") or "")
+    request_id = str(request.get("request_id") or "")
+    if str(task.get("status") or "") not in _ACTIVE_STATUSES:
+        return
+    if service is None:
+        from dependencies import (
+            get_course_document_repository,
+            get_teacher_lesson_authoring_repository,
+        )
+        from question_bank import question_bank_repository
+        from teaching_representations import teaching_representation_repository
+
+        from .application import CourseEvolutionApplicationService
+
+        service = CourseEvolutionApplicationService(
+            evolution_repository=course_evolution_repository,
+            document_repository=get_course_document_repository(),
+            authoring_repository=get_teacher_lesson_authoring_repository(),
+            representation_repository=teaching_representation_repository,
+            question_bank_repository=question_bank_repository,
+            course_service=manager.course_service,
+            task_manager=manager,
+        )
+
+    await manager._update_task_status(job_id, "running", message="正在分析整课影响")
+    await manager._update_phase(
+        job_id,
+        "course_change_analysis",
+        5,
+        "正在读取课程结构与相关课程文件",
+        phase_detail={"request_id": request_id},
+    )
+    generation = asyncio.create_task(
+        service.create_teacher_plan(
+            course_id=course_id,
+            user_id=user_id,
+            request_id=request_id,
+            instruction=str(request.get("instruction") or ""),
+            supersedes_plan_id=str(request.get("supersedes_plan_id") or ""),
+            literal_replacement=request.get("literal_replacement"),
+            asset_types=request.get("asset_types"),
+        )
+    )
+    try:
+        while not generation.done():
+            await asyncio.wait({generation}, timeout=15)
+            if not generation.done():
+                await manager._update_phase(
+                    job_id,
+                    "course_change_analysis",
+                    35,
+                    "AI 正在逐批检查全课影响，关闭页面后任务仍会继续",
+                    phase_detail={"request_id": request_id},
+                )
+        state = await generation
+        plan = next(
+            item
+            for item in state.change_sets
+            if str(item.impact_summary.get("request_id") or "") == request_id
+        )
+        detail = {"request_id": request_id, "plan_id": plan.change_set_id}
+        await manager._update_phase(
+            job_id,
+            "course_change_analysis",
+            100,
+            "整课影响分析完成",
+            phase_detail=detail,
+        )
+        await manager._update_task_status(job_id, "completed", message="整课影响分析完成")
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        await manager._update_task_status(
+            job_id,
+            "failed",
+            message="整课影响分析失败，可以保留原要求后重试",
+            error=str(error),
+            error_detail={"code": "course_change_analysis_failed", "retryable": True},
+        )
+    finally:
+        if not generation.done():
+            generation.cancel()
+            await asyncio.gather(generation, return_exceptions=True)
 
 
 async def enqueue_candidates(*, manager: Any, service: Any, user_id: str, course_id: str, plan_id: str) -> Any:
@@ -32,7 +211,7 @@ async def enqueue_candidates(*, manager: Any, service: Any, user_id: str, course
         review_revision = plan.review_revision
         await manager.create_task(
             course_id,
-            TASK_TYPE,
+            CANDIDATE_TASK_TYPE,
             task_id=job_id,
             enqueue=False,
             request_snapshot={"plan_id": plan_id, "review_revision": review_revision, "_retrieval_actor_id": user_id},

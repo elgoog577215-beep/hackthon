@@ -26,6 +26,18 @@ export interface EvolutionOperation {
   payload: Record<string, any>
 }
 
+export interface CourseChangeAnalysisTask {
+  id: string
+  type: 'teacher_course_change_analysis'
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  phase?: string
+  progress?: number
+  message?: string
+  error?: string | null
+  error_user_message?: string
+  phase_detail?: { request_id?: string; plan_id?: string }
+}
+
 export interface CourseEvolutionOperationJournalEntry {
   schema_version: 'course_evolution_operation_journal_v1'
   operation_id: string
@@ -267,6 +279,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
     generationError: '',
     progressDisconnected: false,
     generationMessage: '',
+    analysisTask: null as CourseChangeAnalysisTask | null,
     contextLoading: false,
     applicationVisual: null as CourseEvolutionApplicationVisual | null,
     applicationVisualCounter: 0,
@@ -305,6 +318,23 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       this.generationError = ''
       this.progressDisconnected = false
       this.generationMessage = ''
+      this.analysisTask = null
+    },
+    applyAnalysisTask(task: CourseChangeAnalysisTask | null) {
+      this.analysisTask = task
+      const active = task?.status === 'pending' || task?.status === 'running'
+      this.generating = active
+      this.generationMessage = active ? String(task?.message || '') : ''
+      if (task?.status === 'failed') {
+        this.generationError = String(
+          task.error_user_message
+          || task.message
+          || task.error
+          || t('courseEvolution.workspace.analysisFailed'),
+        )
+      } else if (task?.status === 'completed') {
+        this.generationError = ''
+      }
     },
     applyPayload(courseId: string, payload: Record<string, any>) {
       if (this.courseId !== courseId) this.selectCourse(courseId)
@@ -313,6 +343,9 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       this.plans = payload.course_evolution_plans || payload.change_sets || payload.adaptation_plans || []
       this.permissions = payload.permissions || null
       this.summary = payload.summary || {}
+      if (Object.prototype.hasOwnProperty.call(payload, 'analysis_task')) {
+        this.applyAnalysisTask(payload.analysis_task || null)
+      }
     },
     beginApplicationVisual(presentation: CourseEvolutionApplicationPresentation) {
       const token = this.applicationVisualCounter + 1
@@ -349,7 +382,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       const targetCourseId = courseId || this.courseId
       if (!targetCourseId) return null
       this.selectCourse(targetCourseId)
-      if (this.actingId || this.generating) return null
+      if (this.actingId) return null
       const sequence = ++this.payloadRequestSequence
       const response = await http.get(
         `/api/courses/${targetCourseId}/evolution/progress`,
@@ -411,7 +444,10 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
               : {}),
           },
         )
-        if (epoch === this.courseEpoch && sequence === this.payloadRequestSequence) this.applyPayload(targetCourseId, response.data)
+        if (epoch === this.courseEpoch && sequence === this.payloadRequestSequence) {
+          if (response.data?.analysis_task) this.applyAnalysisTask(response.data.analysis_task)
+          else this.applyPayload(targetCourseId, response.data)
+        }
         return response.data
       } catch (error: any) {
         if (epoch === this.courseEpoch) this.generationError = String(
@@ -422,7 +458,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         )
         throw error
       } finally {
-        if (epoch === this.courseEpoch) this.generating = false
+        if (epoch === this.courseEpoch && !['pending', 'running'].includes(this.analysisTask?.status || '')) this.generating = false
       }
     },
     async reviewCoursePlan(
@@ -631,7 +667,9 @@ export function observeCourseChangeProgress(store: ReturnType<typeof useCourseEv
   if (!watcher) {
     let inFlight = false
     const timer = setInterval(async () => {
-      if (inFlight || store.courseId !== courseId || store.actingId || store.generating || !store.plans.some(p => p.teacher_change_planning && p.status === 'pending' && p.generation_status === 'generating')) return
+      const analysisActive = ['pending', 'running'].includes(store.analysisTask?.status || '')
+      const candidatesActive = store.plans.some(p => p.teacher_change_planning && p.status === 'pending' && p.generation_status === 'generating')
+      if (inFlight || store.courseId !== courseId || store.actingId || (store.generating && !analysisActive) || (!analysisActive && !candidatesActive)) return
       inFlight = true
       try { await store.refreshProgress(courseId); if (store.courseId === courseId) store.progressDisconnected = false } catch { if (store.courseId === courseId) store.progressDisconnected = true }
       finally { inFlight = false }

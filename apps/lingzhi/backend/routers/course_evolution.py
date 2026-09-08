@@ -14,6 +14,8 @@ from course_evolution import (
     synchronize_and_evaluate_course_evolution,
 )
 from course_evolution.application import CourseEvolutionApplicationService
+from course_evolution.teacher_planning import context_view
+from course_generation.service import get_course_service
 from dependencies import (
     get_course_document_repository,
     get_course_or_404,
@@ -22,15 +24,10 @@ from dependencies import (
     require_task_manager,
 )
 from generation_streaming import structured_generation_stream
-from learner_context import require_user_id
-from course_generation.service import get_course_service
-from question_bank import question_bank_repository
 from jobs.manager import TaskManager
+from learner_context import require_user_id
+from question_bank import question_bank_repository
 from teaching_representations import teaching_representation_repository
-from course_evolution.teacher_planning import (
-    context_view,
-    TeacherCourseChangeSourceUnavailable,
-)
 
 router = APIRouter(prefix="/courses/{course_id}/evolution", tags=["course_evolution"])
 personal_router = APIRouter(
@@ -148,9 +145,11 @@ async def get_course_evolution_progress(course_id: str, request: Request, tm: Ta
     """Return persisted generation checkpoints without re-evaluating evidence."""
     await get_course_or_404(course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
-    from course_evolution.jobs import reconcile_candidate_jobs
+    from course_evolution.jobs import latest_analysis_task, reconcile_candidate_jobs
     state = await run_in_threadpool(reconcile_candidate_jobs, tm, course_evolution_repository, user_id, course_id) if tm is not None else await run_in_threadpool(course_evolution_repository.load, user_id, course_id)
-    return course_evolution_view(state)
+    payload = course_evolution_view(state)
+    payload["analysis_task"] = latest_analysis_task(tm, user_id, course_id) if tm is not None else None
+    return payload
 
 
 @personal_router.get("")
@@ -209,7 +208,7 @@ async def get_teacher_course_change_context(
     return context_view(context)
 
 
-@router.post("/course-plans")
+@router.post("/course-plans", status_code=202)
 async def create_teacher_course_plan(
     course_id: str,
     body: GenerateTeacherCourseChangeRequest,
@@ -220,26 +219,24 @@ async def create_teacher_course_plan(
     await get_course_or_404(course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
     try:
-        state = await _course_evolution_service(tm).create_teacher_plan(
-            course_id=course_id,
+        from course_evolution.jobs import enqueue_analysis
+
+        task = await enqueue_analysis(
+            manager=tm,
             user_id=user_id,
+            course_id=course_id,
             request_id=body.request_id,
             instruction=body.instruction,
             supersedes_plan_id=body.supersedes_plan_id,
             literal_replacement=body.literal_replacement.model_dump() if body.literal_replacement else None,
             asset_types=body.asset_types,
         )
-    except TeacherCourseChangeSourceUnavailable as exc:
-        raise HTTPException(status_code=409, detail={
-            "code": "course_change_source_unavailable",
-            "message": str(exc),
-        }) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail={
-            "code": "course_change_request_invalid",
+        raise HTTPException(status_code=409, detail={
+            "code": "course_change_analysis_busy",
             "message": str(exc),
         }) from exc
-    return course_evolution_view(state)
+    return {"analysis_task": task}
 
 
 @router.post("/course-plans/{change_set_id}/review")
