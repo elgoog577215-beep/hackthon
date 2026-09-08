@@ -461,6 +461,29 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         if (epoch === this.courseEpoch && !['pending', 'running'].includes(this.analysisTask?.status || '')) this.generating = false
       }
     },
+    async waitForAnalysisCompletion(courseId: string, taskId: string): Promise<Record<string, any>> {
+      const epoch = this.courseEpoch
+      let task = this.analysisTask
+      while (this.courseId === courseId && epoch === this.courseEpoch) {
+        if (task?.id === taskId && task.status === 'completed') {
+          return await this.refreshProgress(courseId) || {}
+        }
+        if (task?.id === taskId && ['failed', 'cancelled'].includes(task.status)) {
+          throw new Error(String(
+            task.error_user_message
+            || task.message
+            || task.error
+            || t('courseEvolution.workspace.analysisFailed'),
+          ))
+        }
+        await new Promise(resolve => setTimeout(resolve, 1800))
+        if (this.courseId !== courseId || epoch !== this.courseEpoch) break
+        const payload = await this.refreshProgress(courseId) as Record<string, any> | null
+        task = payload?.analysis_task || this.analysisTask
+        if (task?.id === taskId && task.status === 'completed') return payload || {}
+      }
+      throw new Error('course_change_context_changed')
+    },
     async reviewCoursePlan(
       planId: string,
       selectedMigrationIds: string[],

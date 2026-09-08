@@ -1532,11 +1532,17 @@ async function createPptCourseChangePlan() {
   pptAiCoursePlanRequestId.value = requestId
   applyPptAiEvent('GENERATE')
   try {
-    const payload = await courseEvolutionStore.createCoursePlan({
+    let payload = await courseEvolutionStore.createCoursePlan({
       courseId: courseId.value,
       requestId,
       instruction: buildTeacherCourseChangeInstruction(pptAiMessages.value, currentPptAiScope()),
     })
+    if (payload?.analysis_task?.id) {
+      payload = await courseEvolutionStore.waitForAnalysisCompletion(
+        courseId.value,
+        String(payload.analysis_task.id),
+      )
+    }
     const plans = (payload?.course_evolution_plans || payload?.change_sets || []) as Array<Record<string, any>>
     const plan = plans.find(item => String(item.impact_summary?.request_id || '') === requestId)
     const projection = plan ? projectTeacherCoursePlan(plan) : null

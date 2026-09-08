@@ -3505,11 +3505,17 @@ async function createCourseChangePlanFromConversation(): Promise<string> {
   aiClarificationOptions.value = []
   transitionAi({ type: 'GENERATE' })
   try {
-    const payload = await courseEvolutionStore.createCoursePlan({
+    let payload = await courseEvolutionStore.createCoursePlan({
       courseId: props.courseId,
       requestId,
       instruction: buildTeacherCourseChangeInstruction(aiMessages.value, currentAiScope()),
     })
+    if (payload?.analysis_task?.id) {
+      payload = await courseEvolutionStore.waitForAnalysisCompletion(
+        props.courseId,
+        String(payload.analysis_task.id),
+      )
+    }
     const plans = (payload?.course_evolution_plans || payload?.change_sets || []) as Array<Record<string, any>>
     const plan = plans.find(item => String(item.impact_summary?.request_id || '') === requestId)
     const projection = plan ? projectTeacherCoursePlan(plan) : null
