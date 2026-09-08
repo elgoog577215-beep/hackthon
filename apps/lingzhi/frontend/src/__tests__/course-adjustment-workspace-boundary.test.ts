@@ -8,6 +8,17 @@ const source = (relativePath: string) => fs.readFileSync(
 )
 
 describe('课程审计与更新边界', () => {
+  it('从全局修改入口打开真正的课程结构调整工作区', () => {
+    const workspace = source('views/CourseWorkspaceView.vue')
+    const chooseGlobalChange = workspace.match(
+      /function chooseGlobalChange\(kind: 'structure' \| 'semantic'\) \{[\s\S]*?\n\}/,
+    )?.[0] || ''
+
+    expect(chooseGlobalChange).toContain("if (kind === 'structure') { openCourseAdjustment(); return }")
+    expect(chooseGlobalChange).not.toContain('openOutlineEditor()')
+    expect(chooseGlobalChange).toContain("name: 'course-audit-updates'")
+  })
+
   it('把材料审计与全课调整收入同一课程级链路', () => {
     const assistant = source('components/SideAIPanel.vue')
     const workspace = source('views/CourseWorkspaceView.vue')
