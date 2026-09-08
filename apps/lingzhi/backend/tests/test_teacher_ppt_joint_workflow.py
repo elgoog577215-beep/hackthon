@@ -62,7 +62,7 @@ def workflow(tmp_path, monkeypatch):
         yield client, repository, calls
 
 
-def generate(client):
+def generate(client, *, complete_ppt=True):
     response = client.post("/api/teacher/courses/course-1/lessons/L1-1/script/generate", json={"request_id": "joint-test"})
     assert response.status_code == 202, response.text
     job_id = response.json()["job"]["id"]
@@ -74,6 +74,8 @@ def generate(client):
     assert job["status"] == "completed", job.get("error")
     assert job["request_snapshot"]["generation_contract_version"] == "handout_prose_v1"
     assert not job.get("bundle_blocks")
+    if not complete_ppt:
+        return job
     state = client.get("/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/manuscript").json()["ppt_manuscript_state"]
     assert not state.get("manuscript")
     response = client.post("/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/manuscript/complete",
@@ -142,3 +144,35 @@ def test_sync_candidate_is_reviewed_and_concurrent_edit_is_preserved(workflow):
     with pytest.raises(TeacherLessonAuthoringError, match="其他页面修改"):
         repository.resolve_ppt_sync_candidate("course-1", "L1-1", candidate["candidate_id"], accept=True)
     assert repository.current_v6_ppt_manuscript("course-1", "L1-1")["revision"] == "teacher-new"
+
+
+def test_changed_handout_starts_fresh_ppt_instead_of_reusing_failed_old_pages(workflow):
+    client, repository, calls = workflow
+    generate(client, complete_ppt=False)
+    lesson = repository.lesson("course-1", "L1-1")
+    old_script_id = lesson["working_script_revision_id"]
+    from ppt_fixed_templates import compile_fixed_template
+    from teacher_script_ppt import DEFAULT_THEME
+    old = repository.create_job("course-1", "L1-1", job_type="teacher_lesson_ppt_manuscript_generation", request_id="old-ppt")
+    repository.bind_ppt_completion("course-1", "L1-1", old["id"], old_script_id,
+        lesson["working_revision_id"], compile_fixed_template(DEFAULT_THEME).model_dump(mode="json"))
+    repository.update_job("course-1", old["id"], status="failed", error={"message": "old connection stopped"})
+    sections = deepcopy(lesson["script_revisions"][-1]["sections"])
+    sections[0]["blocks"][0]["content"] += "\n补充新的数值例子。"
+    current = repository.save_script_revision("course-1", "L1-1", sections,
+        source_lesson_plan_revision_id=lesson["working_revision_id"], generation_source="teacher_edit")
+    response = client.post("/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/manuscript/complete",
+        json={"source_script_revision_id": current["working_script_revision_id"], "task_id": old["id"]})
+    assert response.status_code == 202, response.text
+    assert response.json()["job"]["id"] != old["id"]
+    assert response.json()["job"]["source_script_revision_id"] == current["working_script_revision_id"]
+    assert repository.get_job("course-1", old["id"])["source_script_revision_id"] == old_script_id
+    new_job_id = response.json()["job"]["id"]
+    for _ in range(300):
+        job = client.get(f"/api/teacher/courses/course-1/lesson-jobs/{new_job_id}").json()["job"]
+        if job["status"] not in {"pending", "running"}:
+            break
+        time.sleep(.01)
+    assert job["status"] == "completed", job.get("error")
+    state = repository.current_v6_ppt_manuscript("course-1", "L1-1")
+    assert state["source_script_revision_id"] == current["working_script_revision_id"]

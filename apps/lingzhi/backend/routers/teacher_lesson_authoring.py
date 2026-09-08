@@ -2586,7 +2586,9 @@ async def complete_teacher_ppt_manuscript(
         if state.get("manuscript"):
             raise TeacherLessonAuthoringError("lesson_ppt_manuscript_revision_conflict", "内容稿已存在，请编辑或同步当前稿件。")
         actor = resolve_user_id(request.headers.get("X-User-Id"))
-        if state.get("generation_contract_version") == CONTRACT:
+        if (state.get("generation_contract_version") == CONTRACT
+                and state.get("source_script_revision_id") == body.source_script_revision_id
+                and state.get("source_lesson_plan_revision_id") == plan["revision_id"]):
             if body.task_id != state.get("task_id"):
                 raise TeacherLessonAuthoringError("lesson_ppt_resume_task_required", "请重试当前内容稿的原任务。")
             job = repository.resume_ppt_completion(course_id, lesson_unit_id, body.task_id, body.source_script_revision_id)
