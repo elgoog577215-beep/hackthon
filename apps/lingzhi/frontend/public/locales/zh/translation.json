@@ -6812,6 +6812,14 @@
     "document": "当前内容",
     "paragraph": "当前段落",
     "scopeMissing": "无法确定这段内容的来源，请在正文中重新选择。",
-    "noChange": "没有产生内容变化，请补充具体修改要求。"
+    "noChange": "没有产生内容变化，请补充具体修改要求。",
+    "compareLayout": "修改建议对比布局",
+    "compareSideBySide": "并排",
+    "compareStacked": "上下",
+    "focusCompare": "专注对比",
+    "closeFocusCompare": "关闭专注对比",
+    "sideBySideUnavailable": "当前空间不足，请收起右侧栏后使用并排对比。",
+    "sideBySideSelected": "已切换为并排对比",
+    "stackedSelected": "已切换为上下对比"
   }
 }

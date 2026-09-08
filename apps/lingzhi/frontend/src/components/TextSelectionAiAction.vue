@@ -28,6 +28,7 @@
     <section
       ref="panel"
       class="text-selection-ai__composer"
+      :class="{ 'is-comparison-stacked': comparisonLayout === 'stacked' }"
       :aria-label="composerTitle"
       :aria-busy="busy"
       @keydown.esc.stop.prevent="collapseOrClose"
@@ -35,6 +36,44 @@
       <header>
         <strong><Sparkles :size="16" />{{ t('courseWorkspace.inlineAi.aiPrefix') }} · {{ actionLabel }}</strong>
         <span>{{ contextLabel }}</span>
+        <div
+          v-if="changes.length && !collapsed"
+          class="inline-edit-comparison-tools"
+        >
+          <div
+            class="inline-edit-layout-switch"
+            role="group"
+            :aria-label="tr('compareLayout')"
+            @keydown="comparisonLayoutKeydown"
+          >
+            <button
+              ref="sideBySideButton"
+              type="button"
+              :aria-pressed="comparisonLayout === 'side-by-side'"
+              :disabled="!sideBySideAvailable"
+              :title="!sideBySideAvailable ? tr('sideBySideUnavailable') : undefined"
+              @click="setComparisonLayout('side-by-side')"
+            >
+              {{ tr('compareSideBySide') }}
+            </button>
+            <button
+              ref="stackedButton"
+              type="button"
+              :aria-pressed="comparisonLayout === 'stacked'"
+              @click="setComparisonLayout('stacked')"
+            >
+              {{ tr('compareStacked') }}
+            </button>
+          </div>
+          <button
+            ref="focusCompareTrigger"
+            class="inline-edit-focus-trigger"
+            type="button"
+            @click="openFocusCompare"
+          >
+            <Maximize2 :size="14" />{{ tr('focusCompare') }}
+          </button>
+        </div>
         <button
           type="button"
           :aria-label="collapsed ? tr('expand') : tr('collapse')"
@@ -182,7 +221,54 @@
               : tr('draftKept')
         }}
       </p>
+      <p class="sr-only" role="status" aria-live="polite">
+        {{ comparisonAnnouncement }}
+      </p>
     </section>
+  </Teleport>
+  <Teleport v-if="opened && changes.length" to="body">
+    <dialog
+      ref="focusDialog"
+      class="inline-edit-focus-dialog"
+      :class="{ 'is-comparison-stacked': focusComparisonLayout === 'stacked' }"
+      :aria-labelledby="focusDialogTitleId"
+      @close="restoreFocusCompareTrigger"
+    >
+      <header>
+        <div>
+          <strong :id="focusDialogTitleId">{{ candidateTitle }}</strong>
+          <span>{{ contextLabel }}</span>
+        </div>
+        <button
+          type="button"
+          :aria-label="tr('closeFocusCompare')"
+          @click="closeFocusCompare"
+        >
+          <X :size="18" />
+        </button>
+      </header>
+      <div class="inline-edit-focus-content">
+        <article v-for="(change, index) in changes" :key="index">
+          <strong v-if="change.label">{{ change.label }}</strong>
+          <div>
+            <section>
+              <small>{{ tr('before') }}</small>
+              <MarkdownRenderer
+                :content="change.before || tr('empty')"
+                :enable-code-run="false"
+              />
+            </section>
+            <section>
+              <small>{{ tr('after') }}</small>
+              <MarkdownRenderer
+                :content="change.after || tr('empty')"
+                :enable-code-run="false"
+              />
+            </section>
+          </div>
+        </article>
+      </div>
+    </dialog>
   </Teleport>
 </template>
 <script setup lang="ts">
@@ -198,6 +284,7 @@ import {
   ChevronDown,
   ChevronUp,
   LoaderCircle,
+  Maximize2,
   RefreshCw,
   Sparkles,
   X,
@@ -300,6 +387,8 @@ const candidateHint = computed(() => props.candidateHint || tr('reviewHint'))
 const applyLabel = computed(() => props.applyLabel || tr('apply'))
 const discardLabel = computed(() => props.discardLabel || tr('discard'))
 type InlineAction = 'explain' | 'example' | 'simplify' | 'ask'
+type ComparisonLayout = 'side-by-side' | 'stacked'
+const COMPARISON_STACK_BREAKPOINT = 900
 const activeAction = ref<InlineAction>('ask')
 const composerVisible = ref(true)
 const actionMenu = ref<HTMLElement | null>(null)
@@ -393,17 +482,25 @@ function trackPointer(event: PointerEvent) {
   hoverTarget.value = null
 }
 const inputId = `inline-edit-${createUuid()}`
+const focusDialogTitleId = `inline-edit-focus-${createUuid()}`
 const hoverTarget = ref<HTMLElement | null>(null),
   target = ref<HTMLElement | null>(null),
   inlineHost = ref<HTMLElement | null>(null),
   panel = ref<HTMLElement | null>(null),
-  input = ref<HTMLTextAreaElement | null>(null)
+  input = ref<HTMLTextAreaElement | null>(null),
+  sideBySideButton = ref<HTMLButtonElement | null>(null),
+  stackedButton = ref<HTMLButtonElement | null>(null),
+  focusCompareTrigger = ref<HTMLButtonElement | null>(null),
+  focusDialog = ref<HTMLDialogElement | null>(null)
 const opened = ref(false),
   collapsed = ref(false),
   stale = ref(false),
   instruction = ref(''),
   sourceText = ref(''),
-  localError = ref('')
+  localError = ref(''),
+  comparisonWidth = ref(0),
+  comparisonPreference = ref<ComparisonLayout | null>(null),
+  comparisonAnnouncement = ref('')
 const source = ref<TeacherInlineAiSource>('block'),
   triggerPosition = ref({ left: 0, top: 0 }),
   identity = ref<TeacherInlineAiTarget | undefined>()
@@ -412,6 +509,18 @@ let selectionText = '',
   resolving = false,
   history: string[] = [],
   pendingInstruction = ''
+let panelResizeObserver: ResizeObserver | null = null
+const sideBySideAvailable = computed(
+  () => comparisonWidth.value >= COMPARISON_STACK_BREAKPOINT,
+)
+const comparisonLayout = computed<ComparisonLayout>(() =>
+  sideBySideAvailable.value
+    ? comparisonPreference.value || 'side-by-side'
+    : 'stacked',
+)
+const focusComparisonLayout = computed<ComparisonLayout>(
+  () => comparisonPreference.value || 'side-by-side',
+)
 const triggerStyle = computed(() => ({
   position: 'fixed' as const,
   left: `${triggerPosition.value.left}px`,
@@ -429,6 +538,59 @@ const contextLabel = computed(() =>
     .filter(Boolean)
     .join(' · '),
 )
+function updateComparisonWidth(width?: number) {
+  const measured = width ?? panel.value?.getBoundingClientRect().width ?? 0
+  comparisonWidth.value = Math.max(0, measured)
+}
+function observeComparisonPanel(element: HTMLElement | null) {
+  panelResizeObserver?.disconnect()
+  panelResizeObserver = null
+  if (!element) return
+  updateComparisonWidth(element.getBoundingClientRect().width)
+  if (typeof ResizeObserver === 'undefined') return
+  panelResizeObserver = new ResizeObserver((entries) => {
+    const entry = entries[0]
+    if (entry) updateComparisonWidth(entry.contentRect.width)
+  })
+  panelResizeObserver.observe(element)
+}
+function setComparisonLayout(layout: ComparisonLayout) {
+  if (layout === 'side-by-side' && !sideBySideAvailable.value) return
+  comparisonPreference.value = layout
+  comparisonAnnouncement.value =
+    layout === 'side-by-side'
+      ? tr('sideBySideSelected')
+      : tr('stackedSelected')
+}
+function comparisonLayoutKeydown(event: KeyboardEvent) {
+  if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return
+  event.preventDefault()
+  if (event.key === 'ArrowLeft' && sideBySideAvailable.value) {
+    setComparisonLayout('side-by-side')
+    nextTick(() => sideBySideButton.value?.focus({ preventScroll: true }))
+    return
+  }
+  setComparisonLayout('stacked')
+  nextTick(() => stackedButton.value?.focus({ preventScroll: true }))
+}
+function openFocusCompare() {
+  const dialog = focusDialog.value
+  if (!dialog) return
+  if (typeof dialog.showModal === 'function') dialog.showModal()
+  else dialog.setAttribute('open', '')
+}
+function restoreFocusCompareTrigger() {
+  nextTick(() => focusCompareTrigger.value?.focus({ preventScroll: true }))
+}
+function closeFocusCompare() {
+  const dialog = focusDialog.value
+  if (!dialog) return
+  if (typeof dialog.close === 'function') dialog.close()
+  else {
+    dialog.removeAttribute('open')
+    restoreFocusCompareTrigger()
+  }
+}
 function contentText(element: HTMLElement) {
   if (element.dataset.aiSource) return element.dataset.aiSource
   const clone = element.cloneNode(true) as HTMLElement
@@ -568,6 +730,8 @@ function openTarget() {
   localError.value = ''
   stale.value = false
   collapsed.value = false
+  comparisonPreference.value = null
+  comparisonAnnouncement.value = ''
   insertHost(el)
   opened.value = true
   hoverTarget.value = null
@@ -663,6 +827,11 @@ function outside(event: PointerEvent) {
   }
 }
 watch(
+  panel,
+  (element) => observeComparisonPanel(element),
+  { flush: 'post' },
+)
+watch(
   () => props.busy,
   (busy, previous) => {
     if (previous && !busy) {
@@ -723,6 +892,8 @@ onMounted(() => {
   window.addEventListener('resize', positionTrigger)
 })
 onBeforeUnmount(() => {
+  panelResizeObserver?.disconnect()
+  panelResizeObserver = null
   props.container?.removeEventListener('pointerover', hover)
   document.removeEventListener('mouseup', captureSelection)
   document.removeEventListener('keyup', captureSelection)
@@ -793,6 +964,9 @@ defineExpose({ openForDocument, closeComposer })
 .text-selection-ai__composer {
   width: 100%;
   min-width: 0;
+  box-sizing: border-box;
+  container-name: ai-suggestion;
+  container-type: inline-size;
   padding: 16px;
   border: 1px solid var(--lz-border, #d5d9e2);
   border-radius: 8px;
@@ -806,6 +980,7 @@ defineExpose({ openForDocument, closeComposer })
 .text-selection-ai__composer > header {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 12px;
 }
@@ -827,6 +1002,37 @@ defineExpose({ openForDocument, closeComposer })
   padding: 0;
   display: grid;
   place-items: center;
+}
+.inline-edit-comparison-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.inline-edit-layout-switch {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--lz-border, #d5d9e2);
+  border-radius: 8px;
+  background: #f3f4f8;
+}
+.text-selection-ai__composer .inline-edit-layout-switch button {
+  min-height: 30px;
+  padding: 3px 10px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--lz-text-secondary, #536078);
+}
+.text-selection-ai__composer .inline-edit-layout-switch button[aria-pressed='true'] {
+  border-color: #d9d8ee;
+  background: var(--lz-surface, #fff);
+  color: var(--lz-brand-strong, #5148b6);
+  box-shadow: 0 1px 3px rgba(30, 41, 59, 0.08);
+}
+.text-selection-ai__composer .inline-edit-focus-trigger {
+  min-height: 36px;
+  white-space: nowrap;
 }
 .text-selection-ai__composer button {
   display: inline-flex;
@@ -901,6 +1107,8 @@ defineExpose({ openForDocument, closeComposer })
   font-size: 13px;
 }
 .inline-edit-diff {
+  min-width: 0;
+  max-width: 100%;
   max-height: 380px;
   overflow: auto;
   margin-bottom: 12px;
@@ -918,6 +1126,8 @@ defineExpose({ openForDocument, closeComposer })
 }
 .inline-edit-diff section {
   min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 10px;
   background: var(--lz-bg-page, #f5f6f9);
 }
@@ -928,11 +1138,137 @@ defineExpose({ openForDocument, closeComposer })
   color: #536078;
   font-size: 13px;
 }
-.inline-edit-diff pre {
+.inline-edit-diff :deep(.markdown-renderer),
+.inline-edit-focus-content :deep(.markdown-renderer) {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.inline-edit-diff :deep(pre),
+.inline-edit-focus-content :deep(pre) {
+  max-width: 100%;
+  overflow-x: auto;
   margin: 6px 0 0;
   font: inherit;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.text-selection-ai__composer.is-comparison-stacked .inline-edit-diff {
+  max-height: none;
+  overflow: visible;
+}
+.text-selection-ai__composer.is-comparison-stacked .inline-edit-diff article > div {
+  grid-template-columns: minmax(0, 1fr);
+}
+.inline-edit-focus-dialog {
+  width: min(1120px, calc(100vw - 96px));
+  max-width: none;
+  max-height: min(88vh, 900px);
+  box-sizing: border-box;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--lz-border, #d5d9e2);
+  border-radius: 12px;
+  background: var(--lz-surface, #fff);
+  color: var(--lz-text-primary, #273247);
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.2);
+}
+.inline-edit-focus-dialog::backdrop {
+  background: rgba(20, 27, 42, 0.32);
+}
+.inline-edit-focus-dialog > header {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--lz-border, #d5d9e2);
+}
+.inline-edit-focus-dialog > header > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.inline-edit-focus-dialog > header strong {
+  color: var(--lz-text-primary, #273247);
+  font-size: 16px;
+}
+.inline-edit-focus-dialog > header span {
+  overflow: hidden;
+  color: var(--lz-text-secondary, #536078);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inline-edit-focus-dialog button {
+  min-width: 36px;
+  min-height: 36px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--lz-border, #d5d9e2);
+  border-radius: 7px;
+  background: var(--lz-surface, #fff);
+  color: var(--lz-text-primary, #273247);
+  cursor: pointer;
+}
+.inline-edit-focus-dialog button:focus-visible {
+  outline: 2px solid var(--lz-brand-strong, #5148b6);
+  outline-offset: 2px;
+}
+.inline-edit-focus-content {
+  max-height: calc(min(88vh, 900px) - 65px);
+  overflow: auto;
+  padding: 18px;
+}
+.inline-edit-focus-content article + article {
+  margin-top: 18px;
+}
+.inline-edit-focus-content article > strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 15px;
+}
+.inline-edit-focus-content article > div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.inline-edit-focus-content section {
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 16px;
+  background: var(--lz-bg-page, #f5f6f9);
+}
+.inline-edit-focus-content section + section {
+  background: #f0f7f2;
+}
+.inline-edit-focus-content small {
+  color: #536078;
+  font-size: 13px;
+}
+.inline-edit-focus-dialog.is-comparison-stacked .inline-edit-focus-content article > div {
+  grid-template-columns: minmax(0, 1fr);
+}
+@container ai-suggestion (max-width: 899px) {
+  .inline-edit-diff {
+    max-height: none;
+    overflow: visible;
+  }
+  .inline-edit-diff article > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@container ai-suggestion (max-width: 639px) {
+  .text-selection-ai__composer > header > span {
+    flex-basis: 40%;
+  }
+  .inline-edit-comparison-tools {
+    order: 4;
+    width: 100%;
+  }
 }
 .inline-edit-decisions {
   display: flex;

@@ -6631,6 +6631,14 @@
     "document": "Current content",
     "paragraph": "Current paragraph",
     "scopeMissing": "The source could not be identified. Select the content again.",
-    "noChange": "No content changed. Add a more specific instruction."
+    "noChange": "No content changed. Add a more specific instruction.",
+    "compareLayout": "Suggested edit comparison layout",
+    "compareSideBySide": "Side by side",
+    "compareStacked": "Stacked",
+    "focusCompare": "Focus compare",
+    "closeFocusCompare": "Close focus compare",
+    "sideBySideUnavailable": "Collapse the right panel to compare side by side.",
+    "sideBySideSelected": "Switched to side-by-side comparison",
+    "stackedSelected": "Switched to stacked comparison"
   }
 }
