@@ -218,6 +218,38 @@ describe('course evolution store', () => {
     expect(store.generationError).toBe('')
   })
 
+  it('lets embedded AI callers await a durable analysis through short progress polls', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = useCourseEvolutionStore()
+      store.courseId = 'course-1'
+      store.applyAnalysisTask({
+        id: 'analysis-task-1',
+        type: 'teacher_course_change_analysis',
+        status: 'running',
+        message: '正在分析整课影响',
+      })
+      httpMock.get.mockResolvedValueOnce({ data: {
+        ...payload(),
+        analysis_task: {
+          id: 'analysis-task-1',
+          type: 'teacher_course_change_analysis',
+          status: 'completed',
+          message: '整课影响分析完成',
+        },
+      } })
+
+      const waiting = store.waitForAnalysisCompletion('course-1', 'analysis-task-1')
+      await vi.advanceTimersByTimeAsync(1800)
+      const result = await waiting
+
+      expect(result.course_evolution_plans).toHaveLength(1)
+      expect(store.generating).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('allows the embedded teacher assistant to target the current course without preloading the change workspace', async () => {
     httpMock.post.mockResolvedValue({ data: payload() })
     const store = useCourseEvolutionStore()
