@@ -4,7 +4,9 @@ from copy import deepcopy
 
 import pytest
 
+from course_document import stable_hash
 from ppt_fixed_templates import compile_fixed_template
+from ppt_source_quotes import source_excerpt_catalog
 from teacher_script_ppt import CONTRACT, generate_bundle, validate_block_pages
 
 
@@ -64,6 +66,59 @@ def test_failed_page_repair_receives_fixed_handout_and_preserves_successful_page
     assert saved[0]["content"] == TEXT
     assert result["blocks"][0]["content"] == TEXT
     assert result["blocks"][0]["ppt_pages"] == [page, page]
+
+
+def test_frozen_handout_page_repair_receives_selectable_literal_quote_ids():
+    template, contract, page = sample()
+    quote_catalog = source_excerpt_catalog({
+        "b": {
+            "block_id": "b",
+            "block_revision": stable_hash(TEXT, prefix="block_"),
+            "full_text": TEXT,
+        }
+    })
+    quote_id = quote_catalog[0]["quote_id"]
+    repaired = deepcopy(page)
+
+    def select_quote_ids(value):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key == "sources" and isinstance(child, list):
+                    value[key] = [{"quote_id": quote_id} for _ in child]
+                else:
+                    select_quote_ids(child)
+        elif isinstance(value, list):
+            for child in value:
+                select_quote_ids(child)
+
+    select_quote_ids(repaired)
+
+    calls = []
+
+    async def invoke(prompt, instructions, **kwargs):
+        calls.append((prompt, instructions))
+        return json.dumps({"pages": [repaired]}, ensure_ascii=False)
+
+    seed = {
+        **contract["modules"][0],
+        "content": TEXT,
+        "generation_contract_version": CONTRACT,
+    }
+    result = asyncio.run(generate_bundle(
+        invoke=invoke,
+        contract=contract,
+        instructions="",
+        template=template,
+        seed_blocks={"b": seed},
+        immutable_handout=True,
+    ))
+
+    assert calls[0][0].startswith("修复当前 PPT 页面")
+    assert '"literal_source_ranges"' in calls[0][1]
+    assert quote_id in calls[0][1]
+    assert "sources 只返回 quote_id" in calls[0][1]
+    assert result["blocks"][0]["ppt_pages"] == [repaired]
+    assert not result["blocks"][0]["ppt_errors"]
 
 
 def test_page_failure_exhaustion_returns_usable_handout_and_reusable_checkpoint():
