@@ -50,6 +50,7 @@ function clickText(text: string) {
 afterEach(() => {
   wrapper?.unmount()
   document.body.innerHTML = ''
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 describe('文中 AI 修改的完整操作', () => {
@@ -201,5 +202,67 @@ describe('文中 AI 修改的完整操作', () => {
     expect(row.tagName).toBe('TR')
     expect(row.querySelector('td')?.colSpan).toBe(2)
     expect(row.querySelector('textarea')).toBeTruthy()
+  })
+  it('空间不足时切为上下对比，并支持手动布局与专注对比', async () => {
+    let resize: ResizeObserverCallback | undefined
+    class ResizeObserverMock {
+      constructor(callback: ResizeObserverCallback) {
+        resize = callback
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', ResizeObserverMock)
+    const host = fixture()
+    await open(host.querySelector('p')!)
+    await wrapper.setProps({
+      candidatePending: true,
+      changes: [{ before: '原文', after: '完整的修改建议' }],
+    })
+    resize?.(
+      [{ contentRect: { width: 820 } } as ResizeObserverEntry],
+      {} as ResizeObserver,
+    )
+    await nextTick()
+    const sideBySide = Array.from(document.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'compareSideBySide',
+    ) as HTMLButtonElement
+    const stacked = Array.from(document.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'compareStacked',
+    ) as HTMLButtonElement
+    expect(sideBySide.disabled).toBe(true)
+    expect(stacked.getAttribute('aria-pressed')).toBe('true')
+    expect(document.querySelector('.text-selection-ai__composer')?.classList).toContain(
+      'is-comparison-stacked',
+    )
+
+    resize?.(
+      [{ contentRect: { width: 1000 } } as ResizeObserverEntry],
+      {} as ResizeObserver,
+    )
+    await nextTick()
+    expect(sideBySide.disabled).toBe(false)
+    sideBySide.click()
+    await nextTick()
+    expect(sideBySide.getAttribute('aria-pressed')).toBe('true')
+    stacked.click()
+    await nextTick()
+    expect(stacked.getAttribute('aria-pressed')).toBe('true')
+
+    const focusCompare = Array.from(document.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'focusCompare',
+    ) as HTMLButtonElement
+    focusCompare.focus()
+    focusCompare.click()
+    await nextTick()
+    const dialog = document.querySelector<HTMLDialogElement>('.inline-edit-focus-dialog')!
+    expect(dialog.hasAttribute('open')).toBe(true)
+    ;(
+      dialog.querySelector('[aria-label="closeFocusCompare"]') as HTMLButtonElement
+    ).click()
+    await nextTick()
+    expect(dialog.hasAttribute('open')).toBe(false)
+    expect(document.activeElement).toBe(focusCompare)
   })
 })
