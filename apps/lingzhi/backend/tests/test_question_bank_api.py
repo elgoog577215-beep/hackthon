@@ -60,8 +60,14 @@ class BlockingRebuildExecutor:
 class DeterministicAssessmentOrchestrator:
     """Keep API tests local and independent from provider availability."""
 
-    def __init__(self, *, fail_node_id: str = ""):
+    def __init__(
+        self,
+        *,
+        fail_node_id: str = "",
+        fail_practice_level: str = "mastery_check",
+    ):
         self.fail_node_id = fail_node_id
+        self.fail_practice_level = fail_practice_level
         self.requested_node_ids = []
         self.requested_practice_levels = []
 
@@ -238,7 +244,7 @@ class DeterministicAssessmentOrchestrator:
                 }
                 if (
                     node_id == self.fail_node_id
-                    and practice_level == "mastery_check"
+                    and practice_level == self.fail_practice_level
                 ):
                     contract["generation_status"] = "discarded"
                 contracts[node_id][practice_level] = contract
@@ -799,6 +805,7 @@ def test_failed_item_rebuild_keeps_the_published_question(
     node_id = str(course["nodes"][0]["node_id"])
     orchestrator = DeterministicAssessmentOrchestrator(
         fail_node_id=node_id,
+        fail_practice_level="objective_practice",
     )
     client, repository = _client(
         monkeypatch,
@@ -814,7 +821,7 @@ def test_failed_item_rebuild_keeps_the_published_question(
         item
         for item in original["items"]
         if item.get("assessment_role") == "practice"
-        and item.get("practice_levels") == ["mastery_check"]
+        and item.get("practice_levels") == ["objective_practice"]
     )
 
     created = client.post(

@@ -181,7 +181,11 @@ def build_question_bank(
     items = [*imported, *generated, *finals, *legacy]
     _stamp_question_forms(items)
     _mark_near_duplicate_risks(items)
-    _apply_tiered_review_policy(items, assessment_profile)
+    _apply_tiered_review_policy(
+        items,
+        assessment_profile,
+        solution_envelopes=solution_envelopes,
+    )
 
     coverage = _coverage_report(course_data, nodes, items, imported)
     reference_package = deepcopy(
@@ -626,6 +630,7 @@ def migrate_question_bank_review_policy(
     _apply_tiered_review_policy(
         result.get("items") or [],
         profile,
+        solution_envelopes=result.get("solution_envelopes") or {},
     )
     result["policy_migration"] = {
         "schema_version": QUESTION_RISK_MIGRATION_SCHEMA,
@@ -4311,6 +4316,8 @@ def _initial_status(item: dict[str, Any]) -> str:
 def _apply_tiered_review_policy(
     items: list[dict[str, Any]],
     profile: dict[str, Any],
+    *,
+    solution_envelopes: dict[str, Any] | None = None,
 ) -> None:
     """Publish validated questions by default and quarantine hard blockers."""
     for item in items:
@@ -4363,7 +4370,14 @@ def _apply_tiered_review_policy(
                 "quality_and_validation_passed",
             )
         item["revision_id"] = _item_revision_id(item)
-        item["formal_task"] = _stored_formal_task_from_item(item)
+        hydrated = deepcopy(item)
+        solution_revision_id = str(
+            item.get("solution_revision_id") or ""
+        )
+        solution = (solution_envelopes or {}).get(solution_revision_id)
+        if solution:
+            hydrated["_solution_envelope"] = deepcopy(solution)
+        item["formal_task"] = _stored_formal_task_from_item(hydrated)
         item["formal_task_revision_id"] = item["formal_task"][
             "revision_id"
         ]
@@ -4372,9 +4386,23 @@ def _apply_tiered_review_policy(
 def _mandatory_review_reason(
     item: dict[str, Any],
 ) -> str:
+    if item.get("assessment_role") in FINAL_ASSESSMENT_ROLES:
+        return "comprehensive_assessment"
+    risk_flags = [
+        str(value)
+        for value in item.get("risk_flags") or []
+        if str(value).strip()
+    ]
+    if "high_consequence_action" in risk_flags:
+        return "risk:high_consequence_action"
+    blocking_risk_flags = [
+        value for value in risk_flags
+        if value not in {"quality_advisory"}
+    ]
     generated_and_usable = bool(
         str(item.get("source_type") or "") in {"generated", "variant"}
         and (item.get("quality_report") or {}).get("passed")
+        and not blocking_risk_flags
         and (
             not item.get("solution_validation")
             or (item.get("solution_validation") or {}).get("passed")
@@ -4382,11 +4410,6 @@ def _mandatory_review_reason(
     )
     if generated_and_usable:
         return ""
-    risk_flags = [
-        str(value)
-        for value in item.get("risk_flags") or []
-        if str(value).strip()
-    ]
     if item.get("review_required") and "high_consequence_action" in risk_flags:
         return "risk:high_consequence_action"
     quality = item.get("quality_report") or {}

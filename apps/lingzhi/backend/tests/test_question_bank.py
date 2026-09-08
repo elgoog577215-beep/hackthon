@@ -381,7 +381,7 @@ def test_imported_multiple_choice_question_preserves_options_and_correct_choice(
     ]
 
 
-def test_comprehensive_tasks_are_multi_item_specific_and_publish_directly():
+def test_comprehensive_tasks_are_multi_item_specific_and_require_teacher_review():
     bundle = build_question_bank(_course())
     finals = [
         item for item in bundle["items"]
@@ -390,8 +390,8 @@ def test_comprehensive_tasks_are_multi_item_specific_and_publish_directly():
 
     assert 3 <= len(finals) <= 8
     assert any(item["assessment_role"] == "cross_chapter_transfer" for item in finals)
-    assert all(item["lifecycle_status"] == "approved" for item in finals)
-    assert all(item["review_required"] is False for item in finals)
+    assert all(item["lifecycle_status"] == "needs_review" for item in finals)
+    assert all(item["review_required"] is True for item in finals)
     assert all(item["deliverable"] for item in finals)
     assert all(item["input_materials"] for item in finals)
     assert all(item["constraints"] for item in finals)
@@ -711,9 +711,9 @@ def test_subject_level_risk_migration_runs_after_policy_was_already_updated():
     assert "independent_solution_required" not in migrated_low["risk_flags"]
 
     migrated_high = by_id[high_risk["item_id"]]
-    assert migrated_high["review_tier"] == "auto_publish"
+    assert migrated_high["review_tier"] == "mandatory_review"
     assert migrated_high["review_policy_reason"] == (
-        "quality_and_validation_passed"
+        "risk:high_consequence_action"
     )
     assert "high_consequence_action" in migrated_high["risk_flags"]
     assert "high_stakes_domain" not in migrated_high["risk_flags"]
@@ -735,8 +735,8 @@ def test_subject_level_risk_migration_runs_after_policy_was_already_updated():
     ]
     assert final_items
     assert all(
-        item["review_tier"] == "auto_publish"
-        and item["review_policy_reason"] == "quality_and_validation_passed"
+        item["review_tier"] == "mandatory_review"
+        and item["review_policy_reason"] == "comprehensive_assessment"
         for item in final_items
     )
     assert migrated["policy_migration"]["schema_version"] == (

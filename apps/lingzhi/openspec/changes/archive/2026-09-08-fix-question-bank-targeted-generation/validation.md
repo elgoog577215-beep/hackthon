@@ -11,6 +11,8 @@
 - Chinese and English locale JSON parsing: passed.
 - `git diff --check`: passed.
 
+The first full GitHub Actions run exposed six compatibility failures in comprehensive assessments, high-consequence medical questions, learning-asset compilation and student practice projection. The implementation now keeps the existing confirmation gate for comprehensive and high-consequence questions, and rebuilds stored formal-task identities with their private solution envelope after policy application. All six failed tests pass locally before the replacement release run.
+
 ### TDD evidence
 
 - RED: targeted backend tests failed because item-scope resolution, settled-slot extraction and field-level repair guards did not exist.
