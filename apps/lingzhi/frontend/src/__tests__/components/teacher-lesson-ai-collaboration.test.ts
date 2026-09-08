@@ -50,6 +50,7 @@ const lesson: TeacherLessonProjection = {
 
 function mountWorkbench() {
   return mount(TeacherCourseWorkbench, {
+    attachTo: document.body,
     props: {
       courseId: 'course-1',
       courseTitle: '人工智能通识课',
@@ -143,6 +144,7 @@ function mountActualQuestionBankWorkbench() {
 
 describe('教案 AI 协作编辑模式', () => {
   beforeEach(() => {
+    document.body.innerHTML = ''
     setActivePinia(createPinia())
     vi.restoreAllMocks()
     window.localStorage.clear()
@@ -167,17 +169,16 @@ describe('教案 AI 协作编辑模式', () => {
     expect(wrapper.find('.lesson-ai-workspace').exists()).toBe(false)
     expect(composer.text()).toContain('AI 只提出修改建议，采用后才会写入正式教案')
     await composer.get('textarea').setValue('把教学目标改成可观察行为')
-    await composer.trigger('submit')
+    await composer.get('form').trigger('submit')
     await flushPromises()
 
     expect(createCandidate.mock.calls[0]![3]).toContain('把教学目标改成可观察行为')
-    expect(wrapper.get('.candidate-canvas-notice').text()).toContain('修改建议已嵌入教案正文')
-    expect(wrapper.get('.candidate-canvas-notice').text()).toContain('继续调整')
-    expect(wrapper.get('.candidate-canvas-notice').text()).toContain('保留原文')
-    expect(wrapper.get('.candidate-canvas-notice').text()).toContain('采用修改')
-    expect(wrapper.get('[data-ai-field="knowledge_objectives"]').classes()).toContain('ai-change-target')
+    expect(wrapper.find('.inline-edit-diff').exists()).toBe(true)
+    expect(wrapper.findAll('.inline-edit-followups button')).toHaveLength(2)
+    expect(wrapper.findAll('.inline-edit-decisions button')).toHaveLength(2)
+    expect(wrapper.find('.inline-edit-decisions button.primary').exists()).toBe(true)
+    expect(wrapper.get('[data-ai-field="knowledge_objectives"]').classes()).not.toContain('ai-change-target')
     expect(wrapper.get('.objective-section').classes()).not.toContain('ai-change-target')
-    expect(wrapper.text()).toContain('能用流程图准确解释爬虫四步流程')
   })
 
   it('精确字段在对象下方生成，携带对象身份并显示真实等待时间', async () => {
@@ -197,20 +198,23 @@ describe('教案 AI 协作编辑模式', () => {
 
     const field = wrapper.get('[data-ai-field="teacher_activity"]')
     await field.trigger('pointerover')
-    await wrapper.get('.text-selection-ai__trigger').trigger('click')
-    await field.trigger('pointerover')
-    expect(field.classes()).toContain('text-selection-ai-target-preview')
-    await field.trigger('click')
+    ;(
+      document.querySelector(
+        '.block-ai-menu [data-action="ask"]',
+      ) as HTMLButtonElement
+    ).click()
+    await flushPromises()
     const composer = wrapper.get('.text-selection-ai__composer')
     await composer.get('textarea').setValue('增加学生预测环节')
-    await composer.trigger('submit')
+    await composer.get('form').trigger('submit')
     await flushPromises()
 
     expect(createCandidate.mock.calls[0]![6]).toEqual({
       sectionNodeId: 'section-1',
       field: 'teacher_activity',
       itemId: 'core_explanation',
-      selectedText: '教师活动：讲解四步流程',
+      selectedText: '讲解四步流程',
+      selectionOnly: true,
     })
     expect(wrapper.get('.text-selection-ai__status').text()).toContain('已等待 2 秒')
     expect(wrapper.classes()).not.toContain('is-ai-collaboration')
@@ -225,7 +229,7 @@ describe('教案 AI 协作编辑模式', () => {
 
     expect(wrapper.find('.candidate-canvas-notice').exists()).toBe(false)
     expect(wrapper.get('.text-selection-ai__composer').text()).toContain('采用修改')
-    expect(wrapper.get('[data-ai-field="teacher_activity"]').classes()).toContain('ai-change-target')
+    expect(wrapper.find('.inline-edit-diff').exists()).toBe(true)
     expect(wrapper.get('.flow-section').classes()).not.toContain('ai-change-target')
   })
 
@@ -311,15 +315,15 @@ describe('教案 AI 协作编辑模式', () => {
 
     let composer = await openInlineLessonAi(wrapper)
     await composer.get('textarea').setValue('把教学目标改成可观察行为')
-    await composer.trigger('submit')
+    await composer.get('form').trigger('submit')
     await flushPromises()
 
     expect(createCandidate).toHaveBeenCalledTimes(1)
-    await wrapper.findAll('.candidate-canvas-notice button')[0]!.trigger('click')
+    await wrapper.get('.inline-edit-followups button').trigger('click')
     await flushPromises()
     composer = wrapper.get('.text-selection-ai__composer')
     await composer.get('textarea').setValue('同时增加课堂检查')
-    await composer.trigger('submit')
+    await composer.get('form').trigger('submit')
     await flushPromises()
 
     expect(resolveCandidate).toHaveBeenCalledWith('course-1', 'lesson-1', 'candidate-1', false)
@@ -327,7 +331,7 @@ describe('教案 AI 协作编辑模式', () => {
     expect(createCandidate.mock.calls[1]![3]).toContain('把教学目标改成可观察行为')
     expect(createCandidate.mock.calls[1]![3]).toContain('同时增加课堂检查')
 
-    await wrapper.get('.candidate-canvas-notice button.primary').trigger('click')
+    await wrapper.get('.inline-edit-decisions button.primary').trigger('click')
     await flushPromises()
 
     expect(resolveCandidate).toHaveBeenLastCalledWith('course-1', 'lesson-1', 'candidate-2', true)
@@ -402,7 +406,7 @@ describe('教案 AI 协作编辑模式', () => {
 
     const composer = await openInlineLessonAi(wrapper)
     await composer.get('textarea').setValue('把第二章和第三章合并，并同步更新教案和讲稿')
-    await composer.trigger('submit')
+    await composer.get('form').trigger('submit')
     await flushPromises()
 
     expect(localCandidate).not.toHaveBeenCalled()

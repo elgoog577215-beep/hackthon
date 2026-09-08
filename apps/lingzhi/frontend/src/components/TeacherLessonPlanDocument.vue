@@ -230,6 +230,7 @@ import AppErrorNotice from './AppErrorNotice.vue'
 import MathText from './MathText.vue'
 import TextSelectionAiAction, { type TeacherInlineAiRequest, type TeacherInlineAiTarget } from './TextSelectionAiAction.vue'
 import { useDocumentEditHistory } from '../composables/useDocumentEditHistory'
+import { routeTeacherProductionRequest } from '../composables/useTeacherProductionAiCollaboration'
 import { t } from '../shared/i18n'
 import {
   useTeacherLessonAuthoringStore,
@@ -755,6 +756,18 @@ async function requestInlineAiCandidate(payload: TeacherInlineAiRequest) {
   if (!payload.target?.field || !payload.target.sectionNodeId) {
     aiError.value = new Error(tr('teacherInlineEdit.scopeMissing'))
     return
+  }
+  if (
+    routeTeacherProductionRequest('lesson', payload.instruction).capability
+    === 'plan_course_change'
+  ) {
+    inlineCandidateInPlace.value = false
+    emit('open-ai-selection', payload)
+    return
+  }
+  if (pendingCandidate.value) {
+    const discarded = await resolveAiCandidate(false)
+    if (!discarded) return
   }
   inlineTarget.value = payload.target
   inlineCandidateInPlace.value = true

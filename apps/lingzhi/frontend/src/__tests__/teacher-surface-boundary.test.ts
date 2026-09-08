@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 const sourceRoot = resolve(process.cwd(), 'src')
 const source = (path: string) => readFileSync(resolve(sourceRoot, path), 'utf8')
+  .replace(/\r\n/g, '\n')
 
 describe('calendar and course file-space boundary', () => {
   it('observes scalar job status sources without refetching on every streamed token', () => {

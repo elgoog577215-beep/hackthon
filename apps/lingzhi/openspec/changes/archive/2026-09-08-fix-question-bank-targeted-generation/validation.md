@@ -13,6 +13,8 @@
 
 The first full GitHub Actions run exposed six compatibility failures in comprehensive assessments, high-consequence medical questions, learning-asset compilation and student practice projection. The implementation now keeps the existing confirmation gate for comprehensive and high-consequence questions, and rebuilds stored formal-task identities with their private solution envelope after policy application. All six failed tests pass locally before the replacement release run.
 
+The replacement run passed backend tests, compatibility checks and lint, then exposed four stale assertions in the recently rebuilt lesson inline-AI flow. The release repair attaches that integration test to the DOM, submits through the new inline form, checks the inline diff surface, retires the previous candidate before a follow-up, and restores course-plan routing for structural or cross-asset instructions. The affected integration file and the new inline-action suites pass locally before the next release run.
+
 ### TDD evidence
 
 - RED: targeted backend tests failed because item-scope resolution, settled-slot extraction and field-level repair guards did not exist.
