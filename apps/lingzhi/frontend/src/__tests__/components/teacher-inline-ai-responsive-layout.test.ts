@@ -24,6 +24,32 @@ describe('讲义 AI 修改建议响应式布局', () => {
     expect(component).toContain('overflow-wrap: anywhere')
   })
 
+  it('讲义正文的每一级容器都允许随右栏收缩', () => {
+    const workbench = source('src/components/TeacherCourseWorkbench.vue')
+    const document = source('src/components/TeacherScriptDocument.vue')
+    expect(workbench).toMatch(
+      /lesson-stage-content\{[^}]*min-width:0[^}]*overflow-x:clip/,
+    )
+    expect(document).toMatch(
+      /script-continuous\{[^}]*min-width:0[^}]*max-width:100%[^}]*box-sizing:border-box/,
+    )
+    expect(document).toMatch(/script-body\{[^}]*min-width:0[^}]*box-sizing:border-box/)
+    expect(document).toMatch(/script-content\{[^}]*min-width:0[^}]*max-width:100%/)
+  })
+
+  it('建议操作行可换行，提示文字不能把按钮推出可视区域', () => {
+    const component = source('src/components/TextSelectionAiAction.vue')
+    expect(component).toMatch(
+      /\.inline-edit-decisions\s*\{[^}]*min-width:\s*0[^}]*flex-wrap:\s*wrap/,
+    )
+    expect(component).toMatch(
+      /\.inline-edit-decisions\s*>\s*span\s*\{[^}]*min-width:\s*0[^}]*flex:\s*1\s+1\s+240px/,
+    )
+    expect(component).toMatch(
+      /\.inline-edit-decisions\s*>\s*button\s*\{[^}]*flex:\s*none/,
+    )
+  })
+
   it('中英文都提供对比布局与专注模式文案', () => {
     for (const locale of ['zh', 'en']) {
       const messages = JSON.parse(
