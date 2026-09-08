@@ -1,16 +1,20 @@
 <template>
   <section class="lesson-ppt-workspace" data-testid="lesson-ppt-workspace">
-    <TeacherDocumentCommandBar class="lesson-ppt-toolbar" :label="t('pptWorkspace.editor.actions')" :show-status="dirty || saving" :status-label="saving ? t('pptWorkspace.savingManuscript') : t('pptWorkspace.manuscriptUnsaved')" :status-tone="saving ? 'busy' : 'warning'">
-      <template #context><UiSegmentedControl v-model="tab" :options="tabs" :accessibility-label="t('pptWorkspace.pageEditing')" /></template>
-      <button v-if="state.manuscript && tab === 'manuscript' && !historyOpen" type="button" :disabled="busy || state.source_state === 'stale'" data-testid="ppt-live-edit" @click="editor?.editing ? editor?.finishEditing() : editor?.beginEditing()"><Check v-if="editor?.editing" :size="16" /><Pencil v-else :size="16" />{{ editor?.editing ? t('pptWorkspace.editor.finishEditing') : t('pptLive.edit') }}</button>
+    <header class="lesson-ppt-header">
+      <div class="lesson-ppt-title">
+        <h1>{{ title }}</h1>
+        <span v-if="state.manuscript" class="lesson-ppt-page-count">{{ pageCountLabel }}</span>
+      </div>
+      <TeacherDocumentCommandBar class="lesson-ppt-toolbar" :label="t('pptWorkspace.editor.actions')" :show-status="dirty || saving" :status-label="saving ? t('pptWorkspace.savingManuscript') : t('pptWorkspace.manuscriptUnsaved')" :status-tone="saving ? 'busy' : 'warning'">
+      <template #context><UiSegmentedControl v-model="tab" :options="tabs" size="compact" :accessibility-label="t('pptWorkspace.pageEditing')" /></template>
+      <button v-if="state.manuscript && tab === 'manuscript'" type="button" :disabled="busy || state.source_state === 'stale'" data-testid="ppt-live-edit" @click="editor?.editing ? editor?.finishEditing() : editor?.beginEditing()"><Check v-if="editor?.editing" :size="16" /><Pencil v-else :size="16" />{{ editor?.editing ? t('pptWorkspace.editor.finishEditing') : t('pptLive.edit') }}</button>
       <button type="button" :disabled="!state.can_export || dirty || busy" :title="t('pptProject.export')" :aria-label="t('pptProject.export')" @click="download"><Download :size="16" /></button>
-      <button type="button" :disabled="dirty || saving" :title="t('pptLive.history')" :aria-label="t('pptLive.history')" :aria-pressed="historyOpen" @click="toggleHistory"><History :size="16" /></button>
       <button type="button" :disabled="dirty || saving" :title="t('pptProject.originalReview')" :aria-label="t('pptProject.originalReview')" @click="openOriginal"><FileCheck2 :size="16" /></button>
-    </TeacherDocumentCommandBar>
-    <PptProjectWorkspace v-if="historyOpen" ref="historyWorkspace" :course-id="courseId" :initial-lesson-id="initialLessonId" embedded />
-    <template v-else>
+      </TeacherDocumentCommandBar>
+    </header>
+    <template>
       <p v-if="error" class="lesson-ppt-error" role="alert">{{ error }}<button type="button" :disabled="saving || busy" @click="retry"><RefreshCw :size="16" />{{ t('common.retry') }}</button></p>
-      <p v-if="state.source_state === 'stale'" class="lesson-ppt-notice" role="status">{{ t('pptLive.stale') }}<button type="button" :disabled="busy || dirty" @click="sync"><RefreshCw :size="16" />{{ t('pptLive.sync') }}</button></p>
+      <p v-if="state.manuscript && state.source_state === 'stale'" class="lesson-ppt-notice" role="status">{{ t('pptLive.stale') }}<button type="button" :disabled="busy || dirty" @click="sync"><RefreshCw :size="16" />{{ t('pptLive.sync') }}</button></p>
       <p v-if="job && ['pending', 'running'].includes(job.status)" class="lesson-ppt-notice" role="status"><LoaderCircle :size="16" class="spinning" />{{ job.message || t('pptProject.preparing') }}</p>
       <section v-if="state.sync_candidate" class="lesson-ppt-candidate">
         <header><strong>{{ t('pptLive.candidate') }}</strong><button type="button" :disabled="busy" @click="resolveSync(true)"><Check :size="16" />{{ t('pptLive.accept') }}</button><button type="button" :disabled="busy" @click="resolveSync(false)">{{ t('pptLive.reject') }}</button></header>
@@ -21,7 +25,9 @@
           :allow-page-regeneration="false" :saving="saving" :busy="state.source_state === 'stale'"
           @dirty-change="dirty = $event" @pending-change="scheduleSave" @save-manuscript="save" @page-change="selectPage" />
         <section v-if="tab === 'render'" class="lesson-ppt-preview">
-          <label class="lesson-ppt-page-picker"><span>{{ t('pptWorkspace.sidebar.selectPage') }}</span><select :value="selectedPage" @change="selectPage(($event.target as HTMLSelectElement).value)"><option v-for="page in pages" :key="page.page_id" :value="page.page_id">{{ page.page_number }}. {{ page.title }}</option></select></label>
+          <nav class="lesson-ppt-page-strip" :aria-label="t('pptWorkspace.sidebar.selectPage')">
+            <button v-for="page in pages" :key="page.page_id" type="button" :class="{ active: selectedPage === page.page_id }" :aria-current="selectedPage === page.page_id ? 'page' : undefined" @click="selectPage(page.page_id)"><span>{{ page.page_number }}</span><strong>{{ page.title }}</strong></button>
+          </nav>
           <div class="lesson-ppt-canvas">
             <p v-if="previewError" class="lesson-ppt-error" role="alert">{{ previewError }}<button type="button" @click="loadPreview([selectedPage])"><RefreshCw :size="16" />{{ t('common.retry') }}</button></p>
             <p v-if="previewRevisions[selectedPage] !== state.revision && visibleSlides.length" class="lesson-ppt-notice">{{ t('pptLive.previousPreview') }}</p>
@@ -31,7 +37,9 @@
         </section>
       </template>
       <div v-else class="lesson-ppt-empty">
-        <p>{{ loading ? t('common.loading') : t('pptLive.missing') }}</p>
+        <div class="lesson-ppt-empty-mark"><Presentation :size="24" /></div>
+        <h2>{{ loading ? t('common.loading') : t('pptLive.missing') }}</h2>
+        <p>{{ loading ? t('pptProject.preparing') : emptyDescription }}</p>
         <p v-for="(issue, index) in state.page_errors || []" :key="index" class="lesson-ppt-error">{{ issue.message }}</p>
         <button type="button" :disabled="loading || busy || !state.source_script_revision_id" @click="complete"><RefreshCw :size="16" />{{ t('pptLive.complete') }}</button>
       </div>
@@ -41,14 +49,13 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { Check, Download, FileCheck2, History, LoaderCircle, Pencil, RefreshCw } from 'lucide-vue-next'
+import { Check, Download, FileCheck2, LoaderCircle, Pencil, Presentation, RefreshCw } from 'lucide-vue-next'
 import http, { identityRequestConfig, teacherIdentityHeaders, withApiBase } from '../utils/http'
 import { consumeEventStream } from '../shared/generation-stream'
 import { t } from '../shared/i18n'
 import { adaptSlideDeckV6ForWeb } from '../utils/slide-deck-v6-adapter'
 import UiSegmentedControl from './UiSegmentedControl.vue'
 import PptManuscriptWorkflow from './PptManuscriptWorkflow.vue'
-import PptProjectWorkspace from './PptProjectWorkspace.vue'
 import SlideCanvas from './SlideCanvas.vue'
 import TeacherDocumentCommandBar from './TeacherDocumentCommandBar.vue'
 
@@ -56,13 +63,14 @@ const props = defineProps<{ courseId: string; initialLessonId: string; title: st
 const emit = defineEmits<{ (event: 'legacy'): void }>()
 const state = ref<Record<string, any>>({}), job = ref<Record<string, any> | null>(null)
 const editor = ref<InstanceType<typeof PptManuscriptWorkflow> | null>(null)
-const historyWorkspace = ref<InstanceType<typeof PptProjectWorkspace> | null>(null)
-const tab = ref('manuscript'), historyOpen = ref(false), selectedPage = ref('')
+const tab = ref('manuscript'), selectedPage = ref('')
 const dirty = ref(false), saving = ref(false), loading = ref(false), exporting = ref(false), syncing = ref(false)
 const error = ref(''), previewError = ref(''), previewBusy = ref(false), previewRevisions = ref<Record<string, string>>({})
 const physicalPages = ref<Record<string, any>>({}), manifest = ref<Record<string, any>[]>([])
 const tabs = computed(() => [{ value: 'manuscript', label: t('pptLive.manuscript') }, { value: 'render', label: t('pptLive.render') }])
 const pages = computed(() => state.value.manuscript?.pages || [])
+const pageCountLabel = computed(() => t('pptWorkspace.sidebar.pageCount', '{count} 页').replace('{count}', String(state.value.manuscript?.page_count || 0)))
+const emptyDescription = computed(() => t('pptLive.missingDescription', '讲义生成完成后会自动形成内容稿；旧讲义可以在这里补齐。'))
 const busy = computed(() => exporting.value || syncing.value || ['pending', 'running'].includes(job.value?.status || ''))
 const candidateState = computed(() => ({ revision: state.value.sync_candidate?.candidate_id, manuscript: { ...state.value.sync_candidate?.manuscript, pages: (state.value.sync_candidate?.manuscript?.pages || []).filter((p: any) => state.value.sync_candidate.affected_page_ids.includes(p.page_id)) } }))
 const visibleSlides = computed(() => {
@@ -73,7 +81,7 @@ const sources = computed(() => ({ lectures: [{ lesson_id: props.initialLessonId,
 const context = computed(() => ({ phase: error.value ? 'failed' as const : busy.value ? 'during' as const : state.value.manuscript ? 'after' as const : 'before' as const,
   preparing: false, label: busy.value ? t('pptProject.preparing') : state.value.manuscript ? t('courseWorkbench.contextPane.ready') : t('pptLive.missing'),
   detail: error.value, progress: busy.value ? job.value?.progress ?? null : null,
-  actions: state.value.source_state === 'stale' ? [{ id: 'sync', label: t('pptLive.sync'), disabled: busy.value || dirty.value, primary: false, reason: '' }]
+  actions: state.value.manuscript && state.value.source_state === 'stale' ? [{ id: 'sync', label: t('pptLive.sync'), disabled: busy.value || dirty.value, primary: false, reason: '' }]
     : state.value.manuscript ? [] : [{ id: 'complete', label: t('pptLive.complete'), disabled: busy.value || !state.value.source_script_revision_id, primary: true, reason: '' }] }))
 let version = 0, disposed = false, previewRequest = 0
 let timer: ReturnType<typeof setTimeout> | undefined, pollTimer: ReturnType<typeof setTimeout> | undefined
@@ -144,14 +152,12 @@ async function save(): Promise<boolean> {
   return savePromise
 }
 async function prepareToLeave(): Promise<boolean> {
-  if (historyOpen.value && historyWorkspace.value?.prepareToLeave() === false) return false
   if (timer) clearTimeout(timer)
   if (!await save()) return false
   await nextTick()
   if (editor.value?.pendingChanges().updates.length || editor.value?.pendingChanges().pacing) return save()
   return !error.value || !dirty.value
 }
-async function toggleHistory() { if (await prepareToLeave()) historyOpen.value = !historyOpen.value }
 async function openOriginal() { if (await prepareToLeave()) emit('legacy') }
 async function poll(id: string, v: number) {
   try {
@@ -212,14 +218,14 @@ async function resolveSync(accept: boolean) {
   finally { if (current(v)) syncing.value = false }
 }
 async function retry() { error.value = ''; if (dirty.value) await save(); else if (!state.value.manuscript) await complete(); else await load() }
-function protect(event: BeforeUnloadEvent) { if (dirty.value || saving.value || historyWorkspace.value?.dirty) { event.preventDefault(); event.returnValue = '' } }
+function protect(event: BeforeUnloadEvent) { if (dirty.value || saving.value) { event.preventDefault(); event.returnValue = '' } }
 window.addEventListener('beforeunload', protect)
 watch(() => [props.courseId, props.initialLessonId], () => {
   version++; controller.abort(); controller = new AbortController()
   if (timer) clearTimeout(timer); if (pollTimer) clearTimeout(pollTimer)
   state.value = {}; job.value = null; physicalPages.value = {}; manifest.value = []; selectedPage.value = ''; previewRevisions.value = {}
   error.value = ''; previewError.value = ''; dirty.value = false; saving.value = false; savePromise = null; exporting.value = false
-  tab.value = 'manuscript'; historyOpen.value = false
+  tab.value = 'manuscript'
   void load()
 }, { immediate: true })
 watch(() => props.sourceRevision, () => { if (!dirty.value && !saving.value) void load() })
@@ -228,15 +234,358 @@ defineExpose({ context, sources, runContextAction, prepareToLeave })
 </script>
 
 <style scoped>
-.lesson-ppt-workspace{min-width:0;display:flex;flex-direction:column;gap:16px;color:var(--lz-text-primary);font-size:16px}
-.lesson-ppt-toolbar{position:sticky;top:0;z-index:8;max-width:none;margin:0;padding:12px 0;background:var(--teacher-component-tint,#f5f6f8)}
-.lesson-ppt-tools{display:flex;gap:8px;align-items:center}
-button{display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:7px 10px;border:1px solid var(--lz-border);border-radius:6px;background:var(--lz-bg-surface,#fff);color:inherit;font:inherit;cursor:pointer}
-button:hover:not(:disabled){background:var(--lz-bg-page)}button:focus-visible{outline:2px solid var(--lz-brand-strong);outline-offset:2px}button:disabled{opacity:.5;cursor:not-allowed}
-.lesson-ppt-error,.lesson-ppt-notice{margin:0;display:flex;gap:12px;align-items:center;line-height:1.7;overflow-wrap:anywhere}.lesson-ppt-error{color:#a13131}.lesson-ppt-notice{color:var(--lz-text-secondary)}
-.lesson-ppt-empty{padding:32px 0}.lesson-ppt-preview{display:grid;grid-template-columns:170px minmax(0,1fr);gap:20px;align-items:start}.lesson-ppt-preview>nav{display:grid;gap:6px;max-height:70vh;overflow:auto}.lesson-ppt-preview>nav button{display:flex;align-items:baseline;text-align:left;overflow-wrap:anywhere;border-color:transparent;line-height:1.6}.lesson-ppt-preview>nav button[aria-current]{background:var(--lz-bg-page);color:var(--lz-brand-strong)}.lesson-ppt-preview>nav span{flex:0 0 24px;font-variant-numeric:tabular-nums}.lesson-ppt-canvas{display:grid;gap:16px;min-width:0}.lesson-ppt-canvas :deep(.slide-canvas){aspect-ratio:16/9;width:100%}
-.lesson-ppt-workspace :deep(.ppt-manuscript-workflow__pages){display:block}.lesson-ppt-workspace :deep(.ppt-manuscript-workflow__pages>article){padding:24px 0;border-bottom:1px solid var(--lz-border)}
-.lesson-ppt-preview{display:flex;flex-direction:column}.lesson-ppt-page-picker{display:flex;align-items:center;gap:12px;max-width:100%;color:#526077}.lesson-ppt-page-picker select{min-width:0;max-width:520px;font:inherit;padding:6px 10px;border:1px solid #d6dce6;border-radius:6px;background:#fff}.lesson-ppt-canvas{width:100%}
-.lesson-ppt-workspace :deep(.ppt-manuscript-workflow){height:auto;overflow:visible;padding:0;background:transparent}.lesson-ppt-workspace :deep(.ppt-manuscript-workflow__pages){overflow:visible;background:transparent}.lesson-ppt-workspace :deep(.ppt-manuscript-workflow__pages>article){overflow:visible;scroll-margin-top:80px}.lesson-ppt-workspace :deep(.ppt-manuscript-workflow__page-meta:empty){display:none}.lesson-ppt-workspace :deep(.ppt-manuscript-workflow__page-copy){max-width:860px}
-.spinning{animation:ppt-spin 1s linear infinite}@keyframes ppt-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spinning{animation:none}}
+.lesson-ppt-workspace {
+  --ppt-surface:#ffffff;
+  --ppt-ground:#f5f6f9;
+  --ppt-hover:#f0f2f7;
+  --ppt-ink:#1f2937;
+  --ppt-muted:#667085;
+  --ppt-soft:#8a94a6;
+  --ppt-line:#e1e6ee;
+  --ppt-accent:#4f46c8;
+  --ppt-accent-soft:#f0efff;
+  min-width:0;
+  min-height:100%;
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+  padding:0 0 44px;
+  color:var(--ppt-ink);
+  background:var(--ppt-ground);
+  font-size:16px;
+}
+.lesson-ppt-header {
+  position:sticky;
+  top:0;
+  z-index:8;
+  min-height:64px;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:18px;
+  margin:0 0 4px;
+  padding:10px 18px;
+  background:rgba(245,246,249,.92);
+  backdrop-filter:blur(18px);
+  border-bottom:1px solid rgba(218,224,233,.82);
+}
+.lesson-ppt-title {
+  min-width:0;
+  display:flex;
+  align-items:baseline;
+  gap:12px;
+}
+.lesson-ppt-title h1 {
+  min-width:0;
+  margin:0;
+  overflow:hidden;
+  color:#20283a;
+  font-size:20px;
+  font-weight:760;
+  line-height:1.35;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.lesson-ppt-page-count {
+  flex:none;
+  color:var(--ppt-muted);
+  font-size:15px;
+  font-weight:650;
+  white-space:nowrap;
+}
+.lesson-ppt-toolbar {
+  min-width:0;
+  max-width:none;
+  margin:0;
+  padding:0;
+}
+.lesson-ppt-header :deep(.teacher-document-command-bar-row) {
+  width:auto;
+  max-width:none;
+  min-height:40px;
+  margin:0;
+  padding:0;
+  gap:10px;
+}
+.lesson-ppt-header :deep(.teacher-document-command-bar__context) { gap:10px; }
+.lesson-ppt-header :deep(.teacher-document-command-bar__status) {
+  color:var(--ppt-muted);
+  font-size:15px;
+}
+.lesson-ppt-header :deep(.teacher-document-command-bar__actions) { gap:3px; }
+.lesson-ppt-header :deep(.teacher-document-command-bar__actions button) {
+  min-width:36px;
+  min-height:36px;
+  padding:0 10px;
+  border:1px solid transparent;
+  border-radius:9px;
+  color:#4f5d73;
+  background:transparent;
+  font-size:15px;
+  font-weight:750;
+}
+.lesson-ppt-header :deep(.teacher-document-command-bar__actions button:hover:not(:disabled)) {
+  color:#3730a3;
+  background:var(--ppt-hover);
+}
+.lesson-ppt-header :deep(.teacher-document-command-bar__actions button:focus-visible),
+.lesson-ppt-workspace button:focus-visible {
+  outline:2px solid rgba(79,70,200,.55);
+  outline-offset:2px;
+}
+.lesson-ppt-header :deep(.ui-segmented-control) {
+  height:36px;
+  border-color:#dbe1ea;
+  border-radius:10px;
+  background:#eef1f6;
+}
+.lesson-ppt-header :deep(.ui-segmented-control__indicator) {
+  border-radius:7px;
+  box-shadow:0 2px 7px rgba(30,41,59,.12);
+}
+.lesson-ppt-header :deep(.ui-segmented-control button) {
+  height:28px;
+  min-height:28px;
+  padding:0 13px;
+  border-radius:7px;
+  font-size:15px;
+}
+.lesson-ppt-error,
+.lesson-ppt-notice {
+  width:min(100% - 36px, 980px);
+  min-height:42px;
+  display:flex;
+  align-items:center;
+  gap:12px;
+  margin:0 auto;
+  padding:9px 13px;
+  box-sizing:border-box;
+  border-radius:10px;
+  line-height:1.55;
+  overflow-wrap:anywhere;
+}
+.lesson-ppt-notice {
+  color:#596579;
+  background:#fff;
+  box-shadow:inset 0 0 0 1px var(--ppt-line);
+}
+.lesson-ppt-error {
+  color:#9f3344;
+  background:#fff7f8;
+  box-shadow:inset 0 0 0 1px #efd2d8;
+}
+.lesson-ppt-notice button,
+.lesson-ppt-error button,
+.lesson-ppt-candidate button,
+.lesson-ppt-empty button {
+  min-height:34px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  padding:0 11px;
+  border:1px solid #d7dde7;
+  border-radius:8px;
+  color:#4f5d73;
+  background:#fff;
+  font:inherit;
+  font-size:15px;
+  font-weight:730;
+  cursor:pointer;
+}
+.lesson-ppt-notice button,
+.lesson-ppt-error button { margin-left:auto; }
+.lesson-ppt-workspace button:hover:not(:disabled) { background:#f7f8fc; }
+.lesson-ppt-workspace button:disabled { opacity:.48; cursor:not-allowed; }
+.lesson-ppt-candidate {
+  width:min(100% - 36px, 980px);
+  display:grid;
+  gap:12px;
+  margin:0 auto;
+  padding:14px;
+  border-radius:12px;
+  background:#fff;
+  box-shadow:0 1px 3px rgba(30,41,59,.05);
+}
+.lesson-ppt-candidate>header { display:flex; align-items:center; gap:8px; }
+.lesson-ppt-candidate>header strong { margin-right:auto; font-size:15px; }
+.lesson-ppt-workspace :deep(.ppt-manuscript-workflow) {
+  width:min(100% - 36px, 980px);
+  height:auto;
+  overflow:visible;
+  margin:0 auto;
+  padding:0;
+  background:transparent;
+}
+.lesson-ppt-workspace :deep(.ppt-manuscript-workflow__content) { padding:0; }
+.lesson-ppt-workspace :deep(.ppt-manuscript-workflow__pages) {
+  min-height:0;
+  display:block;
+  overflow:visible;
+  border:0;
+  border-radius:0;
+  background:transparent;
+}
+.lesson-ppt-workspace :deep(.ppt-manuscript-workflow__pages>article) {
+  overflow:visible;
+  padding:0;
+  scroll-margin-top:82px;
+  border:0;
+}
+.lesson-ppt-workspace :deep(.ppt-manuscript-workflow__pages>article+article) { margin-top:1px; }
+.lesson-ppt-workspace :deep(.ppt-manuscript-workflow__page-copy) {
+  max-width:none;
+  min-height:180px;
+  margin:0;
+  padding:30px 42px 34px;
+  background:var(--ppt-surface);
+  box-shadow:inset 0 -1px var(--ppt-line);
+}
+.lesson-ppt-workspace :deep(.ppt-manuscript-workflow__pages>article:first-of-type .ppt-manuscript-workflow__page-copy) { border-radius:14px 14px 0 0; }
+.lesson-ppt-workspace :deep(.ppt-manuscript-workflow__pages>article:last-of-type .ppt-manuscript-workflow__page-copy) { border-radius:0 0 14px 14px; box-shadow:none; }
+.lesson-ppt-workspace :deep(.ppt-manuscript-workflow__pages>article:only-of-type .ppt-manuscript-workflow__page-copy) { border-radius:14px; }
+.lesson-ppt-workspace :deep(.ppt-manuscript-workflow__page-meta:empty) { display:none; }
+.lesson-ppt-workspace :deep(.ppt-manuscript-workflow__page-meta) { margin-bottom:14px; }
+.lesson-ppt-workspace :deep(.ppt-manuscript-workflow__reading h2) {
+  max-width:760px;
+  margin:0 0 16px;
+  color:#20283a;
+  font-size:23px;
+  font-weight:760;
+  line-height:1.45;
+}
+.lesson-ppt-workspace :deep(.ppt-page-reading-copy),
+.lesson-ppt-workspace :deep(.ppt-teaching-editor) {
+  max-width:760px;
+  color:#344055;
+  font-size:17px;
+  line-height:1.82;
+}
+.lesson-ppt-workspace :deep(.ppt-page-reading-copy p) { margin:0 0 14px; }
+.lesson-ppt-workspace :deep(.ppt-manuscript-workflow__teaching-notes),
+.lesson-ppt-workspace :deep(.ppt-manuscript-workflow__sources) {
+  max-width:760px;
+  color:var(--ppt-muted);
+}
+.lesson-ppt-workspace :deep(input:not([type=checkbox])),
+.lesson-ppt-workspace :deep(textarea),
+.lesson-ppt-workspace :deep(select) {
+  border-color:#d5dce7;
+  border-radius:8px;
+}
+.lesson-ppt-preview {
+  width:min(100% - 36px, 1120px);
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr);
+  gap:12px;
+  margin:0 auto;
+}
+.lesson-ppt-page-strip {
+  min-height:42px;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  overflow-x:auto;
+  padding:2px 1px 6px;
+  scrollbar-width:thin;
+}
+.lesson-ppt-page-strip button {
+  flex:0 0 auto;
+  min-height:36px;
+  max-width:240px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:0 11px;
+  border:0;
+  border-radius:9px;
+  color:#5f6b80;
+  background:transparent;
+  font:inherit;
+  font-size:15px;
+  cursor:pointer;
+}
+.lesson-ppt-page-strip button span {
+  color:#8b96a8;
+  font-weight:760;
+  font-variant-numeric:tabular-nums;
+}
+.lesson-ppt-page-strip button strong {
+  min-width:0;
+  overflow:hidden;
+  font-size:15px;
+  font-weight:660;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.lesson-ppt-page-strip button:hover { background:#eceff5; }
+.lesson-ppt-page-strip button.active {
+  color:#3730a3;
+  background:#fff;
+  box-shadow:0 1px 4px rgba(30,41,59,.1);
+}
+.lesson-ppt-page-strip button.active span { color:var(--ppt-accent); }
+.lesson-ppt-canvas {
+  min-width:0;
+  display:grid;
+  gap:14px;
+  padding:18px;
+  border-radius:14px;
+  background:#e8ebf1;
+  box-shadow:inset 0 0 0 1px #dbe1eb;
+}
+.lesson-ppt-canvas :deep(.slide-canvas) {
+  width:100%;
+  aspect-ratio:16/9;
+  border-radius:8px;
+  box-shadow:0 14px 30px rgba(25,33,50,.16),0 1px 2px rgba(25,33,50,.1);
+}
+.lesson-ppt-empty {
+  width:min(100% - 36px, 560px);
+  display:grid;
+  justify-items:center;
+  gap:10px;
+  margin:54px auto 0;
+  padding:34px 28px;
+  box-sizing:border-box;
+  border-radius:14px;
+  color:var(--ppt-muted);
+  background:#fff;
+  text-align:center;
+  box-shadow:0 1px 4px rgba(30,41,59,.06);
+}
+.lesson-ppt-empty-mark {
+  width:48px;
+  height:48px;
+  display:grid;
+  place-items:center;
+  border-radius:13px;
+  color:var(--ppt-accent);
+  background:var(--ppt-accent-soft);
+}
+.lesson-ppt-empty h2 {
+  margin:4px 0 0;
+  color:#20283a;
+  font-size:20px;
+  font-weight:760;
+  line-height:1.35;
+}
+.lesson-ppt-empty p {
+  max-width:38ch;
+  margin:0 0 6px;
+  font-size:15px;
+  line-height:1.65;
+}
+.lesson-ppt-empty .lesson-ppt-error {
+  width:auto;
+  min-height:0;
+  margin:0;
+  padding:0;
+  color:#9f3344;
+  background:transparent;
+  box-shadow:none;
+}
+.spinning { animation:ppt-spin 1s linear infinite; }
+@keyframes ppt-spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) { .spinning { animation:none; } }
 </style>

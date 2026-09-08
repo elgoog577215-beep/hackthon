@@ -23,6 +23,7 @@
       "previewing": "Preparing preview…",
       "previewUnavailable": "No preview available",
       "missing": "This lesson has no PPT manuscript yet",
+      "missingDescription": "A manuscript is created automatically after handout generation; older lessons can be completed here.",
       "complete": "Complete manuscript",
       "candidate": "Proposed sync",
       "accept": "Apply changes",

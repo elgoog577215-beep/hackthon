@@ -23,6 +23,7 @@
       "previewing": "正在准备预览…",
       "previewUnavailable": "暂无可用预览",
       "missing": "本讲尚无 PPT 内容稿",
+      "missingDescription": "讲义生成完成后会自动形成内容稿；旧讲义可以在这里补齐。",
       "complete": "补齐内容稿",
       "candidate": "同步候选",
       "accept": "采用修改",
