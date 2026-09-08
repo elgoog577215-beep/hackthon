@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import TextSelectionAiAction from '@/components/TextSelectionAiAction.vue'
 import TeacherLessonPlanDocument from '@/components/TeacherLessonPlanDocument.vue'
 import { setLocale } from '@/shared/i18n'
 import { useTeacherLessonAuthoringStore, type TeacherLessonProjection } from '@/stores/teacherLessonAuthoring'
@@ -332,4 +333,29 @@ describe('统一教案页面', () => {
     wrapper.unmount()
   })
 
+})
+
+
+it('教案文中修改使用真实字段原文，就地审阅且不打开全局助手', async () => {
+  setActivePinia(createPinia())
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => zhMessages })))
+  await setLocale('zh')
+  const store = useTeacherLessonAuthoringStore()
+  const plan = structuredClone(lesson.plan.current_revision!.plan)
+  plan.sections[0].teaching_modules[0].teacher_activity = '先预测，再绘制爬虫工作流程图'
+  const create = vi.spyOn(store, 'createAiCandidate').mockResolvedValue({ candidate_id:'inline-1', base_revision_id:'revision-1', status:'pending', plan, section_node_id:'section-1', target_field:'teacher_activity', target_item_id:'core_explanation' } as any)
+  const resolve = vi.spyOn(store, 'resolveAiCandidate').mockResolvedValue(lesson as any)
+  const wrapper=mount(TeacherLessonPlanDocument,{attachTo:document.body,props:{courseId:'course-1',lesson}})
+  const helper=wrapper.findComponent(TextSelectionAiAction)
+  const target={sectionNodeId:'section-1',field:'teacher_activity',itemId:'core_explanation'}
+  expect(helper.props('getSourceText')!(target)).toBe('绘制爬虫工作流程图')
+  helper.vm.$emit('invoke',{source:'block',text:'绘制爬虫工作流程图',instruction:'改成先预测再绘制',target})
+  await flushPromises()
+  expect(create.mock.calls[0]![6]).toMatchObject({selectionOnly:true,selectedText:'绘制爬虫工作流程图'})
+  expect(wrapper.emitted('open-ai-selection')).toBeUndefined()
+  expect(wrapper.get('.lesson-block-summary').text()).not.toContain('先预测，再')
+  expect(helper.props('changes')).toEqual([{label:undefined,before:'绘制爬虫工作流程图',after:'先预测，再绘制爬虫工作流程图'}])
+  helper.vm.$emit('resolve',false);await flushPromises()
+  expect(resolve).toHaveBeenCalledWith('course-1','lesson-1','inline-1',false)
+  wrapper.unmount()
 })

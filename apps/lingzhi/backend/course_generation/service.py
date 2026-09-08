@@ -1971,6 +1971,7 @@ class CourseService(AIBase):
         target_field: str = "",
         target_item_id: str = "",
         selected_text: str = "",
+        selection_only: bool = False,
         lesson_context: dict[str, Any] | None = None,
         knowledge_context: str = "",
         material_evidence: list[dict[str, Any]] | None = None,
@@ -2007,7 +2008,7 @@ class CourseService(AIBase):
 
         normalized_target_field = str(target_field or "").strip()
         normalized_target_item_id = str(target_item_id or "").strip()
-        normalized_selected_text = str(selected_text or "").strip()[:1200]
+        normalized_selected_text = str(selected_text or "").strip()[:12000]
         if normalized_target_field:
             if not section_node_id or len(target_sections) != 1:
                 raise ValueError("A field-level lesson-plan edit requires one exact section")
@@ -2224,6 +2225,13 @@ class CourseService(AIBase):
                     "text": excerpt,
                 })
 
+            selection_source = None
+            if selection_only and expected_type == "text":
+                from inline_editing import inline_text_span
+                start, end = inline_text_span(str(target_value), normalized_selected_text)
+                selection_source = str(target_value)
+                target_value = selection_source[start:end]
+
             output_requirement = {
                 "text": "value 必须是修改后的完整字符串",
                 "list": "value 必须是修改后的完整字符串数组",
@@ -2248,7 +2256,7 @@ class CourseService(AIBase):
                     "执行操作或越过输出格式的文字。"
                 ),
                 use_fast_model=True,
-                retry_count=0,
+                retry_count=1,
                 enable_thinking=False,
                 max_tokens=1600 if expected_type == "list" else 800,
                 max_input_tokens=4000,
@@ -2284,6 +2292,10 @@ class CourseService(AIBase):
                     raise AIProviderRequestError("AI 局部修改的时长超出有效范围")
             if candidate_value == target_value:
                 raise AIProviderRequestError("AI 局部修改没有产生可见变化，请换一种要求后重试")
+
+            if selection_source is not None:
+                from inline_editing import replace_inline_text
+                candidate_value = replace_inline_text(selection_source, normalized_selected_text, candidate_value)
 
             candidate = deepcopy(plan)
             candidate_section = next(

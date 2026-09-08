@@ -43,7 +43,7 @@
 
     <AppErrorNotice v-if="documentError" :presentation="documentError" compact />
 
-    <div v-if="pendingCandidate" class="candidate-canvas-notice" role="status">
+    <div v-if="pendingCandidate && !inlineEditing" class="candidate-canvas-notice" role="status">
       <div>
         <Sparkles :size="16" />
         <span>
@@ -68,6 +68,7 @@
     <TextSelectionAiAction
       ref="inlineAiAction"
       :container="documentRoot"
+      target-selector=".script-body .markdown-renderer :is(p, li, h2, h3, h4, h5, td, th)"
       :disabled="editing || showWorkingPreview || !lesson.script.ready"
       :busy="aiBusy || requestBusy"
       :label="tr('courseWorkbench.aiCollaboration.selectionModify')"
@@ -80,7 +81,14 @@
       :block-label="tr('courseWorkbench.aiCollaboration.inlineBlockScope')"
       :document-label="tr('courseWorkbench.aiCollaboration.inlineDocumentScope')"
       :boundary-label="tr('courseWorkbench.aiCollaboration.inlineBoundary')"
-      @invoke="emit('open-ai-selection', $event)"
+      :candidate-pending="Boolean(pendingCandidate)"
+      :changes="inlineChanges"
+      :source-revision="lesson.script.current_revision_id"
+      :error-message="inlineError"
+      :progress-label="inlineProgress"
+      @invoke="requestInlineEdit"
+      @resolve="resolveAiCandidate"
+      @closed="inlineEditing = false"
     />
 
     <aside v-if="scriptStatusNotice && !externalToolbar" class="script-status-notice" :data-state="scriptStatusNotice.state">
@@ -181,6 +189,7 @@
         :id="sectionAnchor(node)"
         :key="node.section_node_id"
         class="script-body"
+        :data-ai-section-id="node.section_node_id"
         :class="{ active: selectedNodeId === node.section_node_id }"
         @focusin="activateNode(node, false)"
       >
@@ -198,23 +207,23 @@
           </section>
         </div>
         <textarea v-else-if="editing" v-model="drafts[node.section_node_id]" rows="24" :aria-label="node.title" @input="recordEditSnapshot" />
-        <div v-else-if="pendingCandidate?.section_node_id === node.section_node_id && contentFor(node)" ref="candidateRef" class="script-content" data-state="candidate" tabindex="-1">
+        <div v-else-if="!inlineEditing && pendingCandidate?.section_node_id === node.section_node_id && contentFor(node)" ref="candidateRef" class="script-content" data-state="candidate" tabindex="-1">
           <aside class="script-ai-change-bubble"><Sparkles :size="13" /><strong>{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</strong><MathText :content="node.title" /></aside>
-          <MarkdownRenderer :key="`candidate-${pendingCandidate.candidate_id || pendingCandidate.section_node_id}`" :content="contentFor(node)" />
+          <MarkdownRenderer :inline-editable="true" :key="`candidate-${pendingCandidate.candidate_id || pendingCandidate.section_node_id}`" :content="contentFor(node)" />
         </div>
         <div v-else-if="node.blocks?.length" class="script-modules">
-          <section v-for="block in node.blocks" :key="block.block_id" class="script-module">
+          <section v-for="block in node.blocks" :key="block.block_id" class="script-module" data-ai-field="content" :data-ai-item-id="block.block_id" :data-ai-label="block.title">
             <header v-if="block.title || (!showWorkingPreview && lesson.script.ready)">
               <div><span v-if="!showWorkingPreview && lesson.script.ready">{{ blockRoleLabel(block.role) }}</span><h5 v-if="block.title"><MathText :content="teacherFacingTeachingLabel(block.title, block.module_id)" /></h5></div>
               <small v-if="!showWorkingPreview && lesson.script.ready && block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
             </header>
             <div class="script-streamed-block" :data-streaming="blockIsStreaming(block.block_id) ? 'true' : undefined">
-              <MarkdownRenderer :key="block.block_id" :content="block.content" />
+              <MarkdownRenderer :inline-editable="true" :key="block.block_id" :content="block.content" />
               <span v-if="blockIsStreaming(block.block_id)" class="stream-caret" aria-hidden="true" />
             </div>
           </section>
         </div>
-        <div v-else-if="contentFor(node)" class="script-content" data-state="current"><MarkdownRenderer :content="contentFor(node)" /></div>
+        <div v-else-if="contentFor(node)" class="script-content" data-state="current"><MarkdownRenderer :inline-editable="true" :content="contentFor(node)" /></div>
         <div v-else class="script-empty">{{ tr('courseWorkbench.scriptPending') }}</div>
       </article>
     </div>
@@ -550,7 +559,7 @@ function blockIsStreaming(blockId: string): boolean {
 }
 
 function contentFor(node: ScriptSection): string {
-  if (pendingCandidate.value?.section_node_id === node.section_node_id) return pendingCandidate.value.replacement_text
+  if (!inlineEditing.value && pendingCandidate.value?.section_node_id === node.section_node_id) return pendingCandidate.value.replacement_text
   return node.content || ''
 }
 
@@ -631,6 +640,35 @@ async function saveDraft(): Promise<boolean> {
   }
 }
 
+const inlineEditing = ref(false)
+const inlineError = ref('')
+const inlineProgress = ref('')
+const inlineChanges = computed(() => {
+  const edit = pendingCandidate.value?.inline_edit
+  return inlineEditing.value && edit ? [{ before: edit.selected_text, after: edit.replacement_excerpt }] : []
+})
+async function requestInlineEdit(payload: TeacherInlineAiRequest) {
+  const sectionId = payload.target?.sectionNodeId
+  if (!sectionId) { inlineError.value = tr('teacherInlineEdit.scopeMissing'); return }
+  if (aiBusy.value || showWorkingPreview.value) return
+  inlineEditing.value = true
+  inlineError.value = ''
+  inlineProgress.value = ''
+  aiBusy.value = true
+  aiError.value = null
+  try {
+    pendingCandidate.value = await lessonStore.rewriteScriptSection(
+      props.courseId, props.lesson.lesson_unit_id, props.lesson.script.current_revision_id,
+      sectionId, payload.instruction, props.materialAssetIds,
+      { blockId: payload.target?.itemId, selectedText: payload.text },
+      progress => { inlineProgress.value = progress.message || '' },
+    )
+    emit('ai-candidate-change', pendingCandidate.value)
+  } catch (error: any) {
+    inlineError.value = String(error?.response?.data?.detail?.message || error?.message || tr('courseWorkbench.scriptDocument.aiFailed'))
+  } finally { aiBusy.value = false }
+}
+
 async function requestAiCandidate(value: string) {
   const node = selectedNode.value
   const instruction = value.trim()
@@ -663,6 +701,7 @@ async function resolveAiCandidate(accept: boolean) {
   emit('ai-resolving', { accept })
   aiBusy.value = true
   aiError.value = null
+  inlineError.value = ''
   try {
     await lessonStore.resolveScriptAiCandidate(
       props.courseId,
@@ -677,6 +716,7 @@ async function resolveAiCandidate(accept: boolean) {
     return true
   } catch (error: any) {
     aiError.value = error
+    if (inlineEditing.value) inlineError.value = String(error?.response?.data?.detail?.message || error?.message || tr('courseWorkbench.scriptDocument.aiFailed'))
     emit('ai-error', error?.response?.data?.detail?.message || tr('courseWorkbench.scriptDocument.aiFailed'))
     return false
   } finally {

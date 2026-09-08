@@ -134,6 +134,7 @@ export interface TeacherLessonScriptState {
 }
 
 export interface TeacherLessonScriptCandidate {
+  inline_edit?: { target_block_id: string; selected_text: string; replacement_excerpt: string }
   candidate_id: string
   base_revision_id: string
   source_lesson_plan_revision_id: string
@@ -261,6 +262,7 @@ export interface TeacherLessonPlanAiTarget {
   sectionNodeId?: string
   field?: string
   itemId?: string
+  selectionOnly?: boolean
   selectedText?: string
 }
 
@@ -1214,6 +1216,8 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       sectionNodeId: string,
       instruction: string,
       materialAssetIds: string[] = [],
+      target?: { blockId?: string; selectedText?: string },
+      onProgress?: (progress: GenerationProgress) => void,
     ) {
       this.error = ''
       try {
@@ -1223,9 +1227,10 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
             base_revision_id: baseRevisionId,
             section_node_id: sectionNodeId,
             instruction,
+            ...(target ? { target_block_id: target.blockId || '', selected_text: target.selectedText || '' } : {}),
             material_asset_ids: Array.from(new Set(materialAssetIds.filter(Boolean))),
           },
-          { headers: teacherIdentityHeaders() },
+          { headers: teacherIdentityHeaders(), onProgress },
         )
         return data.candidate
       } catch (error) {
@@ -1271,6 +1276,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
             target_field: target.field || '',
             target_item_id: target.itemId || '',
             selected_text: target.selectedText || '',
+            ...(target.selectionOnly ? { selection_only: true } : {}),
             base_revision_id: baseRevisionId,
             material_asset_ids: Array.from(new Set(materialAssetIds.filter(Boolean))),
           },

@@ -430,6 +430,8 @@ class SaveLessonScriptDraftRequest(BaseModel):
 
 
 class RewriteLessonScriptRequest(BaseModel):
+    target_block_id: str = Field(default="", max_length=240)
+    selected_text: str = Field(default="", max_length=12000)
     base_revision_id: str
     section_node_id: str
     instruction: str = Field(min_length=1, max_length=2000)
@@ -458,7 +460,8 @@ class CreateLessonPlanCandidateRequest(BaseModel):
     section_node_id: str = ""
     target_field: str = Field(default="", max_length=80)
     target_item_id: str = Field(default="", max_length=200)
-    selected_text: str = Field(default="", max_length=1200)
+    selected_text: str = Field(default="", max_length=12000)
+    selection_only: bool = False
     base_revision_id: str
     material_asset_ids: list[str] = Field(default_factory=list, max_length=24)
 
@@ -6036,6 +6039,24 @@ async def rewrite_lesson_script_candidate(
             ),
             {},
         )
+        target_block = None
+        selected_text = body.selected_text.strip()
+        target_content = str(section.get("content") or "")
+        if body.target_block_id:
+            target_block = next((block for block in section.get("blocks") or []
+                                 if block.get("block_id") == body.target_block_id), None)
+            if target_block is None:
+                raise TeacherLessonAuthoringError("inline_target_missing", "这段讲义已经变化，请重新选择。")
+            target_content = str(target_block.get("content") or "")
+        if selected_text:
+            from inline_editing import inline_text_span
+            try:
+                inline_text_span(target_content, selected_text)
+            except ValueError as exc:
+                raise TeacherLessonAuthoringError("inline_selection_ambiguous", str(exc)) from exc
+        local_edit = bool(selected_text or body.target_block_id)
+        if local_edit and section.get("blocks") and target_block is None:
+            raise TeacherLessonAuthoringError("inline_target_missing", "请在具体讲义段落中选择要修改的内容。")
         script_headings = [
             str(item.get("title") or "").strip()
             for item in section.get("blocks") or []
@@ -6044,8 +6065,8 @@ async def rewrite_lesson_script_candidate(
         result = await tm.course_service.rewrite_selection(
             course_id=course_id,
             node=outline_section,
-            selected_text=str(section.get("content") or ""),
-            node_content=str(section.get("content") or ""),
+            selected_text=selected_text or target_content,
+            node_content=target_content,
             heading_path=[str(section.get("title") or "")],
             user_requirement="\n".join(filter(None, [
                 body.instruction.strip(),
@@ -6053,7 +6074,7 @@ async def rewrite_lesson_script_candidate(
                 (
                     "完整保留并仅使用这些二级标题，顺序和名称均不得改变："
                     + "、".join(f"## {title}" for title in script_headings)
-                ) if script_headings else "",
+                ) if script_headings and not local_edit else "只返回选中内容的替换文本，不返回其他段落或整篇讲义。",
             ])),
             action_type="rewrite",
             course_context=json.dumps({
@@ -6073,6 +6094,27 @@ async def rewrite_lesson_script_candidate(
                 "lesson_script_candidate_empty",
                 "AI 没有生成可审阅的讲义修改。",
             )
+        replacement_excerpt = replacement_text
+        block_replacements = {}
+        if local_edit:
+            from inline_editing import replace_inline_text
+            from teacher_script import teacher_script_blocks_to_markdown
+            try:
+                new_content = replace_inline_text(target_content, selected_text, replacement_text) if selected_text else replacement_text
+                if new_content == target_content:
+                    raise ValueError("没有产生内容变化，请补充具体修改要求。")
+            except ValueError as exc:
+                raise TeacherLessonAuthoringError("inline_edit_invalid", str(exc)) from exc
+            if target_block is not None:
+                replacement_block = {**deepcopy(target_block), "content": new_content}
+                block_replacements[body.target_block_id] = replacement_block
+                blocks = [replacement_block if block.get("block_id") == body.target_block_id else deepcopy(block)
+                          for block in section.get("blocks") or []]
+                replacement_text = teacher_script_blocks_to_markdown(blocks)
+            elif section.get("blocks"):
+                raise TeacherLessonAuthoringError("inline_target_missing", "请在具体讲义段落中选择要修改的内容。")
+            else:
+                replacement_text = new_content
         candidate = repository.save_script_ai_candidate(
             course_id,
             lesson_unit_id,
@@ -6080,6 +6122,8 @@ async def rewrite_lesson_script_candidate(
             section_node_id=body.section_node_id,
             instruction=body.instruction.strip(),
             replacement_text=replacement_text,
+            block_replacements=block_replacements,
+            inline_edit={"target_block_id": body.target_block_id, "selected_text": selected_text or target_content, "replacement_excerpt": replacement_excerpt} if local_edit else None,
             source_lesson_plan_revision_id=str(
                 revision.get("source_lesson_plan_revision_id") or ""
             ),
@@ -6118,7 +6162,7 @@ async def resolve_lesson_script_candidate(
             )
             return {"lesson": projected, "candidate": candidate}
         base_revision_id = str(candidate.get("base_revision_id") or "")
-        if lesson.get("working_script_revision_id") != base_revision_id:
+        if body.accept and lesson.get("working_script_revision_id") != base_revision_id:
             raise TeacherLessonAuthoringError(
                 "lesson_script_revision_conflict",
                 "讲义工作稿已经变化，不能覆盖新修改。",
@@ -6158,8 +6202,16 @@ async def resolve_lesson_script_candidate(
                 continue
             section_id = str(section.get("section_node_id") or "")
             candidate_section = deepcopy(section)
+            if candidate.get("inline_edit") and section_id != target_section_id:
+                normalized_sections.append(candidate_section)
+                continue
             if section_id == target_section_id:
-                candidate_section.pop("blocks", None)
+                replacements = candidate.get("block_replacements") or {}
+                if replacements:
+                    candidate_section["blocks"] = [deepcopy(replacements.get(block.get("block_id")) or block)
+                                                   for block in section.get("blocks") or []]
+                else:
+                    candidate_section.pop("blocks", None)
                 candidate_section["content"] = str(
                     candidate.get("replacement_text") or ""
                 ).strip()
@@ -6276,6 +6328,7 @@ async def create_lesson_plan_candidate(
             target_field=body.target_field,
             target_item_id=body.target_item_id,
             selected_text=body.selected_text,
+            **({"selection_only": True} if body.selection_only else {}),
             lesson_context={
                 "lesson_unit_id": lesson_unit_id,
                 "title": str(lesson_node.get("node_name") or lesson_node.get("title") or ""),

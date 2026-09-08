@@ -6578,6 +6578,34 @@
     "failed": "Could not complete the request. Please try again.",
     "unsaved": "Save or cancel your edits before leaving.",
     "backToNew": "Back to PPT creation"
+  },
+  "teacherInlineEdit": {
+    "open": "AI edit",
+    "title": "Edit this content",
+    "placeholder": "Describe how this content should change…",
+    "generate": "Generate edit",
+    "cancel": "Cancel",
+    "working": "Generating an edit…",
+    "boundary": "Only this content changes, after you apply the edit.",
+    "ready": "Edit ready for review",
+    "reviewHint": "Review the differences before applying. The original is unchanged.",
+    "apply": "Apply edit",
+    "discard": "Keep original",
+    "expand": "Expand editor",
+    "collapse": "Collapse editor",
+    "sourceChanged": "The source has changed. Close the editor and select the content again.",
+    "before": "Original",
+    "after": "Suggested edit",
+    "empty": "(Empty)",
+    "iteratePlaceholder": "Describe what to adjust next…",
+    "iterateHint": "Refine the suggestion. The original stays unchanged until you apply it.",
+    "iterate": "Refine edit",
+    "retry": "Retry",
+    "draftKept": "Your instructions are preserved. Expand to continue.",
+    "selection": "Selected text",
+    "document": "Current content",
+    "paragraph": "Current paragraph",
+    "scopeMissing": "The source could not be identified. Select the content again.",
+    "noChange": "No content changed. Add a more specific instruction."
   }
-
 }

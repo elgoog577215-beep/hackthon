@@ -7,7 +7,7 @@
     :data-variant="variant"
     :aria-label="t('courseGeneration.outlineReview.ariaLabel', '课程大纲')"
   >
-    <article class="outline-review__sheet" :class="{ 'has-ai-candidate': surface === 'teacher' && adjustmentProposal }">
+    <article class="outline-review__sheet" :class="{ 'has-ai-candidate': surface === 'teacher' && adjustmentProposal && !inlineEditing }">
       <div v-if="loading" class="outline-review__loading" aria-live="polite">
         <LoaderCircle :size="18" />
         <span>{{ t('courseGeneration.outlineReview.loading', '正在载入可编辑目录') }}</span>
@@ -23,7 +23,7 @@
       </div>
 
       <template v-else>
-        <div v-if="surface === 'teacher' && adjustmentProposal" class="outline-candidate-notice" role="status">
+        <div v-if="surface === 'teacher' && adjustmentProposal && !inlineEditing" class="outline-candidate-notice" role="status">
           <div>
             <Sparkles :size="16" />
             <span>
@@ -62,7 +62,14 @@
           :document-label="t('courseWorkbench.aiCollaboration.inlineOutlineScope', '修改当前大纲')"
           :boundary-label="t('courseWorkbench.aiCollaboration.inlineBoundary', 'AI 只生成建议，采用后才会写入正式内容。')"
           target-selector="h2[data-node-id], h3[data-node-id], [data-node-body], p, li, blockquote"
-          @invoke="emit('open-ai-selection', $event)"
+          :candidate-pending="Boolean(adjustmentProposal)"
+          :changes="inlineChanges"
+          :can-apply="Boolean(adjustmentProposal?.can_apply)"
+          :source-revision="blueprintDraft?.draft_revision_id || ''"
+          :error-message="inlineEditing ? actionError || (adjustmentProposal?.blocking_issues || []).map((item: any) => item.message).join('\n') : ''"
+          @invoke="requestInlineEdit"
+          @resolve="resolveAiCandidate"
+          @closed="inlineEditing = false"
         />
 
         <div class="outline-review__body">
@@ -259,7 +266,7 @@
           </p>
 
           <section
-            v-if="adjustmentProposal && !aiTargetNodeId"
+            v-if="adjustmentProposal && !aiTargetNodeId && !inlineEditing"
             ref="proposalSummaryRef"
             class="outline-review__proposal"
             tabindex="-1"
@@ -1181,6 +1188,12 @@ const insertPrompt = ref<'link' | 'image' | 'formula' | ''>('')
 const insertUrl = ref('')
 let rememberedEditorRange: Range | null = null
 const adjustmentRequestId = ref('')
+const inlineEditing = ref(false)
+const inlineTarget = ref<Record<string, any> | null>(null)
+const inlineChanges = computed(() => inlineEditing.value && adjustmentProposal.value?.inline_edit ? [{
+  before: adjustmentProposal.value.inline_edit.selected_text,
+  after: adjustmentProposal.value.inline_edit.replacement_excerpt,
+}] : [])
 const aiTargetNodeId = ref('')
 const nodeAiInstruction = ref('')
 const editHistory = ref<any[][]>([])
@@ -1235,7 +1248,7 @@ const retrievalDiffGroups = computed(() => {
   ]
 })
 const acting = computed(() => saving.value || confirming.value || adjustmentBusy.value)
-const presentationDraft = computed<Record<string, any>>(() => adjustmentProposal.value?.draft || blueprintDraft.value)
+const presentationDraft = computed<Record<string, any>>(() => (!inlineEditing.value && adjustmentProposal.value?.draft) || blueprintDraft.value)
 const blueprintNodes = computed<any[]>(() => (
   Array.isArray(presentationDraft.value?.nodes)
     ? presentationDraft.value.nodes
@@ -1523,6 +1536,7 @@ function lectureEvidence(chapter: any) {
   }
 }
 function proposalNodeChange(nodeId: string) {
+  if (inlineEditing.value) return null
   const diff = adjustmentProposal.value?.diff || {}
   const moved = (diff.moved || []).find((item: any) => String(item.node_id || '') === nodeId)
   if (moved) return {
@@ -2039,7 +2053,7 @@ const outlineEditorHtml = computed(() => documentChapters.value.map((chapter: an
     const singleBody = isLectureOutline.value || chapter.sections.length === 1
       ? ' data-single-section-body="true"'
       : ''
-    return `<h3 data-node-id="${sectionId}"${sectionChange}${collapsed}>${sectionTitle}</h3><div data-node-body="${sectionId}"${sectionChange}${singleBody}>${sectionBody}</div>`
+    return `<h3 data-node-id="${sectionId}" data-ai-field="node_name" data-ai-source="${escapeEditorAttribute(String(sectionNode.node_name || section.title))}"${sectionChange}${collapsed}>${sectionTitle}</h3><div data-node-body="${sectionId}" data-ai-field="${isLectureOutline.value && sectionNode.content_summary ? 'content_summary' : 'learning_objective'}"${sectionChange}${singleBody}>${sectionBody}</div>`
   }).join('')
   const chapterBodyVisibility = isLectureOutline.value && chapter.sections?.length
     ? ' data-lecture-meta-body="true" hidden'
@@ -2048,7 +2062,7 @@ const outlineEditorHtml = computed(() => documentChapters.value.map((chapter: an
   const headingLabel = lessonTypeControl && !props.editable
     ? ` aria-label="${escapeEditorAttribute(String(chapter.title || '').trim())}"`
     : ''
-  return `<h2 data-node-id="${chapterId}"${chapterChange}${headingLabel}>${chapterTitle}${lessonTypeControl}</h2><div data-node-body="${chapterId}"${chapterChange}${chapterBodyVisibility}>${chapterBody}</div>${sections}`
+  return `<h2 data-node-id="${chapterId}" data-ai-field="node_name" data-ai-source="${escapeEditorAttribute(String(chapterNode.node_name || chapter.title))}"${chapterChange}${headingLabel}>${chapterTitle}${lessonTypeControl}</h2><div data-node-body="${chapterId}" data-ai-field="learning_objective"${chapterChange}${chapterBodyVisibility}>${chapterBody}</div>${sections}`
 }).join(''))
 const documentVisibleSectionCount = computed(() => documentChapters.value.reduce(
   (total, chapter) => {
@@ -3348,6 +3362,7 @@ function invalidateProposal() {
 
 function outlineAdjustmentFailureMessage(error: any) {
   const status = Number(error?.response?.status || 0)
+  if (status === 422 && error?.response?.data?.detail?.message) return String(error.response.data.detail.message)
   if (status === 409) {
     return t('courseGeneration.outlineReview.proposalConflict', '目录版本已变化，请重新载入后生成方案。')
   }
@@ -3361,7 +3376,7 @@ async function generateAdjustmentProposal() {
   const instruction = adjustmentInstruction.value.trim()
   if (!instruction || acting.value || !blueprintNodes.value.length) return null
   generatingProposal.value = true
-  adjustmentProposal.value = null
+  if (!inlineEditing.value) adjustmentProposal.value = null
   proposalNotice.value = ''
   actionError.value = ''
   liveStatus.value = t('courseGeneration.outlineReview.adjustmentGenerating', '正在生成方案')
@@ -3373,6 +3388,7 @@ async function generateAdjustmentProposal() {
       base_blueprint_revision_id: blueprintDraft.value.base_blueprint_revision_id,
       expected_draft_revision_id: blueprintDraft.value.draft_revision_id,
       instruction,
+      ...(inlineEditing.value && inlineTarget.value ? { inline_target: inlineTarget.value } : {}),
       ...(targetQualityIssueCode.value
         ? { target_quality_issue_code: targetQualityIssueCode.value }
         : {}),
@@ -3394,7 +3410,7 @@ async function generateAdjustmentProposal() {
       ? t('courseGeneration.outlineReview.proposalReady', '调整方案已生成，请检查整套差异')
       : t('courseGeneration.outlineReview.proposalBlocked', '调整方案存在阻断项，不能应用')
     await nextTick()
-    proposalSummaryRef.value?.focus()
+    if (!inlineEditing.value) proposalSummaryRef.value?.focus({ preventScroll: true })
     return adjustmentProposal.value
   } catch (error: any) {
     actionError.value = outlineAdjustmentFailureMessage(error)
@@ -3474,6 +3490,15 @@ async function requestAiCandidate(instruction: string, qualityIssueCode = '') {
   nodeAiInstruction.value = ''
   targetQualityIssueCode.value = qualityIssueCode.trim()
   adjustmentInstruction.value = instruction.trim()
+  return generateAdjustmentProposal()
+}
+
+async function requestInlineEdit(payload: TeacherInlineAiRequest) {
+  inlineEditing.value = true
+  aiTargetNodeId.value = payload.target?.sectionNodeId || ''
+  inlineTarget.value = { node_id: payload.target?.sectionNodeId || '', field: payload.target?.field || '', selected_text: payload.text }
+  adjustmentInstruction.value = payload.instruction
+  targetQualityIssueCode.value = ''
   return generateAdjustmentProposal()
 }
 

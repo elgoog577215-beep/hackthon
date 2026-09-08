@@ -547,3 +547,28 @@ describe('统一讲义页面', () => {
   })
 
 })
+
+
+it('结构化讲义的真实正文提供修改入口，并把原段和 block ID 一起提交', async () => {
+  setActivePinia(createPinia())
+  vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>zhMessages})))
+  await setLocale('zh')
+  const structured=structuredClone(lesson)
+  structured.script.sections[0]!.blocks=[{block_id:'block-1',module_id:'core',title:'核心教学',role:'concept',content:'使用 **DeepSeek 4.0** 完成分析。',planned_minutes:15}]
+  const rewrite=vi.spyOn(useTeacherLessonAuthoringStore(),'rewriteScriptSection').mockResolvedValue({candidate_id:'inline-script',section_node_id:'section-1',replacement_text:'使用 **DeepSeek 5.0** 完成分析。',inline_edit:{target_block_id:'block-1',selected_text:'使用 **DeepSeek 4.0** 完成分析。',replacement_excerpt:'使用 **DeepSeek 5.0** 完成分析。'}} as any)
+  const wrapper=mount(TeacherScriptDocument,{attachTo:document.body,props:{courseId:'course-1',lesson:structured}})
+  await flushPromises()
+  const paragraph=wrapper.get('.script-streamed-block .markdown-renderer p')
+  await paragraph.trigger('pointerover')
+  const trigger=document.querySelector('.block-ai-menu [data-action=ask]') as HTMLButtonElement
+  expect(trigger).toBeTruthy()
+  trigger.click();await flushPromises()
+  const input=document.querySelector('textarea')!
+  input.value='改成 5.0';input.dispatchEvent(new Event('input',{bubbles:true}));await flushPromises()
+  document.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await flushPromises()
+  expect(rewrite.mock.calls[0]![6]).toEqual({blockId:'block-1',selectedText:'使用 **DeepSeek 4.0** 完成分析。'})
+  expect(wrapper.emitted('open-ai-selection')).toBeUndefined()
+  expect(paragraph.text()).toContain('4.0')
+  expect(document.querySelector('.inline-edit-diff')?.textContent).toContain('5.0')
+  wrapper.unmount()
+})

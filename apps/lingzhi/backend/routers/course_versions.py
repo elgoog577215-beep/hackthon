@@ -53,7 +53,14 @@ class BlueprintDraftRequest(BaseModel):
     blueprint_locks: dict[str, dict[str, bool]] | None = None
 
 
+class OutlineInlineTarget(BaseModel):
+    node_id: str = Field(default="", max_length=240)
+    field: str = Field(default="", max_length=80)
+    selected_text: str = Field(min_length=1, max_length=12000)
+
+
 class BlueprintAdjustmentPreviewRequest(BaseModel):
+    inline_target: OutlineInlineTarget | None = None
     request_id: str = Field(min_length=1, max_length=120)
     base_blueprint_revision_id: str = Field(min_length=1, max_length=120)
     expected_draft_revision_id: str = Field(min_length=1, max_length=120)
@@ -282,12 +289,14 @@ async def save_blueprint_draft(
 async def preview_blueprint_adjustment(
     course_id: str,
     request: BlueprintAdjustmentPreviewRequest,
+    http_request: Request,
     tm: TaskManager = Depends(require_task_manager),
 ):
     try:
         return await tm.preview_outline_adjustment(
             course_id,
-            request.model_dump(exclude_none=True),
+            {**request.model_dump(exclude_none=True),
+             **({"inline_actor_id": resolve_user_id(http_request.headers.get("X-User-Id"))} if request.inline_target else {})},
         )
     except CourseVersionConflict as exc:
         raise HTTPException(status_code=409, detail={
@@ -296,6 +305,8 @@ async def preview_blueprint_adjustment(
         }) from exc
     except OutlineAdjustmentError as exc:
         raise HTTPException(status_code=422, detail=exc.as_issue()) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": "inline_selection_invalid", "message": str(exc)}) from exc
     except (AIProviderUnavailable, AIProviderRequestError) as exc:
         raise HTTPException(status_code=503, detail={
             "code": "outline_adjustment_model_unavailable",

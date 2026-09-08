@@ -61,7 +61,7 @@
       </nav>
     </div>
 
-    <AppErrorNotice v-if="documentError" :presentation="documentError" compact />
+    <AppErrorNotice v-if="documentError && !inlineCandidateInPlace" :presentation="documentError" compact />
 
     <TextSelectionAiAction
       v-if="selectionAiEnabled"
@@ -83,6 +83,9 @@
       group-selector="[data-ai-inline-anchor]"
       :select-target-label="tr('courseWorkbench.aiCollaboration.selectTarget')"
       :candidate-pending="Boolean(pendingCandidate)"
+      :changes="inlineChanges"
+      :get-source-text="target => inlineTargetValue(workingRevision?.plan || {}, target)"
+      :source-revision="lesson.plan.working_revision_id"
       :candidate-title="tr('courseWorkbench.aiCollaboration.candidateReady')"
       :candidate-hint="tr('courseWorkbench.aiCollaboration.inlineCandidateBoundary')"
       :apply-label="tr('courseWorkbench.aiCollaboration.applyCandidate')"
@@ -91,6 +94,7 @@
       :error-message="inlineAiErrorMessage"
       @invoke="requestInlineAiCandidate"
       @resolve="resolveInlineAiCandidate"
+      @closed="inlineCandidateInPlace = false"
     />
 
     <article v-if="planSections.length" class="document-body">
@@ -411,7 +415,7 @@ function tr(key: string): string {
 }
 
 const workingRevision = computed(() => props.lesson.plan.current_revision || undefined)
-const currentPlan = computed(() => draftPlan.value || pendingCandidate.value?.plan || workingRevision.value?.plan || {})
+const currentPlan = computed(() => draftPlan.value || (!inlineCandidateInPlace.value && pendingCandidate.value?.plan) || workingRevision.value?.plan || {})
 const planSections = computed<any[]>(() => Array.isArray(currentPlan.value.sections) ? currentPlan.value.sections : [])
 const selectedSectionId = computed({
   get: () => String(props.activeSectionId || localSectionId.value),
@@ -424,7 +428,10 @@ const basePlanSections = computed<any[]>(() => Array.isArray(workingRevision.val
   ? workingRevision.value!.plan.sections
   : [])
 const emptyValue = computed(() => tr('courseWorkbench.lessonDocument.empty'))
-const inlineAiErrorMessage = computed(() => aiError.value ? documentError.value?.summary || tr('courseWorkbench.lessonDocument.aiFailed') : '')
+const inlineAiErrorMessage = computed(() => {
+  const error = aiError.value as { response?: { data?: { detail?: { message?: string } } }; message?: string } | null
+  return error ? error.response?.data?.detail?.message || error.message || documentError.value?.summary || tr('courseWorkbench.lessonDocument.aiFailed') : ''
+})
 const inlineAiProgressLabel = computed(() => {
   const elapsedSeconds = Math.max(0, Math.floor(Number(inlineAiProgress.value?.elapsed_ms || 0) / 1000))
   const message = String(inlineAiProgress.value?.message || tr('courseWorkbench.aiCollaboration.inlineWorking'))
@@ -717,6 +724,7 @@ async function requestAiCandidate(
         field: target.field,
         itemId: target.itemId,
         selectedText,
+        selectionOnly: inlineCandidateInPlace.value,
       },
       progress => { inlineAiProgress.value = progress },
     )
@@ -729,17 +737,27 @@ async function requestAiCandidate(
   }
 }
 
+const inlineTarget = ref<TeacherInlineAiTarget>({})
+function inlineTargetValue(plan: Record<string, any>, target = inlineTarget.value) {
+  const section = (plan.sections || []).find((item: any) => item.node_id === target.sectionNodeId)
+  if (!section || !target.field) return ''
+  const module = (section.teaching_modules || []).find((item: any) => (item.module_id || item.arrangement_block_id) === target.itemId)
+  let value = module ? module[target.field] : section[target.field]
+  if (!module && Array.isArray(value) && /^\d+$/.test(target.itemId || '')) value = value[Number(target.itemId)]
+  return Array.isArray(value) ? value.join('\n') : String(value ?? '')
+}
+const inlineChanges = computed(() => inlineCandidateInPlace.value && pendingCandidate.value ? [{
+  label: inlineTarget.value.label,
+  before: inlineTargetValue(workingRevision.value?.plan || {}),
+  after: inlineTargetValue(pendingCandidate.value.plan),
+}] : [])
 async function requestInlineAiCandidate(payload: TeacherInlineAiRequest) {
-  if (!payload.target?.field) {
-    inlineCandidateInPlace.value = false
-    emit('open-ai-selection', payload)
+  if (!payload.target?.field || !payload.target.sectionNodeId) {
+    aiError.value = new Error(tr('teacherInlineEdit.scopeMissing'))
     return
   }
+  inlineTarget.value = payload.target
   inlineCandidateInPlace.value = true
-  if (pendingCandidate.value) {
-    const discarded = await resolveAiCandidate(false)
-    if (!discarded) return
-  }
   await requestAiCandidate(payload.instruction, payload.target, payload.text)
 }
 
@@ -829,7 +847,7 @@ watch(() => [
   if (current[0] === previous?.[0] && editing.value) return
   cancelEditing()
   aiError.value = null
-  inlineCandidateInPlace.value = false
+  if (current[0] !== previous?.[0] || current[1] !== previous?.[1]) inlineCandidateInPlace.value = false
   inlineAiProgress.value = null
   const candidate = props.lesson.plan.ai_candidate
   pendingCandidate.value = candidate?.status === 'pending'

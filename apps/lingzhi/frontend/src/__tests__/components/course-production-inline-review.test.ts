@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import TextSelectionAiAction from '@/components/TextSelectionAiAction.vue'
 import CourseOutlineReview from '@/components/CourseOutlineReview.vue'
 import { setLocale } from '@/shared/i18n'
 import { useCourseStore } from '@/stores/course'
@@ -648,4 +649,29 @@ describe('课程生产内联确认', () => {
     expect(wrapper.find('[data-testid="outline-coverage-verdict"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('完整课程')
   })
+})
+
+
+it('大纲局部候选保持原文和宿主，不重绘全文候选标记', async () => {
+  setActivePinia(createPinia())
+  vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>zhMessages})))
+  await setLocale('zh')
+  vi.spyOn(useGenerationStore(),'startGlobalMonitor').mockImplementation(()=>undefined)
+  const workspace=useCourseWorkspaceStore()
+  const draft={base_blueprint_revision_id:'bp-1',draft_revision_id:'draft-1',course_name:'课程',course_purpose:'systematic',course_blueprint:{},nodes:[{node_id:'c1',node_level:1,parent_node_id:'',node_name:'模型应用',learning_objective:'说明模型用途'},{node_id:'s1',node_level:2,parent_node_id:'c1',node_name:'案例',learning_objective:'使用 DeepSeek 4.0 完成分析'}]}
+  vi.spyOn(workspace,'loadBlueprint').mockResolvedValue({current:draft} as any)
+  const preview=vi.spyOn(workspace,'previewBlueprintAdjustment').mockResolvedValue({proposal_id:'p1',can_apply:true,source_draft_revision_id:'draft-1',draft:{...draft,nodes:draft.nodes.map(n=>n.node_id==='s1'?{...n,learning_objective:'使用 DeepSeek 5.0 完成分析'}:n)},operations:[{op:'update_node',node_ref:'s1',learning_objective:'使用 DeepSeek 5.0 完成分析'}],diff:{updated:[{node_id:'s1',changes:{learning_objective:{before:'4.0',after:'5.0'}}}]},inline_edit:{selected_text:'DeepSeek 4.0',replacement_excerpt:'DeepSeek 5.0'}} as any)
+  const wrapper=mount(CourseOutlineReview,{attachTo:document.body,props:{courseId:'course-1',surface:'teacher'}})
+  await flushPromises()
+  const editor=wrapper.get('[data-testid="outline-rich-editor"]').element
+  const marker=document.createElement('div');marker.dataset.aiInlineHost='true';editor.append(marker)
+  wrapper.findComponent(TextSelectionAiAction).vm.$emit('invoke',{source:'selection',text:'DeepSeek 4.0',instruction:'更新版本',target:{sectionNodeId:'s1',field:'learning_objective'}})
+  await flushPromises()
+  expect(preview.mock.calls[0]![1]).toMatchObject({inline_target:{node_id:'s1',field:'learning_objective',selected_text:'DeepSeek 4.0'}})
+  expect(marker.isConnected).toBe(true)
+  expect(editor.textContent).toContain('DeepSeek 4.0')
+  expect(editor.querySelector('.ai-change-target')).toBeNull()
+  expect(wrapper.findComponent(TextSelectionAiAction).props('changes')).toEqual([{before:'DeepSeek 4.0',after:'DeepSeek 5.0'}])
+  expect(wrapper.emitted('open-ai-selection')).toBeUndefined()
+  wrapper.unmount()
 })

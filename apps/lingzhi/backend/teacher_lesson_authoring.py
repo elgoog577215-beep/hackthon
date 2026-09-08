@@ -4342,6 +4342,7 @@ class TeacherLessonAuthoringRepository:
         candidate_group_id: str = "",
         material_asset_ids: list[str] | None = None,
         section_replacements: dict[str, str] | None = None,
+        inline_edit: dict[str, str] | None = None,
         block_replacements: dict[str, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         with self._course_lock(course_id):
@@ -4371,6 +4372,7 @@ class TeacherLessonAuthoringRepository:
                 "section_node_id": section_node_id,
                 "instruction": instruction,
                 "replacement_text": replacement_text,
+                "inline_edit": deepcopy(inline_edit or {}),
                 "section_replacements": {
                     str(key): str(value).strip()
                     for key, value in (section_replacements or {}).items()
@@ -4519,7 +4521,7 @@ class TeacherLessonAuthoringRepository:
                 raise TeacherLessonAuthoringError("lesson_plan_candidate_not_found", "AI 教案候选不存在。")
             if candidate.get("status") != "pending":
                 return deepcopy(lesson)
-            if lesson.get("working_revision_id") != candidate.get("base_revision_id"):
+            if accept and lesson.get("working_revision_id") != candidate.get("base_revision_id"):
                 raise TeacherLessonAuthoringError("lesson_plan_revision_conflict", "教案草稿已经变化，不能覆盖新修改。")
             if not accept:
                 candidate["status"] = "rejected"

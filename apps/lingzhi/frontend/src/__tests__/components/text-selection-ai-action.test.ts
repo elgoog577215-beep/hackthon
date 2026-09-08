@@ -1,345 +1,205 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import TextSelectionAiAction from '../../components/TextSelectionAiAction.vue'
-
-function selectionFixture(text: string) {
-  const host = document.createElement('section')
-  const paragraph = document.createElement('p')
-  paragraph.textContent = text
-  host.appendChild(paragraph)
-  document.body.appendChild(host)
-  Object.defineProperty(host, 'clientWidth', { configurable: true, value: 640 })
-  host.getBoundingClientRect = () => ({
-    x: 100, y: 100, left: 100, top: 100, right: 740, bottom: 500, width: 640, height: 400,
-    toJSON: () => ({}),
+vi.mock('../../shared/i18n', () => ({
+  t: (key: string) => key.split('.').pop(),
+}))
+let wrapper: VueWrapper
+function fixture(
+  markup = '<section data-ai-section-id="s1"><p data-ai-field="teacher_activity" data-ai-item-id="m1">保留前句。DeepSeek 4.0。保留后句。</p></section>',
+) {
+  const host = document.createElement('main')
+  host.innerHTML = markup
+  document.body.append(host)
+  wrapper = mount(TextSelectionAiAction, {
+    attachTo: document.body,
+    props: { container: host, sourceRevision: 'r1' },
   })
-  paragraph.getBoundingClientRect = () => ({
-    x: 180, y: 220, left: 180, top: 220, right: 620, bottom: 280, width: 440, height: 60,
-    toJSON: () => ({}),
-  })
-  const range = {
-    startContainer: paragraph.firstChild,
-    endContainer: paragraph.firstChild,
-    getBoundingClientRect: () => ({
-      x: 180, y: 220, left: 180, top: 220, right: 420, bottom: 242, width: 240, height: 22,
-      toJSON: () => ({}),
-    }),
-  } as unknown as Range
-  return { host, range }
+  return host
 }
-
+async function open(element: Element) {
+  element.dispatchEvent(new Event('pointerover', { bubbles: true }))
+  await nextTick()
+  ;(
+    document.querySelector('.block-ai-menu [data-action=ask]') as HTMLButtonElement
+  ).click()
+  await nextTick()
+}
+async function submit(value: string) {
+  if (!document.querySelector('textarea')) {
+    (document.querySelector('.inline-edit-followups button') as HTMLButtonElement)?.click()
+    await nextTick()
+  }
+  const input = document.querySelector('textarea')!
+  input.value = value
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  await nextTick()
+  document
+    .querySelector('form')!
+    .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  await nextTick()
+}
+function clickText(text: string) {
+  const button = Array.from(
+    document.querySelectorAll<HTMLButtonElement>('button'),
+  ).find((b) => b.textContent?.trim() === text)!
+  button.click()
+  return nextTick()
+}
 afterEach(() => {
-  vi.restoreAllMocks()
+  wrapper?.unmount()
   document.body.innerHTML = ''
+  vi.restoreAllMocks()
 })
-
-describe('文中选区 AI 快捷操作', () => {
-  it('仅在当前文档选中有效文字后浮出入口，并就地收集修改要求', async () => {
-    const { host, range } = selectionFixture('理解函数模型并确定定义域')
+describe('文中 AI 修改的完整操作', () => {
+  it('在精确段落后展开，不移动焦点滚动，不把大组作为宿主', async () => {
+    const host = fixture()
+    const p = host.querySelector('p')!
+    const focus = vi.spyOn(HTMLTextAreaElement.prototype, 'focus')
+    await open(p)
+    expect(p.nextElementSibling?.querySelector('textarea')).toBeTruthy()
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true })
+    await submit('改成 5.0')
+    expect(wrapper.emitted('invoke')?.[0]?.[0]).toMatchObject({
+      text: p.textContent,
+      source: 'block',
+      target: { sectionNodeId: 's1', field: 'teacher_activity', itemId: 'm1' },
+    })
+  })
+  it('选词只发送选词，并清除浏览器选区以便输入', async () => {
+    const host = fixture()
+    const p = host.querySelector('p')!
     const removeAllRanges = vi.fn()
     vi.spyOn(window, 'getSelection').mockReturnValue({
-      toString: () => '理解函数模型并确定定义域',
+      isCollapsed: false,
       rangeCount: 1,
-      getRangeAt: () => range,
+      toString: () => 'DeepSeek 4.0',
       removeAllRanges,
+      getRangeAt: () => ({
+        startContainer: p.firstChild,
+        endContainer: p.firstChild,
+        getBoundingClientRect: () => ({ right: 300, bottom: 250 }),
+      }),
     } as unknown as Selection)
-    const wrapper = mount(TextSelectionAiAction, {
-      attachTo: host,
-      props: { container: host, label: 'AI 修改' },
+    document.dispatchEvent(new MouseEvent('mouseup'))
+    await nextTick()
+    ;(
+      document.querySelector('.block-ai-menu [data-action=ask]') as HTMLButtonElement
+    ).click()
+    await nextTick()
+    await submit('升到 5.0')
+    expect(wrapper.emitted('invoke')?.[0]?.[0]).toMatchObject({
+      text: 'DeepSeek 4.0',
+      source: 'selection',
     })
-
-    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
-    await nextTick()
-
-    expect(wrapper.get('button').text()).toContain('AI 修改')
-    expect(wrapper.get('.text-selection-ai').attributes('style')).toContain('left: 320px')
-    expect(wrapper.get('.text-selection-ai').attributes('style')).toContain('top: 124px')
-    await wrapper.get('button').trigger('click')
-    expect(host.querySelector('blockquote')?.textContent).toContain('理解函数模型并确定定义域')
-    const textarea = host.querySelector('textarea') as HTMLTextAreaElement
-    textarea.value = '改成可观察、可检查的学习行为'
-    textarea.dispatchEvent(new Event('input', { bubbles: true }))
-    host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
-    await nextTick()
-    expect(wrapper.emitted('invoke')).toEqual([[
-      {
-        text: '理解函数模型并确定定义域',
-        instruction: '改成可观察、可检查的学习行为',
-        source: 'selection',
-      },
-    ]])
-    expect(removeAllRanges).not.toHaveBeenCalled()
+    expect(removeAllRanges).toHaveBeenCalled()
   })
-
-  it('短选区不打断用户', async () => {
-    const { host, range } = selectionFixture('函')
-    vi.spyOn(window, 'getSelection').mockReturnValue({
-      toString: () => '函',
-      rangeCount: 1,
-      getRangeAt: () => range,
-    } as unknown as Selection)
-    const wrapper = mount(TextSelectionAiAction, {
-      attachTo: host,
-      props: { container: host },
+  it('生成失败保留输入，可重试；生成成功显示差异，继续调整保留原要求', async () => {
+    const host = fixture()
+    await open(host.querySelector('p')!)
+    await submit('改成 5.0')
+    await wrapper.setProps({ busy: true })
+    await wrapper.setProps({ busy: false, errorMessage: '暂时失败' })
+    expect(document.querySelector('textarea')?.value).toBe('改成 5.0')
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+      '暂时失败',
+    )
+    await submit('改成 5.0')
+    await wrapper.setProps({ busy: true, errorMessage: '' })
+    await wrapper.setProps({
+      busy: false,
+      candidatePending: true,
+      changes: [{ before: '4.0', after: '5.0' }],
     })
-
-    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
-    await nextTick()
-
-    expect(wrapper.find('button').exists()).toBe(false)
+    expect(document.querySelectorAll('.inline-edit-diff .markdown-renderer')).toHaveLength(2)
+    expect(host.querySelector('p')?.textContent).toContain('4.0')
+    await submit('补充一个例子')
+    expect(wrapper.emitted('invoke')?.at(-1)?.[0]).toMatchObject({
+      instruction: '改成 5.0\n补充一个例子',
+    })
   })
-
-  it('悬停段落时提供同一个嵌入式修改入口', async () => {
-    const { host } = selectionFixture('以真实任务理解函数模型')
-    const wrapper = mount(TextSelectionAiAction, {
-      attachTo: host,
-      props: { container: host, label: 'AI 修改' },
+  it('应用失败保留建议，成功后关闭；收起不会丢失生成状态', async () => {
+    const host = fixture()
+    await open(host.querySelector('p')!)
+    await submit('修改')
+    await wrapper.setProps({ busy: true })
+    ;(
+      document.querySelector('[aria-label="collapse"]') as HTMLButtonElement
+    ).click()
+    await nextTick()
+    expect(document.querySelector('textarea')).toBeNull()
+    await wrapper.setProps({ busy: false, candidatePending: true })
+    ;(
+      document.querySelector('[aria-label="expand"]') as HTMLButtonElement
+    ).click()
+    await nextTick()
+    await clickText('apply')
+    expect(wrapper.emitted('resolve')?.[0]).toEqual([true])
+    await wrapper.setProps({ busy: true })
+    await wrapper.setProps({ busy: false, errorMessage: '保存失败' })
+    expect(document.querySelector('.inline-edit-decisions')).toBeTruthy()
+    await clickText('apply')
+    await wrapper.setProps({ busy: true })
+    await wrapper.setProps({
+      busy: false,
+      candidatePending: false,
+      errorMessage: '',
     })
-
+    expect(document.querySelector('textarea')).toBeNull()
+  })
+  it('来源变化阻止提交和应用，但仍允许保留原文退出', async () => {
+    const host = fixture()
+    await open(host.querySelector('p')!)
+    await wrapper.setProps({ candidatePending: true, sourceRevision: 'r2' })
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+      'sourceChanged',
+    )
+    const apply = Array.from(document.querySelectorAll('button')).find(
+      (b) => b.textContent === 'apply',
+    )!
+    expect(apply.disabled).toBe(true)
+    await clickText('discard')
+    expect(wrapper.emitted('resolve')?.[0]).toEqual([false])
+    await wrapper.setProps({ candidatePending: false })
+    expect(document.querySelector('textarea')).toBeNull()
+  })
+  it('按学生端悬停显示解释、举例、简化、提问，快捷操作直接生成', async () => {
+    const host = fixture()
     host.querySelector('p')!.dispatchEvent(new Event('pointerover', { bubbles: true }))
     await nextTick()
-
-    expect(wrapper.get('.text-selection-ai__trigger').text()).toContain('AI 修改')
-    await wrapper.get('.text-selection-ai__trigger').trigger('click')
-    expect(host.querySelector('blockquote')?.textContent).toContain('以真实任务理解函数模型')
-    expect(host.querySelector('.text-selection-ai__composer')?.textContent).toContain('修改当前段落')
+    expect(Array.from(document.querySelectorAll('.block-ai-menu button')).map(button => button.textContent?.trim())).toEqual(['explain','example','simplify','ask'])
+    ;(document.querySelector('[data-action=example]') as HTMLButtonElement).click()
+    await nextTick()
+    expect(wrapper.emitted('invoke')?.[0]?.[0]).toMatchObject({ instruction:'examplePrompt',source:'block' })
+    expect(document.querySelector('textarea')).toBeNull()
+    expect(host.querySelector('p')!.nextElementSibling?.querySelector('.text-selection-ai__composer')).toBeTruthy()
+    await wrapper.setProps({busy:true})
+    await wrapper.setProps({busy:false,candidatePending:true,changes:[{before:'原文',after:'例子'}]})
+    expect(document.querySelector('textarea')).toBeNull()
+    await clickText('iterate')
+    expect(document.querySelector('textarea')).toBeTruthy()
   })
-
-  it('把精确对象身份随请求发送，并把输入框追加在对象下方', async () => {
-    const host = document.createElement('section')
-    const section = document.createElement('section')
-    section.dataset.aiSectionId = 'section-1'
-    const inlineAnchor = document.createElement('div')
-    inlineAnchor.dataset.aiInlineAnchor = 'true'
-    const field = document.createElement('p')
-    field.dataset.aiField = 'teacher_activity'
-    field.dataset.aiItemId = 'module-1'
-    field.dataset.aiLabel = '教师活动'
-    field.textContent = '教师演示转换过程'
-    inlineAnchor.appendChild(field)
-    section.appendChild(inlineAnchor)
-    host.appendChild(section)
-    document.body.appendChild(host)
-    Object.defineProperty(host, 'clientWidth', { configurable: true, value: 640 })
-    host.getBoundingClientRect = () => ({
-      x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 400, width: 640, height: 400,
-      toJSON: () => ({}),
-    })
-    field.getBoundingClientRect = () => ({
-      x: 20, y: 40, left: 20, top: 40, right: 420, bottom: 80, width: 400, height: 40,
-      toJSON: () => ({}),
-    })
-    const wrapper = mount(TextSelectionAiAction, {
-      attachTo: host,
-      props: { container: host, targetSelector: '[data-ai-field]' },
-    })
-
-    field.dispatchEvent(new Event('pointerover', { bubbles: true }))
+  it('中文输入法回车只确认文字，正常回车才提交', async () => {
+    const host = fixture()
+    await open(host.querySelector('p')!)
+    const input = document.querySelector('textarea')!
+    input.value = '改成中文例子'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
     await nextTick()
-    await wrapper.get('.text-selection-ai__trigger').trigger('click')
-    expect(inlineAnchor.nextElementSibling?.classList.contains('text-selection-ai-host')).toBe(true)
-    expect(field.querySelector('.text-selection-ai-host')).toBeNull()
-    expect(section.textContent).toContain('教师活动 · 修改当前段落')
-
-    const textarea = section.querySelector('textarea') as HTMLTextAreaElement
-    textarea.value = '增加学生预测'
-    textarea.dispatchEvent(new Event('input', { bubbles: true }))
-    section.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
-    await nextTick()
-
-    expect(wrapper.emitted('invoke')).toEqual([[
-      {
-        text: '教师演示转换过程',
-        instruction: '增加学生预测',
-        source: 'block',
-        target: {
-          sectionNodeId: 'section-1',
-          field: 'teacher_activity',
-          itemId: 'module-1',
-          label: '教师活动',
-        },
-      },
-    ]])
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }))
+    expect(wrapper.emitted('invoke')).toBeUndefined()
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(wrapper.emitted('invoke')).toHaveLength(1)
   })
-
-  it('三栏目标共用大容器右侧入口，进入选择模式后锁定当前栏', async () => {
-    const host = document.createElement('section')
-    const section = document.createElement('section')
-    section.dataset.aiSectionId = 'section-1'
-    const objectiveGrid = document.createElement('div')
-    objectiveGrid.dataset.aiInlineAnchor = 'true'
-    objectiveGrid.getBoundingClientRect = () => ({
-      x: 20, y: 32, left: 20, top: 32, right: 600, bottom: 136, width: 580, height: 104,
-      toJSON: () => ({}),
-    })
-    const fields = [
-      ['knowledge_objectives', '知识目标', 20, 200],
-      ['ability_objectives', '能力目标', 220, 400],
-      ['education_objectives', '育人目标', 420, 600],
-    ] as const
-    for (const [fieldName, label, left, right] of fields) {
-      const field = document.createElement('div')
-      field.dataset.aiField = fieldName
-      field.dataset.aiLabel = label
-      field.textContent = `${label}内容`
-      field.getBoundingClientRect = () => ({
-        x: left, y: 40, left, top: 40, right, bottom: 120, width: right - left, height: 80,
-        toJSON: () => ({}),
-      })
-      objectiveGrid.appendChild(field)
-    }
-    section.appendChild(objectiveGrid)
-    host.appendChild(section)
-    document.body.appendChild(host)
-    Object.defineProperty(host, 'clientWidth', { configurable: true, value: 640 })
-    host.getBoundingClientRect = () => ({
-      x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 400, width: 640, height: 400,
-      toJSON: () => ({}),
-    })
-    const wrapper = mount(TextSelectionAiAction, {
-      attachTo: host,
-      props: {
-        container: host,
-        targetSelector: '[data-ai-field]',
-        groupSelector: '[data-ai-inline-anchor]',
-        selectTargetLabel: '选择要修改的内容',
-      },
-    })
-
-    const knowledgeField = objectiveGrid.children[0] as HTMLElement
-    const abilityField = objectiveGrid.children[1] as HTMLElement
-    knowledgeField.dispatchEvent(new Event('pointerover', { bubbles: true }))
-    await nextTick()
-
-    expect(wrapper.get('.text-selection-ai').attributes('style')).toContain('left: 600px')
-    abilityField.dispatchEvent(new Event('pointerover', { bubbles: true }))
-    await nextTick()
-    expect(wrapper.get('.text-selection-ai').attributes('style')).toContain('left: 600px')
-
-    await wrapper.get('.text-selection-ai__trigger').trigger('click')
-    expect(wrapper.get('.text-selection-ai__trigger').text()).toContain('选择要修改的内容')
-    expect(wrapper.get('.text-selection-ai__trigger').attributes('aria-pressed')).toBe('true')
-
-    knowledgeField.dispatchEvent(new Event('pointerover', { bubbles: true }))
-    await nextTick()
-    expect(knowledgeField.classList.contains('text-selection-ai-target-preview')).toBe(true)
-    knowledgeField.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
-    await nextTick()
-    expect(knowledgeField.classList.contains('text-selection-ai-target-preview')).toBe(false)
-
-    const textarea = section.querySelector('textarea') as HTMLTextAreaElement
-    textarea.value = '改成可检查的知识目标'
-    textarea.dispatchEvent(new Event('input', { bubbles: true }))
-    section.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
-    await nextTick()
-
-    expect(wrapper.emitted('invoke')?.[0]?.[0]).toMatchObject({
-      text: '知识目标内容',
-      target: {
-        sectionNodeId: 'section-1',
-        field: 'knowledge_objectives',
-        label: '知识目标',
-      },
-    })
-  })
-
-  it('整块选择模式可用 Esc 退出且不会打开修改框', async () => {
-    const host = document.createElement('section')
-    const group = document.createElement('div')
-    group.dataset.aiInlineAnchor = 'true'
-    group.getBoundingClientRect = () => ({
-      x: 20, y: 40, left: 20, top: 40, right: 420, bottom: 140, width: 400, height: 100,
-      toJSON: () => ({}),
-    })
-    const field = document.createElement('p')
-    field.dataset.aiField = 'class_summary'
-    field.textContent = '本讲总结'
-    group.appendChild(field)
-    host.appendChild(group)
-    document.body.appendChild(host)
-    Object.defineProperty(host, 'clientWidth', { configurable: true, value: 640 })
-    host.getBoundingClientRect = () => ({
-      x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 400, width: 640, height: 400,
-      toJSON: () => ({}),
-    })
-    const wrapper = mount(TextSelectionAiAction, {
-      attachTo: host,
-      props: {
-        container: host,
-        targetSelector: '[data-ai-field]',
-        groupSelector: '[data-ai-inline-anchor]',
-      },
-    })
-
-    field.dispatchEvent(new Event('pointerover', { bubbles: true }))
-    await nextTick()
-    await wrapper.get('.text-selection-ai__trigger').trigger('click')
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-    await nextTick()
-
-    expect(wrapper.find('.text-selection-ai__trigger').exists()).toBe(false)
-    expect(group.classList.contains('text-selection-ai-group-selecting')).toBe(false)
-    expect(host.querySelector('.text-selection-ai__composer')).toBeNull()
-  })
-
-  it('手动划词会退出整块选择模式，并只保留选中文字', async () => {
-    const host = document.createElement('section')
-    const group = document.createElement('div')
-    group.dataset.aiInlineAnchor = 'true'
-    group.getBoundingClientRect = () => ({
-      x: 20, y: 40, left: 20, top: 40, right: 420, bottom: 140, width: 400, height: 100,
-      toJSON: () => ({}),
-    })
-    const field = document.createElement('p')
-    field.dataset.aiField = 'teacher_activity'
-    field.dataset.aiLabel = '教师活动'
-    field.textContent = '教师先提问，再讲解四步流程'
-    group.appendChild(field)
-    host.appendChild(group)
-    document.body.appendChild(host)
-    Object.defineProperty(host, 'clientWidth', { configurable: true, value: 640 })
-    host.getBoundingClientRect = () => ({
-      x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 400, width: 640, height: 400,
-      toJSON: () => ({}),
-    })
-    const range = {
-      startContainer: field.firstChild,
-      endContainer: field.firstChild,
-      getBoundingClientRect: () => ({
-        x: 64, y: 72, left: 64, top: 72, right: 152, bottom: 94, width: 88, height: 22,
-        toJSON: () => ({}),
-      }),
-    } as unknown as Range
-    const wrapper = mount(TextSelectionAiAction, {
-      attachTo: host,
-      props: {
-        container: host,
-        targetSelector: '[data-ai-field]',
-        groupSelector: '[data-ai-inline-anchor]',
-      },
-    })
-
-    field.dispatchEvent(new Event('pointerover', { bubbles: true }))
-    await nextTick()
-    await wrapper.get('.text-selection-ai__trigger').trigger('click')
-    vi.spyOn(window, 'getSelection').mockReturnValue({
-      toString: () => '先提问',
-      rangeCount: 1,
-      getRangeAt: () => range,
-      removeAllRanges: vi.fn(),
-    } as unknown as Selection)
-    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
-    await nextTick()
-
-    expect(group.classList.contains('text-selection-ai-group-selecting')).toBe(false)
-    expect(wrapper.get('.text-selection-ai__trigger').text()).toContain('AI 修改')
-    host.dispatchEvent(new Event('pointerleave'))
-    await nextTick()
-    field.dispatchEvent(new Event('pointerover', { bubbles: true }))
-    await nextTick()
-    await wrapper.get('.text-selection-ai__trigger').trigger('click')
-    expect(host.querySelector('blockquote')?.textContent).toBe('先提问')
-    expect(host.querySelector('.text-selection-ai__composer')?.textContent).toContain('教师活动 · 修改选中内容')
+  it('表格中的修改嵌入当前行后，不破坏表格结构', async () => {
+    const host = fixture(
+      '<table><tbody><tr><td>教师活动</td><td>学生观察</td></tr></tbody></table>',
+    )
+    await open(host.querySelector('td')!)
+    const row = host.querySelector('tr')!.nextElementSibling!
+    expect(row.tagName).toBe('TR')
+    expect(row.querySelector('td')?.colSpan).toBe(2)
+    expect(row.querySelector('textarea')).toBeTruthy()
   })
 })

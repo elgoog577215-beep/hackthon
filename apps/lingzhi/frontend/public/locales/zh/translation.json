@@ -6759,6 +6759,34 @@
     "failed": "操作未完成，请重试。",
     "unsaved": "请先保存或取消当前编辑。",
     "backToNew": "返回 PPT 制作"
+  },
+  "teacherInlineEdit": {
+    "open": "AI 修改",
+    "title": "局部修改",
+    "placeholder": "说明这段内容要怎样修改…",
+    "generate": "生成修改",
+    "cancel": "取消",
+    "working": "正在生成修改建议…",
+    "boundary": "只修改当前内容，采用后保存。",
+    "ready": "修改建议已生成",
+    "reviewHint": "核对差异后采用，原文尚未改变。",
+    "apply": "采用修改",
+    "discard": "保留原文",
+    "expand": "展开修改助手",
+    "collapse": "收起修改助手",
+    "sourceChanged": "原文已经变化，请关闭助手，重新选择内容后修改。",
+    "before": "原文",
+    "after": "修改建议",
+    "empty": "（空）",
+    "iteratePlaceholder": "继续说明要调整的地方…",
+    "iterateHint": "补充要求后重新生成，采用前不会改动原文。",
+    "iterate": "继续修改",
+    "retry": "重试生成",
+    "draftKept": "修改要求已保留，展开后继续。",
+    "selection": "选中文字",
+    "document": "当前内容",
+    "paragraph": "当前段落",
+    "scopeMissing": "无法确定这段内容的来源，请在正文中重新选择。",
+    "noChange": "没有产生内容变化，请补充具体修改要求。"
   }
-
 }

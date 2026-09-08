@@ -1416,14 +1416,37 @@ class TaskManager:
                 ),
                 None,
             )
+        inline_target = payload.get("inline_target")
+        inline_model_result = None
+        inline_edit = None
+        if inline_target:
+            from inline_editing import outline_inline_target, patch_outline_inline
+            operation, selected, path = outline_inline_target(
+                source_draft, str(inline_target.get("selected_text") or ""),
+                str(inline_target.get("node_id") or ""), str(inline_target.get("field") or ""),
+            )
+            response = await self.course_service.rewrite_selection(
+                course_id=course_id,
+                node={"node_id": inline_target.get("node_id") or "course", "node_name": source_draft.get("course_name") or ""},
+                selected_text=selected,
+                user_id=str(payload.get("inline_actor_id") or ""),
+                node_content=json.dumps(operation, ensure_ascii=False),
+                heading_path=[str(inline_target.get("field") or "")],
+                user_requirement=instruction + "\n只返回选中内容的替换文本，保留未要求修改的事实，不重写其他内容。",
+                action_type="rewrite",
+                course_context=json.dumps({"course_name": source_draft.get("course_name"), "course_purpose": source_draft.get("course_purpose")}, ensure_ascii=False),
+            )
+            replacement = str(response.get("replacement_text") or "").strip()
+            inline_model_result = {"operations": [patch_outline_inline(operation, path, selected, replacement)], "summary": instruction}
+            inline_edit = {"selected_text": selected, "replacement_excerpt": replacement, "target": inline_target}
         last_operations: list[dict[str, Any]] = []
         last_error: OutlineAdjustmentError | None = None
         result: dict[str, Any] | None = None
         correction: dict[str, Any] | None = None
         candidate_quality_report: dict[str, Any] = {}
         unresolved_quality_issue: dict[str, Any] | None = None
-        for attempt in range(2):
-            model_result = await self.course_service.propose_outline_adjustment(
+        for attempt in range(1 if inline_target else 2):
+            model_result = inline_model_result or await self.course_service.propose_outline_adjustment(
                 draft=source_draft,
                 instruction=instruction,
                 correction=correction,
@@ -1500,6 +1523,7 @@ class TaskManager:
             )
             return {
                 "proposal_id": proposal_id,
+                "inline_edit": inline_edit,
                 "source_draft_revision_id": source_draft["draft_revision_id"],
                 "operations": last_operations,
                 "summary": "AI 暂时无法把这句话转换为安全的目录调整，请换一种说法后重试。",
@@ -1588,6 +1612,7 @@ class TaskManager:
         )
         return {
             "proposal_id": proposal_id,
+            "inline_edit": inline_edit,
             "source_draft_revision_id": source_draft["draft_revision_id"],
             "operations": last_operations,
             "summary": summary,

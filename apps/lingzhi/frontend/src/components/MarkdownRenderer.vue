@@ -5,6 +5,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import { renderMarkdown } from '../utils/markdown'
+import { bindInlineMarkdownSource } from '../utils/inline-markdown-source'
 import { highlightRenderedMarkdownText } from '../utils/markdown-highlight'
 import logger from '../utils/logger'
 import { renderMermaidSvg } from '../utils/mermaid'
@@ -13,6 +14,7 @@ import { ElMessage } from 'element-plus'
 
 const props = withDefaults(defineProps<{
   content: string
+  inlineEditable?: boolean
   searchWords?: string[]
   enableCodeRun?: boolean
 }>(), {
@@ -160,6 +162,8 @@ const updateContent = () => {
     }
     // 这里执行耗时的 renderMarkdown
     let html = renderMarkdown(props.content)
+
+    if (props.inlineEditable) html = bindInlineMarkdownSource(html, props.content)
 
     // Apply search highlighting
     if (props.searchWords && props.searchWords.length > 0) {
