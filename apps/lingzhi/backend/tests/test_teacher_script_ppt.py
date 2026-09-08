@@ -9,7 +9,6 @@ from ppt_fixed_templates import compile_fixed_template
 from ppt_source_quotes import source_excerpt_catalog
 from teacher_script_ppt import CONTRACT, generate_bundle, validate_block_pages
 
-
 TEXT = "串行按顺序逐项执行，并行同时执行多个任务。相同任务条件下，应根据任务之间的依赖选择执行方式。独立任务可并行，存在依赖的任务需按先后顺序执行。"
 
 

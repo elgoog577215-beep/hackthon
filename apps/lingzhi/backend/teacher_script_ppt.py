@@ -12,7 +12,8 @@ from pydantic_core import from_json
 from course_document import CourseBlock, CourseDocument, CourseSection, stable_hash
 from course_presentation_graph import block_source_text, compile_course_presentation_graph
 from ppt_fixed_draft import form_type, lower_fixed_response
-from ppt_fixed_templates import compile_fixed_template, fixed_capabilities, fixed_slug
+from ppt_fixed_templates import fixed_capabilities, fixed_slug
+from ppt_source_quotes import source_excerpt_catalog
 from ppt_teaching_manuscript import compile_teaching_manuscript, refresh_manuscript
 from ppt_teaching_planner import normalize_page_response
 from teacher_script import normalize_teacher_script_section, validate_teacher_script_section
@@ -83,6 +84,17 @@ def validate_block_pages(block, template):
                            payload={"markdown": block["content"]}, internal_revision=stable_hash(block["content"], prefix="block_"))])
     graph, planned = lower_bundle_pages(document, template, [block])
     compile_teaching_manuscript(document, graph, template, {}, planned)
+
+
+def _block_literal_source_ranges(block: dict[str, Any]) -> list[dict[str, Any]]:
+    block_id = block["block_id"]
+    return source_excerpt_catalog({
+        block_id: {
+            "block_id": block_id,
+            "block_revision": stable_hash(block["content"], prefix="block_"),
+            "full_text": block["content"],
+        }
+    })
 
 
 async def _notify(callback, *args):
@@ -206,6 +218,9 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                         raw = await invoke("修复当前 PPT 页面，只返回 {\"pages\":[...]}，必要时拆分本页。",
                             joint_instruction + "\n讲义正文固定，不得改写：" + json.dumps({"block_id": bid, "content": block["content"]}, ensure_ascii=False)
                             + "\n只修以下失败页面，保留其他页：" + json.dumps(candidate_pages, ensure_ascii=False)
+                            + "\n当前讲义可选逐字来源：" + json.dumps({"literal_source_ranges": _block_literal_source_ranges(block)}, ensure_ascii=False)
+                            + "\n当前修复中每个字段的 sources 只返回 quote_id，格式为 [{\"quote_id\":\"上方提供的ID\"}]；"
+                              "不得返回 block_id 或自行抄写、改写 quote。"
                             + "\n错误：" + detail, output_tokens=6000, stream_delta=None, stream_reset=None)
                         value = json.loads(raw or "")
                         if not isinstance(value.get("pages"), list):
