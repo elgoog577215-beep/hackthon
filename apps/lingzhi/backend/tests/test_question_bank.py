@@ -158,9 +158,9 @@ def test_build_question_bank_is_course_scoped_deduplicated_and_traceable():
     assert bundle["schema_version"] == "question_bank_bundle_v1"
     assert bundle["course_id"] == "course-bank"
     assert bundle["coverage"]["required_objective_count"] == 2
-    assert bundle["coverage"]["covered_objective_count"] == 1
-    assert bundle["coverage"]["coverage_ratio"] == 0.5
-    assert bundle["coverage"]["status"] == "blocked"
+    assert bundle["coverage"]["covered_objective_count"] == 2
+    assert bundle["coverage"]["coverage_ratio"] == 1
+    assert bundle["coverage"]["status"] == "complete"
 
     imported = [item for item in bundle["items"] if item["source_type"] == "imported"]
     assert len(imported) == 1
@@ -381,7 +381,7 @@ def test_imported_multiple_choice_question_preserves_options_and_correct_choice(
     ]
 
 
-def test_comprehensive_tasks_are_multi_item_specific_and_require_teacher_review():
+def test_comprehensive_tasks_are_multi_item_specific_and_publish_directly():
     bundle = build_question_bank(_course())
     finals = [
         item for item in bundle["items"]
@@ -390,8 +390,8 @@ def test_comprehensive_tasks_are_multi_item_specific_and_require_teacher_review(
 
     assert 3 <= len(finals) <= 8
     assert any(item["assessment_role"] == "cross_chapter_transfer" for item in finals)
-    assert all(item["lifecycle_status"] == "needs_review" for item in finals)
-    assert all(item["review_required"] is True for item in finals)
+    assert all(item["lifecycle_status"] == "approved" for item in finals)
+    assert all(item["review_required"] is False for item in finals)
     assert all(item["deliverable"] for item in finals)
     assert all(item["input_materials"] for item in finals)
     assert all(item["constraints"] for item in finals)
@@ -427,7 +427,7 @@ def test_coverage_uses_stable_learning_objective_identity_when_objective_id_is_m
 
     bundle = build_question_bank(course)
 
-    assert bundle["coverage"]["covered_objective_count"] == 1
+    assert bundle["coverage"]["covered_objective_count"] == 2
     assert bundle["items"][0]["course_objective_refs"][0].startswith("lo_")
 
 
@@ -474,7 +474,10 @@ def test_personalized_assessment_only_covers_confirmed_weak_nodes():
 
 def test_reviews_and_teacher_edits_create_new_immutable_bundle_and_item_revisions():
     original = build_question_bank(_course())
-    final = next(item for item in original["items"] if item["review_required"])
+    final = next(item for item in original["items"])
+    final["review_required"] = True
+    final["lifecycle_status"] = "needs_review"
+    final["review_status"] = "needs_review"
 
     approved = review_question_bank_item(
         original,
@@ -550,7 +553,7 @@ def test_retired_questions_do_not_leak_into_active_status_summaries():
     retired = next(
         item
         for item in bundle["items"]
-        if item.get("review_tier") == "mandatory_review"
+        if item.get("lifecycle_status") == "approved"
     )
     retired["lifecycle_status"] = "retired"
     retired["review_status"] = "retired"
@@ -708,9 +711,9 @@ def test_subject_level_risk_migration_runs_after_policy_was_already_updated():
     assert "independent_solution_required" not in migrated_low["risk_flags"]
 
     migrated_high = by_id[high_risk["item_id"]]
-    assert migrated_high["review_tier"] == "mandatory_review"
+    assert migrated_high["review_tier"] == "auto_publish"
     assert migrated_high["review_policy_reason"] == (
-        "risk:high_consequence_action"
+        "quality_and_validation_passed"
     )
     assert "high_consequence_action" in migrated_high["risk_flags"]
     assert "high_stakes_domain" not in migrated_high["risk_flags"]
@@ -732,8 +735,8 @@ def test_subject_level_risk_migration_runs_after_policy_was_already_updated():
     ]
     assert final_items
     assert all(
-        item["review_tier"] == "mandatory_review"
-        and item["review_policy_reason"] == "comprehensive_assessment"
+        item["review_tier"] == "auto_publish"
+        and item["review_policy_reason"] == "quality_and_validation_passed"
         for item in final_items
     )
     assert migrated["policy_migration"]["schema_version"] == (

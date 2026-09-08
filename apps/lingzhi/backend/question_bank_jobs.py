@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
+import json
+import re
 from copy import deepcopy
 from datetime import datetime, timezone
-import json
 from pathlib import Path
-import re
 from threading import RLock
 from typing import Any
 from uuid import uuid4
 
-from course_versioning import stable_hash
 from assessment_generation_policy import (
     ASSESSMENT_GENERATION_POLICY_VERSION,
     normalize_assessment_generation_profile,
 )
+from course_versioning import stable_hash
 from storage import DATA_DIR
-
 
 QUESTION_BANK_REBUILD_JOB_SCHEMA = "question_bank_rebuild_job_v1"
 QUESTION_BANK_REBUILD_STAGES: tuple[tuple[str, str], ...] = (
@@ -29,7 +28,7 @@ QUESTION_BANK_REBUILD_STAGES: tuple[tuple[str, str], ...] = (
     ("question_generation", "题目生成"),
     ("independent_solving", "独立求解"),
     ("quality_validation", "质量验证"),
-    ("waiting_review", "等待审核"),
+    ("publication_preparation", "准备发布"),
     ("publication", "发布完成"),
 )
 
@@ -326,41 +325,13 @@ class QuestionBankRebuildJobRepository:
     ) -> dict[str, Any]:
         with self._lock:
             path, job = self._load_by_job_id(job_id)
-            review_count = int(
-                (result.get("review_queue") or {}).get(
-                    "blocking_count"
-                )
-                or 0
-            )
-            publication_mode = str(
-                result.get("publication_mode") or ""
-            )
-            waiting_review = bool(
-                review_count
-                or "waiting_review" in publication_mode
-            )
-            job["status"] = (
-                "waiting_review" if waiting_review else "completed"
-            )
-            job["current_stage"] = (
-                "waiting_review" if waiting_review else "publication"
-            )
-            job["current_stage_index"] = (
-                8 if waiting_review else 9
-            )
+            job["status"] = "completed"
+            job["current_stage"] = "publication"
+            job["current_stage_index"] = 9
             job["progress"] = 100
-            for index, stage in enumerate(job["stages"]):
-                if waiting_review and index == 8:
-                    stage["status"] = "waiting_review"
-                elif waiting_review and index > 8:
-                    stage["status"] = "pending"
-                else:
-                    stage["status"] = "completed"
-            job["message"] = (
-                "候选题已生成，正在等待教师审核"
-                if waiting_review
-                else "题库重建并发布完成"
-            )
+            for stage in job["stages"]:
+                stage["status"] = "completed"
+            job["message"] = "题库重建并发布完成"
             job["result"] = deepcopy(result)
             job["error"] = None
             job["completed_at"] = _now()

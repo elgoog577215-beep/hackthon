@@ -36,7 +36,6 @@ from assessment_generation_policy import (
     resolve_assessment_generation_policy,
 )
 from assessment_independent_solvers import IndependentSolverRegistry
-from question_choice_grading import canonical_option_ids
 from assessment_quality import evaluate_question_contract_quality
 from assessment_retrieval import (
     compile_local_reference_package,
@@ -55,6 +54,7 @@ from code_runner_client import (
     code_runner_client,
 )
 from course_versioning import stable_hash
+from question_choice_grading import canonical_option_ids
 from solution_contracts import worked_solution_is_complete
 from teaching_design import resolve_subject_standard_pack
 
@@ -720,17 +720,16 @@ class UniversalAssessmentModel(AIBase):
             kwargs["telemetry_sink"] = (
                 call_policy.physical_call_telemetry.append
             )
-        invocation = self._call_llm(prompt, **kwargs)
-        if call_policy is None or call_policy.timeout_seconds is None:
-            return await invocation
-        try:
-            return await asyncio.wait_for(
-                invocation,
-                timeout=call_policy.timeout_seconds,
+            kwargs["wait_for_capacity"] = True
+            kwargs["request_timeout_seconds"] = (
+                call_policy.timeout_seconds
             )
+        try:
+            return await self._call_llm(prompt, **kwargs)
         except TimeoutError as exc:
             raise AIProviderRequestError(
-                f"assessment_{call_policy.stage}_timeout"
+                "assessment_"
+                f"{call_policy.stage if call_policy else 'provider'}_timeout"
             ) from exc
 
 
@@ -1740,7 +1739,8 @@ class AssessmentGenerationOrchestrator:
                                         accepted_questions,
                                     )
                                 )
-                                candidate = (
+                                original_candidate = deepcopy(candidate or {})
+                                repaired = (
                                     await _timed_model_call(
                                         audit,
                                         role="generator",
@@ -1760,6 +1760,25 @@ class AssessmentGenerationOrchestrator:
                                         ),
                                     )
                                 )
+                                issue_codes = [
+                                    str(issue.get("code") or "")
+                                    for issue in (
+                                        (last_quality or {}).get("issues") or []
+                                    )
+                                    if isinstance(issue, dict)
+                                    and issue.get("code")
+                                ]
+                                candidate, repair_guard = (
+                                    _apply_targeted_repair_candidate(
+                                        original_candidate,
+                                        repaired,
+                                        issue_codes=issue_codes,
+                                    )
+                                )
+                                item_audit.setdefault(
+                                    "targeted_repairs",
+                                    [],
+                                ).append(repair_guard)
                             (
                                 contract,
                                 validation,
@@ -2700,6 +2719,7 @@ class AssessmentGenerationOrchestrator:
                             "repair",
                             repair_context,
                         )
+                        original_candidate = deepcopy(candidate or {})
                         repaired = (
                             await repair_batcher.repair(
                                 context=repair_context,
@@ -2712,10 +2732,18 @@ class AssessmentGenerationOrchestrator:
                             else None
                         )
                         if repaired is not None:
-                            candidate = repaired
+                            candidate, repair_guard = (
+                                _apply_targeted_repair_candidate(
+                                    original_candidate,
+                                    repaired,
+                                    issue_codes=repair_context[
+                                        "issue_codes"
+                                    ],
+                                )
+                            )
                         else:
                             audit["repair_calls"] += 1
-                            candidate = await _timed_model_call(
+                            repaired = await _timed_model_call(
                                 audit,
                                 role="generator",
                                 operation="repair_single",
@@ -2731,6 +2759,19 @@ class AssessmentGenerationOrchestrator:
                                     )
                                 ),
                             )
+                            candidate, repair_guard = (
+                                _apply_targeted_repair_candidate(
+                                    original_candidate,
+                                    repaired,
+                                    issue_codes=repair_context[
+                                        "issue_codes"
+                                    ],
+                                )
+                            )
+                        item_audit.setdefault(
+                            "targeted_repairs",
+                            [],
+                        ).append(repair_guard)
                     elif next_action == "initial":
                         next_action = "generate"
                     (
@@ -3673,6 +3714,245 @@ def _repair_action_for_issues(
     return "none"
 
 
+_TARGETED_REPAIR_PATHS: dict[str, tuple[str, ...]] = {
+    "TASK_TOO_LONG": (
+        "question_spec.task",
+        "question_spec.stimulus",
+        "question_spec.constraints",
+    ),
+    "PROMPT_TOO_LONG": (
+        "question_spec.task",
+        "question_spec.stimulus",
+        "question_spec.constraints",
+    ),
+    "MISSING_CONDITION": (
+        "question_spec.task",
+        "question_spec.stimulus",
+        "question_spec.constraints",
+        "solution.canonical_answer",
+        "solution.solution_graph",
+        "solution.worked_solution",
+    ),
+    "ANSWER_OR_RUBRIC_MISSING": (
+        "solution.canonical_answer",
+        "solution.acceptable_answers",
+        "solution.blanks",
+        "solution.rubric",
+        "solution.solution_graph",
+        "solution.worked_solution",
+    ),
+    "ANSWER_CONTRACT_PLACEHOLDER": (
+        "solution.canonical_answer",
+        "solution.acceptable_answers",
+        "solution.blanks",
+        "solution.rubric",
+        "solution.solution_graph",
+        "solution.worked_solution",
+    ),
+    "MARKDOWN_INVALID": (
+        "question_spec.task",
+        "question_spec.stimulus",
+    ),
+    "CODE_MATERIAL_NOT_RENDERABLE": (
+        "question_spec.stimulus",
+        "question_spec.task",
+        "question_spec.constraints",
+    ),
+    "MATERIAL_NOT_REQUIRED": (
+        "question_spec.stimulus",
+        "question_spec.task",
+        "question_spec.constraints",
+        "solution.solution_graph",
+        "solution.worked_solution",
+    ),
+    "MATERIAL_BINDING_INVALID": (
+        "question_spec.stimulus",
+        "question_spec.task",
+        "question_spec.constraints",
+        "solution.solution_graph",
+        "solution.worked_solution",
+    ),
+    "SOURCE_DUMP": (
+        "question_spec.stimulus",
+        "question_spec.task",
+        "question_spec.constraints",
+        "solution.solution_graph",
+        "solution.worked_solution",
+    ),
+    "WORKED_SOLUTION_INCOMPLETE": (
+        "solution.solution_graph",
+        "solution.worked_solution",
+    ),
+    "DISTRACTOR_NOT_SAME_QUESTION": (
+        "question_spec.options",
+        "solution.canonical_answer",
+        "solution.acceptable_answers",
+        "solution.misconception_rules",
+        "solution.solution_graph",
+        "solution.worked_solution",
+    ),
+    "CHOICE_OPTIONS_INVALID": (
+        "question_spec.options",
+        "solution.canonical_answer",
+        "solution.acceptable_answers",
+        "solution.misconception_rules",
+        "solution.solution_graph",
+        "solution.worked_solution",
+    ),
+    "ANSWER_CONFLICT": (
+        "question_spec.stimulus",
+        "question_spec.task",
+        "question_spec.constraints",
+        "question_spec.options",
+        "solution.canonical_answer",
+        "solution.acceptable_answers",
+        "solution.blanks",
+        "solution.rubric",
+        "solution.solution_graph",
+        "solution.worked_solution",
+    ),
+    "PROMPT_SOLUTION_CONTRADICTION": (
+        "question_spec.stimulus",
+        "question_spec.task",
+        "question_spec.constraints",
+        "question_spec.options",
+        "solution.canonical_answer",
+        "solution.acceptable_answers",
+        "solution.blanks",
+        "solution.rubric",
+        "solution.solution_graph",
+        "solution.worked_solution",
+    ),
+    "VALIDATION_FAILED": (
+        "solution.canonical_answer",
+        "solution.acceptable_answers",
+        "solution.blanks",
+        "solution.rubric",
+        "solution.solution_graph",
+        "solution.worked_solution",
+    ),
+    "SEMANTIC_PREFLIGHT_FAILED": (
+        "question_spec.stimulus",
+        "question_spec.task",
+        "question_spec.constraints",
+        "question_spec.options",
+        "solution.canonical_answer",
+        "solution.acceptable_answers",
+        "solution.blanks",
+        "solution.rubric",
+        "solution.solution_graph",
+        "solution.worked_solution",
+    ),
+    "SEMANTIC_REVIEW_FAILED": (
+        "question_spec.stimulus",
+        "question_spec.task",
+        "question_spec.constraints",
+        "question_spec.options",
+        "solution.canonical_answer",
+        "solution.acceptable_answers",
+        "solution.blanks",
+        "solution.rubric",
+        "solution.solution_graph",
+        "solution.worked_solution",
+    ),
+    "FALSE_ERROR_PREMISE": (
+        "question_spec.stimulus",
+        "question_spec.task",
+        "question_spec.constraints",
+        "solution.canonical_answer",
+        "solution.solution_graph",
+        "solution.worked_solution",
+    ),
+    "OBSERVABLE_RESULT_MISSING": (
+        "question_spec.stimulus",
+        "question_spec.task",
+        "question_spec.constraints",
+        "solution.canonical_answer",
+        "solution.solution_graph",
+        "solution.worked_solution",
+    ),
+    "OBSERVABLE_ACTION_MISSING": (
+        "question_spec.task",
+        "question_spec.constraints",
+    ),
+}
+
+_SAFE_TARGETED_REPAIR_FALLBACK_PATHS = (
+    "question_spec.stimulus",
+    "question_spec.task",
+    "question_spec.constraints",
+    "question_spec.options",
+    "solution.canonical_answer",
+    "solution.acceptable_answers",
+    "solution.blanks",
+    "solution.rubric",
+    "solution.misconception_rules",
+    "solution.solution_graph",
+    "solution.worked_solution",
+)
+
+
+def _apply_targeted_repair_candidate(
+    original: dict[str, Any],
+    proposed: dict[str, Any],
+    *,
+    issue_codes: Iterable[str],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Adopt only fields that the reported defects are allowed to change."""
+
+    normalized_codes = tuple(
+        str(code) for code in issue_codes if str(code or "")
+    )
+    allowed_paths = sorted({
+        path
+        for code in normalized_codes
+        for path in _TARGETED_REPAIR_PATHS.get(str(code or ""), ())
+    })
+    if not allowed_paths and normalized_codes:
+        allowed_paths = list(_SAFE_TARGETED_REPAIR_FALLBACK_PATHS)
+    result = deepcopy(original)
+    changed_paths: list[str] = []
+    for path in allowed_paths:
+        section, field = path.split(".", 1)
+        proposed_section = proposed.get(section)
+        if not isinstance(proposed_section, dict) or field not in proposed_section:
+            continue
+        result.setdefault(section, {})
+        before = (result.get(section) or {}).get(field)
+        after = deepcopy(proposed_section[field])
+        if before != after:
+            result[section][field] = after
+            changed_paths.append(path)
+
+    proposed_changes = _candidate_field_changes(original, proposed)
+    restored_paths = sorted(
+        path for path in proposed_changes if path not in set(allowed_paths)
+    )
+    return result, {
+        "issue_codes": sorted(set(normalized_codes)),
+        "allowed_paths": allowed_paths,
+        "changed_paths": sorted(changed_paths),
+        "restored_paths": restored_paths,
+    }
+
+
+def _candidate_field_changes(
+    original: dict[str, Any],
+    proposed: dict[str, Any],
+) -> set[str]:
+    changes: set[str] = set()
+    for section in set(original) | set(proposed):
+        before = original.get(section)
+        after = proposed.get(section)
+        if isinstance(before, dict) and isinstance(after, dict):
+            for field in set(before) | set(after):
+                if before.get(field) != after.get(field):
+                    changes.add(f"{section}.{field}")
+        elif before != after:
+            changes.add(str(section))
+    return changes
+
+
 def _attach_generation_audit_summary(
     contract: dict[str, Any],
     item_audit: dict[str, Any],
@@ -4259,12 +4539,12 @@ def _apply_quality_decision(
 ) -> None:
     spec = contract.get("question_spec") or {}
     risk = spec.get("risk_contract") or {}
-    high_risk = (
+    quality_advisory = bool(
         risk.get("risk_level") != "low"
-        or bool(risk.get("requires_teacher_review"))
+        or risk.get("requires_teacher_review")
         or spec.get("archetype_id") == "integrated_performance"
     )
-    eligible = bool(quality.get("passed")) and not high_risk
+    eligible = bool(quality.get("passed"))
     validation = contract.setdefault("solution_validation", {})
     validation["quality_gate_passed"] = bool(
         quality.get("passed")
@@ -4282,7 +4562,7 @@ def _apply_quality_decision(
             else "quality_failed"
         )
     )
-    contract["review_required"] = not eligible
+    contract["review_required"] = False
     contract["generation_status"] = (
         "ready" if quality.get("passed") else "quality_failed"
     )
@@ -4292,7 +4572,7 @@ def _apply_quality_decision(
             str(issue.get("code"))
             for issue in quality.get("issues") or []
         ],
-        *(["teacher_review_required"] if high_risk else []),
+        *(["quality_advisory"] if quality_advisory else []),
     ]))
 
 

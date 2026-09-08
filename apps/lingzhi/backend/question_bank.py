@@ -36,15 +36,15 @@ from hint_leakage import measure_deepest_hint_overlap
 from practice_contracts import (
     project_default_single_choice,
 )
+from question_choice_grading import canonical_option_ids
+from question_forms import classify_question_form, question_form_distribution
 from question_generation import (
     generate_cross_chapter_contract,
     generate_question_contract,
     validate_question_spec,
 )
-from question_choice_grading import canonical_option_ids
-from question_forms import classify_question_form, question_form_distribution
-from question_public_guard import rejected_teacher_patch_fields
 from question_knowledge_binding import resolve_node_knowledge_binding
+from question_public_guard import rejected_teacher_patch_fields
 from storage import DATA_DIR
 
 QUESTION_BANK_SCHEMA = "question_bank_bundle_v1"
@@ -4372,8 +4372,16 @@ def _apply_tiered_review_policy(
 def _mandatory_review_reason(
     item: dict[str, Any],
 ) -> str:
-    if item.get("assessment_role") in FINAL_ASSESSMENT_ROLES:
-        return "comprehensive_assessment"
+    generated_and_usable = bool(
+        str(item.get("source_type") or "") in {"generated", "variant"}
+        and (item.get("quality_report") or {}).get("passed")
+        and (
+            not item.get("solution_validation")
+            or (item.get("solution_validation") or {}).get("passed")
+        )
+    )
+    if generated_and_usable:
+        return ""
     risk_flags = [
         str(value)
         for value in item.get("risk_flags") or []

@@ -212,7 +212,8 @@ def test_rebuild_job_completion_and_failure_are_durable(tmp_path):
         },
     )
 
-    assert completed["status"] == "waiting_review"
+    assert completed["status"] == "completed"
+    assert completed["current_stage"] == "publication"
     assert completed["progress"] == 100
     assert completed["result"]["bundle_revision_id"] == "qbb-1"
     assert repository.load(

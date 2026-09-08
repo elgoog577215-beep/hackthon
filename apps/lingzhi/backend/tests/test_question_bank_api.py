@@ -63,12 +63,14 @@ class DeterministicAssessmentOrchestrator:
     def __init__(self, *, fail_node_id: str = ""):
         self.fail_node_id = fail_node_id
         self.requested_node_ids = []
+        self.requested_practice_levels = []
 
     async def prepare_course(
         self,
         course_data,
         *,
         node_ids=None,
+        practice_levels_by_node=None,
         on_progress=None,
         on_chapter_complete=None,
         reference_package=None,
@@ -76,6 +78,9 @@ class DeterministicAssessmentOrchestrator:
         self.requested_node_ids.append(
             None if node_ids is None else list(node_ids)
         )
+        self.requested_practice_levels.append(deepcopy(
+            practice_levels_by_node
+        ))
         prepared = deepcopy(course_data)
         profile = compile_course_assessment_profile(prepared)
         objectives = compile_assessment_objectives(prepared, profile)
@@ -101,17 +106,31 @@ class DeterministicAssessmentOrchestrator:
                 or str(node.get("node_id") or "") in requested
             )
         ]
-        total = len(target_nodes) * 3
+        requested_levels = practice_levels_by_node or {}
+        total = sum(
+            len(requested_levels.get(str(node.get("node_id") or "")) or (
+                "concept_check",
+                "objective_practice",
+                "mastery_check",
+            ))
+            for node in target_nodes
+        )
         for node in target_nodes:
             node_id = str(node.get("node_id") or "")
             objective = objective_by_node[node_id]
             contracts[node_id] = {}
             node_audit_items = []
-            for variant_index, practice_level in enumerate((
+            node_levels = requested_levels.get(node_id) or (
                 "concept_check",
                 "objective_practice",
                 "mastery_check",
-            )):
+            )
+            for practice_level in node_levels:
+                variant_index = (
+                    "concept_check",
+                    "objective_practice",
+                    "mastery_check",
+                ).index(practice_level)
                 slot = slot_for(
                     blueprint,
                     node_id=node_id,
@@ -258,6 +277,11 @@ class DeterministicAssessmentOrchestrator:
                         node.get("node_name") or node_id
                     ),
                     "passed": chapter_passed,
+                    "settled_practice_levels": [
+                        level
+                        for level, contract in contracts[node_id].items()
+                        if contract.get("generation_status") != "discarded"
+                    ],
                     "contracts": deepcopy(contracts[node_id]),
                     "audit_items": deepcopy(node_audit_items),
                     "completed_items": completed,
@@ -467,8 +491,12 @@ def _rebuild(client, request_id, *, mode="incremental"):
 
 def test_question_bank_list_review_revision_and_conflict(monkeypatch, tmp_path):
     client, repository = _client(monkeypatch, tmp_path)
-    stored = repository.save_bundle("course-api", build_question_bank(_course()))
-    final = next(item for item in stored["items"] if item["review_required"])
+    bundle = build_question_bank(_course())
+    final = bundle["items"][0]
+    final["review_required"] = True
+    final["lifecycle_status"] = "needs_review"
+    final["review_status"] = "needs_review"
+    stored = repository.save_bundle("course-api", bundle)
 
     listed = client.get(
         "/api/courses/course-api/question-bank",
@@ -535,7 +563,10 @@ def test_question_bank_list_review_revision_and_conflict(monkeypatch, tmp_path):
 def test_question_bank_review_rejects_failed_quality_item(monkeypatch, tmp_path):
     client, repository = _client(monkeypatch, tmp_path)
     bundle = build_question_bank(_course())
-    pending = next(item for item in bundle["items"] if item["review_required"])
+    pending = bundle["items"][0]
+    pending["review_required"] = True
+    pending["lifecycle_status"] = "needs_review"
+    pending["review_status"] = "needs_review"
     pending["quality_report"] = {
         "schema_version": "question_item_quality_v1",
         "passed": False,
@@ -699,6 +730,119 @@ def test_node_rebuild_publishes_each_selected_chapter_atomically(
     assert repository.course_storage.save_count == 1
 
 
+def test_item_rebuild_generates_only_the_selected_practice_level(
+    monkeypatch,
+    tmp_path,
+):
+    orchestrator = DeterministicAssessmentOrchestrator()
+    client, repository = _client(
+        monkeypatch,
+        tmp_path,
+        orchestrator=orchestrator,
+    )
+    original = repository.save_bundle(
+        "course-api",
+        build_question_bank(_course()),
+    )
+    target = next(
+        item
+        for item in original["items"]
+        if item.get("assessment_role") == "practice"
+        and item.get("practice_levels") == ["objective_practice"]
+    )
+
+    created = client.post(
+        "/api/courses/course-api/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "request_id": "request-single-question",
+            "scope": "items",
+            "revision_ids": [target["revision_id"]],
+            "mode": "incremental",
+        },
+    )
+    job = client.get(
+        created.json()["status_url"],
+        headers={"X-User-Id": "teacher-1"},
+    ).json()
+    active = repository.load_bundle("course-api")
+    replacement = next(
+        item for item in active["items"]
+        if item.get("item_id") == target["item_id"]
+    )
+    untouched_before = {
+        item["item_id"]: item["revision_id"]
+        for item in original["items"]
+        if item.get("item_id") != target["item_id"]
+    }
+    untouched_after = {
+        item["item_id"]: item["revision_id"]
+        for item in active["items"]
+        if item.get("item_id") != target["item_id"]
+    }
+
+    assert job["status"] == "completed"
+    assert orchestrator.requested_node_ids == [[target["node_id"]]]
+    assert orchestrator.requested_practice_levels == [{
+        target["node_id"]: ["objective_practice"],
+    }]
+    assert replacement["revision_id"] != target["revision_id"]
+    assert replacement["lifecycle_status"] == "approved"
+    assert untouched_after == untouched_before
+
+
+def test_failed_item_rebuild_keeps_the_published_question(
+    monkeypatch,
+    tmp_path,
+):
+    course = _course()
+    node_id = str(course["nodes"][0]["node_id"])
+    orchestrator = DeterministicAssessmentOrchestrator(
+        fail_node_id=node_id,
+    )
+    client, repository = _client(
+        monkeypatch,
+        tmp_path,
+        course=course,
+        orchestrator=orchestrator,
+    )
+    original = repository.save_bundle(
+        "course-api",
+        build_question_bank(course),
+    )
+    target = next(
+        item
+        for item in original["items"]
+        if item.get("assessment_role") == "practice"
+        and item.get("practice_levels") == ["mastery_check"]
+    )
+
+    created = client.post(
+        "/api/courses/course-api/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "request_id": "request-failed-single-question",
+            "scope": "items",
+            "revision_ids": [target["revision_id"]],
+            "mode": "incremental",
+        },
+    )
+    job = client.get(
+        created.json()["status_url"],
+        headers={"X-User-Id": "teacher-1"},
+    ).json()
+    active = repository.load_bundle("course-api")
+
+    assert job["status"] == "failed"
+    assert active["bundle_revision_id"] == original["bundle_revision_id"]
+    current = next(
+        item for item in active["items"]
+        if item.get("item_id") == target["item_id"]
+    )
+    assert current["lifecycle_status"] == "approved"
+    assert current["revision_id"] == target["revision_id"]
+
+
 def test_partial_v2_bank_is_detected_and_rebuild_continues_remaining_chapters(
     monkeypatch,
     tmp_path,
@@ -855,10 +999,17 @@ def test_failed_chapter_keeps_old_questions_and_retry_resumes_remaining(
             and item.get("lifecycle_status") != "retired"
         )
     }
-    assert current_node_two_revisions == old_node_two_revisions
+    assert len(current_node_two_revisions & old_node_two_revisions) == 1
+    assert len(current_node_two_revisions - old_node_two_revisions) == 2
     assert repository.course_storage.course[
         "question_bank_chapter_rebuild"
     ]["published_node_ids"] == ["node-1"]
+    assert repository.course_storage.course[
+        "question_bank_chapter_rebuild"
+    ]["published_practice_levels_by_node"]["node-2"] == [
+        "concept_check",
+        "objective_practice",
+    ]
     resumable = client.get(
         "/api/courses/course-api/question-bank/rebuilds/active",
         headers={"X-User-Id": "teacher-1"},
@@ -867,10 +1018,11 @@ def test_failed_chapter_keeps_old_questions_and_retry_resumes_remaining(
     assert resumable.json()["job_id"] == failed["job_id"]
     assert resumable.json()["status"] == "failed"
 
+    resume_orchestrator = DeterministicAssessmentOrchestrator()
     monkeypatch.setattr(
         question_bank,
         "assessment_generation_orchestrator",
-        DeterministicAssessmentOrchestrator(),
+        resume_orchestrator,
     )
     _, resumed = _rebuild(
         client,
@@ -887,7 +1039,10 @@ def test_failed_chapter_keeps_old_questions_and_retry_resumes_remaining(
         "node-1",
         "node-2",
     ]
-    assert repository.course_storage.save_count == 2
+    assert resume_orchestrator.requested_practice_levels == [{
+        "node-2": ["mastery_check"],
+    }]
+    assert repository.course_storage.save_count == 3
 
 
 def test_failed_chapter_scoped_retry_closes_course_checkpoint(
@@ -1026,8 +1181,12 @@ def test_resume_restarts_campaign_when_prompt_contract_changed(
 
 def test_question_bank_rebuild_preserves_teacher_review_decisions(monkeypatch, tmp_path):
     client, repository = _client(monkeypatch, tmp_path)
-    stored = repository.save_bundle("course-api", build_question_bank(_course()))
-    pending = next(item for item in stored["items"] if item["review_required"])
+    bundle = build_question_bank(_course())
+    pending = bundle["items"][0]
+    pending["review_required"] = True
+    pending["lifecycle_status"] = "needs_review"
+    pending["review_status"] = "needs_review"
+    stored = repository.save_bundle("course-api", bundle)
 
     approved = client.post(
         f"/api/courses/course-api/question-bank/items/{pending['revision_id']}/reviews",

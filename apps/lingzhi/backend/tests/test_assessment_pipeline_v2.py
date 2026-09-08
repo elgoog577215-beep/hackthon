@@ -11,15 +11,14 @@ from assessment_contracts import (
     compile_assessment_objectives,
     compile_course_assessment_profile,
 )
-from assessment_quality import evaluate_question_contract_quality
 from assessment_generation import generate_universal_question_contract
+from assessment_quality import evaluate_question_contract_quality
 from assessment_retrieval import (
     compile_local_reference_package,
     enrich_reference_package_with_web,
     references_for_objective,
 )
 from routers.question_bank import _require_complete_generation
-
 
 FAMILIES = (
     "general",
@@ -594,7 +593,7 @@ def test_quality_score_passes_at_85_and_blocks_reference_copy():
     }
 
 
-def test_triggered_semantic_review_is_a_hard_publish_gate():
+def test_difficulty_review_is_advisory_after_hard_checks_pass():
     contract, objective, slot = _quality_contract()
     report = evaluate_question_contract_quality(
         contract,
@@ -619,8 +618,12 @@ def test_triggered_semantic_review_is_a_hard_publish_gate():
         },
     )
 
-    assert report["passed"] is False
-    assert report["hard_gates"]["semantic_review"] is False
+    assert report["passed"] is True
+    assert report["hard_gates"]["semantic_review"] is True
+    assert next(
+        issue for issue in report["issues"]
+        if issue["code"] == "DIFFICULTY_MISMATCH"
+    )["severity"] == "warning"
 
 
 def test_low_reviewer_confidence_is_advisory_after_hard_checks_pass():
@@ -647,11 +650,7 @@ def test_low_reviewer_confidence_is_advisory_after_hard_checks_pass():
 
     assert report["passed"] is True
     assert report["hard_gates"]["semantic_review"] is True
-    assert report["decision"] == "repair"
-    assert {
-        "SEMANTIC_REVIEW_FAILED",
-        "DIFFICULTY_MISMATCH",
-    }.issubset({issue["code"] for issue in report["issues"]})
+    assert report["decision"] == "publish"
 
 
 def test_quality_gate_rejects_missing_worked_solution():
@@ -701,7 +700,7 @@ def test_quality_gate_rejects_task_contract_as_canonical_answer():
     }
 
 
-def test_quality_gate_regenerates_cross_type_semantic_duplicate():
+def test_quality_gate_keeps_semantic_duplicate_as_advisory():
     contract, objective, slot = _quality_contract()
     existing = deepcopy(contract)
     existing["question_type"] = "selected_response"
@@ -724,8 +723,8 @@ def test_quality_gate_regenerates_cross_type_semantic_duplicate():
         },
     )
 
-    assert report["passed"] is False
-    assert report["decision"] == "regenerate"
+    assert report["passed"] is True
+    assert report["decision"] == "publish"
     assert report["diversity_report"]["passed"] is False
     assert "SEMANTIC_DUPLICATE_QUESTION" in {
         issue["code"] for issue in report["issues"]

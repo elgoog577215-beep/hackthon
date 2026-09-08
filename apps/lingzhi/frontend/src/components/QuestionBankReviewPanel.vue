@@ -1746,9 +1746,6 @@ async function rework(item: QuestionBankItem) {
   rebuilding.value = true
   errorMessage.value = ''
   try {
-    if (item.lifecycle_status !== 'rejected') {
-      await submitDecision(item, 'rejected')
-    }
     await runQuestionBankRebuild(
       props.courseId,
       {
@@ -1776,7 +1773,7 @@ async function rework(item: QuestionBankItem) {
       ? t('questionBank.conflict', '题库已被其他操作更新，已重新加载。')
       : t(
         'questionBank.reworkFailed',
-        '题目已从练习中下架，但重新生成失败；可在“重做中”再次尝试。',
+        '重新生成失败，原题仍然有效；可以稍后再次尝试。',
       )
     if (error?.response?.status === 409) await load()
   } finally {

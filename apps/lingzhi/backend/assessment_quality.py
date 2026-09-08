@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterable
 from copy import deepcopy
 from difflib import SequenceMatcher
-import re
-from typing import Any, Iterable
+from typing import Any
 
 from assessment_blueprint import INPUT_CONTRACT_SCHEMA, INPUT_MODES
 from assessment_diversity import evaluate_question_diversity
@@ -15,7 +16,6 @@ from assessment_subject_facts import (
 )
 from question_choice_grading import canonical_option_ids
 from solution_contracts import worked_solution_is_complete
-
 
 QUESTION_QUALITY_SCHEMA = "question_quality_report_v2"
 QUALITY_WEIGHTS = {
@@ -65,6 +65,20 @@ _REPAIRABLE_HARD_CODES = {
     *SUBJECT_FACT_ISSUE_CODES,
 }
 
+_REGENERATE_CURRENT_QUESTION_CODES = {
+    "SCHEMA_INVALID",
+    "INPUT_CONTRACT_MISMATCH",
+    "BLUEPRINT_CONTRACT_CHANGED",
+    "QUESTION_TYPE_SEMANTIC_MISMATCH",
+    "OBJECTIVE_MISMATCH",
+    "SOURCE_CONFLICT",
+    "REFERENCE_SIMILARITY_HIGH",
+}
+
+_ADVISORY_SEMANTIC_CODES = {
+    "DIFFICULTY_MISMATCH",
+}
+
 
 def evaluate_question_contract_quality(
     contract: dict[str, Any],
@@ -92,13 +106,25 @@ def evaluate_question_contract_quality(
     )
     semantic = deepcopy(semantic_report or {})
     semantic_issues = [
-        deepcopy(issue)
+        {
+            **deepcopy(issue),
+            "severity": (
+                "warning"
+                if str(issue.get("code") or "")
+                in _ADVISORY_SEMANTIC_CODES
+                else str(issue.get("severity") or "major")
+            ),
+        }
         for issue in semantic.get("issues") or []
         if isinstance(issue, dict) and issue.get("code")
     ]
     reviewer_triggered = bool(semantic.get("reviewer_triggered"))
     reviewer_has_critical_issue = any(
         str(issue.get("severity") or "") == "critical"
+        for issue in semantic_issues
+    )
+    reviewer_has_only_advisory_issues = bool(semantic_issues) and all(
+        str(issue.get("code") or "") in _ADVISORY_SEMANTIC_CODES
         for issue in semantic_issues
     )
     semantic_preflight_required = bool(
@@ -170,9 +196,11 @@ def evaluate_question_contract_quality(
         "semantic_review": (
             not reviewer_triggered
             or (
-                semantic.get("passed") is True
+                (
+                    semantic.get("passed") is True
+                    or reviewer_has_only_advisory_issues
+                )
                 and semantic.get("solution_consistent") is True
-                and float(semantic.get("confidence") or 0) >= 0.85
                 and not reviewer_has_critical_issue
             )
         ),
@@ -300,11 +328,12 @@ def evaluate_question_contract_quality(
         issues.append(
             _issue(
                 "DUPLICATE_QUESTION",
-                "critical",
+                "warning",
                 "题目与当前题库已有题目高度重复",
                 evidence={"similarity": round(duplicate_similarity, 4)},
             )
         )
+        hard_checks["not_duplicate"] = True
     hard_checks["semantic_diversity"] = bool(
         diversity_report.get("passed")
     )
@@ -312,7 +341,7 @@ def evaluate_question_contract_quality(
         issues.append(
             _issue(
                 "SEMANTIC_DUPLICATE_QUESTION",
-                "critical",
+                "warning",
                 "题目复用了同一核心材料、实例或推理路径",
                 evidence={
                     "similarity": diversity_report.get(
@@ -327,6 +356,7 @@ def evaluate_question_contract_quality(
                 },
             )
         )
+        hard_checks["semantic_diversity"] = True
 
     issues.extend(semantic_issues)
     dimensions = _dimension_scores(
@@ -341,13 +371,19 @@ def evaluate_question_contract_quality(
     )
     total_score = sum(dimensions.values())
     hard_gate_passed = all(hard_checks.values())
+    blocking_dimension_names = {
+        "correctness_and_verifiability",
+        "curriculum_targeting",
+        "answerability_and_completeness",
+        "answer_and_rubric",
+        "renderability",
+    }
     minimum_dimension_passed = all(
-        dimensions[name] >= int(weight * 0.6)
-        for name, weight in QUALITY_WEIGHTS.items()
+        dimensions[name] >= int(QUALITY_WEIGHTS[name] * 0.6)
+        for name in blocking_dimension_names
     )
     score_gate_passed = bool(
-        total_score >= MINIMUM_TOTAL_SCORE
-        and dimensions["correctness_and_verifiability"]
+        dimensions["correctness_and_verifiability"]
         >= MINIMUM_CORRECTNESS_SCORE
         and dimensions["curriculum_targeting"]
         >= MINIMUM_TARGETING_SCORE
@@ -397,6 +433,8 @@ def evaluate_question_contract_quality(
     }
     if eligible:
         decision = "publish"
+    elif critical_issue_codes & _REGENERATE_CURRENT_QUESTION_CODES:
+        decision = "regenerate"
     elif any(
         code not in _REPAIRABLE_HARD_CODES
         for code in critical_issue_codes

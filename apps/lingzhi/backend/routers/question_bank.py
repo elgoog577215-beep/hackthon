@@ -5,12 +5,13 @@ from __future__ import annotations
 import asyncio
 import atexit
 import contextlib
-from concurrent.futures import Future
-from copy import deepcopy
 import inspect
 import logging
 import os
 import time
+from collections.abc import Coroutine
+from concurrent.futures import Future
+from copy import deepcopy
 from threading import Event, Thread
 from typing import Any, Literal
 from uuid import uuid4
@@ -18,23 +19,24 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from assessment_orchestrator import (
-    ASSESSMENT_PROMPT_TEMPLATE_VERSION,
-    AssessmentGenerationOrchestrator,
-)
-from assessment_generation_policy import (
-    ASSESSMENT_GENERATION_POLICY_VERSION,
-    normalize_assessment_generation_profile,
-)
-from assessment_contracts import (
-    compile_assessment_objectives,
-    compile_course_assessment_profile,
-)
 from assessment_blueprint import (
     compile_course_assessment_blueprint,
     slot_for,
 )
 from assessment_compiler import compile_formal_task_contract
+from assessment_contracts import (
+    compile_assessment_objectives,
+    compile_course_assessment_profile,
+)
+from assessment_generation_policy import (
+    ASSESSMENT_GENERATION_POLICY_VERSION,
+    normalize_assessment_generation_profile,
+)
+from assessment_orchestrator import (
+    ASSESSMENT_PROMPT_TEMPLATE_VERSION,
+    PRACTICE_LEVELS,
+    AssessmentGenerationOrchestrator,
+)
 from assessment_retrieval import (
     compile_local_reference_package,
     enrich_reference_package_with_web,
@@ -45,19 +47,19 @@ from course_versioning import stable_hash
 from course_versions import course_version_repository
 from dependencies import get_course_or_404, get_task_manager_optional
 from exam_papers import exam_paper_repository
+from learner_context import require_user_id
 from learning_asset_storage import learning_asset_repository
 from learning_assets import compile_learning_assets
-from learner_context import require_user_id
 from material_storage import material_repository
 from question_bank import (
     expand_question_atomic_revisions,
     filter_question_bank_items,
     load_active_question_bank,
     question_bank_repository,
+    recalculate_question_bank_coverage,
     reconcile_item_question_bank,
     reconcile_question_bank,
     reconcile_scoped_question_bank,
-    recalculate_question_bank_coverage,
     refresh_question_bank_bundle,
     review_question_bank_item,
     revise_question_bank_item,
@@ -168,7 +170,7 @@ class QuestionBankRebuildRequest(BaseModel):
         return normalize_assessment_generation_profile(value)
 
     @model_validator(mode="after")
-    def validate_scope(self):
+    def validate_scope(self) -> QuestionBankRebuildRequest:
         self.teacher_instruction = " ".join(
             str(self.teacher_instruction or "").split()
         )
@@ -249,7 +251,10 @@ class QuestionBankRebuildExecutor:
                 )
             self._loop.close()
 
-    async def _run_bounded(self, coroutine) -> None:
+    async def _run_bounded(
+        self,
+        coroutine: Coroutine[Any, Any, Any],
+    ) -> None:
         semaphore = self._semaphore
         if semaphore is None:
             raise RuntimeError("question bank rebuild loop is not ready")
@@ -337,7 +342,7 @@ class ExamPaperCreateRequest(BaseModel):
     )
 
     @model_validator(mode="after")
-    def normalize_question_revisions(self):
+    def normalize_question_revisions(self) -> ExamPaperCreateRequest:
         normalized = [
             str(value).strip()
             for value in self.question_revision_ids
@@ -368,7 +373,7 @@ async def get_question_bank(
         default=None,
         alias="X-User-Id",
     ),
-):
+) -> dict[str, Any]:
     require_user_id(x_user_id)
     course = await get_course_or_404(course_id)
     bundle = load_active_question_bank(
@@ -711,7 +716,7 @@ async def rebuild_question_bank(
         default=None,
         alias="X-User-Id",
     ),
-):
+) -> dict[str, Any]:
     actor_id = require_user_id(x_user_id)
     course = await _question_bank_course(course_id)
     question_source_material_ids = _question_bank_source_material_asset_ids(
@@ -953,7 +958,7 @@ async def get_active_question_bank_rebuild(
         default=None,
         alias="X-User-Id",
     ),
-):
+) -> dict[str, Any]:
     require_user_id(x_user_id)
     course = await get_course_or_404(course_id)
     job = question_bank_rebuild_job_repository.active_for_course(
@@ -994,7 +999,7 @@ async def get_question_bank_rebuild(
         default=None,
         alias="X-User-Id",
     ),
-):
+) -> dict[str, Any]:
     require_user_id(x_user_id)
     await get_course_or_404(course_id)
     job = question_bank_rebuild_job_repository.load(
@@ -1019,7 +1024,7 @@ async def list_exam_papers(
         default=None,
         alias="X-User-Id",
     ),
-):
+) -> dict[str, Any]:
     require_user_id(x_user_id)
     await get_course_or_404(course_id)
     papers = exam_paper_repository.list_course(course_id)
@@ -1042,7 +1047,7 @@ async def create_exam_paper(
         default=None,
         alias="X-User-Id",
     ),
-):
+) -> dict[str, Any]:
     actor_id = require_user_id(x_user_id)
     course = await get_course_or_404(course_id)
     bundle = _require_bundle(course)
@@ -1111,7 +1116,7 @@ async def get_exam_paper(
         default=None,
         alias="X-User-Id",
     ),
-):
+) -> dict[str, Any]:
     require_user_id(x_user_id)
     await get_course_or_404(course_id)
     paper = exam_paper_repository.load(course_id, paper_id)
@@ -1300,6 +1305,14 @@ async def _execute_question_bank_rebuild(
     repository = question_bank_rebuild_job_repository
     previous = question_bank_repository.load_bundle(course_id)
     previous_assets = learning_asset_repository.load_bundle(course_id)
+    item_practice_levels_by_node = (
+        _item_practice_levels_by_node(
+            previous,
+            revision_ids=payload.revision_ids,
+        )
+        if payload.scope == "items"
+        else {}
+    )
     if (
         payload.request_id
         and previous
@@ -1589,6 +1602,19 @@ async def _execute_question_bank_rebuild(
         *checkpoint_node_ids,
         *inferred_node_ids,
     }
+    published_practice_levels_by_node: dict[str, set[str]] = {
+        str(node_id): {
+            str(level)
+            for level in levels or []
+            if str(level) in PRACTICE_LEVELS
+        }
+        for node_id, levels in (
+            checkpoint.get("published_practice_levels_by_node") or {}
+        ).items()
+        if str(node_id) in set(course_node_ids)
+    }
+    for node_id in published_node_ids:
+        published_practice_levels_by_node[node_id] = set(PRACTICE_LEVELS)
     resumed_chapter_count = len(published_node_ids)
     campaign_id = (
         str(checkpoint.get("campaign_id") or "")
@@ -1608,6 +1634,25 @@ async def _execute_question_bank_rebuild(
             else None
         )
     )
+    requested_practice_levels_by_node = (
+        item_practice_levels_by_node
+        if payload.scope == "items"
+        else (
+            {
+                node_id: [
+                    level
+                    for level in PRACTICE_LEVELS
+                    if level not in published_practice_levels_by_node.get(
+                        node_id,
+                        set(),
+                    )
+                ]
+                for node_id in target_node_ids or []
+            }
+            if resumable_checkpoint or repairs_course_checkpoint
+            else None
+        )
+    )
     rolling_bank = previous
     rolling_assets = previous_assets
     rolling_course = deepcopy(course)
@@ -1624,7 +1669,15 @@ async def _execute_question_bank_rebuild(
         nonlocal processed_chapter_count
         node_id = str(event.get("node_id") or "")
         processed_chapter_count += 1
-        if not event.get("passed"):
+        chapter_passed = bool(event.get("passed"))
+        settled_contracts, settled_audit_items = (
+            _settled_chapter_contracts(event)
+        )
+        published_practice_levels_by_node.setdefault(
+            node_id,
+            set(),
+        ).update(settled_contracts)
+        if not chapter_passed:
             failure = {
                 "node_id": node_id,
                 "node_name": str(
@@ -1667,7 +1720,8 @@ async def _execute_question_bank_rebuild(
                     ),
                 },
             )
-            return
+            if not settled_contracts:
+                return
 
         source_node = next(
             (
@@ -1684,7 +1738,7 @@ async def _execute_question_bank_rebuild(
         chapter_course = deepcopy(course_for_bank)
         chapter_course["nodes"] = [source_node]
         chapter_course["_assessment_generated_contracts"] = {
-            node_id: deepcopy(event.get("contracts") or {})
+            node_id: deepcopy(settled_contracts)
         }
         chapter_course["_assessment_generation_audit"] = {
             "schema_version": "question_generation_audit_v2",
@@ -1698,9 +1752,9 @@ async def _execute_question_bank_rebuild(
             "assessment_prompt_template_version": (
                 ASSESSMENT_PROMPT_TEMPLATE_VERSION
             ),
-            "planned_item_count": 3,
+            "planned_item_count": len(settled_contracts),
             "failure_count": 0,
-            "items": deepcopy(event.get("audit_items") or []),
+            "items": deepcopy(settled_audit_items),
             "chapter_publication": True,
         }
         chapter_course["_course_assessment_blueprint"] = deepcopy(
@@ -1725,6 +1779,9 @@ async def _execute_question_bank_rebuild(
             preserve_global_assessments=(
                 payload.mode == "incremental"
             ),
+            practice_levels_by_node={
+                node_id: list(settled_contracts)
+            },
         )
         merged_bundle = recalculate_question_bank_coverage(
             course_for_bank,
@@ -1746,7 +1803,7 @@ async def _execute_question_bank_rebuild(
             ): deepcopy(item)
             for item in [
                 *prior_audit_items,
-                *list(event.get("audit_items") or []),
+                *settled_audit_items,
             ]
             if isinstance(item, dict)
         }
@@ -1797,7 +1854,7 @@ async def _execute_question_bank_rebuild(
         )
         next_published_node_ids = {
             *published_node_ids,
-            node_id,
+            *([node_id] if chapter_passed else []),
         }
         all_chapters_published = bool(
             len(next_published_node_ids) == total_chapters
@@ -1839,6 +1896,16 @@ async def _execute_question_bank_rebuild(
                 "published_node_ids": sorted(
                     next_published_node_ids
                 ),
+                "published_practice_levels_by_node": {
+                    key: [
+                        level
+                        for level in PRACTICE_LEVELS
+                        if level in levels
+                    ]
+                    for key, levels in sorted(
+                        published_practice_levels_by_node.items()
+                    )
+                },
                 "failed_chapters": deepcopy(
                     failed_chapters
                 ),
@@ -1884,6 +1951,16 @@ async def _execute_question_bank_rebuild(
                     else "running"
                 ),
                 "published_node_ids": sorted(repaired_node_ids),
+                "published_practice_levels_by_node": {
+                    key: [
+                        level
+                        for level in PRACTICE_LEVELS
+                        if level in levels
+                    ]
+                    for key, levels in sorted(
+                        published_practice_levels_by_node.items()
+                    )
+                },
                 "failed_chapters": remaining_failures,
                 "total_chapters": len(course_node_ids),
             }
@@ -1917,7 +1994,8 @@ async def _execute_question_bank_rebuild(
             ),
             changed_node_ids=[node_id],
         )
-        published_node_ids.add(node_id)
+        if chapter_passed:
+            published_node_ids.add(node_id)
         rolling_bank = stored
         rolling_assets = stored_assets
         rolling_course = published_course
@@ -1933,13 +2011,14 @@ async def _execute_question_bank_rebuild(
                 ),
             ),
             message=(
-                f"已发布 {len(published_node_ids)}/"
-                f"{total_chapters} 个章节 · "
-                f"刚完成 {event.get('node_name') or node_id}"
+                f"已发布 {len(settled_contracts)} 道题 · "
+                f"{event.get('node_name') or node_id}"
             ),
             details={
                 **deepcopy(event),
-                "chapter_status": "published",
+                "chapter_status": (
+                    "published" if chapter_passed else "partial"
+                ),
                 "published_chapters": len(
                     published_node_ids
                 ),
@@ -1991,6 +2070,7 @@ async def _execute_question_bank_rebuild(
             assessment_generation_orchestrator,
             course_for_bank,
             node_ids=target_node_ids,
+            practice_levels_by_node=requested_practice_levels_by_node,
             on_progress=report_generation_progress,
             on_chapter_complete=(
                 publish_completed_chapter
@@ -2055,8 +2135,8 @@ async def _execute_question_bank_rebuild(
         )
         repository.advance(
             job_id,
-            stage_id="waiting_review",
-            message="正在计算章节审核队列",
+            stage_id="publication_preparation",
+            message="正在准备发布题目",
         )
         response = _rebuild_response(
             course_id,
@@ -2181,8 +2261,8 @@ async def _execute_question_bank_rebuild(
     if not deduplicated:
         repository.advance(
             job_id,
-            stage_id="waiting_review",
-            message="正在计算审核队列与安全发布范围",
+            stage_id="publication_preparation",
+            message="正在准备发布题目",
         )
         published_course = await _publish_rebuilt_course(
             course_id,
@@ -2218,6 +2298,87 @@ async def _execute_question_bank_rebuild(
             message="题库与课程修订发布完成",
         )
     return response
+
+
+def _item_practice_levels_by_node(
+    bundle: dict[str, Any] | None,
+    *,
+    revision_ids: list[str],
+) -> dict[str, list[str]]:
+    """Resolve item revisions to the exact generated slots they own."""
+
+    selected = set(expand_question_atomic_revisions(
+        bundle,
+        revision_ids=revision_ids,
+    ))
+    result: dict[str, set[str]] = {}
+    for item in (bundle or {}).get("items") or []:
+        if str(item.get("revision_id") or "") not in selected:
+            continue
+        node_id = str(item.get("node_id") or "").strip()
+        levels = [
+            str(level).strip()
+            for level in (
+                item.get("practice_levels")
+                or [item.get("practice_level")]
+            )
+            if str(level or "").strip() in PRACTICE_LEVELS
+        ]
+        if node_id and levels:
+            result.setdefault(node_id, set()).update(levels)
+    missing = selected - {
+        str(item.get("revision_id") or "")
+        for item in (bundle or {}).get("items") or []
+        if (
+            str(item.get("revision_id") or "") in selected
+            and str(item.get("node_id") or "").strip()
+            and any(
+                str(level or "").strip() in PRACTICE_LEVELS
+                for level in (
+                    item.get("practice_levels")
+                    or [item.get("practice_level")]
+                )
+            )
+        )
+    }
+    if missing:
+        raise ValueError(
+            "selected question revisions do not identify generated slots: "
+            f"{sorted(missing)}"
+        )
+    return {
+        node_id: [
+            level for level in PRACTICE_LEVELS if level in levels
+        ]
+        for node_id, levels in result.items()
+    }
+
+
+def _settled_chapter_contracts(
+    event: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Return only question slots that completed on their own merit."""
+
+    contracts = event.get("contracts") or {}
+    settled = {
+        str(level)
+        for level in event.get("settled_practice_levels") or []
+        if str(level) in contracts
+    }
+    if event.get("passed") and not settled:
+        settled = {str(level) for level in contracts}
+    return (
+        {
+            level: deepcopy(contract)
+            for level, contract in contracts.items()
+            if str(level) in settled
+        },
+        [
+            deepcopy(item)
+            for item in event.get("audit_items") or []
+            if str(item.get("practice_level") or "") in settled
+        ],
+    )
 
 
 def _require_complete_generation(
@@ -2844,7 +3005,7 @@ async def get_question_bank_item_solution(
         default=None,
         alias="X-User-Id",
     ),
-):
+) -> dict[str, Any]:
     require_user_id(x_user_id)
     course = await get_course_or_404(course_id)
     bundle = _require_bundle(course)
@@ -2899,7 +3060,7 @@ async def review_question(
     revision_id: str,
     payload: QuestionBankReviewRequest,
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
-):
+) -> dict[str, Any]:
     reviewer_id = require_user_id(x_user_id)
     course = await get_course_or_404(course_id)
     bundle = _require_bundle(course)
@@ -2926,7 +3087,7 @@ async def revise_question(
     revision_id: str,
     payload: QuestionBankRevisionRequest,
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
-):
+) -> dict[str, Any]:
     editor_id = require_user_id(x_user_id)
     course = await get_course_or_404(course_id)
     bundle = _require_bundle(course)
