@@ -4,10 +4,10 @@
       <template #context><UiSegmentedControl v-model="tab" :options="tabs" :accessibility-label="t('pptWorkspace.pageEditing')" /></template>
       <button v-if="state.manuscript && tab === 'manuscript' && !historyOpen" type="button" :disabled="busy || state.source_state === 'stale'" data-testid="ppt-live-edit" @click="editor?.editing ? editor?.finishEditing() : editor?.beginEditing()"><Check v-if="editor?.editing" :size="16" /><Pencil v-else :size="16" />{{ editor?.editing ? t('pptWorkspace.editor.finishEditing') : t('pptLive.edit') }}</button>
       <button type="button" :disabled="!state.can_export || dirty || busy" :title="t('pptProject.export')" :aria-label="t('pptProject.export')" @click="download"><Download :size="16" /></button>
-      <button type="button" :disabled="dirty || saving" :title="t('pptLive.history')" :aria-label="t('pptLive.history')" :aria-pressed="historyOpen" @click="historyOpen = !historyOpen"><History :size="16" /></button>
-      <button type="button" :disabled="dirty || saving" :title="t('pptProject.originalReview')" :aria-label="t('pptProject.originalReview')" @click="emit('legacy')"><FileCheck2 :size="16" /></button>
+      <button type="button" :disabled="dirty || saving" :title="t('pptLive.history')" :aria-label="t('pptLive.history')" :aria-pressed="historyOpen" @click="toggleHistory"><History :size="16" /></button>
+      <button type="button" :disabled="dirty || saving" :title="t('pptProject.originalReview')" :aria-label="t('pptProject.originalReview')" @click="openOriginal"><FileCheck2 :size="16" /></button>
     </TeacherDocumentCommandBar>
-    <PptProjectWorkspace v-if="historyOpen" :course-id="courseId" :initial-lesson-id="initialLessonId" embedded />
+    <PptProjectWorkspace v-if="historyOpen" ref="historyWorkspace" :course-id="courseId" :initial-lesson-id="initialLessonId" embedded />
     <template v-else>
       <p v-if="error" class="lesson-ppt-error" role="alert">{{ error }}<button type="button" :disabled="saving || busy" @click="retry"><RefreshCw :size="16" />{{ t('common.retry') }}</button></p>
       <p v-if="state.source_state === 'stale'" class="lesson-ppt-notice" role="status">{{ t('pptLive.stale') }}<button type="button" :disabled="busy || dirty" @click="sync"><RefreshCw :size="16" />{{ t('pptLive.sync') }}</button></p>
@@ -56,6 +56,7 @@ const props = defineProps<{ courseId: string; initialLessonId: string; title: st
 const emit = defineEmits<{ (event: 'legacy'): void }>()
 const state = ref<Record<string, any>>({}), job = ref<Record<string, any> | null>(null)
 const editor = ref<InstanceType<typeof PptManuscriptWorkflow> | null>(null)
+const historyWorkspace = ref<InstanceType<typeof PptProjectWorkspace> | null>(null)
 const tab = ref('manuscript'), historyOpen = ref(false), selectedPage = ref('')
 const dirty = ref(false), saving = ref(false), loading = ref(false), exporting = ref(false), syncing = ref(false)
 const error = ref(''), previewError = ref(''), previewBusy = ref(false), previewRevisions = ref<Record<string, string>>({})
@@ -129,7 +130,7 @@ async function save(): Promise<boolean> {
     try {
       const { data } = await http.patch(`${base()}/manuscript`, { expected_manuscript_revision: revision, page_updates: payload.updates, ...(payload.pacing ? { pacing: payload.pacing } : {}) }, config())
       if (!current(v)) return false
-      editor.value?.acknowledgeSave(payload.updates)
+      editor.value?.acknowledgeSave(payload.updates, payload.pacing)
       state.value = data.ppt_manuscript_state
       error.value = ''
       await nextTick()
@@ -143,12 +144,15 @@ async function save(): Promise<boolean> {
   return savePromise
 }
 async function prepareToLeave(): Promise<boolean> {
+  if (historyOpen.value && historyWorkspace.value?.prepareToLeave() === false) return false
   if (timer) clearTimeout(timer)
   if (!await save()) return false
   await nextTick()
   if (editor.value?.pendingChanges().updates.length || editor.value?.pendingChanges().pacing) return save()
   return !error.value || !dirty.value
 }
+async function toggleHistory() { if (await prepareToLeave()) historyOpen.value = !historyOpen.value }
+async function openOriginal() { if (await prepareToLeave()) emit('legacy') }
 async function poll(id: string, v: number) {
   try {
     const { data } = await http.get(`/api/teacher/courses/${encodeURIComponent(props.courseId)}/lesson-jobs/${encodeURIComponent(id)}`, config())
@@ -208,7 +212,7 @@ async function resolveSync(accept: boolean) {
   finally { if (current(v)) syncing.value = false }
 }
 async function retry() { error.value = ''; if (dirty.value) await save(); else if (!state.value.manuscript) await complete(); else await load() }
-function protect(event: BeforeUnloadEvent) { if (dirty.value || saving.value) { event.preventDefault(); event.returnValue = '' } }
+function protect(event: BeforeUnloadEvent) { if (dirty.value || saving.value || historyWorkspace.value?.dirty) { event.preventDefault(); event.returnValue = '' } }
 window.addEventListener('beforeunload', protect)
 watch(() => [props.courseId, props.initialLessonId], () => {
   version++; controller.abort(); controller = new AbortController()

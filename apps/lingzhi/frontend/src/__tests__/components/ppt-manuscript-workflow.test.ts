@@ -16,6 +16,27 @@ const emptyState = {
 }
 
 describe('PptManuscriptWorkflow', () => {
+  it('retains edits typed after an autosave request while accepting its saved revision', async () => {
+    const state = { ...emptyState, revision: 'one', manuscript: {
+      page_count: 1, pacing: { max_physical_pages: 30, rationale: '初始' },
+      pages: [{ page_id: 'p1', title: '原标题', visible_copy: ['正文'] }],
+    } }
+    const wrapper = mount(PptManuscriptWorkflow, { props: { title: '课堂', state, continuous: true } })
+    wrapper.vm.beginEditing()
+    await wrapper.vm.$nextTick()
+    await wrapper.get('.ppt-manuscript-workflow__title-field input').setValue('第一次编辑')
+    const sent = JSON.parse(JSON.stringify(wrapper.vm.pendingChanges().updates))
+    await wrapper.get('.ppt-manuscript-workflow__title-field input').setValue('继续输入')
+    ;(wrapper.vm as any).draftPacing = { max_physical_pages: 35, rationale: '保存期间修改' }
+    wrapper.vm.acknowledgeSave(sent)
+    await wrapper.setProps({ state: { ...state, revision: 'two', manuscript: {
+      ...state.manuscript, pages: [{ ...state.manuscript.pages[0], title: '第一次编辑' }],
+    } } })
+    expect(wrapper.vm.pendingChanges().updates[0]?.title).toBe('继续输入')
+    expect(wrapper.vm.pendingChanges().pacing?.max_physical_pages).toBe(35)
+    wrapper.unmount()
+  })
+
   it('shows the lesson narrative and emits a synchronized page draft save', async () => {
     const wrapper = mount(PptManuscriptWorkflow, {
       props: {

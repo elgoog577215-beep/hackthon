@@ -248,7 +248,7 @@ watch(()=>props.sourceRevision,()=>{void loadCatalog();if(project.value && !dirt
 function protectUnsaved(event:BeforeUnloadEvent){if(!dirty.value)return;event.preventDefault();event.returnValue=''}
 onMounted(()=>window.addEventListener('beforeunload',protectUnsaved))
 onBeforeUnmount(()=>{window.removeEventListener('beforeunload',protectUnsaved);disposed=true;controller.abort();streamController?.abort();if(timer)clearTimeout(timer)})
-defineExpose({prepareToLeave, context, runContextAction, sources})
+defineExpose({prepareToLeave, context, runContextAction, sources, dirty})
 </script>
 <style scoped>
 .ppt-project-workspace{height:100%;min-height:540px;display:flex;flex-direction:column;overflow:auto;background:transparent;color:var(--lz-text-primary);font:inherit;letter-spacing:0}

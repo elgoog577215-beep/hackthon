@@ -188,24 +188,30 @@ watch(() => props.reviewOnly, value => {
 })
 
 let submittedUpdates: Record<string, any>[] | null = null
-function acknowledgeSave(updates: Record<string, any>[]) { submittedUpdates = JSON.parse(JSON.stringify(updates)) }
+let submittedPacing: Record<string, any> | null = null
+function acknowledgeSave(updates: Record<string, any>[], pacing?: Record<string, any>) {
+  submittedUpdates = JSON.parse(JSON.stringify(updates))
+  submittedPacing = JSON.parse(JSON.stringify(pacing ?? manuscript.value?.pacing ?? null))
+}
 watch(() => props.state.revision, () => {
   const pages = Array.isArray(manuscript.value?.pages) ? manuscript.value.pages : []
   const incoming = teacherFacingPages(pages)
+  const keepPacing = props.continuous && submittedUpdates !== null && JSON.stringify(draftPacing.value) !== JSON.stringify(submittedPacing)
   if (props.continuous && submittedUpdates) {
     for (const page of incoming) {
       const local = draftPages.value.find(p => p.page_id === page.page_id)
       const baseline = submittedUpdates.find(p => p.page_id === page.page_id) || originalPages.value.find(p => p.page_id === page.page_id)
       if (!local || !baseline) continue
-      for (const field of ['title', 'teaching', 'layout_id', 'page_goal', 'primary_claim', 'audience_question', 'audience_action', 'expected_response', 'observable_evidence', 'transition', 'composition_notes', 'teacher_locked', 'visible_copy']) {
+      for (const field of ['title', 'teaching', 'layout_id', 'page_goal', 'primary_claim', 'audience_question', 'audience_action', 'expected_response', 'observable_evidence', 'transition', 'composition_notes', 'teacher_locked', 'visible_copy', 'reveal_steps']) {
         if (JSON.stringify(local[field]) !== JSON.stringify(baseline[field]) && field in baseline) page[field] = JSON.parse(JSON.stringify(local[field] ?? null))
       }
     }
   }
   submittedUpdates = null
+  submittedPacing = null
   draftPages.value = incoming
   originalPages.value = teacherFacingPages(pages)
-  draftPacing.value = manuscript.value?.pacing ? JSON.parse(JSON.stringify(manuscript.value.pacing)) : null
+  if (!keepPacing) draftPacing.value = manuscript.value?.pacing ? JSON.parse(JSON.stringify(manuscript.value.pacing)) : null
   selectedPageIds.value = new Set()
   if (finishRequested) { editing.value = false; finishRequested = false }
   if (!pages.some((page: any) => page.page_id === activePageId.value)) activePageId.value = pages[0]?.page_id || ''
