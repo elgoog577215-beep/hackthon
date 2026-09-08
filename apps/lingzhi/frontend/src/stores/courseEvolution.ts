@@ -421,7 +421,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         if (this.courseId === targetCourseId && sequence === this.contextRequestSequence) this.contextLoading = false
       }
     },
-    async createCoursePlan(input: { instruction: string; requestId?: string; courseId?: string; supersedesPlanId?: string; literalReplacement?: { before: string; after: string }; assetTypes?: string[] }) {
+    async createCoursePlan(input: { instruction: string; requestId?: string; courseId?: string; supersedesPlanId?: string; literalReplacement?: { before: string; after: string }; assetTypes?: string[]; confirmedInterpretation?: boolean }) {
       const targetCourseId = input.courseId || this.courseId
       if (!targetCourseId) throw new Error('course_change_course_required')
       this.selectCourse(targetCourseId)
@@ -439,6 +439,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
             instruction: input.instruction,
             ...(input.literalReplacement ? { literal_replacement: input.literalReplacement } : {}),
             ...(input.assetTypes ? { asset_types: input.assetTypes } : {}),
+            ...(input.confirmedInterpretation ? { confirmed_interpretation: true } : {}),
             ...(input.supersedesPlanId
               ? { supersedes_plan_id: input.supersedesPlanId }
               : {}),

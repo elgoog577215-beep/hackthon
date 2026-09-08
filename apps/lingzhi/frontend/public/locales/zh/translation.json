@@ -2733,6 +2733,8 @@
       "clarificationHint": "结构变化会影响大量内容，下面的信息需要先确认。",
       "refineStructure": "调整结构理解",
       "answerAndReanalyze": "补充说明并重新分析",
+      "confirmUnderstanding": "确认当前理解并继续分析",
+      "confirmUnderstandingFailed": "确认理解失败，请重试。",
       "backToCourse": "返回课程工作台",
       "currentGoal": "本次目标",
       "contentChange": "内容变化",

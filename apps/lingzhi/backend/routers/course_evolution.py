@@ -89,6 +89,7 @@ class GenerateTeacherCourseChangeRequest(BaseModel):
     supersedes_plan_id: str = Field(default="", max_length=240)
     literal_replacement: TeacherLiteralReplacement | None = None
     asset_types: list[Literal["outline", "course_content", "lesson_plan", "script", "ppt", "question_bank"]] | None = None
+    confirmed_interpretation: bool = False
 
 
 class TeacherCourseOutlineReviewNode(BaseModel):
@@ -230,6 +231,7 @@ async def create_teacher_course_plan(
             supersedes_plan_id=body.supersedes_plan_id,
             literal_replacement=body.literal_replacement.model_dump() if body.literal_replacement else None,
             asset_types=body.asset_types,
+            confirmed_interpretation=body.confirmed_interpretation,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail={

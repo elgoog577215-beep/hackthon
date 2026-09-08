@@ -1884,6 +1884,7 @@ async def create_teacher_course_change_plan(
     supersedes_plan_id: str = "",
     literal_replacement: dict[str, str] | None = None,
     asset_types: list[str] | None = None,
+    confirmed_interpretation: bool = False,
 ) -> CourseEvolutionState:
     if not context.ready:
         raise TeacherCourseChangeSourceUnavailable("当前课程尚未形成可分析的大纲或教学资产")
@@ -1994,6 +1995,13 @@ async def create_teacher_course_change_plan(
     else:
         unscanned_ids = {unit.unit_id for unit in context.units}
     analysis = _normalize_analysis(raw_analysis, context, normalized_instruction, ranked)
+    acknowledged_questions = list(analysis.get("blocking_questions") or [])
+    if confirmed_interpretation:
+        analysis["blocking_questions"] = []
+        analysis["assumptions"] = list(dict.fromkeys([
+            *(analysis.get("assumptions") or []),
+            "教师已确认按当前理解继续；未明确细节采用保留现有内容、最小改动且可撤销的方案。",
+        ]))
     if unscanned_ids:
         analysis.setdefault("blocking_questions", []).append(f"有 {len(unscanned_ids)} 个内容单元未完成检查，请重新分析，避免遗漏修改。")
 
@@ -2011,6 +2019,7 @@ async def create_teacher_course_change_plan(
             "requested_scope": "whole_course",
             "analysis_mode": analysis.get("analysis_mode"),
             "ranked_candidate_count": len(ranked),
+            "confirmed_interpretation": confirmed_interpretation,
         },
         hard_constraints=analysis.get("hard_constraints") or [],
         soft_preferences=analysis.get("soft_preferences") or [],
@@ -2059,7 +2068,11 @@ async def create_teacher_course_change_plan(
         structural_operations=structure_operations,
         unit_migrations=migrations,
         supersedes_plan_id=supersedes_plan_id,
-        replan_reasons=(["教师修正了 AI 对原要求的理解"] if supersedes_plan_id else []),
+        replan_reasons=([
+            "教师确认当前理解并要求继续分析"
+            if confirmed_interpretation
+            else "教师修正了 AI 对原要求的理解"
+        ] if supersedes_plan_id else []),
         status=(
             "needs_clarification"
             if questions
@@ -2128,6 +2141,12 @@ async def create_teacher_course_change_plan(
         impact_summary={
             "request_asset_types": list(asset_types) if asset_types is not None else sorted({unit.asset_type for unit in context.units}),
             "request_id": request_id,
+            **({
+                "clarification_confirmation": {
+                    "confirmed_at": timestamp,
+                    "acknowledged_questions": acknowledged_questions,
+                },
+            } if confirmed_interpretation else {}),
             "analysis_mode": analysis.get("analysis_mode"),
             "source_mode": context.source_mode,
             "asset_inventory": [item.model_dump(mode="json") for item in context.assets],

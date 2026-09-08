@@ -44,6 +44,7 @@ async def enqueue_analysis(
     supersedes_plan_id: str = "",
     literal_replacement: dict[str, str] | None = None,
     asset_types: list[str] | None = None,
+    confirmed_interpretation: bool = False,
 ) -> dict[str, Any]:
     """Persist whole-course analysis before any model call and return immediately."""
 
@@ -81,6 +82,7 @@ async def enqueue_analysis(
                 "supersedes_plan_id": supersedes_plan_id,
                 "literal_replacement": literal_replacement,
                 "asset_types": asset_types,
+                "confirmed_interpretation": confirmed_interpretation,
                 "_retrieval_actor_id": user_id,
             },
         )
@@ -147,6 +149,7 @@ async def run_analysis(manager: Any, job_id: str, *, service: Any = None) -> Non
             supersedes_plan_id=str(request.get("supersedes_plan_id") or ""),
             literal_replacement=request.get("literal_replacement"),
             asset_types=request.get("asset_types"),
+            confirmed_interpretation=bool(request.get("confirmed_interpretation")),
         )
     )
     try:

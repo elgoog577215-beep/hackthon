@@ -2733,6 +2733,8 @@
       "clarificationHint": "Structural changes affect many assets. Confirm the details below first.",
       "refineStructure": "Refine structure interpretation",
       "answerAndReanalyze": "Add details and analyze again",
+      "confirmUnderstanding": "Confirm this interpretation and continue",
+      "confirmUnderstandingFailed": "Could not confirm this interpretation. Please try again.",
       "backToCourse": "Back to course workspace",
       "currentGoal": "Current goal",
       "contentChange": "Content change",

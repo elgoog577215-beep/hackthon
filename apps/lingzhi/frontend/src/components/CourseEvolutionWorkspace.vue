@@ -87,7 +87,7 @@
             </main>
 
             <main v-else-if="workspaceState === 'interpreting'" class="clarification-state">
-              <section><div class="clarification-heading"><BrainCircuit :size="22" /><div><small>{{ t('courseEvolution.workspace.interpretingKicker', 'AI 已完成初步理解') }}</small><h3>{{ interpretedGoal }}</h3></div></div><p>{{ t('courseEvolution.workspace.clarificationHint', '结构变化会影响大量内容，下面的信息需要先确认。') }}</p><ol><li v-for="question in planning?.intent.blocking_questions || []" :key="question">{{ question }}</li></ol><button type="button" class="button-primary" @click="openCorrection"><PencilLine :size="15" />{{ t('courseEvolution.workspace.answerAndReanalyze', '补充说明并重新分析') }}</button></section>
+              <section><div class="clarification-heading"><BrainCircuit :size="22" /><div><small>{{ t('courseEvolution.workspace.interpretingKicker', 'AI 已完成初步理解') }}</small><h3>{{ interpretedGoal }}</h3></div></div><p>{{ t('courseEvolution.workspace.clarificationHint', '结构变化会影响大量内容，下面的信息需要先确认。') }}</p><ol><li v-for="question in planning?.intent.blocking_questions || []" :key="question">{{ question }}</li></ol><footer class="clarification-actions"><button type="button" class="button-secondary" @click="openCorrection"><PencilLine :size="15" />{{ t('courseEvolution.workspace.answerAndReanalyze', '补充说明并重新分析') }}</button><button type="button" class="button-primary" :disabled="store.generating" @click="confirmUnderstanding"><Check :size="15" />{{ t('courseEvolution.workspace.confirmUnderstanding', '确认当前理解并继续分析') }}</button></footer></section>
             </main>
 
             <div v-else-if="workspaceState === 'content'" class="review-layout">
@@ -486,15 +486,32 @@ function selectCreatedPlan(payload: Record<string, any>, requestId = '') {
   if (created) { selectedPlanId.value = created.change_set_id; emit('planSelected', created.change_set_id) }
 }
 function openCorrection() { correctionText.value = ''; correctionOpen.value = true }
+function planAssetTypes(plan: CourseEvolutionPlan) {
+  return plan.impact_summary?.request_asset_types
+    || Array.from(new Set(plan.teacher_change_planning?.unit_migrations.map(item => item.asset_type) || requestAssetTypes.value))
+}
 async function submitCorrection() {
   if (!correctionText.value.trim()) return
   const requestId = createUuid(), courseId = props.courseId
   const combined = `${rawRequest.value}\n补充修正：${correctionText.value.trim()}`.trim()
   await runPlanAction(async (plan, isCurrent) => {
-    const originalScope = plan.impact_summary?.request_asset_types || Array.from(new Set(plan.teacher_change_planning?.unit_migrations.map(item => item.asset_type) || requestAssetTypes.value))
-    const result = await store.createCoursePlan({ courseId, requestId, instruction: combined, supersedesPlanId: plan.change_set_id, assetTypes: originalScope })
-    if (isCurrent()) { correctionOpen.value = false; selectCreatedPlan(result, requestId) }
+    const result = await store.createCoursePlan({ courseId, requestId, instruction: combined, supersedesPlanId: plan.change_set_id, assetTypes: planAssetTypes(plan) })
+    if (isCurrent()) { correctionOpen.value = false; if (!result.analysis_task) selectCreatedPlan(result, requestId) }
   }, '重新分析失败，请重试。')
+}
+async function confirmUnderstanding() {
+  const requestId = createUuid(), courseId = props.courseId
+  await runPlanAction(async (plan, isCurrent) => {
+    const result = await store.createCoursePlan({
+      courseId,
+      requestId,
+      instruction: rawRequest.value,
+      supersedesPlanId: plan.change_set_id,
+      assetTypes: planAssetTypes(plan),
+      confirmedInterpretation: true,
+    })
+    if (isCurrent() && !result.analysis_task) selectCreatedPlan(result, requestId)
+  }, t('courseEvolution.workspace.confirmUnderstandingFailed', '确认理解失败，请重试。'))
 }
 function reviewedMigrationIds() { return affectedUnits.value.filter(item => !excludedUnitIds.value.has(item.migration_id)).map(item => item.migration_id) }
 function reviewedDispositions() { return Object.fromEntries(affectedUnits.value.map(item => [item.migration_id, effectiveDisposition(item)]).filter(([, disposition]) => disposition !== 'blocked')) as Record<string, TeacherMigrationDisposition> }
@@ -619,4 +636,9 @@ defineExpose({ reloadWorkspace, openPlan, startNewRequest, showHistory })
 .impact-list article > .impact-copy { grid-column: 2; grid-row: 1; }
 .impact-list article > .impact-check { grid-column: 1; grid-row: 1 / span 2; }
 .impact-list article > .candidate-details { grid-column: 2; grid-row: 2; }
+.clarification-state{height:100%;min-height:0;overflow:hidden}
+.clarification-state>section{max-height:100%;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;overflow:hidden}
+.clarification-state ol{overflow:auto;padding-right:6px}
+.clarification-actions{display:flex;justify-content:flex-end;gap:9px;padding-top:16px;border-top:1px solid #e2e6ed;background:#fff}
+.clarification-actions button{display:inline-flex;align-items:center;justify-content:center;gap:6px}
 </style>
