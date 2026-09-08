@@ -124,6 +124,31 @@ def test_prose_then_explicit_ppt_saves_real_revision_and_preview_edit_use_no_mod
     assert job["bundle_blocks"]
 
 
+def test_explicit_ppt_reports_source_page_validation_and_save_progress(workflow):
+    client, repository, _calls = workflow
+    phases = []
+    original_update_job = repository.update_job
+
+    def capture_update_job(course_id, job_id, **changes):
+        if changes.get("phase"):
+            phases.append(changes["phase"])
+        return original_update_job(course_id, job_id, **changes)
+
+    repository.update_job = capture_update_job
+    generate(client)
+
+    expected = [
+        "ppt_source_validation",
+        "ppt_page_generation",
+        "ppt_page_validation",
+        "ppt_manuscript_compiling",
+        "ppt_manuscript_saving",
+        "ppt_manuscript_complete",
+    ]
+    positions = [phases.index(phase) for phase in expected]
+    assert positions == sorted(positions)
+
+
 def test_late_bundle_checkpoint_cannot_write_after_stop_or_script_edit(workflow):
     client, repository, _ = workflow
     job = generate(client)

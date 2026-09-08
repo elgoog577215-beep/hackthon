@@ -12,9 +12,25 @@
       <button type="button" :disabled="dirty || saving" :title="t('pptProject.originalReview')" :aria-label="t('pptProject.originalReview')" @click="openOriginal"><FileCheck2 :size="16" /></button>
       </TeacherDocumentCommandBar>
     </header>
-      <p v-if="error" class="lesson-ppt-error" role="alert">{{ error }}<button type="button" :disabled="saving || busy" @click="retry"><RefreshCw :size="16" />{{ t('common.retry') }}</button></p>
+      <section v-if="error" class="lesson-ppt-error" role="alert">
+        <div><strong>{{ errorTitle }}</strong><p>{{ errorSummary }}</p></div>
+        <button type="button" :disabled="saving || busy" @click="retry"><RefreshCw :size="16" />{{ t('common.retry') }}</button>
+        <details v-if="errorTechnical"><summary>{{ t('pptLive.errors.technicalDetails') }}</summary><code>{{ errorTechnical }}</code></details>
+      </section>
       <p v-if="state.manuscript && state.source_state === 'stale'" class="lesson-ppt-notice" role="status">{{ t('pptLive.stale') }}<button type="button" :disabled="busy || dirty" @click="sync"><RefreshCw :size="16" />{{ t('pptLive.sync') }}</button></p>
-      <p v-if="job && ['pending', 'running'].includes(job.status)" class="lesson-ppt-notice" role="status"><LoaderCircle :size="16" class="spinning" />{{ job.message || t('pptProject.preparing') }}</p>
+      <section v-if="progressVisible" class="lesson-ppt-progress" data-testid="ppt-manuscript-progress" :aria-label="t('pptLive.progress.title')">
+        <header>
+          <div><strong>{{ t('pptLive.progress.title') }}</strong><span>{{ progressMessage }}</span></div>
+          <b>{{ progressPercent }}%</b>
+        </header>
+        <div class="lesson-ppt-progress__track" role="progressbar" :aria-label="progressMessage" :aria-valuenow="progressPercent" aria-valuemin="0" aria-valuemax="100"><i :style="{ transform: `scaleX(${progressPercent / 100})` }" /></div>
+        <ol>
+          <li v-for="step in progressSteps" :key="step.id" :data-step="step.id" :data-state="step.state">
+            <span><Check v-if="step.state === 'done'" :size="15" /><TriangleAlert v-else-if="step.state === 'failed'" :size="15" /><LoaderCircle v-else-if="step.state === 'current'" :size="15" class="spinning" /><Circle v-else :size="15" /></span>
+            <strong>{{ step.label }}</strong>
+          </li>
+        </ol>
+      </section>
       <section v-if="state.sync_candidate" class="lesson-ppt-candidate">
         <header><strong>{{ t('pptLive.candidate') }}</strong><button type="button" :disabled="busy" @click="resolveSync(true)"><Check :size="16" />{{ t('pptLive.accept') }}</button><button type="button" :disabled="busy" @click="resolveSync(false)">{{ t('pptLive.reject') }}</button></header>
         <PptManuscriptWorkflow :title="title" :state="candidateState" continuous review-only embedded external-actions />
@@ -35,7 +51,7 @@
           </div>
         </section>
       </template>
-      <div v-else class="lesson-ppt-empty">
+      <div v-else-if="!progressVisible" class="lesson-ppt-empty">
         <div class="lesson-ppt-empty-mark"><Presentation :size="24" /></div>
         <h2>{{ loading ? t('common.loading') : t('pptLive.missing') }}</h2>
         <p>{{ loading ? t('pptProject.preparing') : emptyDescription }}</p>
@@ -47,7 +63,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { Check, Download, FileCheck2, LoaderCircle, Pencil, Presentation, RefreshCw } from 'lucide-vue-next'
+import { Check, Circle, Download, FileCheck2, LoaderCircle, Pencil, Presentation, RefreshCw, TriangleAlert } from 'lucide-vue-next'
 import http, { identityRequestConfig, teacherIdentityHeaders, withApiBase } from '../utils/http'
 import { consumeEventStream } from '../shared/generation-stream'
 import { t } from '../shared/i18n'
@@ -70,6 +86,44 @@ const pages = computed(() => state.value.manuscript?.pages || [])
 const pageCountLabel = computed(() => t('pptWorkspace.sidebar.pageCount', '{count} 页').replace('{count}', String(state.value.manuscript?.page_count || 0)))
 const emptyDescription = computed(() => t('pptLive.missingDescription', '讲义已独立保存。点击生成，将当前讲义整理为 PPT 页面内容稿。'))
 const busy = computed(() => exporting.value || syncing.value || ['pending', 'running'].includes(job.value?.status || ''))
+const jobFailure = computed(() => job.value?.error && typeof job.value.error === 'object' ? job.value.error : null)
+const progressVisible = computed(() => !!job.value && ['pending', 'running', 'failed'].includes(job.value.status || '') && !state.value.manuscript)
+const progressPercent = computed(() => Math.max(0, Math.min(100, Number(job.value?.progress || 0))))
+const progressMessage = computed(() => job.value?.message || (job.value?.status === 'failed' ? t('pptLive.progress.failed') : t('pptProject.preparing')))
+const stepDefinitions = computed(() => [
+  { id: 'prepare', label: t('pptLive.progress.steps.prepare') },
+  { id: 'pages', label: t('pptLive.progress.steps.pages') },
+  { id: 'sources', label: t('pptLive.progress.steps.sources') },
+  { id: 'save', label: t('pptLive.progress.steps.save') },
+])
+const currentStepId = computed(() => {
+  const phase = String(job.value?.phase || '')
+  if (phase.includes('source_validation')) return 'prepare'
+  if (phase.includes('page_generation') || phase.includes('content_repair')) return 'pages'
+  if (phase.includes('page_validation')) return 'sources'
+  if (phase.includes('manuscript_compil') || phase.includes('manuscript_sav')) return 'save'
+  return 'prepare'
+})
+const progressSteps = computed(() => {
+  const currentIndex = stepDefinitions.value.findIndex(step => step.id === currentStepId.value)
+  const failedStep = String(jobFailure.value?.failed_step || '')
+  return stepDefinitions.value.map((step, index) => ({ ...step, state: failedStep === step.id
+    ? 'failed'
+    : job.value?.status === 'failed'
+      ? index < currentIndex ? 'done' : index === currentIndex ? 'failed' : 'pending'
+      : index < currentIndex ? 'done' : index === currentIndex ? 'current' : 'pending' }))
+})
+const errorTitle = computed(() => jobFailure.value?.failed_step === 'sources'
+  ? t('pptLive.progress.steps.sources')
+  : t('pptLive.errors.title'))
+const errorSummary = computed(() => {
+  const failure = jobFailure.value
+  if (!failure) return error.value
+  const block = String(failure.failed_block_id || '')
+  const messageText = String(failure.message || error.value)
+  return block ? `${messageText} ${t('pptLive.errors.block').replace('{block}', block)}` : messageText
+})
+const errorTechnical = computed(() => String(jobFailure.value?.technical_detail || ''))
 const candidateState = computed(() => ({ revision: state.value.sync_candidate?.candidate_id, manuscript: { ...state.value.sync_candidate?.manuscript, pages: (state.value.sync_candidate?.manuscript?.pages || []).filter((p: any) => state.value.sync_candidate.affected_page_ids.includes(p.page_id)) } }))
 const visibleSlides = computed(() => {
   const item = manifest.value.find(p => p.page_id === selectedPage.value)
@@ -368,10 +422,52 @@ defineExpose({ context, sources, runContextAction, prepareToLeave })
   box-shadow:inset 0 0 0 1px var(--ppt-line);
 }
 .lesson-ppt-error {
+  flex-wrap:wrap;
   color:#9f3344;
   background:#fff7f8;
   box-shadow:inset 0 0 0 1px #efd2d8;
 }
+.lesson-ppt-error>div { min-width:0; display:grid; gap:2px; }
+.lesson-ppt-error strong { font-size:15px; }
+.lesson-ppt-error p { margin:0; color:#a34b59; font-size:15px; }
+.lesson-ppt-error details {
+  width:100%;
+  padding:8px 0 2px;
+  border-top:1px solid #efd2d8;
+  color:#7b4650;
+  font-size:14px;
+}
+.lesson-ppt-error summary { cursor:pointer; font-weight:700; }
+.lesson-ppt-error code { display:block; margin-top:7px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.lesson-ppt-progress {
+  width:min(100% - 36px, 980px);
+  display:grid;
+  gap:15px;
+  margin:0 auto;
+  padding:18px 20px;
+  box-sizing:border-box;
+  border:1px solid var(--ppt-line);
+  border-radius:12px;
+  background:#fff;
+  box-shadow:0 1px 3px rgba(30,41,59,.04);
+}
+.lesson-ppt-progress>header { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }
+.lesson-ppt-progress>header>div { min-width:0; display:grid; gap:3px; }
+.lesson-ppt-progress>header strong { color:#273247; font-size:16px; }
+.lesson-ppt-progress>header span { color:var(--ppt-muted); font-size:15px; line-height:1.5; }
+.lesson-ppt-progress>header b { color:var(--ppt-accent); font-size:17px; font-variant-numeric:tabular-nums; }
+.lesson-ppt-progress__track { height:5px; overflow:hidden; border-radius:3px; background:#e8eaf1; }
+.lesson-ppt-progress__track i { width:100%; height:100%; display:block; background:var(--ppt-accent); transform-origin:left; transition:transform .25s ease; }
+.lesson-ppt-progress ol { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin:0; padding:0; list-style:none; }
+.lesson-ppt-progress li { min-width:0; display:flex; align-items:center; gap:8px; color:#8a94a6; font-size:14px; }
+.lesson-ppt-progress li>span { width:24px; height:24px; flex:none; display:grid; place-items:center; border-radius:50%; background:#f1f3f7; }
+.lesson-ppt-progress li strong { overflow-wrap:anywhere; font-weight:700; line-height:1.35; }
+.lesson-ppt-progress li[data-state="done"] { color:#287a50; }
+.lesson-ppt-progress li[data-state="done"]>span { background:#e9f7ef; }
+.lesson-ppt-progress li[data-state="current"] { color:#3730a3; }
+.lesson-ppt-progress li[data-state="current"]>span { background:var(--ppt-accent-soft); }
+.lesson-ppt-progress li[data-state="failed"] { color:#a33b4a; }
+.lesson-ppt-progress li[data-state="failed"]>span { background:#fdebed; }
 .lesson-ppt-notice button,
 .lesson-ppt-error button,
 .lesson-ppt-candidate button,
@@ -395,6 +491,9 @@ defineExpose({ context, sources, runContextAction, prepareToLeave })
 .lesson-ppt-error button { margin-left:auto; }
 .lesson-ppt-workspace button:hover:not(:disabled) { background:#f7f8fc; }
 .lesson-ppt-workspace button:disabled { opacity:.48; cursor:not-allowed; }
+@media (prefers-reduced-motion:reduce) {
+  .lesson-ppt-progress__track i { transition:none; }
+}
 .lesson-ppt-candidate {
   width:min(100% - 36px, 980px);
   display:grid;

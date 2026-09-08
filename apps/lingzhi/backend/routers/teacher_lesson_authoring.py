@@ -2578,8 +2578,8 @@ async def complete_teacher_ppt_manuscript(
     tm: TaskManager = Depends(require_task_manager),
     repository: TeacherLessonAuthoringRepository = Depends(get_teacher_lesson_authoring_repository),
 ):
-    from teacher_script_ppt import CONTRACT, DEFAULT_THEME, compile_bundle_manuscript
     from ppt_fixed_templates import compile_fixed_template
+    from teacher_script_ppt import CONTRACT, DEFAULT_THEME, compile_bundle_manuscript, describe_bundle_failure
     from template_layout_contract import TemplateLayoutPackContractV1
     try:
         document, _, _, lesson, plan = _teacher_v6_source(tm, repository, course_id, lesson_unit_id)
@@ -2615,18 +2615,80 @@ async def complete_teacher_ppt_manuscript(
     async def run():
         try:
             sections = []
-            for section in script["sections"]:
+            total_sections = max(1, len(script["sections"]))
+            repository.update_job(
+                course_id,
+                str(job["id"]),
+                status="running",
+                phase="ppt_source_validation",
+                progress=8,
+                message="正在核对当前讲义与教案",
+            )
+            for section_index, section in enumerate(script["sections"], start=1):
+                section_start = 16 + int((section_index - 1) / total_sections * 62)
+                repository.update_job(
+                    course_id,
+                    str(job["id"]),
+                    status="running",
+                    phase="ppt_page_generation",
+                    progress=section_start,
+                    message=f"正在生成第 {section_index}/{total_sections} 个小节的页面内容",
+                )
                 seeds = {b["block_id"]: {**deepcopy((job.get("bundle_blocks") or {}).get(b["block_id"], {})),
                     **deepcopy(b), "generation_contract_version": CONTRACT} for b in section["blocks"]}
+
+                async def save_page_checkpoint(
+                    block: dict[str, Any], *, current_index: int = section_index
+                ) -> None:
+                    repository.save_script_bundle_checkpoint(course_id, str(job["id"]), block)
+                    progress = min(84, 20 + int(current_index / total_sections * 62))
+                    has_pages = bool(block.get("ppt_pages"))
+                    repository.update_job(
+                        course_id,
+                        str(job["id"]),
+                        status="running",
+                        phase="ppt_page_validation" if has_pages else "ppt_page_generation",
+                        progress=progress,
+                        message=(
+                            f"正在校验第 {current_index}/{total_sections} 个小节的页面与引用"
+                            if has_pages
+                            else f"正在生成第 {current_index}/{total_sections} 个小节的页面内容"
+                        ),
+                    )
+
                 generated = await tm.course_service.generate_teacher_script_section(course_id=course_id,
                     outline_section=outlines[section["section_node_id"]], current_plan_section=plans[section["section_node_id"]],
                     generation_contract_version=CONTRACT, ppt_template=template.model_dump(mode="json"), bundle_seed_blocks=seeds, immutable_handout=True,
-                    on_bundle_checkpoint=lambda block: repository.save_script_bundle_checkpoint(course_id, str(job["id"]), block), user_id=actor)
+                    on_bundle_checkpoint=save_page_checkpoint, user_id=actor)
                 if {b["block_id"]: b["content"] for b in generated["blocks"]} != {b["block_id"]: b["content"] for b in section["blocks"]}:
                     raise TeacherLessonAuthoringError("lesson_script_revision_conflict", "补齐页面不得修改讲义正文。")
                 sections.append(generated)
+                repository.update_job(
+                    course_id,
+                    str(job["id"]),
+                    status="running",
+                    phase="ppt_page_validation",
+                    progress=min(88, 20 + int(section_index / total_sections * 66)),
+                    message=f"已完成第 {section_index}/{total_sections} 个小节的页面校验",
+                )
+            repository.update_job(
+                course_id,
+                str(job["id"]),
+                status="running",
+                phase="ppt_manuscript_compiling",
+                progress=92,
+                message="正在汇总并检查整讲页面内容",
+            )
             manuscript = compile_bundle_manuscript(document, template, sections,
                 plan_revision_id=plan["revision_id"], script_revision_id=body.source_script_revision_id)
+            repository.update_job(
+                course_id,
+                str(job["id"]),
+                status="running",
+                phase="ppt_manuscript_saving",
+                progress=97,
+                message="正在保存 PPT 内容稿",
+            )
             repository.save_v6_ppt_manuscript(course_id, lesson_unit_id, source_lesson_plan_revision_id=plan["revision_id"],
                 source_script_revision_id=body.source_script_revision_id, source_material_revision=stable_hash([], prefix="pptrefs_"),
                 task_id=str(job["id"]), mode="teaching", theme=template.theme_id, manuscript=manuscript.model_dump(mode="json"),
@@ -2637,8 +2699,12 @@ async def complete_teacher_ppt_manuscript(
         except asyncio.CancelledError:
             return
         except Exception as exc:
-            repository.update_job(course_id, str(job["id"]), status="failed", phase="ppt_manuscript_failed",
-                                  error=generation_failure(exc, "ppt_completion_failed"), stream_complete=True)
+            failure = describe_bundle_failure(exc) or generation_failure(exc, "ppt_completion_failed")
+            failed_phase = "ppt_page_validation_failed" if failure.get("failed_step") == "sources" else "ppt_manuscript_failed"
+            repository.update_job(course_id, str(job["id"]), status="failed", phase=failed_phase,
+                                  progress=max(1, int((repository.get_job(course_id, str(job["id"])) or {}).get("progress") or 1)),
+                                  message=str(failure.get("message") or "PPT 内容稿生成失败"),
+                                  error=failure, stream_complete=True)
     task = asyncio.create_task(run(), name=str(job["id"]))
     repository.track_runtime_job(course_id, task)
     _background_jobs.add(task)

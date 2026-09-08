@@ -27,7 +27,22 @@
       "complete": "Generate PPT manuscript",
       "candidate": "Proposed sync",
       "accept": "Apply changes",
-      "reject": "Keep original"
+      "reject": "Keep original",
+      "progress": {
+        "title": "PPT manuscript progress",
+        "failed": "Generation stopped at the current step. The completed handout is unchanged.",
+        "steps": {
+          "prepare": "Check handout sources",
+          "pages": "Generate page content",
+          "sources": "Validate pages and citations",
+          "save": "Save manuscript"
+        }
+      },
+      "errors": {
+        "title": "PPT manuscript was not generated",
+        "block": "Failed at handout block {block}.",
+        "technicalDetails": "View technical details"
+      }
   },
   "common": {
     "cancel": "Cancel",

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import re
 from copy import deepcopy
 from typing import Any
 
@@ -20,6 +21,23 @@ from teacher_script import normalize_teacher_script_section, validate_teacher_sc
 
 CONTRACT = "script_ppt_bundle_v1"
 DEFAULT_THEME = "qizhi-classroom"
+
+
+def describe_bundle_failure(exc: Exception) -> dict[str, Any] | None:
+    technical_detail = str(exc)
+    match = re.search(r"source_excerpt_mismatch:([^:\s]+)", technical_detail)
+    if match is None:
+        return None
+    return {
+        "code": "lesson_ppt_source_grounding_failed",
+        "message": "页面引用未能匹配讲义原文，系统没有保存来源不可靠的内容稿。",
+        "category": "quality",
+        "recovery_action": "retry_original",
+        "retryable": True,
+        "failed_step": "sources",
+        "failed_block_id": match.group(1),
+        "technical_detail": technical_detail,
+    }
 
 
 class BundleBlock(BaseModel):

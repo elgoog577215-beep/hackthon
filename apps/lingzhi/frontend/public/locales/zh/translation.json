@@ -27,7 +27,22 @@
       "complete": "生成页面内容稿",
       "candidate": "同步候选",
       "accept": "采用修改",
-      "reject": "保留原稿"
+      "reject": "保留原稿",
+      "progress": {
+        "title": "PPT 内容稿生成进度",
+        "failed": "生成在当前步骤停止，已完成的讲义保持不变。",
+        "steps": {
+          "prepare": "核对讲义来源",
+          "pages": "生成逐页内容",
+          "sources": "校验页面与引用",
+          "save": "保存内容稿"
+        }
+      },
+      "errors": {
+        "title": "PPT 内容稿未生成",
+        "block": "失败位置：讲义块 {block}。",
+        "technicalDetails": "查看技术详情"
+      }
   },
   "common": {
     "cancel": "取消",
