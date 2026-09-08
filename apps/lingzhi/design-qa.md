@@ -50,6 +50,35 @@ final result: passed
 
 ---
 
+# Design QA — 题库按讲次浏览与紧凑失败状态（2026-09-08）
+
+## Comparison target
+
+- Source visual truth: `D:\lingzhi\hackthon\artifacts\design-qa\question-bank-lesson-navigation-concept.png` (`1617 × 972`), selected ideation result 2.
+- Original problem evidence: `C:\Users\Lenovo\AppData\Local\Temp\codex-clipboard-a5139a81-cca3-4f4b-a7bf-1d4aa55311df.png` and `C:\Users\Lenovo\AppData\Local\Temp\codex-clipboard-ee8b0492-5469-4289-864d-6a5de77ba8e7.png`.
+- Rendered implementation: `http://127.0.0.1:5174/question-bank-lesson-qa.html`, captured inline in the Codex in-app browser at a `1664 × 1000` CSS viewport with density `1`.
+- Source and implementation were shown together in one comparison input. The source was fitted proportionally from `1617 × 972`; no crop or device frame was used.
+- State: Chinese, light theme, first lesson selected, second question selected, three failed lessons, failure details expanded.
+
+## Findings
+
+- No actionable P0, P1 or P2 mismatch remains.
+- Information architecture: the implementation preserves the selected concept's explicit “讲次 → 本讲题目 → 题目详情” hierarchy and the separate true-question source rail.
+- Spacing and layout: the two navigation columns use restrained separators and selected-row tint. The question reader remains the dominant surface. The old full-width error panel no longer consumes the first screen.
+- Failure state: the default control is one `34px` title-level status. It keeps the failed-lesson count, last-good protection and targeted retry visible; the popover contains the full message, failed lessons and true progress without moving the question workspace.
+- Typography and color: existing Chinese system typography, cool-gray surfaces, violet selection and restrained semantic red/amber match the concept and current Lingzhi tokens.
+- Image and icon fidelity: this screen requires no raster content. Existing Lucide icons and the product code renderer are used; no placeholder art or custom illustration was introduced.
+- Copy and accessibility: lesson buttons, selected state, question counts, disclosure, progress value and retry remain semantic and keyboard reachable. Browser verification showed zero console errors or warnings.
+
+## Comparison history
+
+- Pass 1 at `1664 × 1000` found no actionable P0/P1/P2 difference. A supplemental `1280 × 720` check confirmed all four columns and the title-level failure control remain available.
+- Focused comparison was not needed because the combined full-view evidence preserved readable navigation, status and question controls at the target viewport.
+
+final result: passed
+
+---
+
 # Design QA — 题库按讲次范围生成（2026-09-08）
 
 ## Comparison target

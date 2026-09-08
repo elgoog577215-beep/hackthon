@@ -32,6 +32,59 @@
           <ChevronUp v-if="qualityPanelOpen" :size="14" />
           <ChevronDown v-else :size="14" />
         </button>
+        <div
+          v-if="rebuildJob"
+          class="question-bank-progress question-bank-progress--compact"
+          :data-status="rebuildJob.status"
+          data-testid="question-bank-progress"
+          role="status"
+          aria-live="polite"
+        >
+          <span class="question-bank-progress__summary">
+            <LoaderCircle v-if="rebuilding" :size="14" class="spin" />
+            <TriangleAlert v-else-if="rebuildJob.status === 'failed'" :size="14" />
+            <CircleCheck v-else :size="14" />
+            <strong>{{ compactRebuildHeadline }}</strong>
+          </span>
+          <details data-testid="question-progress-details">
+            <summary>
+              {{ compactRebuildSupport }}
+              <ChevronDown :size="13" />
+            </summary>
+            <div class="question-bank-progress__popover">
+              <strong>{{ rebuildHeadline }}</strong>
+              <span>{{ rebuildJob.message || rebuildStageLabel }}</span>
+              <small v-if="chapterProgressLabel">{{ chapterProgressLabel }}</small>
+              <ul v-if="failedChapterSummaries.length">
+                <li v-for="chapter in failedChapterSummaries" :key="chapter.node_id">
+                  <i aria-hidden="true"></i>{{ chapter.label }}
+                </li>
+              </ul>
+              <small v-if="rebuildErrorMessage" class="question-bank-progress__error">
+                {{ rebuildErrorMessage }}
+              </small>
+            </div>
+          </details>
+          <button
+            v-if="canRetryFailedChapters"
+            type="button"
+            class="question-bank-progress__retry"
+            data-testid="retry-failed-question-bank-chapters"
+            :disabled="rebuilding"
+            @click="retryFailedChapters"
+          >
+            <RefreshCw :size="14" :class="{ spin: rebuilding }" />
+            {{ t('questionBank.retryFailedChapters', '重试失败讲次') }}
+          </button>
+          <span
+            class="question-bank-progress__track"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            :aria-valuenow="rebuildJob.progress"
+            :aria-label="t('questionBank.regenerateProgress', '课程题目重新生成进度')"
+          ><i :style="{ transform: `scaleX(${rebuildJob.progress / 100})` }"></i></span>
+        </div>
       </div>
       <nav class="question-bank-workspace-actions" :aria-label="t('questionBank.workspace.actions', '题库操作')">
         <button v-if="workspaceMode !== 'bank'" type="button" class="question-bank-back" @click="workspaceMode = 'bank'">
@@ -247,45 +300,6 @@
           </div>
         </div>
       </footer>
-    </section>
-
-    <section
-      v-if="rebuildJob"
-      class="question-bank-progress"
-      :data-status="rebuildJob.status"
-      role="progressbar"
-      aria-valuemin="0"
-      aria-valuemax="100"
-      :aria-valuenow="rebuildJob.progress"
-      :aria-label="t('questionBank.regenerateProgress', '课程题目重新生成进度')"
-      aria-live="polite"
-    >
-      <div>
-        <strong>{{ rebuildHeadline }}</strong>
-        <span>{{ rebuildJob.message || rebuildStageLabel }}</span>
-        <small
-          v-if="chapterProgressLabel"
-          class="question-bank-progress__chapter"
-        >
-          {{ chapterProgressLabel }}
-        </small>
-      </div>
-      <b>{{ rebuildJob.progress }}%</b>
-      <i><span :style="{ transform: `scaleX(${rebuildJob.progress / 100})` }"></span></i>
-      <small v-if="rebuildErrorMessage" class="question-bank-progress__error">
-        {{ rebuildErrorMessage }}
-      </small>
-      <button
-        v-if="canRetryFailedChapters"
-        type="button"
-        class="question-bank-progress__retry"
-        data-testid="retry-failed-question-bank-chapters"
-        :disabled="rebuilding"
-        @click="retryFailedChapters"
-      >
-        <RefreshCw :size="14" :class="{ spin: rebuilding }" />
-        {{ t('questionBank.retryFailedChapters', '重试失败章节') }}
-      </button>
     </section>
 
     <div v-if="loading && !items.length" class="question-bank-panel__state">
@@ -516,13 +530,48 @@
         </div>
       </section>
 
-      <section v-if="browseItems.length" class="question-browser question-review-workspace">
+      <section
+        v-if="activeItems.length"
+        class="question-browser question-review-workspace"
+        :class="{ 'has-chapter-navigation': questionChapterGroupingEnabled }"
+      >
+        <aside
+          v-if="questionChapterGroupingEnabled"
+          class="question-chapter-index"
+          :aria-label="t('questionBank.chapterNavigation', '讲次')"
+        >
+          <header>
+            <strong>{{ t('questionBank.chapterNavigation', '讲次') }}</strong>
+            <ListTree :size="15" aria-hidden="true" />
+          </header>
+          <nav>
+            <div
+              v-for="chapter in visibleQuestionChapterGroups"
+              :key="chapter.node_id"
+              data-testid="question-chapter-item"
+            >
+              <button
+                type="button"
+                :data-testid="`question-chapter-${chapter.node_id}`"
+                :aria-current="activeQuestionChapter?.node_id === chapter.node_id ? 'page' : undefined"
+                @click="selectQuestionChapter(chapter.node_id)"
+              >
+                <span>{{ chapter.number ? String(chapter.number).padStart(2, '0') : '··' }}</span>
+                <span>
+                  <strong>{{ chapter.title }}</strong>
+                  <small>{{ t('questionBank.chapterQuestionCount', '{count} 道题').replace('{count}', String(chapter.item_count)) }}</small>
+                </span>
+                <i :data-status="questionChapterStatus(chapter)" aria-hidden="true"></i>
+              </button>
+            </div>
+          </nav>
+        </aside>
         <aside class="question-index" :aria-label="t('questionBank.questionIndex', '题目目录')">
           <header class="question-index__toolbar">
             <div class="question-browser__identity">
-              <strong>{{ t('questionBank.browseTitle', '浏览全部题目') }}</strong>
-              <small v-if="browseItems.length === activeItems.length">{{ activeItems.length }} 道</small>
-              <small v-else>{{ browseItems.length }} / {{ activeItems.length }}</small>
+              <strong>{{ questionListTitle }}</strong>
+              <small v-if="browseItems.length === chapterScopedItems.length">{{ chapterScopedItems.length }} 道</small>
+              <small v-else>{{ browseItems.length }} / {{ chapterScopedItems.length }}</small>
             </div>
             <div class="question-browser__controls">
               <label>
@@ -598,6 +647,9 @@
             <div>
               <span class="question-review-item__status" :data-status="selectedQuestion.lifecycle_status">
                 <i aria-hidden="true"></i>{{ itemStatusLabel(selectedQuestion) }}
+              </span>
+              <span v-if="questionChapterGroupingEnabled" class="question-reader__chapter">
+                {{ activeQuestionChapterLabel }}
               </span>
               <strong>{{ t('questionBank.questionPosition', '第 {current} / {total} 题')
                 .replace('{current}', String(selectedQuestionNumber))
@@ -782,6 +834,11 @@
             </div>
           </footer>
         </article>
+        <div v-else class="question-reader-empty">
+          <CircleCheck :size="21" />
+          <strong>{{ t('questionBank.noMatchingQuestions', '没有符合条件的题目') }}</strong>
+          <span>{{ t('questionBank.noChapterQuestionsHint', '可以切换讲次或调整筛选条件。') }}</span>
+        </div>
       </section>
       <div v-else class="question-bank-panel__empty">
         <CircleCheck :size="21" />
@@ -837,6 +894,7 @@ import {
   FileUp,
   FilePlus2,
   LibraryBig,
+  ListTree,
   LoaderCircle,
   RefreshCw,
   Search,
@@ -1017,6 +1075,7 @@ const solutionLoadingRevision = ref('')
 const solutions = reactive<Record<string, Record<string, any>>>({})
 const browserQuery = ref('')
 const browserStatus = ref<'all' | 'published' | 'mandatory' | 'rework'>('all')
+const selectedQuestionChapterId = ref('')
 const questionPage = ref(1)
 const coveredObjectivesExpanded = ref(false)
 const coveredObjectivePage = ref(1)
@@ -1184,9 +1243,84 @@ const canContinueGeneration = computed(() => Boolean(
   && completedChapters.value > 0
   && remainingChapters.value > 0,
 ))
+const questionChapterGroupingEnabled = computed(() => chapterOptions.value.length > 0)
+const questionChapterGroups = computed(() => chapterOptions.value.map(chapter => {
+  const chapterItems = activeItems.value.filter(
+    item => String(item.node_id || '') === chapter.node_id,
+  )
+  return {
+    ...chapter,
+    item_count: chapterItems.length,
+    published_count: chapterItems.filter(
+      item => item.lifecycle_status === 'approved',
+    ).length,
+    attention_count: chapterItems.filter(
+      item => ['needs_review', 'rejected'].includes(item.lifecycle_status),
+    ).length,
+  }
+}))
+const unassignedQuestionItems = computed(() => {
+  const knownChapterIds = new Set(
+    chapterOptions.value.map(chapter => chapter.node_id),
+  )
+  return activeItems.value.filter(
+    item => !knownChapterIds.has(String(item.node_id || '')),
+  )
+})
+const visibleQuestionChapterGroups = computed(() => {
+  if (!unassignedQuestionItems.value.length) return questionChapterGroups.value
+  return [...questionChapterGroups.value, {
+    node_id: '__unassigned__',
+    number: 0,
+    title: t('questionBank.unassignedQuestions', '其他题目'),
+    item_count: unassignedQuestionItems.value.length,
+    published_count: unassignedQuestionItems.value.filter(
+      item => item.lifecycle_status === 'approved',
+    ).length,
+    attention_count: unassignedQuestionItems.value.filter(
+      item => ['needs_review', 'rejected'].includes(item.lifecycle_status),
+    ).length,
+  }]
+})
+const activeQuestionChapter = computed(() => (
+  visibleQuestionChapterGroups.value.find(
+    chapter => chapter.node_id === selectedQuestionChapterId.value,
+  )
+  || visibleQuestionChapterGroups.value.find(chapter => chapter.item_count > 0)
+  || visibleQuestionChapterGroups.value[0]
+  || null
+))
+const activeQuestionChapterLabel = computed(() => (
+  activeQuestionChapter.value?.node_id === '__unassigned__'
+    ? activeQuestionChapter.value.title
+    : activeQuestionChapter.value
+    ? chapterLabel(activeQuestionChapter.value)
+    : t('questionBank.allChapters', '全部讲次')
+))
+const chapterScopedItems = computed(() => {
+  if (!questionChapterGroupingEnabled.value) return activeItems.value
+  const chapterId = activeQuestionChapter.value?.node_id
+  if (!chapterId) return []
+  if (chapterId === '__unassigned__') return unassignedQuestionItems.value
+  return activeItems.value.filter(
+    item => String(item.node_id || '') === chapterId,
+  )
+})
+const questionListTitle = computed(() => {
+  if (!questionChapterGroupingEnabled.value || !activeQuestionChapter.value) {
+    return t('questionBank.browseTitle', '浏览全部题目')
+  }
+  if (activeQuestionChapter.value.node_id === '__unassigned__') {
+    return t('questionBank.unassignedQuestionCount', '其他题目 · {count} 道')
+      .replace('{count}', String(chapterScopedItems.value.length))
+  }
+  return t('questionBank.chapterQuestionsTitle', '第 {number} 讲 · {count} 道题')
+    .replace('{number}', String(activeQuestionChapter.value.number || ''))
+    .replace('{count}', String(chapterScopedItems.value.length))
+})
 const browseItems = computed(() => {
   const keyword = browserQuery.value.trim().toLocaleLowerCase()
-  return activeItems.value.filter(item => {
+  return chapterScopedItems.value.filter(item => {
     const matchesQuery = !keyword || [
       item.prompt,
       item.assessment_role,
@@ -1370,7 +1504,7 @@ const rebuildHeadline = computed(() => {
   }
   return t(
     'questionBank.regenerateRunning',
-    '正在按章节重新生成课程题目',
+    '正在按讲次重新生成课程题目',
   )
 })
 const chapterProgressLabel = computed(() => {
@@ -1382,7 +1516,7 @@ const chapterProgressLabel = computed(() => {
   const currentItem = Number(details?.current_chapter_item || 0)
   const itemTotal = Number(details?.chapter_item_total || 3)
   return [
-    `章节发布 ${published}/${total}`,
+    `讲次发布 ${published}/${total}`,
     current
       ? `当前 ${current}${currentItem ? `（${currentItem}/${itemTotal}）` : ''}`
       : '',
@@ -1400,6 +1534,36 @@ const canRetryFailedChapters = computed(() => Boolean(
   && rebuildJob.value?.error?.retryable !== false
   && failedChapterNodeIds.value.length,
 ))
+const failedChapterSummaries = computed(() => (
+  failedChapterNodeIds.value.map((nodeId) => {
+    const chapter = chapterOptions.value.find(item => item.node_id === nodeId)
+    const failedChapter = (rebuildJob.value?.stage_details?.failed_chapters || [])
+      .find(item => String(item?.node_id || '') === nodeId)
+    return {
+      node_id: nodeId,
+      label: chapter
+        ? chapterLabel(chapter)
+        : String(failedChapter?.node_name || '').trim()
+          || t('questionBank.failedChapterFallback', '未完成讲次'),
+    }
+  })
+))
+const compactRebuildHeadline = computed(() => {
+  if (rebuildJob.value?.status === 'failed' && failedChapterNodeIds.value.length) {
+    return t('questionBank.failedChapterCount', '{count} 个讲次待处理')
+      .replace('{count}', String(failedChapterNodeIds.value.length))
+  }
+  if (rebuilding.value) {
+    return t('questionBank.rebuildInProgressCompact', '题库生成中')
+  }
+  return rebuildHeadline.value
+})
+const compactRebuildSupport = computed(() => {
+  if (rebuildJob.value?.status === 'failed') {
+    return t('questionBank.publishedQuestionsRemain', '已发布题目继续有效')
+  }
+  return `${Math.round(Number(rebuildJob.value?.progress || 0))}%`
+})
 const webStatusLabel = computed(() => {
   const status = String(webEnrichment.value.status || '')
   const labels: Record<string, string> = {
@@ -1435,6 +1599,7 @@ watch(() => props.courseId, () => {
   rebuildErrorMessage.value = ''
   browserQuery.value = ''
   browserStatus.value = 'all'
+  selectedQuestionChapterId.value = ''
   setQuestionPage(1)
   expandedQuestionRevision.value = ''
   coveredObjectivesExpanded.value = false
@@ -1477,6 +1642,27 @@ function setQuestionPage(page: number) {
     questionPageCount.value,
     Math.max(1, normalizedPage),
   )
+}
+
+function selectQuestionChapter(nodeId: string) {
+  if (activeQuestionChapter.value?.node_id === nodeId) return
+  selectedQuestionChapterId.value = nodeId
+  browserQuery.value = ''
+  browserStatus.value = 'all'
+  expandedQuestionRevision.value = ''
+  setQuestionPage(1)
+}
+
+function questionChapterStatus(chapter: {
+  item_count: number
+  published_count: number
+  attention_count: number
+}) {
+  if (chapter.attention_count > 0) return 'attention'
+  if (chapter.item_count > 0 && chapter.published_count === chapter.item_count) {
+    return 'complete'
+  }
+  return 'empty'
 }
 
 function isQuestionExpanded(item: QuestionBankItem) {
@@ -2221,6 +2407,28 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-progress { display:grid; grid-template-columns:1fr auto; gap:8px 12px; padding:12px 14px; border:1px solid #bfdbfe; border-radius:10px; background:#eff6ff; }.question-bank-progress div { display:grid; gap:2px; }.question-bank-progress strong { color:#1e3a8a; font-size:12px; }.question-bank-progress span,.question-bank-progress b { color:#475569; font-size:10px; }.question-bank-progress i { grid-column:1/-1; height:6px; overflow:hidden; border-radius:999px; background:#dbeafe; }.question-bank-progress i span { display:block; width:100%; height:100%; border-radius:inherit; background:#2563eb; transform-origin:left center; transition:transform .25s ease; }.question-bank-progress[data-status="completed"],.question-bank-progress[data-status="waiting_review"] { border-color:#a7f3d0; background:#ecfdf5; }.question-bank-progress[data-status="completed"] strong,.question-bank-progress[data-status="waiting_review"] strong { color:#065f46; }.question-bank-progress[data-status="completed"] i,.question-bank-progress[data-status="waiting_review"] i { background:#d1fae5; }.question-bank-progress[data-status="completed"] i span,.question-bank-progress[data-status="waiting_review"] i span { background:#059669; }.question-bank-progress[data-status="failed"] { border-color:#fecaca; background:#fff7ed; }.question-bank-progress[data-status="failed"] strong,.question-bank-progress__error { color:#b91c1c; }.question-bank-progress__error { grid-column:1/-1; font-size:10px; }
 .question-bank-progress__chapter { color:#1d4ed8; font-size:10px; }
 .question-bank-progress__retry { grid-column:1/-1; justify-self:start; min-height:30px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid #fca5a5; border-radius:8px; color:#991b1b; background:#fff; font-size:10px; font-weight:720; cursor:pointer; }.question-bank-progress__retry:hover:not(:disabled) { border-color:#dc2626; color:#fff; background:#dc2626; }.question-bank-progress__retry:disabled { opacity:.55; cursor:not-allowed; }
+.question-bank-progress--compact { position:relative; min-width:0; height:34px; display:flex; align-items:center; gap:8px; overflow:visible; padding:0 5px 0 9px; border-color:#fed7aa; border-radius:8px; background:#fffaf3; }
+.question-bank-progress--compact .question-bank-progress__summary { min-width:0; display:flex; align-items:center; gap:6px; color:#b45309; }
+.question-bank-progress--compact .question-bank-progress__summary strong { overflow:hidden; color:inherit; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+.question-bank-progress--compact[data-status="failed"] .question-bank-progress__summary { color:#c2413c; }
+.question-bank-progress--compact[data-status="completed"],.question-bank-progress--compact[data-status="waiting_review"] { border-color:#bbf7d0; background:#f0fdf4; }
+.question-bank-progress--compact details { position:relative; min-width:0; }
+.question-bank-progress--compact summary { min-width:0; display:flex; align-items:center; gap:3px; overflow:hidden; color:#6b7280; font-size:10px; font-weight:650; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; list-style:none; }
+.question-bank-progress--compact summary::-webkit-details-marker { display:none; }
+.question-bank-progress--compact details[open] summary,.question-bank-progress--compact summary:hover { color:#4338ca; }
+.question-bank-progress--compact details[open] summary svg { transform:rotate(180deg); }
+.question-bank-progress__popover { position:absolute; top:27px; left:-118px; z-index:20; width:min(380px,70vw); display:grid; gap:7px; padding:12px 14px; border:1px solid #dfe4ec; border-radius:9px; background:#fff; box-shadow:0 14px 36px rgba(15,23,42,.14); }
+.question-bank-progress__popover>strong { color:#273247; font-size:12px; }
+.question-bank-progress__popover>span,.question-bank-progress__popover>small { color:#687386; font-size:10.5px; line-height:1.55; }
+.question-bank-progress__popover ul { display:grid; gap:5px; margin:0; padding:7px 0 0; border-top:1px solid #edf0f4; list-style:none; }
+.question-bank-progress__popover li { display:flex; align-items:center; gap:7px; color:#4b5563; font-size:10.5px; }
+.question-bank-progress__popover li i { width:6px; height:6px; flex:0 0 auto; grid-column:auto; overflow:visible; border-radius:999px; background:#ef4444; }
+.question-bank-progress--compact .question-bank-progress__error { color:#b42318; font-size:10.5px; }
+.question-bank-progress--compact .question-bank-progress__retry { min-height:26px; flex:0 0 auto; grid-column:auto; padding:0 7px; border-color:#fecaca; border-radius:6px; font-size:10px; }
+.question-bank-progress__track { position:absolute; right:7px; bottom:-1px; left:7px; height:2px; overflow:hidden; border-radius:2px; background:rgba(245,158,11,.16); }
+.question-bank-progress__track>i { display:block; width:100%; height:100%; grid-column:auto; border-radius:inherit; background:#f59e0b; transform-origin:left center; transition:transform .25s ease; }
+.question-bank-progress--compact[data-status="failed"] .question-bank-progress__track>i { background:#ef4444; }
+.question-bank-progress--compact[data-status="completed"] .question-bank-progress__track>i,.question-bank-progress--compact[data-status="waiting_review"] .question-bank-progress__track>i { background:#22a06b; }
 .assessment-profile,.assessment-matrix { display:grid; gap:10px; padding:13px 12px; border:0; border-radius:0; background:transparent; }
 .assessment-profile+.assessment-matrix { border-top:1px solid #edf0f5; }
 .assessment-profile header,.assessment-matrix>header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
@@ -2260,6 +2468,25 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .assessment-matrix__pagination { padding:6px 2px 0; border-top:1px solid var(--lz-border); }
 .assessment-matrix__empty { min-height:54px; display:grid; place-items:center; color:var(--lz-text-muted); font-size:10px; }
 .question-browser { min-width:0; min-height:0; display:grid; grid-template-columns:310px minmax(0,1fr); overflow:hidden; background:#fff; }
+.question-browser.has-chapter-navigation { grid-template-columns:178px 300px minmax(0,1fr); }
+.question-chapter-index { min-width:0; min-height:0; display:grid; grid-template-rows:58px minmax(0,1fr); overflow:hidden; border-right:1px solid #e3e8f0; background:#fff; }
+.question-chapter-index>header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:0 15px; border-bottom:1px solid #e5eaf1; color:#667085; }
+.question-chapter-index>header strong { color:#273247; font-size:13px; font-weight:760; }
+.question-chapter-index>nav { min-height:0; overflow:auto; scrollbar-width:thin; scrollbar-color:#cbd3df transparent; }
+.question-chapter-index>nav>div { border-bottom:1px solid #edf0f4; }
+.question-chapter-index button { position:relative; width:100%; min-height:62px; display:grid; grid-template-columns:28px minmax(0,1fr) 8px; align-items:center; gap:7px; padding:9px 10px; border:0; color:#475467; background:transparent; text-align:left; cursor:pointer; }
+.question-chapter-index button:hover { background:#f7f8fc; }
+.question-chapter-index button:focus-visible { z-index:1; outline:2px solid #6366f1; outline-offset:-2px; }
+.question-chapter-index button[aria-current="page"] { color:#3730a3; background:#eef0ff; }
+.question-chapter-index button[aria-current="page"]::before { content:""; position:absolute; inset:0 auto 0 0; width:3px; background:#6366f1; }
+.question-chapter-index button>span:first-child { width:26px; height:26px; display:grid; place-items:center; border-radius:6px; color:#7b8798; background:#f1f3f7; font-size:10px; font-weight:780; font-variant-numeric:tabular-nums; }
+.question-chapter-index button[aria-current="page"]>span:first-child { color:#4f46e5; background:#fff; }
+.question-chapter-index button>span:nth-child(2) { min-width:0; display:grid; gap:4px; }
+.question-chapter-index button strong { overflow:hidden; color:inherit; font-size:11.5px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+.question-chapter-index button small { color:#8a94a5; font-size:9.5px; }
+.question-chapter-index button>i { width:7px; height:7px; border-radius:999px; background:#cbd5e1; }
+.question-chapter-index button>i[data-status="complete"] { background:#22a06b; }
+.question-chapter-index button>i[data-status="attention"] { background:#ef4444; }
 .question-index { min-width:0; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; overflow:hidden; border-right:1px solid #e3e8f0; background:#fbfcfe; }
 .question-index__toolbar { display:grid; gap:12px; padding:15px 14px 13px; border-bottom:1px solid #e5eaf1; background:#fff; }
 .question-browser__identity { min-width:0; display:flex; align-items:baseline; gap:8px; }
@@ -2294,6 +2521,8 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-reader__header { min-width:0; display:flex; align-items:center; justify-content:space-between; gap:18px; padding:0 18px 0 22px; border-bottom:1px solid #e3e8f0; background:#fff; }
 .question-reader__header>div { min-width:0; display:flex; align-items:center; gap:11px; }
 .question-reader__header>div>strong { color:#344054; font-size:11px; font-weight:700; }
+.question-reader__chapter { color:#273247; font-size:11.5px; font-weight:760; white-space:nowrap; }
+.question-reader-empty { min-width:0; min-height:0; display:grid; place-items:center; padding:24px; color:#7b8798; background:#f7f8fb; font-size:13px; }
 .question-reader__header nav { display:flex; align-items:center; gap:4px; }
 .question-reader__header nav button { width:32px; height:32px; display:grid; place-items:center; border:1px solid transparent; border-radius:7px; color:#667085; background:transparent; cursor:pointer; }
 .question-reader__header nav button:hover:not(:disabled) { color:#4338ca; background:#eef0ff; }
@@ -2397,6 +2626,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
   .question-bank-panel.is-generate .question-bank-workspace-main { overflow:visible; }
   .question-bank-panel.is-generate .question-bank-workspace-side :deep(.reference-tray) { min-height:260px; }
 }
+
 @media (max-width: 720px) { .question-bank-page-heading { min-height:44px; align-items:flex-start; flex-direction:column; gap:8px; }.question-bank-page-identity { width:100%; }.question-bank-workspace-status { margin-left:auto; font-size:0; }.question-bank-workspace-actions { width:100%; flex-wrap:wrap; justify-content:flex-end; }.question-generation-studio__header { align-items:flex-start; }.question-generation-flow { padding-inline:16px; }.question-generation-step { grid-template-columns:1fr; gap:10px; }.question-generation-scope,.question-intelligence-grid,.question-generation-option-list,.question-generation-range,.question-generation-chapter-grid { grid-template-columns:1fr; }.question-generation-range>svg { display:none; }.question-generation-range>small { margin-top:0; }.question-intelligence-grid article,.question-generation-toggle { padding:8px 0; }.question-intelligence-grid article+article,.question-generation-toggle+.question-generation-toggle { border-top:1px solid #edf0f4; border-left:0; }.question-generation-studio>footer { padding-inline:16px; }.question-bank-panel__header-action { align-items:stretch; flex-direction:column; gap:10px; }.question-bank-panel__header-buttons { width:100%; flex-wrap:wrap; }.question-bank-panel__header-buttons button { flex:1; }.question-bank-summary { grid-template-columns:repeat(2,minmax(0,1fr)); padding:0; }.question-bank-summary article { padding:9px 10px; }.question-bank-summary article + article { border-left:0; }.question-bank-summary article:nth-child(even) { border-left:1px solid var(--lz-border); }.question-bank-summary article:nth-child(n+3) { border-top:1px solid var(--lz-border); }.assessment-matrix>header { align-items:flex-start; flex-direction:column; }.assessment-matrix__summary { text-align:left; }.assessment-matrix__rows article { grid-template-columns:minmax(0,1fr) auto auto; }.assessment-matrix__group--issues .assessment-matrix__rows article { grid-template-columns:1fr auto; }.assessment-matrix__group--issues .assessment-matrix__rows article>button { grid-column:1/-1; justify-self:start; }.assessment-matrix__covered-toggle { align-items:flex-start; flex-direction:column; }.assessment-matrix__pagination { grid-template-columns:1fr; justify-items:start; }.assessment-matrix__page-buttons { max-width:100%; flex-wrap:wrap; }.question-solution-diff { grid-template-columns:1fr; }.question-browser>header,.question-browser__controls { align-items:stretch; flex-direction:column; }.question-browser__controls label { min-width:0; }.question-review-item__summary { grid-template-columns:1fr; gap:8px; }.question-review-item__summary-action { justify-content:space-between; }.question-review-item__preview { white-space:normal; display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:2; } }
 @media (max-width: 720px) { .exam-paper-bar { align-items:stretch; flex-direction:column; }.exam-paper-bar__actions { justify-content:space-between; }.exam-paper-bar__actions>span { max-width:160px; } }
 </style>

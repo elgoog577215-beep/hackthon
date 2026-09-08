@@ -276,6 +276,7 @@ describe('QuestionBankReviewPanel', () => {
           { item_id: 'l1-q1', revision_id: 'l1-r1', prompt: '第一讲第一题', assessment_role: 'concept', lifecycle_status: 'approved', risk_flags: [], node_id: 'lesson-1', quality_report: { passed: true } },
           { item_id: 'l1-q2', revision_id: 'l1-r2', prompt: '第一讲第二题', assessment_role: 'practice', lifecycle_status: 'approved', risk_flags: [], node_id: 'lesson-1', quality_report: { passed: true } },
           { item_id: 'l2-q1', revision_id: 'l2-r1', prompt: '第二讲唯一题目', assessment_role: 'transfer', lifecycle_status: 'rejected', risk_flags: [], node_id: 'lesson-2', quality_report: { passed: false } },
+          { item_id: 'legacy-q1', revision_id: 'legacy-r1', prompt: '历史导入题目', assessment_role: 'imported', lifecycle_status: 'approved', risk_flags: [], node_id: 'legacy-node', quality_report: { passed: true } },
         ],
       },
     })
@@ -290,7 +291,7 @@ describe('QuestionBankReviewPanel', () => {
     })
     await flushPromises()
 
-    expect(wrapper.findAll('[data-testid="question-chapter-item"]')).toHaveLength(2)
+    expect(wrapper.findAll('[data-testid="question-chapter-item"]')).toHaveLength(3)
     expect(wrapper.get('[data-testid="question-chapter-lesson-1"]').attributes('aria-current')).toBe('page')
     expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(2)
     expect(wrapper.text()).toContain('第一讲第二题')
@@ -303,6 +304,10 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.text()).toContain('第二讲唯一题目')
     expect(wrapper.text()).not.toContain('第一讲第一题')
     expect(wrapper.get('.question-reader__header').text()).toContain('第 2 讲 · 状态机与存档')
+
+    await wrapper.get('[data-testid="question-chapter-__unassigned__"]').trigger('click')
+    expect(wrapper.text()).toContain('其他题目')
+    expect(wrapper.text()).toContain('历史导入题目')
   })
 
   it('题目列表按每页十条分页并在筛选时回到第一页', async () => {
@@ -773,8 +778,8 @@ describe('QuestionBankReviewPanel', () => {
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
-    const progress = wrapper.get('[role="progressbar"]')
-    expect(progress.attributes('aria-valuenow')).toBe('100')
+    const progress = wrapper.get('[data-testid="question-bank-progress"]')
+    expect(progress.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('100')
     expect(progress.text()).toContain('课程题目已重新生成并发布')
     expect(progress.text()).toContain('100%')
   })
@@ -907,13 +912,13 @@ describe('QuestionBankReviewPanel', () => {
         onUpdate: expect.any(Function),
       }),
     )
-    const progress = wrapper.get('[role="progressbar"]')
-    expect(progress.attributes('aria-valuenow')).toBe('52')
+    const progress = wrapper.get('[data-testid="question-bank-progress"]')
+    expect(progress.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('52')
     expect(progress.text()).toContain(
       '正在生成第 48/189 道候选题',
     )
     expect(progress.text()).toContain(
-      '章节发布 15/63 · 当前 4.5 装饰器（2/3）',
+      '讲次发布 15/63 · 当前 4.5 装饰器（2/3）',
     )
     expect(
       wrapper.get('[data-testid="generate-question-bank"]')
@@ -960,10 +965,10 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.text()).toContain(
       '给定材料，完成跨章节分析并检查结论。',
     )
-    const progress = wrapper.get('[role="progressbar"]')
+    const progress = wrapper.get('[data-testid="question-bank-progress"]')
     expect(progress.classes()).toContain('question-bank-progress--compact')
     expect(progress.get('[data-testid="question-progress-details"]').element.tagName).toBe('DETAILS')
-    expect(progress.attributes('aria-valuenow')).toBe('48')
+    expect(progress.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('48')
     expect(progress.text()).toContain(
       '重新生成失败，当前有效题库保持不变',
     )
