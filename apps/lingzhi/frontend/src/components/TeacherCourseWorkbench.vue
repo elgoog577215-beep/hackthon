@@ -495,6 +495,11 @@
             class="question-workbench-surface"
             :course-id="courseId"
             :course-title="courseTitle"
+            :chapter-options="lessonStore.lessons.map(lesson => ({
+              node_id: lesson.lesson_unit_id,
+              number: lesson.number,
+              title: lesson.title,
+            }))"
             :assistant-open="aiCollaborationOpen && aiDomain === 'question-bank'"
             @updated="handleQuestionBankUpdated"
             @open-ai="openAiCollaboration('question-bank')"

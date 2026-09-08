@@ -682,6 +682,13 @@ describe('QuestionBankReviewPanel', () => {
     await wrapper.get('[data-testid="question-scope-node-lesson-1"]').setValue(true)
     await wrapper.get('[data-testid="question-scope-node-lesson-3"]').setValue(true)
     expect(wrapper.get('[data-testid="generate-question-bank"]').attributes('disabled')).toBeUndefined()
+
+    const candidate = await (wrapper.vm as any).requestAiCandidate('强化所选章节的应用题')
+    expect(candidate).toEqual(expect.objectContaining({
+      scope: 'nodes',
+      node_ids: ['lesson-1', 'lesson-3'],
+    }))
+
     await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
     await flushPromises()
 

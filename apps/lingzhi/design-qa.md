@@ -48,6 +48,33 @@
 
 final result: passed
 
+---
+
+# Design QA — 题库按讲次范围生成（2026-09-08）
+
+## Comparison target
+
+- Source visual truth: `C:\Users\Lenovo\AppData\Local\Temp\codex-clipboard-2c5aa724-e28a-48a5-adca-ef747ff73719.png` (`1644 × 558`).
+- Implementation capture: Codex in-app browser local QA page at the same `1644 × 558` viewport; the temporary QA entry was removed after verification.
+- Responsive check: `390 × 844`, Chinese, light theme.
+- States checked: whole course, continuous range from lesson 2 to lesson 4, empty custom selection, custom lessons 1 and 3.
+
+## Findings and fixes
+
+1. The source's compact white surface, violet active state, native radio affordance, section dividers and single primary action remain the visual baseline. The added scope choices use the same border, radius, typography, Lucide icon and spacing system.
+2. Continuous range keeps the main screen compact by revealing two labelled selects only after that mode is chosen. Selecting lesson 2 through lesson 4 showed `已选择 3 个章节`.
+3. Custom scope reveals a bounded chapter grid with select-all and clear actions. With no chapter selected, the primary action was disabled; after selecting lessons 1 and 3, it became enabled.
+4. The first narrow-width pass exposed the existing fixed `260px` source rail squeezing the main generation area. The workspace now becomes one vertical flow below `720px`; the main pane measured `336px` wide with `336px` scroll width, and the source rail follows below without horizontal overflow.
+
+## Accessibility and runtime
+
+- Scope selection remains a named radio group; range fields use labelled native selects; chapter choices use labelled native checkboxes.
+- Selection state is communicated by text and native checked/disabled state as well as color.
+- Browser checks confirmed the empty-selection guard, selected-chapter summary, continuous-range count and responsive width. No new console error or warning appeared after the QA harness fix.
+- No production request or course data mutation was performed during visual verification.
+
+final result: passed
+
 # Design QA — 题库外部文件导入工作区（2026-08-24）
 
 ## Comparison target
