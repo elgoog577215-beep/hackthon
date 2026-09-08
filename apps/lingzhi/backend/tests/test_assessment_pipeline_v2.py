@@ -621,6 +621,32 @@ def test_triggered_semantic_review_is_a_hard_publish_gate():
 
     assert report["passed"] is False
     assert report["hard_gates"]["semantic_review"] is False
+
+
+def test_low_reviewer_confidence_is_advisory_after_hard_checks_pass():
+    contract, objective, slot = _quality_contract()
+
+    report = evaluate_question_contract_quality(
+        contract,
+        objective=objective,
+        slot=slot,
+        semantic_report={
+            "passed": True,
+            "solution_consistent": True,
+            "reviewer_triggered": True,
+            "confidence": 0.84,
+            "dimensions": {
+                "curriculum_targeting": 20,
+                "answerability_and_completeness": 15,
+                "difficulty_fit": 10,
+                "clarity": 5,
+            },
+            "issues": [],
+        },
+    )
+
+    assert report["passed"] is True
+    assert report["hard_gates"]["semantic_review"] is True
     assert report["decision"] == "repair"
     assert {
         "SEMANTIC_REVIEW_FAILED",

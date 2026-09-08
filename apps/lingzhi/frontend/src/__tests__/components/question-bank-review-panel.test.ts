@@ -509,7 +509,7 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
   })
 
-  it('打回已发布题后按题目修订异步重做', async () => {
+  it('重新生成已发布题时保持原题生效并按题目修订异步重做', async () => {
     get.mockResolvedValueOnce({
       data: {
         bundle_revision_id: 'qbb-published',
@@ -537,17 +537,6 @@ describe('QuestionBankReviewPanel', () => {
         }],
       },
     })
-    post.mockResolvedValueOnce({
-      data: {
-        bundle_revision_id: 'qbb-rejected',
-        review_queue: { blocking_count: 0 },
-        item: {
-          revision_id: 'revision-published',
-          lifecycle_status: 'rejected',
-          generation_status: 'rework_requested',
-        },
-      },
-    })
     const wrapper = mount(QuestionBankReviewPanel, {
       props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
     })
@@ -557,14 +546,7 @@ describe('QuestionBankReviewPanel', () => {
     await wrapper.get('[data-testid="rework-question"]').trigger('click')
     await flushPromises()
 
-    expect(post).toHaveBeenCalledWith(
-      '/api/courses/course-1/question-bank/items/revision-published/reviews',
-      {
-        decision: 'rejected',
-        note: '',
-        expected_bundle_revision_id: 'qbb-published',
-      },
-    )
+    expect(post).not.toHaveBeenCalled()
     expect(runQuestionBankRebuild).toHaveBeenCalledWith(
       'course-1',
       {
