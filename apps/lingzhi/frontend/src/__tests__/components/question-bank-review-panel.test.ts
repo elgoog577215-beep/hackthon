@@ -628,6 +628,74 @@ describe('QuestionBankReviewPanel', () => {
     )
   })
 
+  it('按连续章节范围生成题目', async () => {
+    const wrapper = mount(QuestionBankReviewPanel, {
+      props: {
+        courseId: 'course-1',
+        initialWorkspaceMode: 'generate',
+        chapterOptions: [
+          { node_id: 'lesson-1', number: 1, title: '课程导论' },
+          { node_id: 'lesson-2', number: 2, title: '核心概念' },
+          { node_id: 'lesson-3', number: 3, title: '综合应用' },
+          { node_id: 'lesson-4', number: 4, title: '课程总结' },
+        ],
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="question-scope-range"] input').setValue(true)
+    await wrapper.get('[data-testid="question-scope-range-start"]').setValue('lesson-2')
+    await wrapper.get('[data-testid="question-scope-range-end"]').setValue('lesson-3')
+    await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
+    await flushPromises()
+
+    expect(runQuestionBankRebuild).toHaveBeenCalledWith(
+      'course-1',
+      expect.objectContaining({
+        scope: 'nodes',
+        node_ids: ['lesson-2', 'lesson-3'],
+        mode: 'incremental',
+      }),
+      expect.objectContaining({ onUpdate: expect.any(Function) }),
+    )
+  })
+
+  it('按指定章节生成并在未选择时禁用开始按钮', async () => {
+    const wrapper = mount(QuestionBankReviewPanel, {
+      props: {
+        courseId: 'course-1',
+        initialWorkspaceMode: 'generate',
+        chapterOptions: [
+          { node_id: 'lesson-1', number: 1, title: '课程导论' },
+          { node_id: 'lesson-2', number: 2, title: '核心概念' },
+          { node_id: 'lesson-3', number: 3, title: '综合应用' },
+        ],
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="question-scope-custom"] input').setValue(true)
+    expect(wrapper.get('[data-testid="generate-question-bank"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('第 1 讲 · 课程导论')
+    expect(wrapper.text()).toContain('第 3 讲 · 综合应用')
+
+    await wrapper.get('[data-testid="question-scope-node-lesson-1"]').setValue(true)
+    await wrapper.get('[data-testid="question-scope-node-lesson-3"]').setValue(true)
+    expect(wrapper.get('[data-testid="generate-question-bank"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
+    await flushPromises()
+
+    expect(runQuestionBankRebuild).toHaveBeenCalledWith(
+      'course-1',
+      expect.objectContaining({
+        scope: 'nodes',
+        node_ids: ['lesson-1', 'lesson-3'],
+        mode: 'incremental',
+      }),
+      expect.objectContaining({ onUpdate: expect.any(Function) }),
+    )
+  })
+
   it('通过智能出题工作台生成整门课程题目并展示真实进度', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
       props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
