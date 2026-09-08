@@ -12,7 +12,6 @@
       <button type="button" :disabled="dirty || saving" :title="t('pptProject.originalReview')" :aria-label="t('pptProject.originalReview')" @click="openOriginal"><FileCheck2 :size="16" /></button>
       </TeacherDocumentCommandBar>
     </header>
-    <template>
       <p v-if="error" class="lesson-ppt-error" role="alert">{{ error }}<button type="button" :disabled="saving || busy" @click="retry"><RefreshCw :size="16" />{{ t('common.retry') }}</button></p>
       <p v-if="state.manuscript && state.source_state === 'stale'" class="lesson-ppt-notice" role="status">{{ t('pptLive.stale') }}<button type="button" :disabled="busy || dirty" @click="sync"><RefreshCw :size="16" />{{ t('pptLive.sync') }}</button></p>
       <p v-if="job && ['pending', 'running'].includes(job.status)" class="lesson-ppt-notice" role="status"><LoaderCircle :size="16" class="spinning" />{{ job.message || t('pptProject.preparing') }}</p>
@@ -43,7 +42,6 @@
         <p v-for="(issue, index) in state.page_errors || []" :key="index" class="lesson-ppt-error">{{ issue.message }}</p>
         <button type="button" :disabled="loading || busy || !state.source_script_revision_id" @click="complete"><RefreshCw :size="16" />{{ t('pptLive.complete') }}</button>
       </div>
-    </template>
   </section>
 </template>
 
