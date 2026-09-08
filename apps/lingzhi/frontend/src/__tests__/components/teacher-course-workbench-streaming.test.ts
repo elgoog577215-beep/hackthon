@@ -246,7 +246,7 @@ describe('teacher course workbench outline streaming', () => {
         expect(button.attributes('title')).toContain('完整大纲尚未就绪')
         await button.trigger('click')
       }
-      expect(nav[3]!.attributes('disabled')).toBeUndefined() // Uploaded sources do not require an outline.
+      expect(nav[3]!.attributes('disabled')).toBeDefined() // PPT follows the generated handout chain.
       expect(wrapper.find('[data-testid="lesson-course-preview-generate"]').exists()).toBe(false)
       const blockedGenerate = wrapper.get('.lesson-generation-actions button')
       expect(blockedGenerate.attributes('disabled')).toBeDefined()
@@ -1654,12 +1654,13 @@ describe('teacher course workbench outline streaming', () => {
     expect(pptWrapper.find('.context-pane').exists()).toBe(false)
     expect(pptWrapper.find('.context-pane-reopen').exists()).toBe(false)
     await flushPromises()
-    expect(pptWrapper.get('.lesson-navigator').text()).toContain('第一讲')
+    expect(pptWrapper.find('.lesson-navigator').exists()).toBe(false)
     expect(pptWrapper.find('.lesson-toolbar-status').exists()).toBe(false)
-    expect(pptWrapper.find('.ppt-review-toolbar').exists()).toBe(true)
+    expect(pptWrapper.find('.ppt-review-toolbar').exists()).toBe(false)
     expect(pptWrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('待生成')
-    expect(pptWrapper.get('[data-testid="ppt-upload"]').attributes('disabled')).toBeUndefined()
-    expect(pptWrapper.getComponent({ name: 'PptWorkspace' }).props('canGenerate')).toBe(false)
+    expect(pptWrapper.get('.prerequisite').text()).toContain('正在准备教案')
+    expect(pptWrapper.find('[data-testid="ppt-upload"]').exists()).toBe(false)
+    expect(pptWrapper.findComponent({ name: 'PptWorkspace' }).exists()).toBe(false)
   })
 
   it('讲义生成完成后停留当前阶段，由左侧四步流程负责切换', async () => {

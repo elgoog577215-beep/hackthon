@@ -2050,17 +2050,15 @@ function stagePrerequisiteReason(stage: StageId): string {
 }
 function lessonNavigationBlocked(lesson: TeacherLessonProjection): boolean {
   if (!['lesson', 'script', 'ppt'].includes(activeStage.value)) return false
-  if (activeStage.value === 'lesson') return false
-  const stage = activeStage.value === 'script' ? 'script' : 'ppt'
-  const projected = lessonProductionState(productionState.value, lesson.lesson_unit_id, stage)
+  if (activeStage.value === 'lesson' || activeStage.value === 'ppt') return false
+  const projected = lessonProductionState(productionState.value, lesson.lesson_unit_id, 'script')
   if (projected) {
     return projected.availability === 'missing'
       && !['queued', 'running', 'paused', 'waiting_for_input', 'waiting_for_review', 'failed', 'unknown'].includes(projected.task_state)
       && Boolean(productionPrerequisiteIssue(projected))
   }
   if (!outlineAvailableForLessons.value) return true
-  if (activeStage.value === 'script') return !lessonPlanIsReady(lesson)
-  return !lessonScriptIsReady(lesson)
+  return !lessonPlanIsReady(lesson)
 }
 function lessonNavigationBlockReason(lesson: TeacherLessonProjection): string {
   const stage = activeStage.value === 'script' ? 'script' : activeStage.value === 'ppt' ? 'ppt' : null
