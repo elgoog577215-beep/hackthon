@@ -952,9 +952,12 @@ defineExpose({ openForDocument, closeComposer })
   border-top: 1px solid var(--lz-border, #d5d9e2);
 }
 :global(.text-selection-ai-host) {
+  width: 100%;
+  max-width: 100%;
   display: block;
   grid-column: 1/-1;
   min-width: 0;
+  box-sizing: border-box;
   margin: 12px 0;
   list-style: none;
 }
@@ -1097,12 +1100,15 @@ defineExpose({ openForDocument, closeComposer })
   color: #626e80;
 }
 .text-selection-ai__composer footer {
+  min-width: 0;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .text-selection-ai__composer footer > span {
-  flex: 1;
+  min-width: 0;
+  flex: 1 1 240px;
   color: var(--lz-text-secondary, #536078);
   font-size: 13px;
 }
@@ -1271,15 +1277,23 @@ defineExpose({ openForDocument, closeComposer })
   }
 }
 .inline-edit-decisions {
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin: 12px 0;
 }
 .inline-edit-decisions > span {
-  flex: 1;
+  min-width: 0;
+  flex: 1 1 240px;
   color: var(--lz-text-secondary, #536078);
   font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.inline-edit-decisions > button {
+  flex: none;
 }
 .text-selection-ai__status {
   display: flex;
