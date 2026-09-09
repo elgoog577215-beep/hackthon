@@ -183,6 +183,13 @@ export interface CourseChangeClarificationAnswerSnapshot {
   answer_digest: string
 }
 
+export interface CourseChangeSystemBlocker {
+  code: 'analysis_incomplete'
+  message: string
+  retryable: boolean
+  affected_unit_count: number
+}
+
 export interface TeacherCourseChangePlanning {
   schema_version: 'course_change_plan_v1'
   scenario_matrix_version: 'course_change_scenario_matrix_v1'
@@ -211,6 +218,7 @@ export interface TeacherCourseChangePlanning {
     clarification_set_id?: string
     clarifications?: CourseChangeClarificationQuestion[]
     clarification_answer_snapshot?: CourseChangeClarificationAnswerSnapshot | null
+    system_blockers?: CourseChangeSystemBlocker[]
     can_proceed_without_clarification: boolean
     interpretation_revision: string
   }

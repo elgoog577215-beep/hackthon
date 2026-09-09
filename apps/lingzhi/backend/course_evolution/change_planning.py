@@ -35,6 +35,7 @@ StrategyStatus = Literal["provisional", "resolved"]
 StructureReviewStatus = Literal["not_required", "pending", "confirmed"]
 ValidationPhase = Literal["impact_preview", "downstream_generation", "publish"]
 ClarificationResponseType = Literal["single_choice", "free_text"]
+SystemBlockerCode = Literal["analysis_incomplete"]
 MigrationDisposition = Literal[
     "reuse_exact",
     "reuse_rebind",
@@ -110,6 +111,13 @@ class CourseChangeClarificationAnswerSnapshot(BaseModel):
     answer_digest: str
 
 
+class CourseChangeSystemBlocker(BaseModel):
+    code: SystemBlockerCode
+    message: str
+    retryable: bool = True
+    affected_unit_count: int = Field(default=0, ge=0)
+
+
 class CourseChangeIntent(BaseModel):
     """A revisable interpretation that always preserves what the teacher said."""
 
@@ -129,6 +137,7 @@ class CourseChangeIntent(BaseModel):
     clarification_set_id: str = ""
     clarifications: list[CourseChangeClarificationQuestion] = Field(default_factory=list)
     clarification_answer_snapshot: CourseChangeClarificationAnswerSnapshot | None = None
+    system_blockers: list[CourseChangeSystemBlocker] = Field(default_factory=list)
     can_proceed_without_clarification: bool = True
     interpretation_revision: str = "intent-1"
 
@@ -616,6 +625,7 @@ __all__ = [
     "CourseChangeClarificationAnswerSnapshot",
     "CourseChangeClarificationOption",
     "CourseChangeClarificationQuestion",
+    "CourseChangeSystemBlocker",
     "CourseChangeIntent",
     "CourseChangePlan",
     "CourseChangePlanSummary",

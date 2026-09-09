@@ -389,6 +389,8 @@ async def test_complete_semantic_scan_has_no_top_eighty_limit_and_reports_batch_
     assert blocker.code == "analysis_incomplete"
     assert blocker.retryable is True
     assert blocker.affected_unit_count == 101
+    assert plan.impact_summary["coverage"]["retried_batch_count"] > 0
+    assert plan.impact_summary["coverage"]["failed_batches"]
 
 
 @pytest.mark.asyncio

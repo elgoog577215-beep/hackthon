@@ -904,6 +904,11 @@ def accept_change_set(
     if reconciled is not None:
         state = reconciled
         change_set = _change_set(state, change_set_id)
+    if (
+        change_set.teacher_change_planning
+        and change_set.teacher_change_planning.intent.system_blockers
+    ):
+        raise ValueError("课程影响扫描尚未完成，请重新扫描后再应用")
     clarification_digest = str(
         change_set.impact_summary.get("clarification_answer_digest") or ""
     )

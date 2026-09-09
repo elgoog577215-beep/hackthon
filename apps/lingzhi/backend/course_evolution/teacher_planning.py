@@ -26,6 +26,7 @@ from .change_planning import (
     CourseChangeClarificationAnswerSnapshot,
     CourseChangeClarificationOption,
     CourseChangeClarificationQuestion,
+    CourseChangeSystemBlocker,
     CourseChangeIntent,
     CourseChangePlan,
     CourseChangeSignal,
@@ -1087,6 +1088,15 @@ def _normalize_analysis(
     if not isinstance(raw, dict):
         return _fallback_analysis(context, instruction, ranked)
     result = deepcopy(raw)
+    misplaced_clarifications = [
+        item
+        for item in result.get("blocking_questions") or []
+        if isinstance(item, dict)
+    ]
+    result["clarifications"] = [
+        *[item for item in result.get("clarifications") or [] if isinstance(item, dict)],
+        *misplaced_clarifications,
+    ]
     result["analysis_mode"] = (
         result["analysis_mode"]
         if result.get("analysis_mode")
@@ -1100,10 +1110,15 @@ def _normalize_analysis(
         result["signal_confidence"] = max(0.0, min(1.0, float(result.get("signal_confidence") or 0.5)))
     except (TypeError, ValueError):
         result["signal_confidence"] = 0.5
-    for key in ("hard_constraints", "soft_preferences", "protected_requirements", "assumptions", "blocking_questions"):
+    for key in ("hard_constraints", "soft_preferences", "protected_requirements", "assumptions"):
         result[key] = [
             _compact(item, 400) for item in result.get(key) or [] if _compact(item, 400)
         ][:30]
+    result["blocking_questions"] = [
+        _compact(item, 400)
+        for item in result.get("blocking_questions") or []
+        if not isinstance(item, dict) and _compact(item, 400)
+    ][:30]
     clarifications = _normalize_clarifications(result, result["blocking_questions"])
     result["clarifications"] = [item.model_dump(mode="json") for item in clarifications]
     result["blocking_questions"] = list(dict.fromkeys([
@@ -2146,6 +2161,8 @@ async def create_teacher_course_change_plan(
         raw_analysis = _lecture_structure_analysis(context, normalized_instruction)
     scanned_ids: set[str] = set()
     unscanned_ids: set[str] = set()
+    batch_failures: list[dict[str, Any]] = []
+    retried_batch_count = 0
     if raw_analysis is None and analyzer is not None:
         # Split prose, never serialized JSON. Every indexed unit is considered.
         units_by_id = {unit.unit_id: unit for unit in context.units}
@@ -2167,15 +2184,39 @@ async def create_teacher_course_change_plan(
         if batch:
             batches.append(batch)
         analyses: list[dict[str, Any]] = []
-        for batch in batches:
+
+        async def analyze_batch(items: list[dict[str, Any]]) -> dict[str, Any]:
+            result = await analyzer(overview, items, normalized_instruction)
+            if not isinstance(result, dict):
+                raise ValueError("影响分析没有返回可用 JSON 对象")
+            return result
+
+        for batch_index, batch in enumerate(batches):
             try:
-                result = await analyzer(overview, batch, normalized_instruction)
-                if not isinstance(result, dict):
-                    raise ValueError("影响分析没有返回可用结果")
+                result = await analyze_batch(batch)
                 analyses.append(result)
                 scanned_ids.update(item["unit_id"] for item in batch)
-            except Exception:
-                unscanned_ids.update(item["unit_id"] for item in batch)
+            except Exception:  # noqa: BLE001 - retry the failed model envelope below
+                retried_batch_count += 1
+                midpoint = max(1, len(batch) // 2)
+                retry_parts = [batch] if len(batch) == 1 else [batch[:midpoint], batch[midpoint:]]
+                for part_index, retry_part in enumerate(retry_parts):
+                    if not retry_part:
+                        continue
+                    try:
+                        result = await analyze_batch(retry_part)
+                        analyses.append(result)
+                        scanned_ids.update(item["unit_id"] for item in retry_part)
+                    except Exception as retry_error:  # noqa: BLE001 - persist safe diagnostics per final failed part
+                        failed_ids = [str(item["unit_id"]) for item in retry_part]
+                        unscanned_ids.update(failed_ids)
+                        batch_failures.append({
+                            "batch_index": batch_index,
+                            "part_index": part_index,
+                            "unit_ids": failed_ids,
+                            "error_type": type(retry_error).__name__,
+                            "message": _compact(str(retry_error) or "影响分析失败", 400),
+                        })
         scanned_ids.difference_update(unscanned_ids)
         if analyses:
             raw_analysis = deepcopy(analyses[0])
@@ -2189,7 +2230,22 @@ async def create_teacher_course_change_plan(
                         else:
                             by_id[key].setdefault("content_patches", []).extend(item.get("content_patches") or [])
             raw_analysis["affected_units"] = list(by_id.values())
-            for field in ("blocking_questions", "protected_requirements", "assumptions", "hard_constraints", "soft_preferences"):
+            merged_clarifications: list[dict[str, Any]] = []
+            merged_blocking_questions: list[str] = []
+            for result in analyses:
+                merged_clarifications.extend(
+                    item
+                    for item in result.get("clarifications") or []
+                    if isinstance(item, dict)
+                )
+                for item in result.get("blocking_questions") or []:
+                    if isinstance(item, dict):
+                        merged_clarifications.append(item)
+                    elif _compact(item, 400):
+                        merged_blocking_questions.append(_compact(item, 400))
+            raw_analysis["clarifications"] = merged_clarifications
+            raw_analysis["blocking_questions"] = list(dict.fromkeys(merged_blocking_questions))
+            for field in ("protected_requirements", "assumptions", "hard_constraints", "soft_preferences"):
                 raw_analysis[field] = list(dict.fromkeys(str(v) for a in analyses for v in a.get(field) or []))
             structures = [a["structure"] for a in analyses if isinstance(a.get("structure"), dict) and a["structure"].get("required")]
             if structures:
@@ -2209,8 +2265,12 @@ async def create_teacher_course_change_plan(
             *(analysis.get("assumptions") or []),
             "教师已确认按当前理解继续；未明确细节采用保留现有内容、最小改动且可撤销的方案。",
         ]))
-    if unscanned_ids:
-        analysis.setdefault("blocking_questions", []).append(f"有 {len(unscanned_ids)} 个内容单元未完成检查，请重新分析，避免遗漏修改。")
+    system_blockers = ([CourseChangeSystemBlocker(
+        code="analysis_incomplete",
+        message=f"有 {len(unscanned_ids)} 个内容单元未完成检查，请重新分析，避免遗漏修改。",
+        retryable=True,
+        affected_unit_count=len(unscanned_ids),
+    )] if unscanned_ids else [])
 
     timestamp = _now()
     change_set_id = f"course-change-{uuid.uuid4().hex}"
@@ -2256,6 +2316,7 @@ async def create_teacher_course_change_plan(
         clarification_set_id=clarification_set,
         clarifications=clarifications,
         clarification_answer_snapshot=answer_snapshot,
+        system_blockers=system_blockers,
         can_proceed_without_clarification=not questions,
     )
     structure_operations = _structure_operations(context, analysis, change_set_id)
@@ -2299,7 +2360,9 @@ async def create_teacher_course_change_plan(
             else "教师修正了 AI 对原要求的理解"
         ] if supersedes_plan_id else []),
         status=(
-            "needs_clarification"
+            "blocked"
+            if system_blockers
+            else "needs_clarification"
             if questions
             else "impact_ready"
             if requires_downstream_generation
@@ -2355,7 +2418,7 @@ async def create_teacher_course_change_plan(
         growth_direction="author_directed",
         generation_status=(
             "suggested"
-            if requires_downstream_generation and not questions
+            if requires_downstream_generation and not questions and not system_blockers
             else "ready"
         ),
         base_revision_vector=context.base_revision_vector,
@@ -2380,6 +2443,8 @@ async def create_teacher_course_change_plan(
                 "indexed_units": len(context.units),
                 "scanned_units": len(scanned_ids),
                 "unscanned_unit_ids": sorted(unscanned_ids),
+                "failed_batches": batch_failures,
+                "retried_batch_count": retried_batch_count,
                 "source_revisions": {unit.unit_id: unit.source_revision for unit in context.units if unit.unit_id in scanned_ids},
                 "ranked_candidates": len(ranked),
                 "affected_units": len(affected_units),
@@ -2499,6 +2564,8 @@ def review_teacher_course_change_scope(
         if plan.status != "pending":
             raise ValueError("只能审阅尚未应用的课程方案")
         planning = plan.teacher_change_planning
+        if planning.intent.system_blockers:
+            raise ValueError("课程影响扫描尚未完成，请重新扫描后再审阅")
         selection_changed = set(selected) != set((plan.impact_summary.get("scope_review") or {}).get("selected_migration_ids") or [])
         migrations_by_id = {
             item.migration_id: item
