@@ -1765,11 +1765,15 @@ def _content_operations(
             migration.metadata["candidate_error"] = "AI 修改片段未命中当前正式内容"
             continue
         operation_id = f"teacher-content-{uuid.uuid4().hex}"
+        before_fields = editable_text_fields(before_block.payload)
+        after_fields = editable_text_fields(proposed.payload)
         migration.candidate_status = "ready"
         migration.metadata.update({
             "operation_id": operation_id,
             "after_preview": _unit_text(proposed.payload, 360),
-            "after_content": "\n\n".join(editable_text_fields(proposed.payload).values()),
+            "after_content": "\n\n".join(after_fields.values()),
+            "before_fields": before_fields,
+            "after_fields": after_fields,
             "change_count": change_count,
             "applied_patches": applied_patches,
         })
@@ -1788,6 +1792,32 @@ def _content_operations(
             },
         ))
     return operations
+
+
+def _set_json_pointer(value: Any, path: str, replacement: str) -> None:
+    """Set one previously-vetted editable prose field by its JSON-pointer path."""
+    if not path.startswith("/"):
+        raise ValueError("手动编辑位置无效")
+    segments = [part.replace("~1", "/").replace("~0", "~") for part in path[1:].split("/")]
+    target = value
+    for segment in segments[:-1]:
+        if isinstance(target, list):
+            if not segment.isdigit() or int(segment) >= len(target):
+                raise ValueError("手动编辑位置已变化，请重新打开方案")
+            target = target[int(segment)]
+        elif isinstance(target, dict) and segment in target:
+            target = target[segment]
+        else:
+            raise ValueError("手动编辑位置已变化，请重新打开方案")
+    leaf = segments[-1] if segments else ""
+    if isinstance(target, list):
+        if not leaf.isdigit() or int(leaf) >= len(target):
+            raise ValueError("手动编辑位置已变化，请重新打开方案")
+        target[int(leaf)] = replacement
+    elif isinstance(target, dict) and leaf in target:
+        target[leaf] = replacement
+    else:
+        raise ValueError("手动编辑位置已变化，请重新打开方案")
 
 
 def _outline_content_operation(
@@ -2376,6 +2406,10 @@ async def create_teacher_course_change_plan(
             "operation_id": str(item.metadata.get("operation_id") or ""),
             "after_preview": str(item.metadata.get("after_preview") or ""),
             "after_content": str(item.metadata.get("after_content") or ""),
+            "before_fields": deepcopy(item.metadata.get("before_fields") or {}),
+            "after_fields": deepcopy(item.metadata.get("after_fields") or {}),
+            "literal_replacement": deepcopy(item.metadata.get("literal_replacement") or {}),
+            "manually_edited": bool(item.metadata.get("manually_edited")),
             "change_count": int(item.metadata.get("change_count") or 0),
             "candidate_error": str(item.metadata.get("candidate_error") or ""),
         }
@@ -2509,6 +2543,7 @@ def review_teacher_course_change_scope(
     selected_migration_ids: list[str],
     confirm_structure: bool = False,
     migration_dispositions: dict[str, str] | None = None,
+    manual_content_edits: dict[str, dict[str, str]] | None = None,
     proposed_outline: list[dict[str, Any]] | None = None,
     context: TeacherCourseChangeContext | None = None,
 ) -> CourseEvolutionState:
@@ -2519,6 +2554,18 @@ def review_teacher_course_change_scope(
         for key, value in (migration_dispositions or {}).items()
         if str(key)
     }
+    content_edits = {
+        str(migration_id): {
+            str(path): str(value)
+            for path, value in fields.items()
+        }
+        for migration_id, fields in (manual_content_edits or {}).items()
+        if str(migration_id) and isinstance(fields, dict)
+    }
+    if sum(len(value) for fields in content_edits.values() for value in fields.values()) > 500_000:
+        raise ValueError("手动编辑内容过长，请拆分后保存")
+    if any(not value.strip() for fields in content_edits.values() for value in fields.values()):
+        raise ValueError("手动编辑后的正文不能为空")
     allowed_dispositions = {
         "reuse_exact",
         "reuse_rebind",
@@ -2558,6 +2605,9 @@ def review_teacher_course_change_scope(
         invalid_dispositions = set(disposition_overrides.values()).difference(allowed_dispositions)
         if invalid_dispositions:
             raise ValueError("包含不支持的单元处理方式")
+        unknown_content_edits = set(content_edits).difference(known)
+        if unknown_content_edits:
+            raise ValueError("手动编辑包含不属于本方案的课程单元")
 
         disposition_changed = False
         for migration_id, disposition in disposition_overrides.items():
@@ -2770,6 +2820,49 @@ def review_teacher_course_change_scope(
                 planning.status = "candidate_ready"
                 plan.generation_status = "ready"
 
+        for migration_id, edited_fields in content_edits.items():
+            migration = migrations_by_id[migration_id]
+            if migration_id not in selected:
+                raise ValueError("只能手动编辑已纳入本次修改的课程正文")
+            if migration.asset_type != "course_content":
+                raise ValueError("当前只支持手动编辑课程正文候选")
+            operation_id = str(migration.metadata.get("operation_id") or "")
+            operation = next(
+                (
+                    item for item in plan.operations
+                    if item.operation_id == operation_id
+                    and item.operation_type == "REPLACE_COURSE_BLOCK"
+                ),
+                None,
+            )
+            if operation is None or migration.candidate_status != "ready":
+                raise ValueError("课程正文候选尚未就绪，不能手动编辑")
+            before_block = CourseBlock.model_validate(operation.payload.get("before_block") or {})
+            proposed_block = CourseBlock.model_validate(operation.payload.get("proposed_block") or {})
+            before_fields = editable_text_fields(before_block.payload)
+            candidate_fields = editable_text_fields(proposed_block.payload)
+            unknown_paths = set(edited_fields).difference(candidate_fields)
+            if unknown_paths:
+                raise ValueError("手动编辑包含不可修改的正文位置")
+            for path, value in edited_fields.items():
+                _set_json_pointer(proposed_block.payload, path, value)
+            after_fields = editable_text_fields(proposed_block.payload)
+            operation.payload["proposed_block"] = proposed_block.model_dump(mode="json")
+            operation.payload["manually_edited"] = True
+            operation.payload["manual_edit_fields"] = sorted(edited_fields)
+            migration.metadata.update({
+                "before_fields": before_fields,
+                "after_fields": after_fields,
+                "after_content": "\n\n".join(after_fields.values()),
+                "after_preview": _unit_text(proposed_block.payload, 360),
+                "change_count": sum(
+                    before_fields.get(path, "") != value
+                    for path, value in after_fields.items()
+                ),
+                "manually_edited": True,
+                "manual_edit_fields": sorted(edited_fields),
+            })
+
         affected_by_migration = {
             str(item.get("migration_id") or ""): item
             for item in plan.impact_summary.get("affected_units") or []
@@ -2786,6 +2879,10 @@ def review_teacher_course_change_scope(
                 "operation_id": str(migration.metadata.get("operation_id") or ""),
                 "after_preview": str(migration.metadata.get("after_preview") or ""),
                 "after_content": str(migration.metadata.get("after_content") or ""),
+                "before_fields": deepcopy(migration.metadata.get("before_fields") or {}),
+                "after_fields": deepcopy(migration.metadata.get("after_fields") or {}),
+                "literal_replacement": deepcopy(migration.metadata.get("literal_replacement") or {}),
+                "manually_edited": bool(migration.metadata.get("manually_edited")),
                 "candidate_error": str(migration.metadata.get("candidate_error") or ""),
                 "change_count": int(migration.metadata.get("change_count") or 0),
             })
@@ -2828,6 +2925,11 @@ def review_teacher_course_change_scope(
             },
             "reviewed_at": timestamp,
             "formal_content_changed": False,
+            "manual_content_edits": {
+                item.migration_id: list(item.metadata.get("manual_edit_fields") or [])
+                for item in planning.unit_migrations
+                if item.metadata.get("manually_edited")
+            },
         }
         plan.selected_operation_ids = selected_operation_ids
         plan.excluded_operation_ids = [

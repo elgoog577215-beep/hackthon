@@ -574,6 +574,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         confirmStructure?: boolean
         migrationDispositions?: Record<string, TeacherMigrationDisposition>
         proposedOutline?: TeacherCourseOutlineReviewNode[]
+        manualContentEdits?: Record<string, Record<string, string>>
       } = {},
     ) {
       this.assertActionIdle()
@@ -592,6 +593,9 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
               : {}),
             ...(options.proposedOutline !== undefined
               ? { proposed_outline: options.proposedOutline }
+              : {}),
+            ...(options.manualContentEdits !== undefined
+              ? { manual_content_edits: options.manualContentEdits }
               : {}),
           },
         )

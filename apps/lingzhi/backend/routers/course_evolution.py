@@ -124,6 +124,10 @@ class ReviewTeacherCourseChangeRequest(BaseModel):
         default=None,
         max_length=200,
     )
+    manual_content_edits: dict[str, dict[str, str]] = Field(
+        default_factory=dict,
+        max_length=2000,
+    )
 
 
 def _course_evolution_service(tm: TaskManager | None = None) -> CourseEvolutionApplicationService:
@@ -272,6 +276,7 @@ async def review_teacher_course_plan(
             selected_migration_ids=body.selected_migration_ids,
             confirm_structure=body.confirm_structure,
             migration_dispositions=body.migration_dispositions,
+            manual_content_edits=body.manual_content_edits,
             proposed_outline=(
                 [item.model_dump(mode="json") for item in body.proposed_outline]
                 if body.proposed_outline is not None

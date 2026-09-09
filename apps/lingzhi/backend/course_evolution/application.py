@@ -196,6 +196,7 @@ class CourseEvolutionApplicationService:
         selected_migration_ids: list[str],
         confirm_structure: bool,
         migration_dispositions: dict[str, str] | None = None,
+        manual_content_edits: dict[str, dict[str, str]] | None = None,
         proposed_outline: list[dict[str, Any]] | None = None,
     ) -> Any:
         context = self.teacher_context(course_id) if proposed_outline is not None else None
@@ -207,6 +208,7 @@ class CourseEvolutionApplicationService:
             selected_migration_ids=selected_migration_ids,
             confirm_structure=confirm_structure,
             migration_dispositions=migration_dispositions,
+            manual_content_edits=manual_content_edits,
             proposed_outline=proposed_outline,
             context=context,
         )

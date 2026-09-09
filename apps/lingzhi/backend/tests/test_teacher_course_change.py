@@ -522,6 +522,31 @@ def test_teacher_can_replace_an_exact_course_content_candidate_with_manual_text(
         migration.migration_id: ["/markdown"],
     }
 
+    current_document = document()
+    raw_course = {
+        "course_id": current_document.course_id,
+        "course_name": current_document.title,
+        "course_schema_version": "course_document_v1",
+        "course_document": current_document.model_dump(mode="json"),
+        "course_document_revision": current_document.document_revision,
+        "course_document_authoritative": True,
+        "course_operation_log": [],
+    }
+    document_repository = CourseDocumentRepository(MemoryCourseStorage(raw_course))
+    accept_change_set(
+        raw_course,
+        user_id="teacher-1",
+        change_set_id=plan.change_set_id,
+        selected_scope="current",
+        selected_operation_ids=[operation.operation_id],
+        repository=repository,
+        document_repository=document_repository,
+    )
+    saved, _ = document_repository.load_document("course-1")
+    assert saved.blocks[0].payload["markdown"] == (
+        "先给出自由体图；这里保留 Unity 作为软件名称，再列方程。"
+    )
+
 
 def test_explicit_term_replacement_reports_zero_formal_hits(tmp_path):
     repository = CourseEvolutionRepository(tmp_path)
