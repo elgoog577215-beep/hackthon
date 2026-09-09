@@ -42,6 +42,7 @@ def handout_digest(lesson):
 
 
 def main():
+    global TASK
     course = json.loads((ROOT / "courses" / f"{COURSE}.json").read_text(encoding="utf-8"))
     if not course.get("owner_id") or course.get("authoring_surface") != "teacher":
         raise ValueError("requested_teacher_course_identity_unavailable")
@@ -68,15 +69,18 @@ def main():
     before = handout_digest(saved_lesson())
     emit(event="lecture_verification_started", lesson_id=LESSON, source_revision=SCRIPT)
     state = api(PPT + "/manuscript")["ppt_manuscript_state"]
-    if state.get("source_script_revision_id") != SCRIPT or state.get("task_id") != TASK:
-        raise ValueError("requested_task_or_source_changed")
+    if state.get("task_id") != TASK:
+        raise ValueError("requested_task_changed")
+    stale_source = state.get("source_script_revision_id") != SCRIPT
     if not state.get("manuscript"):
         job = api(API + f"/lesson-jobs/{TASK}")["job"]
         if job.get("status") in {"failed", "completed", "completed_with_warnings"}:
             response = api(PPT + "/manuscript/complete", {"source_script_revision_id": SCRIPT, "task_id": TASK})
-            if response["job"]["id"] != TASK:
+            if response["job"]["id"] != TASK and not stale_source:
                 raise ValueError("unexpected_task_identity")
-            emit(event="original_task_resumed", task_id=TASK, attempt=response["job"].get("attempt_number"))
+            previous_task = TASK
+            TASK = response["job"]["id"]
+            emit(event="current_source_task_created" if TASK != previous_task else "original_task_resumed", task_id=TASK, previous_task=previous_task, attempt=response["job"].get("attempt_number"))
         elif job.get("status") not in {"pending", "running"}:
             raise ValueError("original_task_not_retryable_without_new_approval")
         deadline = time.monotonic() + 1200
