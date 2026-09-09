@@ -228,6 +228,105 @@ async def test_checkpoint_write_failure_does_not_retry_the_model():
 
 
 @pytest.mark.asyncio
+async def test_provider_circuit_waits_once_then_resumes_without_failure_fanout():
+    from ai_base import AIProviderRequestError
+    from course_evolution.semantic_scan import scan_batches
+
+    calls, waits, progress = [], [], []
+
+    async def analyzer(overview, items, instruction):
+        calls.append(items[0]["unit_id"])
+        if len(calls) == 1:
+            raise AIProviderRequestError("empty_response")
+        return response(items)
+
+    async def sleep(seconds):
+        waits.append(seconds)
+
+    async def report(detail, checkpoint):
+        progress.append(deepcopy(detail))
+
+    analyses, scanned, missing, failures, _ = await scan_batches(
+        overview={},
+        batches=[[{"unit_id": "u1"}], [{"unit_id": "u2"}], [{"unit_id": "u3"}]],
+        instruction="practice",
+        revisions={},
+        analyzer=analyzer,
+        on_progress=report,
+        provider_recovery_delay_seconds=31,
+        sleep=sleep,
+    )
+
+    assert calls == ["u1", "u1", "u2", "u3"]
+    assert waits == [31]
+    assert len(analyses) == 3
+    assert scanned == {"u1", "u2", "u3"}
+    assert not missing and not failures
+    assert any(item.get("waiting_for_provider") for item in progress)
+    assert progress[-1]["completed_parts"] == progress[-1]["total_parts"] == 3
+
+
+@pytest.mark.asyncio
+async def test_persistent_provider_outage_stops_calls_and_marks_the_remaining_scan_once():
+    from ai_base import AIProviderRequestError
+    from course_evolution.semantic_scan import scan_batches
+
+    calls, waits = [], []
+
+    async def analyzer(overview, items, instruction):
+        calls.append([item["unit_id"] for item in items])
+        raise AIProviderRequestError("empty_response")
+
+    async def sleep(seconds):
+        waits.append(seconds)
+
+    analyses, scanned, missing, failures, _ = await scan_batches(
+        overview={},
+        batches=[[{"unit_id": "u1"}], [{"unit_id": "u2"}], [{"unit_id": "u3"}]],
+        instruction="practice",
+        revisions={},
+        analyzer=analyzer,
+        provider_recovery_delay_seconds=31,
+        sleep=sleep,
+    )
+
+    assert calls == [["u1"], ["u1"]]
+    assert waits == [31]
+    assert not analyses and not scanned
+    assert missing == {"u1", "u2", "u3"}
+    assert len(failures) == 1
+    assert failures[0]["code"] == "provider_unavailable"
+    assert failures[0]["deferred_parts"] == 3
+
+
+@pytest.mark.asyncio
+async def test_timeout_still_splits_a_large_batch_before_waiting_for_provider_recovery():
+    from course_evolution.semantic_scan import scan_batches
+
+    calls, waits = [], []
+
+    async def analyzer(overview, items, instruction):
+        calls.append([item["unit_id"] for item in items])
+        if len(items) > 1:
+            raise TimeoutError("provider timeout")
+        return response(items)
+
+    async def sleep(seconds):
+        waits.append(seconds)
+
+    _, scanned, missing, failures, retried = await scan_batches(
+        overview={}, batches=[[{"unit_id": "u1"}, {"unit_id": "u2"}]],
+        instruction="practice", revisions={}, analyzer=analyzer,
+        provider_recovery_delay_seconds=31, sleep=sleep,
+    )
+
+    assert calls == [["u1", "u2"], ["u1"], ["u2"]]
+    assert not waits and not missing and not failures
+    assert scanned == {"u1", "u2"}
+    assert retried == 1
+
+
+@pytest.mark.asyncio
 async def test_real_job_application_and_planner_resume_a_blocked_plan(tmp_path, monkeypatch):
     from backend.tests.test_task_manager_runtime_durability import build_manager
     from course_evolution.application import CourseEvolutionApplicationService
