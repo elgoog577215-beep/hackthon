@@ -68,6 +68,45 @@ describe('文中 AI 修改的完整操作', () => {
       target: { sectionNodeId: 's1', field: 'teacher_activity', itemId: 'm1' },
     })
   })
+  it('紧凑区域选择完整字段，助手在整组下方展开且不扩大修改范围', async () => {
+    const host = fixture('<section data-ai-section-id="s1"><div data-ai-inline-anchor><div data-ai-block data-ai-field="knowledge_objectives"><ul><li>知识目标</li></ul></div><div data-ai-block data-ai-field="ability_objectives"><ul><li data-ai-field="ability_objectives" data-ai-item-id="0">指认主次</li><li data-ai-field="ability_objectives" data-ai-item-id="1">解释视觉层级</li><li>检查对比</li></ul></div></div><p>后续正文</p></section>')
+    await wrapper.setProps({ targetSelector: '[data-ai-field]', groupSelector: '[data-ai-inline-anchor]', getSourceText: () => '指认主次\n解释视觉层级\n检查对比' })
+    const group = host.querySelector('[data-ai-inline-anchor]')!
+    await open(group.querySelector('[data-ai-item-id="1"]')!)
+    expect(group.querySelector('.text-selection-ai-host')).toBeNull()
+    expect(group.nextElementSibling?.querySelector('textarea')).toBeTruthy()
+    expect(document.querySelector('.text-selection-ai__composer')?.textContent).toContain('region')
+    await submit('调整能力目标')
+    expect(wrapper.emitted('invoke')?.[0]?.[0]).toMatchObject({
+      text: '指认主次\n解释视觉层级\n检查对比',
+      target: { sectionNodeId: 's1', field: 'ability_objectives', itemId: '' },
+    })
+  })
+  it('紧凑区域内划词仍按完整区域提交，范围提示与请求一致', async () => {
+    const host = fixture('<div data-ai-block data-ai-field="ability_objectives"><p>识别主次</p><p>解释层级</p></div>')
+    const p = host.querySelector('p')!
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      isCollapsed: false, rangeCount: 1, toString: () => '主次', removeAllRanges: vi.fn(),
+      getRangeAt: () => ({ startContainer: p.firstChild, endContainer: p.firstChild }),
+    } as unknown as Selection)
+    document.dispatchEvent(new MouseEvent('mouseup'))
+    await nextTick()
+    ;(document.querySelector('[data-action="ask"]') as HTMLButtonElement).click()
+    await nextTick()
+    await submit('改进目标')
+    expect(wrapper.emitted('invoke')?.[0]?.[0]).toMatchObject({ text: '识别主次解释层级', source: 'block', target: { field: 'ability_objectives', itemId: '' } })
+  })
+  it('表格单元格内的段落选择整格，关闭时清理整行宿主', async () => {
+    const host = fixture('<table><tbody><tr><td><p>第一段</p><p>第二段</p></td><td>其他区域</td></tr></tbody></table>')
+    await open(host.querySelector('p')!)
+    expect(host.querySelectorAll('tr')).toHaveLength(2)
+    expect(host.querySelector('tr')!.nextElementSibling?.querySelector('td')?.colSpan).toBe(2)
+    await submit('调整这一格')
+    expect(wrapper.emitted('invoke')?.[0]?.[0]).toMatchObject({ text: '第一段第二段' })
+    ;(wrapper.vm as any).closeComposer()
+    await nextTick()
+    expect(host.querySelectorAll('tr')).toHaveLength(1)
+  })
   it('选词只发送选词，并清除浏览器选区以便输入', async () => {
     const host = fixture()
     const p = host.querySelector('p')!

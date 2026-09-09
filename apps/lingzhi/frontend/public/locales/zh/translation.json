@@ -6857,6 +6857,7 @@
     "backToNew": "返回 PPT 制作"
   },
   "teacherInlineEdit": {
+    "region": "修改当前区域",
     "edit": "修改",
     "open": "AI 修改",
     "title": "局部修改",

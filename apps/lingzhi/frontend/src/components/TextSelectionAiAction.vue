@@ -31,6 +31,7 @@
       :class="{ 'is-comparison-stacked': comparisonLayout === 'stacked' }"
       :aria-label="composerTitle"
       :aria-busy="busy"
+      :style="{ '--ai-target-x': `${targetPointerX}px` }"
       @keydown.esc.stop.prevent="collapseOrClose"
     >
       <header>
@@ -499,6 +500,7 @@ const opened = ref(false),
   sourceText = ref(''),
   localError = ref(''),
   comparisonWidth = ref(0),
+  targetPointerX = ref(24),
   comparisonPreference = ref<ComparisonLayout | null>(null),
   comparisonAnnouncement = ref('')
 const source = ref<TeacherInlineAiSource>('block'),
@@ -533,7 +535,9 @@ const contextLabel = computed(() =>
       ? props.selectionLabel || tr('selection')
       : source.value === 'document'
         ? props.documentLabel || tr('document')
-        : props.blockLabel || tr('paragraph'),
+        : target.value?.matches('[data-ai-block], td, th')
+          ? tr('region')
+          : props.blockLabel || tr('paragraph'),
   ]
     .filter(Boolean)
     .join(' · '),
@@ -541,6 +545,16 @@ const contextLabel = computed(() =>
 function updateComparisonWidth(width?: number) {
   const measured = width ?? panel.value?.getBoundingClientRect().width ?? 0
   comparisonWidth.value = Math.max(0, measured)
+  updateTargetPointer()
+}
+function updateTargetPointer() {
+  if (!panel.value || !target.value) return
+  const panelRect = panel.value.getBoundingClientRect()
+  const targetRect = target.value.getBoundingClientRect()
+  targetPointerX.value = Math.max(20, Math.min(
+    targetRect.left + targetRect.width / 2 - panelRect.left,
+    panelRect.width - 20,
+  ))
 }
 function observeComparisonPanel(element: HTMLElement | null) {
   panelResizeObserver?.disconnect()
@@ -616,12 +630,17 @@ function metadata(element: HTMLElement): TeacherInlineAiTarget | undefined {
   }
   return Object.values(value).some(Boolean) ? value : undefined
 }
+function resolveTarget(element: Element) {
+  const found = element.closest<HTMLElement>(props.targetSelector)
+  if (!found || !props.container?.contains(found)) return null
+  const block = found.closest<HTMLElement>('[data-ai-block], td, th')
+  return block && props.container.contains(block) ? block : found
+}
 function eventTarget(event: Event) {
   const el = event.target instanceof Element ? event.target : null
   if (!el || el.closest('button,textarea,input,select,[data-ai-inline-host]'))
     return null
-  const found = el.closest<HTMLElement>(props.targetSelector)
-  return found && props.container?.contains(found) ? found : null
+  return resolveTarget(el)
 }
 function positionTrigger() {
   if (!hoverTarget.value?.isConnected) {
@@ -669,8 +688,8 @@ function captureSelection() {
     start.closest('[data-ai-inline-host]')
   )
     return
-  const first = start.closest<HTMLElement>(props.targetSelector),
-    last = end.closest<HTMLElement>(props.targetSelector)
+  const first = resolveTarget(start),
+    last = resolveTarget(end)
   if (!first || first !== last) {
     hoverTarget.value = null
     selectionText = ''
@@ -679,15 +698,18 @@ function captureSelection() {
   const text = sel.toString().trim()
   if (text.length < 2) return
   const visibleText = (first.textContent || '').replace(/\s+/g, ' ').trim()
-  selectionText =
-    first.dataset.aiSource && visibleText === text.replace(/\s+/g, ' ').trim()
+  selectionText = first.matches('[data-ai-block], td, th')
+    ? ''
+    : first.dataset.aiSource && visibleText === text.replace(/\s+/g, ' ').trim()
       ? first.dataset.aiSource
       : text
   hoverTarget.value = first
   positionTrigger()
 }
 function removeHost() {
-  inlineHost.value?.remove()
+  const host = inlineHost.value
+  if (host?.parentElement?.matches('tr[data-ai-inline-host]')) host.parentElement.remove()
+  else host?.remove()
   inlineHost.value = null
 }
 function insertHost(el: HTMLElement) {
@@ -703,8 +725,10 @@ function insertHost(el: HTMLElement) {
     host.dataset.aiInlineHost = 'true'
     inlineHost.value = cell
   } else {
-    host = document.createElement(el.matches('li') ? 'li' : 'div')
-    el.after(host)
+    const group = props.groupSelector ? el.closest<HTMLElement>(props.groupSelector) : null
+    const anchor = group && props.container?.contains(group) ? group : el
+    host = document.createElement(anchor.matches('li') ? 'li' : 'div')
+    anchor.after(host)
     inlineHost.value = host
   }
   host.className = 'text-selection-ai-host'
@@ -890,6 +914,7 @@ onMounted(() => {
   document.addEventListener('pointermove', trackPointer)
   document.addEventListener('scroll', positionTrigger, true)
   window.addEventListener('resize', positionTrigger)
+  window.addEventListener('resize', updateTargetPointer)
 })
 onBeforeUnmount(() => {
   panelResizeObserver?.disconnect()
@@ -901,6 +926,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('pointermove', trackPointer)
   document.removeEventListener('scroll', positionTrigger, true)
   window.removeEventListener('resize', positionTrigger)
+  window.removeEventListener('resize', updateTargetPointer)
   removeHost()
 })
 defineExpose({ openForDocument, closeComposer })
@@ -965,6 +991,7 @@ defineExpose({ openForDocument, closeComposer })
   display: table-row;
 }
 .text-selection-ai__composer {
+  position: relative;
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
@@ -979,6 +1006,19 @@ defineExpose({ openForDocument, closeComposer })
   line-height: 1.6;
   text-align: left;
   white-space: normal;
+}
+.text-selection-ai__composer::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: var(--ai-target-x, 24px);
+  width: 10px;
+  height: 10px;
+  border-top: 1px solid var(--lz-border, #d5d9e2);
+  border-left: 1px solid var(--lz-border, #d5d9e2);
+  background: var(--lz-surface, #fff);
+  transform: translateX(-50%) rotate(45deg);
+  pointer-events: none;
 }
 .text-selection-ai__composer > header {
   display: flex;

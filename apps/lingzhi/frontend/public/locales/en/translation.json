@@ -6676,6 +6676,7 @@
     "backToNew": "Back to PPT creation"
   },
   "teacherInlineEdit": {
+    "region": "Edit current region",
     "edit": "Edit",
     "open": "AI edit",
     "title": "Edit this content",
