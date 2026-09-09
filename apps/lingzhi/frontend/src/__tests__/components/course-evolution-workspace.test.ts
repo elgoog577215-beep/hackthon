@@ -385,7 +385,33 @@ describe('CourseEvolutionWorkspace', () => {
       instruction: '所有案例都补充完整推导，但保留原始资料。',
       supersedesPlanId: 'change-1',
       assetTypes: ['outline', 'lesson_plan', 'script'],
+      rescanIncompleteOnly: true,
     })
+    wrapper.unmount()
+  })
+
+  it('部分完成时先展示结果，只能勾选独立就绪项，补查明确绑定原方案', async () => {
+    const pinia = createPinia()
+    const store = useCourseEvolutionStore(pinia)
+    store.plans = [plan({
+      teacher_change_planning: planning({ status: 'blocked' }),
+      impact_summary: {
+        coverage: { indexed_units: 3, scanned_units: 2, unscanned_unit_ids: ['missing'] },
+        partial_review: { incomplete: true, can_preview: true, eligible_migration_ids: ['ready'], waiting: { held: 'source_unscanned' } },
+        affected_units: [
+          { migration_id: 'ready', asset_type: 'course_content', title: '已完成案例', disposition: 'rewrite_partial', candidate_status: 'ready', operation_id: 'op1', section_ids: [] },
+          { migration_id: 'held', asset_type: 'course_content', title: '等待检查案例', disposition: 'rewrite_partial', candidate_status: 'not_started', section_ids: [] },
+        ],
+      },
+    })]
+    const create = vi.spyOn(store, 'createCoursePlan').mockResolvedValue({analysis_task: {id: 'rescan', status: 'pending'}} as any)
+    const wrapper = mountWorkspace(pinia)
+    expect(wrapper.find('.review-layout').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="partial-review-banner"]').text()).toContain('已完成结果可以先审阅')
+    expect(wrapper.get('input[aria-label="已完成案例"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('input[aria-label="等待检查案例"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-testid="partial-rescan"]').trigger('click')
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({supersedesPlanId: 'change-1', rescanIncompleteOnly: true}))
     wrapper.unmount()
   })
 
