@@ -45,14 +45,15 @@ overview = {'course_id': ctx.course_id, 'course_title': ctx.course_title,
             'indexed_unit_count': 116}
 ranked = {u['unit_id']: u for u in rank_change_units(ctx, '给每个章节加一个实践项目', limit=len(ctx.units), include_all=True)}
 async def probe():
-    for uid in ['outline:L2-1-1', 'course_content:tsb-82c81e8ea1c4']:
+    for uid in ['course_content:tsb-82c81e8ea1c4']:
         u = next(u for u in ctx.units if u.unit_id == uid)
         body = '\n\n'.join(u.full_text_fields.values()) or u.text
-        chunk = {**ranked[uid], 'content': body[:4000], 'part': 1, 'parts': max(1, (len(body)+3799)//3800)}
+        chunk = {**ranked[uid], 'content': body[:1200], 'part': 1, 'parts': max(1, (len(body)+1199)//1200)}
+        chunk['editable_fields'] = {}
         started = time.monotonic()
         try:
             output = await asyncio.wait_for(model.analyze_teacher_course_change(overview, [chunk], '给每个章节加一个实践项目'), 200)
-            print('MODEL_REPLAY', uid, round(time.monotonic()-started, 2), type(output).__name__,
+            print('MODEL_SMALL_REPLAY', uid, round(time.monotonic()-started, 2), type(output).__name__,
                   'affected_count', len((output or {}).get('affected_units') or []), flush=True)
         except Exception as error:
             print('MODEL_REPLAY_ERROR', uid, round(time.monotonic()-started, 2), type(error).__name__, str(error)[:160], flush=True)
