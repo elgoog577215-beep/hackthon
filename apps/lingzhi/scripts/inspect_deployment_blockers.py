@@ -42,5 +42,14 @@ if __name__ == "__main__":
             "job": {k: job.get(k) for k in ("id", "status", "phase", "attempt_number", "updated_at")},
             "error_code": (job.get("error") or {}).get("code"),
             "checkpoint_blocks": len(job.get("bundle_blocks") or {})}, ensure_ascii=True))
+        if not lesson:
+            for lesson_id, item in list(authoring.get("lessons", {}).items())[:20]:
+                ppt = item.get("ppt_manuscript") or {}
+                task = authoring.get("jobs", {}).get(ppt.get("task_id"), {})
+                print(json.dumps({"lesson_id": lesson_id, "title": item.get("node_name"),
+                    "working_script_revision_id": item.get("working_script_revision_id"),
+                    "ppt_status": ppt.get("status"), "task_id": ppt.get("task_id"),
+                    "task_status": task.get("status"), "attempt_number": task.get("attempt_number"),
+                    "error_code": (task.get("error") or {}).get("code")}, ensure_ascii=True))
     else:
         print(json.dumps({"requested_course": course_id, "authoring_found": False}))
