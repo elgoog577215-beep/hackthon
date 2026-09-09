@@ -137,4 +137,60 @@ describe('LessonPptWorkspace', () => {
 
     wrapper.unmount()
   })
+
+  it('点击生成后不等待接口返回就立即进入启动进度', async () => {
+    let resolveStart!: (value: any) => void
+    const pendingStart = new Promise(resolve => { resolveStart = resolve })
+    http.get.mockResolvedValue({ data: { ppt_manuscript_state: {
+      manuscript: null, source_script_revision_id: 'script-1', page_errors: [],
+    } } })
+    http.post.mockReturnValue(pendingStart)
+
+    const wrapper = mount(LessonPptWorkspace, {
+      props: { courseId: 'course-1', initialLessonId: 'L1-1', title: '第一讲' },
+    })
+    await flushPromises()
+    await wrapper.get('.lesson-ppt-empty button').trigger('click')
+
+    const progress = wrapper.get('[data-testid="ppt-manuscript-progress"]')
+    expect(progress.text()).toContain('正在启动 PPT 内容稿生成')
+    expect(progress.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('0')
+    expect(wrapper.find('.lesson-ppt-empty').exists()).toBe(false)
+
+    resolveStart({ data: { job: { id: 'ppt-task-2', status: 'running', phase: 'ppt_source_validation', progress: 8 } } })
+    await flushPromises()
+    wrapper.unmount()
+  })
+
+  it('服务端报告原任务运行时自动接管该任务而不是停在错误页', async () => {
+    let jobReads = 0
+    http.get.mockImplementation(async (url: string) => {
+      if (url.includes('/lesson-jobs/')) {
+        jobReads += 1
+        return { data: { job: jobReads === 1
+          ? { id: 'ppt-task-1', status: 'failed', phase: 'ppt_page_validation_failed', progress: 92,
+              error: { message: '上次失败', failed_step: 'sources' } }
+          : { id: 'ppt-task-1', status: 'running', phase: 'ppt_page_generation', progress: 16,
+              message: '正在继续原任务' } } }
+      }
+      return { data: { ppt_manuscript_state: {
+        manuscript: null, source_script_revision_id: 'script-1', task_id: 'ppt-task-1', page_errors: [],
+      } } }
+    })
+    http.post.mockRejectedValue({ response: { data: { detail: {
+      code: 'lesson_ppt_job_running', message: '原任务仍在运行。',
+    } } } })
+
+    const wrapper = mount(LessonPptWorkspace, {
+      props: { courseId: 'course-1', initialLessonId: 'L1-1', title: '第一讲' },
+    })
+    await flushPromises()
+    await wrapper.get('.lesson-ppt-error button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.lesson-ppt-error').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="ppt-manuscript-progress"]').text()).toContain('正在继续原任务')
+    expect(jobReads).toBeGreaterThanOrEqual(2)
+    wrapper.unmount()
+  })
 })

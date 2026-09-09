@@ -273,3 +273,35 @@ def test_page_contract_failures_are_reported_as_the_validation_step(message):
     assert failure["failed_step"] == "sources"
     assert failure["retryable"] is True
     assert failure["technical_detail"] == message
+
+
+def test_source_only_formula_quote_is_resolved_without_model_retry():
+    template, contract, _page = sample()
+    source_text = "速度公式为 \\(v=at\\)，其中 a 表示加速度，t 表示时间。"
+    formula_page = {
+        "layout_id": template.layout_id("formula"),
+        "page_goal": "解释速度公式",
+        "fields": {
+            "title": "速度公式",
+            "notes": "解释各符号含义。",
+            "formula": {"sources": [{"quote_id": "q_not_in_catalog"}]},
+            "explanation": {
+                "text": "加速度与时间决定速度变化",
+                "sources": [{"block_id": "b", "quote": source_text}],
+            },
+        },
+    }
+
+    async def unexpected(*_args, **_kwargs):
+        raise AssertionError("source-only formula references must be repaired locally")
+
+    seed = {**contract["modules"][0], "content": source_text, "ppt_pages": [formula_page],
+            "generation_contract_version": CONTRACT}
+    result = asyncio.run(generate_bundle(invoke=unexpected, contract=contract, instructions="", template=template,
+                                         seed_blocks={"b": seed}, immutable_handout=True))
+
+    block = result["blocks"][0]
+    formula_source = block["ppt_pages"][0]["fields"]["formula"]["sources"][0]
+    assert formula_source == {"block_id": "b", "quote": "\\(v=at\\)"}
+    assert not block["ppt_errors"]
+    validate_block_pages(block, template)
