@@ -1,4 +1,4 @@
-name: Verify PPT repair with private model in isolated storage
+name: Recover and verify PPT lectures two through five
 
 on:
   workflow_dispatch:
@@ -24,7 +24,7 @@ concurrency:
 jobs:
   chapter-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 90
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -44,7 +44,7 @@ jobs:
           chmod 600 ~/.ssh/lingzhi_deploy
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Test two real lecture repair cases without publishing
+      - name: Recover original tasks and verify preview and PPTX while reserving lecture six
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
@@ -52,4 +52,4 @@ jobs:
           set -euo pipefail
           ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            '/opt/lingzhi/.venv/bin/python -' < apps/lingzhi/scripts/probe_general_ppt_model.py
+            '/opt/lingzhi/.venv/bin/python -' < apps/lingzhi/scripts/verify_general_ppt_recovery.py
