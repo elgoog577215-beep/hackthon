@@ -9,6 +9,7 @@ from learning_contracts import LearnerCourseScope
 from learning_events import record_learning_event
 from course_document import stable_hash
 from representation_compiler import rebuild_core_representations_safely
+from teaching_representations import RepresentationConflict
 
 from .adjustment_planning import generate_course_adjustment_plan
 from .core import (
@@ -73,10 +74,17 @@ class CourseEvolutionApplicationService:
             for asset in lesson.get("ppt_assets") or []
             if isinstance(asset, dict) and asset.get("synthetic_course_id")
         }
-        representation_registries = [
-            self.representation_repository.load_payload(value)
-            for value in sorted(synthetic_course_ids)
-        ]
+        representation_registries = []
+        for storage_scope_id in sorted(synthetic_course_ids):
+            scoped = self.representation_repository.for_storage_scope(course_id, storage_scope_id)
+            try:
+                payload = scoped.load_payload(course_id)
+            except RepresentationConflict:
+                # Historical registries used the storage ID as their source ID.
+                # Both reads validate ownership; never rewrite or accept an
+                # unrelated course just because its file is in this scope.
+                payload = self.representation_repository.load_payload(storage_scope_id)
+            representation_registries.append({**payload, "storage_scope_id": storage_scope_id})
         return build_teacher_course_change_context(
             course_id=course_id,
             document=document,

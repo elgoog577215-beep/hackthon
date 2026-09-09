@@ -353,7 +353,7 @@ def _ppt_units(
     registries: list[dict[str, Any]],
 ) -> list[TeacherCourseChangeUnit]:
     registry_by_course = {
-        str(item.get("course_id") or ""): item
+        str(item.get("storage_scope_id") or item.get("course_id") or ""): item
         for item in registries
         if isinstance(item, dict) and item.get("course_id")
     }
