@@ -337,6 +337,8 @@ jobs:
             "LINGZHI_DIAGNOSTIC_REQUEST_ID=$remote_request_id bash -s" <<'REMOTE'
           set -euo pipefail
           journalctl -u lingzhi --since '30 minutes ago' --no-pager \
-            | grep -F -C 30 -- "$LINGZHI_DIAGNOSTIC_REQUEST_ID" \
-            | tail -n 160
+            | awk -v request_id="$LINGZHI_DIAGNOSTIC_REQUEST_ID" '
+                index($0, request_id) { remaining = 180 }
+                remaining > 0 { print; remaining -= 1 }
+              '
           REMOTE
