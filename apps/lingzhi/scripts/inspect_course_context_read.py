@@ -52,7 +52,7 @@ async def probe():
     from course_evolution.semantic_scan import validate_batch
     state = course_evolution_repository.load('learner_a44b54f7-1d80-442f-9b23-0e84371b2592', ctx.course_id)
     plan = next(p for p in state.change_sets if p.change_set_id == 'course-change-2395399f197543bc828e6a7ee1241c29')
-    targets = ['course_content:tsb-82c81e8ea1c4', 'script:L1-6:tsb-82c81e8ea1c4', 'question_bank:qbi_5975a9f5125e0c53']
+    targets = plan.impact_summary['coverage']['unscanned_unit_ids']
     semaphore = asyncio.Semaphore(2)
     async def check_unit(uid):
         u = next(u for u in ctx.units if u.unit_id == uid)
@@ -63,7 +63,7 @@ async def probe():
         batches = [[{**ranked[uid], 'content': content, 'part': i+1, 'parts': len(chunks)}] for i, content in enumerate(chunks)]
         async def analyze(overview, items, instruction):
             async with semaphore:
-                return await asyncio.wait_for(model.analyze_teacher_course_change(overview, items, instruction), 120)
+                return await model.analyze_teacher_course_change(overview, items, instruction)
         _, done, missing, failures, retries = await candidate_scan_batches(overview=overview, batches=batches,
             instruction=plan.request_text, revisions={}, analyzer=analyze)
         print('UNIT_RECOVERY', uid, len(chunks), round(time.monotonic()-started, 2),
