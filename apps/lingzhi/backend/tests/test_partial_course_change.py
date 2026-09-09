@@ -7,6 +7,7 @@ from backend.tests.test_teacher_course_change import context, document, MemoryCo
 from course_evolution import CourseEvolutionRepository, accept_change_set, undo_change_set
 from course_evolution.teacher_planning import create_teacher_course_change_plan, review_teacher_course_change_scope
 from course_evolution.change_planning import CourseChangeSystemBlocker
+from course_evolution.partial_review import readiness, applied_units
 from course_repository import CourseDocumentRepository
 
 
@@ -45,12 +46,24 @@ async def test_independent_content_can_be_reviewed_applied_and_undone_while_scan
         'course_document': doc.model_dump(mode='json'), 'course_document_revision': doc.document_revision,
         'course_document_authoritative': True, 'course_operation_log': []}
     documents = CourseDocumentRepository(MemoryCourseStorage(raw))
-    applied = accept_change_set(raw, user_id='teacher', change_set_id=plan.change_set_id,
+    applied = await asyncio.to_thread(accept_change_set, raw, user_id='teacher', change_set_id=plan.change_set_id,
         selected_scope='current', selected_operation_ids=[migration.metadata['operation_id']],
         repository=repo, document_repository=documents)
     assert documents.load_document('course-1')[0].blocks[0].payload['markdown'] == '先给出自由体图，再列方程。'
     assert applied.change_sets[-1].impact_summary['coverage']['unscanned_unit_ids'] == [missing]
-    undo_change_set(user_id='teacher', course_id='course-1', change_set_id=plan.change_set_id,
+    assert migration.source_unit_ids[0] in applied_units(applied.change_sets[-1])
+    calls = []
+    async def rescan(overview, candidates, instruction):
+        calls.extend(c['unit_id'] for c in candidates)
+        return {'affected_units': [], 'signal_kind': 'semantic', 'structure': {'required': False}}
+    continued = await create_teacher_course_change_plan(context=ctx, user_id='teacher', request_id='continued',
+        instruction=plan.request_text, repository=repo, analyzer=rescan, supersedes_plan_id=plan.change_set_id,
+        rescan_incomplete_only=True)
+    assert calls == [missing]
+    assert continued.change_sets[0].status == 'applied'
+    assert continued.change_sets[-1].impact_summary['continued_from_plan_id'] == plan.change_set_id
+    assert not continued.change_sets[-1].operations
+    await asyncio.to_thread(undo_change_set, user_id='teacher', course_id='course-1', change_set_id=plan.change_set_id,
         repository=repo, document_repository=documents)
     assert documents.load_document('course-1')[0].blocks[0].payload['markdown'] == '先给出受力图，再列方程。'
 
@@ -71,3 +84,92 @@ async def test_incomplete_only_retry_uses_plan_results_without_task_checkpoint(t
     assert progress[0]['retained_units'] == len(ctx.units) - 1
     assert state.change_sets[-1].impact_summary['coverage']['unscanned_unit_ids'] == []
     assert state.change_sets[-1].teacher_change_planning.unit_migrations
+
+
+@pytest.mark.asyncio
+async def test_rescan_rechecks_only_changed_success_and_missing_items(tmp_path):
+    repo, ctx, plan, missing = await make_partial_plan(tmp_path)
+    changed = next(u for u in ctx.units if u.asset_type == 'script')
+    changed.source_revision = 'changed-after-analysis'
+    seen = []
+    async def analyze(overview, candidates, instruction):
+        seen.extend(c['unit_id'] for c in candidates)
+        return {'signal_kind': 'semantic', 'affected_units': [], 'structure': {'required': False}}
+    await create_teacher_course_change_plan(context=ctx, user_id='teacher', request_id='retry-changed',
+        instruction=plan.request_text, repository=repo, analyzer=analyze, supersedes_plan_id=plan.change_set_id,
+        rescan_incomplete_only=True)
+    assert set(seen) == {missing, changed.unit_id}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('barrier', ['unscanned', 'teacher_question', 'unknown_coverage', 'shared_scope'])
+async def test_partial_review_cannot_bypass_real_dependencies(tmp_path, barrier):
+    repo, ctx, plan, missing = await make_partial_plan(tmp_path)
+    migration = plan.teacher_change_planning.unit_migrations[0]
+    if barrier == 'unscanned':
+        plan.impact_summary['coverage']['unscanned_unit_ids'].append(migration.source_unit_ids[0])
+    elif barrier == 'teacher_question':
+        plan.teacher_change_planning.intent.blocking_questions = ['教师需要决定范围']
+        plan.teacher_change_planning.intent.can_proceed_without_clarification = False
+    elif barrier == 'unknown_coverage':
+        plan.impact_summary['coverage']['source_revisions'] = {}
+    else:
+        migration.asset_type = 'script'
+        plan.impact_summary['scan_unit_index'] = {}
+    repo.save(repo.load('teacher', 'course-1').model_copy(update={'change_sets': [plan]}))
+    assert migration.migration_id not in readiness(plan)['eligible_migration_ids']
+    with pytest.raises(ValueError, match='所选修改'):
+        review_teacher_course_change_scope(repository=repo, user_id='teacher', course_id='course-1',
+            change_set_id=plan.change_set_id, selected_migration_ids=[migration.migration_id])
+
+
+@pytest.mark.asyncio
+async def test_partial_application_requires_explicit_review_and_never_takes_all_operations(tmp_path):
+    from course_evolution.partial_review import require_partial_operations
+    repo, _, plan, _ = await make_partial_plan(tmp_path)
+    with pytest.raises(ValueError, match='明确选择'):
+        require_partial_operations(plan, None)
+    with pytest.raises(ValueError, match='明确选择'):
+        require_partial_operations(plan, [plan.operations[0].operation_id])
+
+
+@pytest.mark.asyncio
+async def test_long_inputs_are_scanned_in_small_complete_fragments(tmp_path):
+    from course_evolution.teacher_planning import TeacherCourseChangeUnit
+    repo = CourseEvolutionRepository(tmp_path)
+    ctx = context()
+    body = 'FIRST_MARKER\n' + '长代码说明\n' * 900 + '\nLAST_MARKER'
+    ctx.units = [TeacherCourseChangeUnit(unit_id='script:lecture:block', asset_type='script',
+        unit_type='script_block', title='Code example', text=body, source_revision='r1')]
+    pieces = []
+    async def analyze(overview, candidates, instruction):
+        pieces.extend(item['content'] for item in candidates)
+        assert sum(len(item['content']) for item in candidates) <= 2400
+        return {'affected_units': [], 'signal_kind': 'semantic', 'structure': {'required': False}}
+    result = await create_teacher_course_change_plan(context=ctx, user_id='teacher', request_id='small-fragments',
+        instruction='检查全部内容', repository=repo, analyzer=analyze)
+    assert result.change_sets[-1].impact_summary['coverage']['scanned_units'] == 1
+    assert all(len(piece) <= 1200 for piece in pieces)
+    assert pieces[0].startswith('FIRST_MARKER') and pieces[-1].endswith('LAST_MARKER')
+    reconstructed = pieces[0]
+    for piece in pieces[1:]:
+        overlap = min(100, len(piece))
+        assert reconstructed.endswith(piece[:overlap])
+        reconstructed += piece[overlap:]
+    assert reconstructed == body
+
+
+@pytest.mark.asyncio
+async def test_analysis_prompt_does_not_resend_duplicate_full_editable_fields():
+    from types import SimpleNamespace
+    from course_generation.service import CourseService
+    seen = []
+    async def llm(prompt, **kwargs):
+        seen.append((prompt, kwargs))
+        return '{"affected_units": []}'
+    service = SimpleNamespace(_call_llm=llm, _extract_json=lambda value: {'affected_units': []})
+    await CourseService.analyze_teacher_course_change(service, {}, [
+        {'unit_id': 'u', 'content': 'UNIQUE_CODE_BODY', 'editable_fields': {'markdown': 'UNIQUE_CODE_BODY'}}
+    ], '检查全部内容')
+    assert seen[0][0].count('UNIQUE_CODE_BODY') == 1
+    assert seen[0][1]['wait_for_capacity'] is True
