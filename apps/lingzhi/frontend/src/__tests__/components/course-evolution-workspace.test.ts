@@ -143,6 +143,20 @@ describe('CourseEvolutionWorkspace', () => {
     wrapper.unmount()
   })
 
+  it('显示后台真实扫描进度和复用数量', () => {
+    const pinia = createPinia()
+    const store = useCourseEvolutionStore(pinia)
+    store.applyAnalysisTask({
+      id: 'analysis-progress', type: 'teacher_course_change_analysis', status: 'running',
+      phase_detail: { scan: { completed_parts: 4, total_parts: 10, reused_parts: 3, failed_parts: 1 } },
+    })
+    const wrapper = mountWorkspace(pinia)
+    expect(wrapper.get('[data-testid="semantic-scan-progress"]').text()).toContain('4 / 10')
+    expect(wrapper.get('[data-testid="semantic-scan-progress"]').text()).toContain('复用 3')
+    expect(wrapper.get('[data-testid="semantic-scan-progress"]').text()).toContain('未完成 1')
+    wrapper.unmount()
+  })
+
   it('分析中可以取消当前全课任务', async () => {
     const pinia = createPinia()
     const store = useCourseEvolutionStore(pinia)
