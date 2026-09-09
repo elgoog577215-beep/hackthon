@@ -102,6 +102,22 @@ async def test_rescan_rechecks_only_changed_success_and_missing_items(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_rescan_preserves_unapplied_manual_candidate_edits(tmp_path):
+    repo, ctx, plan, missing = await make_partial_plan(tmp_path)
+    migration = plan.teacher_change_planning.unit_migrations[0]
+    review_teacher_course_change_scope(repository=repo, user_id='teacher', course_id='course-1',
+        change_set_id=plan.change_set_id, selected_migration_ids=[migration.migration_id],
+        manual_content_edits={migration.migration_id: {'/markdown': '老师保留的人工修改正文'}})
+    async def analyze(overview, candidates, instruction):
+        return {'signal_kind': 'semantic', 'affected_units': [], 'structure': {'required': False}}
+    result = await create_teacher_course_change_plan(context=ctx, user_id='teacher', request_id='manual-retry',
+        instruction=plan.request_text, repository=repo, analyzer=analyze, supersedes_plan_id=plan.change_set_id,
+        rescan_incomplete_only=True)
+    candidate = next(o for o in result.change_sets[-1].operations if o.operation_type == 'REPLACE_COURSE_BLOCK')
+    assert candidate.payload['proposed_block']['payload']['markdown'] == '老师保留的人工修改正文'
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('barrier', ['unscanned', 'teacher_question', 'unknown_coverage', 'shared_scope'])
 async def test_partial_review_cannot_bypass_real_dependencies(tmp_path, barrier):
     repo, ctx, plan, missing = await make_partial_plan(tmp_path)
@@ -131,6 +147,40 @@ async def test_partial_application_requires_explicit_review_and_never_takes_all_
         require_partial_operations(plan, None)
     with pytest.raises(ValueError, match='明确选择'):
         require_partial_operations(plan, [plan.operations[0].operation_id])
+
+
+@pytest.mark.asyncio
+async def test_partial_structure_confirmation_cannot_bypass_incomplete_scan(tmp_path):
+    repo, _, plan, _ = await make_partial_plan(tmp_path)
+    migration = plan.teacher_change_planning.unit_migrations[0]
+    with pytest.raises(ValueError, match='所选修改'):
+        review_teacher_course_change_scope(repository=repo, user_id='teacher', course_id='course-1',
+            change_set_id=plan.change_set_id, selected_migration_ids=[migration.migration_id], confirm_structure=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('barrier', ['structure', 'stale', 'retire'])
+async def test_partial_readiness_explains_real_waiting_reason(tmp_path, barrier):
+    _, _, plan, _ = await make_partial_plan(tmp_path)
+    m = plan.teacher_change_planning.unit_migrations[0]
+    expected = {'structure': 'structure_dependency', 'stale': 'source_stale', 'retire': 'shared_scope'}[barrier]
+    if barrier == 'structure':
+        plan.teacher_change_planning.execution_strategies = ['structural_regeneration']
+    elif barrier == 'stale':
+        m.metadata['source_state'] = 'stale'
+    else:
+        m.disposition = 'retire'
+    assert readiness(plan)['waiting'][m.migration_id] == expected
+
+
+@pytest.mark.asyncio
+async def test_wrong_retry_goal_or_scope_cannot_reuse_old_judgments(tmp_path):
+    repo, ctx, plan, _ = await make_partial_plan(tmp_path)
+    for instruction, asset_types in [('改成完全不同目标', None), (plan.request_text, ['script'])]:
+        with pytest.raises(ValueError, match='补查必须'):
+            await create_teacher_course_change_plan(context=ctx, user_id='teacher', request_id=instruction,
+                instruction=instruction, repository=repo, supersedes_plan_id=plan.change_set_id,
+                asset_types=asset_types, rescan_incomplete_only=True)
 
 
 @pytest.mark.asyncio
@@ -173,3 +223,36 @@ async def test_analysis_prompt_does_not_resend_duplicate_full_editable_fields():
     ], '检查全部内容')
     assert seen[0][0].count('UNIQUE_CODE_BODY') == 1
     assert seen[0][1]['wait_for_capacity'] is True
+
+
+@pytest.mark.asyncio
+async def test_failed_long_fragment_is_recovered_in_smaller_parts_without_losing_text():
+    from course_evolution.semantic_scan import scan_batches
+    body = 'A' * 1100 + 'END'
+    accepted = []
+    async def analyze(overview, items, instruction):
+        if any(len(i['content']) > 600 for i in items):
+            raise TimeoutError('slow code fragment')
+        accepted.extend(i['content'] for i in items)
+        return {'affected_units': [], 'structure': {'required': False}}
+    _, scanned, missing, failures, _ = await scan_batches(overview={}, batches=[[{'unit_id': 'u', 'content': body}]],
+        instruction='test', revisions={}, analyzer=analyze)
+    assert scanned == {'u'} and not missing and not failures
+    assert accepted and accepted[-1].endswith('END')
+    assert all(len(s) <= 600 for s in accepted)
+
+
+@pytest.mark.asyncio
+async def test_invalid_model_ids_get_bounded_feedback_instead_of_being_accepted():
+    from course_evolution.semantic_scan import scan_batches
+    seen = []
+    async def analyze(overview, items, instruction):
+        seen.append(overview)
+        if not overview.get('analysis_validation_feedback'):
+            return {'affected_units': [{'unit_id': 'invented'}]}
+        assert overview['analysis_validation_feedback']['allowed_unit_ids'] == ['u']
+        return {'affected_units': [{'unit_id': 'u', 'content_patches': []}]}
+    _, scanned, missing, failures, _ = await scan_batches(overview={}, batches=[[{'unit_id': 'u', 'content': 'text'}]],
+        instruction='test', revisions={}, analyzer=analyze)
+    assert scanned == {'u'} and not missing and not failures
+    assert len(seen) <= 3
