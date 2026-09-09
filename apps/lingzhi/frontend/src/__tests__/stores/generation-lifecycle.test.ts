@@ -102,7 +102,7 @@ describe('course generation lifecycle reconciliation', () => {
   it('教师大纲任务启动后立即切换到教师检查点投影', async () => {
     const generation = useGenerationStore()
     const courses = useCourseStore()
-    vi.spyOn(http, 'post').mockResolvedValue({ data: {
+    const post = vi.spyOn(http, 'post').mockResolvedValue({ data: {
       job_id: 'job-teacher-outline',
       course_id: 'course-teacher-outline',
       course_name: '程序设计',
@@ -119,10 +119,14 @@ describe('course generation lifecycle reconciliation', () => {
         target_course_id: 'course-teacher-outline',
         teacher_authoring_mode: 'lesson_assets_v1',
       },
-      'teacher',
     )
 
     expect(result?.jobId).toBe('job-teacher-outline')
+    expect(post).toHaveBeenCalledWith(
+      '/api/course-generation/generate',
+      expect.objectContaining({ target_course_id: 'course-teacher-outline' }),
+      { identityScope: 'teacher', silentError: true },
+    )
     expect(generation.getTask('course-teacher-outline')?.taskType).toBe('teacher_outline_generation')
     expect(refreshPreview).toHaveBeenCalledWith('course-teacher-outline', 'teacher')
   })
