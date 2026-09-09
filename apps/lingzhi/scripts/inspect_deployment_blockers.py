@@ -27,3 +27,20 @@ def summarize(path):
 
 if __name__ == "__main__":
     print(json.dumps(summarize(Path("/opt/lingzhi/state/backend-data/generation_jobs.json")), ensure_ascii=True))
+    course_id = "afb29754-6842-437b-af1b-5866bfb53b41"
+    root = Path("/opt/lingzhi/state/backend-data")
+    authoring_path = root / "teacher_lesson_authoring" / f"{course_id}.json"
+    if authoring_path.exists():
+        authoring = json.loads(authoring_path.read_text(encoding="utf-8"))
+        lesson = authoring.get("lessons", {}).get("L2-1-1", {})
+        state = lesson.get("ppt_manuscript") or {}
+        job = authoring.get("jobs", {}).get(state.get("task_id"), {})
+        print(json.dumps({"requested_course": course_id, "lesson_found": bool(lesson),
+            "working_script_revision_id": lesson.get("working_script_revision_id"),
+            "manuscript": {k: state.get(k) for k in ("status", "revision", "task_id", "source_state")},
+            "page_count": (state.get("manuscript") or {}).get("page_count"),
+            "job": {k: job.get(k) for k in ("id", "status", "phase", "attempt_number", "updated_at")},
+            "error_code": (job.get("error") or {}).get("code"),
+            "checkpoint_blocks": len(job.get("bundle_blocks") or {})}, ensure_ascii=True))
+    else:
+        print(json.dumps({"requested_course": course_id, "authoring_found": False}))
