@@ -51,8 +51,17 @@ def workflow(tmp_path, monkeypatch):
                     page["fields"]["title"] = source_wrapper(page["fields"]["title"])
                     page["fields"]["notes"] = source_wrapper(page["fields"]["notes"])
                     page["fields"]["split_reason"] = source_wrapper("保留单页")
-                    raw = json.dumps(page, ensure_ascii=False).replace('"block_id": "b"', json.dumps("block_id") + ": " + json.dumps(module["block_id"]))
-                    blocks.append({"block_id": module["block_id"], "content": TEXT, "pages": [json.loads(raw)]})
+                    flow = {
+                        "layout_id": template.layout_id("flow"),
+                        "page_goal": "说明任务执行流程",
+                        "fields": {
+                            "title": "任务执行流程",
+                            "notes": "按依赖关系选择执行方式。",
+                            "steps": [source_wrapper(text) for text in ["识别任务", "分析依赖", "选择串行", "选择并行", "验证结果"]],
+                        },
+                    }
+                    raw = json.dumps([page, flow], ensure_ascii=False).replace('"block_id": "b"', json.dumps("block_id") + ": " + json.dumps(module["block_id"]))
+                    blocks.append({"block_id": module["block_id"], "content": TEXT, "pages": json.loads(raw)})
                 return json.dumps({"pages": blocks[0]["pages"]} if "修复当前 PPT" in prompt else {"blocks": blocks})
             return await generate_bundle(invoke=invoke, contract=contract, instructions="", template=template,
                 seed_blocks=kwargs.get("bundle_seed_blocks"), on_checkpoint=kwargs.get("on_bundle_checkpoint"),
@@ -116,6 +125,12 @@ def test_prose_then_explicit_ppt_saves_real_revision_and_preview_edit_use_no_mod
     assert state["generation_contract_version"] == CONTRACT
     assert state["manuscript"]["pages"][0]["page_goal"] == "比较执行方式"
     assert state["manuscript"]["pages"][0]["title"] == "执行方式"
+    assert state["manuscript"]["page_count"] == 3
+    flow_pages = [page for page in next(iter(job["bundle_blocks"].values()))["ppt_pages"] if page["layout_id"].endswith("/flow")]
+    assert [[step["text"] for step in page["fields"]["steps"]] for page in flow_pages] == [
+        ["识别任务", "分析依赖", "选择串行"],
+        ["选择串行", "选择并行", "验证结果"],
+    ]
     assert len(calls) == 2
     base = "/api/teacher/courses/course-1/lessons/L1-1/ppt-v6"
     page = state["manuscript"]["pages"][0]

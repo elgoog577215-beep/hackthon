@@ -293,11 +293,46 @@ def test_source_wrapped_scalar_page_fields_are_unwrapped_without_model_retry():
     validate_block_pages(repaired, template)
 
 
+def test_overlong_flow_steps_split_locally_without_losing_content_or_model_retry():
+    template, contract, _page = sample()
+    step_texts = ["识别任务", "分析依赖", "选择串行", "选择并行", "验证结果"]
+
+    def field(text):
+        return {"text": text, "sources": [{"block_id": "b", "quote": TEXT}]}
+
+    flow = {
+        "layout_id": template.layout_id("flow"),
+        "page_goal": "说明任务执行流程",
+        "fields": {
+            "title": "任务执行流程",
+            "notes": "按依赖关系选择执行方式。",
+            "steps": [field(text) for text in step_texts],
+        },
+    }
+
+    async def unexpected(*_args, **_kwargs):
+        raise AssertionError("list capacity fitting must not call the model again")
+
+    seed = {**contract["modules"][0], "content": TEXT, "ppt_pages": [flow],
+            "generation_contract_version": CONTRACT}
+    result = asyncio.run(generate_bundle(invoke=unexpected, contract=contract, instructions="", template=template,
+                                         seed_blocks={"b": seed}, immutable_handout=True))
+
+    repaired = result["blocks"][0]
+    assert not repaired["ppt_errors"]
+    assert len(repaired["ppt_pages"]) == 2
+    repaired_steps = [[step["text"] for step in page["fields"]["steps"]] for page in repaired["ppt_pages"]]
+    assert repaired_steps == [step_texts[:3], step_texts[2:]]
+    assert list(dict.fromkeys(text for page in repaired_steps for text in page)) == step_texts
+    validate_block_pages(repaired, template)
+
+
 @pytest.mark.parametrize("message", [
     "source_quote_id_unknown:q_7adad6815373",
     "3 validation errors for FixedTriad points.0.text String should have at most 32 characters",
     "teaching_fact_token_unsupported:item-2: unsupported=['gameo']",
     "1 validation error for FixedSection title Input should be a valid string [type=string_type, input_type=dict]",
+    "1 validation error for FixedFlow steps List should have at most 4 items after validation, not 5 [type=too_long, input_type=list]",
 ])
 def test_page_contract_failures_are_reported_as_the_validation_step(message):
     failure = describe_bundle_failure(ValueError(message))

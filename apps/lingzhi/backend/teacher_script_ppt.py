@@ -27,7 +27,11 @@ def describe_bundle_failure(exc: Exception) -> dict[str, Any] | None:
     technical_detail = str(exc)
     match = re.search(r"source_excerpt_mismatch:([^:\s]+)", technical_detail)
     unknown_quote = re.search(r"source_quote_id_unknown:([^:\s]+)", technical_detail)
-    capacity_failure = bool(re.search(r"string_too_long|fixed_field_text_too_long|should have at most \d+ characters", technical_detail))
+    capacity_failure = bool(re.search(
+        r"string_too_long|fixed_field_text_too_long|should have at most \d+ characters|"
+        r"type=too_long|List should have at most \d+ items",
+        technical_detail,
+    ))
     page_contract_failure = bool(re.search(
         r"source_revision_stale|source_block_unknown|source_quote_choice_conflict|selected_artifact_not_exact|"
         r"teaching_fact_token_unsupported|teaching_.*(?:capacity|supported)|script_ppt_(?:page|layout)|"
@@ -193,9 +197,66 @@ def _fit_page_capacity(page: dict[str, Any]) -> dict[str, Any]:
                     if limit > 0:
                         owner[key] = _compact_screen_text(str(owner[key]), limit)
                         changed = True
+                elif issue.get("type") == "too_long" and len(tuple(issue.get("loc") or ())) > 1:
+                    limit = int((issue.get("ctx") or {}).get("max_length") or 0)
+                    if limit > 0 and isinstance(owner[key], list):
+                        owner[key] = owner[key][:limit]
+                        changed = True
             if not changed:
                 break
     return fitted
+
+
+def _balanced_capacity_chunks(items: list[Any], maximum: int, minimum: int) -> list[list[Any]]:
+    count = max(2, (len(items) + maximum - 1) // maximum)
+    base, remainder = divmod(len(items), count)
+    chunks = []
+    offset = 0
+    for index in range(count):
+        size = base + (1 if index < remainder else 0)
+        chunks.append(items[offset:offset + size])
+        offset += size
+    original = deepcopy(chunks)
+    for index, chunk in enumerate(chunks):
+        missing = max(0, minimum - len(chunk))
+        if not missing:
+            continue
+        if index > 0:
+            chunks[index] = original[index - 1][-missing:] + chunk
+        elif len(original) > 1:
+            chunks[index] = chunk + original[index + 1][:missing]
+    return chunks
+
+
+def _split_page_list_capacity(page: dict[str, Any]) -> list[dict[str, Any]]:
+    fields = page.get("fields")
+    if not isinstance(fields, dict):
+        return [page]
+    model = form_type(fixed_slug(str(page.get("layout_id") or "")), authored=True)
+    try:
+        model.model_validate(fields)
+        return [page]
+    except ValidationError as exc:
+        overflow = next((issue for issue in exc.errors()
+                         if issue.get("type") == "too_long" and len(tuple(issue.get("loc") or ())) == 1), None)
+    if overflow is None:
+        return [page]
+    key = tuple(overflow.get("loc") or ())[0]
+    items = fields.get(key)
+    maximum = int((overflow.get("ctx") or {}).get("max_length") or 0)
+    schema = model.model_json_schema().get("properties", {}).get(key, {})
+    minimum = int(schema.get("minItems") or 1)
+    if not isinstance(items, list) or maximum <= 0 or len(items) <= maximum:
+        return [page]
+    chunks = _balanced_capacity_chunks(items, maximum, minimum)
+    total = len(chunks)
+    split_pages = []
+    for index, chunk in enumerate(chunks, start=1):
+        split = deepcopy(page)
+        split["fields"][key] = chunk
+        split["fields"]["split_reason"] = f"{key} 超过单页容量，拆分为第 {index}/{total} 页"
+        split_pages.append(split)
+    return split_pages
 
 
 def _source_query(owner: dict[str, Any]) -> str:
@@ -266,8 +327,9 @@ def _prepare_page_candidates(pages: list[Any], block: dict[str, Any]) -> list[An
             if key in candidate:
                 candidate[key] = _unwrap_source_text(candidate[key])
         candidate = _fit_page_capacity(candidate)
-        _stabilize_source_choices(candidate, catalog)
-        prepared.append(candidate)
+        for split_candidate in _split_page_list_capacity(candidate):
+            _stabilize_source_choices(split_candidate, catalog)
+            prepared.append(split_candidate)
     return prepared
 
 
