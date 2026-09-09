@@ -14,6 +14,32 @@ vi.mock('@/utils/http', () => ({
 }))
 
 describe('LessonPptWorkspace', () => {
+  it('任务轮询短暂断网后继续对账，不把运行中任务永久卡住', async () => {
+    vi.useFakeTimers()
+    let reads = 0
+    http.get.mockImplementation(async (url: string) => {
+      if (url.includes('/lesson-jobs/')) {
+        reads++
+        if (reads === 1) throw new Error('temporary network failure')
+        return { data: { job: { id: 'recover-task', status: 'completed' } } }
+      }
+      return { data: { ppt_manuscript_state: { manuscript: null, task_id: 'recover-task', source_script_revision_id: 's' } } }
+    })
+    const wrapper = mount(LessonPptWorkspace, {
+      props: { courseId: 'course-1', initialLessonId: 'L1-1', title: '第一讲' },
+    })
+    try {
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(3000)
+      await flushPromises()
+      expect(reads).toBe(2)
+      expect(wrapper.text()).not.toContain('temporary network failure')
+    } finally {
+      wrapper.unmount()
+      vi.useRealTimers()
+    }
+  })
+
   beforeEach(async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => messages } as Response)
     await setLocale('zh')
