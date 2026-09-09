@@ -243,6 +243,20 @@ async def test_failed_long_fragment_is_recovered_in_smaller_parts_without_losing
 
 
 @pytest.mark.asyncio
+async def test_very_long_code_uses_smaller_fragments_before_a_timeout(tmp_path):
+    from course_evolution.teacher_planning import TeacherCourseChangeUnit
+    ctx = context()
+    ctx.units = [TeacherCourseChangeUnit(unit_id='code', asset_type='course_content', unit_type='course_block',
+        title='code', text='```csharp\n' + 'int counter;\n' * 600 + '```', source_revision='r')]
+    async def analyze(overview, items, instruction):
+        assert all(len(i['content']) <= 600 for i in items)
+        return {'affected_units': [], 'structure': {'required': False}}
+    state = await create_teacher_course_change_plan(context=ctx, user_id='teacher', request_id='code-small',
+        instruction='check', repository=CourseEvolutionRepository(tmp_path), analyzer=analyze)
+    assert state.change_sets[-1].impact_summary['coverage']['scanned_units'] == 1
+
+
+@pytest.mark.asyncio
 async def test_invalid_model_ids_get_bounded_feedback_instead_of_being_accepted():
     from course_evolution.semantic_scan import scan_batches
     seen = []
