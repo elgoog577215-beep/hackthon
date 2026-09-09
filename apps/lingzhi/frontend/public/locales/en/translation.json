@@ -2823,6 +2823,11 @@
       "durableProgress": "Generating candidates. Completed items are saved; you can return after leaving or refreshing.",
       "scanCoverage": "Checked {done}/{total} content units",
       "scanBatchProgress": "Checked {done} / {total} content parts · Reused {reused} · Incomplete {failed}",
+      "scanFailureSummary": "Reason: {reasons}. Completed results are saved; retry checks only unfinished content.",
+      "scanFailureTimeout": "response timeout",
+      "scanFailureUnavailable": "AI service temporarily unavailable",
+      "scanFailureTruncated": "incomplete response",
+      "scanFailureOther": "other analysis error",
       "replaceInstruction": "Replace all occurrences of “{before}” with “{after}”",
       "analysisFailed": "Impact analysis failed. Please retry."
     },

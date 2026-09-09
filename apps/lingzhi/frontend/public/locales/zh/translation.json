@@ -2823,6 +2823,11 @@
       "durableProgress": "正在生成修改建议，已完成项会自动保存；离开或刷新后可继续查看。",
       "scanCoverage": "已检查 {done}/{total} 个内容单元",
       "scanBatchProgress": "已检查 {done} / {total} 段内容 · 复用 {reused} 段 · 未完成 {failed} 段",
+      "scanFailureSummary": "失败原因：{reasons}。成功结果已保存，重试只检查未完成内容。",
+      "scanFailureTimeout": "响应超时",
+      "scanFailureUnavailable": "AI 服务暂时不可用",
+      "scanFailureTruncated": "返回内容不完整",
+      "scanFailureOther": "其他分析错误",
       "replaceInstruction": "将“{before}”统一替换为“{after}”",
       "analysisFailed": "影响分析失败，请重试。"
     },

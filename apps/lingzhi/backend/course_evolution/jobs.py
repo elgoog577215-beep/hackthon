@@ -249,9 +249,14 @@ async def run_analysis(manager: Any, job_id: str, *, service: Any = None) -> Non
         total = max(1, int(detail.get("total_parts") or 0))
         done = int(detail.get("completed_parts") or 0)
         failed = int(detail.get("failed_parts") or 0)
+        message = (
+            f"AI 服务暂时不可用，约 {int(detail.get('retry_after_seconds') or 0)} 秒后继续检查"
+            if detail.get("waiting_for_provider")
+            else f"已检查 {done}/{detail.get('total_parts', 0)} 段课程内容"
+        )
         await manager._update_phase(
             job_id, "course_change_analysis", 5 + int(90 * (done + failed) / total),
-            f"已检查 {done}/{detail.get('total_parts', 0)} 段课程内容",
+            message,
             phase_detail={"request_id": request_id, "scan": detail},
         )
 

@@ -1,6 +1,7 @@
 """Validated, resumable impact scans within the existing course-change job."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from copy import deepcopy
@@ -76,6 +77,8 @@ async def scan_batches(
     *, overview: dict[str, Any], batches: list[list[dict[str, Any]]], instruction: str,
     revisions: dict[str, str], analyzer: Callable[..., Awaitable[Any]],
     checkpoint: dict[str, Any] | None = None, on_progress: ScanProgress | None = None,
+    provider_recovery_delay_seconds: float = 31.0,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> tuple[list[dict[str, Any]], set[str], set[str], list[dict[str, Any]], int]:
     # Include the complete input, not only revision labels: legacy revisions may
     # remain unchanged when content changes. Never reuse another request/context.
@@ -125,7 +128,46 @@ async def scan_batches(
         # must never trigger another model call or discard a successful result.
         await report()
 
+    async def retry_after_provider_recovery(
+        items: list[dict[str, Any]],
+    ) -> tuple[tuple[dict[str, Any], bool] | None, Exception | None]:
+        detail["waiting_for_provider"] = True
+        detail["retry_after_seconds"] = provider_recovery_delay_seconds
+        await report()
+        await sleep(provider_recovery_delay_seconds)
+        detail.pop("waiting_for_provider", None)
+        detail.pop("retry_after_seconds", None)
+        try:
+            return await attempt(items), None
+        except Exception as error:  # noqa: BLE001 - caller classifies the final retry
+            return None, error
+
+    async def defer_remaining_provider_work(
+        error: Exception,
+        *,
+        batch_index: int,
+        part_index: int,
+        items: list[dict[str, Any]],
+    ) -> None:
+        ids = list(dict.fromkeys(str(item["unit_id"]) for item in items))
+        unscanned.update(ids)
+        failure = classify_generation_failure(error)
+        failures.append({
+            "batch_index": batch_index,
+            "part_index": part_index,
+            "unit_ids": ids,
+            "error_type": type(error).__name__,
+            **failure,
+            "message": safe_failure_message(error),
+            "technical_detail": safe_failure_message(error),
+            "deferred_parts": len(items),
+        })
+        detail["failed_parts"] += len(items)
+        detail["provider_recovery_failed"] = True
+        await report()
+
     await report()
+    abort_scan = False
     for batch_index, batch in enumerate(batches):
         detail["batch_index"] = batch_index + 1
         detail["total_batches"] = len(batches)
@@ -138,15 +180,72 @@ async def scan_batches(
         if not split_cached or cached(batch) is not None:
             try:
                 result, reused = await attempt(batch)
-            except Exception:
+            except Exception as error:
                 retried += 1
+                if classify_generation_failure(error).get("code") == "provider_unavailable":
+                    recovered, retry_error = await retry_after_provider_recovery(batch)
+                    if recovered is not None:
+                        await accept(batch, *recovered)
+                        continue
+                    if (
+                        retry_error is not None
+                        and classify_generation_failure(retry_error).get("code")
+                        == "provider_unavailable"
+                    ):
+                        remaining = [
+                            item
+                            for pending in batches[batch_index:]
+                            for item in pending
+                        ]
+                        await defer_remaining_provider_work(
+                            retry_error,
+                            batch_index=batch_index,
+                            part_index=0,
+                            items=remaining,
+                        )
+                        abort_scan = True
+                        break
             else:
                 await accept(batch, result, reused)
                 continue
+        if abort_scan:
+            break
         for part_index, part in enumerate(parts):
             try:
                 result, reused = await attempt(part)
             except Exception as error:
+                if classify_generation_failure(error).get("code") == "provider_unavailable":
+                    recovered, retry_error = await retry_after_provider_recovery(part)
+                    if recovered is not None:
+                        await accept(part, *recovered)
+                        continue
+                    if (
+                        retry_error is not None
+                        and classify_generation_failure(retry_error).get("code")
+                        == "provider_unavailable"
+                    ):
+                        remaining = [
+                            *[
+                                item
+                                for pending in parts[part_index:]
+                                for item in pending
+                            ],
+                            *[
+                                item
+                                for pending in batches[batch_index + 1:]
+                                for item in pending
+                            ],
+                        ]
+                        await defer_remaining_provider_work(
+                            retry_error,
+                            batch_index=batch_index,
+                            part_index=part_index,
+                            items=remaining,
+                        )
+                        abort_scan = True
+                        break
+                    if retry_error is not None:
+                        error = retry_error
                 logger.warning("Whole-course scan batch=%s part=%s failed", batch_index, part_index, exc_info=True)
                 ids = [item["unit_id"] for item in part]
                 unscanned.update(ids)
@@ -159,5 +258,7 @@ async def scan_batches(
                 await report()
             else:
                 await accept(part, result, reused)
+        if abort_scan:
+            break
     scanned.difference_update(unscanned)
     return analyses, scanned, unscanned, failures, retried

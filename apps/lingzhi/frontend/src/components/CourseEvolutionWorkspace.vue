@@ -128,7 +128,7 @@
                 </div>
                 <ol v-else-if="teacherBlockingQuestions.length && !systemClarificationBlockers.length"><li v-for="question in teacherBlockingQuestions" :key="question">{{ question }}</li></ol>
                 <div v-if="systemClarificationBlockers.length" class="clarification-system-blockers" role="alert" aria-live="polite">
-                  <TriangleAlert :size="16" /><span><strong>{{ t('courseEvolution.workspace.scanIncompleteTitle', '课程检查尚未完成') }}</strong><small>{{ systemClarificationBlockers.join(listSeparator) }}</small></span>
+                  <TriangleAlert :size="16" /><span><strong>{{ t('courseEvolution.workspace.scanIncompleteTitle', '课程检查尚未完成') }}</strong><small>{{ systemClarificationBlockers.join(listSeparator) }}</small><small v-if="scanFailureSummary" data-testid="semantic-scan-failure-summary">{{ scanFailureSummary }}</small></span>
                 </div>
                 <footer class="clarification-actions">
                   <button v-if="systemClarificationBlockers.length" type="button" class="button-danger" data-testid="discard-blocked-plan" :disabled="Boolean(store.actingId)" @click="discardPlan">{{ discardConfirm ? t('courseEvolution.workspace.confirmDiscard', '再次点击确认放弃') : t('courseEvolution.workspace.discardBlockedPlan', '放弃本次全课修改') }}</button>
@@ -258,6 +258,18 @@ const requestCanSubmit = computed(() => requestMode.value === 'replace'
   : Boolean(requestText.value.trim()))
 const candidatesGenerating = computed(() => focusedPlan.value?.status === 'pending' && focusedPlan.value?.generation_status === 'generating')
 const coverage = computed(() => focusedPlan.value?.impact_summary?.coverage)
+const scanFailureSummary = computed(() => {
+  const failures = Array.isArray(coverage.value?.failed_batches) ? coverage.value.failed_batches : []
+  if (!failures.length) return ''
+  const codes = new Set(failures.map((item: Record<string, unknown>) => String(item.code || '')))
+  const reasons: string[] = []
+  if (codes.has('provider_timeout')) reasons.push(t('courseEvolution.workspace.scanFailureTimeout', '响应超时'))
+  if (codes.has('provider_unavailable')) reasons.push(t('courseEvolution.workspace.scanFailureUnavailable', 'AI 服务暂时不可用'))
+  if (codes.has('response_truncated')) reasons.push(t('courseEvolution.workspace.scanFailureTruncated', '返回内容不完整'))
+  if (reasons.length < codes.size) reasons.push(t('courseEvolution.workspace.scanFailureOther', '其他分析错误'))
+  return t('courseEvolution.workspace.scanFailureSummary', '失败原因：{reasons}。成功结果已保存，重试只检查未完成内容。')
+    .replace('{reasons}', reasons.join(listSeparator.value))
+})
 const historyRef = ref<HTMLElement | null>(null)
 const correctionText = ref('')
 const correctionOpen = ref(false)
