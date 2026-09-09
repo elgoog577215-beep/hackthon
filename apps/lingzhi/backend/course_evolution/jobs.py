@@ -45,6 +45,8 @@ async def enqueue_analysis(
     literal_replacement: dict[str, str] | None = None,
     asset_types: list[str] | None = None,
     confirmed_interpretation: bool = False,
+    clarification_set_id: str = "",
+    clarification_answers: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Persist whole-course analysis before any model call and return immediately."""
 
@@ -83,6 +85,8 @@ async def enqueue_analysis(
                 "literal_replacement": literal_replacement,
                 "asset_types": asset_types,
                 "confirmed_interpretation": confirmed_interpretation,
+                "clarification_set_id": clarification_set_id,
+                "clarification_answers": clarification_answers or [],
                 "_retrieval_actor_id": user_id,
             },
         )
@@ -150,6 +154,8 @@ async def run_analysis(manager: Any, job_id: str, *, service: Any = None) -> Non
             literal_replacement=request.get("literal_replacement"),
             asset_types=request.get("asset_types"),
             confirmed_interpretation=bool(request.get("confirmed_interpretation")),
+            clarification_set_id=str(request.get("clarification_set_id") or ""),
+            clarification_answers=request.get("clarification_answers") or [],
         )
     )
     try:
@@ -203,11 +209,14 @@ async def enqueue_candidates(*, manager: Any, service: Any, user_id: str, course
             raise KeyError(plan_id)
         if plan.status != "pending" or not plan.impact_summary.get("scope_review"):
             raise ValueError("请先确认当前方案的影响范围")
+        answer_snapshot = plan.teacher_change_planning.intent.clarification_answer_snapshot if plan.teacher_change_planning else None
+        answer_digest = answer_snapshot.answer_digest if answer_snapshot else ""
         existing = manager.get_task(plan.generation_job_id) if plan.generation_job_id else None
         if (
             existing
             and existing.get("status") in {"pending", "running"}
             and (existing.get("request_snapshot") or {}).get("review_revision") == plan.review_revision
+            and str((existing.get("request_snapshot") or {}).get("clarification_answer_digest") or "") == answer_digest
         ):
             return state
         job_id = f"course-change-{uuid.uuid4().hex}"
@@ -217,7 +226,12 @@ async def enqueue_candidates(*, manager: Any, service: Any, user_id: str, course
             CANDIDATE_TASK_TYPE,
             task_id=job_id,
             enqueue=False,
-            request_snapshot={"plan_id": plan_id, "review_revision": review_revision, "_retrieval_actor_id": user_id},
+            request_snapshot={
+                "plan_id": plan_id,
+                "review_revision": review_revision,
+                "clarification_answer_digest": answer_digest,
+                "_retrieval_actor_id": user_id,
+            },
         )
         try:
 
@@ -278,6 +292,15 @@ async def run_candidates(
             and plan.status == "pending"
             and plan.generation_job_id == job_id
             and plan.review_revision == request.get("review_revision")
+            and (
+                (
+                    plan.teacher_change_planning.intent.clarification_answer_snapshot.answer_digest
+                    if plan.teacher_change_planning
+                    and plan.teacher_change_planning.intent.clarification_answer_snapshot
+                    else ""
+                )
+                == str(request.get("clarification_answer_digest") or "")
+            )
             and manager.tasks.get(job_id, {}).get("status") in {"pending", "running"}
         )
 

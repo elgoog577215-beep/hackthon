@@ -81,6 +81,13 @@ class TeacherLiteralReplacement(BaseModel):
     after: str = Field(max_length=2000)
 
 
+class TeacherClarificationAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question_id: str = Field(min_length=1, max_length=160)
+    option_id: str = Field(default="", max_length=160)
+    custom_text: str = Field(default="", max_length=1000)
+
+
 class GenerateTeacherCourseChangeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -90,6 +97,8 @@ class GenerateTeacherCourseChangeRequest(BaseModel):
     literal_replacement: TeacherLiteralReplacement | None = None
     asset_types: list[Literal["outline", "course_content", "lesson_plan", "script", "ppt", "question_bank"]] | None = None
     confirmed_interpretation: bool = False
+    clarification_set_id: str = Field(default="", max_length=200)
+    clarification_answers: list[TeacherClarificationAnswer] = Field(default_factory=list, max_length=30)
 
 
 class TeacherCourseOutlineReviewNode(BaseModel):
@@ -232,6 +241,8 @@ async def create_teacher_course_plan(
             literal_replacement=body.literal_replacement.model_dump() if body.literal_replacement else None,
             asset_types=body.asset_types,
             confirmed_interpretation=body.confirmed_interpretation,
+            clarification_set_id=body.clarification_set_id,
+            clarification_answers=[item.model_dump() for item in body.clarification_answers],
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail={

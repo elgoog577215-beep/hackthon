@@ -87,7 +87,53 @@
             </main>
 
             <main v-else-if="workspaceState === 'interpreting'" class="clarification-state">
-              <section><div class="clarification-heading"><BrainCircuit :size="22" /><div><small>{{ t('courseEvolution.workspace.interpretingKicker', 'AI 已完成初步理解') }}</small><h3>{{ interpretedGoal }}</h3></div></div><p>{{ t('courseEvolution.workspace.clarificationHint', '结构变化会影响大量内容，下面的信息需要先确认。') }}</p><ol><li v-for="question in planning?.intent.blocking_questions || []" :key="question">{{ question }}</li></ol><footer class="clarification-actions"><button type="button" class="button-secondary" @click="openCorrection"><PencilLine :size="15" />{{ t('courseEvolution.workspace.answerAndReanalyze', '补充说明并重新分析') }}</button><button type="button" class="button-primary" :disabled="store.generating" @click="confirmUnderstanding"><Check :size="15" />{{ t('courseEvolution.workspace.confirmUnderstanding', '确认当前理解并继续分析') }}</button></footer></section>
+              <section>
+                <div class="clarification-heading"><BrainCircuit :size="22" /><div><small>{{ t('courseEvolution.workspace.interpretingKicker', 'AI 已完成初步理解') }}</small><h3>{{ interpretedGoal }}</h3></div></div>
+                <p>{{ t('courseEvolution.workspace.clarificationHint', '结构变化会影响大量内容，下面的信息需要先确认。') }}</p>
+                <div v-if="structuredClarifications.length" class="clarification-question-list">
+                  <section v-for="(question, index) in structuredClarifications" :key="question.question_id" class="clarification-question">
+                    <fieldset>
+                      <legend><b>{{ index + 1 }}.</b>{{ question.prompt }}</legend>
+                      <label v-for="option in question.options" :key="option.option_id" class="clarification-option">
+                        <input
+                          type="radio"
+                          :name="`clarification-${question.question_id}`"
+                          :value="option.option_id"
+                          :checked="clarificationAnswers[question.question_id]?.option_id === option.option_id"
+                          @change="selectClarificationOption(question.question_id, option.option_id)"
+                        />
+                        <span><strong>{{ option.label }}</strong><small v-if="option.impact">{{ option.impact }}</small></span>
+                        <em v-if="option.recommended">{{ t('courseEvolution.workspace.recommendedOption', '推荐') }}</em>
+                      </label>
+                      <label v-if="question.response_type === 'free_text'" class="clarification-free-text">
+                        <span>{{ t('courseEvolution.workspace.customClarificationAnswer', '具体说明') }}</span>
+                        <textarea
+                          :value="clarificationAnswers[question.question_id]?.custom_text || ''"
+                          rows="3"
+                          @input="setClarificationText(question.question_id, ($event.target as HTMLTextAreaElement).value)"
+                        />
+                      </label>
+                    </fieldset>
+                  </section>
+                </div>
+                <ol v-else><li v-for="question in planning?.intent.blocking_questions || []" :key="question">{{ question }}</li></ol>
+                <div v-if="systemClarificationBlockers.length" class="clarification-system-blockers" role="alert">
+                  <TriangleAlert :size="16" /><span><strong>{{ t('courseEvolution.workspace.systemBlockers', '仍需系统完成') }}</strong><small>{{ systemClarificationBlockers.join(listSeparator) }}</small></span>
+                </div>
+                <footer class="clarification-actions">
+                  <button v-if="structuredClarifications.some(question => question.options.some(option => option.recommended))" type="button" class="button-quiet" @click="applyRecommendedClarifications">{{ t('courseEvolution.workspace.useRecommendedOptions', '采用推荐项') }}</button>
+                  <button type="button" class="button-secondary" @click="openCorrection"><PencilLine :size="15" />{{ t('courseEvolution.workspace.answerAndReanalyze', '补充说明并重新分析') }}</button>
+                  <button
+                    v-if="structuredClarifications.length"
+                    type="button"
+                    class="button-primary"
+                    data-testid="confirm-clarification-answers"
+                    :disabled="store.generating || !clarificationAnswersReady"
+                    @click="confirmClarificationAnswers"
+                  ><Check :size="15" />{{ t('courseEvolution.workspace.confirmSelections', '确认选择并继续分析') }}</button>
+                  <button v-else type="button" class="button-primary" :disabled="store.generating" @click="confirmUnderstanding"><Check :size="15" />{{ t('courseEvolution.workspace.confirmUnderstanding', '确认当前理解并继续分析') }}</button>
+                </footer>
+              </section>
             </main>
 
             <div v-else-if="workspaceState === 'content'" class="review-layout">
@@ -142,7 +188,7 @@ import { createUuid } from '../utils/client-id'
 import { activeLocale, t } from '../shared/i18n'
 import UiSegmentedControl from './UiSegmentedControl.vue'
 import CourseChangeCandidateDetails from './CourseChangeCandidateDetails.vue'
-import { useCourseEvolutionStore, observeCourseChangeProgress, type CourseEvolutionApplicationPresentation, type CourseEvolutionPlan, type TeacherCourseChangeContext, type TeacherCourseOutlineReviewNode, type TeacherMigrationDisposition } from '../stores/courseEvolution'
+import { useCourseEvolutionStore, observeCourseChangeProgress, type CourseChangeClarificationAnswerInput, type CourseEvolutionApplicationPresentation, type CourseEvolutionPlan, type TeacherCourseChangeContext, type TeacherCourseOutlineReviewNode, type TeacherMigrationDisposition } from '../stores/courseEvolution'
 
 type WorkspaceState = 'request' | 'scanning' | 'interpreting' | 'content' | 'structure' | 'applied'
 type ContextAsset = TeacherCourseChangeContext['assets'][number]
@@ -178,6 +224,7 @@ const coverage = computed(() => focusedPlan.value?.impact_summary?.coverage)
 const historyRef = ref<HTMLElement | null>(null)
 const correctionText = ref('')
 const correctionOpen = ref(false)
+const clarificationAnswers = ref<Record<string, { option_id?: string; custom_text?: string }>>({})
 const actionError = ref('')
 const selectedAsset = ref('')
 const selectedPlanId = ref('')
@@ -202,6 +249,16 @@ const focusedPlan = computed(() => {
   return [...store.plans].reverse().find(item => item.teacher_change_planning) || null
 })
 const planning = computed(() => focusedPlan.value?.teacher_change_planning || null)
+const structuredClarifications = computed(() => planning.value?.intent.clarifications || [])
+const clarificationPromptSet = computed(() => new Set(structuredClarifications.value.map(item => item.prompt)))
+const systemClarificationBlockers = computed(() => (planning.value?.intent.blocking_questions || []).filter(item => !clarificationPromptSet.value.has(item)))
+const clarificationAnswersReady = computed(() => structuredClarifications.value.every(question => {
+  if (!question.required) return true
+  const answer = clarificationAnswers.value[question.question_id]
+  return question.response_type === 'single_choice'
+    ? Boolean(answer?.option_id)
+    : Boolean(answer?.custom_text?.trim())
+}))
 const structuralPlan = computed(() => Boolean(
   planning.value?.structural_operations.length
   || planning.value?.execution_strategies.includes('structural_regeneration'),
@@ -347,6 +404,9 @@ watch(() => focusedPlan.value?.change_set_id, () => {
   impactQuery.value = ''
   selectedSection.value = ''
   discardConfirm.value = false
+}, { immediate: true })
+watch(() => planning.value?.intent.clarification_set_id, () => {
+  clarificationAnswers.value = {}
 }, { immediate: true })
 watch(() => [props.modelValue, props.courseId] as const, async ([open, courseId], previous) => {
   const epoch = ++workspaceEpoch
@@ -513,6 +573,53 @@ async function confirmUnderstanding() {
     if (isCurrent() && !result.analysis_task) selectCreatedPlan(result, requestId)
   }, t('courseEvolution.workspace.confirmUnderstandingFailed', '确认理解失败，请重试。'))
 }
+function selectClarificationOption(questionId: string, optionId: string) {
+  clarificationAnswers.value = {
+    ...clarificationAnswers.value,
+    [questionId]: { option_id: optionId },
+  }
+}
+function setClarificationText(questionId: string, customText: string) {
+  clarificationAnswers.value = {
+    ...clarificationAnswers.value,
+    [questionId]: { custom_text: customText },
+  }
+}
+function applyRecommendedClarifications() {
+  const next = { ...clarificationAnswers.value }
+  structuredClarifications.value.forEach(question => {
+    const recommended = question.options.find(option => option.recommended)
+    if (question.response_type === 'single_choice' && recommended) next[question.question_id] = { option_id: recommended.option_id }
+  })
+  clarificationAnswers.value = next
+}
+function clarificationAnswerPayload(): CourseChangeClarificationAnswerInput[] {
+  return structuredClarifications.value.flatMap(question => {
+    const answer = clarificationAnswers.value[question.question_id]
+    if (!answer) return []
+    return [{
+      question_id: question.question_id,
+      ...(answer.option_id ? { option_id: answer.option_id } : {}),
+      ...(answer.custom_text?.trim() ? { custom_text: answer.custom_text.trim() } : {}),
+    }]
+  })
+}
+async function confirmClarificationAnswers() {
+  if (!clarificationAnswersReady.value) return
+  const requestId = createUuid(), courseId = props.courseId
+  await runPlanAction(async (plan, isCurrent) => {
+    const result = await store.createCoursePlan({
+      courseId,
+      requestId,
+      instruction: rawRequest.value,
+      supersedesPlanId: plan.change_set_id,
+      assetTypes: planAssetTypes(plan),
+      clarificationSetId: plan.teacher_change_planning?.intent.clarification_set_id || '',
+      clarificationAnswers: clarificationAnswerPayload(),
+    })
+    if (isCurrent() && !result.analysis_task) selectCreatedPlan(result, requestId)
+  }, t('courseEvolution.workspace.confirmUnderstandingFailed', '确认理解失败，请重试。'))
+}
 function reviewedMigrationIds() { return affectedUnits.value.filter(item => !excludedUnitIds.value.has(item.migration_id)).map(item => item.migration_id) }
 function reviewedDispositions() { return Object.fromEntries(affectedUnits.value.map(item => [item.migration_id, effectiveDisposition(item)]).filter(([, disposition]) => disposition !== 'blocked')) as Record<string, TeacherMigrationDisposition> }
 let pendingActionEpoch: number | null = null
@@ -637,8 +744,29 @@ defineExpose({ reloadWorkspace, openPlan, startNewRequest, showHistory })
 .impact-list article > .impact-check { grid-column: 1; grid-row: 1 / span 2; }
 .impact-list article > .candidate-details { grid-column: 2; grid-row: 2; }
 .clarification-state{height:100%;min-height:0;overflow:hidden}
-.clarification-state>section{max-height:100%;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;overflow:hidden}
+.clarification-state>section{max-height:100%;display:flex;flex-direction:column;overflow:hidden}
 .clarification-state ol{overflow:auto;padding-right:6px}
+.clarification-question-list{display:grid;gap:12px;min-height:0;margin:8px 0 14px;padding-right:6px;overflow:auto}
+.clarification-question{border:1px solid #e0e4eb;border-radius:11px;background:#fbfcfe}
+.clarification-question fieldset{display:grid;gap:8px;margin:0;padding:14px;border:0}
+.clarification-question legend{display:flex;gap:7px;padding:0;color:#172033;font-size:12px;font-weight:700;line-height:1.55}
+.clarification-question legend b{color:#5148dc}
+.clarification-option{position:relative;display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:9px;min-height:48px;padding:8px 10px;border:1px solid #d8dde6;border-radius:9px;color:#344054;background:#fff;cursor:pointer;box-sizing:border-box}
+.clarification-option:hover{border-color:#b8b3ef;background:#faf9ff}
+.clarification-option:has(input:checked){border-color:#716ae7;background:#f4f2ff}
+.clarification-option input{width:20px;height:20px;margin:0;accent-color:#5148dc}
+.clarification-option input:focus-visible{outline:3px solid rgba(91,84,232,.25);outline-offset:2px}
+.clarification-option span{display:grid;gap:2px}
+.clarification-option strong{font-size:11px}
+.clarification-option small{color:#596579;font-size:10px;line-height:1.45}
+.clarification-option em{padding:3px 6px;border-radius:6px;color:#5148dc;background:#ebe9ff;font-size:9px;font-style:normal;font-weight:750}
+.clarification-free-text{display:grid;gap:6px;color:#344054;font-size:11px;font-weight:700}
+.clarification-free-text textarea{width:100%;padding:9px 11px;border:1px solid #aeb7c5;border-radius:9px;color:#172033;background:#fff;font:inherit;line-height:1.5;resize:vertical}
+.clarification-free-text textarea:focus{border-color:#746de5;outline:3px solid rgba(91,84,232,.14)}
+.clarification-system-blockers{display:grid;grid-template-columns:20px minmax(0,1fr);gap:8px;margin:0 0 12px;padding:10px 12px;border-radius:9px;color:#8b5205;background:#fff6e6}
+.clarification-system-blockers span{display:grid;gap:3px}
+.clarification-system-blockers strong{font-size:10px}
+.clarification-system-blockers small{font-size:9px;line-height:1.5}
 .clarification-actions{display:flex;justify-content:flex-end;gap:9px;padding-top:16px;border-top:1px solid #e2e6ed;background:#fff}
-.clarification-actions button{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.clarification-actions button{min-height:40px;display:inline-flex;align-items:center;justify-content:center;gap:6px}
 </style>

@@ -95,6 +95,8 @@ class CourseEvolutionApplicationService:
         literal_replacement: dict[str, str] | None = None,
         asset_types: list[str] | None = None,
         confirmed_interpretation: bool = False,
+        clarification_set_id: str = "",
+        clarification_answers: list[dict[str, Any]] | None = None,
     ) -> Any:
         context = await asyncio.to_thread(self.teacher_context, course_id)
         return await create_teacher_course_change_plan(
@@ -108,6 +110,8 @@ class CourseEvolutionApplicationService:
             literal_replacement=literal_replacement,
             asset_types=asset_types,
             confirmed_interpretation=confirmed_interpretation,
+            clarification_set_id=clarification_set_id,
+            clarification_answers=clarification_answers,
         )
 
     async def create_course_adjustment(

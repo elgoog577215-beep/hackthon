@@ -34,6 +34,7 @@ PlanningStatus = Literal[
 StrategyStatus = Literal["provisional", "resolved"]
 StructureReviewStatus = Literal["not_required", "pending", "confirmed"]
 ValidationPhase = Literal["impact_preview", "downstream_generation", "publish"]
+ClarificationResponseType = Literal["single_choice", "free_text"]
 MigrationDisposition = Literal[
     "reuse_exact",
     "reuse_rebind",
@@ -65,6 +66,50 @@ class CourseChangeSignal(BaseModel):
     source: str = "ai_interpretation"
 
 
+class CourseChangeClarificationOption(BaseModel):
+    option_id: str
+    label: str
+    impact: str = ""
+    recommended: bool = False
+
+
+class CourseChangeClarificationQuestion(BaseModel):
+    question_id: str
+    prompt: str
+    response_type: ClarificationResponseType = "single_choice"
+    required: bool = True
+    options: list[CourseChangeClarificationOption] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_question(self) -> CourseChangeClarificationQuestion:
+        if not self.question_id.strip() or not self.prompt.strip():
+            raise ValueError("Clarification question ID and prompt are required")
+        option_ids = [item.option_id for item in self.options]
+        if len(option_ids) != len(set(option_ids)):
+            raise ValueError("Clarification option IDs must be unique")
+        if self.response_type == "single_choice" and not 2 <= len(self.options) <= 4:
+            raise ValueError("Single-choice clarifications require two to four options")
+        if sum(item.recommended for item in self.options) > 1:
+            raise ValueError("A clarification can have at most one recommended option")
+        return self
+
+
+class CourseChangeClarificationAnswer(BaseModel):
+    question_id: str
+    question_prompt: str = ""
+    option_id: str = ""
+    custom_text: str = ""
+    answer_label: str = ""
+
+
+class CourseChangeClarificationAnswerSnapshot(BaseModel):
+    clarification_set_id: str
+    answer_revision: int = Field(default=1, ge=1)
+    answers: list[CourseChangeClarificationAnswer] = Field(default_factory=list)
+    decision_facts: dict[str, str] = Field(default_factory=dict)
+    answer_digest: str
+
+
 class CourseChangeIntent(BaseModel):
     """A revisable interpretation that always preserves what the teacher said."""
 
@@ -81,6 +126,9 @@ class CourseChangeIntent(BaseModel):
     signals: list[CourseChangeSignal] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
     blocking_questions: list[str] = Field(default_factory=list)
+    clarification_set_id: str = ""
+    clarifications: list[CourseChangeClarificationQuestion] = Field(default_factory=list)
+    clarification_answer_snapshot: CourseChangeClarificationAnswerSnapshot | None = None
     can_proceed_without_clarification: bool = True
     interpretation_revision: str = "intent-1"
 
@@ -93,6 +141,11 @@ class CourseChangeIntent(BaseModel):
             raise ValueError(
                 "An intent with blocking questions cannot proceed without clarification"
             )
+        if self.clarifications and not self.clarification_set_id:
+            raise ValueError("Clarification set ID is required when questions exist")
+        question_ids = [item.question_id for item in self.clarifications]
+        if len(question_ids) != len(set(question_ids)):
+            raise ValueError("Clarification question IDs must be unique")
         return self
 
 
@@ -559,6 +612,10 @@ __all__ = [
     "COURSE_CHANGE_INTENT_SCHEMA",
     "COURSE_CHANGE_PLAN_SCHEMA",
     "COURSE_CHANGE_SCENARIO_MATRIX_SCHEMA",
+    "CourseChangeClarificationAnswer",
+    "CourseChangeClarificationAnswerSnapshot",
+    "CourseChangeClarificationOption",
+    "CourseChangeClarificationQuestion",
     "CourseChangeIntent",
     "CourseChangePlan",
     "CourseChangePlanSummary",

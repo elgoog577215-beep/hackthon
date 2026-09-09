@@ -22,6 +22,10 @@ from course_document import CourseBlock, CourseDocument, CourseSection, stable_h
 from course_revisions import revision_vector_for_document
 
 from .change_planning import (
+    CourseChangeClarificationAnswer,
+    CourseChangeClarificationAnswerSnapshot,
+    CourseChangeClarificationOption,
+    CourseChangeClarificationQuestion,
     CourseChangeIntent,
     CourseChangePlan,
     CourseChangeSignal,
@@ -889,6 +893,191 @@ def _lecture_structure_analysis(context: TeacherCourseChangeContext, instruction
             "retire_node_ids": sorted(retire), "proposed_outline": proposed if not error else []}}
 
 
+def _safe_contract_id(value: Any, *, prefix: str, seed: Any) -> str:
+    text = str(value or "").strip()
+    if text and re.fullmatch(r"[A-Za-z0-9_.:-]{1,120}", text):
+        return text
+    return stable_hash(seed, prefix=f"{prefix}-")
+
+
+def _normalize_clarifications(
+    raw: dict[str, Any],
+    blocking_questions: list[str],
+) -> list[CourseChangeClarificationQuestion]:
+    questions: list[CourseChangeClarificationQuestion] = []
+    seen_prompts: set[str] = set()
+    seen_question_ids: set[str] = set()
+    for index, item in enumerate(raw.get("clarifications") or []):
+        if not isinstance(item, dict):
+            continue
+        prompt = _compact(item.get("prompt") or item.get("question"), 400)
+        if not prompt or prompt in seen_prompts:
+            continue
+        question_id = _safe_contract_id(
+            item.get("question_id"),
+            prefix="clarification",
+            seed={"prompt": prompt, "index": index},
+        )
+        if question_id in seen_question_ids:
+            question_id = _safe_contract_id(
+                "",
+                prefix="clarification",
+                seed={"prompt": prompt, "index": index},
+            )
+        seen_question_ids.add(question_id)
+        options: list[CourseChangeClarificationOption] = []
+        seen_option_ids: set[str] = set()
+        for option_index, raw_option in enumerate(item.get("options") or []):
+            if not isinstance(raw_option, dict):
+                continue
+            label = _compact(raw_option.get("label"), 200)
+            if not label:
+                continue
+            option_id = _safe_contract_id(
+                raw_option.get("option_id"),
+                prefix="clarification-option",
+                seed={"question_id": question_id, "label": label, "index": option_index},
+            )
+            if option_id in seen_option_ids:
+                continue
+            seen_option_ids.add(option_id)
+            options.append(CourseChangeClarificationOption(
+                option_id=option_id,
+                label=label,
+                impact=_compact(raw_option.get("impact"), 300),
+                recommended=bool(raw_option.get("recommended")),
+            ))
+        if 2 <= len(options) <= 4:
+            response_type = "single_choice"
+            if sum(option.recommended for option in options) > 1:
+                first = next(index for index, option in enumerate(options) if option.recommended)
+                options = [
+                    option.model_copy(update={"recommended": option_index == first})
+                    for option_index, option in enumerate(options)
+                ]
+        else:
+            response_type = "free_text"
+            options = []
+        questions.append(CourseChangeClarificationQuestion(
+            question_id=question_id,
+            prompt=prompt,
+            response_type=response_type,
+            required=bool(item.get("required", True)),
+            options=options,
+        ))
+        seen_prompts.add(prompt)
+
+    for index, prompt in enumerate(blocking_questions):
+        if prompt in seen_prompts:
+            continue
+        question_id = _safe_contract_id(
+            "",
+            prefix="clarification",
+            seed={"prompt": prompt, "index": index},
+        )
+        if question_id in seen_question_ids:
+            question_id = _safe_contract_id(
+                "",
+                prefix="clarification",
+                seed={"prompt": prompt, "index": index, "duplicate": len(questions)},
+            )
+        seen_question_ids.add(question_id)
+        questions.append(CourseChangeClarificationQuestion(
+            question_id=question_id,
+            prompt=prompt,
+            response_type="free_text",
+            required=True,
+        ))
+        seen_prompts.add(prompt)
+    return questions
+
+
+def _resolve_clarification_answers(
+    superseded: CourseEvolutionPlan | None,
+    *,
+    clarification_set_id: str,
+    clarification_answers: list[dict[str, Any]] | None,
+) -> CourseChangeClarificationAnswerSnapshot | None:
+    if not clarification_answers and not clarification_set_id:
+        if superseded and superseded.teacher_change_planning:
+            return superseded.teacher_change_planning.intent.clarification_answer_snapshot
+        return None
+    if superseded is None or superseded.teacher_change_planning is None:
+        raise ValueError("澄清答案必须对应一个待修订的课程方案")
+    intent = superseded.teacher_change_planning.intent
+    if clarification_set_id != intent.clarification_set_id:
+        raise ValueError("澄清问题已变化，请重新打开当前方案")
+    questions = {item.question_id: item for item in intent.clarifications}
+    raw_by_id = {
+        str(item.get("question_id") or ""): item
+        for item in clarification_answers or []
+        if isinstance(item, dict) and str(item.get("question_id") or "")
+    }
+    unknown = set(raw_by_id).difference(questions)
+    if unknown:
+        raise ValueError("澄清答案包含不属于当前方案的问题")
+    missing = [
+        question.question_id
+        for question in questions.values()
+        if question.required and question.question_id not in raw_by_id
+    ]
+    if missing:
+        raise ValueError("请先完成所有必答澄清问题")
+
+    resolved: list[CourseChangeClarificationAnswer] = []
+    facts: dict[str, str] = {}
+    for question_id, question in questions.items():
+        raw_answer = raw_by_id.get(question_id)
+        if raw_answer is None:
+            continue
+        option_id = str(raw_answer.get("option_id") or "")
+        custom_text = _compact(raw_answer.get("custom_text"), 1000)
+        if question.response_type == "single_choice":
+            option = next((item for item in question.options if item.option_id == option_id), None)
+            if option is None:
+                raise ValueError("澄清答案引用了无效选项")
+            answer_label = option.label
+        else:
+            if not custom_text:
+                raise ValueError("请填写澄清问题的具体答案")
+            option_id = ""
+            answer_label = custom_text
+        resolved.append(CourseChangeClarificationAnswer(
+            question_id=question_id,
+            question_prompt=question.prompt,
+            option_id=option_id,
+            custom_text=custom_text,
+            answer_label=answer_label,
+        ))
+        facts[question_id] = answer_label
+
+    previous = intent.clarification_answer_snapshot
+    combined_answers = {
+        item.question_id: item
+        for item in (previous.answers if previous else [])
+    }
+    combined_answers.update({item.question_id: item for item in resolved})
+    combined_facts = dict(previous.decision_facts if previous else {})
+    combined_facts.update(facts)
+    answer_revision = (previous.answer_revision if previous else 0) + 1
+    digest_payload = {
+        "clarification_set_id": clarification_set_id,
+        "answer_revision": answer_revision,
+        "answers": [
+            item.model_dump(mode="json")
+            for item in combined_answers.values()
+        ],
+        "decision_facts": combined_facts,
+    }
+    return CourseChangeClarificationAnswerSnapshot(
+        clarification_set_id=clarification_set_id,
+        answer_revision=answer_revision,
+        answers=list(combined_answers.values()),
+        decision_facts=combined_facts,
+        answer_digest=stable_hash(digest_payload, prefix="clarification-answers-"),
+    )
+
+
 def _normalize_analysis(
     raw: dict[str, Any] | None,
     context: TeacherCourseChangeContext,
@@ -915,6 +1104,12 @@ def _normalize_analysis(
         result[key] = [
             _compact(item, 400) for item in result.get(key) or [] if _compact(item, 400)
         ][:30]
+    clarifications = _normalize_clarifications(result, result["blocking_questions"])
+    result["clarifications"] = [item.model_dump(mode="json") for item in clarifications]
+    result["blocking_questions"] = list(dict.fromkeys([
+        *[item.prompt for item in clarifications],
+        *result["blocking_questions"],
+    ]))
     known_ids = {item.unit_id for item in context.units}
     affected: list[dict[str, Any]] = []
     for item in result.get("affected_units") or []:
@@ -1885,6 +2080,8 @@ async def create_teacher_course_change_plan(
     literal_replacement: dict[str, str] | None = None,
     asset_types: list[str] | None = None,
     confirmed_interpretation: bool = False,
+    clarification_set_id: str = "",
+    clarification_answers: list[dict[str, Any]] | None = None,
 ) -> CourseEvolutionState:
     if not context.ready:
         raise TeacherCourseChangeSourceUnavailable("当前课程尚未形成可分析的大纲或教学资产")
@@ -1922,6 +2119,12 @@ async def create_teacher_course_change_plan(
         ):
             raise ValueError("只能修订当前未应用的教师课程方案")
 
+    answer_snapshot = _resolve_clarification_answers(
+        superseded,
+        clarification_set_id=clarification_set_id,
+        clarification_answers=clarification_answers,
+    )
+
     ranked = rank_change_units(context, normalized_instruction, limit=max(1, len(context.units)), include_all=True)
     overview = {
         "course_id": context.course_id,
@@ -1930,6 +2133,9 @@ async def create_teacher_course_change_plan(
         "assets": [item.model_dump(mode="json") for item in context.assets],
         "outline": [{k: v for k, v in node.items() if k != "section_snapshot"} for node in context.outline],
         "indexed_unit_count": len(context.units),
+        **({
+            "clarification_answer_snapshot": answer_snapshot.model_dump(mode="json"),
+        } if answer_snapshot else {}),
     }
     raw_analysis = _explicit_term_replacement_analysis(
         context,
@@ -1998,6 +2204,7 @@ async def create_teacher_course_change_plan(
     acknowledged_questions = list(analysis.get("blocking_questions") or [])
     if confirmed_interpretation:
         analysis["blocking_questions"] = []
+        analysis["clarifications"] = []
         analysis["assumptions"] = list(dict.fromkeys([
             *(analysis.get("assumptions") or []),
             "教师已确认按当前理解继续；未明确细节采用保留现有内容、最小改动且可撤销的方案。",
@@ -2009,6 +2216,18 @@ async def create_teacher_course_change_plan(
     change_set_id = f"course-change-{uuid.uuid4().hex}"
     intent_id = f"intent-{uuid.uuid4().hex}"
     questions = analysis.get("blocking_questions") or []
+    clarifications = [
+        CourseChangeClarificationQuestion.model_validate(item)
+        for item in analysis.get("clarifications") or []
+    ]
+    clarification_set = (
+        stable_hash(
+            [item.model_dump(mode="json") for item in clarifications],
+            prefix="clarification-set-",
+        )
+        if clarifications
+        else ""
+    )
     signal_kind = str(analysis.get("signal_kind") or "uncertain")
     intent = CourseChangeIntent(
         intent_id=intent_id,
@@ -2034,6 +2253,9 @@ async def create_teacher_course_change_plan(
         )],
         assumptions=analysis.get("assumptions") or [],
         blocking_questions=questions,
+        clarification_set_id=clarification_set,
+        clarifications=clarifications,
+        clarification_answer_snapshot=answer_snapshot,
         can_proceed_without_clarification=not questions,
     )
     structure_operations = _structure_operations(context, analysis, change_set_id)
@@ -2055,6 +2277,9 @@ async def create_teacher_course_change_plan(
         plan_id=change_set_id,
         outline_rebuild=outline_rebuild,
     ))
+    if answer_snapshot:
+        for operation in executable_operations:
+            operation.payload["clarification_answer_digest"] = answer_snapshot.answer_digest
     requires_downstream_generation = any(
         item.asset_type in DOWNSTREAM_CANDIDATE_ASSET_TYPES
         and item.disposition not in {"reuse_exact", "reuse_rebind"}
@@ -2141,6 +2366,7 @@ async def create_teacher_course_change_plan(
         impact_summary={
             "request_asset_types": list(asset_types) if asset_types is not None else sorted({unit.asset_type for unit in context.units}),
             "request_id": request_id,
+            "clarification_answer_digest": answer_snapshot.answer_digest if answer_snapshot else "",
             **({
                 "clarification_confirmation": {
                     "confirmed_at": timestamp,
@@ -2378,6 +2604,10 @@ def review_teacher_course_change_scope(
                 plan_id=plan.change_set_id,
                 outline_rebuild=outline_rebuild,
             )
+            answer_snapshot = planning.intent.clarification_answer_snapshot
+            if answer_snapshot:
+                for operation in [*rebuilt_operations, *reference_operations]:
+                    operation.payload["clarification_answer_digest"] = answer_snapshot.answer_digest
             plan.operations = [
                 item for item in plan.operations
                 if item.operation_type not in {

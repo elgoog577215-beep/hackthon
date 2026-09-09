@@ -904,6 +904,22 @@ def accept_change_set(
     if reconciled is not None:
         state = reconciled
         change_set = _change_set(state, change_set_id)
+    clarification_digest = str(
+        change_set.impact_summary.get("clarification_answer_digest") or ""
+    )
+    if clarification_digest:
+        selected_ids = set(selected_operation_ids or [
+            operation.operation_id for operation in change_set.operations
+        ])
+        if any(
+            operation.operation_id in selected_ids
+            and str((operation.payload or {}).get("clarification_answer_digest") or "")
+            != clarification_digest
+            for operation in change_set.operations
+        ):
+            raise CourseVersionConflict(
+                "Clarification answers changed after candidate generation"
+            )
     if change_set.status == "applied":
         same_selection = (
             selected_operation_ids is None

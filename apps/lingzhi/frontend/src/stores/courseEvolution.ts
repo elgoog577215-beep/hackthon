@@ -154,6 +154,35 @@ export interface AdaptationHypothesis {
   status: string
 }
 
+export interface CourseChangeClarificationOption {
+  option_id: string
+  label: string
+  impact: string
+  recommended: boolean
+}
+
+export interface CourseChangeClarificationQuestion {
+  question_id: string
+  prompt: string
+  response_type: 'single_choice' | 'free_text'
+  required: boolean
+  options: CourseChangeClarificationOption[]
+}
+
+export interface CourseChangeClarificationAnswerInput {
+  question_id: string
+  option_id?: string
+  custom_text?: string
+}
+
+export interface CourseChangeClarificationAnswerSnapshot {
+  clarification_set_id: string
+  answer_revision: number
+  answers: Array<CourseChangeClarificationAnswerInput & { question_prompt?: string; answer_label: string }>
+  decision_facts: Record<string, string>
+  answer_digest: string
+}
+
 export interface TeacherCourseChangePlanning {
   schema_version: 'course_change_plan_v1'
   scenario_matrix_version: 'course_change_scenario_matrix_v1'
@@ -179,6 +208,9 @@ export interface TeacherCourseChangePlanning {
     }>
     assumptions: string[]
     blocking_questions: string[]
+    clarification_set_id?: string
+    clarifications?: CourseChangeClarificationQuestion[]
+    clarification_answer_snapshot?: CourseChangeClarificationAnswerSnapshot | null
     can_proceed_without_clarification: boolean
     interpretation_revision: string
   }
@@ -421,7 +453,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         if (this.courseId === targetCourseId && sequence === this.contextRequestSequence) this.contextLoading = false
       }
     },
-    async createCoursePlan(input: { instruction: string; requestId?: string; courseId?: string; supersedesPlanId?: string; literalReplacement?: { before: string; after: string }; assetTypes?: string[]; confirmedInterpretation?: boolean }) {
+    async createCoursePlan(input: { instruction: string; requestId?: string; courseId?: string; supersedesPlanId?: string; literalReplacement?: { before: string; after: string }; assetTypes?: string[]; confirmedInterpretation?: boolean; clarificationSetId?: string; clarificationAnswers?: CourseChangeClarificationAnswerInput[] }) {
       const targetCourseId = input.courseId || this.courseId
       if (!targetCourseId) throw new Error('course_change_course_required')
       this.selectCourse(targetCourseId)
@@ -440,6 +472,8 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
             ...(input.literalReplacement ? { literal_replacement: input.literalReplacement } : {}),
             ...(input.assetTypes ? { asset_types: input.assetTypes } : {}),
             ...(input.confirmedInterpretation ? { confirmed_interpretation: true } : {}),
+            ...(input.clarificationSetId ? { clarification_set_id: input.clarificationSetId } : {}),
+            ...(input.clarificationAnswers?.length ? { clarification_answers: input.clarificationAnswers } : {}),
             ...(input.supersedesPlanId
               ? { supersedes_plan_id: input.supersedesPlanId }
               : {}),

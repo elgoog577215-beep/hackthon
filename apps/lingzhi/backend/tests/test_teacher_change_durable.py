@@ -20,6 +20,7 @@ from course_evolution.jobs import (
     run_candidates,
 )
 from course_evolution.teacher_execution import (
+    _candidate_instruction,
     build_domain_candidate_applier,
     build_domain_candidate_undoer,
     generate_teacher_course_change_candidates,
@@ -527,9 +528,13 @@ async def test_structured_clarification_answers_become_a_versioned_ai_decision_s
     assert snapshot.decision_facts == {
         "project_placement": "每讲末尾固定小节",
     }
+    assert snapshot.answers[0].question_prompt == "实践项目放在哪里？"
     assert snapshot.answer_digest
     assert seen_snapshots[-1]["answer_digest"] == snapshot.answer_digest
     assert plan.impact_summary["clarification_answer_digest"] == snapshot.answer_digest
+    candidate_instruction = _candidate_instruction(plan)
+    assert "老师已确认以下决策，属于硬约束" in candidate_instruction
+    assert "实践项目放在哪里？: 每讲末尾固定小节" in candidate_instruction
 
 
 @pytest.mark.asyncio

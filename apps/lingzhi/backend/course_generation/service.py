@@ -9855,7 +9855,7 @@ class CourseService(AIBase):
             f"{json.dumps(ranked_candidates, ensure_ascii=False)}\n\n"
             "返回字段：interpreted_goal、signal_kind、signal_confidence、"
             "hard_constraints、soft_preferences、protected_requirements、assumptions、"
-            "blocking_questions、affected_units、structure。"
+            "blocking_questions、clarifications、affected_units、structure。"
             "signal_kind 只能是 semantic、structural、mixed、uncertain。"
             "affected_units 每项只能包含候选中真实存在的 unit_id，以及 disposition、"
             "reason、confidence、content_patches；disposition 只能是 reuse_exact、reuse_rebind、"
@@ -9874,6 +9874,11 @@ class CourseService(AIBase):
             "不要因为老师措辞不专业就机械缩小范围；要从目标推断可能受影响的资产，"
             "但不要把仅仅同词出现的单元判为必改。无法安全推断且会改变结构时，"
             "把问题放入 blocking_questions。正式内容不会在本步骤被修改。"
+            "需要老师决定时，clarifications 返回 1—3 个真正影响方案的问题；每项包含"
+            "question_id、prompt、response_type=single_choice、required=true 和 2—4 个 options。"
+            "每个 option 包含 option_id、label、impact、recommended，最多一个 recommended。"
+            "如果课程概况中已有 clarification_answer_snapshot，其中 decision_facts 是老师"
+            "已经逐题确认的硬约束，不得重新解释、覆盖或再次询问同一问题。"
         )
         response = await self._call_llm(
             prompt,

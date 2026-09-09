@@ -69,6 +69,31 @@ def _compact(value: Any, limit: int = 360) -> str:
     return text if len(text) <= limit else f"{text[: limit - 1]}…"
 
 
+def _clarification_snapshot(plan: CourseEvolutionPlan) -> Any:
+    planning = plan.teacher_change_planning
+    return planning.intent.clarification_answer_snapshot if planning else None
+
+
+def _candidate_instruction(plan: CourseEvolutionPlan) -> str:
+    snapshot = _clarification_snapshot(plan)
+    if snapshot is None or not snapshot.decision_facts:
+        return plan.request_text
+    prompts = {
+        answer.question_id: answer.question_prompt
+        for answer in snapshot.answers
+        if answer.question_prompt
+    }
+    decisions = "\n".join(
+        f"- {prompts.get(question_id, question_id)}: {answer}"
+        for question_id, answer in snapshot.decision_facts.items()
+    )
+    return (
+        f"{plan.request_text}\n\n"
+        "老师已确认以下决策，属于硬约束，不得重新解释或覆盖：\n"
+        f"{decisions}"
+    )
+
+
 def _journal_entry(
     plan: CourseEvolutionPlan,
     operation_id: str,
@@ -176,6 +201,7 @@ def _base_operation_receipt(
             or ""
         ),
         "result_revision_id": "",
+        "clarification_answer_digest": str(payload.get("clarification_answer_digest") or ""),
     }
 
 
@@ -267,6 +293,14 @@ def _operation(
             "unit_ids": [_migration_unit_id(item) for item in migrations],
             "plan_id": plan.change_set_id,
             **deepcopy(payload),
+            "clarification_answer_digest": (
+                _clarification_snapshot(plan).answer_digest
+                if _clarification_snapshot(plan)
+                else ""
+            ),
+            "decision_refs": list(
+                (_clarification_snapshot(plan).decision_facts if _clarification_snapshot(plan) else {}).keys()
+            ),
         },
     )
 
@@ -320,7 +354,7 @@ async def _generate_lesson_plan_candidates(
                 if section_id
             ))
             instruction = "\n".join(filter(None, [
-                plan.request_text,
+                _candidate_instruction(plan),
                 "只修改被选中的教案单元，保持课时、教学目标、教学活动和评价证据一致。",
             ]))
             literal = _literal_terms(items)
@@ -479,7 +513,7 @@ async def _generate_script_candidates(
                                 str(block.get("title") or ""),
                             ],
                             user_requirement="\n".join(filter(None, [
-                                plan.request_text,
+                                _candidate_instruction(plan),
                                 "只改写当前讲义块，保留它的职责、稳定标识和同小节其他讲义块。",
                                 "改成教师可以直接在课堂上说出口的自然表达，不写系统内部语言，不虚构资料或课堂事实。",
                             ])),
@@ -523,7 +557,7 @@ async def _generate_script_candidates(
                     node_content=source_content,
                     heading_path=[str(section.get("title") or "")],
                     user_requirement="\n".join(filter(None, [
-                        plan.request_text,
+                        _candidate_instruction(plan),
                         "改成教师可以直接在课堂上说出口的自然表达，不写系统内部语言，不虚构资料或课堂事实。",
                         (
                             "保留并仅使用这些二级标题，顺序与名称不变："
@@ -694,7 +728,7 @@ async def _generate_ppt_candidates(
                 else:
                     optimized = await course_service.optimize_teacher_lesson_v6_page(
                         page=page,
-                        instruction=plan.request_text,
+                        instruction=_candidate_instruction(plan),
                     )
                     candidate_page = deepcopy(optimized.get("page") or {})
                     changed_fields = list(optimized.get("changed_fields") or [])
@@ -814,7 +848,7 @@ async def _generate_question_bank_candidate(
                     node_content=prompt,
                     heading_path=["题库", str(current_item.get("question_type") or "题目")],
                     user_requirement="\n".join(filter(None, [
-                        plan.request_text,
+                        _candidate_instruction(plan),
                         "只改题面表达，不改正确答案、计分逻辑和已确认的事实边界。",
                     ])),
                     action_type="rewrite",
