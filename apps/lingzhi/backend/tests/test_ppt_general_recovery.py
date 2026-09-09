@@ -17,7 +17,7 @@ def seed_for(contract, content, pages):
     ("python", "\n".join(f"    print('第 {i} 个步骤')" for i in range(35)) + "\n"),
     ("csharp", "\n".join(f"    var value{i} = {i};" for i in range(40)) + "\n"),
     ("sql", "SELECT " + ", ".join(f"column_{i}" for i in range(200)) + " FROM records;\n"),
-])
+], ids=["python", "csharp", "sql-long-line"])
 def test_code_pagination_preserves_every_source_character_and_needs_no_model(language, body):
     template, contract, _ = sample()
     quote = f"```{language}\n{body}```"
@@ -33,7 +33,7 @@ def test_code_pagination_preserves_every_source_character_and_needs_no_model(lan
     assert len(block["ppt_pages"]) > 1
     assert not block["ppt_errors"]
     fragments = [p["fields"]["code"]["sources"][0]["quote"] for p in block["ppt_pages"]]
-    assert "".join(fragments) == body
+    assert "".join(fragments) == quote
     assert all(fragment in quote for fragment in fragments)
     validate_block_pages(block, template)
     again = asyncio.run(generate_bundle(invoke=forbidden, contract=contract, instructions="", template=template,
@@ -60,7 +60,7 @@ def test_repair_accepts_a_complete_json_envelope(envelope):
 
 def test_failed_json_repair_keeps_original_validation_cause():
     template, contract, page = sample()
-    page["fields"]["left_subject"]["text"] = "FabricatedSymbol"
+    page["fields"]["left_subject"]["text"] = "FakeAPI"
 
     async def invoke(*args, **kwargs):
         return "This is not JSON"
@@ -123,3 +123,46 @@ def test_identifier_shorthand_expands_only_to_an_existing_unambiguous_source():
     result = asyncio.run(generate_bundle(invoke=forbidden, contract=contract, instructions="", template=template,
         seed_blocks={"b": seed_for(contract, content, [deepcopy(page)])}, immutable_handout=True))
     assert result["blocks"][0]["ppt_pages"][0]["fields"]["points"][0]["text"] == "OnTriggerEnter/OnTriggerExit"
+
+
+@pytest.mark.parametrize("raw", ['{"pages": [', '{"pages":[]} {"pages":[]}', 'explanation without JSON', '[1,2]'])
+def test_response_parser_does_not_invent_or_accept_partial_json(raw):
+    from ppt_repair_response import parse_page_response
+    with pytest.raises(ValueError, match="script_ppt_response_"):
+        parse_page_response(raw)
+
+
+def test_bad_response_stops_model_fanout_and_keeps_valid_pages_in_a_mixed_group():
+    template, contract, good = sample()
+    bad = deepcopy(good)
+    bad["fields"]["left_subject"]["text"] = "FakeAPI"
+    seed = seed_for(contract, TEXT, [good, bad, bad])
+    seed["ppt_page_groups"] = [[good, bad, bad]]
+    calls = []
+
+    async def invoke(*args, **kwargs):
+        calls.append(args)
+        return "not JSON"
+
+    result = asyncio.run(generate_bundle(invoke=invoke, contract=contract, instructions="", template=template,
+        seed_blocks={"b": seed}, immutable_handout=True))
+    assert len(calls) == 2
+    assert result["blocks"][0]["ppt_pages"][0] == good
+    assert result["blocks"][0]["ppt_errors"][0]["page_index"] == 1
+
+
+def test_code_metadata_repair_does_not_duplicate_the_program_across_continuations():
+    template, contract, _ = sample()
+    quote = "```python\n" + "print('example')\n" * 30 + "```"
+    page = {"layout_id": template.layout_id("code"), "page_goal": "FakeAPI",
+            "fields": {"title": "代码", "notes": "连续阅读", "code": {"sources": [{"block_id": "b", "quote": quote}]}}}
+    calls = []
+
+    async def invoke(*args, **kwargs):
+        calls.append(args)
+        return json.dumps({"pages": [{**page, "page_goal": "阅读代码"}]})
+
+    result = asyncio.run(generate_bundle(invoke=invoke, contract=contract, instructions="", template=template,
+        seed_blocks={"b": seed_for(contract, quote, [page])}, immutable_handout=True))
+    assert len(calls) == 1
+    assert "".join(p["fields"]["code"]["sources"][0]["quote"] for p in result["blocks"][0]["ppt_pages"]) == quote

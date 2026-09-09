@@ -66,3 +66,18 @@ In the no-original-PPT branch, the system SHALL persist the template ID, immutab
 #### Scenario: Locked template digest does not match
 - **WHEN** final generation resolves a contract whose ID, version or digest differs from the confirmed manuscript lock
 - **THEN** generation stops with a recoverable template-lock error and asks the teacher to regenerate the manuscript
+
+### Requirement: Page recovery preserves source content and accepted work
+The system SHALL record `ppt_page_recovery_v2` on recovered blocks. Fixed-handout completion MUST preserve the source revision and accepted pages, repair only failed pages, and withhold publication while required pages remain invalid or missing.
+
+#### Scenario: A source code excerpt exceeds the real code frame
+- **WHEN** measured code exceeds the frozen template's frame capacity
+- **THEN** contiguous continuations retain the exact complete excerpt in order, pass the same font and geometry checks, and remain stable when the checkpoint is resumed
+
+#### Scenario: The repair model returns an unusable response
+- **WHEN** the response is empty, truncated, non-object JSON, or contains no pages
+- **THEN** recovery preserves both the original page error and the repair error, bounds retries, and does not publish a partial fallback as a complete manuscript
+
+#### Scenario: The provider is temporarily unavailable
+- **WHEN** a page repair encounters a provider timeout or unavailability
+- **THEN** the current checkpoint is retained, recovery performs at most one delayed provider retry per bundle within the page attempt limit, and repeated failure stops model calls to the remaining pages

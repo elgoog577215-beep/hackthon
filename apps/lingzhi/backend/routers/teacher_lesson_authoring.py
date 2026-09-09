@@ -2669,6 +2669,8 @@ async def complete_teacher_ppt_manuscript(
                         f"（第 {repair.get('attempt')}/{repair.get('max_attempts')} 次）"
                         if repair else ""
                     )
+                    if repair.get("waiting_for_provider"):
+                        repair_message = "模型暂时不可用，正在等待恢复后重试当前页面"
                     repository.update_job(
                         course_id,
                         str(job["id"]),
@@ -2728,7 +2730,9 @@ async def complete_teacher_ppt_manuscript(
             return
         except Exception as exc:
             failure = describe_bundle_failure(exc) or generation_failure(exc, "ppt_completion_failed")
-            failed_phase = "ppt_page_validation_failed" if failure.get("failed_step") == "sources" else "ppt_manuscript_failed"
+            failed_phase = ("ppt_page_validation_failed" if failure.get("failed_step") == "sources"
+                            else "ppt_page_generation_failed" if failure.get("failed_step") == "pages"
+                            else "ppt_manuscript_failed")
             repository.update_job(course_id, str(job["id"]), status="failed", phase=failed_phase,
                                   progress=max(1, int((repository.get_job(course_id, str(job["id"])) or {}).get("progress") or 1)),
                                   message=str(failure.get("message") or "PPT 内容稿生成失败"),

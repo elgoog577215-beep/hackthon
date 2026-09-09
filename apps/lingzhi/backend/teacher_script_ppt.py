@@ -1,6 +1,7 @@
 """Joint handout/page generation and deterministic lowering into the V6 manuscript."""
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import re
@@ -15,20 +16,23 @@ from course_presentation_graph import block_source_text, compile_course_presenta
 from ppt_fixed_draft import form_type, lower_fixed_response
 from ppt_fixed_templates import fixed_capabilities, fixed_slug
 from ppt_source_quotes import source_excerpt_catalog
+from ppt_repair_response import parse_page_response
 from ppt_teaching_manuscript import compile_teaching_manuscript, refresh_manuscript
 from ppt_teaching_planner import normalize_page_response
 from teacher_script import normalize_teacher_script_section, validate_teacher_script_section
 
 CONTRACT = "script_ppt_bundle_v1"
 DEFAULT_THEME = "qizhi-classroom"
+RECOVERY_CONTRACT = "ppt_page_recovery_v2"
 
 
 def describe_bundle_failure(exc: Exception) -> dict[str, Any] | None:
     technical_detail = str(exc)
+    response_failure = "script_ppt_response_" in technical_detail
     match = re.search(r"source_excerpt_mismatch:([^:\s]+)", technical_detail)
     unknown_quote = re.search(r"source_quote_id_unknown:([^:\s]+)", technical_detail)
     capacity_failure = bool(re.search(
-        r"string_too_long|fixed_field_text_too_long|should have at most \d+ characters|"
+        r"string_too_long|fixed_field_text_too_long|teaching_text_capacity_exceeded|should have at most \d+ characters|"
         r"type=too_long|List should have at most \d+ items",
         technical_detail,
     ))
@@ -38,9 +42,13 @@ def describe_bundle_failure(exc: Exception) -> dict[str, Any] | None:
         r"string_type|Input should be a valid string|model_type|Input should be a valid dictionary",
         technical_detail,
     ))
-    if match is None and unknown_quote is None and not capacity_failure and not page_contract_failure:
+    if match is None and unknown_quote is None and not capacity_failure and not page_contract_failure and not response_failure:
         return None
-    if capacity_failure:
+    if response_failure:
+        code = "lesson_ppt_model_response_invalid"
+        message = "页面修复未返回可用的结构化内容，已保留讲义、已完成页面和原始失败原因。"
+        failed_block_id = ""
+    elif capacity_failure:
         code = "lesson_ppt_page_capacity_failed"
         message = "页面文字超过当前版式容量，系统没有保存无法完整显示的内容稿。"
         failed_block_id = ""
@@ -55,10 +63,10 @@ def describe_bundle_failure(exc: Exception) -> dict[str, Any] | None:
     return {
         "code": code,
         "message": message,
-        "category": "quality",
+        "category": "structure" if response_failure else "quality",
         "recovery_action": "retry_original",
         "retryable": True,
-        "failed_step": "sources",
+        "failed_step": "pages" if response_failure else "sources",
         "failed_block_id": failed_block_id,
         "technical_detail": technical_detail,
     }
@@ -225,6 +233,17 @@ def _fit_page_capacity(page: dict[str, Any], catalog: list[dict[str, Any]] | Non
                             owner["sources"] = wrapped["sources"]
                         owner[key] = wrapped["text"]
                         changed = True
+                elif issue.get("type") == "missing" and key == "text" and isinstance(owner, dict):
+                    choices = owner.get("sources") or []
+                    if len(choices) == 1 and isinstance(choices[0], dict):
+                        selected = next((item for item in (catalog or []) if item.get("quote_id") == choices[0].get("quote_id")), None)
+                        literal = str(choices[0].get("quote") or "")
+                        if selected is not None:
+                            owner[key] = selected["quote"]
+                            changed = True
+                        elif literal and any(literal in item["quote"] and item["block_id"] == choices[0].get("block_id") for item in (catalog or [])):
+                            owner[key] = literal
+                            changed = True
                 elif issue.get("type") == "string_too_long":
                     limit = int((issue.get("ctx") or {}).get("max_length") or 0)
                     if limit > 0:
@@ -316,7 +335,9 @@ def _context_catalog(context: str, catalog: list[dict[str, Any]]) -> list[dict[s
         matched = [item for item in catalog if re.search(r"\$|\\\(|\\\[", str(item.get("quote") or ""))]
         return matched or catalog
     if context == "code":
-        matched = [item for item in catalog if "`" in str(item.get("quote") or "")]
+        matched = [item for item in catalog if re.fullmatch(r"```[\s\S]*```", str(item.get("quote") or "").strip())]
+        if not matched:
+            matched = [item for item in catalog if re.fullmatch(r"`[^`\n]+`", str(item.get("quote") or "").strip())]
         return matched or catalog
     if context in {"value", "unit", "data"}:
         matched = [item for item in catalog if re.search(r"\d", str(item.get("quote") or ""))]
@@ -334,7 +355,7 @@ def _portable_source_choice(query: str, catalog: list[dict[str, Any]], context: 
     return {"block_id": str(best["block_id"]), "quote": str(best["quote"])}
 
 
-def _stabilize_source_choices(value: Any, catalog: list[dict[str, Any]], context: str = "") -> None:
+def _stabilize_source_choices(value: Any, catalog: list[dict[str, Any]], context: str = "", source_texts=None) -> None:
     from slide_source_tokens import _protected_tokens
 
     allowed = {item["quote_id"]: item for item in catalog}
@@ -349,13 +370,18 @@ def _stabilize_source_choices(value: Any, catalog: list[dict[str, Any]], context
                 selected = allowed.get(choice.get("quote_id")) if isinstance(choice, dict) else None
                 if selected is None and isinstance(choice, dict) and not choice.get("quote_id") and choice.get("block_id") and choice.get("quote"):
                     literal = str(choice["quote"])
-                    if any(str(item.get("quote") or "") in literal for item in catalog):
+                    if (literal in (source_texts or {}).get(choice["block_id"], "")
+                            or any(literal in str(item.get("quote") or "") and item["block_id"] == choice["block_id"] for item in catalog)):
                         resolved.append(choice)
                         continue
                 if selected is None and best is not None and _quote_score(query, str(best.get("quote") or ""))[0] > 0:
                     selected = best
                 if selected is None:
-                    selected = min(candidates, key=lambda item: len(str(item.get("quote") or "")))
+                    shortest = min(candidates, key=lambda item: len(str(item.get("quote") or "")))
+                    # A source-only artifact has no claim text to disambiguate
+                    # multiple code/formula choices. Do not guess a short one.
+                    if query or all(shortest["quote"] in item["quote"] for item in candidates):
+                        selected = shortest
                 if selected is not None:
                     resolved.append({"block_id": selected["block_id"], "quote": selected["quote"]})
                 else:
@@ -379,13 +405,37 @@ def _stabilize_source_choices(value: Any, catalog: list[dict[str, Any]], context
             if resolved != choices:
                 value["sources"] = resolved
         for key, child in value.items():
-            _stabilize_source_choices(child, catalog, str(key))
+            _stabilize_source_choices(child, catalog, str(key), source_texts)
     elif isinstance(value, list):
         for child in value:
-            _stabilize_source_choices(child, catalog, context)
+            _stabilize_source_choices(child, catalog, context, source_texts)
 
 
-def _prepare_page_candidates(pages: list[Any], block: dict[str, Any]) -> list[Any]:
+def _expand_identifier_shorthand(value, content):
+    names = set(re.findall(r"\b[A-Za-z_][A-Za-z0-9_.]{2,}\b", content))
+
+    def expand(match):
+        left, right = match.group(1), match.group(2)
+        if left not in names or right in names:
+            return match.group(0)
+        candidates = [name for name in names if name.endswith(right) and len(name) > len(right) + 2
+                      and left.startswith(name[:-len(right)])]
+        return left + "/" + candidates[0] if len(candidates) == 1 else match.group(0)
+
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key == "sources":
+                continue
+            if key in {"text", "heading", "title", "page_goal"} and isinstance(child, str):
+                value[key] = re.sub(r"\b([A-Za-z_][A-Za-z0-9_.]{2,})\s*/\s*([A-Z][A-Za-z0-9_]+)\b", expand, child)
+            else:
+                _expand_identifier_shorthand(child, content)
+    elif isinstance(value, list):
+        for child in value:
+            _expand_identifier_shorthand(child, content)
+
+
+def _prepare_page_candidates(pages: list[Any], block: dict[str, Any], template=None) -> list[Any]:
     catalog = _block_literal_source_ranges(block)
     prepared = []
     for page in pages:
@@ -393,6 +443,7 @@ def _prepare_page_candidates(pages: list[Any], block: dict[str, Any]) -> list[An
             prepared.append(page)
             continue
         candidate = deepcopy(page)
+        _expand_identifier_shorthand(candidate, block["content"])
         for key in ("layout_id", "page_goal"):
             if key in candidate:
                 candidate[key] = _unwrap_source_text(candidate[key])
@@ -402,8 +453,12 @@ def _prepare_page_candidates(pages: list[Any], block: dict[str, Any]) -> list[An
             normalized_splits = []
             for split_candidate in splits:
                 split_candidate = _fit_page_capacity(split_candidate, catalog)
-                _stabilize_source_choices(split_candidate, catalog)
-                normalized_splits.append(split_candidate)
+                _stabilize_source_choices(split_candidate, catalog, source_texts={block["block_id"]: block["content"]})
+                if template is not None:
+                    from ppt_code_pagination import paginate_code_page
+                    normalized_splits.extend(paginate_code_page(split_candidate, block, template))
+                else:
+                    normalized_splits.append(split_candidate)
             prepared.extend(normalized_splits)
         except (ValueError, KeyError, TypeError, AttributeError, IndexError):
             # Malformed model output must reach the same bounded validation /
@@ -450,8 +505,35 @@ async def _notify(callback, *args):
             await result
 
 
+def _page_repair_prompt(block, pages, template, validation_error, repair_error=""):
+    known = {layout.template_layout_id: layout for layout in template.layouts}
+    selected = {p.get("layout_id") for p in pages if isinstance(p, dict)} & set(known)
+    if not selected:
+        slugs = {"bullets", "comparison", "flow", "question", "summary"}
+        if "`" in block["content"] or "~~~" in block["content"]:
+            slugs.add("code")
+        if re.search(r"\$|\\\[|\\\(", block["content"]):
+            slugs.add("formula")
+        selected = {lid for lid in known if fixed_slug(lid) in slugs}
+    catalog = _block_literal_source_ranges(block)
+    code_ranges = [r for r in catalog if re.fullmatch(r"```[\s\S]*?```", r["quote"].strip())]
+    catalog = [r for r in catalog if not any(c["start"] <= r["start"] and r["end"] <= c["end"] and r != c for c in code_ranges)]
+    return (
+        "你正在把已经固定的讲义整理为课堂PPT页面。只返回一个JSON对象 {\"pages\":[...]}，不得输出Markdown或解释。"
+        "pages 至少一页，每页仅含 layout_id、page_goal、fields；fields 遵守对应表单。"
+        "保留教学条件、例题和解答，覆盖本环节内容，避免重复封面。普通文案简洁，标识符和数值只能来自所给原文。"
+        "sources 只返回 quote_id，格式为 [{\"quote_id\":\"提供的ID\"}]。代码、公式和数据使用精确来源；长代码由系统按实际容量连续分页，不必裁掉代码。"
+        "不得修改讲义，不得补写讲义没有的API或事实。\n"
+        + json.dumps({"block_id": block["block_id"], "title": block.get("title"), "role": block.get("role"),
+            "forms": {lid: form_type(fixed_slug(lid), authored=True).model_json_schema() for lid in sorted(selected)},
+            "literal_source_ranges": catalog, "pages_to_repair": pages,
+            "validation_error": validation_error, "previous_repair_error": repair_error}, ensure_ascii=False)
+    )
+
+
 async def generate_bundle(*, invoke, contract, instructions, template, on_delta=None,
-                          on_reset=None, on_checkpoint=None, seed_blocks=None, immutable_handout=False):
+                          on_reset=None, on_checkpoint=None, seed_blocks=None, immutable_handout=False,
+                          provider_recovery_sleep=asyncio.sleep):
     modules = contract["modules"]
     expected = [m["block_id"] for m in modules]
     checkpoint = deepcopy(seed_blocks or {})
@@ -515,7 +597,7 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
             output_tokens=min(16000, max(2000, sum(int(m.get("max_characters") or 900) * 2 for m in modules))),
             stream_delta=stream, stream_reset=reset)
         try:
-            response = ScriptPptBundle.model_validate_json(raw or "")
+            response = ScriptPptBundle.model_validate(parse_page_response(raw))
             ids = [b.block_id for b in response.blocks]
             if len(set(ids)) != len(ids) or set(ids) != set(missing):
                 raise ValueError("script_ppt_block_identity_mismatch")
@@ -538,17 +620,26 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
         raise AIProviderRequestError("讲义未通过当前教案的质量检查：" + json.dumps(errors, ensure_ascii=False))
 
     # Repairs own only failing page fields; accepted text and pages are immutable inputs.
+    provider_recovery_used = False
+    response_contract_failed = False
     for bid in expected:
         block = blocks[bid]
+        block["ppt_recovery_contract_version"] = RECOVERY_CONTRACT
         page_errors = []
-        pages = _prepare_page_candidates(deepcopy(block.get("ppt_pages") or []), block)
+        pages = deepcopy(block.get("ppt_pages") or [])
         groups = deepcopy(block.get("ppt_page_groups") or [[p] for p in pages] or [[]])
-        groups = [_prepare_page_candidates(group, block) for group in groups]
         attempts = list(block.get("ppt_repair_attempts") or [0] * len(groups))
         if len(attempts) != len(groups):
             raise ValueError("script_ppt_checkpoint_invalid")
+        units, unit_attempts = [], []
+        for group, used in zip(groups, attempts, strict=True):
+            prepared = _prepare_page_candidates(group, block, template)
+            units.extend([[page] for page in prepared] or [[]])
+            unit_attempts.extend([used] * max(1, len(prepared)))
+        groups, attempts = units, unit_attempts
         for index, group in enumerate(groups):
             candidate_pages = group
+            previous_repair_error = ""
             while True:
                 try:
                     validate_block_pages({**block, "ppt_pages": candidate_pages}, template)
@@ -561,6 +652,7 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                     try:
                         attempts[index] += 1
                         block.update(
+                            ppt_recovery_contract_version=RECOVERY_CONTRACT,
                             ppt_page_groups=groups,
                             ppt_repair_attempts=attempts,
                             ppt_repair_state={
@@ -573,28 +665,41 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                         )
                         await _notify(on_checkpoint, deepcopy(block))
                         raw = await invoke("修复当前 PPT 页面，只返回 {\"pages\":[...]}，必要时拆分本页。",
-                            joint_instruction + "\n讲义正文固定，不得改写：" + json.dumps({"block_id": bid, "content": block["content"]}, ensure_ascii=False)
-                            + "\n只修以下失败页面，保留其他页：" + json.dumps(candidate_pages, ensure_ascii=False)
-                            + "\n当前讲义可选逐字来源：" + json.dumps({"literal_source_ranges": _block_literal_source_ranges(block)}, ensure_ascii=False)
-                            + "\n当前修复中每个字段的 sources 只返回 quote_id，格式为 [{\"quote_id\":\"上方提供的ID\"}]；"
-                              "不得返回 block_id 或自行抄写、改写 quote。"
-                            + "\n错误：" + detail, output_tokens=6000, stream_delta=None, stream_reset=None)
-                        value = json.loads(raw or "")
-                        if not isinstance(value.get("pages"), list):
-                            raise ValueError("script_ppt_repair_invalid")
-                        candidate_pages = _prepare_page_candidates(value["pages"], block)
+                            _page_repair_prompt(block, candidate_pages, template, detail, previous_repair_error),
+                            output_tokens=6000, stream_delta=None, stream_reset=None)
+                        value = parse_page_response(raw)
+                        if not isinstance(value.get("pages"), list) or not value["pages"]:
+                            raise ValueError("script_ppt_response_invalid_shape:pages_must_be_nonempty_array")
+                        candidate_pages = _prepare_page_candidates(value["pages"], block, template)
                         groups[index] = candidate_pages
                     except Exception as exc:
+                        previous_repair_error = str(exc)
+                        issue = {"block_id": bid, "page_index": index, "validation_error": detail,
+                                 "repair_error": str(exc), "message": detail + "; repair_failed: " + str(exc)}
+                        from course_generation_errors import classify_generation_failure
+                        failure = classify_generation_failure(exc)
+                        if failure.get("code") in {"provider_unavailable", "provider_timeout"} or str(exc).startswith("script_ppt_response_empty"):
+                            block.update(ppt_pages=[p for g in groups for p in g], ppt_page_groups=groups,
+                                         ppt_repair_attempts=attempts, ppt_errors=[*page_errors, issue])
+                            if not provider_recovery_used and attempts[index] < 2:
+                                provider_recovery_used = True
+                                block["ppt_repair_state"].update(waiting_for_provider=True, retry_after_seconds=31)
+                                await _notify(on_checkpoint, deepcopy(block))
+                                await provider_recovery_sleep(31)
+                                continue
+                            await _notify(on_checkpoint, deepcopy(block))
+                            raise
                         if getattr(exc, "retryable", True) is False:
-                            page_errors.append({"block_id": bid, "page_index": index, "message": str(exc)})
+                            page_errors.append(issue)
                             break
                         if attempts[index] >= 2:
-                            page_errors.append({"block_id": bid, "page_index": index, "message": str(exc)})
+                            page_errors.append(issue)
+                            response_contract_failed = str(exc).startswith("script_ppt_response_")
                             break
-            if not candidate_pages:
+            if not candidate_pages and not immutable_handout:
                 try:
                     candidate_pages = _prepare_page_candidates(
-                        [_grounded_fallback_page(block, template)], block
+                        [_grounded_fallback_page(block, template)], block, template
                     )
                     validate_block_pages({**block, "ppt_pages": candidate_pages}, template)
                     page_errors = [error for error in page_errors if error.get("page_index") != index]
@@ -606,6 +711,10 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
             block.pop("ppt_repair_state", None)
             block["ppt_errors"] = page_errors
             await _notify(on_checkpoint, deepcopy(block))
+            if response_contract_failed:
+                break
+        if response_contract_failed:
+            break
     result = normalize_teacher_script_section({"blocks": [blocks[bid] for bid in expected]}, contract)
     result["quality_report"] = validate_teacher_script_section(result, contract)
     return result

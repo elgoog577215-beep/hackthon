@@ -268,7 +268,7 @@ def test_ppt_retry_increments_attempt_and_clears_stale_repair_state(workflow):
     assert "ppt_repair_state" not in checkpoint
 
 
-def test_empty_page_repairs_fall_back_to_grounded_page_and_complete_http_job(workflow):
+def test_empty_page_repairs_preserve_handout_without_publishing_partial_fallback(workflow):
     client, repository, _calls = workflow
     generate(client, complete_ppt=False)
     tm = client.app.dependency_overrides[routes.require_task_manager]()
@@ -310,17 +310,11 @@ def test_empty_page_repairs_fall_back_to_grounded_page_and_complete_http_job(wor
             break
         time.sleep(.01)
 
-    assert job["status"] == "completed", job.get("error")
+    assert job["status"] == "failed", job.get("error")
     manuscript_state = repository.current_v6_ppt_manuscript("course-1", "L1-1")
-    assert manuscript_state["status"] == "ready"
-    assert manuscript_state["manuscript"]["page_count"] >= 1
+    assert not manuscript_state.get("manuscript")
     block = next(iter(job["bundle_blocks"].values()))
-    assert not block["ppt_errors"]
-    assert block["ppt_pages"][0]["layout_id"].endswith("/bullets")
-    page_ids = [page["page_id"] for page in manuscript_state["manuscript"]["pages"]]
-    preview = client.post(
-        "/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/preview",
-        json={"expected_manuscript_revision": manuscript_state["revision"], "page_ids": page_ids},
-    )
-    assert preview.status_code == 200, preview.text
-    assert len(preview.json()["deck"]["pages"]) == len(page_ids)
+    assert block["ppt_errors"]
+    assert not block["ppt_pages"]
+    assert block["content"] == TEXT
+    assert repository.lesson("course-1", "L1-1")["working_script_revision_id"] == state["source_script_revision_id"]
