@@ -283,6 +283,12 @@ export const handleHttpError = (
   error: AxiosError,
   config: ErrorConfig = DEFAULT_ERROR_CONFIG
 ): string => {
+  // Route changes and newer requests intentionally cancel stale reads. They are
+  // control flow, not connectivity failures, and must never surface as a toast.
+  if (error?.code === 'ERR_CANCELED') {
+    if (error && typeof error === 'object') handledErrors.add(error);
+    return '';
+  }
   const fallback = error.response
     ? extractErrorDetail(error) || getErrorMessageByStatus(error.response.status)
     : error.request

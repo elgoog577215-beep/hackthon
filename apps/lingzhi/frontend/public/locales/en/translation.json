@@ -44,6 +44,9 @@
       "errors": {
         "title": "PPT manuscript was not generated",
         "block": "Failed at handout block {block}.",
+        "capacity": "The page text exceeds the selected layout capacity, so no clipped manuscript was saved.",
+        "source": "Page citations did not match the handout, so an ungrounded manuscript was not saved.",
+        "pageContract": "The page content or layout failed final validation. The handout and retry checkpoint were preserved.",
         "technicalDetails": "View technical details"
       }
   },

@@ -12,7 +12,7 @@
       <button type="button" :disabled="dirty || saving" :title="t('pptProject.originalReview')" :aria-label="t('pptProject.originalReview')" @click="openOriginal"><FileCheck2 :size="16" /></button>
       </TeacherDocumentCommandBar>
     </header>
-      <section v-if="error" class="lesson-ppt-error" role="alert">
+      <section v-if="error || visibleFailure" class="lesson-ppt-error" role="alert">
         <div><strong>{{ errorTitle }}</strong><p>{{ errorSummary }}</p></div>
         <button type="button" :disabled="saving || busy" @click="retry"><RefreshCw :size="16" />{{ t('common.retry') }}</button>
         <details v-if="errorTechnical"><summary>{{ t('pptLive.errors.technicalDetails') }}</summary><code>{{ errorTechnical }}</code></details>
@@ -55,7 +55,6 @@
         <div class="lesson-ppt-empty-mark"><Presentation :size="24" /></div>
         <h2>{{ loading ? t('common.loading') : t('pptLive.missing') }}</h2>
         <p>{{ loading ? t('pptProject.preparing') : emptyDescription }}</p>
-        <p v-for="(issue, index) in state.page_errors || []" :key="index" class="lesson-ppt-error">{{ issue.message }}</p>
         <button type="button" :disabled="loading || busy || !state.source_script_revision_id" @click="complete"><RefreshCw :size="16" />{{ t('pptLive.complete') }}</button>
       </div>
   </section>
@@ -87,9 +86,33 @@ const pageCountLabel = computed(() => t('pptWorkspace.sidebar.pageCount', '{coun
 const emptyDescription = computed(() => t('pptLive.missingDescription', '讲义已独立保存。点击生成，将当前讲义整理为 PPT 页面内容稿。'))
 const busy = computed(() => exporting.value || syncing.value || ['pending', 'running'].includes(job.value?.status || ''))
 const jobFailure = computed(() => job.value?.error && typeof job.value.error === 'object' ? job.value.error : null)
-const progressVisible = computed(() => !!job.value && ['pending', 'running', 'failed'].includes(job.value.status || '') && !state.value.manuscript)
-const progressPercent = computed(() => Math.max(0, Math.min(100, Number(job.value?.progress || 0))))
-const progressMessage = computed(() => job.value?.message || (job.value?.status === 'failed' ? t('pptLive.progress.failed') : t('pptProject.preparing')))
+const statePageFailure = computed(() => {
+  if (state.value.manuscript) return null
+  const issues = Array.isArray(state.value.page_errors) ? state.value.page_errors : []
+  const details = issues.map((issue: any) => String(issue?.message || '')).filter(Boolean)
+  if (!details.length) return null
+  const technical = [...new Set(details)].join('\n\n')
+  const capacity = /string_too_long|fixed_field_text_too_long|should have at most \d+ characters/i.test(technical)
+  const source = /source_(?:quote_id_unknown|excerpt_mismatch|block_unknown|revision_stale)/i.test(technical)
+  return {
+    code: capacity ? 'lesson_ppt_page_capacity_failed' : source ? 'lesson_ppt_source_grounding_failed' : 'lesson_ppt_page_contract_failed',
+    message: capacity
+      ? t('pptLive.errors.capacity')
+      : source
+        ? t('pptLive.errors.source')
+        : t('pptLive.errors.pageContract'),
+    failed_step: 'sources',
+    technical_detail: technical,
+  }
+})
+const visibleFailure = computed(() => ['pending', 'running'].includes(job.value?.status || '')
+  ? null
+  : jobFailure.value || statePageFailure.value)
+const progressVisible = computed(() => !state.value.manuscript && (
+  (!!job.value && ['pending', 'running', 'failed'].includes(job.value.status || '')) || !!statePageFailure.value
+))
+const progressPercent = computed(() => Math.max(0, Math.min(100, Number(job.value?.progress ?? (statePageFailure.value ? 92 : 0)))))
+const progressMessage = computed(() => job.value?.message || visibleFailure.value?.message || (job.value?.status === 'failed' ? t('pptLive.progress.failed') : t('pptProject.preparing')))
 const progressMeta = computed(() => {
   const parts: string[] = []
   const attempt = Number(job.value?.attempt_number || 1)
@@ -108,6 +131,7 @@ const stepDefinitions = computed(() => [
   { id: 'save', label: t('pptLive.progress.steps.save') },
 ])
 const currentStepId = computed(() => {
+  if (visibleFailure.value?.failed_step) return String(visibleFailure.value.failed_step)
   const phase = String(job.value?.phase || '')
   if (phase.includes('source_validation')) return 'prepare'
   if (phase.includes('page_generation') || phase.includes('content_repair')) return 'pages'
@@ -117,31 +141,31 @@ const currentStepId = computed(() => {
 })
 const progressSteps = computed(() => {
   const currentIndex = stepDefinitions.value.findIndex(step => step.id === currentStepId.value)
-  const failedStep = String(jobFailure.value?.failed_step || '')
+  const failedStep = String(visibleFailure.value?.failed_step || '')
   return stepDefinitions.value.map((step, index) => ({ ...step, state: failedStep === step.id
     ? 'failed'
     : job.value?.status === 'failed'
       ? index < currentIndex ? 'done' : index === currentIndex ? 'failed' : 'pending'
       : index < currentIndex ? 'done' : index === currentIndex ? 'current' : 'pending' }))
 })
-const errorTitle = computed(() => jobFailure.value?.failed_step === 'sources'
+const errorTitle = computed(() => visibleFailure.value?.failed_step === 'sources'
   ? t('pptLive.progress.steps.sources')
   : t('pptLive.errors.title'))
 const errorSummary = computed(() => {
-  const failure = jobFailure.value
+  const failure = visibleFailure.value
   if (!failure) return error.value
   const block = String(failure.failed_block_id || '')
   const messageText = String(failure.message || error.value)
   return block ? `${messageText} ${t('pptLive.errors.block').replace('{block}', block)}` : messageText
 })
-const errorTechnical = computed(() => String(jobFailure.value?.technical_detail || ''))
+const errorTechnical = computed(() => String(visibleFailure.value?.technical_detail || ''))
 const candidateState = computed(() => ({ revision: state.value.sync_candidate?.candidate_id, manuscript: { ...state.value.sync_candidate?.manuscript, pages: (state.value.sync_candidate?.manuscript?.pages || []).filter((p: any) => state.value.sync_candidate.affected_page_ids.includes(p.page_id)) } }))
 const visibleSlides = computed(() => {
   const item = manifest.value.find(p => p.page_id === selectedPage.value)
   return adaptSlideDeckV6ForWeb({ schema_version: 'slide_deck_v6', pages: (item?.physical_page_ids || []).map((id: string) => physicalPages.value[id]).filter(Boolean) })
 })
 const sources = computed(() => ({ lectures: [{ lesson_id: props.initialLessonId, title: props.title }], files: [] as {asset_id:string;filename:string}[] }))
-const context = computed(() => ({ phase: error.value ? 'failed' as const : busy.value ? 'during' as const : state.value.manuscript ? 'after' as const : 'before' as const,
+const context = computed(() => ({ phase: error.value || visibleFailure.value ? 'failed' as const : busy.value ? 'during' as const : state.value.manuscript ? 'after' as const : 'before' as const,
   preparing: false, label: busy.value ? t('pptProject.preparing') : state.value.manuscript ? t('courseWorkbench.contextPane.ready') : t('pptLive.missing'),
   detail: error.value, progress: busy.value ? job.value?.progress ?? null : null,
   actions: state.value.manuscript && state.value.source_state === 'stale' ? [{ id: 'sync', label: t('pptLive.sync'), disabled: busy.value || dirty.value, primary: false, reason: '' }]
