@@ -758,7 +758,12 @@ def audit_exported_pptx(
     require_pixel_audit: bool | None = None,
     expected_scenes: list[Any] | None = None,
 ) -> dict[str, Any]:
-    """Audit exported objects, then optionally render and OCR every page."""
+    """Audit exported objects, then optionally render and OCR every page.
+
+    Native exporters already verify OOXML against the saved scenes. Their
+    scene data supplies text roles/line budgets here without importing the
+    higher-level native renderer into this shared audit module.
+    """
     from pptx import Presentation
 
     presentation = Presentation(path)
@@ -781,12 +786,6 @@ def audit_exported_pptx(
         scene_objects = {}
         if expected_scenes is not None and slide_index <= len(expected_scenes):
             scene = expected_scenes[slide_index - 1]
-            from ppt_native_scene import audit_scene
-            try:
-                audit_scene(slide, scene)
-            except ValueError as error:
-                issues.append({"severity": "critical", "code": "exported_scene_contract_mismatch",
-                               "page": slide_index, "reason": str(error)})
             scene_objects = {f"teaching:{obj.object_id}": obj for obj in scene.objects}
         visible_object_count = 0
         text_shapes: list[Any] = []

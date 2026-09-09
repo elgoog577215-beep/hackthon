@@ -78,7 +78,7 @@ def test_scene_roles_do_not_hide_real_geometry_or_line_count_damage(tmp_path, da
     deck.save(path)
     report = audit_exported_pptx(path, require_pixel_audit=False, expected_scenes=[scene])
     assert not report["passed"]
-    expected = "exported_scene_contract_mismatch" if damage == "geometry" else "exported_body_capacity_exceeded"
+    expected = "exported_text_frame_overflow" if damage == "geometry" else "exported_body_capacity_exceeded"
     assert any(issue["code"] == expected for issue in report["blockers"])
 
 
