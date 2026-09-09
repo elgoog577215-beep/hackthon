@@ -917,9 +917,7 @@ def accept_change_set(
             != clarification_digest
             for operation in change_set.operations
         ):
-            raise CourseVersionConflict(
-                "Clarification answers changed after candidate generation"
-            )
+            raise ValueError("澄清答案已在候选生成后变化，请重新生成修改建议")
     if change_set.status == "applied":
         same_selection = (
             selected_operation_ids is None
