@@ -1,0 +1,237 @@
+name: Production Course Recovery Diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      course_id:
+        description: "Course ID to inspect without reading course prose"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Configure production SSH
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          LINGZHI_SSH_KEY: ${{ secrets.LINGZHI_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$LINGZHI_SSH_HOST"
+          test -n "$LINGZHI_SSH_USER"
+          test -n "$LINGZHI_SSH_KEY"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$LINGZHI_SSH_KEY" > ~/.ssh/lingzhi_diagnostic
+          chmod 600 ~/.ssh/lingzhi_diagnostic
+          ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Inspect current state and retained backups
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          COURSE_ID: ${{ inputs.course_id }}
+        run: |
+          set -euo pipefail
+          remote_course_id="$(printf '%q' "$COURSE_ID")"
+          ssh -i ~/.ssh/lingzhi_diagnostic \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "LINGZHI_DIAGNOSTIC_COURSE_ID=$remote_course_id python3 -" <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import tarfile
+          from typing import Any
+
+
+          course_id = os.environ["LINGZHI_DIAGNOSTIC_COURSE_ID"].strip()
+          if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,159}", course_id):
+              raise SystemExit("invalid course id")
+
+          state_root = Path("/opt/lingzhi/state/backend-data")
+          backup_root = Path("/opt/lingzhi/backups")
+
+
+          def mapping(value: Any) -> dict[str, Any]:
+              return value if isinstance(value, dict) else {}
+
+
+          def sequence(value: Any) -> list[Any]:
+              return value if isinstance(value, list) else []
+
+
+          def owner_fingerprint(value: Any) -> str:
+              owner = str(value or "").strip()
+              return hashlib.sha256(owner.encode()).hexdigest()[:12] if owner else ""
+
+
+          def course_summary(course: Any) -> dict[str, Any]:
+              value = mapping(course)
+              document = mapping(value.get("course_document"))
+              nodes = sequence(value.get("nodes"))
+              return {
+                  "present": bool(value),
+                  "updated_at": value.get("updated_at"),
+                  "course_status": value.get("course_status"),
+                  "generation_status": value.get("generation_status"),
+                  "generation_job_id": value.get("generation_job_id"),
+                  "teacher_production_schema": value.get("teacher_production_schema"),
+                  "teacher_outline_committed": bool(value.get("teacher_outline_committed")),
+                  "outline_generation_status": value.get("outline_generation_status"),
+                  "outline_framework_only": value.get("outline_framework_only"),
+                  "document_revision": document.get("document_revision"),
+                  "document_section_count": len(sequence(document.get("sections"))),
+                  "document_block_count": len(sequence(document.get("blocks"))),
+                  "node_count": len(nodes),
+                  "level_1_count": sum(
+                      1 for item in nodes
+                      if isinstance(item, dict) and int(item.get("node_level") or 0) == 1
+                  ),
+                  "level_2_count": sum(
+                      1 for item in nodes
+                      if isinstance(item, dict) and int(item.get("node_level") or 0) == 2
+                  ),
+                  "operation_count": len(sequence(value.get("course_operation_log"))),
+                  "owner_fingerprint": owner_fingerprint(value.get("owner_id")),
+              }
+
+
+          def task_summaries(tasks: Any) -> list[dict[str, Any]]:
+              values = mapping(tasks)
+              result = []
+              for task_id, raw in values.items():
+                  task = mapping(raw)
+                  if str(task.get("course_id") or "") != course_id:
+                      continue
+                  result.append({
+                      "task_id": str(task.get("id") or task_id),
+                      "type": task.get("type"),
+                      "status": task.get("status"),
+                      "phase": task.get("current_phase") or task.get("phase"),
+                      "progress": task.get("progress"),
+                      "workspace_id": task.get("workspace_id"),
+                      "created_at": task.get("created_at"),
+                      "updated_at": task.get("updated_at"),
+                      "owner_fingerprint": owner_fingerprint(
+                          task.get("owner_id")
+                          or mapping(task.get("request_snapshot")).get("_retrieval_actor_id")
+                      ),
+                  })
+              return sorted(result, key=lambda item: str(item.get("updated_at") or ""))
+
+
+          def workspace_summary(workspace: Any, source_name: str) -> dict[str, Any] | None:
+              value = mapping(workspace)
+              data = mapping(value.get("course_data"))
+              if str(value.get("course_id") or data.get("course_id") or "") != course_id:
+                  return None
+              outline = mapping(mapping(data.get("generation_stage_artifacts")).get("outline"))
+              detail_batches = mapping(outline.get("detail_batches"))
+              nodes = sequence(data.get("nodes"))
+              last_good = mapping(mapping(value.get("result")).get("last_good_course_data"))
+              return {
+                  "source": source_name,
+                  "workspace_id": value.get("workspace_id"),
+                  "workspace_status": value.get("status"),
+                  "created_at": value.get("created_at"),
+                  "updated_at": value.get("updated_at"),
+                  "generation_status": data.get("generation_status"),
+                  "outline_generation_status": data.get("outline_generation_status"),
+                  "outline_framework_only": data.get("outline_framework_only"),
+                  "outline_stage_status": outline.get("status"),
+                  "course_contract_status": outline.get("course_contract_status"),
+                  "detail_batch_count": len(detail_batches),
+                  "completed_detail_batch_count": sum(
+                      1 for item in detail_batches.values()
+                      if isinstance(item, dict) and item.get("status") == "completed"
+                  ),
+                  "node_count": len(nodes),
+                  "level_1_count": sum(
+                      1 for item in nodes
+                      if isinstance(item, dict) and int(item.get("node_level") or 0) == 1
+                  ),
+                  "level_2_count": sum(
+                      1 for item in nodes
+                      if isinstance(item, dict) and int(item.get("node_level") or 0) == 2
+                  ),
+                  "last_good_present": bool(last_good),
+                  "last_good_node_count": len(sequence(last_good.get("nodes"))),
+              }
+
+
+          def read_json(path: Path) -> Any:
+              try:
+                  return json.loads(path.read_text(encoding="utf-8"))
+              except (FileNotFoundError, OSError, json.JSONDecodeError):
+                  return None
+
+
+          current_workspaces = []
+          for path in sorted((state_root / "generation_workspaces").glob("*.json")):
+              summary = workspace_summary(read_json(path), path.name)
+              if summary:
+                  current_workspaces.append(summary)
+
+          result: dict[str, Any] = {
+              "schema_version": "production_course_recovery_diagnostic_v1",
+              "course_id": course_id,
+              "current": {
+                  "course": course_summary(read_json(state_root / "courses" / f"{course_id}.json")),
+                  "tasks": task_summaries(read_json(state_root / "generation_jobs.json")),
+                  "workspaces": current_workspaces,
+              },
+              "backups": [],
+          }
+
+          for archive in sorted(backup_root.glob("data-*.tgz")):
+              entry: dict[str, Any] = {
+                  "archive": archive.name,
+                  "course": course_summary(None),
+                  "tasks": [],
+                  "workspaces": [],
+              }
+              try:
+                  with tarfile.open(archive, "r:gz") as bundle:
+                      members = {member.name: member for member in bundle.getmembers() if member.isfile()}
+
+                      def member_json(name: str) -> Any:
+                          member = members.get(name)
+                          if member is None:
+                              return None
+                          handle = bundle.extractfile(member)
+                          if handle is None:
+                              return None
+                          return json.load(handle)
+
+                      course_member = f"backend-data/courses/{course_id}.json"
+                      entry["course"] = course_summary(member_json(course_member))
+                      entry["tasks"] = task_summaries(member_json("backend-data/generation_jobs.json"))
+                      for name in sorted(members):
+                          if not name.startswith("backend-data/generation_workspaces/") or not name.endswith(".json"):
+                              continue
+                          if "/.node-drafts/" in name:
+                              continue
+                          summary = workspace_summary(member_json(name), name.rsplit("/", 1)[-1])
+                          if summary:
+                              entry["workspaces"].append(summary)
+              except (OSError, tarfile.TarError, json.JSONDecodeError) as exc:
+                  entry["error"] = type(exc).__name__
+              result["backups"].append(entry)
+
+          print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+          PY
