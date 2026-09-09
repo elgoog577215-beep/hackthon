@@ -66,7 +66,12 @@
                   </div>
                   <textarea v-else ref="requestInputRef" v-model="requestText" rows="5" :aria-label="t('courseEvolution.workspace.mode_structure')" :placeholder="t('courseEvolution.workspace.structurePlaceholder', '例如：把导数应用放到第 2 讲，并重新安排后续讲次')" :disabled="store.generating || contextUnavailable" />
                   <p v-if="store.generationError || actionError" class="inline-error" role="alert"><TriangleAlert :size="15" />{{ store.generationError || actionError }}</p>
-                  <footer><button type="submit" class="button-primary button-submit" :disabled="store.generating || !requestCanSubmit || contextUnavailable"><Sparkles :size="16" />{{ t('courseEvolution.workspace.startAnalysis', '分析全课影响') }}</button></footer>
+                  <details v-if="analysisFailureDetails" class="analysis-failure-details">
+                    <summary>{{ t('courseEvolution.workspace.viewTechnicalDetails', '查看技术详情') }}</summary>
+                    <dl><div><dt>{{ t('courseEvolution.workspace.failureStage', '失败阶段') }}</dt><dd>{{ analysisFailureDetails.failure_stage || '-' }}</dd></div><div><dt>{{ t('courseEvolution.workspace.errorCode', '错误代码') }}</dt><dd>{{ analysisFailureDetails.code || '-' }}</dd></div><div><dt>{{ t('courseEvolution.workspace.exceptionType', '异常类型') }}</dt><dd>{{ analysisFailureDetails.exception_type || '-' }}</dd></div><div><dt>{{ t('courseEvolution.workspace.taskId', '任务 ID') }}</dt><dd>{{ store.analysisTask?.id || '-' }}</dd></div></dl>
+                    <p v-if="analysisFailureDetails.technical_message">{{ analysisFailureDetails.technical_message }}</p>
+                  </details>
+                  <footer><button type="submit" class="button-primary button-submit" :disabled="store.generating || !requestCanSubmit || contextUnavailable"><RefreshCw v-if="analysisRetryAvailable" :size="16" /><Sparkles v-else :size="16" />{{ analysisRetryAvailable ? t('courseEvolution.workspace.retryOriginalAnalysis', '按原要求重试分析') : t('courseEvolution.workspace.startAnalysis', '分析全课影响') }}</button></footer>
                 </form>
               </section>
               <section ref="historyRef" class="recent-changes">
@@ -247,6 +252,8 @@ let workspaceEpoch = 0
 const titleId = `course-change-${Math.random().toString(36).slice(2)}`
 
 const context = computed(() => store.courseContext)
+const analysisFailureDetails = computed(() => store.analysisTask?.status === 'failed' ? store.analysisTask.error_detail || null : null)
+const analysisRetryAvailable = computed(() => store.analysisTask?.status === 'failed')
 const courseLabel = computed(() => props.courseTitle || context.value?.course_title || t('courseEvolution.workspace.currentCourse', '当前课程'))
 const focusedPlan = computed(() => {
   const preferredId = selectedPlanId.value || props.focusPlanId
@@ -808,4 +815,11 @@ defineExpose({ reloadWorkspace, openPlan, startNewRequest, showHistory })
 .scan-actions{display:flex;align-items:center;justify-content:space-between;gap:16px}
 .scan-actions p{display:flex;align-items:center;gap:7px;margin:0;color:#087354;font-size:11px}
 .scan-actions .button-secondary{flex:none;min-height:40px}
+.analysis-failure-details{margin-top:10px;padding:10px 12px;border:1px solid #f0c8c2;border-radius:9px;color:#7a271a;background:#fff7f5}
+.analysis-failure-details summary{width:max-content;cursor:pointer;font-size:11px;font-weight:750}
+.analysis-failure-details dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:10px 0 0}
+.analysis-failure-details dl div{min-width:0;padding:7px 8px;border-radius:7px;background:#fff}
+.analysis-failure-details dt{color:#8a3b31;font-size:9px}
+.analysis-failure-details dd{overflow-wrap:anywhere;margin:3px 0 0;color:#5c2018;font:600 10px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace}
+.analysis-failure-details>p{overflow-wrap:anywhere;margin:9px 0 0;font:10px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace}
 </style>

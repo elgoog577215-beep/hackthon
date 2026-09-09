@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 import uuid
 from typing import Any
+
+from course_generation_errors import classify_generation_failure
 
 from .core import CourseEvolutionPlan, CourseEvolutionRepository, CourseEvolutionState, course_evolution_repository
 from .teacher_execution import generate_teacher_course_change_candidates
@@ -13,6 +17,77 @@ ANALYSIS_TASK_TYPE = "teacher_course_change_analysis"
 CANDIDATE_TASK_TYPE = "teacher_course_change_generation"
 TASK_TYPE = CANDIDATE_TASK_TYPE
 _ACTIVE_STATUSES = {"pending", "running"}
+logger = logging.getLogger(__name__)
+
+
+def _safe_analysis_technical_message(error: BaseException, *, expose: bool) -> str:
+    if not expose:
+        return f"{type(error).__name__}: 详细异常已记录在服务器日志中"
+    message = " ".join(str(error).split())[:500] or type(error).__name__
+    message = re.sub(
+        r"(?i)\b(api[_-]?key|authorization|token)\b\s*[:=]\s*\S+",
+        r"\1=<redacted>",
+        message,
+    )
+    message = re.sub(r"(?i)\bbearer\s+\S+", "Bearer <redacted>", message)
+    return message
+
+
+def _analysis_failure_contract(error: BaseException) -> tuple[str, dict[str, Any]]:
+    failure = classify_generation_failure(error)
+    code = str(failure.get("code") or "generation_failed")
+    error_type = type(error).__name__
+    if code == "generation_failed" and isinstance(error, ValueError):
+        code = "course_change_plan_invalid"
+
+    if error_type == "TeacherCourseChangeSourceUnavailable" or code in {"course_missing", "workspace_missing"}:
+        stage = "course_context"
+    elif code.startswith("provider_") or code in {
+        "generation_budget_exceeded",
+        "generation_deadline_exceeded",
+        "response_truncated",
+    }:
+        stage = "ai_analysis"
+    elif code == "revision_conflict" or isinstance(error, OSError):
+        stage = "plan_persistence"
+    elif isinstance(error, ValueError):
+        stage = "plan_validation"
+    else:
+        stage = "plan_creation"
+
+    public_messages = {
+        "course_change_plan_invalid": "AI 返回的课程修改方案没有通过校验，请保留原要求后重试。",
+        "provider_timeout": "AI 服务响应超时，请稍后按原要求重试。",
+        "provider_rate_limited": "AI 服务当前请求过多，请稍后按原要求重试。",
+        "provider_quota_exhausted": "AI 服务额度暂不可用，请联系管理员后重试。",
+        "provider_auth_failed": "AI 服务认证失败，请联系管理员检查模型配置。",
+        "provider_unavailable": "AI 服务暂时不可用，请稍后按原要求重试。",
+        "response_truncated": "AI 返回的分析结果不完整，请按原要求重试。",
+        "generation_budget_exceeded": "本次课程分析内容超过处理预算，请缩小范围后重试。",
+        "generation_deadline_exceeded": "本次课程分析超过允许时长，请稍后重试。",
+        "course_missing": "当前课程已不存在，请返回课程列表重新进入。",
+        "workspace_missing": "课程生成工作区已失效，请重新进入课程后重试。",
+        "revision_conflict": "课程内容已发生变化，请刷新课程后重新分析。",
+    }
+    if stage == "plan_persistence" and code == "generation_failed":
+        public_message = "课程修改方案暂时无法保存，请保留原要求后重试。"
+    else:
+        public_message = public_messages.get(
+            code,
+            "课程修改方案处理失败，请保留原要求后重试；若持续失败，请查看技术详情。",
+        )
+    expose_technical = isinstance(error, (ValueError, TimeoutError, OSError)) or code != "generation_failed"
+    technical_message = _safe_analysis_technical_message(error, expose=expose_technical)
+    detail = {
+        "code": code,
+        "failure_stage": stage,
+        "exception_type": error_type,
+        "public_message": public_message,
+        "technical_message": technical_message,
+        "translation_key": str(failure.get("translation_key") or ""),
+        "retryable": bool(failure.get("retryable", True)),
+    }
+    return public_message, detail
 
 
 def latest_analysis_task(manager: Any, user_id: str, course_id: str) -> dict[str, Any] | None:
@@ -187,12 +262,20 @@ async def run_analysis(manager: Any, job_id: str, *, service: Any = None) -> Non
     except asyncio.CancelledError:
         raise
     except Exception as error:
+        public_message, error_detail = _analysis_failure_contract(error)
+        logger.exception(
+            "Whole-course analysis failed job_id=%s request_id=%s stage=%s code=%s",
+            job_id,
+            request_id,
+            error_detail["failure_stage"],
+            error_detail["code"],
+        )
         await manager._update_task_status(
             job_id,
             "failed",
-            message="整课影响分析失败，可以保留原要求后重试",
-            error=str(error),
-            error_detail={"code": "course_change_analysis_failed", "retryable": True},
+            message=public_message,
+            error=error_detail["technical_message"],
+            error_detail=error_detail,
         )
     finally:
         if not generation.done():
