@@ -6,10 +6,10 @@ permissions:
 jobs:
   context-read:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
-      - name: Read course context failure without writes or model calls
+      - name: Replay two requested failed analysis inputs without course writes
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
