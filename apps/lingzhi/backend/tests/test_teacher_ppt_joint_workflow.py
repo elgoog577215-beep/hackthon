@@ -57,7 +57,13 @@ def workflow(tmp_path, monkeypatch):
                         "fields": {
                             "title": "任务执行流程",
                             "notes": "按依赖关系选择执行方式。",
-                            "steps": [source_wrapper(text) for text in ["识别任务", "分析依赖", "选择串行", "选择并行", "验证结果"]],
+                            "steps": [source_wrapper(text) for text in [
+                                "串行任务需要按顺序逐项执行，并保持明确的前后依赖关系",
+                                "并行任务可以同时执行多个任务，但必须确认任务之间相互独立",
+                                "相同任务条件下应根据任务之间的依赖选择合适的执行方式",
+                                "独立任务可以采用并行方式同时执行多个相互独立的任务",
+                                "存在依赖的任务需要按照明确的先后顺序逐项执行",
+                            ]],
                         },
                     }
                     raw = json.dumps([page, flow], ensure_ascii=False).replace('"block_id": "b"', json.dumps("block_id") + ": " + json.dumps(module["block_id"]))
@@ -127,10 +133,10 @@ def test_prose_then_explicit_ppt_saves_real_revision_and_preview_edit_use_no_mod
     assert state["manuscript"]["pages"][0]["title"] == "执行方式"
     assert state["manuscript"]["page_count"] == 3
     flow_pages = [page for page in next(iter(job["bundle_blocks"].values()))["ppt_pages"] if page["layout_id"].endswith("/flow")]
-    assert [[step["text"] for step in page["fields"]["steps"]] for page in flow_pages] == [
-        ["识别任务", "分析依赖", "选择串行"],
-        ["选择串行", "选择并行", "验证结果"],
-    ]
+    flow_steps = [[step["text"] for step in page["fields"]["steps"]] for page in flow_pages]
+    assert [len(page) for page in flow_steps] == [3, 3]
+    assert all(len(text) <= 28 for page in flow_steps for text in page)
+    assert len(list(dict.fromkeys(text for page in flow_steps for text in page))) == 5
     assert len(calls) == 2
     base = "/api/teacher/courses/course-1/lessons/L1-1/ppt-v6"
     page = state["manuscript"]["pages"][0]

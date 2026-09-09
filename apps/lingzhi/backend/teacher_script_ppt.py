@@ -328,6 +328,7 @@ def _prepare_page_candidates(pages: list[Any], block: dict[str, Any]) -> list[An
                 candidate[key] = _unwrap_source_text(candidate[key])
         candidate = _fit_page_capacity(candidate)
         for split_candidate in _split_page_list_capacity(candidate):
+            split_candidate = _fit_page_capacity(split_candidate)
             _stabilize_source_choices(split_candidate, catalog)
             prepared.append(split_candidate)
     return prepared

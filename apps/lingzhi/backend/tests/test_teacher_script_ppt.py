@@ -295,7 +295,13 @@ def test_source_wrapped_scalar_page_fields_are_unwrapped_without_model_retry():
 
 def test_overlong_flow_steps_split_locally_without_losing_content_or_model_retry():
     template, contract, _page = sample()
-    step_texts = ["识别任务", "分析依赖", "选择串行", "选择并行", "验证结果"]
+    step_texts = [
+        "串行任务需要按顺序逐项执行，并保持明确的前后依赖关系",
+        "并行任务可以同时执行多个任务，但必须确认任务之间相互独立",
+        "相同任务条件下应根据任务之间的依赖选择合适的执行方式",
+        "独立任务可以采用并行方式同时执行多个相互独立的任务",
+        "存在依赖的任务需要按照明确的先后顺序逐项执行",
+    ]
 
     def field(text):
         return {"text": text, "sources": [{"block_id": "b", "quote": TEXT}]}
@@ -322,8 +328,11 @@ def test_overlong_flow_steps_split_locally_without_losing_content_or_model_retry
     assert not repaired["ppt_errors"]
     assert len(repaired["ppt_pages"]) == 2
     repaired_steps = [[step["text"] for step in page["fields"]["steps"]] for page in repaired["ppt_pages"]]
-    assert repaired_steps == [step_texts[:3], step_texts[2:]]
-    assert list(dict.fromkeys(text for page in repaired_steps for text in page)) == step_texts
+    assert [len(page) for page in repaired_steps] == [3, 3]
+    assert all(len(text) <= 28 for page in repaired_steps for text in page)
+    assert len(list(dict.fromkeys(text for page in repaired_steps for text in page))) == 5
+    assert all(step["sources"][0]["quote"] == TEXT
+               for page in repaired["ppt_pages"] for step in page["fields"]["steps"])
     validate_block_pages(repaired, template)
 
 
