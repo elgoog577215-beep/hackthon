@@ -1,3 +1,4 @@
+import pytest
 from pptx import Presentation
 from pptx.util import Pt
 
@@ -53,6 +54,32 @@ def test_title_height_tolerance_cannot_hide_horizontal_overflow(tmp_path):
     deck.save(path)
     report = audit_exported_pptx(path, require_pixel_audit=False)
     assert any(b["code"] == "exported_text_frame_overflow" for b in report["blockers"])
+
+
+@pytest.mark.parametrize("damage", ["geometry", "extra_line"])
+def test_scene_roles_do_not_hide_real_geometry_or_line_count_damage(tmp_path, damage):
+    from .test_ppt_teaching_content import comparison_fixture, scene_for
+    from ppt_native_scene import render_scene
+    from slide_deck_renderer import audit_exported_pptx
+
+    value, _ = comparison_fixture()
+    scene = scene_for(value)
+    deck = Presentation()
+    deck.slide_width, deck.slide_height = Pt(960), Pt(540)
+    slide = deck.slides.add_slide(deck.slide_layouts[6])
+    render_scene(slide, scene)
+    target = next(shape for shape in slide.shapes if shape.name == "teaching:condition")
+    if damage == "geometry":
+        target.width = Pt(1)
+    else:
+        paragraph = target.text_frame.paragraphs[0]
+        paragraph.text = paragraph.text[:1] + "\v" + paragraph.text[1:]
+    path = tmp_path / "damaged.pptx"
+    deck.save(path)
+    report = audit_exported_pptx(path, require_pixel_audit=False, expected_scenes=[scene])
+    assert not report["passed"]
+    expected = "exported_scene_contract_mismatch" if damage == "geometry" else "exported_body_capacity_exceeded"
+    assert any(issue["code"] == expected for issue in report["blockers"])
 
 
 def test_pdf_aliases_are_identical_in_the_pinned_font():

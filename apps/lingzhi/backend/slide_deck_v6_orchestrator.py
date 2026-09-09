@@ -1194,6 +1194,8 @@ class SlideDeckV6Orchestrator:
                             # OOXML objects by the exporter. PDF/OCR certification
                             # remains mandatory for the older enhanced engine.
                             require_pixel_audit=self.require_pixel_audit and not template.template_version.startswith("fixed_classroom_"),
+                            **({"expected_scenes": [page.resolved_scene for page in deck.pages]}
+                               if three_stage and template.template_version.startswith("fixed_classroom_") else {}),
                         ),
                         tracker=tracker,
                         callback=progress_callback,

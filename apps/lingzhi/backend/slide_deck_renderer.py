@@ -756,12 +756,15 @@ def audit_exported_pptx(
     *,
     expected_slide_count: int | None = None,
     require_pixel_audit: bool | None = None,
+    expected_scenes: list[Any] | None = None,
 ) -> dict[str, Any]:
     """Audit exported objects, then optionally render and OCR every page."""
     from pptx import Presentation
 
     presentation = Presentation(path)
     issues: list[dict[str, Any]] = []
+    if expected_scenes is not None and len(expected_scenes) != len(presentation.slides):
+        issues.append({"severity": "critical", "code": "exported_scene_count_mismatch"})
     if expected_slide_count is not None and len(presentation.slides) != expected_slide_count:
         issues.append({
             "severity": "critical",
@@ -775,6 +778,16 @@ def audit_exported_pptx(
             "code": "exported_aspect_ratio_invalid",
         })
     for slide_index, slide in enumerate(presentation.slides, start=1):
+        scene_objects = {}
+        if expected_scenes is not None and slide_index <= len(expected_scenes):
+            scene = expected_scenes[slide_index - 1]
+            from ppt_native_scene import audit_scene
+            try:
+                audit_scene(slide, scene)
+            except ValueError as error:
+                issues.append({"severity": "critical", "code": "exported_scene_contract_mismatch",
+                               "page": slide_index, "reason": str(error)})
+            scene_objects = {f"teaching:{obj.object_id}": obj for obj in scene.objects}
         visible_object_count = 0
         text_shapes: list[Any] = []
         for shape in slide.shapes:
@@ -824,7 +837,8 @@ def audit_exported_pptx(
                 bottom_inches = (int(shape.top) + int(shape.height)) / 914400
                 is_footer = top_inches >= 6.9
                 is_eyebrow = top_inches < 0.62 and int(shape.height) / 914400 < 0.5
-                is_title = (
+                scene_object = scene_objects.get(str(shape.name or ""))
+                is_title = scene_object.slot_id == "title" if scene_object is not None else (
                     0.6 <= top_inches < 1.95
                     and text_audit["minimum_font_size_pt"] >= 28
                 )
@@ -849,10 +863,14 @@ def audit_exported_pptx(
                     r"\[v6-body-max-lines=(\d+)\]",
                     str(shape.name or ""),
                 )
+                body_line_limit = (
+                    max(1, len(scene_object.lines)) if scene_object is not None and not is_title
+                    else max(1, int(body_line_match.group(1))) if body_line_match else None
+                )
                 if (
-                    body_line_match
+                    body_line_limit is not None
                     and text_audit["maximum_wrapped_lines"]
-                    > max(1, int(body_line_match.group(1)))
+                    > body_line_limit
                 ):
                     issues.append({
                         "severity": "critical",
@@ -862,17 +880,15 @@ def audit_exported_pptx(
                         "maximum_wrapped_lines": text_audit[
                             "maximum_wrapped_lines"
                         ],
-                        "allowed_wrapped_lines": max(
-                            1,
-                            int(body_line_match.group(1)),
-                        ),
+                        "allowed_wrapped_lines": body_line_limit,
                     })
                 title_line_match = re.search(
                     r"\[v6-title-max-lines=(\d+)\]",
                     str(shape.name or ""),
                 )
                 title_line_limit = (
-                    max(1, int(title_line_match.group(1)))
+                    max(1, len(scene_object.lines)) if scene_object is not None
+                    else max(1, int(title_line_match.group(1)))
                     if title_line_match
                     else 1
                 )
@@ -888,7 +904,7 @@ def audit_exported_pptx(
                         "maximum_wrapped_lines": text_audit["maximum_wrapped_lines"],
                         "allowed_wrapped_lines": title_line_limit,
                     })
-                if is_title:
+                if is_title and scene_object is None:
                     frame = shape.text_frame
                     width_pt = max(
                         1.0,
