@@ -1,4 +1,4 @@
-name: Inspect all lecture PPT failures (read-only)
+name: Replay generic PPT recovery without production writes
 
 on:
   workflow_dispatch:
@@ -52,4 +52,4 @@ jobs:
           set -euo pipefail
           ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            '/opt/lingzhi/.venv/bin/python -' < apps/lingzhi/scripts/inspect_course_ppt_failures.py
+            '/opt/lingzhi/.venv/bin/python -' < apps/lingzhi/scripts/inspect_general_ppt_recovery.py
