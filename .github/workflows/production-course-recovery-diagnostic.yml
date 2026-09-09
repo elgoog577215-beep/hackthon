@@ -84,6 +84,9 @@ jobs:
               value = mapping(course)
               document = mapping(value.get("course_document"))
               nodes = sequence(value.get("nodes"))
+              profile = mapping(value.get("course_profile"))
+              request = mapping(value.get("generation_request"))
+              brief = mapping(request.get("teacher_course_brief"))
               return {
                   "present": bool(value),
                   "course_id": value.get("course_id"),
@@ -108,6 +111,10 @@ jobs:
                       if isinstance(item, dict) and int(item.get("node_level") or 0) == 2
                   ),
                   "operation_count": len(sequence(value.get("course_operation_log"))),
+                  "planned_lecture_count": profile.get("planned_lecture_count"),
+                  "profile_total_hours": profile.get("total_hours"),
+                  "request_lecture_count": brief.get("lecture_count"),
+                  "request_total_hours": brief.get("total_class_hours"),
                   "owner_fingerprint": owner_fingerprint(value.get("owner_id")),
               }
 
@@ -137,6 +144,10 @@ jobs:
                       "phase": task.get("current_phase") or task.get("phase"),
                       "progress": task.get("progress"),
                       "workspace_id": task.get("workspace_id"),
+                      "request_target_course_id": request.get("target_course_id"),
+                      "request_lecture_count": mapping(
+                          request.get("teacher_course_brief")
+                      ).get("lecture_count"),
                       "created_at": task.get("created_at"),
                       "updated_at": task.get("updated_at"),
                       "owner_fingerprint": owner_fingerprint(
@@ -155,6 +166,7 @@ jobs:
               value = mapping(workspace)
               data = mapping(value.get("course_data"))
               request = mapping(data.get("generation_request"))
+              brief = mapping(request.get("teacher_course_brief"))
               workspace_course_id = str(value.get("course_id") or data.get("course_id") or "")
               matched_by = []
               if workspace_course_id == course_id:
@@ -198,6 +210,9 @@ jobs:
                   ),
                   "last_good_present": bool(last_good),
                   "last_good_node_count": len(sequence(last_good.get("nodes"))),
+                  "request_target_course_id": request.get("target_course_id"),
+                  "request_lecture_count": brief.get("lecture_count"),
+                  "request_total_hours": brief.get("total_class_hours"),
               }
 
 
