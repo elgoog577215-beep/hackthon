@@ -2847,6 +2847,15 @@ def review_teacher_course_change_scope(
             for path, value in edited_fields.items():
                 _set_json_pointer(proposed_block.payload, path, value)
             after_fields = editable_text_fields(proposed_block.payload)
+            literal_before = str((migration.metadata.get("literal_replacement") or {}).get("before") or "")
+            change_count = (
+                sum(
+                    max(0, value.count(literal_before) - after_fields.get(path, "").count(literal_before))
+                    for path, value in before_fields.items()
+                )
+                if literal_before
+                else sum(before_fields.get(path, "") != value for path, value in after_fields.items())
+            )
             operation.payload["proposed_block"] = proposed_block.model_dump(mode="json")
             operation.payload["manually_edited"] = True
             operation.payload["manual_edit_fields"] = sorted(edited_fields)
@@ -2855,10 +2864,7 @@ def review_teacher_course_change_scope(
                 "after_fields": after_fields,
                 "after_content": "\n\n".join(after_fields.values()),
                 "after_preview": _unit_text(proposed_block.payload, 360),
-                "change_count": sum(
-                    before_fields.get(path, "") != value
-                    for path, value in after_fields.items()
-                ),
+                "change_count": change_count,
                 "manually_edited": True,
                 "manual_edit_fields": sorted(edited_fields),
             })

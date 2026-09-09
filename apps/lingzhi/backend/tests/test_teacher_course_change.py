@@ -515,6 +515,7 @@ def test_teacher_can_replace_an_exact_course_content_candidate_with_manual_text(
         "先给出自由体图；这里保留 Unity 作为软件名称，再列方程。"
     )
     assert affected["manually_edited"] is True
+    assert affected["change_count"] == 1
     assert operation.payload["proposed_block"]["payload"]["markdown"] == (
         "先给出自由体图；这里保留 Unity 作为软件名称，再列方程。"
     )
