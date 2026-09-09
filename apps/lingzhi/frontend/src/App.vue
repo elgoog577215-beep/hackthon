@@ -11,7 +11,11 @@
       class="app-header glass-panel-elevated"
     >
       <div class="app-header-start">
-        <RouterLink class="brand-button" :class="{ 'is-route-hidden': isCourseWorkspaceRoute }" :to="{ name: 'course-library' }" :aria-label="t('app.backToLibrary', '返回课程库')">
+        <a v-if="qizhiHomeEnabled" href="/" class="header-icon-button qizhi-home-link">
+          <ArrowLeft :size="17" aria-hidden="true" />
+          <span>{{ t('app.backToQizhi') }}</span>
+        </a>
+        <RouterLink v-else class="brand-button" :class="{ 'is-route-hidden': isCourseWorkspaceRoute }" :to="{ name: 'course-library' }" :aria-label="t('app.backToLibrary', '返回课程库')">
           <img class="brand-mark" src="/qizhi-favicon.svg" alt="启智" />
           <span class="brand-name">启智</span>
         </RouterLink>
@@ -117,17 +121,19 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { Download, Scan, Search, Settings2, X } from 'lucide-vue-next'
+import { ArrowLeft, Download, Scan, Search, Settings2, X } from 'lucide-vue-next'
 import AppErrorCenter from './components/AppErrorCenter.vue'
 import KnowledgeLibrary from './components/KnowledgeLibrary.vue'
 import UiSegmentedControl from './components/UiSegmentedControl.vue'
 import { useCourseStore } from './stores/course'
 import { GENERATION_STATE_KEY, useGenerationStore } from './stores/generation'
 import { activeLocale, setLocale, t } from './shared/i18n'
+import { isQizhiAuthRequired } from './utils/http'
 
 const route = useRoute()
 const courseStore = useCourseStore()
 const generationStore = useGenerationStore()
+const qizhiHomeEnabled = isQizhiAuthRequired()
 
 const reconcileGenerationTasks = () => {
   void generationStore.fetchGlobalTasks()
@@ -291,6 +297,10 @@ function changeLocale(locale: string) {
 .header-actions::before { content:""; position:absolute; left:0; width:1px; height:26px; background:linear-gradient(180deg,transparent,#dbe3ef,transparent); }
 .header-icon-button { width:36px; height:36px; display:grid; place-items:center; border:1px solid transparent; border-radius:11px; color:var(--lz-text-secondary); background:transparent; transition:transform .16s ease,color .16s ease,background .16s ease,border-color .16s ease; }
 .header-icon-button:hover, .header-icon-button.active { transform:translateY(-1px); border-color:#e0e7ff; color:var(--lz-brand-strong); background:#f5f3ff; }
+.qizhi-home-link { width:auto; flex:none; display:inline-flex; gap:6px; padding:0 10px; border-color:var(--lz-border); font-size:15px; font-weight:600; text-decoration:none; white-space:nowrap; }
+.qizhi-home-link:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
+.qizhi-home-link:active { transform:none; background:var(--lz-brand-soft); }
+.app-shell.is-course-workspace-route .qizhi-home-link { margin-right:12px; }
 .header-search {
   width: clamp(180px, 22vw, 300px);
   height: 36px;

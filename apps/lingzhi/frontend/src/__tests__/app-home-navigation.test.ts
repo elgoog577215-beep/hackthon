@@ -1,8 +1,9 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App.vue'
+import * as http from '@/utils/http'
 
 const generationStore = {
   restoreGenerationState: vi.fn(),
@@ -21,7 +22,10 @@ describe('App home navigation', () => {
     vi.clearAllMocks()
   })
 
-  it('shows the brand on the course-library home and removes it from a course workspace', async () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it.each([false, true])('keeps home navigation correct across routes (school deployment: %s)', async (schoolDeployment) => {
+    vi.spyOn(http, 'isQizhiAuthRequired').mockReturnValue(schoolDeployment)
     const pinia = createPinia()
     setActivePinia(pinia)
     const router = createRouter({
@@ -61,8 +65,10 @@ describe('App home navigation', () => {
       },
     })
 
-    const homeLink = wrapper.get('a.brand-button')
-    expect(homeLink.attributes('href')).toBe('/courses')
+    const homeLink = wrapper.get(schoolDeployment ? 'a.qizhi-home-link' : 'a.brand-button')
+    expect(homeLink.attributes('href')).toBe(schoolDeployment ? '/' : '/courses')
+    expect(wrapper.find('a.qizhi-home-link').exists()).toBe(schoolDeployment)
+    expect(homeLink.attributes('target')).toBeUndefined()
     expect(wrapper.find('.app-course-stages').exists()).toBe(false)
     expect(wrapper.findComponent({ name: 'CourseStageTabs' }).exists()).toBe(false)
 
@@ -70,7 +76,12 @@ describe('App home navigation', () => {
     await flushPromises()
 
     expect(router.currentRoute.value.name).toBe('course-workspace')
-    expect(wrapper.get('a.brand-button').classes()).toContain('is-route-hidden')
+    if (schoolDeployment) {
+      expect(wrapper.get('a.qizhi-home-link').isVisible()).toBe(true)
+      expect(wrapper.get('a.qizhi-home-link').attributes('href')).toBe('/')
+    } else {
+      expect(wrapper.get('a.brand-button').classes()).toContain('is-route-hidden')
+    }
     expect(wrapper.classes()).toContain('is-course-workspace-route')
 
     await router.push('/course/course-1/learn?teacherPreview=1')
@@ -78,6 +89,7 @@ describe('App home navigation', () => {
     expect(wrapper.findComponent({name:'KnowledgeLibrary'}).exists()).toBe(true)
     expect(wrapper.findComponent({name:'KnowledgeLibrary'}).props('learningMode')).toBe(true)
     expect(wrapper.find('.header-search').exists()).toBe(true)
+    expect(wrapper.find('a.qizhi-home-link').exists()).toBe(schoolDeployment)
     wrapper.unmount()
   })
 })
