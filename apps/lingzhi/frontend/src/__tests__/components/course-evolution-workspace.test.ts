@@ -505,6 +505,45 @@ describe('CourseEvolutionWorkspace', () => {
     wrapper.unmount()
   })
 
+  it('标出精确替换内容并允许把人工正文保存回待应用方案', async () => {
+    const pinia = createPinia()
+    const store = useCourseEvolutionStore(pinia)
+    store.plans = [plan({
+      operations: [{ operation_id: 'op-exact', operation_type: 'REPLACE_COURSE_BLOCK', target_block_id: 'block-1', target_section_id: 's1', scope: 'current', reason: '术语统一', payload: {} }],
+      allowed_scopes: ['current'],
+      teacher_change_planning: planning({ status: 'candidate_ready' }),
+      impact_summary: {
+        analysis_mode: 'deterministic_exact_replace',
+        candidate_bundle: { operation_count: 1 },
+        scope_review: { reviewed_at: '2026-08-25T10:06:00Z', selected_migration_ids: ['m1'] },
+        affected_units: [{
+          migration_id: 'm1', unit_id: 'course_content:block-1', asset_type: 'course_content', unit_type: 'course_block', title: '应用场景',
+          before_preview: '先画 Unity，再运行 Unity 项目。', before_content: '先画 Unity，再运行 Unity 项目。',
+          before_fields: { '/markdown': '先画 Unity，再运行 Unity 项目。' },
+          after_preview: '先画团结，再运行团结项目。', after_content: '先画团结，再运行团结项目。',
+          after_fields: { '/markdown': '先画团结，再运行团结项目。' },
+          literal_replacement: { before: 'Unity', after: '团结' },
+          section_ids: ['s1'], source_state: 'current', disposition: 'rewrite_partial', reason: '术语统一', confidence: 1, candidate_status: 'ready', operation_id: 'op-exact', change_count: 2,
+        }],
+      },
+    })]
+    const review = vi.spyOn(store, 'reviewCoursePlan').mockResolvedValue({} as any)
+    const wrapper = mountWorkspace(pinia)
+
+    expect(wrapper.findAll('.diff-highlight.is-before')).toHaveLength(2)
+    expect(wrapper.findAll('.diff-highlight.is-after')).toHaveLength(2)
+    await wrapper.get('[data-testid="edit-candidate-m1"]').trigger('click')
+    const editor = wrapper.get('[data-testid="candidate-editor-m1"] textarea')
+    await editor.setValue('先画团结，再运行 Unity 项目。')
+    await wrapper.get('[data-testid="save-candidate-m1"]').trigger('click')
+
+    expect(review).toHaveBeenCalledWith('change-1', ['m1'], {
+      migrationDispositions: { m1: 'rewrite_partial' },
+      manualContentEdits: { m1: { '/markdown': '先画团结，再运行 Unity 项目。' } },
+    })
+    wrapper.unmount()
+  })
+
   it('结构变化独立展示新旧课程树并在确认后生成联动建议', async () => {
     const pinia = createPinia()
     const store = useCourseEvolutionStore(pinia)

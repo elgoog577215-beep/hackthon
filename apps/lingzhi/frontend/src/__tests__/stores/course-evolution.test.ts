@@ -182,6 +182,29 @@ describe('course evolution store', () => {
     ])
   })
 
+  it('sends teacher-authored candidate fields through the review boundary', async () => {
+    httpMock.post.mockResolvedValue({ data: payload() })
+    const store = useCourseEvolutionStore()
+    store.courseId = 'course-1'
+
+    await store.reviewCoursePlan('plan-1', ['migration-1'], {
+      manualContentEdits: {
+        'migration-1': { '/markdown': '保留这一处 Unity，其余改为团结。' },
+      },
+    })
+
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/courses/course-1/evolution/course-plans/plan-1/review',
+      {
+        selected_migration_ids: ['migration-1'],
+        confirm_structure: false,
+        manual_content_edits: {
+          'migration-1': { '/markdown': '保留这一处 Unity，其余改为团结。' },
+        },
+      },
+    )
+  })
+
   it('keeps whole-course analysis attached to a durable task across request timeout boundaries', async () => {
     httpMock.post.mockResolvedValueOnce({ data: {
       analysis_task: {

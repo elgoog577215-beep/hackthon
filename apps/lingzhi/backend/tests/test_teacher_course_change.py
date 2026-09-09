@@ -472,6 +472,57 @@ def test_explicit_term_replacement_compiles_without_model_availability(tmp_path)
     assert "自由体图" in course_content["after_preview"]
 
 
+def test_teacher_can_replace_an_exact_course_content_candidate_with_manual_text(tmp_path):
+    repository = CourseEvolutionRepository(tmp_path)
+    state = asyncio.run(create_teacher_course_change_plan(
+        context=context(),
+        user_id="teacher-1",
+        request_id="deterministic-replace-manual-edit",
+        instruction="把“受力图”统一替换为“自由体图”",
+        repository=repository,
+        analyzer=None,
+    ))
+    plan = state.change_sets[0]
+    migration = next(
+        item
+        for item in plan.teacher_change_planning.unit_migrations
+        if item.asset_type == "course_content"
+    )
+
+    updated = review_teacher_course_change_scope(
+        repository=repository,
+        user_id="teacher-1",
+        course_id="course-1",
+        change_set_id=plan.change_set_id,
+        selected_migration_ids=[migration.migration_id],
+        manual_content_edits={
+            migration.migration_id: {
+                "/markdown": "先给出自由体图；这里保留 Unity 作为软件名称，再列方程。",
+            },
+        },
+    ).change_sets[0]
+
+    affected = next(
+        item
+        for item in updated.impact_summary["affected_units"]
+        if item["migration_id"] == migration.migration_id
+    )
+    operation = next(
+        item for item in updated.operations
+        if item.operation_id == migration.metadata["operation_id"]
+    )
+    assert affected["after_fields"]["/markdown"] == (
+        "先给出自由体图；这里保留 Unity 作为软件名称，再列方程。"
+    )
+    assert affected["manually_edited"] is True
+    assert operation.payload["proposed_block"]["payload"]["markdown"] == (
+        "先给出自由体图；这里保留 Unity 作为软件名称，再列方程。"
+    )
+    assert updated.impact_summary["scope_review"]["manual_content_edits"] == {
+        migration.migration_id: ["/markdown"],
+    }
+
+
 def test_explicit_term_replacement_reports_zero_formal_hits(tmp_path):
     repository = CourseEvolutionRepository(tmp_path)
     state = asyncio.run(create_teacher_course_change_plan(
