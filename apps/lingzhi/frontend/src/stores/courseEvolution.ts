@@ -44,7 +44,11 @@ export interface CourseChangeAnalysisTask {
     translation_key?: string
     retryable?: boolean
   } | null
-  phase_detail?: { request_id?: string; plan_id?: string }
+  phase_detail?: {
+    request_id?: string
+    plan_id?: string
+    scan?: { completed_parts: number; total_parts: number; reused_parts: number; failed_parts: number }
+  }
 }
 
 export interface CourseEvolutionOperationJournalEntry {

@@ -300,6 +300,7 @@ BACKOFF_MAX = 60
 # payloads stay in their dedicated repositories/endpoints instead of being
 # copied into every five-second task-list response.
 PUBLIC_TASK_OMITTED_FIELDS = frozenset({
+    "analysis_checkpoint",
     "event_history",
     "last_event",
     "result",
@@ -4427,6 +4428,7 @@ class TaskManager:
 
     def _task_view(self, task: dict[str, Any]) -> dict[str, Any]:
         view = deepcopy(task)
+        view.pop("analysis_checkpoint", None)
         view["recovery"] = self.describe_task_recovery(str(task["id"]))
         return view
 
@@ -8730,7 +8732,7 @@ class TaskManager:
                 persisted[task_id] = {
                     key: value
                     for key, value in task.items()
-                    if key not in PUBLIC_TASK_OMITTED_FIELDS
+                    if key not in PUBLIC_TASK_OMITTED_FIELDS or key == "analysis_checkpoint"
                 }
             else:
                 persisted[task_id] = task

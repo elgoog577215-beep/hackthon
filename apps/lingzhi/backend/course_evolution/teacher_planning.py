@@ -42,6 +42,7 @@ from .core import (
     CourseEvolutionState,
 )
 from .text_fields import editable_text_fields
+from .semantic_scan import ScanProgress, scan_batches
 
 COURSE_CHANGE_CONTEXT_SCHEMA = "teacher_course_change_context_v1"
 COURSE_CHANGE_INDEX_SCHEMA = "teacher_course_change_index_v1"
@@ -2097,6 +2098,9 @@ async def create_teacher_course_change_plan(
     confirmed_interpretation: bool = False,
     clarification_set_id: str = "",
     clarification_answers: list[dict[str, Any]] | None = None,
+    scan_checkpoint: dict[str, Any] | None = None,
+    on_scan_progress: ScanProgress | None = None,
+    scan_model_identity: str = "",
 ) -> CourseEvolutionState:
     if not context.ready:
         raise TeacherCourseChangeSourceUnavailable("当前课程尚未形成可分析的大纲或教学资产")
@@ -2183,41 +2187,11 @@ async def create_teacher_course_change_plan(
                 size += cost
         if batch:
             batches.append(batch)
-        analyses: list[dict[str, Any]] = []
-
-        async def analyze_batch(items: list[dict[str, Any]]) -> dict[str, Any]:
-            result = await analyzer(overview, items, normalized_instruction)
-            if not isinstance(result, dict):
-                raise ValueError("影响分析没有返回可用 JSON 对象")
-            return result
-
-        for batch_index, batch in enumerate(batches):
-            try:
-                result = await analyze_batch(batch)
-                analyses.append(result)
-                scanned_ids.update(item["unit_id"] for item in batch)
-            except Exception:  # noqa: BLE001 - retry the failed model envelope below
-                retried_batch_count += 1
-                midpoint = max(1, len(batch) // 2)
-                retry_parts = [batch] if len(batch) == 1 else [batch[:midpoint], batch[midpoint:]]
-                for part_index, retry_part in enumerate(retry_parts):
-                    if not retry_part:
-                        continue
-                    try:
-                        result = await analyze_batch(retry_part)
-                        analyses.append(result)
-                        scanned_ids.update(item["unit_id"] for item in retry_part)
-                    except Exception as retry_error:  # noqa: BLE001 - persist safe diagnostics per final failed part
-                        failed_ids = [str(item["unit_id"]) for item in retry_part]
-                        unscanned_ids.update(failed_ids)
-                        batch_failures.append({
-                            "batch_index": batch_index,
-                            "part_index": part_index,
-                            "unit_ids": failed_ids,
-                            "error_type": type(retry_error).__name__,
-                            "message": _compact(str(retry_error) or "影响分析失败", 400),
-                        })
-        scanned_ids.difference_update(unscanned_ids)
+        analyses, scanned_ids, unscanned_ids, batch_failures, retried_batch_count = await scan_batches(
+            overview=overview, batches=batches, instruction=normalized_instruction,
+            revisions={**context.base_revision_vector, "analysis_model": scan_model_identity}, analyzer=analyzer,
+            checkpoint=scan_checkpoint, on_progress=on_scan_progress,
+        )
         if analyses:
             raw_analysis = deepcopy(analyses[0])
             by_id: dict[str, dict[str, Any]] = {}

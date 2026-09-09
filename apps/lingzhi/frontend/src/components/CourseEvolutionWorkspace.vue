@@ -85,6 +85,7 @@
               <section class="scan-main">
                 <div class="scan-heading"><span><ScanSearch :size="21" /></span><div><small>{{ t('courseEvolution.workspace.scanningKicker', '正在分析全课') }}</small><h3>{{ t('courseEvolution.workspace.scanRequestTitle', '正在理解要求并定位所有受影响内容') }}</h3></div></div>
                 <div class="scan-line"><span /></div>
+                <p v-if="scanProgress" class="coverage-status" data-testid="semantic-scan-progress">{{ t('courseEvolution.workspace.scanBatchProgress').replace('{done}', String(scanProgress.completed_parts)).replace('{total}', String(scanProgress.total_parts)).replace('{reused}', String(scanProgress.reused_parts)).replace('{failed}', String(scanProgress.failed_parts)) }}</p>
                 <dl><div><dt>{{ t('courseEvolution.workspace.scanIndex', '索引召回') }}</dt><dd>{{ context?.summary?.indexed_units || 0 }} {{ t('courseEvolution.workspace.units', '个单元') }}</dd></div><div><dt>{{ t('courseEvolution.workspace.scanRelations', '关系扩展') }}</dt><dd>{{ t('courseEvolution.workspace.crossAssets', '跨大纲与教学资产') }}</dd></div><div><dt>{{ t('courseEvolution.workspace.scanJudgement', 'AI 判断') }}</dt><dd>{{ t('courseEvolution.workspace.keepRealImpact', '保留真实影响') }}</dd></div></dl>
                 <div class="scan-actions">
                   <p><ShieldCheck :size="15" />{{ t('courseEvolution.workspace.scanGuard', '此阶段只建立影响计划，不写入正式课程。') }}</p>
@@ -254,6 +255,7 @@ const titleId = `course-change-${Math.random().toString(36).slice(2)}`
 const context = computed(() => store.courseContext)
 const analysisFailureDetails = computed(() => store.analysisTask?.status === 'failed' ? store.analysisTask.error_detail || null : null)
 const analysisRetryAvailable = computed(() => store.analysisTask?.status === 'failed')
+const scanProgress = computed(() => store.analysisTask?.phase_detail?.scan)
 const courseLabel = computed(() => props.courseTitle || context.value?.course_title || t('courseEvolution.workspace.currentCourse', '当前课程'))
 const focusedPlan = computed(() => {
   const preferredId = selectedPlanId.value || props.focusPlanId

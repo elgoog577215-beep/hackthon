@@ -7,6 +7,7 @@ from typing import Any
 
 from learning_contracts import LearnerCourseScope
 from learning_events import record_learning_event
+from course_document import stable_hash
 from representation_compiler import rebuild_core_representations_safely
 
 from .adjustment_planning import generate_course_adjustment_plan
@@ -20,6 +21,7 @@ from .core import (
     undo_change_set,
 )
 from .intake import CourseEvolutionRequest, record_course_evolution_request
+from .semantic_scan import ScanProgress
 from .teacher_execution import (
     build_domain_candidate_applier,
     build_domain_candidate_undoer,
@@ -97,6 +99,8 @@ class CourseEvolutionApplicationService:
         confirmed_interpretation: bool = False,
         clarification_set_id: str = "",
         clarification_answers: list[dict[str, Any]] | None = None,
+        scan_checkpoint: dict[str, Any] | None = None,
+        on_scan_progress: ScanProgress | None = None,
     ) -> Any:
         context = await asyncio.to_thread(self.teacher_context, course_id)
         return await create_teacher_course_change_plan(
@@ -112,6 +116,12 @@ class CourseEvolutionApplicationService:
             confirmed_interpretation=confirmed_interpretation,
             clarification_set_id=clarification_set_id,
             clarification_answers=clarification_answers,
+            scan_checkpoint=scan_checkpoint,
+            on_scan_progress=on_scan_progress,
+            scan_model_identity=stable_hash({
+                "endpoint": getattr(self.course_service, "api_base", ""),
+                "models": getattr(self.course_service, "fast_models", []),
+            }, prefix="analysis-model-"),
         )
 
     async def create_course_adjustment(

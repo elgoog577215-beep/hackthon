@@ -971,6 +971,7 @@ def test_complex_ten_section_request_deletes_merges_swaps_and_undoes(tmp_path):
                     "confidence": .99,
                 }
                 for index in (2, 5, 7)
+                if f"course_content:block-s{index}" in {candidate["unit_id"] for candidate in _candidates}
             ],
             "structure": {
                 "required": True,

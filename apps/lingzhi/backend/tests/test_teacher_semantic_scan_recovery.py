@@ -1,5 +1,6 @@
 """Whole-course scans must survive model envelope failures without losing work."""
 from copy import deepcopy
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -21,7 +22,7 @@ def scan_context(tmp_path, *, long=False):
     _, _, repo, context = fixture(tmp_path)
     context.units = [TeacherCourseChangeUnit(
         unit_id=f"u{i}", asset_type="lesson_plan", unit_type="lesson_plan_section",
-        title=f"Lecture {i}", text="a" * (16000 if long else 3900), source_revision="r1",
+        title=f"Lecture {i}", text="a" * (16000 if long else 3700), source_revision="r1",
     ) for i in range(1 if long else 4)]
     return repo, context
 
@@ -75,6 +76,7 @@ async def test_resume_reuses_successful_parts_and_invalidates_changed_input(tmp_
     plan = state.change_sets[-1]
     assert plan.teacher_change_planning.status == "blocked"
     assert checkpoint["results"]
+    assert plan.impact_summary["coverage"]["failed_batches"][0]["code"] == "provider_timeout"
     calls.clear()
     async def healthy(overview, candidates, instruction):
         calls.extend(c["unit_id"] for c in candidates)
@@ -131,6 +133,9 @@ async def test_job_keeps_private_checkpoint_on_failure_and_uses_it_on_retry(tmp_
     assert manager.tasks[task["id"]]["analysis_checkpoint"] == saved
     assert "analysis_checkpoint" not in manager.get_task_summary(task["id"])
     assert manager._tasks_for_persistence()[task["id"]]["analysis_checkpoint"] == saved
+    manager.save_tasks(strict=True)
+    manager.load_tasks()
+    assert manager.tasks[task["id"]]["analysis_checkpoint"] == saved
     assert manager.tasks[task["id"]]["phase_detail"]["scan"]["completed_parts"] == 1
     async def capture(**kwargs):
         assert kwargs["scan_checkpoint"] == saved
@@ -140,3 +145,83 @@ async def test_job_keeps_private_checkpoint_on_failure_and_uses_it_on_retry(tmp_
         request_id="retry-job", instruction="Add practice")
     await run_analysis(manager, retry["id"], service=SimpleNamespace(create_teacher_plan=capture))
     assert manager.get_task_summary(retry["id"])["status"] == "completed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", [
+    {"affected_units": [], "signal_kind": {}},
+    {"affected_units": [], "structure": {"required": "false"}},
+    {"affected_units": [], "structure": {"proposed_outline": [1]}},
+    {"affected_units": [], "clarifications": [{"prompt": "choose", "options": 1}]},
+    {"affected_units": [], "assumptions": "text instead of array"},
+    {"affected_units": [{"unit_id": "u", "content_patches": {}}]},
+])
+async def test_nested_envelope_shapes_are_retried_with_typed_diagnostics(invalid):
+    from course_evolution.semantic_scan import scan_batches
+    async def analyzer(*args):
+        return invalid
+    analyses, scanned, missing, errors, _ = await scan_batches(
+        overview={}, batches=[[{"unit_id": "u"}]], instruction="practice",
+        revisions={}, analyzer=analyzer,
+    )
+    assert not analyses and not scanned and missing == {"u"}
+    assert errors[0]["error_type"] == "ValueError"
+
+
+@pytest.mark.asyncio
+async def test_cancelled_scan_preserves_success_and_resume_does_not_repeat_it():
+    from course_evolution.semantic_scan import scan_batches
+    checkpoint = {}
+    async def progress(detail, saved):
+        checkpoint.update(deepcopy(saved))
+    async def interrupted(overview, items, instruction):
+        if items[0]["unit_id"] == "u2":
+            raise asyncio.CancelledError()
+        return response(items)
+    args = dict(overview={}, batches=[[{"unit_id": "u1"}], [{"unit_id": "u2"}]],
+        instruction="practice", revisions={})
+    with pytest.raises(asyncio.CancelledError):
+        await scan_batches(**args, analyzer=interrupted, on_progress=progress)
+    seen = []
+    async def healthy(overview, items, instruction):
+        seen.extend(item["unit_id"] for item in items)
+        return response(items)
+    result = await scan_batches(**args, analyzer=healthy, checkpoint=checkpoint)
+    assert seen == ["u2"] and result[1] == {"u1", "u2"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owner,status,course", [
+    ("other-teacher", "failed", "course-1"), ("teacher", "cancelled", "course-1"),
+    ("teacher", "failed", "other-course"),
+])
+async def test_retry_never_borrows_other_owner_course_or_cancelled_job(tmp_path, monkeypatch, owner, status, course):
+    from backend.tests.test_task_manager_runtime_durability import build_manager
+    from course_evolution.jobs import ANALYSIS_TASK_TYPE, enqueue_analysis, run_analysis
+    manager = build_manager(tmp_path, monkeypatch)
+    manager.tasks["previous"] = {"id": "previous", "type": ANALYSIS_TASK_TYPE, "owner_id": owner,
+        "course_id": course, "status": status, "analysis_checkpoint": {"signature": "private"}}
+    async def capture(**kwargs):
+        assert kwargs["scan_checkpoint"] == {}
+        return SimpleNamespace(change_sets=[SimpleNamespace(
+            impact_summary={"request_id": "fresh"}, change_set_id="plan")])
+    task = await enqueue_analysis(manager=manager, user_id="teacher", course_id="course-1",
+        request_id="fresh", instruction="practice")
+    await run_analysis(manager, task["id"], service=SimpleNamespace(create_teacher_plan=capture))
+    assert manager.get_task_summary(task["id"])["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_write_failure_does_not_retry_the_model():
+    from course_evolution.semantic_scan import scan_batches
+    calls = []
+    async def analyzer(overview, items, instruction):
+        calls.append(items)
+        return response(items)
+    async def save(detail, checkpoint):
+        if checkpoint["results"]:
+            raise OSError("disk full")
+    with pytest.raises(OSError, match="disk full"):
+        await scan_batches(overview={}, batches=[[{"unit_id": "u"}]], instruction="practice",
+            revisions={}, analyzer=analyzer, on_progress=save)
+    assert len(calls) == 1

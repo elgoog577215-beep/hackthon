@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 import uuid
+from copy import deepcopy
 from typing import Any
 
 from course_generation_errors import classify_generation_failure
@@ -219,6 +220,41 @@ async def run_analysis(manager: Any, job_id: str, *, service: Any = None) -> Non
         "正在读取课程结构与相关课程文件",
         phase_detail={"request_id": request_id},
     )
+    checkpoint = deepcopy(task.get("analysis_checkpoint") or {})
+    if not checkpoint:
+        supersedes = str(request.get("supersedes_plan_id") or "")
+        previous = sorted((
+            candidate for candidate in manager.tasks.values()
+            if candidate.get("id") != job_id
+            and candidate.get("type") == ANALYSIS_TASK_TYPE
+            and str(candidate.get("owner_id") or "") == user_id
+            and str(candidate.get("course_id") or "") == course_id
+            and candidate.get("status") in {"failed", "completed"}
+            and candidate.get("analysis_checkpoint")
+            and (
+                (supersedes and (candidate.get("phase_detail") or {}).get("plan_id") == supersedes)
+                or (not supersedes and candidate.get("status") == "failed")
+            )
+        ), key=lambda candidate: str(candidate.get("updated_at") or ""), reverse=True)
+        if previous:
+            checkpoint = deepcopy(previous[0]["analysis_checkpoint"])
+
+    async def scan_progress(detail: dict[str, Any], saved: dict[str, Any]) -> None:
+        async with manager._lock:
+            current = manager.tasks.get(job_id)
+            if not current or current.get("status") not in _ACTIVE_STATUSES:
+                raise asyncio.CancelledError()
+            current["analysis_checkpoint"] = deepcopy(saved)
+            manager.save_tasks(strict=True)
+        total = max(1, int(detail.get("total_parts") or 0))
+        done = int(detail.get("completed_parts") or 0)
+        failed = int(detail.get("failed_parts") or 0)
+        await manager._update_phase(
+            job_id, "course_change_analysis", 5 + int(90 * (done + failed) / total),
+            f"已检查 {done}/{detail.get('total_parts', 0)} 段课程内容",
+            phase_detail={"request_id": request_id, "scan": detail},
+        )
+
     generation = asyncio.create_task(
         service.create_teacher_plan(
             course_id=course_id,
@@ -231,18 +267,21 @@ async def run_analysis(manager: Any, job_id: str, *, service: Any = None) -> Non
             confirmed_interpretation=bool(request.get("confirmed_interpretation")),
             clarification_set_id=str(request.get("clarification_set_id") or ""),
             clarification_answers=request.get("clarification_answers") or [],
+            scan_checkpoint=checkpoint,
+            on_scan_progress=scan_progress,
         )
     )
     try:
         while not generation.done():
             await asyncio.wait({generation}, timeout=15)
             if not generation.done():
+                current = manager.tasks.get(job_id) or {}
                 await manager._update_phase(
                     job_id,
                     "course_change_analysis",
-                    35,
-                    "AI 正在逐批检查全课影响，关闭页面后任务仍会继续",
-                    phase_detail={"request_id": request_id},
+                    int(current.get("progress") or 5),
+                    str(current.get("message") or "正在分析整课影响"),
+                    phase_detail=deepcopy(current.get("phase_detail") or {"request_id": request_id}),
                 )
         state = await generation
         plan = next(
