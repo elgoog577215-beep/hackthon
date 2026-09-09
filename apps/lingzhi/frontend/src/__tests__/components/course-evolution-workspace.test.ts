@@ -333,6 +333,41 @@ describe('CourseEvolutionWorkspace', () => {
     wrapper.unmount()
   })
 
+  it('扫描已结束但方案阻断时可以二次确认后放弃当前全课修改', async () => {
+    const pinia = createPinia()
+    const store = useCourseEvolutionStore(pinia)
+    const basePlanning = planning()
+    store.plans = [plan({
+      teacher_change_planning: planning({
+        status: 'blocked',
+        intent: {
+          ...basePlanning.intent,
+          system_blockers: [{
+            code: 'analysis_incomplete',
+            message: '有 90 个内容单元未完成检查，请重新分析，避免遗漏修改。',
+            retryable: true,
+            affected_unit_count: 90,
+          }],
+        } as any,
+      }),
+      impact_summary: { coverage: { scanned_units: 26, indexed_units: 116 } },
+    })]
+    const reject = vi.spyOn(store, 'reject').mockResolvedValue({} as any)
+    const wrapper = mountWorkspace(pinia)
+
+    const discard = wrapper.get('[data-testid="discard-blocked-plan"]')
+    expect(discard.attributes('type')).toBe('button')
+    expect(discard.text()).toContain('放弃本次全课修改')
+    await discard.trigger('click')
+    expect(reject).not.toHaveBeenCalled()
+    expect(discard.text()).toContain('再次点击确认放弃')
+    await discard.trigger('click')
+
+    expect(reject).toHaveBeenCalledWith('change-1', '教师在审阅工作区主动放弃方案')
+    expect(wrapper.find('.request-state').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('逐题选择必答项并把结构化答案交给同一后台分析链', async () => {
     const pinia = createPinia()
     const store = useCourseEvolutionStore(pinia)
