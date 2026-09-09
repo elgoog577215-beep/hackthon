@@ -47,12 +47,14 @@ function makeAxiosError(overrides: {
   data?: unknown
   hasRequest?: boolean
   message?: string
+  code?: string
 }): AxiosError {
-  const { status, data, hasRequest = true, message } = overrides
+  const { status, data, hasRequest = true, message, code } = overrides
   const err: Partial<AxiosError> = {
     isAxiosError: true,
     name: 'AxiosError',
     message: message ?? 'Request failed',
+    code,
     toJSON: () => ({}),
   }
   if (status !== undefined) {
@@ -260,6 +262,18 @@ describe('safeRequest', () => {
 })
 
 describe('HTTP 拦截器错误治理', () => {
+  it('主动取消的请求不发布网络错误提示', async () => {
+    const listener = vi.fn()
+    const unsubscribe = subscribeAppErrors(listener)
+    // Cancellation must win even when an adapter happens to attach a response.
+    const err = makeAxiosError({ status: 499, code: 'ERR_CANCELED', message: 'canceled' })
+    err.config = {} as any
+
+    await expect(responseErrorHandler(err)).rejects.toBe(err)
+    expect(listener).not.toHaveBeenCalled()
+    unsubscribe()
+  })
+
   it('静默后台请求不弹错误提示', async () => {
     const listener = vi.fn()
     const unsubscribe = subscribeAppErrors(listener)

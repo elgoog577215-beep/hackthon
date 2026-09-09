@@ -138,6 +138,36 @@ describe('LessonPptWorkspace', () => {
     wrapper.unmount()
   })
 
+  it('历史版式校验错误进入失败进度且不把 Pydantic 文本作为主文案', async () => {
+    const technical = "2 validation errors for FixedBullets points.0.text String should have at most 52 characters [type=string_too_long]"
+    http.get.mockResolvedValue({
+      data: {
+        ppt_manuscript_state: {
+          manuscript: null,
+          source_script_revision_id: 'script-1',
+          page_errors: [
+            { block_id: 'tsb-1', page_index: 0, message: technical },
+            { block_id: 'tsb-1', page_index: 1, message: technical },
+          ],
+        },
+      },
+    })
+
+    const wrapper = mount(LessonPptWorkspace, {
+      props: { courseId: 'course-1', initialLessonId: 'L1-1', title: '第一讲' },
+    })
+    await flushPromises()
+
+    const error = wrapper.get('section.lesson-ppt-error')
+    expect(error.get('div p').text()).toBe('页面文字超过当前版式容量，系统没有保存无法完整显示的内容稿。')
+    expect(error.get('details code').text()).toContain(technical)
+    expect(wrapper.get('[data-testid="ppt-manuscript-progress"] [role="progressbar"]').attributes('aria-valuenow')).toBe('92')
+    expect(wrapper.get('[data-step="sources"]').attributes('data-state')).toBe('failed')
+    expect(wrapper.find('.lesson-ppt-empty').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
   it('点击生成后不等待接口返回就立即进入启动进度', async () => {
     let resolveStart!: (value: any) => void
     const pendingStart = new Promise(resolve => { resolveStart = resolve })
