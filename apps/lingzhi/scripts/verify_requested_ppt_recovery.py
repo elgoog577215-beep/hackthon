@@ -18,7 +18,7 @@ COURSE = "afb29754-6842-437b-af1b-5866bfb53b41"
 LESSON = "L1-1"
 TASK = "tlj-de0142ee0a2f4c72a3f9a8a1ede1b7be"
 SCRIPT = "tlsr-2b924bca800b44e3f8eac91b"
-RELEASE = "8bb14b98606c089c812bb5507e58173a8dc66191"
+RELEASE = "a835ae52854eaac6f0874f01f1e01c84ecb9fbdc"
 ROOT = Path("/opt/lingzhi/state/backend-data")
 BASE = "http://127.0.0.1:7862"
 API = f"/api/teacher/courses/{COURSE}"
@@ -113,7 +113,10 @@ def main():
             if event.get("event") == "build_complete":
                 representation = event.get("build", {}).get("representation_id", "")
             if event.get("event") in {"build_paused", "build_cancelled"} or event.get("failure"):
-                emit(event="export_build_stopped", code=event.get("code"), status=event.get("status"))
+                failure = (event.get("job") or {}).get("error") or {}
+                emit(event="export_build_stopped", code=failure.get("code") or event.get("code"),
+                     reason=failure.get("message") if failure.get("code") in {"render_quality_gate_failed", "render_export_failed"} else None,
+                     status=event.get("status"))
                 raise ValueError("export_build_stopped")
     if not representation:
         raise ValueError("export_build_incomplete")
@@ -126,6 +129,8 @@ def main():
         raise ValueError("export_page_or_note_count_mismatch")
     if handout_digest(saved_lesson()) != before:
         raise ValueError("handout_changed_during_export")
+    if (saved_lesson().get("ppt_manuscript") or {}).get("revision") != revision:
+        raise ValueError("manuscript_changed_during_export")
     emit(event="recovery_verified", course_id=COURSE, lesson_id=LESSON, original_task_id=TASK,
          manuscript_revision=revision, representation_id=representation, pages=len(slides), notes=len(notes),
          bytes=len(content), sha256=hashlib.sha256(content).hexdigest(), handout_unchanged=True)
