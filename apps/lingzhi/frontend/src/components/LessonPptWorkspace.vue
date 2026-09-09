@@ -78,6 +78,7 @@ const state = ref<Record<string, any>>({}), job = ref<Record<string, any> | null
 const editor = ref<InstanceType<typeof PptManuscriptWorkflow> | null>(null)
 const tab = ref('manuscript'), selectedPage = ref('')
 const dirty = ref(false), saving = ref(false), loading = ref(false), exporting = ref(false), syncing = ref(false)
+const exportFailed = ref(false)
 const error = ref(''), previewError = ref(''), previewBusy = ref(false), previewRevisions = ref<Record<string, string>>({})
 const physicalPages = ref<Record<string, any>>({}), manifest = ref<Record<string, any>[]>([])
 const tabs = computed(() => [{ value: 'manuscript', label: t('pptLive.manuscript') }, { value: 'render', label: t('pptLive.render') }])
@@ -248,13 +249,22 @@ async function prepareToLeave(): Promise<boolean> {
 }
 async function openOriginal() { if (await prepareToLeave()) emit('legacy') }
 async function poll(id: string, v: number) {
+  if (pollTimer) clearTimeout(pollTimer)
   try {
     const { data } = await http.get(`/api/teacher/courses/${encodeURIComponent(props.courseId)}/lesson-jobs/${encodeURIComponent(id)}`, config())
     if (!current(v)) return
     job.value = data.job || data
     if (['pending', 'running'].includes(job.value?.status || '')) pollTimer = setTimeout(() => void poll(id, v), 1000)
     else { if (job.value?.error) error.value = job.value.error.message; await load() }
-  } catch (e: any) { if (current(v)) error.value = message(e) }
+  } catch (e: any) {
+    if (!current(v) || e?.code === 'ERR_CANCELED') return
+    if (!e?.response || e.response.status >= 500 || e.response.status === 429) {
+      pollTimer = setTimeout(() => void poll(id, v), 3000)
+    } else {
+      error.value = message(e)
+      job.value = null
+    }
+  }
 }
 async function complete() {
   const v = version
@@ -284,6 +294,7 @@ async function download() {
   if (!await prepareToLeave()) return
   const v = version, url = base(), revision = state.value.revision
   exporting.value = true
+  exportFailed.value = false
   error.value = ''
   try {
     const response = await fetch(withApiBase(`${url}/build/stream`), { method: 'POST', headers: teacherIdentityHeaders({ 'Content-Type': 'application/json' }), signal: controller.signal,
@@ -303,7 +314,13 @@ async function download() {
     if (!current(v)) return
     const link = document.createElement('a'), objectUrl = URL.createObjectURL(file.data)
     link.href = objectUrl; link.download = `${props.title}.pptx`; link.click(); URL.revokeObjectURL(objectUrl)
-  } catch (e: any) { if (current(v) && e?.name !== 'AbortError') error.value = message(e) }
+  } catch (e: any) {
+    if (current(v) && e?.name !== 'AbortError') {
+      error.value = message(e)
+      exportFailed.value = true
+      if (job.value?.id && ['pending', 'running'].includes(job.value.status)) void poll(job.value.id, v)
+    }
+  }
   finally { if (current(v)) exporting.value = false }
 }
 async function runContextAction(id: string) { if (id === 'complete') return complete(); if (id === 'sync') return sync() }
@@ -323,14 +340,14 @@ async function resolveSync(accept: boolean) {
   catch (e: any) { if (current(v)) error.value = message(e) }
   finally { if (current(v)) syncing.value = false }
 }
-async function retry() { error.value = ''; if (dirty.value) await save(); else if (!state.value.manuscript) await complete(); else await load() }
+async function retry() { error.value = ''; if (dirty.value) await save(); else if (!state.value.manuscript) await complete(); else if (exportFailed.value) await download(); else await load() }
 function protect(event: BeforeUnloadEvent) { if (dirty.value || saving.value) { event.preventDefault(); event.returnValue = '' } }
 window.addEventListener('beforeunload', protect)
 watch(() => [props.courseId, props.initialLessonId], () => {
   version++; controller.abort(); controller = new AbortController()
   if (timer) clearTimeout(timer); if (pollTimer) clearTimeout(pollTimer)
   state.value = {}; job.value = null; physicalPages.value = {}; manifest.value = []; selectedPage.value = ''; previewRevisions.value = {}
-  error.value = ''; previewError.value = ''; dirty.value = false; saving.value = false; savePromise = null; exporting.value = false
+  error.value = ''; previewError.value = ''; dirty.value = false; saving.value = false; savePromise = null; exporting.value = false; exportFailed.value = false
   tab.value = 'manuscript'
   void load()
 }, { immediate: true })

@@ -546,6 +546,9 @@ def _teacher_ppt_resume_job_id(
     return candidate_id
 
 
+PPT_EXPORT_MAX_ATTEMPTS = 3
+
+
 async def _build_teacher_ppt_attempt(*, repository, course_id, orchestrator, task_id, seed_task_id="", **kwargs):
     """Restart the existing PPT build with original inputs, preserving confirmed manuscript authority."""
     while True:
@@ -573,9 +576,11 @@ async def _build_teacher_ppt_attempt(*, repository, course_id, orchestrator, tas
             failure = generation_failure(exc, "teacher_lesson_v6_build_failed")
             if isinstance(exc, V6BuildError):
                 failure.update(exc.failure.model_dump(mode="json"))
-            if not failure.get("retryable") or not kwargs["source_revision_provider"]():
+            export_exhausted = kwargs.get("confirmed_manuscript") is not None and attempt + 1 >= PPT_EXPORT_MAX_ATTEMPTS
+            if export_exhausted or not failure.get("retryable") or not kwargs["source_revision_provider"]():
                 stopped = repository.update_job(course_id, task_id, status="paused", phase="paused",
-                                                message="已暂停", error=None, last_attempt_error=failure)
+                    message="PPT 导出连续失败，已保留内容稿，请检查技术详情后重试。" if export_exhausted else "已暂停",
+                    error=failure, last_attempt_error=failure, next_retry_at=None)
                 raise _TeacherPptV6JobStopped(stopped) from exc
             delay = min(300, 2 ** min(attempt + 1, 9))
             due = (datetime.now(timezone.utc) + timedelta(seconds=delay)).isoformat()
@@ -607,6 +612,7 @@ def _teacher_ppt_stopped_event(job: dict[str, Any]) -> dict[str, Any]:
         "progress": int(job.get("progress") or 0),
         "stage": str(job.get("phase") or status),
         "status": status,
+        "job": deepcopy(job),
         "message": str(job.get("message") or ""),
     }
 
@@ -639,6 +645,11 @@ def _fail_teacher_ppt_job(
     current = repository.get_job(course_id, job_id)
     if str(current.get("status") or "") in {"paused", "cancelled"}:
         return current
+    if (current.get("type") == "teacher_lesson_ppt_generation"
+            and int(current.get("attempt_number") or 0) + 1 >= PPT_EXPORT_MAX_ATTEMPTS):
+        return repository.update_job(course_id, job_id, status="paused", phase="paused", next_retry_at=None,
+            error={"code": code, "message": message, "retryable": retryable},
+            message="PPT 导出连续失败，已保留内容稿，请检查技术详情后重试。")
     if current.get("restart_whole"):
         attempt = int(current.get("attempt_number") or 0)
         delay = min(300, 2 ** min(attempt + 1, 9))
@@ -2579,7 +2590,10 @@ async def complete_teacher_ppt_manuscript(
     repository: TeacherLessonAuthoringRepository = Depends(get_teacher_lesson_authoring_repository),
 ):
     from ppt_fixed_templates import compile_fixed_template
-    from teacher_script_ppt import CONTRACT, DEFAULT_THEME, compile_bundle_manuscript, describe_bundle_failure
+    from teacher_script_ppt import (
+        CONTRACT, DEFAULT_THEME, compile_bundle_manuscript, describe_bundle_failure,
+        completion_seed_blocks, require_valid_bundle_pages,
+    )
     from template_layout_contract import TemplateLayoutPackContractV1
     try:
         document, _, _, lesson, plan = _teacher_v6_source(tm, repository, course_id, lesson_unit_id)
@@ -2634,8 +2648,7 @@ async def complete_teacher_ppt_manuscript(
                     progress=section_start,
                     message=f"正在生成第 {section_index}/{total_sections} 个小节的页面内容",
                 )
-                seeds = {b["block_id"]: {**deepcopy((job.get("bundle_blocks") or {}).get(b["block_id"], {})),
-                    **deepcopy(b), "generation_contract_version": CONTRACT} for b in section["blocks"]}
+                seeds = completion_seed_blocks(section["blocks"], job.get("bundle_blocks") or {})
 
                 async def save_page_checkpoint(
                     block: dict[str, Any], *, current_index: int = section_index
@@ -2669,6 +2682,7 @@ async def complete_teacher_ppt_manuscript(
                     on_bundle_checkpoint=save_page_checkpoint, user_id=actor)
                 if {b["block_id"]: b["content"] for b in generated["blocks"]} != {b["block_id"]: b["content"] for b in section["blocks"]}:
                     raise TeacherLessonAuthoringError("lesson_script_revision_conflict", "补齐页面不得修改讲义正文。")
+                require_valid_bundle_pages([generated])
                 sections.append(generated)
                 repository.update_job(
                     course_id,

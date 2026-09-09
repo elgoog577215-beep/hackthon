@@ -335,6 +335,8 @@ def _portable_source_choice(query: str, catalog: list[dict[str, Any]], context: 
 
 
 def _stabilize_source_choices(value: Any, catalog: list[dict[str, Any]], context: str = "") -> None:
+    from slide_source_tokens import _protected_tokens
+
     allowed = {item["quote_id"]: item for item in catalog}
     if isinstance(value, dict):
         choices = value.get("sources")
@@ -358,6 +360,22 @@ def _stabilize_source_choices(value: Any, catalog: list[dict[str, Any]], context
                     resolved.append({"block_id": selected["block_id"], "quote": selected["quote"]})
                 else:
                     resolved.append(choice)
+            # An existing literal may be real but support only part of the text.
+            # Bind additional exact ranges, never add claims to the handout or
+            # remove factual tokens from the screen to make validation pass.
+            if query:
+                supported = _protected_tokens("\n".join(str(s.get("quote") or "") for s in resolved if isinstance(s, dict)))
+                missing = _protected_tokens(query) - supported
+                while missing:
+                    supporting = [item for item in candidates if missing & _protected_tokens(str(item.get("quote") or ""))]
+                    if not supporting:
+                        break  # Leave an unsupported claim for bounded model repair.
+                    selected = max(supporting, key=lambda item: (
+                        len(missing & _protected_tokens(str(item["quote"]))),
+                        _quote_score(query, str(item["quote"])),
+                    ))
+                    resolved.append({"block_id": selected["block_id"], "quote": selected["quote"]})
+                    missing -= _protected_tokens(str(selected["quote"]))
             if resolved != choices:
                 value["sources"] = resolved
         for key, child in value.items():
@@ -378,12 +396,51 @@ def _prepare_page_candidates(pages: list[Any], block: dict[str, Any]) -> list[An
         for key in ("layout_id", "page_goal"):
             if key in candidate:
                 candidate[key] = _unwrap_source_text(candidate[key])
-        candidate = _fit_page_capacity(candidate, catalog)
-        for split_candidate in _split_page_list_capacity(candidate):
-            split_candidate = _fit_page_capacity(split_candidate, catalog)
-            _stabilize_source_choices(split_candidate, catalog)
-            prepared.append(split_candidate)
+        try:
+            candidate = _fit_page_capacity(candidate, catalog)
+            splits = _split_page_list_capacity(candidate)
+            normalized_splits = []
+            for split_candidate in splits:
+                split_candidate = _fit_page_capacity(split_candidate, catalog)
+                _stabilize_source_choices(split_candidate, catalog)
+                normalized_splits.append(split_candidate)
+            prepared.extend(normalized_splits)
+        except (ValueError, KeyError, TypeError, AttributeError, IndexError):
+            # Malformed model output must reach the same bounded validation /
+            # repair path as source failures, rather than abort preparation.
+            prepared.append(deepcopy(page))
     return prepared
+
+
+def completion_seed_blocks(blocks, checkpoint):
+    """Keep current handout authority separate from resumable page state."""
+    seeds = {}
+    for block in blocks:
+        bid = block["block_id"]
+        saved = checkpoint.get(bid)
+        seed = deepcopy(block)
+        if saved is not None:
+            for key in tuple(seed):
+                if key.startswith("ppt_"):
+                    seed.pop(key)
+            if saved.get("content") == block.get("content"):
+                seed.update({key: deepcopy(value) for key, value in saved.items() if key.startswith("ppt_")})
+        # Each explicit attempt has its own finite repair budget. The caller
+        # resumes the original job; it never restarts accepted handout text.
+        seed.pop("ppt_repair_attempts", None)
+        seed.pop("ppt_repair_state", None)
+        seed["generation_contract_version"] = CONTRACT
+        seeds[bid] = seed
+    return seeds
+
+
+def require_valid_bundle_pages(sections):
+    for section in sections:
+        for block in section["blocks"]:
+            errors = block.get("ppt_errors") or []
+            if errors:
+                detail = "; ".join(str(error.get("message") or "invalid page") for error in errors)
+                raise ValueError(f"script_ppt_page_validation_failed:{block['block_id']}: {detail}")
 
 
 async def _notify(callback, *args):
@@ -555,6 +612,7 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
 
 
 def compile_bundle_manuscript(document, template, sections, *, plan_revision_id, script_revision_id):
+    require_valid_bundle_pages(sections)
     blocks = [b for s in sections for b in s["blocks"]]
     graph, planned = lower_bundle_pages(document, template, blocks)
     manuscript = compile_teaching_manuscript(document, graph, template, {}, planned,

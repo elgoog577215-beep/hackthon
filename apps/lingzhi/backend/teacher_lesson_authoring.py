@@ -2669,7 +2669,9 @@ class TeacherLessonAuthoringRepository:
             if lesson.get("working_revision_id") != job.get("source_lesson_plan_revision_id") or lesson.get("source_state", "current") != "current":
                 raise TeacherLessonAuthoringError("lesson_plan_revision_conflict", "教案已变化，生成结果未写入。")
             snapshot = job.get("request_snapshot") or {}
-            script_id = job.get("source_script_revision_id") if job.get("phase") == "ppt_content_repair" else snapshot.get("expected_script_revision")
+            script_id = (job.get("source_script_revision_id")
+                         if job.get("type") == "teacher_lesson_ppt_manuscript_generation"
+                         else snapshot.get("expected_script_revision"))
             if script_id is not None and str(lesson.get("working_script_revision_id") or "") != script_id:
                 raise TeacherLessonAuthoringError("lesson_script_revision_conflict", "讲义已变化，迟到结果未写入。")
             job.setdefault("bundle_blocks", {})[block["block_id"]] = deepcopy(block)
