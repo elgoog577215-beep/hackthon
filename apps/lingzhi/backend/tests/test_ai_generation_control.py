@@ -810,8 +810,21 @@ async def test_new_legacy_generation_is_retired_but_teacher_creation_remains(tmp
     with pytest.raises(ValueError, match='legacy_course_generation_retired'):
         await manager.create_generation_job({'subject':'旧请求'})
     assert not manager.tasks
-    result = await manager.create_generation_job({'subject':'教师课程','teacher_authoring_mode':'lesson_assets_v1'})
-    assert result['job_id']
+
+
+@pytest.mark.asyncio
+async def test_targetless_teacher_generation_creates_no_course_task_or_workspace(tmp_path, monkeypatch):
+    manager, storage, workspaces = _lifecycle_manager(tmp_path, monkeypatch)
+
+    with pytest.raises(ValueError, match='teacher_target_course_required'):
+        await manager.create_generation_job({
+            'subject': '教师课程',
+            'teacher_authoring_mode': 'lesson_assets_v1',
+        })
+
+    assert not manager.tasks
+    assert storage.courses == {}
+    assert list(workspaces.root_dir.glob('*.json')) == []
 
 
 @pytest.mark.asyncio

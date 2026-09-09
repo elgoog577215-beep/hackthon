@@ -409,6 +409,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     })
     await flushPromises()
 
+    expect(wrapper.findComponent({ name: 'CourseGenerationDialog' }).exists()).toBe(false)
     await wrapper.get('[data-testid="create-course-menu-trigger"]').trigger('click')
     await wrapper.get('[data-testid="create-blank-course"]').trigger('click')
     await flushPromises()

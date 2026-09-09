@@ -127,6 +127,28 @@ describe('course generation lifecycle reconciliation', () => {
     expect(refreshPreview).toHaveBeenCalledWith('course-teacher-outline', 'teacher')
   })
 
+  it('教师大纲生成缺少目标课程时不创建游离课程', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    const post = vi.spyOn(http, 'post')
+
+    const result = await generation.startSmartGeneration(
+      '程序设计',
+      { teacher_authoring_mode: 'lesson_assets_v1' },
+      'teacher',
+    )
+
+    expect(result).toBeNull()
+    expect(post).not.toHaveBeenCalled()
+    expect(generation.isGenerating).toBe(false)
+    expect(generation.generationStatus).toBe('error')
+    expect(generation.failureReport?.failed_nodes[0]).toMatchObject({
+      error_code: 'teacher_target_course_required',
+      retryable: false,
+    })
+    expect(courses.currentCourseId).toBe('')
+  })
+
   it('轮询能恢复在 WebSocket 订阅前快速失败的教师大纲任务', async () => {
     const generation = useGenerationStore()
     const courses = useCourseStore()

@@ -126,6 +126,29 @@ async def test_targeted_generation_reports_owner_mismatch_without_starting_job(m
 
 
 @pytest.mark.asyncio
+async def test_teacher_generation_requires_an_owned_target_course(monkeypatch):
+    manager = SimpleNamespace(create_generation_job=AsyncMock())
+    request = CourseGenerationRequest(
+        subject="身份边界",
+        teacher_authoring_mode="lesson_assets_v1",
+    )
+
+    with pytest.raises(HTTPException) as captured:
+        await courses.create_course_generation_job(
+            request,
+            _request("teacher-a"),
+            manager,
+        )
+
+    assert captured.value.status_code == 422
+    assert captured.value.detail == {
+        "code": "teacher_target_course_required",
+        "message": "请先创建课程，再从该课程的备课工作台生成大纲",
+    }
+    manager.create_generation_job.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_targeted_generation_persists_same_actor_in_task_snapshot(monkeypatch):
     monkeypatch.setattr(courses.storage, "load_course", lambda _course_id: {
         "course_id": "course-1",
