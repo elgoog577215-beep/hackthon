@@ -41,7 +41,8 @@ def test_joint_response_preserves_markdown_pages_and_hides_page_json_from_stream
         on_delta=deltas.append, on_reset=lambda: deltas.clear(), on_checkpoint=saved.append))
     assert len(calls) == 1
     assert result["blocks"][0]["content"] == TEXT
-    assert result["blocks"][0]["ppt_pages"] == [page]
+    assert len(result["blocks"][0]["ppt_pages"]) == 1
+    validate_block_pages(result["blocks"][0], template)
     assert result["blocks"][0]["generation_contract_version"] == CONTRACT
     assert "".join(deltas) == "## 执行方式\n" + TEXT
     assert saved[-1]["ppt_errors"] == []
@@ -61,13 +62,14 @@ def test_failed_page_repair_receives_fixed_handout_and_preserves_successful_page
         assert kwargs["stream_delta"] is None
         return json.dumps({"pages": [page]}, ensure_ascii=False)
     result = asyncio.run(generate_bundle(invoke=invoke, contract=contract, instructions="", template=template, on_checkpoint=saved.append))
-    assert len(calls) == 2
+    assert len(calls) == 1
     assert saved[0]["content"] == TEXT
     assert result["blocks"][0]["content"] == TEXT
-    assert result["blocks"][0]["ppt_pages"] == [page, page]
+    assert len(result["blocks"][0]["ppt_pages"]) == 2
+    validate_block_pages(result["blocks"][0], template)
 
 
-def test_frozen_handout_page_repair_receives_selectable_literal_quote_ids():
+def test_frozen_handout_page_repair_resolves_quote_ids_to_portable_literals():
     template, contract, page = sample()
     quote_catalog = source_excerpt_catalog({
         "b": {
@@ -116,8 +118,10 @@ def test_frozen_handout_page_repair_receives_selectable_literal_quote_ids():
     assert '"literal_source_ranges"' in calls[0][1]
     assert quote_id in calls[0][1]
     assert "sources 只返回 quote_id" in calls[0][1]
-    assert result["blocks"][0]["ppt_pages"] == [repaired]
-    assert not result["blocks"][0]["ppt_errors"]
+    block = result["blocks"][0]
+    assert "quote_id" not in json.dumps(block["ppt_pages"], ensure_ascii=False)
+    assert not block["ppt_errors"]
+    validate_block_pages(block, template)
 
 
 def test_source_grounding_failure_names_the_failed_step_and_block():
@@ -231,14 +235,15 @@ def test_unknown_quote_ids_are_rebound_locally_without_another_model_call():
 def test_overlong_triad_points_are_fitted_locally_without_another_model_call():
     template, contract, _page = sample()
 
-    def field(text):
-        return {"text": text, "sources": [{"block_id": "b", "quote": TEXT}]}
-
     long_points = [
         "基础组件描述静态场景物体的通用属性，并进一步说明 Transform、MeshRenderer、Collider 等组件之间的职责边界",
         "MonoBehaviour 是 C# 脚本与 Unity 生命周期之间唯一合法的连接载体，需要完整解释 Awake、Start 和 Update",
         "继承 MonoBehaviour 后脚本可以挂载到 GameObject，并在 Inspector 面板中暴露可序列化属性",
     ]
+    source_text = "。".join(long_points) + "。"
+
+    def field(text):
+        return {"text": text, "sources": [{"block_id": "b", "quote": source_text}]}
     triad = {
         "layout_id": template.layout_id("triad"),
         "page_goal": "解释 Unity 脚本基础",
@@ -248,7 +253,7 @@ def test_overlong_triad_points_are_fitted_locally_without_another_model_call():
     async def unexpected(*_args, **_kwargs):
         raise AssertionError("capacity fitting must not call the model again")
 
-    seed = {**contract["modules"][0], "content": TEXT, "ppt_pages": [triad],
+    seed = {**contract["modules"][0], "content": source_text, "ppt_pages": [triad],
             "generation_contract_version": CONTRACT}
     result = asyncio.run(generate_bundle(invoke=unexpected, contract=contract, instructions="", template=template,
                                          seed_blocks={"b": seed}, immutable_handout=True))

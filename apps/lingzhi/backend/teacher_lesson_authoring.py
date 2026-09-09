@@ -2627,8 +2627,10 @@ class TeacherLessonAuthoringRepository:
                 raise TeacherLessonAuthoringError("lesson_ppt_source_stale", "教案已变化，请使用当前讲义。")
             for block in (job.get("bundle_blocks") or {}).values():
                 block.pop("ppt_repair_attempts", None)
+                block.pop("ppt_repair_state", None)
             job["source_script_revision_id"] = script_revision
             job.update(status="running", phase="ppt_content_repair", progress=5, restart_whole=False,
+                       attempt_number=int(job.get("attempt_number") or 1) + 1,
                        cancel_requested=False, pause_requested=False, stream_complete=False, error=None,
                        heartbeat_at=_now(), updated_at=_now())
             self._save(value)

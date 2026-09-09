@@ -2643,6 +2643,12 @@ async def complete_teacher_ppt_manuscript(
                     repository.save_script_bundle_checkpoint(course_id, str(job["id"]), block)
                     progress = min(84, 20 + int(current_index / total_sections * 62))
                     has_pages = bool(block.get("ppt_pages"))
+                    repair = block.get("ppt_repair_state") or {}
+                    repair_message = (
+                        f"正在修复第 {repair.get('page_group')}/{repair.get('total_page_groups')} 组页面"
+                        f"（第 {repair.get('attempt')}/{repair.get('max_attempts')} 次）"
+                        if repair else ""
+                    )
                     repository.update_job(
                         course_id,
                         str(job["id"]),
@@ -2650,7 +2656,8 @@ async def complete_teacher_ppt_manuscript(
                         phase="ppt_page_validation" if has_pages else "ppt_page_generation",
                         progress=progress,
                         message=(
-                            f"正在校验第 {current_index}/{total_sections} 个小节的页面与引用"
+                            repair_message
+                            or f"正在校验第 {current_index}/{total_sections} 个小节的页面与引用"
                             if has_pages
                             else f"正在生成第 {current_index}/{total_sections} 个小节的页面内容"
                         ),

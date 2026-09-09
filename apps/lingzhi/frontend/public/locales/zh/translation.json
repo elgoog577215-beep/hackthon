@@ -31,6 +31,8 @@
       "progress": {
         "title": "PPT 内容稿生成进度",
         "failed": "生成在当前步骤停止，已完成的讲义保持不变。",
+        "attempt": "第 {attempt} 次尝试",
+        "waiting": "已等待 {seconds} 秒",
         "steps": {
           "prepare": "核对讲义来源",
           "pages": "生成逐页内容",

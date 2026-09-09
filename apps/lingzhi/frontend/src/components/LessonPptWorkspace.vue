@@ -18,9 +18,9 @@
         <details v-if="errorTechnical"><summary>{{ t('pptLive.errors.technicalDetails') }}</summary><code>{{ errorTechnical }}</code></details>
       </section>
       <p v-if="state.manuscript && state.source_state === 'stale'" class="lesson-ppt-notice" role="status">{{ t('pptLive.stale') }}<button type="button" :disabled="busy || dirty" @click="sync"><RefreshCw :size="16" />{{ t('pptLive.sync') }}</button></p>
-      <section v-if="progressVisible" class="lesson-ppt-progress" data-testid="ppt-manuscript-progress" :aria-label="t('pptLive.progress.title')">
+      <section v-if="progressVisible" class="lesson-ppt-progress" data-testid="ppt-manuscript-progress" :aria-label="t('pptLive.progress.title')" aria-live="polite">
         <header>
-          <div><strong>{{ t('pptLive.progress.title') }}</strong><span>{{ progressMessage }}</span></div>
+          <div><strong>{{ t('pptLive.progress.title') }}</strong><span>{{ progressMessage }}</span><small v-if="progressMeta">{{ progressMeta }}</small></div>
           <b>{{ progressPercent }}%</b>
         </header>
         <div class="lesson-ppt-progress__track" role="progressbar" :aria-label="progressMessage" :aria-valuenow="progressPercent" aria-valuemin="0" aria-valuemax="100"><i :style="{ transform: `scaleX(${progressPercent / 100})` }" /></div>
@@ -90,6 +90,17 @@ const jobFailure = computed(() => job.value?.error && typeof job.value.error ===
 const progressVisible = computed(() => !!job.value && ['pending', 'running', 'failed'].includes(job.value.status || '') && !state.value.manuscript)
 const progressPercent = computed(() => Math.max(0, Math.min(100, Number(job.value?.progress || 0))))
 const progressMessage = computed(() => job.value?.message || (job.value?.status === 'failed' ? t('pptLive.progress.failed') : t('pptProject.preparing')))
+const progressMeta = computed(() => {
+  const parts: string[] = []
+  const attempt = Number(job.value?.attempt_number || 1)
+  if (attempt > 1) parts.push(t('pptLive.progress.attempt').replace('{attempt}', String(attempt)))
+  const updatedAt = Date.parse(String(job.value?.updated_at || ''))
+  if (job.value?.status === 'running' && Number.isFinite(updatedAt)) {
+    const seconds = Math.max(0, Math.floor((Date.now() - updatedAt) / 1000))
+    if (seconds >= 10) parts.push(t('pptLive.progress.waiting').replace('{seconds}', String(seconds)))
+  }
+  return parts.join(' · ')
+})
 const stepDefinitions = computed(() => [
   { id: 'prepare', label: t('pptLive.progress.steps.prepare') },
   { id: 'pages', label: t('pptLive.progress.steps.pages') },
@@ -455,6 +466,7 @@ defineExpose({ context, sources, runContextAction, prepareToLeave })
 .lesson-ppt-progress>header>div { min-width:0; display:grid; gap:3px; }
 .lesson-ppt-progress>header strong { color:#273247; font-size:16px; }
 .lesson-ppt-progress>header span { color:var(--ppt-muted); font-size:15px; line-height:1.5; }
+.lesson-ppt-progress>header small { color:var(--ppt-soft); font-size:14px; line-height:1.4; }
 .lesson-ppt-progress>header b { color:var(--ppt-accent); font-size:17px; font-variant-numeric:tabular-nums; }
 .lesson-ppt-progress__track { height:5px; overflow:hidden; border-radius:3px; background:#e8eaf1; }
 .lesson-ppt-progress__track i { width:100%; height:100%; display:block; background:var(--ppt-accent); transform-origin:left; transition:transform .25s ease; }

@@ -31,6 +31,8 @@
       "progress": {
         "title": "PPT manuscript progress",
         "failed": "Generation stopped at the current step. The completed handout is unchanged.",
+        "attempt": "Attempt {attempt}",
+        "waiting": "Waiting for {seconds} seconds",
         "steps": {
           "prepare": "Check handout sources",
           "pages": "Generate page content",

@@ -201,3 +201,32 @@ def test_changed_handout_starts_fresh_ppt_instead_of_reusing_failed_old_pages(wo
     assert job["status"] == "completed", job.get("error")
     state = repository.current_v6_ppt_manuscript("course-1", "L1-1")
     assert state["source_script_revision_id"] == current["working_script_revision_id"]
+
+
+def test_ppt_retry_increments_attempt_and_clears_stale_repair_state(workflow):
+    client, repository, _calls = workflow
+    generate(client, complete_ppt=False)
+    lesson = repository.lesson("course-1", "L1-1")
+    from ppt_fixed_templates import compile_fixed_template
+    from teacher_script_ppt import DEFAULT_THEME
+
+    job = repository.create_job("course-1", "L1-1", job_type="teacher_lesson_ppt_manuscript_generation",
+                                request_id="failed-ppt")
+    repository.bind_ppt_completion("course-1", "L1-1", job["id"], lesson["working_script_revision_id"],
+                                   lesson["working_revision_id"], compile_fixed_template(DEFAULT_THEME).model_dump(mode="json"))
+    repository.save_script_bundle_checkpoint("course-1", job["id"], {
+        "block_id": "b",
+        "content": TEXT,
+        "ppt_repair_attempts": [2],
+        "ppt_repair_state": {"attempt": 2},
+    })
+    repository.update_job("course-1", job["id"], status="failed")
+
+    resumed = repository.resume_ppt_completion(
+        "course-1", "L1-1", job["id"], lesson["working_script_revision_id"]
+    )
+
+    assert resumed["attempt_number"] == 2
+    checkpoint = resumed["bundle_blocks"]["b"]
+    assert "ppt_repair_attempts" not in checkpoint
+    assert "ppt_repair_state" not in checkpoint

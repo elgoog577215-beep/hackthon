@@ -7,7 +7,7 @@ import re
 from copy import deepcopy
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic_core import from_json
 
 from course_document import CourseBlock, CourseDocument, CourseSection, stable_hash
@@ -26,16 +26,26 @@ DEFAULT_THEME = "qizhi-classroom"
 def describe_bundle_failure(exc: Exception) -> dict[str, Any] | None:
     technical_detail = str(exc)
     match = re.search(r"source_excerpt_mismatch:([^:\s]+)", technical_detail)
-    if match is None:
+    unknown_quote = re.search(r"source_quote_id_unknown:([^:\s]+)", technical_detail)
+    capacity_failure = bool(re.search(r"string_too_long|fixed_field_text_too_long|should have at most \d+ characters", technical_detail))
+    if match is None and unknown_quote is None and not capacity_failure:
         return None
+    if capacity_failure:
+        code = "lesson_ppt_page_capacity_failed"
+        message = "页面文字超过当前版式容量，系统没有保存无法完整显示的内容稿。"
+        failed_block_id = ""
+    else:
+        code = "lesson_ppt_source_grounding_failed"
+        message = "页面引用未能匹配讲义原文，系统没有保存来源不可靠的内容稿。"
+        failed_block_id = match.group(1) if match else ""
     return {
-        "code": "lesson_ppt_source_grounding_failed",
-        "message": "页面引用未能匹配讲义原文，系统没有保存来源不可靠的内容稿。",
+        "code": code,
+        "message": message,
         "category": "quality",
         "recovery_action": "retry_original",
         "retryable": True,
         "failed_step": "sources",
-        "failed_block_id": match.group(1),
+        "failed_block_id": failed_block_id,
         "technical_detail": technical_detail,
     }
 
@@ -113,6 +123,100 @@ def _block_literal_source_ranges(block: dict[str, Any]) -> list[dict[str, Any]]:
             "full_text": block["content"],
         }
     })
+
+
+def _compact_screen_text(value: str, limit: int) -> str:
+    text = " ".join(str(value).split())
+    if len(text) <= limit:
+        return text
+    for separator in ("。", "；", ";", "，", ","):
+        clause = text.split(separator, 1)[0].strip()
+        if 1 < len(clause) <= limit:
+            return clause
+    prefix = text[: max(1, limit - 1)].rstrip("，,；;：: ")
+    if re.search(r"[A-Za-z0-9_+#.]$", prefix) and len(text) > len(prefix) and re.match(r"[A-Za-z0-9_+#.]", text[len(prefix)]):
+        prefix = re.sub(r"\s*[A-Za-z0-9_+#.]+$", "", prefix).rstrip("，,；;：: ")
+    return prefix + "…"
+
+
+def _value_at_path(value: Any, path: tuple[Any, ...]) -> tuple[Any, Any] | None:
+    current = value
+    for segment in path[:-1]:
+        if not isinstance(current, (dict, list)):
+            return None
+        current = current[segment]
+    return (current, path[-1]) if path else None
+
+
+def _fit_page_capacity(page: dict[str, Any]) -> dict[str, Any]:
+    fitted = deepcopy(page)
+    fields = fitted.get("fields")
+    if not isinstance(fields, dict):
+        return fitted
+    model = form_type(fixed_slug(str(fitted.get("layout_id") or "")), authored=True)
+    for _ in range(4):
+        try:
+            model.model_validate(fields)
+            break
+        except ValidationError as exc:
+            changed = False
+            for issue in exc.errors():
+                if issue.get("type") != "string_too_long":
+                    continue
+                target = _value_at_path(fields, tuple(issue.get("loc") or ()))
+                limit = int((issue.get("ctx") or {}).get("max_length") or 0)
+                if target is None or limit <= 0:
+                    continue
+                owner, key = target
+                owner[key] = _compact_screen_text(str(owner[key]), limit)
+                changed = True
+            if not changed:
+                break
+    return fitted
+
+
+def _source_query(owner: dict[str, Any]) -> str:
+    return " ".join(str(owner.get(key) or "") for key in ("text", "heading", "label", "title") if owner.get(key))
+
+
+def _quote_score(query: str, quote: str) -> tuple[int, int]:
+    query_tokens = set(re.findall(r"[a-z0-9_+#.]+|[\u4e00-\u9fff]", query.lower()))
+    quote_tokens = set(re.findall(r"[a-z0-9_+#.]+|[\u4e00-\u9fff]", quote.lower()))
+    return len(query_tokens & quote_tokens), -len(quote)
+
+
+def _stabilize_source_choices(value: Any, catalog: list[dict[str, Any]]) -> None:
+    allowed = {item["quote_id"]: item for item in catalog}
+    if isinstance(value, dict):
+        choices = value.get("sources")
+        query = _source_query(value)
+        if isinstance(choices, list) and query and catalog:
+            best = max(catalog, key=lambda item: _quote_score(query, str(item.get("quote") or "")))
+            if _quote_score(query, str(best.get("quote") or ""))[0] > 0:
+                resolved = []
+                for choice in choices:
+                    selected = allowed.get(choice.get("quote_id")) if isinstance(choice, dict) else None
+                    selected = selected or best
+                    resolved.append({"block_id": selected["block_id"], "quote": selected["quote"]})
+                value["sources"] = resolved
+        for child in value.values():
+            _stabilize_source_choices(child, catalog)
+    elif isinstance(value, list):
+        for child in value:
+            _stabilize_source_choices(child, catalog)
+
+
+def _prepare_page_candidates(pages: list[Any], block: dict[str, Any]) -> list[Any]:
+    catalog = _block_literal_source_ranges(block)
+    prepared = []
+    for page in pages:
+        if not isinstance(page, dict):
+            prepared.append(page)
+            continue
+        candidate = _fit_page_capacity(page)
+        _stabilize_source_choices(candidate, catalog)
+        prepared.append(candidate)
+    return prepared
 
 
 async def _notify(callback, *args):
@@ -213,8 +317,9 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
     for bid in expected:
         block = blocks[bid]
         page_errors = []
-        pages = deepcopy(block.get("ppt_pages") or [])
+        pages = _prepare_page_candidates(deepcopy(block.get("ppt_pages") or []), block)
         groups = deepcopy(block.get("ppt_page_groups") or [[p] for p in pages] or [[]])
+        groups = [_prepare_page_candidates(group, block) for group in groups]
         attempts = list(block.get("ppt_repair_attempts") or [0] * len(groups))
         if len(attempts) != len(groups):
             raise ValueError("script_ppt_checkpoint_invalid")
@@ -231,7 +336,17 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                         break
                     try:
                         attempts[index] += 1
-                        block.update(ppt_page_groups=groups, ppt_repair_attempts=attempts)
+                        block.update(
+                            ppt_page_groups=groups,
+                            ppt_repair_attempts=attempts,
+                            ppt_repair_state={
+                                "page_group": index + 1,
+                                "total_page_groups": len(groups),
+                                "attempt": attempts[index],
+                                "max_attempts": 2,
+                                "error": detail,
+                            },
+                        )
                         await _notify(on_checkpoint, deepcopy(block))
                         raw = await invoke("修复当前 PPT 页面，只返回 {\"pages\":[...]}，必要时拆分本页。",
                             joint_instruction + "\n讲义正文固定，不得改写：" + json.dumps({"block_id": bid, "content": block["content"]}, ensure_ascii=False)
@@ -243,7 +358,7 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                         value = json.loads(raw or "")
                         if not isinstance(value.get("pages"), list):
                             raise ValueError("script_ppt_repair_invalid")
-                        candidate_pages = value["pages"]
+                        candidate_pages = _prepare_page_candidates(value["pages"], block)
                         groups[index] = candidate_pages
                     except Exception as exc:
                         if getattr(exc, "retryable", True) is False:
@@ -255,6 +370,7 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
             groups[index] = candidate_pages
             block["ppt_pages"] = [p for group in groups for p in group]
             block.update(ppt_page_groups=groups, ppt_repair_attempts=attempts)
+            block.pop("ppt_repair_state", None)
             block["ppt_errors"] = page_errors
             await _notify(on_checkpoint, deepcopy(block))
     result = normalize_teacher_script_section({"blocks": [blocks[bid] for bid in expected]}, contract)
