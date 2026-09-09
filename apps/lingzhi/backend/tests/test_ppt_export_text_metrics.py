@@ -56,6 +56,24 @@ def test_title_height_tolerance_cannot_hide_horizontal_overflow(tmp_path):
     assert any(b["code"] == "exported_text_frame_overflow" for b in report["blockers"])
 
 
+def test_scene_metadata_still_rejects_small_teaching_body(tmp_path):
+    from types import SimpleNamespace
+    from slide_deck_renderer import audit_exported_pptx
+    deck = Presentation()
+    deck.slide_width, deck.slide_height = Pt(960), Pt(540)
+    slide = deck.slides.add_slide(deck.slide_layouts[6])
+    shape = slide.shapes.add_textbox(Pt(80), Pt(200), Pt(500), Pt(60))
+    shape.name = "teaching:body"
+    shape.text_frame.paragraphs[0].text = "正式教学正文应当保持清楚可读的字号，不能作为装饰内容放行。"
+    shape.text_frame.paragraphs[0].font.size = Pt(14)
+    shape.text_frame.paragraphs[0].font.name = "Noto Sans CJK SC"
+    path = tmp_path / "small-body.pptx"
+    deck.save(path)
+    scene = SimpleNamespace(objects=[SimpleNamespace(object_id="body", slot_id="point.0", lines=["body"])])
+    report = audit_exported_pptx(path, expected_scenes=[scene], require_pixel_audit=False)
+    assert any(issue["code"] == "exported_body_font_below_16pt" for issue in report["blockers"])
+
+
 @pytest.mark.parametrize("damage", ["geometry", "extra_line"])
 def test_scene_roles_do_not_hide_real_geometry_or_line_count_damage(tmp_path, damage):
     from .test_ppt_teaching_content import comparison_fixture, scene_for

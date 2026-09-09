@@ -165,8 +165,8 @@ def test_checkpoint_checks_handout_revision_in_every_progress_phase(workflow, mo
         repository.save_script_bundle_checkpoint("course-1", job["id"], lesson["script_revisions"][-1]["sections"][0]["blocks"][0])
 
 
-@pytest.mark.parametrize("multiline_scene", [False, True])
-def test_saved_manuscript_build_stream_and_download_keep_all_pages_and_notes(workflow, monkeypatch, tmp_path, multiline_scene):
+@pytest.mark.parametrize("scene_variant", ["default", "multiline", "flow6"])
+def test_saved_manuscript_build_stream_and_download_keep_all_pages_and_notes(workflow, monkeypatch, tmp_path, scene_variant):
     from io import BytesIO
     from pptx import Presentation
     from teaching_representations import TeachingRepresentationRepository
@@ -180,7 +180,7 @@ def test_saved_manuscript_build_stream_and_download_keep_all_pages_and_notes(wor
 
     monkeypatch.setattr(routes, "build_ai_base_story_planner_v6", lambda: forbidden)
     monkeypatch.setattr(routes, "build_ai_base_visual_planner_v2", lambda: forbidden)
-    if multiline_scene:
+    if scene_variant != "default":
         tm = client.app.dependency_overrides[routes.require_task_manager]()
         original = tm.course_service.generate_teacher_script_section
 
@@ -194,6 +194,14 @@ def test_saved_manuscript_build_stream_and_download_keep_all_pages_and_notes(wor
                         "points": [{"text": text, "sources": [{"block_id": block["block_id"], "quote": TEXT}]}
                                    for text in (TEXT[:48], "独立任务可以并行", "存在依赖的任务需按顺序执行")]},
                 }
+                if scene_variant == "flow6":
+                    block["ppt_pages"][0] = {
+                        "layout_id": sample()[0].layout_id("flow6"), "page_goal": "执行任务流程",
+                        "fields": {"title": "执行方式", "notes": "根据依赖选择执行方式",
+                            "steps": [{"text": text, "sources": [{"block_id": block["block_id"], "quote": TEXT}]}
+                                      for text in ("串行按顺序执行", "并行同时执行任务", "比较相同任务条件",
+                                                   "检查任务依赖", "执行独立任务", "按顺序执行依赖任务")]},
+                    }
             return result
 
         tm.course_service.generate_teacher_script_section = with_multiline_bullets
