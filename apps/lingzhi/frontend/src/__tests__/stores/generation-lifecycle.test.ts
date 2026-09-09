@@ -149,6 +149,36 @@ describe('course generation lifecycle reconciliation', () => {
     expect(courses.currentCourseId).toBe('')
   })
 
+  it('教师大纲生成不得接受后端返回的另一门课程', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    courses.currentCourseId = 'course-expected'
+    vi.spyOn(http, 'post').mockResolvedValue({ data: {
+      job_id: 'job-wrong-course',
+      course_id: 'course-unexpected',
+      course_name: '程序设计',
+      status: 'pending',
+      phase: 'queued',
+    } })
+
+    const result = await generation.startSmartGeneration(
+      '程序设计',
+      {
+        target_course_id: 'course-expected',
+        teacher_authoring_mode: 'lesson_assets_v1',
+      },
+      'teacher',
+    )
+
+    expect(result).toBeNull()
+    expect(courses.currentCourseId).toBe('course-expected')
+    expect(generation.getTask('course-unexpected')).toBeUndefined()
+    expect(generation.failureReport?.failed_nodes[0]).toMatchObject({
+      error_code: 'teacher_target_course_mismatch',
+      retryable: false,
+    })
+  })
+
   it('轮询能恢复在 WebSocket 订阅前快速失败的教师大纲任务', async () => {
     const generation = useGenerationStore()
     const courses = useCourseStore()
