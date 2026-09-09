@@ -110,19 +110,20 @@ def test_provider_outage_does_not_fan_out_across_missing_page_groups():
     assert not saved[-1]["ppt_pages"]
 
 
-def test_identifier_shorthand_expands_only_to_an_existing_unambiguous_source():
+@pytest.mark.parametrize("prefix", ["", "使用"])
+def test_identifier_shorthand_expands_only_to_an_existing_unambiguous_source(prefix):
     template, contract, _ = sample()
     content = "OnTriggerEnter 和 OnTriggerExit 分别处理进入与离开。"
     page = {"layout_id": template.layout_id("bullets"), "page_goal": "区分处理方法",
             "fields": {"title": "处理方法", "notes": "对照原文",
-                "points": [{"text": "OnTriggerEnter/Exit", "sources": [{"block_id": "b", "quote": content}]}]}}
+                "points": [{"text": prefix + "OnTriggerEnter/Exit", "sources": [{"block_id": "b", "quote": content}]}]}}
 
     async def forbidden(*args, **kwargs):
         pytest.fail("unambiguous identifier shorthand can be expanded from the source")
 
     result = asyncio.run(generate_bundle(invoke=forbidden, contract=contract, instructions="", template=template,
         seed_blocks={"b": seed_for(contract, content, [deepcopy(page)])}, immutable_handout=True))
-    assert result["blocks"][0]["ppt_pages"][0]["fields"]["points"][0]["text"] == "OnTriggerEnter/OnTriggerExit"
+    assert result["blocks"][0]["ppt_pages"][0]["fields"]["points"][0]["text"] == prefix + "OnTriggerEnter/OnTriggerExit"
 
 
 @pytest.mark.parametrize("raw", ['{"pages": [', '{"pages":[]} {"pages":[]}', 'explanation without JSON', '[1,2]'])

@@ -412,7 +412,7 @@ def _stabilize_source_choices(value: Any, catalog: list[dict[str, Any]], context
 
 
 def _expand_identifier_shorthand(value, content):
-    names = set(re.findall(r"\b[A-Za-z_][A-Za-z0-9_.]{2,}\b", content))
+    names = set(re.findall(r"(?<![A-Za-z0-9_.])[A-Za-z_][A-Za-z0-9_.]{2,}(?![A-Za-z0-9_.])", content))
 
     def expand(match):
         left, right = match.group(1), match.group(2)
@@ -427,7 +427,7 @@ def _expand_identifier_shorthand(value, content):
             if key == "sources":
                 continue
             if key in {"text", "heading", "title", "page_goal"} and isinstance(child, str):
-                value[key] = re.sub(r"\b([A-Za-z_][A-Za-z0-9_.]{2,})\s*/\s*([A-Z][A-Za-z0-9_]+)\b", expand, child)
+                value[key] = re.sub(r"(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_.]{2,})\s*/\s*([A-Z][A-Za-z0-9_]+)(?![A-Za-z0-9_])", expand, child)
             else:
                 _expand_identifier_shorthand(child, content)
     elif isinstance(value, list):
