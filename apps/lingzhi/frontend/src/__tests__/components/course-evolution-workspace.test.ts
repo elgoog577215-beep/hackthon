@@ -354,7 +354,15 @@ describe('CourseEvolutionWorkspace', () => {
       }),
       impact_summary: {
         request_asset_types: ['outline', 'lesson_plan', 'script'],
-        coverage: { scanned_units: 26, indexed_units: 116, unscanned_unit_ids: Array.from({ length: 90 }, (_, index) => `unit-${index}`) },
+        coverage: {
+          scanned_units: 26,
+          indexed_units: 116,
+          unscanned_unit_ids: Array.from({ length: 90 }, (_, index) => `unit-${index}`),
+          failed_batches: [
+            { code: 'provider_timeout', unit_ids: ['unit-0'] },
+            { code: 'provider_unavailable', unit_ids: Array.from({ length: 89 }, (_, index) => `unit-${index + 1}`) },
+          ],
+        },
       },
     })]
     const create = vi.spyOn(store, 'createCoursePlan').mockResolvedValue({
@@ -363,6 +371,9 @@ describe('CourseEvolutionWorkspace', () => {
     const wrapper = mountWorkspace(pinia)
 
     expect(wrapper.text()).toContain('有 90 个内容单元未完成检查')
+    expect(wrapper.get('[data-testid="semantic-scan-failure-summary"]').text()).toContain('响应超时')
+    expect(wrapper.get('[data-testid="semantic-scan-failure-summary"]').text()).toContain('AI 服务暂时不可用')
+    expect(wrapper.get('[data-testid="semantic-scan-failure-summary"]').text()).toContain('重试只检查未完成内容')
     expect(wrapper.find('.clarification-question').exists()).toBe(false)
     expect(wrapper.find('textarea').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('确认当前理解并继续分析')
