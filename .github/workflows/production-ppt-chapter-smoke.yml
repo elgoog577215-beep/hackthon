@@ -1,4 +1,4 @@
-name: Replay generic PPT recovery without production writes
+name: Verify PPT repair with private model in isolated storage
 
 on:
   workflow_dispatch:
@@ -44,7 +44,7 @@ jobs:
           chmod 600 ~/.ssh/lingzhi_deploy
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Read lecture checkpoints and replay page validation without models
+      - name: Test two real lecture repair cases without publishing
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
@@ -52,4 +52,4 @@ jobs:
           set -euo pipefail
           ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            '/opt/lingzhi/.venv/bin/python -' < apps/lingzhi/scripts/inspect_general_ppt_recovery.py
+            '/opt/lingzhi/.venv/bin/python -' < apps/lingzhi/scripts/probe_general_ppt_model.py

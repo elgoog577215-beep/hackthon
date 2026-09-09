@@ -26,56 +26,63 @@ class OverlayFinder(importlib.abc.MetaPathFinder):
             return importlib.util.spec_from_loader(name, OverlayLoader(name))
 sys.meta_path.insert(0, OverlayFinder())
 
-with tempfile.TemporaryDirectory(prefix="ppt-course-readonly-audit-") as directory:
-    os.environ["LINGZHI_DATA_DIR"] = directory
-    os.environ["LINGZHI_TASK_RUNTIME_MODE"] = "read_only"
-    sys.dont_write_bytecode = True
-    sys.path.insert(0, "/opt/lingzhi/hackthon/backend")
-    from pydantic import ValidationError
-    from ppt_fixed_templates import compile_fixed_template
-    from teacher_script_ppt import completion_seed_blocks, _prepare_page_candidates, validate_block_pages
-    from template_layout_contract import TemplateLayoutPackContractV1
 
-    for lesson_id, lesson in authoring.get("lessons", {}).items():
-        if lesson_id in {'L1-1', 'L1-6'}:
-            protected = {'lesson': lesson, 'jobs': {k: v for k, v in authoring.get('jobs', {}).items() if v.get('lesson_unit_id') == lesson_id}}
-            print(json.dumps({'event': 'protected_snapshot', 'lesson_id': lesson_id, 'sha256': hashlib.sha256(json.dumps(protected, sort_keys=True).encode()).hexdigest(), 'has_manuscript': bool((lesson.get('ppt_manuscript') or {}).get('manuscript'))}), flush=True)
-            continue
-        state = lesson.get("ppt_manuscript") or {}
-        job = authoring.get("jobs", {}).get(state.get("task_id"), {})
-        script = next((r for r in lesson.get("script_revisions", [])
-                       if r.get("revision_id") == lesson.get("working_script_revision_id")), {})
-        blocks = [b for s in script.get("sections", []) for b in s.get("blocks", [])]
-        errors = [e for b in (job.get("bundle_blocks") or {}).values() for e in b.get("ppt_errors", [])]
-        report = {"event": "lecture_summary", "lesson_id": lesson_id,
-                  "manuscript_status": state.get("status"), "has_manuscript": bool(state.get("manuscript")),
-                  "page_count": (state.get("manuscript") or {}).get("page_count"),
-                  "job_status": job.get("status"), "attempt": job.get("attempt_number"),
-                  "updated_at": job.get("updated_at"), "error_code": (job.get("error") or {}).get("code"),
-                  "source_blocks": len(blocks), "checkpoint_blocks": len(job.get("bundle_blocks") or {}),
-                  "checkpoint_errors": [{k: e.get(k) for k in ("block_id", "page_index", "message")} for e in errors[:8]]}
-        if state.get("manuscript") or job.get("status") in {"running", "pending"}:
-            print(json.dumps(report, ensure_ascii=True), flush=True)
-            continue
-        template_payload = (job.get("request_snapshot") or {}).get("ppt_template")
-        template = TemplateLayoutPackContractV1.model_validate(template_payload) if template_payload else compile_fixed_template("qizhi-classroom")
-        seeds = completion_seed_blocks(blocks, job.get("bundle_blocks") or {})
-        valid, invalid = 0, []
-        for block in seeds.values():
-            pages = _prepare_page_candidates(block.get("ppt_pages") or [], block, template)
-            groups = block.get("ppt_page_groups") or [[p] for p in pages] or [[]]
-            for index, group in enumerate(groups):
-                try:
-                    candidates = _prepare_page_candidates(group, block, template)
-                    validate_block_pages({**block, "ppt_pages": candidates}, template)
-                    valid += 1
-                except Exception as error:
-                    issue = {"block_id": block["block_id"], "group": index,
-                             "layouts": [p.get("layout_id") for p in group if isinstance(p, dict)],
-                             "error": str(error).splitlines()[0][:400]}
-                    if isinstance(error, ValidationError):
-                        issue["fields"] = [{"type": e["type"], "path": list(e.get("loc") or [])} for e in error.errors()]
-                    invalid.append(issue)
-        report.update(valid_page_groups=valid, invalid_page_groups=len(invalid), invalid_details=invalid[:12])
-        print(json.dumps(report, ensure_ascii=True), flush=True)
-print(json.dumps({"event": "read_only_proof", "course_state_unchanged": path.read_bytes() == before}), flush=True)
+with tempfile.TemporaryDirectory(prefix='ppt-shadow-model-') as directory:
+    os.environ['LINGZHI_DATA_DIR'] = directory
+    os.environ['LINGZHI_TASK_RUNTIME_MODE'] = 'read_only'
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, '/opt/lingzhi/hackthon/backend')
+    from dotenv import load_dotenv
+    load_dotenv('/opt/lingzhi/state/.env', override=False)
+    import asyncio, logging
+    logging.disable(logging.CRITICAL)
+    from ai_base import AIBase
+    from ppt_fixed_templates import compile_fixed_template
+    from teacher_script_ppt import completion_seed_blocks, _prepare_page_candidates, validate_block_pages, _page_repair_prompt
+    from ppt_repair_response import parse_page_response
+    from template_layout_contract import TemplateLayoutPackContractV1
+    ai = AIBase()
+    assert ai.model_fast == 'qwen3.8-27b'
+    print(json.dumps({'event': 'shadow_model', 'model': ai.model_fast}), flush=True)
+
+    async def probe():
+        for lesson_id in ('L1-2', 'L1-4'):
+            lesson = authoring['lessons'][lesson_id]
+            job = authoring['jobs'][lesson['ppt_manuscript']['task_id']]
+            script = next(r for r in lesson['script_revisions'] if r['revision_id'] == lesson['working_script_revision_id'])
+            blocks = [b for s in script['sections'] for b in s['blocks']]
+            template = TemplateLayoutPackContractV1.model_validate(job['request_snapshot']['ppt_template'])
+            seeds = completion_seed_blocks(blocks, job.get('bundle_blocks') or {})
+            completed = False
+            for block in seeds.values():
+                pages = _prepare_page_candidates(block.get('ppt_pages') or [], block, template)
+                for group in ([[p] for p in pages] or [[]]):
+                    try:
+                        validate_block_pages({**block, 'ppt_pages': group}, template)
+                        continue
+                    except Exception as error:
+                        detail = str(error)
+                    for attempt in range(2):
+                        prompt = _page_repair_prompt(block, group, template, detail)
+                        print(json.dumps({'event':'shadow_request','lesson_id':lesson_id,'block_id':block['block_id'],'prompt_chars':len(prompt),'attempt':attempt+1}), flush=True)
+                        raw = await ai._call_llm('修复当前 PPT 页面，只返回 JSON 对象。', prompt, use_fast_model=True, retry_count=1, max_attempts=1, enable_thinking=False, wait_for_capacity=True, reject_truncated=True, raise_on_failure=True, json_mode=True, max_tokens=6000, request_timeout_seconds=180)
+                        try:
+                            value = parse_page_response(raw)
+                            assert value.get('pages')
+                            group = _prepare_page_candidates(value['pages'], block, template)
+                            validate_block_pages({**block, 'ppt_pages':group}, template)
+                            print(json.dumps({'event':'shadow_passed','lesson_id':lesson_id,'pages':len(group)}),flush=True)
+                            completed = True
+                            break
+                        except Exception as error:
+                            detail = str(error)
+                            print(json.dumps({'event':'shadow_repair_error','lesson_id':lesson_id,'error':detail.splitlines()[0][:400]}),flush=True)
+                    if not completed:
+                        raise ValueError('shadow_repair_not_valid')
+                    break
+                if completed:
+                    break
+    try:
+        asyncio.run(probe())
+    finally:
+        print(json.dumps({'event':'read_only_proof','course_state_unchanged':path.read_bytes()==before}),flush=True)
