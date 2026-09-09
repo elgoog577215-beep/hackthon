@@ -7,6 +7,11 @@ on:
         description: "Course ID to inspect without reading course prose"
         required: true
         type: string
+      request_id:
+        description: "Optional production request ID whose error stack should be inspected"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -310,3 +315,28 @@ jobs:
 
           print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
           PY
+
+      - name: Inspect requested server error
+        if: ${{ inputs.request_id != '' }}
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          REQUEST_ID: ${{ inputs.request_id }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$REQUEST_ID" =~ ^req_[a-zA-Z0-9]+$ ]]; then
+            echo "invalid request id" >&2
+            exit 2
+          fi
+          remote_request_id="$(printf '%q' "$REQUEST_ID")"
+          ssh -i ~/.ssh/lingzhi_diagnostic \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "LINGZHI_DIAGNOSTIC_REQUEST_ID=$remote_request_id bash -s" <<'REMOTE'
+          set -euo pipefail
+          journalctl -u lingzhi --since '30 minutes ago' --no-pager \
+            | grep -F -C 30 -- "$LINGZHI_DIAGNOSTIC_REQUEST_ID" \
+            | tail -n 160
+          REMOTE
