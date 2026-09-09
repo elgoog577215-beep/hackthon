@@ -212,7 +212,12 @@ def test_saved_manuscript_build_stream_and_download_keep_all_pages_and_notes(wor
     assert response.status_code == 200, response.text
     events = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
     finished = next((e for e in events if e.get("event") == "build_complete"), None)
-    assert finished is not None, events
+    if finished is None:
+        pytest.fail(json.dumps([
+            {"event": event.get("event"), "error": (event.get("job") or {}).get("error"),
+             "message": event.get("message")} for event in events
+            if event.get("event") in {"build_paused", "build_cancelled"} or event.get("failure")
+        ], ensure_ascii=False))
     assert finished["job"]["status"] == "completed"
     representation = finished["build"]["representation_id"]
     output = client.get(base + f"/{representation}/export.pptx")
@@ -278,6 +283,14 @@ def test_canonical_course_identity_uses_separate_lecture_registry_for_download(w
         workflow, monkeypatch, tmp_path, "default")
     assert observed and all(real == "course-1" and scope != real for real, scope in observed)
     assert not routes.teaching_representation_repository.load("course-1").representations
-    registry = routes.teaching_representation_repository.load(observed[-1][1])
+    registry = routes._teacher_v6_repository("course-1", observed[-1][1]).load("course-1")
     assert len(registry.representations) == 1
     assert registry.specs[0].payload["content"]["course_id"] == "course-1"
+    assert all(b.course_id == "course-1" for b in registry.specs[0].source_bindings)
+    from teaching_representations import TeachingRepresentationRepository
+    reopened = TeachingRepresentationRepository(routes.teaching_representation_repository.root_dir)
+    assert reopened.for_storage_scope("course-1", observed[-1][1]).load("course-1").representations[0].representation_id == registry.representations[0].representation_id
+    assert not routes._teacher_v6_repository("course-1", "other-lecture").load("course-1").representations
+    from teaching_representations import RepresentationConflict
+    with pytest.raises(RepresentationConflict, match="another source"):
+        routes._teacher_v6_repository("course-1", observed[-1][1]).load("other-course")

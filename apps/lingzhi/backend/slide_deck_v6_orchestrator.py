@@ -446,6 +446,7 @@ class SlideDeckV6Orchestrator:
     ) -> dict[str, Any]:
         """Seed a new durable task from a published V6 deck's healthy work."""
 
+        registry_scope = getattr(self.representations, "storage_scope_id", document.course_id)
         registry = self.representations.load(document.course_id)
         representation = next(
             (
@@ -555,6 +556,7 @@ class SlideDeckV6Orchestrator:
             "build_contract_version": SLIDE_DECK_V6_BUILD_CONTRACT_VERSION,
             "task_id": task_id,
             "course_id": document.course_id,
+            "registry_course_id": registry_scope,
             "course_document_revision": document.document_revision,
             "template_digest": template.template_digest,
             "mode": mode,
@@ -609,6 +611,9 @@ class SlideDeckV6Orchestrator:
         shadow_context: dict[str, Any] | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> dict[str, Any]:
+        # Canonical source identity remains on the document. Teacher lectures
+        # publish into the same independent registry scope used by download.
+        registry_scope = getattr(self.representations, "storage_scope_id", document.course_id)
         template = template_contract or compile_builtin_template_layout_contract_v1(theme)
         three_stage = any(layout.execution is not None for layout in template.layouts)
         from ppt_layout_execution import tool_identity
@@ -621,6 +626,7 @@ class SlideDeckV6Orchestrator:
         if restored_checkpoint and restored_checkpoint.get("schema_version") == "slide_deck_v6_checkpoint_v1":
             identity = (
                 restored_checkpoint.get("course_id") == document.course_id
+                and restored_checkpoint.get("registry_course_id", restored_checkpoint.get("course_id")) == registry_scope
                 and restored_checkpoint.get("course_document_revision") == document.document_revision
                 and restored_checkpoint.get("template_digest") == template.template_digest
                 and restored_checkpoint.get("mode") == mode
@@ -684,6 +690,7 @@ class SlideDeckV6Orchestrator:
             "build_contract_version": SLIDE_DECK_V6_BUILD_CONTRACT_VERSION,
             "task_id": task_id,
             "course_id": document.course_id,
+            "registry_course_id": registry_scope,
             "course_document_revision": document.document_revision,
             "template_digest": template.template_digest,
             "mode": mode,
@@ -1403,7 +1410,7 @@ class SlideDeckV6Orchestrator:
             }
             spec_id = stable_hash(
                 {
-                    "course_id": document.course_id,
+                    "course_id": registry_scope,
                     "variant_key": variant_key,
                     "source_digest": source_contract.source_digest,
                     "payload": spec_payload,
@@ -1424,7 +1431,7 @@ class SlideDeckV6Orchestrator:
                 updated_at=now,
             )
             representation_id = stable_hash(
-                {"course_id": document.course_id, "type": "slide_deck", "variant_key": variant_key},
+                {"course_id": registry_scope, "type": "slide_deck", "variant_key": variant_key},
                 prefix="trp_",
             )
             representation = TeachingRepresentation(

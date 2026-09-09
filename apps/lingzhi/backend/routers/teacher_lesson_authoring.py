@@ -2094,8 +2094,15 @@ def _teacher_v6_source(
     return document, course_view, synthetic_id, lesson, revision
 
 
-def _teacher_v6_registry_payload(synthetic_id: str) -> dict[str, Any]:
-    registry = teaching_representation_repository.load(synthetic_id)
+def _teacher_v6_repository(source_course_id: str, synthetic_id: str):
+    if source_course_id == synthetic_id:
+        return teaching_representation_repository
+    return teaching_representation_repository.for_storage_scope(source_course_id, synthetic_id)
+
+
+def _teacher_v6_registry_payload(synthetic_id: str, *, source_course_id: str | None = None) -> dict[str, Any]:
+    source_id = source_course_id or synthetic_id
+    registry = _teacher_v6_repository(source_id, synthetic_id).load(source_id)
     payload = registry.model_dump(mode="json")
     payload["slide_deck_target_schema"] = "slide_deck_v6"
     payload["slide_deck_v6_eligible"] = True
@@ -2535,7 +2542,7 @@ async def get_teacher_lesson_v6_registry(
         _document, _course_view, synthetic_id, lesson, _revision = _teacher_v6_source(
             tm, repository, course_id, lesson_unit_id
         )
-        return {"registry": _teacher_v6_registry_payload(synthetic_id)}
+        return {"registry": _teacher_v6_registry_payload(synthetic_id, source_course_id=_document.course_id)}
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
 
@@ -3206,7 +3213,7 @@ async def get_teacher_lesson_v6_spec(
         _document, _course_view, synthetic_id, lesson, _revision = _teacher_v6_source(
             tm, repository, course_id, lesson_unit_id
         )
-        registry = teaching_representation_repository.load(synthetic_id)
+        registry = _teacher_v6_repository(_document.course_id, synthetic_id).load(_document.course_id)
         representation = next(
             (item for item in registry.representations if item.representation_id == representation_id),
             None,
@@ -3269,7 +3276,7 @@ async def confirm_teacher_lesson_v6_manuscript(
         _document, _course_view, synthetic_id, lesson, _revision = _teacher_v6_source(
             tm, repository, course_id, lesson_unit_id
         )
-        registry = teaching_representation_repository.load(synthetic_id)
+        registry = _teacher_v6_repository(_document.course_id, synthetic_id).load(_document.course_id)
         representation = next(
             (
                 item
@@ -3342,7 +3349,7 @@ async def create_teacher_lesson_v6_ai_candidate(
         _document, _course_view, synthetic_id, _lesson, _revision = _teacher_v6_source(
             tm, repository, course_id, lesson_unit_id
         )
-        registry = teaching_representation_repository.load(synthetic_id)
+        registry = _teacher_v6_repository(_document.course_id, synthetic_id).load(_document.course_id)
         representation = next(
             (item for item in registry.representations if item.representation_id == representation_id),
             None,
@@ -3403,7 +3410,7 @@ async def resolve_teacher_lesson_v6_ai_candidate(
         _document, course_view, synthetic_id, _lesson, plan_revision = _teacher_v6_source(
             tm, repository, course_id, lesson_unit_id
         )
-        registry = teaching_representation_repository.load(synthetic_id)
+        registry = _teacher_v6_repository(_document.course_id, synthetic_id).load(_document.course_id)
         representation = next(
             (item for item in registry.representations if item.representation_id == representation_id),
             None,
@@ -3471,7 +3478,7 @@ async def resolve_teacher_lesson_v6_ai_candidate(
             created_at=now,
             updated_at=now,
         )
-        teaching_representation_repository.register_spec(edited_spec)
+        _teacher_v6_repository(_document.course_id, synthetic_id).register_spec(edited_spec)
         edited_representation = representation.model_copy(deep=True)
         edited_representation.spec_id = edited_spec.spec_id
         edited_representation.semantic_fingerprint = stable_hash(content, prefix="sem_")
@@ -3483,7 +3490,7 @@ async def resolve_teacher_lesson_v6_ai_candidate(
             "source_revision_vector": edited_representation.source_revision_vector,
         }, prefix="rpr_")
         edited_representation.updated_at = now
-        updated_registry = teaching_representation_repository.register_representation(
+        updated_registry = _teacher_v6_repository(_document.course_id, synthetic_id).register_representation(
             edited_representation
         )
         repository.bind_v6_ppt_revision(
@@ -3630,7 +3637,7 @@ async def build_teacher_lesson_v6_manuscript(
         repository.root / "v6_candidates"
     )
     orchestrator = SlideDeckV6Orchestrator(
-        representation_repository=teaching_representation_repository,
+        representation_repository=_teacher_v6_repository(document.course_id, _synthetic_id),
         candidate_repository=candidate_repository,
         progress_root=repository.root / "v6_progress",
     )
@@ -3985,7 +3992,7 @@ async def build_teacher_lesson_v6(
     )
     checkpoint_task_id = str(manuscript_state.get("task_id") or "")
     orchestrator = SlideDeckV6Orchestrator(
-        representation_repository=teaching_representation_repository,
+        representation_repository=_teacher_v6_repository(document.course_id, synthetic_id),
         candidate_repository=candidate_repository,
         progress_root=repository.root / "v6_progress",
     )
@@ -4120,7 +4127,7 @@ async def build_teacher_lesson_v6(
                     "target_schema": "slide_deck_v6",
                     "quality": result.get("quality") or {},
                     "build": result,
-                    "registry": _teacher_v6_registry_payload(synthetic_id),
+                    "registry": _teacher_v6_registry_payload(synthetic_id, source_course_id=document.course_id),
                 })
             except V6BuildError as exc:
                 failure = exc.failure.model_dump(mode="json")
@@ -4220,7 +4227,7 @@ async def export_teacher_lesson_v6(
         _document, _course_view, synthetic_id, lesson, _revision = _teacher_v6_source(
             tm, repository, course_id, lesson_unit_id
         )
-        registry = teaching_representation_repository.load(synthetic_id)
+        registry = _teacher_v6_repository(_document.course_id, synthetic_id).load(_document.course_id)
         representation = next(
             (item for item in registry.representations if item.representation_id == representation_id),
             None,
@@ -4286,7 +4293,7 @@ async def preview_teacher_lesson_v6_edit(
         _document, _course_view, synthetic_id, _lesson, _revision = _teacher_v6_source(
             tm, repository, course_id, lesson_unit_id
         )
-        registry = teaching_representation_repository.load(synthetic_id)
+        registry = _teacher_v6_repository(_document.course_id, synthetic_id).load(_document.course_id)
         representation = next((item for item in registry.representations if item.representation_id == representation_id), None)
         spec = next((item for item in registry.specs if representation and item.spec_id == representation.spec_id), None)
         if representation is None or spec is None:
@@ -4332,7 +4339,7 @@ async def apply_teacher_lesson_v6_edit(
         _document, _course_view, synthetic_id, _lesson, _revision = _teacher_v6_source(
             tm, repository, course_id, lesson_unit_id
         )
-        registry = teaching_representation_repository.load(synthetic_id)
+        registry = _teacher_v6_repository(_document.course_id, synthetic_id).load(_document.course_id)
         representation = next((item for item in registry.representations if item.representation_id == representation_id), None)
         spec = next((item for item in registry.specs if representation and item.spec_id == representation.spec_id), None)
         if representation is None or spec is None:
@@ -4384,7 +4391,7 @@ async def apply_teacher_lesson_v6_edit(
             created_at=now,
             updated_at=now,
         )
-        teaching_representation_repository.register_spec(edited_spec)
+        _teacher_v6_repository(_document.course_id, synthetic_id).register_spec(edited_spec)
         edited_representation = representation.model_copy(deep=True)
         edited_representation.spec_id = edited_spec.spec_id
         edited_representation.semantic_fingerprint = stable_hash(content, prefix="sem_")
@@ -4397,7 +4404,7 @@ async def apply_teacher_lesson_v6_edit(
             "source_revision_vector": edited_representation.source_revision_vector,
         }, prefix="rpr_")
         edited_representation.updated_at = now
-        updated = teaching_representation_repository.register_representation(edited_representation)
+        updated = _teacher_v6_repository(_document.course_id, synthetic_id).register_representation(edited_representation)
         repository.bind_v6_ppt_revision(
             course_id,
             lesson_unit_id,

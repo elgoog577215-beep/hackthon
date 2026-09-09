@@ -451,6 +451,12 @@ class TeachingRepresentationRepository:
         self._locks: dict[str, threading.RLock] = {}
         self._locks_guard = threading.Lock()
 
+    def for_storage_scope(self, source_course_id: str, storage_scope_id: str) -> TeachingRepresentationRepository:
+        """Use an existing artifact namespace without changing source identities."""
+        if source_course_id == storage_scope_id:
+            return self
+        return _ScopedTeachingRepresentationRepository(self, source_course_id, storage_scope_id)
+
     def load(self, course_id: str) -> TeachingRepresentationRegistry:
         path = self._path(course_id)
         if not path.exists():
@@ -1618,6 +1624,28 @@ class TeachingRepresentationRepository:
         finally:
             if temp.exists():
                 temp.unlink()
+
+
+class _ScopedTeachingRepresentationRepository(TeachingRepresentationRepository):
+    """A view over the same files/locks; registry rows retain the real course ID."""
+
+    def __init__(self, parent, source_course_id, storage_scope_id):
+        self.parent = parent
+        self.source_course_id = source_course_id
+        self.storage_scope_id = storage_scope_id
+        self.root_dir = parent.root_dir
+
+    def _check_source(self, course_id):
+        if course_id != self.source_course_id:
+            raise RepresentationConflict("Artifact scope belongs to another source course")
+
+    def _path(self, course_id):
+        self._check_source(course_id)
+        return self.parent._path(self.storage_scope_id)
+
+    def _lock(self, course_id):
+        self._check_source(course_id)
+        return self.parent._lock(self.storage_scope_id)
 
 
 teaching_representation_repository = TeachingRepresentationRepository()
