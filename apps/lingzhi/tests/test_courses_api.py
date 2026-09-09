@@ -176,9 +176,17 @@ async def test_material_backed_generate_course_creates_one_generation_job(client
         "phase": "queued",
     })
     monkeypatch.setattr(deps_module, "_task_manager", fake_manager)
+    monkeypatch.setattr("routers.courses.storage.load_course", lambda _course_id: {
+        "course_id": "course-blueprint",
+        "course_status": "draft",
+        "authoring_surface": "teacher",
+        "owner_id": "teacher-a",
+        "generation_job_id": "",
+    })
 
-    resp = await client.post("/api/course-generation/generate", json={
+    resp = await client.post("/api/course-generation/generate", headers={"X-User-Id": "teacher-a"}, json={
         "teacher_authoring_mode": "lesson_assets_v1",
+        "target_course_id": "course-blueprint",
         "subject": "AI",
         "difficulty": "advanced",
         "style": "socratic",
@@ -197,6 +205,8 @@ async def test_material_backed_generate_course_creates_one_generation_job(client
     assert snapshot["style"] == "socratic"
     assert snapshot["requirements"] == "少废话"
     assert snapshot["pedagogy_mode"] == "programming_engineering"
+    assert snapshot["target_course_id"] == "course-blueprint"
+    assert snapshot["_retrieval_actor_id"] == "teacher-a"
 
 
 @pytest.mark.asyncio

@@ -955,6 +955,10 @@ class TaskManager:
         if request_snapshot.get("teacher_authoring_mode") != "lesson_assets_v1":
             raise ValueError("legacy_course_generation_retired: use the teacher workbench")
         request_snapshot = dict(request_snapshot)
+        if not str(request_snapshot.get("target_course_id") or "").strip():
+            raise ValueError(
+                "teacher_target_course_required: create a teacher course before generating its outline"
+            )
         async with self._creation_lock:
             request_id = str(request_snapshot.get("request_id") or "").strip()
             if request_id:

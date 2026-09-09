@@ -1241,14 +1241,35 @@ export const useGenerationStore = defineStore('generation', {
       this.failureReport = null
       this.addLog(`已提交课程生成: ${subject}`)
       try {
+        const teacherOutlineGeneration = options.teacher_authoring_mode === 'lesson_assets_v1'
+        const targetCourseId = String(options.target_course_id || '').trim()
+        const requestIdentityScope: RequestIdentityScope = teacherOutlineGeneration ? 'teacher' : identityScope
+        if (teacherOutlineGeneration && !targetCourseId) {
+          const detail = {
+            code: 'teacher_target_course_required',
+            message: '请先创建课程，再从该课程的备课工作台生成大纲',
+          }
+          throw Object.assign(new Error(detail.message), {
+            response: { status: 422, data: { detail } },
+          })
+        }
         const res = await http.post(
           `/api/course-generation/generate`,
           { subject, ...options },
-          identityRequestConfig(identityScope, { silentError: true }),
+          identityRequestConfig(requestIdentityScope, { silentError: true }),
         )
         if (res.data?.job_id && res.data?.course_id) {
           const jobId = res.data.job_id
-          const courseId = res.data.course_id
+          const courseId = String(res.data.course_id)
+          if (teacherOutlineGeneration && courseId !== targetCourseId) {
+            const detail = {
+              code: 'teacher_target_course_mismatch',
+              message: '生成任务返回了另一门课程，已停止切换并保留当前课程',
+            }
+            throw Object.assign(new Error(detail.message), {
+              response: { status: 409, data: { detail } },
+            })
+          }
           const courseName = res.data.course_name || subject
           const task = this.createTask(jobId, courseId, courseName, options)
           task.status = res.data.status || 'pending'
@@ -1261,7 +1282,7 @@ export const useGenerationStore = defineStore('generation', {
           cs.currentGenerationQualityReport = null
           cs.nodes = []
           cs.courseTree = []
-          await cs.fetchCourseList({ surface: identityScope === 'teacher' ? 'teacher' : 'student' })
+          await cs.fetchCourseList({ surface: requestIdentityScope === 'teacher' ? 'teacher' : 'student' })
           this.taskProgress[courseId] = {
             percentage: 0,
             currentNodeName: '',

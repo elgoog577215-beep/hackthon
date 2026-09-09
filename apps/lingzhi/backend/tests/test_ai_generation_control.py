@@ -309,7 +309,16 @@ async def test_generation_creation_is_idempotent_for_same_request_id(
     tmp_path, monkeypatch
 ):
     manager, storage, workspaces = _lifecycle_manager(tmp_path, monkeypatch)
-    request = {"request_id": "request-course-0001", "subject": "幂等课程"}
+    await manager._course_document_repository.create_teacher_draft(
+        "idempotent-draft",
+        title="幂等课程",
+        metadata={"owner_id": "teacher-a"},
+    )
+    request = {
+        "request_id": "request-course-0001",
+        "subject": "幂等课程",
+        "target_course_id": "idempotent-draft",
+    }
 
     first, second = await asyncio.gather(
         manager.create_generation_job({**request, "teacher_authoring_mode":"lesson_assets_v1"}),

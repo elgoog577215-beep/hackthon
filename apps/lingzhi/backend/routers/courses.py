@@ -830,39 +830,41 @@ async def create_course_generation_job(
     """Create the sole persisted teacher outline job and return immediately."""
     if req.teacher_authoring_mode != "lesson_assets_v1":
         raise HTTPException(410, detail={"code": "legacy_course_generation_retired", "message": "整课生成入口已停用，请从教师工作台创建课程。已有任务仍可继续。"})
-    actor_id = (
-        require_actor_id(request.headers.get("X-User-Id"))
-        if req.target_course_id
-        else resolve_user_id(request.headers.get("X-User-Id"))
-    )
-    if req.target_course_id:
-        draft = storage.load_course(req.target_course_id)
-        if not draft or draft.get("owner_id") != actor_id:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "code": "teacher_course_draft_unavailable",
-                    "message": "课程草稿不存在或不属于当前教师",
-                },
-            )
-        if (
-            draft.get("course_status") != "draft"
-            or draft.get("authoring_surface") != "teacher"
-            or draft.get("generation_job_id")
-        ):
-            raise HTTPException(status_code=409, detail="课程大纲已存在或正在生成")
+    if not req.target_course_id:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "teacher_target_course_required",
+                "message": "请先创建课程，再从该课程的备课工作台生成大纲",
+            },
+        )
+    actor_id = require_actor_id(request.headers.get("X-User-Id"))
+    draft = storage.load_course(req.target_course_id)
+    if not draft or draft.get("owner_id") != actor_id:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "teacher_course_draft_unavailable",
+                "message": "课程草稿不存在或不属于当前教师",
+            },
+        )
+    if (
+        draft.get("course_status") != "draft"
+        or draft.get("authoring_surface") != "teacher"
+        or draft.get("generation_job_id")
+    ):
+        raise HTTPException(status_code=409, detail="课程大纲已存在或正在生成")
     request_snapshot = req.model_dump(mode="json")
     request_snapshot["_retrieval_actor_id"] = actor_id
     job = await tm.create_generation_job(request_snapshot)
-    if req.target_course_id:
-        teacher_course_space_repository.capture_owned_generation_source_snapshot(
-            actor_id,
-            req.target_course_id,
-            target_id="managed:outline",
-            target_type="outline",
-            target_label="课程大纲",
-            task_id=str(job.get("id") or job.get("task_id") or ""),
-        )
+    teacher_course_space_repository.capture_owned_generation_source_snapshot(
+        actor_id,
+        req.target_course_id,
+        target_id="managed:outline",
+        target_type="outline",
+        target_label="课程大纲",
+        task_id=str(job.get("id") or job.get("task_id") or ""),
+    )
     return job
 
 

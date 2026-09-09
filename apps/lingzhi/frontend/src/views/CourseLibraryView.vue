@@ -303,12 +303,6 @@
       </nav>
     </Transition>
 
-    <CourseGenerationDialog
-      v-model="createDialogOpen"
-      :busy="creating"
-      @generate="generateCourse"
-      @error="message => ElMessage.error(message)"
-    />
     <CourseWorkbench
       v-model="workbenchOpen"
       :course-id="selectedWorkbenchCourseId"
@@ -322,11 +316,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowRight, BookOpenText, ChevronDown, ChevronLeft, ChevronRight, Ellipsis, FilePlus2, History, LayoutDashboard, LoaderCircle, Plus, Search, Trash2, Upload } from 'lucide-vue-next'
 import CourseCover from '../components/CourseCover.vue'
-import CourseGenerationDialog from '../components/CourseGenerationDialog.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
-import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { activeLocale, t } from '../shared/i18n'
 import { courseProductionTaskDetail } from '../utils/course-production'
 import { latestResumableCourse, resumeKindLabel } from '../utils/learning-resume'
@@ -347,10 +339,8 @@ const createMenuTriggerRef = ref<HTMLButtonElement | null>(null)
 const createMenuFirstItemRef = ref<HTMLButtonElement | null>(null)
 const createMenuOpen = ref(false)
 const openCourseMenuId = ref('')
-const createDialogOpen = ref(false)
 const workbenchOpen = ref(false)
 const selectedWorkbenchCourseId = ref('')
-const creating = ref(false)
 
 const filteredCourses = computed(() => {
   const keyword = query.value.trim().toLocaleLowerCase()
@@ -539,34 +529,10 @@ function handleCoursePrimary(courseId: string, active: boolean) {
   openCourse(courseId)
 }
 
-function openGeneratingCourse(courseId: string) {
-  void router.push({ name: 'course-workspace', params: { courseId, mode: 'build' }, query: { section: 'outline' } })
-}
-
 function openTaskCenter(courseId = '') {
   closeCourseMenu()
   selectedWorkbenchCourseId.value = courseId
   workbenchOpen.value = true
-}
-
-async function generateCourse(payload: { subject: string; options: CourseGenerationOptions }) {
-  if (creating.value) return
-  creating.value = true
-  try {
-    const result = await courseStore.generateCourse(payload.subject, payload.options)
-    if (!result?.courseId) {
-      ElMessage.error(t('courseLibrary.createFailed', '课程创建失败'))
-      return
-    }
-    createDialogOpen.value = false
-    openGeneratingCourse(result.courseId)
-    void courseStore.fetchCourseList()
-    ElMessage.success(t('courseLibrary.createStarted', '课程已开始生成，正在进入生成现场'))
-  } catch {
-    ElMessage.error(t('courseLibrary.createFailed', '课程创建失败'))
-  } finally {
-    creating.value = false
-  }
 }
 
 async function importCourse(event: Event) {
