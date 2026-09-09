@@ -931,6 +931,7 @@ def audit_exported_pptx(
                     not is_footer
                     and not is_eyebrow
                     and not is_title
+                    and not (scene_object is not None and scene_object.slot_id == "decoration")
                     and top_inches >= 1.9
                     and bottom_inches <= 7.05
                     and text_audit["minimum_font_size_pt"] < 16
