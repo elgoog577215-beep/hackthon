@@ -20,6 +20,6 @@ jobs:
           printf '%s\n' "$LINGZHI_SSH_KEY" > ~/.ssh/lingzhi_deploy
           chmod 600 ~/.ssh/lingzhi_deploy
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
-          cat apps/lingzhi/scripts/candidate_analysis_method.py apps/lingzhi/scripts/inspect_course_context_read.py | ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+          cat apps/lingzhi/scripts/candidate_analysis_method.py apps/lingzhi/scripts/candidate_scan_loader.py apps/lingzhi/scripts/inspect_course_context_read.py | ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
             'set -a; . /opt/lingzhi/state/.env; set +a; cd /opt/lingzhi/hackthon; /opt/lingzhi/.venv/bin/python -'

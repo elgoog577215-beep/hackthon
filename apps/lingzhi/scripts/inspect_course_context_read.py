@@ -52,24 +52,23 @@ async def probe():
     from course_evolution.semantic_scan import validate_batch
     state = course_evolution_repository.load('learner_a44b54f7-1d80-442f-9b23-0e84371b2592', ctx.course_id)
     plan = next(p for p in state.change_sets if p.change_set_id == 'course-change-2395399f197543bc828e6a7ee1241c29')
-    targets = list(plan.impact_summary['coverage']['unscanned_unit_ids'])
+    targets = ['course_content:tsb-82c81e8ea1c4', 'script:L1-6:tsb-82c81e8ea1c4', 'question_bank:qbi_5975a9f5125e0c53']
     semaphore = asyncio.Semaphore(2)
     async def check_unit(uid):
         u = next(u for u in ctx.units if u.unit_id == uid)
         body = '\n\n'.join(u.full_text_fields.values()) or u.text
         started = time.monotonic()
-        chunks = [body[i:i+1200] for i in range(0, max(1, len(body)), 1100)]
-        for i, content in enumerate(chunks):
-            item = {**ranked[uid], 'content': content, 'part': i+1, 'parts': len(chunks)}
-            try:
-                async with semaphore:
-                    output = await asyncio.wait_for(model.analyze_teacher_course_change(overview, [item], plan.request_text), 120)
-                validate_batch(output, [item])
-            except Exception as error:
-                print('UNIT_FAIL', uid, i+1, len(chunks), type(error).__name__, str(error)[:120], flush=True)
-                return False
-        print('UNIT_PASS', uid, len(chunks), round(time.monotonic()-started, 2), flush=True)
-        return True
+        size = 600 if len(body) > 6000 and '```' in body else 1200
+        chunks = [body[i:i+size] for i in range(0, max(1, len(body)), size-100)]
+        batches = [[{**ranked[uid], 'content': content, 'part': i+1, 'parts': len(chunks)}] for i, content in enumerate(chunks)]
+        async def analyze(overview, items, instruction):
+            async with semaphore:
+                return await asyncio.wait_for(model.analyze_teacher_course_change(overview, items, instruction), 120)
+        _, done, missing, failures, retries = await candidate_scan_batches(overview=overview, batches=batches,
+            instruction=plan.request_text, revisions={}, analyzer=analyze)
+        print('UNIT_RECOVERY', uid, len(chunks), round(time.monotonic()-started, 2),
+              json.dumps({'done':sorted(done), 'missing':sorted(missing), 'errors':[e.get('message') for e in failures], 'retries':retries}), flush=True)
+        return not missing
     results = await asyncio.gather(*(check_unit(uid) for uid in targets))
     print('FINAL_REPLAY', json.dumps({'units':len(targets), 'passed':sum(results), 'failed':len(results)-sum(results), 'course_writes':0}), flush=True)
 asyncio.run(probe())
