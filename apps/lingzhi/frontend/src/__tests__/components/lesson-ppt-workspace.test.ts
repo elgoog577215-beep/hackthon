@@ -14,6 +14,25 @@ vi.mock('@/utils/http', () => ({
 }))
 
 describe('LessonPptWorkspace', () => {
+  it('导出失败后的重试重新执行导出，不只是刷新内容稿', async () => {
+    http.get.mockResolvedValue({ data: { ppt_manuscript_state: {
+      manuscript: { pages: [], page_count: 0 }, revision: 'm1', can_export: true,
+    } } })
+    const exporter = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('export connection failed'))
+    const wrapper = mount(LessonPptWorkspace, {
+      props: { courseId: 'course-1', initialLessonId: 'L1-1', title: '第一讲' },
+    })
+    try {
+      await flushPromises()
+      await wrapper.get(`button[aria-label="${messages.pptProject.export}"]`).trigger('click')
+      await flushPromises()
+      expect(exporter).toHaveBeenCalledTimes(1)
+      await wrapper.get('.lesson-ppt-error button').trigger('click')
+      await flushPromises()
+      expect(exporter).toHaveBeenCalledTimes(2)
+    } finally { wrapper.unmount() }
+  })
+
   it('任务轮询短暂断网后继续对账，不把运行中任务永久卡住', async () => {
     vi.useFakeTimers()
     let reads = 0
