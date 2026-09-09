@@ -18,7 +18,7 @@ COURSE = "afb29754-6842-437b-af1b-5866bfb53b41"
 LESSON = "L1-1"
 TASK = "tlj-de0142ee0a2f4c72a3f9a8a1ede1b7be"
 SCRIPT = "tlsr-2b924bca800b44e3f8eac91b"
-RELEASE = "f753b0c5"
+RELEASE = "d33a8c55"
 ROOT = Path("/opt/lingzhi/state/backend-data")
 BASE = "http://127.0.0.1:7862"
 API = f"/api/teacher/courses/{COURSE}"
@@ -148,7 +148,7 @@ def main():
 
 TARGETS = {
     "L1-2": ("tlj-177495a7b9094e84887a85b04488d131", "tlsr-6ca692faf9503aafd0b388eb"),
-    "L1-3": ("tlj-05e55f0ab9434d7aa97fdac2371a8c1f", "tlsr-21a013c447507f197acd7574"),
+    "L1-3": ("tlj-9d81b4bd8dc74e09bbdcd728a3aca9c7", "tlsr-21a013c447507f197acd7574"),
     "L1-4": ("tlj-b1bafbe73300454ba31a60c20d9cd992", "tlsr-651f3ebac1d1e181257d509b"),
     "L1-5": ("tlj-2281a77bcbbd412da6b25f2a2a7ed334", "tlsr-ce13bc117c1eb1c1c9275efd"),
 }
