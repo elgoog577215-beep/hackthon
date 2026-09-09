@@ -1,4 +1,4 @@
-name: Stop approved course analysis before PPT release
+name: Recover and verify PPT lectures two through five
 
 on:
   workflow_dispatch:
@@ -44,7 +44,7 @@ jobs:
           chmod 600 ~/.ssh/lingzhi_deploy
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Cancel the exact user-approved analysis task through the API
+      - name: Recover original tasks and verify preview and PPTX while reserving lecture six
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
@@ -52,4 +52,4 @@ jobs:
           set -euo pipefail
           ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            '/opt/lingzhi/.venv/bin/python -' < apps/lingzhi/scripts/cancel_approved_course_analysis.py
+            '/opt/lingzhi/.venv/bin/python -' < apps/lingzhi/scripts/verify_general_ppt_recovery.py
