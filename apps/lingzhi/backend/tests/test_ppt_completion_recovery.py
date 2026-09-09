@@ -259,3 +259,25 @@ def test_stopped_export_event_updates_client_job_status():
     job = {"id": "export", "status": "paused", "phase": "paused", "message": "renderer unavailable"}
     event = routes._teacher_ppt_stopped_event(job)
     assert event["job"]["status"] == "paused"
+
+
+def test_canonical_course_identity_uses_separate_lecture_registry_for_download(workflow, monkeypatch, tmp_path):
+    """Unified teacher documents retain their real ID, unlike legacy fixtures."""
+    from course_document import refresh_document_revision
+    original = routes._teacher_v6_source
+    observed = []
+
+    def canonical_source(*args):
+        document, view, scope, lesson, revision = original(*args)
+        document = refresh_document_revision(document.model_copy(update={"course_id": "course-1"}))
+        observed.append((document.course_id, scope))
+        return document, {**view, "course_id": "course-1"}, scope, lesson, revision
+
+    monkeypatch.setattr(routes, "_teacher_v6_source", canonical_source)
+    test_saved_manuscript_build_stream_and_download_keep_all_pages_and_notes(
+        workflow, monkeypatch, tmp_path, "default")
+    assert observed and all(real == "course-1" and scope != real for real, scope in observed)
+    assert not routes.teaching_representation_repository.load("course-1").representations
+    registry = routes.teaching_representation_repository.load(observed[-1][1])
+    assert len(registry.representations) == 1
+    assert registry.specs[0].payload["content"]["course_id"] == "course-1"
