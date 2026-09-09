@@ -254,6 +254,59 @@ async def test_whole_course_analysis_uses_a_durable_task_instead_of_one_long_req
     assert manager.tasks[task["id"]]["status"] == "pending"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "expected_code", "expected_stage", "expected_message"),
+    [
+        (
+            ValueError("Clarification option IDs must be unique"),
+            "course_change_plan_invalid",
+            "plan_validation",
+            "AI 返回的课程修改方案没有通过校验，请保留原要求后重试。",
+        ),
+        (
+            TimeoutError("provider timeout"),
+            "provider_timeout",
+            "ai_analysis",
+            "AI 服务响应超时，请稍后按原要求重试。",
+        ),
+    ],
+)
+async def test_whole_course_analysis_failure_keeps_safe_stage_details(
+    tmp_path,
+    monkeypatch,
+    error,
+    expected_code,
+    expected_stage,
+    expected_message,
+):
+    manager = build_manager(tmp_path, monkeypatch)
+
+    async def create_teacher_plan(**kwargs):
+        raise error
+
+    service = SimpleNamespace(create_teacher_plan=create_teacher_plan)
+    task = await enqueue_analysis(
+        manager=manager,
+        user_id="teacher",
+        course_id="course-1",
+        request_id=f"failure-{expected_code}",
+        instruction="每讲安排一个实践项目",
+    )
+
+    await run_analysis(manager, task["id"], service=service)
+
+    failed = manager.get_task_summary(task["id"])
+    assert failed["status"] == "failed"
+    assert failed["message"] == expected_message
+    assert failed["error_detail"]["code"] == expected_code
+    assert failed["error_detail"]["failure_stage"] == expected_stage
+    assert failed["error_detail"]["exception_type"] == type(error).__name__
+    assert failed["error_detail"]["public_message"] == expected_message
+    assert isinstance(failed["error_detail"]["retryable"], bool)
+    assert failed["error"] == failed["error_detail"]["technical_message"]
+
+
 def test_search_and_replacement_share_prose_and_preserve_identifiers():
     original = {
         "node_id": "旧词",

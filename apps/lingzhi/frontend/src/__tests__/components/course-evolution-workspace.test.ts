@@ -164,6 +164,37 @@ describe('CourseEvolutionWorkspace', () => {
     wrapper.unmount()
   })
 
+  it('分析失败时展示公开原因、可展开技术详情和原要求重试入口', () => {
+    const pinia = createPinia()
+    const store = useCourseEvolutionStore(pinia)
+    store.applyAnalysisTask({
+      id: 'analysis-task-failed',
+      type: 'teacher_course_change_analysis',
+      status: 'failed',
+      message: '整课影响分析失败，可以保留原要求后重试',
+      error: 'raw internal failure',
+      error_detail: {
+        code: 'course_change_plan_invalid',
+        failure_stage: 'plan_validation',
+        exception_type: 'ValueError',
+        public_message: 'AI 返回的课程修改方案没有通过校验，请保留原要求后重试。',
+        technical_message: 'Clarification option IDs must be unique',
+        retryable: true,
+      },
+    } as any)
+    const wrapper = mountWorkspace(pinia)
+
+    expect(wrapper.get('.inline-error').text()).toContain('AI 返回的课程修改方案没有通过校验')
+    const details = wrapper.get('.analysis-failure-details')
+    expect(details.find('summary').text()).toContain('查看技术详情')
+    expect(details.text()).toContain('plan_validation')
+    expect(details.text()).toContain('course_change_plan_invalid')
+    expect(details.text()).toContain('ValueError')
+    expect(details.text()).toContain('analysis-task-failed')
+    expect(wrapper.get('.button-submit').text()).toContain('按原要求重试分析')
+    wrapper.unmount()
+  })
+
   it('内容变化用资产导航、原因和勾选范围完成精细审阅', async () => {
     const pinia = createPinia()
     const store = useCourseEvolutionStore(pinia)
