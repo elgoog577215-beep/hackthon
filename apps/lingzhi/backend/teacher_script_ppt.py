@@ -139,6 +139,39 @@ def _block_literal_source_ranges(block: dict[str, Any]) -> list[dict[str, Any]]:
     })
 
 
+def _grounded_fallback_page(block: dict[str, Any], template) -> dict[str, Any]:
+    catalog = _block_literal_source_ranges(block)
+    source_text = str(block.get("content") or "").strip()
+    if not catalog and source_text:
+        catalog = [{"block_id": block["block_id"], "quote": source_text}]
+    points = []
+    seen = set()
+    for item in catalog:
+        quote = str(item.get("quote") or "").strip()
+        if not quote or quote in seen:
+            continue
+        seen.add(quote)
+        points.append({
+            "text": _compact_screen_text(quote, 52),
+            "sources": [{"block_id": str(item.get("block_id") or block["block_id"]), "quote": quote}],
+        })
+        if len(points) == 3:
+            break
+    if not points:
+        raise ValueError(f"script_ppt_pages_missing:{block['block_id']}")
+    title = _compact_screen_text(str(block.get("title") or "讲义要点"), 28)
+    return {
+        "layout_id": template.layout_id("bullets"),
+        "page_goal": title,
+        "fields": {
+            "title": title,
+            "notes": "模型未返回可用页面，已根据当前讲义原文整理要点。",
+            "split_reason": "使用讲义原文生成保底页面",
+            "points": points,
+        },
+    }
+
+
 def _compact_screen_text(value: str, limit: int) -> str:
     text = " ".join(str(value).split())
     if len(text) <= limit:
@@ -501,6 +534,15 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                         if attempts[index] >= 2:
                             page_errors.append({"block_id": bid, "page_index": index, "message": str(exc)})
                             break
+            if not candidate_pages:
+                try:
+                    candidate_pages = _prepare_page_candidates(
+                        [_grounded_fallback_page(block, template)], block
+                    )
+                    validate_block_pages({**block, "ppt_pages": candidate_pages}, template)
+                    page_errors = [error for error in page_errors if error.get("page_index") != index]
+                except (ValueError, RuntimeError, KeyError):
+                    candidate_pages = []
             groups[index] = candidate_pages
             block["ppt_pages"] = [p for group in groups for p in group]
             block.update(ppt_page_groups=groups, ppt_repair_attempts=attempts)

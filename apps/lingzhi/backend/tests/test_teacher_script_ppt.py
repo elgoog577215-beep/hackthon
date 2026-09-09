@@ -158,26 +158,21 @@ def test_page_failure_exhaustion_returns_usable_handout_and_reusable_checkpoint(
     result = asyncio.run(generate_bundle(invoke=invoke, contract=contract, instructions="", template=template, on_checkpoint=saved.append))
     assert len(calls) == 3
     assert result["blocks"][0]["content"] == TEXT
-    assert result["blocks"][0]["ppt_errors"]
-    resumed = []
-    async def recover(prompt, instructions, **kwargs):
-        resumed.append(prompt)
-        return json.dumps({"pages": [page]})
-    restored = asyncio.run(generate_bundle(invoke=recover, contract=contract, instructions="", template=template,
-        seed_blocks={"b": {**saved[-1], "ppt_repair_attempts": [0]}}))
-    assert len(resumed) == 1
-    assert restored["blocks"][0]["content"] == TEXT
-    assert not restored["blocks"][0]["ppt_errors"]
+    assert not result["blocks"][0]["ppt_errors"]
+    assert result["blocks"][0]["ppt_pages"][0]["layout_id"].endswith("/bullets")
+    validate_block_pages(result["blocks"][0], template)
 
 
-def test_recovery_does_not_reset_automatic_repair_budget():
+def test_exhausted_empty_page_checkpoint_uses_grounded_fallback_without_model_call():
     template, contract, _ = sample()
     async def unexpected(*args, **kwargs):
         raise AssertionError("exhausted retries must not invoke the model")
     result = asyncio.run(generate_bundle(invoke=unexpected, contract=contract, instructions="", template=template,
         seed_blocks={"b": {"block_id": "b", "content": TEXT, "ppt_pages": [], "ppt_repair_attempts": [2], "generation_contract_version": CONTRACT}}))
     assert result["blocks"][0]["content"] == TEXT
-    assert result["blocks"][0]["ppt_errors"]
+    assert not result["blocks"][0]["ppt_errors"]
+    assert result["blocks"][0]["ppt_pages"][0]["layout_id"].endswith("/bullets")
+    validate_block_pages(result["blocks"][0], template)
 
 
 def test_malformed_pages_preserve_successful_handout():
