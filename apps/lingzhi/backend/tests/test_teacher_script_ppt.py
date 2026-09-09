@@ -267,6 +267,7 @@ def test_overlong_triad_points_are_fitted_locally_without_another_model_call():
 @pytest.mark.parametrize("message", [
     "source_quote_id_unknown:q_7adad6815373",
     "3 validation errors for FixedTriad points.0.text String should have at most 32 characters",
+    "teaching_fact_token_unsupported:item-2: unsupported=['gameo']",
 ])
 def test_page_contract_failures_are_reported_as_the_validation_step(message):
     failure = describe_bundle_failure(ValueError(message))
@@ -277,7 +278,7 @@ def test_page_contract_failures_are_reported_as_the_validation_step(message):
 
 def test_source_only_formula_quote_is_resolved_without_model_retry():
     template, contract, _page = sample()
-    source_text = "速度公式为 \\(v=at\\)，其中 a 表示加速度，t 表示时间。"
+    source_text = "速度公式为 \\[v=at\\]，其中 a 表示加速度，t 表示时间。"
     formula_page = {
         "layout_id": template.layout_id("formula"),
         "page_goal": "解释速度公式",
@@ -302,6 +303,6 @@ def test_source_only_formula_quote_is_resolved_without_model_retry():
 
     block = result["blocks"][0]
     formula_source = block["ppt_pages"][0]["fields"]["formula"]["sources"][0]
-    assert formula_source == {"block_id": "b", "quote": "\\(v=at\\)"}
+    assert formula_source == {"block_id": "b", "quote": "\\[v=at\\]"}
     assert not block["ppt_errors"]
     validate_block_pages(block, template)

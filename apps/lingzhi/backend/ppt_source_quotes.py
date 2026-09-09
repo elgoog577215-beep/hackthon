@@ -8,7 +8,10 @@ def source_excerpt_catalog(sources):
     for source in sources.values():
         text = source["full_text"]
         spans = {(m.start(), m.end()) for m in re.finditer(r"[^\n。！？]+[。！？]?", text) if m.group().strip()}
-        spans.update((m.start(), m.end()) for m in re.finditer(r"\$\$[\s\S]*?\$\$|(?<!\$)\$[^$\n]+\$|```[\s\S]*?```|`[^`\n]+`", text))
+        spans.update((m.start(), m.end()) for m in re.finditer(
+            r"\$\$[\s\S]*?\$\$|(?<!\$)\$[^$\n]+\$|\\\[[\s\S]*?\\\]|\\\([^\n]*?\\\)|```[\s\S]*?```|`[^`\n]+`",
+            text,
+        ))
         for start, end in sorted(spans):
             token = f"{source['block_id']}:{source['block_revision']}:{start}:{end}"
             catalog.append({"quote_id": "q_" + hashlib.sha256(token.encode()).hexdigest()[:12],

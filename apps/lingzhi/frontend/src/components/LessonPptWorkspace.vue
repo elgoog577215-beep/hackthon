@@ -153,6 +153,7 @@ const base = () => `/api/teacher/courses/${encodeURIComponent(props.courseId)}/l
 const config = () => identityRequestConfig('teacher', { signal: controller.signal })
 const current = (v: number) => !disposed && v === version
 function message(e: any) { const detail = e?.response?.data?.detail; return (typeof detail === 'string' ? detail : detail?.message) || e?.message || t('pptProject.failed') }
+function errorCode(e: any) { const detail = e?.response?.data?.detail; return String((typeof detail === 'object' ? detail?.code : '') || e?.code || '') }
 async function load() {
   const v = version
   loading.value = true
@@ -234,8 +235,26 @@ async function poll(id: string, v: number) {
 async function complete() {
   const v = version
   error.value = ''
-  try { const { data } = await http.post(`${base()}/manuscript/complete`, { source_script_revision_id: state.value.source_script_revision_id, task_id: state.value.task_id || '' }, config()); if (current(v)) { job.value = data.job; void poll(data.job.id, v) } }
-  catch (e: any) { if (current(v)) error.value = message(e) }
+  const prior = job.value
+  const taskId = String(state.value.task_id || prior?.id || '')
+  job.value = { ...prior, id: taskId, status: 'pending', phase: 'ppt_source_validation', progress: 0,
+    message: t('pptLive.progress.starting'), error: null, updated_at: new Date().toISOString() }
+  try {
+    const { data } = await http.post(`${base()}/manuscript/complete`, { source_script_revision_id: state.value.source_script_revision_id, task_id: taskId }, config())
+    if (current(v)) { job.value = data.job; void poll(data.job.id, v) }
+  } catch (e: any) {
+    if (!current(v)) return
+    if (errorCode(e) === 'lesson_ppt_job_running') {
+      job.value = null
+      error.value = ''
+      await load()
+      return
+    }
+    const failureMessage = message(e)
+    job.value = { ...job.value, status: 'failed', phase: 'ppt_start_failed',
+      error: { code: errorCode(e), message: failureMessage } }
+    error.value = failureMessage
+  }
 }
 async function download() {
   if (!await prepareToLeave()) return

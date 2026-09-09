@@ -28,16 +28,25 @@ def describe_bundle_failure(exc: Exception) -> dict[str, Any] | None:
     match = re.search(r"source_excerpt_mismatch:([^:\s]+)", technical_detail)
     unknown_quote = re.search(r"source_quote_id_unknown:([^:\s]+)", technical_detail)
     capacity_failure = bool(re.search(r"string_too_long|fixed_field_text_too_long|should have at most \d+ characters", technical_detail))
-    if match is None and unknown_quote is None and not capacity_failure:
+    page_contract_failure = bool(re.search(
+        r"source_revision_stale|source_block_unknown|source_quote_choice_conflict|selected_artifact_not_exact|"
+        r"teaching_fact_token_unsupported|teaching_.*(?:capacity|supported)|script_ppt_(?:page|layout)",
+        technical_detail,
+    ))
+    if match is None and unknown_quote is None and not capacity_failure and not page_contract_failure:
         return None
     if capacity_failure:
         code = "lesson_ppt_page_capacity_failed"
         message = "页面文字超过当前版式容量，系统没有保存无法完整显示的内容稿。"
         failed_block_id = ""
-    else:
+    elif match is not None or unknown_quote is not None:
         code = "lesson_ppt_source_grounding_failed"
         message = "页面引用未能匹配讲义原文，系统没有保存来源不可靠的内容稿。"
         failed_block_id = match.group(1) if match else ""
+    else:
+        code = "lesson_ppt_page_contract_failed"
+        message = "页面内容或版式未通过最终检查，系统已保留讲义和可重试检查点。"
+        failed_block_id = ""
     return {
         "code": code,
         "message": message,
@@ -185,25 +194,50 @@ def _quote_score(query: str, quote: str) -> tuple[int, int]:
     return len(query_tokens & quote_tokens), -len(quote)
 
 
-def _stabilize_source_choices(value: Any, catalog: list[dict[str, Any]]) -> None:
+def _context_catalog(context: str, catalog: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if context == "formula":
+        matched = [item for item in catalog if re.search(r"\$|\\\(|\\\[", str(item.get("quote") or ""))]
+        return matched or catalog
+    if context == "code":
+        matched = [item for item in catalog if "`" in str(item.get("quote") or "")]
+        return matched or catalog
+    if context in {"value", "unit", "data"}:
+        matched = [item for item in catalog if re.search(r"\d", str(item.get("quote") or ""))]
+        return matched or catalog
+    return catalog
+
+
+def _stabilize_source_choices(value: Any, catalog: list[dict[str, Any]], context: str = "") -> None:
     allowed = {item["quote_id"]: item for item in catalog}
     if isinstance(value, dict):
         choices = value.get("sources")
         query = _source_query(value)
-        if isinstance(choices, list) and query and catalog:
-            best = max(catalog, key=lambda item: _quote_score(query, str(item.get("quote") or "")))
-            if _quote_score(query, str(best.get("quote") or ""))[0] > 0:
-                resolved = []
-                for choice in choices:
-                    selected = allowed.get(choice.get("quote_id")) if isinstance(choice, dict) else None
-                    selected = selected or best
+        candidates = _context_catalog(context, catalog)
+        if isinstance(choices, list) and candidates:
+            best = max(candidates, key=lambda item: _quote_score(query, str(item.get("quote") or ""))) if query else None
+            resolved = []
+            for choice in choices:
+                selected = allowed.get(choice.get("quote_id")) if isinstance(choice, dict) else None
+                if selected is None and isinstance(choice, dict) and not choice.get("quote_id") and choice.get("block_id") and choice.get("quote"):
+                    literal = str(choice["quote"])
+                    if any(str(item.get("quote") or "") in literal for item in catalog):
+                        resolved.append(choice)
+                        continue
+                if selected is None and best is not None and _quote_score(query, str(best.get("quote") or ""))[0] > 0:
+                    selected = best
+                if selected is None:
+                    selected = min(candidates, key=lambda item: len(str(item.get("quote") or "")))
+                if selected is not None:
                     resolved.append({"block_id": selected["block_id"], "quote": selected["quote"]})
+                else:
+                    resolved.append(choice)
+            if resolved != choices:
                 value["sources"] = resolved
-        for child in value.values():
-            _stabilize_source_choices(child, catalog)
+        for key, child in value.items():
+            _stabilize_source_choices(child, catalog, str(key))
     elif isinstance(value, list):
         for child in value:
-            _stabilize_source_choices(child, catalog)
+            _stabilize_source_choices(child, catalog, context)
 
 
 def _prepare_page_candidates(pages: list[Any], block: dict[str, Any]) -> list[Any]:
