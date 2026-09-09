@@ -86,6 +86,7 @@ jobs:
               nodes = sequence(value.get("nodes"))
               return {
                   "present": bool(value),
+                  "course_id": value.get("course_id"),
                   "updated_at": value.get("updated_at"),
                   "course_status": value.get("course_status"),
                   "generation_status": value.get("generation_status"),
@@ -111,15 +112,26 @@ jobs:
               }
 
 
-          def task_summaries(tasks: Any) -> list[dict[str, Any]]:
+          def task_summaries(tasks: Any, expected_name: str = "") -> list[dict[str, Any]]:
               values = mapping(tasks)
               result = []
               for task_id, raw in values.items():
                   task = mapping(raw)
-                  if str(task.get("course_id") or "") != course_id:
+                  request = mapping(task.get("request_snapshot"))
+                  task_course_id = str(task.get("course_id") or "")
+                  matched_by = []
+                  if task_course_id == course_id:
+                      matched_by.append("course_id")
+                  if str(request.get("target_course_id") or "") == course_id:
+                      matched_by.append("target_course_id")
+                  if expected_name and str(task.get("course_name") or "") == expected_name:
+                      matched_by.append("course_name")
+                  if not matched_by:
                       continue
                   result.append({
                       "task_id": str(task.get("id") or task_id),
+                      "course_id": task_course_id,
+                      "matched_by": matched_by,
                       "type": task.get("type"),
                       "status": task.get("status"),
                       "phase": task.get("current_phase") or task.get("phase"),
@@ -129,16 +141,29 @@ jobs:
                       "updated_at": task.get("updated_at"),
                       "owner_fingerprint": owner_fingerprint(
                           task.get("owner_id")
-                          or mapping(task.get("request_snapshot")).get("_retrieval_actor_id")
+                          or request.get("_retrieval_actor_id")
                       ),
                   })
               return sorted(result, key=lambda item: str(item.get("updated_at") or ""))
 
 
-          def workspace_summary(workspace: Any, source_name: str) -> dict[str, Any] | None:
+          def workspace_summary(
+              workspace: Any,
+              source_name: str,
+              expected_name: str = "",
+          ) -> dict[str, Any] | None:
               value = mapping(workspace)
               data = mapping(value.get("course_data"))
-              if str(value.get("course_id") or data.get("course_id") or "") != course_id:
+              request = mapping(data.get("generation_request"))
+              workspace_course_id = str(value.get("course_id") or data.get("course_id") or "")
+              matched_by = []
+              if workspace_course_id == course_id:
+                  matched_by.append("course_id")
+              if str(request.get("target_course_id") or "") == course_id:
+                  matched_by.append("target_course_id")
+              if expected_name and str(data.get("course_name") or "") == expected_name:
+                  matched_by.append("course_name")
+              if not matched_by:
                   return None
               outline = mapping(mapping(data.get("generation_stage_artifacts")).get("outline"))
               detail_batches = mapping(outline.get("detail_batches"))
@@ -146,6 +171,8 @@ jobs:
               last_good = mapping(mapping(value.get("result")).get("last_good_course_data"))
               return {
                   "source": source_name,
+                  "course_id": workspace_course_id,
+                  "matched_by": matched_by,
                   "workspace_id": value.get("workspace_id"),
                   "workspace_status": value.get("status"),
                   "created_at": value.get("created_at"),
@@ -181,18 +208,31 @@ jobs:
                   return None
 
 
+          current_course = read_json(state_root / "courses" / f"{course_id}.json")
+          expected_name = str(mapping(current_course).get("course_name") or "")
           current_workspaces = []
           for path in sorted((state_root / "generation_workspaces").glob("*.json")):
-              summary = workspace_summary(read_json(path), path.name)
+              summary = workspace_summary(read_json(path), path.name, expected_name)
               if summary:
                   current_workspaces.append(summary)
+
+          related_current_courses = []
+          if expected_name:
+              for path in sorted((state_root / "courses").glob("*.json")):
+                  candidate = read_json(path)
+                  if (
+                      str(mapping(candidate).get("course_id") or "") != course_id
+                      and str(mapping(candidate).get("course_name") or "") == expected_name
+                  ):
+                      related_current_courses.append(course_summary(candidate))
 
           result: dict[str, Any] = {
               "schema_version": "production_course_recovery_diagnostic_v1",
               "course_id": course_id,
               "current": {
-                  "course": course_summary(read_json(state_root / "courses" / f"{course_id}.json")),
-                  "tasks": task_summaries(read_json(state_root / "generation_jobs.json")),
+                  "course": course_summary(current_course),
+                  "related_courses": related_current_courses,
+                  "tasks": task_summaries(read_json(state_root / "generation_jobs.json"), expected_name),
                   "workspaces": current_workspaces,
               },
               "backups": [],
@@ -202,6 +242,7 @@ jobs:
               entry: dict[str, Any] = {
                   "archive": archive.name,
                   "course": course_summary(None),
+                  "related_courses": [],
                   "tasks": [],
                   "workspaces": [],
               }
@@ -219,14 +260,33 @@ jobs:
                           return json.load(handle)
 
                       course_member = f"backend-data/courses/{course_id}.json"
-                      entry["course"] = course_summary(member_json(course_member))
-                      entry["tasks"] = task_summaries(member_json("backend-data/generation_jobs.json"))
+                      backup_course = member_json(course_member)
+                      backup_name = str(mapping(backup_course).get("course_name") or expected_name)
+                      entry["course"] = course_summary(backup_course)
+                      entry["tasks"] = task_summaries(
+                          member_json("backend-data/generation_jobs.json"),
+                          backup_name,
+                      )
+                      if backup_name:
+                          for name in sorted(members):
+                              if not name.startswith("backend-data/courses/") or not name.endswith(".json"):
+                                  continue
+                              candidate = member_json(name)
+                              if (
+                                  str(mapping(candidate).get("course_id") or "") != course_id
+                                  and str(mapping(candidate).get("course_name") or "") == backup_name
+                              ):
+                                  entry["related_courses"].append(course_summary(candidate))
                       for name in sorted(members):
                           if not name.startswith("backend-data/generation_workspaces/") or not name.endswith(".json"):
                               continue
                           if "/.node-drafts/" in name:
                               continue
-                          summary = workspace_summary(member_json(name), name.rsplit("/", 1)[-1])
+                          summary = workspace_summary(
+                              member_json(name),
+                              name.rsplit("/", 1)[-1],
+                              backup_name,
+                          )
                           if summary:
                               entry["workspaces"].append(summary)
               except (OSError, tarfile.TarError, json.JSONDecodeError) as exc:
