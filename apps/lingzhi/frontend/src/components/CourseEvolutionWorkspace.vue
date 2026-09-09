@@ -81,7 +81,11 @@
                 <div class="scan-heading"><span><ScanSearch :size="21" /></span><div><small>{{ t('courseEvolution.workspace.scanningKicker', '正在分析全课') }}</small><h3>{{ t('courseEvolution.workspace.scanRequestTitle', '正在理解要求并定位所有受影响内容') }}</h3></div></div>
                 <div class="scan-line"><span /></div>
                 <dl><div><dt>{{ t('courseEvolution.workspace.scanIndex', '索引召回') }}</dt><dd>{{ context?.summary?.indexed_units || 0 }} {{ t('courseEvolution.workspace.units', '个单元') }}</dd></div><div><dt>{{ t('courseEvolution.workspace.scanRelations', '关系扩展') }}</dt><dd>{{ t('courseEvolution.workspace.crossAssets', '跨大纲与教学资产') }}</dd></div><div><dt>{{ t('courseEvolution.workspace.scanJudgement', 'AI 判断') }}</dt><dd>{{ t('courseEvolution.workspace.keepRealImpact', '保留真实影响') }}</dd></div></dl>
-                <p><ShieldCheck :size="15" />{{ t('courseEvolution.workspace.scanGuard', '此阶段只建立影响计划，不写入正式课程。') }}</p>
+                <div class="scan-actions">
+                  <p><ShieldCheck :size="15" />{{ t('courseEvolution.workspace.scanGuard', '此阶段只建立影响计划，不写入正式课程。') }}</p>
+                  <button v-if="store.analysisTask && ['pending', 'running'].includes(store.analysisTask.status)" type="button" class="button-secondary" data-testid="cancel-global-analysis" :disabled="store.analysisCancelling" @click="cancelCurrentAnalysis"><LoaderCircle v-if="store.analysisCancelling" :size="15" class="spinning" /><X v-else :size="15" />{{ store.analysisCancelling ? t('courseEvolution.workspace.cancellingAnalysis', '正在取消…') : t('courseEvolution.workspace.cancelCurrentAnalysis', '取消当前分析') }}</button>
+                </div>
+                <p v-if="actionError" class="inline-error" role="alert"><TriangleAlert :size="15" />{{ actionError }}</p>
               </section>
               <aside><header>{{ t('courseEvolution.workspace.scanningAssets', '正在检查') }}</header><ul><li v-for="(asset, index) in availableContextAssets" :key="asset.asset_type" :style="{ '--scan-delay': `${index * 90}ms` }"><component :is="assetIcon(asset.asset_type)" :size="16" /><span>{{ assetLabel(asset.asset_type) }}</span><Check :size="14" /></li></ul></aside>
             </main>
@@ -548,6 +552,16 @@ async function submitRequest() {
     if (epoch === workspaceEpoch && !result.analysis_task) selectCreatedPlan(result, requestId)
   } catch (error: any) { if (epoch === workspaceEpoch) { actionError.value = readableError(error, t('courseEvolution.workspace.analysisFailed')); forceRequest.value = true } }
 }
+async function cancelCurrentAnalysis() {
+  if (store.analysisCancelling) return
+  actionError.value = ''
+  try {
+    const cancelled = await store.cancelAnalysisTask()
+    if (cancelled) await nextTick(() => requestInputRef.value?.focus())
+  } catch (error: any) {
+    actionError.value = readableError(error, t('courseEvolution.workspace.cancelAnalysisFailed', '取消分析失败，请重试。'))
+  }
+}
 function selectCreatedPlan(payload: Record<string, any>, requestId = '') {
   const plans: CourseEvolutionPlan[] = payload.course_evolution_plans || payload.change_sets || store.plans
   const created = plans.find(item => requestId && item.impact_summary?.request_id === requestId) || [...plans].reverse().find(item => item.teacher_change_planning && item.status === 'pending')
@@ -790,4 +804,7 @@ defineExpose({ reloadWorkspace, openPlan, startNewRequest, showHistory })
 .clarification-system-blockers small{font-size:9px;line-height:1.5}
 .clarification-actions{display:flex;justify-content:flex-end;gap:9px;padding-top:16px;border-top:1px solid #e2e6ed;background:#fff}
 .clarification-actions button{min-height:40px;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.scan-actions{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.scan-actions p{display:flex;align-items:center;gap:7px;margin:0;color:#087354;font-size:11px}
+.scan-actions .button-secondary{flex:none;min-height:40px}
 </style>

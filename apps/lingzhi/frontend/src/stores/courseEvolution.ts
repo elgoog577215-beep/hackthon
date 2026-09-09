@@ -320,6 +320,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
     progressDisconnected: false,
     generationMessage: '',
     analysisTask: null as CourseChangeAnalysisTask | null,
+    analysisCancelling: false,
     contextLoading: false,
     applicationVisual: null as CourseEvolutionApplicationVisual | null,
     applicationVisualCounter: 0,
@@ -359,6 +360,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       this.progressDisconnected = false
       this.generationMessage = ''
       this.analysisTask = null
+      this.analysisCancelling = false
     },
     applyAnalysisTask(task: CourseChangeAnalysisTask | null) {
       this.analysisTask = task
@@ -374,6 +376,31 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         )
       } else if (task?.status === 'completed') {
         this.generationError = ''
+      }
+    },
+    async cancelAnalysisTask() {
+      const task = this.analysisTask
+      if (!task || !['pending', 'running'].includes(task.status) || this.analysisCancelling) return false
+      const taskId = task.id
+      const courseId = this.courseId
+      const epoch = this.courseEpoch
+      ++this.payloadRequestSequence
+      this.analysisCancelling = true
+      try {
+        await http.delete(`/api/tasks/${encodeURIComponent(taskId)}`)
+        if (this.courseId === courseId && this.courseEpoch === epoch && this.analysisTask?.id === taskId) {
+          this.applyAnalysisTask({
+            ...task,
+            status: 'cancelled',
+            phase: 'cancelled',
+            message: t('courseEvolution.workspace.analysisCancelled'),
+          })
+          this.generationError = ''
+          this.progressDisconnected = false
+        }
+        return true
+      } finally {
+        if (this.courseId === courseId && this.courseEpoch === epoch) this.analysisCancelling = false
       }
     },
     applyPayload(courseId: string, payload: Record<string, any>) {
@@ -735,7 +762,7 @@ export function observeCourseChangeProgress(store: ReturnType<typeof useCourseEv
     const timer = setInterval(async () => {
       const analysisActive = ['pending', 'running'].includes(store.analysisTask?.status || '')
       const candidatesActive = store.plans.some(p => p.teacher_change_planning && p.status === 'pending' && p.generation_status === 'generating')
-      if (inFlight || store.courseId !== courseId || store.actingId || (store.generating && !analysisActive) || (!analysisActive && !candidatesActive)) return
+      if (inFlight || store.courseId !== courseId || store.actingId || store.analysisCancelling || (store.generating && !analysisActive) || (!analysisActive && !candidatesActive)) return
       inFlight = true
       try { await store.refreshProgress(courseId); if (store.courseId === courseId) store.progressDisconnected = false } catch { if (store.courseId === courseId) store.progressDisconnected = true }
       finally { inFlight = false }
