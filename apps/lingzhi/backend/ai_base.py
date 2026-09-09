@@ -1553,7 +1553,12 @@ class AIBase:
                             "will likely fail on this output."
                         )
                         if reject_truncated:
-                            if effective_max_tokens < truncation_headroom_ceiling:
+                            used_max_tokens = effective_max_tokens
+                            if (
+                                attempt + 1 < retry_count
+                                and (max_attempts is None or attempts < max_attempts)
+                                and effective_max_tokens < truncation_headroom_ceiling
+                            ):
                                 effective_max_tokens = min(
                                     truncation_headroom_ceiling,
                                     effective_max_tokens * 2,
@@ -1566,7 +1571,7 @@ class AIBase:
                                 )
                             raise AIResponseTruncated(
                                 "模型输出达到硬上限："
-                                f"max_tokens={effective_max_tokens}，"
+                                f"max_tokens={used_max_tokens}，"
                                 f"chars={len(full_content)}"
                             )
 
@@ -1696,6 +1701,8 @@ class AIBase:
                     provider_failure
                 ) from last_error
             if request_timeout_seconds is not None and isinstance(last_error, asyncio.TimeoutError):
+                raise last_error
+            if isinstance(last_error, AIProviderRequestError):
                 raise last_error
             if last_error is not None:
                 raise AIProviderRequestError(str(last_error)) from last_error

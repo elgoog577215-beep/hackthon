@@ -1064,6 +1064,10 @@
       "progress": {
         "preparingTitle": "Preparing lecture notes",
         "preparingDetail": "Preparing content for this lesson",
+        "failedTitle": "Handout generation interrupted",
+        "pausedTitle": "Handout generation paused",
+        "continueRemaining": "Continue to generate only the unfinished content.",
+        "retainedDetail": "{completed}/{total} teaching sections retained.",
         "writingTitle": "Writing lecture notes",
         "writingDetail": "The text is appearing as it is written",
         "improvingTitle": "Refining lecture notes",

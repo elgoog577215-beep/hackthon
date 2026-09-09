@@ -17,7 +17,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from ai_base import AIProviderRequestError, AIProviderUnavailable
+from ai_base import AIProviderRequestError, AIProviderUnavailable, AIResponseTruncated
 from course_generation_budget import TeacherScriptGenerationTimeout
 from teacher_asset_readiness import (
     teacher_lesson_plan_covers_sections as _plan_revision_covers_sections,
@@ -5519,6 +5519,8 @@ async def generate_lesson_script(
                     (
                         "lesson_script_model_timeout"
                         if timeout_failed
+                        else "lesson_script_output_truncated"
+                        if isinstance(exc, AIResponseTruncated)
                         else "lesson_script_block_quality_failed"
                         if quality_failed
                         else "lesson_script_provider_failed"
@@ -5526,6 +5528,8 @@ async def generate_lesson_script(
                     (
                         f"{module.get('title') or module_id}模型调用超时，请重试。"
                         if timeout_failed
+                        else f"{module.get('title') or module_id}的输出达到长度上限，正文尚未完成，请继续生成。"
+                        if isinstance(exc, AIResponseTruncated)
                         else f"{module.get('title') or module_id}未通过硬校验，请重试。"
                         if quality_failed
                         else f"{module.get('title') or module_id}生成失败，请重试。"

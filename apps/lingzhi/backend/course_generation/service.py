@@ -8599,10 +8599,11 @@ class CourseService(AIBase):
 
         # One provider request per handout block. Formatting is repaired locally;
         # pedagogical heuristics never cause paid regeneration or gate delivery.
-        max_characters = sum(int(item.get("max_characters") or 900) for item in modules)
+        # Editorial character guidance is not a token ceiling. Activities, code
+        # and worked answers need the same output headroom as other course prose.
         response = await call_script_model(
             user_prompt, system_prompt,
-            output_tokens=max(700, min(6000, int(max_characters * 1.1))),
+            output_tokens=self._generation_budget.content_max_output_tokens,
         )
         text = self.clean_response_text(response) if response else ""
         compiled = compile_teacher_script_section(text, contract)

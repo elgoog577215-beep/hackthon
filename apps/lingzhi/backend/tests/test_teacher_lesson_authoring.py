@@ -1654,9 +1654,11 @@ def test_teacher_script_treats_length_budget_as_advice():
 def test_teacher_script_service_delivers_length_advice_without_rewriting(monkeypatch):
     service = CourseService()
     calls = []
+    budgets = []
 
     async def fake_call(user_prompt, _system_prompt, **_kwargs):
         calls.append(user_prompt)
+        budgets.append(_kwargs["max_tokens"])
         if len(calls) < 3:
             return "## 核心教学\n\n" + "重复讲解。" * 400
         return (
@@ -1686,6 +1688,8 @@ def test_teacher_script_service_delivers_length_advice_without_rewriting(monkeyp
     ))
 
     assert len(calls) == 1
+    assert budgets == [service._generation_budget.content_max_output_tokens]
+    assert budgets[0] >= 4096
     assert result["blocks"][0]["content"] == "重复讲解。" * 400
     assert result["quality_report"]["review_issues"] == []
     assert result["quality_report"]["passed"] is True
@@ -2891,7 +2895,8 @@ def test_script_preserves_repetitive_content_without_rewriting(tmp_path, during_
     assert revision["quality_report"]["passed"] is True
 
 
-def test_script_fallback_content_is_rejected_without_formal_revision(tmp_path):
+@pytest.mark.parametrize("error_code", ["lesson_script_provider_failed", "lesson_script_output_truncated"])
+def test_script_fallback_content_is_rejected_without_formal_revision(tmp_path, error_code):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     service = TeacherLessonAuthoringService(repository)
     plan = standard_lesson_plan()
@@ -2919,8 +2924,9 @@ def test_script_fallback_content_is_rejected_without_formal_revision(tmp_path):
     )
     async def fallback_generator(_outline, _plan, module, _completed):
         raise TeacherLessonAuthoringError(
-            "lesson_script_provider_failed",
+            error_code,
             f"{module.get('title') or '教学块'}生成失败，请重试。",
+            details={"reason": "output limit reached", "retryable": True},
         )
 
     completed = asyncio.run(service.run_script_job(
@@ -2934,7 +2940,10 @@ def test_script_fallback_content_is_rejected_without_formal_revision(tmp_path):
     ))
 
     assert completed["status"] == "failed"
-    assert completed["error"]["code"] == "lesson_script_provider_failed"
+    assert completed["error"]["code"] == error_code
+    assert completed["error"]["failed_blocks"][0]["details"]["reason"] == "output limit reached"
+    assert completed["error"]["retryable"] is True
+    assert completed["error"]["recovery_action"] == "retry_original"
     assert completed["completed_blocks"] == 0
     assert repository.lesson("course-1", "L1-1")["script_revisions"] == []
 

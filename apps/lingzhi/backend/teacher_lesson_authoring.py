@@ -87,7 +87,7 @@ def generation_failure(exc: Exception, default_code: str) -> dict[str, Any]:
         category, action, retryable = "conflict", "reanalyze", False
     elif details.get("missing_fields") or details.get("blocking_questions") or "missing_input" in code:
         category, action, retryable = "missing_input", "revise_inputs", False
-    elif any(word in text for word in ("timeout", "connect", "rate_limit", "provider", "service_unavailable", "模型服务", "模型未返回")):
+    elif any(word in text for word in ("timeout", "connect", "rate_limit", "provider", "output_truncated", "service_unavailable", "模型服务", "模型未返回")):
         category, action, retryable = "provider", "retry_original", True
     elif details.get("quality_report") or "quality" in code:
         category, action, retryable = "quality", "retry_original", True
@@ -5704,6 +5704,7 @@ class TeacherLessonAuthoringService:
                                 else "lesson_script_generation_failed"
                             ),
                             "message": str(error),
+                            "details": deepcopy(error.details) if isinstance(error, TeacherLessonAuthoringError) else {},
                         }
                         failed_shards.append(shard_failure)
                         for failed_block_id in block_ids:
@@ -5718,6 +5719,7 @@ class TeacherLessonAuthoringService:
                                 ),
                                 "code": shard_failure["code"],
                                 "message": str(error),
+                                "details": deepcopy(shard_failure["details"]),
                             })
                         self.repository.update_job_live(
                             course_id,
@@ -5849,10 +5851,11 @@ class TeacherLessonAuthoringService:
                 current_block_title = str(first.get("title") or "教学环节")
                 raise TeacherLessonAuthoringError(
                     str(first.get("code") or "lesson_script_generation_failed"),
-                    f"{len(failed_blocks)} 个教学环节生成失败，已保留其他成功结果。",
+                    f"{len(failed_blocks)} 个教学环节生成失败，已保留其他成功结果。{first.get('message') or ''}",
                     details={
                         "failed_shards": failed_shards,
                         "failed_blocks": failed_blocks,
+                        "retryable": all((failure.get("details") or {}).get("retryable") is not False for failure in failed_blocks),
                     },
                 )
 

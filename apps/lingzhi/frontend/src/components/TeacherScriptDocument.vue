@@ -120,8 +120,8 @@
             </div>
           </li>
         </ol>
-        <div v-if="!externalToolbar || !canGenerate" class="script-source-review__heading" :data-state="canGenerate ? 'ready' : 'blocked'">
-          <div v-if="canGenerate">
+        <div v-if="!externalToolbar || !canGenerate" class="script-source-review__heading" :data-state="canGenerate || (lesson.plan.ready && !generationBlockedReason) ? 'ready' : 'blocked'">
+          <div v-if="canGenerate || (lesson.plan.ready && !generationBlockedReason)">
             <strong>{{ tr('courseWorkbench.scriptDocument.mappingTitle') }}</strong>
             <span>{{ tr('courseWorkbench.scriptDocument.mappingReady') }}</span>
           </div>
@@ -158,9 +158,9 @@
       </form>
       <div v-if="generationJob && !externalToolbar" class="script-generation-progress" :data-status="generationJob.status">
         <div>
-          <span>{{ generating ? generationPresentation.title : tr('teacherProductionState.states.paused') }}</span>
+          <span>{{ generationPresentation.title }}</span>
           <span class="script-generation-progress__actions">
-            <strong>{{ generating ? generationJob.completed_blocks || 0 : 0 }}/{{ generationJob.total_blocks || 0 }}</strong>
+            <strong>{{ generationJob.completed_blocks || 0 }}/{{ generationJob.total_blocks || 0 }}</strong>
             <button v-if="generating" type="button" @click="emit('pause-generation')">{{ tr('courseWorkbench.pause') }}</button>
             <button v-if="generating" type="button" @click="emit('cancel-generation')">{{ tr('common.cancel') }}</button>
           </span>
@@ -485,9 +485,10 @@ const waitingForScriptContent = computed(() => (
   && (!props.lesson.script.ready || showWorkingPreview.value)
   && !scriptSections.value.some(section => section.blocks?.some(block => blockIsStreaming(block.block_id)))
 ))
-const generationProgress = computed(() => props.generating ? Math.max(0, Math.min(100, Number(props.generationJob?.progress || 0))) : 0)
+const generationProgress = computed(() => Math.max(0, Math.min(100, Number(props.generationJob?.progress || 0))))
 const showGenerationForm = computed(() => (
   !props.generating
+  && !(props.externalToolbar && hasWorkingPreview.value)
   && !['completed', 'completed_with_warnings'].includes(String(props.generationJob?.status || ''))
 ))
 const generationActionLabel = computed(() => {

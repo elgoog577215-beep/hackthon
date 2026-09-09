@@ -1064,6 +1064,10 @@
       "progress": {
         "preparingTitle": "正在准备讲义",
         "preparingDetail": "正在准备本讲内容",
+        "failedTitle": "讲义生成中断",
+        "pausedTitle": "讲义生成已暂停",
+        "continueRemaining": "继续时仅生成未完成内容。",
+        "retainedDetail": "已保留 {completed}/{total} 个教学环节。",
         "writingTitle": "正在生成讲义",
         "writingDetail": "正文正在逐步展开",
         "improvingTitle": "正在完善讲义",

@@ -275,6 +275,17 @@ describe('统一讲义页面', () => {
     expect(wrapper.get('.script-source-review button').attributes('disabled')).toBeDefined()
   })
 
+  it('当前教案已就绪但不允许新建任务时，不误报缺少教案', () => {
+    const current = structuredClone(lesson)
+    current.plan.ready = true
+    current.script = { ...current.script, ready: false, sections: [] }
+    const wrapper = mount(TeacherScriptDocument, {
+      props: { courseId: 'course-1', lesson: current, canGenerate: false, externalToolbar: true },
+    })
+    expect(wrapper.find('.script-source-review__blocked').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('暂无可用教案')
+  })
+
   it('资料状态阻塞时展示真实原因，不误报为缺少教案', () => {
     const emptyLesson = structuredClone(lesson)
     emptyLesson.script = { ...emptyLesson.script, current_revision_id: '', ready: false, sections: [] }
@@ -315,12 +326,19 @@ describe('统一讲义页面', () => {
       props: { courseId: 'course-1', lesson: emptyLesson, canGenerate: true, generationJob },
     })
 
-    expect(wrapper.get('.script-generation-progress').text()).toContain('0/2')
+    expect(wrapper.get('.script-generation-progress').text()).toContain('1/2')
+    expect(wrapper.get('.script-generation-progress').text()).toContain('讲义生成中断')
     expect(wrapper.findComponent(MarkdownRenderer).exists()).toBe(true)
     expect(wrapper.get('.script-source-review button').text()).toContain('继续生成')
 
     await wrapper.get('.script-source-review').trigger('submit')
     expect(wrapper.emitted('generate')).toEqual([['']])
+
+    await wrapper.setProps({ externalToolbar: true, canGenerate: false })
+    expect(wrapper.find('.script-source-review').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('暂无可用教案')
+    expect(wrapper.findComponent(MarkdownRenderer).exists()).toBe(true)
+    await wrapper.setProps({ externalToolbar: false, canGenerate: true })
 
     await wrapper.setProps({
       generating: true,
@@ -483,7 +501,7 @@ describe('统一讲义页面', () => {
     expect(wrapper.text()).not.toContain('恢复草稿')
     expect(wrapper.text()).not.toContain('当前稿包含本地恢复内容')
     expect(wrapper.text()).not.toContain('生成失败')
-    expect(wrapper.text()).toContain('已暂停')
+    expect(wrapper.text()).toContain('讲义生成中断')
     expect(wrapper.get('.script-source-review button').text()).toContain('继续生成')
     expect(wrapper.find('.script-footer').exists()).toBe(false)
   })

@@ -2879,6 +2879,7 @@ const regenerationAvailable = computed(() => {
 const contextStatusLabel = computed(() => {
   if (pptContext.value) return pptContext.value.label
   if (outlineAwaitingContinuation.value) return t('courseWorkbench.outlineFlow.readyToContinue', '讲次方案已就绪')
+  if (activeStage.value === 'script' && scriptJob.value?.status === 'failed') return scriptGenerationPresentation(scriptJob.value).title
   if (contextErrorPresentation.value) return t('courseWorkbench.contextPane.failed', '需要处理')
   const projectedTaskState = activeProjectedProduction.value?.task_state
   if (projectedTaskState === 'waiting_for_input') return t('teacherProductionState.auxiliary.waitingForInput', '待补充信息')
@@ -2895,6 +2896,11 @@ const contextStatusLabel = computed(() => {
 })
 const contextStatusDetail = computed(() => {
   if (pptContext.value) return pptContext.value.detail
+  if (activeStage.value === 'script' && ['failed', 'paused'].includes(String(scriptJob.value?.status || ''))) {
+    return [scriptJob.value?.status === 'failed' ? scriptJob.value?.error?.message : '', scriptGenerationPresentation(scriptJob.value).detail,
+      referenceWorkflowCanResume.value ? t('courseWorkbench.scriptDocument.progress.continueRemaining') : '',
+    ].filter(Boolean).join(' ')
+  }
   if (aiCollaborationOpen.value) return t('courseWorkbench.contextPane.aiInProgress', '正在处理本次 AI 修改')
   if (activeProjectedProduction.value?.task_state === 'waiting_for_input' || outlineWaitingForInput.value) return t('courseWorkbench.outlineFlow.lightPlan', '轻量讲次方案')
   if (activeProjectedProduction.value?.task_state === 'waiting_for_review') return activeProjectedProduction.value.issues[0]?.summary || t('teacherProductionState.auxiliary.waitingForReview', '待审阅确认')
@@ -4201,7 +4207,9 @@ function lessonGenerationStateLabel(lesson: any): string {
     if (projected.display_state === 'not_generated' && productionPrerequisiteIssue(projected)) {
       return t('courseWorkbench.lessonPrerequisite.locked', '未解锁')
     }
-    const labels = [productionDisplayStateLabel(projected.display_state)]
+    const labels = [activeStage.value === 'script' && projected.task_state === 'failed'
+      ? t('courseWorkbench.scriptDocument.progress.failedTitle')
+      : productionDisplayStateLabel(projected.display_state)]
     if (['paused', 'queued', 'waiting_for_input', 'waiting_for_review'].includes(projected.task_state)) {
       if (projected.display_state === 'generating') labels.length = 0
       labels.push(productionTaskStateLabel(projected.task_state))

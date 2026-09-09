@@ -13,6 +13,14 @@ export function hasScriptPreviewContent(job?: TeacherLessonJob): boolean {
 // tied to the real phase without publishing those implementation details.
 export function scriptGenerationPresentation(job?: TeacherLessonJob) {
   const phase = String(job?.phase || '')
+  if (job?.status === 'failed' || job?.status === 'paused') {
+    return {
+      title: t(`courseWorkbench.scriptDocument.progress.${job.status}Title`),
+      detail: job.total_blocks ? t('courseWorkbench.scriptDocument.progress.retainedDetail')
+        .replace('{completed}', String(job.completed_blocks || 0))
+        .replace('{total}', String(job.total_blocks)) : '',
+    }
+  }
   const state = job?.status === 'pending' || phase === 'queued'
     ? 'preparing'
     : ['lesson_script_block_repair', 'lesson_script_auto_improvement'].includes(phase)

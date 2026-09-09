@@ -6,7 +6,7 @@ import httpx
 import openai
 import pytest
 
-from ai_base import AIBase, AIProviderRequestError, AIProviderUnavailable
+from ai_base import AIBase, AIProviderRequestError, AIProviderUnavailable, AIResponseTruncated
 
 
 @pytest.fixture(autouse=True)
@@ -431,21 +431,24 @@ async def test_truncated_output_retries_with_more_headroom(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_truncated_output_without_retry_budget_still_raises(monkeypatch):
+@pytest.mark.parametrize("retry_count", [1, 2])
+async def test_truncated_output_without_retry_budget_still_raises(monkeypatch, retry_count, caplog):
     completions = TruncatedThenSuccessCompletions()
     service = _make_service(monkeypatch, completions, models=("model-a",))
 
-    with pytest.raises(AIProviderRequestError):
+    with pytest.raises(AIResponseTruncated, match="max_tokens=4096，"):
         await service._call_llm(
             "prompt",
             "system",
-            retry_count=1,
+            retry_count=retry_count,
+            max_attempts=1,
             max_tokens=4096,
             reject_truncated=True,
             raise_on_failure=True,
         )
 
     assert len(completions.requests) == 1
+    assert "before retrying" not in caplog.text
 
 
 class JsonModeRejectingCompletions:

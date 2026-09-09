@@ -2218,7 +2218,9 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'script' })
 
-    expect(wrapper.get('.context-pane-heading').text()).not.toContain('上游教案已变化')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('上游教案已变化')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('讲义生成中断')
+    expect(wrapper.get('.context-pane-heading').text()).not.toContain('继续时仅生成未完成内容')
     expect(wrapper.find('.context-pane-heading .primary-status-action').exists()).toBe(false)
   })
 
