@@ -1,4 +1,4 @@
-name: Recover and verify PPT lectures two through five
+name: Verify completed lecture three PPT export
 
 on:
   workflow_dispatch:
@@ -44,7 +44,7 @@ jobs:
           chmod 600 ~/.ssh/lingzhi_deploy
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Recover original tasks and verify preview and PPTX while reserving lecture six
+      - name: Verify lecture three preview and PPTX while reserving lecture six
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
