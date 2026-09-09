@@ -30,7 +30,8 @@ def describe_bundle_failure(exc: Exception) -> dict[str, Any] | None:
     capacity_failure = bool(re.search(r"string_too_long|fixed_field_text_too_long|should have at most \d+ characters", technical_detail))
     page_contract_failure = bool(re.search(
         r"source_revision_stale|source_block_unknown|source_quote_choice_conflict|selected_artifact_not_exact|"
-        r"teaching_fact_token_unsupported|teaching_.*(?:capacity|supported)|script_ppt_(?:page|layout)",
+        r"teaching_fact_token_unsupported|teaching_.*(?:capacity|supported)|script_ppt_(?:page|layout)|"
+        r"string_type|Input should be a valid string",
         technical_detail,
     ))
     if match is None and unknown_quote is None and not capacity_failure and not page_contract_failure:
@@ -157,6 +158,12 @@ def _value_at_path(value: Any, path: tuple[Any, ...]) -> tuple[Any, Any] | None:
     return (current, path[-1]) if path else None
 
 
+def _unwrap_source_text(value: Any) -> Any:
+    if isinstance(value, dict) and isinstance(value.get("text"), str):
+        return value["text"]
+    return value
+
+
 def _fit_page_capacity(page: dict[str, Any]) -> dict[str, Any]:
     fitted = deepcopy(page)
     fields = fitted.get("fields")
@@ -170,15 +177,22 @@ def _fit_page_capacity(page: dict[str, Any]) -> dict[str, Any]:
         except ValidationError as exc:
             changed = False
             for issue in exc.errors():
-                if issue.get("type") != "string_too_long":
-                    continue
                 target = _value_at_path(fields, tuple(issue.get("loc") or ()))
-                limit = int((issue.get("ctx") or {}).get("max_length") or 0)
-                if target is None or limit <= 0:
+                if target is None:
                     continue
                 owner, key = target
-                owner[key] = _compact_screen_text(str(owner[key]), limit)
-                changed = True
+                if issue.get("type") == "string_type":
+                    wrapped = owner[key]
+                    if isinstance(wrapped, dict) and isinstance(wrapped.get("text"), str):
+                        if key == "text" and "sources" not in owner and isinstance(wrapped.get("sources"), list):
+                            owner["sources"] = wrapped["sources"]
+                        owner[key] = wrapped["text"]
+                        changed = True
+                elif issue.get("type") == "string_too_long":
+                    limit = int((issue.get("ctx") or {}).get("max_length") or 0)
+                    if limit > 0:
+                        owner[key] = _compact_screen_text(str(owner[key]), limit)
+                        changed = True
             if not changed:
                 break
     return fitted
@@ -247,7 +261,11 @@ def _prepare_page_candidates(pages: list[Any], block: dict[str, Any]) -> list[An
         if not isinstance(page, dict):
             prepared.append(page)
             continue
-        candidate = _fit_page_capacity(page)
+        candidate = deepcopy(page)
+        for key in ("layout_id", "page_goal"):
+            if key in candidate:
+                candidate[key] = _unwrap_source_text(candidate[key])
+        candidate = _fit_page_capacity(candidate)
         _stabilize_source_choices(candidate, catalog)
         prepared.append(candidate)
     return prepared

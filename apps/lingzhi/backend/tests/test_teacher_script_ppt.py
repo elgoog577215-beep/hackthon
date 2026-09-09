@@ -264,10 +264,40 @@ def test_overlong_triad_points_are_fitted_locally_without_another_model_call():
     validate_block_pages(repaired, template)
 
 
+def test_source_wrapped_scalar_page_fields_are_unwrapped_without_model_retry():
+    template, contract, page = sample()
+    wrapped = deepcopy(page)
+    source_wrapper = lambda text: {
+        "text": text,
+        "sources": [{"block_id": "b", "quote": TEXT}],
+    }
+    wrapped["page_goal"] = source_wrapper("比较执行方式")
+    wrapped["fields"]["title"] = source_wrapper("执行方式")
+    wrapped["fields"]["notes"] = source_wrapper("根据依赖选择执行方式。")
+    wrapped["fields"]["split_reason"] = source_wrapper("保留单页")
+
+    async def unexpected(*_args, **_kwargs):
+        raise AssertionError("a source-wrapped scalar title must be repaired locally")
+
+    seed = {**contract["modules"][0], "content": TEXT, "ppt_pages": [wrapped],
+            "generation_contract_version": CONTRACT}
+    result = asyncio.run(generate_bundle(invoke=unexpected, contract=contract, instructions="", template=template,
+                                         seed_blocks={"b": seed}, immutable_handout=True))
+
+    repaired = result["blocks"][0]
+    assert repaired["ppt_pages"][0]["page_goal"] == "比较执行方式"
+    assert repaired["ppt_pages"][0]["fields"]["title"] == "执行方式"
+    assert repaired["ppt_pages"][0]["fields"]["notes"] == "根据依赖选择执行方式。"
+    assert repaired["ppt_pages"][0]["fields"]["split_reason"] == "保留单页"
+    assert not repaired["ppt_errors"]
+    validate_block_pages(repaired, template)
+
+
 @pytest.mark.parametrize("message", [
     "source_quote_id_unknown:q_7adad6815373",
     "3 validation errors for FixedTriad points.0.text String should have at most 32 characters",
     "teaching_fact_token_unsupported:item-2: unsupported=['gameo']",
+    "1 validation error for FixedSection title Input should be a valid string [type=string_type, input_type=dict]",
 ])
 def test_page_contract_failures_are_reported_as_the_validation_step(message):
     failure = describe_bundle_failure(ValueError(message))
