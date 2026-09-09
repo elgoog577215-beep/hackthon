@@ -126,6 +126,46 @@ def test_identifier_shorthand_expands_only_to_an_existing_unambiguous_source(pre
     assert result["blocks"][0]["ppt_pages"][0]["fields"]["points"][0]["text"] == prefix + "OnTriggerEnter/OnTriggerExit"
 
 
+@pytest.mark.parametrize("short,qualified", [
+    ("fixedDeltaTime", "Time.fixedDeltaTime"),
+    ("SetActive", "GameObject.SetActive"),
+    ("velocity.magnitude", "Rigidbody.velocity.magnitude"),
+    ("MovePosition", "Rigidbody.MovePosition"),
+])
+def test_member_shorthand_is_grounded_by_its_qualified_source_name(short, qualified):
+    template, contract, _ = sample()
+    content = f"使用 {qualified} 完成操作。"
+    page = {"layout_id": template.layout_id("bullets"), "page_goal": "说明操作",
+            "fields": {"title": "操作", "notes": "依据原文",
+                "points": [{"text": short, "sources": [{"block_id": "b", "quote": content}]}]}}
+
+    async def forbidden(*args, **kwargs):
+        pytest.fail("a unique qualified source identifier should not require a model repair")
+
+    result = asyncio.run(generate_bundle(invoke=forbidden, contract=contract, instructions="", template=template,
+        seed_blocks={"b": seed_for(contract, content, [page])}, immutable_handout=True))
+    assert result["blocks"][0]["ppt_pages"][0]["fields"]["points"][0]["text"] == short
+
+
+def test_code_continuation_removes_metadata_identifier_absent_from_its_fragment():
+    template, contract, _ = sample()
+    quote = "```csharp\nTime.fixedDeltaTime;\n" + "DoWork();\n" * 45 + "```"
+    page = {"layout_id": template.layout_id("code"), "page_goal": "读取 fixedDeltaTime",
+            "fields": {"title": "fixedDeltaTime 代码", "notes": "连续阅读",
+                "code": {"sources": [{"block_id": "b", "quote": quote}]}}}
+
+    async def forbidden(*args, **kwargs):
+        pytest.fail("continuation metadata should be grounded deterministically")
+
+    result = asyncio.run(generate_bundle(invoke=forbidden, contract=contract, instructions="", template=template,
+        seed_blocks={"b": seed_for(contract, quote, [page])}, immutable_handout=True))
+    pages = result["blocks"][0]["ppt_pages"]
+    assert len(pages) > 1
+    assert "".join(item["fields"]["code"]["sources"][0]["quote"] for item in pages) == quote
+    for item in pages:
+        validate_block_pages({**result["blocks"][0], "ppt_pages": [item]}, template)
+
+
 @pytest.mark.parametrize("raw", ['{"pages": [', '{"pages":[]} {"pages":[]}', 'explanation without JSON', '[1,2]'])
 def test_response_parser_does_not_invent_or_accept_partial_json(raw):
     from ppt_repair_response import parse_page_response

@@ -1,6 +1,7 @@
 """Measured code continuations over exact, contiguous source ranges."""
 from copy import deepcopy
 from math import ceil
+import re
 
 from ppt_fixed_draft import lower_fixed_response
 from ppt_fixed_templates import fixed_slug
@@ -93,6 +94,19 @@ def paginate_code_page(page, block, template):
     for index, fragment in enumerate(fragments, 1):
         part = deepcopy(page)
         part["fields"]["code"]["sources"] = [{"block_id": block["block_id"], "quote": fragment}]
+        from slide_source_tokens import _protected_tokens
+        fragment_tokens = _protected_tokens(fragment)
+
+        def continuation_label(text, fallback):
+            unsupported = _protected_tokens(text) - fragment_tokens
+            for token in sorted(unsupported, key=len, reverse=True):
+                text = re.sub(rf"(?<![A-Za-z0-9_.]){re.escape(token)}(?![A-Za-z0-9_.])", "", text, flags=re.IGNORECASE)
+            text = re.sub(r"\s+", " ", text).strip(" /:：,，;；-_—")
+            return text or fallback
+
+        part["page_goal"] = continuation_label(str(part.get("page_goal") or ""), "连续阅读代码")
+        if isinstance(part["fields"].get("title"), str):
+            part["fields"]["title"] = continuation_label(part["fields"]["title"], "代码")
         part["fields"]["split_reason"] = f"代码连续分页 {index}/{len(fragments)}，原文和顺序保留"
         pages.append(part)
     return pages
