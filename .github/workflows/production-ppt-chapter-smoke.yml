@@ -51,5 +51,6 @@ jobs:
         run: |
           set -euo pipefail
           ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
             '/opt/lingzhi/.venv/bin/python -' < apps/lingzhi/scripts/verify_general_ppt_recovery.py
