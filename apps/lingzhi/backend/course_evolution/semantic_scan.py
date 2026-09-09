@@ -11,7 +11,7 @@ from course_document import stable_hash
 from course_generation_errors import classify_generation_failure
 
 ScanProgress = Callable[[dict[str, Any], dict[str, Any]], Awaitable[None]]
-SCAN_CONTRACT = "teacher_semantic_scan_v1"
+SCAN_CONTRACT = "teacher_semantic_scan_v2"
 logger = logging.getLogger(__name__)
 
 
@@ -111,11 +111,18 @@ async def scan_batches(
             saved["results"].pop(key(items), None)
             return None
 
-    async def attempt(items: list[dict[str, Any]]) -> tuple[dict[str, Any], bool]:
+    async def attempt(items: list[dict[str, Any]], feedback: Exception | None = None) -> tuple[dict[str, Any], bool]:
         reused = cached(items)
         if reused is not None:
             return reused, True
-        return validate_batch(await analyzer(overview, items, instruction), items), False
+        request_overview = overview
+        if isinstance(feedback, ValueError):
+            request_overview = {**overview, 'analysis_validation_feedback': {
+                'message': safe_failure_message(feedback),
+                'allowed_unit_ids': list(dict.fromkeys(i['unit_id'] for i in items)),
+                'required_response': 'affected_units must be an array; use only these unit IDs',
+            }}
+        return validate_batch(await analyzer(request_overview, items, instruction), items), False
 
     async def accept(items: list[dict[str, Any]], result: dict[str, Any], reused: bool) -> None:
         saved["results"][key(items)] = deepcopy(result)
@@ -169,6 +176,7 @@ async def scan_batches(
     await report()
     abort_scan = False
     for batch_index, batch in enumerate(batches):
+        initial_error = None
         detail["batch_index"] = batch_index + 1
         detail["total_batches"] = len(batches)
         await report()
@@ -181,6 +189,7 @@ async def scan_batches(
             try:
                 result, reused = await attempt(batch)
             except Exception as error:
+                initial_error = error
                 retried += 1
                 if classify_generation_failure(error).get("code") == "provider_unavailable":
                     recovered, retry_error = await retry_after_provider_recovery(batch)
@@ -212,8 +221,49 @@ async def scan_batches(
             break
         for part_index, part in enumerate(parts):
             try:
-                result, reused = await attempt(part)
+                result, reused = await attempt(part, initial_error)
             except Exception as error:
+                if isinstance(error, ValueError) and initial_error is None:
+                    try:
+                        result, reused = await attempt(part, error)
+                    except Exception as repair_error:
+                        error = repair_error
+                    else:
+                        await accept(part, result, reused)
+                        continue
+                if ((isinstance(error, TimeoutError) or classify_generation_failure(error).get('code') == 'provider_timeout')
+                        and len(part) == 1 and len(str(part[0].get('content') or '')) > 600):
+                    # A single large fragment cannot be made smaller by splitting
+                    # a one-item batch. Split its prose once, preserving overlap.
+                    text = str(part[0]['content'])
+                    children = [text[i:i+600] for i in range(0, len(text), 550)]
+                    detail['total_parts'] += len(children) - 1
+                    for child_index, content in enumerate(children):
+                        child = [{**part[0], 'content': content, 'recovery_part': child_index + 1,
+                                  'recovery_parts': len(children)}]
+                        try:
+                            result, reused = await attempt(child)
+                        except Exception as child_error:
+                            if isinstance(child_error, ValueError):
+                                try:
+                                    result, reused = await attempt(child, child_error)
+                                except Exception as repair_error:
+                                    child_error = repair_error
+                                else:
+                                    await accept(child, result, reused)
+                                    continue
+                            unscanned.add(part[0]['unit_id'])
+                            failure = classify_generation_failure(child_error)
+                            failures.append({'batch_index': batch_index, 'part_index': part_index,
+                                'recovery_part': child_index + 1, 'unit_ids': [part[0]['unit_id']],
+                                'error_type': type(child_error).__name__, **failure,
+                                'message': safe_failure_message(child_error),
+                                'technical_detail': safe_failure_message(child_error)})
+                            detail['failed_parts'] += 1
+                            await report()
+                        else:
+                            await accept(child, result, reused)
+                    continue
                 if classify_generation_failure(error).get("code") == "provider_unavailable":
                     recovered, retry_error = await retry_after_provider_recovery(part)
                     if recovered is not None:

@@ -94,6 +94,7 @@ class GenerateTeacherCourseChangeRequest(BaseModel):
     request_id: str = Field(min_length=1, max_length=200)
     instruction: str = Field(min_length=1, max_length=5000)
     supersedes_plan_id: str = Field(default="", max_length=240)
+    rescan_incomplete_only: bool = False
     literal_replacement: TeacherLiteralReplacement | None = None
     asset_types: list[Literal["outline", "course_content", "lesson_plan", "script", "ppt", "question_bank"]] | None = None
     confirmed_interpretation: bool = False
@@ -242,6 +243,7 @@ async def create_teacher_course_plan(
             request_id=body.request_id,
             instruction=body.instruction,
             supersedes_plan_id=body.supersedes_plan_id,
+            rescan_incomplete_only=body.rescan_incomplete_only,
             literal_replacement=body.literal_replacement.model_dump() if body.literal_replacement else None,
             asset_types=body.asset_types,
             confirmed_interpretation=body.confirmed_interpretation,

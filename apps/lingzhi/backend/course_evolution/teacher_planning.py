@@ -43,6 +43,7 @@ from .core import (
 )
 from .text_fields import editable_text_fields
 from .semantic_scan import ScanProgress, scan_batches
+from .partial_review import incomplete, applied_units, retained_analysis, require_partial_selection
 
 COURSE_CHANGE_CONTEXT_SCHEMA = "teacher_course_change_context_v1"
 COURSE_CHANGE_INDEX_SCHEMA = "teacher_course_change_index_v1"
@@ -2131,6 +2132,7 @@ async def create_teacher_course_change_plan(
     scan_checkpoint: dict[str, Any] | None = None,
     on_scan_progress: ScanProgress | None = None,
     scan_model_identity: str = "",
+    rescan_incomplete_only: bool = False,
 ) -> CourseEvolutionState:
     if not context.ready:
         raise TeacherCourseChangeSourceUnavailable("当前课程尚未形成可分析的大纲或教学资产")
@@ -2162,17 +2164,34 @@ async def create_teacher_course_change_plan(
         )
         if (
             superseded is None
-            or superseded.status != "pending"
+            or (superseded.status != "pending" and not (
+                rescan_incomplete_only and superseded.status == 'applied' and incomplete(superseded)))
             or superseded.source_kind != "manual_request"
             or superseded.teacher_change_planning is None
         ):
             raise ValueError("只能修订当前未应用的教师课程方案")
+
+    if rescan_incomplete_only and (superseded is None or normalized_instruction != superseded.request_text):
+        raise ValueError('补查必须绑定原方案并保留原要求')
+    if rescan_incomplete_only:
+        if superseded.generation_status == 'generating':
+            raise ValueError('请等待当前修改建议生成完成后再补查')
+        original_types = superseded.impact_summary.get('request_asset_types')
+        if asset_types is not None and original_types is not None and set(asset_types) != set(original_types):
+            raise ValueError('补查必须保留原材料范围；改变范围请新建修改要求')
+        if asset_types is None and original_types is not None:
+            asset_types = original_types
+            context = context.model_copy(update={'units': [u for u in context.units if u.asset_type in asset_types]})
+        if confirmed_interpretation or clarification_answers:
+            raise ValueError('修改理解或澄清答案时必须重新分析，不能作为原要求补查')
 
     answer_snapshot = _resolve_clarification_answers(
         superseded,
         clarification_set_id=clarification_set_id,
         clarification_answers=clarification_answers,
     )
+    if rescan_incomplete_only:
+        answer_snapshot = superseded.teacher_change_planning.intent.clarification_answer_snapshot
 
     ranked = rank_change_units(context, normalized_instruction, limit=max(1, len(context.units)), include_all=True)
     overview = {
@@ -2197,6 +2216,21 @@ async def create_teacher_course_change_plan(
     unscanned_ids: set[str] = set()
     batch_failures: list[dict[str, Any]] = []
     retried_batch_count = 0
+    retained_ids: set[str] = set()
+    completed_ids: set[str] = set()
+    retained = None
+    if rescan_incomplete_only and superseded is not None:
+        completed_ids = applied_units(superseded).intersection(u.unit_id for u in context.units)
+        current_outline = [{k: v for k, v in item.items() if k != 'section_snapshot'} for item in context.outline]
+        if (current_outline == superseded.impact_summary.get('current_outline')
+                and superseded.impact_summary.get('scan_model_identity', scan_model_identity) == scan_model_identity):
+            old = superseded.impact_summary.get('coverage') or {}
+            revisions = old.get('source_revisions') or {}
+            retained_ids = {u.unit_id for u in context.units if u.unit_id in revisions
+                            and revisions[u.unit_id] == u.source_revision
+                            and u.unit_id not in (old.get('unscanned_unit_ids') or [])}
+            retained = retained_analysis(superseded, retained_ids - completed_ids)
+        ranked = [item for item in ranked if item['unit_id'] not in retained_ids | completed_ids]
     if raw_analysis is None and analyzer is not None:
         # Split prose, never serialized JSON. Every indexed unit is considered.
         units_by_id = {unit.unit_id: unit for unit in context.units}
@@ -2206,22 +2240,32 @@ async def create_teacher_course_change_plan(
         for item in ranked:
             unit = units_by_id[item["unit_id"]]
             body = "\n\n".join(unit.full_text_fields.values()) or unit.text
-            chunks = [body[i:i + 4000] for i in range(0, max(1, len(body)), 3800)]
+            fragment_size = 600 if len(body) > 6000 and '```' in body else 1200
+            chunks = [body[i:i + fragment_size] for i in range(0, max(1, len(body)), fragment_size - 100)]
             for index, chunk in enumerate(chunks):
                 entry = {**item, "content": chunk, "part": index + 1, "parts": len(chunks)}
                 cost = len(json.dumps(entry, ensure_ascii=False))
-                if batch and (size + cost > 10000 or len(batch) >= 12):
+                if batch and (size + cost > 4500 or len(batch) >= 12
+                              or sum(len(entry['content']) for entry in batch) + len(chunk) > 2400):
                     batches.append(batch)
                     batch, size = [], 0
                 batch.append(entry)
                 size += cost
         if batch:
             batches.append(batch)
+        async def progress_with_retained(detail: dict[str, Any], checkpoint: dict[str, Any]) -> None:
+            if on_scan_progress:
+                await on_scan_progress({**detail, 'retained_units': len(retained_ids | completed_ids),
+                                        'pending_units': len(context.units) - len(retained_ids | completed_ids),
+                                        'total_units': len(context.units)}, checkpoint)
         analyses, scanned_ids, unscanned_ids, batch_failures, retried_batch_count = await scan_batches(
             overview=overview, batches=batches, instruction=normalized_instruction,
             revisions={**context.base_revision_vector, "analysis_model": scan_model_identity}, analyzer=analyzer,
-            checkpoint=scan_checkpoint, on_progress=on_scan_progress,
+            checkpoint=scan_checkpoint, on_progress=progress_with_retained,
         )
+        scanned_ids.update(retained_ids | completed_ids)
+        if retained is not None:
+            analyses.insert(0, retained)
         if analyses:
             raw_analysis = deepcopy(analyses[0])
             by_id: dict[str, dict[str, Any]] = {}
@@ -2330,6 +2374,27 @@ async def create_teacher_course_change_plan(
         *_outline_content_operation(context, analysis, migrations),
         *_outline_rebuild_operation(context, analysis, change_set_id),
     ]
+    if rescan_incomplete_only and superseded is not None:
+        # A rescan must not undo the teacher's edits to a still-current exact
+        # candidate. Rebind its reviewed payload to the new plan's operation ID.
+        previous_migrations = {m.source_unit_ids[0]: m for m in superseded.teacher_change_planning.unit_migrations
+                               if m.source_unit_ids and m.metadata.get('manually_edited')}
+        for migration in migrations:
+            uid = migration.source_unit_ids[0] if migration.source_unit_ids else ''
+            old = previous_migrations.get(uid)
+            if old is None or uid not in retained_ids - completed_ids:
+                continue
+            old_operation = next((o for o in superseded.operations
+                                  if o.operation_id == old.metadata.get('operation_id')
+                                  and o.operation_type == 'REPLACE_COURSE_BLOCK'), None)
+            new_operation = next((o for o in executable_operations
+                                  if o.operation_id == migration.metadata.get('operation_id')), None)
+            if old_operation is not None and new_operation is not None:
+                new_operation.payload = deepcopy(old_operation.payload)
+                for key in ('before_fields', 'after_fields', 'after_content', 'after_preview',
+                            'change_count', 'manually_edited', 'manual_edit_fields'):
+                    if key in old.metadata:
+                        migration.metadata[key] = deepcopy(old.metadata[key])
     outline_rebuild = next(
         (
             deepcopy(item.payload.get("outline_rebuild") or {})
@@ -2435,6 +2500,10 @@ async def create_teacher_course_change_plan(
         allowed_scopes=["current"] if executable_operations else [],
         operations=executable_operations,
         impact_summary={
+            'scan_model_identity': scan_model_identity,
+            'scan_analysis': deepcopy(analysis),
+            'scan_unit_index': {u.unit_id: {'asset_type': u.asset_type, 'parent_id': u.parent_id,
+                                          'section_ids': list(u.section_ids)} for u in context.units},
             "request_asset_types": list(asset_types) if asset_types is not None else sorted({unit.asset_type for unit in context.units}),
             "request_id": request_id,
             "clarification_answer_digest": answer_snapshot.answer_digest if answer_snapshot else "",
@@ -2449,6 +2518,8 @@ async def create_teacher_course_change_plan(
             "asset_inventory": [item.model_dump(mode="json") for item in context.assets],
             "coverage": {
                 "indexed_units": len(context.units),
+                'retained_units': len(retained_ids | completed_ids),
+                'completed_unit_ids': sorted(completed_ids),
                 "scanned_units": len(scanned_ids),
                 "unscanned_unit_ids": sorted(unscanned_ids),
                 "failed_batches": batch_failures,
@@ -2516,8 +2587,17 @@ async def create_teacher_course_change_plan(
                 ),
                 None,
             )
-            if source is None or source.status != "pending":
+            if source is None or (source.status != 'pending' and not (
+                    rescan_incomplete_only and source.status == 'applied' and incomplete(source))):
                 raise ValueError("原方案状态已变化，请重新打开后再修正")
+            if rescan_incomplete_only and (source.status != superseded.status
+                    or source.review_revision != superseded.review_revision):
+                raise ValueError('补查期间原方案已被审阅或应用，已保留原操作，请重新读取当前方案')
+            if source.status == 'applied':
+                plan.impact_summary['continued_from_plan_id'] = source.change_set_id
+                latest.change_sets.append(plan)
+                latest.updated_at = timestamp
+                return latest
             source.status = "rejected"
             source.resolved_at = timestamp
             source.updated_at = timestamp
@@ -2585,8 +2665,7 @@ def review_teacher_course_change_scope(
         if plan.status != "pending":
             raise ValueError("只能审阅尚未应用的课程方案")
         planning = plan.teacher_change_planning
-        if planning.intent.system_blockers:
-            raise ValueError("课程影响扫描尚未完成，请重新扫描后再审阅")
+        require_partial_selection(plan, selected, structural=confirm_structure or edited_outline is not None)
         selection_changed = set(selected) != set((plan.impact_summary.get("scope_review") or {}).get("selected_migration_ids") or [])
         migrations_by_id = {
             item.migration_id: item
@@ -2921,6 +3000,7 @@ def review_teacher_course_change_scope(
         if confirm_structure:
             selected_operation_ids.extend(structure_operation_ids)
         selected_operation_ids = list(dict.fromkeys(selected_operation_ids))
+        require_partial_selection(plan, selected, structural=confirm_structure or edited_outline is not None)
         plan.impact_summary["scope_review"] = {
             "selected_migration_ids": selected,
             "excluded_migration_ids": sorted(known.difference(selected)),

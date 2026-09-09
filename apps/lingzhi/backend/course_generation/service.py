@@ -9847,13 +9847,23 @@ class CourseService(AIBase):
         IDs must come from the supplied candidate set and are validated again
         by the orchestration service.
         """
+        scan_candidates = []
+        for item in ranked_candidates:
+            item = deepcopy(item)
+            if isinstance(item.get('content'), str):
+                # Full editable text is already represented by content fragments.
+                # Keep field names for exact patches without sending it twice.
+                item['editable_field_names'] = list((item.pop('editable_fields', None) or {}).keys())
+                item.pop('summary', None)
+                item.pop('rank_score', None)
+            scan_candidates.append(item)
         prompt = (
             "请分析老师对整门课程的修改要求，只输出一个 JSON 对象。\n"
             f"老师原话：{instruction}\n\n"
             "课程与资产概况：\n"
             f"{json.dumps(overview, ensure_ascii=False)}\n\n"
             "经过索引与关系扩展后的候选单元：\n"
-            f"{json.dumps(ranked_candidates, ensure_ascii=False)}\n\n"
+            f"{json.dumps(scan_candidates, ensure_ascii=False)}\n\n"
             "返回字段：interpreted_goal、signal_kind、signal_confidence、"
             "hard_constraints、soft_preferences、protected_requirements、assumptions、"
             "blocking_questions、clarifications、affected_units、structure。"
@@ -9866,6 +9876,12 @@ class CourseService(AIBase):
             "markdown、text、content、title、summary，before 必须逐字存在于该候选"
             "editable_fields 中。术语全局替换要为每个真实命中的单元分别返回 patch；"
             "不能可靠形成逐字候选时 content_patches=[]，不得猜测原文。"
+            "分片模式下 content 是当前原文，editable_field_names 是可编辑字段名；"
+            "before 必须逐字来自 content，使用最短可唯一定位的片段，不复述整段原文。"
+            "本步骤只判断修改影响，不要在每批输出完整的实践项目、参考答案或大段代码。"
+            "content 可能从代码或段落中间切开，这是正常分片，不需要独立编译；不要补全或执行分片代码。"
+            "补充实践、例题或解释通常是在现有讲次内修改，不等于拆分或新增讲次；"
+            "只有老师明确要求改变讲次层级、数量或顺序时才提出结构重建。"
             "structure 包含 required、reason、affected_node_ids、retire_node_ids、proposed_outline。"
             "若结构不变，required=false 且 proposed_outline=[]；若章节要合并、删除、"
             "拆分、移动或重建，先给可审阅的完整新课程树（不是只返回变化节点），"
@@ -9899,6 +9915,7 @@ class CourseService(AIBase):
             raise_on_failure=True,
             json_mode=True,
             model_role="teacher_course_change_impact",
+            wait_for_capacity=True,
         )
         parsed = self._extract_json(response or "")
         return parsed if isinstance(parsed, dict) else None

@@ -109,6 +109,7 @@ class CourseEvolutionApplicationService:
         clarification_answers: list[dict[str, Any]] | None = None,
         scan_checkpoint: dict[str, Any] | None = None,
         on_scan_progress: ScanProgress | None = None,
+        rescan_incomplete_only: bool = False,
     ) -> Any:
         context = await asyncio.to_thread(self.teacher_context, course_id)
         return await create_teacher_course_change_plan(
@@ -126,6 +127,7 @@ class CourseEvolutionApplicationService:
             clarification_answers=clarification_answers,
             scan_checkpoint=scan_checkpoint,
             on_scan_progress=on_scan_progress,
+            rescan_incomplete_only=rescan_incomplete_only,
             scan_model_identity=stable_hash({
                 "endpoint": getattr(self.course_service, "api_base", ""),
                 "models": getattr(self.course_service, "fast_models", []),

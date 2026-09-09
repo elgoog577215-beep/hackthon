@@ -123,6 +123,7 @@ async def enqueue_analysis(
     confirmed_interpretation: bool = False,
     clarification_set_id: str = "",
     clarification_answers: list[dict[str, Any]] | None = None,
+    rescan_incomplete_only: bool = False,
 ) -> dict[str, Any]:
     """Persist whole-course analysis before any model call and return immediately."""
 
@@ -163,6 +164,7 @@ async def enqueue_analysis(
                 "confirmed_interpretation": confirmed_interpretation,
                 "clarification_set_id": clarification_set_id,
                 "clarification_answers": clarification_answers or [],
+                "rescan_incomplete_only": rescan_incomplete_only,
                 "_retrieval_actor_id": user_id,
             },
         )
@@ -252,6 +254,8 @@ async def run_analysis(manager: Any, job_id: str, *, service: Any = None) -> Non
         message = (
             f"AI 服务暂时不可用，约 {int(detail.get('retry_after_seconds') or 0)} 秒后继续检查"
             if detail.get("waiting_for_provider")
+            else f"已保留 {detail['retained_units']} 项检查结果；本次已检查 {done}/{detail.get('total_parts', 0)} 段"
+            if detail.get('retained_units')
             else f"已检查 {done}/{detail.get('total_parts', 0)} 段课程内容"
         )
         await manager._update_phase(
@@ -274,6 +278,7 @@ async def run_analysis(manager: Any, job_id: str, *, service: Any = None) -> Non
             clarification_answers=request.get("clarification_answers") or [],
             scan_checkpoint=checkpoint,
             on_scan_progress=scan_progress,
+            rescan_incomplete_only=bool(request.get('rescan_incomplete_only')),
         )
     )
     try:

@@ -47,7 +47,7 @@ export interface CourseChangeAnalysisTask {
   phase_detail?: {
     request_id?: string
     plan_id?: string
-    scan?: { completed_parts: number; total_parts: number; reused_parts: number; failed_parts: number }
+    scan?: { completed_parts: number; total_parts: number; reused_parts: number; failed_parts: number; retained_units?: number; pending_units?: number }
   }
 }
 
@@ -501,7 +501,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         if (this.courseId === targetCourseId && sequence === this.contextRequestSequence) this.contextLoading = false
       }
     },
-    async createCoursePlan(input: { instruction: string; requestId?: string; courseId?: string; supersedesPlanId?: string; literalReplacement?: { before: string; after: string }; assetTypes?: string[]; confirmedInterpretation?: boolean; clarificationSetId?: string; clarificationAnswers?: CourseChangeClarificationAnswerInput[] }) {
+    async createCoursePlan(input: { instruction: string; requestId?: string; courseId?: string; supersedesPlanId?: string; literalReplacement?: { before: string; after: string }; assetTypes?: string[]; confirmedInterpretation?: boolean; clarificationSetId?: string; clarificationAnswers?: CourseChangeClarificationAnswerInput[]; rescanIncompleteOnly?: boolean }) {
       const targetCourseId = input.courseId || this.courseId
       if (!targetCourseId) throw new Error('course_change_course_required')
       this.selectCourse(targetCourseId)
@@ -517,6 +517,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
             request_id: input.requestId
               || createUuid(),
             instruction: input.instruction,
+            ...(input.rescanIncompleteOnly ? { rescan_incomplete_only: true } : {}),
             ...(input.literalReplacement ? { literal_replacement: input.literalReplacement } : {}),
             ...(input.assetTypes ? { asset_types: input.assetTypes } : {}),
             ...(input.confirmedInterpretation ? { confirmed_interpretation: true } : {}),

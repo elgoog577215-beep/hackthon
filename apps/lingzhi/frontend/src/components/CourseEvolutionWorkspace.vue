@@ -39,6 +39,13 @@
           <p v-if="focusedPlan?.impact_summary?.generation_error" class="workspace-status-error" role="alert">{{ focusedPlan.impact_summary.generation_error }}</p>
           <p v-if="coverage && workspaceState !== 'request' && workspaceState !== 'scanning'" class="coverage-status">{{ t('courseEvolution.workspace.scanCoverage').replace('{done}', String(coverage.scanned_units ?? coverage.ranked_candidates ?? 0)).replace('{total}', String(coverage.indexed_units || 0)) }}</p>
           <div class="workspace-stage">
+            <section v-if="partialActive && workspaceState !== 'request'" class="partial-review-banner" data-testid="partial-review-banner">
+              <strong>{{ t('courseEvolution.workspace.partialReviewTitle') }}</strong>
+              <p>{{ t('courseEvolution.workspace.partialReviewHint') }}</p>
+              <p v-if="store.generating" role="status">{{ scanResumeLabel }}</p>
+              <details v-if="planning?.intent.blocking_questions?.length"><summary>{{ t('courseEvolution.workspace.partialQuestions') }}</summary><p v-for="question in planning.intent.blocking_questions" :key="question">{{ question }}</p></details>
+              <button v-if="focusedPlan?.status === 'pending' || focusedPlan?.status === 'applied'" type="button" class="button-secondary" data-testid="partial-rescan" :disabled="store.generating || candidatesGenerating || Boolean(store.actingId)" @click="retryIncompleteScan"><RefreshCw :size="15" />{{ t('courseEvolution.workspace.retryIncompleteScan') }}</button>
+            </section>
             <main v-if="workspaceState === 'request'" class="request-state">
               <details class="readiness-strip">
                 <summary>
@@ -85,6 +92,7 @@
               <section class="scan-main">
                 <div class="scan-heading"><span><ScanSearch :size="21" /></span><div><small>{{ t('courseEvolution.workspace.scanningKicker', '正在分析全课') }}</small><h3>{{ t('courseEvolution.workspace.scanRequestTitle', '正在理解要求并定位所有受影响内容') }}</h3></div></div>
                 <div class="scan-line"><span /></div>
+                <p v-if="scanProgress?.retained_units" class="coverage-status">{{ scanResumeLabel }}</p>
                 <p v-if="scanProgress" class="coverage-status" data-testid="semantic-scan-progress">{{ t('courseEvolution.workspace.scanBatchProgress').replace('{done}', String(scanProgress.completed_parts)).replace('{total}', String(scanProgress.total_parts)).replace('{reused}', String(scanProgress.reused_parts)).replace('{failed}', String(scanProgress.failed_parts)) }}</p>
                 <dl><div><dt>{{ t('courseEvolution.workspace.scanIndex', '索引召回') }}</dt><dd>{{ context?.summary?.indexed_units || 0 }} {{ t('courseEvolution.workspace.units', '个单元') }}</dd></div><div><dt>{{ t('courseEvolution.workspace.scanRelations', '关系扩展') }}</dt><dd>{{ t('courseEvolution.workspace.crossAssets', '跨大纲与教学资产') }}</dd></div><div><dt>{{ t('courseEvolution.workspace.scanJudgement', 'AI 判断') }}</dt><dd>{{ t('courseEvolution.workspace.keepRealImpact', '保留真实影响') }}</dd></div></dl>
                 <div class="scan-actions">
@@ -168,10 +176,11 @@
                 </div>
                 <div class="impact-list">
                   <article v-for="item in visibleAffectedUnits" :key="item.migration_id" :class="{ excluded: !isUnitSelected(item.migration_id) }">
-                    <label class="impact-check"><input type="checkbox" :aria-label="item.title" :checked="isUnitSelected(item.migration_id)" :disabled="candidatesGenerating || Boolean(store.actingId)" @change="toggleUnit(item.migration_id)" /><span /></label>
+                    <label class="impact-check"><input type="checkbox" :aria-label="item.title" :checked="isUnitSelected(item.migration_id)" :disabled="!canUseMigration(item.migration_id) || store.generating || candidatesGenerating || Boolean(store.actingId)" @change="toggleUnit(item.migration_id)" /><span /></label>
                     <CourseChangeCandidateDetails :item="item" :outline="context?.outline || []" />
+                    <p v-if="partialActive" class="partial-item-status">{{ partialItemLabel(item.migration_id) }}</p>
                     <div class="impact-copy">
-                      <header><div><small>{{ assetLabel(item.asset_type) }}</small><h4>{{ item.title }}</h4></div><label class="disposition-control"><span>{{ t('courseEvolution.workspace.handlingMethod', '处理方式') }}</span><select :value="effectiveDisposition(item)" @change="setDisposition(item, ($event.target as HTMLSelectElement).value)"><option v-for="option in dispositionOptions(item)" :key="option.value" :value="option.value">{{ option.label }}</option></select></label></header>
+                      <header><div><small>{{ assetLabel(item.asset_type) }}</small><h4>{{ item.title }}</h4></div><label class="disposition-control"><span>{{ t('courseEvolution.workspace.handlingMethod', '处理方式') }}</span><select :disabled="store.generating || !canUseMigration(item.migration_id)" :value="effectiveDisposition(item)" @change="setDisposition(item, ($event.target as HTMLSelectElement).value)"><option v-for="option in dispositionOptions(item)" :key="option.value" :value="option.value">{{ option.label }}</option></select></label></header>
                       <p class="impact-reason">{{ item.reason }}</p>
                       <div v-if="(item.after_content || item.after_preview) && item.candidate_status === 'ready'" class="candidate-diff">
                         <section class="source-preview">
@@ -188,7 +197,7 @@
                       <form v-if="editingCandidateId === item.migration_id" class="candidate-editor" :data-testid="`candidate-editor-${item.migration_id}`" @submit.prevent="saveCandidateEdit(item)">
                         <header><div><strong>{{ t('courseEvolution.workspace.manualEditTitle', '手动调整修改后内容') }}</strong><small>{{ t('courseEvolution.workspace.manualEditHint', '这里只改当前这一条；其他替换结果保持不变。') }}</small></div><button type="button" class="icon-action" :aria-label="t('common.cancel', '取消')" @click="closeCandidateEditor"><X :size="16" /></button></header>
                         <label v-for="(value, path) in candidateDraft" :key="path"><span>{{ candidateFieldLabel(path) }}</span><textarea :value="value" rows="5" @input="updateCandidateDraft(path, ($event.target as HTMLTextAreaElement).value)" /></label>
-                        <footer><button type="button" class="button-quiet" @click="closeCandidateEditor">{{ t('common.cancel', '取消') }}</button><button type="submit" class="button-primary" :data-testid="`save-candidate-${item.migration_id}`" :disabled="Boolean(store.actingId)"><LoaderCircle v-if="store.actingId" :size="14" class="spinning" /><Check v-else :size="14" />{{ t('courseEvolution.workspace.saveManualEdit', '保存这一条') }}</button></footer>
+                        <footer><button type="button" class="button-quiet" @click="closeCandidateEditor">{{ t('common.cancel', '取消') }}</button><button type="submit" class="button-primary" :data-testid="`save-candidate-${item.migration_id}`" :disabled="store.generating || Boolean(store.actingId)"><LoaderCircle v-if="store.actingId" :size="14" class="spinning" /><Check v-else :size="14" />{{ t('courseEvolution.workspace.saveManualEdit', '保存这一条') }}</button></footer>
                       </form>
                       <p v-if="item.candidate_error" class="candidate-error"><TriangleAlert :size="13" />{{ item.candidate_error }}<button v-if="item.candidate_error_detail?.retryable !== false" type="button" :disabled="candidatesGenerating" @click="retryCandidateFailures">{{ t('courseEvolution.workspace.retryThisFailure', '重试失败项') }}</button><button v-else type="button" @click="openCorrection">{{ t('courseEvolution.workspace.answerAndReanalyze') }}</button></p>
                       <footer><span v-if="item.source_state === 'stale'"><TriangleAlert :size="13" />{{ t('courseEvolution.workspace.sourceStale', '来源与当前课程版本不一致') }}</span><span v-else-if="item.operation_id && candidateReviewReady"><CircleCheckBig :size="13" />{{ item.change_count }} {{ t('courseEvolution.workspace.exactChanges', '处精确修改') }}</span><span>{{ confidenceLabel(item.confidence) }}</span></footer>
@@ -196,7 +205,7 @@
                   </article>
                   <p v-if="!visibleAffectedUnits.length" class="empty-impact">{{ t('courseEvolution.workspace.noAffectedForAsset', '这一类资产没有被判定为必改内容。') }}</p>
                 </div>
-                <footer class="review-actionbar"><div><strong v-if="scopeSaved && !reviewDirty"><CircleCheckBig :size="16" />{{ t('courseEvolution.workspace.scopeConfirmed', '预计影响已确认') }}</strong><strong v-else-if="reviewDirty"><PencilLine :size="16" />{{ t('courseEvolution.workspace.reviewEdited', '已调整，建议需要更新') }}</strong><p>{{ candidateReviewReady ? t('courseEvolution.workspace.applyBoundary', '只应用勾选且已形成精确建议的项目；其余内容保持不变。') : t('courseEvolution.workspace.reviewBoundary', '确认影响范围后才会生成具体修改方案；当前正式课程没有变化。') }}</p></div><button type="button" class="button-danger" :disabled="store.actingId === focusedPlan?.change_set_id" @click="discardPlan">{{ discardConfirm ? t('courseEvolution.workspace.confirmDiscard', '再次点击确认放弃') : t('courseEvolution.workspace.discardPlan', '放弃方案') }}</button><button v-if="hasRetryableCandidateFailures && !reviewDirty" type="button" class="button-secondary" :disabled="candidatesGenerating || store.actingId === focusedPlan?.change_set_id" @click="retryCandidateFailures"><RefreshCw :size="14" />{{ t('courseEvolution.workspace.retryFailedOnly', '只重试失败项') }}</button><button v-if="candidateReviewReady" type="button" class="button-primary" :disabled="candidatesGenerating || store.actingId === focusedPlan?.change_set_id || selectedApplicableCount === 0" @click="applyCourseChange"><LoaderCircle v-if="store.actingId === focusedPlan?.change_set_id" :size="15" class="spinning" /><Check v-else :size="15" />{{ applySelectedLabel }}</button><button v-else-if="hasNonRetryableCandidateFailures && !reviewDirty" type="button" class="button-primary" @click="openCorrection">{{ t('courseEvolution.workspace.answerAndReanalyze') }}</button><button v-else type="button" class="button-primary" :disabled="candidatesGenerating || store.actingId === focusedPlan?.change_set_id || selectedImpactCount === 0" @click="saveScopeReview"><LoaderCircle v-if="store.actingId === focusedPlan?.change_set_id" :size="15" class="spinning" /><Check v-else :size="15" />{{ scopeSaved ? t('courseEvolution.workspace.saveAndRefreshCandidates', '保存并更新建议') : t('courseEvolution.workspace.confirmScope', '确认影响范围') }}</button></footer>
+                <footer class="review-actionbar"><div><strong v-if="scopeSaved && !reviewDirty"><CircleCheckBig :size="16" />{{ t('courseEvolution.workspace.scopeConfirmed', '预计影响已确认') }}</strong><strong v-else-if="reviewDirty"><PencilLine :size="16" />{{ t('courseEvolution.workspace.reviewEdited', '已调整，建议需要更新') }}</strong><p>{{ candidateReviewReady ? t('courseEvolution.workspace.applyBoundary', '只应用勾选且已形成精确建议的项目；其余内容保持不变。') : t('courseEvolution.workspace.reviewBoundary', '确认影响范围后才会生成具体修改方案；当前正式课程没有变化。') }}</p></div><button type="button" class="button-danger" :disabled="store.generating || store.actingId === focusedPlan?.change_set_id" @click="discardPlan">{{ discardConfirm ? t('courseEvolution.workspace.confirmDiscard', '再次点击确认放弃') : t('courseEvolution.workspace.discardPlan', '放弃方案') }}</button><button v-if="hasRetryableCandidateFailures && !reviewDirty" type="button" class="button-secondary" :disabled="store.generating || candidatesGenerating || store.actingId === focusedPlan?.change_set_id" @click="retryCandidateFailures"><RefreshCw :size="14" />{{ t('courseEvolution.workspace.retryFailedOnly', '只重试失败项') }}</button><button v-if="candidateReviewReady" type="button" class="button-primary" :disabled="store.generating || candidatesGenerating || store.actingId === focusedPlan?.change_set_id || selectedApplicableCount === 0" @click="applyCourseChange"><LoaderCircle v-if="store.actingId === focusedPlan?.change_set_id" :size="15" class="spinning" /><Check v-else :size="15" />{{ applySelectedLabel }}</button><button v-else-if="hasNonRetryableCandidateFailures && !reviewDirty" type="button" class="button-primary" @click="openCorrection">{{ t('courseEvolution.workspace.answerAndReanalyze') }}</button><button v-else type="button" class="button-primary" :disabled="store.generating || candidatesGenerating || store.actingId === focusedPlan?.change_set_id || selectedImpactCount === 0" @click="saveScopeReview"><LoaderCircle v-if="store.actingId === focusedPlan?.change_set_id" :size="15" class="spinning" /><Check v-else :size="15" />{{ scopeSaved ? t('courseEvolution.workspace.saveAndRefreshCandidates', '保存并更新建议') : t('courseEvolution.workspace.confirmScope', '确认影响范围') }}</button></footer>
               </section>
             </div>
 
@@ -258,6 +267,19 @@ const requestCanSubmit = computed(() => requestMode.value === 'replace'
   : Boolean(requestText.value.trim()))
 const candidatesGenerating = computed(() => focusedPlan.value?.status === 'pending' && focusedPlan.value?.generation_status === 'generating')
 const coverage = computed(() => focusedPlan.value?.impact_summary?.coverage)
+const partialGate = computed(() => focusedPlan.value?.impact_summary?.partial_review)
+const partialActive = computed(() => Boolean(partialGate.value?.incomplete))
+const partialPreview = computed(() => partialActive.value && Boolean(partialGate.value?.can_preview))
+const scanResumeLabel = computed(() => t('courseEvolution.workspace.scanResumeSummary')
+  .replace('{retained}', String(scanProgress.value?.retained_units ?? coverage.value?.scanned_units ?? 0))
+  .replace('{pending}', String(scanProgress.value?.pending_units ?? partialGate.value?.pending_units ?? 0)))
+function canUseMigration(id: string) {
+  return !partialActive.value || (partialGate.value?.eligible_migration_ids || []).includes(id)
+}
+function partialItemLabel(id: string) {
+  const reason = partialGate.value?.waiting?.[id]
+  return t(`courseEvolution.workspace.partialReason.${reason || 'ready'}`)
+}
 const scanFailureSummary = computed(() => {
   const failures = Array.isArray(coverage.value?.failed_batches) ? coverage.value.failed_batches : []
   if (!failures.length) return ''
@@ -328,9 +350,10 @@ const embeddedInCenter = computed(() => props.embeddedInCenter)
 const hasApplicationReceipt = computed(() => Object.keys(focusedPlan.value?.application_receipt || {}).length > 0)
 const hasUndoReceipt = computed(() => Object.keys(focusedPlan.value?.undo_receipt || {}).length > 0)
 const workspaceState = computed<WorkspaceState>(() => {
-  if (store.generating) return 'scanning'
+  if (store.generating && !partialPreview.value) return 'scanning'
   if (forceRequest.value || !focusedPlan.value || focusedPlan.value.status === 'rejected') return 'request'
   if (['applied', 'undo_partial', 'undone'].includes(focusedPlan.value.status) || hasApplicationReceipt.value || hasUndoReceipt.value) return 'applied'
+  if (partialPreview.value) return 'content'
   if (planning.value?.status === 'needs_clarification' || (planning.value?.status === 'blocked' && systemClarificationBlockers.value.length)) return 'interpreting'
   if (structuralPlan.value && (scopeAlreadyReviewed.value || !focusedPlan.value?.impact_summary?.affected_units?.length || focusedPlan.value?.impact_summary?.analysis_mode === 'deterministic_structure')) return 'structure'
   return 'content'
@@ -339,7 +362,7 @@ const journeySteps = computed(() => props.initialMode === 'replace'
   ? [{ index: 1, label: t('courseEvolution.workspace.journeyRequest') }, { index: 2, label: t('courseEvolution.workspace.journeyReview') }, { index: 3, label: t('courseEvolution.workspace.journeyApply') }]
   : [{ index: 1, label: t('courseEvolution.workspace.journeyRequest', '输入想法') }, { index: 2, label: t('courseEvolution.workspace.journeyAnalyze', '选择影响范围') }, { index: 3, label: t('courseEvolution.workspace.journeyReview', '审阅修改方案') }, { index: 4, label: t('courseEvolution.workspace.journeyApply', '确认应用') }])
 const candidateOperationCount = computed(() => Number(focusedPlan.value?.impact_summary?.candidate_bundle?.operation_count || 0))
-const hasGeneratedCandidates = computed(() => planning.value?.status === 'candidate_ready' && candidateOperationCount.value > 0)
+const hasGeneratedCandidates = computed(() => (planning.value?.status === 'candidate_ready' || partialActive.value) && candidateOperationCount.value > 0)
 const rawRequest = computed(() => planning.value?.intent.raw_request || focusedPlan.value?.request_text || '')
 const interpretedGoal = computed(() => planning.value?.intent.interpreted_goal || focusedPlan.value?.expected_effect || rawRequest.value)
 const protectedRequirements = computed(() => [...(planning.value?.intent.hard_constraints || []), ...(planning.value?.intent.protected_requirements || [])])
@@ -356,8 +379,8 @@ const visibleAffectedUnits = computed(() => {
   return affectedUnits.value.filter(item => item.asset_type === selectedAsset.value && (!selectedSection.value || item.section_ids?.includes(selectedSection.value)) && (!query || [item.title, item.before_preview, item.reason].some(value => String(value || '').toLocaleLowerCase().includes(query))))
 })
 const selectedAssetLabel = computed(() => affectedAssets.value.find(item => item.key === selectedAsset.value)?.label || '')
-const selectedImpactCount = computed(() => affectedUnits.value.length - excludedUnitIds.value.size)
-const selectedApplicableOperationIds = computed(() => Array.from(new Set(affectedUnits.value.filter(item => !excludedUnitIds.value.has(item.migration_id) && item.operation_id && !['reuse_exact', 'reuse_rebind'].includes(effectiveDisposition(item))).map(item => String(item.operation_id)))))
+const selectedImpactCount = computed(() => affectedUnits.value.filter(item => isUnitSelected(item.migration_id)).length)
+const selectedApplicableOperationIds = computed(() => Array.from(new Set(affectedUnits.value.filter(item => isUnitSelected(item.migration_id) && item.operation_id && !['reuse_exact', 'reuse_rebind'].includes(effectiveDisposition(item))).map(item => String(item.operation_id)))))
 const structureOperationIds = computed(() => (focusedPlan.value?.operations || []).filter(item => ['RESEQUENCE_COURSE_PATH', 'REBUILD_COURSE_OUTLINE'].includes(item.operation_type)).map(item => item.operation_id))
 const selectedApplicableCount = computed(() => selectedApplicableOperationIds.value.length)
 const structureApplicableCount = computed(() => new Set([...selectedApplicableOperationIds.value, ...structureOperationIds.value]).size)
@@ -382,7 +405,7 @@ const savedSelectedMigrationIds = computed(() => new Set<string>(scopeSaved.valu
 const selectionDirty = computed(() => affectedUnits.value.some(item => savedSelectedMigrationIds.value.has(item.migration_id) !== isUnitSelected(item.migration_id)))
 const dispositionDirty = computed(() => affectedUnits.value.some(item => effectiveDisposition(item) !== item.disposition))
 const reviewDirty = computed(() => selectionDirty.value || dispositionDirty.value)
-const candidateReviewReady = computed(() => hasGeneratedCandidates.value && !reviewDirty.value)
+const candidateReviewReady = computed(() => hasGeneratedCandidates.value && !reviewDirty.value && (!partialActive.value || scopeSaved.value))
 const currentJourneyStep = computed(() => {
   if (props.initialMode === 'replace') return workspaceState.value === 'applied' ? 3 : workspaceState.value === 'request' ? 1 : 2
   if (workspaceState.value === 'content') return candidateReviewReady.value ? 4 : scopeSaved.value ? 3 : 2
@@ -417,6 +440,8 @@ const applicationTitle = computed(() => focusedPlan.value?.status === 'undone'
   ? t('courseEvolution.workspace.undoneTitle', '本次修改已撤销')
   : focusedPlan.value?.status === 'undo_partial'
     ? t('courseEvolution.workspace.undoPartialTitle', '撤销尚未全部完成')
+    : partialActive.value && focusedPlan.value?.status === 'applied'
+      ? t('courseEvolution.workspace.partialAppliedTitle')
     : applicationPartial.value
       ? t('courseEvolution.workspace.partialTitle', '部分修改尚未完成')
       : t('courseEvolution.workspace.appliedTitle', '课程已按确认结果更新'))
@@ -509,7 +534,7 @@ function setDisposition(item: AffectedUnit, value: string) {
   dispositionOverrides.value = { ...dispositionOverrides.value, [item.migration_id]: value as TeacherMigrationDisposition }
 }
 function canManuallyEdit(item: AffectedUnit) {
-  return item.asset_type === 'course_content'
+  return canUseMigration(item.migration_id) && item.asset_type === 'course_content'
     && item.candidate_status === 'ready'
     && Boolean(item.operation_id)
     && isUnitSelected(item.migration_id)
@@ -598,8 +623,8 @@ function validateOutlineDraft(nodes: TeacherCourseOutlineReviewNode[]) {
     return true
   })
 }
-function isUnitSelected(id: string) { return !excludedUnitIds.value.has(id) }
-function toggleUnit(id: string) { const next = new Set(excludedUnitIds.value); if (next.has(id)) next.delete(id); else { next.add(id); if (editingCandidateId.value === id) closeCandidateEditor() } excludedUnitIds.value = next }
+function isUnitSelected(id: string) { return canUseMigration(id) && !excludedUnitIds.value.has(id) }
+function toggleUnit(id: string) { if (!canUseMigration(id)) return; const next = new Set(excludedUnitIds.value); if (next.has(id)) next.delete(id); else { next.add(id); if (editingCandidateId.value === id) closeCandidateEditor() } excludedUnitIds.value = next }
 function selectVisibleUnits(include: boolean) { const next = new Set(excludedUnitIds.value); visibleAffectedUnits.value.forEach(item => include ? next.delete(item.migration_id) : next.add(item.migration_id)); excludedUnitIds.value = next }
 function resetOutlineDraft() { outlineDraft.value = normalizeOutline(focusedPlan.value?.impact_summary?.proposed_outline) }
 function subtreeIds(node: TeacherCourseOutlineReviewNode) {
@@ -702,6 +727,7 @@ async function retryIncompleteScan() {
       requestId,
       instruction: rawRequest.value,
       supersedesPlanId: plan.change_set_id,
+      rescanIncompleteOnly: true,
       assetTypes: planAssetTypes(plan),
     })
     if (isCurrent() && !result.analysis_task) selectCreatedPlan(result, requestId)
@@ -754,8 +780,8 @@ async function confirmClarificationAnswers() {
     if (isCurrent() && !result.analysis_task) selectCreatedPlan(result, requestId)
   }, t('courseEvolution.workspace.confirmUnderstandingFailed', '确认理解失败，请重试。'))
 }
-function reviewedMigrationIds() { return affectedUnits.value.filter(item => !excludedUnitIds.value.has(item.migration_id)).map(item => item.migration_id) }
-function reviewedDispositions() { return Object.fromEntries(affectedUnits.value.map(item => [item.migration_id, effectiveDisposition(item)]).filter(([, disposition]) => disposition !== 'blocked')) as Record<string, TeacherMigrationDisposition> }
+function reviewedMigrationIds() { return affectedUnits.value.filter(item => isUnitSelected(item.migration_id)).map(item => item.migration_id) }
+function reviewedDispositions() { return Object.fromEntries(affectedUnits.value.filter(item => canUseMigration(item.migration_id)).map(item => [item.migration_id, effectiveDisposition(item)]).filter(([, disposition]) => disposition !== 'blocked')) as Record<string, TeacherMigrationDisposition> }
 let pendingActionEpoch: number | null = null
 async function runPlanAction(action: (plan: CourseEvolutionPlan, isCurrent: () => boolean) => Promise<void>, fallback: string) {
   if (!focusedPlan.value || store.actingId || store.generating || pendingActionEpoch === workspaceEpoch) return
@@ -768,7 +794,7 @@ async function runPlanAction(action: (plan: CourseEvolutionPlan, isCurrent: () =
   finally { if (pendingActionEpoch === epoch) pendingActionEpoch = null }
 }
 async function saveScopeReview() {
-  const structural = structuralPlan.value
+  const structural = structuralPlan.value && !partialActive.value
   await runPlanAction(async (plan, isCurrent) => {
     await store.reviewCoursePlan(plan.change_set_id, reviewedMigrationIds(), { migrationDispositions: reviewedDispositions() })
     if (isCurrent() && !structural) await store.generateSuggested(plan.change_set_id)
@@ -784,7 +810,7 @@ async function confirmStructure() {
 async function generateReviewedCandidates() { await runPlanAction(async plan => { await store.generateSuggested(plan.change_set_id) }, '联动建议生成失败，请重试。') }
 async function retryCandidateFailures() { await runPlanAction(async plan => { await store.generateSuggested(plan.change_set_id) }, '失败项重试失败，已保留其他成功建议。') }
 async function applyCourseChange() {
-  const operationIds = Array.from(new Set([...selectedApplicableOperationIds.value, ...(structureConfirmed.value ? structureOperationIds.value : [])]))
+  const operationIds = Array.from(new Set([...selectedApplicableOperationIds.value, ...(!partialActive.value && structureConfirmed.value ? structureOperationIds.value : [])]))
   if (!operationIds.length) return
   await runPlanAction(async (plan, isCurrent) => {
     await store.accept(plan.change_set_id, 'current', operationIds)
@@ -902,6 +928,9 @@ defineExpose({ reloadWorkspace, openPlan, startNewRequest, showHistory })
 .clarification-system-blockers span{display:grid;gap:3px}
 .clarification-system-blockers strong{font-size:10px}
 .clarification-system-blockers small{font-size:9px;line-height:1.5}
+.partial-review-banner{padding:16px 24px;border-bottom:1px solid #e3e7ef;font-size:15px;line-height:1.6}
+.partial-review-banner p{margin:6px 0}.partial-review-banner button{margin-top:8px}.partial-review-banner details{margin-top:8px}
+.partial-item-status{grid-column:2;margin:4px 0;font-size:15px;color:#596579}
 .clarification-actions{display:flex;justify-content:flex-end;gap:9px;padding-top:16px;border-top:1px solid #e2e6ed;background:#fff}
 .clarification-actions button{min-height:40px;display:inline-flex;align-items:center;justify-content:center;gap:6px}
 .scan-actions{display:flex;align-items:center;justify-content:space-between;gap:16px}

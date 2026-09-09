@@ -2828,6 +2828,20 @@
       "scanFailureUnavailable": "AI service temporarily unavailable",
       "scanFailureTruncated": "incomplete response",
       "scanFailureOther": "other analysis error",
+      "partialReviewTitle": "Completed results are available for review",
+      "partialAppliedTitle": "Selected changes applied; remaining content can be rechecked",
+      "partialReviewHint": "Select independently ready changes. Waiting items explain their dependencies. Resolve shared structure or teacher decisions before processing dependent changes.",
+      "partialQuestions": "View open questions; use Adjust understanding to clarify the request",
+      "scanResumeSummary": "Retained {retained} checked items; checking {pending} remaining items.",
+      "partialReason": {
+        "ready": "Ready for review and independent application once a candidate is generated",
+        "source_unscanned": "Waiting for this content to be checked",
+        "source_stale": "Source changed; waiting for rechecking",
+        "teacher_decision": "Waiting for the teacher's decision",
+        "structure_dependency": "Waiting for related structure confirmation and complete impact checks",
+        "shared_scope": "Waiting for the shared write scope and upstream content to be checked",
+        "unknown_scope": "Independent write scope has not been established"
+      },
       "replaceInstruction": "Replace all occurrences of “{before}” with “{after}”",
       "analysisFailed": "Impact analysis failed. Please retry."
     },

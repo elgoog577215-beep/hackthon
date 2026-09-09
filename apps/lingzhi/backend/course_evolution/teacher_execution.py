@@ -248,7 +248,9 @@ def _selected_migrations(plan: CourseEvolutionPlan) -> list[Any]:
     }
     if not selected and not (review and planning.structure_review_status == "confirmed" and planning.structural_operations):
         raise ValueError("请先确认本次修改的影响范围")
-    if planning.structural_operations and planning.structure_review_status != "confirmed":
+    from .partial_review import incomplete, require_partial_selection
+    require_partial_selection(plan, list(selected))
+    if planning.structural_operations and planning.structure_review_status != "confirmed" and not incomplete(plan):
         raise ValueError("请先确认新课程结构与迁移原则")
     return [item for item in planning.unit_migrations if item.migration_id in selected]
 

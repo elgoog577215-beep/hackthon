@@ -904,11 +904,8 @@ def accept_change_set(
     if reconciled is not None:
         state = reconciled
         change_set = _change_set(state, change_set_id)
-    if (
-        change_set.teacher_change_planning
-        and change_set.teacher_change_planning.intent.system_blockers
-    ):
-        raise ValueError("课程影响扫描尚未完成，请重新扫描后再应用")
+    from .partial_review import incomplete, require_partial_operations
+    require_partial_operations(change_set, selected_operation_ids)
     clarification_digest = str(
         change_set.impact_summary.get("clarification_answer_digest") or ""
     )
@@ -971,6 +968,7 @@ def accept_change_set(
         change_set.teacher_change_planning is not None
         and change_set.teacher_change_planning.structural_operations
         and change_set.teacher_change_planning.structure_review_status != "confirmed"
+        and not incomplete(change_set)
     ):
         raise ValueError("Confirm the proposed course structure before applying it")
 
@@ -2251,6 +2249,11 @@ def course_evolution_view(
     current_revision_vector: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     payload = state.model_dump(mode="json")
+    from .partial_review import readiness
+    for plan, source in zip(payload['change_sets'], state.change_sets):
+        plan['impact_summary']['partial_review'] = readiness(source)
+        plan['impact_summary'].pop('scan_analysis', None)
+        plan['impact_summary'].pop('scan_unit_index', None)
     payload["view_schema_version"] = "course_evolution_v2"
     payload["course_evolution_plans"] = deepcopy(payload["change_sets"])
     payload["adaptation_plans"] = deepcopy(payload["change_sets"])

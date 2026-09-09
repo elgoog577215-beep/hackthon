@@ -2828,6 +2828,20 @@
       "scanFailureUnavailable": "AI 服务暂时不可用",
       "scanFailureTruncated": "返回内容不完整",
       "scanFailureOther": "其他分析错误",
+      "partialReviewTitle": "已完成结果可以先审阅",
+      "partialAppliedTitle": "所选修改已应用，其余内容可继续补查",
+      "partialReviewHint": "只可选择已独立就绪的修改；等待中的项目会说明原因。共同结构或待确认问题解决后再处理相关修改。",
+      "partialQuestions": "查看仍需确认的问题，可通过“调整理解”补充要求",
+      "scanResumeSummary": "已保留 {retained} 项检查结果，本次补查 {pending} 项。",
+      "partialReason": {
+        "ready": "可以先审阅，形成修改建议后可独立应用",
+        "source_unscanned": "等待本项内容检查完成",
+        "source_stale": "来源已变化，等待重新检查",
+        "teacher_decision": "等待老师确认修改要求",
+        "structure_dependency": "等待相关课程结构确认与完整影响检查",
+        "shared_scope": "等待共同修改范围及上游资料检查完成",
+        "unknown_scope": "尚不能确认独立修改范围"
+      },
       "replaceInstruction": "将“{before}”统一替换为“{after}”",
       "analysisFailed": "影响分析失败，请重试。"
     },
