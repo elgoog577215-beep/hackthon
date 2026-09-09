@@ -163,3 +163,73 @@ def test_checkpoint_checks_handout_revision_in_every_progress_phase(workflow, mo
     from teacher_lesson_authoring import TeacherLessonAuthoringError
     with pytest.raises(TeacherLessonAuthoringError, match="讲义已变化"):
         repository.save_script_bundle_checkpoint("course-1", job["id"], lesson["script_revisions"][-1]["sections"][0]["blocks"][0])
+
+
+def test_saved_manuscript_build_stream_and_download_keep_all_pages_and_notes(workflow, monkeypatch, tmp_path):
+    from io import BytesIO
+    from pptx import Presentation
+    from teaching_representations import TeachingRepresentationRepository
+
+    client, repository, calls = workflow
+    monkeypatch.setattr(routes, "teaching_representation_repository", TeachingRepresentationRepository(tmp_path / "representations"))
+    monkeypatch.setattr(routes, "_capture_generation_source_snapshot", lambda **_: None)
+
+    async def forbidden(*args, **kwargs):
+        pytest.fail("Export must not rewrite the saved manuscript through a model")
+
+    monkeypatch.setattr(routes, "build_ai_base_story_planner_v6", lambda: forbidden)
+    monkeypatch.setattr(routes, "build_ai_base_visual_planner_v2", lambda: forbidden)
+    generate(client)
+    state = repository.current_v6_ppt_manuscript("course-1", "L1-1")
+    base = "/api/teacher/courses/course-1/lessons/L1-1/ppt-v6"
+    response = client.post(base + "/build/stream", json={"expected_manuscript_revision": state["revision"]})
+    assert response.status_code == 200, response.text
+    events = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
+    finished = next((e for e in events if e.get("event") == "build_complete"), None)
+    assert finished is not None, events
+    assert finished["job"]["status"] == "completed"
+    representation = finished["build"]["representation_id"]
+    output = client.get(base + f"/{representation}/export.pptx")
+    assert output.status_code == 200, output.text[:300] if output.status_code != 200 else ""
+    assert output.content.startswith(b"PK")
+    slides = Presentation(BytesIO(output.content)).slides
+    assert len(slides) == state["manuscript"]["page_count"]
+    for slide in slides:
+        assert TEXT in slide.notes_slide.notes_text_frame.text
+    assert len(calls) == 2
+    assert repository.current_v6_ppt_manuscript("course-1", "L1-1")["revision"] == state["revision"]
+
+
+def test_confirmed_export_stops_after_three_failed_attempts(monkeypatch):
+    from types import SimpleNamespace
+    from slide_deck_v6_models import V6BuildError
+    job = {"id": "export", "type": "teacher_lesson_ppt_generation", "status": "running", "attempt_number": 0}
+    calls = []
+
+    def update(*args, **changes):
+        job.update(changes)
+        return deepcopy(job)
+
+    async def build(**kwargs):
+        calls.append(kwargs)
+        if len(calls) > 3:
+            pytest.fail("confirmed export kept retrying after three failures")
+        raise V6BuildError(stage="export", code="export_runtime_failed", message="renderer unavailable", retryable=True)
+
+    async def no_wait(*args):
+        job["next_retry_at"] = None
+
+    monkeypatch.setattr(routes.asyncio, "sleep", no_wait)
+    repo = SimpleNamespace(get_job=lambda *_: deepcopy(job), update_job=update)
+    with pytest.raises(routes._TeacherPptV6JobStopped):
+        asyncio.run(routes._build_teacher_ppt_attempt(repository=repo, course_id="course", task_id="export",
+            orchestrator=SimpleNamespace(build=build), confirmed_manuscript=object(), source_revision_provider=lambda: "doc"))
+    assert len(calls) == 3
+    assert job["status"] == "paused"
+    assert job["error"]["code"] == "export_runtime_failed"
+
+
+def test_stopped_export_event_updates_client_job_status():
+    job = {"id": "export", "status": "paused", "phase": "paused", "message": "renderer unavailable"}
+    event = routes._teacher_ppt_stopped_event(job)
+    assert event["job"]["status"] == "paused"
