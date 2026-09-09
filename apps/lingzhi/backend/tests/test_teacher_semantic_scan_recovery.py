@@ -225,3 +225,42 @@ async def test_checkpoint_write_failure_does_not_retry_the_model():
         await scan_batches(overview={}, batches=[[{"unit_id": "u"}]], instruction="practice",
             revisions={}, analyzer=analyzer, on_progress=save)
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_real_job_application_and_planner_resume_a_blocked_plan(tmp_path, monkeypatch):
+    from backend.tests.test_task_manager_runtime_durability import build_manager
+    from course_evolution.application import CourseEvolutionApplicationService
+    from course_evolution.jobs import enqueue_analysis, run_analysis
+    repo, context = scan_context(tmp_path)
+    manager = build_manager(tmp_path, monkeypatch)
+    calls = []
+    fail = True
+    async def analyze(overview, candidates, instruction):
+        calls.extend(item["unit_id"] for item in candidates)
+        if fail and any(item["unit_id"] == "u3" for item in candidates):
+            raise TimeoutError("provider timeout")
+        return response(candidates)
+    service = CourseEvolutionApplicationService(
+        evolution_repository=repo, document_repository=None, authoring_repository=None,
+        representation_repository=None, question_bank_repository=None,
+        course_service=SimpleNamespace(analyze_teacher_course_change=analyze), task_manager=manager,
+    )
+    monkeypatch.setattr(service, "teacher_context", lambda course_id: context)
+    task = await enqueue_analysis(manager=manager, user_id="teacher", course_id="course-1",
+        request_id="initial", instruction="Add practice")
+    await run_analysis(manager, task["id"], service=service)
+    old = repo.load("teacher", "course-1").change_sets[-1]
+    assert old.teacher_change_planning.status == "blocked"
+    assert manager.get_task_summary(task["id"])["status"] == "completed"
+    fail = False
+    calls.clear()
+    retry = await enqueue_analysis(manager=manager, user_id="teacher", course_id="course-1",
+        request_id="recover", instruction="Add practice", supersedes_plan_id=old.change_set_id)
+    await run_analysis(manager, retry["id"], service=service)
+    assert calls == ["u3"]
+    state = repo.load("teacher", "course-1")
+    assert state.change_sets[-1].teacher_change_planning.status == "impact_ready"
+    assert state.change_sets[-1].impact_summary["coverage"]["scanned_units"] == 4
+    assert state.change_sets[0].status == "rejected"
+    assert state.change_sets[0].effect_evaluation["superseded_by_plan_id"] == state.change_sets[-1].change_set_id
