@@ -5,6 +5,8 @@ import os
 import asyncio
 import time
 import json
+import types
+import logging
 from pathlib import Path
 
 sys.path.insert(0, str(Path.cwd() / 'backend'))
@@ -36,6 +38,8 @@ except Exception as error:
 from course_generation.service import get_course_service
 from course_evolution.teacher_planning import rank_change_units
 model = get_course_service()
+model.analyze_teacher_course_change = types.MethodType(analyze_teacher_course_change, model)
+logging.getLogger('ai_base').setLevel(logging.ERROR)
 print('TIMEOUT_CONFIG', os.environ.get('AI_REQUEST_TIMEOUT_SECONDS', 'default'), model.client.timeout.read, flush=True)
 print('MODEL_CONFIG', model.fast_models, flush=True)
 ctx = service.teacher_context('afb29754-6842-437b-af1b-5866bfb53b41')
@@ -45,16 +49,27 @@ overview = {'course_id': ctx.course_id, 'course_title': ctx.course_title,
             'indexed_unit_count': 116}
 ranked = {u['unit_id']: u for u in rank_change_units(ctx, '给每个章节加一个实践项目', limit=len(ctx.units), include_all=True)}
 async def probe():
-    for uid in ['course_content:tsb-82c81e8ea1c4']:
+    from course_evolution.semantic_scan import validate_batch
+    state = course_evolution_repository.load('learner_a44b54f7-1d80-442f-9b23-0e84371b2592', ctx.course_id)
+    plan = next(p for p in state.change_sets if p.change_set_id == 'course-change-2395399f197543bc828e6a7ee1241c29')
+    targets = list(plan.impact_summary['coverage']['unscanned_unit_ids'])
+    semaphore = asyncio.Semaphore(2)
+    async def check_unit(uid):
         u = next(u for u in ctx.units if u.unit_id == uid)
         body = '\n\n'.join(u.full_text_fields.values()) or u.text
-        chunk = {**ranked[uid], 'content': body[:1200], 'part': 1, 'parts': max(1, (len(body)+1199)//1200)}
-        chunk['editable_fields'] = {}
         started = time.monotonic()
-        try:
-            output = await asyncio.wait_for(model.analyze_teacher_course_change(overview, [chunk], '给每个章节加一个实践项目'), 200)
-            print('MODEL_SMALL_REPLAY', uid, round(time.monotonic()-started, 2), type(output).__name__,
-                  'affected_count', len((output or {}).get('affected_units') or []), flush=True)
-        except Exception as error:
-            print('MODEL_REPLAY_ERROR', uid, round(time.monotonic()-started, 2), type(error).__name__, str(error)[:160], flush=True)
+        chunks = [body[i:i+1200] for i in range(0, max(1, len(body)), 1100)]
+        for i, content in enumerate(chunks):
+            item = {**ranked[uid], 'content': content, 'part': i+1, 'parts': len(chunks)}
+            try:
+                async with semaphore:
+                    output = await asyncio.wait_for(model.analyze_teacher_course_change(overview, [item], plan.request_text), 120)
+                validate_batch(output, [item])
+            except Exception as error:
+                print('UNIT_FAIL', uid, i+1, len(chunks), type(error).__name__, str(error)[:120], flush=True)
+                return False
+        print('UNIT_PASS', uid, len(chunks), round(time.monotonic()-started, 2), flush=True)
+        return True
+    results = await asyncio.gather(*(check_unit(uid) for uid in targets))
+    print('FINAL_REPLAY', json.dumps({'units':len(targets), 'passed':sum(results), 'failed':len(results)-sum(results), 'course_writes':0}), flush=True)
 asyncio.run(probe())
