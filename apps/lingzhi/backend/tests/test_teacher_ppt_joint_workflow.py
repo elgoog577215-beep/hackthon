@@ -51,6 +51,11 @@ def workflow(tmp_path, monkeypatch):
                     page["fields"]["title"] = source_wrapper(page["fields"]["title"])
                     page["fields"]["notes"] = source_wrapper(page["fields"]["notes"])
                     page["fields"]["split_reason"] = source_wrapper("保留单页")
+                    for key in ("condition", "left_subject", "right_subject"):
+                        page["fields"][key] = page["fields"][key]["text"]
+                    for row in page["fields"]["rows"]:
+                        for key in ("dimension", "left", "right"):
+                            row[key] = row[key]["text"]
                     flow = {
                         "layout_id": template.layout_id("flow"),
                         "page_goal": "说明任务执行流程",

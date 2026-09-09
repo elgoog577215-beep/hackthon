@@ -293,6 +293,37 @@ def test_source_wrapped_scalar_page_fields_are_unwrapped_without_model_retry():
     validate_block_pages(repaired, template)
 
 
+def test_plain_comparison_text_fields_are_source_wrapped_without_model_retry():
+    template, contract, page = sample()
+    plain = deepcopy(page)
+    for key in ("condition", "left_subject", "right_subject"):
+        plain["fields"][key] = plain["fields"][key]["text"]
+    for row in plain["fields"]["rows"]:
+        for key in ("dimension", "left", "right"):
+            row[key] = row[key]["text"]
+
+    async def unexpected(*_args, **_kwargs):
+        raise AssertionError("plain comparison text fields must be repaired locally")
+
+    seed = {**contract["modules"][0], "content": TEXT, "ppt_pages": [plain],
+            "generation_contract_version": CONTRACT}
+    result = asyncio.run(generate_bundle(invoke=unexpected, contract=contract, instructions="", template=template,
+                                         seed_blocks={"b": seed}, immutable_handout=True))
+
+    repaired = result["blocks"][0]
+    assert not repaired["ppt_errors"]
+    fields = repaired["ppt_pages"][0]["fields"]
+    assert fields["condition"]["text"] == "相同任务条件"
+    assert fields["left_subject"]["text"] == "串行"
+    assert fields["right_subject"]["text"] == "并行"
+    assert fields["rows"][0]["dimension"]["text"] == "执行方式"
+    assert all(value["sources"] for value in (
+        fields["condition"], fields["left_subject"], fields["right_subject"],
+        fields["rows"][0]["dimension"], fields["rows"][0]["left"], fields["rows"][0]["right"],
+    ))
+    validate_block_pages(repaired, template)
+
+
 def test_overlong_flow_steps_split_locally_without_losing_content_or_model_retry():
     template, contract, _page = sample()
     step_texts = [
@@ -342,6 +373,7 @@ def test_overlong_flow_steps_split_locally_without_losing_content_or_model_retry
     "teaching_fact_token_unsupported:item-2: unsupported=['gameo']",
     "1 validation error for FixedSection title Input should be a valid string [type=string_type, input_type=dict]",
     "1 validation error for FixedFlow steps List should have at most 4 items after validation, not 5 [type=too_long, input_type=list]",
+    "6 validation errors for FixedComparison condition Input should be a valid dictionary or instance of TextUpTo38 [type=model_type, input_type=str]",
 ])
 def test_page_contract_failures_are_reported_as_the_validation_step(message):
     failure = describe_bundle_failure(ValueError(message))

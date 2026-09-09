@@ -35,7 +35,7 @@ def describe_bundle_failure(exc: Exception) -> dict[str, Any] | None:
     page_contract_failure = bool(re.search(
         r"source_revision_stale|source_block_unknown|source_quote_choice_conflict|selected_artifact_not_exact|"
         r"teaching_fact_token_unsupported|teaching_.*(?:capacity|supported)|script_ppt_(?:page|layout)|"
-        r"string_type|Input should be a valid string",
+        r"string_type|Input should be a valid string|model_type|Input should be a valid dictionary",
         technical_detail,
     ))
     if match is None and unknown_quote is None and not capacity_failure and not page_contract_failure:
@@ -168,7 +168,7 @@ def _unwrap_source_text(value: Any) -> Any:
     return value
 
 
-def _fit_page_capacity(page: dict[str, Any]) -> dict[str, Any]:
+def _fit_page_capacity(page: dict[str, Any], catalog: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     fitted = deepcopy(page)
     fields = fitted.get("fields")
     if not isinstance(fields, dict):
@@ -201,6 +201,15 @@ def _fit_page_capacity(page: dict[str, Any]) -> dict[str, Any]:
                     limit = int((issue.get("ctx") or {}).get("max_length") or 0)
                     if limit > 0 and isinstance(owner[key], list):
                         owner[key] = owner[key][:limit]
+                        changed = True
+                elif issue.get("type") == "model_type" and isinstance(owner[key], str):
+                    class_name = str((issue.get("ctx") or {}).get("class_name") or "")
+                    source = _portable_source_choice(owner[key], catalog or [], str(key))
+                    if source and re.fullmatch(r"TextField|TextUpTo\d+|ExplainedPoint|RadialSatellite", class_name):
+                        owner[key] = {"text": owner[key], "sources": [source]}
+                        changed = True
+                    elif source and class_name == "ExactField":
+                        owner[key] = {"sources": [source]}
                         changed = True
             if not changed:
                 break
@@ -282,6 +291,16 @@ def _context_catalog(context: str, catalog: list[dict[str, Any]]) -> list[dict[s
     return catalog
 
 
+def _portable_source_choice(query: str, catalog: list[dict[str, Any]], context: str = "") -> dict[str, str] | None:
+    candidates = _context_catalog(context, catalog)
+    if not candidates:
+        return None
+    best = max(candidates, key=lambda item: _quote_score(query, str(item.get("quote") or "")))
+    if _quote_score(query, str(best.get("quote") or ""))[0] <= 0:
+        best = min(candidates, key=lambda item: len(str(item.get("quote") or "")))
+    return {"block_id": str(best["block_id"]), "quote": str(best["quote"])}
+
+
 def _stabilize_source_choices(value: Any, catalog: list[dict[str, Any]], context: str = "") -> None:
     allowed = {item["quote_id"]: item for item in catalog}
     if isinstance(value, dict):
@@ -326,9 +345,9 @@ def _prepare_page_candidates(pages: list[Any], block: dict[str, Any]) -> list[An
         for key in ("layout_id", "page_goal"):
             if key in candidate:
                 candidate[key] = _unwrap_source_text(candidate[key])
-        candidate = _fit_page_capacity(candidate)
+        candidate = _fit_page_capacity(candidate, catalog)
         for split_candidate in _split_page_list_capacity(candidate):
-            split_candidate = _fit_page_capacity(split_candidate)
+            split_candidate = _fit_page_capacity(split_candidate, catalog)
             _stabilize_source_choices(split_candidate, catalog)
             prepared.append(split_candidate)
     return prepared
