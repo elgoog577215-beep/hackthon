@@ -165,7 +165,8 @@ def test_checkpoint_checks_handout_revision_in_every_progress_phase(workflow, mo
         repository.save_script_bundle_checkpoint("course-1", job["id"], lesson["script_revisions"][-1]["sections"][0]["blocks"][0])
 
 
-def test_saved_manuscript_build_stream_and_download_keep_all_pages_and_notes(workflow, monkeypatch, tmp_path):
+@pytest.mark.parametrize("multiline_scene", [False, True])
+def test_saved_manuscript_build_stream_and_download_keep_all_pages_and_notes(workflow, monkeypatch, tmp_path, multiline_scene):
     from io import BytesIO
     from pptx import Presentation
     from teaching_representations import TeachingRepresentationRepository
@@ -179,6 +180,23 @@ def test_saved_manuscript_build_stream_and_download_keep_all_pages_and_notes(wor
 
     monkeypatch.setattr(routes, "build_ai_base_story_planner_v6", lambda: forbidden)
     monkeypatch.setattr(routes, "build_ai_base_visual_planner_v2", lambda: forbidden)
+    if multiline_scene:
+        tm = client.app.dependency_overrides[routes.require_task_manager]()
+        original = tm.course_service.generate_teacher_script_section
+
+        async def with_multiline_bullets(**kwargs):
+            result = await original(**kwargs)
+            if kwargs.get("immutable_handout"):
+                block = result["blocks"][0]
+                block["ppt_pages"][0] = {
+                    "layout_id": sample()[0].layout_id("bullets"), "page_goal": "比较执行方式",
+                    "fields": {"title": "执行方式和任务依赖关系的比较" * 2, "notes": "检查任务依赖",
+                        "points": [{"text": text, "sources": [{"block_id": block["block_id"], "quote": TEXT}]}
+                                   for text in (TEXT[:48], "独立任务可以并行", "存在依赖的任务需按顺序执行")]},
+                }
+            return result
+
+        tm.course_service.generate_teacher_script_section = with_multiline_bullets
     generate(client)
     state = repository.current_v6_ppt_manuscript("course-1", "L1-1")
     base = "/api/teacher/courses/course-1/lessons/L1-1/ppt-v6"
