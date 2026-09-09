@@ -143,6 +143,27 @@ describe('CourseEvolutionWorkspace', () => {
     wrapper.unmount()
   })
 
+  it('分析中可以取消当前全课任务', async () => {
+    const pinia = createPinia()
+    const store = useCourseEvolutionStore(pinia)
+    store.applyAnalysisTask({
+      id: 'analysis-task-cancel',
+      type: 'teacher_course_change_analysis',
+      status: 'running',
+      message: '正在分析整课影响',
+    })
+    const cancel = vi.spyOn(store, 'cancelAnalysisTask').mockResolvedValue(true)
+    const wrapper = mountWorkspace(pinia)
+
+    const button = wrapper.get('[data-testid="cancel-global-analysis"]')
+    expect(button.attributes('type')).toBe('button')
+    expect(button.text()).toContain('取消当前分析')
+    await button.trigger('click')
+
+    expect(cancel).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
   it('内容变化用资产导航、原因和勾选范围完成精细审阅', async () => {
     const pinia = createPinia()
     const store = useCourseEvolutionStore(pinia)

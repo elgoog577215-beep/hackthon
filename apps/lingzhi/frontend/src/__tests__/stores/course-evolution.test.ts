@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
-const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
+const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), delete: vi.fn() }))
 const generationMock = vi.hoisted(() => vi.fn())
 vi.mock('@/utils/http', () => ({
   default: httpMock,
@@ -35,6 +35,7 @@ beforeEach(() => {
   setActivePinia(createPinia())
   httpMock.get.mockReset()
   httpMock.post.mockReset()
+  httpMock.delete.mockReset()
   generationMock.mockReset()
 })
 
@@ -216,6 +217,44 @@ describe('course evolution store', () => {
     expect(store.generating).toBe(false)
     expect(store.pendingPlans).toHaveLength(1)
     expect(store.generationError).toBe('')
+  })
+
+  it('cancels the active whole-course analysis and releases the local generation guard', async () => {
+    httpMock.delete.mockResolvedValue({ data: { status: 'deleted' } })
+    const store = useCourseEvolutionStore()
+    store.courseId = 'course-1'
+    store.applyAnalysisTask({
+      id: 'analysis-task-cancel',
+      type: 'teacher_course_change_analysis',
+      status: 'running',
+      message: '正在分析整课影响',
+    })
+
+    await store.cancelAnalysisTask()
+
+    expect(httpMock.delete).toHaveBeenCalledWith('/api/tasks/analysis-task-cancel')
+    expect(store.generating).toBe(false)
+    expect(store.analysisTask?.status).toBe('cancelled')
+    expect(store.generationMessage).toBe('')
+    expect(store.analysisCancelling).toBe(false)
+  })
+
+  it('keeps the analysis active when cancellation fails', async () => {
+    httpMock.delete.mockRejectedValue(new Error('cancel failed'))
+    const store = useCourseEvolutionStore()
+    store.courseId = 'course-1'
+    store.applyAnalysisTask({
+      id: 'analysis-task-still-running',
+      type: 'teacher_course_change_analysis',
+      status: 'running',
+      message: '正在分析整课影响',
+    })
+
+    await expect(store.cancelAnalysisTask()).rejects.toThrow('cancel failed')
+
+    expect(store.generating).toBe(true)
+    expect(store.analysisTask?.status).toBe('running')
+    expect(store.analysisCancelling).toBe(false)
   })
 
   it('lets embedded AI callers await a durable analysis through short progress polls', async () => {
