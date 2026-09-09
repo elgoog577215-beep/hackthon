@@ -2748,6 +2748,7 @@
       "scanIncompleteTitle": "Course scan is incomplete",
       "scanIncompleteHint": "The course was not fully checked. Retry the scan; no teacher answer or confirmation is required.",
       "retryIncompleteScan": "Retry incomplete scan",
+      "discardBlockedPlan": "Discard this whole-course change",
       "cancelCurrentAnalysis": "Cancel current analysis",
       "cancellingAnalysis": "Cancelling…",
       "analysisCancelled": "Whole-course analysis cancelled",
