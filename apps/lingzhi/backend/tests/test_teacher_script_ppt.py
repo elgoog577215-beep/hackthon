@@ -195,3 +195,76 @@ def test_page_validation_rejects_fabricated_source():
     page["fields"]["left_subject"]["sources"][0]["quote"] = "伪造来源"
     with pytest.raises((ValueError, RuntimeError)):
         validate_block_pages({"block_id": "b", "content": TEXT, "ppt_pages": [page]}, template)
+
+
+def test_unknown_quote_ids_are_rebound_locally_without_another_model_call():
+    template, contract, page = sample()
+    invalid = deepcopy(page)
+
+    def replace_sources(value):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key == "sources" and isinstance(child, list):
+                    value[key] = [{"quote_id": "q_7adad6815373"} for _ in child]
+                else:
+                    replace_sources(child)
+        elif isinstance(value, list):
+            for child in value:
+                replace_sources(child)
+
+    replace_sources(invalid)
+
+    async def unexpected(*_args, **_kwargs):
+        raise AssertionError("unknown quote ids must be repaired deterministically")
+
+    seed = {**contract["modules"][0], "content": TEXT, "ppt_pages": [invalid],
+            "generation_contract_version": CONTRACT}
+    result = asyncio.run(generate_bundle(invoke=unexpected, contract=contract, instructions="", template=template,
+                                         seed_blocks={"b": seed}, immutable_handout=True))
+
+    repaired = result["blocks"][0]
+    assert not repaired["ppt_errors"]
+    assert "q_7adad6815373" not in json.dumps(repaired["ppt_pages"], ensure_ascii=False)
+    validate_block_pages(repaired, template)
+
+
+def test_overlong_triad_points_are_fitted_locally_without_another_model_call():
+    template, contract, _page = sample()
+
+    def field(text):
+        return {"text": text, "sources": [{"block_id": "b", "quote": TEXT}]}
+
+    long_points = [
+        "基础组件描述静态场景物体的通用属性，并进一步说明 Transform、MeshRenderer、Collider 等组件之间的职责边界",
+        "MonoBehaviour 是 C# 脚本与 Unity 生命周期之间唯一合法的连接载体，需要完整解释 Awake、Start 和 Update",
+        "继承 MonoBehaviour 后脚本可以挂载到 GameObject，并在 Inspector 面板中暴露可序列化属性",
+    ]
+    triad = {
+        "layout_id": template.layout_id("triad"),
+        "page_goal": "解释 Unity 脚本基础",
+        "fields": {"title": "Unity 脚本基础", "notes": "说明三个基础关系。", "points": [field(text) for text in long_points]},
+    }
+
+    async def unexpected(*_args, **_kwargs):
+        raise AssertionError("capacity fitting must not call the model again")
+
+    seed = {**contract["modules"][0], "content": TEXT, "ppt_pages": [triad],
+            "generation_contract_version": CONTRACT}
+    result = asyncio.run(generate_bundle(invoke=unexpected, contract=contract, instructions="", template=template,
+                                         seed_blocks={"b": seed}, immutable_handout=True))
+
+    repaired = result["blocks"][0]
+    assert not repaired["ppt_errors"]
+    assert all(len(point["text"]) <= 32 for point in repaired["ppt_pages"][0]["fields"]["points"])
+    validate_block_pages(repaired, template)
+
+
+@pytest.mark.parametrize("message", [
+    "source_quote_id_unknown:q_7adad6815373",
+    "3 validation errors for FixedTriad points.0.text String should have at most 32 characters",
+])
+def test_page_contract_failures_are_reported_as_the_validation_step(message):
+    failure = describe_bundle_failure(ValueError(message))
+    assert failure["failed_step"] == "sources"
+    assert failure["retryable"] is True
+    assert failure["technical_detail"] == message

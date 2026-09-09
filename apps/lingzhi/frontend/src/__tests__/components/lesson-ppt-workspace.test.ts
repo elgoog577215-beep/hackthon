@@ -60,6 +60,8 @@ describe('LessonPptWorkspace', () => {
               phase: 'ppt_page_generation',
               progress: 42,
               message: '正在生成第 2/4 个小节的页面内容',
+              attempt_number: 2,
+              updated_at: new Date(Date.now() - 70_000).toISOString(),
             },
           }
         : {
@@ -87,6 +89,9 @@ describe('LessonPptWorkspace', () => {
       expect.stringContaining('保存内容稿'),
     ])
     expect(progress.get('[data-step="pages"]').attributes('data-state')).toBe('current')
+    expect(progress.text()).toContain('第 2 次尝试')
+    expect(progress.text()).toContain('已等待 70 秒')
+    expect(progress.attributes('aria-live')).toBe('polite')
 
     wrapper.unmount()
   })
