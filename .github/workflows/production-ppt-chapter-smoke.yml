@@ -1,4 +1,4 @@
-name: Verify approved original PPT recovery
+name: Audit all requested PPT scenes without task changes
 
 on:
   workflow_dispatch:
@@ -44,7 +44,7 @@ jobs:
           chmod 600 ~/.ssh/lingzhi_deploy
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Verify saved original manuscript preview and final PPTX
+      - name: Read and audit all saved scenes in disposable storage
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
@@ -52,4 +52,4 @@ jobs:
           set -euo pipefail
           ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            '/opt/lingzhi/.venv/bin/python -' < apps/lingzhi/scripts/verify_requested_ppt_recovery.py
+            '/opt/lingzhi/.venv/bin/python -' < apps/lingzhi/scripts/audit_requested_ppt_scenes.py
