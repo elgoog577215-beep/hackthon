@@ -35,7 +35,20 @@ export interface CourseChangeAnalysisTask {
   message?: string
   error?: string | null
   error_user_message?: string
-  phase_detail?: { request_id?: string; plan_id?: string }
+  error_detail?: {
+    code?: string
+    failure_stage?: string
+    exception_type?: string
+    public_message?: string
+    technical_message?: string
+    translation_key?: string
+    retryable?: boolean
+  } | null
+  phase_detail?: {
+    request_id?: string
+    plan_id?: string
+    scan?: { completed_parts: number; total_parts: number; reused_parts: number; failed_parts: number }
+  }
 }
 
 export interface CourseEvolutionOperationJournalEntry {
@@ -370,8 +383,8 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       if (task?.status === 'failed') {
         this.generationError = String(
           task.error_user_message
+          || task.error_detail?.public_message
           || task.message
-          || task.error
           || t('courseEvolution.workspace.analysisFailed'),
         )
       } else if (task?.status === 'completed') {
@@ -541,8 +554,8 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         if (task?.id === taskId && ['failed', 'cancelled'].includes(task.status)) {
           throw new Error(String(
             task.error_user_message
+            || task.error_detail?.public_message
             || task.message
-            || task.error
             || t('courseEvolution.workspace.analysisFailed'),
           ))
         }

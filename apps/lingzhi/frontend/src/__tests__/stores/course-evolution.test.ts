@@ -219,6 +219,29 @@ describe('course evolution store', () => {
     expect(store.generationError).toBe('')
   })
 
+  it('shows the classified public failure instead of masking it with the generic task message', () => {
+    const store = useCourseEvolutionStore()
+
+    store.applyAnalysisTask({
+      id: 'analysis-task-failed',
+      type: 'teacher_course_change_analysis',
+      status: 'failed',
+      message: '整课影响分析失败，可以保留原要求后重试',
+      error: 'raw internal failure',
+      error_detail: {
+        code: 'course_change_plan_invalid',
+        failure_stage: 'plan_validation',
+        exception_type: 'ValueError',
+        public_message: 'AI 返回的课程修改方案没有通过校验，请保留原要求后重试。',
+        technical_message: 'Clarification option IDs must be unique',
+        retryable: true,
+      },
+    })
+
+    expect(store.generationError).toBe('AI 返回的课程修改方案没有通过校验，请保留原要求后重试。')
+    expect(store.generationError).not.toContain('raw internal failure')
+  })
+
   it('cancels the active whole-course analysis and releases the local generation guard', async () => {
     httpMock.delete.mockResolvedValue({ data: { status: 'deleted' } })
     const store = useCourseEvolutionStore()

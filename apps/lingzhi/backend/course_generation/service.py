@@ -9839,7 +9839,7 @@ class CourseService(AIBase):
         ranked_candidates: list[dict[str, Any]],
         instruction: str,
     ) -> dict[str, Any] | None:
-        """Judge whole-course impact after the local index has reduced the corpus.
+        """Judge one bounded batch of a complete whole-course impact scan.
 
         The index is only a speed layer. The model receives cross-asset
         candidates and decides which units are genuinely affected; returned
@@ -9895,7 +9895,7 @@ class CourseService(AIBase):
             max_input_tokens=11000,
             max_attempts=1,
             reject_truncated=True,
-            raise_on_failure=False,
+            raise_on_failure=True,
             json_mode=True,
             model_role="teacher_course_change_impact",
         )

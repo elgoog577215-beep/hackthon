@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 import uuid
+from copy import deepcopy
 from typing import Any
+
+from course_generation_errors import classify_generation_failure
 
 from .core import CourseEvolutionPlan, CourseEvolutionRepository, CourseEvolutionState, course_evolution_repository
 from .teacher_execution import generate_teacher_course_change_candidates
@@ -13,6 +18,77 @@ ANALYSIS_TASK_TYPE = "teacher_course_change_analysis"
 CANDIDATE_TASK_TYPE = "teacher_course_change_generation"
 TASK_TYPE = CANDIDATE_TASK_TYPE
 _ACTIVE_STATUSES = {"pending", "running"}
+logger = logging.getLogger(__name__)
+
+
+def _safe_analysis_technical_message(error: BaseException, *, expose: bool) -> str:
+    if not expose:
+        return f"{type(error).__name__}: 详细异常已记录在服务器日志中"
+    message = " ".join(str(error).split())[:500] or type(error).__name__
+    message = re.sub(
+        r"(?i)\b(api[_-]?key|authorization|token)\b\s*[:=]\s*\S+",
+        r"\1=<redacted>",
+        message,
+    )
+    message = re.sub(r"(?i)\bbearer\s+\S+", "Bearer <redacted>", message)
+    return message
+
+
+def _analysis_failure_contract(error: BaseException) -> tuple[str, dict[str, Any]]:
+    failure = classify_generation_failure(error)
+    code = str(failure.get("code") or "generation_failed")
+    error_type = type(error).__name__
+    if code == "generation_failed" and isinstance(error, ValueError):
+        code = "course_change_plan_invalid"
+
+    if error_type == "TeacherCourseChangeSourceUnavailable" or code in {"course_missing", "workspace_missing"}:
+        stage = "course_context"
+    elif code.startswith("provider_") or code in {
+        "generation_budget_exceeded",
+        "generation_deadline_exceeded",
+        "response_truncated",
+    }:
+        stage = "ai_analysis"
+    elif code == "revision_conflict" or isinstance(error, OSError):
+        stage = "plan_persistence"
+    elif isinstance(error, ValueError):
+        stage = "plan_validation"
+    else:
+        stage = "plan_creation"
+
+    public_messages = {
+        "course_change_plan_invalid": "AI 返回的课程修改方案没有通过校验，请保留原要求后重试。",
+        "provider_timeout": "AI 服务响应超时，请稍后按原要求重试。",
+        "provider_rate_limited": "AI 服务当前请求过多，请稍后按原要求重试。",
+        "provider_quota_exhausted": "AI 服务额度暂不可用，请联系管理员后重试。",
+        "provider_auth_failed": "AI 服务认证失败，请联系管理员检查模型配置。",
+        "provider_unavailable": "AI 服务暂时不可用，请稍后按原要求重试。",
+        "response_truncated": "AI 返回的分析结果不完整，请按原要求重试。",
+        "generation_budget_exceeded": "本次课程分析内容超过处理预算，请缩小范围后重试。",
+        "generation_deadline_exceeded": "本次课程分析超过允许时长，请稍后重试。",
+        "course_missing": "当前课程已不存在，请返回课程列表重新进入。",
+        "workspace_missing": "课程生成工作区已失效，请重新进入课程后重试。",
+        "revision_conflict": "课程内容已发生变化，请刷新课程后重新分析。",
+    }
+    if stage == "plan_persistence" and code == "generation_failed":
+        public_message = "课程修改方案暂时无法保存，请保留原要求后重试。"
+    else:
+        public_message = public_messages.get(
+            code,
+            "课程修改方案处理失败，请保留原要求后重试；若持续失败，请查看技术详情。",
+        )
+    expose_technical = isinstance(error, (ValueError, TimeoutError, OSError)) or code != "generation_failed"
+    technical_message = _safe_analysis_technical_message(error, expose=expose_technical)
+    detail = {
+        "code": code,
+        "failure_stage": stage,
+        "exception_type": error_type,
+        "public_message": public_message,
+        "technical_message": technical_message,
+        "translation_key": str(failure.get("translation_key") or ""),
+        "retryable": bool(failure.get("retryable", True)),
+    }
+    return public_message, detail
 
 
 def latest_analysis_task(manager: Any, user_id: str, course_id: str) -> dict[str, Any] | None:
@@ -144,6 +220,41 @@ async def run_analysis(manager: Any, job_id: str, *, service: Any = None) -> Non
         "正在读取课程结构与相关课程文件",
         phase_detail={"request_id": request_id},
     )
+    checkpoint = deepcopy(task.get("analysis_checkpoint") or {})
+    if not checkpoint:
+        supersedes = str(request.get("supersedes_plan_id") or "")
+        previous = sorted((
+            candidate for candidate in manager.tasks.values()
+            if candidate.get("id") != job_id
+            and candidate.get("type") == ANALYSIS_TASK_TYPE
+            and str(candidate.get("owner_id") or "") == user_id
+            and str(candidate.get("course_id") or "") == course_id
+            and candidate.get("status") in {"failed", "completed"}
+            and candidate.get("analysis_checkpoint")
+            and (
+                (supersedes and (candidate.get("phase_detail") or {}).get("plan_id") == supersedes)
+                or (not supersedes and candidate.get("status") == "failed")
+            )
+        ), key=lambda candidate: str(candidate.get("updated_at") or ""), reverse=True)
+        if previous:
+            checkpoint = deepcopy(previous[0]["analysis_checkpoint"])
+
+    async def scan_progress(detail: dict[str, Any], saved: dict[str, Any]) -> None:
+        async with manager._lock:
+            current = manager.tasks.get(job_id)
+            if not current or current.get("status") not in _ACTIVE_STATUSES:
+                raise asyncio.CancelledError()
+            current["analysis_checkpoint"] = deepcopy(saved)
+            manager.save_tasks(strict=True)
+        total = max(1, int(detail.get("total_parts") or 0))
+        done = int(detail.get("completed_parts") or 0)
+        failed = int(detail.get("failed_parts") or 0)
+        await manager._update_phase(
+            job_id, "course_change_analysis", 5 + int(90 * (done + failed) / total),
+            f"已检查 {done}/{detail.get('total_parts', 0)} 段课程内容",
+            phase_detail={"request_id": request_id, "scan": detail},
+        )
+
     generation = asyncio.create_task(
         service.create_teacher_plan(
             course_id=course_id,
@@ -156,18 +267,21 @@ async def run_analysis(manager: Any, job_id: str, *, service: Any = None) -> Non
             confirmed_interpretation=bool(request.get("confirmed_interpretation")),
             clarification_set_id=str(request.get("clarification_set_id") or ""),
             clarification_answers=request.get("clarification_answers") or [],
+            scan_checkpoint=checkpoint,
+            on_scan_progress=scan_progress,
         )
     )
     try:
         while not generation.done():
             await asyncio.wait({generation}, timeout=15)
             if not generation.done():
+                current = manager.tasks.get(job_id) or {}
                 await manager._update_phase(
                     job_id,
                     "course_change_analysis",
-                    35,
-                    "AI 正在逐批检查全课影响，关闭页面后任务仍会继续",
-                    phase_detail={"request_id": request_id},
+                    int(current.get("progress") or 5),
+                    str(current.get("message") or "正在分析整课影响"),
+                    phase_detail=deepcopy(current.get("phase_detail") or {"request_id": request_id}),
                 )
         state = await generation
         plan = next(
@@ -187,12 +301,20 @@ async def run_analysis(manager: Any, job_id: str, *, service: Any = None) -> Non
     except asyncio.CancelledError:
         raise
     except Exception as error:
+        public_message, error_detail = _analysis_failure_contract(error)
+        logger.exception(
+            "Whole-course analysis failed job_id=%s request_id=%s stage=%s code=%s",
+            job_id,
+            request_id,
+            error_detail["failure_stage"],
+            error_detail["code"],
+        )
         await manager._update_task_status(
             job_id,
             "failed",
-            message="整课影响分析失败，可以保留原要求后重试",
-            error=str(error),
-            error_detail={"code": "course_change_analysis_failed", "retryable": True},
+            message=public_message,
+            error=error_detail["technical_message"],
+            error_detail=error_detail,
         )
     finally:
         if not generation.done():
