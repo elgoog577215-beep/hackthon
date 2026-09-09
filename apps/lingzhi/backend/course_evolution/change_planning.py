@@ -437,8 +437,14 @@ class CourseChangePlan(BaseModel):
             self.strategy_status = "resolved"
         if self.structural_operations and self.structure_review_status == "not_required":
             self.structure_review_status = "pending"
-        if self.status != "needs_clarification" and self.intent.blocking_questions:
-            raise ValueError("Plans with blocking questions must remain needs_clarification")
+        if self.intent.blocking_questions and not (
+            self.status == "needs_clarification"
+            or (self.status == "blocked" and self.intent.system_blockers)
+        ):
+            raise ValueError(
+                "Plans with teacher questions must remain needs_clarification, "
+                "unless an incomplete system scan keeps the plan blocked"
+            )
         known_operation_ids = {
             item.operation_id for item in self.structural_operations
         }
