@@ -7,12 +7,18 @@ import re
 from copy import deepcopy
 from typing import Any, Awaitable, Callable
 
+from httpx import ConnectError, ConnectTimeout
+
 from course_document import stable_hash
 from course_generation_errors import classify_generation_failure
 
 ScanProgress = Callable[[dict[str, Any], dict[str, Any]], Awaitable[None]]
 SCAN_CONTRACT = "teacher_semantic_scan_v2"
 logger = logging.getLogger(__name__)
+
+
+class ScanConnectionUnavailable(RuntimeError):
+    code = 'provider_unavailable'
 
 
 def validate_batch(result: Any, items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -122,7 +128,19 @@ async def scan_batches(
                 'allowed_unit_ids': list(dict.fromkeys(i['unit_id'] for i in items)),
                 'required_response': 'affected_units must be an array; use only these unit IDs',
             }}
-        return validate_batch(await analyzer(request_overview, items, instruction), items), False
+        try:
+            result = await analyzer(request_overview, items, instruction)
+        except Exception as error:
+            cause, visited = error, set()
+            while cause is not None and id(cause) not in visited:
+                visited.add(id(cause))
+                if isinstance(cause, (ConnectError, ConnectTimeout)):
+                    # The provider never accepted this request. Repartitioning
+                    # course content cannot repair a transport outage.
+                    raise ScanConnectionUnavailable('AI 服务暂时无法连接，请稍后补查') from error
+                cause = cause.__cause__ or cause.__context__
+            raise
+        return validate_batch(result, items), False
 
     async def accept(items: list[dict[str, Any]], result: dict[str, Any], reused: bool) -> None:
         saved["results"][key(items)] = deepcopy(result)
