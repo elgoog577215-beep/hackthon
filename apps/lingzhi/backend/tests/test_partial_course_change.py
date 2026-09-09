@@ -270,3 +270,25 @@ async def test_invalid_model_ids_get_bounded_feedback_instead_of_being_accepted(
         instruction='test', revisions={}, analyzer=analyze)
     assert scanned == {'u'} and not missing and not failures
     assert len(seen) <= 3
+
+
+@pytest.mark.asyncio
+async def test_connection_outage_is_not_retried_as_thirty_bad_content_items():
+    import httpx
+    from ai_base import AIProviderRequestError
+    from course_evolution.semantic_scan import scan_batches
+    calls, waits = [], []
+    async def analyze(overview, items, instruction):
+        calls.append(items)
+        try:
+            raise httpx.ConnectTimeout('provider connection unavailable')
+        except httpx.ConnectTimeout as error:
+            raise AIProviderRequestError('Request timed out.') from error
+    async def sleep(seconds):
+        waits.append(seconds)
+    batches = [[{'unit_id': str(i), 'content': 'example'}] for i in range(30)]
+    _, scanned, missing, failures, _ = await scan_batches(overview={}, batches=batches,
+        instruction='check', revisions={}, analyzer=analyze, sleep=sleep)
+    assert len(calls) == 2 and len(waits) == 1
+    assert not scanned and missing == {str(i) for i in range(30)}
+    assert failures[0]['code'] == 'provider_unavailable'
