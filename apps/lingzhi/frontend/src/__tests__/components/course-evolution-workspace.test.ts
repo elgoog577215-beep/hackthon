@@ -267,6 +267,74 @@ describe('CourseEvolutionWorkspace', () => {
     wrapper.unmount()
   })
 
+  it('逐题选择必答项并把结构化答案交给同一后台分析链', async () => {
+    const pinia = createPinia()
+    const store = useCourseEvolutionStore(pinia)
+    const basePlanning = planning()
+    store.plans = [plan({
+      teacher_change_planning: planning({
+        status: 'needs_clarification',
+        intent: {
+          ...basePlanning.intent,
+          clarification_set_id: 'clarify-projects',
+          clarifications: [
+            {
+              question_id: 'project_placement',
+              prompt: '实践项目放在哪里？',
+              response_type: 'single_choice',
+              required: true,
+              options: [
+                { option_id: 'fixed_section', label: '每讲末尾固定小节', impact: '结构统一', recommended: true },
+                { option_id: 'inline_case', label: '作为案例穿插', impact: '更贴合内容', recommended: false },
+              ],
+            },
+            {
+              question_id: 'project_reuse',
+              prompt: '第六讲是否复用前几讲项目？',
+              response_type: 'single_choice',
+              required: true,
+              options: [
+                { option_id: 'new_each', label: '每讲新建项目', impact: '覆盖完整', recommended: true },
+                { option_id: 'capstone', label: '第六讲综合复用', impact: '形成综合项目', recommended: false },
+              ],
+            },
+          ],
+          blocking_questions: ['实践项目放在哪里？', '第六讲是否复用前几讲项目？'],
+          can_proceed_without_clarification: false,
+        } as any,
+      }),
+      impact_summary: { request_asset_types: ['outline', 'lesson_plan', 'script'] },
+    })]
+    const create = vi.spyOn(store, 'createCoursePlan').mockResolvedValue({
+      analysis_task: { id: 'analysis-task-choices', status: 'pending' },
+    } as any)
+    const wrapper = mountWorkspace(pinia)
+
+    expect(wrapper.findAll('.clarification-question fieldset')).toHaveLength(2)
+    expect(wrapper.findAll('.clarification-question input[type="radio"]')).toHaveLength(4)
+    const confirm = wrapper.get('[data-testid="confirm-clarification-answers"]')
+    expect(confirm.attributes('disabled')).toBeDefined()
+
+    await wrapper.findAll('.clarification-question input[type="radio"]')[0]!.setValue(true)
+    await wrapper.findAll('.clarification-question input[type="radio"]')[3]!.setValue(true)
+    expect(confirm.attributes('disabled')).toBeUndefined()
+    await confirm.trigger('click')
+
+    expect(create).toHaveBeenCalledWith({
+      courseId: 'course-1',
+      requestId: expect.any(String),
+      instruction: '所有案例都补充完整推导，但保留原始资料。',
+      supersedesPlanId: 'change-1',
+      assetTypes: ['outline', 'lesson_plan', 'script'],
+      clarificationSetId: 'clarify-projects',
+      clarificationAnswers: [
+        { question_id: 'project_placement', option_id: 'fixed_section' },
+        { question_id: 'project_reuse', option_id: 'capstone' },
+      ],
+    })
+    wrapper.unmount()
+  })
+
   it('精确候选直接展示前后差异并以一个操作组应用勾选项', async () => {
     const pinia = createPinia()
     const store = useCourseEvolutionStore(pinia)

@@ -441,6 +441,98 @@ async def test_teacher_confirmation_clears_model_questions_but_not_incomplete_sc
 
 
 @pytest.mark.asyncio
+async def test_structured_clarification_answers_become_a_versioned_ai_decision_snapshot(tmp_path):
+    _, _, repo, context = fixture(tmp_path)
+    unit_id = context.units[0].unit_id
+    seen_snapshots = []
+
+    async def analyzer(overview, candidates, instruction):
+        seen_snapshots.append(overview.get("clarification_answer_snapshot"))
+        if overview.get("clarification_answer_snapshot"):
+            return {
+                "analysis_mode": "ai_ranked",
+                "signal_kind": "semantic",
+                "affected_units": [{
+                    "unit_id": unit_id,
+                    "disposition": "regenerate",
+                    "reason": "按教师确认的位置增加实践项目",
+                    "confidence": 0.95,
+                }],
+                "blocking_questions": [],
+                "clarifications": [],
+                "structure": {"required": False},
+            }
+        return {
+            "analysis_mode": "ai_ranked",
+            "signal_kind": "semantic",
+            "affected_units": [],
+            "blocking_questions": ["实践项目放在哪里？"],
+            "clarifications": [{
+                "question_id": "project_placement",
+                "prompt": "实践项目放在哪里？",
+                "response_type": "single_choice",
+                "required": True,
+                "options": [
+                    {
+                        "option_id": "fixed_section",
+                        "label": "每讲末尾固定小节",
+                        "impact": "结构统一",
+                        "recommended": True,
+                    },
+                    {
+                        "option_id": "inline_case",
+                        "label": "作为案例穿插",
+                        "impact": "更贴合内容",
+                        "recommended": False,
+                    },
+                ],
+            }],
+            "structure": {"required": False},
+        }
+
+    initial = await create_teacher_course_change_plan(
+        context=context,
+        user_id="teacher",
+        request_id="clarification-initial",
+        instruction="每讲安排一个实践项目",
+        repository=repo,
+        analyzer=analyzer,
+    )
+    first = initial.change_sets[0]
+    question = first.teacher_change_planning.intent.clarifications[0]
+    assert question.question_id == "project_placement"
+    assert [option.option_id for option in question.options] == [
+        "fixed_section",
+        "inline_case",
+    ]
+
+    resolved = await create_teacher_course_change_plan(
+        context=context,
+        user_id="teacher",
+        request_id="clarification-resolved",
+        instruction="每讲安排一个实践项目",
+        repository=repo,
+        analyzer=analyzer,
+        supersedes_plan_id=first.change_set_id,
+        clarification_set_id=first.teacher_change_planning.intent.clarification_set_id,
+        clarification_answers=[{
+            "question_id": "project_placement",
+            "option_id": "fixed_section",
+        }],
+    )
+    plan = resolved.change_sets[-1]
+    snapshot = plan.teacher_change_planning.intent.clarification_answer_snapshot
+    assert snapshot is not None
+    assert snapshot.answer_revision == 1
+    assert snapshot.decision_facts == {
+        "project_placement": "每讲末尾固定小节",
+    }
+    assert snapshot.answer_digest
+    assert seen_snapshots[-1]["answer_digest"] == snapshot.answer_digest
+    assert plan.impact_summary["clarification_answer_digest"] == snapshot.answer_digest
+
+
+@pytest.mark.asyncio
 async def test_teacher_exact_delete_is_structural_and_keeps_stable_survivor_ids(tmp_path):
     doc = refresh_document_revision(
         CourseDocument(
