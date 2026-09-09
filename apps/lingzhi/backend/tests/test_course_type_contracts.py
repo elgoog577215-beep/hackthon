@@ -202,8 +202,12 @@ def test_teacher_classroom_contract_is_seeded_into_the_official_teaching_plan():
         },
     ],
 )
-async def test_new_course_types_create_generation_jobs(payload):
-    request = CourseGenerationRequest.model_validate({**payload, "teacher_authoring_mode": "lesson_assets_v1"})
+async def test_new_course_types_create_generation_jobs(payload, monkeypatch):
+    request = CourseGenerationRequest.model_validate({
+        **payload,
+        "target_course_id": "course-1",
+        "teacher_authoring_mode": "lesson_assets_v1",
+    })
 
     class FakeTaskManager:
         snapshot = None
@@ -213,15 +217,28 @@ async def test_new_course_types_create_generation_jobs(payload):
             return {"job_id": "job-1", "course_id": "course-1"}
 
     manager = FakeTaskManager()
+    monkeypatch.setattr("routers.courses.storage.load_course", lambda _course_id: {
+        "course_id": "course-1",
+        "course_status": "draft",
+        "authoring_surface": "teacher",
+        "owner_id": "teacher-a",
+        "generation_job_id": "",
+    })
+    monkeypatch.setattr(
+        "routers.courses.teacher_course_space_repository.capture_owned_generation_source_snapshot",
+        lambda *_args, **_kwargs: None,
+    )
     result = await create_course_generation_job(
         request,
-        Request({"type": "http", "headers": []}),
+        Request({"type": "http", "headers": [(b"x-user-id", b"teacher-a")]}),
         manager,
     )
 
     assert result["job_id"] == "job-1"
     assert manager.snapshot["course_type"] == payload["course_type"]
     assert manager.snapshot["course_intent"]["type"] == payload["course_type"]
+    assert manager.snapshot["target_course_id"] == "course-1"
+    assert manager.snapshot["_retrieval_actor_id"] == "teacher-a"
 
 
 def test_all_four_course_types_are_enabled():

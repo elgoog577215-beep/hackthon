@@ -787,7 +787,7 @@ def test_plan_normalizer_converts_model_dependency_aliases_to_canonical_ids():
     assert first["scope_boundary"] == ""
 
 
-def test_generation_route_creates_one_persisted_job():
+def test_generation_route_creates_one_persisted_job(monkeypatch):
     from routers import courses
 
     class FakeTaskManager:
@@ -806,13 +806,26 @@ def test_generation_route_creates_one_persisted_job():
             }
 
     fake_manager = FakeTaskManager()
+    monkeypatch.setattr(courses.storage, "load_course", lambda _course_id: {
+        "course_id": "course-1",
+        "course_status": "draft",
+        "authoring_surface": "teacher",
+        "owner_id": "teacher-a",
+        "generation_job_id": "",
+    })
+    monkeypatch.setattr(
+        courses.teacher_course_space_repository,
+        "capture_owned_generation_source_snapshot",
+        lambda *_args, **_kwargs: None,
+    )
     app = FastAPI()
     app.include_router(courses.router, prefix="/api")
     app.dependency_overrides[courses.require_task_manager] = lambda: fake_manager
     client = TestClient(app)
 
-    response = client.post("/api/course-generation/generate", json={
+    response = client.post("/api/course-generation/generate", headers={"X-User-Id": "teacher-a"}, json={
         "teacher_authoring_mode": "lesson_assets_v1",
+        "target_course_id": "course-1",
         "subject": "微积分",
         "difficulty": "intermediate",
         "style": "academic",
@@ -828,6 +841,8 @@ def test_generation_route_creates_one_persisted_job():
     assert fake_manager.request_snapshot["pedagogy_mode"] == "math_formal"
     assert fake_manager.request_snapshot["current_readiness"] == "beginner"
     assert fake_manager.request_snapshot["adaptation_preference"] == "preserve_target_extend"
+    assert fake_manager.request_snapshot["target_course_id"] == "course-1"
+    assert fake_manager.request_snapshot["_retrieval_actor_id"] == "teacher-a"
 
     old_response = client.post("/api/generate_course", json={"keyword": "微积分"})
     assert old_response.status_code == 404
