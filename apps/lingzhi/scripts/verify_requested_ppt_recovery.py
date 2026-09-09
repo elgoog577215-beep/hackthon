@@ -60,6 +60,10 @@ def main():
 
     health = api("/api/health")
     if not health.get("ready") or health.get("version") != RELEASE:
+        incoming = Path("/opt/lingzhi/incoming") / f"lingzhi-release-{RELEASE}.tgz"
+        info = incoming.stat() if incoming.exists() else None
+        emit(event="waiting_for_approved_release", current_version=health.get("version"),
+             uploaded_bytes=info.st_size if info else None, upload_modified_at=info.st_mtime if info else None)
         raise ValueError("approved_release_not_active")
     before = handout_digest(saved_lesson())
     state = api(PPT + "/manuscript")["ppt_manuscript_state"]
