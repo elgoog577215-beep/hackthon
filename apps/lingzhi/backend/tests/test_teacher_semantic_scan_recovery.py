@@ -264,3 +264,30 @@ async def test_real_job_application_and_planner_resume_a_blocked_plan(tmp_path, 
     assert state.change_sets[-1].impact_summary["coverage"]["scanned_units"] == 4
     assert state.change_sets[0].status == "rejected"
     assert state.change_sets[0].effect_evaluation["superseded_by_plan_id"] == state.change_sets[-1].change_set_id
+
+
+@pytest.mark.asyncio
+async def test_partial_scan_can_preserve_teacher_questions_while_system_blocked(tmp_path):
+    repo, context = scan_context(tmp_path)
+
+    async def mixed(overview, candidates, instruction):
+        if any(item["unit_id"] == "u3" for item in candidates):
+            raise TimeoutError("provider timeout")
+        return {
+            **response(candidates),
+            "blocking_questions": ["实践项目是否需要提供参考答案？"],
+        }
+
+    state = await create_teacher_course_change_plan(
+        context=context,
+        user_id="teacher",
+        request_id="production-regression-ae93ad7e",
+        instruction="给每个章节加一点实践项目",
+        repository=repo,
+        analyzer=mixed,
+    )
+
+    plan = state.change_sets[-1].teacher_change_planning
+    assert plan.status == "blocked"
+    assert plan.intent.system_blockers[0].code == "analysis_incomplete"
+    assert plan.intent.blocking_questions == ["实践项目是否需要提供参考答案？"]
