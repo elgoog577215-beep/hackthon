@@ -158,7 +158,8 @@ jobs:
               return json.loads((root / f"{course_id}.json").read_text(encoding="utf-8"))
 
 
-          def write_atomic(path: Path, value: dict) -> None:
+          def write_atomic(path: Path, value: dict, *, permissions_from: Path) -> None:
+              reference_stat = permissions_from.stat()
               temporary_name = ""
               try:
                   with tempfile.NamedTemporaryFile(
@@ -173,6 +174,8 @@ jobs:
                       json.dump(value, handle, ensure_ascii=False, indent=2)
                       handle.flush()
                       os.fsync(handle.fileno())
+                  os.chmod(temporary_name, reference_stat.st_mode)
+                  os.chown(temporary_name, reference_stat.st_uid, reference_stat.st_gid)
                   os.replace(temporary_name, path)
                   directory_fd = os.open(path.parent, os.O_RDONLY)
                   try:
@@ -258,7 +261,7 @@ jobs:
               if request:
                   request["_retrieval_actor_id"] = target_owner
                   source["generation_request"] = request
-              write_atomic(paths[source_id], source)
+              write_atomic(paths[source_id], source, permissions_from=paths[target_id])
 
           verified = read(source_id)
           if str(verified.get("owner_id") or "") != target_owner:
