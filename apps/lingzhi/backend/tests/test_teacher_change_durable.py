@@ -383,7 +383,51 @@ async def test_complete_semantic_scan_has_no_top_eighty_limit_and_reports_batch_
     plan = failed.change_sets[-1]
     assert plan.impact_summary["coverage"]["scanned_units"] == 0
     assert len(plan.impact_summary["coverage"]["unscanned_unit_ids"]) == 101
-    assert plan.teacher_change_planning.intent.blocking_questions
+    assert plan.teacher_change_planning.intent.blocking_questions == []
+    assert plan.teacher_change_planning.status == "blocked"
+    blocker = plan.teacher_change_planning.intent.system_blockers[0]
+    assert blocker.code == "analysis_incomplete"
+    assert blocker.retryable is True
+    assert blocker.affected_unit_count == 101
+
+
+@pytest.mark.asyncio
+async def test_structured_question_misplaced_in_blocking_questions_is_recovered(tmp_path):
+    _, _, repo, context = fixture(tmp_path)
+
+    async def malformed(overview, candidates, instruction):
+        return {
+            "analysis_mode": "ai_ranked",
+            "signal_kind": "semantic",
+            "affected_units": [],
+            "blocking_questions": [{
+                "question_id": "q_practice_scope",
+                "prompt": "实践项目是新增小节，还是补充进现有正文？",
+                "response_type": "single_choice",
+                "required": True,
+                "options": [
+                    {"option_id": "new_section", "label": "新增小节", "impact": "调整结构"},
+                    {"option_id": "inline", "label": "补充正文", "impact": "结构不变"},
+                ],
+            }],
+            "structure": {"required": False},
+        }
+
+    result = await create_teacher_course_change_plan(
+        context=context,
+        user_id="teacher",
+        request_id="malformed-question",
+        instruction="每章增加实践项目",
+        repository=repo,
+        analyzer=malformed,
+    )
+    intent = result.change_sets[-1].teacher_change_planning.intent
+    assert intent.blocking_questions == ["实践项目是新增小节，还是补充进现有正文？"]
+    assert len(intent.clarifications) == 1
+    question = intent.clarifications[0]
+    assert question.question_id == "q_practice_scope"
+    assert question.response_type == "single_choice"
+    assert [option.option_id for option in question.options] == ["new_section", "inline"]
 
 
 @pytest.mark.asyncio
@@ -434,11 +478,9 @@ async def test_teacher_confirmation_clears_model_questions_but_not_incomplete_sc
         confirmed_interpretation=True,
     )
     incomplete_plan = incomplete.change_sets[-1]
-    assert incomplete_plan.teacher_change_planning.status == "needs_clarification"
-    assert any(
-        "未完成检查" in question
-        for question in incomplete_plan.teacher_change_planning.intent.blocking_questions
-    )
+    assert incomplete_plan.teacher_change_planning.status == "blocked"
+    assert incomplete_plan.teacher_change_planning.intent.blocking_questions == []
+    assert incomplete_plan.teacher_change_planning.intent.system_blockers[0].code == "analysis_incomplete"
 
 
 @pytest.mark.asyncio

@@ -267,6 +267,51 @@ describe('CourseEvolutionWorkspace', () => {
     wrapper.unmount()
   })
 
+  it('扫描未完成时只提供系统重试，不再要求老师填写或确认', async () => {
+    const pinia = createPinia()
+    const store = useCourseEvolutionStore(pinia)
+    const basePlanning = planning()
+    store.plans = [plan({
+      teacher_change_planning: planning({
+        status: 'blocked',
+        intent: {
+          ...basePlanning.intent,
+          blocking_questions: [],
+          system_blockers: [{
+            code: 'analysis_incomplete',
+            message: '有 90 个内容单元未完成检查，请重新分析，避免遗漏修改。',
+            retryable: true,
+            affected_unit_count: 90,
+          }],
+          can_proceed_without_clarification: true,
+        } as any,
+      }),
+      impact_summary: {
+        request_asset_types: ['outline', 'lesson_plan', 'script'],
+        coverage: { scanned_units: 26, indexed_units: 116, unscanned_unit_ids: Array.from({ length: 90 }, (_, index) => `unit-${index}`) },
+      },
+    })]
+    const create = vi.spyOn(store, 'createCoursePlan').mockResolvedValue({
+      analysis_task: { id: 'analysis-task-retry', status: 'pending' },
+    } as any)
+    const wrapper = mountWorkspace(pinia)
+
+    expect(wrapper.text()).toContain('有 90 个内容单元未完成检查')
+    expect(wrapper.find('.clarification-question').exists()).toBe(false)
+    expect(wrapper.find('textarea').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('确认当前理解并继续分析')
+    await wrapper.get('[data-testid="retry-incomplete-scan"]').trigger('click')
+
+    expect(create).toHaveBeenCalledWith({
+      courseId: 'course-1',
+      requestId: expect.any(String),
+      instruction: '所有案例都补充完整推导，但保留原始资料。',
+      supersedesPlanId: 'change-1',
+      assetTypes: ['outline', 'lesson_plan', 'script'],
+    })
+    wrapper.unmount()
+  })
+
   it('逐题选择必答项并把结构化答案交给同一后台分析链', async () => {
     const pinia = createPinia()
     const store = useCourseEvolutionStore(pinia)
