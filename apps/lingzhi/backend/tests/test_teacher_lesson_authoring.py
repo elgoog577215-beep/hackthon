@@ -5502,6 +5502,10 @@ def test_teacher_lesson_view_expires_orphaned_jobs_before_frontend_recovery(tmp_
     stored = json.loads(stored_path.read_text(encoding="utf-8"))
     stored["jobs"][job["id"]]["status"] = "running"
     stored["jobs"][job["id"]]["updated_at"] = "2020-01-01T00:00:00+00:00"
+    stored["jobs"][job["id"]]["generation_base"] = {"private": "x" * 200_000}
+    stored["jobs"][job["id"]]["checkpoint"] = {"private": "y" * 100_000}
+    stored["jobs"][job["id"]]["request_snapshot"] = {"private": "z" * 100_000}
+    stored["jobs"][job["id"]]["bundle_blocks"] = {"block": {"private": "w" * 100_000}}
     stored_path.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
 
     class FakeStorage:
@@ -5531,6 +5535,10 @@ def test_teacher_lesson_view_expires_orphaned_jobs_before_frontend_recovery(tmp_
     returned = next(item for item in response.json()["jobs"] if item["id"] == job["id"])
     assert returned["status"] == "failed"
     assert returned["error"]["code"] == "lesson_script_generation_interrupted"
+    assert not ({"generation_base", "checkpoint", "request_snapshot", "bundle_blocks"} & returned.keys())
+    persisted = repository.get_job("course-1", job["id"])
+    assert persisted["generation_base"]["private"].startswith("x")
+    assert persisted["bundle_blocks"]["block"]["private"].startswith("w")
 
 
 def test_teacher_lesson_view_does_not_rewrite_unchanged_authoring_state(tmp_path):

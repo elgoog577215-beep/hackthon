@@ -1678,6 +1678,7 @@ async def test_single_teacher_course_returns_new_projection_and_preserves_course
     assert result["course_name"] == "设计思维"
     assert result["preparation_summary"]["planned_lessons"] == 1
     assert result["course_production_state"]["stages"]["ppt"]["counts"]["available"] == 1
+    assert repository.read_count == 1
 
 
 @pytest.mark.asyncio
