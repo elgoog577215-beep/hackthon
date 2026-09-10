@@ -80,7 +80,11 @@ The system SHALL record `ppt_page_recovery_v3` on newly recovered blocks. Fixed-
 
 #### Scenario: The provider is temporarily unavailable
 - **WHEN** a page repair encounters a provider timeout or unavailability
-- **THEN** the current checkpoint is retained and recovery performs at most one delayed provider recovery window per bundle; a gateway-rejected source unit may be split once into smaller exact ranges, while repeated failure of the smaller range stops model calls to the remaining pages
+- **THEN** the current checkpoint is retained and recovery performs at most one delayed provider recovery window per bundle; a gateway-rejected source unit may be split once into smaller exact ranges, while repeated failure switches the current and remaining ranges to complete source-grounded local pages without further model calls
+
+#### Scenario: Source-grounded local page fallback is required
+- **WHEN** the model remains unavailable after the bounded recovery window
+- **THEN** code ranges compile into measured code continuations and prose ranges compile into ordered short exact-source points whose source quotes concatenate to the complete range; the system does not publish a truncated summary or invent teaching content
 
 #### Scenario: A repair source unit is code dense
 - **WHEN** page repair prepares a prompt for a code source range

@@ -9,11 +9,8 @@ from course_generation_budget import TeacherScriptGenerationTimeout
 from ppt_page_repair_units import page_repair_source_units, page_repair_unit_block
 from teacher_script_ppt import (
     CONTRACT,
-    PptPageProviderUnavailable,
-    PptPageRepairTimeout,
     _page_repair_prompt,
     completion_seed_blocks,
-    describe_bundle_failure,
     generate_bundle,
     validate_block_pages,
 )
@@ -114,25 +111,25 @@ def test_resume_skips_source_units_that_already_have_valid_pages():
         first_calls.append(unit_id)
         if len(set(first_calls)) > 1:
             failed_unit = unit_id
-            raise AIProviderRequestError("provider_unavailable: temporary")
+            return "not JSON"
         return json.dumps({"pages": [valid_page(payload, template)]}, ensure_ascii=False)
 
     async def sleep(seconds):
         waits.append(seconds)
 
-    with pytest.raises(PptPageProviderUnavailable):
-        asyncio.run(generate_bundle(
-            invoke=first_invoke,
-            contract=contract,
-            instructions="",
-            template=template,
-            seed_blocks={"b": seed_for(contract, content)},
-            immutable_handout=True,
-            on_checkpoint=saved.append,
-            provider_recovery_sleep=sleep,
-        ))
+    failed = asyncio.run(generate_bundle(
+        invoke=first_invoke,
+        contract=contract,
+        instructions="",
+        template=template,
+        seed_blocks={"b": seed_for(contract, content)},
+        immutable_handout=True,
+        on_checkpoint=saved.append,
+        provider_recovery_sleep=sleep,
+    ))
     assert failed_unit
-    assert waits == [31]
+    assert waits == []
+    assert failed["blocks"][0]["ppt_errors"]
     first_unit = first_calls[0]
     resumed_seed = completion_seed_blocks(
         [seed_for(contract, content)],
@@ -158,29 +155,31 @@ def test_resume_skips_source_units_that_already_have_valid_pages():
     assert not result["blocks"][0]["ppt_errors"]
 
 
-def test_repeated_page_timeout_has_ppt_specific_failure_contract():
+def test_repeated_page_timeout_uses_grounded_fallback():
     template, contract, _ = sample()
+    content = "项目操作步骤说明内容，保持输入、处理与结果之间的关系。"
+    calls, waits = [], []
 
     async def invoke(*_args, **_kwargs):
+        calls.append(True)
         raise TeacherScriptGenerationTimeout("讲义模型调用超时，已保留收到的内容。")
 
-    async def sleep(_seconds):
-        return None
+    async def sleep(seconds):
+        waits.append(seconds)
 
-    with pytest.raises(PptPageRepairTimeout) as captured:
-        asyncio.run(generate_bundle(
-            invoke=invoke,
-            contract=contract,
-            instructions="",
-            template=template,
-            seed_blocks={"b": seed_for(contract, large_source())},
-            immutable_handout=True,
-            provider_recovery_sleep=sleep,
-        ))
-    failure = describe_bundle_failure(captured.value)
-    assert failure["code"] == "lesson_ppt_page_timeout"
-    assert failure["failed_step"] == "pages"
-    assert "PPT 页面" in failure["message"]
+    result = asyncio.run(generate_bundle(
+        invoke=invoke,
+        contract=contract,
+        instructions="",
+        template=template,
+        seed_blocks={"b": seed_for(contract, content)},
+        immutable_handout=True,
+        provider_recovery_sleep=sleep,
+    ))
+    assert len(calls) == 2
+    assert waits == [31]
+    assert result["blocks"][0]["ppt_pages"]
+    assert not result["blocks"][0]["ppt_errors"]
 
 
 def test_small_missing_block_stays_one_repair_unit():
@@ -254,15 +253,17 @@ def test_502_repartitions_only_the_failed_source_unit_before_retry():
     content = large_source()
     calls, waits = [], []
     failed_range = None
+    failed_unit_id = ""
 
     async def invoke(_prompt, instructions, **_options):
-        nonlocal failed_range
+        nonlocal failed_range, failed_unit_id
         payload = repair_payload(instructions)
         unit = payload["repair_unit"]
         source_range = (unit["source_start"], unit["source_end"])
         calls.append(source_range)
         if failed_range is None and unit["source_start"] > 0 and unit["source_chars"] > 1000:
             failed_range = source_range
+            failed_unit_id = unit["repair_unit_id"]
             raise AIProviderRequestError("Error code: 502")
         return json.dumps({"pages": [valid_page(payload, template)]}, ensure_ascii=False)
 
@@ -281,7 +282,11 @@ def test_502_repartitions_only_the_failed_source_unit_before_retry():
 
     assert failed_range is not None
     assert calls.count(failed_range) == 1
-    children = [item for item in calls if failed_range[0] <= item[0] and item[1] <= failed_range[1] and item != failed_range]
+    children = [
+        (item["source_start"], item["source_end"])
+        for item in result["blocks"][0]["ppt_page_repair_units"]
+        if item.get("parent_repair_unit_id") == failed_unit_id
+    ]
     assert len(children) >= 2
     assert max(end - start for start, end in children) <= 1000
     assert min(start for start, _end in children) == failed_range[0]

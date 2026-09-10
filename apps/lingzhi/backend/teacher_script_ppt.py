@@ -643,6 +643,70 @@ def _grounded_code_repair_page(block, template):
     }
 
 
+def _grounded_prose_fragments(content: str, limit: int = 16) -> list[str]:
+    fragments, pending = [], ""
+    start = 0
+    while start < len(content):
+        end = min(len(content), start + limit)
+        if end < len(content):
+            boundaries = [
+                match.end()
+                for match in re.finditer(r"[。！？；，,\n]", content[start:end])
+                if match.end() >= limit // 2
+            ]
+            if boundaries:
+                end = start + boundaries[-1]
+        fragment = content[start:end]
+        start = end
+        if not fragment.strip():
+            pending += fragment
+            continue
+        fragments.append(pending + fragment)
+        pending = ""
+    if pending:
+        if fragments:
+            fragments[-1] += pending
+        else:
+            fragments.append(pending)
+    if "".join(fragments) != content:
+        raise ValueError("script_ppt_grounded_prose_source_mismatch")
+    return fragments
+
+
+def _grounded_prose_repair_pages(block, template):
+    layout_id = next(
+        layout.template_layout_id
+        for layout in template.layouts
+        if fixed_slug(layout.template_layout_id) == "bullets"
+    )
+    fragments = _grounded_prose_fragments(str(block.get("content") or ""))
+    pages = []
+    for offset in range(0, len(fragments), 3):
+        selected = fragments[offset:offset + 3]
+        pages.append({
+            "layout_id": layout_id,
+            "page_goal": "阅读并核对讲义要点",
+            "fields": {
+                "title": "讲义要点",
+                "notes": "模型服务暂时不可用，本页按讲义原文顺序整理。",
+                "points": [{
+                    "text": fragment.strip(),
+                    "sources": [{
+                        "block_id": block["block_id"],
+                        "quote": fragment,
+                    }],
+                } for fragment in selected],
+            },
+        })
+    return pages
+
+
+def _grounded_repair_pages(block, repair_unit, template):
+    if repair_unit.get("source_kind") == "code":
+        return [_grounded_code_repair_page(block, template)]
+    return _grounded_prose_repair_pages(block, template)
+
+
 async def generate_bundle(*, invoke, contract, instructions, template, on_delta=None,
                           on_reset=None, on_checkpoint=None, seed_blocks=None, immutable_handout=False,
                           provider_recovery_sleep=asyncio.sleep):
@@ -733,6 +797,7 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
 
     # Repairs own only failing page fields; accepted text and pages are immutable inputs.
     provider_recovery_used = False
+    provider_fallback_active = False
     response_contract_failed = False
     for bid in expected:
         block = blocks[bid]
@@ -776,6 +841,24 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                     break
                 except (ValueError, RuntimeError, KeyError) as error:
                     detail = str(error)
+                    if provider_fallback_active:
+                        try:
+                            candidate_pages = _prepare_page_candidates(
+                                _grounded_repair_pages(repair_block, repair_unit, template),
+                                repair_block,
+                                template,
+                            )
+                            validate_block_pages({**block, "ppt_pages": candidate_pages}, template)
+                            groups[index] = candidate_pages
+                        except (ValueError, RuntimeError, KeyError) as fallback_error:
+                            page_errors.append({
+                                "block_id": bid,
+                                "page_index": index,
+                                "validation_error": detail,
+                                "repair_error": str(fallback_error),
+                                "message": detail + "; grounded_fallback_failed: " + str(fallback_error),
+                            })
+                        break
                     if attempts[index] >= 2:
                         page_errors.append({"block_id": bid, "page_index": index, "message": detail})
                         break
@@ -852,6 +935,7 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                                         "source_chars": repair_unit["source_chars"],
                                     },
                                 )
+                                provider_fallback_active = True
                                 await _notify(on_checkpoint, deepcopy(block))
                                 continue
                         if timeout_failure or provider_unavailable or str(exc).startswith("script_ppt_response_empty"):
@@ -866,6 +950,26 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                                 continue
                             if repair_unit.get("split_depth") and attempts[index] < 2:
                                 continue
+                            provider_fallback_active = True
+                            try:
+                                candidate_pages = _prepare_page_candidates(
+                                    _grounded_repair_pages(repair_block, repair_unit, template),
+                                    repair_block,
+                                    template,
+                                )
+                                validate_block_pages({**block, "ppt_pages": candidate_pages}, template)
+                                groups[index] = candidate_pages
+                                block.update(
+                                    ppt_pages=[p for saved_group in groups for p in saved_group],
+                                    ppt_page_groups=groups,
+                                    ppt_page_repair_units=repair_units,
+                                    ppt_repair_attempts=attempts,
+                                    ppt_errors=page_errors,
+                                )
+                                await _notify(on_checkpoint, deepcopy(block))
+                                continue
+                            except (ValueError, RuntimeError, KeyError):
+                                pass
                             await _notify(on_checkpoint, deepcopy(block))
                             if timeout_failure:
                                 raise PptPageRepairTimeout(bid, repair_unit["repair_unit_id"]) from exc
