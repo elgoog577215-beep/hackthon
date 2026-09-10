@@ -6,10 +6,12 @@ import pytest
 from ai_base import AIProviderRequestError
 from backend.tests.test_teacher_script_ppt import sample
 from course_generation_budget import TeacherScriptGenerationTimeout
-from ppt_page_repair_units import page_repair_source_units
+from ppt_page_repair_units import page_repair_source_units, page_repair_unit_block
 from teacher_script_ppt import (
     CONTRACT,
+    PptPageProviderUnavailable,
     PptPageRepairTimeout,
+    _page_repair_prompt,
     completion_seed_blocks,
     describe_bundle_failure,
     generate_bundle,
@@ -221,3 +223,94 @@ def test_source_unit_plan_is_stable_contiguous_and_code_aware():
     assert "".join(content[item["source_start"]:item["source_end"]] for item in first) == content
     assert len({item["repair_unit_id"] for item in first}) == len(first)
     assert any(item["source_kind"] == "code" for item in first)
+
+
+def test_code_repair_prompt_bounds_forms_and_literal_source_ranges():
+    template, _, _ = sample()
+    content = "```csharp\n" + "\n".join(
+        f"var value{i} = GetValue(`slot{i}`);" for i in range(120)
+    ) + "\n```"
+    block = {"block_id": "large-code", "title": "代码示例", "role": "example", "content": content}
+    unit = page_repair_source_units(block["block_id"], content)[0]
+    repair_block = page_repair_unit_block(block, unit)
+
+    prompt = _page_repair_prompt(
+        repair_block,
+        [],
+        template,
+        "script_ppt_pages_missing:large-code",
+        repair_unit=unit,
+    )
+    payload = repair_payload(prompt)
+
+    assert len(payload["forms"]) <= 3
+    assert len(payload["literal_source_ranges"]) <= 12
+    assert any(item["quote"] == repair_block["content"] for item in payload["literal_source_ranges"])
+    assert len(prompt) < 15_000
+
+
+def test_502_repartitions_only_the_failed_source_unit_before_retry():
+    template, contract, _ = sample()
+    content = large_source()
+    calls, waits = [], []
+    failed_range = None
+
+    async def invoke(_prompt, instructions, **_options):
+        nonlocal failed_range
+        payload = repair_payload(instructions)
+        unit = payload["repair_unit"]
+        source_range = (unit["source_start"], unit["source_end"])
+        calls.append(source_range)
+        if failed_range is None and unit["source_start"] > 0 and unit["source_chars"] > 1000:
+            failed_range = source_range
+            raise AIProviderRequestError("Error code: 502")
+        return json.dumps({"pages": [valid_page(payload, template)]}, ensure_ascii=False)
+
+    async def sleep(seconds):
+        waits.append(seconds)
+
+    result = asyncio.run(generate_bundle(
+        invoke=invoke,
+        contract=contract,
+        instructions="",
+        template=template,
+        seed_blocks={"b": seed_for(contract, content)},
+        immutable_handout=True,
+        provider_recovery_sleep=sleep,
+    ))
+
+    assert failed_range is not None
+    assert calls.count(failed_range) == 1
+    children = [item for item in calls if failed_range[0] <= item[0] and item[1] <= failed_range[1] and item != failed_range]
+    assert len(children) >= 2
+    assert max(end - start for start, end in children) <= 1000
+    assert min(start for start, _end in children) == failed_range[0]
+    assert max(end for _start, end in children) == failed_range[1]
+    assert waits == [31]
+    assert not result["blocks"][0]["ppt_errors"]
+
+
+def test_repeated_502_has_page_provider_failure_contract():
+    template, contract, _ = sample()
+    content = "项目操作步骤说明内容，保持输入、处理与结果之间的关系。"
+
+    async def invoke(*_args, **_kwargs):
+        raise AIProviderRequestError("Error code: 502")
+
+    async def sleep(_seconds):
+        return None
+
+    with pytest.raises(PptPageProviderUnavailable) as captured:
+        asyncio.run(generate_bundle(
+            invoke=invoke,
+            contract=contract,
+            instructions="",
+            template=template,
+            seed_blocks={"b": seed_for(contract, content)},
+            immutable_handout=True,
+            provider_recovery_sleep=sleep,
+        ))
+    failure = describe_bundle_failure(captured.value)
+    assert failure["code"] == "lesson_ppt_page_provider_unavailable"
+    assert failure["failed_step"] == "pages"
+    assert "模型服务暂时不可用" in failure["message"]
