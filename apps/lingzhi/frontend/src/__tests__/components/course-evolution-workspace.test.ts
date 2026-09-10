@@ -108,6 +108,28 @@ function mountWorkspace(pinia: Pinia) {
 }
 
 describe('CourseEvolutionWorkspace', () => {
+  it('saves waiting selections without generating or applying them', async () => {
+    const { store, wrapper } = retryFixture()
+    const review = vi.spyOn(store, 'reviewCoursePlan').mockResolvedValue({} as any)
+    const generate = vi.spyOn(store, 'generateSuggested').mockResolvedValue({} as any)
+    expect(wrapper.get('.impact-check input').attributes('disabled')).toBeUndefined()
+    await wrapper.get('.impact-check input').setValue(true)
+    await wrapper.get('[data-testid="save-scope-selection"]').trigger('click')
+    expect(review).toHaveBeenCalledWith('change-1', ['m1'], { selectionOnly: true })
+    expect(generate).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('opens a separate detail view and returns to the same selection', async () => {
+    const { wrapper } = retryFixture()
+    await wrapper.get('.impact-check input').setValue(true)
+    await wrapper.get('[data-testid="expand-impact-m1"]').trigger('click')
+    expect(wrapper.get('[data-testid="course-change-detail"]').text()).toContain('不得默认铺开的完整长正文')
+    expect(wrapper.find('.impact-list').exists()).toBe(false)
+    await wrapper.get('[data-testid="back-to-impact-list"]').trigger('click')
+    expect((wrapper.get('.impact-check input').element as HTMLInputElement).checked).toBe(true)
+    wrapper.unmount()
+  })
   function retryFixture() {
     const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
     store.plans = [plan({ teacher_change_planning: planning({ status: 'blocked', intent: {

@@ -40,6 +40,13 @@ beforeEach(() => {
 })
 
 describe('course evolution store', () => {
+  it('persists selection intent through the existing review endpoint', async () => {
+    const store = useCourseEvolutionStore()
+    store.selectCourse('course-1')
+    httpMock.post.mockResolvedValue({ data: payload() })
+    await store.reviewCoursePlan('plan-1', ['waiting'], { selectionOnly: true })
+    expect(httpMock.post.mock.calls[0]![1]).toEqual(expect.objectContaining({ selection_only: true, selected_migration_ids: ['waiting'] }))
+  })
   it('polls only the active task until its results need reconciliation', async () => {
     const store = useCourseEvolutionStore()
     store.selectCourse('course-1')
