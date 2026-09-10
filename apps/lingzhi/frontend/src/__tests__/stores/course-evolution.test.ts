@@ -40,6 +40,20 @@ beforeEach(() => {
 })
 
 describe('course evolution store', () => {
+  it('keeps submission authoritative over a background progress refresh', async () => {
+    let finish!: (response: any) => void
+    httpMock.post.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const store = useCourseEvolutionStore()
+    store.selectCourse('course-1')
+    store.applyAnalysisTask({ id: 'old', status: 'completed' } as any)
+    httpMock.get.mockResolvedValue({ data: { ...payload(), analysis_task: { id: 'old', status: 'completed' } } })
+    const submitted = store.createCoursePlan({ instruction: '补充项目', rescanIncompleteOnly: true })
+    await store.refreshProgress('course-1')
+    finish({ data: { analysis_task: { id: 'new', status: 'running', progress: 5 } } })
+    await submitted
+    expect(store.analysisTask?.id).toBe('new')
+    expect(store.generating).toBe(true)
+  })
   it('discards old progress and context responses after switching away and back', async () => {
     let resolveProgress!: (value: any) => void
     let resolveContext!: (value: any) => void

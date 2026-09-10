@@ -85,6 +85,22 @@ def fixture(tmp_path):
     return course, repo, evolution, ctx
 
 
+@pytest.mark.asyncio
+async def test_incomplete_analysis_keeps_final_scan_progress_and_truthful_outcome(tmp_path, monkeypatch):
+    manager = build_manager(tmp_path, monkeypatch)
+    task = await enqueue_analysis(manager=manager, user_id='teacher', course_id='course-1', request_id='retry-visible', instruction='补充项目')
+    async def create(**kwargs):
+        await kwargs['on_scan_progress']({'completed_parts': 4, 'total_parts': 20, 'failed_parts': 16, 'retained_units': 86, 'pending_units': 30}, {})
+        return SimpleNamespace(change_sets=[SimpleNamespace(change_set_id='plan-visible', impact_summary={
+            'request_id': 'retry-visible', 'coverage': {'scanned_units': 86, 'indexed_units': 116, 'retained_units': 86, 'unscanned_unit_ids': ['u']},
+        })])
+    await run_analysis(manager, task['id'], service=SimpleNamespace(create_teacher_plan=create))
+    result = manager.tasks[task['id']]
+    assert result['phase_detail']['analysis_outcome'] == 'incomplete'
+    assert result['phase_detail']['scan']['completed_parts'] == 4
+    assert '尚有 1 项' in result['message']
+
+
 async def prepared(tmp_path):
     course, authoring, repo, ctx = fixture(tmp_path)
     state = await create_teacher_course_change_plan(
