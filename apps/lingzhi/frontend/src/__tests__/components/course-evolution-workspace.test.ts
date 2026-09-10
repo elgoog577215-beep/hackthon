@@ -108,6 +108,61 @@ function mountWorkspace(pinia: Pinia) {
 }
 
 describe('CourseEvolutionWorkspace', () => {
+  function retryFixture() {
+    const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
+    store.plans = [plan({ teacher_change_planning: planning({ status: 'blocked', intent: {
+      ...planning().intent, blocking_questions: ['项目由谁设计？'], can_proceed_without_clarification: false,
+    } }), impact_summary: {
+      coverage: { indexed_units: 116, scanned_units: 86, retained_units: 86, unscanned_unit_ids: ['pending'], failed_batches: [{ code: 'provider_unavailable' }] },
+      partial_review: { incomplete: true, can_preview: true, eligible_migration_ids: [], waiting: { m1: 'teacher_decision' } },
+      affected_units: [{ migration_id: 'm1', unit_id: 'script:l1', asset_type: 'script', title: '综合项目', before_preview: '摘要', before_content: '不得默认铺开的完整长正文', section_ids: ['s1'], disposition: 'rewrite_partial', candidate_status: 'not_started', reason: '补充项目', confidence: .8 }],
+    } })]
+    return { store, wrapper: mountWorkspace(pinia) }
+  }
+
+  it('shows changing retry progress and terminal failure inside the existing result view', async () => {
+    const { store, wrapper } = retryFixture()
+    store.applyAnalysisTask({ id: 'retry', status: 'running', message: '正在检查', progress: 20,
+      phase_detail: { scan: { retained_units: 86, pending_units: 30, completed_parts: 4, total_parts: 20, reused_parts: 0, failed_parts: 0 } } } as any)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('[data-testid="partial-scan-progress"]').text().replace(/\s/g, '')).toContain('4/20')
+    store.analysisTask!.phase_detail!.scan!.completed_parts = 8
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('[data-testid="partial-scan-progress"]').text().replace(/\s/g, '')).toContain('8/20')
+    store.applyAnalysisTask({ id: 'retry', status: 'completed', message: '检查未完成' } as any)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('[data-testid="partial-scan-outcome"]').text()).toContain('AI 服务暂时不可用')
+    expect(wrapper.text()).not.toContain('不得默认铺开的完整长正文')
+    await wrapper.get('[data-testid="expand-impact-m1"]').trigger('click')
+    expect(wrapper.text()).toContain('不得默认铺开的完整长正文')
+    expect(wrapper.get('.impact-list article').classes()).not.toContain('excluded')
+    wrapper.unmount()
+  })
+
+  it('offers one explicit requirement resolution when every item waits for teacher decisions', async () => {
+    const { store, wrapper } = retryFixture()
+    const create = vi.spyOn(store, 'createCoursePlan').mockResolvedValue({ analysis_task: { id: 'new' } } as any)
+    await wrapper.get('[data-testid="resolve-decisions"]').trigger('click')
+    await wrapper.get('[data-testid="decision-resolution"] textarea').setValue('保留六章，在章内增加项目，由系统设计')
+    await wrapper.get('[data-testid="decision-resolution"]').trigger('submit')
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ instruction: '保留六章，在章内增加项目，由系统设计', confirmedInterpretation: true, supersedesPlanId: 'change-1' }))
+    wrapper.unmount()
+  })
+
+  it('follows the replacement result when a retry supersedes the focused plan', async () => {
+    const { store, wrapper } = retryFixture()
+    await wrapper.setProps({ focusPlanId: 'change-1' })
+    const next = JSON.parse(JSON.stringify(store.plans[0]))
+    next.change_set_id = 'change-2'
+    next.teacher_change_planning.intent.raw_request = '新的补查结果'
+    store.plans[0]!.status = 'rejected'
+    store.plans[0]!.impact_summary.superseded_by_plan_id = 'change-2'
+    store.plans.push(next)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.request-context').text()).toContain('新的补查结果')
+    expect(wrapper.find('.review-layout').exists()).toBe(true)
+    wrapper.unmount()
+  })
   beforeEach(async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => zhMessages })))
     await setLocale('zh')
@@ -228,6 +283,7 @@ describe('CourseEvolutionWorkspace', () => {
     expect(wrapper.get('.journey li.active').text()).toContain('选择影响范围')
     expect(wrapper.get('.request-context').text()).toContain('本次目标')
     expect(wrapper.findAll('.impact-nav nav button')).toHaveLength(2)
+    await wrapper.get('.impact-expand').trigger('click')
     expect(wrapper.get('.impact-list').text()).toContain('原讲稿只介绍方法')
     await wrapper.get('.impact-check input').setValue(false)
     expect(wrapper.get('.scope-counts').text()).toContain('排除1')

@@ -40,6 +40,51 @@ beforeEach(() => {
 })
 
 describe('course evolution store', () => {
+  it('polls only the active task until its results need reconciliation', async () => {
+    const store = useCourseEvolutionStore()
+    store.selectCourse('course-1')
+    store.applyAnalysisTask({ id: 'retry', status: 'running' } as any)
+    httpMock.get.mockResolvedValueOnce({ data: { id: 'retry', status: 'running', progress: 40 } })
+    await store.refreshAnalysisProgress('course-1')
+    expect(httpMock.get).toHaveBeenCalledTimes(1)
+    expect(httpMock.get.mock.calls[0]![0]).toBe('/api/tasks/retry')
+    expect(store.analysisTask?.progress).toBe(40)
+    httpMock.get.mockResolvedValueOnce({ data: { id: 'retry', status: 'completed', phase_detail: { plan_id: 'plan-1' } } })
+    httpMock.get.mockResolvedValueOnce({ data: { ...payload(), analysis_task: { id: 'retry', status: 'completed' } } })
+    await store.refreshAnalysisProgress('course-1')
+    expect(httpMock.get.mock.calls[2]![0]).toContain('/evolution/progress')
+    expect(store.analysisResultPending).toBe(false)
+  })
+  it('keeps submission authoritative over a background progress refresh', async () => {
+    let finish!: (response: any) => void
+    httpMock.post.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const store = useCourseEvolutionStore()
+    store.selectCourse('course-1')
+    store.applyAnalysisTask({ id: 'old', status: 'completed' } as any)
+    httpMock.get.mockResolvedValue({ data: { ...payload(), analysis_task: { id: 'old', status: 'completed' } } })
+    const submitted = store.createCoursePlan({ instruction: '补充项目', rescanIncompleteOnly: true })
+    await store.refreshProgress('course-1')
+    finish({ data: { analysis_task: { id: 'new', status: 'running', progress: 5 } } })
+    await submitted
+    expect(store.analysisTask?.id).toBe('new')
+    expect(store.generating).toBe(true)
+  })
+
+  it('retries loading a completed result without starting another analysis', async () => {
+    const store = useCourseEvolutionStore()
+    store.selectCourse('course-1')
+    store.applyAnalysisTask({ id: 'retry', status: 'running' } as any)
+    httpMock.get.mockResolvedValueOnce({ data: { id: 'retry', status: 'completed' } })
+    httpMock.get.mockRejectedValueOnce(new Error('temporary read failure'))
+    await expect(store.refreshAnalysisProgress('course-1')).rejects.toThrow('temporary read failure')
+    expect(store.analysisResultPending).toBe(true)
+    expect(store.generating).toBe(true)
+    httpMock.get.mockResolvedValueOnce({ data: { ...payload(), analysis_task: { id: 'retry', status: 'completed' } } })
+    await store.refreshAnalysisProgress('course-1')
+    expect(store.analysisResultPending).toBe(false)
+    expect(store.generating).toBe(false)
+    expect(httpMock.post).not.toHaveBeenCalled()
+  })
   it('discards old progress and context responses after switching away and back', async () => {
     let resolveProgress!: (value: any) => void
     let resolveContext!: (value: any) => void
