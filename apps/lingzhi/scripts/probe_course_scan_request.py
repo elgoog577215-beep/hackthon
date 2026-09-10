@@ -18,6 +18,7 @@ logging.disable(logging.CRITICAL)
 async def main() -> None:
     course_id = os.environ["COURSE_SCAN_COURSE_ID"]
     unit_id = os.environ.get("COURSE_SCAN_UNIT_ID", "")
+    transport_control = os.environ.get("COURSE_SCAN_TRANSPORT_CONTROL") == "true"
     pid = int(subprocess.check_output(["systemctl", "show", "lingzhi", "--property=MainPID", "--value"], text=True).strip())
     process_root = Path(f"/proc/{pid}/cwd").resolve()
     process_env = dict(part.decode(errors="replace").split("=", 1)
@@ -67,6 +68,8 @@ async def main() -> None:
 
     async def traced(*args, **kwargs):
         kwargs.update(telemetry_sink=attempts.append, on_stream_activity=on_activity)
+        if transport_control:
+            kwargs.update(json_mode=False, request_timeout_seconds=45)
         return await original(*args, **kwargs)
 
     provider._call_llm = traced
@@ -82,7 +85,8 @@ async def main() -> None:
         activity.clear()
         started = time.monotonic()
         event = {"sample": index + 1, "part": part, "fragment_chars": len(entry["content"]),
-                 "full_unit_chars": len(body), "indexed_units": len(context.units)}
+                 "full_unit_chars": len(body), "indexed_units": len(context.units),
+                 "json_mode_control_disabled": transport_control}
         print(json.dumps({**event, "status": "started"}), flush=True)
         try:
             result = await asyncio.wait_for(provider.analyze_teacher_course_change(overview, [entry], instruction), timeout=210)

@@ -28,6 +28,11 @@ on:
         required: false
         default: ""
         type: string
+      replay_without_json_format:
+        description: "Compare the same analysis prompt without provider JSON format, with a 45 second cap"
+        required: false
+        default: false
+        type: boolean
       export_v6_replay:
         description: "Export a sanitized Story/Visual/template replay fixture for one V6 task"
         required: false
@@ -95,13 +100,14 @@ jobs:
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
           REPLAY_COURSE_ID: ${{ inputs.replay_course_id }}
           REPLAY_UNIT_ID: ${{ inputs.replay_unit_id }}
+          REPLAY_WITHOUT_JSON: ${{ inputs.replay_without_json_format }}
         run: |
           set -euo pipefail
           [[ "$REPLAY_COURSE_ID" =~ ^[a-f0-9-]{36}$ ]]
           [[ -z "$REPLAY_UNIT_ID" || "$REPLAY_UNIT_ID" =~ ^[A-Za-z0-9:_-]+$ ]]
           ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            "set -a; . /opt/lingzhi/state/.env; set +a; cd /opt/lingzhi/hackthon; COURSE_SCAN_COURSE_ID=$REPLAY_COURSE_ID COURSE_SCAN_UNIT_ID=$REPLAY_UNIT_ID /opt/lingzhi/.venv/bin/python -" \
+            "set -a; . /opt/lingzhi/state/.env; set +a; cd /opt/lingzhi/hackthon; COURSE_SCAN_COURSE_ID=$REPLAY_COURSE_ID COURSE_SCAN_UNIT_ID=$REPLAY_UNIT_ID COURSE_SCAN_TRANSPORT_CONTROL=$REPLAY_WITHOUT_JSON /opt/lingzhi/.venv/bin/python -" \
             < apps/lingzhi/scripts/probe_course_scan_request.py
 
       - name: Inspect retrieval path
