@@ -15,10 +15,12 @@ logging.disable(logging.CRITICAL)
 
 
 async def main() -> None:
+    # Match application startup: dotenv must be loaded before storage modules
+    # capture LINGZHI_DATA_DIR at import time.
+    from course_generation.service import CourseService
     from dependencies import get_course_document_repository, get_teacher_lesson_authoring_repository
     from question_bank import question_bank_repository
     from course_evolution.teacher_planning import build_teacher_course_change_context, rank_change_units
-    from course_generation.service import CourseService
 
     course_id = os.environ["COURSE_SCAN_COURSE_ID"]
     document, _ = get_course_document_repository().load_document(course_id)
