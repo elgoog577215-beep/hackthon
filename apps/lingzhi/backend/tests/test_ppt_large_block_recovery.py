@@ -393,3 +393,36 @@ def test_grounded_prose_fallback_remeasures_wide_identifiers():
         for source in point["sources"]
     ) == content
     validate_block_pages(block, template)
+
+
+def test_grounded_prose_fallback_bounds_page_count_without_losing_source():
+    template, contract, _ = sample()
+    content = "\n\n".join(
+        "界面交互完成后核对当前状态、存档结果与项目输出，确认输入、处理、反馈和最终文件保持一致。"
+        for _ in range(12)
+    )
+
+    async def invoke(*_args, **_kwargs):
+        raise AIProviderRequestError("Error code: 502")
+
+    async def sleep(_seconds):
+        return None
+
+    result = asyncio.run(generate_bundle(
+        invoke=invoke,
+        contract=contract,
+        instructions="",
+        template=template,
+        seed_blocks={"b": seed_for(contract, content)},
+        immutable_handout=True,
+        provider_recovery_sleep=sleep,
+    ))
+    block = result["blocks"][0]
+    assert 1 <= len(block["ppt_pages"]) <= 5
+    assert "".join(
+        source["quote"]
+        for page in block["ppt_pages"]
+        for point in page["fields"]["points"]
+        for source in point["sources"]
+    ) == content
+    validate_block_pages(block, template)
