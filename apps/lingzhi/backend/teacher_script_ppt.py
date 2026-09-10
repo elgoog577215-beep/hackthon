@@ -621,6 +621,28 @@ def _page_repair_prompt(block, pages, template, validation_error, repair_error="
     )
 
 
+def _grounded_code_repair_page(block, template):
+    layout_id = next(
+        layout.template_layout_id
+        for layout in template.layouts
+        if fixed_slug(layout.template_layout_id) == "code"
+    )
+    return {
+        "layout_id": layout_id,
+        "page_goal": "阅读并核对代码",
+        "fields": {
+            "title": "代码示例",
+            "notes": "按讲义顺序阅读代码，结合相邻说明理解执行过程。",
+            "code": {
+                "sources": [{
+                    "block_id": block["block_id"],
+                    "quote": block["content"],
+                }],
+            },
+        },
+    }
+
+
 async def generate_bundle(*, invoke, contract, instructions, template, on_delta=None,
                           on_reset=None, on_checkpoint=None, seed_blocks=None, immutable_handout=False,
                           provider_recovery_sleep=asyncio.sleep):
@@ -735,6 +757,8 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
         normalized_groups, unit_attempts, normalized_units = [], [], []
         for group, used, repair_unit in zip(groups, attempts, repair_units, strict=True):
             repair_block = page_repair_unit_block(block, repair_unit)
+            if not group and repair_unit.get("source_kind") == "code":
+                group = [_grounded_code_repair_page(repair_block, template)]
             prepared = _prepare_page_candidates(group, repair_block, template)
             normalized_groups.extend([[page] for page in prepared] or [[]])
             unit_attempts.extend([used] * max(1, len(prepared)))

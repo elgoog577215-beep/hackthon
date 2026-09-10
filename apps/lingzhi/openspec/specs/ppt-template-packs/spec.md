@@ -84,7 +84,7 @@ The system SHALL record `ppt_page_recovery_v3` on newly recovered blocks. Fixed-
 
 #### Scenario: A repair source unit is code dense
 - **WHEN** page repair prepares a prompt for a code source range
-- **THEN** the prompt includes at most three role-appropriate page forms, a bounded literal-source catalog including the exact full range, and an output budget derived from that range instead of the complete teaching block
+- **THEN** the system compiles exact code ranges directly into measured code continuations without a model call; prompts for remaining mixed or prose ranges include at most three role-appropriate page forms, a bounded literal-source catalog including the exact full range, and an output budget derived from that range instead of the complete teaching block
 
 #### Scenario: A missing page group owns a large or code-dense source block
 - **WHEN** the frozen handout block exceeds the bounded page-repair input threshold
