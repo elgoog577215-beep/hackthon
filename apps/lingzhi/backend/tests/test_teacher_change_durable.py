@@ -263,6 +263,9 @@ async def test_whole_course_analysis_uses_a_durable_task_instead_of_one_long_req
     assert completed["phase_detail"] == {
         "request_id": "analysis-request-1",
         "plan_id": "plan-1",
+        "analysis_outcome": "complete",
+        "coverage": {"scanned_units": 0, "indexed_units": 0, "retained_units": 0},
+        "pending_units": 0,
     }
 
     manager.tasks[task["id"]]["status"] = "running"

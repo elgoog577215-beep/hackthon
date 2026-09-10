@@ -329,6 +329,8 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
     loading: false,
     actingId: '',
     generating: false,
+    analysisSubmitting: false,
+    analysisResultPending: false,
     generationError: '',
     progressDisconnected: false,
     generationMessage: '',
@@ -369,6 +371,8 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       this.applicationVisual = null
       this.actingId = ''
       this.generating = false
+      this.analysisSubmitting = false
+      this.analysisResultPending = false
       this.generationError = ''
       this.progressDisconnected = false
       this.generationMessage = ''
@@ -458,11 +462,34 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         if (this.courseId === courseId && sequence === this.payloadRequestSequence) this.loading = false
       }
     },
+    async refreshAnalysisProgress(courseId: string) {
+      const taskId = this.analysisTask?.id, epoch = this.courseEpoch
+      if (!taskId || this.courseId !== courseId || this.analysisSubmitting || this.actingId) return null
+      if (!this.analysisResultPending) {
+        const response = await http.get(`/api/tasks/${encodeURIComponent(taskId)}`, { silentError: true })
+        if (epoch !== this.courseEpoch || this.analysisSubmitting || this.analysisTask?.id !== taskId) return null
+        this.applyAnalysisTask(response.data)
+        this.analysisResultPending = response.data?.status === 'completed'
+      }
+      if (this.analysisResultPending) {
+        this.generating = true
+        this.generationMessage = t('courseEvolution.workspace.loadingAnalysisResults')
+        const expectedPlanId = this.analysisTask?.phase_detail?.plan_id
+        const payload = await this.refreshProgress(courseId)
+        if (epoch === this.courseEpoch && this.analysisTask?.id === taskId
+          && (!expectedPlanId || this.plans.some(plan => plan.change_set_id === expectedPlanId))) {
+          this.analysisResultPending = false
+          this.generating = ['pending', 'running'].includes(this.analysisTask?.status || '')
+        }
+        return payload
+      }
+      return null
+    },
     async refreshProgress(courseId?: string) {
       const targetCourseId = courseId || this.courseId
       if (!targetCourseId) return null
       this.selectCourse(targetCourseId)
-      if (this.actingId) return null
+      if (this.actingId || this.analysisSubmitting) return null
       const sequence = ++this.payloadRequestSequence
       const response = await http.get(
         `/api/courses/${targetCourseId}/evolution/progress`,
@@ -509,6 +536,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       const epoch = this.courseEpoch
       const sequence = ++this.payloadRequestSequence
       this.generating = true
+      this.analysisSubmitting = true
       this.generationError = ''
       try {
         const response = await http.post(
@@ -542,7 +570,10 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         )
         throw error
       } finally {
-        if (epoch === this.courseEpoch && !['pending', 'running'].includes(this.analysisTask?.status || '')) this.generating = false
+        if (epoch === this.courseEpoch) {
+          this.analysisSubmitting = false
+          if (!['pending', 'running'].includes(this.analysisTask?.status || '')) this.generating = false
+        }
       }
     },
     async waitForAnalysisCompletion(courseId: string, taskId: string): Promise<Record<string, any>> {
@@ -780,9 +811,13 @@ export function observeCourseChangeProgress(store: ReturnType<typeof useCourseEv
     const timer = setInterval(async () => {
       const analysisActive = ['pending', 'running'].includes(store.analysisTask?.status || '')
       const candidatesActive = store.plans.some(p => p.teacher_change_planning && p.status === 'pending' && p.generation_status === 'generating')
-      if (inFlight || store.courseId !== courseId || store.actingId || store.analysisCancelling || (store.generating && !analysisActive) || (!analysisActive && !candidatesActive)) return
+      if (inFlight || store.courseId !== courseId || store.actingId || store.analysisCancelling || (store.generating && !analysisActive && !store.analysisResultPending) || (!analysisActive && !candidatesActive && !store.analysisResultPending)) return
       inFlight = true
-      try { await store.refreshProgress(courseId); if (store.courseId === courseId) store.progressDisconnected = false } catch { if (store.courseId === courseId) store.progressDisconnected = true }
+      try {
+        if (analysisActive || store.analysisResultPending) await store.refreshAnalysisProgress(courseId)
+        else await store.refreshProgress(courseId)
+        if (store.courseId === courseId) store.progressDisconnected = false
+      } catch { if (store.courseId === courseId) store.progressDisconnected = true }
       finally { inFlight = false }
     }, 1800)
     watcher = { courseId, refs: 0, timer }

@@ -299,15 +299,23 @@ async def run_analysis(manager: Any, job_id: str, *, service: Any = None) -> Non
             for item in state.change_sets
             if str(item.impact_summary.get("request_id") or "") == request_id
         )
-        detail = {"request_id": request_id, "plan_id": plan.change_set_id}
+        coverage = plan.impact_summary.get('coverage') or {}
+        pending = len(coverage.get('unscanned_unit_ids') or [])
+        detail = {**deepcopy((manager.tasks[job_id].get('phase_detail') or {})),
+                  'request_id': request_id, 'plan_id': plan.change_set_id,
+                  'analysis_outcome': 'incomplete' if pending else 'complete',
+                  'coverage': {key: coverage.get(key, 0) for key in ('scanned_units', 'indexed_units', 'retained_units')},
+                  'pending_units': pending}
+        message = (f"本次检查已结束，尚有 {pending} 项未完成，已保留成功结果"
+                   if pending else "整课影响分析完成")
         await manager._update_phase(
             job_id,
             "course_change_analysis",
             100,
-            "整课影响分析完成",
+            message,
             phase_detail=detail,
         )
-        await manager._update_task_status(job_id, "completed", message="整课影响分析完成")
+        await manager._update_task_status(job_id, "completed", message=message)
     except asyncio.CancelledError:
         raise
     except Exception as error:

@@ -69,6 +69,22 @@ describe('course evolution store', () => {
     expect(store.analysisTask?.id).toBe('new')
     expect(store.generating).toBe(true)
   })
+
+  it('retries loading a completed result without starting another analysis', async () => {
+    const store = useCourseEvolutionStore()
+    store.selectCourse('course-1')
+    store.applyAnalysisTask({ id: 'retry', status: 'running' } as any)
+    httpMock.get.mockResolvedValueOnce({ data: { id: 'retry', status: 'completed' } })
+    httpMock.get.mockRejectedValueOnce(new Error('temporary read failure'))
+    await expect(store.refreshAnalysisProgress('course-1')).rejects.toThrow('temporary read failure')
+    expect(store.analysisResultPending).toBe(true)
+    expect(store.generating).toBe(true)
+    httpMock.get.mockResolvedValueOnce({ data: { ...payload(), analysis_task: { id: 'retry', status: 'completed' } } })
+    await store.refreshAnalysisProgress('course-1')
+    expect(store.analysisResultPending).toBe(false)
+    expect(store.generating).toBe(false)
+    expect(httpMock.post).not.toHaveBeenCalled()
+  })
   it('discards old progress and context responses after switching away and back', async () => {
     let resolveProgress!: (value: any) => void
     let resolveContext!: (value: any) => void
