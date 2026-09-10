@@ -9,6 +9,7 @@ PAGE_REPAIR_SPLIT_TRIGGER_CHARS = 4000
 PAGE_REPAIR_SPLIT_TRIGGER_LINES = 80
 PAGE_REPAIR_UNIT_MAX_CHARS = 2000
 PAGE_REPAIR_UNIT_MIN_CHARS = 900
+PAGE_REPAIR_RETRY_UNIT_MAX_CHARS = 900
 _FENCE_RE = re.compile(r"(?:```|~~~)")
 
 
@@ -66,6 +67,39 @@ def page_repair_source_units(block_id: str, content: str) -> list[dict[str, Any]
     if "".join(text[item["source_start"]:item["source_end"]] for item in units) != text:
         raise ValueError("script_ppt_repair_unit_source_mismatch")
     return units
+
+
+def subdivide_page_repair_unit(
+    block_id: str,
+    content: str,
+    unit: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Split one provider-rejected unit once without changing its source span."""
+    start = int(unit["source_start"])
+    end = int(unit["source_end"])
+    if start < 0 or end <= start or end > len(content):
+        raise ValueError("script_ppt_repair_unit_checkpoint_invalid")
+    children = []
+    cursor = start
+    while cursor < end:
+        limit = min(end, cursor + PAGE_REPAIR_RETRY_UNIT_MAX_CHARS)
+        if limit < end:
+            boundaries = [match.end() for match in re.finditer(r"\n", content[cursor:limit])]
+            child_end = cursor + (boundaries[-1] if boundaries else limit - cursor)
+        else:
+            child_end = end
+        if child_end <= cursor:
+            child_end = limit
+        child = _unit(block_id, content, cursor, child_end)
+        child["split_depth"] = int(unit.get("split_depth") or 0) + 1
+        child["parent_repair_unit_id"] = unit["repair_unit_id"]
+        children.append(child)
+        cursor = child_end
+    if len(children) < 2:
+        return [unit]
+    if children[0]["source_start"] != start or children[-1]["source_end"] != end:
+        raise ValueError("script_ppt_repair_unit_source_mismatch")
+    return children
 
 
 def page_repair_unit_block(block: dict[str, Any], unit: dict[str, Any]) -> dict[str, Any]:

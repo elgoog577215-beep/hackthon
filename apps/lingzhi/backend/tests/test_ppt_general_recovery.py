@@ -88,6 +88,7 @@ def test_optional_text_with_only_a_valid_source_is_recovered():
 
 def test_provider_outage_does_not_fan_out_across_missing_page_groups():
     from ai_base import AIProviderRequestError
+    from teacher_script_ppt import PptPageProviderUnavailable
     template, contract, _ = sample()
     seed = seed_for(contract, TEXT, [])
     seed["ppt_page_groups"] = [[], [], []]
@@ -100,7 +101,7 @@ def test_provider_outage_does_not_fan_out_across_missing_page_groups():
     async def sleep(seconds):
         waits.append(seconds)
 
-    with pytest.raises(AIProviderRequestError):
+    with pytest.raises(PptPageProviderUnavailable):
         asyncio.run(generate_bundle(invoke=invoke, contract=contract, instructions="", template=template,
             seed_blocks={"b": seed}, immutable_handout=True, on_checkpoint=saved.append,
             provider_recovery_sleep=sleep))

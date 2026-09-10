@@ -120,7 +120,7 @@ def test_resume_skips_source_units_that_already_have_valid_pages():
     async def sleep(seconds):
         waits.append(seconds)
 
-    with pytest.raises(AIProviderRequestError):
+    with pytest.raises(PptPageProviderUnavailable):
         asyncio.run(generate_bundle(
             invoke=first_invoke,
             contract=contract,

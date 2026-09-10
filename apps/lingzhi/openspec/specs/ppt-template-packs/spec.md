@@ -80,7 +80,11 @@ The system SHALL record `ppt_page_recovery_v3` on newly recovered blocks. Fixed-
 
 #### Scenario: The provider is temporarily unavailable
 - **WHEN** a page repair encounters a provider timeout or unavailability
-- **THEN** the current checkpoint is retained, recovery performs at most one delayed provider retry per bundle within the page attempt limit, and repeated failure stops model calls to the remaining pages
+- **THEN** the current checkpoint is retained and recovery performs at most one delayed provider recovery window per bundle; a gateway-rejected source unit may be split once into smaller exact ranges, while repeated failure of the smaller range stops model calls to the remaining pages
+
+#### Scenario: A repair source unit is code dense
+- **WHEN** page repair prepares a prompt for a code source range
+- **THEN** the prompt includes at most three role-appropriate page forms, a bounded literal-source catalog including the exact full range, and an output budget derived from that range instead of the complete teaching block
 
 #### Scenario: A missing page group owns a large or code-dense source block
 - **WHEN** the frozen handout block exceeds the bounded page-repair input threshold
