@@ -40,6 +40,21 @@ beforeEach(() => {
 })
 
 describe('course evolution store', () => {
+  it('polls only the active task until its results need reconciliation', async () => {
+    const store = useCourseEvolutionStore()
+    store.selectCourse('course-1')
+    store.applyAnalysisTask({ id: 'retry', status: 'running' } as any)
+    httpMock.get.mockResolvedValueOnce({ data: { id: 'retry', status: 'running', progress: 40 } })
+    await store.refreshAnalysisProgress('course-1')
+    expect(httpMock.get).toHaveBeenCalledTimes(1)
+    expect(httpMock.get.mock.calls[0]![0]).toBe('/api/tasks/retry')
+    expect(store.analysisTask?.progress).toBe(40)
+    httpMock.get.mockResolvedValueOnce({ data: { id: 'retry', status: 'completed', phase_detail: { plan_id: 'plan-1' } } })
+    httpMock.get.mockResolvedValueOnce({ data: { ...payload(), analysis_task: { id: 'retry', status: 'completed' } } })
+    await store.refreshAnalysisProgress('course-1')
+    expect(httpMock.get.mock.calls[2]![0]).toContain('/evolution/progress')
+    expect(store.analysisResultPending).toBe(false)
+  })
   it('keeps submission authoritative over a background progress refresh', async () => {
     let finish!: (response: any) => void
     httpMock.post.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
