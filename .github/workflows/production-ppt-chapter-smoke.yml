@@ -1,4 +1,4 @@
-name: Verify completed lecture three PPT export
+name: Inspect approved lecture six PPT recovery
 
 on:
   workflow_dispatch:
@@ -24,7 +24,7 @@ concurrency:
 jobs:
   chapter-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 10
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -44,7 +44,7 @@ jobs:
           chmod 600 ~/.ssh/lingzhi_deploy
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Verify lecture three preview and PPTX while reserving lecture six
+      - name: Inspect lecture six job without application writes
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
@@ -53,4 +53,4 @@ jobs:
           ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            '/opt/lingzhi/.venv/bin/python -' < apps/lingzhi/scripts/verify_general_ppt_recovery.py
+            'python3 -' < apps/lingzhi/scripts/inspect_live_l1_6_job.py
