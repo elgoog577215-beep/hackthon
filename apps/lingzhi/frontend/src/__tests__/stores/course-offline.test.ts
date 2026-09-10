@@ -48,6 +48,18 @@ describe('course list offline continuity', () => {
     expect(http.get).toHaveBeenCalledWith('/api/teacher/courses', expect.any(Object))
   })
 
+  it('工作台后台刷新课程摘要时不发布重复的全局网络错误', async () => {
+    const store = useCourseStore()
+    vi.spyOn(http, 'get').mockResolvedValue({ data: [] } as any)
+
+    await store.fetchCourseList({ surface: 'teacher', background: true })
+
+    expect(http.get).toHaveBeenCalledWith(
+      '/api/teacher/courses',
+      expect.objectContaining({ silentError: true }),
+    )
+  })
+
   it('任务事件后只读刷新服务端生产投影，不创建新任务', async () => {
     const store = useCourseStore()
     store.courseList = [{ course_id: 'course-1', course_name: '线性代数', node_count: 16 }]
