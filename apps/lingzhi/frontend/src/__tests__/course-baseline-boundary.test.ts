@@ -32,7 +32,7 @@ describe('course workbench authoring boundary', () => {
     expect(workbench).not.toContain('class="course-information-entry"')
     expect(workspace).toContain('<CourseBaselineDialog')
     expect(workspace).toContain(':initial-envelope="courseInformationEnvelope"')
-    expect(workspace).toContain('void lessonStore.load(requestedCourseId)')
+    expect(workspace).toContain('await lessonStore.load(requestedCourseId)')
     expect(workspace).toContain('void Promise.allSettled([')
     expect(workspace).toContain('teacherReadRequestConfig')
     expect(references).toContain("data.append('course_id', props.courseId)")

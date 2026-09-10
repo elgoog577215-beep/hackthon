@@ -14,7 +14,7 @@ describe('calendar and course file-space boundary', () => {
 
     expect(criticalRead).toBeGreaterThan(0)
     expect(loadWorkspace.indexOf('await lessonStore.load(requestedCourseId')).toBeGreaterThan(criticalRead)
-    expect(loadWorkspace.indexOf("courseStore.fetchCourseList({ surface: 'teacher' })")).toBeGreaterThan(criticalRead)
+    expect(loadWorkspace.indexOf("courseStore.fetchCourseList({ surface: 'teacher'")).toBeGreaterThan(criticalRead)
     expect(loadWorkspace.indexOf('generationStore.fetchGlobalTasks()')).toBeGreaterThan(criticalRead)
     expect(loadWorkspace.indexOf('/course-information')).toBeGreaterThan(criticalRead)
   })

@@ -259,6 +259,7 @@ export const useCourseStore = defineStore('course', {
             const endpoint = surface === 'teacher' ? '/api/teacher/courses' : '/api/courses'
             const res = await http.get(endpoint, identityReadRequestConfig(
                 surface === 'teacher' ? 'teacher' : 'learner',
+                { silentError: options.background === true },
             ))
             this.courseList = res.data
             if (surface === 'teacher') {

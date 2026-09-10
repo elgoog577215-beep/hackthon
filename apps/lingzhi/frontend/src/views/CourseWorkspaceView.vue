@@ -256,17 +256,6 @@ async function loadWorkspace() {
   loadError.value = null
   courseInformationEnvelope.value = null
   try {
-    void Promise.allSettled([
-      courseStore.fetchCourseList({ surface: 'teacher' }),
-      generationStore.fetchGlobalTasks(),
-    ])
-    void lessonStore.load(requestedCourseId).catch(() => undefined)
-    void http.get(
-      `/api/courses/${requestedCourseId}/course-information`,
-      teacherReadRequestConfig({ silentError: true }),
-    ).then(response => {
-      if (courseId.value === requestedCourseId) courseInformationEnvelope.value = response.data
-    }).catch(() => undefined)
     const [courseResponse] = await Promise.all([
       http.get(
         `/api/courses/${requestedCourseId}`,
@@ -299,6 +288,19 @@ async function loadWorkspace() {
       prepareOutlineGeneration()
       void router.replace({ query: { ...route.query, generate: undefined } })
     }
+    loading.value = false
+    await lessonStore.load(requestedCourseId).catch(() => undefined)
+    if (courseId.value !== requestedCourseId || loadToken !== workspaceLoadToken) return
+    void Promise.allSettled([
+      courseStore.fetchCourseList({ surface: 'teacher', background: true }),
+      generationStore.fetchGlobalTasks(),
+      http.get(
+        `/api/courses/${requestedCourseId}/course-information`,
+        teacherReadRequestConfig({ silentError: true }),
+      ).then(response => {
+        if (courseId.value === requestedCourseId) courseInformationEnvelope.value = response.data
+      }),
+    ])
   } catch (error: any) {
     if (loadToken === workspaceLoadToken) loadError.value = toAppError(error, {
       title: t('courseFiles.loadFailed', '课程读取失败'),
