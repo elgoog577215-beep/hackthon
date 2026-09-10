@@ -117,6 +117,7 @@ class ReviewTeacherCourseChangeRequest(BaseModel):
 
     selected_migration_ids: list[str] = Field(max_length=2000)
     confirm_structure: bool = False
+    selection_only: bool = False
     migration_dispositions: dict[
         str,
         Literal["reuse_exact", "reuse_rebind", "rewrite_partial", "regenerate", "retire"],
@@ -279,6 +280,7 @@ async def review_teacher_course_plan(
             confirm_structure=body.confirm_structure,
             migration_dispositions=body.migration_dispositions,
             manual_content_edits=body.manual_content_edits,
+            selection_only=body.selection_only,
             proposed_outline=(
                 [item.model_dump(mode="json") for item in body.proposed_outline]
                 if body.proposed_outline is not None

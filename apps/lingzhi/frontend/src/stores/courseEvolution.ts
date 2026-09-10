@@ -604,6 +604,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       selectedMigrationIds: string[],
       options: {
         confirmStructure?: boolean
+        selectionOnly?: boolean
         migrationDispositions?: Record<string, TeacherMigrationDisposition>
         proposedOutline?: TeacherCourseOutlineReviewNode[]
         manualContentEdits?: Record<string, Record<string, string>>
@@ -620,6 +621,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
           {
             selected_migration_ids: selectedMigrationIds,
             confirm_structure: Boolean(options.confirmStructure),
+            ...(options.selectionOnly ? { selection_only: true } : {}),
             ...(options.migrationDispositions !== undefined
               ? { migration_dispositions: options.migrationDispositions }
               : {}),

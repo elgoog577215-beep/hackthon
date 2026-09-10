@@ -44,6 +44,7 @@ from .core import (
 from .text_fields import editable_text_fields
 from .semantic_scan import ScanProgress, scan_batches
 from .partial_review import incomplete, applied_units, retained_analysis, require_partial_selection
+from .content_patches import compile_patches, readable_body, refresh_exact_candidates, is_exact_text_operation
 
 COURSE_CHANGE_CONTEXT_SCHEMA = "teacher_course_change_context_v1"
 COURSE_CHANGE_INDEX_SCHEMA = "teacher_course_change_index_v1"
@@ -1743,24 +1744,15 @@ def _content_operations(
             continue
         before_block = CourseBlock.model_validate(raw_block)
         proposed = before_block.model_copy(deep=True)
-        change_count = 0
-        applied_patches: list[dict[str, Any]] = []
-        for patch in patches:
-            field = str(patch.get("field") or "")
-            before = str(patch.get("before") or "")
-            after = str(patch.get("after") or "")
-            current = proposed.payload.get(field)
-            if not isinstance(current, str) or not before or before not in current:
-                continue
-            occurrences = current.count(before)
-            if bool(patch.get("replace_all", True)):
-                proposed.payload[field] = current.replace(before, after)
-                applied = occurrences
-            else:
-                proposed.payload[field] = current.replace(before, after, 1)
-                applied = 1
-            change_count += applied
-            applied_patches.append({**patch, "occurrences": applied})
+        try:
+            proposed.payload, applied_patches, warnings = compile_patches(before_block.payload, patches,
+                literal=analysis.get('analysis_mode') == 'deterministic_exact_replace')
+        except ValueError as error:
+            migration.candidate_status = 'failed'
+            migration.metadata['candidate_error'] = str(error)
+            migration.metadata['candidate_error_detail'] = {'code': 'patch_conflict', 'retryable': False}
+            continue
+        change_count = sum(p['occurrences'] for p in applied_patches)
         if not change_count:
             migration.candidate_status = "failed"
             migration.metadata["candidate_error"] = "AI 修改片段未命中当前正式内容"
@@ -1772,7 +1764,9 @@ def _content_operations(
         migration.metadata.update({
             "operation_id": operation_id,
             "after_preview": _unit_text(proposed.payload, 360),
-            "after_content": "\n\n".join(after_fields.values()),
+            "before_content": readable_body(before_fields),
+            "after_content": readable_body(after_fields),
+            "candidate_warning": ' '.join(warnings),
             "before_fields": before_fields,
             "after_fields": after_fields,
             "change_count": change_count,
@@ -2386,11 +2380,13 @@ async def create_teacher_course_change_plan(
                 continue
             old_operation = next((o for o in superseded.operations
                                   if o.operation_id == old.metadata.get('operation_id')
-                                  and o.operation_type == 'REPLACE_COURSE_BLOCK'), None)
+                                  and is_exact_text_operation(o)), None)
             new_operation = next((o for o in executable_operations
                                   if o.operation_id == migration.metadata.get('operation_id')), None)
             if old_operation is not None and new_operation is not None:
                 new_operation.payload = deepcopy(old_operation.payload)
+                for runtime_key in ('candidate_id', 'base_revision_id', 'previous_revision_id', 'domain', 'action', 'lesson_unit_id'):
+                    new_operation.payload.pop(runtime_key, None)
                 for key in ('before_fields', 'after_fields', 'after_content', 'after_preview',
                             'change_count', 'manually_edited', 'manual_edit_fields'):
                     if key in old.metadata:
@@ -2477,6 +2473,8 @@ async def create_teacher_course_change_plan(
             "manually_edited": bool(item.metadata.get("manually_edited")),
             "change_count": int(item.metadata.get("change_count") or 0),
             "candidate_error": str(item.metadata.get("candidate_error") or ""),
+            "candidate_error_detail": deepcopy(item.metadata.get("candidate_error_detail") or {}),
+            "candidate_warning": str(item.metadata.get("candidate_warning") or ""),
         }
         for item in migrations
     ]
@@ -2573,6 +2571,12 @@ async def create_teacher_course_change_plan(
         created_at=timestamp,
         updated_at=timestamp,
     )
+    if superseded is not None and superseded.impact_summary.get('scope_selection'):
+        preference = superseded.impact_summary['scope_selection']
+        source_ids = set(preference.get('selected_source_unit_ids') or [])
+        selected_ids = [m.migration_id for m in plan.teacher_change_planning.unit_migrations if set(m.source_unit_ids).intersection(source_ids)]
+        plan.impact_summary['scope_selection'] = {**deepcopy(preference), 'selected_migration_ids': selected_ids,
+            'excluded_migration_ids': [m.migration_id for m in plan.teacher_change_planning.unit_migrations if m.migration_id not in selected_ids]}
     def append_if_absent(latest: CourseEvolutionState) -> CourseEvolutionState:
         if any(
             str(item.impact_summary.get("request_id") or "") == request_id
@@ -2614,6 +2618,59 @@ async def create_teacher_course_change_plan(
     return repository.update(user_id, context.course_id, append_if_absent)
 
 
+def _apply_manual_content_edits(plan, planning, selected, content_edits):
+    migrations_by_id = {m.migration_id: m for m in planning.unit_migrations}
+    for migration_id, edited_fields in content_edits.items():
+        migration = migrations_by_id[migration_id]
+        if migration_id not in selected:
+            raise ValueError("只能手动编辑已纳入本次修改的课程正文")
+        if migration.asset_type != "course_content":
+            raise ValueError("当前只支持手动编辑课程正文候选")
+        operation_id = str(migration.metadata.get("operation_id") or "")
+        operation = next(
+            (
+                item for item in plan.operations
+                if item.operation_id == operation_id
+                and is_exact_text_operation(item)
+            ),
+            None,
+        )
+        if operation is None or migration.candidate_status != "ready":
+            raise ValueError("课程正文候选尚未就绪，不能手动编辑")
+        before_block = CourseBlock.model_validate(operation.payload.get("before_block") or {})
+        proposed_block = CourseBlock.model_validate(operation.payload.get("proposed_block") or {})
+        before_fields = editable_text_fields(before_block.payload)
+        candidate_fields = editable_text_fields(proposed_block.payload)
+        unknown_paths = set(edited_fields).difference(candidate_fields)
+        if unknown_paths:
+            raise ValueError("手动编辑包含不可修改的正文位置")
+        for path, value in edited_fields.items():
+            _set_json_pointer(proposed_block.payload, path, value)
+        after_fields = editable_text_fields(proposed_block.payload)
+        literal_before = str((migration.metadata.get("literal_replacement") or {}).get("before") or "")
+        change_count = (
+            sum(
+                max(0, value.count(literal_before) - after_fields.get(path, "").count(literal_before))
+                for path, value in before_fields.items()
+            )
+            if literal_before
+            else sum(before_fields.get(path, "") != value for path, value in after_fields.items())
+        )
+        operation.payload["proposed_block"] = proposed_block.model_dump(mode="json")
+        operation.payload["manually_edited"] = True
+        operation.payload["manual_edit_fields"] = sorted(edited_fields)
+        migration.metadata.update({
+            "before_fields": before_fields,
+            "after_fields": after_fields,
+            "after_content": readable_body(after_fields),
+            "after_preview": _unit_text(proposed_block.payload, 360),
+            "change_count": change_count,
+            "manually_edited": True,
+            "manual_edit_fields": sorted(edited_fields),
+        })
+
+
+
 def review_teacher_course_change_scope(
     *,
     repository: CourseEvolutionRepository,
@@ -2626,6 +2683,7 @@ def review_teacher_course_change_scope(
     manual_content_edits: dict[str, dict[str, str]] | None = None,
     proposed_outline: list[dict[str, Any]] | None = None,
     context: TeacherCourseChangeContext | None = None,
+    selection_only: bool = False,
 ) -> CourseEvolutionState:
     """Persist teacher scope review without pretending content was applied."""
     selected = list(dict.fromkeys(str(value) for value in selected_migration_ids if str(value)))
@@ -2665,7 +2723,42 @@ def review_teacher_course_change_scope(
         if plan.status != "pending":
             raise ValueError("只能审阅尚未应用的课程方案")
         planning = plan.teacher_change_planning
+        if selection_only:
+            if confirm_structure or edited_outline is not None or disposition_overrides:
+                raise ValueError('保存选择不能同时确认结构或更改修改内容')
+            known = {m.migration_id for m in planning.unit_migrations}
+            if not set(selected).issubset(known):
+                raise ValueError('影响范围包含不属于本方案的课程单元')
+            previous_proposals = {op.operation_id: deepcopy(op.payload.get('proposed_block')) for op in plan.operations}
+            refresh_exact_candidates(plan, selected)
+            if content_edits:
+                from .partial_review import readiness
+                if incomplete(plan) and not set(content_edits).issubset(readiness(plan).get('editable_migration_ids') or []):
+                    raise ValueError('只能编辑原文已经完整检查且有明确建议的正文')
+                _apply_manual_content_edits(plan, planning, selected, content_edits)
+                for item in plan.impact_summary.get('affected_units') or []:
+                    migration = next((m for m in planning.unit_migrations if m.migration_id == item.get('migration_id')), None)
+                    if migration and migration.migration_id in content_edits:
+                        for key in ('before_fields', 'after_fields', 'after_content', 'after_preview', 'change_count', 'manually_edited', 'manual_edit_fields'):
+                            item[key] = deepcopy(migration.metadata.get(key))
+            current_proposals = {op.operation_id: op.payload.get('proposed_block') for op in plan.operations}
+            changed_operation_ids = {op_id for op_id, proposal in previous_proposals.items() if current_proposals.get(op_id) != proposal}
+            changed_migration_ids = {m.migration_id for m in planning.unit_migrations if m.metadata.get('operation_id') in changed_operation_ids}
+            approved = plan.impact_summary.get('scope_review') or {}
+            if approved and changed_operation_ids:
+                approved['selected_migration_ids'] = [value for value in approved.get('selected_migration_ids', []) if value not in changed_migration_ids]
+                approved['selected_operation_ids'] = [value for value in approved.get('selected_operation_ids', []) if value not in changed_operation_ids]
+                plan.selected_operation_ids = [value for value in plan.selected_operation_ids if value not in changed_operation_ids]
+            timestamp = _now()
+            plan.impact_summary['scope_selection'] = {'selected_migration_ids': selected,
+                'excluded_migration_ids': sorted(known.difference(selected)),
+                'selected_source_unit_ids': sorted({u for m in planning.unit_migrations if m.migration_id in selected for u in m.source_unit_ids}),
+                'saved_at': timestamp, 'formal_content_changed': False}
+            plan.review_revision += 1
+            plan.updated_at = state.updated_at = timestamp
+            return state
         require_partial_selection(plan, selected, structural=confirm_structure or edited_outline is not None)
+        refresh_exact_candidates(plan, selected)
         selection_changed = set(selected) != set((plan.impact_summary.get("scope_review") or {}).get("selected_migration_ids") or [])
         migrations_by_id = {
             item.migration_id: item
@@ -2837,14 +2930,14 @@ def review_teacher_course_change_scope(
                 for item in plan.operations
                 if item.operation_type == "APPLY_DOMAIN_CANDIDATE"
                 and str(item.payload.get("action") or "")
-                != "rebind_section_references"
+                not in {"rebind_section_references", "exact_script_block"}
             }
             plan.operations = [
                 item for item in plan.operations
                 if (
                     item.operation_type != "APPLY_DOMAIN_CANDIDATE"
                     or str(item.payload.get("action") or "")
-                    == "rebind_section_references"
+                    in {"rebind_section_references", "exact_script_block"}
                 )
             ]
             for migration in planning.unit_migrations:
@@ -2899,54 +2992,7 @@ def review_teacher_course_change_scope(
                 planning.status = "candidate_ready"
                 plan.generation_status = "ready"
 
-        for migration_id, edited_fields in content_edits.items():
-            migration = migrations_by_id[migration_id]
-            if migration_id not in selected:
-                raise ValueError("只能手动编辑已纳入本次修改的课程正文")
-            if migration.asset_type != "course_content":
-                raise ValueError("当前只支持手动编辑课程正文候选")
-            operation_id = str(migration.metadata.get("operation_id") or "")
-            operation = next(
-                (
-                    item for item in plan.operations
-                    if item.operation_id == operation_id
-                    and item.operation_type == "REPLACE_COURSE_BLOCK"
-                ),
-                None,
-            )
-            if operation is None or migration.candidate_status != "ready":
-                raise ValueError("课程正文候选尚未就绪，不能手动编辑")
-            before_block = CourseBlock.model_validate(operation.payload.get("before_block") or {})
-            proposed_block = CourseBlock.model_validate(operation.payload.get("proposed_block") or {})
-            before_fields = editable_text_fields(before_block.payload)
-            candidate_fields = editable_text_fields(proposed_block.payload)
-            unknown_paths = set(edited_fields).difference(candidate_fields)
-            if unknown_paths:
-                raise ValueError("手动编辑包含不可修改的正文位置")
-            for path, value in edited_fields.items():
-                _set_json_pointer(proposed_block.payload, path, value)
-            after_fields = editable_text_fields(proposed_block.payload)
-            literal_before = str((migration.metadata.get("literal_replacement") or {}).get("before") or "")
-            change_count = (
-                sum(
-                    max(0, value.count(literal_before) - after_fields.get(path, "").count(literal_before))
-                    for path, value in before_fields.items()
-                )
-                if literal_before
-                else sum(before_fields.get(path, "") != value for path, value in after_fields.items())
-            )
-            operation.payload["proposed_block"] = proposed_block.model_dump(mode="json")
-            operation.payload["manually_edited"] = True
-            operation.payload["manual_edit_fields"] = sorted(edited_fields)
-            migration.metadata.update({
-                "before_fields": before_fields,
-                "after_fields": after_fields,
-                "after_content": "\n\n".join(after_fields.values()),
-                "after_preview": _unit_text(proposed_block.payload, 360),
-                "change_count": change_count,
-                "manually_edited": True,
-                "manual_edit_fields": sorted(edited_fields),
-            })
+        _apply_manual_content_edits(plan, planning, selected, content_edits)
 
         affected_by_migration = {
             str(item.get("migration_id") or ""): item
@@ -2969,6 +3015,8 @@ def review_teacher_course_change_scope(
                 "literal_replacement": deepcopy(migration.metadata.get("literal_replacement") or {}),
                 "manually_edited": bool(migration.metadata.get("manually_edited")),
                 "candidate_error": str(migration.metadata.get("candidate_error") or ""),
+                "candidate_error_detail": deepcopy(migration.metadata.get("candidate_error_detail") or {}),
+                "candidate_warning": str(migration.metadata.get("candidate_warning") or ""),
                 "change_count": int(migration.metadata.get("change_count") or 0),
             })
         if confirm_structure:
@@ -3044,6 +3092,8 @@ def review_teacher_course_change_scope(
             plan.generation_status = "suggested"
             plan.generation_attempt_id = ""
         plan.review_revision += 1
+        if incomplete(plan):
+            planning.status = 'blocked'
         planning.updated_at = timestamp
         plan.updated_at = timestamp
         state.updated_at = timestamp

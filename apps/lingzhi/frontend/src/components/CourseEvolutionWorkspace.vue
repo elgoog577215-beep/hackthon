@@ -37,9 +37,9 @@
           <p v-if="store.progressDisconnected" class="workspace-status-error" role="status">{{ t('courseEvolution.workspace.progressDisconnected') }}</p>
           <p v-if="candidatesGenerating" class="workspace-status-progress" role="status"><LoaderCircle :size="16" class="spinning" />{{ t('courseEvolution.workspace.durableProgress') }}</p>
           <p v-if="focusedPlan?.impact_summary?.generation_error" class="workspace-status-error" role="alert">{{ focusedPlan.impact_summary.generation_error }}</p>
-          <p v-if="coverage && workspaceState !== 'request' && workspaceState !== 'scanning'" class="coverage-status">{{ t('courseEvolution.workspace.scanCoverage').replace('{done}', String(coverage.scanned_units ?? coverage.ranked_candidates ?? 0)).replace('{total}', String(coverage.indexed_units || 0)) }}</p>
+          <p v-if="coverage && workspaceState !== 'request' && workspaceState !== 'scanning' && !detailItem" class="coverage-status">{{ t('courseEvolution.workspace.scanCoverage').replace('{done}', String(coverage.scanned_units ?? coverage.ranked_candidates ?? 0)).replace('{total}', String(coverage.indexed_units || 0)) }}</p>
           <div class="workspace-stage" :class="{ 'is-review': workspaceState === 'content' }">
-            <section v-if="partialActive && workspaceState !== 'request'" class="partial-review-banner" data-testid="partial-review-banner">
+            <section v-if="partialActive && workspaceState !== 'request' && !detailItem" class="partial-review-banner" data-testid="partial-review-banner">
               <div class="partial-status-copy">
                 <strong>{{ decisionRequired ? t('courseEvolution.workspace.decisionsNeeded') : t('courseEvolution.workspace.partialReviewTitle') }}</strong>
                 <template v-if="store.generating">
@@ -176,6 +176,45 @@
               </section>
             </main>
 
+            <CourseChangeDetailView v-else-if="workspaceState === 'content' && detailItem" :title="detailItem.title" :subtitle="impactSectionLabel(detailItem)" @back="closeDetail">
+              <template #actions>
+                <button v-if="canManuallyEdit(detailItem) && hasTitleChange(detailItem)" type="button" class="button-secondary" :disabled="store.generating || Boolean(store.actingId)" @click="preserveOriginalTitle(detailItem)">{{ t('courseEvolution.workspace.preserveOriginalTitle') }}</button>
+                <button v-if="detailItem.requires_patch_refresh" type="button" class="button-primary" :disabled="store.generating || Boolean(store.actingId)" @click="refreshDetailCandidate(detailItem)">{{ t('courseEvolution.workspace.refreshDetailCandidate') }}</button>
+                <label class="detail-select"><input type="checkbox" :checked="isUnitSelected(detailItem.migration_id)" :disabled="store.generating || candidatesGenerating || Boolean(store.actingId)" @change="toggleUnit(detailItem.migration_id)" />{{ t('courseEvolution.workspace.includeThisChange') }}</label>
+                <button v-if="canManuallyEdit(detailItem)" type="button" :class="detailItem.requires_patch_refresh ? 'button-secondary' : 'button-primary'" :data-testid="`edit-candidate-${detailItem.migration_id}`" :disabled="store.generating || candidatesGenerating || Boolean(store.actingId)" @click="openCandidateEditor(detailItem)">{{ t('courseEvolution.workspace.manualEdit') }}</button>
+                <button v-if="selectionPreferenceDirty" type="button" class="button-secondary" :disabled="store.generating || Boolean(store.actingId)" @click="saveScopeSelection">{{ t('courseEvolution.workspace.saveSelection') }}</button>
+              </template>
+              <template v-for="item in [detailItem]" :key="item.migration_id">
+                <p v-if="!canUseMigration(item.migration_id)" class="detail-waiting">{{ partialItemLabel(item.migration_id) }}</p>
+                <p v-if="item.candidate_warning" class="detail-waiting">{{ item.candidate_warning }}</p>
+                      <p class="impact-reason">{{ item.reason }}</p>
+                      <div v-if="editingCandidateId !== item.migration_id && (item.after_content || item.after_preview) && item.candidate_status === 'ready'" class="candidate-diff">
+                        <section class="source-preview">
+                          <small>{{ t('courseEvolution.workspace.beforeChange', '修改前') }}</small>
+                          <p v-if="item.literal_replacement?.before"><template v-for="(part, index) in highlightedTextParts(item, 'before')" :key="`before-${index}`"><mark v-if="part.changed" class="diff-highlight is-before">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></p>
+                          <MarkdownRenderer v-else :content="item.before_content || item.before_preview || ''" :enable-code-run="false" />
+                        </section>
+                        <ArrowRight :size="16" />
+                        <section class="source-preview is-after">
+                          <header class="source-preview-header"><small>{{ t('courseEvolution.workspace.afterChange', '修改后') }}</small><span v-if="item.manually_edited">{{ t('courseEvolution.workspace.manuallyEdited', '已手动调整') }}</span></header>
+                          <p v-if="item.literal_replacement?.before"><template v-for="(part, index) in highlightedTextParts(item, 'after')" :key="`after-${index}`"><mark v-if="part.changed" class="diff-highlight is-after">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></p>
+                          <MarkdownRenderer v-else :content="item.after_content || item.after_preview || ''" :enable-code-run="false" />
+                        </section>
+                      </div>
+                      <section v-else-if="editingCandidateId !== item.migration_id && item.before_preview" class="source-preview"><small>{{ t('courseEvolution.workspace.currentSource', '当前内容摘录') }}</small><MarkdownRenderer :content="item.before_content || item.before_preview" :enable-code-run="false" /></section>
+                      <details v-if="editingCandidateId !== item.migration_id && secondaryFieldChanges(item).length" class="detail-field-changes"><summary>{{ t('courseEvolution.workspace.otherFieldChanges') }}</summary><div v-for="field in secondaryFieldChanges(item)" :key="field.path"><strong>{{ candidateFieldLabel(field.path) }}</strong><p>{{ field.before || '—' }} → {{ field.after || '—' }}</p></div></details>
+                      <form v-if="editingCandidateId === item.migration_id" class="candidate-editor" :data-testid="`candidate-editor-${item.migration_id}`" @submit.prevent="saveCandidateEdit(item)">
+                        <header><div><strong>{{ t('courseEvolution.workspace.manualEditTitle', '手动调整修改后内容') }}</strong><small>{{ t('courseEvolution.workspace.manualEditHint', '这里只改当前这一条；其他替换结果保持不变。') }}</small></div><button type="button" class="icon-action" :aria-label="t('common.cancel', '取消')" @click="closeCandidateEditor"><X :size="16" /></button></header>
+                        <label v-for="(value, path) in candidateDraft" :key="path"><span>{{ candidateFieldLabel(path) }}</span><textarea :value="value" rows="5" @input="updateCandidateDraft(path, ($event.target as HTMLTextAreaElement).value)" /></label>
+                        <footer><button type="button" class="button-quiet" @click="closeCandidateEditor">{{ t('common.cancel', '取消') }}</button><button type="submit" class="button-primary" :data-testid="`save-candidate-${item.migration_id}`" :disabled="store.generating || Boolean(store.actingId)"><LoaderCircle v-if="store.actingId" :size="14" class="spinning" /><Check v-else :size="14" />{{ t('courseEvolution.workspace.saveManualEdit', '保存这一条') }}</button></footer>
+                      </form>
+                      <footer><span v-if="item.source_state === 'stale'"><TriangleAlert :size="13" />{{ t('courseEvolution.workspace.sourceStale', '来源与当前课程版本不一致') }}</span><span v-else-if="item.operation_id && candidateReviewReady"><CircleCheckBig :size="13" />{{ item.change_count }} {{ t('courseEvolution.workspace.exactChanges', '处精确修改') }}</span><span>{{ confidenceLabel(item.confidence) }}</span></footer>
+                      <CourseChangeCandidateDetails :item="item" :outline="context?.outline || []" />
+
+                      <p v-if="item.candidate_error" class="candidate-error"><TriangleAlert :size="13" />{{ item.candidate_error }}<button v-if="item.candidate_error_detail?.retryable !== false && canUseMigration(item.migration_id)" type="button" :disabled="store.generating || candidatesGenerating" @click="retryCandidateFailures">{{ t('courseEvolution.workspace.retryThisFailure', '重试失败项') }}</button><button v-else-if="decisionRequired" type="button" :disabled="store.generating" @click="openDecisionResolution">{{ t('courseEvolution.workspace.resolveDecisions') }}</button><button v-else-if="item.candidate_error_detail?.retryable === false" type="button" :disabled="store.generating" @click="openCorrection">{{ t('courseEvolution.workspace.answerAndReanalyze') }}</button></p>
+              </template>
+            </CourseChangeDetailView>
+
             <div v-else-if="workspaceState === 'content'" class="review-layout">
               <aside class="impact-nav">
                 <header><small>{{ t('courseEvolution.workspace.impactScope', '影响范围') }}</small><strong>{{ affectedUnits.length }} {{ impactUnitNoun }}</strong><p>{{ analysisModeLabel }}</p></header>
@@ -189,44 +228,23 @@
                   <label><Search :size="14" /><input v-model="impactQuery" type="search" :placeholder="t('courseEvolution.workspace.searchAffected', '搜索标题、内容或原因')" /></label>
                   <select v-model="selectedSection" :aria-label="t('courseEvolution.workspace.filterBySection', '按章节筛选')"><option value="">{{ t('courseEvolution.workspace.allSections', '全部章节') }}</option><option v-for="section in affectedSections" :key="section.id" :value="section.id">{{ section.label }}</option></select>
                   <span>{{ visibleAffectedUnits.length }} {{ t('courseEvolution.workspace.visibleItems', '项') }}</span>
-                  <button type="button" class="button-quiet compact-action" :disabled="store.generating || !visibleAffectedUnits.some(item => canUseMigration(item.migration_id))" @click="selectVisibleUnits(true)">{{ t('courseEvolution.workspace.includeVisible', '纳入当前结果') }}</button>
-                  <button type="button" class="button-quiet compact-action" :disabled="store.generating || !visibleAffectedUnits.some(item => canUseMigration(item.migration_id))" @click="selectVisibleUnits(false)">{{ t('courseEvolution.workspace.excludeVisible', '排除当前结果') }}</button>
+                  <button type="button" class="button-quiet compact-action" :disabled="store.generating || candidatesGenerating || !visibleAffectedUnits.length" @click="selectVisibleUnits(true)">{{ t('courseEvolution.workspace.includeVisible', '纳入当前结果') }}</button>
+                  <button type="button" class="button-quiet compact-action" :disabled="store.generating || candidatesGenerating || !visibleAffectedUnits.length" @click="selectVisibleUnits(false)">{{ t('courseEvolution.workspace.excludeVisible', '排除当前结果') }}</button>
                 </div>
                 <div class="impact-list">
                   <article v-for="item in visibleAffectedUnits" :key="item.migration_id" :class="{ excluded: canUseMigration(item.migration_id) && !isUnitSelected(item.migration_id), waiting: !canUseMigration(item.migration_id) }">
-                    <label class="impact-check"><input type="checkbox" :aria-label="item.title" :checked="isUnitSelected(item.migration_id)" :disabled="!canUseMigration(item.migration_id) || store.generating || candidatesGenerating || Boolean(store.actingId)" @change="toggleUnit(item.migration_id)" /><span /></label>
+                    <label class="impact-check"><input type="checkbox" :aria-label="item.title" :checked="isUnitSelected(item.migration_id)" :disabled="store.generating || candidatesGenerating || Boolean(store.actingId)" @change="toggleUnit(item.migration_id)" /><span /></label>
                     <p v-if="partialActive" class="partial-item-status">{{ partialItemLabel(item.migration_id) }}</p>
                     <div class="impact-copy">
                       <header><div><small>{{ assetLabel(item.asset_type) }}<template v-if="impactSectionLabel(item)"> · {{ impactSectionLabel(item) }}</template></small><h4>{{ item.title }}</h4></div><label class="disposition-control"><span>{{ t('courseEvolution.workspace.handlingMethod', '处理方式') }}</span><select :disabled="store.generating || !canUseMigration(item.migration_id)" :value="effectiveDisposition(item)" @change="setDisposition(item, ($event.target as HTMLSelectElement).value)"><option v-for="option in dispositionOptions(item)" :key="option.value" :value="option.value">{{ option.label }}</option></select></label></header>
-                      <button type="button" class="impact-expand button-secondary" :data-testid="`expand-impact-${item.migration_id}`" :aria-expanded="showImpactBody(item)" @click="toggleImpactBody(item)">{{ showImpactBody(item) ? t('courseEvolution.workspace.collapseImpact') : t('courseEvolution.workspace.expandImpact') }}</button>
-                      <div v-if="showImpactBody(item)" class="impact-expanded-body">
-                      <p class="impact-reason">{{ item.reason }}</p>
-                      <div v-if="(item.after_content || item.after_preview) && item.candidate_status === 'ready'" class="candidate-diff">
-                        <section class="source-preview">
-                          <small>{{ t('courseEvolution.workspace.beforeChange', '修改前') }}</small>
-                          <p><template v-for="(part, index) in highlightedTextParts(item, 'before')" :key="`before-${index}`"><mark v-if="part.changed" class="diff-highlight is-before">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></p>
-                        </section>
-                        <ArrowRight :size="16" />
-                        <section class="source-preview is-after">
-                          <header class="source-preview-header"><small>{{ t('courseEvolution.workspace.afterChange', '修改后') }}</small><span v-if="item.manually_edited">{{ t('courseEvolution.workspace.manuallyEdited', '已手动调整') }}</span><button v-if="canManuallyEdit(item)" type="button" class="candidate-edit-trigger" :data-testid="`edit-candidate-${item.migration_id}`" :disabled="candidatesGenerating || Boolean(store.actingId)" @click="openCandidateEditor(item)"><PencilLine :size="13" />{{ t('courseEvolution.workspace.manualEdit', '手动编辑') }}</button></header>
-                          <p><template v-for="(part, index) in highlightedTextParts(item, 'after')" :key="`after-${index}`"><mark v-if="part.changed" class="diff-highlight is-after">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></p>
-                        </section>
-                      </div>
-                      <section v-else-if="item.before_preview" class="source-preview"><small>{{ t('courseEvolution.workspace.currentSource', '当前内容摘录') }}</small><MarkdownRenderer :content="item.before_content || item.before_preview" :enable-code-run="false" /></section>
-                      <form v-if="editingCandidateId === item.migration_id" class="candidate-editor" :data-testid="`candidate-editor-${item.migration_id}`" @submit.prevent="saveCandidateEdit(item)">
-                        <header><div><strong>{{ t('courseEvolution.workspace.manualEditTitle', '手动调整修改后内容') }}</strong><small>{{ t('courseEvolution.workspace.manualEditHint', '这里只改当前这一条；其他替换结果保持不变。') }}</small></div><button type="button" class="icon-action" :aria-label="t('common.cancel', '取消')" @click="closeCandidateEditor"><X :size="16" /></button></header>
-                        <label v-for="(value, path) in candidateDraft" :key="path"><span>{{ candidateFieldLabel(path) }}</span><textarea :value="value" rows="5" @input="updateCandidateDraft(path, ($event.target as HTMLTextAreaElement).value)" /></label>
-                        <footer><button type="button" class="button-quiet" @click="closeCandidateEditor">{{ t('common.cancel', '取消') }}</button><button type="submit" class="button-primary" :data-testid="`save-candidate-${item.migration_id}`" :disabled="store.generating || Boolean(store.actingId)"><LoaderCircle v-if="store.actingId" :size="14" class="spinning" /><Check v-else :size="14" />{{ t('courseEvolution.workspace.saveManualEdit', '保存这一条') }}</button></footer>
-                      </form>
-                      <footer><span v-if="item.source_state === 'stale'"><TriangleAlert :size="13" />{{ t('courseEvolution.workspace.sourceStale', '来源与当前课程版本不一致') }}</span><span v-else-if="item.operation_id && candidateReviewReady"><CircleCheckBig :size="13" />{{ item.change_count }} {{ t('courseEvolution.workspace.exactChanges', '处精确修改') }}</span><span>{{ confidenceLabel(item.confidence) }}</span></footer>
-                      <CourseChangeCandidateDetails :item="item" :outline="context?.outline || []" />
-                      </div>
+                      <button type="button" class="impact-expand button-secondary" :data-testid="`expand-impact-${item.migration_id}`" :data-migration-id="item.migration_id" @click="openDetail(item)">{{ t('courseEvolution.workspace.expandImpact') }}</button>
+
                       <p v-if="item.candidate_error" class="candidate-error"><TriangleAlert :size="13" />{{ item.candidate_error }}<button v-if="item.candidate_error_detail?.retryable !== false && canUseMigration(item.migration_id)" type="button" :disabled="store.generating || candidatesGenerating" @click="retryCandidateFailures">{{ t('courseEvolution.workspace.retryThisFailure', '重试失败项') }}</button><button v-else-if="decisionRequired" type="button" :disabled="store.generating" @click="openDecisionResolution">{{ t('courseEvolution.workspace.resolveDecisions') }}</button><button v-else-if="item.candidate_error_detail?.retryable === false" type="button" :disabled="store.generating" @click="openCorrection">{{ t('courseEvolution.workspace.answerAndReanalyze') }}</button></p>
                     </div>
                   </article>
                   <p v-if="!visibleAffectedUnits.length" class="empty-impact">{{ t('courseEvolution.workspace.noAffectedForAsset', '这一类资产没有被判定为必改内容。') }}</p>
                 </div>
-                <footer class="review-actionbar"><div><strong v-if="scopeSaved && !reviewDirty"><CircleCheckBig :size="16" />{{ t('courseEvolution.workspace.scopeConfirmed', '预计影响已确认') }}</strong><strong v-else-if="reviewDirty"><PencilLine :size="16" />{{ t('courseEvolution.workspace.reviewEdited', '已调整，建议需要更新') }}</strong><p>{{ candidateReviewReady ? t('courseEvolution.workspace.applyBoundary', '只应用勾选且已形成精确建议的项目；其余内容保持不变。') : t('courseEvolution.workspace.reviewBoundary', '确认影响范围后才会生成具体修改方案；当前正式课程没有变化。') }}</p></div><button type="button" class="button-danger" :disabled="store.generating || store.actingId === focusedPlan?.change_set_id" @click="discardPlan">{{ discardConfirm ? t('courseEvolution.workspace.confirmDiscard', '再次点击确认放弃') : t('courseEvolution.workspace.discardPlan', '放弃方案') }}</button><button v-if="hasRetryableCandidateFailures && !reviewDirty && (!partialActive || selectedImpactCount > 0)" type="button" class="button-secondary" :disabled="store.generating || candidatesGenerating || store.actingId === focusedPlan?.change_set_id" @click="retryCandidateFailures"><RefreshCw :size="14" />{{ t('courseEvolution.workspace.retryFailedOnly', '只重试失败项') }}</button><button v-if="candidateReviewReady" type="button" class="button-primary" :disabled="store.generating || candidatesGenerating || store.actingId === focusedPlan?.change_set_id || selectedApplicableCount === 0" @click="applyCourseChange"><LoaderCircle v-if="store.actingId === focusedPlan?.change_set_id" :size="15" class="spinning" /><Check v-else :size="15" />{{ applySelectedLabel }}</button><button v-else-if="hasNonRetryableCandidateFailures && !reviewDirty" type="button" class="button-primary" @click="openCorrection">{{ t('courseEvolution.workspace.answerAndReanalyze') }}</button><button v-else type="button" class="button-primary" :disabled="store.generating || candidatesGenerating || store.actingId === focusedPlan?.change_set_id || (selectedImpactCount === 0 && !decisionRequired)" @click="saveScopeReview"><LoaderCircle v-if="store.actingId === focusedPlan?.change_set_id" :size="15" class="spinning" /><Check v-else :size="15" />{{ decisionRequired && selectedImpactCount === 0 ? t('courseEvolution.workspace.resolveDecisions') : scopeSaved ? t('courseEvolution.workspace.saveAndRefreshCandidates', '保存并更新建议') : t('courseEvolution.workspace.confirmScope', '确认影响范围') }}</button></footer>
+                <footer class="review-actionbar"><div><strong v-if="selectionPreference && !selectionPreferenceDirty && !scopeSaved">{{ t('courseEvolution.workspace.selectionSaved') }}</strong><strong v-else-if="scopeSaved && !reviewDirty"><CircleCheckBig :size="16" />{{ t('courseEvolution.workspace.scopeConfirmed', '预计影响已确认') }}</strong><strong v-else-if="reviewDirty"><PencilLine :size="16" />{{ t('courseEvolution.workspace.reviewEdited', '已调整，建议需要更新') }}</strong><p>{{ candidateReviewReady ? t('courseEvolution.workspace.applyBoundary', '只应用勾选且已形成精确建议的项目；其余内容保持不变。') : t('courseEvolution.workspace.reviewBoundary', '确认影响范围后才会生成具体修改方案；当前正式课程没有变化。') }}</p></div><button v-if="partialActive && selectionPreferenceDirty" type="button" class="button-secondary" data-testid="save-scope-selection" :disabled="store.generating || Boolean(store.actingId)" @click="saveScopeSelection">{{ t('courseEvolution.workspace.saveSelection') }}</button><button type="button" class="button-danger" :disabled="store.generating || store.actingId === focusedPlan?.change_set_id" @click="discardPlan">{{ discardConfirm ? t('courseEvolution.workspace.confirmDiscard', '再次点击确认放弃') : t('courseEvolution.workspace.discardPlan', '放弃方案') }}</button><button v-if="hasRetryableCandidateFailures && !reviewDirty && (!partialActive || selectedImpactCount > 0)" type="button" class="button-secondary" :disabled="store.generating || candidatesGenerating || store.actingId === focusedPlan?.change_set_id" @click="retryCandidateFailures"><RefreshCw :size="14" />{{ t('courseEvolution.workspace.retryFailedOnly', '只重试失败项') }}</button><button v-if="candidateReviewReady" type="button" class="button-primary" :disabled="store.generating || candidatesGenerating || store.actingId === focusedPlan?.change_set_id || selectedApplicableCount === 0" @click="applyCourseChange"><LoaderCircle v-if="store.actingId === focusedPlan?.change_set_id" :size="15" class="spinning" /><Check v-else :size="15" />{{ applySelectedLabel }}</button><button v-else-if="hasNonRetryableCandidateFailures && !reviewDirty" type="button" class="button-primary" @click="openCorrection">{{ t('courseEvolution.workspace.answerAndReanalyze') }}</button><button v-else type="button" class="button-primary" :disabled="store.generating || candidatesGenerating || Boolean(store.actingId) || (!reviewedMigrationIds().length && !selectionPreferenceDirty && !decisionRequired)" @click="saveScopeReview"><LoaderCircle v-if="store.actingId === focusedPlan?.change_set_id" :size="15" class="spinning" /><Check v-else :size="15" />{{ reviewActionLabel }}</button></footer>
               </section>
             </div>
 
@@ -254,12 +272,13 @@ import { createUuid } from '../utils/client-id'
 import { activeLocale, t } from '../shared/i18n'
 import UiSegmentedControl from './UiSegmentedControl.vue'
 import CourseChangeCandidateDetails from './CourseChangeCandidateDetails.vue'
+import CourseChangeDetailView from './CourseChangeDetailView.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import { useCourseEvolutionStore, observeCourseChangeProgress, type CourseChangeClarificationAnswerInput, type CourseEvolutionApplicationPresentation, type CourseEvolutionPlan, type TeacherCourseChangeContext, type TeacherCourseOutlineReviewNode, type TeacherMigrationDisposition } from '../stores/courseEvolution'
 
 type WorkspaceState = 'request' | 'scanning' | 'interpreting' | 'content' | 'structure' | 'applied'
 type ContextAsset = TeacherCourseChangeContext['assets'][number]
-type AffectedUnit = { migration_id: string; unit_id: string; asset_type: string; unit_type: string; title: string; before_preview: string; before_content?: string; before_fields?: Record<string, string>; after_content?: string; after_preview?: string; after_fields?: Record<string, string>; literal_replacement?: { before?: string; after?: string }; manually_edited?: boolean; section_ids: string[]; source_state: string; disposition: string; reason: string; confidence: number; candidate_status: string; candidate_error?: string; candidate_error_detail?: { retryable?: boolean }; operation_id?: string; change_count?: number }
+type AffectedUnit = { migration_id: string; unit_id: string; asset_type: string; unit_type: string; title: string; before_preview: string; before_content?: string; before_fields?: Record<string, string>; after_content?: string; after_preview?: string; after_fields?: Record<string, string>; literal_replacement?: { before?: string; after?: string }; manually_edited?: boolean; section_ids: string[]; source_state: string; disposition: string; reason: string; confidence: number; candidate_status: string; candidate_error?: string; candidate_warning?: string; requires_patch_refresh?: boolean; candidate_error_detail?: { retryable?: boolean }; operation_id?: string; change_count?: number }
 type HighlightPart = { text: string; changed: boolean }
 
 const props = withDefaults(defineProps<{ modelValue: boolean; courseId: string; sectionId?: string; courseTitle?: string; sectionTitle?: string; focusPlanId?: string; standalone?: boolean; embeddedInCenter?: boolean; initialMode?: 'replace' | 'structure' }>(), { sectionId: '', courseTitle: '', sectionTitle: '', focusPlanId: '', standalone: false, embeddedInCenter: false, initialMode: 'structure' })
@@ -295,12 +314,22 @@ const partialPreview = computed(() => partialActive.value && Boolean(partialGate
 const decisionRequired = computed(() => Boolean(planning.value?.intent.blocking_questions?.length))
 const decisionResolutionOpen = ref(false)
 const decisionResolutionText = ref('')
-const expandedImpactIds = ref<Record<string, boolean>>({})
-function showImpactBody(item: AffectedUnit) {
-  return expandedImpactIds.value[item.migration_id] ?? (item.candidate_status === 'ready'
-    && String(item.before_content || item.before_preview || '').length + String(item.after_content || item.after_preview || '').length < 1600)
+const detailMigrationId = ref('')
+const detailItem = computed(() => affectedUnits.value.find(item => item.migration_id === detailMigrationId.value) || null)
+let impactScrollTop = 0
+function openDetail(item: AffectedUnit) {
+  impactScrollTop = workspaceRef.value?.querySelector('.impact-list')?.scrollTop || 0
+  detailMigrationId.value = item.migration_id
 }
-function toggleImpactBody(item: AffectedUnit) { expandedImpactIds.value = { ...expandedImpactIds.value, [item.migration_id]: !showImpactBody(item) } }
+function closeDetail() {
+  const id = detailMigrationId.value
+  detailMigrationId.value = ''
+  nextTick(() => {
+    const list = workspaceRef.value?.querySelector('.impact-list')
+    if (list) list.scrollTop = impactScrollTop
+    Array.from(workspaceRef.value?.querySelectorAll<HTMLButtonElement>('.impact-expand') || []).find(button => button.dataset.migrationId === id)?.focus({ preventScroll: true })
+  })
+}
 function impactSectionLabel(item: AffectedUnit) { return [...new Set((item.section_ids || []).map(id => outlineLabelById.value.get(id)).filter(Boolean))].join(' · ') }
 const scanResumeLabel = computed(() => t('courseEvolution.workspace.scanResumeSummary')
   .replace('{retained}', String(scanProgress.value?.retained_units ?? coverage.value?.scanned_units ?? 0))
@@ -419,7 +448,7 @@ const visibleAffectedUnits = computed(() => {
 })
 const selectedAssetLabel = computed(() => affectedAssets.value.find(item => item.key === selectedAsset.value)?.label || '')
 const selectedImpactCount = computed(() => affectedUnits.value.filter(item => isUnitSelected(item.migration_id)).length)
-const selectedApplicableOperationIds = computed(() => Array.from(new Set(affectedUnits.value.filter(item => isUnitSelected(item.migration_id) && item.operation_id && !['reuse_exact', 'reuse_rebind'].includes(effectiveDisposition(item))).map(item => String(item.operation_id)))))
+const selectedApplicableOperationIds = computed(() => Array.from(new Set(affectedUnits.value.filter(item => canUseMigration(item.migration_id) && isUnitSelected(item.migration_id) && item.operation_id && item.change_count !== 0 && !['reuse_exact', 'reuse_rebind'].includes(effectiveDisposition(item))).map(item => String(item.operation_id)))))
 const structureOperationIds = computed(() => (focusedPlan.value?.operations || []).filter(item => ['RESEQUENCE_COURSE_PATH', 'REBUILD_COURSE_OUTLINE'].includes(item.operation_type)).map(item => item.operation_id))
 const selectedApplicableCount = computed(() => selectedApplicableOperationIds.value.length)
 const structureApplicableCount = computed(() => new Set([...selectedApplicableOperationIds.value, ...structureOperationIds.value]).size)
@@ -439,6 +468,12 @@ const reviewImpactTitle = computed(() => isIndexFallback.value
     ? t('courseEvolution.workspace.reviewExactReplace', '核对每一处精确替换')
     : t('courseEvolution.workspace.reviewImpact', '核对 AI 为什么认为这些内容会受影响'))
 const scopeReview = computed(() => focusedPlan.value?.impact_summary?.scope_review || null)
+const selectionPreference = computed(() => focusedPlan.value?.impact_summary?.scope_selection || null)
+const savedPreferenceIds = computed(() => new Set<string>((selectionPreference.value?.selected_migration_ids || scopeReview.value?.selected_migration_ids || affectedUnits.value.filter(item => canUseMigration(item.migration_id)).map(item => item.migration_id)).map(String)))
+const selectionPreferenceDirty = computed(() => affectedUnits.value.some(item => savedPreferenceIds.value.has(item.migration_id) !== isUnitSelected(item.migration_id)))
+const reviewActionLabel = computed(() => !reviewedMigrationIds().length
+  ? t(selectionPreferenceDirty.value ? 'courseEvolution.workspace.saveSelection' : decisionRequired.value ? 'courseEvolution.workspace.resolveDecisions' : 'courseEvolution.workspace.selectionSaved')
+  : scopeSaved.value ? t('courseEvolution.workspace.saveAndRefreshCandidates') : t('courseEvolution.workspace.confirmScope'))
 const scopeSaved = computed(() => scopeAlreadyReviewed.value)
 const savedSelectedMigrationIds = computed(() => new Set<string>(scopeSaved.value ? (scopeReview.value?.selected_migration_ids || []).map(String) : affectedUnits.value.map(item => item.migration_id)))
 const selectionDirty = computed(() => affectedUnits.value.some(item => canUseMigration(item.migration_id) && savedSelectedMigrationIds.value.has(item.migration_id) !== isUnitSelected(item.migration_id)))
@@ -451,8 +486,8 @@ const currentJourneyStep = computed(() => {
   if (workspaceState.value === 'structure') return candidateReviewReady.value ? 4 : 3
   return ({ request: 1, scanning: 2, interpreting: 2, applied: 4 })[workspaceState.value]
 })
-const hasRetryableCandidateFailures = computed(() => affectedUnits.value.some(item => (item.candidate_status === 'failed' || Boolean(item.candidate_error)) && item.candidate_error_detail?.retryable !== false))
-const hasNonRetryableCandidateFailures = computed(() => affectedUnits.value.some(item => item.candidate_status === 'failed' && item.candidate_error_detail?.retryable === false))
+const hasRetryableCandidateFailures = computed(() => affectedUnits.value.some(item => isUnitSelected(item.migration_id) && canUseMigration(item.migration_id) && (item.candidate_status === 'failed' || Boolean(item.candidate_error)) && item.candidate_error_detail?.retryable !== false))
+const hasNonRetryableCandidateFailures = computed(() => affectedUnits.value.some(item => isUnitSelected(item.migration_id) && canUseMigration(item.migration_id) && item.candidate_status === 'failed' && item.candidate_error_detail?.retryable === false))
 const changeKindLabel = computed(() => {
   const kind = planning.value?.execution_strategies.includes('structural_regeneration') ? t('courseEvolution.workspace.structureChange', '结构变化') : t('courseEvolution.workspace.contentChange', '内容变化')
   return planning.value?.supersedes_plan_id ? `${kind} · ${t('courseEvolution.workspace.revisedPlan', '新版本')}` : kind
@@ -520,10 +555,10 @@ const listSeparator = computed(() => activeLocale.value === 'en' ? '; ' : '；')
 watch(affectedAssets, items => { if (!items.some(item => item.key === selectedAsset.value)) selectedAsset.value = items[0]?.key || '' }, { immediate: true })
 watch(selectedAsset, () => { selectedSection.value = '' })
 watch(() => focusedPlan.value?.change_set_id, () => {
-  expandedImpactIds.value = {}
+  detailMigrationId.value = ''
   decisionResolutionOpen.value = false
-  const saved = scopeReview.value?.excluded_migration_ids
-  excludedUnitIds.value = new Set(Array.isArray(saved) ? saved.map(String) : [])
+  const saved = selectionPreference.value?.excluded_migration_ids || scopeReview.value?.excluded_migration_ids
+  excludedUnitIds.value = new Set(Array.isArray(saved) ? saved.map(String) : affectedUnits.value.filter(item => !canUseMigration(item.migration_id)).map(item => item.migration_id))
   dispositionOverrides.value = {}
   editingCandidateId.value = ''
   candidateDraft.value = {}
@@ -575,16 +610,23 @@ function setDisposition(item: AffectedUnit, value: string) {
   dispositionOverrides.value = { ...dispositionOverrides.value, [item.migration_id]: value as TeacherMigrationDisposition }
 }
 function canManuallyEdit(item: AffectedUnit) {
-  return canUseMigration(item.migration_id) && item.asset_type === 'course_content'
+  return (!partialActive.value || (partialGate.value?.editable_migration_ids || partialGate.value?.eligible_migration_ids || []).includes(item.migration_id)) && item.asset_type === 'course_content'
     && item.candidate_status === 'ready'
     && Boolean(item.operation_id)
     && isUnitSelected(item.migration_id)
     && Boolean(Object.keys(item.after_fields || {}).length)
 }
-function openCandidateEditor(item: AffectedUnit) {
+async function openCandidateEditor(item: AffectedUnit) {
   if (!canManuallyEdit(item)) return
+  if (item.requires_patch_refresh) {
+    await refreshDetailCandidate(item)
+    item = affectedUnits.value.find(value => value.migration_id === item.migration_id) || item
+    if (item.requires_patch_refresh) return
+  }
   editingCandidateId.value = item.migration_id
-  candidateDraft.value = { ...(item.after_fields || {}) }
+  const fields = item.after_fields || {}
+  const primary = ['/markdown', '/text', '/content'].find(key => fields[key])
+  candidateDraft.value = Object.fromEntries(Object.entries(fields).filter(([key, value]) => !primary || key === primary || (value !== item.before_fields?.[key] && value !== fields[primary])))
   nextTick(() => document.querySelector<HTMLTextAreaElement>(`[data-testid="candidate-editor-${item.migration_id}"] textarea`)?.focus())
 }
 function closeCandidateEditor() {
@@ -617,10 +659,14 @@ async function saveCandidateEdit(item: AffectedUnit) {
   if (!canManuallyEdit(item) || editingCandidateId.value !== item.migration_id) return
   const edits = { ...candidateDraft.value }
   await runPlanAction(async (plan, isCurrent) => {
-    await store.reviewCoursePlan(plan.change_set_id, reviewedMigrationIds(), {
-      migrationDispositions: reviewedDispositions(),
-      manualContentEdits: { [item.migration_id]: edits },
-    })
+    await persistSelection(plan)
+    if (!canUseMigration(item.migration_id)) {
+      await store.reviewCoursePlan(plan.change_set_id, selectedMigrationIds(), { selectionOnly: true, manualContentEdits: { [item.migration_id]: edits } })
+    } else {
+      await store.reviewCoursePlan(plan.change_set_id, reviewedMigrationIds(), {
+        migrationDispositions: reviewedDispositions(), manualContentEdits: { [item.migration_id]: edits },
+      })
+    }
     if (isCurrent()) closeCandidateEditor()
   }, t('courseEvolution.workspace.manualEditFailed', '手动修改保存失败，请重试。'))
 }
@@ -664,8 +710,8 @@ function validateOutlineDraft(nodes: TeacherCourseOutlineReviewNode[]) {
     return true
   })
 }
-function isUnitSelected(id: string) { return canUseMigration(id) && !excludedUnitIds.value.has(id) }
-function toggleUnit(id: string) { if (!canUseMigration(id)) return; const next = new Set(excludedUnitIds.value); if (next.has(id)) next.delete(id); else { next.add(id); if (editingCandidateId.value === id) closeCandidateEditor() } excludedUnitIds.value = next }
+function isUnitSelected(id: string) { return !excludedUnitIds.value.has(id) }
+function toggleUnit(id: string) { const next = new Set(excludedUnitIds.value); if (next.has(id)) next.delete(id); else { next.add(id); if (editingCandidateId.value === id) closeCandidateEditor() } excludedUnitIds.value = next }
 function selectVisibleUnits(include: boolean) { const next = new Set(excludedUnitIds.value); visibleAffectedUnits.value.forEach(item => include ? next.delete(item.migration_id) : next.add(item.migration_id)); excludedUnitIds.value = next }
 function resetOutlineDraft() { outlineDraft.value = normalizeOutline(focusedPlan.value?.impact_summary?.proposed_outline) }
 function subtreeIds(node: TeacherCourseOutlineReviewNode) {
@@ -738,11 +784,18 @@ async function submitDecisionResolution() {
   if (!decisionResolutionText.value.trim()) return
   const requestId = createUuid()
   await runPlanAction(async (plan, isCurrent) => {
+    await persistSelection(plan)
     const result = await store.createCoursePlan({ courseId: props.courseId, requestId,
       instruction: decisionResolutionText.value.trim(), supersedesPlanId: plan.change_set_id,
       assetTypes: planAssetTypes(plan), confirmedInterpretation: true })
     if (isCurrent()) { decisionResolutionOpen.value = false; if (!result.analysis_task) selectCreatedPlan(result, requestId) }
   }, t('courseEvolution.workspace.analysisFailed'))
+}
+function secondaryFieldChanges(item: AffectedUnit) {
+  const fields = item.after_fields || {}
+  const primary = ['/markdown', '/text', '/content'].find(key => fields[key])
+  return Object.entries(fields).filter(([key, value]) => key !== primary && value !== item.before_fields?.[key] && (!primary || value !== fields[primary]))
+    .map(([path, after]) => ({ path, after, before: item.before_fields?.[path] || '' }))
 }
 function planAssetTypes(plan: CourseEvolutionPlan) {
   return plan.impact_summary?.request_asset_types
@@ -753,6 +806,7 @@ async function submitCorrection() {
   const requestId = createUuid(), courseId = props.courseId
   const combined = `${rawRequest.value}\n补充修正：${correctionText.value.trim()}`.trim()
   await runPlanAction(async (plan, isCurrent) => {
+    await persistSelection(plan)
     const result = await store.createCoursePlan({ courseId, requestId, instruction: combined, supersedesPlanId: plan.change_set_id, assetTypes: planAssetTypes(plan) })
     if (isCurrent()) { correctionOpen.value = false; if (!result.analysis_task) selectCreatedPlan(result, requestId) }
   }, '重新分析失败，请重试。')
@@ -760,6 +814,7 @@ async function submitCorrection() {
 async function confirmUnderstanding() {
   const requestId = createUuid(), courseId = props.courseId
   await runPlanAction(async (plan, isCurrent) => {
+    await persistSelection(plan)
     const result = await store.createCoursePlan({
       courseId,
       requestId,
@@ -774,6 +829,7 @@ async function confirmUnderstanding() {
 async function retryIncompleteScan() {
   const requestId = createUuid(), courseId = props.courseId
   await runPlanAction(async (plan, isCurrent) => {
+    await persistSelection(plan)
     const result = await store.createCoursePlan({
       courseId,
       requestId,
@@ -820,6 +876,7 @@ async function confirmClarificationAnswers() {
   if (!clarificationAnswersReady.value) return
   const requestId = createUuid(), courseId = props.courseId
   await runPlanAction(async (plan, isCurrent) => {
+    await persistSelection(plan)
     const result = await store.createCoursePlan({
       courseId,
       requestId,
@@ -832,7 +889,26 @@ async function confirmClarificationAnswers() {
     if (isCurrent() && !result.analysis_task) selectCreatedPlan(result, requestId)
   }, t('courseEvolution.workspace.confirmUnderstandingFailed', '确认理解失败，请重试。'))
 }
-function reviewedMigrationIds() { return affectedUnits.value.filter(item => isUnitSelected(item.migration_id)).map(item => item.migration_id) }
+function selectedMigrationIds() { return affectedUnits.value.filter(item => isUnitSelected(item.migration_id)).map(item => item.migration_id) }
+function reviewedMigrationIds() { return affectedUnits.value.filter(item => canUseMigration(item.migration_id) && isUnitSelected(item.migration_id)).map(item => item.migration_id) }
+async function persistSelection(plan: CourseEvolutionPlan) {
+  if (selectionPreferenceDirty.value) await store.reviewCoursePlan(plan.change_set_id, selectedMigrationIds(), { selectionOnly: true })
+}
+async function saveScopeSelection() {
+  await runPlanAction(async plan => { await store.reviewCoursePlan(plan.change_set_id, selectedMigrationIds(), { selectionOnly: true }) }, t('courseEvolution.workspace.saveSelectionFailed'))
+}
+async function refreshDetailCandidate(item: AffectedUnit) {
+  if (!isUnitSelected(item.migration_id)) toggleUnit(item.migration_id)
+  await saveScopeSelection()
+}
+function hasTitleChange(item: AffectedUnit) { return Boolean(item.before_fields?.['/title'] && item.after_fields?.['/title'] !== item.before_fields['/title']) }
+async function preserveOriginalTitle(item: AffectedUnit) {
+  if (!hasTitleChange(item)) return
+  if (!isUnitSelected(item.migration_id)) toggleUnit(item.migration_id)
+  await runPlanAction(async plan => {
+    await store.reviewCoursePlan(plan.change_set_id, selectedMigrationIds(), { selectionOnly: true, manualContentEdits: { [item.migration_id]: { '/title': item.before_fields!['/title']! } } })
+  }, t('courseEvolution.workspace.manualEditFailed'))
+}
 function reviewedDispositions() { return Object.fromEntries(affectedUnits.value.filter(item => canUseMigration(item.migration_id)).map(item => [item.migration_id, effectiveDisposition(item)]).filter(([, disposition]) => disposition !== 'blocked')) as Record<string, TeacherMigrationDisposition> }
 let pendingActionEpoch: number | null = null
 async function runPlanAction(action: (plan: CourseEvolutionPlan, isCurrent: () => boolean) => Promise<void>, fallback: string) {
@@ -846,9 +922,14 @@ async function runPlanAction(action: (plan: CourseEvolutionPlan, isCurrent: () =
   finally { if (pendingActionEpoch === epoch) pendingActionEpoch = null }
 }
 async function saveScopeReview() {
-  if (decisionRequired.value && selectedImpactCount.value === 0) { openDecisionResolution(); return }
+  if (!reviewedMigrationIds().length) {
+    if (selectionPreferenceDirty.value) await saveScopeSelection()
+    else if (decisionRequired.value) openDecisionResolution()
+    return
+  }
   const structural = structuralPlan.value && !partialActive.value
   await runPlanAction(async (plan, isCurrent) => {
+    await persistSelection(plan)
     await store.reviewCoursePlan(plan.change_set_id, reviewedMigrationIds(), { migrationDispositions: reviewedDispositions() })
     if (isCurrent() && !structural) await store.generateSuggested(plan.change_set_id)
   }, '影响范围确认或建议生成失败，请重试。')
@@ -890,7 +971,7 @@ async function discardPlan() {
 function startNewRequest() { forceRequest.value = true; selectedPlanId.value = ''; requestText.value = ''; correctionOpen.value = false; actionError.value = ''; store.generationError = ''; nextTick(() => requestInputRef.value?.focus()) }
 function openPlan(id: string) { selectedPlanId.value = id; forceRequest.value = false }
 function close() { emit('update:modelValue', false); nextTick(() => previousFocus.value?.focus()) }
-function handleKeydown(event: KeyboardEvent) { if (event.key === 'Escape') { event.preventDefault(); close(); return } if (standalone.value || event.key !== 'Tab' || !workspaceRef.value) return; const focusable = [...workspaceRef.value.querySelectorAll<HTMLElement>('button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')].filter(item => !item.hasAttribute('hidden')); if (!focusable.length) { event.preventDefault(); workspaceRef.value.focus(); return } const first = focusable[0]!; const last = focusable[focusable.length - 1]!; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() } }
+function handleKeydown(event: KeyboardEvent) { if (event.key === 'Escape') { event.preventDefault(); if (detailMigrationId.value) closeDetail(); else close(); return } if (standalone.value || event.key !== 'Tab' || !workspaceRef.value) return; const focusable = [...workspaceRef.value.querySelectorAll<HTMLElement>('button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')].filter(item => !item.hasAttribute('hidden')); if (!focusable.length) { event.preventDefault(); workspaceRef.value.focus(); return } const first = focusable[0]!; const last = focusable[focusable.length - 1]!; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() } }
 function showHistory() { forceRequest.value = true; nextTick(() => historyRef.value?.scrollIntoView({ block: 'start' })) }
 defineExpose({ reloadWorkspace, openPlan, startNewRequest, showHistory })
 </script>
@@ -1015,5 +1096,8 @@ defineExpose({ reloadWorkspace, openPlan, startNewRequest, showHistory })
 .protected-scope{display:block;font-size:15px}.protected-scope summary{cursor:pointer}.protected-scope ul{padding-left:20px;line-height:1.6}
 .impact-expand{margin-top:8px}.impact-expanded-body{margin-top:12px}.impact-expanded-body>footer{display:flex;gap:12px;margin-top:10px;font-size:15px}
 .impact-list article.waiting{opacity:1}.impact-list article.waiting .impact-copy{color:#344054}
+.detail-select{display:flex;align-items:center;gap:8px;font-size:15px}.detail-select input{width:18px;height:18px;accent-color:#5148dc}
+.detail-waiting{padding:10px 14px;background:#faf7ec;border-radius:8px;color:#7a5717;font-size:15px}
+.detail-field-changes{margin:18px 0;font-size:15px}.detail-field-changes summary{cursor:pointer}.detail-field-changes p{white-space:pre-wrap}
 @media(max-width:900px){.partial-review-banner{align-items:flex-start;gap:10px;flex-wrap:wrap}.partial-status-actions{flex-wrap:wrap}}
 </style>

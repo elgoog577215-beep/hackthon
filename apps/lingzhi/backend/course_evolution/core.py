@@ -906,6 +906,8 @@ def accept_change_set(
         change_set = _change_set(state, change_set_id)
     from .partial_review import incomplete, require_partial_operations
     require_partial_operations(change_set, selected_operation_ids)
+    from .content_patches import require_current_patch_preview
+    require_current_patch_preview(change_set, selected_operation_ids)
     clarification_digest = str(
         change_set.impact_summary.get("clarification_answer_digest") or ""
     )
@@ -1031,7 +1033,14 @@ def accept_change_set(
     _ensure_operation_journal(change_set, accepted_domain_operation_ids)
 
     current_vector = revision_vector_for_document(document).revisions
+    owned_text_only = bool(accepted_operation_id_set) and all(
+        op.operation_type == 'APPLY_DOMAIN_CANDIDATE' and op.payload.get('action') == 'exact_script_block'
+        for op in eligible_operations if op.operation_id in accepted_operation_id_set)
     for key, revision in change_set.base_revision_vector.items():
+        if owned_text_only and (key == 'course_document' or key.startswith(('block:', 'section:'))):
+            # Owner writes change the derived document. Each exact text command
+            # verifies its own live block; outline/objective checks still apply.
+            continue
         if key in current_vector and current_vector[key] != revision:
             change_set.status = "stale"
             change_set.updated_at = _now()
@@ -2254,6 +2263,19 @@ def course_evolution_view(
         plan['impact_summary']['partial_review'] = readiness(source)
         plan['impact_summary'].pop('scan_analysis', None)
         plan['impact_summary'].pop('scan_unit_index', None)
+        from .content_patches import readable_body
+        for item in plan['impact_summary'].get('affected_units') or []:
+            if item.get('asset_type') == 'course_content':
+                for side in ('before', 'after'):
+                    fields = item.get(f'{side}_fields')
+                    if isinstance(fields, dict) and fields:
+                        item[f'{side}_content'] = readable_body(fields)
+                from .content_patches import require_current_patch_preview
+                try:
+                    require_current_patch_preview(source, [str(item.get('operation_id') or '')])
+                except ValueError:
+                    item['requires_patch_refresh'] = True
+                    item['candidate_warning'] = '此旧建议需要整理重复或冲突的修改片段，请先整理后再审阅。'
     payload["view_schema_version"] = "course_evolution_v2"
     payload["course_evolution_plans"] = deepcopy(payload["change_sets"])
     payload["adaptation_plans"] = deepcopy(payload["change_sets"])

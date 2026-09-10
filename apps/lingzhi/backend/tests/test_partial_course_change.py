@@ -127,6 +127,7 @@ async def test_partial_review_cannot_bypass_real_dependencies(tmp_path, barrier)
     elif barrier == 'teacher_question':
         plan.teacher_change_planning.intent.blocking_questions = ['教师需要决定范围']
         plan.teacher_change_planning.intent.can_proceed_without_clarification = False
+        migration.candidate_status = 'not_started'
     elif barrier == 'unknown_coverage':
         plan.impact_summary['coverage']['source_revisions'] = {}
     else:

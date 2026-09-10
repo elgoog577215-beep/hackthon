@@ -142,6 +142,14 @@ def _persist_journal_entry(
         )
         if stored_plan is None:
             raise KeyError(plan.change_set_id)
+        source_operation = next((op for op in plan.operations if op.operation_id == snapshot.operation_id), None)
+        if source_operation is not None and source_operation.payload.get('action') == 'exact_script_block':
+            stored_operation = next(op for op in stored_plan.operations if op.operation_id == snapshot.operation_id)
+            if stored_plan.review_revision != plan.review_revision or stored_operation.payload.get('proposed_block') != source_operation.payload.get('proposed_block'):
+                raise ValueError('应用期间修改建议已变化，已停止写入')
+            for key in ('candidate_id', 'base_revision_id', 'previous_revision_id'):
+                if key in source_operation.payload:
+                    stored_operation.payload[key] = deepcopy(source_operation.payload[key])
         index = next(
             (
                 index
@@ -1148,7 +1156,8 @@ async def generate_teacher_course_change_candidates(
         failed = sum(item.candidate_status == "failed" for item in migrations)
         planning = plan.teacher_change_planning
         if planning is not None:
-            planning.status = "candidate_ready" if plan.operations else "blocked"
+            from .partial_review import incomplete
+            planning.status = "candidate_ready" if plan.operations and not incomplete(plan) else "blocked"
             planning.updated_at = _now()
         plan.generation_status = "generating" if partial else ("ready" if plan.operations else "failed")
         plan.impact_summary["affected_units"] = [
@@ -1268,6 +1277,7 @@ def _apply_script_candidate(
     candidate_id: str,
     repository: TeacherLessonAuthoringRepository,
     result_revision_id_override: str = "",
+    require_valid: bool = False,
 ) -> str:
     lesson = repository.lesson(course_id, lesson_id)
     candidate = repository.script_ai_candidate(course_id, lesson_id, candidate_id)
@@ -1328,6 +1338,8 @@ def _apply_script_candidate(
         normalized = normalize_teacher_script_section(candidate_section, contract)
         normalized["quality_report"] = validate_teacher_script_section(normalized, contract)
         normalized_sections.append(normalized)
+    if require_valid and any(not s.get('quality_report', {}).get('passed') for s in normalized_sections):
+        raise ValueError('修改后的讲义与当前教案不一致，已保留原讲义，请核对环节标题和内容')
     saved = repository.save_script_revision(
         course_id,
         lesson_id,
@@ -2191,6 +2203,13 @@ def build_domain_candidate_applier(
                     )
                     receipt["result_revision_id"] = str(lesson.get("working_revision_id") or "")
                 elif domain == "script":
+                    if action == 'exact_script_block':
+                        from .exact_authoring import prepare_exact_candidate
+                        exact_candidate = prepare_exact_candidate(operation=operation, plan=plan, course_id=course_id, course_data=course_data, repository=authoring_repository)
+                        entry.previous_revision_id = exact_candidate['base_revision_id']
+                        receipt['previous_revision_id'] = entry.previous_revision_id
+                        receipt['candidate_id'] = exact_candidate['candidate_id']
+                        _persist_journal_entry(plan, entry, repository=journal_repository)
                     receipt["result_revision_id"] = _apply_script_candidate(
                         course_data=course_data,
                         user_id=user_id,
@@ -2201,6 +2220,7 @@ def build_domain_candidate_applier(
                         result_revision_id_override=(
                             entry.expected_result_revision_id
                         ),
+                        require_valid=action == 'exact_script_block',
                     )
                 elif domain == "ppt" and payload.get("action") == "edit_manuscript":
                     from .manuscript_changes import apply_manuscript_candidate
@@ -2530,13 +2550,19 @@ def build_domain_candidate_undoer(
                         actor=user_id,
                     )
                 elif domain == "script":
-                    authoring_repository.rollback_script_revision(
+                    live_revision = str(authoring_repository.lesson(course_id, lesson_id).get('working_script_revision_id') or '')
+                    item['lesson_unit_id'] = lesson_id
+                    prior_restore = next((done for done in reversed(items) if done.get('status') == 'undone'
+                        and done.get('domain') == 'script' and done.get('lesson_unit_id') == lesson_id
+                        and done.get('previous_revision_id') == result and done.get('restored_revision_id') == live_revision), None)
+                    restored = authoring_repository.rollback_script_revision(
                         course_id,
                         lesson_id,
                         previous,
-                        expected_working_revision_id=result,
+                        expected_working_revision_id=live_revision if prior_restore else result,
                         actor=user_id,
                     )
+                    item['restored_revision_id'] = str(restored.get('working_script_revision_id') or '')
                 elif domain == "ppt" and payload.get("action") == "edit_manuscript":
                     from .manuscript_changes import apply_manuscript_candidate
                     apply_manuscript_candidate(authoring_repository, course_id, payload, undo=True)

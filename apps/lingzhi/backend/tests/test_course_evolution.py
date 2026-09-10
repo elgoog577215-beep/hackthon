@@ -2553,6 +2553,7 @@ def test_course_evolution_api_commits_the_reviewed_course_revision(
     repository = CourseEvolutionRepository(tmp_path)
     document_repository = _document_repository(course)
     monkeypatch.setattr(course_evolution, "course_evolution_repository", repository)
+    monkeypatch.setattr(evolution_router, "course_evolution_repository", repository)
     monkeypatch.setattr(
         evolution_router,
         "get_course_document_repository",

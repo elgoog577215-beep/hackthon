@@ -208,6 +208,7 @@ class CourseEvolutionApplicationService:
         migration_dispositions: dict[str, str] | None = None,
         manual_content_edits: dict[str, dict[str, str]] | None = None,
         proposed_outline: list[dict[str, Any]] | None = None,
+        selection_only: bool = False,
     ) -> Any:
         context = self.teacher_context(course_id) if proposed_outline is not None else None
         return review_teacher_course_change_scope(
@@ -221,6 +222,7 @@ class CourseEvolutionApplicationService:
             manual_content_edits=manual_content_edits,
             proposed_outline=proposed_outline,
             context=context,
+            selection_only=selection_only,
         )
 
     async def generate_suggested(
@@ -271,6 +273,10 @@ class CourseEvolutionApplicationService:
         selected_operation_ids: list[str] | None,
         retry_failed: bool = False,
     ) -> Any:
+        from .exact_authoring import route_exact_operations
+        route_exact_operations(course_data=course_data, user_id=user_id, change_set_id=change_set_id,
+            operation_ids=selected_operation_ids, evolution_repository=self.evolution_repository,
+            authoring_repository=self.authoring_repository)
         applier = build_domain_candidate_applier(
             course_data=course_data,
             user_id=user_id,
@@ -298,6 +304,7 @@ class CourseEvolutionApplicationService:
                 selected_operation_ids=selected_operation_ids,
                 document_repository=self.document_repository,
                 domain_candidate_applier=applier,
+                repository=self.evolution_repository,
             )
         )
         return self._record_representation_sync(state, change_set_id, receipt_key="application_receipt")
@@ -317,6 +324,7 @@ class CourseEvolutionApplicationService:
             change_set_id=change_set_id,
             document_repository=self.document_repository,
             domain_candidate_undoer=undoer,
+            repository=self.evolution_repository,
         )
         return self._record_representation_sync(state, change_set_id, receipt_key="undo_receipt")
 

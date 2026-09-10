@@ -157,6 +157,7 @@ describe('CourseEvolutionWorkspace', () => {
     expect(wrapper.text()).not.toContain('不得默认铺开的完整长正文')
     await wrapper.get('[data-testid="expand-impact-m1"]').trigger('click')
     expect(wrapper.text()).toContain('不得默认铺开的完整长正文')
+    await wrapper.get('[data-testid="back-to-impact-list"]').trigger('click')
     expect(wrapper.get('.impact-list article').classes()).not.toContain('excluded')
     wrapper.unmount()
   })
@@ -306,7 +307,8 @@ describe('CourseEvolutionWorkspace', () => {
     expect(wrapper.get('.request-context').text()).toContain('本次目标')
     expect(wrapper.findAll('.impact-nav nav button')).toHaveLength(2)
     await wrapper.get('.impact-expand').trigger('click')
-    expect(wrapper.get('.impact-list').text()).toContain('原讲稿只介绍方法')
+    expect(wrapper.get('[data-testid="course-change-detail"]').text()).toContain('原讲稿只介绍方法')
+    await wrapper.get('[data-testid="back-to-impact-list"]').trigger('click')
     await wrapper.get('.impact-check input').setValue(false)
     expect(wrapper.get('.scope-counts').text()).toContain('排除1')
     await wrapper.get('.review-actionbar .button-primary').trigger('click')
@@ -468,7 +470,7 @@ describe('CourseEvolutionWorkspace', () => {
     wrapper.unmount()
   })
 
-  it('部分完成时先展示结果，只能勾选独立就绪项，补查明确绑定原方案', async () => {
+  it('部分完成时可预选待处理项，补查明确绑定原方案', async () => {
     const pinia = createPinia()
     const store = useCourseEvolutionStore(pinia)
     store.plans = [plan({
@@ -487,7 +489,7 @@ describe('CourseEvolutionWorkspace', () => {
     expect(wrapper.find('.review-layout').exists()).toBe(true)
     expect(wrapper.get('[data-testid="partial-review-banner"]').text()).toContain('已完成结果可以先审阅')
     expect(wrapper.get('input[aria-label="已完成案例"]').attributes('disabled')).toBeUndefined()
-    expect(wrapper.get('input[aria-label="等待检查案例"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('input[aria-label="等待检查案例"]').attributes('disabled')).toBeUndefined()
     await wrapper.get('[data-testid="partial-rescan"]').trigger('click')
     expect(create).toHaveBeenCalledWith(expect.objectContaining({supersedesPlanId: 'change-1', rescanIncompleteOnly: true}))
     wrapper.unmount()
@@ -612,8 +614,10 @@ describe('CourseEvolutionWorkspace', () => {
     const accept = vi.spyOn(store, 'accept').mockResolvedValue({} as any)
     const wrapper = mountWorkspace(pinia)
 
+    await wrapper.get('[data-testid="expand-impact-m1"]').trigger('click')
     expect(wrapper.get('.candidate-diff').text()).toContain('先画受力图')
     expect(wrapper.get('.candidate-diff').text()).toContain('先画自由体图')
+    await wrapper.get('[data-testid="back-to-impact-list"]').trigger('click')
     expect(wrapper.get('.review-actionbar .button-primary').text()).toContain('应用 1 项修改')
     await wrapper.get('.review-actionbar .button-primary').trigger('click')
     expect(accept).toHaveBeenCalledWith('change-1', 'current', ['op-exact'])
@@ -645,6 +649,7 @@ describe('CourseEvolutionWorkspace', () => {
     const review = vi.spyOn(store, 'reviewCoursePlan').mockResolvedValue({} as any)
     const wrapper = mountWorkspace(pinia)
 
+    await wrapper.get('[data-testid="expand-impact-m1"]').trigger('click')
     expect(wrapper.findAll('.diff-highlight.is-before')).toHaveLength(2)
     expect(wrapper.findAll('.diff-highlight.is-after')).toHaveLength(2)
     await wrapper.get('[data-testid="edit-candidate-m1"]').trigger('click')

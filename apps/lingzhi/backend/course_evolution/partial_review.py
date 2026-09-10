@@ -12,6 +12,23 @@ def incomplete(plan: Any) -> bool:
     ))
 
 
+def independent_text_edit(plan: Any, migration: Any, *, allow_title: bool = False) -> bool:
+    from .content_patches import is_exact_text_operation
+    if migration.asset_type != 'course_content' or migration.disposition != 'rewrite_partial' or migration.candidate_status != 'ready':
+        return False
+    operation = next((op for op in plan.operations if op.operation_id == migration.metadata.get('operation_id')), None)
+    if operation is None or not is_exact_text_operation(operation) or migration.metadata.get('structure_dependency_blocked'):
+        return False
+    before = operation.payload.get('before_block') or {}
+    after = operation.payload.get('proposed_block') or {}
+    if not allow_title and (before.get('payload') or {}).get('title') != (after.get('payload') or {}).get('title'):
+        return False
+    return bool(before.get('block_id') and before.get('section_id')
+                and before.get('block_id') == operation.target_block_id
+                and before.get('section_id') == operation.target_section_id
+                and {k: v for k, v in before.items() if k != 'payload'} == {k: v for k, v in after.items() if k != 'payload'})
+
+
 def readiness(plan: Any) -> dict[str, Any]:
     planning = plan.teacher_change_planning
     if planning is None or not incomplete(plan):
@@ -30,18 +47,25 @@ def readiness(plan: Any) -> dict[str, Any]:
     for _ in parents:
         affected_structure.update(k for k, v in parents.items() if v in affected_structure)
     unknown_structure = ('structural_regeneration' in planning.execution_strategies and not planning.structural_operations)
-    eligible, waiting = [], {}
+    eligible, waiting, editable = [], {}, []
     for migration in planning.unit_migrations:
+        local_edit = independent_text_edit(plan, migration)
         sources = set(migration.source_unit_ids)
+        if sources and sources.issubset(scanned) and migration.metadata.get('source_state') != 'stale' and independent_text_edit(plan, migration, allow_title=True):
+            editable.append(migration.migration_id)
         scope = set(migration.dependency_ids) | {str(migration.metadata.get('parent_id') or '')}
         reason = ''
         if not sources or not sources.issubset(scanned):
             reason = 'source_unscanned'
         elif migration.metadata.get('source_state') == 'stale':
             reason = 'source_stale'
-        elif planning.intent.blocking_questions:
+        elif migration.migration_id in editable and not local_edit:
+            reason = 'title_dependency'
+        elif unknown_structure:
+            reason = 'structure_dependency'
+        elif planning.intent.blocking_questions and not local_edit:
             reason = 'teacher_decision'
-        elif unknown_structure or scope.intersection(affected_structure):
+        elif scope.intersection(affected_structure) and not local_edit:
             reason = 'structure_dependency'
         elif migration.asset_type == 'outline' or migration.disposition in {'retire', 'reuse_rebind', 'blocked'}:
             reason = 'shared_scope'
@@ -66,7 +90,7 @@ def readiness(plan: Any) -> dict[str, Any]:
             waiting[migration.migration_id] = reason
         else:
             eligible.append(migration.migration_id)
-    return {'incomplete': True, 'eligible_migration_ids': eligible, 'waiting': waiting,
+    return {'incomplete': True, 'eligible_migration_ids': eligible, 'editable_migration_ids': editable, 'waiting': waiting,
             'scanned_units': int(coverage.get('scanned_units') or 0),
             'pending_units': len(missing), 'can_preview': any(
                 set(m.source_unit_ids) and set(m.source_unit_ids).issubset(scanned)
