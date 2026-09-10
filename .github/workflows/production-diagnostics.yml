@@ -18,6 +18,11 @@ on:
         required: false
         default: false
         type: boolean
+      replay_course_id:
+        description: "Optional course UUID for a bounded read-only real analysis request; no plan is saved"
+        required: false
+        default: ""
+        type: string
       export_v6_replay:
         description: "Export a sanitized Story/Visual/template replay fixture for one V6 task"
         required: false
@@ -77,6 +82,20 @@ jobs:
           ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
             "set -a; . /opt/lingzhi/state/.env; set +a; cd /opt/lingzhi/hackthon; /opt/lingzhi/.venv/bin/python scripts/probe_zju_qwen_runtime.py"
+
+      - name: Probe real course analysis request
+        if: ${{ inputs.replay_course_id != '' }}
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          REPLAY_COURSE_ID: ${{ inputs.replay_course_id }}
+        run: |
+          set -euo pipefail
+          [[ "$REPLAY_COURSE_ID" =~ ^[a-f0-9-]{36}$ ]]
+          ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "set -a; . /opt/lingzhi/state/.env; set +a; cd /opt/lingzhi/hackthon; COURSE_SCAN_COURSE_ID=$REPLAY_COURSE_ID /opt/lingzhi/.venv/bin/python -" \
+            < apps/lingzhi/scripts/probe_course_scan_request.py
 
       - name: Inspect retrieval path
         if: ${{ !inputs.inspect_course_scan }}
