@@ -290,30 +290,42 @@ def test_502_repartitions_only_the_failed_source_unit_before_retry():
     assert not result["blocks"][0]["ppt_errors"]
 
 
-def test_repeated_502_has_page_provider_failure_contract():
+def test_repeated_502_uses_complete_grounded_prose_fallback():
     template, contract, _ = sample()
-    content = "项目操作步骤说明内容，保持输入、处理与结果之间的关系。"
+    content = (
+        "项目操作步骤说明内容，保持输入、处理与结果之间的关系。\n\n"
+        "运行后核对界面状态、存档结果与项目输出，确认每项内容均已保存。"
+    )
+    calls, waits = [], []
 
     async def invoke(*_args, **_kwargs):
+        calls.append(True)
         raise AIProviderRequestError("Error code: 502")
 
-    async def sleep(_seconds):
-        return None
+    async def sleep(seconds):
+        waits.append(seconds)
 
-    with pytest.raises(PptPageProviderUnavailable) as captured:
-        asyncio.run(generate_bundle(
-            invoke=invoke,
-            contract=contract,
-            instructions="",
-            template=template,
-            seed_blocks={"b": seed_for(contract, content)},
-            immutable_handout=True,
-            provider_recovery_sleep=sleep,
-        ))
-    failure = describe_bundle_failure(captured.value)
-    assert failure["code"] == "lesson_ppt_page_provider_unavailable"
-    assert failure["failed_step"] == "pages"
-    assert "模型服务暂时不可用" in failure["message"]
+    result = asyncio.run(generate_bundle(
+        invoke=invoke,
+        contract=contract,
+        instructions="",
+        template=template,
+        seed_blocks={"b": seed_for(contract, content)},
+        immutable_handout=True,
+        provider_recovery_sleep=sleep,
+    ))
+    block = result["blocks"][0]
+    assert len(calls) == 2
+    assert waits == [31]
+    assert not block["ppt_errors"]
+    quotes = [
+        source["quote"]
+        for page in block["ppt_pages"]
+        for point in page["fields"]["points"]
+        for source in point["sources"]
+    ]
+    assert "".join(quotes) == content
+    validate_block_pages(block, template)
 
 
 def test_missing_code_source_units_compile_without_model_calls():
