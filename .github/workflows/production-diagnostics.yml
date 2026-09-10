@@ -13,6 +13,11 @@ on:
         required: false
         default: false
         type: boolean
+      inspect_course_scan:
+        description: "Read-only business-process configuration comparison and sanitized AI failure signals"
+        required: false
+        default: false
+        type: boolean
       export_v6_replay:
         description: "Export a sanitized Story/Visual/template replay fixture for one V6 task"
         required: false
@@ -50,6 +55,18 @@ jobs:
           chmod 600 ~/.ssh/lingzhi_deploy
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
+      - name: Inspect course scan runtime
+        if: ${{ inputs.inspect_course_scan }}
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "set -a; . /opt/lingzhi/state/.env; set +a; /opt/lingzhi/.venv/bin/python -" \
+            < apps/lingzhi/scripts/diagnose_course_scan_runtime.py
+
       - name: Probe production ZJU Qwen routes
         if: ${{ inputs.probe_ai_model }}
         env:
@@ -62,6 +79,7 @@ jobs:
             "set -a; . /opt/lingzhi/state/.env; set +a; cd /opt/lingzhi/hackthon; /opt/lingzhi/.venv/bin/python scripts/probe_zju_qwen_runtime.py"
 
       - name: Inspect retrieval path
+        if: ${{ !inputs.inspect_course_scan }}
         continue-on-error: ${{ inputs.export_v6_replay || inputs.probe_ai_model }}
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
