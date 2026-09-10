@@ -54,10 +54,12 @@ def route_exact_operations(*, course_data, user_id, change_set_id, operation_ids
     if course_data.get('teacher_production_schema') != 'unified_teacher_v1':
         return
     from .partial_review import require_partial_operations
-    from .content_patches import require_current_patch_preview
+    from .content_patches import is_exact_text_operation, require_current_patch_preview
     course_id = str(course_data['course_id'])
     state = evolution_repository.load(user_id, course_id)
-    plan = next(p for p in state.change_sets if p.change_set_id == change_set_id)
+    plan = next((p for p in state.change_sets if p.change_set_id == change_set_id), None)
+    if plan is None:
+        raise KeyError(change_set_id)
     if plan.status != 'pending':
         return
     require_partial_operations(plan, operation_ids)
@@ -66,14 +68,15 @@ def route_exact_operations(*, course_data, user_id, change_set_id, operation_ids
     authoring = authoring_repository.load(course_id)
     routes = {}
     for operation in plan.operations:
-        if operation.operation_id not in chosen or operation.operation_type != 'REPLACE_COURSE_BLOCK':
+        if operation.operation_id not in chosen or not is_exact_text_operation(operation):
             continue
         lesson_id, revision, _, _ = _source(authoring, operation, course_data)
         if any(other.operation_id in chosen and other.operation_type == 'APPLY_DOMAIN_CANDIDATE'
                and other.payload.get('lesson_unit_id') == lesson_id and other.payload.get('domain') in {'lesson_plan', 'script'}
                and other.payload.get('action') != ACTION for other in plan.operations):
             raise ValueError('同一讲次同时选择了正文和整讲修改，请先保留一套建议再应用，避免相互覆盖')
-        routes[operation.operation_id] = (deepcopy(operation.payload), lesson_id, revision['revision_id'])
+        if operation.operation_type == 'REPLACE_COURSE_BLOCK':
+            routes[operation.operation_id] = (deepcopy(operation.payload), lesson_id, revision['revision_id'])
     if not routes:
         return
     def update(current):

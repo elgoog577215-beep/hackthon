@@ -16,7 +16,7 @@ from teacher_script import compile_teacher_script_module_contract, compile_teach
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('scenario', ['apply', 'interrupted', 'source_drift', 'quality_failure'])
+@pytest.mark.parametrize('scenario', ['apply', 'interrupted', 'source_drift', 'quality_failure', 'mixed_after_route', 'unknown_plan'])
 async def test_projected_text_edits_apply_to_teacher_handout_and_undo_in_reverse_order(tmp_path, monkeypatch, scenario):
     import asyncio
     course, authoring, evolution, _ = fixture(tmp_path)
@@ -70,6 +70,26 @@ async def test_projected_text_edits_apply_to_teacher_handout_and_undo_in_reverse
     original_revision = authoring.lesson('course-1', 'L1-1')['working_script_revision_id']
     ids = [op.operation_id for op in plan.operations]
     initial_revision_count = len(authoring.lesson('course-1', 'L1-1')['script_revisions'])
+    if scenario == 'unknown_plan':
+        with pytest.raises(KeyError):
+            await asyncio.to_thread(service.accept, course_data=raw, user_id='teacher', change_set_id='missing-plan',
+                selected_scope='current', selected_operation_ids=ids)
+        return
+    if scenario == 'mixed_after_route':
+        from course_evolution.exact_authoring import route_exact_operations
+        route_exact_operations(course_data=raw, user_id='teacher', change_set_id=plan.change_set_id,
+            operation_ids=ids, evolution_repository=evolution, authoring_repository=authoring)
+        state = evolution.load('teacher', 'course-1')
+        other = state.change_sets[-1].operations[0].model_copy(deep=True)
+        other.operation_id = 'whole-lecture'
+        other.payload.pop('action')
+        state.change_sets[-1].operations.append(other)
+        evolution.save(state)
+        with pytest.raises(ValueError, match='同时选择'):
+            await asyncio.to_thread(service.accept, course_data=raw, user_id='teacher', change_set_id=plan.change_set_id,
+                selected_scope='current', selected_operation_ids=[*ids, other.operation_id])
+        assert authoring.lesson('course-1', 'L1-1')['working_script_revision_id'] == original_revision
+        return
     if scenario == 'source_drift':
         changed_sections = deepcopy(sections)
         changed_sections[0]['blocks'][0]['content'] += '\n\n教师后来补充的原文。'
