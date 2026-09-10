@@ -347,7 +347,7 @@ const scanFailureSummary = computed(() => {
   const codes = new Set(failures.map((item: Record<string, unknown>) => String(item.code || '')))
   const reasons: string[] = []
   if (codes.has('provider_timeout')) reasons.push(t('courseEvolution.workspace.scanFailureTimeout', '响应超时'))
-  if (codes.has('provider_unavailable')) reasons.push(t('courseEvolution.workspace.scanFailureUnavailable', 'AI 服务暂时不可用'))
+  if (codes.has('provider_unavailable')) reasons.push(t('courseEvolution.workspace.scanFailureUnavailable', '本次模型调用失败'))
   if (codes.has('response_truncated')) reasons.push(t('courseEvolution.workspace.scanFailureTruncated', '返回内容不完整'))
   if (reasons.length < codes.size) reasons.push(t('courseEvolution.workspace.scanFailureOther', '其他分析错误'))
   return t('courseEvolution.workspace.scanFailureSummary', '失败原因：{reasons}。成功结果已保存，重试只检查未完成内容。')

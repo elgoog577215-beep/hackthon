@@ -252,8 +252,10 @@ async def run_analysis(manager: Any, job_id: str, *, service: Any = None) -> Non
         done = int(detail.get("completed_parts") or 0)
         failed = int(detail.get("failed_parts") or 0)
         message = (
-            f"AI 服务暂时不可用，约 {int(detail.get('retry_after_seconds') or 0)} 秒后继续检查"
+            f"本次 AI 请求失败，等待 {int(detail.get('retry_after_seconds') or 0)} 秒后重试"
             if detail.get("waiting_for_provider")
+            else "正在重新请求 AI，已保留完成结果"
+            if detail.get("retrying_provider")
             else f"已保留 {detail['retained_units']} 项检查结果；本次已检查 {done}/{detail.get('total_parts', 0)} 段"
             if detail.get('retained_units')
             else f"已检查 {done}/{detail.get('total_parts', 0)} 段课程内容"

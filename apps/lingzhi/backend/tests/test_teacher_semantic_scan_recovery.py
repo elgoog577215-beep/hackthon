@@ -117,6 +117,67 @@ async def test_provider_error_is_not_replaced_by_missing_json():
 
 
 @pytest.mark.asyncio
+async def test_partial_rescan_keeps_finished_fragments_when_finished_units_are_removed(tmp_path):
+    repo, context = scan_context(tmp_path)
+    checkpoint, calls = {}, []
+
+    async def report(detail, saved):
+        checkpoint.clear()
+        checkpoint.update(deepcopy(saved))
+
+    async def flaky(overview, candidates, instruction):
+        if any(c["unit_id"] == "u0" and c["part"] == 2 for c in candidates):
+            raise ValueError("bad model envelope")
+        return response(candidates, [])
+
+    first = await create_teacher_course_change_plan(
+        context=context, user_id="teacher", request_id="partial-first", instruction="Add practice",
+        repository=repo, analyzer=flaky, on_scan_progress=report,
+    )
+    plan = first.change_sets[-1]
+    assert plan.impact_summary["coverage"]["scanned_units"] == 3
+
+    async def healthy(overview, candidates, instruction):
+        calls.extend((c["unit_id"], c["part"]) for c in candidates)
+        return response(candidates, [])
+
+    recovered = await create_teacher_course_change_plan(
+        context=context, user_id="teacher", request_id="partial-retry", instruction="Add practice",
+        repository=repo, analyzer=healthy, supersedes_plan_id=plan.change_set_id,
+        rescan_incomplete_only=True, scan_checkpoint=deepcopy(checkpoint),
+    )
+    assert calls == [("u0", 2)]
+    assert recovered.change_sets[-1].impact_summary["coverage"]["scanned_units"] == 4
+
+
+@pytest.mark.asyncio
+async def test_recovery_wait_is_cleared_before_retry_request_finishes():
+    from ai_base import AIProviderRequestError
+    from course_evolution.semantic_scan import scan_batches
+    snapshots, calls = [], []
+
+    async def report(detail, checkpoint):
+        snapshots.append(deepcopy(detail))
+
+    async def sleep(seconds):
+        assert snapshots[-1]["waiting_for_provider"]
+
+    async def analyzer(overview, candidates, instruction):
+        calls.append(1)
+        if len(calls) == 1:
+            raise AIProviderRequestError("empty_response")
+        assert not snapshots[-1].get("waiting_for_provider")
+        assert snapshots[-1].get("retrying_provider")
+        return response(candidates)
+
+    result = await scan_batches(overview={}, batches=[[{"unit_id": "u"}]], instruction="practice",
+                       revisions={}, analyzer=analyzer, sleep=sleep, on_progress=report)
+    assert len(calls) == 2
+    assert result[1] == {"u"} and not result[3]
+    assert not snapshots[-1].get("retrying_provider")
+
+
+@pytest.mark.asyncio
 async def test_job_keeps_private_checkpoint_on_failure_and_uses_it_on_retry(tmp_path, monkeypatch):
     from backend.tests.test_task_manager_runtime_durability import build_manager
     from course_evolution.jobs import enqueue_analysis, run_analysis

@@ -2256,6 +2256,14 @@ async def create_teacher_course_change_plan(
             overview=overview, batches=batches, instruction=normalized_instruction,
             revisions={**context.base_revision_vector, "analysis_model": scan_model_identity}, analyzer=analyzer,
             checkpoint=scan_checkpoint, on_progress=progress_with_retained,
+            # A retry removes completed units from batches. Keep the complete
+            # source identity stable so successful fragments of incomplete
+            # units survive that filtering; exact batch keys still validate
+            # each reused request. Any source/content change invalidates it.
+            source_context_fingerprint=stable_hash([
+                {**unit.model_dump(mode="json"), "full_text_fields": unit.full_text_fields}
+                for unit in context.units
+            ], prefix="scan-sources-"),
         )
         scanned_ids.update(retained_ids | completed_ids)
         if retained is not None:

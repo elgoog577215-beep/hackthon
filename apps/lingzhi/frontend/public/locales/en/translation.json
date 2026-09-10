@@ -2829,7 +2829,7 @@
       "scanBatchProgress": "Checked {done} / {total} content parts · Reused {reused} · Incomplete {failed}",
       "scanFailureSummary": "Reason: {reasons}. Completed results are saved; retry checks only unfinished content.",
       "scanFailureTimeout": "response timeout",
-      "scanFailureUnavailable": "AI service temporarily unavailable",
+      "scanFailureUnavailable": "The model request failed in this analysis",
       "scanFailureTruncated": "incomplete response",
       "scanFailureOther": "other analysis error",
       "partialReviewTitle": "Completed results are available for review",

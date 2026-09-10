@@ -85,11 +85,12 @@ async def scan_batches(
     checkpoint: dict[str, Any] | None = None, on_progress: ScanProgress | None = None,
     provider_recovery_delay_seconds: float = 31.0,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    source_context_fingerprint: str = "",
 ) -> tuple[list[dict[str, Any]], set[str], set[str], list[dict[str, Any]], int]:
     # Include the complete input, not only revision labels: legacy revisions may
     # remain unchanged when content changes. Never reuse another request/context.
     signature = stable_hash({"contract": SCAN_CONTRACT, "overview": overview,
-        "batches": batches, "instruction": instruction, "revisions": revisions}, prefix="scan-")
+        "batches": source_context_fingerprint or batches, "instruction": instruction, "revisions": revisions}, prefix="scan-")
     saved = {"signature": signature, "results": {}}
     if isinstance(checkpoint, dict) and checkpoint.get("signature") == signature:
         if isinstance(checkpoint.get("results"), dict):
@@ -162,10 +163,14 @@ async def scan_batches(
         await sleep(provider_recovery_delay_seconds)
         detail.pop("waiting_for_provider", None)
         detail.pop("retry_after_seconds", None)
+        detail["retrying_provider"] = True
+        await report()
         try:
             return await attempt(items), None
         except Exception as error:  # noqa: BLE001 - caller classifies the final retry
             return None, error
+        finally:
+            detail.pop("retrying_provider", None)
 
     async def defer_remaining_provider_work(
         error: Exception,

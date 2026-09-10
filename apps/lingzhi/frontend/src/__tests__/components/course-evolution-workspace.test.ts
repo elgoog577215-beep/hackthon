@@ -153,7 +153,7 @@ describe('CourseEvolutionWorkspace', () => {
     expect(wrapper.get('[data-testid="partial-scan-progress"]').text().replace(/\s/g, '')).toContain('8/20')
     store.applyAnalysisTask({ id: 'retry', status: 'completed', message: '检查未完成' } as any)
     await wrapper.vm.$nextTick()
-    expect(wrapper.get('[data-testid="partial-scan-outcome"]').text()).toContain('AI 服务暂时不可用')
+    expect(wrapper.get('[data-testid="partial-scan-outcome"]').text()).toContain('本次模型调用失败')
     expect(wrapper.text()).not.toContain('不得默认铺开的完整长正文')
     await wrapper.get('[data-testid="expand-impact-m1"]').trigger('click')
     expect(wrapper.text()).toContain('不得默认铺开的完整长正文')
@@ -452,7 +452,7 @@ describe('CourseEvolutionWorkspace', () => {
 
     expect(wrapper.text()).toContain('有 90 个内容单元未完成检查')
     expect(wrapper.get('[data-testid="semantic-scan-failure-summary"]').text()).toContain('响应超时')
-    expect(wrapper.get('[data-testid="semantic-scan-failure-summary"]').text()).toContain('AI 服务暂时不可用')
+    expect(wrapper.get('[data-testid="semantic-scan-failure-summary"]').text()).toContain('本次模型调用失败')
     expect(wrapper.get('[data-testid="semantic-scan-failure-summary"]').text()).toContain('重试只检查未完成内容')
     expect(wrapper.find('.clarification-question').exists()).toBe(false)
     expect(wrapper.find('textarea').exists()).toBe(false)
