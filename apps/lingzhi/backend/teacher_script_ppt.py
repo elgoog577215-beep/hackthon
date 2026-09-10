@@ -643,7 +643,7 @@ def _grounded_code_repair_page(block, template):
     }
 
 
-def _grounded_prose_fragments(content: str, limit: int = 16) -> list[str]:
+def _grounded_prose_fragments(content: str, limit: int = 160) -> list[str]:
     fragments, pending = [], ""
     start = 0
     while start < len(content):
@@ -673,16 +673,32 @@ def _grounded_prose_fragments(content: str, limit: int = 16) -> list[str]:
     return fragments
 
 
-def _grounded_prose_repair_pages(block, template, *, fragment_limit=16):
+def _grounded_visible_text(fragment: str, limit: int) -> str:
+    text = re.sub(r"\s+", " ", fragment).strip()
+    text = re.sub(r"^(?:#{1,6}|[-*+]\s+)", "", text)
+    text = text.replace("**", "").replace("`", "").strip()
+    if len(text) <= limit:
+        return text or "讲义原文片段"
+    end = max(1, limit - 1)
+    while (
+        end > 1
+        and end < len(text)
+        and re.match(r"[A-Za-z0-9_.]", text[end - 1])
+        and re.match(r"[A-Za-z0-9_.]", text[end])
+    ):
+        end -= 1
+    if end < 6:
+        return "讲义原文片段"
+    return text[:end].rstrip(" /:：,，;；-_—") + "…"
+
+
+def _grounded_prose_repair_pages(block, template, *, visible_limit=32):
     layout_id = next(
         layout.template_layout_id
         for layout in template.layouts
         if fixed_slug(layout.template_layout_id) == "bullets"
     )
-    fragments = _grounded_prose_fragments(
-        str(block.get("content") or ""),
-        limit=fragment_limit,
-    )
+    fragments = _grounded_prose_fragments(str(block.get("content") or ""))
     pages = []
     for offset in range(0, len(fragments), 3):
         selected = fragments[offset:offset + 3]
@@ -693,7 +709,7 @@ def _grounded_prose_repair_pages(block, template, *, fragment_limit=16):
                 "title": "讲义要点",
                 "notes": "模型服务暂时不可用，本页按讲义原文顺序整理。",
                 "points": [{
-                    "text": fragment.strip(),
+                    "text": _grounded_visible_text(fragment, visible_limit),
                     "sources": [{
                         "block_id": block["block_id"],
                         "quote": fragment,
@@ -704,14 +720,14 @@ def _grounded_prose_repair_pages(block, template, *, fragment_limit=16):
     return pages
 
 
-def _grounded_repair_pages(block, repair_unit, template, *, prose_limit=16):
+def _grounded_repair_pages(block, repair_unit, template, *, prose_limit=32):
     if repair_unit.get("source_kind") == "code":
         return [_grounded_code_repair_page(block, template)]
-    return _grounded_prose_repair_pages(block, template, fragment_limit=prose_limit)
+    return _grounded_prose_repair_pages(block, template, visible_limit=prose_limit)
 
 
 def _validated_grounded_repair_pages(block, repair_block, repair_unit, template):
-    limits = (16,) if repair_unit.get("source_kind") == "code" else (16, 8, 4)
+    limits = (32,) if repair_unit.get("source_kind") == "code" else (32, 24, 16, 8)
     last_error = None
     for limit in limits:
         try:
