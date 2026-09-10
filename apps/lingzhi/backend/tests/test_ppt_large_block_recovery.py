@@ -314,3 +314,31 @@ def test_repeated_502_has_page_provider_failure_contract():
     assert failure["code"] == "lesson_ppt_page_provider_unavailable"
     assert failure["failed_step"] == "pages"
     assert "模型服务暂时不可用" in failure["message"]
+
+
+def test_missing_code_source_units_compile_without_model_calls():
+    template, contract, _ = sample()
+    content = "```csharp\n" + "\n".join(
+        f"var value{i} = GetValue({i});" for i in range(260)
+    ) + "\n```"
+
+    async def forbidden(*_args, **_kwargs):
+        pytest.fail("exact code source ranges should compile without a model call")
+
+    result = asyncio.run(generate_bundle(
+        invoke=forbidden,
+        contract=contract,
+        instructions="",
+        template=template,
+        seed_blocks={"b": seed_for(contract, content)},
+        immutable_handout=True,
+    ))
+
+    block = result["blocks"][0]
+    assert not block["ppt_errors"]
+    assert block["ppt_pages"]
+    assert "".join(
+        page["fields"]["code"]["sources"][0]["quote"]
+        for page in block["ppt_pages"]
+    ) == content
+    validate_block_pages(block, template)
