@@ -152,3 +152,38 @@ def test_deferred_siblings_are_not_treated_as_direct_failures():
          'failed_unit_ids': ['bad2', 'bad3']},
     ]}})
     assert directly_failed_units(plan) == {'bad', 'bad2', 'bad3'}
+
+
+@pytest.mark.asyncio
+async def test_legacy_outline_without_node_revision_uses_exact_tree_but_not_other_unversioned_sources(tmp_path):
+    from course_evolution.teacher_planning import _outline_units
+    repo, context = scan_context(tmp_path)
+    context.units = [_outline_units(context.outline)[0], context.units[0]]
+    for unit in context.units:
+        unit.source_revision = ''
+
+    async def healthy(overview, items, instruction):
+        return response(items, [])
+
+    first = await create_teacher_course_change_plan(
+        context=context, user_id='teacher', request_id='outline-old', instruction='Add practice',
+        repository=repo, analyzer=healthy, scan_model_identity='model-v1')
+    old = first.change_sets[0]
+    old.impact_summary.pop('scan_contract')
+    old.impact_summary['coverage'].pop('source_fingerprints')
+    old.status = 'rejected'
+    repo.save(first)
+
+    async def failed(*args):
+        raise ValueError('invalid envelope')
+
+    state = await create_teacher_course_change_plan(
+        context=context, user_id='teacher', request_id='outline-new', instruction='Add practice',
+        repository=repo, analyzer=failed, scan_model_identity='model-v1')
+    source = state.change_sets[-1]
+    args = dict(plans=state.change_sets, source=source, context=context,
+                model_identity='model-v1', excluded_ids=set())
+    ids, _, _ = historical_scan_results(**args)
+    assert ids == {context.units[0].unit_id}
+    context.outline[0]['learning_objective'] = 'New learning objective'
+    assert not historical_scan_results(**args)[0]

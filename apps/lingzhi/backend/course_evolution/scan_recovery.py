@@ -27,6 +27,7 @@ def historical_scan_results(
     retained, analyses, origins = set(), [], []
     expected = source.impact_summary
     outline = [{k: v for k, v in node.items() if k != "section_snapshot"} for node in context.outline]
+    outline_ids = {f"outline:{node['node_id']}" for node in outline}
     fingerprints = {u.unit_id: unit_fingerprint(u) for u in context.units}
     for plan in reversed(plans):
         summary = plan.impact_summary
@@ -54,7 +55,13 @@ def historical_scan_results(
         missing = set(coverage.get("unscanned_unit_ids") or [])
         ids = {u.unit_id for u in context.units
                if u.unit_id not in excluded_ids | retained | missing
-               and u.source_revision and revisions.get(u.unit_id) == u.source_revision
+               and u.unit_id in revisions and revisions[u.unit_id] == u.source_revision
+               # Old outline projections have no per-node revision. The exact
+               # tree and course baseline checked above cover their complete
+               # input (title, objective, parent and order). Other unversioned
+               # legacy sources still cannot be reused without a content hash.
+               and (u.source_revision or hashes is not None
+                    or (u.asset_type == "outline" and u.unit_id in outline_ids))
                and (hashes is None or hashes.get(u.unit_id) == fingerprints[u.unit_id])}
         if not ids:
             continue
