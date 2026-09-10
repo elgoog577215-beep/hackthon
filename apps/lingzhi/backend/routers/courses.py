@@ -69,6 +69,7 @@ from teacher_asset_readiness import (
 )
 from teacher_course_space import teacher_course_space_repository
 from teacher_course_upgrade import TeacherCourseUpgradeError, TeacherCourseUpgradeService
+from teacher_lesson_authoring import teacher_lesson_authoring_read_state
 from teaching_calendar import teaching_calendar_repository
 from web_document_reader import (
     build_research_summary,
@@ -419,13 +420,20 @@ def _teacher_current_production(jobs: object) -> dict | None:
     }
 
 
-def _teacher_preparation_projection(course: dict, repository) -> dict:
+def _teacher_preparation_projection(
+    course: dict,
+    repository,
+    authoring_state: dict | None = None,
+) -> dict:
     """Derive preparation from current usable assets, never confirmation flags."""
     course_id = str(course.get("course_id") or "")
-    try:
-        authoring = repository.view(course_id)
-    except Exception:
-        authoring = {}
+    if authoring_state is not None:
+        authoring = authoring_state
+    else:
+        try:
+            authoring = repository.view(course_id)
+        except Exception:
+            authoring = {}
     lessons = authoring.get("lessons") if isinstance(authoring, dict) else {}
     lessons = lessons if isinstance(lessons, dict) else {}
     brief = (course.get("generation_request") or {}).get("teacher_course_brief") or {}
@@ -689,16 +697,24 @@ async def get_course(course_id: str, request: Request):
     if projected.get("authoring_surface") != "teacher":
         return projected
     repository = get_teacher_lesson_authoring_repository()
+    try:
+        authoring_state = teacher_lesson_authoring_read_state(
+            await run_in_threadpool(repository.view, course_id)
+        )
+    except Exception:
+        authoring_state = None
     legacy = await run_in_threadpool(
         _teacher_preparation_projection,
         projected,
         repository,
+        authoring_state,
     )
     current = await run_in_threadpool(
         read_course_production_state,
         projected,
         repository,
         get_task_manager_optional(),
+        authoring_state=authoring_state,
     )
     projected.update(legacy)
     projected["course_production_state"] = current

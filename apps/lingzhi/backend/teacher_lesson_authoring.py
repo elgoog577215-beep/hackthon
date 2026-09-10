@@ -60,6 +60,13 @@ JOB_TYPES = {
     "teacher_lesson_ppt_manuscript_generation",
     "teacher_lesson_ppt_generation",
 }
+_CLIENT_HIDDEN_JOB_FIELDS = frozenset({
+    "bundle_blocks",
+    "checkpoint",
+    "generation_base",
+    "request_snapshot",
+    "staged_base",
+})
 _PLAN_INTERNAL_REGISTER_PATTERN = re.compile(
     r"全课知识地图|先修链定位|学习路径角色|可观察成果证据|证据闭环|"
     r"输入对象|输出对象|系统(?:策略|将会|将|会自动)|模型(?:生成|输出)|质量门|"
@@ -69,6 +76,30 @@ _PLAN_ABSTRACT_ACTIVITY_PATTERN = re.compile(
     r"建立问题、价值与任务边界|调取经验并作出初始判断|"
     r"依据[“\"].{0,60}[”\"]检查是否服务本讲目标"
 )
+
+
+def teacher_lesson_job_view(job: dict[str, Any]) -> dict[str, Any]:
+    """Project one browser job without server-only recovery snapshots."""
+    return {
+        key: deepcopy(value)
+        for key, value in job.items()
+        if key not in _CLIENT_HIDDEN_JOB_FIELDS
+    }
+
+
+def teacher_lesson_authoring_read_state(state: dict[str, Any]) -> dict[str, Any]:
+    """Bound a read projection before course status compilers copy it."""
+    projected = {
+        key: value
+        for key, value in state.items()
+        if key != "jobs"
+    }
+    projected["jobs"] = {
+        str(job_id): teacher_lesson_job_view(job)
+        for job_id, job in (state.get("jobs") or {}).items()
+        if isinstance(job, dict)
+    }
+    return projected
 
 
 class TeacherLessonAuthoringError(RuntimeError):

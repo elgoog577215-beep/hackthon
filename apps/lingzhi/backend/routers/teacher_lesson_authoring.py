@@ -55,6 +55,7 @@ from teacher_lesson_authoring import (
     extract_uploaded_pptx_evidence,
     extract_uploaded_pptx_review,
     lesson_scope,
+    teacher_lesson_job_view,
     teacher_lesson_deck_to_structured_slide_deck,
     teacher_lesson_v6_source,
 )
@@ -2156,7 +2157,11 @@ async def get_lesson_authoring_view(
             "outline_revision_id": outline_revision,
             "outline_material_draft": outline_material_draft,
             "lessons": _lesson_projection(source, repository, authoring_state),
-            "jobs": list((authoring_state.get("jobs") or {}).values()),
+            "jobs": [
+                teacher_lesson_job_view(job)
+                for job in (authoring_state.get("jobs") or {}).values()
+                if isinstance(job, dict)
+            ],
             "course_production_state": read_course_production_state(
                 source,
                 repository,
