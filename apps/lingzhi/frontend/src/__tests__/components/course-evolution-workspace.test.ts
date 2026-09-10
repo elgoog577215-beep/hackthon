@@ -125,10 +125,10 @@ describe('CourseEvolutionWorkspace', () => {
     store.applyAnalysisTask({ id: 'retry', status: 'running', message: '正在检查', progress: 20,
       phase_detail: { scan: { retained_units: 86, pending_units: 30, completed_parts: 4, total_parts: 20, reused_parts: 0, failed_parts: 0 } } } as any)
     await wrapper.vm.$nextTick()
-    expect(wrapper.get('[data-testid="partial-scan-progress"]').text()).toContain('4/20')
+    expect(wrapper.get('[data-testid="partial-scan-progress"]').text().replace(/\s/g, '')).toContain('4/20')
     store.analysisTask!.phase_detail!.scan!.completed_parts = 8
     await wrapper.vm.$nextTick()
-    expect(wrapper.get('[data-testid="partial-scan-progress"]').text()).toContain('8/20')
+    expect(wrapper.get('[data-testid="partial-scan-progress"]').text().replace(/\s/g, '')).toContain('8/20')
     store.applyAnalysisTask({ id: 'retry', status: 'completed', message: '检查未完成' } as any)
     await wrapper.vm.$nextTick()
     expect(wrapper.get('[data-testid="partial-scan-outcome"]').text()).toContain('AI 服务暂时不可用')
@@ -146,6 +146,21 @@ describe('CourseEvolutionWorkspace', () => {
     await wrapper.get('[data-testid="decision-resolution"] textarea').setValue('保留六章，在章内增加项目，由系统设计')
     await wrapper.get('[data-testid="decision-resolution"]').trigger('submit')
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ instruction: '保留六章，在章内增加项目，由系统设计', confirmedInterpretation: true, supersedesPlanId: 'change-1' }))
+    wrapper.unmount()
+  })
+
+  it('follows the replacement result when a retry supersedes the focused plan', async () => {
+    const { store, wrapper } = retryFixture()
+    await wrapper.setProps({ focusPlanId: 'change-1' })
+    const next = JSON.parse(JSON.stringify(store.plans[0]))
+    next.change_set_id = 'change-2'
+    next.teacher_change_planning.intent.raw_request = '新的补查结果'
+    store.plans[0]!.status = 'rejected'
+    store.plans[0]!.impact_summary.superseded_by_plan_id = 'change-2'
+    store.plans.push(next)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.request-context').text()).toContain('新的补查结果')
+    expect(wrapper.find('.review-layout').exists()).toBe(true)
     wrapper.unmount()
   })
   beforeEach(async () => {
@@ -268,6 +283,7 @@ describe('CourseEvolutionWorkspace', () => {
     expect(wrapper.get('.journey li.active').text()).toContain('选择影响范围')
     expect(wrapper.get('.request-context').text()).toContain('本次目标')
     expect(wrapper.findAll('.impact-nav nav button')).toHaveLength(2)
+    await wrapper.get('.impact-expand').trigger('click')
     expect(wrapper.get('.impact-list').text()).toContain('原讲稿只介绍方法')
     await wrapper.get('.impact-check input').setValue(false)
     expect(wrapper.get('.scope-counts').text()).toContain('排除1')
