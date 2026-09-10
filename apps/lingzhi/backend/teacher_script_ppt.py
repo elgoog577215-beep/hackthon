@@ -673,13 +673,16 @@ def _grounded_prose_fragments(content: str, limit: int = 16) -> list[str]:
     return fragments
 
 
-def _grounded_prose_repair_pages(block, template):
+def _grounded_prose_repair_pages(block, template, *, fragment_limit=16):
     layout_id = next(
         layout.template_layout_id
         for layout in template.layouts
         if fixed_slug(layout.template_layout_id) == "bullets"
     )
-    fragments = _grounded_prose_fragments(str(block.get("content") or ""))
+    fragments = _grounded_prose_fragments(
+        str(block.get("content") or ""),
+        limit=fragment_limit,
+    )
     pages = []
     for offset in range(0, len(fragments), 3):
         selected = fragments[offset:offset + 3]
@@ -701,10 +704,27 @@ def _grounded_prose_repair_pages(block, template):
     return pages
 
 
-def _grounded_repair_pages(block, repair_unit, template):
+def _grounded_repair_pages(block, repair_unit, template, *, prose_limit=16):
     if repair_unit.get("source_kind") == "code":
         return [_grounded_code_repair_page(block, template)]
-    return _grounded_prose_repair_pages(block, template)
+    return _grounded_prose_repair_pages(block, template, fragment_limit=prose_limit)
+
+
+def _validated_grounded_repair_pages(block, repair_block, repair_unit, template):
+    limits = (16,) if repair_unit.get("source_kind") == "code" else (16, 8, 4)
+    last_error = None
+    for limit in limits:
+        try:
+            pages = _prepare_page_candidates(
+                _grounded_repair_pages(repair_block, repair_unit, template, prose_limit=limit),
+                repair_block,
+                template,
+            )
+            validate_block_pages({**block, "ppt_pages": pages}, template)
+            return pages
+        except (ValueError, RuntimeError, KeyError) as error:
+            last_error = error
+    raise ValueError("script_ppt_grounded_fallback_capacity_failed") from last_error
 
 
 async def generate_bundle(*, invoke, contract, instructions, template, on_delta=None,
@@ -843,12 +863,9 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                     detail = str(error)
                     if provider_fallback_active:
                         try:
-                            candidate_pages = _prepare_page_candidates(
-                                _grounded_repair_pages(repair_block, repair_unit, template),
-                                repair_block,
-                                template,
+                            candidate_pages = _validated_grounded_repair_pages(
+                                block, repair_block, repair_unit, template,
                             )
-                            validate_block_pages({**block, "ppt_pages": candidate_pages}, template)
                             groups[index] = candidate_pages
                         except (ValueError, RuntimeError, KeyError) as fallback_error:
                             page_errors.append({
@@ -952,12 +969,9 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                                 continue
                             provider_fallback_active = True
                             try:
-                                candidate_pages = _prepare_page_candidates(
-                                    _grounded_repair_pages(repair_block, repair_unit, template),
-                                    repair_block,
-                                    template,
+                                candidate_pages = _validated_grounded_repair_pages(
+                                    block, repair_block, repair_unit, template,
                                 )
-                                validate_block_pages({**block, "ppt_pages": candidate_pages}, template)
                                 groups[index] = candidate_pages
                                 block.update(
                                     ppt_pages=[p for saved_group in groups for p in saved_group],
