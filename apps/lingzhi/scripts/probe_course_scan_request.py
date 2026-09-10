@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import sys
+import subprocess
 import time
 from pathlib import Path
 
@@ -15,6 +16,15 @@ logging.disable(logging.CRITICAL)
 
 
 async def main() -> None:
+    course_id = os.environ["COURSE_SCAN_COURSE_ID"]
+    pid = int(subprocess.check_output(["systemctl", "show", "lingzhi", "--property=MainPID", "--value"], text=True).strip())
+    process_root = Path(f"/proc/{pid}/cwd").resolve()
+    process_env = dict(part.decode(errors="replace").split("=", 1)
+                       for part in Path(f"/proc/{pid}/environ").read_bytes().split(b"\0") if b"=" in part)
+    os.environ.clear()
+    os.environ.update(process_env)
+    os.chdir(process_root)
+    sys.path.insert(0, str(process_root if (process_root / "ai_base.py").exists() else process_root / "backend"))
     # Match application startup: dotenv must be loaded before storage modules
     # capture LINGZHI_DATA_DIR at import time.
     from course_generation.service import CourseService
@@ -22,7 +32,6 @@ async def main() -> None:
     from question_bank import question_bank_repository
     from course_evolution.teacher_planning import build_teacher_course_change_context, rank_change_units
 
-    course_id = os.environ["COURSE_SCAN_COURSE_ID"]
     document, _ = get_course_document_repository().load_document(course_id)
     context = build_teacher_course_change_context(
         course_id=course_id, document=document, preview=None,

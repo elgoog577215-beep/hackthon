@@ -15,12 +15,15 @@ def main() -> None:
     ).strip()
     result: dict = {"service_running": pid.isdigit() and int(pid) > 0}
     try:
+        result["process_cwd"] = str(Path(f"/proc/{int(pid)}/cwd").resolve())
         raw = Path(f"/proc/{int(pid)}/environ").read_bytes()
         live = dict(part.decode(errors="replace").split("=", 1) for part in raw.split(b"\0") if b"=" in part)
         result["configuration_matches_saved"] = {
             key: live.get(key, "") == os.getenv(key, "")
-            for key in ("AI_API_BASE", "AI_API_KEY", "AI_MODEL", "AI_MODEL_FAST", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
+            for key in ("AI_API_BASE", "AI_API_KEY", "AI_MODEL", "AI_MODEL_FAST", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "LINGZHI_DATA_DIR")
         }
+        result["live_setting_present"] = {key: bool(live.get(key)) for key in result["configuration_matches_saved"]}
+        result["saved_setting_present"] = {key: bool(os.getenv(key)) for key in result["configuration_matches_saved"]}
         result["live_numeric_settings"] = {
             key: value for key, value in live.items()
             if key.startswith("AI_") and re.fullmatch(r"[0-9.]+", value)
