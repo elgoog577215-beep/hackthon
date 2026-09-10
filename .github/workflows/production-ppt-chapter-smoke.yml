@@ -1,4 +1,4 @@
-name: Inspect approved lecture six PPT recovery
+name: Verify approved lecture six PPT recovery
 
 on:
   workflow_dispatch:
@@ -44,7 +44,7 @@ jobs:
           chmod 600 ~/.ssh/lingzhi_deploy
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Inspect lecture six job without application writes
+      - name: Verify lecture six preview and PPTX export
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
@@ -53,4 +53,4 @@ jobs:
           ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            'python3 -' < apps/lingzhi/scripts/inspect_live_l1_6_job.py
+            '/opt/lingzhi/.venv/bin/python -' < apps/lingzhi/scripts/verify_live_l1_6_export.py
