@@ -22,7 +22,7 @@ def large_source() -> str:
     for index in range(4):
         body = "项目操作步骤说明内容，保持输入、处理与结果之间的关系。" * 45
         parts.append(f"### 操作片段 {index + 1}\n\n{body}\n")
-    return "\n".join(parts)
+    return "\n".join(parts).rstrip()
 
 
 def seed_for(contract, content):

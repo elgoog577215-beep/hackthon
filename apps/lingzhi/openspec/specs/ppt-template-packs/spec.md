@@ -68,7 +68,7 @@ In the no-original-PPT branch, the system SHALL persist the template ID, immutab
 - **THEN** generation stops with a recoverable template-lock error and asks the teacher to regenerate the manuscript
 
 ### Requirement: Page recovery preserves source content and accepted work
-The system SHALL record `ppt_page_recovery_v2` on recovered blocks. Fixed-handout completion MUST preserve the source revision and accepted pages, repair only failed pages, and withhold publication while required pages remain invalid or missing.
+The system SHALL record `ppt_page_recovery_v3` on newly recovered blocks. Fixed-handout completion MUST preserve the source revision and accepted pages, repair only failed pages or source ranges, and withhold publication while required pages remain invalid or missing.
 
 #### Scenario: A source code excerpt exceeds the real code frame
 - **WHEN** measured code exceeds the frozen template's frame capacity
@@ -81,3 +81,11 @@ The system SHALL record `ppt_page_recovery_v2` on recovered blocks. Fixed-handou
 #### Scenario: The provider is temporarily unavailable
 - **WHEN** a page repair encounters a provider timeout or unavailability
 - **THEN** the current checkpoint is retained, recovery performs at most one delayed provider retry per bundle within the page attempt limit, and repeated failure stops model calls to the remaining pages
+
+#### Scenario: A missing page group owns a large or code-dense source block
+- **WHEN** the frozen handout block exceeds the bounded page-repair input threshold
+- **THEN** the system creates stable contiguous source-range units, requests pages for one unit at a time, preserves exact source text, and resumes without calling the model again for units whose pages already passed validation
+
+#### Scenario: A bounded page-repair request times out twice
+- **WHEN** one source-range unit does not return a complete response within both allowed requests
+- **THEN** the task fails at the PPT page-generation step with the failed block and repair-unit identity, while accepted pages, source ranges and the handout remain available for retry

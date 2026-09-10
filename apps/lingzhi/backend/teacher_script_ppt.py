@@ -15,6 +15,11 @@ from course_document import CourseBlock, CourseDocument, CourseSection, stable_h
 from course_presentation_graph import block_source_text, compile_course_presentation_graph
 from ppt_fixed_draft import form_type, lower_fixed_response
 from ppt_fixed_templates import fixed_capabilities, fixed_slug
+from ppt_page_repair_units import (
+    full_page_repair_unit,
+    page_repair_source_units,
+    page_repair_unit_block,
+)
 from ppt_source_quotes import source_excerpt_catalog
 from ppt_repair_response import parse_page_response
 from ppt_teaching_manuscript import compile_teaching_manuscript, refresh_manuscript
@@ -23,11 +28,36 @@ from teacher_script import normalize_teacher_script_section, validate_teacher_sc
 
 CONTRACT = "script_ppt_bundle_v1"
 DEFAULT_THEME = "qizhi-classroom"
-RECOVERY_CONTRACT = "ppt_page_recovery_v2"
+RECOVERY_CONTRACT = "ppt_page_recovery_v3"
+
+
+class PptPageRepairTimeout(RuntimeError):
+    retryable = True
+    code = "lesson_ppt_page_timeout"
+
+    def __init__(self, block_id: str, repair_unit_id: str) -> None:
+        self.block_id = block_id
+        self.repair_unit_id = repair_unit_id
+        super().__init__(
+            "PPT 页面生成超时，已保留讲义、已完成页面和来源范围检查点；"
+            "重试只处理未完成内容。"
+        )
 
 
 def describe_bundle_failure(exc: Exception) -> dict[str, Any] | None:
     technical_detail = str(exc)
+    if isinstance(exc, PptPageRepairTimeout):
+        return {
+            "code": exc.code,
+            "message": str(exc),
+            "category": "provider",
+            "recovery_action": "retry_original",
+            "retryable": True,
+            "failed_step": "pages",
+            "failed_block_id": exc.block_id,
+            "repair_unit_id": exc.repair_unit_id,
+            "technical_detail": technical_detail,
+        }
     response_failure = "script_ppt_response_" in technical_detail
     match = re.search(r"source_excerpt_mismatch:([^:\s]+)", technical_detail)
     unknown_quote = re.search(r"source_quote_id_unknown:([^:\s]+)", technical_detail)
@@ -505,12 +535,12 @@ async def _notify(callback, *args):
             await result
 
 
-def _page_repair_prompt(block, pages, template, validation_error, repair_error=""):
+def _page_repair_prompt(block, pages, template, validation_error, repair_error="", repair_unit=None):
     known = {layout.template_layout_id: layout for layout in template.layouts}
     selected = {p.get("layout_id") for p in pages if isinstance(p, dict)} & set(known)
     if not selected:
         slugs = {"bullets", "comparison", "flow", "question", "summary"}
-        if "`" in block["content"] or "~~~" in block["content"]:
+        if "`" in block["content"] or "~~~" in block["content"] or (repair_unit or {}).get("source_kind") == "code":
             slugs.add("code")
         if re.search(r"\$|\\\[|\\\(", block["content"]):
             slugs.add("formula")
@@ -525,6 +555,7 @@ def _page_repair_prompt(block, pages, template, validation_error, repair_error="
         "sources 只返回 quote_id，格式为 [{\"quote_id\":\"提供的ID\"}]。代码、公式和数据使用精确来源；长代码由系统按实际容量连续分页，不必裁掉代码。"
         "不得修改讲义，不得补写讲义没有的API或事实。\n"
         + json.dumps({"block_id": block["block_id"], "title": block.get("title"), "role": block.get("role"),
+            "repair_unit": repair_unit or full_page_repair_unit(block["block_id"], block["content"]),
             "forms": {lid: form_type(fixed_slug(lid), authored=True).model_json_schema() for lid in sorted(selected)},
             "literal_source_ranges": catalog, "pages_to_repair": pages,
             "validation_error": validation_error, "previous_repair_error": repair_error}, ensure_ascii=False)
@@ -631,14 +662,29 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
         attempts = list(block.get("ppt_repair_attempts") or [0] * len(groups))
         if len(attempts) != len(groups):
             raise ValueError("script_ppt_checkpoint_invalid")
-        units, unit_attempts = [], []
-        for group, used in zip(groups, attempts, strict=True):
-            prepared = _prepare_page_candidates(group, block, template)
-            units.extend([[page] for page in prepared] or [[]])
+        repair_units = deepcopy(block.get("ppt_page_repair_units") or [])
+        if repair_units and len(repair_units) != len(groups):
+            raise ValueError("script_ppt_checkpoint_invalid")
+        if not repair_units:
+            if len(groups) == 1 and not groups[0] and not pages:
+                repair_units = page_repair_source_units(bid, block["content"])
+                groups = [[] for _ in repair_units]
+                attempts = [0 for _ in repair_units]
+            else:
+                whole = full_page_repair_unit(bid, block["content"])
+                repair_units = [deepcopy(whole) for _ in groups]
+        normalized_groups, unit_attempts, normalized_units = [], [], []
+        for group, used, repair_unit in zip(groups, attempts, repair_units, strict=True):
+            repair_block = page_repair_unit_block(block, repair_unit)
+            prepared = _prepare_page_candidates(group, repair_block, template)
+            normalized_groups.extend([[page] for page in prepared] or [[]])
             unit_attempts.extend([used] * max(1, len(prepared)))
-        groups, attempts = units, unit_attempts
+            normalized_units.extend([deepcopy(repair_unit)] * max(1, len(prepared)))
+        groups, attempts, repair_units = normalized_groups, unit_attempts, normalized_units
         for index, group in enumerate(groups):
             candidate_pages = group
+            repair_unit = repair_units[index]
+            repair_block = page_repair_unit_block(block, repair_unit)
             previous_repair_error = ""
             while True:
                 try:
@@ -654,6 +700,7 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                         block.update(
                             ppt_recovery_contract_version=RECOVERY_CONTRACT,
                             ppt_page_groups=groups,
+                            ppt_page_repair_units=repair_units,
                             ppt_repair_attempts=attempts,
                             ppt_repair_state={
                                 "page_group": index + 1,
@@ -661,16 +708,21 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                                 "attempt": attempts[index],
                                 "max_attempts": 2,
                                 "error": detail,
+                                "repair_unit_id": repair_unit["repair_unit_id"],
+                                "source_start": repair_unit["source_start"],
+                                "source_end": repair_unit["source_end"],
+                                "source_chars": repair_unit["source_chars"],
                             },
                         )
                         await _notify(on_checkpoint, deepcopy(block))
                         raw = await invoke("修复当前 PPT 页面，只返回 {\"pages\":[...]}，必要时拆分本页。",
-                            _page_repair_prompt(block, candidate_pages, template, detail, previous_repair_error),
-                            output_tokens=6000, stream_delta=None, stream_reset=None)
+                            _page_repair_prompt(repair_block, candidate_pages, template, detail, previous_repair_error, repair_unit),
+                            output_tokens=min(3500, max(1800, repair_unit["source_chars"] + 1000)),
+                            stream_delta=None, stream_reset=None)
                         value = parse_page_response(raw)
                         if not isinstance(value.get("pages"), list) or not value["pages"]:
                             raise ValueError("script_ppt_response_invalid_shape:pages_must_be_nonempty_array")
-                        candidate_pages = _prepare_page_candidates(value["pages"], block, template)
+                        candidate_pages = _prepare_page_candidates(value["pages"], repair_block, template)
                         groups[index] = candidate_pages
                     except Exception as exc:
                         previous_repair_error = str(exc)
@@ -678,9 +730,14 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                                  "repair_error": str(exc), "message": detail + "; repair_failed: " + str(exc)}
                         from course_generation_errors import classify_generation_failure
                         failure = classify_generation_failure(exc)
-                        if failure.get("code") in {"provider_unavailable", "provider_timeout"} or str(exc).startswith("script_ppt_response_empty"):
+                        timeout_failure = (
+                            failure.get("code") == "provider_timeout"
+                            or getattr(exc, "code", "") == "lesson_script_model_timeout"
+                        )
+                        if timeout_failure or failure.get("code") == "provider_unavailable" or str(exc).startswith("script_ppt_response_empty"):
                             block.update(ppt_pages=[p for g in groups for p in g], ppt_page_groups=groups,
-                                         ppt_repair_attempts=attempts, ppt_errors=[*page_errors, issue])
+                                         ppt_page_repair_units=repair_units, ppt_repair_attempts=attempts,
+                                         ppt_errors=[*page_errors, issue])
                             if not provider_recovery_used and attempts[index] < 2:
                                 provider_recovery_used = True
                                 block["ppt_repair_state"].update(waiting_for_provider=True, retry_after_seconds=31)
@@ -688,6 +745,8 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                                 await provider_recovery_sleep(31)
                                 continue
                             await _notify(on_checkpoint, deepcopy(block))
+                            if timeout_failure:
+                                raise PptPageRepairTimeout(bid, repair_unit["repair_unit_id"]) from exc
                             raise
                         if getattr(exc, "retryable", True) is False:
                             page_errors.append(issue)
@@ -699,7 +758,7 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
             if not candidate_pages and not immutable_handout:
                 try:
                     candidate_pages = _prepare_page_candidates(
-                        [_grounded_fallback_page(block, template)], block, template
+                        [_grounded_fallback_page(repair_block, template)], repair_block, template
                     )
                     validate_block_pages({**block, "ppt_pages": candidate_pages}, template)
                     page_errors = [error for error in page_errors if error.get("page_index") != index]
@@ -707,7 +766,7 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                     candidate_pages = []
             groups[index] = candidate_pages
             block["ppt_pages"] = [p for group in groups for p in group]
-            block.update(ppt_page_groups=groups, ppt_repair_attempts=attempts)
+            block.update(ppt_page_groups=groups, ppt_page_repair_units=repair_units, ppt_repair_attempts=attempts)
             block.pop("ppt_repair_state", None)
             block["ppt_errors"] = page_errors
             await _notify(on_checkpoint, deepcopy(block))
