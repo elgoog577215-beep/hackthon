@@ -7,6 +7,18 @@ const source = (path: string) => readFileSync(resolve(sourceRoot, path), 'utf8')
   .replace(/\r\n/g, '\n')
 
 describe('calendar and course file-space boundary', () => {
+  it('loads the critical course shell before large secondary workspace snapshots', () => {
+    const workspace = source('views/CourseWorkspaceView.vue')
+    const loadWorkspace = workspace.match(/async function loadWorkspace\(\) \{[\s\S]*?\n\}/)?.[0] || ''
+    const criticalRead = loadWorkspace.indexOf('const [courseResponse] = await Promise.all([')
+
+    expect(criticalRead).toBeGreaterThan(0)
+    expect(loadWorkspace.indexOf('await lessonStore.load(requestedCourseId')).toBeGreaterThan(criticalRead)
+    expect(loadWorkspace.indexOf("courseStore.fetchCourseList({ surface: 'teacher' })")).toBeGreaterThan(criticalRead)
+    expect(loadWorkspace.indexOf('generationStore.fetchGlobalTasks()')).toBeGreaterThan(criticalRead)
+    expect(loadWorkspace.indexOf('/course-information')).toBeGreaterThan(criticalRead)
+  })
+
   it('observes scalar job status sources without refetching on every streamed token', () => {
     const workspace = source('views/CourseWorkspaceView.vue')
     expect(workspace).toContain("watch(\n  [\n    () => courseId.value,\n    () => generationStore.getTask(courseId.value)?.status || '',\n    () => lessonStore.jobs.map(job => `${job.id}:${job.status}`).join('|'),")
