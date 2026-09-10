@@ -359,3 +359,37 @@ def test_missing_code_source_units_compile_without_model_calls():
         for page in block["ppt_pages"]
     ) == content
     validate_block_pages(block, template)
+
+
+def test_grounded_prose_fallback_remeasures_wide_identifiers():
+    template, contract, _ = sample()
+    content = (
+        "`currentData` 保持原值。\n\n"
+        "**放大检查**\n\n"
+        "- 在 Console 未打印异常信息。"
+    )
+
+    async def invoke(*_args, **_kwargs):
+        raise AIProviderRequestError("Error code: 502")
+
+    async def sleep(_seconds):
+        return None
+
+    result = asyncio.run(generate_bundle(
+        invoke=invoke,
+        contract=contract,
+        instructions="",
+        template=template,
+        seed_blocks={"b": seed_for(contract, content)},
+        immutable_handout=True,
+        provider_recovery_sleep=sleep,
+    ))
+    block = result["blocks"][0]
+    assert not block["ppt_errors"]
+    assert "".join(
+        source["quote"]
+        for page in block["ppt_pages"]
+        for point in page["fields"]["points"]
+        for source in point["sources"]
+    ) == content
+    validate_block_pages(block, template)
