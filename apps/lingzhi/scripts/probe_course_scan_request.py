@@ -17,6 +17,7 @@ logging.disable(logging.CRITICAL)
 
 async def main() -> None:
     course_id = os.environ["COURSE_SCAN_COURSE_ID"]
+    unit_id = os.environ.get("COURSE_SCAN_UNIT_ID", "")
     pid = int(subprocess.check_output(["systemctl", "show", "lingzhi", "--property=MainPID", "--value"], text=True).strip())
     process_root = Path(f"/proc/{pid}/cwd").resolve()
     process_env = dict(part.decode(errors="replace").split("=", 1)
@@ -38,6 +39,7 @@ async def main() -> None:
         authoring=get_teacher_lesson_authoring_repository().load(course_id),
         question_bank=question_bank_repository.load_bundle(course_id),
     )
+    context = context.model_copy(update={"units": [unit for unit in context.units if unit.asset_type != "ppt"]})
     instruction = "给每个章节加一个实践项目"
     overview = {
         "course_id": course_id, "course_title": context.course_title,
@@ -52,12 +54,15 @@ async def main() -> None:
     candidates = [item for item in ranked if item["asset_type"] == "course_content"]
     candidates.sort(key=lambda item: len(unit_map[item["unit_id"]].text), reverse=True)
     targets = candidates[:1] + candidates[-1:]
+    if unit_id:
+        target = next(item for item in candidates if item["unit_id"] == unit_id)
+        targets = [target, target]
     provider = CourseService()
     original = provider._call_llm
     attempts: list[dict] = []
     activity: list[float] = []
 
-    async def on_activity(*args, **kwargs):
+    def on_activity(*args, **kwargs):
         activity.append(time.monotonic())
 
     async def traced(*args, **kwargs):
@@ -69,12 +74,14 @@ async def main() -> None:
         unit = unit_map[item["unit_id"]]
         body = "\n\n".join(unit.full_text_fields.values()) or unit.text
         size = 600 if len(body) > 6000 and "```" in body else 1200
-        entry = {**item, "content": body[:size], "part": 1,
-                 "parts": len(range(0, max(1, len(body)), size - 100))}
+        parts = len(range(0, max(1, len(body)), size - 100))
+        part = min((7 if index == 0 else 12), parts) if unit_id else 1
+        offset = (part - 1) * (size - 100)
+        entry = {**item, "content": body[offset:offset + size], "part": part, "parts": parts}
         attempts.clear()
         activity.clear()
         started = time.monotonic()
-        event = {"sample": index + 1, "fragment_chars": len(entry["content"]),
+        event = {"sample": index + 1, "part": part, "fragment_chars": len(entry["content"]),
                  "full_unit_chars": len(body), "indexed_units": len(context.units)}
         print(json.dumps({**event, "status": "started"}), flush=True)
         try:
