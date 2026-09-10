@@ -86,6 +86,7 @@ async def scan_batches(
     provider_recovery_delay_seconds: float = 31.0,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     source_context_fingerprint: str = "",
+    deprioritized_unit_ids: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], set[str], set[str], list[dict[str, Any]], int]:
     # Include the complete input, not only revision labels: legacy revisions may
     # remain unchanged when content changes. Never reuse another request/context.
@@ -97,6 +98,11 @@ async def scan_batches(
     if isinstance(checkpoint, dict) and checkpoint.get("signature") in {signature, legacy_signature}:
         if isinstance(checkpoint.get("results"), dict):
             saved["results"] = deepcopy(checkpoint["results"])
+    # Reorder complete request envelopes, not their contents: successful batch
+    # keys and legacy checkpoint signatures remain valid. Untouched units get a
+    # chance before a fragment which repeatedly failed in the previous run.
+    postponed = deprioritized_unit_ids or set()
+    batches = sorted(batches, key=lambda batch: any(item["unit_id"] in postponed for item in batch))
     analyses, failures = [], []
     scanned, unscanned = set(), set()
     retried = 0
@@ -180,6 +186,7 @@ async def scan_batches(
         batch_index: int,
         part_index: int,
         items: list[dict[str, Any]],
+        failed_items: list[dict[str, Any]],
     ) -> None:
         ids = list(dict.fromkeys(str(item["unit_id"]) for item in items))
         unscanned.update(ids)
@@ -193,6 +200,7 @@ async def scan_batches(
             "message": safe_failure_message(error),
             "technical_detail": safe_failure_message(error),
             "deferred_parts": len(items),
+            "failed_unit_ids": list(dict.fromkeys(item["unit_id"] for item in failed_items)),
         })
         detail["failed_parts"] += len(items)
         detail["provider_recovery_failed"] = True
@@ -236,6 +244,7 @@ async def scan_batches(
                             batch_index=batch_index,
                             part_index=0,
                             items=remaining,
+                            failed_items=batch,
                         )
                         abort_scan = True
                         break
@@ -316,6 +325,7 @@ async def scan_batches(
                             batch_index=batch_index,
                             part_index=part_index,
                             items=remaining,
+                            failed_items=part,
                         )
                         abort_scan = True
                         break

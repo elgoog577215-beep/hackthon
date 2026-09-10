@@ -19,6 +19,7 @@ async def main() -> None:
     course_id = os.environ["COURSE_SCAN_COURSE_ID"]
     unit_id = os.environ.get("COURSE_SCAN_UNIT_ID", "")
     transport_control = os.environ.get("COURSE_SCAN_TRANSPORT_CONTROL") == "true"
+    recovery_user_id = os.environ.get("COURSE_SCAN_RECOVERY_USER_ID", "")
     pid = int(subprocess.check_output(["systemctl", "show", "lingzhi", "--property=MainPID", "--value"], text=True).strip())
     process_root = Path(f"/proc/{pid}/cwd").resolve()
     process_env = dict(part.decode(errors="replace").split("=", 1)
@@ -41,6 +42,52 @@ async def main() -> None:
         question_bank=question_bank_repository.load_bundle(course_id),
     )
     context = context.model_copy(update={"units": [unit for unit in context.units if unit.asset_type != "ppt"]})
+    if recovery_user_id:
+        # Execute the real planner only as far as its first progress report.
+        # No model request, new job, plan save, or course mutation is permitted.
+        from course_document import stable_hash
+        from course_evolution.core import CourseEvolutionRepository
+        from course_evolution.teacher_planning import create_teacher_course_change_plan
+        state = CourseEvolutionRepository().load(recovery_user_id, course_id)
+        source = next(plan for plan in reversed(state.change_sets)
+                      if plan.status == "pending" and plan.teacher_change_planning
+                      and plan.source_kind == "manual_request")
+
+        class ReadOnlyRepository:
+            def load(self, *args):
+                return state.model_copy(deep=True)
+
+            def update(self, *args, **kwargs):
+                raise RuntimeError("Recovery inspection must not persist a plan")
+
+        class InspectionComplete(BaseException):
+            pass
+
+        async def no_model(*args):
+            raise RuntimeError("Recovery inspection must not call the model")
+
+        async def first_progress(detail, checkpoint):
+            print(json.dumps({"recovery_inspection": detail,
+                              "source_plan_id": source.change_set_id,
+                              "source_completed_units": source.impact_summary.get("coverage", {}).get("scanned_units"),
+                              "model_called": False, "plan_saved": False}), flush=True)
+            raise InspectionComplete()
+
+        provider = CourseService()
+        try:
+            await create_teacher_course_change_plan(
+                context=context, user_id=recovery_user_id, request_id="read-only-recovery-inspection",
+                instruction=source.request_text, repository=ReadOnlyRepository(), analyzer=no_model,
+                supersedes_plan_id=source.change_set_id, rescan_incomplete_only=True,
+                on_scan_progress=first_progress,
+                scan_model_identity=stable_hash({"endpoint": provider.api_base, "models": provider.fast_models},
+                                                prefix="analysis-model-"))
+        except InspectionComplete:
+            return
+        finally:
+            if provider.client:
+                await provider.client.close()
+        raise RuntimeError("Recovery inspection did not reach scan progress")
     instruction = "给每个章节加一个实践项目"
     overview = {
         "course_id": course_id, "course_title": context.course_title,

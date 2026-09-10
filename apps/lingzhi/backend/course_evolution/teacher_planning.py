@@ -42,7 +42,8 @@ from .core import (
     CourseEvolutionState,
 )
 from .text_fields import editable_text_fields
-from .semantic_scan import ScanProgress, scan_batches
+from .semantic_scan import SCAN_CONTRACT, ScanProgress, scan_batches
+from .scan_recovery import directly_failed_units, historical_scan_results, unit_fingerprint
 from .partial_review import incomplete, applied_units, retained_analysis, require_partial_selection
 from .content_patches import compile_patches, readable_body, refresh_exact_candidates, is_exact_text_operation
 
@@ -2211,19 +2212,31 @@ async def create_teacher_course_change_plan(
     batch_failures: list[dict[str, Any]] = []
     retried_batch_count = 0
     retained_ids: set[str] = set()
+    source_retained_ids: set[str] = set()
     completed_ids: set[str] = set()
     retained = None
+    historical_analyses: list[dict[str, Any]] = []
+    historical_origins: list[dict[str, Any]] = []
     if rescan_incomplete_only and superseded is not None:
         completed_ids = applied_units(superseded).intersection(u.unit_id for u in context.units)
         current_outline = [{k: v for k, v in item.items() if k != 'section_snapshot'} for item in context.outline]
         if (current_outline == superseded.impact_summary.get('current_outline')
-                and superseded.impact_summary.get('scan_model_identity', scan_model_identity) == scan_model_identity):
+                and superseded.impact_summary.get('scan_model_identity', scan_model_identity) == scan_model_identity
+                and superseded.impact_summary.get('scan_contract', 'teacher_semantic_scan_v2') == SCAN_CONTRACT):
             old = superseded.impact_summary.get('coverage') or {}
             revisions = old.get('source_revisions') or {}
             retained_ids = {u.unit_id for u in context.units if u.unit_id in revisions
                             and revisions[u.unit_id] == u.source_revision
+                            and (old.get('source_fingerprints') is None
+                                 or old['source_fingerprints'].get(u.unit_id) == unit_fingerprint(u))
                             and u.unit_id not in (old.get('unscanned_unit_ids') or [])}
             retained = retained_analysis(superseded, retained_ids - completed_ids)
+            source_retained_ids = set(retained_ids)
+        historical_ids, historical_analyses, historical_origins = historical_scan_results(
+            plans=current.change_sets, source=superseded, context=context,
+            model_identity=scan_model_identity, excluded_ids=retained_ids | completed_ids,
+        )
+        retained_ids.update(historical_ids)
         ranked = [item for item in ranked if item['unit_id'] not in retained_ids | completed_ids]
     if raw_analysis is None and analyzer is not None:
         # Split prose, never serialized JSON. Every indexed unit is considered.
@@ -2256,6 +2269,7 @@ async def create_teacher_course_change_plan(
             overview=overview, batches=batches, instruction=normalized_instruction,
             revisions={**context.base_revision_vector, "analysis_model": scan_model_identity}, analyzer=analyzer,
             checkpoint=scan_checkpoint, on_progress=progress_with_retained,
+            deprioritized_unit_ids=directly_failed_units(superseded) if rescan_incomplete_only else set(),
             # A retry removes completed units from batches. Keep the complete
             # source identity stable so successful fragments of incomplete
             # units survive that filtering; exact batch keys still validate
@@ -2268,6 +2282,7 @@ async def create_teacher_course_change_plan(
         scanned_ids.update(retained_ids | completed_ids)
         if retained is not None:
             analyses.insert(0, retained)
+        analyses.extend(historical_analyses)
         if analyses:
             raw_analysis = deepcopy(analyses[0])
             by_id: dict[str, dict[str, Any]] = {}
@@ -2384,7 +2399,7 @@ async def create_teacher_course_change_plan(
         for migration in migrations:
             uid = migration.source_unit_ids[0] if migration.source_unit_ids else ''
             old = previous_migrations.get(uid)
-            if old is None or uid not in retained_ids - completed_ids:
+            if old is None or uid not in source_retained_ids - completed_ids:
                 continue
             old_operation = next((o for o in superseded.operations
                                   if o.operation_id == old.metadata.get('operation_id')
@@ -2507,6 +2522,7 @@ async def create_teacher_course_change_plan(
         operations=executable_operations,
         impact_summary={
             'scan_model_identity': scan_model_identity,
+            'scan_contract': SCAN_CONTRACT,
             'scan_analysis': deepcopy(analysis),
             'scan_unit_index': {u.unit_id: {'asset_type': u.asset_type, 'parent_id': u.parent_id,
                                           'section_ids': list(u.section_ids)} for u in context.units},
@@ -2525,12 +2541,14 @@ async def create_teacher_course_change_plan(
             "coverage": {
                 "indexed_units": len(context.units),
                 'retained_units': len(retained_ids | completed_ids),
+                'historical_reuse': historical_origins,
                 'completed_unit_ids': sorted(completed_ids),
                 "scanned_units": len(scanned_ids),
                 "unscanned_unit_ids": sorted(unscanned_ids),
                 "failed_batches": batch_failures,
                 "retried_batch_count": retried_batch_count,
                 "source_revisions": {unit.unit_id: unit.source_revision for unit in context.units if unit.unit_id in scanned_ids},
+                "source_fingerprints": {unit.unit_id: unit_fingerprint(unit) for unit in context.units if unit.unit_id in scanned_ids},
                 "ranked_candidates": len(ranked),
                 "affected_units": len(affected_units),
             },
