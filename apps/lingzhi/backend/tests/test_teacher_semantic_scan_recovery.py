@@ -178,6 +178,29 @@ async def test_recovery_wait_is_cleared_before_retry_request_finishes():
 
 
 @pytest.mark.asyncio
+async def test_legacy_checkpoint_is_upgraded_only_for_identical_request_inputs():
+    from course_evolution.semantic_scan import scan_batches
+    checkpoint, calls = {}, []
+
+    async def report(detail, saved):
+        checkpoint.update(deepcopy(saved))
+
+    async def analyzer(overview, candidates, instruction):
+        calls.append(1)
+        return response(candidates)
+
+    args = dict(overview={}, batches=[[{"unit_id": "u"}]], instruction="practice",
+                revisions={}, analyzer=analyzer)
+    await scan_batches(**args, on_progress=report)
+    legacy = deepcopy(checkpoint)
+    result = await scan_batches(**args, checkpoint=legacy, source_context_fingerprint="all-sources")
+    assert len(calls) == 1 and result[1] == {"u"}
+    await scan_batches(**{**args, "instruction": "different request"}, checkpoint=legacy,
+                       source_context_fingerprint="all-sources")
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
 async def test_job_keeps_private_checkpoint_on_failure_and_uses_it_on_retry(tmp_path, monkeypatch):
     from backend.tests.test_task_manager_runtime_durability import build_manager
     from course_evolution.jobs import enqueue_analysis, run_analysis

@@ -91,8 +91,10 @@ async def scan_batches(
     # remain unchanged when content changes. Never reuse another request/context.
     signature = stable_hash({"contract": SCAN_CONTRACT, "overview": overview,
         "batches": source_context_fingerprint or batches, "instruction": instruction, "revisions": revisions}, prefix="scan-")
+    legacy_signature = stable_hash({"contract": SCAN_CONTRACT, "overview": overview,
+        "batches": batches, "instruction": instruction, "revisions": revisions}, prefix="scan-")
     saved = {"signature": signature, "results": {}}
-    if isinstance(checkpoint, dict) and checkpoint.get("signature") == signature:
+    if isinstance(checkpoint, dict) and checkpoint.get("signature") in {signature, legacy_signature}:
         if isinstance(checkpoint.get("results"), dict):
             saved["results"] = deepcopy(checkpoint["results"])
     analyses, failures = [], []
