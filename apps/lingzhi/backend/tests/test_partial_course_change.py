@@ -290,6 +290,9 @@ async def test_connection_outage_is_not_retried_as_thirty_bad_content_items():
     batches = [[{'unit_id': str(i), 'content': 'example'}] for i in range(30)]
     _, scanned, missing, failures, _ = await scan_batches(overview={}, batches=batches,
         instruction='check', revisions={}, analyzer=analyze, sleep=sleep)
-    assert len(calls) == 2 and len(waits) == 1
+    assert len(calls) == 6 and len(waits) == 3
     assert not scanned and missing == {str(i) for i in range(30)}
     assert failures[0]['code'] == 'provider_unavailable'
+    assert {i['unit_id'] for batch in calls for i in batch} == {'0', '1', '2'}
+    assert sum(f.get('deferred_parts', 0) for f in failures) == 27
+    assert all(not f.get('failed_unit_ids') for f in failures if f.get('deferred_parts'))

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run two disposable real analysis requests; print only bounded telemetry."""
+"""Run bounded disposable analysis requests and smaller-fragment controls."""
 from __future__ import annotations
 
 import asyncio
@@ -36,6 +36,7 @@ async def main() -> None:
     from course_evolution.teacher_planning import build_teacher_course_change_context, rank_change_units
     from course_evolution.content_patches import readable_body
     from course_evolution.patch_review import section_inventory
+    from course_evolution.semantic_scan import validate_batch
 
     document, _ = get_course_document_repository().load_document(course_id)
     context = build_teacher_course_change_context(
@@ -130,6 +131,8 @@ async def main() -> None:
         kwargs.update(telemetry_sink=attempts.append, on_stream_activity=on_activity)
         if transport_control:
             kwargs.update(json_mode=False, request_timeout_seconds=45)
+        elif item.get('_probe_size'):
+            kwargs.update(request_timeout_seconds=45)
         return await original(*args, **kwargs)
 
     provider._call_llm = traced
@@ -140,9 +143,12 @@ async def main() -> None:
         parts = len(range(0, max(1, len(body)), size - 100))
         part = min(7, parts) if unit_id and index == 0 else 1
         offset = (part - 1) * (size - 100)
+        offset = item.get('_probe_offset', offset)
+        size = item.get('_probe_size', size)
         primary_path = next((key for key in ('/markdown', '/text', '/content') if unit.full_text_fields.get(key)), '')
         payload = (unit.metadata.get('course_block') or {}).get('payload') or {}
-        entry = {**item, "content": body[offset:offset + size], "part": part, "parts": parts,
+        entry = {**{k: v for k, v in item.items() if not k.startswith('_probe_')},
+                 "content": body[offset:offset + size], "part": part, "parts": parts,
                  'content_field': primary_path.lstrip('/'), 'block_title': str(payload.get('title') or ''),
                  'existing_sections': list(section_inventory(body))}
         attempts.clear()
@@ -155,9 +161,15 @@ async def main() -> None:
         print(json.dumps({**event, "status": "started"}), flush=True)
         try:
             result = await asyncio.wait_for(provider.analyze_teacher_course_change(overview, [entry], instruction), timeout=210)
-            event.update(status="completed", valid_envelope=isinstance(result, dict),
+            validate_batch(result, [entry])
+            event.update(status="completed", valid_envelope=True,
                          affected_count=len((result or {}).get("affected_units") or []))
         except Exception as error:
+            if index == 0 and len(entry['content']) == 600:
+                # Two finite read-only controls, not another course job. Keep
+                # all source text: overlap 50 characters at the split boundary.
+                targets.extend([{**item, '_probe_offset': offset, '_probe_size': 325},
+                                {**item, '_probe_offset': offset + 275, '_probe_size': 325}])
             chain, seen = [], set()
             while error is not None and id(error) not in seen:
                 seen.add(id(error))
