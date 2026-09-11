@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import re
 from copy import deepcopy
 from typing import Any, Awaitable, Callable
@@ -14,7 +13,6 @@ from course_generation_errors import classify_generation_failure
 
 ScanProgress = Callable[[dict[str, Any], dict[str, Any]], Awaitable[None]]
 SCAN_CONTRACT = "teacher_semantic_scan_v2"
-logger = logging.getLogger(__name__)
 
 
 class ScanConnectionUnavailable(RuntimeError):
@@ -107,7 +105,10 @@ async def scan_batches(
     scanned, unscanned = set(), set()
     retried = 0
     detail = {"completed_parts": 0, "total_parts": sum(map(len, batches)),
-              "reused_parts": 0, "failed_parts": 0}
+              "reused_parts": 0, "failed_parts": 0, "deferred_parts": 0}
+    isolated: dict[str, Exception] = {}
+    consecutive_failed_units: set[str] = set()
+    provider_stop: Exception | None = None
 
     async def report() -> None:
         if on_progress:
@@ -158,6 +159,9 @@ async def scan_batches(
         detail["completed_parts"] += len(items)
         if reused:
             detail["reused_parts"] += len(items)
+        else:
+            # A cache hit says nothing about the provider's current health.
+            consecutive_failed_units.clear()
         # Persistence errors must propagate; they are not model failures and
         # must never trigger another model call or discard a successful result.
         await report()
@@ -180,13 +184,12 @@ async def scan_batches(
         finally:
             detail.pop("retrying_provider", None)
 
-    async def defer_remaining_provider_work(
+    async def defer_provider_work(
         error: Exception,
         *,
         batch_index: int,
         part_index: int,
         items: list[dict[str, Any]],
-        failed_items: list[dict[str, Any]],
     ) -> None:
         ids = list(dict.fromkeys(str(item["unit_id"]) for item in items))
         unscanned.update(ids)
@@ -200,150 +203,145 @@ async def scan_batches(
             "message": safe_failure_message(error),
             "technical_detail": safe_failure_message(error),
             "deferred_parts": len(items),
-            "failed_unit_ids": list(dict.fromkeys(item["unit_id"] for item in failed_items)),
+            "failed_unit_ids": [],
         })
-        detail["failed_parts"] += len(items)
-        detail["provider_recovery_failed"] = True
+        detail["deferred_parts"] += len(items)
         await report()
 
+    async def record_failure(items: list[dict[str, Any]], error: Exception,
+                             batch_index: int, part_index: int) -> None:
+        nonlocal provider_stop
+        ids = list(dict.fromkeys(item["unit_id"] for item in items))
+        unscanned.update(ids)
+        failure = classify_generation_failure(error)
+        failures.append({"batch_index": batch_index, "part_index": part_index,
+            "unit_ids": ids, "failed_unit_ids": ids, "error_type": type(error).__name__,
+            **failure, "message": safe_failure_message(error),
+            "technical_detail": safe_failure_message(error)})
+        detail["failed_parts"] += len(items)
+        if failure["code"] in {"provider_unavailable", "provider_timeout"} and len(ids) == 1:
+            # Repeated fragments of one unit are not independent outage evidence.
+            isolated[ids[0]] = error
+            consecutive_failed_units.add(ids[0])
+            if len(consecutive_failed_units) >= 3:
+                provider_stop = error
+                detail["provider_recovery_failed"] = True
+        await report()
+
+    async def skip_unavailable(items: list[dict[str, Any]], batch_index: int, part_index: int) -> bool:
+        # Reuse exact successful envelopes even during an outage. Do not count
+        # never-issued requests as failures or lose their pending coverage.
+        result = cached(items)
+        if result is not None:
+            await accept(items, result, True)
+            return True
+        error = provider_stop or next((isolated[i["unit_id"]] for i in items
+                                       if i["unit_id"] in isolated), None)
+        if error is None:
+            return False
+        await defer_provider_work(error, batch_index=batch_index,
+            part_index=part_index, items=items)
+        return True
+
+    def subdivisions(items: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+        if len(items) > 1:
+            midpoint = len(items) // 2
+            return [items[:midpoint], items[midpoint:]]
+        if not items[0].get('recovery_part') and len(str(items[0].get('content') or '')) > 600:
+            text = str(items[0]['content'])
+            chunks = [text[i:i+600] for i in range(0, len(text), 550)]
+            return [[{**items[0], 'content': chunk, 'recovery_part': i + 1,
+                          'recovery_parts': len(chunks)}] for i, chunk in enumerate(chunks)]
+        return []
+
+    def has_cached_descendant(items: list[dict[str, Any]]) -> bool:
+        return any(cached(child) is not None or has_cached_descendant(child)
+                   for child in subdivisions(items))
+
+    async def inspect_part(items: list[dict[str, Any]], batch_index: int, part_index: int,
+                           *, refined: bool = False) -> None:
+        nonlocal retried
+        children = subdivisions(items) if not refined else []
+        if cached(items) is None and (has_cached_descendant(items) or
+                len(items) > 1 and any(i['unit_id'] in isolated for i in items)):
+            if len(items) == 1:
+                detail['total_parts'] += len(children) - 1
+            for child in children:
+                await inspect_part(child, batch_index, part_index, refined=len(items) == 1)
+            return
+        if await skip_unavailable(items, batch_index, part_index):
+            return
+        try:
+            result, reused = await attempt(items)
+        except Exception as caught:
+            error = caught
+        else:
+            await accept(items, result, reused)
+            return
+        if isinstance(error, ValueError):
+            retried += 1
+            try:
+                result, reused = await attempt(items, error)
+            except Exception as caught:
+                error = caught
+            else:
+                await accept(items, result, reused)
+                return
+        if len(items) > 1 and classify_generation_failure(error)['code'] in {'provider_timeout', 'provider_unavailable'}:
+            retried += 1
+            for item in items:
+                await inspect_part([item], batch_index, part_index)
+            return
+        if classify_generation_failure(error)["code"] == "provider_unavailable":
+            retried += 1
+            recovered, retry_error = await retry_after_provider_recovery(items)
+            if recovered is not None:
+                await accept(items, *recovered)
+                return
+            error = retry_error or error
+        if classify_generation_failure(error)["code"] == "provider_timeout" and children:
+            detail["total_parts"] += len(children) - 1
+            retried += 1
+            for child in children:
+                await inspect_part(child, batch_index, part_index, refined=True)
+            return
+        await record_failure(items, error, batch_index, part_index)
+
     await report()
-    abort_scan = False
     for batch_index, batch in enumerate(batches):
-        initial_error = None
         detail["batch_index"] = batch_index + 1
         detail["total_batches"] = len(batches)
         await report()
+        # Keep original envelopes for checkpoint compatibility. Split mixed
+        # batches when one unit is isolated so its healthy neighbours still run.
+        result = cached(batch)
+        if result is not None:
+            await accept(batch, result, True)
+            continue
         midpoint = max(1, len(batch) // 2)
         parts = [batch] if len(batch) == 1 else [batch[:midpoint], batch[midpoint:]]
-        # A previous split may have succeeded halfway. Resume its failed half
-        # without reissuing the original parent request.
-        split_cached = len(parts) > 1 and any(cached(part) is not None for part in parts)
-        if not split_cached or cached(batch) is not None:
+        split_cached = has_cached_descendant(batch)
+        if provider_stop or any(item["unit_id"] in isolated for item in batch):
+            # Preserve successful descendants before isolating uncached leaves.
+            for part_index, part in enumerate(parts):
+                await inspect_part(part, batch_index, part_index)
+            continue
+        if len(batch) == 1:
+            await inspect_part(batch, batch_index, 0)
+            continue
+        if not split_cached:
             try:
                 result, reused = await attempt(batch)
             except Exception as error:
-                initial_error = error
                 retried += 1
-                if classify_generation_failure(error).get("code") == "provider_unavailable":
-                    recovered, retry_error = await retry_after_provider_recovery(batch)
-                    if recovered is not None:
-                        await accept(batch, *recovered)
-                        continue
-                    if (
-                        retry_error is not None
-                        and classify_generation_failure(retry_error).get("code")
-                        == "provider_unavailable"
-                    ):
-                        remaining = [
-                            item
-                            for pending in batches[batch_index:]
-                            for item in pending
-                        ]
-                        await defer_remaining_provider_work(
-                            retry_error,
-                            batch_index=batch_index,
-                            part_index=0,
-                            items=remaining,
-                            failed_items=batch,
-                        )
-                        abort_scan = True
-                        break
+                # Test different inputs before concluding that a failed shared
+                # request proves a provider-wide outage.
+                if classify_generation_failure(error)["code"] == "provider_unavailable":
+                    parts = [[item] for item in batch]
             else:
                 await accept(batch, result, reused)
                 continue
-        if abort_scan:
-            break
         for part_index, part in enumerate(parts):
-            try:
-                result, reused = await attempt(part, initial_error)
-            except Exception as error:
-                if isinstance(error, ValueError) and initial_error is None:
-                    try:
-                        result, reused = await attempt(part, error)
-                    except Exception as repair_error:
-                        error = repair_error
-                    else:
-                        await accept(part, result, reused)
-                        continue
-                if ((isinstance(error, TimeoutError) or classify_generation_failure(error).get('code') == 'provider_timeout')
-                        and len(part) == 1 and len(str(part[0].get('content') or '')) > 600):
-                    # A single large fragment cannot be made smaller by splitting
-                    # a one-item batch. Split its prose once, preserving overlap.
-                    text = str(part[0]['content'])
-                    children = [text[i:i+600] for i in range(0, len(text), 550)]
-                    detail['total_parts'] += len(children) - 1
-                    for child_index, content in enumerate(children):
-                        child = [{**part[0], 'content': content, 'recovery_part': child_index + 1,
-                                  'recovery_parts': len(children)}]
-                        try:
-                            result, reused = await attempt(child)
-                        except Exception as child_error:
-                            if isinstance(child_error, ValueError):
-                                try:
-                                    result, reused = await attempt(child, child_error)
-                                except Exception as repair_error:
-                                    child_error = repair_error
-                                else:
-                                    await accept(child, result, reused)
-                                    continue
-                            unscanned.add(part[0]['unit_id'])
-                            failure = classify_generation_failure(child_error)
-                            failures.append({'batch_index': batch_index, 'part_index': part_index,
-                                'recovery_part': child_index + 1, 'unit_ids': [part[0]['unit_id']],
-                                'error_type': type(child_error).__name__, **failure,
-                                'message': safe_failure_message(child_error),
-                                'technical_detail': safe_failure_message(child_error)})
-                            detail['failed_parts'] += 1
-                            await report()
-                        else:
-                            await accept(child, result, reused)
-                    continue
-                if classify_generation_failure(error).get("code") == "provider_unavailable":
-                    recovered, retry_error = await retry_after_provider_recovery(part)
-                    if recovered is not None:
-                        await accept(part, *recovered)
-                        continue
-                    if (
-                        retry_error is not None
-                        and classify_generation_failure(retry_error).get("code")
-                        == "provider_unavailable"
-                    ):
-                        remaining = [
-                            *[
-                                item
-                                for pending in parts[part_index:]
-                                for item in pending
-                            ],
-                            *[
-                                item
-                                for pending in batches[batch_index + 1:]
-                                for item in pending
-                            ],
-                        ]
-                        await defer_remaining_provider_work(
-                            retry_error,
-                            batch_index=batch_index,
-                            part_index=part_index,
-                            items=remaining,
-                            failed_items=part,
-                        )
-                        abort_scan = True
-                        break
-                    if retry_error is not None:
-                        error = retry_error
-                logger.warning("Whole-course scan batch=%s part=%s failed", batch_index, part_index, exc_info=True)
-                ids = [item["unit_id"] for item in part]
-                unscanned.update(ids)
-                failure = classify_generation_failure(error)
-                failures.append({"batch_index": batch_index, "part_index": part_index,
-                    "unit_ids": ids, "error_type": type(error).__name__,
-                    **failure, "message": safe_failure_message(error),
-                    "technical_detail": safe_failure_message(error)})
-                detail["failed_parts"] += len(part)
-                await report()
-            else:
-                await accept(part, result, reused)
-        if abort_scan:
-            break
+            await inspect_part(part, batch_index, part_index)
     scanned.difference_update(unscanned)
     return analyses, scanned, unscanned, failures, retried

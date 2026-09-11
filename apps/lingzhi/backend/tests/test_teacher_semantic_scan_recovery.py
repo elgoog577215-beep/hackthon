@@ -351,7 +351,7 @@ async def test_provider_circuit_waits_once_then_resumes_without_failure_fanout()
 
 
 @pytest.mark.asyncio
-async def test_persistent_provider_outage_stops_calls_and_marks_the_remaining_scan_once():
+async def test_persistent_provider_outage_requires_three_distinct_failed_units():
     from ai_base import AIProviderRequestError
     from course_evolution.semantic_scan import scan_batches
 
@@ -366,7 +366,7 @@ async def test_persistent_provider_outage_stops_calls_and_marks_the_remaining_sc
 
     analyses, scanned, missing, failures, _ = await scan_batches(
         overview={},
-        batches=[[{"unit_id": "u1"}], [{"unit_id": "u2"}], [{"unit_id": "u3"}]],
+        batches=[[{"unit_id": f"u{i}"}] for i in range(1, 6)],
         instruction="practice",
         revisions={},
         analyzer=analyzer,
@@ -374,13 +374,15 @@ async def test_persistent_provider_outage_stops_calls_and_marks_the_remaining_sc
         sleep=sleep,
     )
 
-    assert calls == [["u1"], ["u1"]]
-    assert waits == [31]
+    assert calls == [[u] for u in ("u1", "u1", "u2", "u2", "u3", "u3")]
+    assert waits == [31, 31, 31]
     assert not analyses and not scanned
-    assert missing == {"u1", "u2", "u3"}
-    assert len(failures) == 1
+    assert missing == {"u1", "u2", "u3", "u4", "u5"}
+    assert len(failures) == 5
     assert failures[0]["code"] == "provider_unavailable"
-    assert failures[0]["deferred_parts"] == 3
+    assert all(not failure.get('deferred_parts') for failure in failures[:3])
+    assert sum(failure.get('deferred_parts', 0) for failure in failures) == 2
+    assert all(failure['failed_unit_ids'] == [] for failure in failures[3:])
 
 
 @pytest.mark.asyncio

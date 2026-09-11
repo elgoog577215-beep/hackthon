@@ -34,6 +34,8 @@ async def main() -> None:
     from dependencies import get_course_document_repository, get_teacher_lesson_authoring_repository
     from question_bank import question_bank_repository
     from course_evolution.teacher_planning import build_teacher_course_change_context, rank_change_units
+    from course_evolution.content_patches import readable_body
+    from course_evolution.patch_review import section_inventory
 
     document, _ = get_course_document_repository().load_document(course_id)
     context = build_teacher_course_change_context(
@@ -104,11 +106,22 @@ async def main() -> None:
     targets = candidates[:1] + candidates[-1:]
     if unit_id:
         target = next(item for item in candidates if item["unit_id"] == unit_id)
-        targets = [target, target]
+        targets = [target, next(item for item in reversed(candidates) if item['unit_id'] != unit_id)]
     provider = CourseService()
     original = provider._call_llm
     attempts: list[dict] = []
     activity: list[float] = []
+    transport: list[dict] = []
+
+    async def trace(name, info):
+        # Never emit HTTP headers, URLs, prompts or trace info (may contain keys).
+        if len(transport) < 40:
+            transport.append({'phase': name, 'elapsed_ms': round((time.monotonic() - started) * 1000)})
+
+    async def trace_request(request):
+        request.extensions['trace'] = trace
+
+    provider.client._client.event_hooks.setdefault('request', []).append(trace_request)
 
     def on_activity(*args, **kwargs):
         activity.append(time.monotonic())
@@ -122,16 +135,21 @@ async def main() -> None:
     provider._call_llm = traced
     for index, item in enumerate(targets):
         unit = unit_map[item["unit_id"]]
-        body = "\n\n".join(unit.full_text_fields.values()) or unit.text
+        body = readable_body(unit.full_text_fields) or unit.text
         size = 600 if len(body) > 6000 and "```" in body else 1200
         parts = len(range(0, max(1, len(body)), size - 100))
-        part = min((7 if index == 0 else 12), parts) if unit_id else 1
+        part = min(7, parts) if unit_id and index == 0 else 1
         offset = (part - 1) * (size - 100)
-        entry = {**item, "content": body[offset:offset + size], "part": part, "parts": parts}
+        primary_path = next((key for key in ('/markdown', '/text', '/content') if unit.full_text_fields.get(key)), '')
+        payload = (unit.metadata.get('course_block') or {}).get('payload') or {}
+        entry = {**item, "content": body[offset:offset + size], "part": part, "parts": parts,
+                 'content_field': primary_path.lstrip('/'), 'block_title': str(payload.get('title') or ''),
+                 'existing_sections': list(section_inventory(body))}
         attempts.clear()
         activity.clear()
+        transport.clear()
         started = time.monotonic()
-        event = {"sample": index + 1, "part": part, "fragment_chars": len(entry["content"]),
+        event = {"sample": index + 1, "unit_id": item['unit_id'], "part": part, "fragment_chars": len(entry["content"]),
                  "full_unit_chars": len(body), "indexed_units": len(context.units),
                  "json_mode_control_disabled": transport_control}
         print(json.dumps({**event, "status": "started"}), flush=True)
@@ -147,6 +165,7 @@ async def main() -> None:
                 error = error.__cause__ or error.__context__
             event.update(status="failed", error_chain=chain)
         event.update(duration_ms=round((time.monotonic() - started) * 1000),
+                     transport=transport,
                      activity_count=len(activity),
                      first_activity_ms=round((activity[0] - started) * 1000) if activity else None,
                      attempts=[{key: value for key, value in attempt.items() if key in {

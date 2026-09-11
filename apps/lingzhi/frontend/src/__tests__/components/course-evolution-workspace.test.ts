@@ -248,12 +248,13 @@ describe('CourseEvolutionWorkspace', () => {
     const store = useCourseEvolutionStore(pinia)
     store.applyAnalysisTask({
       id: 'analysis-progress', type: 'teacher_course_change_analysis', status: 'running',
-      phase_detail: { scan: { completed_parts: 4, total_parts: 10, reused_parts: 3, failed_parts: 1 } },
+      phase_detail: { scan: { completed_parts: 4, total_parts: 10, reused_parts: 3, failed_parts: 1, deferred_parts: 2 } },
     })
     const wrapper = mountWorkspace(pinia)
     expect(wrapper.get('[data-testid="semantic-scan-progress"]').text()).toContain('4 / 10')
     expect(wrapper.get('[data-testid="semantic-scan-progress"]').text()).toContain('复用 3')
-    expect(wrapper.get('[data-testid="semantic-scan-progress"]').text()).toContain('未完成 1')
+    expect(wrapper.get('[data-testid="semantic-scan-progress"]').text()).toContain('请求失败 1')
+    expect(wrapper.get('[data-testid="semantic-scan-progress"]').text()).toContain('暂缓 2')
     wrapper.unmount()
   })
 

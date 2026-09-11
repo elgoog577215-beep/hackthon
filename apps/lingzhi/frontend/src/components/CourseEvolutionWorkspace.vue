@@ -47,7 +47,7 @@
                   <p>{{ scanResumeLabel }}</p>
                   <div v-if="scanProgress" data-testid="partial-scan-progress" role="status">
                     <progress :max="Math.max(1, scanProgress.total_parts)" :value="scanProgress.completed_parts + scanProgress.failed_parts" :aria-label="t('courseEvolution.workspace.retryProgress')" />
-                    <span>{{ t('courseEvolution.workspace.scanBatchProgress').replace('{done}', String(scanProgress.completed_parts)).replace('{total}', String(scanProgress.total_parts)).replace('{reused}', String(scanProgress.reused_parts)).replace('{failed}', String(scanProgress.failed_parts)) }}</span>
+                    <span>{{ t('courseEvolution.workspace.scanBatchProgress').replace('{done}', String(scanProgress.completed_parts)).replace('{total}', String(scanProgress.total_parts)).replace('{reused}', String(scanProgress.reused_parts)).replace('{failed}', String(scanProgress.failed_parts)).replace('{deferred}', String(scanProgress.deferred_parts || 0)) }}</span>
                   </div>
                 </template>
                 <p v-else data-testid="partial-scan-outcome" role="status">{{ store.generationError || scanFailureSummary || t('courseEvolution.workspace.partialReviewHint') }}</p>
@@ -111,7 +111,7 @@
                 <div class="scan-heading"><span><ScanSearch :size="21" /></span><div><small>{{ t('courseEvolution.workspace.scanningKicker', '正在分析全课') }}</small><h3>{{ t('courseEvolution.workspace.scanRequestTitle', '正在理解要求并定位所有受影响内容') }}</h3></div></div>
                 <div class="scan-line"><span /></div>
                 <p v-if="scanProgress?.retained_units" class="coverage-status">{{ scanResumeLabel }}</p>
-                <p v-if="scanProgress" class="coverage-status" data-testid="semantic-scan-progress">{{ t('courseEvolution.workspace.scanBatchProgress').replace('{done}', String(scanProgress.completed_parts)).replace('{total}', String(scanProgress.total_parts)).replace('{reused}', String(scanProgress.reused_parts)).replace('{failed}', String(scanProgress.failed_parts)) }}</p>
+                <p v-if="scanProgress" class="coverage-status" data-testid="semantic-scan-progress">{{ t('courseEvolution.workspace.scanBatchProgress').replace('{done}', String(scanProgress.completed_parts)).replace('{total}', String(scanProgress.total_parts)).replace('{reused}', String(scanProgress.reused_parts)).replace('{failed}', String(scanProgress.failed_parts)).replace('{deferred}', String(scanProgress.deferred_parts || 0)) }}</p>
                 <dl><div><dt>{{ t('courseEvolution.workspace.scanIndex', '索引召回') }}</dt><dd>{{ context?.summary?.indexed_units || 0 }} {{ t('courseEvolution.workspace.units', '个单元') }}</dd></div><div><dt>{{ t('courseEvolution.workspace.scanRelations', '关系扩展') }}</dt><dd>{{ t('courseEvolution.workspace.crossAssets', '跨大纲与教学资产') }}</dd></div><div><dt>{{ t('courseEvolution.workspace.scanJudgement', 'AI 判断') }}</dt><dd>{{ t('courseEvolution.workspace.keepRealImpact', '保留真实影响') }}</dd></div></dl>
                 <div class="scan-actions">
                   <p><ShieldCheck :size="15" />{{ t('courseEvolution.workspace.scanGuard', '此阶段只建立影响计划，不写入正式课程。') }}</p>
