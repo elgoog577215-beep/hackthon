@@ -26,26 +26,27 @@ from .change_planning import (
     CourseChangeClarificationAnswerSnapshot,
     CourseChangeClarificationOption,
     CourseChangeClarificationQuestion,
-    CourseChangeSystemBlocker,
     CourseChangeIntent,
     CourseChangePlan,
     CourseChangeSignal,
+    CourseChangeSystemBlocker,
     CourseStructureOperation,
     CourseUnitMigration,
     ProposedOutlineNode,
     summarize_course_change_plan,
 )
+from .content_patches import compile_patches, is_exact_text_operation, readable_body, refresh_exact_candidates
 from .core import (
     CourseEvolutionOperation,
     CourseEvolutionPlan,
     CourseEvolutionRepository,
     CourseEvolutionState,
 )
-from .text_fields import editable_text_fields
-from .semantic_scan import SCAN_CONTRACT, ScanProgress, scan_batches
+from .partial_review import applied_units, incomplete, require_partial_selection, retained_analysis
+from .patch_review import patch_error_detail, section_inventory
 from .scan_recovery import directly_failed_units, historical_scan_results, unit_fingerprint
-from .partial_review import incomplete, applied_units, retained_analysis, require_partial_selection
-from .content_patches import compile_patches, readable_body, refresh_exact_candidates, is_exact_text_operation
+from .semantic_scan import SCAN_CONTRACT, ScanProgress, scan_batches
+from .text_fields import editable_text_fields
 
 COURSE_CHANGE_CONTEXT_SCHEMA = "teacher_course_change_context_v1"
 COURSE_CHANGE_INDEX_SCHEMA = "teacher_course_change_index_v1"
@@ -1702,7 +1703,8 @@ def _unit_migrations(
                 "parent_id": unit.parent_id,
                 "title": unit.title,
                 "before_preview": _compact(unit.text, 360),
-                "before_content": "\n\n".join(unit.full_text_fields.values()) or unit.text,
+                "before_content": readable_body(unit.full_text_fields) or unit.text,
+                "before_fields": deepcopy(unit.full_text_fields),
                 "matched_fields": [path for path, text in unit.full_text_fields.items() if str((item.get("literal_replacement") or {}).get("before") or "") and (item.get("literal_replacement") or {})["before"] in text],
                 "section_ids": unit.section_ids,
                 "role": unit.role,
@@ -1751,12 +1753,13 @@ def _content_operations(
         except ValueError as error:
             migration.candidate_status = 'failed'
             migration.metadata['candidate_error'] = str(error)
-            migration.metadata['candidate_error_detail'] = {'code': 'patch_conflict', 'retryable': False}
+            migration.metadata['candidate_error_detail'] = patch_error_detail(error)
             continue
         change_count = sum(p['occurrences'] for p in applied_patches)
         if not change_count:
             migration.candidate_status = "failed"
             migration.metadata["candidate_error"] = "AI 修改片段未命中当前正式内容"
+            migration.metadata['candidate_error_detail'] = patch_error_detail(ValueError(migration.metadata['candidate_error']))
             continue
         operation_id = f"teacher-content-{uuid.uuid4().hex}"
         before_fields = editable_text_fields(before_block.payload)
@@ -2214,6 +2217,8 @@ async def create_teacher_course_change_plan(
     retained_ids: set[str] = set()
     source_retained_ids: set[str] = set()
     completed_ids: set[str] = set()
+    last_scan_detail: dict[str, Any] = {}
+    last_scan_checkpoint: dict[str, Any] = {}
     retained = None
     historical_analyses: list[dict[str, Any]] = []
     historical_origins: list[dict[str, Any]] = []
@@ -2246,11 +2251,17 @@ async def create_teacher_course_change_plan(
         size = 0
         for item in ranked:
             unit = units_by_id[item["unit_id"]]
-            body = "\n\n".join(unit.full_text_fields.values()) or unit.text
+            body = ((readable_body(unit.full_text_fields) if unit.asset_type == 'course_content'
+                     else "\n\n".join(unit.full_text_fields.values())) or unit.text)
+            primary_path = next((key for key in ('/markdown', '/text', '/content') if unit.full_text_fields.get(key)), '')
+            block_payload = (unit.metadata.get('course_block') or {}).get('payload') or {}
             fragment_size = 600 if len(body) > 6000 and '```' in body else 1200
             chunks = [body[i:i + fragment_size] for i in range(0, max(1, len(body)), fragment_size - 100)]
             for index, chunk in enumerate(chunks):
-                entry = {**item, "content": chunk, "part": index + 1, "parts": len(chunks)}
+                entry = {**item, "content": chunk, "part": index + 1, "parts": len(chunks),
+                         'content_field': primary_path.lstrip('/'),
+                         'block_title': str(block_payload.get('title') or ''),
+                         'existing_sections': list(section_inventory(body))}
                 cost = len(json.dumps(entry, ensure_ascii=False))
                 if batch and (size + cost > 4500 or len(batch) >= 12
                               or sum(len(entry['content']) for entry in batch) + len(chunk) > 2400):
@@ -2261,6 +2272,8 @@ async def create_teacher_course_change_plan(
         if batch:
             batches.append(batch)
         async def progress_with_retained(detail: dict[str, Any], checkpoint: dict[str, Any]) -> None:
+            nonlocal last_scan_detail, last_scan_checkpoint
+            last_scan_detail, last_scan_checkpoint = deepcopy(detail), deepcopy(checkpoint)
             if on_scan_progress:
                 await on_scan_progress({**detail, 'retained_units': len(retained_ids | completed_ids),
                                         'pending_units': len(context.units) - len(retained_ids | completed_ids),
@@ -2322,6 +2335,15 @@ async def create_teacher_course_change_plan(
     else:
         unscanned_ids = {unit.unit_id for unit in context.units}
     analysis = _normalize_analysis(raw_analysis, context, normalized_instruction, ranked)
+    from .patch_reconciliation import reconcile_fragment_patches
+    async def repair_progress(title: str) -> None:
+        if on_scan_progress and last_scan_detail:
+            await on_scan_progress({**last_scan_detail, 'reconciling_content': True, 'repair_title': title,
+                                    'retained_units': len(retained_ids | completed_ids),
+                                    'pending_units': len(context.units) - len(retained_ids | completed_ids),
+                                    'total_units': len(context.units)}, last_scan_checkpoint)
+    await reconcile_fragment_patches(analysis, context, analyzer, normalized_instruction,
+                                     eligible_ids=scanned_ids - retained_ids - completed_ids, on_progress=repair_progress)
     acknowledged_questions = list(analysis.get("blocking_questions") or [])
     if confirmed_interpretation:
         analysis["blocking_questions"] = []
@@ -2406,7 +2428,17 @@ async def create_teacher_course_change_plan(
                                   and is_exact_text_operation(o)), None)
             new_operation = next((o for o in executable_operations
                                   if o.operation_id == migration.metadata.get('operation_id')), None)
+            if old_operation is not None and new_operation is None:
+                new_operation = old_operation.model_copy(deep=True)
+                new_operation.operation_id = f'teacher-content-{uuid.uuid4().hex}'
+                new_operation.operation_type = 'REPLACE_COURSE_BLOCK'
+                executable_operations.append(new_operation)
+                migration.metadata['operation_id'] = new_operation.operation_id
             if old_operation is not None and new_operation is not None:
+                migration.candidate_status = 'ready'
+                migration.disposition = old.disposition
+                migration.metadata.pop('candidate_error', None)
+                migration.metadata.pop('candidate_error_detail', None)
                 new_operation.payload = deepcopy(old_operation.payload)
                 for runtime_key in ('candidate_id', 'base_revision_id', 'previous_revision_id', 'domain', 'action', 'lesson_unit_id'):
                     new_operation.payload.pop(runtime_key, None)
@@ -2661,8 +2693,20 @@ def _apply_manual_content_edits(plan, planning, selected, content_edits):
             ),
             None,
         )
-        if operation is None or migration.candidate_status != "ready":
-            raise ValueError("课程正文候选尚未就绪，不能手动编辑")
+        if operation is None:
+            from .partial_review import repairable_text_draft
+            if not repairable_text_draft(plan, migration):
+                raise ValueError("本条缺少完整有效的原文，暂不能修正候选")
+            before = CourseBlock.model_validate(migration.metadata['course_block'])
+            operation = CourseEvolutionOperation(
+                operation_id=f'teacher-content-{uuid.uuid4().hex}', operation_type='REPLACE_COURSE_BLOCK',
+                target_block_id=before.block_id, target_section_id=before.section_id,
+                scope='current', reason=migration.reason,
+                payload={'expected_block_revision': before.internal_revision,
+                         'before_block': before.model_dump(mode='json'),
+                         'proposed_block': before.model_dump(mode='json')})
+            plan.operations.append(operation)
+            migration.metadata['operation_id'] = operation.operation_id
         before_block = CourseBlock.model_validate(operation.payload.get("before_block") or {})
         proposed_block = CourseBlock.model_validate(operation.payload.get("proposed_block") or {})
         before_fields = editable_text_fields(before_block.payload)
@@ -2694,6 +2738,12 @@ def _apply_manual_content_edits(plan, planning, selected, content_edits):
             "manually_edited": True,
             "manual_edit_fields": sorted(edited_fields),
         })
+        migration.candidate_status = 'ready'
+        migration.disposition = 'rewrite_partial'
+        migration.metadata['before_content'] = readable_body(before_fields)
+        migration.metadata.pop('candidate_error', None)
+        migration.metadata.pop('candidate_error_detail', None)
+        migration.metadata.pop('candidate_warning', None)
 
 
 
@@ -2749,6 +2799,14 @@ def review_teacher_course_change_scope(
         if plan.status != "pending":
             raise ValueError("只能审阅尚未应用的课程方案")
         planning = plan.teacher_change_planning
+        if content_edits and context is not None:
+            current_blocks = {u.unit_id: u.metadata.get('course_block') for u in context.units}
+            for migration in planning.unit_migrations:
+                if migration.migration_id in content_edits:
+                    operation = next((o for o in plan.operations if o.operation_id == migration.metadata.get('operation_id')), None)
+                    original = operation.payload.get('before_block') if operation else migration.metadata.get('course_block')
+                    if not migration.source_unit_ids or current_blocks.get(migration.source_unit_ids[0]) != original:
+                        raise ValueError('本条原文已变化，请重新分析该内容后再保存，避免覆盖新修改')
         if selection_only:
             if confirm_structure or edited_outline is not None or disposition_overrides:
                 raise ValueError('保存选择不能同时确认结构或更改修改内容')
@@ -2756,6 +2814,7 @@ def review_teacher_course_change_scope(
             if not set(selected).issubset(known):
                 raise ValueError('影响范围包含不属于本方案的课程单元')
             previous_proposals = {op.operation_id: deepcopy(op.payload.get('proposed_block')) for op in plan.operations}
+            previous_migration_operations = {m.migration_id: m.metadata.get('operation_id') for m in planning.unit_migrations}
             refresh_exact_candidates(plan, selected)
             if content_edits:
                 from .partial_review import readiness
@@ -2765,11 +2824,14 @@ def review_teacher_course_change_scope(
                 for item in plan.impact_summary.get('affected_units') or []:
                     migration = next((m for m in planning.unit_migrations if m.migration_id == item.get('migration_id')), None)
                     if migration and migration.migration_id in content_edits:
-                        for key in ('before_fields', 'after_fields', 'after_content', 'after_preview', 'change_count', 'manually_edited', 'manual_edit_fields'):
+                        for key in ('before_fields', 'after_fields', 'before_content', 'after_content', 'after_preview', 'change_count', 'manually_edited', 'manual_edit_fields', 'candidate_error', 'candidate_error_detail', 'candidate_warning', 'operation_id'):
                             item[key] = deepcopy(migration.metadata.get(key))
+                        item['candidate_status'] = migration.candidate_status
+                        item['disposition'] = migration.disposition
+                        item.pop('requires_patch_refresh', None)
             current_proposals = {op.operation_id: op.payload.get('proposed_block') for op in plan.operations}
             changed_operation_ids = {op_id for op_id, proposal in previous_proposals.items() if current_proposals.get(op_id) != proposal}
-            changed_migration_ids = {m.migration_id for m in planning.unit_migrations if m.metadata.get('operation_id') in changed_operation_ids}
+            changed_migration_ids = {mid for mid, oid in previous_migration_operations.items() if oid in changed_operation_ids}
             approved = plan.impact_summary.get('scope_review') or {}
             if approved and changed_operation_ids:
                 approved['selected_migration_ids'] = [value for value in approved.get('selected_migration_ids', []) if value not in changed_migration_ids]

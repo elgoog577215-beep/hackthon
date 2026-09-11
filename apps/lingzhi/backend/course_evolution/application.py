@@ -210,7 +210,7 @@ class CourseEvolutionApplicationService:
         proposed_outline: list[dict[str, Any]] | None = None,
         selection_only: bool = False,
     ) -> Any:
-        context = self.teacher_context(course_id) if proposed_outline is not None else None
+        context = self.teacher_context(course_id) if proposed_outline is not None or manual_content_edits else None
         return review_teacher_course_change_scope(
             repository=self.evolution_repository,
             user_id=user_id,

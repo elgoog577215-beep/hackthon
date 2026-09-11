@@ -2,6 +2,8 @@
 from copy import deepcopy
 from typing import Any
 
+from .patch_review import PatchValidationError, check_code_splice, duplicate_section_warning, patch_error_detail
+
 EXACT_AUTHORING_ACTION = 'exact_script_block'
 
 
@@ -33,7 +35,7 @@ def compile_patches(payload: dict[str, Any], patches: list[dict[str, Any]], *, l
         seen.add(identity)
         original = payload.get(field)
         if not isinstance(original, str) or before not in original:
-            continue
+            raise PatchValidationError('patch_source_mismatch', f'修改片段不在原文的“{field}”字段中，请在本条详情中根据完整原文修正。')
         # A semantic paragraph expansion is one proposed insertion. Repeated
         # anchors must not multiply a newly authored project. Explicit literal
         # replacements retain their all-occurrences contract.
@@ -42,6 +44,8 @@ def compile_patches(payload: dict[str, Any], patches: list[dict[str, Any]], *, l
             warnings.append('原片段出现多次，新增段落仅放在第一处，请在详情中核对位置。')
         matches, start = [], 0
         while (position := original.find(before, start)) >= 0:
+            if not literal:
+                check_code_splice(original, position, position + len(before), before, after)
             matches.append((position, position + len(before), after))
             start = position + len(before)
             if not replace_all:
@@ -52,7 +56,7 @@ def compile_patches(payload: dict[str, Any], patches: list[dict[str, Any]], *, l
             if match in existing:
                 continue
             if any(match[0] < end and begin < match[1] for begin, end, _ in existing):
-                raise ValueError('修改片段相互重叠且建议不一致，请重新生成或手动明确修改内容')
+                raise PatchValidationError('patch_conflict', '修改片段相互重叠且建议不一致，请在本条详情中合并为一份修改。')
             existing.append(match)
             added += 1
         if added:
@@ -62,6 +66,10 @@ def compile_patches(payload: dict[str, Any], patches: list[dict[str, Any]], *, l
         for begin, end, replacement in sorted(edits, reverse=True):
             text = text[:begin] + replacement + text[end:]
         proposed[field] = text
+        if not literal:
+            warning = duplicate_section_warning(payload[field], text)
+            if warning:
+                warnings.append(warning)
     return proposed, applied, list(dict.fromkeys(warnings))
 
 
@@ -84,7 +92,7 @@ def refresh_exact_candidates(plan: Any, selected_ids: list[str]) -> None:
         except ValueError as error:
             migration.candidate_status = 'failed'
             migration.metadata['candidate_error'] = str(error)
-            migration.metadata['candidate_error_detail'] = {'code': 'patch_conflict', 'retryable': False}
+            migration.metadata['candidate_error_detail'] = patch_error_detail(error)
             migration.metadata.pop('operation_id', None)
             plan.operations = [op for op in plan.operations if op.operation_id != operation.operation_id]
         else:

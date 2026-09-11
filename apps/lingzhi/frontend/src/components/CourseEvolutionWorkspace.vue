@@ -211,7 +211,7 @@
                       <footer><span v-if="item.source_state === 'stale'"><TriangleAlert :size="13" />{{ t('courseEvolution.workspace.sourceStale', '来源与当前课程版本不一致') }}</span><span v-else-if="item.operation_id && candidateReviewReady"><CircleCheckBig :size="13" />{{ item.change_count }} {{ t('courseEvolution.workspace.exactChanges', '处精确修改') }}</span><span>{{ confidenceLabel(item.confidence) }}</span></footer>
                       <CourseChangeCandidateDetails :item="item" :outline="context?.outline || []" />
 
-                      <p v-if="item.candidate_error" class="candidate-error"><TriangleAlert :size="13" />{{ item.candidate_error }}<button v-if="item.candidate_error_detail?.retryable !== false && canUseMigration(item.migration_id)" type="button" :disabled="store.generating || candidatesGenerating" @click="retryCandidateFailures">{{ t('courseEvolution.workspace.retryThisFailure', '重试失败项') }}</button><button v-else-if="decisionRequired" type="button" :disabled="store.generating" @click="openDecisionResolution">{{ t('courseEvolution.workspace.resolveDecisions') }}</button><button v-else-if="item.candidate_error_detail?.retryable === false" type="button" :disabled="store.generating" @click="openCorrection">{{ t('courseEvolution.workspace.answerAndReanalyze') }}</button></p>
+                      <p v-if="item.candidate_error" class="candidate-error"><TriangleAlert :size="13" />{{ item.candidate_error }}<button v-if="item.repairable_draft" type="button" :disabled="store.generating || candidatesGenerating || Boolean(store.actingId)" @click="openPatchRepair(item)">{{ t('courseEvolution.workspace.repairThisDraft', '修正本条内容') }}</button><button v-else-if="item.candidate_error_detail?.retryable !== false && canUseMigration(item.migration_id)" type="button" :disabled="store.generating || candidatesGenerating" @click="retryCandidateFailures">{{ t('courseEvolution.workspace.retryThisFailure', '重试失败项') }}</button><button v-else-if="decisionRequired" type="button" :disabled="store.generating" @click="openDecisionResolution">{{ t('courseEvolution.workspace.resolveDecisions') }}</button><button v-else-if="item.candidate_error_detail?.retryable === false" type="button" :disabled="store.generating" @click="openCorrection">{{ t('courseEvolution.workspace.answerAndReanalyze') }}</button></p>
               </template>
             </CourseChangeDetailView>
 
@@ -239,7 +239,7 @@
                       <header><div><small>{{ assetLabel(item.asset_type) }}<template v-if="impactSectionLabel(item)"> · {{ impactSectionLabel(item) }}</template></small><h4>{{ item.title }}</h4></div><label class="disposition-control"><span>{{ t('courseEvolution.workspace.handlingMethod', '处理方式') }}</span><select :disabled="store.generating || !canUseMigration(item.migration_id)" :value="effectiveDisposition(item)" @change="setDisposition(item, ($event.target as HTMLSelectElement).value)"><option v-for="option in dispositionOptions(item)" :key="option.value" :value="option.value">{{ option.label }}</option></select></label></header>
                       <button type="button" class="impact-expand button-secondary" :data-testid="`expand-impact-${item.migration_id}`" :data-migration-id="item.migration_id" @click="openDetail(item)">{{ t('courseEvolution.workspace.expandImpact') }}</button>
 
-                      <p v-if="item.candidate_error" class="candidate-error"><TriangleAlert :size="13" />{{ item.candidate_error }}<button v-if="item.candidate_error_detail?.retryable !== false && canUseMigration(item.migration_id)" type="button" :disabled="store.generating || candidatesGenerating" @click="retryCandidateFailures">{{ t('courseEvolution.workspace.retryThisFailure', '重试失败项') }}</button><button v-else-if="decisionRequired" type="button" :disabled="store.generating" @click="openDecisionResolution">{{ t('courseEvolution.workspace.resolveDecisions') }}</button><button v-else-if="item.candidate_error_detail?.retryable === false" type="button" :disabled="store.generating" @click="openCorrection">{{ t('courseEvolution.workspace.answerAndReanalyze') }}</button></p>
+                      <p v-if="item.candidate_error" class="candidate-error"><TriangleAlert :size="13" />{{ item.candidate_error }}<button v-if="item.repairable_draft" type="button" :disabled="store.generating || candidatesGenerating || Boolean(store.actingId)" @click="openPatchRepair(item)">{{ t('courseEvolution.workspace.repairThisDraft', '修正本条内容') }}</button><button v-else-if="item.candidate_error_detail?.retryable !== false && canUseMigration(item.migration_id)" type="button" :disabled="store.generating || candidatesGenerating" @click="retryCandidateFailures">{{ t('courseEvolution.workspace.retryThisFailure', '重试失败项') }}</button><button v-else-if="decisionRequired" type="button" :disabled="store.generating" @click="openDecisionResolution">{{ t('courseEvolution.workspace.resolveDecisions') }}</button><button v-else-if="item.candidate_error_detail?.retryable === false" type="button" :disabled="store.generating" @click="openCorrection">{{ t('courseEvolution.workspace.answerAndReanalyze') }}</button></p>
                     </div>
                   </article>
                   <p v-if="!visibleAffectedUnits.length" class="empty-impact">{{ t('courseEvolution.workspace.noAffectedForAsset', '这一类资产没有被判定为必改内容。') }}</p>
@@ -278,7 +278,7 @@ import { useCourseEvolutionStore, observeCourseChangeProgress, type CourseChange
 
 type WorkspaceState = 'request' | 'scanning' | 'interpreting' | 'content' | 'structure' | 'applied'
 type ContextAsset = TeacherCourseChangeContext['assets'][number]
-type AffectedUnit = { migration_id: string; unit_id: string; asset_type: string; unit_type: string; title: string; before_preview: string; before_content?: string; before_fields?: Record<string, string>; after_content?: string; after_preview?: string; after_fields?: Record<string, string>; literal_replacement?: { before?: string; after?: string }; manually_edited?: boolean; section_ids: string[]; source_state: string; disposition: string; reason: string; confidence: number; candidate_status: string; candidate_error?: string; candidate_warning?: string; requires_patch_refresh?: boolean; candidate_error_detail?: { retryable?: boolean }; operation_id?: string; change_count?: number }
+type AffectedUnit = { migration_id: string; unit_id: string; asset_type: string; unit_type: string; title: string; before_preview: string; before_content?: string; before_fields?: Record<string, string>; after_content?: string; after_preview?: string; after_fields?: Record<string, string>; literal_replacement?: { before?: string; after?: string }; manually_edited?: boolean; section_ids: string[]; source_state: string; disposition: string; reason: string; confidence: number; candidate_status: string; candidate_error?: string; candidate_warning?: string; requires_patch_refresh?: boolean; repairable_draft?: boolean; candidate_error_detail?: { retryable?: boolean; code?: string; resolution?: string }; operation_id?: string; change_count?: number }
 type HighlightPart = { text: string; changed: boolean }
 
 const props = withDefaults(defineProps<{ modelValue: boolean; courseId: string; sectionId?: string; courseTitle?: string; sectionTitle?: string; focusPlanId?: string; standalone?: boolean; embeddedInCenter?: boolean; initialMode?: 'replace' | 'structure' }>(), { sectionId: '', courseTitle: '', sectionTitle: '', focusPlanId: '', standalone: false, embeddedInCenter: false, initialMode: 'structure' })
@@ -610,6 +610,7 @@ function setDisposition(item: AffectedUnit, value: string) {
   dispositionOverrides.value = { ...dispositionOverrides.value, [item.migration_id]: value as TeacherMigrationDisposition }
 }
 function canManuallyEdit(item: AffectedUnit) {
+  if (item.repairable_draft && (item.candidate_error || item.requires_patch_refresh)) return isUnitSelected(item.migration_id)
   return (!partialActive.value || (partialGate.value?.editable_migration_ids || partialGate.value?.eligible_migration_ids || []).includes(item.migration_id)) && item.asset_type === 'course_content'
     && item.candidate_status === 'ready'
     && Boolean(item.operation_id)
@@ -618,16 +619,22 @@ function canManuallyEdit(item: AffectedUnit) {
 }
 async function openCandidateEditor(item: AffectedUnit) {
   if (!canManuallyEdit(item)) return
-  if (item.requires_patch_refresh) {
+  if (item.requires_patch_refresh && !item.repairable_draft) {
     await refreshDetailCandidate(item)
     item = affectedUnits.value.find(value => value.migration_id === item.migration_id) || item
     if (item.requires_patch_refresh) return
   }
   editingCandidateId.value = item.migration_id
-  const fields = item.after_fields || {}
+  const fields = item.candidate_error || item.requires_patch_refresh ? (item.before_fields || {}) : (item.after_fields || {})
   const primary = ['/markdown', '/text', '/content'].find(key => fields[key])
   candidateDraft.value = Object.fromEntries(Object.entries(fields).filter(([key, value]) => !primary || key === primary || (value !== item.before_fields?.[key] && value !== fields[primary])))
   nextTick(() => document.querySelector<HTMLTextAreaElement>(`[data-testid="candidate-editor-${item.migration_id}"] textarea`)?.focus())
+}
+async function openPatchRepair(item: AffectedUnit) {
+  if (!item.repairable_draft) return
+  if (!isUnitSelected(item.migration_id)) toggleUnit(item.migration_id)
+  if (detailMigrationId.value !== item.migration_id) openDetail(item)
+  await openCandidateEditor(item)
 }
 function closeCandidateEditor() {
   editingCandidateId.value = ''
@@ -660,7 +667,7 @@ async function saveCandidateEdit(item: AffectedUnit) {
   const edits = { ...candidateDraft.value }
   await runPlanAction(async (plan, isCurrent) => {
     await persistSelection(plan)
-    if (!canUseMigration(item.migration_id)) {
+    if (!canUseMigration(item.migration_id) || item.candidate_error || item.requires_patch_refresh) {
       await store.reviewCoursePlan(plan.change_set_id, selectedMigrationIds(), { selectionOnly: true, manualContentEdits: { [item.migration_id]: edits } })
     } else {
       await store.reviewCoursePlan(plan.change_set_id, reviewedMigrationIds(), {

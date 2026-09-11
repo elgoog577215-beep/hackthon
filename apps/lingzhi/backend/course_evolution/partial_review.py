@@ -29,6 +29,23 @@ def independent_text_edit(plan: Any, migration: Any, *, allow_title: bool = Fals
                 and {k: v for k, v in before.items() if k != 'payload'} == {k: v for k, v in after.items() if k != 'payload'})
 
 
+def repairable_text_draft(plan: Any, migration: Any) -> bool:
+    """Editing a source-bound draft grants no authority to apply it."""
+    block = migration.metadata.get('course_block') or {}
+    if (plan.status != 'pending' or migration.asset_type != 'course_content'
+            or migration.disposition not in {'rewrite_partial', 'regenerate'} or migration.metadata.get('source_state') == 'stale'
+            or not block.get('block_id') or not block.get('section_id') or not block.get('internal_revision')):
+        return False
+    fields = block.get('payload') or {}
+    if not any(isinstance(fields.get(key), str) and fields[key].strip() for key in ('markdown', 'text', 'content')):
+        return False
+    if incomplete(plan):
+        coverage = plan.impact_summary.get('coverage') or {}
+        scanned = set(coverage.get('source_revisions') or {}).difference(coverage.get('unscanned_unit_ids') or [])
+        return bool(migration.source_unit_ids and set(migration.source_unit_ids).issubset(scanned))
+    return True
+
+
 def readiness(plan: Any) -> dict[str, Any]:
     planning = plan.teacher_change_planning
     if planning is None or not incomplete(plan):
@@ -51,7 +68,7 @@ def readiness(plan: Any) -> dict[str, Any]:
     for migration in planning.unit_migrations:
         local_edit = independent_text_edit(plan, migration)
         sources = set(migration.source_unit_ids)
-        if sources and sources.issubset(scanned) and migration.metadata.get('source_state') != 'stale' and independent_text_edit(plan, migration, allow_title=True):
+        if sources and sources.issubset(scanned) and migration.metadata.get('source_state') != 'stale' and (independent_text_edit(plan, migration, allow_title=True) or repairable_text_draft(plan, migration)):
             editable.append(migration.migration_id)
         scope = set(migration.dependency_ids) | {str(migration.metadata.get('parent_id') or '')}
         reason = ''
@@ -59,7 +76,7 @@ def readiness(plan: Any) -> dict[str, Any]:
             reason = 'source_unscanned'
         elif migration.metadata.get('source_state') == 'stale':
             reason = 'source_stale'
-        elif migration.migration_id in editable and not local_edit:
+        elif independent_text_edit(plan, migration, allow_title=True) and not local_edit:
             reason = 'title_dependency'
         elif unknown_structure:
             reason = 'structure_dependency'

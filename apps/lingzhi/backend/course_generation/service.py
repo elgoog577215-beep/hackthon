@@ -9879,6 +9879,10 @@ class CourseService(AIBase):
             "不能可靠形成逐字候选时 content_patches=[]，不得猜测原文。"
             "分片模式下 content 是当前原文，editable_field_names 是可编辑字段名；"
             "before 必须逐字来自 content，使用最短可唯一定位的片段，不复述整段原文。"
+            "content_field 指明 content 的真实字段，补丁 field 必须与它一致；title 是章节上下文，"
+            "block_title 才是正文块标题，两者都不能冒充正文定位片段。"
+            "existing_sections 是完整正文已有的小节；若已有实践项目或验收标准，应在原有小节内补充，"
+            "不要在不同分片中重复添加同一个项目或同义的验收标准。当前分片不含所需位置就不生成补丁。"
             "本步骤只判断修改影响，不要在每批输出完整的实践项目、参考答案或大段代码。"
             "content 可能从代码或段落中间切开，这是正常分片，不需要独立编译；不要补全或执行分片代码。"
             "补充实践、例题或解释通常是在现有讲次内修改，不等于拆分或新增讲次；"
@@ -9899,6 +9903,21 @@ class CourseService(AIBase):
             "如果课程概况中已有 clarification_answer_snapshot，其中 decision_facts 是老师"
             "已经逐题确认的硬约束，不得重新解释、覆盖或再次询问同一问题。"
         )
+        if overview.get('patch_repair'):
+            prompt = (
+                '请修复当前这一条课程正文的修改建议，只返回 JSON 对象 affected_units 数组。'
+                '不要重新分析全课或提出结构调整。老师要求：' + instruction + '\n'
+                '完整原文（content_field 是唯一允许修改的字段，其他标题只是上下文）：\n'
+                + json.dumps(scan_candidates, ensure_ascii=False) + '\n'
+                '之前来自不同分片的建议与校验问题：\n'
+                + json.dumps(overview['patch_repair'], ensure_ascii=False) + '\n'
+                '每项只含 unit_id、content_patches；每条补丁含 field、before、after、replace_all=false。'
+                'before 必须逐字匹配完整原文，使用完整段落或小节且各补丁不得重叠。'
+                '将不同分片对同一实践项目的建议合并成一份连贯修改；已有任务或验收标准时直接完善原小节，'
+                '不得再追加一份同义小节。逐条合并同义条件，保留不重复的约束、数值、案例和要求。'
+                '保留与本次要求无关的原文。不要把摘要或章节名称当成正文，不要将解释或项目要求插入代码块内部，'
+                '也不要补写截断代码或删除原有代码。不能可靠修复时返回空 content_patches。'
+            )
         response = await self._call_llm(
             prompt,
             system_prompt=(

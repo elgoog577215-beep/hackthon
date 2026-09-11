@@ -2264,18 +2264,32 @@ def course_evolution_view(
         plan['impact_summary'].pop('scan_analysis', None)
         plan['impact_summary'].pop('scan_unit_index', None)
         from .content_patches import readable_body
+        from .partial_review import repairable_text_draft
+        from .text_fields import editable_text_fields
+        migrations = {m.migration_id: m for m in source.teacher_change_planning.unit_migrations} if source.teacher_change_planning else {}
         for item in plan['impact_summary'].get('affected_units') or []:
             if item.get('asset_type') == 'course_content':
+                migration = migrations.get(item.get('migration_id'))
+                item['repairable_draft'] = bool(migration and repairable_text_draft(source, migration))
+                if migration and not item.get('before_fields'):
+                    item['before_fields'] = editable_text_fields((migration.metadata.get('course_block') or {}).get('payload') or {})
                 for side in ('before', 'after'):
                     fields = item.get(f'{side}_fields')
                     if isinstance(fields, dict) and fields:
                         item[f'{side}_content'] = readable_body(fields)
-                from .content_patches import require_current_patch_preview
+                from .content_patches import compile_patches, require_current_patch_preview
                 try:
                     require_current_patch_preview(source, [str(item.get('operation_id') or '')])
-                except ValueError:
+                    if migration and not migration.metadata.get('manually_edited') and migration.metadata.get('content_patches'):
+                        _, _, warnings = compile_patches((migration.metadata.get('course_block') or {}).get('payload') or {},
+                            migration.metadata['content_patches'], literal=source.impact_summary.get('analysis_mode') == 'deterministic_exact_replace')
+                        item['candidate_warning'] = ' '.join(warnings) or item.get('candidate_warning', '')
+                except ValueError as error:
                     item['requires_patch_refresh'] = True
-                    item['candidate_warning'] = '此旧建议需要整理重复或冲突的修改片段，请先整理后再审阅。'
+                    from .patch_review import patch_error_detail
+                    item['candidate_error'] = str(error)
+                    item['candidate_error_detail'] = patch_error_detail(error)
+                    item['candidate_warning'] = '此建议需要根据完整原文修正后再审阅。'
     payload["view_schema_version"] = "course_evolution_v2"
     payload["course_evolution_plans"] = deepcopy(payload["change_sets"])
     payload["adaptation_plans"] = deepcopy(payload["change_sets"])

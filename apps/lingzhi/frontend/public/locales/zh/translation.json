@@ -2702,6 +2702,7 @@
       "excludeVisible": "排除当前结果",
       "handlingMethod": "处理方式",
       "retryThisFailure": "重试失败项",
+      "repairThisDraft": "修正本条内容",
       "reviewEdited": "已调整，建议需要更新",
       "discardPlan": "放弃方案",
       "confirmDiscard": "再次点击确认放弃",

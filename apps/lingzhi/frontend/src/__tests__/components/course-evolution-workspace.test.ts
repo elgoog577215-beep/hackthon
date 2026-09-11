@@ -142,6 +142,28 @@ describe('CourseEvolutionWorkspace', () => {
     return { store, wrapper: mountWorkspace(pinia) }
   }
 
+  it('repairs a failed patch from the complete source without routing through unrelated decisions', async () => {
+    const { store, wrapper } = retryFixture()
+    const item = (store.plans[0]!.impact_summary.affected_units as any[])[0]
+    Object.assign(item, { asset_type: 'course_content', candidate_status: 'failed', repairable_draft: true,
+      candidate_error: '修改片段不在原文的 markdown 字段中', candidate_error_detail: { retryable: false },
+      before_fields: { '/markdown': '完整原文与已有验收标准。', '/summary': '摘要镜像' },
+      after_fields: { '/markdown': '不能继续使用的错误候选' } })
+    const review = vi.spyOn(store, 'reviewCoursePlan').mockResolvedValue({} as any)
+    const generate = vi.spyOn(store, 'generateSuggested').mockResolvedValue({} as any)
+    await wrapper.vm.$nextTick()
+    await wrapper.get('.candidate-error button').trigger('click')
+    const editor = wrapper.get('[data-testid="candidate-editor-m1"] textarea')
+    expect((editor.element as HTMLTextAreaElement).value).toBe('完整原文与已有验收标准。')
+    expect(wrapper.findAll('.candidate-editor textarea')).toHaveLength(1)
+    await editor.setValue('统一项目与验收标准，保留原有条件。')
+    await wrapper.get('[data-testid="save-candidate-m1"]').trigger('click')
+    expect(review).toHaveBeenLastCalledWith('change-1', ['m1'], { selectionOnly: true,
+      manualContentEdits: { m1: { '/markdown': '统一项目与验收标准，保留原有条件。' } } })
+    expect(generate).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('shows changing retry progress and terminal failure inside the existing result view', async () => {
     const { store, wrapper } = retryFixture()
     store.applyAnalysisTask({ id: 'retry', status: 'running', message: '正在检查', progress: 20,

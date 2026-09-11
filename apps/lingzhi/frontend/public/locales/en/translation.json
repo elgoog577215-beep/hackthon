@@ -2702,6 +2702,7 @@
       "excludeVisible": "Exclude visible",
       "handlingMethod": "Handling",
       "retryThisFailure": "Retry failed item",
+      "repairThisDraft": "Correct this content",
       "reviewEdited": "Review edited; candidates need refresh",
       "discardPlan": "Discard plan",
       "confirmDiscard": "Click again to discard",
