@@ -117,12 +117,13 @@ async def test_failed_patch_can_be_replaced_with_local_manual_draft_without_appl
 
 
 @pytest.mark.asyncio
-async def test_failed_regenerate_proposal_can_be_replaced_by_an_explicit_local_edit(tmp_path):
+@pytest.mark.parametrize('disposition', ['regenerate', 'reuse_rebind'])
+async def test_failed_regenerate_proposal_can_be_replaced_by_an_explicit_local_edit(tmp_path, disposition):
     plan = await patch_plan(tmp_path, [patch('错误标题', '新标题', field='title')])
     repo = CourseEvolutionRepository(tmp_path)
     state = repo.load('teacher', 'course-1')
     migration = state.change_sets[-1].teacher_change_planning.unit_migrations[0]
-    migration.disposition = 'regenerate'
+    migration.disposition = disposition
     repo.save(state)
     saved = review_teacher_course_change_scope(repository=repo, user_id='teacher', course_id='course-1',
         change_set_id=plan.change_set_id, selected_migration_ids=[migration.migration_id], selection_only=True,

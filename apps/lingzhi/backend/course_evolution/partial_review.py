@@ -32,8 +32,10 @@ def independent_text_edit(plan: Any, migration: Any, *, allow_title: bool = Fals
 def repairable_text_draft(plan: Any, migration: Any) -> bool:
     """Editing a source-bound draft grants no authority to apply it."""
     block = migration.metadata.get('course_block') or {}
+    repair_disposition = migration.disposition in {'rewrite_partial', 'regenerate'} or (
+        migration.disposition == 'reuse_rebind' and bool(migration.metadata.get('candidate_error')))
     if (plan.status != 'pending' or migration.asset_type != 'course_content'
-            or migration.disposition not in {'rewrite_partial', 'regenerate'} or migration.metadata.get('source_state') == 'stale'
+            or not repair_disposition or migration.metadata.get('source_state') == 'stale'
             or not block.get('block_id') or not block.get('section_id') or not block.get('internal_revision')):
         return False
     fields = block.get('payload') or {}
