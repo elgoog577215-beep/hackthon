@@ -157,7 +157,7 @@ async def main() -> None:
         body = readable_body(unit.full_text_fields) or unit.text
         size = 600 if len(body) > 6000 and "```" in body else 1200
         parts = len(range(0, max(1, len(body)), size - 100))
-        part = min(7, parts) if unit_id and index == 0 else 1
+        part = min(7, parts) if unit_id and item['unit_id'] == unit_id else 1
         offset = (part - 1) * (size - 100)
         offset = item.get('_probe_offset', offset)
         size = item.get('_probe_size', size)
