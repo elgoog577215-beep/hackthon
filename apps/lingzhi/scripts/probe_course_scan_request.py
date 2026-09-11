@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 import subprocess
 import time
@@ -121,6 +122,21 @@ async def main() -> None:
 
     async def trace_request(request):
         request.extensions['trace'] = trace
+        if item.get('_probe_wire_escape'):
+            # Diagnostic only: identical parsed JSON, different wire encoding.
+            # This distinguishes payload handling before inference from model
+            # behaviour without altering source content, model or credentials.
+            import httpx
+            original_payload = json.loads(request.content)
+            def escaped_string(match):
+                data = json.loads(match[0]).encode('utf-16-be')
+                return '"' + ''.join('\\u' + data[i:i+2].hex() for i in range(0, len(data), 2)) + '"'
+            encoded = re.sub(r'"(?:\\.|[^"\\])*"', escaped_string,
+                             json.dumps(original_payload, ensure_ascii=True)).encode()
+            assert json.loads(encoded) == original_payload
+            request._content = encoded
+            request.stream = httpx.ByteStream(encoded)
+            request.headers['content-length'] = str(len(encoded))
 
     provider.client._client.event_hooks.setdefault('request', []).append(trace_request)
 
@@ -131,7 +147,7 @@ async def main() -> None:
         kwargs.update(telemetry_sink=attempts.append, on_stream_activity=on_activity)
         if transport_control:
             kwargs.update(json_mode=False, request_timeout_seconds=45)
-        elif item.get('_probe_size'):
+        elif item.get('_probe_size') or item.get('_probe_wire_escape'):
             kwargs.update(request_timeout_seconds=45)
         return await original(*args, **kwargs)
 
@@ -156,6 +172,7 @@ async def main() -> None:
         transport.clear()
         started = time.monotonic()
         event = {"sample": index + 1, "unit_id": item['unit_id'], "part": part, "fragment_chars": len(entry["content"]),
+                 "wire_escape_control": bool(item.get('_probe_wire_escape')),
                  "full_unit_chars": len(body), "indexed_units": len(context.units),
                  "json_mode_control_disabled": transport_control}
         print(json.dumps({**event, "status": "started"}), flush=True)
@@ -169,7 +186,8 @@ async def main() -> None:
                 # Two finite read-only controls, not another course job. Keep
                 # all source text: overlap 50 characters at the split boundary.
                 targets.extend([{**item, '_probe_offset': offset, '_probe_size': 325},
-                                {**item, '_probe_offset': offset + 275, '_probe_size': 325}])
+                                {**item, '_probe_offset': offset + 275, '_probe_size': 325},
+                                {**item, '_probe_offset': offset, '_probe_wire_escape': True}])
             chain, seen = [], set()
             while error is not None and id(error) not in seen:
                 seen.add(id(error))
