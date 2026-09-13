@@ -4218,6 +4218,32 @@ def test_ai_candidate_acceptance_creates_new_working_revision(tmp_path):
     assert accepted["ai_candidates"][0]["status"] == "accepted"
 
 
+def test_ai_candidate_records_creation_provenance(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        {"sections": [{"node_id": "L2-1-1", "learning_objective": "before"}]},
+        source_outline_revision_id="outline-v1",
+    )
+
+    candidate = repository.save_ai_candidate(
+        "course-1",
+        "L1-1",
+        base_revision_id=lesson["working_revision_id"],
+        instruction="把能力目标改得更可观察",
+        section_node_id="L2-1-1",
+        plan={"sections": [{"node_id": "L2-1-1", "learning_objective": "after"}]},
+        actor="teacher-a",
+        origin="assistant",
+        origin_ref="session-a",
+    )
+
+    assert candidate["actor"] == "teacher-a"
+    assert candidate["origin"] == "assistant"
+    assert candidate["origin_ref"] == "session-a"
+
+
 def test_ai_optimizer_uses_compact_editable_contract_and_merges_one_section():
     plan = {
         "schema_version": "course_teaching_plan_v3",
@@ -4379,6 +4405,46 @@ def test_ai_optimizer_field_request_sends_minimum_context_and_changes_only_targe
     assert '"student_activity": "跟随记录步骤。"' in fake.captured_prompt
     assert fake.captured_kwargs["max_tokens"] == 800
     assert fake.captured_kwargs["max_attempts"] == 1
+
+
+def test_ai_optimizer_rejects_verbose_objective_field_candidate():
+    plan = {
+        "sections": [{
+            "node_id": "L2-1-1",
+            "title": "物理碰撞",
+            "knowledge_objectives": ["说明碰撞回调的执行时机"],
+            "ability_objectives": ["选择合适的碰撞检测方式"],
+            "education_objectives": [],
+            "teaching_modules": [],
+        }],
+    }
+
+    class VerboseOptimizer:
+        captured_prompt = ""
+        captured_kwargs: dict = {}
+
+        async def _call_llm(self, prompt, **kwargs):
+            self.captured_prompt = prompt
+            self.captured_kwargs = kwargs
+            return json.dumps({"value": ["解释性长段落" * 20]}, ensure_ascii=False)
+
+        @staticmethod
+        def _extract_json(value):
+            return json.loads(value)
+
+    fake = VerboseOptimizer()
+    with pytest.raises(AIProviderRequestError, match="目标修改"):
+        asyncio.run(CourseService.optimize_teacher_lesson_plan(
+            fake,
+            plan=plan,
+            instruction="让能力目标更清楚",
+            section_node_id="L2-1-1",
+            target_field="ability_objectives",
+        ))
+
+    assert "每条不超过 80 个字符" in fake.captured_prompt
+    assert "不要写原理解释" in fake.captured_prompt
+    assert fake.captured_kwargs["max_tokens"] <= 480
 
 
 def test_v6_ppt_binds_exact_plan_and_script_revisions_and_becomes_stale(tmp_path):

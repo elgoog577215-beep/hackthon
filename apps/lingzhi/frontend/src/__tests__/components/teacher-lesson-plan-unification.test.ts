@@ -245,6 +245,39 @@ describe('统一教案页面', () => {
     expect(wrapper.text()).not.toContain('AI 方案')
   })
 
+  it('恢复待处理候选时说明来源和原始要求，并让目标区按阅读宽度重排', async () => {
+    const restoredLesson = structuredClone(lesson)
+    const candidatePlan = structuredClone(restoredLesson.plan.current_revision!.plan)
+    candidatePlan.sections[0]!.ability_objectives = [
+      '面对具体需求，能够区分物理碰撞与触发器，并选择正确工具。',
+      '能够根据 Unity 一帧执行顺序判断回调中的修改时机。',
+    ]
+    restoredLesson.plan.ai_candidate = {
+      candidate_id: 'candidate-restored',
+      lesson_unit_id: 'lesson-1',
+      base_revision_id: 'revision-1',
+      instruction: '把碰撞系统相关的能力目标写得更可观察',
+      section_node_id: 'section-1',
+      target_field: 'ability_objectives',
+      plan: candidatePlan,
+      status: 'pending',
+      actor: 'teacher-a',
+      origin: 'assistant',
+      origin_ref: 'session-a',
+      created_at: '2026-09-13T10:00:00Z',
+    } as any
+
+    const wrapper = mount(TeacherLessonPlanDocument, {
+      props: { courseId: 'course-1', lesson: restoredLesson },
+    })
+
+    expect(wrapper.get('.candidate-provenance summary').text()).toContain('教案助手')
+    expect(wrapper.get('.candidate-provenance__instruction').text())
+      .toBe('把碰撞系统相关的能力目标写得更可观察')
+    expect(wrapper.get('.objective-grid').classes()).toContain('is-ai-reviewing')
+    expect(wrapper.get('[data-ai-field="ability_objectives"]').classes()).toContain('ai-change-target')
+  })
+
   it('讲内主题目录只负责定位，教案始终连续展示全部主题', async () => {
     const multiSectionLesson = structuredClone(lesson)
     multiSectionLesson.sections.push({ section_node_id: 'section-2', title: '1.2 请求与响应' })
