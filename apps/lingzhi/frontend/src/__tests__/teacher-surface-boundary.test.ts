@@ -17,6 +17,7 @@ describe('calendar and course file-space boundary', () => {
     expect(criticalRead).toBeGreaterThan(0)
     expect(blueprintRead).toBeGreaterThan(0)
     expect(blueprintRead).toBeLessThan(lessonRead)
+    expect(loadWorkspace).toContain('courseStore.applyGenerationOutlineDraft(blueprintNodes)')
     expect(lessonRead).toBeGreaterThan(0)
     expect(lessonRead).toBeGreaterThan(criticalRead)
     expect(loadWorkspace).toContain('`/api/courses/${requestedCourseId}/course-information`')
