@@ -824,6 +824,11 @@
       "empty": "-",
       "candidateCanvasTitle": "修改建议已嵌入教案正文",
       "candidateCanvasDetail": "高亮内容尚未写入当前教案，采用后才会形成新的教案版本。",
+      "candidateOriginInline": "文中修改",
+      "candidateOriginAssistant": "教案助手",
+      "candidateOriginCourseChange": "课程调整",
+      "candidateOriginLegacy": "历史候选（来源未记录）",
+      "candidateCreatedUnknown": "时间未记录",
       "changeMarker": "AI 修改"
     },
     "contextPane": {

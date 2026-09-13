@@ -824,6 +824,11 @@
       "empty": "-",
       "candidateCanvasTitle": "The proposed revision is shown in the lesson plan",
       "candidateCanvasDetail": "The highlighted content has not changed the lesson plan. Apply it to create a new lesson-plan version.",
+      "candidateOriginInline": "Inline edit",
+      "candidateOriginAssistant": "Lesson-plan assistant",
+      "candidateOriginCourseChange": "Course adjustment",
+      "candidateOriginLegacy": "Earlier suggestion (source not recorded)",
+      "candidateCreatedUnknown": "Time not recorded",
       "changeMarker": "AI edit"
     },
     "contextPane": {

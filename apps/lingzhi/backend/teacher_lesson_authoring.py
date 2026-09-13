@@ -4532,6 +4532,9 @@ class TeacherLessonAuthoringRepository:
         target_item_id: str = "",
         selected_text: str = "",
         material_asset_ids: list[str] | None = None,
+        actor: str = "teacher",
+        origin: str = "assistant",
+        origin_ref: str = "",
     ) -> dict[str, Any]:
         with self._course_lock(course_id):
             value = self.load(course_id)
@@ -4554,6 +4557,9 @@ class TeacherLessonAuthoringRepository:
                     for value in (material_asset_ids or [])
                     if str(value).strip()
                 }),
+                "actor": str(actor or "teacher"),
+                "origin": str(origin or "assistant"),
+                "origin_ref": str(origin_ref or ""),
                 "plan": deepcopy(plan),
                 "status": "pending",
                 "created_at": _now(),

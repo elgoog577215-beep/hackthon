@@ -253,6 +253,9 @@ export interface TeacherLessonPlanCandidate {
   target_field?: string
   target_item_id?: string
   selected_text?: string
+  actor?: string
+  origin?: 'inline_edit' | 'assistant' | 'course_change'
+  origin_ref?: string
   plan: Record<string, any>
   status: 'pending' | 'accepted' | 'rejected'
   created_at: string

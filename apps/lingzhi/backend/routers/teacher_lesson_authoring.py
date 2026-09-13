@@ -6471,6 +6471,8 @@ async def create_lesson_plan_candidate(
             selected_text=body.selected_text,
             plan=optimized["plan"],
             material_asset_ids=selected_material_ids,
+            actor=actor,
+            origin="inline_edit" if body.target_field else "assistant",
         )
         return {"candidate": candidate}
     except TeacherLessonAuthoringError as exc:

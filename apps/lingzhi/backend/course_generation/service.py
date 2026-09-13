@@ -2237,6 +2237,19 @@ class CourseService(AIBase):
                 "list": "value 必须是修改后的完整字符串数组",
                 "number": "value 必须是 0 到 300 的整数",
             }[expected_type]
+            objective_fields = {
+                "knowledge_objectives", "ability_objectives", "education_objectives",
+            }
+            objective_item_limit = max(
+                3,
+                len(target_value) if isinstance(target_value, list) else 1,
+            )
+            objective_requirement = (
+                f"目标字段额外要求：最多 {objective_item_limit} 条，每条不超过 80 个字符；"
+                "只写可观察、可检查的目标陈述，不要写原理解释、背景说明或操作建议。"
+                if normalized_target_field in objective_fields
+                else ""
+            )
             response = await self._call_llm(
                 "你正在修改教案中的一个精确对象，不是在重写小节。只输出 JSON。\n"
                 f"教师要求：{normalized_instruction}\n"
@@ -2244,7 +2257,7 @@ class CourseService(AIBase):
                 f" / 对象 {normalized_target_item_id or '整个字段'}\n"
                 f"选中文字：{normalized_selected_text or '未单独选词'}\n"
                 f"当前值：{json.dumps(target_value, ensure_ascii=False)}\n"
-                f"输出要求：根对象只能包含 value；{output_requirement}。"
+                f"输出要求：根对象只能包含 value；{output_requirement}。{objective_requirement}"
                 "只改变目标值，保留未被要求改变的事实、条件、时长与措辞。"
                 "修改后必须继续满足小节目标、前后环节衔接和达成检查。\n"
                 f"教学上下文：{json.dumps(local_context, ensure_ascii=False)}\n"
@@ -2258,7 +2271,13 @@ class CourseService(AIBase):
                 use_fast_model=True,
                 retry_count=1,
                 enable_thinking=False,
-                max_tokens=1600 if expected_type == "list" else 800,
+                max_tokens=(
+                    480
+                    if normalized_target_field in objective_fields
+                    else 1600
+                    if expected_type == "list"
+                    else 800
+                ),
                 max_input_tokens=4000,
                 max_attempts=1,
                 reject_truncated=True,
@@ -2283,6 +2302,13 @@ class CourseService(AIBase):
                 ]
                 if not candidate_value:
                     raise AIProviderRequestError("AI 局部修改返回了空列表")
+                if normalized_target_field in objective_fields and (
+                    len(candidate_value) > objective_item_limit
+                    or any(len(value) > 80 or "\n" in value for value in candidate_value)
+                ):
+                    raise AIProviderRequestError(
+                        "AI 目标修改过长，请缩小修改范围或换一种要求后重试"
+                    )
             else:
                 try:
                     candidate_value = int(candidate_value)

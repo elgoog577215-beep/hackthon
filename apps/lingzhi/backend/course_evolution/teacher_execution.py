@@ -400,6 +400,9 @@ async def _generate_lesson_plan_candidates(
                 section_node_id=section_ids[0] if len(section_ids) == 1 else "",
                 plan=candidate_plan,
                 material_asset_ids=[],
+                actor=plan.user_id,
+                origin="course_change",
+                origin_ref=plan.change_set_id,
             )
             for item in items:
                 section_id = next(iter(item.dependency_ids), "")
