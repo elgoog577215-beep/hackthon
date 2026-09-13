@@ -469,7 +469,7 @@ watch(
     () => lessonStore.jobs.map(job => `${job.id}:${job.status}`).join('|'),
   ],
   ([currentCourseId], previous) => {
-    if (!currentCourseId || currentCourseId !== previous?.[0]) return
+    if (!currentCourseId || currentCourseId !== previous?.[0] || loading.value) return
     void courseStore.fetchTeacherCourseProductionState(currentCourseId).catch(() => undefined)
   },
 )
