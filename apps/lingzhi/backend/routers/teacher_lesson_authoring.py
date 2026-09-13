@@ -1461,6 +1461,7 @@ def _lesson_projection(
     source: dict[str, Any],
     repository: TeacherLessonAuthoringRepository,
     authoring_state: dict[str, Any] | None = None,
+    lesson_unit_ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     course_id = str(source.get("course_id") or "")
     outline_ready = has_complete_teacher_outline(source)
@@ -1470,6 +1471,10 @@ def _lesson_projection(
         item for item in nodes
         if int(item.get("node_level") or 0) == 1
         and str(item.get("parent_node_id") or "").lower() in {"", "root"}
+        and (
+            lesson_unit_ids is None
+            or str(item.get("node_id") or "") in lesson_unit_ids
+        )
     ]
     result = []
     schedule_slots = (source.get("course_profile") or {}).get("schedule_slots") or []
@@ -6496,7 +6501,7 @@ async def resolve_lesson_plan_candidate(
         canonical_outline_revision = _canonical_outline_revision(source)
         if canonical_outline_revision:
             repository.set_outline(course_id, canonical_outline_revision)
-        TeacherLessonAuthoringService(repository).resolve_ai_candidate(
+        resolved_lesson = TeacherLessonAuthoringService(repository).resolve_ai_candidate(
             course_id=course_id,
             lesson_unit_id=lesson_unit_id,
             course_data=source,
@@ -6505,7 +6510,12 @@ async def resolve_lesson_plan_candidate(
             actor=resolve_user_id(request.headers.get("X-User-Id")),
         )
         projected = next(
-            item for item in _lesson_projection(source, repository)
+            item for item in _lesson_projection(
+                source,
+                repository,
+                authoring_state={"lessons": {lesson_unit_id: resolved_lesson}},
+                lesson_unit_ids={lesson_unit_id},
+            )
             if item["lesson_unit_id"] == lesson_unit_id
         )
         return {"lesson": projected}

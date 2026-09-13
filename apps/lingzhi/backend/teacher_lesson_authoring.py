@@ -2070,50 +2070,49 @@ class TeacherLessonAuthoringRepository:
             if not live_jobs:
                 self._live_stream_jobs.pop(course_id, None)
         self._live_stream_touched_at.pop((course_id, job_id), None)
+    def _load_cached_value_locked(self, course_id: str) -> dict[str, Any]:
+        """Return the immutable cached tree; callers must copy only what they need."""
+        path = self._path(course_id)
+        if not path.exists():
+            self._load_cache.pop(course_id, None)
+            return self._empty(course_id)
+        stat = path.stat()
+        signature = (stat.st_mtime_ns, stat.st_size)
+        cached = self._load_cache.get(course_id)
+        if cached and cached[0] == signature:
+            self._load_cache.move_to_end(course_id)
+            return cached[1]
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise TeacherLessonAuthoringError(
+                "authoring_repository_corrupt",
+                "教师讲次资产读取失败。",
+            ) from exc
+        value = data if isinstance(data, dict) else self._empty(course_id)
+        if any(r.get("canonical_ref") for lesson in (value.get("lessons") or {}).values()
+               for r in lesson.get("script_revisions") or []):
+            raise TeacherLessonAuthoringError(
+                "teacher_content_migration_required", "讲义仍是旧正文引用，请先完成教师正文恢复。")
+        for lesson in (value.get("lessons") or {}).values():
+            for revision in lesson.get("script_revisions") or []:
+                for section in revision.get("sections") or []:
+                    section["quality_report"] = upgrade_script_quality_report(section.get("quality_report") or {})
+                old_report = revision.get("quality_report") or {}
+                report = upgrade_script_quality_report(old_report)
+                if report is not old_report:
+                    revision["quality_report"] = report
+                    revision["publication_eligible"] = bool(report.get("publication_eligible"))
+                    revision["quality_contract_version"] = SCRIPT_QUALITY_VERSION
+        self._load_cache[course_id] = (signature, value)
+        self._load_cache.move_to_end(course_id)
+        while len(self._load_cache) > AUTHORING_LOAD_CACHE_MAX_COURSES:
+            self._load_cache.popitem(last=False)
+        return value
+
     def load(self, course_id: str) -> dict[str, Any]:
         with self._course_lock(course_id):
-            path = self._path(course_id)
-            if not path.exists():
-                self._load_cache.pop(course_id, None)
-                return self._overlay_live_stream_jobs_locked(
-                    course_id,
-                    self._empty(course_id),
-                )
-            stat = path.stat()
-            signature = (stat.st_mtime_ns, stat.st_size)
-            cached = self._load_cache.get(course_id)
-            if cached and cached[0] == signature:
-                self._load_cache.move_to_end(course_id)
-                return self._overlay_live_stream_jobs_locked(
-                    course_id,
-                    deepcopy(cached[1]),
-                )
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
-                raise TeacherLessonAuthoringError(
-                    "authoring_repository_corrupt",
-                    "教师讲次资产读取失败。",
-                ) from exc
-            value = data if isinstance(data, dict) else self._empty(course_id)
-            if any(r.get("canonical_ref") for lesson in (value.get("lessons") or {}).values()
-                   for r in lesson.get("script_revisions") or []):
-                raise TeacherLessonAuthoringError(
-                    "teacher_content_migration_required", "讲义仍是旧正文引用，请先完成教师正文恢复。")
-            for lesson in (value.get("lessons") or {}).values():
-                for revision in lesson.get("script_revisions") or []:
-                    for section in revision.get("sections") or []:
-                        section["quality_report"] = upgrade_script_quality_report(section.get("quality_report") or {})
-                    old_report = revision.get("quality_report") or {}
-                    report = upgrade_script_quality_report(old_report)
-                    if report is not old_report:
-                        revision["quality_report"] = report
-                        revision["publication_eligible"] = bool(report.get("publication_eligible"))
-                        revision["quality_contract_version"] = SCRIPT_QUALITY_VERSION
-            self._load_cache[course_id] = (signature, deepcopy(value))
-            self._load_cache.move_to_end(course_id)
-            while len(self._load_cache) > AUTHORING_LOAD_CACHE_MAX_COURSES:
-                self._load_cache.popitem(last=False)
+            value = deepcopy(self._load_cached_value_locked(course_id))
             return self._overlay_live_stream_jobs_locked(course_id, value)
 
     def _save(self, value: dict[str, Any]) -> dict[str, Any]:
@@ -3027,6 +3026,7 @@ class TeacherLessonAuthoringRepository:
         revision_id_override: str = "",
         rollback_from_revision_id: str = "",
         active_job_id: str = "",
+        accepted_candidate_id: str = "",
     ) -> dict[str, Any]:
         normalized_plan = normalize_teacher_lesson_plan(plan)
         effective_quality = deepcopy(quality_report or validate_teacher_lesson_plan(normalized_plan))
@@ -3056,6 +3056,26 @@ class TeacherLessonAuthoringRepository:
                     "lesson_plan_revision_conflict",
                     "教案已在其他页面修改，请重新载入后再保存。",
                 )
+            accepted_candidate = None
+            if accepted_candidate_id:
+                accepted_candidate = next(
+                    (
+                        item for item in lesson.get("ai_candidates") or []
+                        if isinstance(item, dict)
+                        and item.get("candidate_id") == accepted_candidate_id
+                    ),
+                    None,
+                )
+                if (
+                    not isinstance(accepted_candidate, dict)
+                    or accepted_candidate.get("status") != "pending"
+                    or accepted_candidate.get("base_revision_id")
+                    != lesson.get("working_revision_id")
+                ):
+                    raise TeacherLessonAuthoringError(
+                        "lesson_plan_candidate_not_found",
+                        "AI 教案候选不存在或已处理。",
+                    )
             arrangement_state = lesson.get("arrangement") or {}
             source_arrangement_revision_id = str(
                 arrangement_state.get("working_revision_id") or ""
@@ -3122,6 +3142,11 @@ class TeacherLessonAuthoringRepository:
                 self._save(value)
                 self._drop_live_stream_job_locked(course_id, active_job_id)
                 return deepcopy(lesson)
+            if isinstance(accepted_candidate, dict):
+                accepted_candidate["plan"] = deepcopy(normalized_plan)
+                accepted_candidate["status"] = "accepted"
+                accepted_candidate["resolved_at"] = _now()
+                accepted_candidate["result_revision_id"] = revision_id
             saved = self._save(value)
             return deepcopy(saved["lessons"][lesson_unit_id])
 
@@ -4131,11 +4156,17 @@ class TeacherLessonAuthoringRepository:
             return saved
 
     def lesson(self, course_id: str, lesson_unit_id: str) -> dict[str, Any]:
-        value = self.load(course_id)
-        lesson = (value.get("lessons") or {}).get(lesson_unit_id)
-        if not isinstance(lesson, dict):
-            return _empty_lesson_asset(lesson_unit_id)
-        return deepcopy(lesson)
+        with self._course_lock(course_id):
+            value = self._load_cached_value_locked(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_unit_id)
+            if not isinstance(lesson, dict):
+                return _empty_lesson_asset(lesson_unit_id)
+            return deepcopy(lesson)
+
+    def outline_revision_id(self, course_id: str) -> str:
+        with self._course_lock(course_id):
+            value = self._load_cached_value_locked(course_id)
+            return str(value.get("outline_revision_id") or "")
 
     def save_script_revision(
         self,
@@ -4580,32 +4611,46 @@ class TeacherLessonAuthoringRepository:
         actor: str = "teacher",
         result_revision_id_override: str = "",
     ) -> dict[str, Any]:
-        with self._course_lock(course_id):
-            value = self.load(course_id)
-            lesson = (value.get("lessons") or {}).get(lesson_unit_id)
-            if not isinstance(lesson, dict):
-                raise TeacherLessonAuthoringError("lesson_plan_not_found", "本讲还没有可优化的教案。")
-            candidate = next(
-                (
-                    item for item in lesson.get("ai_candidates") or []
-                    if isinstance(item, dict) and item.get("candidate_id") == candidate_id
-                ),
-                None,
-            )
-            if candidate is None:
-                raise TeacherLessonAuthoringError("lesson_plan_candidate_not_found", "AI 教案候选不存在。")
-            if candidate.get("status") != "pending":
-                return deepcopy(lesson)
-            if accept and lesson.get("working_revision_id") != candidate.get("base_revision_id"):
-                raise TeacherLessonAuthoringError("lesson_plan_revision_conflict", "教案草稿已经变化，不能覆盖新修改。")
-            if not accept:
+        lesson = self.lesson(course_id, lesson_unit_id)
+        if not lesson.get("working_revision_id"):
+            raise TeacherLessonAuthoringError("lesson_plan_not_found", "本讲还没有可优化的教案。")
+        candidate = next(
+            (
+                item for item in lesson.get("ai_candidates") or []
+                if isinstance(item, dict) and item.get("candidate_id") == candidate_id
+            ),
+            None,
+        )
+        if candidate is None:
+            raise TeacherLessonAuthoringError("lesson_plan_candidate_not_found", "AI 教案候选不存在。")
+        if candidate.get("status") != "pending":
+            return deepcopy(lesson)
+        if accept and lesson.get("working_revision_id") != candidate.get("base_revision_id"):
+            raise TeacherLessonAuthoringError("lesson_plan_revision_conflict", "教案草稿已经变化，不能覆盖新修改。")
+        if not accept:
+            with self._course_lock(course_id):
+                value = self.load(course_id)
+                lesson = (value.get("lessons") or {}).get(lesson_unit_id)
+                candidate = next(
+                    (
+                        item for item in (lesson or {}).get("ai_candidates") or []
+                        if isinstance(item, dict) and item.get("candidate_id") == candidate_id
+                    ),
+                    None,
+                )
+                if not isinstance(candidate, dict):
+                    raise TeacherLessonAuthoringError(
+                        "lesson_plan_candidate_not_found", "AI 教案候选不存在。"
+                    )
+                if candidate.get("status") != "pending":
+                    return deepcopy(lesson)
                 candidate["status"] = "rejected"
                 candidate["resolved_at"] = _now()
                 saved = self._save(value)
                 return deepcopy(saved["lessons"][lesson_unit_id])
-            source_outline_revision_id = str(value.get("outline_revision_id") or "")
-            base_revision_id = str(candidate.get("base_revision_id") or "")
-            plan = deepcopy(accepted_plan or candidate.get("plan") or {})
+        source_outline_revision_id = self.outline_revision_id(course_id)
+        base_revision_id = str(candidate.get("base_revision_id") or "")
+        plan = deepcopy(accepted_plan or candidate.get("plan") or {})
         saved_lesson = self.save_plan_revision(
             course_id,
             lesson_unit_id,
@@ -4616,25 +4661,8 @@ class TeacherLessonAuthoringRepository:
             actor=actor,
             expected_working_revision_id=base_revision_id,
             revision_id_override=result_revision_id_override,
+            accepted_candidate_id=candidate_id,
         )
-        result_revision_id = str(saved_lesson.get("working_revision_id") or "")
-        with self._course_lock(course_id):
-            value = self.load(course_id)
-            lesson = (value.get("lessons") or {}).get(lesson_unit_id)
-            candidate = next(
-                (
-                    item for item in (lesson or {}).get("ai_candidates") or []
-                    if isinstance(item, dict) and item.get("candidate_id") == candidate_id
-                ),
-                None,
-            )
-            if isinstance(candidate, dict) and candidate.get("status") == "pending":
-                candidate["plan"] = deepcopy(plan)
-                candidate["status"] = "accepted"
-                candidate["resolved_at"] = _now()
-                candidate["result_revision_id"] = result_revision_id
-                saved = self._save(value)
-                return deepcopy(saved["lessons"][lesson_unit_id])
         return saved_lesson
 
     def apply_material_absorption(
@@ -4915,9 +4943,7 @@ class TeacherLessonAuthoringService:
         actor: str,
         expected_current_revision_id: str = "",
     ) -> dict[str, Any]:
-        canonical_outline_revision = str(
-            self.repository.view(course_id).get("outline_revision_id") or ""
-        )
+        canonical_outline_revision = self.repository.outline_revision_id(course_id)
         effective_source_revision = (
             source_outline_revision_id or canonical_outline_revision
         )

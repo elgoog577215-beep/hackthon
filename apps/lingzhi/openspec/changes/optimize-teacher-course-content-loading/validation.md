@@ -64,3 +64,13 @@
 - Every sample made zero lesson-authoring requests and zero full course-information requests on the foundation path. The earlier five-browser run before this follow-up had P50 7.640 s and P95 8.261 s because each outline open started a full lesson-authoring read that contended with the next browser.
 - Ten low-frequency blueprint endpoint samples on the revision cache recorded P50 0.188 s and P95 0.612 s, with a constant 28,155-byte compressed response.
 - Evidence files: `D:/lingzhi/.codex_tmp/course-open-20260913/course-outline-summary-browser-{1..10}-browser.json`. Task 1.1 remains open because lesson-plan and handout target-text timings are not yet recorded.
+
+## Lesson-plan AI candidate acceptance hot-path checkpoint
+
+- A production screenshot showed a long wait after applying one lesson-plan AI suggestion. Code tracing confirmed that the resolve endpoint did not call the model or reload the frontend Store. It wrote the monolithic teacher-authoring file twice, then projected every lesson before selecting the changed lesson.
+- The representative course's existing local read-only snapshot contains a 1.62 MiB course record and a 15.96 MiB teacher-authoring record. In compact JSON, completed jobs account for about 7.25 MiB and one PPT manuscript for about 3.05 MiB, although neither is changed by accepting a lesson-plan suggestion.
+- A before benchmark on a temporary copy of that snapshot measured 3,994.6 ms for candidate acceptance and 557.4 ms for all-lesson projection, about 4,552 ms combined. The two acceptance saves took 812 ms and 937 ms. This is a local Windows comparison on one historical snapshot, not a production P50/P95 claim.
+- The candidate revision and accepted status now commit in one atomic authoring-file replacement. Candidate validation, base-revision conflict checks, dependent PPT staleness, quality reports and result revision IDs remain in the same transaction.
+- The resolve endpoint reuses the returned changed lesson and projects only that lesson. Cached lesson and outline-revision reads copy only their requested slice instead of deep-copying unrelated jobs, manuscripts and lessons.
+- The same temporary-copy benchmark after the change measured 1,238.9 ms for acceptance and 1.8 ms for target-lesson projection, about 1,241 ms combined: roughly 73% lower than the before path. One durable save took 703 ms.
+- Regression coverage proves one durable save, target-only projection, no full cached-tree copy for lesson reads, candidate provenance, and unchanged acceptance results. The broader summary and `lesson_unit_id + content` GET contracts in tasks 4.1–4.5 remain open; this checkpoint only removes the confirmed candidate-acceptance bottleneck.
