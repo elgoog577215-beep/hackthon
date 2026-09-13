@@ -23,6 +23,13 @@ describe('calendar and course file-space boundary', () => {
     expect(loadWorkspace.indexOf('generationStore.fetchGlobalTasks()')).toBeGreaterThan(criticalRead)
   })
 
+  it('uses a slower idle course refresh while retaining fast updates for active production', () => {
+    const library = source('views/TeacherCourseLibraryView.vue')
+    expect(library).toContain('const COURSE_PROGRESS_ACTIVE_REFRESH_MS = 5000')
+    expect(library).toContain('const COURSE_PROGRESS_IDLE_REFRESH_MS = 30000')
+    expect(library).toContain('courseProgressRefreshDelay()')
+  })
+
   it('observes scalar job status sources without refetching on every streamed token', () => {
     const workspace = source('views/CourseWorkspaceView.vue')
     expect(workspace).toContain("watch(\n  [\n    () => courseId.value,\n    () => generationStore.getTask(courseId.value)?.status || '',\n    () => lessonStore.jobs.map(job => `${job.id}:${job.status}`).join('|'),")

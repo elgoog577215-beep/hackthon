@@ -487,6 +487,17 @@ describe('course generation lifecycle reconciliation', () => {
     expect(generation.getTask('formal-course')).toBeUndefined()
   })
 
+  it('课程首屏仍在读取时不启动第二份后台正文刷新', async () => {
+    const courses = useCourseStore()
+    courses.currentCourseId = 'opening-course'
+    courses.loading = true
+    const get = vi.spyOn(http, 'get')
+
+    await courses.refreshCourseData('opening-course', 'teacher')
+
+    expect(get).not.toHaveBeenCalled()
+  })
+
   it('刷新后保留大纲等待继续状态并读取可编辑投影', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
