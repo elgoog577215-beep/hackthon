@@ -1728,6 +1728,35 @@ def test_teacher_course_list_skips_projection_cache_when_entry_exceeds_item_budg
     assert repository.read_count == 2
 
 
+def test_teacher_course_list_warms_projection_before_first_request(monkeypatch):
+    course = {
+        **_course(1),
+        "course_id": "course-list-warm",
+        "authoring_surface": "teacher",
+        "owner_id": "teacher-warm",
+        "is_published": True,
+    }
+
+    class VersionedRepository(_ReadOnlyRepository):
+        def projection_source_version(self, _course_id: str):
+            return 1
+
+    repository = VersionedRepository({
+        "course_id": "course-list-warm",
+        "outline_revision_id": "outline-1",
+        "lessons": {"lesson-1": _ready_lesson(1)},
+    })
+    manager = _ReadOnlyTaskManager([])
+    monkeypatch.setattr(courses.storage, "list_courses", lambda: [deepcopy(course)])
+    monkeypatch.setattr(courses.teaching_calendar_repository, "list_sessions", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(courses, "get_teacher_lesson_authoring_repository", lambda: repository)
+
+    assert courses.warm_teacher_course_library_projection_cache(manager) == 1
+    courses._teacher_course_library_projection("teacher-warm", set(), manager)
+
+    assert repository.read_count == 1
+
+
 @pytest.mark.asyncio
 async def test_single_teacher_course_returns_new_projection_and_preserves_course_payload(monkeypatch):
     course = {

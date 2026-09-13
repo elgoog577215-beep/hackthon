@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
+import asyncio
 import sys
 import os
 import logging
@@ -80,6 +81,7 @@ async def lifespan(app: FastAPI):
         from routers.teacher_lesson_authoring import recover_teacher_generation_jobs
         from dependencies import get_teacher_lesson_authoring_repository
         await recover_teacher_generation_jobs(task_manager, get_teacher_lesson_authoring_repository())
+        await asyncio.to_thread(courses.warm_teacher_course_library_projection_cache, task_manager)
     yield
     # Shutdown
     if task_manager:
