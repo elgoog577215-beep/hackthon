@@ -491,6 +491,43 @@ describe('course generation lifecycle reconciliation', () => {
     expect(generation.getTask('formal-course')).toBeUndefined()
   })
 
+  it('教师课程正式预览不等待任务状态请求完成才开始', async () => {
+    const courses = useCourseStore()
+    let resolveTask!: (value: { data: { status: string } }) => void
+    const taskResponse = new Promise<{ data: { status: string } }>(resolve => { resolveTask = resolve })
+    const get = vi.spyOn(http, 'get').mockImplementation(async (url: string) => {
+      if (url === '/api/courses/parallel-course/task?task_type=teacher_outline_generation') {
+        return taskResponse as never
+      }
+      if (url === '/api/teacher/courses/parallel-course/generation-preview') {
+        return { data: {
+          schema_version: 'generation_preview_v2', projection: 'canonical',
+          course_id: 'parallel-course', course_name: '并发读取课程', nodes: [],
+          document: {
+            schema_version: 'course_document_v1', course_id: 'parallel-course',
+            title: '并发读取课程', document_revision: 'parallel-r1', sections: [], blocks: [],
+          },
+        } } as never
+      }
+      throw new Error(`unexpected request: ${url}`)
+    })
+
+    const loading = courses.loadCourse('parallel-course', {
+      includeLearningRecords: false,
+      taskType: 'teacher_outline_generation',
+      previewSurface: 'teacher',
+    })
+    await flushPromises()
+
+    expect(get).toHaveBeenCalledWith(
+      '/api/teacher/courses/parallel-course/generation-preview',
+      expect.any(Object),
+    )
+    resolveTask({ data: { status: 'none' } })
+    await loading
+    expect(courses.currentDocumentRevision).toBe('parallel-r1')
+  })
+
   it('课程首屏仍在读取时不启动第二份后台正文刷新', async () => {
     const courses = useCourseStore()
     courses.currentCourseId = 'opening-course'

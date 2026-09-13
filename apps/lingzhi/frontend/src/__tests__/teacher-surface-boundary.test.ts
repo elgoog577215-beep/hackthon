@@ -129,6 +129,7 @@ describe('calendar and course file-space boundary', () => {
     expect(workspace).toContain('class="preview-action"')
     expect(workspace).not.toContain('class="workspace-local-header"')
     expect(workspace).toContain('<TeacherCourseWorkbench')
+    expect(workspace).toContain('<CoursePreparationDialog\n      v-if="!loading"')
     expect(workspace).not.toContain('<CourseWorkbench')
     expect(workspace).not.toContain('@open-tasks')
     expect(workspace).toContain("loadError.status === 404 ? backToSource() : loadWorkspace()")
