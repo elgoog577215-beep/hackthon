@@ -56,3 +56,11 @@
 - The lesson Store keeps `lessons` and `jobs` as arrays when a future summary response omits those collections, preserving the distinction between unloaded and corrupt state.
 - Focused verification: 3 summary/baseline tests passed; 151 workbench, lesson Store and loading-boundary tests passed; production build and strict OpenSpec validation passed. Full Linux coverage remains assigned to CI.
 - First CI run `34751185616` stopped before deployment because the new `view` query parameter displaced the repository dependency's established third positional argument in a direct compatibility test. A dedicated positional-call test now locks that interface, and `view` follows the repository parameter without changing the HTTP query contract.
+
+## Stable outline multi-browser result
+
+- Final version for this checkpoint: `13a71e500cc2e3a2a2b29cf0c3579bf87f1f67e7`; protected run `34751558838` passed all checks, task protection, activation and production model verification.
+- Ten sequential fresh-browser direct-link samples recorded formal outline text readiness: P50 1.630 s, P95 2.067 s, minimum 1.520 s, maximum 2.067 s, failures 0/10.
+- Every sample made zero lesson-authoring requests and zero full course-information requests on the foundation path. The earlier five-browser run before this follow-up had P50 7.640 s and P95 8.261 s because each outline open started a full lesson-authoring read that contended with the next browser.
+- Ten low-frequency blueprint endpoint samples on the revision cache recorded P50 0.188 s and P95 0.612 s, with a constant 28,155-byte compressed response.
+- Evidence files: `D:/lingzhi/.codex_tmp/course-open-20260913/course-outline-summary-browser-{1..10}-browser.json`. Task 1.1 remains open because lesson-plan and handout target-text timings are not yet recorded.
