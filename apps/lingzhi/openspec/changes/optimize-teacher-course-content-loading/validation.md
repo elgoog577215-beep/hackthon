@@ -41,3 +41,10 @@
 - The critical requests were `/blueprint` (1.76 s, 28,386 transferred bytes) and `/course-information` (1.75 s, 1,638 bytes), both started at 0.90 s. No full teacher generation preview or course document appeared in the outline critical path.
 - Full lesson-authoring started at 2.68 s and completed in the background after the outline was readable. The browser reported no business request failures; the intentionally blocked usage-event write from the read-only harness is excluded.
 - Evidence: `D:/lingzhi/.codex_tmp/course-open-20260913/course-outline-batch-a-final-browser.json`. This is one production read-only sample, so task 1.1 remains open until the controlled multi-sample P50/P95 run is completed.
+
+## Batch B projection-cache checkpoint
+
+- The blueprint response now declares `teacher_blueprint_view_v2`, source and draft revisions, quality rule version, and one projection revision bound to all response-affecting inputs.
+- Repeated reads of the same projection reuse deterministic quality review. Changes to review requirements such as total course hours produce a different projection and rerun review.
+- Concurrent reads for the same projection share one per-identity computation; different identities do not share the review result. The cache is LRU-bounded to 16 projections.
+- Focused verification: 36 blueprint, generation-workspace and version tests passed; Ruff passed. Save/candidate/restore invalidation and conditional HTTP remain open in tasks 3.3 and 3.4.

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from copy import deepcopy
 import logging
+import threading
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
@@ -17,13 +19,14 @@ from course_outline_adjustments import (
     compile_outline_draft,
 )
 from course_repository import CourseDocumentNotFound
-from course_generation.outline import review_course_outline_document
+from course_generation.outline import _QUALITY_RULE_VERSION, review_course_outline_document
 from course_versioning import (
     analyze_blueprint_impact,
     blueprint_draft_revision_id,
     blueprint_revision_id,
     build_blueprint_draft,
     outline_adjustment_proposal_id,
+    stable_hash,
 )
 from course_versions import CourseVersionConflict, CourseVersionRepository, course_version_repository
 from dependencies import get_course_document_repository, get_course_or_404, get_task_manager_optional, require_task_manager
@@ -36,6 +39,96 @@ from jobs.manager import TaskManager, TaskStateConflict
 
 router = APIRouter(prefix="/courses/{course_id}", tags=["course_versions"])
 logger = logging.getLogger(__name__)
+_BLUEPRINT_PROJECTION_CACHE_MAX = 16
+_blueprint_projection_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
+_blueprint_projection_cache_lock = threading.Lock()
+_blueprint_projection_key_locks: dict[str, threading.Lock] = {}
+
+
+def _clear_blueprint_projection_cache() -> None:
+    with _blueprint_projection_cache_lock:
+        _blueprint_projection_cache.clear()
+        _blueprint_projection_key_locks.clear()
+
+
+def _blueprint_projection(course: dict[str, Any], stored_draft: dict[str, Any] | None) -> dict[str, Any]:
+    current = build_blueprint_draft(course)
+    draft = deepcopy(stored_draft) if isinstance(stored_draft, dict) else None
+    if draft is not None:
+        draft["draft_revision_id"] = blueprint_draft_revision_id(draft)
+    source_revision = blueprint_revision_id(course)
+    draft_revision = str((draft or {}).get("draft_revision_id") or "")
+    active = draft or current
+    retrieval = deepcopy(
+        (course.get("generation_stage_artifacts") or {}).get("web_retrieval")
+        or {}
+    )
+    coverage = TaskManager.project_course_coverage(course)
+    identity = {
+        "course_id": str(course.get("course_id") or ""),
+        "source_revision": source_revision,
+        "draft_revision": draft_revision,
+        "current": {
+            key: value for key, value in current.items()
+            if key not in {"updated_at", "draft_revision_id"}
+        },
+        "review_requirements": {
+            key: deepcopy(course.get(key) or {})
+            for key in (
+                "generation_request",
+                "course_generation_brief",
+                "course_profile",
+                "teacher_course_brief",
+            )
+        },
+        "retrieval": retrieval,
+        "coverage": coverage,
+        "quality_rule_version": _QUALITY_RULE_VERSION,
+    }
+    projection_revision = stable_hash(identity, prefix="bpv_")
+    with _blueprint_projection_cache_lock:
+        cached = _blueprint_projection_cache.get(projection_revision)
+        if cached is not None:
+            _blueprint_projection_cache.move_to_end(projection_revision)
+            return deepcopy(cached)
+        identity_lock = _blueprint_projection_key_locks.setdefault(
+            projection_revision,
+            threading.Lock(),
+        )
+    with identity_lock:
+        with _blueprint_projection_cache_lock:
+            cached = _blueprint_projection_cache.get(projection_revision)
+            if cached is not None:
+                _blueprint_projection_cache.move_to_end(projection_revision)
+                return deepcopy(cached)
+        quality = review_course_outline_document(
+            active.get("course_plan") or active.get("course_outline") or {},
+            course_context={**course, **active},
+        )
+        response = {
+            "schema_version": "teacher_blueprint_view_v2",
+            "status": "success",
+            "current": current,
+            "draft": draft,
+            "source_revision": source_revision,
+            "draft_revision": draft_revision,
+            "quality_rule_version": _QUALITY_RULE_VERSION,
+            "projection_revision": projection_revision,
+            "current_blueprint_revision_id": source_revision,
+            "has_unconfirmed_draft": draft is not None,
+            "retrieval": retrieval,
+            "coverage": coverage,
+            "quality": quality,
+        }
+        with _blueprint_projection_cache_lock:
+            _blueprint_projection_cache[projection_revision] = deepcopy(response)
+            _blueprint_projection_cache.move_to_end(projection_revision)
+            while len(_blueprint_projection_cache) > _BLUEPRINT_PROJECTION_CACHE_MAX:
+                evicted_revision, _evicted = _blueprint_projection_cache.popitem(last=False)
+                evicted_lock = _blueprint_projection_key_locks.get(evicted_revision)
+                if evicted_lock is not None and not evicted_lock.locked():
+                    _blueprint_projection_key_locks.pop(evicted_revision, None)
+        return response
 
 
 class BlueprintDraftRequest(BaseModel):
@@ -142,31 +235,7 @@ GenerationStep = Literal[
 async def get_blueprint(course_id: str):
     course = await _course_for_blueprint(course_id)
     draft = await run_in_threadpool(course_version_repository.load_draft, course_id)
-    current = build_blueprint_draft(course)
-    if isinstance(draft, dict):
-        draft["draft_revision_id"] = blueprint_draft_revision_id(draft)
-    active = draft if isinstance(draft, dict) else current
-    quality = review_course_outline_document(
-        active.get("course_plan") or active.get("course_outline") or {},
-        course_context={**course, **active},
-    )
-    return {
-        "status": "success",
-        "current": current,
-        "draft": draft,
-        "current_blueprint_revision_id": blueprint_revision_id(course),
-        "has_unconfirmed_draft": bool(draft),
-        "retrieval": deepcopy(
-            (course.get("generation_stage_artifacts") or {}).get(
-                "web_retrieval"
-            )
-            or {}
-        ),
-        # D-1：大纲页就在这个端点上，覆盖度判断必须跟目录一起到达前端，
-        # 否则用户要等整门课生成完才知道它没覆盖半个学科。
-        "coverage": TaskManager.project_course_coverage(course),
-        "quality": quality,
-    }
+    return await run_in_threadpool(_blueprint_projection, course, draft)
 
 
 @router.post("/blueprint/retrieval/retry")
