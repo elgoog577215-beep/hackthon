@@ -55,3 +55,4 @@
 - The foundation stage no longer starts full lesson-authoring. Direct lesson/script/PPT routes remain owned by the parent loader; later user stage changes explicitly request lesson data through the existing Store.
 - The lesson Store keeps `lessons` and `jobs` as arrays when a future summary response omits those collections, preserving the distinction between unloaded and corrupt state.
 - Focused verification: 3 summary/baseline tests passed; 151 workbench, lesson Store and loading-boundary tests passed; production build and strict OpenSpec validation passed. Full Linux coverage remains assigned to CI.
+- First CI run `34751185616` stopped before deployment because the new `view` query parameter displaced the repository dependency's established third positional argument in a direct compatibility test. A dedicated positional-call test now locks that interface, and `view` follows the repository parameter without changing the HTTP query contract.

@@ -100,8 +100,8 @@ def _assert_teacher_owner(course: dict[str, Any], actor_id: str) -> None:
 async def get_course_information(
     course_id: str,
     request: Request,
-    view: Literal["full", "summary"] = "full",
     repository: CourseDocumentRepository = Depends(get_course_document_repository),
+    view: Literal["full", "summary"] = "full",
 ):
     try:
         course = await run_in_threadpool(
