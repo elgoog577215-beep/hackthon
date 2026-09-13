@@ -15,12 +15,24 @@ describe('calendar and course file-space boundary', () => {
 
     expect(criticalRead).toBeGreaterThan(0)
     expect(lessonRead).toBeGreaterThan(0)
-    expect(lessonRead).toBeLessThan(criticalRead)
+    expect(lessonRead).toBeGreaterThan(criticalRead)
     expect(loadWorkspace).toContain('`/api/courses/${requestedCourseId}/course-information`')
     expect(loadWorkspace).not.toContain('`/api/courses/${requestedCourseId}`')
     expect(loadWorkspace).toContain('void lessonLoad.catch(() => undefined)')
-    expect(loadWorkspace.indexOf("courseStore.fetchCourseList({ surface: 'teacher'")).toBeGreaterThan(criticalRead)
+    expect(loadWorkspace).not.toContain("courseStore.fetchCourseList({ surface: 'teacher'")
     expect(loadWorkspace.indexOf('generationStore.fetchGlobalTasks()')).toBeGreaterThan(criticalRead)
+  })
+
+  it('gives the background lesson snapshot its own bounded read window', () => {
+    const lessonStore = source('stores/teacherLessonAuthoring.ts')
+    expect(lessonStore).toContain('const TEACHER_LESSON_READ_TIMEOUT_MS = 30000')
+    expect(lessonStore).toContain('timeout: TEACHER_LESSON_READ_TIMEOUT_MS')
+  })
+
+  it('loads question-bank detail only when the teacher opens that stage', () => {
+    const workbench = source('components/TeacherCourseWorkbench.vue')
+    expect(workbench).toContain("watch([() => props.courseId, activeStage], ([courseId, stage]) => {")
+    expect(workbench).toContain("if (courseId && stage === 'question-bank') void loadQuestionBankStatus()")
   })
 
   it('uses a slower idle course refresh while retaining fast updates for active production', () => {

@@ -1,9 +1,12 @@
 import asyncio
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
+import json
 import multiprocessing
 from pathlib import Path
 import threading
+
+import teacher_lesson_authoring as teacher_lesson_module
 
 from course_repository import CourseDocumentRepository
 from ppt_projects import PptProjectService
@@ -11,6 +14,34 @@ from teacher_content_projection import project_teacher_content
 from teacher_lesson_authoring import TeacherLessonAuthoringRepository, TeacherLessonAuthoringService
 from backend.tests.test_teacher_lesson_authoring import standard_lesson_plan, single_section_course_data
 from backend.tests.test_unified_teacher_content import course, authoring
+
+
+def test_authoring_repository_reuses_parsed_file_until_disk_version_changes(tmp_path, monkeypatch):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    repository.set_outline("course-1", "outline-1")
+    original_loads = teacher_lesson_module.json.loads
+    load_count = 0
+
+    def counted_loads(value, *args, **kwargs):
+        nonlocal load_count
+        load_count += 1
+        return original_loads(value, *args, **kwargs)
+
+    monkeypatch.setattr(teacher_lesson_module.json, "loads", counted_loads)
+    first = repository.load("course-1")
+    first["outline_revision_id"] = "mutated-only-in-caller"
+    second = repository.load("course-1")
+
+    assert load_count == 1
+    assert second["outline_revision_id"] == "outline-1"
+
+    path = tmp_path / "course-1.json"
+    external = original_loads(path.read_text(encoding="utf-8"))
+    external["outline_revision_id"] = "outline-2"
+    path.write_text(json.dumps(external, ensure_ascii=False), encoding="utf-8")
+
+    assert repository.load("course-1")["outline_revision_id"] == "outline-2"
+    assert load_count == 2
 
 
 def test_teacher_draft_can_start_with_different_generation_title(tmp_path):
