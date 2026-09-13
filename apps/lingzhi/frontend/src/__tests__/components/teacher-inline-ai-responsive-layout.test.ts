@@ -48,6 +48,9 @@ describe('讲义 AI 修改建议响应式布局', () => {
     expect(document).toMatch(
       /\.objective-grid\.is-ai-reviewing>\.ai-change-target\{[^}]*border-radius:0[^}]*background:transparent/,
     )
+    expect(document).toMatch(
+      /\.objective-grid\.is-ai-reviewing>\.ai-change-target::before\{display:none\}/,
+    )
   })
 
   it('建议操作行可换行，提示文字不能把按钮推出可视区域', () => {
