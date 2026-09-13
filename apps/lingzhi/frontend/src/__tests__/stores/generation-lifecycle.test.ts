@@ -472,7 +472,11 @@ describe('course generation lifecycle reconciliation', () => {
         course_id: 'formal-course',
         title: '数据结构',
         document_revision: 'doc-r1',
-        sections: [],
+        sections: [{
+          section_id: 'section-1', parent_section_id: null, title: '第一讲',
+          position: 0, level: 1, learning_objective: '', objective_id: '',
+          objective_revision_id: '', attributes: {},
+        }],
         blocks: [{
           block_id: 'b', section_id: 'section-1', position: 0,
           kind: 'rich_text', role: 'concept', payload: { markdown: '正式正文' },

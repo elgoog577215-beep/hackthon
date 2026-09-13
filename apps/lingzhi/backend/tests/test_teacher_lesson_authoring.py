@@ -5541,6 +5541,47 @@ def test_teacher_lesson_view_expires_orphaned_jobs_before_frontend_recovery(tmp_
     assert persisted["bundle_blocks"]["block"]["private"].startswith("w")
 
 
+def test_teacher_lesson_view_moves_slow_projection_off_the_event_loop(monkeypatch):
+    class SlowRepository:
+        @staticmethod
+        def expire_stale_jobs(_course_id):
+            time.sleep(0.2)
+            return {
+                "outline_revision_id": "",
+                "outline_material_drafts": [],
+                "current_outline_material_draft_id": "",
+                "lessons": {},
+                "jobs": {},
+            }
+
+    monkeypatch.setattr(
+        teacher_lesson_router,
+        "_source_course",
+        lambda _tm, course_id, allow_empty=False: {"course_id": course_id, "nodes": []},
+    )
+    monkeypatch.setattr(
+        teacher_lesson_router,
+        "read_course_production_state",
+        lambda *_args, **_kwargs: {},
+    )
+
+    async def scenario():
+        request = asyncio.create_task(teacher_lesson_router.get_lesson_authoring_view(
+            "course-1",
+            tm=object(),
+            repository=SlowRepository(),
+        ))
+        started = time.perf_counter()
+        await asyncio.sleep(0.02)
+        event_loop_delay = time.perf_counter() - started
+        response = await request
+        return event_loop_delay, response
+
+    event_loop_delay, response = asyncio.run(scenario())
+    assert event_loop_delay < 0.1
+    assert response["course_id"] == "course-1"
+
+
 def test_teacher_lesson_view_does_not_rewrite_unchanged_authoring_state(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     repository.set_outline("course-1", "outline-v1")

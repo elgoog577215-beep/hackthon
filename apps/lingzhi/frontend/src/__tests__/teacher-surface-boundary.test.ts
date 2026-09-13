@@ -16,7 +16,7 @@ describe('calendar and course file-space boundary', () => {
     expect(criticalRead).toBeGreaterThan(0)
     expect(lessonRead).toBeGreaterThan(0)
     expect(lessonRead).toBeLessThan(criticalRead)
-    expect(loadWorkspace).toContain(`/api/courses/${requestedCourseId}/course-information`)
+    expect(loadWorkspace).toContain('`/api/courses/${requestedCourseId}/course-information`')
     expect(loadWorkspace).not.toContain('`/api/courses/${requestedCourseId}`')
     expect(loadWorkspace).toContain('void lessonLoad.catch(() => undefined)')
     expect(loadWorkspace.indexOf("courseStore.fetchCourseList({ surface: 'teacher'")).toBeGreaterThan(criticalRead)
@@ -28,6 +28,11 @@ describe('calendar and course file-space boundary', () => {
     expect(library).toContain('const COURSE_PROGRESS_ACTIVE_REFRESH_MS = 5000')
     expect(library).toContain('const COURSE_PROGRESS_IDLE_REFRESH_MS = 30000')
     expect(library).toContain('courseProgressRefreshDelay()')
+  })
+
+  it('waits for the lesson snapshot before requesting an extra production projection', () => {
+    const workbench = source('components/TeacherCourseWorkbench.vue')
+    expect(workbench).toContain('if (lessonStore.loadedCourseId !== courseId) return')
   })
 
   it('observes scalar job status sources without refetching on every streamed token', () => {
