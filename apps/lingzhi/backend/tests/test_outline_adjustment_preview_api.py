@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+import threading
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -50,6 +52,38 @@ def test_blueprint_projection_reuses_quality_by_complete_revision_identity(monke
     assert changed.status_code == 200
     assert len(reviews) == 2
     assert changed.json()["projection_revision"] != first.json()["projection_revision"]
+
+
+def test_blueprint_projection_coalesces_concurrent_quality_review(monkeypatch):
+    course = _canonical_course()
+    review_count = 0
+    both_started = threading.Barrier(2)
+
+    def review(_plan, *, course_context=None):
+        nonlocal review_count
+        review_count += 1
+        try:
+            both_started.wait(timeout=0.2)
+        except threading.BrokenBarrierError:
+            pass
+        return {
+            "schema_version": "course_outline_editorial_review_v6",
+            "rule_version": "course_outline_editorial_v8",
+            "passed": True,
+            "issues": [],
+        }
+
+    monkeypatch.setattr(course_versions, "review_course_outline_document", review)
+    course_versions._clear_blueprint_projection_cache()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(
+            lambda _index: course_versions._blueprint_projection(deepcopy(course), None),
+            range(2),
+        ))
+
+    assert review_count == 1
+    assert results[0]["projection_revision"] == results[1]["projection_revision"]
 
 
 def test_blueprint_source_read_does_not_project_teacher_handouts(monkeypatch):
