@@ -287,6 +287,23 @@ describe('teacher lesson authoring store', () => {
     expect(store.error).toBe('')
   })
 
+  it('treats omitted summary collections as unloaded instead of corrupting store arrays', async () => {
+    httpMock.get.mockResolvedValue({
+      data: {
+        schema_version: 'teacher_lesson_authoring_summary_v1',
+        course_id: 'course-1',
+        outline_revision_id: 'outline-1',
+      },
+    })
+    const store = useTeacherLessonAuthoringStore()
+
+    await store.load('course-1')
+
+    expect(store.lessons).toEqual([])
+    expect(store.jobs).toEqual([])
+    expect(store.error).toBe('')
+  })
+
   it('切换课程后旧课程轮询结果不能写入新课程', async () => {
     let resolveOldJob!: (value: any) => void
     httpMock.get.mockReturnValue(new Promise(resolve => { resolveOldJob = resolve }))
