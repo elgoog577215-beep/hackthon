@@ -120,6 +120,7 @@
     />
 
     <CoursePreparationDialog
+      v-if="!loading"
       :course-id="courseId"
       :course-title="courseTitle"
       @completed="handlePreparationCompleted"

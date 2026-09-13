@@ -355,6 +355,9 @@ export const useCourseStore = defineStore('course', {
                 })
                 return
             }
+            const teacherPreviewRequest = options.previewSurface === 'teacher'
+                ? this.refreshGenerationPreview(courseId, 'teacher')
+                : null
             let backendTask: Record<string, any> | null = null
             try {
                 const taskTypeQuery = options.taskType
@@ -403,7 +406,9 @@ export const useCourseStore = defineStore('course', {
                 options.previewSurface === 'teacher'
                 || (backendTask && GENERATION_PREVIEW_STATUSES.has(String(backendTask.status || '')))
             ) {
-                const previewAvailable = await this.refreshGenerationPreview(courseId, options.previewSurface)
+                const previewAvailable = teacherPreviewRequest
+                    ? await teacherPreviewRequest
+                    : await this.refreshGenerationPreview(courseId, options.previewSurface)
                 if (this.currentCourseId !== courseId || this.courseLoadVersion !== loadVersion) return
                 if (previewAvailable) {
                     const reconciledTask = genStore.tasks.get(courseId)
