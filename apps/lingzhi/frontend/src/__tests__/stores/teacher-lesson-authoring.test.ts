@@ -287,6 +287,33 @@ describe('teacher lesson authoring store', () => {
     expect(store.error).toBe('')
   })
 
+  it('hydrates one requested lesson without replacing the rest of the course snapshot', async () => {
+    const first = { lesson_unit_id: 'L1-1', number: 1, title: '第一讲' }
+    const second = { lesson_unit_id: 'L1-2', number: 2, title: '第二讲' }
+    httpMock.get.mockResolvedValue({
+      data: {
+        schema_version: 'teacher_lesson_authoring_view_v1',
+        view_scope: 'lesson',
+        course_id: 'course-1',
+        outline_revision_id: 'outline-1',
+        lessons: [second],
+        jobs: [],
+      },
+    })
+    const store = useTeacherLessonAuthoringStore()
+    store.courseId = 'course-1'
+    store.lessons = [first] as any
+
+    await (store as any).loadLesson('course-1', 'L1-2')
+
+    expect(httpMock.get).toHaveBeenCalledWith(
+      '/api/teacher/courses/course-1/lesson-authoring',
+      expect.objectContaining({ params: { lesson_unit_id: 'L1-2' } }),
+    )
+    expect(store.lessons.map(item => item.lesson_unit_id)).toEqual(['L1-1', 'L1-2'])
+    expect(store.loadedCourseId).toBe('')
+  })
+
   it('treats omitted summary collections as unloaded instead of corrupting store arrays', async () => {
     httpMock.get.mockResolvedValue({
       data: {

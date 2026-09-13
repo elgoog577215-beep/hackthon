@@ -268,4 +268,58 @@ describe('LessonPptWorkspace', () => {
     expect(jobReads).toBeGreaterThanOrEqual(2)
     wrapper.unmount()
   })
+
+  it('已有内容稿只读取一次，并复用同修订页面预览', async () => {
+    let manuscriptReads = 0
+    let jobReads = 0
+    http.get.mockImplementation(async (url: string) => {
+      if (url.includes('/lesson-jobs/')) {
+        jobReads += 1
+        return { data: { job: { id: 'completed-task', status: 'completed' } } }
+      }
+      manuscriptReads += 1
+      return { data: { ppt_manuscript_state: {
+        revision: 'manuscript-1',
+        source_script_revision_id: 'script-1',
+        task_id: 'completed-task',
+        can_preview: true,
+        manuscript: {
+          page_count: 1,
+          pages: [{ page_id: 'page-1', page_number: 1, title: '第一页' }],
+        },
+      } } }
+    })
+    http.post.mockResolvedValue({ data: {
+      manuscript_revision: 'manuscript-1',
+      manifest: [{ page_id: 'page-1', physical_page_ids: ['physical-1'] }],
+      deck: { pages: [{ page_id: 'physical-1', position: 0 }] },
+    } })
+    const wrapper = mount(LessonPptWorkspace, {
+      props: {
+        courseId: 'course-1', initialLessonId: 'L1-1', title: '第一讲',
+        sourceRevision: 'script-1',
+      },
+    })
+
+    await flushPromises()
+    expect(manuscriptReads).toBe(1)
+    expect(jobReads).toBe(0)
+    expect(http.post).not.toHaveBeenCalled()
+
+    const renderTab = wrapper.findAll('button').find(button => button.text().includes('成品预览'))!
+    await renderTab.trigger('click')
+    await flushPromises()
+    expect(http.post).toHaveBeenCalledTimes(1)
+
+    const manuscriptTab = wrapper.findAll('button').find(button => button.text().includes('页面内容稿'))!
+    await manuscriptTab.trigger('click')
+    await renderTab.trigger('click')
+    await flushPromises()
+    expect(http.post).toHaveBeenCalledTimes(1)
+
+    await wrapper.setProps({ sourceRevision: 'script-1' })
+    await flushPromises()
+    expect(manuscriptReads).toBe(1)
+    wrapper.unmount()
+  })
 })

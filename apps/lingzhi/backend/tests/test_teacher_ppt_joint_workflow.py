@@ -119,6 +119,24 @@ def generate(client, *, complete_ppt=True):
     return ppt_job
 
 
+def test_existing_manuscript_read_skips_full_document_and_material_evidence(workflow, monkeypatch):
+    client, _repository, _calls = workflow
+    generate(client)
+
+    def unexpected(*_args, **_kwargs):
+        raise AssertionError("existing manuscript read rebuilt full PPT sources")
+
+    monkeypatch.setattr(routes, "teacher_lesson_v6_source", unexpected)
+    monkeypatch.setattr(routes, "_ppt_material_bundle", unexpected)
+
+    response = client.get(
+        "/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/manuscript"
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["ppt_manuscript_state"]["manuscript"]
+
+
 def test_prose_then_explicit_ppt_saves_real_revision_and_preview_edit_use_no_model(workflow):
     client, repository, calls = workflow
     job = generate(client)

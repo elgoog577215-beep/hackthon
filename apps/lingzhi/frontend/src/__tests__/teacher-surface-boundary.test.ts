@@ -35,6 +35,16 @@ describe('calendar and course file-space boundary', () => {
     expect(lessonStore).toContain('timeout: TEACHER_LESSON_READ_TIMEOUT_MS')
   })
 
+  it('loads a direct PPT route from the requested lesson instead of the full course preview', () => {
+    const workspace = source('views/CourseWorkspaceView.vue')
+    const loadWorkspace = workspace.match(/async function loadWorkspace\(\) \{[\s\S]*?\n\}/)?.[0] || ''
+
+    expect(loadWorkspace).toContain("const loadPptLessonFirst = workspaceView.value === 'categories'")
+    expect(loadWorkspace).toContain("requestedWorkbenchStage.value === 'ppt'")
+    expect(loadWorkspace).toContain('lessonStore.loadLesson(requestedCourseId, requestedLessonId.value)')
+    expect(loadWorkspace).toContain('if (!loadBlueprintFirst && !loadPptLessonFirst)')
+  })
+
   it('loads question-bank detail only when the teacher opens that stage', () => {
     const workbench = source('components/TeacherCourseWorkbench.vue')
     expect(workbench).toContain("watch([() => props.courseId, activeStage], ([courseId, stage]) => {")

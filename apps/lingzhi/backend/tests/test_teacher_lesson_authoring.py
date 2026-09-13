@@ -5702,6 +5702,51 @@ def test_teacher_lesson_api_projects_sessions_from_canonical_course_document(tmp
     assert view.json()["course_production_state"]["course_id"] == "course-1"
 
 
+def test_teacher_lesson_view_can_read_only_the_requested_lesson(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    source = {**course_data(), "blueprint_revision_id": "outline-v1"}
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    repository.save_plan_revision(
+        "course-1", "L1-1", standard_lesson_plan(),
+        source_outline_revision_id="outline-v1",
+    )
+    second_plan = deepcopy(standard_lesson_plan())
+    second_plan["sections"][0]["node_id"] = "L2-2-1"
+    repository.save_plan_revision(
+        "course-1", "L1-2", second_plan,
+        source_outline_revision_id="outline-v1",
+    )
+    monkeypatch.setattr(
+        repository,
+        "expire_stale_jobs",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("targeted lesson read scanned every persisted job")
+        ),
+    )
+    tm = SimpleNamespace(
+        storage=SimpleNamespace(load_course=lambda _course_id: deepcopy(source)),
+        get_generation_workspace_course=lambda _course_id: None,
+        get_generation_preview=lambda _course_id: None,
+    )
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: tm
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: repository
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/teacher/courses/course-1/lesson-authoring",
+            params={"lesson_unit_id": "L1-2"},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["view_scope"] == "lesson"
+    assert [item["lesson_unit_id"] for item in response.json()["lessons"]] == ["L1-2"]
+    assert response.json()["jobs"] == []
+    assert "course_production_state" not in response.json()
+
+
 def test_teacher_lesson_view_expires_orphaned_jobs_before_frontend_recovery(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     job = repository.create_job(
