@@ -1647,6 +1647,7 @@ def test_teacher_course_list_returns_new_projection_with_legacy_fields_without_w
     assert result["preparation_summary"]["ready_handouts"] == 1
     assert result["course_production_state"]["schema_version"] == "course_production_state_v1"
     assert result["course_production_state"]["preparation_state"] == "prepared"
+    assert repository.read_count == 1
     assert (course, authoring, manager.tasks) == before
 
 

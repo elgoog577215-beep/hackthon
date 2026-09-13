@@ -30,9 +30,30 @@ from teacher_lesson_authoring import (
     normalize_teacher_lesson_plan,
     project_current_teacher_scripts,
     teacher_lesson_section_content,
+    teacher_lesson_job_view,
     teacher_lesson_v6_source,
     validate_teacher_lesson_plan,
 )
+
+
+def test_completed_job_read_projection_omits_redundant_generated_body():
+    completed = teacher_lesson_job_view({
+        "id": "completed-1",
+        "status": "completed",
+        "result_sections": [{"content": "正文" * 1000}],
+        "streamed_block_content": {"block-1": "正文" * 1000},
+        "error": None,
+    })
+    running = teacher_lesson_job_view({
+        "id": "running-1",
+        "status": "running",
+        "result_sections": [{"content": "生成中的正文"}],
+        "streamed_block_content": {"block-1": "生成中的正文"},
+    })
+
+    assert completed == {"id": "completed-1", "status": "completed", "error": None}
+    assert running["result_sections"][0]["content"] == "生成中的正文"
+    assert running["streamed_block_content"]["block-1"] == "生成中的正文"
 from teacher_script import (
     SCRIPT_PIPELINE_VERSION,
     SCRIPT_QUALITY_VERSION,
