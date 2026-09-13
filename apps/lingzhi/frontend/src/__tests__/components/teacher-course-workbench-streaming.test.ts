@@ -1697,6 +1697,46 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.stage-rail button.active').text()).toContain('讲义')
   })
 
+  it('从 PPT 局部快照切到教案时补载完整讲次目录', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.courseId = 'course-1'
+    lessonStore.loadedCourseId = ''
+    lessonStore.outlineRevisionId = 'outline-1'
+    const lesson = (number: number) => ({
+      lesson_unit_id: `L1-${number}`, source_outline_revision_id: 'outline-1', number,
+      title: `第${number}讲`, duration_minutes: 45,
+      sections: [{ section_node_id: `L2-${number}-1`, title: `${number}.1 核心内容` }],
+      arrangement: {
+        schema_version: 'teacher_lesson_arrangement_v1', revision_id: `arrangement-${number}`,
+        lesson_unit_id: `L1-${number}`, source_outline_revision_id: 'outline-1',
+        lesson_type: 'theory', lesson_type_label: '理论讲授', source_state: 'current', blocks: [],
+      },
+      plan: {
+        lesson_unit_id: `L1-${number}`, working_revision_id: `plan-${number}`,
+        source_state: 'current', ready: true, current_revision: null, ppt_assets: [],
+      },
+      script: {
+        current_revision_id: `script-${number}`, source_lesson_plan_revision_id: `plan-${number}`,
+        source_state: 'current', ready: true, sections: [],
+      },
+    })
+    lessonStore.lessons = [lesson(1)] as any
+    const load = vi.spyOn(lessonStore, 'load').mockImplementation(async () => {
+      lessonStore.lessons = [lesson(1), lesson(2)] as any
+      lessonStore.loadedCourseId = 'course-1'
+      return {} as any
+    })
+    const wrapper = mountWorkbench({ initialStage: 'ppt', initialLessonId: 'L1-1' })
+    await flushPromises()
+
+    expect(load).not.toHaveBeenCalled()
+    await wrapper.get('.stage-rail nav button:nth-child(2)').trigger('click')
+    await flushPromises()
+
+    expect(load).toHaveBeenCalledTimes(1)
+    expect(wrapper.findAll('.lesson-outline-chapter-button')).toHaveLength(2)
+  })
+
   it('讲义未生成时先平铺全课教案映射，再一次提交全部讲义', async () => {
     useTeacherLessonAuthoringStore().outlineRevisionId = 'outline-1'
     const lessonStore = useTeacherLessonAuthoringStore()
