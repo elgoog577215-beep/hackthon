@@ -157,7 +157,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, ArrowRight, Eye, FolderOpen, FolderTree, LayoutGrid, LoaderCircle, ScanSearch, Search, X } from 'lucide-vue-next'
 import AppErrorNotice from '../components/AppErrorNotice.vue'
@@ -293,7 +293,6 @@ async function loadWorkspace() {
     stableCourseTitle.value = String(
       information.course_name || stableCourseTitle.value,
     )
-    await nextTick()
     if (requestedSection === 'outline') openOutlineEditor()
     if (requestedSection === 'calendar') calendarOpen.value = true
     if (route.query.generate === 'outline') {
