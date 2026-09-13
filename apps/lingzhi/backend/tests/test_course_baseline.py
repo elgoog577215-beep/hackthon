@@ -115,6 +115,31 @@ async def test_course_information_summary_does_not_project_teacher_body():
 
 
 @pytest.mark.asyncio
+async def test_full_course_information_keeps_repository_as_third_positional_argument():
+    course = {
+        "course_id": "course-1",
+        "course_name": "人工智能通识课",
+        "owner_id": "teacher-a",
+        "generation_request": _generation_request(),
+    }
+
+    class Repository:
+        @staticmethod
+        def load_course_view(course_id):
+            assert course_id == "course-1"
+            return course
+
+    response = await course_baseline.get_course_information(
+        "course-1",
+        SimpleNamespace(headers={"X-User-Id": "teacher-a"}),
+        Repository(),
+    )
+
+    assert response["course_id"] == "course-1"
+    assert response["information"]["course_name"] == "人工智能通识课"
+
+
+@pytest.mark.asyncio
 async def test_confirmed_baseline_update_changes_metadata_without_regenerating_course(tmp_path):
     storage = Storage(str(tmp_path / "data"))
     repository = CourseDocumentRepository(storage)
