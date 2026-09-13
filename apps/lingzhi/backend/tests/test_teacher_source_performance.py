@@ -43,6 +43,12 @@ def test_authoring_repository_reuses_parsed_file_until_disk_version_changes(tmp_
     assert repository.load("course-1")["outline_revision_id"] == "outline-2"
     assert load_count == 2
 
+    for index in range(teacher_lesson_module.AUTHORING_LOAD_CACHE_MAX_COURSES + 2):
+        course_id = f"bounded-{index}"
+        repository.set_outline(course_id, "outline")
+        repository.load(course_id)
+    assert len(repository._load_cache) == teacher_lesson_module.AUTHORING_LOAD_CACHE_MAX_COURSES
+
 
 def test_teacher_draft_can_start_with_different_generation_title(tmp_path):
     import pytest
