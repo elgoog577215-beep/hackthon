@@ -3528,9 +3528,11 @@ class TeacherLessonAuthoringRepository:
     def current_v6_ppt_manuscript(
         self, course_id: str, lesson_unit_id: str
     ) -> dict[str, Any] | None:
-        lesson = self.lesson(course_id, lesson_unit_id)
-        state = lesson.get("ppt_manuscript")
-        return deepcopy(state) if isinstance(state, dict) and state else None
+        with self._course_lock(course_id):
+            value = self._load_cached_value_locked(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_unit_id) or {}
+            state = lesson.get("ppt_manuscript")
+            return deepcopy(state) if isinstance(state, dict) and state else None
 
     def save_ppt_sync_candidate(self, course_id: str, lesson_id: str, *, expected_revision: str, manuscript: dict,
                                 source_plan_id: str, source_script_id: str, material_revision: str, source_rebase: bool, affected_ids: list) -> dict:

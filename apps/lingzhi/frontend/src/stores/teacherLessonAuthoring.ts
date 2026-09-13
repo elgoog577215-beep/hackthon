@@ -346,6 +346,7 @@ export interface TeacherLessonJobStreamEvent {
 
 export interface TeacherLessonAuthoringView {
   schema_version: 'teacher_lesson_authoring_view_v1'
+  view_scope?: 'full' | 'lesson'
   pipeline_version?: 'standard_lesson_plan_v1'
   plan_schema_version?: 'course_teaching_plan_v3'
   course_id: string
@@ -499,6 +500,7 @@ const errorMessage = (error: any, fallback: string) => {
 }
 
 const lessonAuthoringViewRequests = new Map<string, Promise<TeacherLessonAuthoringView>>()
+const lessonAuthoringLessonRequests = new Map<string, Promise<TeacherLessonAuthoringView>>()
 const TEACHER_LESSON_READ_TIMEOUT_MS = 30000
 
 const fetchLessonAuthoringView = (courseId: string, afterCurrent = false): Promise<TeacherLessonAuthoringView> => {
@@ -519,6 +521,31 @@ const fetchLessonAuthoringView = (courseId: string, afterCurrent = false): Promi
       }
     })
   lessonAuthoringViewRequests.set(courseId, request)
+  return request
+}
+
+const fetchLessonAuthoringLesson = (
+  courseId: string,
+  lessonUnitId: string,
+): Promise<TeacherLessonAuthoringView> => {
+  const key = `${courseId}:${lessonUnitId}`
+  const existing = lessonAuthoringLessonRequests.get(key)
+  if (existing) return existing
+  const request = http.get<TeacherLessonAuthoringView>(
+    `/api/teacher/courses/${courseId}/lesson-authoring`,
+    {
+      ...readRequestConfig(),
+      timeout: TEACHER_LESSON_READ_TIMEOUT_MS,
+      silentError: true,
+      params: { lesson_unit_id: lessonUnitId },
+    },
+  ).then(response => response.data)
+    .finally(() => {
+      if (lessonAuthoringLessonRequests.get(key) === request) {
+        lessonAuthoringLessonRequests.delete(key)
+      }
+    })
+  lessonAuthoringLessonRequests.set(key, request)
   return request
 }
 
@@ -850,6 +877,45 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         }
       }
       jobs.forEach(job => { void this.streamJob(this.courseId, job.id) })
+    },
+    async loadLesson(courseId: string, lessonUnitId: string) {
+      const hasLesson = this.courseId === courseId
+        && this.lessons.some(item => item.lesson_unit_id === lessonUnitId)
+      if (this.courseId !== courseId) {
+        this.stopObserving()
+        this.courseId = courseId
+        this.outlineRevisionId = ''
+        this.lessons = []
+        this.jobs = []
+        this.productionState = null
+        this.streamingJobIds = {}
+        this.loadedCourseId = ''
+        this.error = ''
+        this.refreshError = ''
+      }
+      this.loading = !hasLesson
+      try {
+        const response = await fetchLessonAuthoringLesson(courseId, lessonUnitId)
+        if (this.courseId !== courseId) return response
+        const lesson = response.lessons?.find(
+          item => item.lesson_unit_id === lessonUnitId,
+        )
+        if (!lesson) throw new Error('Requested lesson is unavailable')
+        this.outlineRevisionId = response.outline_revision_id
+        this.lessons = [
+          ...this.lessons.filter(item => item.lesson_unit_id !== lessonUnitId),
+          lesson,
+        ].sort((left, right) => left.number - right.number)
+        this.error = ''
+        return response
+      } catch (error) {
+        if (this.courseId === courseId) {
+          this.error = errorMessage(error, '本讲内容读取失败')
+        }
+        throw error
+      } finally {
+        if (this.courseId === courseId) this.loading = false
+      }
     },
     async load(courseId: string, options: { afterCurrent?: boolean } = {}) {
       const hasSuccessfulSnapshot = this.loadedCourseId === courseId

@@ -1302,39 +1302,7 @@ def _ppt_material_bundle(
     lesson_unit_id: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Resolve the PPT stage's frozen, teacher-owned material relationships."""
-    target_id = f"ppt-v6:{lesson_unit_id}"
-    bindings: list[dict[str, Any]] = []
-    seen_material_ids: set[str] = set()
-    for summary in teacher_course_space_repository.list_owned(actor, course_id):
-        try:
-            package = teacher_course_space_repository.load_owned(
-                str(summary.get("package_id") or ""), actor
-            )
-        except (FileNotFoundError, MaterialStorageError):
-            continue
-        for relationship in teacher_course_space_repository.relationships_for_target(
-            package, target_id
-        ):
-            material_asset_id = str(
-                relationship.get("material_asset_id") or ""
-            )
-            if not material_asset_id or material_asset_id in seen_material_ids:
-                continue
-            seen_material_ids.add(material_asset_id)
-            bindings.append({
-                "material_asset_id": material_asset_id,
-                "source_asset_id": str(
-                    relationship.get("source_asset_id") or ""
-                ),
-                "source_label": str(
-                    relationship.get("source_label") or material_asset_id
-                ),
-                "role": (
-                    "primary"
-                    if relationship.get("role") == "primary"
-                    else "reference"
-                ),
-            })
+    bindings = _ppt_material_bindings(course_id, actor, lesson_unit_id)
     material_ids, evidence = _course_material_evidence(
         course_id,
         actor,
@@ -1378,6 +1346,48 @@ def _ppt_material_bundle(
             "部分 PPT 资料来源无法读取。",
         )
     return bindings, normalized_evidence
+
+
+def _ppt_material_bindings(
+    course_id: str,
+    actor: str,
+    lesson_unit_id: str,
+) -> list[dict[str, Any]]:
+    """Read relationship identities without parsing material bodies."""
+    target_id = f"ppt-v6:{lesson_unit_id}"
+    bindings: list[dict[str, Any]] = []
+    seen_material_ids: set[str] = set()
+    for summary in teacher_course_space_repository.list_owned(actor, course_id):
+        try:
+            package = teacher_course_space_repository.load_owned(
+                str(summary.get("package_id") or ""), actor
+            )
+        except (FileNotFoundError, MaterialStorageError):
+            continue
+        for relationship in teacher_course_space_repository.relationships_for_target(
+            package, target_id
+        ):
+            material_asset_id = str(
+                relationship.get("material_asset_id") or ""
+            )
+            if not material_asset_id or material_asset_id in seen_material_ids:
+                continue
+            seen_material_ids.add(material_asset_id)
+            bindings.append({
+                "material_asset_id": material_asset_id,
+                "source_asset_id": str(
+                    relationship.get("source_asset_id") or ""
+                ),
+                "source_label": str(
+                    relationship.get("source_label") or material_asset_id
+                ),
+                "role": (
+                    "primary"
+                    if relationship.get("role") == "primary"
+                    else "reference"
+                ),
+            })
+    return bindings
 
 
 def _ppt_reference_terms(value: str) -> set[str]:
@@ -2064,6 +2074,24 @@ def _teacher_v6_source(
     course_id: str,
     lesson_unit_id: str,
 ):
+    source, lesson, revision, script_revision = _teacher_v6_revision_source(
+        tm, repository, course_id, lesson_unit_id
+    )
+    document, course_view, synthetic_id = teacher_lesson_v6_source(
+        source,
+        lesson_unit_id=lesson_unit_id,
+        plan_revision=revision,
+        script_revision=script_revision,
+    )
+    return document, course_view, synthetic_id, lesson, revision
+
+
+def _teacher_v6_revision_source(
+    tm: TaskManager,
+    repository: TeacherLessonAuthoringRepository,
+    course_id: str,
+    lesson_unit_id: str,
+):
     source = _source_course(tm, course_id)
     lesson, revision = _current_plan_revision(
         repository,
@@ -2091,13 +2119,7 @@ def _teacher_v6_source(
         lesson_unit_id,
         source_plan_revision_id=revision_id,
     )
-    document, course_view, synthetic_id = teacher_lesson_v6_source(
-        source,
-        lesson_unit_id=lesson_unit_id,
-        plan_revision=revision,
-        script_revision=script_revision,
-    )
-    return document, course_view, synthetic_id, lesson, revision
+    return source, lesson, revision, script_revision
 
 
 def _teacher_v6_repository(source_course_id: str, synthetic_id: str):
@@ -2135,9 +2157,34 @@ def _lesson_authoring_view(
     course_id: str,
     tm: TaskManager,
     repository: TeacherLessonAuthoringRepository,
+    lesson_unit_id: str = "",
 ) -> dict[str, Any]:
     source = _source_course(tm, course_id, allow_empty=True)
     outline_revision = _canonical_outline_revision(source)
+    if lesson_unit_id:
+        if outline_revision and repository.outline_revision_id(course_id) != outline_revision:
+            repository.set_outline(course_id, outline_revision)
+        lesson = repository.lesson(course_id, lesson_unit_id)
+        lessons = _lesson_projection(
+            source,
+            repository,
+            authoring_state={"lessons": {lesson_unit_id: lesson}},
+            lesson_unit_ids={lesson_unit_id},
+        )
+        if not lessons:
+            raise TeacherLessonAuthoringError(
+                "lesson_not_found", "当前讲次不存在，请返回课程后重新选择。"
+            )
+        return {
+            "schema_version": "teacher_lesson_authoring_view_v1",
+            "view_scope": "lesson",
+            "pipeline_version": LESSON_PLAN_PIPELINE_VERSION,
+            "plan_schema_version": "course_teaching_plan_v3",
+            "course_id": course_id,
+            "outline_revision_id": outline_revision,
+            "lessons": lessons,
+            "jobs": [],
+        }
     authoring_state = repository.expire_stale_jobs(course_id)
     if outline_revision and str(authoring_state.get("outline_revision_id") or "") != outline_revision:
         authoring_state = repository.set_outline(course_id, outline_revision)
@@ -2179,9 +2226,12 @@ async def get_lesson_authoring_view(
     repository: TeacherLessonAuthoringRepository = Depends(
         get_teacher_lesson_authoring_repository
     ),
+    lesson_unit_id: str = "",
 ):
     try:
-        return await run_in_threadpool(_lesson_authoring_view, course_id, tm, repository)
+        return await run_in_threadpool(
+            _lesson_authoring_view, course_id, tm, repository, lesson_unit_id
+        )
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
 
@@ -2576,16 +2626,18 @@ async def get_teacher_lesson_v6_manuscript(
     ),
 ):
     try:
-        document, _course_view, _synthetic_id, _lesson, _revision = (
-            _teacher_v6_source(tm, repository, course_id, lesson_unit_id)
+        _source, _lesson, _revision, script_revision = (
+            _teacher_v6_revision_source(
+                tm, repository, course_id, lesson_unit_id
+            )
         )
         if repository.current_imported_ppt_review(course_id, lesson_unit_id) and not repository.current_v6_ppt_manuscript(course_id, lesson_unit_id):
             return {
                 "ppt_manuscript_state": {**_ppt_manuscript_state_payload(None, generation_branch="manuscript_first"),
-                    "source_script_revision_id": str(_lesson.get("working_script_revision_id") or "")}
+                    "source_script_revision_id": str(script_revision.get("revision_id") or "")}
             }
         actor = resolve_user_id(request.headers.get("X-User-Id"))
-        material_bindings, _material_evidence = _ppt_material_bundle(
+        material_bindings = _ppt_material_bindings(
             course_id, actor, lesson_unit_id
         )
         material_revision = stable_hash(material_bindings, prefix="pptrefs_")
@@ -2597,7 +2649,7 @@ async def get_teacher_lesson_v6_manuscript(
                 state,
                 generation_branch="manuscript_first",
                 current_material_revision=material_revision,
-            ), "source_script_revision_id": str(_lesson.get("working_script_revision_id") or "")}
+            ), "source_script_revision_id": str(script_revision.get("revision_id") or "")}
         }
     except TeacherLessonAuthoringError as exc:
         _raise(exc)

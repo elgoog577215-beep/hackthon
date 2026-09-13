@@ -187,22 +187,28 @@ async function load() {
     if (!current(v) || dirty.value || saving.value) return
     if (!data.ppt_manuscript_state) throw new Error(t('pptProject.failed'))
     state.value = data.ppt_manuscript_state
-    if (state.value.task_id && !job.value) void poll(state.value.task_id, v)
+    if (state.value.task_id && !job.value && !state.value.manuscript) {
+      void poll(state.value.task_id, v)
+    }
     if (!pages.value.some((p: any) => p.page_id === selectedPage.value)) selectedPage.value = pages.value[0]?.page_id || ''
-    if (state.value.can_preview) void loadPreview([selectedPage.value])
   } catch (e: any) { if (current(v) && e?.code !== 'ERR_CANCELED') error.value = message(e) }
   finally { if (current(v)) loading.value = false }
 }
 async function loadPreview(ids: string[]) {
-  if (!state.value.can_preview || !ids.length || !ids[0]) return
+  const requestedIds = [...new Set(ids.filter(Boolean))].filter(id => {
+    if (previewRevisions.value[id] !== state.value.revision) return true
+    const item = manifest.value.find(page => page.page_id === id)
+    return !item?.physical_page_ids?.every((pageId: string) => physicalPages.value[pageId])
+  })
+  if (!state.value.can_preview || !requestedIds.length) return
   const v = version, request = ++previewRequest, revision = state.value.revision
   previewBusy.value = true
   try {
-    const { data } = await http.post(`${base()}/preview`, { expected_manuscript_revision: revision, page_ids: ids }, config())
+    const { data } = await http.post(`${base()}/preview`, { expected_manuscript_revision: revision, page_ids: requestedIds }, config())
     if (!current(v) || request !== previewRequest || state.value.revision !== data.manuscript_revision) return
     manifest.value = data.manifest
     for (const page of data.deck.pages) physicalPages.value[page.page_id] = page
-    for (const id of ids) previewRevisions.value[id] = revision
+    for (const id of requestedIds) previewRevisions.value[id] = revision
     previewError.value = ''
   } catch (e: any) { if (current(v) && request === previewRequest && e?.code !== 'ERR_CANCELED') previewError.value = message(e) }
   finally { if (current(v) && request === previewRequest) previewBusy.value = false }
@@ -351,7 +357,14 @@ watch(() => [props.courseId, props.initialLessonId], () => {
   tab.value = 'manuscript'
   void load()
 }, { immediate: true })
-watch(() => props.sourceRevision, () => { if (!dirty.value && !saving.value) void load() })
+watch(() => props.sourceRevision, sourceRevision => {
+  if (
+    sourceRevision
+    && sourceRevision !== state.value.source_script_revision_id
+    && !dirty.value
+    && !saving.value
+  ) void load()
+})
 onBeforeUnmount(() => { disposed = true; version++; controller.abort(); if (timer) clearTimeout(timer); if (pollTimer) clearTimeout(pollTimer); window.removeEventListener('beforeunload', protect) })
 defineExpose({ context, sources, runContextAction, prepareToLeave })
 </script>

@@ -267,9 +267,14 @@ async function loadWorkspace() {
     requestedLessonId.value = String(route.query.lesson || '')
     const loadBlueprintFirst = workspaceView.value === 'categories'
       && requestedWorkbenchStage.value === 'foundation'
+    const loadPptLessonFirst = workspaceView.value === 'categories'
+      && requestedWorkbenchStage.value === 'ppt'
+      && Boolean(requestedLessonId.value)
     const primaryContentLoad = loadBlueprintFirst
       ? courseWorkspace.loadBlueprint(requestedCourseId)
-      : courseStore.loadCourse(requestedCourseId, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true })
+      : loadPptLessonFirst
+        ? lessonStore.loadLesson(requestedCourseId, requestedLessonId.value)
+        : courseStore.loadCourse(requestedCourseId, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true })
     const [courseInformation, primaryContent] = await Promise.all([
       http.get(
         `/api/courses/${requestedCourseId}/course-information`,
@@ -284,6 +289,7 @@ async function loadWorkspace() {
       courseStore.currentCourseId = requestedCourseId
       courseStore.applyGenerationOutlineDraft(blueprintNodes)
     }
+    if (loadPptLessonFirst) courseStore.currentCourseId = requestedCourseId
     const information = courseInformation.data?.information || {}
     stableCourseTitle.value = courseStore.courseList.find(
       item => item.course_id === requestedCourseId,
@@ -299,7 +305,7 @@ async function loadWorkspace() {
       void router.replace({ query: { ...route.query, generate: undefined } })
     }
     loading.value = false
-    if (!loadBlueprintFirst) {
+    if (!loadBlueprintFirst && !loadPptLessonFirst) {
       const lessonLoad = lessonStore.load(requestedCourseId)
       void lessonLoad.catch(() => undefined)
     }
