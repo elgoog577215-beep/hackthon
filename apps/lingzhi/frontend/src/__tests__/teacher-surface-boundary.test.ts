@@ -21,8 +21,10 @@ describe('calendar and course file-space boundary', () => {
     expect(lessonRead).toBeGreaterThan(0)
     expect(lessonRead).toBeGreaterThan(criticalRead)
     expect(loadWorkspace).toContain('`/api/courses/${requestedCourseId}/course-information`')
+    expect(loadWorkspace).toContain("params: { view: 'summary' }")
     expect(loadWorkspace).not.toContain('`/api/courses/${requestedCourseId}`')
     expect(loadWorkspace).toContain('void lessonLoad.catch(() => undefined)')
+    expect(loadWorkspace).toContain('if (!loadBlueprintFirst)')
     expect(loadWorkspace).not.toContain("courseStore.fetchCourseList({ surface: 'teacher'")
     expect(loadWorkspace.indexOf('generationStore.fetchGlobalTasks()')).toBeGreaterThan(criticalRead)
   })
@@ -37,6 +39,8 @@ describe('calendar and course file-space boundary', () => {
     const workbench = source('components/TeacherCourseWorkbench.vue')
     expect(workbench).toContain("watch([() => props.courseId, activeStage], ([courseId, stage]) => {")
     expect(workbench).toContain("if (courseId && stage === 'question-bank') void loadQuestionBankStatus()")
+    expect(workbench).toContain("if (courseId && ['lesson', 'script', 'ppt'].includes(stage)")
+    expect(workbench).toContain('void lessonStore.load(courseId).catch(() => undefined)')
   })
 
   it('uses a slower idle course refresh while retaining fast updates for active production', () => {
