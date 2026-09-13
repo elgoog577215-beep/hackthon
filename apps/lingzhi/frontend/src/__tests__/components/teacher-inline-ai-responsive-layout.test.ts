@@ -37,6 +37,19 @@ describe('讲义 AI 修改建议响应式布局', () => {
     expect(document).toMatch(/script-content\{[^}]*min-width:0[^}]*max-width:100%/)
   })
 
+  it('教案目标候选保持连续正文，不再给每个目标套一层卡片', () => {
+    const document = source('src/components/TeacherLessonPlanDocument.vue')
+    expect(document).not.toMatch(
+      /\.objective-grid\.is-ai-reviewing>div\{[^}]*border:/,
+    )
+    expect(document).not.toMatch(
+      /\.objective-grid\.is-ai-reviewing>div\{[^}]*border-radius:/,
+    )
+    expect(document).toMatch(
+      /\.objective-grid\.is-ai-reviewing>\.ai-change-target\{[^}]*border-radius:0[^}]*background:transparent/,
+    )
+  })
+
   it('建议操作行可换行，提示文字不能把按钮推出可视区域', () => {
     const component = source('src/components/TextSelectionAiAction.vue')
     expect(component).toMatch(
