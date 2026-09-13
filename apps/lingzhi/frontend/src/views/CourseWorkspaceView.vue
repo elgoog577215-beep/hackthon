@@ -270,7 +270,7 @@ async function loadWorkspace() {
     const primaryContentLoad = loadBlueprintFirst
       ? courseWorkspace.loadBlueprint(requestedCourseId)
       : courseStore.loadCourse(requestedCourseId, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true })
-    const [courseInformation] = await Promise.all([
+    const [courseInformation, primaryContent] = await Promise.all([
       http.get(
         `/api/courses/${requestedCourseId}/course-information`,
         teacherReadRequestConfig({ silentError: true }),
@@ -278,6 +278,12 @@ async function loadWorkspace() {
       primaryContentLoad,
     ])
     if (courseId.value !== requestedCourseId || loadToken !== workspaceLoadToken) return
+    if (loadBlueprintFirst) {
+      const blueprint = primaryContent?.draft || primaryContent?.current || primaryContent || {}
+      const blueprintNodes = Array.isArray(blueprint.nodes) ? blueprint.nodes : []
+      courseStore.currentCourseId = requestedCourseId
+      courseStore.applyGenerationOutlineDraft(blueprintNodes)
+    }
     courseInformationEnvelope.value = courseInformation.data
     const information = courseInformation.data?.information || {}
     stableCourseTitle.value = courseStore.courseList.find(
@@ -295,13 +301,6 @@ async function loadWorkspace() {
       void router.replace({ query: { ...route.query, generate: undefined } })
     }
     loading.value = false
-    if (loadBlueprintFirst) {
-      void courseStore.loadCourse(requestedCourseId, {
-        includeLearningRecords: false,
-        previewSurface: 'teacher',
-        silentError: true,
-      })
-    }
     const lessonLoad = lessonStore.load(requestedCourseId)
     void lessonLoad.catch(() => undefined)
     void Promise.allSettled([

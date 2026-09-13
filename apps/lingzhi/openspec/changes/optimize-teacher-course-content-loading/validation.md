@@ -23,5 +23,6 @@
 - The blueprint source reader now loads the raw course record and applies the existing current-outline selector without projecting teacher handouts. A generation workspace remains readable before the formal shell exists.
 - `courseWorkspace` coalesces concurrent blueprint reads, reuses the successful course snapshot, and rejects a previous course's late response.
 - The foundation route makes blueprint loading critical and moves the full formal course and lesson-authoring reads behind the first outline response.
+- The returned blueprint nodes are applied to the existing course navigation projection before the workbench mounts, so the formal outline component is selected without waiting for the full course projection.
 - Focused verification: 34 backend blueprint/version tests passed; 37 frontend blueprint/workspace tests passed; production-path frontend build passed; strict change validation passed.
 - Production timing and tasks 1.1, 2.5 remain open until this checkpoint is published and measured with target-text readiness.

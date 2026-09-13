@@ -12,7 +12,7 @@ describe('calendar and course file-space boundary', () => {
     const loadWorkspace = workspace.match(/async function loadWorkspace\(\) \{[\s\S]*?\n\}/)?.[0] || ''
     const blueprintRead = loadWorkspace.indexOf('courseWorkspace.loadBlueprint(requestedCourseId)')
     const lessonRead = loadWorkspace.indexOf('const lessonLoad = lessonStore.load(requestedCourseId)')
-    const criticalRead = loadWorkspace.indexOf('const [courseInformation] = await Promise.all([')
+    const criticalRead = loadWorkspace.indexOf('const [courseInformation, primaryContent] = await Promise.all([')
 
     expect(criticalRead).toBeGreaterThan(0)
     expect(blueprintRead).toBeGreaterThan(0)
