@@ -348,16 +348,9 @@ export const useCourseStore = defineStore('course', {
         if (existing) this.courseList[index] = { ...existing, course_production_state: normalized }
     },
 
-    async loadCourse(courseId: string, options: {
-        includeLearningRecords?: boolean
-        taskType?: string
-        monitorTask?: boolean
-        previewSurface?: 'student' | 'teacher'
-        teacherTrial?: boolean
-        silentError?: boolean
-    } = {}) {
+    prepareCourseShell(courseId: string, loading = true) {
         const loadVersion = ++this.courseLoadVersion
-        this.loading = true
+        this.loading = loading
         this.currentCourseId = courseId
         this.currentCourseProjection = 'published'
         this.currentGenerationPreviewUpdatedAt = ''
@@ -369,8 +362,19 @@ export const useCourseStore = defineStore('course', {
         this.nodes = []
         this.courseTree = []
         this.teacherPreviewSnapshot = null
-        const noteStore = this._noteStore()
-        noteStore.notes = []
+        this._noteStore().notes = []
+        return loadVersion
+    },
+
+    async loadCourse(courseId: string, options: {
+        includeLearningRecords?: boolean
+        taskType?: string
+        monitorTask?: boolean
+        previewSurface?: 'student' | 'teacher'
+        teacherTrial?: boolean
+        silentError?: boolean
+    } = {}) {
+        const loadVersion = this.prepareCourseShell(courseId)
         const genStore = this._genStore()
 
         try {

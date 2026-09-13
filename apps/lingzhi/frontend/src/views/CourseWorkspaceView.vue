@@ -270,6 +270,7 @@ async function loadWorkspace() {
     const loadPptLessonFirst = workspaceView.value === 'categories'
       && requestedWorkbenchStage.value === 'ppt'
       && Boolean(requestedLessonId.value)
+    if (loadPptLessonFirst) courseStore.prepareCourseShell(requestedCourseId, false)
     const primaryContentLoad = loadBlueprintFirst
       ? courseWorkspace.loadBlueprint(requestedCourseId)
       : loadPptLessonFirst
@@ -289,7 +290,6 @@ async function loadWorkspace() {
       courseStore.currentCourseId = requestedCourseId
       courseStore.applyGenerationOutlineDraft(blueprintNodes)
     }
-    if (loadPptLessonFirst) courseStore.currentCourseId = requestedCourseId
     const information = courseInformation.data?.information || {}
     stableCourseTitle.value = courseStore.courseList.find(
       item => item.course_id === requestedCourseId,
