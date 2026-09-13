@@ -13,6 +13,10 @@ vi.mock('@/utils/http', () => ({
   withApiBase: (path: string) => path,
 }))
 
+vi.mock('@/utils/slide-deck-v6-adapter', () => ({
+  adaptSlideDeckV6ForWeb: ({ pages }: { pages: Record<string, any>[] }) => pages,
+}))
+
 describe('LessonPptWorkspace', () => {
   it('导出失败后的重试重新执行导出，不只是刷新内容稿', async () => {
     http.get.mockResolvedValue({ data: { ppt_manuscript_state: {
@@ -299,6 +303,15 @@ describe('LessonPptWorkspace', () => {
         courseId: 'course-1', initialLessonId: 'L1-1', title: '第一讲',
         sourceRevision: 'script-1',
       },
+      global: {
+        stubs: {
+          PptManuscriptWorkflow: {
+            template: '<div />',
+            methods: { selectPage: vi.fn() },
+          },
+          SlideCanvas: true,
+        },
+      },
     })
 
     await flushPromises()
@@ -306,12 +319,12 @@ describe('LessonPptWorkspace', () => {
     expect(jobReads).toBe(0)
     expect(http.post).not.toHaveBeenCalled()
 
-    const renderTab = wrapper.findAll('button').find(button => button.text().includes('成品预览'))!
+    const renderTab = wrapper.findAll('button').find(button => button.text() === '渲染')!
     await renderTab.trigger('click')
     await flushPromises()
     expect(http.post).toHaveBeenCalledTimes(1)
 
-    const manuscriptTab = wrapper.findAll('button').find(button => button.text().includes('页面内容稿'))!
+    const manuscriptTab = wrapper.findAll('button').find(button => button.text() === '内容')!
     await manuscriptTab.trigger('click')
     await renderTab.trigger('click')
     await flushPromises()

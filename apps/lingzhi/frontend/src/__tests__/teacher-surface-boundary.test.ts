@@ -24,7 +24,7 @@ describe('calendar and course file-space boundary', () => {
     expect(loadWorkspace).toContain("params: { view: 'summary' }")
     expect(loadWorkspace).not.toContain('`/api/courses/${requestedCourseId}`')
     expect(loadWorkspace).toContain('void lessonLoad.catch(() => undefined)')
-    expect(loadWorkspace).toContain('if (!loadBlueprintFirst)')
+    expect(loadWorkspace).toContain('if (!loadBlueprintFirst && !loadPptLessonFirst)')
     expect(loadWorkspace).not.toContain("courseStore.fetchCourseList({ surface: 'teacher'")
     expect(loadWorkspace.indexOf('generationStore.fetchGlobalTasks()')).toBeGreaterThan(criticalRead)
   })

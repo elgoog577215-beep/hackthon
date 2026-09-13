@@ -314,6 +314,24 @@ describe('teacher lesson authoring store', () => {
     expect(store.loadedCourseId).toBe('')
   })
 
+  it('coalesces concurrent reads for the same requested lesson', async () => {
+    let resolveRequest!: (value: any) => void
+    httpMock.get.mockReturnValue(new Promise(resolve => { resolveRequest = resolve }))
+    const store = useTeacherLessonAuthoringStore()
+
+    const first = (store as any).loadLesson('course-1', 'L1-1')
+    const second = (store as any).loadLesson('course-1', 'L1-1')
+    expect(httpMock.get).toHaveBeenCalledTimes(1)
+    resolveRequest({ data: {
+      schema_version: 'teacher_lesson_authoring_view_v1',
+      view_scope: 'lesson', course_id: 'course-1', outline_revision_id: 'outline-1',
+      lessons: [{ lesson_unit_id: 'L1-1', number: 1, title: '第一讲' }], jobs: [],
+    } })
+
+    await Promise.all([first, second])
+    expect(store.lessons.map(item => item.lesson_unit_id)).toEqual(['L1-1'])
+  })
+
   it('treats omitted summary collections as unloaded instead of corrupting store arrays', async () => {
     httpMock.get.mockResolvedValue({
       data: {
