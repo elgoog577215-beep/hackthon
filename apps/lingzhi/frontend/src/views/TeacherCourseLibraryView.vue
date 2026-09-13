@@ -240,9 +240,11 @@ const sortDirection = ref<CourseSortDirection>(route.query.dir === 'ascending' ?
 const currentPage = ref(1)
 const selectedCourseIds = ref<Set<string>>(new Set())
 const deleting = ref(false)
-const COURSE_PROGRESS_REFRESH_MS = 5000
+const COURSE_PROGRESS_ACTIVE_REFRESH_MS = 5000
+const COURSE_PROGRESS_IDLE_REFRESH_MS = 30000
 let progressRefreshTimer: number | null = null
 let progressRefreshPending = false
+let lastCourseProgressRefreshAt = 0
 
 const termFilterOptions = computed(() => {
   const options = new Map<string, string>()
@@ -302,7 +304,7 @@ onMounted(async () => {
   courseStore.currentNode = null
   generationStore.restoreGenerationState()
   if (!embedded) await refreshCourses()
-  progressRefreshTimer = window.setInterval(refreshCourseProgress, COURSE_PROGRESS_REFRESH_MS)
+  progressRefreshTimer = window.setInterval(refreshCourseProgress, COURSE_PROGRESS_ACTIVE_REFRESH_MS)
 })
 
 onBeforeUnmount(() => {
@@ -425,12 +427,22 @@ function openCourse(courseId: string, productionQuery: Record<string, string> = 
   })
 }
 async function refreshCourses() { await courseStore.fetchCourseList({ surface: 'teacher' }) }
+function courseProgressRefreshDelay() {
+  const hasActiveProduction = courseStore.courseList.some(course => {
+    const state = readCourseProductionStateWithLegacy(course, generationStore.getTask(course.course_id))
+    return COURSE_PRODUCTION_STAGE_KEYS.some(key => ['queued', 'running'].includes(state.stages[key].task_state))
+  })
+  return hasActiveProduction ? COURSE_PROGRESS_ACTIVE_REFRESH_MS : COURSE_PROGRESS_IDLE_REFRESH_MS
+}
 async function refreshCourseProgress() {
   if (document.visibilityState !== 'visible' || progressRefreshPending || deleting.value) return
+  const now = Date.now()
+  if (lastCourseProgressRefreshAt && now - lastCourseProgressRefreshAt < courseProgressRefreshDelay()) return
   progressRefreshPending = true
   try {
     await courseStore.fetchCourseList({ surface: 'teacher', background: true })
   } finally {
+    lastCourseProgressRefreshAt = Date.now()
     progressRefreshPending = false
   }
 }

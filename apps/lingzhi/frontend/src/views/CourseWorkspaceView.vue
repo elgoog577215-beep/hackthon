@@ -256,24 +256,24 @@ async function loadWorkspace() {
   loadError.value = null
   courseInformationEnvelope.value = null
   try {
-    const [courseResponse] = await Promise.all([
+    const lessonLoad = lessonStore.load(requestedCourseId)
+    void lessonLoad.catch(() => undefined)
+    const [courseInformation] = await Promise.all([
       http.get(
-        `/api/courses/${requestedCourseId}`,
+        `/api/courses/${requestedCourseId}/course-information`,
         teacherReadRequestConfig({ silentError: true }),
       ),
       courseStore.loadCourse(requestedCourseId, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true }),
     ])
     if (courseId.value !== requestedCourseId || loadToken !== workspaceLoadToken) return
-    courseStore.setTeacherProductionState(
-      requestedCourseId,
-      courseResponse.data?.course_production_state,
-    )
+    courseInformationEnvelope.value = courseInformation.data
+    const information = courseInformation.data?.information || {}
     stableCourseTitle.value = courseStore.courseList.find(
       item => item.course_id === requestedCourseId,
-    )?.course_name || String(courseResponse.data?.course_name || stableCourseTitle.value)
-    courseGenerationOptions.value = courseResponse.data?.generation_request || {}
+    )?.course_name || String(information.course_name || stableCourseTitle.value)
+    courseGenerationOptions.value = information.generation_request || {}
     stableCourseTitle.value = String(
-      courseResponse.data?.course_name || stableCourseTitle.value,
+      information.course_name || stableCourseTitle.value,
     )
     await nextTick()
     const requestedSection = String(route.query.section || '')
@@ -289,17 +289,9 @@ async function loadWorkspace() {
       void router.replace({ query: { ...route.query, generate: undefined } })
     }
     loading.value = false
-    await lessonStore.load(requestedCourseId).catch(() => undefined)
-    if (courseId.value !== requestedCourseId || loadToken !== workspaceLoadToken) return
     void Promise.allSettled([
       courseStore.fetchCourseList({ surface: 'teacher', background: true }),
       generationStore.fetchGlobalTasks(),
-      http.get(
-        `/api/courses/${requestedCourseId}/course-information`,
-        teacherReadRequestConfig({ silentError: true }),
-      ).then(response => {
-        if (courseId.value === requestedCourseId) courseInformationEnvelope.value = response.data
-      }),
     ])
   } catch (error: any) {
     if (loadToken === workspaceLoadToken) loadError.value = toAppError(error, {

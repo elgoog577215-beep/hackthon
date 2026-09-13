@@ -97,15 +97,17 @@ export type TeacherCourseSpaceCreate = {
 
 type GenerationPreviewEnvelope = {
     schema_version: 'generation_preview_v1' | 'generation_preview_v2'
-    projection: 'generation_workspace'
+    projection: 'generation_workspace' | 'canonical'
     course_id: string
     course_name: string
-    workspace_id: string
-    workspace_status: string
+    workspace_id?: string
+    workspace_status?: string
     updated_at?: string
-    task: Record<string, any>
+    task?: Record<string, any>
     teaching_plan?: CourseTeachingPlanProjection
     nodes: Array<Partial<Node> & Pick<Node, 'node_id' | 'node_name' | 'node_level'>>
+    document?: CourseDocumentEnvelope['document']
+    course_document_revision?: string
 }
 
 const GENERATION_PREVIEW_STATUSES = new Set([
@@ -536,7 +538,7 @@ export const useCourseStore = defineStore('course', {
     },
 
     async refreshCourseData(courseId: string, surface: 'student' | 'teacher' = 'student') {
-        if (this.currentCourseId !== courseId) return
+        if (this.currentCourseId !== courseId || this.loading) return
         const loadVersion = this.courseLoadVersion
         try {
             if (this.currentCourseProjection === 'generation_preview') {
@@ -629,9 +631,6 @@ export const useCourseStore = defineStore('course', {
                 identityReadRequestConfig(surface === 'teacher' ? 'teacher' : 'learner', { silentError: true }),
             )
             const preview = response.data
-            // Completed teacher assets are loaded through the formal document below.
-            // They must not fabricate a pending generation task or overlay live drafts.
-            if ((preview as { projection?: string }).projection === 'canonical') return false
             if (
                 this.currentCourseId !== courseId
                 || this.generationPreviewRequestVersion !== requestVersion
@@ -641,6 +640,22 @@ export const useCourseStore = defineStore('course', {
             if (preview.course_id && String(preview.course_id) !== courseId) {
                 logger.warn('Ignored generation preview for a different course', preview.course_id)
                 return false
+            }
+            // The teacher preview endpoint already returns the formal document for a
+            // completed unified course. Reuse that authoritative projection instead
+            // of downloading the same document a second time.
+            if (preview.projection === 'canonical') {
+                if (!preview.document) return false
+                this.applyCourseDocumentEnvelope({
+                    course_id: courseId,
+                    course_name: preview.course_name || preview.document.title,
+                    current_course_version_id: preview.course_document_revision
+                        || preview.document.document_revision,
+                    source_format: 'canonical',
+                    migration: { required: false },
+                    document: preview.document,
+                })
+                return true
             }
             const currentPreviewTimestamp = Date.parse(this.currentGenerationPreviewUpdatedAt) || 0
             const incomingPreviewTimestamp = Date.parse(String(preview.updated_at || '')) || 0

@@ -4489,6 +4489,7 @@ watch([
 ], ([courseId, taskId]) => {
   if (!courseId || !taskId) return
   if (!projectedOutlineTaskIds.value.includes(taskId)) outlineProjectionPendingTaskId.value = taskId
+  if (lessonStore.loadedCourseId !== courseId) return
   void refreshProductionProjection()
 })
 watch(projectedOutlineTaskIds, taskIds => {

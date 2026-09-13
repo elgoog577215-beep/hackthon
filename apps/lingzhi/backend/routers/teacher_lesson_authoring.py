@@ -2126,6 +2126,47 @@ def _teacher_v6_registry_payload(synthetic_id: str, *, source_course_id: str | N
     return payload
 
 
+def _lesson_authoring_view(
+    course_id: str,
+    tm: TaskManager,
+    repository: TeacherLessonAuthoringRepository,
+) -> dict[str, Any]:
+    source = _source_course(tm, course_id, allow_empty=True)
+    outline_revision = _canonical_outline_revision(source)
+    authoring_state = repository.expire_stale_jobs(course_id)
+    if outline_revision and str(authoring_state.get("outline_revision_id") or "") != outline_revision:
+        authoring_state = repository.set_outline(course_id, outline_revision)
+    outline_draft_id = str(authoring_state.get("current_outline_material_draft_id") or "")
+    outline_material_draft = next(
+        (
+            deepcopy(item)
+            for item in reversed(authoring_state.get("outline_material_drafts") or [])
+            if isinstance(item, dict) and str(item.get("revision_id") or "") == outline_draft_id
+        ),
+        None,
+    )
+    return {
+        "schema_version": "teacher_lesson_authoring_view_v1",
+        "pipeline_version": LESSON_PLAN_PIPELINE_VERSION,
+        "plan_schema_version": "course_teaching_plan_v3",
+        "course_id": course_id,
+        "outline_revision_id": outline_revision,
+        "outline_material_draft": outline_material_draft,
+        "lessons": _lesson_projection(source, repository, authoring_state),
+        "jobs": [
+            teacher_lesson_job_view(job)
+            for job in (authoring_state.get("jobs") or {}).values()
+            if isinstance(job, dict)
+        ],
+        "course_production_state": read_course_production_state(
+            source,
+            repository,
+            tm,
+            authoring_state=authoring_state,
+        ),
+    }
+
+
 @router.get("/courses/{course_id}/lesson-authoring")
 async def get_lesson_authoring_view(
     course_id: str,
@@ -2135,40 +2176,7 @@ async def get_lesson_authoring_view(
     ),
 ):
     try:
-        source = _source_course(tm, course_id, allow_empty=True)
-        outline_revision = _canonical_outline_revision(source)
-        authoring_state = repository.expire_stale_jobs(course_id)
-        if outline_revision and str(authoring_state.get("outline_revision_id") or "") != outline_revision:
-            authoring_state = repository.set_outline(course_id, outline_revision)
-        outline_draft_id = str(authoring_state.get("current_outline_material_draft_id") or "")
-        outline_material_draft = next(
-            (
-                deepcopy(item)
-                for item in reversed(authoring_state.get("outline_material_drafts") or [])
-                if isinstance(item, dict) and str(item.get("revision_id") or "") == outline_draft_id
-            ),
-            None,
-        )
-        return {
-            "schema_version": "teacher_lesson_authoring_view_v1",
-            "pipeline_version": LESSON_PLAN_PIPELINE_VERSION,
-            "plan_schema_version": "course_teaching_plan_v3",
-            "course_id": course_id,
-            "outline_revision_id": outline_revision,
-            "outline_material_draft": outline_material_draft,
-            "lessons": _lesson_projection(source, repository, authoring_state),
-            "jobs": [
-                teacher_lesson_job_view(job)
-                for job in (authoring_state.get("jobs") or {}).values()
-                if isinstance(job, dict)
-            ],
-            "course_production_state": read_course_production_state(
-                source,
-                repository,
-                tm,
-                authoring_state=authoring_state,
-            ),
-        }
+        return await run_in_threadpool(_lesson_authoring_view, course_id, tm, repository)
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
 
