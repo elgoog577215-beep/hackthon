@@ -4244,6 +4244,107 @@ def test_ai_candidate_records_creation_provenance(tmp_path):
     assert candidate["origin_ref"] == "session-a"
 
 
+def test_ai_candidate_acceptance_uses_one_atomic_authoring_write(tmp_path, monkeypatch):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        {"sections": [{"node_id": "L2-1-1", "learning_objective": "before"}]},
+        source_outline_revision_id="outline-v1",
+    )
+    candidate = repository.save_ai_candidate(
+        "course-1",
+        "L1-1",
+        base_revision_id=lesson["working_revision_id"],
+        instruction="优化目标",
+        section_node_id="L2-1-1",
+        plan={"sections": [{"node_id": "L2-1-1", "learning_objective": "after"}]},
+    )
+    original_save = repository._save
+    save_count = 0
+
+    def counted_save(value):
+        nonlocal save_count
+        save_count += 1
+        return original_save(value)
+
+    monkeypatch.setattr(repository, "_save", counted_save)
+    accepted = repository.resolve_ai_candidate(
+        "course-1",
+        "L1-1",
+        candidate["candidate_id"],
+        accept=True,
+    )
+
+    assert save_count == 1
+    assert accepted["working_revision_id"] != lesson["working_revision_id"]
+    assert accepted["ai_candidates"][-1]["status"] == "accepted"
+
+
+def test_resolve_ai_candidate_projects_only_changed_lesson(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    source = course_data()
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        standard_lesson_plan(),
+        source_outline_revision_id="outline-v1",
+    )
+    repository.save_plan_revision(
+        "course-1",
+        "L1-2",
+        {
+            **standard_lesson_plan(),
+            "sections": [{
+                **standard_lesson_plan()["sections"][0],
+                "node_id": "L2-2-1",
+            }],
+        },
+        source_outline_revision_id="outline-v1",
+    )
+    candidate_plan = deepcopy(standard_lesson_plan())
+    candidate_plan["sections"][0]["ability_objectives"] = ["能够独立选择碰撞检测方式"]
+    candidate = repository.save_ai_candidate(
+        "course-1",
+        "L1-1",
+        base_revision_id=lesson["working_revision_id"],
+        instruction="优化能力目标",
+        section_node_id="L2-1-1",
+        plan=candidate_plan,
+    )
+    projection_calls = []
+    original_projection = teacher_lesson_router._lesson_projection
+
+    def record_projection(*args, **kwargs):
+        projection_calls.append(kwargs)
+        return original_projection(*args, **kwargs)
+
+    monkeypatch.setattr(teacher_lesson_router, "_lesson_projection", record_projection)
+    tm = SimpleNamespace(storage=SimpleNamespace(load_course=lambda _id: deepcopy(source)))
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: tm
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: repository
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/teacher/courses/course-1/lessons/L1-1/plan/"
+            f"ai-candidates/{candidate['candidate_id']}/resolve",
+            json={"accept": True},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["lesson"]["lesson_unit_id"] == "L1-1"
+    assert projection_calls == [{
+        "authoring_state": {
+            "lessons": {"L1-1": repository.lesson("course-1", "L1-1")},
+        },
+        "lesson_unit_ids": {"L1-1"},
+    }]
+
+
 def test_ai_optimizer_uses_compact_editable_contract_and_merges_one_section():
     plan = {
         "schema_version": "course_teaching_plan_v3",
