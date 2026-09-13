@@ -7,16 +7,20 @@ const source = (path: string) => readFileSync(resolve(sourceRoot, path), 'utf8')
   .replace(/\r\n/g, '\n')
 
 describe('calendar and course file-space boundary', () => {
-  it('loads the critical course shell before large secondary workspace snapshots', () => {
+  it('starts lesson hydration with the lightweight course shell and does not fetch the full course record', () => {
     const workspace = source('views/CourseWorkspaceView.vue')
     const loadWorkspace = workspace.match(/async function loadWorkspace\(\) \{[\s\S]*?\n\}/)?.[0] || ''
-    const criticalRead = loadWorkspace.indexOf('const [courseResponse] = await Promise.all([')
+    const lessonRead = loadWorkspace.indexOf('const lessonLoad = lessonStore.load(requestedCourseId)')
+    const criticalRead = loadWorkspace.indexOf('const [courseInformation] = await Promise.all([')
 
     expect(criticalRead).toBeGreaterThan(0)
-    expect(loadWorkspace.indexOf('await lessonStore.load(requestedCourseId')).toBeGreaterThan(criticalRead)
+    expect(lessonRead).toBeGreaterThan(0)
+    expect(lessonRead).toBeLessThan(criticalRead)
+    expect(loadWorkspace).toContain(`/api/courses/${requestedCourseId}/course-information`)
+    expect(loadWorkspace).not.toContain('`/api/courses/${requestedCourseId}`')
+    expect(loadWorkspace).toContain('void lessonLoad.catch(() => undefined)')
     expect(loadWorkspace.indexOf("courseStore.fetchCourseList({ surface: 'teacher'")).toBeGreaterThan(criticalRead)
     expect(loadWorkspace.indexOf('generationStore.fetchGlobalTasks()')).toBeGreaterThan(criticalRead)
-    expect(loadWorkspace.indexOf('/course-information')).toBeGreaterThan(criticalRead)
   })
 
   it('observes scalar job status sources without refetching on every streamed token', () => {

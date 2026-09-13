@@ -458,16 +458,32 @@ describe('course generation lifecycle reconciliation', () => {
     expect(get).not.toHaveBeenCalledWith('/api/courses/course-teacher-current/document')
   })
 
-  it('正式教师兼容响应不覆盖正文，也不创建虚假的生成任务', async () => {
+  it('正式教师预览直接成为正式正文且不创建虚假的生成任务', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     courses.currentCourseId = 'formal-course'
-    courses.nodes = [{ node_id: 'b', node_content: '正式正文' }] as any
     vi.spyOn(http, 'get').mockResolvedValue({ data: {
-      projection: 'canonical', course_id: 'formal-course', nodes: [],
+      schema_version: 'generation_preview_v2',
+      projection: 'canonical',
+      course_id: 'formal-course',
+      course_name: '数据结构',
+      document: {
+        schema_version: 'course_document_v1',
+        course_id: 'formal-course',
+        title: '数据结构',
+        document_revision: 'doc-r1',
+        sections: [],
+        blocks: [{
+          block_id: 'b', section_id: 'section-1', position: 0,
+          kind: 'rich_text', role: 'concept', payload: { markdown: '正式正文' },
+          source_refs: [],
+        }],
+      },
     } })
-    expect(await courses.refreshGenerationPreview('formal-course', 'teacher')).toBe(false)
+    expect(await courses.refreshGenerationPreview('formal-course', 'teacher')).toBe(true)
+    expect(courses.currentCourseProjection).toBe('published')
     expect(courses.nodes[0]?.node_content).toBe('正式正文')
+    expect(courses.currentDocumentRevision).toBe('doc-r1')
     expect(generation.getTask('formal-course')).toBeUndefined()
   })
 
