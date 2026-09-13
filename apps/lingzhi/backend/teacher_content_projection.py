@@ -13,10 +13,13 @@ logger = logging.getLogger(__name__)
 
 def authoring_repository(storage):
     from teacher_lesson_authoring import TeacherLessonAuthoringRepository
+    from dependencies import get_teacher_lesson_authoring_repository
+    registered = get_teacher_lesson_authoring_repository()
+    if getattr(registered, "canonical_storage", None) is storage:
+        return registered
     courses_dir = getattr(storage, "_courses_dir", None)
     if courses_dir is None:
-        from dependencies import get_teacher_lesson_authoring_repository
-        return get_teacher_lesson_authoring_repository()
+        return registered
     return TeacherLessonAuthoringRepository(Path(courses_dir).parent / "teacher_lesson_authoring", canonical_storage=storage)
 
 
