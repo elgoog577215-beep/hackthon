@@ -7,6 +7,40 @@ from dependencies import require_task_manager
 from routers import course_versions
 
 
+def test_blueprint_source_read_does_not_project_teacher_handouts(monkeypatch):
+    class RawCourseRepository:
+        @staticmethod
+        def load_raw(course_id):
+            assert course_id == "course-1"
+            return {
+                "course_id": course_id,
+                "course_name": "数据结构",
+                "course_plan": {"chapters": [{"title": "第一讲", "sections": []}]},
+                "nodes": [{
+                    "node_id": "L1-1",
+                    "parent_node_id": "root",
+                    "node_name": "第一讲",
+                    "node_level": 1,
+                }],
+            }
+
+    async def forbidden_full_projection(_course_id):
+        raise AssertionError("blueprint read must not project teacher handouts")
+
+    monkeypatch.setattr(
+        course_versions,
+        "get_course_document_repository",
+        lambda: RawCourseRepository(),
+    )
+    monkeypatch.setattr(course_versions, "get_course_or_404", forbidden_full_projection)
+    monkeypatch.setattr(course_versions, "get_task_manager_optional", lambda: None)
+
+    result = __import__("asyncio").run(course_versions._course_for_blueprint("course-1"))
+
+    assert result["course_id"] == "course-1"
+    assert result["nodes"][0]["node_id"] == "L1-1"
+
+
 class PreviewManager:
     def __init__(self):
         self.calls = []

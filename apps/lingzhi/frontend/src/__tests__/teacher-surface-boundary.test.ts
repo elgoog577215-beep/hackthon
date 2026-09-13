@@ -10,10 +10,13 @@ describe('calendar and course file-space boundary', () => {
   it('starts lesson hydration with the lightweight course shell and does not fetch the full course record', () => {
     const workspace = source('views/CourseWorkspaceView.vue')
     const loadWorkspace = workspace.match(/async function loadWorkspace\(\) \{[\s\S]*?\n\}/)?.[0] || ''
+    const blueprintRead = loadWorkspace.indexOf('courseWorkspace.loadBlueprint(requestedCourseId)')
     const lessonRead = loadWorkspace.indexOf('const lessonLoad = lessonStore.load(requestedCourseId)')
     const criticalRead = loadWorkspace.indexOf('const [courseInformation] = await Promise.all([')
 
     expect(criticalRead).toBeGreaterThan(0)
+    expect(blueprintRead).toBeGreaterThan(0)
+    expect(blueprintRead).toBeLessThan(lessonRead)
     expect(lessonRead).toBeGreaterThan(0)
     expect(lessonRead).toBeGreaterThan(criticalRead)
     expect(loadWorkspace).toContain('`/api/courses/${requestedCourseId}/course-information`')
