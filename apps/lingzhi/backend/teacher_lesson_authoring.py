@@ -67,6 +67,13 @@ _CLIENT_HIDDEN_JOB_FIELDS = frozenset({
     "request_snapshot",
     "staged_base",
 })
+_CLIENT_COMPLETED_JOB_BODY_FIELDS = frozenset({
+    "result_sections",
+    "streamed_block_content",
+    "streamed_delta_chunks",
+    "streamed_sequence_by_shard",
+    "streamed_reset_sequence_by_shard",
+})
 _PLAN_INTERNAL_REGISTER_PATTERN = re.compile(
     r"全课知识地图|先修链定位|学习路径角色|可观察成果证据|证据闭环|"
     r"输入对象|输出对象|系统(?:策略|将会|将|会自动)|模型(?:生成|输出)|质量门|"
@@ -80,10 +87,16 @@ _PLAN_ABSTRACT_ACTIVITY_PATTERN = re.compile(
 
 def teacher_lesson_job_view(job: dict[str, Any]) -> dict[str, Any]:
     """Project one browser job without server-only recovery snapshots."""
+    hidden_fields = _CLIENT_HIDDEN_JOB_FIELDS
+    if str(job.get("status") or "") in {"completed", "completed_with_warnings"}:
+        # Completed content is already present in the current lesson revision.
+        # Keep task identity and status for progress/history without returning a
+        # second full copy of the generated body on every workspace read.
+        hidden_fields = hidden_fields | _CLIENT_COMPLETED_JOB_BODY_FIELDS
     return {
         key: deepcopy(value)
         for key, value in job.items()
-        if key not in _CLIENT_HIDDEN_JOB_FIELDS
+        if key not in hidden_fields
     }
 
 

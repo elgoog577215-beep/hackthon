@@ -332,8 +332,23 @@ def _teacher_course_library_projection(
     )
     repository = get_teacher_lesson_authoring_repository()
     for course in courses:
-        legacy = _teacher_preparation_projection(course, repository)
-        current = read_course_production_state(course, repository, task_manager)
+        try:
+            authoring_state = repository.view(str(course.get("course_id") or ""))
+        except Exception:
+            authoring_state = None
+        if authoring_state is None:
+            # Preserve the existing isolated failure projections. Each compiler
+            # owns its own fallback when the repository cannot be read.
+            legacy = _teacher_preparation_projection(course, repository)
+            current = read_course_production_state(course, repository, task_manager)
+        else:
+            legacy = _teacher_preparation_projection(course, repository, authoring_state)
+            current = read_course_production_state(
+                course,
+                repository,
+                task_manager,
+                authoring_state=authoring_state,
+            )
         course.update(legacy)
         course["course_production_state"] = current
         _record_production_projection_diff(legacy, current)
