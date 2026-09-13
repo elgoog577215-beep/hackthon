@@ -5,8 +5,10 @@ import json
 import multiprocessing
 from pathlib import Path
 import threading
+from types import SimpleNamespace
 
 import teacher_lesson_authoring as teacher_lesson_module
+import teacher_content_projection as teacher_content_module
 
 from course_repository import CourseDocumentRepository
 from ppt_projects import PptProjectService
@@ -14,6 +16,20 @@ from teacher_content_projection import project_teacher_content
 from teacher_lesson_authoring import TeacherLessonAuthoringRepository, TeacherLessonAuthoringService
 from backend.tests.test_teacher_lesson_authoring import standard_lesson_plan, single_section_course_data
 from backend.tests.test_unified_teacher_content import course, authoring
+
+
+def test_teacher_content_projection_reuses_registered_repository(monkeypatch, tmp_path):
+    import dependencies
+
+    storage = SimpleNamespace(_courses_dir=tmp_path / "data" / "courses")
+    registered = SimpleNamespace(canonical_storage=storage)
+    monkeypatch.setattr(
+        dependencies,
+        "get_teacher_lesson_authoring_repository",
+        lambda: registered,
+    )
+
+    assert teacher_content_module.authoring_repository(storage) is registered
 
 
 def test_authoring_repository_reuses_parsed_file_until_disk_version_changes(tmp_path, monkeypatch):
