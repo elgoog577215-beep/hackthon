@@ -1,10 +1,55 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from dependencies import require_task_manager
 from routers import course_versions
+
+
+def test_blueprint_projection_reuses_quality_by_complete_revision_identity(monkeypatch):
+    course = _canonical_course()
+    reviews = []
+
+    async def load_course(_course_id):
+        return deepcopy(course)
+
+    def review(plan, *, course_context=None):
+        reviews.append((deepcopy(plan), deepcopy(course_context)))
+        return {
+            "schema_version": "course_outline_editorial_review_v6",
+            "rule_version": "course_outline_editorial_v8",
+            "passed": True,
+            "issues": [],
+        }
+
+    monkeypatch.setattr(course_versions, "_course_for_blueprint", load_course)
+    monkeypatch.setattr(course_versions, "review_course_outline_document", review)
+    monkeypatch.setattr(course_versions, "course_version_repository", DraftRepository(None))
+    course_versions._clear_blueprint_projection_cache()
+    app = FastAPI()
+    app.include_router(course_versions.router, prefix="/api")
+    client = TestClient(app)
+
+    first = client.get("/api/courses/course-1/blueprint")
+    second = client.get("/api/courses/course-1/blueprint")
+
+    assert first.status_code == second.status_code == 200
+    assert len(reviews) == 1
+    assert first.json()["schema_version"] == "teacher_blueprint_view_v2"
+    assert first.json()["source_revision"].startswith("bp_")
+    assert first.json()["draft_revision"] == ""
+    assert first.json()["quality_rule_version"] == "course_outline_editorial_v8"
+    assert first.json()["projection_revision"] == second.json()["projection_revision"]
+
+    course["course_profile"] = {"total_hours": 48}
+    changed = client.get("/api/courses/course-1/blueprint")
+
+    assert changed.status_code == 200
+    assert len(reviews) == 2
+    assert changed.json()["projection_revision"] != first.json()["projection_revision"]
 
 
 def test_blueprint_source_read_does_not_project_teacher_handouts(monkeypatch):
