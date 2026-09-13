@@ -807,6 +807,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
     loading: false,
     refreshing: false,
     loadedCourseId: '',
+    viewScope: '' as '' | 'lesson' | 'full',
     actionLessonId: '',
     streamingJobIds: {} as Record<string, boolean>,
     focusedLessonId: '',
@@ -890,6 +891,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         this.productionState = null
         this.streamingJobIds = {}
         this.loadedCourseId = ''
+        this.viewScope = ''
         this.error = ''
         this.refreshError = ''
       }
@@ -906,6 +908,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
           ...this.lessons.filter(item => item.lesson_unit_id !== lessonUnitId),
           lesson,
         ].sort((left, right) => left.number - right.number)
+        this.viewScope = response.view_scope || 'lesson'
         this.error = ''
         return response
       } catch (error) {
@@ -928,6 +931,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         this.productionState = null
         this.streamingJobIds = {}
         this.loadedCourseId = ''
+        this.viewScope = ''
         this.actionLessonId = ''
         this.error = ''
         this.refreshError = ''
@@ -950,6 +954,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
           useCourseStore().setTeacherProductionState(courseId, response.course_production_state)
         }
         this.loadedCourseId = courseId
+        this.viewScope = 'full'
         this.error = ''
         this.syncJobObservers()
         this.scheduleSnapshot()

@@ -1701,6 +1701,7 @@ describe('teacher course workbench outline streaming', () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.courseId = 'course-1'
     lessonStore.loadedCourseId = ''
+    lessonStore.viewScope = 'lesson'
     lessonStore.outlineRevisionId = 'outline-1'
     const lesson = (number: number) => ({
       lesson_unit_id: `L1-${number}`, source_outline_revision_id: 'outline-1', number,

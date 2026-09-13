@@ -312,6 +312,7 @@ describe('teacher lesson authoring store', () => {
     )
     expect(store.lessons.map(item => item.lesson_unit_id)).toEqual(['L1-1', 'L1-2'])
     expect(store.loadedCourseId).toBe('')
+    expect(store.viewScope).toBe('lesson')
   })
 
   it('coalesces concurrent reads for the same requested lesson', async () => {
@@ -400,6 +401,7 @@ describe('teacher lesson authoring store', () => {
 
     expect(store.loading).toBe(false)
     expect(store.loadedCourseId).toBe('course-1')
+    expect(store.viewScope).toBe('full')
   })
 
   it('keeps the last successful lesson view visible when a background refresh times out', async () => {

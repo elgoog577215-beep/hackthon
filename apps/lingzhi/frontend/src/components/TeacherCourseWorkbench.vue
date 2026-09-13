@@ -4460,9 +4460,13 @@ async function continueOutlineDetails() {
   }
 }
 function ensureLessonStageLoaded(stage: StageId) {
+  const hasScopedLessonSnapshot = lessonStore.courseId === props.courseId
+    && lessonStore.viewScope === 'lesson'
   if (!['lesson', 'script', 'ppt'].includes(stage)
     || lessonStore.loadedCourseId === props.courseId
-    || (lessonStore.courseId === props.courseId && lessonStore.lessons.length)
+    || (!hasScopedLessonSnapshot
+      && lessonStore.courseId === props.courseId
+      && Boolean(lessonStore.lessons.length))
     || lessonStore.loading) return
   void lessonStore.load(props.courseId).catch(() => undefined)
 }
