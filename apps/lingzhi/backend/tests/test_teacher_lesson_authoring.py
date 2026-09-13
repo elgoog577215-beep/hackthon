@@ -4281,6 +4281,31 @@ def test_ai_candidate_acceptance_uses_one_atomic_authoring_write(tmp_path, monke
     assert accepted["ai_candidates"][-1]["status"] == "accepted"
 
 
+def test_cached_lesson_read_does_not_copy_unrelated_course_state(tmp_path, monkeypatch):
+    import teacher_lesson_authoring as authoring_module
+
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        {"sections": [{"node_id": "L2-1-1", "learning_objective": "目标"}]},
+        source_outline_revision_id="outline-v1",
+    )
+    repository.view("course-1")
+    cached_root = repository._load_cache["course-1"][1]
+    original_deepcopy = authoring_module.deepcopy
+
+    def reject_full_course_copy(value, *args, **kwargs):
+        if value is cached_root:
+            raise AssertionError("lesson read copied the full authoring repository")
+        return original_deepcopy(value, *args, **kwargs)
+
+    monkeypatch.setattr(authoring_module, "deepcopy", reject_full_course_copy)
+
+    assert repository.lesson("course-1", "L1-1")["working_revision_id"]
+    assert repository.outline_revision_id("course-1") == "outline-v1"
+
+
 def test_resolve_ai_candidate_projects_only_changed_lesson(tmp_path, monkeypatch):
     from types import SimpleNamespace
 
