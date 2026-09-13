@@ -33,3 +33,11 @@
 - That first publication exposed an integration gap: the workbench still selected the outline surface from `courseStore.nodes`, while the direct blueprint snapshot lived only in `courseWorkspace`. It rendered the course-information form instead of mounting the formal outline component, so target-text readiness was not achieved and task 2.5 remains open.
 - `81b65259d03965f6ae212be1316230fd21b2b0c6` applies the returned blueprint nodes to the existing navigation projection before workbench mount and removes the competing full-course read from the foundation path. Focused frontend tests and the production build passed locally.
 - The push workflow for `81b65259` received a GitHub `startup_failure` before any job existed; its rerun remained queued without jobs and manual dispatch returned HTTP 500. A later normal push is used to retry the same deployment through the existing protected pipeline.
+
+## Batch A production result
+
+- Final production version: `4ba7a413e43da1a8dcb1af932ba19bc463a4e74d`; protected deployment run `34749204853` succeeded after one GitHub startup failure and a later normal push.
+- The representative direct-link sample made the workspace visible at 3.151 s and the formal outline text readable at 3.176 s. The previous same-course evidence completed the blueprint request at 12.84 s from navigation, so target-text readiness improved by about 75% in this sample.
+- The critical requests were `/blueprint` (1.76 s, 28,386 transferred bytes) and `/course-information` (1.75 s, 1,638 bytes), both started at 0.90 s. No full teacher generation preview or course document appeared in the outline critical path.
+- Full lesson-authoring started at 2.68 s and completed in the background after the outline was readable. The browser reported no business request failures; the intentionally blocked usage-event write from the read-only harness is excluded.
+- Evidence: `D:/lingzhi/.codex_tmp/course-open-20260913/course-outline-batch-a-final-browser.json`. This is one production read-only sample, so task 1.1 remains open until the controlled multi-sample P50/P95 run is completed.
