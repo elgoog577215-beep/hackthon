@@ -66,6 +66,18 @@ const downloadBlob = (blob: Blob, filename: string) => {
 }
 
 type CourseProjection = 'published' | 'generation_preview'
+type CourseListSurface = 'student' | 'teacher'
+
+const courseListRequests = new WeakMap<object, Map<CourseListSurface, Promise<void>>>()
+
+function courseListRequestMap(store: object) {
+    let requests = courseListRequests.get(store)
+    if (!requests) {
+        requests = new Map()
+        courseListRequests.set(store, requests)
+    }
+    return requests
+}
 
 export type TeacherCourseSpaceCreate = {
     course_name: string
@@ -251,37 +263,55 @@ export const useCourseStore = defineStore('course', {
         } catch (error) { logger.error(error); throw error }
     },
 
-    async fetchCourseList(options: { surface?: 'student' | 'teacher'; background?: boolean } = {}) {
+    async fetchCourseList(options: { surface?: CourseListSurface; background?: boolean } = {}) {
+        const surface = options.surface || 'student'
         if (!options.background) {
             this.loading = true
             this.courseListError = null
         }
-        try {
-            const surface = options.surface || 'student'
-            const endpoint = surface === 'teacher' ? '/api/teacher/courses' : '/api/courses'
-            const res = await http.get(endpoint, identityReadRequestConfig(
-                surface === 'teacher' ? 'teacher' : 'learner',
-                { silentError: options.background === true },
-            ))
-            this.courseList = res.data
-            if (surface === 'teacher') {
-                const next = { ...this.teacherProductionStates }
-                this.courseList.forEach(course => {
-                    if (course.course_production_state != null) {
-                        next[course.course_id] = readCourseProductionStateWithLegacy(course)
-                    } else {
-                        delete next[course.course_id]
-                    }
-                })
-                this.teacherProductionStates = next
+        const requests = courseListRequestMap(this)
+        const pending = requests.get(surface)
+        if (pending) {
+            try {
+                await pending
+            } finally {
+                if (!options.background) this.loading = false
             }
-            this.courseListError = null
-        } catch (error) {
-            logger.error(error)
-            this.courseListError = error instanceof Error ? error.message : String(error)
-            // Keep the last successful list so offline task actions do not disappear.
+            return
         }
-        finally { if (!options.background) this.loading = false }
+        const request = (async () => {
+            try {
+                const endpoint = surface === 'teacher' ? '/api/teacher/courses' : '/api/courses'
+                const res = await http.get(endpoint, identityReadRequestConfig(
+                    surface === 'teacher' ? 'teacher' : 'learner',
+                    { silentError: options.background === true },
+                ))
+                this.courseList = res.data
+                if (surface === 'teacher') {
+                    const next = { ...this.teacherProductionStates }
+                    this.courseList.forEach(course => {
+                        if (course.course_production_state != null) {
+                            next[course.course_id] = readCourseProductionStateWithLegacy(course)
+                        } else {
+                            delete next[course.course_id]
+                        }
+                    })
+                    this.teacherProductionStates = next
+                }
+                this.courseListError = null
+            } catch (error) {
+                logger.error(error)
+                this.courseListError = error instanceof Error ? error.message : String(error)
+                // Keep the last successful list so offline task actions do not disappear.
+            }
+        })()
+        requests.set(surface, request)
+        try {
+            await request
+        } finally {
+            if (requests.get(surface) === request) requests.delete(surface)
+            if (!options.background) this.loading = false
+        }
     },
 
     async fetchTeacherCourseProductionState(courseId: string) {

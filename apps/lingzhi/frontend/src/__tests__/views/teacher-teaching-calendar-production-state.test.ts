@@ -49,6 +49,22 @@ describe('TeacherTeachingCalendarView production state', () => {
     await setLocale('zh')
   })
 
+  it('我的课程首屏不读取日历，切到我的日历后再读取', async () => {
+    await router.replace('/courses')
+    const calendar = useTeachingCalendarStore()
+    const loadTotal = vi.mocked(calendar.loadTotal)
+    const wrapper = mount(TeacherTeachingCalendarView, {
+      global: { plugins: [pinia, router], stubs: { Teleport: true, TeacherCourseLibraryView: true, TeacherCourseCreateView: true, TeachingCalendarMonthGrid: true } },
+    })
+    await flushPromises()
+
+    expect(loadTotal).not.toHaveBeenCalled()
+    await wrapper.findAll('.home-primary-tabs button')[0]!.trigger('click')
+    await flushPromises()
+    expect(loadTotal).toHaveBeenCalledOnce()
+    wrapper.unmount()
+  })
+
   it('authoring 投影成功时不受 calendar 请求失败覆盖，并且不越过大纲直接阻断', async () => {
     const stage = (overrides: Record<string, unknown> = {}) => ({
       display_state: 'not_generated', task_state: 'idle', availability: 'missing', source_state: 'missing',

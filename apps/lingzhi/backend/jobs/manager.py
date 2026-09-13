@@ -2881,6 +2881,11 @@ class TaskManager:
         draft = self._version_repository.load_draft(course_id)
         return deepcopy(draft) if isinstance(draft, dict) else None
 
+    def get_blueprint_draft_source_version(self, course_id: str) -> tuple[int, int] | None:
+        """Read the draft identity used by lightweight course projections."""
+
+        return self._version_repository.draft_source_version(course_id)
+
     def get_latest_task_by_course(
         self,
         course_id: str,

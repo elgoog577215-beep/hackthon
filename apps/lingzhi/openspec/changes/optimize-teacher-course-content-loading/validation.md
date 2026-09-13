@@ -49,6 +49,14 @@
 - Concurrent reads for the same projection share one per-identity computation; different identities do not share the review result. The cache is LRU-bounded to 16 projections.
 - Focused verification: 36 blueprint, generation-workspace and version tests passed; Ruff passed. Save/candidate/restore invalidation and conditional HTTP remain open in tasks 3.3 and 3.4.
 
+## Batch C course-library checkpoint
+
+- Production baseline on 2026-09-13 showed the course table first row at 6.5–7.6 seconds. `GET /api/teacher/courses` took 5.3–6.3 seconds while tasks and calendar reads completed within 57 milliseconds.
+- A five-second progress timer issued a second course-list request before the initial request completed. The course Store now shares one in-flight request per identity surface, and the course tab defers calendar loading until the calendar tab is selected.
+- Course-list production projections are reused by course source version, blueprint-draft version, task lifecycle state, and course metadata. Cache entries are bounded by count, per-entry bytes, and total bytes; source or task transitions invalidate the entry.
+- Focused frontend tests passed: 26 tests across course-list continuity, teacher course-library lifecycle, and teacher-home calendar behavior. Focused backend projection and source-version tests passed on Windows with the Linux file-lock primitive shimmed for read-only test execution.
+- An isolated 28.85 MB teacher-authoring sample measured 90.2 milliseconds for an uncached projection and 1.5 milliseconds for a projection-cache hit. Production timing remains required after deployment.
+
 ## Outline contention follow-up checkpoint
 
 - The workspace now reads `course-information?view=summary`; the summary loads raw metadata, performs the same owner check, and omits document revision and history so it cannot be used as a write precondition. Opening the edit dialog still performs the existing full versioned read.

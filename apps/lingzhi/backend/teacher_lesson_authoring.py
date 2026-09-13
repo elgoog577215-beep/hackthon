@@ -2033,6 +2033,25 @@ class TeacherLessonAuthoringRepository:
             raise TeacherLessonAuthoringError("invalid_course_id", "课程标识无效。")
         return self.root / f"{safe}.json"
 
+    def projection_source_version(self, course_id: str) -> tuple[int, int, tuple[tuple[str, float], ...]]:
+        """Return a cheap identity for read-only projections of one course."""
+
+        with self._course_lock(course_id):
+            path = self._path(course_id)
+            if path.exists():
+                stat = path.stat()
+                disk_version = (stat.st_mtime_ns, stat.st_size)
+            else:
+                disk_version = (0, 0)
+            live_version = tuple(sorted(
+                (
+                    str(job_id),
+                    float(self._live_stream_touched_at.get((course_id, str(job_id))) or 0),
+                )
+                for job_id in (self._live_stream_jobs.get(course_id) or {})
+            ))
+            return (*disk_version, live_version)
+
     def _empty(self, course_id: str) -> dict[str, Any]:
         return {
             "schema_version": SCHEMA_VERSION,
