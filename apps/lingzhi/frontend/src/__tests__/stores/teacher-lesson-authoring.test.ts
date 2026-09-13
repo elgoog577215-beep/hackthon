@@ -280,6 +280,7 @@ describe('teacher lesson authoring store', () => {
       {
         headers: { 'X-User-Id': 'teacher-test' },
         silentError: true,
+        timeout: 30000,
       },
     )
     expect(store.lessons).toEqual([])

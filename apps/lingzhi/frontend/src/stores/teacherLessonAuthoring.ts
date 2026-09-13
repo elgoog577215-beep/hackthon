@@ -496,6 +496,7 @@ const errorMessage = (error: any, fallback: string) => {
 }
 
 const lessonAuthoringViewRequests = new Map<string, Promise<TeacherLessonAuthoringView>>()
+const TEACHER_LESSON_READ_TIMEOUT_MS = 30000
 
 const fetchLessonAuthoringView = (courseId: string, afterCurrent = false): Promise<TeacherLessonAuthoringView> => {
   const existing = lessonAuthoringViewRequests.get(courseId)
@@ -507,7 +508,7 @@ const fetchLessonAuthoringView = (courseId: string, afterCurrent = false): Promi
   }
   const request = http.get<TeacherLessonAuthoringView>(
     `/api/teacher/courses/${courseId}/lesson-authoring`,
-    { ...readRequestConfig(), silentError: true },
+    { ...readRequestConfig(), timeout: TEACHER_LESSON_READ_TIMEOUT_MS, silentError: true },
   ).then(response => response.data)
     .finally(() => {
       if (lessonAuthoringViewRequests.get(courseId) === request) {

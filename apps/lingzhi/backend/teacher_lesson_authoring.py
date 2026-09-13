@@ -20,7 +20,7 @@ import threading
 import time
 import uuid
 import hashlib
-from collections import Counter
+from collections import Counter, OrderedDict
 from copy import deepcopy
 from ai_capacity import provider_request_schedule
 from datetime import datetime, timezone
@@ -54,6 +54,7 @@ LESSON_PLAN_FORMAL_FIELD_POLICY_VERSION = "teacher_lesson_formal_fields_v1"
 TEACHER_ASSET_JOB_SCHEMA_VERSION = "teacher_asset_job_v1"
 LESSON_JOB_STALE_SECONDS = 300
 LESSON_BATCH_QUEUED_STALE_SECONDS = 14400
+AUTHORING_LOAD_CACHE_MAX_COURSES = 8
 JOB_TYPES = {
     "teacher_lesson_plan_generation",
     "teacher_lesson_script_generation",
@@ -1985,6 +1986,10 @@ class TeacherLessonAuthoringRepository:
         self._runtime_jobs: dict[str, set[asyncio.Task]] = {}
         self._live_stream_jobs: dict[str, dict[str, dict[str, Any]]] = {}
         self._live_stream_touched_at: dict[tuple[str, str], float] = {}
+        self._load_cache: OrderedDict[
+            str,
+            tuple[tuple[int, int], dict[str, Any]],
+        ] = OrderedDict()
 
     def _course_lock(self, course_id: str) -> _AuthoringFileLock:
         path = self._path(course_id).with_suffix(".lock")
@@ -2008,6 +2013,7 @@ class TeacherLessonAuthoringRepository:
         with self._course_lock(course_id):
             path = self._path(course_id)
             self._deleted_courses.add(course_id)
+            self._load_cache.pop(course_id, None)
             self._live_stream_jobs.pop(course_id, None)
             for key in list(self._live_stream_touched_at):
                 if key[0] == course_id:
@@ -2068,9 +2074,19 @@ class TeacherLessonAuthoringRepository:
         with self._course_lock(course_id):
             path = self._path(course_id)
             if not path.exists():
+                self._load_cache.pop(course_id, None)
                 return self._overlay_live_stream_jobs_locked(
                     course_id,
                     self._empty(course_id),
+                )
+            stat = path.stat()
+            signature = (stat.st_mtime_ns, stat.st_size)
+            cached = self._load_cache.get(course_id)
+            if cached and cached[0] == signature:
+                self._load_cache.move_to_end(course_id)
+                return self._overlay_live_stream_jobs_locked(
+                    course_id,
+                    deepcopy(cached[1]),
                 )
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
@@ -2094,6 +2110,10 @@ class TeacherLessonAuthoringRepository:
                         revision["quality_report"] = report
                         revision["publication_eligible"] = bool(report.get("publication_eligible"))
                         revision["quality_contract_version"] = SCRIPT_QUALITY_VERSION
+            self._load_cache[course_id] = (signature, deepcopy(value))
+            self._load_cache.move_to_end(course_id)
+            while len(self._load_cache) > AUTHORING_LOAD_CACHE_MAX_COURSES:
+                self._load_cache.popitem(last=False)
             return self._overlay_live_stream_jobs_locked(course_id, value)
 
     def _save(self, value: dict[str, Any]) -> dict[str, Any]:
@@ -2120,6 +2140,7 @@ class TeacherLessonAuthoringRepository:
         payload["schema_version"] = SCHEMA_VERSION
         payload["revision"] = int(payload.get("revision") or 0) + 1
         payload["updated_at"] = _now()
+        self._load_cache.pop(course_id, None)
         fd, temp_name = tempfile.mkstemp(prefix=f".{course_id}.", suffix=".tmp", dir=str(self.root))
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:

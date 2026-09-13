@@ -256,8 +256,6 @@ async function loadWorkspace() {
   loadError.value = null
   courseInformationEnvelope.value = null
   try {
-    const lessonLoad = lessonStore.load(requestedCourseId)
-    void lessonLoad.catch(() => undefined)
     const [courseInformation] = await Promise.all([
       http.get(
         `/api/courses/${requestedCourseId}/course-information`,
@@ -289,8 +287,9 @@ async function loadWorkspace() {
       void router.replace({ query: { ...route.query, generate: undefined } })
     }
     loading.value = false
+    const lessonLoad = lessonStore.load(requestedCourseId)
+    void lessonLoad.catch(() => undefined)
     void Promise.allSettled([
-      courseStore.fetchCourseList({ surface: 'teacher', background: true }),
       generationStore.fetchGlobalTasks(),
     ])
   } catch (error: any) {

@@ -4628,7 +4628,9 @@ watch(selectedLessonId, (lessonId, previousLessonId) => {
     selectedLessonSectionId.value = lesson.sections[0]?.section_node_id || ''
   }
 }, { immediate: true })
-watch(() => props.courseId, () => { void loadQuestionBankStatus() }, { immediate: true })
+watch([() => props.courseId, activeStage], ([courseId, stage]) => {
+  if (courseId && stage === 'question-bank') void loadQuestionBankStatus()
+}, { immediate: true })
 watch(taskStatus, status => { if (!['pending', 'running'].includes(status)) generationRequested.value = false })
 onMounted(() => {
   try {
