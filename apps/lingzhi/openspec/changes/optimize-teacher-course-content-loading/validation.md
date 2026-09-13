@@ -55,7 +55,7 @@
 - A five-second progress timer issued a second course-list request before the initial request completed. The course Store now shares one in-flight request per identity surface, and the course tab defers calendar loading until the calendar tab is selected.
 - Course-list production projections are reused by course source version, blueprint-draft version, task lifecycle state, and course metadata. Cache entries are bounded by count, per-entry bytes, and total bytes; source or task transitions invalidate the entry.
 - Focused frontend tests passed: 26 tests across course-list continuity, teacher course-library lifecycle, and teacher-home calendar behavior. Focused backend projection and source-version tests passed on Windows with the Linux file-lock primitive shimmed for read-only test execution.
-- An isolated 28.85 MB teacher-authoring sample measured 90.2 milliseconds for an uncached projection and 1.5 milliseconds for a projection-cache hit. Production timing remains required after deployment.
+- An isolated 28.85 MB teacher-authoring sample measured 90.2 milliseconds for an uncached projection and 1.5 milliseconds for a projection-cache hit. Production commit `7109b245` measured a 5.55-second process-cold fill, 53–84 millisecond repeat reads, and a 1.08-second visible first course row after manual warming. The application now performs that fill during startup before accepting traffic.
 
 ## Outline contention follow-up checkpoint
 

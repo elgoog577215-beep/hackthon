@@ -456,6 +456,25 @@ def _teacher_course_library_projection(
     return courses
 
 
+def warm_teacher_course_library_projection_cache(task_manager: TaskManager) -> int:
+    """Fill teacher course projections before the application accepts traffic."""
+
+    known_task_ids = {str(task_id) for task_id in task_manager.tasks}
+    owner_ids = sorted({
+        str(course.get("owner_id") or "")
+        for course in storage.list_courses()
+        if course.get("authoring_surface") == "teacher" and str(course.get("owner_id") or "")
+    })
+    warmed = 0
+    for owner_id in owner_ids:
+        try:
+            warmed += len(_teacher_course_library_projection(owner_id, known_task_ids, task_manager))
+        except Exception:
+            logger.exception("teacher_course_projection_warm_failed")
+    logger.info("teacher_course_projection_warm_complete courses=%d owners=%d", warmed, len(owner_ids))
+    return warmed
+
+
 def _teacher_current_production(jobs: object) -> dict | None:
     """Project the newest actionable lesson batch into the course library."""
     supported_types = {
