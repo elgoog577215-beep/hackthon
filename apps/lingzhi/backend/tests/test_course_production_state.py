@@ -1651,6 +1651,83 @@ def test_teacher_course_list_returns_new_projection_with_legacy_fields_without_w
     assert (course, authoring, manager.tasks) == before
 
 
+def test_teacher_course_list_reuses_projection_until_authoring_or_task_state_changes(monkeypatch):
+    course = {
+        **_course(1),
+        "course_id": "course-list-cache",
+        "authoring_surface": "teacher",
+        "owner_id": "teacher-cache",
+        "is_published": True,
+    }
+    authoring = {
+        "course_id": "course-list-cache",
+        "outline_revision_id": "outline-1",
+        "lessons": {"lesson-1": _ready_lesson(1)},
+    }
+
+    class VersionedRepository(_ReadOnlyRepository):
+        version = 1
+
+        def projection_source_version(self, _course_id: str):
+            return self.version
+
+    repository = VersionedRepository(authoring)
+    manager = _ReadOnlyTaskManager([])
+    monkeypatch.setattr(courses.storage, "list_courses", lambda: [deepcopy(course)])
+    monkeypatch.setattr(courses.teaching_calendar_repository, "list_sessions", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(courses, "get_teacher_lesson_authoring_repository", lambda: repository)
+
+    first = courses._teacher_course_library_projection("teacher-cache", set(), manager)[0]
+    second = courses._teacher_course_library_projection("teacher-cache", set(), manager)[0]
+
+    assert first == second
+    assert repository.read_count == 1
+
+    manager.tasks["task-1"] = {
+        "id": "task-1",
+        "course_id": "course-list-cache",
+        "type": "teacher_lesson_script_generation",
+        "lesson_unit_id": "lesson-1",
+        "status": "running",
+    }
+    courses._teacher_course_library_projection("teacher-cache", {"task-1"}, manager)
+    assert repository.read_count == 2
+
+    repository.version = 2
+    courses._teacher_course_library_projection("teacher-cache", {"task-1"}, manager)
+    assert repository.read_count == 3
+
+
+def test_teacher_course_list_skips_projection_cache_when_entry_exceeds_item_budget(monkeypatch):
+    course = {
+        **_course(1),
+        "course_id": "course-list-oversized",
+        "authoring_surface": "teacher",
+        "owner_id": "teacher-oversized",
+        "is_published": True,
+    }
+
+    class VersionedRepository(_ReadOnlyRepository):
+        def projection_source_version(self, _course_id: str):
+            return 1
+
+    repository = VersionedRepository({
+        "course_id": "course-list-oversized",
+        "outline_revision_id": "outline-1",
+        "lessons": {"lesson-1": _ready_lesson(1)},
+    })
+    manager = _ReadOnlyTaskManager([])
+    monkeypatch.setattr(courses.storage, "list_courses", lambda: [deepcopy(course)])
+    monkeypatch.setattr(courses.teaching_calendar_repository, "list_sessions", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(courses, "get_teacher_lesson_authoring_repository", lambda: repository)
+    monkeypatch.setattr(courses, "_TEACHER_COURSE_PROJECTION_CACHE_MAX_ITEM_BYTES", 1)
+
+    courses._teacher_course_library_projection("teacher-oversized", set(), manager)
+    courses._teacher_course_library_projection("teacher-oversized", set(), manager)
+
+    assert repository.read_count == 2
+
+
 @pytest.mark.asyncio
 async def test_single_teacher_course_returns_new_projection_and_preserves_course_payload(monkeypatch):
     course = {

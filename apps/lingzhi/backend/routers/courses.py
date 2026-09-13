@@ -3,13 +3,17 @@
 # 课程 CRUD、课程生成、节点级操作、大纲编辑、生成配置
 # =============================================================================
 
+import hashlib
+import json
 import logging
 import os
 import sys
+import threading
 import uuid
-from collections import Counter
+from collections import Counter, OrderedDict
+from copy import deepcopy
 from datetime import date, datetime, timezone
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
@@ -91,6 +95,119 @@ from web_retrieval import RetrievalRequest, configured_retrieval_gateway
 router = APIRouter(tags=["courses"])
 logger = logging.getLogger(__name__)
 _PRODUCTION_PROJECTION_DIFFS: Counter[str] = Counter()
+_TEACHER_COURSE_PROJECTION_CACHE_MAX = 128
+_TEACHER_COURSE_PROJECTION_CACHE_MAX_ITEM_BYTES = 512 * 1024
+_TEACHER_COURSE_PROJECTION_CACHE_MAX_BYTES = 8 * 1024 * 1024
+_TEACHER_COURSE_PROJECTION_CACHE_BYTES = 0
+_TEACHER_COURSE_PROJECTION_CACHE: OrderedDict[str, tuple[str, dict, dict, int]] = OrderedDict()
+_TEACHER_COURSE_PROJECTION_CACHE_LOCK = threading.Lock()
+_TEACHER_COURSE_PROJECTION_LOCKS: dict[str, threading.Lock] = {}
+
+
+def _stable_projection_digest(value: object) -> str:
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _teacher_course_projection_size(legacy: dict, current: dict) -> int:
+    return len(json.dumps([legacy, current], ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8"))
+
+
+def _teacher_course_projection_lock(course_id: str) -> threading.Lock:
+    with _TEACHER_COURSE_PROJECTION_CACHE_LOCK:
+        return _TEACHER_COURSE_PROJECTION_LOCKS.setdefault(course_id, threading.Lock())
+
+
+def _teacher_course_projection_key(course: dict, repository: Any, task_manager: TaskManager | None) -> str | None:
+    source_version = getattr(repository, "projection_source_version", None)
+    if not callable(source_version):
+        return None
+    course_id = str(course.get("course_id") or "")
+    try:
+        authoring_version = source_version(course_id)
+        tasks = task_manager.get_tasks_by_course(course_id) if task_manager is not None else []
+        task_projection = [
+            {
+                key: value
+                for key, value in task.items()
+                if key not in {"progress", "heartbeat_at"}
+            }
+            for task in tasks
+            if isinstance(task, dict)
+        ]
+        read_draft_version = getattr(task_manager, "get_blueprint_draft_source_version", None)
+        if callable(read_draft_version):
+            blueprint_draft_version = read_draft_version(course_id)
+        else:
+            read_draft = getattr(task_manager, "get_blueprint_draft", None)
+            blueprint_draft_version = bool(read_draft(course_id)) if callable(read_draft) else None
+    except Exception:
+        return None
+    return _stable_projection_digest({
+        "course": course,
+        "authoring_version": authoring_version,
+        "tasks": task_projection,
+        "blueprint_draft_version": blueprint_draft_version,
+    })
+
+
+def _compile_teacher_course_projection(course: dict, repository: Any, task_manager: TaskManager | None) -> tuple[dict, dict]:
+    try:
+        authoring_state = repository.view(str(course.get("course_id") or ""))
+    except Exception:
+        authoring_state = None
+    if authoring_state is None:
+        return (
+            _teacher_preparation_projection(course, repository),
+            read_course_production_state(course, repository, task_manager),
+        )
+    return (
+        _teacher_preparation_projection(course, repository, authoring_state),
+        read_course_production_state(
+            course,
+            repository,
+            task_manager,
+            authoring_state=authoring_state,
+        ),
+    )
+
+
+def _cached_teacher_course_projection(course: dict, repository: Any, task_manager: TaskManager | None) -> tuple[dict, dict]:
+    course_id = str(course.get("course_id") or "")
+    if not callable(getattr(repository, "projection_source_version", None)):
+        return _compile_teacher_course_projection(course, repository, task_manager)
+    with _teacher_course_projection_lock(course_id):
+        current_key = _teacher_course_projection_key(course, repository, task_manager)
+        if current_key is None:
+            return _compile_teacher_course_projection(course, repository, task_manager)
+        with _TEACHER_COURSE_PROJECTION_CACHE_LOCK:
+            cached = _TEACHER_COURSE_PROJECTION_CACHE.get(course_id)
+            if cached and cached[0] == current_key:
+                _TEACHER_COURSE_PROJECTION_CACHE.move_to_end(course_id)
+                return deepcopy(cached[1]), deepcopy(cached[2])
+        legacy, current = _compile_teacher_course_projection(course, repository, task_manager)
+        if _teacher_course_projection_key(course, repository, task_manager) == current_key:
+            entry_size = _teacher_course_projection_size(legacy, current)
+            with _TEACHER_COURSE_PROJECTION_CACHE_LOCK:
+                global _TEACHER_COURSE_PROJECTION_CACHE_BYTES
+                previous = _TEACHER_COURSE_PROJECTION_CACHE.pop(course_id, None)
+                if previous:
+                    _TEACHER_COURSE_PROJECTION_CACHE_BYTES -= previous[3]
+                if entry_size <= _TEACHER_COURSE_PROJECTION_CACHE_MAX_ITEM_BYTES:
+                    _TEACHER_COURSE_PROJECTION_CACHE[course_id] = (
+                        current_key,
+                        deepcopy(legacy),
+                        deepcopy(current),
+                        entry_size,
+                    )
+                    _TEACHER_COURSE_PROJECTION_CACHE_BYTES += entry_size
+                    while (
+                        len(_TEACHER_COURSE_PROJECTION_CACHE) > _TEACHER_COURSE_PROJECTION_CACHE_MAX
+                        or _TEACHER_COURSE_PROJECTION_CACHE_BYTES > _TEACHER_COURSE_PROJECTION_CACHE_MAX_BYTES
+                    ):
+                        _, evicted = _TEACHER_COURSE_PROJECTION_CACHE.popitem(last=False)
+                        _TEACHER_COURSE_PROJECTION_CACHE_BYTES -= evicted[3]
+        return legacy, current
 
 
 def _require_course_web_research_enabled() -> None:
@@ -332,23 +449,7 @@ def _teacher_course_library_projection(
     )
     repository = get_teacher_lesson_authoring_repository()
     for course in courses:
-        try:
-            authoring_state = repository.view(str(course.get("course_id") or ""))
-        except Exception:
-            authoring_state = None
-        if authoring_state is None:
-            # Preserve the existing isolated failure projections. Each compiler
-            # owns its own fallback when the repository cannot be read.
-            legacy = _teacher_preparation_projection(course, repository)
-            current = read_course_production_state(course, repository, task_manager)
-        else:
-            legacy = _teacher_preparation_projection(course, repository, authoring_state)
-            current = read_course_production_state(
-                course,
-                repository,
-                task_manager,
-                authoring_state=authoring_state,
-            )
+        legacy, current = _cached_teacher_course_projection(course, repository, task_manager)
         course.update(legacy)
         course["course_production_state"] = current
         _record_production_projection_diff(legacy, current)

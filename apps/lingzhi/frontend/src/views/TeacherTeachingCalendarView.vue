@@ -503,7 +503,14 @@ function loadRange() {
   return { from: iso(from), to: iso(to) }
 }
 async function loadCalendar() { const range = loadRange(); try { await calendarStore.loadTotal(range.from, range.to, true) } catch { /* store owns the visible error */ } }
-async function refresh() { await Promise.all([courseStore.fetchCourseList({ surface: 'teacher' }), generationStore.fetchGlobalTasks(), loadCalendar()]) }
+async function refresh() {
+  const requests: Promise<unknown>[] = [
+    courseStore.fetchCourseList({ surface: 'teacher' }),
+    generationStore.fetchGlobalTasks(),
+  ]
+  if (activeHomeTab.value === 'calendar') requests.push(loadCalendar())
+  await Promise.all(requests)
+}
 function clearSelection() { selectedSession.value = null; selectedDate.value = null }
 function movePeriod(delta: number) { clearSelection(); const value = new Date(cursor.value); view.value === 'week' ? value.setDate(value.getDate() + delta * 7) : value.setMonth(value.getMonth() + delta); cursor.value = value }
 function goToday() { clearSelection(); cursor.value = new Date() }
@@ -661,11 +668,12 @@ function courseStatus(courseId: string) {
   const course = courseStore.courseList.find(item => item.course_id === courseId)
   return coursePreparationLabel(coursePreparationState(course, task))
 }
-function refreshAfterCalendarSave() { void loadCalendar() }
-function refreshAfterStorage(event: StorageEvent) { if (event.key === TEACHING_CALENDAR_SAVED_STORAGE_KEY) void loadCalendar() }
-function refreshWhenVisible() { if (document.visibilityState === 'visible') void loadCalendar() }
+function refreshAfterCalendarSave() { if (activeHomeTab.value === 'calendar') void loadCalendar() }
+function refreshAfterStorage(event: StorageEvent) { if (activeHomeTab.value === 'calendar' && event.key === TEACHING_CALENDAR_SAVED_STORAGE_KEY) void loadCalendar() }
+function refreshWhenVisible() { if (activeHomeTab.value === 'calendar' && document.visibilityState === 'visible') void loadCalendar() }
 
-watch([cursor, view], () => { void loadCalendar() })
+watch(activeHomeTab, (current, previous) => { if (current === 'calendar' && previous !== 'calendar') void loadCalendar() })
+watch([cursor, view], () => { if (activeHomeTab.value === 'calendar') void loadCalendar() })
 watch(selectedSession, session => { void loadSessionPreparation(session) })
 onMounted(async () => {
   courseStore.currentCourseId = ''

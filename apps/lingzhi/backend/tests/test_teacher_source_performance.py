@@ -66,6 +66,18 @@ def test_authoring_repository_reuses_parsed_file_until_disk_version_changes(tmp_
     assert len(repository._load_cache) == teacher_lesson_module.AUTHORING_LOAD_CACHE_MAX_COURSES
 
 
+def test_authoring_projection_identity_changes_only_when_source_changes(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    missing = repository.projection_source_version("course-identity")
+
+    repository.set_outline("course-identity", "outline-1")
+    saved = repository.projection_source_version("course-identity")
+    repository.load("course-identity")
+
+    assert saved != missing
+    assert repository.projection_source_version("course-identity") == saved
+
+
 def test_teacher_draft_can_start_with_different_generation_title(tmp_path):
     import pytest
     from storage import Storage

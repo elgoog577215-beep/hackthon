@@ -269,6 +269,15 @@ class CourseVersionRepository:
         path = self._course_dir(course_id) / "draft.json"
         return self._read_json(path) if path.exists() else None
 
+    def draft_source_version(self, course_id: str) -> tuple[int, int] | None:
+        """Return the draft file identity without parsing the draft body."""
+
+        path = self._course_dir(course_id) / "draft.json"
+        if not path.exists():
+            return None
+        stat = path.stat()
+        return stat.st_mtime_ns, stat.st_size
+
     def delete_draft(self, course_id: str) -> None:
         path = self._course_dir(course_id) / "draft.json"
         if path.exists():
