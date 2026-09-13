@@ -16,6 +16,7 @@ from course_outline_adjustments import (
     apply_outline_operations,
     compile_outline_draft,
 )
+from course_repository import CourseDocumentNotFound
 from course_generation.outline import review_course_outline_document
 from course_versioning import (
     analyze_blueprint_impact,
@@ -29,6 +30,7 @@ from dependencies import get_course_document_repository, get_course_or_404, get_
 from learner_context import resolve_user_id
 from storage import storage
 from storage_utils import save_course_compat
+from teacher_outline_source import read_teacher_outline_source
 from jobs.manager import TaskManager, TaskStateConflict
 
 
@@ -576,12 +578,20 @@ async def list_version_candidates(course_id: str):
 
 async def _course_for_blueprint(course_id: str) -> dict[str, Any]:
     """Read an unpublished generation blueprint from its isolated workspace."""
-    course = await get_course_or_404(course_id)
+    repository = get_course_document_repository()
     task_manager = get_task_manager_optional()
-    if task_manager is None:
-        return course
-    workspace_course = task_manager.get_generation_workspace_course(course_id)
-    return workspace_course or course
+    try:
+        course = await run_in_threadpool(repository.load_raw, course_id)
+    except CourseDocumentNotFound as exc:
+        workspace = (
+            task_manager.get_generation_workspace_course(course_id)
+            if task_manager is not None
+            else None
+        )
+        if not workspace:
+            raise HTTPException(status_code=404, detail="Course not found") from exc
+        course = {"course_id": course_id}
+    return read_teacher_outline_source(course, task_manager)
 
 
 async def _ensure_initial_version(

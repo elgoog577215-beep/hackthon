@@ -17,3 +17,11 @@
 - Request list proving unused full-content endpoints are absent from the critical path.
 - Authorization, revision conflict, task recovery, stale response and last-good regression results.
 - Server timing breakdown and response sizes without content or identity-sensitive logs.
+
+## Batch A implementation checkpoint
+
+- The blueprint source reader now loads the raw course record and applies the existing current-outline selector without projecting teacher handouts. A generation workspace remains readable before the formal shell exists.
+- `courseWorkspace` coalesces concurrent blueprint reads, reuses the successful course snapshot, and rejects a previous course's late response.
+- The foundation route makes blueprint loading critical and moves the full formal course and lesson-authoring reads behind the first outline response.
+- Focused verification: 34 backend blueprint/version tests passed; 37 frontend blueprint/workspace tests passed; production-path frontend build passed; strict change validation passed.
+- Production timing and tasks 1.1, 2.5 remain open until this checkpoint is published and measured with target-text readiness.

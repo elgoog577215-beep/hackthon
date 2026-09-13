@@ -105,6 +105,7 @@ export interface FormalPracticeResponse {
 
 const practiceDraftKey = (courseId: string, attemptId: string) => `practice_attempt_draft_v1:${courseId}:${attemptId}`
 const requestId = () => createUuid()
+const blueprintReadRequests = new Map<string, Promise<any>>()
 
 function sharedCount(left: unknown, right: unknown): number {
   const rightValues = new Set(Array.isArray(right) ? right.map(String) : [])
@@ -133,6 +134,8 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     practiceScope: 'node' as 'node' | 'final' | 'all',
     assets: null as LearningAssetsResponse | null,
     blueprint: null as any,
+    blueprintCourseId: '' as string,
+    blueprintRequestSequence: 0,
     generationReview: null as any,
     versions: [] as any[],
     currentVersionId: '' as string,
@@ -768,20 +771,40 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       sessionStorage.setItem(key, created)
       return created
     },
-    async loadBlueprint(courseId: string) {
-      this.loading = true
-      try {
-        const res = await http.get(`/api/courses/${courseId}/blueprint`, teacherReadRequestConfig())
-        this.blueprint = res.data
-        return res.data
-      } finally {
-        this.loading = false
+    async loadBlueprint(courseId: string, options: { force?: boolean } = {}) {
+      if (!options.force && this.blueprintCourseId === courseId && this.blueprint) {
+        return this.blueprint
       }
+      const existing = blueprintReadRequests.get(courseId)
+      if (!options.force && existing) return existing
+      if (this.blueprintCourseId !== courseId) {
+        this.blueprintCourseId = courseId
+        this.blueprint = null
+      }
+      const requestSequence = ++this.blueprintRequestSequence
+      this.loading = true
+      const request = http.get(`/api/courses/${courseId}/blueprint`, teacherReadRequestConfig())
+        .then(res => {
+          if (
+            this.blueprintCourseId === courseId
+            && this.blueprintRequestSequence === requestSequence
+          ) this.blueprint = res.data
+          return res.data
+        })
+        .finally(() => {
+          if (blueprintReadRequests.get(courseId) === request) {
+            blueprintReadRequests.delete(courseId)
+          }
+          if (this.blueprintRequestSequence === requestSequence) this.loading = false
+        })
+      blueprintReadRequests.set(courseId, request)
+      return request
     },
     async saveBlueprint(courseId: string, draft: any) {
       this.saving = true
       try {
         const res = await http.put(`/api/courses/${courseId}/blueprint/draft`, draft)
+        this.blueprintCourseId = courseId
         this.blueprint = {
           ...this.blueprint,
           draft: res.data.draft,
@@ -795,6 +818,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     },
     async retryBlueprintRetrieval(courseId: string) {
       const res = await http.post(`/api/courses/${courseId}/blueprint/retrieval/retry`)
+      this.blueprintCourseId = courseId
       this.blueprint = {
         ...this.blueprint,
         retrieval: res.data.retrieval,
@@ -855,7 +879,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     },
     async discardBlueprint(courseId: string) {
       await http.delete(`/api/courses/${courseId}/blueprint/draft`)
-      await this.loadBlueprint(courseId)
+      await this.loadBlueprint(courseId, { force: true })
     },
     async confirmCriterion(courseId: string, revisionId: string, confirmed: boolean) {
       const res = await http.post(

@@ -173,6 +173,7 @@ import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring'
+import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { coursePreparationLabel, coursePreparationState } from '../utils/course-preparation'
 import { toAppError, type AppErrorPresentation } from '../utils/app-error'
 import http, { teacherReadRequestConfig } from '../utils/http'
@@ -191,6 +192,7 @@ onBeforeRouteUpdate(finishWorkbenchEditing)
 const courseStore = useCourseStore()
 const generationStore = useGenerationStore()
 const lessonStore = useTeacherLessonAuthoringStore()
+const courseWorkspace = useCourseWorkspaceStore()
 const loading = ref(true)
 const loadError = ref<AppErrorPresentation | null>(null)
 const outlineEditing = ref(false)
@@ -257,12 +259,23 @@ async function loadWorkspace() {
   loadError.value = null
   courseInformationEnvelope.value = null
   try {
+    const requestedSection = String(route.query.section || '')
+    const requestedStage = String(route.query.stage || '')
+    if (['foundation', 'lesson', 'question-bank', 'script', 'ppt', 'companion'].includes(requestedStage)) {
+      requestedWorkbenchStage.value = requestedStage as typeof requestedWorkbenchStage.value
+    }
+    requestedLessonId.value = String(route.query.lesson || '')
+    const loadBlueprintFirst = workspaceView.value === 'categories'
+      && requestedWorkbenchStage.value === 'foundation'
+    const primaryContentLoad = loadBlueprintFirst
+      ? courseWorkspace.loadBlueprint(requestedCourseId)
+      : courseStore.loadCourse(requestedCourseId, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true })
     const [courseInformation] = await Promise.all([
       http.get(
         `/api/courses/${requestedCourseId}/course-information`,
         teacherReadRequestConfig({ silentError: true }),
       ),
-      courseStore.loadCourse(requestedCourseId, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true }),
+      primaryContentLoad,
     ])
     if (courseId.value !== requestedCourseId || loadToken !== workspaceLoadToken) return
     courseInformationEnvelope.value = courseInformation.data
@@ -275,12 +288,6 @@ async function loadWorkspace() {
       information.course_name || stableCourseTitle.value,
     )
     await nextTick()
-    const requestedSection = String(route.query.section || '')
-    const requestedStage = String(route.query.stage || '')
-    if (['foundation', 'lesson', 'question-bank', 'script', 'ppt', 'companion'].includes(requestedStage)) {
-      requestedWorkbenchStage.value = requestedStage as typeof requestedWorkbenchStage.value
-    }
-    requestedLessonId.value = String(route.query.lesson || '')
     if (requestedSection === 'outline') openOutlineEditor()
     if (requestedSection === 'calendar') calendarOpen.value = true
     if (route.query.generate === 'outline') {
@@ -288,6 +295,13 @@ async function loadWorkspace() {
       void router.replace({ query: { ...route.query, generate: undefined } })
     }
     loading.value = false
+    if (loadBlueprintFirst) {
+      void courseStore.loadCourse(requestedCourseId, {
+        includeLearningRecords: false,
+        previewSurface: 'teacher',
+        silentError: true,
+      })
+    }
     const lessonLoad = lessonStore.load(requestedCourseId)
     void lessonLoad.catch(() => undefined)
     void Promise.allSettled([

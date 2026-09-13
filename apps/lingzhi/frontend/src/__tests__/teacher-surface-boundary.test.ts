@@ -257,7 +257,7 @@ describe('calendar and course file-space boundary', () => {
     expect(openOutlineEditor).toContain('outlineEditing.value = true')
     expect(workspace).not.toContain('outlineRevisionOpening')
     expect(workspace).not.toContain('reopenGenerationStep')
-    expect(workspace).not.toContain('useCourseWorkspaceStore')
+    expect(workspace).toContain('useCourseWorkspaceStore')
     expect(workspace).not.toContain('@outline-confirmed')
     expect(workspace).not.toContain('handleOutlineConfirmed')
     expect(workspace).not.toContain('v-model="outlineOpen"')
