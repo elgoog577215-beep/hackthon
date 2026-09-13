@@ -4459,12 +4459,20 @@ async function continueOutlineDetails() {
     stageSwitching.value = false
   }
 }
-async function requestStageChange(stage: StageId) {
+function ensureLessonStageLoaded(stage: StageId) {
+  if (!['lesson', 'script', 'ppt'].includes(stage)
+    || lessonStore.loadedCourseId === props.courseId
+    || (lessonStore.courseId === props.courseId && lessonStore.lessons.length)
+    || lessonStore.loading) return
+  void lessonStore.load(props.courseId).catch(() => undefined)
+}
+async function requestStageChange(stage: StageId, options: { loadLesson?: boolean } = {}) {
   if (stage === activeStage.value || stageSwitching.value || stagePrerequisiteBlocked(stage)) return
   stageSwitching.value = true
   try {
     if (!await finishEditing()) return
     activeStage.value = stage
+    if (options.loadLesson !== false) ensureLessonStageLoaded(stage)
     await nextTick()
     resetLessonViewport()
   } finally {
@@ -4560,7 +4568,7 @@ watch([
     retainedOutlineGrowth.value = null
   }
 }, { immediate: true, deep: true })
-watch(() => props.initialStage, stage => { void requestStageChange(stage) })
+watch(() => props.initialStage, stage => { void requestStageChange(stage, { loadLesson: false }) })
 watch(() => props.initialLessonId, lessonId => { if (lessonId) void selectLesson(lessonId) })
 watch([activeProductionIssue, () => props.initialBlockId], async ([issue, blockId]) => {
   if (!issue || !blockId) return

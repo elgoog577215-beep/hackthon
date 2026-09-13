@@ -273,7 +273,7 @@ async function loadWorkspace() {
     const [courseInformation, primaryContent] = await Promise.all([
       http.get(
         `/api/courses/${requestedCourseId}/course-information`,
-        teacherReadRequestConfig({ silentError: true }),
+        teacherReadRequestConfig({ silentError: true, params: { view: 'summary' } }),
       ),
       primaryContentLoad,
     ])
@@ -284,7 +284,6 @@ async function loadWorkspace() {
       courseStore.currentCourseId = requestedCourseId
       courseStore.applyGenerationOutlineDraft(blueprintNodes)
     }
-    courseInformationEnvelope.value = courseInformation.data
     const information = courseInformation.data?.information || {}
     stableCourseTitle.value = courseStore.courseList.find(
       item => item.course_id === requestedCourseId,
@@ -300,8 +299,10 @@ async function loadWorkspace() {
       void router.replace({ query: { ...route.query, generate: undefined } })
     }
     loading.value = false
-    const lessonLoad = lessonStore.load(requestedCourseId)
-    void lessonLoad.catch(() => undefined)
+    if (!loadBlueprintFirst) {
+      const lessonLoad = lessonStore.load(requestedCourseId)
+      void lessonLoad.catch(() => undefined)
+    }
     void Promise.allSettled([
       generationStore.fetchGlobalTasks(),
     ])

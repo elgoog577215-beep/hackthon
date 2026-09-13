@@ -39,8 +39,9 @@ describe('calendar and course file-space boundary', () => {
     const workbench = source('components/TeacherCourseWorkbench.vue')
     expect(workbench).toContain("watch([() => props.courseId, activeStage], ([courseId, stage]) => {")
     expect(workbench).toContain("if (courseId && stage === 'question-bank') void loadQuestionBankStatus()")
-    expect(workbench).toContain("if (courseId && ['lesson', 'script', 'ppt'].includes(stage)")
-    expect(workbench).toContain('void lessonStore.load(courseId).catch(() => undefined)')
+    expect(workbench).toContain('ensureLessonStageLoaded(stage)')
+    expect(workbench).toContain('void lessonStore.load(props.courseId).catch(() => undefined)')
+    expect(workbench).toContain("requestStageChange(stage, { loadLesson: false })")
   })
 
   it('uses a slower idle course refresh while retaining fast updates for active production', () => {

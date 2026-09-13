@@ -48,3 +48,10 @@
 - Repeated reads of the same projection reuse deterministic quality review. Changes to review requirements such as total course hours produce a different projection and rerun review.
 - Concurrent reads for the same projection share one per-identity computation; different identities do not share the review result. The cache is LRU-bounded to 16 projections.
 - Focused verification: 36 blueprint, generation-workspace and version tests passed; Ruff passed. Save/candidate/restore invalidation and conditional HTTP remain open in tasks 3.3 and 3.4.
+
+## Outline contention follow-up checkpoint
+
+- The workspace now reads `course-information?view=summary`; the summary loads raw metadata, performs the same owner check, and omits document revision and history so it cannot be used as a write precondition. Opening the edit dialog still performs the existing full versioned read.
+- The foundation stage no longer starts full lesson-authoring. Direct lesson/script/PPT routes remain owned by the parent loader; later user stage changes explicitly request lesson data through the existing Store.
+- The lesson Store keeps `lessons` and `jobs` as arrays when a future summary response omits those collections, preserving the distinction between unloaded and corrupt state.
+- Focused verification: 3 summary/baseline tests passed; 151 workbench, lesson Store and loading-boundary tests passed; production build and strict OpenSpec validation passed. Full Linux coverage remains assigned to CI.

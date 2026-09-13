@@ -25,7 +25,7 @@ from course_baseline import (
     merge_ai_baseline_draft,
     normalize_course_information,
 )
-from course_repository import CourseDocumentConflict, CourseDocumentRepository
+from course_repository import CourseDocumentConflict, CourseDocumentNotFound, CourseDocumentRepository
 from dependencies import get_course_document_repository
 from learner_context import resolve_user_id
 from models import CourseGenerationRequest
@@ -100,11 +100,25 @@ def _assert_teacher_owner(course: dict[str, Any], actor_id: str) -> None:
 async def get_course_information(
     course_id: str,
     request: Request,
+    view: Literal["full", "summary"] = "full",
     repository: CourseDocumentRepository = Depends(get_course_document_repository),
 ):
-    course = repository.load_course_view(course_id)
+    try:
+        course = await run_in_threadpool(
+            repository.load_raw if view == "summary" else repository.load_course_view,
+            course_id,
+        )
+    except CourseDocumentNotFound as exc:
+        raise HTTPException(status_code=404, detail="Course not found") from exc
     actor_id = resolve_user_id(request.headers.get("X-User-Id"))
     _assert_teacher_owner(course, actor_id)
+    if view == "summary":
+        return {
+            "schema_version": "teacher_course_information_summary_v1",
+            "course_id": course_id,
+            "revision": course_information_revision(course),
+            "information": course_information_snapshot(course),
+        }
     return {
         "course_id": course_id,
         "revision": course_information_revision(course),

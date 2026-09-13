@@ -870,10 +870,12 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       try {
         const response = await fetchLessonAuthoringView(courseId, options.afterCurrent)
         if (this.courseId !== courseId) return response
+        const lessons = Array.isArray(response.lessons) ? response.lessons : []
+        const jobs = Array.isArray(response.jobs) ? response.jobs : []
         this.courseId = courseId
         this.outlineRevisionId = response.outline_revision_id
-        this.lessons = response.lessons
-        this.jobs = mergeLessonJobSnapshots(this.jobs, response.jobs)
+        this.lessons = lessons
+        this.jobs = mergeLessonJobSnapshots(this.jobs, jobs)
         this.productionState = response.course_production_state || this.productionState
         if (response.course_production_state) {
           useCourseStore().setTeacherProductionState(courseId, response.course_production_state)
