@@ -34,7 +34,20 @@ from teacher_script import normalize_teacher_script_section, validate_teacher_sc
 
 CONTRACT = "script_ppt_bundle_v1"
 DEFAULT_THEME = "qizhi-classroom"
-RECOVERY_CONTRACT = "ppt_page_recovery_v3"
+RECOVERY_CONTRACT = "ppt_page_recovery_v4"
+
+_SOURCE_GROUNDING_ERRORS = (
+    "source_block_unknown",
+    "source_excerpt_mismatch",
+    "source_quote_choice_conflict",
+    "source_quote_id_unknown",
+    "selected_artifact_not_exact",
+    "teaching_fact_token_unsupported",
+)
+
+
+def _is_source_grounding_error(detail: str) -> bool:
+    return any(code in detail for code in _SOURCE_GROUNDING_ERRORS)
 
 
 class PptPageRepairTimeout(RuntimeError):
@@ -428,6 +441,32 @@ def _stabilize_source_choices(value: Any, catalog: list[dict[str, Any]], context
         choices = value.get("sources")
         query = _source_query(value)
         candidates = _context_catalog(context, catalog)
+        if choices is None and query and candidates:
+            missing = _protected_tokens(query)
+            resolved = []
+            while missing:
+                supporting = [
+                    item
+                    for item in candidates
+                    if missing & _protected_tokens(str(item.get("quote") or ""))
+                ]
+                if not supporting:
+                    break
+                selected = max(
+                    supporting,
+                    key=lambda item: (
+                        len(missing & _protected_tokens(str(item["quote"]))),
+                        _quote_score(query, str(item["quote"])),
+                    ),
+                )
+                resolved.append({
+                    "block_id": selected["block_id"],
+                    "quote": selected["quote"],
+                })
+                missing -= _protected_tokens(str(selected["quote"]))
+            if resolved and not missing:
+                value["sources"] = resolved
+                choices = resolved
         if isinstance(choices, list) and candidates:
             best = max(candidates, key=lambda item: _quote_score(query, str(item.get("quote") or ""))) if query else None
             resolved = []
@@ -631,6 +670,8 @@ def _page_repair_prompt(block, pages, template, validation_error, repair_error="
     catalog = _repair_source_ranges(block, repair_unit)
     return (
         "你正在把已经固定的讲义整理为课堂PPT页面。只返回一个JSON对象 {\"pages\":[...]}，不得输出Markdown或解释。"
+        "先选择来源：每个可见内容项先从 literal_source_ranges 选择 sources quote_id，再写页面文字。"
+        "页面文字中的数字、公式、专有名词和代码标识符必须出现在该项选择的来源中；没有依据就不得保留。"
         "pages 至少一页，每页仅含 layout_key、page_goal、fields；layout_key 必须来自 forms，fields 遵守对应表单。"
         "保留教学条件、例题和解答，覆盖本环节内容，避免重复封面。普通文案简洁，标识符和数值只能来自所给原文。"
         "sources 只返回 quote_id，格式为 [{\"quote_id\":\"提供的ID\"}]。代码、公式和数据使用精确来源；长代码由系统按实际容量连续分页，不必裁掉代码。"
@@ -714,7 +755,13 @@ def _grounded_visible_text(fragment: str, limit: int) -> str:
     return text[:end].rstrip(" /:：,，;；-_—") + "…"
 
 
-def _grounded_prose_repair_pages(block, template, *, visible_limit=32):
+def _grounded_prose_repair_pages(
+    block,
+    template,
+    *,
+    visible_limit=32,
+    fallback_reason="provider",
+):
     layout_id = next(
         layout.template_layout_id
         for layout in template.layouts
@@ -724,12 +771,22 @@ def _grounded_prose_repair_pages(block, template, *, visible_limit=32):
     pages = []
     for offset in range(0, len(fragments), 3):
         selected = fragments[offset:offset + 3]
+        source_failure = fallback_reason == "source_grounding"
         pages.append({
             "layout_id": layout_id,
             "page_goal": "阅读并核对讲义要点",
             "fields": {
                 "title": "讲义要点",
-                "notes": "模型服务暂时不可用，本页按讲义原文顺序整理。",
+                "notes": (
+                    "原页面含无法由讲义支持的事实，本页按讲义原文顺序重新整理。"
+                    if source_failure
+                    else "模型服务暂时不可用，本页按讲义原文顺序整理。"
+                ),
+                "split_reason": (
+                    "页面事实缺少讲义依据，按原文重新整理"
+                    if source_failure
+                    else "模型服务不可用，按原文整理"
+                ),
                 "points": [{
                     "text": _grounded_visible_text(fragment, visible_limit),
                     "sources": [{
@@ -742,19 +799,44 @@ def _grounded_prose_repair_pages(block, template, *, visible_limit=32):
     return pages
 
 
-def _grounded_repair_pages(block, repair_unit, template, *, prose_limit=32):
+def _grounded_repair_pages(
+    block,
+    repair_unit,
+    template,
+    *,
+    prose_limit=32,
+    fallback_reason="provider",
+):
     if repair_unit.get("source_kind") == "code":
         return [_grounded_code_repair_page(block, template)]
-    return _grounded_prose_repair_pages(block, template, visible_limit=prose_limit)
+    return _grounded_prose_repair_pages(
+        block,
+        template,
+        visible_limit=prose_limit,
+        fallback_reason=fallback_reason,
+    )
 
 
-def _validated_grounded_repair_pages(block, repair_block, repair_unit, template):
+def _validated_grounded_repair_pages(
+    block,
+    repair_block,
+    repair_unit,
+    template,
+    *,
+    fallback_reason="provider",
+):
     limits = (32,) if repair_unit.get("source_kind") == "code" else (32, 24, 16, 8)
     last_error = None
     for limit in limits:
         try:
             pages = _prepare_page_candidates(
-                _grounded_repair_pages(repair_block, repair_unit, template, prose_limit=limit),
+                _grounded_repair_pages(
+                    repair_block,
+                    repair_unit,
+                    template,
+                    prose_limit=limit,
+                    fallback_reason=fallback_reason,
+                ),
                 repair_block,
                 template,
             )
@@ -784,6 +866,8 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
     joint_instruction = (
         instructions.replace("只输出完整 Markdown 正文", "正文保持完整 Markdown")
         + "\n最终只输出 JSON，格式以下方 response 为准，不在 JSON 外写正文。每个 block 同时包含 content 和 pages。"
+        "先完成 content，再为每个页面内容项选择连续原文，然后写页面文字。"
+        "数字、公式、专有名词和代码标识符必须出现在该内容项引用的连续原文中；没有来源依据就不要写。"
         "content 按前述要求编写完整讲义正文，不含本环节的二级标题；pages 同时组织本环节的课堂展示，"
         "每页只有 layout_key、page_goal、fields；layout_key 必须来自 forms。页面必须有具体内容，覆盖必要条件、定义、推导、例题及答案；"
         "不同页各有目的，不能重复同一句摘要。不要为每个环节重复封面或目录。"
@@ -915,6 +999,25 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                             })
                         break
                     if attempts[index] >= 2:
+                        if _is_source_grounding_error(detail):
+                            try:
+                                candidate_pages = _validated_grounded_repair_pages(
+                                    block,
+                                    repair_block,
+                                    repair_unit,
+                                    template,
+                                    fallback_reason="source_grounding",
+                                )
+                                groups[index] = candidate_pages
+                            except (ValueError, RuntimeError, KeyError) as fallback_error:
+                                page_errors.append({
+                                    "block_id": bid,
+                                    "page_index": index,
+                                    "validation_error": detail,
+                                    "repair_error": str(fallback_error),
+                                    "message": detail + "; grounded_fallback_failed: " + str(fallback_error),
+                                })
+                            break
                         page_errors.append({"block_id": bid, "page_index": index, "message": detail})
                         break
                     try:
