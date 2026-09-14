@@ -479,6 +479,57 @@ describe('teacher lesson authoring store', () => {
     expect(store.lessons[0]?.content_scope).toBe('full')
   })
 
+  it('retries a targeted read when a concurrent summary exposes a newer revision', async () => {
+    const store = useTeacherLessonAuthoringStore()
+    let resolveSummary!: (value: any) => void
+    const targetedResolvers: Array<(value: any) => void> = []
+    httpMock.get.mockImplementation((_url: string, config: any) => (
+      new Promise(resolve => {
+        if (config.params?.view === 'summary') resolveSummary = resolve
+        else targetedResolvers.push(resolve)
+      })
+    ))
+
+    const loading = store.loadInitial('course-1', 'L1-1')
+    await Promise.resolve()
+    resolveSummary({ data: {
+      schema_version: 'teacher_lesson_authoring_view_v1', view_scope: 'summary',
+      course_id: 'course-1', outline_revision_id: 'outline-2', jobs: [],
+      lessons: [{
+        lesson_unit_id: 'L1-1', number: 1, title: '第一讲', content_scope: 'summary',
+        plan: { content_loaded: false, working_revision_id: 'plan-2', current_revision: null, ppt_assets: [] },
+        script: { content_loaded: false, current_revision_id: 'script-2', sections: [] },
+      }],
+    } })
+    targetedResolvers[0]!({ data: {
+      schema_version: 'teacher_lesson_authoring_view_v1', view_scope: 'lesson',
+      course_id: 'course-1', outline_revision_id: 'outline-1', jobs: [],
+      lessons: [{
+        lesson_unit_id: 'L1-1', number: 1, title: '第一讲', content_scope: 'full',
+        plan: { content_loaded: true, working_revision_id: 'plan-1', current_revision: { revision_id: 'plan-1' }, ppt_assets: [] },
+        script: { content_loaded: true, current_revision_id: 'script-1', sections: [{ section_node_id: 'S1', content: '旧正文' }] },
+      }],
+    } })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(httpMock.get).toHaveBeenCalledTimes(3)
+    targetedResolvers[1]!({ data: {
+      schema_version: 'teacher_lesson_authoring_view_v1', view_scope: 'lesson',
+      course_id: 'course-1', outline_revision_id: 'outline-2', jobs: [],
+      lessons: [{
+        lesson_unit_id: 'L1-1', number: 1, title: '第一讲', content_scope: 'full',
+        plan: { content_loaded: true, working_revision_id: 'plan-2', current_revision: { revision_id: 'plan-2' }, ppt_assets: [] },
+        script: { content_loaded: true, current_revision_id: 'script-2', sections: [{ section_node_id: 'S1', content: '新正文' }] },
+      }],
+    } })
+    await loading
+
+    expect(store.lessons[0]?.content_scope).toBe('full')
+    expect(store.lessons[0]?.script.current_revision_id).toBe('script-2')
+    expect(store.lessons[0]?.script.sections[0]?.content).toBe('新正文')
+  })
+
   it('treats omitted summary collections as unloaded instead of corrupting store arrays', async () => {
     httpMock.get.mockResolvedValue({
       data: {
