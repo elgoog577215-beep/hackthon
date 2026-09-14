@@ -15,6 +15,11 @@ from course_document import CourseBlock, CourseDocument, CourseSection, stable_h
 from course_presentation_graph import block_source_text, compile_course_presentation_graph
 from ppt_fixed_draft import form_type, lower_fixed_response
 from ppt_fixed_templates import fixed_capabilities, fixed_slug
+from ppt_layout_binding import (
+    bind_page_layout,
+    template_layout_bindings,
+    unresolved_layout_error,
+)
 from ppt_page_repair_units import (
     full_page_repair_unit,
     page_repair_source_units,
@@ -142,18 +147,20 @@ class ScriptPptBundle(BaseModel):
 
 
 def generation_contract(template):
-    forms = {}
-    for layout in template.layouts:
-        slug = fixed_slug(layout.template_layout_id)
-        if slug == "figure":
-            continue  # Images are available only after explicit asset adoption.
-        forms[layout.template_layout_id] = form_type(slug, authored=True).model_json_schema()
+    bindings = template_layout_bindings(template, include_figure=False)
+    forms = {
+        layout_key: form_type(layout_key, authored=True).model_json_schema()
+        for layout_key in bindings
+    }
+    capabilities = deepcopy(fixed_capabilities(template))
+    for entry in capabilities.get("available_layouts", []):
+        entry["layout_key"] = fixed_slug(entry.pop("layout_id"))
     return {
         "schema_version": CONTRACT,
         "response": ScriptPptBundle.model_json_schema(),
-        "page": {"layout_id": "one of forms", "page_goal": "本页实际教学目的", "fields": "对应版式表单"},
+        "page": {"layout_key": "one of forms", "page_goal": "本页实际教学目的", "fields": "对应版式表单"},
         "forms": forms,
-        "capabilities": fixed_capabilities(template),
+        "capabilities": capabilities,
     }
 
 
@@ -171,8 +178,10 @@ def lower_bundle_pages(document, template, blocks):
             if not isinstance(raw, dict) or set(raw) != {"layout_id", "page_goal", "fields"}:
                 raise ValueError(f"script_ppt_page_fields_invalid:{block_id}:{index}")
             layout = template.get_layout(raw["layout_id"])
-            if layout is None or not str(raw["page_goal"]).strip():
-                raise ValueError(f"script_ppt_layout_invalid:{block_id}:{index}")
+            if layout is None:
+                raise ValueError(unresolved_layout_error(block_id, index, raw, template))
+            if not str(raw["page_goal"]).strip():
+                raise ValueError(f"script_ppt_page_goal_missing:{block_id}:{index}")
             lowered = lower_fixed_response(raw["fields"], raw)
             normalized = normalize_page_response(lowered, {block_id: sources[block_id]})
             planned.append({**normalized, "page_id": f"{block_id}:ppt:{index + 1}",
@@ -499,6 +508,8 @@ def _prepare_page_candidates(pages: list[Any], block: dict[str, Any], template=N
             prepared.append(page)
             continue
         candidate = deepcopy(page)
+        if template is not None:
+            candidate = bind_page_layout(candidate, template)
         _expand_identifier_shorthand(candidate, block["content"])
         for key in ("layout_id", "page_goal"):
             if key in candidate:
@@ -602,20 +613,21 @@ def _repair_source_ranges(block, repair_unit):
 
 def _page_repair_prompt(block, pages, template, validation_error, repair_error="", repair_unit=None):
     known = {layout.template_layout_id: layout for layout in template.layouts}
-    selected = {p.get("layout_id") for p in pages if isinstance(p, dict)} & set(known)
-    if not selected:
+    selected_ids = {p.get("layout_id") for p in pages if isinstance(p, dict)} & set(known)
+    if not selected_ids:
         slugs = _repair_layout_slugs(block, repair_unit)
-        selected = {lid for lid in known if fixed_slug(lid) in slugs}
+        selected_ids = {lid for lid in known if fixed_slug(lid) in slugs}
+    selected = {fixed_slug(layout_id): layout_id for layout_id in selected_ids}
     catalog = _repair_source_ranges(block, repair_unit)
     return (
         "你正在把已经固定的讲义整理为课堂PPT页面。只返回一个JSON对象 {\"pages\":[...]}，不得输出Markdown或解释。"
-        "pages 至少一页，每页仅含 layout_id、page_goal、fields；fields 遵守对应表单。"
+        "pages 至少一页，每页仅含 layout_key、page_goal、fields；layout_key 必须来自 forms，fields 遵守对应表单。"
         "保留教学条件、例题和解答，覆盖本环节内容，避免重复封面。普通文案简洁，标识符和数值只能来自所给原文。"
         "sources 只返回 quote_id，格式为 [{\"quote_id\":\"提供的ID\"}]。代码、公式和数据使用精确来源；长代码由系统按实际容量连续分页，不必裁掉代码。"
         "不得修改讲义，不得补写讲义没有的API或事实。\n"
         + json.dumps({"block_id": block["block_id"], "title": block.get("title"), "role": block.get("role"),
             "repair_unit": repair_unit or full_page_repair_unit(block["block_id"], block["content"]),
-            "forms": {lid: form_type(fixed_slug(lid), authored=True).model_json_schema() for lid in sorted(selected)},
+            "forms": {key: form_type(key, authored=True).model_json_schema() for key in sorted(selected)},
             "literal_source_ranges": catalog, "pages_to_repair": pages,
             "validation_error": validation_error, "previous_repair_error": repair_error}, ensure_ascii=False)
     )
@@ -763,7 +775,7 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
         instructions.replace("只输出完整 Markdown 正文", "正文保持完整 Markdown")
         + "\n最终只输出 JSON，格式以下方 response 为准，不在 JSON 外写正文。每个 block 同时包含 content 和 pages。"
         "content 按前述要求编写完整讲义正文，不含本环节的二级标题；pages 同时组织本环节的课堂展示，"
-        "每页只有 layout_id、page_goal、fields。页面必须有具体内容，覆盖必要条件、定义、推导、例题及答案；"
+        "每页只有 layout_key、page_goal、fields；layout_key 必须来自 forms。页面必须有具体内容，覆盖必要条件、定义、推导、例题及答案；"
         "不同页各有目的，不能重复同一句摘要。不要为每个环节重复封面或目录。"
         "fields 使用选中版式的表单；来源填写 sources=[{block_id:本环节ID,quote:本次content中的连续原文}]。"
         "公式、代码、数据与引文必须引用精确原文，保留公式定界符、代码换行与缩进。"
