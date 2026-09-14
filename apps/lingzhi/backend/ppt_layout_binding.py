@@ -50,6 +50,22 @@ def bind_page_layout(page: dict[str, Any], template: Any) -> dict[str, Any]:
     supplied_key = str(candidate.get("layout_key") or "").strip()
     supplied_id = str(candidate.get("layout_id") or "").strip()
 
+    if supplied_key and supplied_id:
+        id_key = ""
+        if supplied_id in known_ids:
+            id_key = next(key for key, value in bindings.items() if value == supplied_id)
+        else:
+            possible_key = fixed_slug(supplied_id)
+            if possible_key in bindings:
+                id_key = possible_key
+        if supplied_key not in bindings or id_key != supplied_key:
+            safe_key = supplied_key.replace("\n", " ")[:120]
+            safe_id = supplied_id.replace("\n", " ")[:120]
+            raise ValueError(
+                "script_ppt_layout_identity_conflict:"
+                f"layout_key={safe_key};layout_id={safe_id}"
+            )
+
     resolved = ""
     if supplied_key in bindings:
         resolved = bindings[supplied_key]
