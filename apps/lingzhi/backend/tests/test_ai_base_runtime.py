@@ -504,6 +504,81 @@ async def test_qwen_json_mode_requests_structured_provider_output(
 
 
 @pytest.mark.asyncio
+async def test_qwen_splits_user_prompt_into_lossless_wire_safe_text_parts(
+    monkeypatch,
+):
+    captured = {}
+
+    class CapturingCompletions:
+        async def create(self, **kwargs):
+            captured.update(kwargs)
+            return FakeStream([
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(
+                    reasoning_content=None,
+                    content='{"status":"ok"}',
+                ))]),
+            ])
+
+    prompt = (
+        "课程原文：Directory.CreateDirectory(Path.GetDirectoryName(savePath));"
+        "请保留这行代码并分析它对实践项目的影响。"
+    )
+    monkeypatch.setenv("AI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_API_BASE", "http://qwen.internal.test/v1")
+    monkeypatch.setenv("AI_MODEL", "qwen3.8-27b")
+    monkeypatch.setenv("AI_MODEL_FAST", "qwen3.8-27b")
+    service = AIBase()
+    service.client = SimpleNamespace(
+        chat=SimpleNamespace(completions=CapturingCompletions())
+    )
+    service._working_model_cache.clear()
+
+    assert await service._call_llm(prompt, retry_count=1) == '{"status":"ok"}'
+    assert captured["messages"][0] == {
+        "role": "system",
+        "content": "You are a helpful assistant.",
+    }
+    parts = captured["messages"][1]["content"]
+    assert isinstance(parts, list)
+    assert all(part["type"] == "text" and len(part["text"]) <= 32 for part in parts)
+    assert "".join(part["text"] for part in parts) == prompt
+    assert not any(
+        "Directory.CreateDirectory(Path.GetDirectoryName(savePath));" in part["text"]
+        for part in parts
+    )
+
+
+@pytest.mark.asyncio
+async def test_non_primary_model_keeps_plain_string_message_content(monkeypatch):
+    captured = {}
+
+    class CapturingCompletions:
+        async def create(self, **kwargs):
+            captured.update(kwargs)
+            return FakeStream([
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(
+                    reasoning_content=None,
+                    content="answer",
+                ))]),
+            ])
+
+    _clear_model_environment(monkeypatch)
+    monkeypatch.setenv("AI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_API_BASE", "https://api.openai.com/v1")
+    monkeypatch.setenv("AI_MODEL", "test-model")
+    monkeypatch.setenv("AI_MODEL_FAST", "test-model")
+    service = AIBase()
+    service.client = SimpleNamespace(
+        chat=SimpleNamespace(completions=CapturingCompletions())
+    )
+    service._working_model_cache.clear()
+    prompt = "x" * 100
+
+    assert await service._call_llm(prompt, retry_count=1) == "answer"
+    assert captured["messages"][1]["content"] == prompt
+
+
+@pytest.mark.asyncio
 async def test_request_spacing_smooths_concurrent_provider_bursts(
     monkeypatch,
 ):
@@ -571,12 +646,16 @@ async def test_qwen_uses_vllm_thinking_body_for_stream_calls(monkeypatch):
     monkeypatch.setenv("AI_THINKING_ENABLED", "true")
     service = AIBase()
     service.client = SimpleNamespace(chat=SimpleNamespace(completions=CapturingCompletions()))
+    prompt = "Directory.CreateDirectory(Path.GetDirectoryName(savePath));" * 2
 
-    assert [chunk async for chunk in service._stream_llm("test", enable_thinking=True)] == ["answer"]
+    assert [chunk async for chunk in service._stream_llm(prompt, enable_thinking=True)] == ["answer"]
     assert captured["extra_body"] == {
         "enable_thinking": True,
         "chat_template_kwargs": {"enable_thinking": True},
     }
+    assert "".join(
+        part["text"] for part in captured["messages"][1]["content"]
+    ) == prompt
 
 
 @pytest.mark.asyncio
