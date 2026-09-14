@@ -687,7 +687,7 @@
                 <Sparkles v-else :size="16" />
                 {{ scriptBatchStarting
                   ? t('courseWorkbench.scriptBatch.starting', '正在开始…')
-                  : scriptBatchRecoveryAvailable
+                  : scriptBatchRecoveryAvailable || scriptBatchRegenerateAvailable
                     ? t('courseWorkbench.scriptBatch.regenerate', '重新生成')
                     : scriptBatchActionableCount === lessonStore.lessons.length
                       ? t('courseWorkbench.scriptBatch.generateAll', '生成全部讲义')
@@ -799,7 +799,7 @@
                       <Sparkles v-else :size="15" />
                       {{ scriptBatchStarting
                         ? t('courseWorkbench.scriptBatch.starting', '正在开始…')
-                        : scriptBatchRecoveryAvailable
+                        : scriptBatchRecoveryAvailable || scriptBatchRegenerateAvailable
                           ? t('courseWorkbench.scriptBatch.regenerate', '重新生成')
                           : t('courseWorkbench.scriptBatch.generateAll', '生成全部讲义') }}
                     </button>
@@ -2363,6 +2363,9 @@ const scriptBatchGenerateAvailable = computed(() => (
     ? scriptBatchEligibleCount.value > 0 && !legacyScriptBatchRecoveryAvailable.value
     : projectedStageAction('script') === 'generate'
 ))
+const scriptBatchRegenerateAvailable = computed(() => (
+  projectedStageAction('script') === 'regenerate_from_latest_source'
+))
 const scriptBatchRecoveryLessonIds = computed(() => (
   projectedStageAction('script') === null
     ? scriptBatchEligibleLessonIds.value
@@ -2381,6 +2384,11 @@ const scriptBatchActionableCount = computed(() => {
     if (action === 'generate') return productionState.value!.lessons.length
       ? productionState.value!.lessons.filter(lesson => lesson.stages.script?.allowed_actions.includes('generate')).length
       : Math.max(1, projected.counts.total - projected.counts.available)
+    if (action === 'regenerate_from_latest_source') return productionState.value!.lessons.length
+      ? productionState.value!.lessons.filter(lesson => (
+          lesson.stages.script?.allowed_actions.includes('regenerate_from_latest_source')
+        )).length
+      : Math.max(1, projected.counts.stale)
     if (['retry_generation', 'resume_generation'].includes(action)) {
       return Math.max(scriptBatchRecoveryLessonIds.value.length, projected.latest_attempt?.target_count || 0, 1)
     }
@@ -2411,7 +2419,7 @@ const scriptBatchError = computed(() => String(
 ))
 const scriptBatchLaunchVisible = computed(() => (
   activeStage.value === 'script'
-  && (scriptBatchRecoveryAvailable.value || scriptBatchGenerateAvailable.value)
+  && (scriptBatchRecoveryAvailable.value || scriptBatchGenerateAvailable.value || scriptBatchRegenerateAvailable.value)
   && scriptBatchActionableCount.value > 0
   && !scriptBatchRunning.value
   && !scriptBatchPaused.value

@@ -1329,9 +1329,20 @@ def _aggregate_stage(
     *,
     total: int,
 ) -> StageProductionState:
-    latest_group = _latest_attempt_group(tasks)
-    latest_attempt = _latest_attempt(tasks)
-    latest_task = _latest(tasks)
+    current_task_ids = {
+        task_id
+        for state in states
+        for task_id in state.task_ids
+        if task_id
+    }
+    current_tasks = [
+        task
+        for task in tasks
+        if not _lesson_id(task) or _task_id(task) in current_task_ids
+    ]
+    latest_group = _latest_attempt_group(current_tasks)
+    latest_attempt = _latest_attempt(current_tasks)
+    latest_task = _latest(current_tasks)
     task_state = (
         latest_attempt.task_state
         if latest_attempt
