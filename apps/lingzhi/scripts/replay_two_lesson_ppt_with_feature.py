@@ -1,7 +1,12 @@
 """Replay two production PPT checkpoints in memory with the feature branch."""
 
 import asyncio
+import hashlib
+import io
 import json
+import re
+import tempfile
+import zipfile
 from copy import deepcopy
 from pathlib import Path
 
@@ -29,8 +34,13 @@ def module_contract(block: dict) -> dict:
 
 async def main() -> None:
     from course_generation.service import get_course_service
+    from course_document import CourseBlock, CourseDocument, CourseSection, stable_hash
+    from course_presentation_graph import compile_course_presentation_graph
+    from slide_deck_v6 import compile_slide_deck_v6_from_manuscript
+    from slide_deck_v6_renderer import export_slide_deck_v6_pptx
     from teacher_script_ppt import (
         RECOVERY_CONTRACT,
+        compile_bundle_manuscript,
         completion_seed_blocks,
         generate_bundle,
         require_valid_bundle_pages,
@@ -121,6 +131,58 @@ async def main() -> None:
             for block in blocks
             for page in block.get("ppt_pages", [])
         )
+        document_revision = stable_hash(
+            {block["block_id"]: block["content"] for block in blocks},
+            prefix="isolated_ppt_doc_",
+        )
+        document = CourseDocument(
+            course_id=f"isolated-{COURSE_ID}-{lesson_id}",
+            title=f"isolated-{lesson_id}",
+            document_revision=document_revision,
+            sections=[CourseSection(section_id="lesson", title=lesson_id, position=0)],
+            blocks=[
+                CourseBlock(
+                    block_id=block["block_id"],
+                    section_id="lesson",
+                    position=index,
+                    payload={"markdown": block["content"]},
+                    internal_revision=stable_hash(block["content"], prefix="block_"),
+                )
+                for index, block in enumerate(blocks)
+            ],
+        )
+        manuscript = compile_bundle_manuscript(
+            document,
+            template,
+            generated_sections,
+            plan_revision_id=str(job.get("source_lesson_plan_revision_id") or ""),
+            script_revision_id=script_revision_id,
+        )
+        graph = compile_course_presentation_graph(document, teaching_plan={})
+        deck = compile_slide_deck_v6_from_manuscript(document, graph, manuscript, template)
+        with tempfile.TemporaryDirectory(prefix=f"isolated-ppt-{lesson_id}-") as directory:
+            output = Path(directory) / f"{lesson_id}.pptx"
+            export_slide_deck_v6_pptx(
+                {
+                    **deck.model_dump(mode="json"),
+                    "ppt_manuscript": manuscript.model_dump(mode="json"),
+                },
+                output,
+            )
+            content = output.read_bytes()
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            slides = [
+                name
+                for name in archive.namelist()
+                if re.fullmatch(r"ppt/slides/slide\d+\.xml", name)
+            ]
+            notes = [
+                name
+                for name in archive.namelist()
+                if re.fullmatch(r"ppt/notesSlides/notesSlide\d+\.xml", name)
+            ]
+        if len(slides) != manuscript.page_count or len(notes) != len(slides):
+            raise ValueError(f"isolated_export_page_count_mismatch:{lesson_id}")
         emit(
             event="isolated_lesson_complete",
             lesson_id=lesson_id,
@@ -130,6 +192,11 @@ async def main() -> None:
             recovery_contract=RECOVERY_CONTRACT,
             blocks=len(blocks),
             pages=sum(len(block.get("ppt_pages") or []) for block in blocks),
+            physical_pages=manuscript.page_count,
+            pptx_slides=len(slides),
+            pptx_notes=len(notes),
+            pptx_bytes=len(content),
+            pptx_sha256=hashlib.sha256(content).hexdigest(),
             page_errors=sum(len(block.get("ppt_errors") or []) for block in blocks),
             model_calls=model_calls,
             checkpoint_events=checkpoint_events,
