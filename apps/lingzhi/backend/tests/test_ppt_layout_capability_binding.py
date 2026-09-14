@@ -207,3 +207,37 @@ def test_conflicting_layout_identity_repairs_only_the_affected_page():
     assert len(calls) == 1
     assert result["blocks"][0]["ppt_pages"][0]["layout_id"] == template.layout_id("comparison")
     validate_block_pages(result["blocks"][0], template)
+
+
+def _typed_page(layout_key: str) -> tuple[dict, dict]:
+    content = "准备输入。依次处理。检查输出。回答问题。答案成立。公式 x+y=2。代码 print(x)。总结结论。"
+
+    def text(value: str) -> dict:
+        return {"text": value, "sources": [{"block_id": "b", "quote": content}]}
+
+    def exact(quote: str) -> dict:
+        return {"sources": [{"block_id": "b", "quote": quote}]}
+
+    base = {"title": "课堂内容", "notes": "按讲义完成当前教学任务。"}
+    fields = {
+        "flow": {**base, "steps": [text("准备输入"), text("依次处理"), text("检查输出")]},
+        "formula": {**base, "formula": exact("x+y=2"), "explanation": text("公式 x+y=2")},
+        "code": {**base, "code": exact("print(x)"), "explanation": text("代码 print(x)")},
+        "question": {**base, "question": text("回答问题"), "answer": text("答案成立")},
+        "summary": {**base, "points": [text("总结结论")]},
+    }[layout_key]
+    return (
+        {"layout_key": layout_key, "page_goal": "完成当前教学任务", "fields": fields},
+        {"block_id": "b", "title": "课堂内容", "role": "concept", "content": content},
+    )
+
+
+@pytest.mark.parametrize("layout_key", ["flow", "formula", "code", "question", "summary"])
+def test_layout_binding_is_shared_by_multiple_course_content_types(layout_key):
+    template, _, _ = sample()
+    page, block = _typed_page(layout_key)
+
+    prepared = _prepare_page_candidates([page], block, template)
+
+    assert prepared[0]["layout_id"] == template.layout_id(layout_key)
+    validate_block_pages({**block, "ppt_pages": prepared}, template)
