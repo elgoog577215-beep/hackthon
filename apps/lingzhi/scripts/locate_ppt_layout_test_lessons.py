@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path("/opt/lingzhi/state/backend-data")
 TARGET_BLOCK_ID = "tsb-bb41e5392a8b"
+TARGET_COURSE_ID = "2b3f4d8c-2af7-4133-a4f2-1060e8e9f54b"
 TARGET_TITLES = {
     "设计思维框架与问题定义",
     "原型设计与快速验证",
@@ -41,9 +42,11 @@ def main() -> None:
         for lesson_id, lesson in payload.get("lessons", {}).items():
             title = str(lesson.get("node_name") or lesson.get("title") or "")
             blocks = current_blocks(lesson)
-            if title not in TARGET_TITLES and not any(
+            if course_id != TARGET_COURSE_ID and title not in TARGET_TITLES and not any(
                 str(block.get("block_id") or "") == TARGET_BLOCK_ID for block in blocks
             ):
+                continue
+            if course_id == TARGET_COURSE_ID and lesson_id not in {"L1-1", "L1-2"}:
                 continue
             state = lesson.get("ppt_manuscript") or {}
             task_id = str(state.get("task_id") or "")
