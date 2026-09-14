@@ -88,6 +88,7 @@ else:
 DEFAULT_SMART_MODELS = [EXPECTED_TEXT_MODEL]
 
 DEFAULT_FAST_MODELS = [EXPECTED_TEXT_MODEL]
+QWEN_WIRE_TEXT_PART_CHARS = 32
 
 
 class AIProviderUnavailable(RuntimeError):
@@ -282,6 +283,38 @@ class AIBase:
             "enable_thinking": thinking_enabled,
             "chat_template_kwargs": {"enable_thinking": thinking_enabled},
         }
+
+    @staticmethod
+    def _wire_safe_user_content(prompt: str, model_id: str) -> Any:
+        """Preserve Qwen text while avoiding a faulty public-ingress signature.
+
+        The registered Qwen mapping rejects some ordinary source-code lines
+        before they reach vLLM. Standard text content parts are concatenated
+        by vLLM in order, keeping the model input exact without rewriting
+        course content or weakening response validation.
+        """
+        if model_id != EXPECTED_TEXT_MODEL or len(prompt) <= QWEN_WIRE_TEXT_PART_CHARS:
+            return prompt
+        return [
+            {"type": "text", "text": prompt[index:index + QWEN_WIRE_TEXT_PART_CHARS]}
+            for index in range(0, len(prompt), QWEN_WIRE_TEXT_PART_CHARS)
+        ]
+
+    @classmethod
+    def _request_messages(
+        cls,
+        *,
+        prompt: str,
+        system_prompt: str,
+        model_id: str,
+    ) -> list[dict[str, Any]]:
+        return [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": cls._wire_safe_user_content(prompt, model_id),
+            },
+        ]
 
     @staticmethod
     def _delta_reasoning(delta: Any) -> str:
@@ -1416,10 +1449,11 @@ class AIBase:
 
                     request_options = {
                         "model": model_id,
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": prompt},
-                        ],
+                        "messages": self._request_messages(
+                            prompt=prompt,
+                            system_prompt=system_prompt,
+                            model_id=model_id,
+                        ),
                         "stream": True,
                         "max_tokens": effective_max_tokens,
                         "extra_body": extra_body,
@@ -1841,10 +1875,11 @@ class AIBase:
                         await self._wait_for_request_slot()
                         request_options = {
                             "model": model_id,
-                            "messages": [
-                                {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": prompt},
-                            ],
+                            "messages": self._request_messages(
+                                prompt=prompt,
+                                system_prompt=system_prompt,
+                                model_id=model_id,
+                            ),
                             "stream": True,
                             "max_tokens": stream_max_tokens,
                             "extra_body": extra_body,

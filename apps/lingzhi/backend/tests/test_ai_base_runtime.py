@@ -646,12 +646,16 @@ async def test_qwen_uses_vllm_thinking_body_for_stream_calls(monkeypatch):
     monkeypatch.setenv("AI_THINKING_ENABLED", "true")
     service = AIBase()
     service.client = SimpleNamespace(chat=SimpleNamespace(completions=CapturingCompletions()))
+    prompt = "Directory.CreateDirectory(Path.GetDirectoryName(savePath));" * 2
 
-    assert [chunk async for chunk in service._stream_llm("test", enable_thinking=True)] == ["answer"]
+    assert [chunk async for chunk in service._stream_llm(prompt, enable_thinking=True)] == ["answer"]
     assert captured["extra_body"] == {
         "enable_thinking": True,
         "chat_template_kwargs": {"enable_thinking": True},
     }
+    assert "".join(
+        part["text"] for part in captured["messages"][1]["content"]
+    ) == prompt
 
 
 @pytest.mark.asyncio
