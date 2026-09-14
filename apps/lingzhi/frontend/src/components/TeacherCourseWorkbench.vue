@@ -4002,8 +4002,8 @@ async function selectLesson(lessonId?: string) {
   let lesson = lessonStore.lessons.find(item => item.lesson_unit_id === lessonId)
   if (lesson && (
     lesson.content_scope === 'summary'
-    || lesson.plan.content_loaded === false
-    || lesson.script.content_loaded === false
+    || lesson.plan?.content_loaded === false
+    || lesson.script?.content_loaded === false
   )) {
     try {
       await lessonStore.loadLesson(props.courseId, lessonId)
