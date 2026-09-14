@@ -1,4 +1,4 @@
-name: Locate approved PPT layout test lessons
+name: Run two approved live PPT lessons without operator recovery
 
 on:
   workflow_dispatch:
@@ -24,7 +24,7 @@ concurrency:
 jobs:
   chapter-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 90
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -44,7 +44,7 @@ jobs:
           chmod 600 ~/.ssh/lingzhi_deploy
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Locate lessons without changing production state
+      - name: Run formal website generation and export without recovery
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
@@ -53,4 +53,4 @@ jobs:
           ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            'python3 -' < apps/lingzhi/scripts/locate_ppt_layout_test_lessons.py
+            '/opt/lingzhi/.venv/bin/python -' < apps/lingzhi/scripts/run_live_two_lesson_ppt_test.py
