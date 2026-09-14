@@ -5747,6 +5747,62 @@ def test_teacher_lesson_view_can_read_only_the_requested_lesson(tmp_path, monkey
     assert "course_production_state" not in response.json()
 
 
+def test_teacher_lesson_view_summary_lists_all_lessons_without_bodies(tmp_path):
+    source = {**course_data(), "blueprint_revision_id": "outline-v1"}
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    repository.save_plan_revision(
+        "course-1", "L1-1", standard_lesson_plan(),
+        source_outline_revision_id="outline-v1",
+    )
+
+    class FakeStorage:
+        @staticmethod
+        def load_course(_course_id):
+            return deepcopy(source)
+
+    class FakeTaskManager:
+        storage = FakeStorage()
+        tasks = {}
+
+        @staticmethod
+        def get_generation_workspace_course(_course_id):
+            return None
+
+        @staticmethod
+        def get_generation_preview(_course_id):
+            return None
+
+        @staticmethod
+        def get_tasks_by_course(_course_id):
+            return []
+
+        @staticmethod
+        def get_blueprint_draft(_course_id):
+            return None
+
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: FakeTaskManager()
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: repository
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/teacher/courses/course-1/lesson-authoring",
+            params={"view": "summary"},
+        )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["view_scope"] == "summary"
+    assert [item["lesson_unit_id"] for item in payload["lessons"]] == ["L1-1", "L1-2"]
+    assert payload["lessons"][0]["plan"]["ready"] is True
+    assert payload["lessons"][0]["plan"]["content_loaded"] is False
+    assert payload["lessons"][0]["plan"]["current_revision"] is None
+    assert payload["lessons"][0]["script"]["content_loaded"] is False
+    assert payload["lessons"][0]["script"]["sections"] == []
+    assert payload["course_production_state"]["schema_version"] == "course_production_state_v1"
+
+
 def test_teacher_lesson_view_expires_orphaned_jobs_before_frontend_recovery(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     job = repository.create_job(

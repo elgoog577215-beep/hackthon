@@ -333,6 +333,53 @@ describe('teacher lesson authoring store', () => {
     expect(store.lessons.map(item => item.lesson_unit_id)).toEqual(['L1-1'])
   })
 
+  it('loads the lesson catalog summary and preserves an already loaded lesson body', async () => {
+    const store = useTeacherLessonAuthoringStore()
+    store.courseId = 'course-1'
+    store.lessons = [{
+      lesson_unit_id: 'L1-1', number: 1, title: '第一讲', content_scope: 'full',
+      plan: { content_loaded: true, current_revision: { revision_id: 'plan-1', plan: { sections: [{ node_id: 'S1' }] } } },
+      script: { content_loaded: true, current_revision_id: 'script-1', sections: [{ section_node_id: 'S1', title: '正文', content: '保留正文' }] },
+    }] as any
+    httpMock.get.mockResolvedValue({ data: {
+      schema_version: 'teacher_lesson_authoring_view_v1', view_scope: 'summary',
+      course_id: 'course-1', outline_revision_id: 'outline-1', jobs: [],
+      lessons: [
+        { lesson_unit_id: 'L1-1', number: 1, title: '第一讲', content_scope: 'summary', plan: { content_loaded: false, current_revision: null }, script: { content_loaded: false, current_revision_id: 'script-1', sections: [] } },
+        { lesson_unit_id: 'L1-2', number: 2, title: '第二讲', content_scope: 'summary', plan: { content_loaded: false, current_revision: null }, script: { content_loaded: false, current_revision_id: '', sections: [] } },
+      ],
+    } })
+
+    await (store as any).loadSummary('course-1')
+
+    expect(httpMock.get).toHaveBeenCalledWith(
+      '/api/teacher/courses/course-1/lesson-authoring',
+      expect.objectContaining({ params: { view: 'summary' } }),
+    )
+    expect(store.lessons).toHaveLength(2)
+    expect(store.lessons[0]?.plan.current_revision?.revision_id).toBe('plan-1')
+    expect(store.lessons[0]?.script.sections[0]?.content).toBe('保留正文')
+    expect(store.loadedCourseId).toBe('course-1')
+    expect(store.viewScope).toBe('summary')
+  })
+
+  it('loads summary then the requested lesson as the initial visible content', async () => {
+    const store = useTeacherLessonAuthoringStore()
+    httpMock.get.mockImplementation((_url: string, config: any) => Promise.resolve({ data: config.params?.view === 'summary' ? {
+      schema_version: 'teacher_lesson_authoring_view_v1', view_scope: 'summary', course_id: 'course-1', outline_revision_id: 'outline-1', jobs: [],
+      lessons: [{ lesson_unit_id: 'L1-1', number: 1, title: '第一讲', content_scope: 'summary', plan: { content_loaded: false }, script: { content_loaded: false, sections: [] } }],
+    } : {
+      schema_version: 'teacher_lesson_authoring_view_v1', view_scope: 'lesson', course_id: 'course-1', outline_revision_id: 'outline-1', jobs: [],
+      lessons: [{ lesson_unit_id: 'L1-1', number: 1, title: '第一讲', content_scope: 'full', plan: { content_loaded: true, current_revision: { revision_id: 'plan-1' } }, script: { content_loaded: true, sections: [] } }],
+    } }))
+
+    const response = await (store as any).loadInitial('course-1', '')
+
+    expect(httpMock.get).toHaveBeenCalledTimes(2)
+    expect(response.initial_lesson_id).toBe('L1-1')
+    expect(store.lessons[0]?.plan.content_loaded).toBe(true)
+  })
+
   it('treats omitted summary collections as unloaded instead of corrupting store arrays', async () => {
     httpMock.get.mockResolvedValue({
       data: {

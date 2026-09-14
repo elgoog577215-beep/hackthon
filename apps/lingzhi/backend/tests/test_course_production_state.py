@@ -204,6 +204,27 @@ def test_projection_is_pure_and_does_not_mutate_owner_snapshots():
     assert (course, authoring, tasks) == before
 
 
+def test_read_projection_does_not_copy_the_whole_authoring_body():
+    class ReadOnlyAuthoring(dict):
+        def __deepcopy__(self, _memo):
+            raise AssertionError("whole authoring state was copied")
+
+    authoring = ReadOnlyAuthoring({
+        "course_id": "course-1",
+        "outline_revision_id": "outline-1",
+        "lessons": {},
+        "jobs": {},
+    })
+
+    result = read_course_production_state(
+        {"course_id": "course-1"},
+        authoring_repository=None,
+        authoring_state=authoring,
+    )
+
+    assert result["course_id"] == "course-1"
+
+
 def test_projection_reads_unconfirmed_draft_through_public_task_manager_boundary():
     class AuthoringRepository:
         @staticmethod

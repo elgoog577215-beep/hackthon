@@ -24,7 +24,7 @@ describe('calendar and course file-space boundary', () => {
     expect(loadWorkspace).toContain("params: { view: 'summary' }")
     expect(loadWorkspace).not.toContain('`/api/courses/${requestedCourseId}`')
     expect(loadWorkspace).toContain('void lessonLoad.catch(() => undefined)')
-    expect(loadWorkspace).toContain('if (!loadBlueprintFirst && !loadPptLessonFirst)')
+    expect(loadWorkspace).toContain('if (!loadBlueprintFirst && !loadTargetLessonFirst)')
     expect(loadWorkspace).not.toContain("courseStore.fetchCourseList({ surface: 'teacher'")
     expect(loadWorkspace.indexOf('generationStore.fetchGlobalTasks()')).toBeGreaterThan(criticalRead)
   })
@@ -35,15 +35,15 @@ describe('calendar and course file-space boundary', () => {
     expect(lessonStore).toContain('timeout: TEACHER_LESSON_READ_TIMEOUT_MS')
   })
 
-  it('loads a direct PPT route from the requested lesson instead of the full course preview', () => {
+  it('loads lesson, script and PPT routes from the summary plus requested lesson instead of the full course preview', () => {
     const workspace = source('views/CourseWorkspaceView.vue')
     const loadWorkspace = workspace.match(/async function loadWorkspace\(\) \{[\s\S]*?\n\}/)?.[0] || ''
 
-    expect(loadWorkspace).toContain("const loadPptLessonFirst = workspaceView.value === 'categories'")
-    expect(loadWorkspace).toContain("requestedWorkbenchStage.value === 'ppt'")
-    expect(loadWorkspace).toContain('lessonStore.loadLesson(requestedCourseId, requestedLessonId.value)')
+    expect(loadWorkspace).toContain("const loadTargetLessonFirst = workspaceView.value === 'categories'")
+    expect(loadWorkspace).toContain("['lesson', 'script', 'ppt'].includes(requestedWorkbenchStage.value)")
+    expect(loadWorkspace).toContain('lessonStore.loadInitial(requestedCourseId, requestedLessonId.value)')
     expect(loadWorkspace).toContain('courseStore.prepareCourseShell(requestedCourseId, false)')
-    expect(loadWorkspace).toContain('if (!loadBlueprintFirst && !loadPptLessonFirst)')
+    expect(loadWorkspace).toContain('if (!loadBlueprintFirst && !loadTargetLessonFirst)')
   })
 
   it('loads question-bank detail only when the teacher opens that stage', () => {
