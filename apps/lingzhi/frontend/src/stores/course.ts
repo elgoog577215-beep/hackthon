@@ -65,7 +65,7 @@ const downloadBlob = (blob: Blob, filename: string) => {
     setTimeout(() => URL.revokeObjectURL(url), 100)
 }
 
-type CourseProjection = 'published' | 'generation_preview'
+type CourseProjection = 'published' | 'generation_preview' | 'teacher_lesson_summary'
 type CourseListSurface = 'student' | 'teacher'
 
 const courseListRequests = new WeakMap<object, Map<CourseListSurface, Promise<void>>>()
@@ -348,11 +348,15 @@ export const useCourseStore = defineStore('course', {
         if (existing) this.courseList[index] = { ...existing, course_production_state: normalized }
     },
 
-    prepareCourseShell(courseId: string, loading = true) {
+    prepareCourseShell(
+        courseId: string,
+        loading = true,
+        projection: CourseProjection = 'published',
+    ) {
         const loadVersion = ++this.courseLoadVersion
         this.loading = loading
         this.currentCourseId = courseId
-        this.currentCourseProjection = 'published'
+        this.currentCourseProjection = projection
         this.currentGenerationPreviewUpdatedAt = ''
         this.currentCourseVersionId = ''
         this.currentDocumentRevision = ''
@@ -578,6 +582,7 @@ export const useCourseStore = defineStore('course', {
 
     async refreshCourseData(courseId: string, surface: 'student' | 'teacher' = 'student') {
         if (this.currentCourseId !== courseId || this.loading) return
+        if (this.currentCourseProjection === 'teacher_lesson_summary') return
         const loadVersion = this.courseLoadVersion
         try {
             if (this.currentCourseProjection === 'generation_preview') {

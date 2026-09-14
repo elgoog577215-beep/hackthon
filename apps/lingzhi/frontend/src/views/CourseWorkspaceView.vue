@@ -269,7 +269,7 @@ async function loadWorkspace() {
       && requestedWorkbenchStage.value === 'foundation'
     const loadTargetLessonFirst = workspaceView.value === 'categories'
       && ['lesson', 'script', 'ppt'].includes(requestedWorkbenchStage.value)
-    if (loadTargetLessonFirst) courseStore.prepareCourseShell(requestedCourseId, false)
+    if (loadTargetLessonFirst) courseStore.prepareCourseShell(requestedCourseId, false, 'teacher_lesson_summary')
     const primaryContentLoad = loadBlueprintFirst
       ? courseWorkspace.loadBlueprint(requestedCourseId)
       : loadTargetLessonFirst

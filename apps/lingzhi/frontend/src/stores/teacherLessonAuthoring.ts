@@ -1037,6 +1037,11 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       }
     },
     async loadInitial(courseId: string, requestedLessonId = '') {
+      const requestedLesson = requestedLessonId
+        ? this.loadLesson(courseId, requestedLessonId)
+          .then(response => ({ response, error: null }))
+          .catch(error => ({ response: null, error }))
+        : null
       const summary = await this.loadSummary(courseId)
       if (this.courseId !== courseId) return { ...summary, initial_lesson_id: '' }
       const initialLessonId = (
@@ -1045,7 +1050,12 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       )
         ? requestedLessonId
         : this.lessons[0]?.lesson_unit_id || ''
-      if (initialLessonId) await this.loadLesson(courseId, initialLessonId)
+      if (requestedLesson && initialLessonId === requestedLessonId) {
+        const result = await requestedLesson
+        if (result.error) throw result.error
+      } else if (initialLessonId) {
+        await this.loadLesson(courseId, initialLessonId)
+      }
       return { ...summary, initial_lesson_id: initialLessonId }
     },
     async load(courseId: string, options: { afterCurrent?: boolean } = {}) {
