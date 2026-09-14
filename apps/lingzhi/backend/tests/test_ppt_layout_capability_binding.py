@@ -1,19 +1,19 @@
 """Cross-template layout binding contracts for the handout-to-PPT path."""
 
-from copy import deepcopy
 import asyncio
 import json
+from copy import deepcopy
 
 import pytest
 
 from backend.tests.test_teacher_script_ppt import TEXT, sample
+from ppt_layout_binding import bind_page_layout
 from teacher_script_ppt import (
     _prepare_page_candidates,
     generate_bundle,
     generation_contract,
     validate_block_pages,
 )
-from ppt_layout_binding import bind_page_layout
 
 
 def _block() -> dict:
