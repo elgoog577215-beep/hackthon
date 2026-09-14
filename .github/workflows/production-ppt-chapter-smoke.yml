@@ -1,4 +1,4 @@
-name: Run two approved live PPT lessons without operator recovery
+name: Replay two PPT lessons with unpublished feature branch
 
 on:
   workflow_dispatch:
@@ -29,6 +29,12 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - name: Checkout unpublished PPT feature
+        uses: actions/checkout@v4
+        with:
+          ref: fix/ppt-layout-capability-binding
+          path: feature
+
       - name: Configure production SSH
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
@@ -44,13 +50,43 @@ jobs:
           chmod 600 ~/.ssh/lingzhi_deploy
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Run formal website generation and export without recovery
+      - name: Upload unpublished backend to isolated server directory
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
-            -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
+          test_root="/tmp/lingzhi-ppt-source-test-${GITHUB_RUN_ID}"
+          ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "mkdir -p '$test_root'"
+          tar --exclude='backend/data' --exclude='*/__pycache__' -C feature/apps/lingzhi -czf - backend \
+            | ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+              "tar -xzf - -C '$test_root'"
+
+      - name: Replay production checkpoints in memory without writes
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+        run: |
+          set -euo pipefail
+          test_root="/tmp/lingzhi-ppt-source-test-${GITHUB_RUN_ID}"
+          ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=30 \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            '/opt/lingzhi/.venv/bin/python -' < apps/lingzhi/scripts/run_live_two_lesson_ppt_test.py
+            "set -a; . /opt/lingzhi/state/.env; set +a; export PYTHONDONTWRITEBYTECODE=1; export PYTHONPATH='$test_root/backend'; cd '$test_root/backend'; /opt/lingzhi/.venv/bin/python -" \
+            < apps/lingzhi/scripts/replay_two_lesson_ppt_with_feature.py
+
+      - name: Remove isolated feature directory
+        if: always()
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+        run: |
+          set -euo pipefail
+          test_root="/tmp/lingzhi-ppt-source-test-${GITHUB_RUN_ID}"
+          case "$test_root" in /tmp/lingzhi-ppt-source-test-[0-9]*) ;; *) exit 1 ;; esac
+          ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "rm -rf -- '$test_root'"
