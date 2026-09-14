@@ -539,6 +539,18 @@ describe('course generation lifecycle reconciliation', () => {
     expect(get).not.toHaveBeenCalled()
   })
 
+  it('教师分讲摘要工作区重连时不读取整课 document', async () => {
+    const courses = useCourseStore()
+    courses.currentCourseId = 'lesson-summary-course'
+    courses.currentCourseProjection = 'teacher_lesson_summary' as any
+    courses.loading = false
+    const get = vi.spyOn(http, 'get')
+
+    await courses.refreshCourseData('lesson-summary-course', 'teacher')
+
+    expect(get).not.toHaveBeenCalled()
+  })
+
   it('刷新后保留大纲等待继续状态并读取可编辑投影', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()

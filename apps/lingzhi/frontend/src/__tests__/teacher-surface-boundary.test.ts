@@ -42,7 +42,7 @@ describe('calendar and course file-space boundary', () => {
     expect(loadWorkspace).toContain("const loadTargetLessonFirst = workspaceView.value === 'categories'")
     expect(loadWorkspace).toContain("['lesson', 'script', 'ppt'].includes(requestedWorkbenchStage.value)")
     expect(loadWorkspace).toContain('lessonStore.loadInitial(requestedCourseId, requestedLessonId.value)')
-    expect(loadWorkspace).toContain('courseStore.prepareCourseShell(requestedCourseId, false)')
+    expect(loadWorkspace).toContain("courseStore.prepareCourseShell(requestedCourseId, false, 'teacher_lesson_summary')")
     expect(loadWorkspace).toContain('if (!loadBlueprintFirst && !loadTargetLessonFirst)')
   })
 
