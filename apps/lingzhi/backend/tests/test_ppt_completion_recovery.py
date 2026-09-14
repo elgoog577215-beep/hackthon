@@ -41,9 +41,17 @@ def test_rebinds_multiple_source_claims_before_spending_repair_budget(source):
     validate_block_pages(block, template)
 
 
-def test_unknown_layout_enters_bounded_page_repair():
+def test_unknown_layout_with_ambiguous_fields_enters_bounded_page_repair():
     template, contract, page = sample()
     bad = {**deepcopy(page), "layout_id": "nonexistent-layout"}
+    bad["fields"] = {
+        "title": "课堂要点",
+        "notes": "根据讲义说明执行方式。",
+        "points": [{
+            "text": "根据任务依赖选择执行方式",
+            "sources": [{"block_id": "b", "quote": TEXT}],
+        }],
+    }
     calls = []
 
     async def invoke(*args, **kwargs):

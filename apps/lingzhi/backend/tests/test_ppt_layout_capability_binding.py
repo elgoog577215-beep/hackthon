@@ -10,6 +10,7 @@ from teacher_script_ppt import (
     generation_contract,
     validate_block_pages,
 )
+from ppt_layout_binding import bind_page_layout
 
 
 def _block() -> dict:
@@ -95,3 +96,12 @@ def test_unresolved_layout_error_records_supplied_and_allowed_layout_keys():
     assert "allowed=" in detail
     assert "bullets" in detail
     assert "summary" in detail
+
+
+def test_conflicting_stable_key_and_legacy_layout_id_are_rejected():
+    template, _, page = sample()
+    candidate = deepcopy(page)
+    candidate["layout_key"] = "flow"
+
+    with pytest.raises(ValueError, match="script_ppt_layout_identity_conflict"):
+        bind_page_layout(candidate, template)
