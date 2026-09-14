@@ -1,4 +1,4 @@
-name: Replay two PPT lessons with unpublished feature branch
+name: Replay remaining four PPT lessons with unpublished feature branch
 
 on:
   workflow_dispatch:

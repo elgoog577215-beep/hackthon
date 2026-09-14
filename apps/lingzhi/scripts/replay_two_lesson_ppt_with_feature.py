@@ -12,10 +12,7 @@ from pathlib import Path
 
 
 COURSE_ID = "2b3f4d8c-2af7-4133-a4f2-1060e8e9f54b"
-TARGETS = (
-    ("L1-1", "tlj-979b941a22c84c44beb1f07ac2205798", "tlsr-1097b09406b5080ff21e0afd"),
-    ("L1-2", "tlj-68760fa978174d4e996b342e583d3e4e", "tlsr-a209b5939e3dba285598986c"),
-)
+TARGET_LESSONS = ("L1-3", "L1-4", "L1-5", "L1-6")
 AUTHORING = Path("/opt/lingzhi/state/backend-data/teacher_lesson_authoring") / f"{COURSE_ID}.json"
 
 
@@ -38,6 +35,7 @@ async def main() -> None:
     from course_presentation_graph import compile_course_presentation_graph
     from slide_deck_v6 import compile_slide_deck_v6_from_manuscript
     from slide_deck_v6_renderer import export_slide_deck_v6_pptx
+    from ppt_fixed_templates import compile_fixed_template
     from teacher_script_ppt import (
         RECOVERY_CONTRACT,
         compile_bundle_manuscript,
@@ -50,19 +48,25 @@ async def main() -> None:
 
     payload = json.loads(AUTHORING.read_text(encoding="utf-8"))
     service = get_course_service()
-    for lesson_id, task_id, script_revision_id in TARGETS:
+    completed_lessons = []
+    for lesson_id in TARGET_LESSONS:
         lesson = payload["lessons"][lesson_id]
-        if lesson.get("working_script_revision_id") != script_revision_id:
-            raise ValueError(f"source_revision_changed:{lesson_id}")
+        script_revision_id = str(lesson.get("working_script_revision_id") or "")
+        if not script_revision_id:
+            raise ValueError(f"source_revision_missing:{lesson_id}")
         revision = next(
             item
             for item in lesson.get("script_revisions", [])
             if item.get("revision_id") == script_revision_id
         )
+        state = lesson.get("ppt_manuscript") or {}
+        task_id = str(state.get("task_id") or "")
         job = payload.get("jobs", {}).get(task_id) or {}
+        if job.get("status") in {"pending", "running"}:
+            raise ValueError(f"target_lesson_busy:{lesson_id}:{task_id}")
         template_payload = (job.get("request_snapshot") or {}).get("ppt_template")
         if not template_payload:
-            raise ValueError(f"template_snapshot_missing:{lesson_id}")
+            template_payload = compile_fixed_template("qizhi-classroom").model_dump(mode="json")
         template = TemplateLayoutPackContractV1.model_validate(template_payload)
         checkpoint = job.get("bundle_blocks") or {}
         generated_sections = []
@@ -187,7 +191,7 @@ async def main() -> None:
             event="isolated_lesson_complete",
             lesson_id=lesson_id,
             original_task_id=task_id,
-            original_status=job.get("status"),
+            original_status=job.get("status") or "not_started",
             source_revision=script_revision_id,
             recovery_contract=RECOVERY_CONTRACT,
             blocks=len(blocks),
@@ -203,7 +207,8 @@ async def main() -> None:
             source_grounded_fallback_pages=fallback_pages,
             handout_unchanged=True,
         )
-    emit(event="isolated_two_lesson_complete", lessons=[item[0] for item in TARGETS])
+        completed_lessons.append(lesson_id)
+    emit(event="isolated_four_lesson_complete", lessons=completed_lessons)
 
 
 if __name__ == "__main__":
