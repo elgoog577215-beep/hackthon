@@ -1478,19 +1478,27 @@ def _lesson_projection(
     outline_ready = has_complete_teacher_outline(source)
     assets = (authoring_state if authoring_state is not None else repository.view(course_id)).get("lessons") or {}
     nodes = [item for item in source.get("nodes") or [] if isinstance(item, dict)]
-    lessons = [
+    all_lessons = [
         item for item in nodes
         if int(item.get("node_level") or 0) == 1
         and str(item.get("parent_node_id") or "").lower() in {"", "root"}
-        and (
+    ]
+    lesson_numbers = {
+        str(item.get("node_id") or ""): index
+        for index, item in enumerate(all_lessons, start=1)
+    }
+    lessons = [
+        item for item in all_lessons
+        if (
             lesson_unit_ids is None
             or str(item.get("node_id") or "") in lesson_unit_ids
         )
     ]
     result = []
     schedule_slots = (source.get("course_profile") or {}).get("schedule_slots") or []
-    for index, lesson in enumerate(lessons, start=1):
+    for lesson in lessons:
         lesson_id = str(lesson.get("node_id") or "")
+        index = lesson_numbers[lesson_id]
         sections = [
             item for item in nodes
             if str(item.get("parent_node_id") or "") == lesson_id

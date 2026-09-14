@@ -4003,10 +4003,15 @@ function resetLessonViewport() {
   if (lessonStageContent.value) lessonStageContent.value.scrollTop = 0
 }
 
+let lessonLoadSelectionSequence = 0
 async function selectLesson(lessonId?: string) {
   if (!lessonId) return
   if (aiCandidatePending.value && selectedLessonId.value !== lessonId) return
   if (selectedLessonId.value !== lessonId && !await finishEditing()) return
+  const selectionSequence = selectedLessonId.value !== lessonId
+    ? ++lessonLoadSelectionSequence
+    : lessonLoadSelectionSequence
+  const requestedCourseId = props.courseId
   let lesson = lessonStore.lessons.find(item => item.lesson_unit_id === lessonId)
   if (lesson && (
     lesson.content_scope === 'summary'
@@ -4015,6 +4020,10 @@ async function selectLesson(lessonId?: string) {
   )) {
     try {
       await lessonStore.loadLesson(props.courseId, lessonId)
+      if (
+        selectionSequence !== lessonLoadSelectionSequence
+        || props.courseId !== requestedCourseId
+      ) return
       lesson = lessonStore.lessons.find(item => item.lesson_unit_id === lessonId)
     } catch {
       return

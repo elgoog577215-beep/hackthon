@@ -580,40 +580,62 @@ function lessonContentLoaded(lesson?: TeacherLessonProjection): boolean {
     || lesson?.script?.content_loaded === true
 }
 
+function lessonProjectionContentIdentity(lesson?: TeacherLessonProjection): string {
+  if (!lesson) return ''
+  return JSON.stringify({
+    plan: String(lesson.plan?.working_revision_id || ''),
+    script: String(lesson.script?.current_revision_id || ''),
+  })
+}
+
 function mergeLessonProjection(
   existing: TeacherLessonProjection | undefined,
   incoming: TeacherLessonProjection,
 ): TeacherLessonProjection {
   if (!existing || incoming.content_scope !== 'summary' || !lessonContentLoaded(existing)) return incoming
+  const planRevisionId = String(incoming.plan?.working_revision_id || '')
+  const existingPlanRevisionId = String(
+    existing.plan?.current_revision?.revision_id
+    || existing.plan?.working_revision_id
+    || '',
+  )
+  const scriptRevisionId = String(incoming.script?.current_revision_id || '')
+  const existingScriptRevisionId = String(existing.script?.current_revision_id || '')
+  const preservePlan = Boolean(
+    existing.plan?.content_loaded
+    && planRevisionId
+    && planRevisionId === existingPlanRevisionId,
+  )
+  const preserveScript = Boolean(
+    existing.script?.content_loaded
+    && scriptRevisionId
+    && scriptRevisionId === existingScriptRevisionId,
+  )
+  const allAvailableContentPreserved = (
+    (!planRevisionId || preservePlan)
+    && (!scriptRevisionId || preserveScript)
+    && (preservePlan || preserveScript)
+  )
   return {
     ...incoming,
-    content_scope: 'full',
+    content_scope: allAvailableContentPreserved ? 'full' : 'summary',
     plan: {
       ...incoming.plan,
-      content_loaded: true,
-      current_revision: existing.plan.current_revision,
-      ai_candidate: existing.plan.ai_candidate,
-      ppt_assets: existing.plan.ppt_assets,
+      content_loaded: preservePlan,
+      current_revision: preservePlan ? existing.plan.current_revision : incoming.plan.current_revision,
+      ai_candidate: preservePlan ? existing.plan.ai_candidate : incoming.plan.ai_candidate,
     },
     script: {
       ...incoming.script,
-      content_loaded: true,
-      quality_report: existing.script.quality_report,
-      sections: existing.script.sections,
-      ai_candidate: existing.script.ai_candidate,
+      content_loaded: preserveScript,
+      quality_report: preserveScript ? existing.script.quality_report : incoming.script.quality_report,
+      sections: preserveScript ? existing.script.sections : incoming.script.sections,
+      ai_candidate: preserveScript ? existing.script.ai_candidate : incoming.script.ai_candidate,
     },
-    material_drafts: existing.material_drafts,
+    material_drafts: allAvailableContentPreserved
+      ? existing.material_drafts
+      : incoming.material_drafts,
   }
-}
-
-function mergeLessonProjections(
-  existing: TeacherLessonProjection[],
-  incoming: TeacherLessonProjection[],
-): TeacherLessonProjection[] {
-  const byId = new Map(existing.map(lesson => [lesson.lesson_unit_id, lesson]))
-  return incoming
-    .map(lesson => mergeLessonProjection(byId.get(lesson.lesson_unit_id), lesson))
-    .sort((left, right) => left.number - right.number)
 }
 
 const LESSON_JOB_STATUS_ORDER: Record<TeacherLessonJobStatus, number> = {
@@ -875,6 +897,9 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
     refreshing: false,
     loadedCourseId: '',
     viewScope: '' as '' | 'lesson' | 'summary' | 'full',
+    readSequence: 0,
+    appliedCourseReadSequence: 0,
+    appliedLessonReadSequences: {} as Record<string, number>,
     actionLessonId: '',
     streamingJobIds: {} as Record<string, boolean>,
     focusedLessonId: '',
@@ -947,6 +972,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       jobs.forEach(job => { void this.streamJob(this.courseId, job.id) })
     },
     async loadLesson(courseId: string, lessonUnitId: string) {
+      const readSequence = ++this.readSequence
       const hasLesson = this.courseId === courseId
         && this.lessons.some(item => item.lesson_unit_id === lessonUnitId)
       if (this.courseId !== courseId) {
@@ -970,11 +996,35 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
           item => item.lesson_unit_id === lessonUnitId,
         )
         if (!lesson) throw new Error('Requested lesson is unavailable')
-        this.outlineRevisionId = response.outline_revision_id
+        const readKey = `${courseId}:${lessonUnitId}`
+        const appliedSequence = Number(this.appliedLessonReadSequences[readKey] || 0)
+        const currentLesson = this.lessons.find(item => item.lesson_unit_id === lessonUnitId)
+        if (appliedSequence > readSequence) {
+          if (
+            currentLesson
+            && !lessonContentLoaded(currentLesson)
+            && lessonProjectionContentIdentity(currentLesson) === lessonProjectionContentIdentity(lesson)
+          ) {
+            const hydrated = mergeLessonProjection(lesson, currentLesson)
+            this.lessons = [
+              ...this.lessons.filter(item => item.lesson_unit_id !== lessonUnitId),
+              hydrated,
+            ].sort((left, right) => left.number - right.number)
+          }
+          return response
+        }
+        if (readSequence >= this.appliedCourseReadSequence) {
+          this.outlineRevisionId = response.outline_revision_id
+          this.appliedCourseReadSequence = readSequence
+        }
         this.lessons = [
           ...this.lessons.filter(item => item.lesson_unit_id !== lessonUnitId),
           mergeLessonProjection(undefined, lesson),
         ].sort((left, right) => left.number - right.number)
+        this.appliedLessonReadSequences = {
+          ...this.appliedLessonReadSequences,
+          [readKey]: readSequence,
+        }
         this.viewScope = response.view_scope || 'lesson'
         this.error = ''
         return response
@@ -988,6 +1038,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       }
     },
     async loadSummary(courseId: string) {
+      const readSequence = ++this.readSequence
       const hasSuccessfulSnapshot = this.courseId === courseId && this.lessons.length > 0
       if (this.courseId !== courseId) {
         this.stopObserving()
@@ -1009,8 +1060,29 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         if (this.courseId !== courseId) return response
         const lessons = Array.isArray(response.lessons) ? response.lessons : []
         const jobs = Array.isArray(response.jobs) ? response.jobs : []
-        this.outlineRevisionId = response.outline_revision_id
-        this.lessons = mergeLessonProjections(this.lessons, lessons)
+        if (readSequence >= this.appliedCourseReadSequence) {
+          this.outlineRevisionId = response.outline_revision_id
+          this.appliedCourseReadSequence = readSequence
+        }
+        const existingById = new Map(this.lessons.map(lesson => [lesson.lesson_unit_id, lesson]))
+        const nextSequences = { ...this.appliedLessonReadSequences }
+        const incomingIds = new Set(lessons.map(lesson => lesson.lesson_unit_id))
+        const merged = lessons.map(lesson => {
+          const readKey = `${courseId}:${lesson.lesson_unit_id}`
+          if (Number(nextSequences[readKey] || 0) > readSequence) {
+            return existingById.get(lesson.lesson_unit_id) || lesson
+          }
+          nextSequences[readKey] = readSequence
+          return mergeLessonProjection(existingById.get(lesson.lesson_unit_id), lesson)
+        })
+        this.lessons = [
+          ...merged,
+          ...this.lessons.filter(lesson => (
+            !incomingIds.has(lesson.lesson_unit_id)
+            && Number(nextSequences[`${courseId}:${lesson.lesson_unit_id}`] || 0) > readSequence
+          )),
+        ].sort((left, right) => left.number - right.number)
+        this.appliedLessonReadSequences = nextSequences
         this.jobs = mergeLessonJobSnapshots(this.jobs, jobs)
         this.productionState = response.course_production_state || this.productionState
         if (response.course_production_state) {
@@ -1059,6 +1131,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       return { ...summary, initial_lesson_id: initialLessonId }
     },
     async load(courseId: string, options: { afterCurrent?: boolean } = {}) {
+      const readSequence = ++this.readSequence
       const hasSuccessfulSnapshot = this.loadedCourseId === courseId
       if (this.courseId !== courseId) {
         this.stopObserving()
@@ -1084,8 +1157,28 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         const lessons = Array.isArray(response.lessons) ? response.lessons : []
         const jobs = Array.isArray(response.jobs) ? response.jobs : []
         this.courseId = courseId
-        this.outlineRevisionId = response.outline_revision_id
-        this.lessons = lessons
+        if (readSequence >= this.appliedCourseReadSequence) {
+          this.outlineRevisionId = response.outline_revision_id
+          this.appliedCourseReadSequence = readSequence
+        }
+        const existingById = new Map(this.lessons.map(lesson => [lesson.lesson_unit_id, lesson]))
+        const nextSequences = { ...this.appliedLessonReadSequences }
+        const incomingIds = new Set(lessons.map(lesson => lesson.lesson_unit_id))
+        this.lessons = [
+          ...lessons.map(lesson => {
+            const readKey = `${courseId}:${lesson.lesson_unit_id}`
+            if (Number(nextSequences[readKey] || 0) > readSequence) {
+              return existingById.get(lesson.lesson_unit_id) || lesson
+            }
+            nextSequences[readKey] = readSequence
+            return lesson
+          }),
+          ...this.lessons.filter(lesson => (
+            !incomingIds.has(lesson.lesson_unit_id)
+            && Number(nextSequences[`${courseId}:${lesson.lesson_unit_id}`] || 0) > readSequence
+          )),
+        ].sort((left, right) => left.number - right.number)
+        this.appliedLessonReadSequences = nextSequences
         this.jobs = mergeLessonJobSnapshots(this.jobs, jobs)
         this.productionState = response.course_production_state || this.productionState
         if (response.course_production_state) {
@@ -1415,8 +1508,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
           requestConfig(),
         )
         if (this.courseId === courseId) {
-          const index = this.lessons.findIndex(item => item.lesson_unit_id === lessonUnitId)
-          if (index >= 0) this.lessons[index] = response.data.lesson
+          this.replaceLessonProjection(lessonUnitId, response.data.lesson)
         }
         return response.data.lesson
       } catch (error) {
@@ -1520,14 +1612,24 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       return response.data.lesson
     },
     replaceLessonAsset(lessonUnitId: string, plan: TeacherLessonPlanAsset) {
+      const readSequence = ++this.readSequence
       this.lessons = this.lessons.map(item => (
         item.lesson_unit_id === lessonUnitId ? { ...item, plan } : item
       ))
+      this.appliedLessonReadSequences = {
+        ...this.appliedLessonReadSequences,
+        [`${this.courseId}:${lessonUnitId}`]: readSequence,
+      }
     },
     replaceLessonProjection(lessonUnitId: string, lesson: TeacherLessonProjection) {
+      const readSequence = ++this.readSequence
       this.lessons = this.lessons.map(item => (
         item.lesson_unit_id === lessonUnitId ? lesson : item
       ))
+      this.appliedLessonReadSequences = {
+        ...this.appliedLessonReadSequences,
+        [`${this.courseId}:${lessonUnitId}`]: readSequence,
+      }
     },
   },
 })
