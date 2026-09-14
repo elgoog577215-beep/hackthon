@@ -500,6 +500,84 @@ def test_authoring_jobs_feed_the_projection_without_explicit_task_injection():
     assert lesson["issues"][0]["recovery"]["action"] == "retry_generation"
 
 
+def test_superseded_failed_batch_does_not_override_stale_lesson_regeneration():
+    current_first = _ready_lesson(1)
+    stale_second = _ready_lesson(2)
+    stale_second["revisions"].append({
+        "revision_id": "plan-2-current",
+        "generation_source": "ai_optimization",
+        "plan": {
+            "schema_version": "course_teaching_plan_v3",
+            "sections": [{
+                "node_id": "section-2",
+                "teaching_modules": [{"module_id": "module-2-current"}],
+            }],
+        },
+    })
+    stale_second["working_revision_id"] = "plan-2-current"
+    jobs = {
+        "old-failed-1": {
+            "id": "old-failed-1",
+            "parent_job_id": "old-batch",
+            "course_id": "course-1",
+            "type": "teacher_lesson_script_generation",
+            "lesson_unit_id": "lesson-1",
+            "status": "failed",
+            "batch_size": 2,
+            "source_lesson_plan_revision_id": "plan-1",
+            "error": {"code": "generation_interrupted", "retryable": True},
+            "updated_at": "2026-09-08T01:00:00+00:00",
+        },
+        "old-completed-2": {
+            "id": "old-completed-2",
+            "parent_job_id": "old-batch",
+            "course_id": "course-1",
+            "type": "teacher_lesson_script_generation",
+            "lesson_unit_id": "lesson-2",
+            "status": "completed",
+            "batch_size": 2,
+            "source_lesson_plan_revision_id": "plan-2",
+            "updated_at": "2026-09-10T01:00:00+00:00",
+        },
+        "current-completed-1": {
+            "id": "current-completed-1",
+            "course_id": "course-1",
+            "type": "teacher_lesson_script_generation",
+            "lesson_unit_id": "lesson-1",
+            "status": "completed",
+            "source_lesson_plan_revision_id": "plan-1",
+            "updated_at": "2026-09-09T01:00:00+00:00",
+        },
+    }
+
+    result = compile_course_production_state(
+        _course(2),
+        authoring_state={
+            "course_id": "course-1",
+            "outline_revision_id": "outline-1",
+            "lessons": {"lesson-1": current_first, "lesson-2": stale_second},
+            "jobs": jobs,
+        },
+    )
+
+    stage = result["stages"]["script"]
+    lessons = {item["lesson_unit_id"]: item for item in result["lessons"]}
+    assert lessons["lesson-2"]["stages"]["script"]["allowed_actions"] == [
+        "regenerate_from_latest_source"
+    ]
+    assert stage["display_state"] == "available"
+    assert stage["task_state"] == "completed"
+    assert stage["allowed_actions"] == ["regenerate_from_latest_source"]
+    assert stage["action_targets"] == {}
+    assert stage["counts"] == {
+        "total": 2,
+        "available": 1,
+        "generating": 0,
+        "failed": 0,
+        "stale": 1,
+    }
+
+
 def test_duplicate_authoring_and_task_manager_snapshots_count_once():
     failed = {
         "id": "script-retry-1",

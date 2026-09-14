@@ -235,6 +235,7 @@ describe('teacher course workbench outline streaming', () => {
     await selectSecond
 
     expect(setup.selectedLessonId).toBe('L1-3')
+    wrapper.unmount()
   })
 
   it('侧栏只保留标题和导航名称，不再展示描述文本', () => {
@@ -2171,6 +2172,59 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.context-pane-heading').text()).not.toContain('暂停')
     await wrapper.get('[data-testid="script-course-preview-generate"]').trigger('click')
     await flushPromises()
+    expect(generateAll).toHaveBeenCalledWith('course-1', '')
+  })
+
+  it('整课只有过期讲义时按最新教案重新生成且不恢复旧任务', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    const snapshot = strictProductionSnapshot({
+      script: {
+        display_state: 'available', task_state: 'completed', availability: 'stale',
+        source_state: 'mixed', update_required: true,
+        allowed_actions: ['regenerate_from_latest_source'], action_targets: {},
+        counts: { total: 2, available: 1, generating: 0, failed: 0, stale: 1 },
+      },
+    })
+    snapshot.lessons = [
+      {
+        lesson_unit_id: 'L1-1',
+        stages: { script: strictProductionStage({ display_state: 'available', availability: 'usable' }) },
+      },
+      {
+        lesson_unit_id: 'L1-2',
+        stages: { script: strictProductionStage({
+          display_state: 'available', task_state: 'completed', availability: 'stale',
+          source_state: 'stale', update_required: true,
+          allowed_actions: ['regenerate_from_latest_source'],
+        }) },
+      },
+    ] as any
+    lessonStore.productionState = snapshot as any
+    lessonStore.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45,
+      sections: [{ section_node_id: `L2-${number}-1`, title: `${number}.1 核心内容` }],
+      arrangement: { source_state: 'current', blocks: [] },
+      plan: {
+        working_revision_id: `plan-${number}${number === 2 ? '-current' : ''}`,
+        source_state: 'current', ready: true, current_revision: null, ppt_assets: [],
+      },
+      script: {
+        current_revision_id: `script-${number}`, source_lesson_plan_revision_id: `plan-${number}`,
+        source_state: number === 2 ? 'stale' : 'current', ready: number === 1,
+        can_generate: true, sections: [{ section_node_id: `L2-${number}-1`, content: '已有正文' }],
+      },
+    })) as any
+    const generateAll = vi.spyOn(lessonStore, 'generateAllScripts').mockResolvedValue({
+      parent_job: { id: 'new-script-batch' }, jobs: [],
+    } as any)
+
+    const wrapper = mountWorkbench({ initialStage: 'script', initialLessonId: 'L1-2' })
+    const action = wrapper.get('[data-testid="script-batch-start"]')
+    expect(action.text()).toBe('重新生成')
+
+    await action.trigger('click')
+    await flushPromises()
+
     expect(generateAll).toHaveBeenCalledWith('course-1', '')
   })
 
