@@ -477,6 +477,33 @@ def test_lesson_projection_does_not_treat_student_body_as_teacher_script(tmp_pat
     assert lesson["script"]["ready"] is False
 
 
+def test_targeted_lesson_projection_keeps_course_number_and_schedule_duration():
+    from types import SimpleNamespace
+
+    source = course_data()
+    source["course_profile"] = {
+        "schedule_slots": [
+            {"weekday": 1, "period": 1},
+            {"weekday": 1, "period": 2},
+            {"weekday": 3, "period": 1},
+        ]
+    }
+    repository = SimpleNamespace(view=lambda _course_id: {"lessons": {}})
+
+    full = teacher_lesson_router._lesson_projection(source, repository)
+    targeted = teacher_lesson_router._lesson_projection(
+        source,
+        repository,
+        lesson_unit_ids={"L1-2"},
+    )
+    full_second = next(
+        lesson for lesson in full if lesson["lesson_unit_id"] == "L1-2"
+    )
+
+    assert targeted[0]["number"] == full_second["number"] == 2
+    assert targeted[0]["duration_minutes"] == full_second["duration_minutes"] == 45
+
+
 def test_retired_teacher_confirmation_and_history_routes_are_not_registered():
     paths = {route.path for route in teacher_lesson_router.router.routes}
     lesson_prefix = "/teacher/courses/{course_id}/lessons/{lesson_unit_id}"

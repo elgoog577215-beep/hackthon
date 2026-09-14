@@ -363,6 +363,78 @@ describe('teacher lesson authoring store', () => {
     expect(store.viewScope).toBe('summary')
   })
 
+  it('does not combine a newer summary revision with an older loaded body', async () => {
+    const store = useTeacherLessonAuthoringStore()
+    store.courseId = 'course-1'
+    store.lessons = [{
+      lesson_unit_id: 'L1-1', number: 1, title: '第一讲', content_scope: 'full',
+      plan: {
+        content_loaded: true,
+        working_revision_id: 'plan-1',
+        current_revision: { revision_id: 'plan-1', plan: { sections: [{ node_id: 'S1' }] } },
+        ppt_assets: [{ asset_id: 'ppt-1' }],
+      },
+      script: {
+        content_loaded: true,
+        current_revision_id: 'script-1',
+        sections: [{ section_node_id: 'S1', title: '正文', content: '旧正文' }],
+      },
+    }] as any
+    httpMock.get.mockResolvedValue({ data: {
+      schema_version: 'teacher_lesson_authoring_view_v1', view_scope: 'summary',
+      course_id: 'course-1', outline_revision_id: 'outline-1', jobs: [],
+      lessons: [{
+        lesson_unit_id: 'L1-1', number: 1, title: '第一讲', content_scope: 'summary',
+        plan: { content_loaded: false, working_revision_id: 'plan-2', current_revision: null, ppt_assets: [] },
+        script: { content_loaded: false, current_revision_id: 'script-2', sections: [] },
+      }],
+    } })
+
+    await store.loadSummary('course-1')
+
+    expect(store.lessons[0]?.content_scope).toBe('summary')
+    expect(store.lessons[0]?.plan.content_loaded).toBe(false)
+    expect(store.lessons[0]?.plan.current_revision).toBeNull()
+    expect(store.lessons[0]?.script.content_loaded).toBe(false)
+    expect(store.lessons[0]?.script.sections).toEqual([])
+  })
+
+  it('does not let a late targeted lesson read replace a newer full snapshot', async () => {
+    const store = useTeacherLessonAuthoringStore()
+    let resolveTargeted!: (value: any) => void
+    httpMock.get.mockImplementation((_url: string, config: any) => {
+      if (config.params?.lesson_unit_id) {
+        return new Promise(resolve => { resolveTargeted = resolve })
+      }
+      return Promise.resolve({ data: {
+        schema_version: 'teacher_lesson_authoring_view_v1', view_scope: 'full',
+        course_id: 'course-1', outline_revision_id: 'outline-2', jobs: [],
+        lessons: [{
+          lesson_unit_id: 'L1-1', number: 1, title: '第一讲', content_scope: 'full',
+          plan: { content_loaded: true, working_revision_id: 'plan-2', current_revision: { revision_id: 'plan-2' }, ppt_assets: [] },
+          script: { content_loaded: true, current_revision_id: 'script-2', sections: [{ section_node_id: 'S1', content: '新正文' }] },
+        }],
+      } })
+    })
+
+    const targeted = store.loadLesson('course-1', 'L1-1')
+    await store.load('course-1')
+    resolveTargeted({ data: {
+      schema_version: 'teacher_lesson_authoring_view_v1', view_scope: 'lesson',
+      course_id: 'course-1', outline_revision_id: 'outline-1', jobs: [],
+      lessons: [{
+        lesson_unit_id: 'L1-1', number: 1, title: '第一讲', content_scope: 'full',
+        plan: { content_loaded: true, working_revision_id: 'plan-1', current_revision: { revision_id: 'plan-1' }, ppt_assets: [] },
+        script: { content_loaded: true, current_revision_id: 'script-1', sections: [{ section_node_id: 'S1', content: '旧正文' }] },
+      }],
+    } })
+    await targeted
+
+    expect(store.outlineRevisionId).toBe('outline-2')
+    expect(store.lessons[0]?.script.current_revision_id).toBe('script-2')
+    expect(store.lessons[0]?.script.sections[0]?.content).toBe('新正文')
+  })
+
   it('loads summary then the requested lesson as the initial visible content', async () => {
     const store = useTeacherLessonAuthoringStore()
     httpMock.get.mockImplementation((_url: string, config: any) => Promise.resolve({ data: config.params?.view === 'summary' ? {

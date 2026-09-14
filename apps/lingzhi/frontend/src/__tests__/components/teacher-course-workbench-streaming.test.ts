@@ -184,6 +184,59 @@ describe('teacher course workbench outline streaming', () => {
     vi.useRealTimers()
   })
 
+  it('keeps the latest lesson selection when an earlier lesson read finishes last', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.courseId = 'course-1'
+    lessonStore.loadedCourseId = 'course-1'
+    lessonStore.viewScope = 'summary'
+    lessonStore.outlineRevisionId = 'outline-1'
+    lessonStore.lessons = ['L1-1', 'L1-2', 'L1-3'].map((lessonId, index) => ({
+      lesson_unit_id: lessonId,
+      number: index + 1,
+      title: `第${index + 1}讲`,
+      duration_minutes: 45,
+      content_scope: index === 0 ? 'full' : 'summary',
+      sections: [],
+      arrangement: { blocks: [], source_state: 'current' },
+      plan: {
+        content_loaded: index === 0,
+        working_revision_id: `plan-${index + 1}`,
+        current_revision: index === 0 ? { revision_id: 'plan-1' } : null,
+        ppt_assets: [],
+        source_state: 'current',
+      },
+      script: {
+        content_loaded: index === 0,
+        current_revision_id: `script-${index + 1}`,
+        sections: [],
+        source_state: 'current',
+        ready: index === 0,
+      },
+    })) as any
+    let resolveSecond!: (value: any) => void
+    let resolveThird!: (value: any) => void
+    vi.spyOn(lessonStore, 'loadLesson').mockImplementation((_courseId, lessonId) => (
+      new Promise(resolve => {
+        if (lessonId === 'L1-2') resolveSecond = resolve
+        else resolveThird = resolve
+      })
+    ) as any)
+    const wrapper = mountWorkbench({ initialStage: 'lesson', initialLessonId: 'L1-1' })
+    await flushPromises()
+    const setup = (wrapper.vm as any).$?.setupState
+
+    const selectSecond = setup.selectLesson('L1-2')
+    await flushPromises()
+    const selectThird = setup.selectLesson('L1-3')
+    await flushPromises()
+    resolveThird({})
+    await selectThird
+    resolveSecond({})
+    await selectSecond
+
+    expect(setup.selectedLessonId).toBe('L1-3')
+  })
+
   it('侧栏只保留标题和导航名称，不再展示描述文本', () => {
     const wrapper = mountWorkbench()
 
