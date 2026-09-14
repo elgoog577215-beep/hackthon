@@ -509,7 +509,17 @@ def _prepare_page_candidates(pages: list[Any], block: dict[str, Any], template=N
             continue
         candidate = deepcopy(page)
         if template is not None:
-            candidate = bind_page_layout(candidate, template)
+            try:
+                candidate = bind_page_layout(candidate, template)
+            except ValueError as error:
+                if not str(error).startswith("script_ppt_layout_identity_conflict:"):
+                    raise
+                # Preserve the conflict as the rejected identifier so the
+                # normal page validator and bounded repair loop own recovery.
+                candidate.pop("layout_key", None)
+                candidate["layout_id"] = str(error)
+                prepared.append(candidate)
+                continue
         _expand_identifier_shorthand(candidate, block["content"])
         for key in ("layout_id", "page_goal"):
             if key in candidate:
