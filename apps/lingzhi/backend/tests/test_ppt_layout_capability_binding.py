@@ -1,12 +1,15 @@
 """Cross-template layout binding contracts for the handout-to-PPT path."""
 
 from copy import deepcopy
+import asyncio
+import json
 
 import pytest
 
 from backend.tests.test_teacher_script_ppt import TEXT, sample
 from teacher_script_ppt import (
     _prepare_page_candidates,
+    generate_bundle,
     generation_contract,
     validate_block_pages,
 )
@@ -105,3 +108,70 @@ def test_conflicting_stable_key_and_legacy_layout_id_are_rejected():
 
     with pytest.raises(ValueError, match="script_ppt_layout_identity_conflict"):
         bind_page_layout(candidate, template)
+
+
+def test_every_frozen_template_layout_has_one_stable_model_key():
+    template, _, _ = sample()
+
+    for layout in template.layouts:
+        candidate = bind_page_layout(
+            {"layout_key": layout.layout_slug, "page_goal": "明确教学目标", "fields": {}},
+            template,
+        )
+        assert candidate["layout_id"] == layout.template_layout_id
+        assert "layout_key" not in candidate
+
+
+def test_joint_generation_persists_exact_layout_id_from_stable_model_key():
+    template, contract, page = sample()
+    model_page = deepcopy(page)
+    model_page["layout_key"] = "comparison"
+    model_page.pop("layout_id")
+
+    async def invoke(*_args, **_kwargs):
+        return json.dumps({
+            "blocks": [{"block_id": "b", "content": TEXT, "pages": [model_page]}]
+        }, ensure_ascii=False)
+
+    result = asyncio.run(generate_bundle(
+        invoke=invoke,
+        contract=contract,
+        instructions="",
+        template=template,
+    ))
+
+    saved = result["blocks"][0]["ppt_pages"][0]
+    assert saved["layout_id"] == template.layout_id("comparison")
+    assert "layout_key" not in saved
+    validate_block_pages(result["blocks"][0], template)
+
+
+def test_design_course_layout_failure_is_rebound_without_a_model_retry():
+    template, contract, page = sample()
+    invalid = deepcopy(page)
+    invalid["layout_id"] = "design-course-comparison-card"
+    calls = []
+
+    async def unexpected(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("a uniquely identified form must bind locally")
+
+    result = asyncio.run(generate_bundle(
+        invoke=unexpected,
+        contract=contract,
+        instructions="",
+        template=template,
+        seed_blocks={
+            "b": {
+                **contract["modules"][0],
+                "content": TEXT,
+                "ppt_pages": [invalid],
+                "generation_contract_version": "script_ppt_bundle_v1",
+            }
+        },
+        immutable_handout=True,
+    ))
+
+    assert calls == []
+    assert result["blocks"][0]["ppt_pages"][0]["layout_id"] == template.layout_id("comparison")
+    validate_block_pages(result["blocks"][0], template)
