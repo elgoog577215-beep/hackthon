@@ -60,7 +60,9 @@ jobs:
           ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
             "mkdir -p '$test_root'"
-          tar --exclude='backend/data' --exclude='*/__pycache__' -C feature/apps/lingzhi -czf - backend shared \
+          tar --exclude='./backend/data' --exclude='./frontend/node_modules' \
+            --exclude='./frontend/dist' --exclude='./output' --exclude='*/__pycache__' \
+            -C feature/apps/lingzhi -czf - . \
             | ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
               -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
               "tar -xzf - -C '$test_root'"
