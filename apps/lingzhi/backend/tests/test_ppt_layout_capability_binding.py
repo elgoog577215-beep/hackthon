@@ -175,3 +175,35 @@ def test_design_course_layout_failure_is_rebound_without_a_model_retry():
     assert calls == []
     assert result["blocks"][0]["ppt_pages"][0]["layout_id"] == template.layout_id("comparison")
     validate_block_pages(result["blocks"][0], template)
+
+
+def test_conflicting_layout_identity_repairs_only_the_affected_page():
+    template, contract, page = sample()
+    conflict = deepcopy(page)
+    conflict["layout_key"] = "flow"
+    calls = []
+
+    async def invoke(prompt, instructions, **_kwargs):
+        calls.append((prompt, instructions))
+        assert "script_ppt_layout_identity_conflict" in instructions
+        return json.dumps({"pages": [page]}, ensure_ascii=False)
+
+    result = asyncio.run(generate_bundle(
+        invoke=invoke,
+        contract=contract,
+        instructions="",
+        template=template,
+        seed_blocks={
+            "b": {
+                **contract["modules"][0],
+                "content": TEXT,
+                "ppt_pages": [conflict],
+                "generation_contract_version": "script_ppt_bundle_v1",
+            }
+        },
+        immutable_handout=True,
+    ))
+
+    assert len(calls) == 1
+    assert result["blocks"][0]["ppt_pages"][0]["layout_id"] == template.layout_id("comparison")
+    validate_block_pages(result["blocks"][0], template)
