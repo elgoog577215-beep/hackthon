@@ -441,7 +441,8 @@ def _stabilize_source_choices(value: Any, catalog: list[dict[str, Any]], context
         choices = value.get("sources")
         query = _source_query(value)
         candidates = _context_catalog(context, catalog)
-        if choices is None and query and candidates:
+        owns_visible_claim = any(key in value for key in ("text", "heading", "label"))
+        if choices is None and owns_visible_claim and query and candidates:
             missing = _protected_tokens(query)
             resolved = []
             while missing:
