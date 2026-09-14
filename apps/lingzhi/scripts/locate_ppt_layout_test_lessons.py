@@ -62,6 +62,9 @@ def main() -> None:
                     "ppt_task_id": task_id,
                     "job_status": job.get("status"),
                     "job_phase": job.get("phase"),
+                    "progress": job.get("progress"),
+                    "message": job.get("message"),
+                    "updated_at": job.get("updated_at"),
                     "attempt": job.get("attempt_number"),
                     "error_code": (job.get("error") or {}).get("code"),
                     "failed_block_present": any(
