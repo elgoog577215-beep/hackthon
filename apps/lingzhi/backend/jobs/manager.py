@@ -1371,14 +1371,14 @@ class TaskManager:
         """Generate and validate a non-persistent reviewable outline proposal."""
         started_at = time.monotonic()
         request_id = str(payload.get("request_id") or "")
-        course_data = self.get_generation_workspace_course_for_task(
-            course_id,
-            task_type="teacher_outline_generation",
-            require_usable_outline=True,
+        from teacher_outline_source import read_editable_outline_source
+
+        course = self.storage.load_course(course_id) if self.storage else None
+        course_data = read_editable_outline_source(
+            course if isinstance(course, dict) else {"course_id": course_id},
+            self,
         )
-        if not isinstance(course_data, dict) and self.storage:
-            course_data = self.storage.load_course(course_id)
-        if not isinstance(course_data, dict):
+        if not isinstance(course, dict) and not course_data.get("nodes"):
             raise ValueError("Course not found")
 
         current_blueprint_revision = blueprint_revision_id(course_data)

@@ -33,7 +33,7 @@ from dependencies import get_course_document_repository, get_course_or_404, get_
 from learner_context import resolve_user_id
 from storage import storage
 from storage_utils import save_course_compat
-from teacher_outline_source import read_teacher_outline_source
+from teacher_outline_source import read_editable_outline_source
 from jobs.manager import TaskManager, TaskStateConflict
 
 
@@ -660,7 +660,7 @@ async def _course_for_blueprint(course_id: str) -> dict[str, Any]:
         if not workspace:
             raise HTTPException(status_code=404, detail="Course not found") from exc
         course = {"course_id": course_id}
-    return read_teacher_outline_source(course, task_manager)
+    return read_editable_outline_source(course, task_manager)
 
 
 async def _ensure_initial_version(

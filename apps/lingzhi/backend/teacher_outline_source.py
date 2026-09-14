@@ -120,3 +120,27 @@ def read_teacher_outline_source(
         if (source.get("course_outline_quality_report") or {}).get("rule_version") != _QUALITY_RULE_VERSION:
             source["course_outline_quality_report"] = review_course_outline_document(plan, course_context=source)
     return source
+
+
+def read_editable_outline_source(
+    course: dict[str, Any],
+    task_manager: Any | None,
+) -> dict[str, Any]:
+    """Use the current teacher workspace for editing, including a light plan.
+
+    Editing is allowed before a full outline can authorize lesson generation.
+    Keep this selection separate from the complete teaching-source gate.
+    """
+    course_id = str(course.get("course_id") or "")
+    getter = getattr(task_manager, "get_generation_workspace_course_for_task", None)
+    selected = (
+        getter(course_id, task_type="teacher_outline_generation")
+        if callable(getter)
+        else None
+    )
+    if matches_course_shell(selected, course_id) and (
+        selected.get("nodes")
+        or (selected.get("course_plan") or selected.get("course_outline") or {}).get("chapters")
+    ):
+        return deepcopy({**course, **selected})
+    return read_teacher_outline_source(course, task_manager)

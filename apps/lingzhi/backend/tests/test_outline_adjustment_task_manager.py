@@ -401,3 +401,60 @@ async def test_course_service_serializes_the_real_outline_adjustment_request(mon
     assert request["instruction"] == "给第六章增加一个经典案例"
     assert request["outline"][0]["node_id"] == "L1-1"
     assert result == {"operations": [], "summary": "无需调整"}
+
+
+@pytest.mark.asyncio
+async def test_light_plan_read_and_ai_preview_share_base_and_reject_real_changes(tmp_path, monkeypatch):
+    from course_versions import CourseVersionConflict
+    from routers import course_versions as routes
+    from teacher_outline_source import has_teaching_structure, read_teacher_outline_source
+
+    manager, service, storage, versions = _manager(tmp_path, monkeypatch)
+    workspace = _course()
+    workspace['outline_framework_only'] = True
+    workspace['generation_status'] = 'outline_framework_ready'
+    workspace['nodes'][1]['content_summary'] = '真实讲次简介'
+    draft = build_blueprint_draft(workspace)
+    versions.save_draft('course-outline', draft)
+
+    def get_workspace(course_id, **options):
+        assert course_id == 'course-outline'
+        assert options['task_type'] == 'teacher_outline_generation'
+        return None if options.get('require_usable_outline') else deepcopy(workspace)
+
+    monkeypatch.setattr(manager, 'get_generation_workspace_course_for_task', get_workspace)
+    class RawRepository:
+        def load_raw(self, course_id):
+            return storage.load_course(course_id)
+    monkeypatch.setattr(routes, 'get_course_document_repository', lambda: RawRepository())
+    monkeypatch.setattr(routes, 'get_task_manager_optional', lambda: manager)
+    monkeypatch.setattr(routes, 'course_version_repository', versions)
+    response = await routes.get_blueprint('course-outline')
+    assert response['current']['base_blueprint_revision_id'] == draft['base_blueprint_revision_id']
+    assert response['current']['outline_framework_only'] is True
+    assert not has_teaching_structure(workspace)
+    teaching = read_teacher_outline_source({'course_id': 'course-outline'}, manager)
+    assert not has_teaching_structure(teaching)
+    payload = {
+        'request_id': 'light-plan-preview',
+        'base_blueprint_revision_id': response['draft']['base_blueprint_revision_id'],
+        'expected_draft_revision_id': response['draft']['draft_revision_id'],
+        'instruction': '新增一节组件组合',
+    }
+    before = deepcopy((workspace, manager.tasks, versions.load_draft('course-outline')))
+    result = await manager.preview_outline_adjustment('course-outline', payload)
+    assert result['can_apply']
+    assert (workspace, manager.tasks, versions.load_draft('course-outline')) == before
+
+    workspace['nodes'][1]['content_summary'] = '另一操作更新了简介'
+    calls = len(service.calls)
+    with pytest.raises(CourseVersionConflict, match='课程基础蓝图已变化'):
+        await manager.preview_outline_adjustment('course-outline', payload)
+    assert len(service.calls) == calls
+    workspace.update(before[0])
+    changed_draft = deepcopy(draft)
+    changed_draft['nodes'][1]['content_summary'] = '另一页面修改了草稿'
+    versions.save_draft('course-outline', changed_draft)
+    with pytest.raises(CourseVersionConflict, match='目录草稿已被其他页面修改'):
+        await manager.preview_outline_adjustment('course-outline', payload)
+    assert len(service.calls) == calls
