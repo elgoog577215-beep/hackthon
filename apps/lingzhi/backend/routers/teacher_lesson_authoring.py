@@ -1472,6 +1472,7 @@ def _lesson_projection(
     repository: TeacherLessonAuthoringRepository,
     authoring_state: dict[str, Any] | None = None,
     lesson_unit_ids: set[str] | None = None,
+    include_content: bool = True,
 ) -> list[dict[str, Any]]:
     course_id = str(source.get("course_id") or "")
     outline_ready = has_complete_teacher_outline(source)
@@ -1495,7 +1496,7 @@ def _lesson_projection(
             if str(item.get("parent_node_id") or "") == lesson_id
         ]
         asset = assets.get(lesson_id) if isinstance(assets, dict) else None
-        plan_asset = deepcopy(asset) if isinstance(asset, dict) else {
+        plan_asset = asset if isinstance(asset, dict) else {
             "lesson_unit_id": lesson_id,
             "arrangement": {
                 "working_revision_id": "",
@@ -1557,11 +1558,11 @@ def _lesson_projection(
         )
         script_sections = deepcopy(
             script_revision.get("sections")
-            if isinstance(script_revision, dict)
+            if include_content and isinstance(script_revision, dict)
             else []
         )
         current_script_revision = str((script_revision or {}).get("revision_id") or "")
-        script_quality = deepcopy((script_revision or {}).get("quality_report") or {})
+        script_quality = deepcopy((script_revision or {}).get("quality_report") or {}) if include_content else {}
         plan_revision_id = str(plan_asset.get("working_revision_id") or "")
         plan_readiness = teacher_lesson_plan_readiness(plan_asset)
         script_readiness = teacher_lesson_script_readiness(
@@ -1588,22 +1589,33 @@ def _lesson_projection(
             )
             else "current"
         )
+        projected_ppt_assets = []
         for ppt_asset in plan_asset.get("ppt_assets") or []:
             if not isinstance(ppt_asset, dict):
                 continue
+            projected_ppt = deepcopy(ppt_asset) if include_content else {
+                key: deepcopy(value)
+                for key, value in ppt_asset.items()
+                if key not in {"revisions", "ai_candidates", "v6_revisions"}
+            }
+            projected_ppt.setdefault("revisions", [])
+            projected_ppt.setdefault("ai_candidates", [])
+            if "v6_revisions" in ppt_asset:
+                projected_ppt.setdefault("v6_revisions", [])
             source_script_revision = str(ppt_asset.get("source_script_revision_id") or "")
             if (
                 ppt_asset.get("engine") == "slide_deck_v6"
                 and source_script_revision != current_script_revision
             ):
-                ppt_asset["source_state"] = "stale"
+                projected_ppt["source_state"] = "stale"
             ppt_readiness = teacher_lesson_ppt_asset_readiness(
                 plan_asset,
-                ppt_asset,
+                projected_ppt,
                 plan_readiness=plan_readiness,
                 script_readiness=script_readiness,
             )
-            ppt_asset.update(ppt_readiness)
+            projected_ppt.update(ppt_readiness)
+            projected_ppt_assets.append(projected_ppt)
         plan_projection = {
             "lesson_unit_id": lesson_id,
             "working_revision_id": plan_revision_id,
@@ -1621,20 +1633,27 @@ def _lesson_projection(
                     or "lesson_arrangement_unavailable"
                 )
             ),
-            "current_revision": deepcopy(plan_revision) if isinstance(plan_revision, dict) else None,
+            "content_loaded": include_content,
+            "current_revision": (
+                deepcopy(plan_revision)
+                if include_content and isinstance(plan_revision, dict)
+                else None
+            ),
             "ai_candidate": next(
                 (
                     deepcopy(candidate)
                     for candidate in reversed(plan_asset.get("ai_candidates") or [])
+                    if include_content
                     if isinstance(candidate, dict)
                     and candidate.get("status") == "pending"
                     and candidate.get("base_revision_id") == plan_revision_id
                 ),
                 None,
             ),
-            "ppt_assets": deepcopy(plan_asset.get("ppt_assets") or []),
+            "ppt_assets": projected_ppt_assets,
         }
         result.append({
+            "content_scope": "full" if include_content else "summary",
             "lesson_unit_id": lesson_id,
             "number": index,
             "title": str(lesson.get("node_name") or f"第{index}讲"),
@@ -1651,6 +1670,7 @@ def _lesson_projection(
             ],
             "arrangement": arrangement,
             "script": {
+                "content_loaded": include_content,
                 "current_revision_id": current_script_revision,
                 "source_lesson_plan_revision_id": str(
                     (script_revision or {}).get("source_lesson_plan_revision_id")
@@ -1691,6 +1711,7 @@ def _lesson_projection(
                     (
                         deepcopy(candidate)
                         for candidate in reversed(plan_asset.get("script_ai_candidates") or [])
+                        if include_content
                         if isinstance(candidate, dict)
                         and candidate.get("status") == "pending"
                         and candidate.get("base_revision_id") == current_script_revision
@@ -1709,6 +1730,7 @@ def _lesson_projection(
                     {},
                 ))
                 for target_type, revision_id in (plan_asset.get("current_material_draft_ids") or {}).items()
+                if include_content
             },
         })
     return result
@@ -2158,6 +2180,7 @@ def _lesson_authoring_view(
     tm: TaskManager,
     repository: TeacherLessonAuthoringRepository,
     lesson_unit_id: str = "",
+    view: Literal["full", "summary"] = "full",
 ) -> dict[str, Any]:
     source = _source_course(tm, course_id, allow_empty=True)
     outline_revision = _canonical_outline_revision(source)
@@ -2185,6 +2208,38 @@ def _lesson_authoring_view(
             "lessons": lessons,
             "jobs": [],
         }
+    if view == "summary":
+        if outline_revision and repository.outline_revision_id(course_id) != outline_revision:
+            repository.set_outline(course_id, outline_revision)
+
+        def project_summary(authoring_state: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "schema_version": "teacher_lesson_authoring_view_v1",
+                "view_scope": "summary",
+                "pipeline_version": LESSON_PLAN_PIPELINE_VERSION,
+                "plan_schema_version": "course_teaching_plan_v3",
+                "course_id": course_id,
+                "outline_revision_id": outline_revision,
+                "lessons": _lesson_projection(
+                    source,
+                    repository,
+                    authoring_state,
+                    include_content=False,
+                ),
+                "jobs": [
+                    teacher_lesson_job_view(job)
+                    for job in (authoring_state.get("jobs") or {}).values()
+                    if isinstance(job, dict)
+                ],
+                "course_production_state": read_course_production_state(
+                    source,
+                    repository,
+                    tm,
+                    authoring_state=authoring_state,
+                ),
+            }
+
+        return repository.read_projection(course_id, project_summary)
     authoring_state = repository.expire_stale_jobs(course_id)
     if outline_revision and str(authoring_state.get("outline_revision_id") or "") != outline_revision:
         authoring_state = repository.set_outline(course_id, outline_revision)
@@ -2199,6 +2254,7 @@ def _lesson_authoring_view(
     )
     return {
         "schema_version": "teacher_lesson_authoring_view_v1",
+        "view_scope": "full",
         "pipeline_version": LESSON_PLAN_PIPELINE_VERSION,
         "plan_schema_version": "course_teaching_plan_v3",
         "course_id": course_id,
@@ -2227,10 +2283,11 @@ async def get_lesson_authoring_view(
         get_teacher_lesson_authoring_repository
     ),
     lesson_unit_id: str = "",
+    view: Literal["full", "summary"] = "full",
 ):
     try:
         return await run_in_threadpool(
-            _lesson_authoring_view, course_id, tm, repository, lesson_unit_id
+            _lesson_authoring_view, course_id, tm, repository, lesson_unit_id, view
         )
     except TeacherLessonAuthoringError as exc:
         _raise(exc)

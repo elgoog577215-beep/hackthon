@@ -55,6 +55,7 @@ export interface TeacherLessonPlanAsset {
   unavailable_reason?: string
   can_generate?: boolean
   generation_unavailable_reason?: string
+  content_loaded?: boolean
   current_revision?: TeacherLessonPlanRevision | null
   ai_candidate?: TeacherLessonPlanCandidate | null
   ppt_assets: TeacherLessonPptAsset[]
@@ -108,6 +109,7 @@ export interface TeacherLessonArrangement {
 }
 
 export interface TeacherLessonScriptState {
+  content_loaded?: boolean
   current_revision_id: string
   source_lesson_plan_revision_id: string
   source_state: 'current' | 'stale'
@@ -270,6 +272,7 @@ export interface TeacherLessonPlanAiTarget {
 }
 
 export interface TeacherLessonProjection {
+  content_scope?: 'summary' | 'full'
   lesson_unit_id: string
   number: number
   title: string
@@ -346,7 +349,7 @@ export interface TeacherLessonJobStreamEvent {
 
 export interface TeacherLessonAuthoringView {
   schema_version: 'teacher_lesson_authoring_view_v1'
-  view_scope?: 'full' | 'lesson'
+  view_scope?: 'full' | 'summary' | 'lesson'
   pipeline_version?: 'standard_lesson_plan_v1'
   plan_schema_version?: 'course_teaching_plan_v3'
   course_id: string
@@ -500,6 +503,7 @@ const errorMessage = (error: any, fallback: string) => {
 }
 
 const lessonAuthoringViewRequests = new Map<string, Promise<TeacherLessonAuthoringView>>()
+const lessonAuthoringSummaryRequests = new Map<string, Promise<TeacherLessonAuthoringView>>()
 const lessonAuthoringLessonRequests = new Map<string, Promise<TeacherLessonAuthoringView>>()
 const TEACHER_LESSON_READ_TIMEOUT_MS = 30000
 
@@ -547,6 +551,69 @@ const fetchLessonAuthoringLesson = (
     })
   lessonAuthoringLessonRequests.set(key, request)
   return request
+}
+
+const fetchLessonAuthoringSummary = (courseId: string): Promise<TeacherLessonAuthoringView> => {
+  const existing = lessonAuthoringSummaryRequests.get(courseId)
+  if (existing) return existing
+  const request = http.get<TeacherLessonAuthoringView>(
+    `/api/teacher/courses/${courseId}/lesson-authoring`,
+    {
+      ...readRequestConfig(),
+      timeout: TEACHER_LESSON_READ_TIMEOUT_MS,
+      silentError: true,
+      params: { view: 'summary' },
+    },
+  ).then(response => response.data)
+    .finally(() => {
+      if (lessonAuthoringSummaryRequests.get(courseId) === request) {
+        lessonAuthoringSummaryRequests.delete(courseId)
+      }
+    })
+  lessonAuthoringSummaryRequests.set(courseId, request)
+  return request
+}
+
+function lessonContentLoaded(lesson?: TeacherLessonProjection): boolean {
+  return lesson?.content_scope === 'full'
+    || lesson?.plan?.content_loaded === true
+    || lesson?.script?.content_loaded === true
+}
+
+function mergeLessonProjection(
+  existing: TeacherLessonProjection | undefined,
+  incoming: TeacherLessonProjection,
+): TeacherLessonProjection {
+  if (!existing || incoming.content_scope !== 'summary' || !lessonContentLoaded(existing)) return incoming
+  return {
+    ...incoming,
+    content_scope: 'full',
+    plan: {
+      ...incoming.plan,
+      content_loaded: true,
+      current_revision: existing.plan.current_revision,
+      ai_candidate: existing.plan.ai_candidate,
+      ppt_assets: existing.plan.ppt_assets,
+    },
+    script: {
+      ...incoming.script,
+      content_loaded: true,
+      quality_report: existing.script.quality_report,
+      sections: existing.script.sections,
+      ai_candidate: existing.script.ai_candidate,
+    },
+    material_drafts: existing.material_drafts,
+  }
+}
+
+function mergeLessonProjections(
+  existing: TeacherLessonProjection[],
+  incoming: TeacherLessonProjection[],
+): TeacherLessonProjection[] {
+  const byId = new Map(existing.map(lesson => [lesson.lesson_unit_id, lesson]))
+  return incoming
+    .map(lesson => mergeLessonProjection(byId.get(lesson.lesson_unit_id), lesson))
+    .sort((left, right) => left.number - right.number)
 }
 
 const LESSON_JOB_STATUS_ORDER: Record<TeacherLessonJobStatus, number> = {
@@ -807,7 +874,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
     loading: false,
     refreshing: false,
     loadedCourseId: '',
-    viewScope: '' as '' | 'lesson' | 'full',
+    viewScope: '' as '' | 'lesson' | 'summary' | 'full',
     actionLessonId: '',
     streamingJobIds: {} as Record<string, boolean>,
     focusedLessonId: '',
@@ -906,7 +973,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         this.outlineRevisionId = response.outline_revision_id
         this.lessons = [
           ...this.lessons.filter(item => item.lesson_unit_id !== lessonUnitId),
-          lesson,
+          mergeLessonProjection(undefined, lesson),
         ].sort((left, right) => left.number - right.number)
         this.viewScope = response.view_scope || 'lesson'
         this.error = ''
@@ -919,6 +986,67 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       } finally {
         if (this.courseId === courseId) this.loading = false
       }
+    },
+    async loadSummary(courseId: string) {
+      const hasSuccessfulSnapshot = this.courseId === courseId && this.lessons.length > 0
+      if (this.courseId !== courseId) {
+        this.stopObserving()
+        this.courseId = courseId
+        this.outlineRevisionId = ''
+        this.lessons = []
+        this.jobs = []
+        this.productionState = null
+        this.streamingJobIds = {}
+        this.loadedCourseId = ''
+        this.viewScope = ''
+        this.error = ''
+        this.refreshError = ''
+      }
+      this.loading = !hasSuccessfulSnapshot
+      this.refreshing = hasSuccessfulSnapshot
+      try {
+        const response = await fetchLessonAuthoringSummary(courseId)
+        if (this.courseId !== courseId) return response
+        const lessons = Array.isArray(response.lessons) ? response.lessons : []
+        const jobs = Array.isArray(response.jobs) ? response.jobs : []
+        this.outlineRevisionId = response.outline_revision_id
+        this.lessons = mergeLessonProjections(this.lessons, lessons)
+        this.jobs = mergeLessonJobSnapshots(this.jobs, jobs)
+        this.productionState = response.course_production_state || this.productionState
+        if (response.course_production_state) {
+          useCourseStore().setTeacherProductionState(courseId, response.course_production_state)
+        }
+        this.loadedCourseId = courseId
+        this.viewScope = 'summary'
+        this.error = ''
+        this.syncJobObservers()
+        this.scheduleSnapshot()
+        return response
+      } catch (error) {
+        if (this.courseId === courseId) {
+          const message = errorMessage(error, '分讲摘要读取失败')
+          if (hasSuccessfulSnapshot) this.refreshError = message
+          else this.error = message
+        }
+        throw error
+      } finally {
+        if (this.courseId === courseId) {
+          this.loading = false
+          this.refreshing = false
+        }
+      }
+    },
+    async loadInitial(courseId: string, requestedLessonId = '') {
+      const summary = await this.loadSummary(courseId)
+      if (this.courseId !== courseId) return { ...summary, initial_lesson_id: '' }
+      const initialLessonId = (
+        requestedLessonId
+        && this.lessons.some(item => item.lesson_unit_id === requestedLessonId)
+      )
+        ? requestedLessonId
+        : this.lessons[0]?.lesson_unit_id || ''
+      if (initialLessonId) await this.loadLesson(courseId, initialLessonId)
+      return { ...summary, initial_lesson_id: initialLessonId }
     },
     async load(courseId: string, options: { afterCurrent?: boolean } = {}) {
       const hasSuccessfulSnapshot = this.loadedCourseId === courseId

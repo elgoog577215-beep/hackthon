@@ -267,14 +267,13 @@ async function loadWorkspace() {
     requestedLessonId.value = String(route.query.lesson || '')
     const loadBlueprintFirst = workspaceView.value === 'categories'
       && requestedWorkbenchStage.value === 'foundation'
-    const loadPptLessonFirst = workspaceView.value === 'categories'
-      && requestedWorkbenchStage.value === 'ppt'
-      && Boolean(requestedLessonId.value)
-    if (loadPptLessonFirst) courseStore.prepareCourseShell(requestedCourseId, false)
+    const loadTargetLessonFirst = workspaceView.value === 'categories'
+      && ['lesson', 'script', 'ppt'].includes(requestedWorkbenchStage.value)
+    if (loadTargetLessonFirst) courseStore.prepareCourseShell(requestedCourseId, false)
     const primaryContentLoad = loadBlueprintFirst
       ? courseWorkspace.loadBlueprint(requestedCourseId)
-      : loadPptLessonFirst
-        ? lessonStore.loadLesson(requestedCourseId, requestedLessonId.value)
+      : loadTargetLessonFirst
+        ? lessonStore.loadInitial(requestedCourseId, requestedLessonId.value)
         : courseStore.loadCourse(requestedCourseId, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true })
     const [courseInformation, primaryContent] = await Promise.all([
       http.get(
@@ -289,6 +288,9 @@ async function loadWorkspace() {
       const blueprintNodes = Array.isArray(blueprint.nodes) ? blueprint.nodes : []
       courseStore.currentCourseId = requestedCourseId
       courseStore.applyGenerationOutlineDraft(blueprintNodes)
+    }
+    if (loadTargetLessonFirst) {
+      requestedLessonId.value = String(primaryContent?.initial_lesson_id || requestedLessonId.value)
     }
     const information = courseInformation.data?.information || {}
     stableCourseTitle.value = courseStore.courseList.find(
@@ -305,7 +307,7 @@ async function loadWorkspace() {
       void router.replace({ query: { ...route.query, generate: undefined } })
     }
     loading.value = false
-    if (!loadBlueprintFirst && !loadPptLessonFirst) {
+    if (!loadBlueprintFirst && !loadTargetLessonFirst) {
       const lessonLoad = lessonStore.load(requestedCourseId)
       void lessonLoad.catch(() => undefined)
     }

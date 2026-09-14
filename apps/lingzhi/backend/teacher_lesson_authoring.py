@@ -2134,6 +2134,26 @@ class TeacherLessonAuthoringRepository:
             value = deepcopy(self._load_cached_value_locked(course_id))
             return self._overlay_live_stream_jobs_locked(course_id, value)
 
+    def read_projection(
+        self,
+        course_id: str,
+        projector: Callable[[dict[str, Any]], Any],
+    ) -> Any:
+        """Project cached state under its read lock without copying full bodies."""
+
+        with self._course_lock(course_id):
+            value = self._load_cached_value_locked(course_id)
+            live_jobs = self._live_stream_jobs.get(course_id) or {}
+            if live_jobs:
+                value = {
+                    **value,
+                    "jobs": {
+                        **(value.get("jobs") or {}),
+                        **live_jobs,
+                    },
+                }
+            return projector(value)
+
     def _save(self, value: dict[str, Any]) -> dict[str, Any]:
         started = time.monotonic()
         course_id = str(value.get("course_id") or "")

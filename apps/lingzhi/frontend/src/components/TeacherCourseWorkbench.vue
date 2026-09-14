@@ -3999,7 +3999,19 @@ async function selectLesson(lessonId?: string) {
   if (!lessonId) return
   if (aiCandidatePending.value && selectedLessonId.value !== lessonId) return
   if (selectedLessonId.value !== lessonId && !await finishEditing()) return
-  const lesson = lessonStore.lessons.find(item => item.lesson_unit_id === lessonId)
+  let lesson = lessonStore.lessons.find(item => item.lesson_unit_id === lessonId)
+  if (lesson && (
+    lesson.content_scope === 'summary'
+    || lesson.plan.content_loaded === false
+    || lesson.script.content_loaded === false
+  )) {
+    try {
+      await lessonStore.loadLesson(props.courseId, lessonId)
+      lesson = lessonStore.lessons.find(item => item.lesson_unit_id === lessonId)
+    } catch {
+      return
+    }
+  }
   const lessonChanged = selectedLessonId.value !== lessonId
   selectedLessonId.value = lessonId
   if (lessonChanged || !lesson?.sections.some(section => section.section_node_id === selectedLessonSectionId.value)) {

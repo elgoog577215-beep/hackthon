@@ -1521,7 +1521,7 @@ def compile_course_production_state(
 ) -> dict[str, Any]:
     """Compile the versioned state without mutating any supplied snapshot."""
 
-    authoring = deepcopy(authoring_state or {})
+    authoring = authoring_state if isinstance(authoring_state, dict) else {}
     authoring_jobs = authoring.get("jobs")
     if isinstance(authoring_jobs, dict):
         authoring_jobs = authoring_jobs.values()
@@ -1818,7 +1818,7 @@ def read_course_production_state(
     except Exception:
         read_failures.append("outline_source_read_failed")
     if authoring_state is not None:
-        authoring = deepcopy(authoring_state)
+        authoring = authoring_state
     else:
         try:
             authoring = authoring_repository.view(course_id)
