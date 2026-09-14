@@ -971,7 +971,11 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       }
       jobs.forEach(job => { void this.streamJob(this.courseId, job.id) })
     },
-    async loadLesson(courseId: string, lessonUnitId: string) {
+    async loadLesson(
+      courseId: string,
+      lessonUnitId: string,
+      options: { retryStale?: boolean } = {},
+    ): Promise<TeacherLessonAuthoringView> {
       const readSequence = ++this.readSequence
       const hasLesson = this.courseId === courseId
         && this.lessons.some(item => item.lesson_unit_id === lessonUnitId)
@@ -1000,16 +1004,16 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         const appliedSequence = Number(this.appliedLessonReadSequences[readKey] || 0)
         const currentLesson = this.lessons.find(item => item.lesson_unit_id === lessonUnitId)
         if (appliedSequence > readSequence) {
-          if (
-            currentLesson
-            && !lessonContentLoaded(currentLesson)
-            && lessonProjectionContentIdentity(currentLesson) === lessonProjectionContentIdentity(lesson)
-          ) {
-            const hydrated = mergeLessonProjection(lesson, currentLesson)
-            this.lessons = [
-              ...this.lessons.filter(item => item.lesson_unit_id !== lessonUnitId),
-              hydrated,
-            ].sort((left, right) => left.number - right.number)
+          if (currentLesson && !lessonContentLoaded(currentLesson)) {
+            if (lessonProjectionContentIdentity(currentLesson) === lessonProjectionContentIdentity(lesson)) {
+              const hydrated = mergeLessonProjection(lesson, currentLesson)
+              this.lessons = [
+                ...this.lessons.filter(item => item.lesson_unit_id !== lessonUnitId),
+                hydrated,
+              ].sort((left, right) => left.number - right.number)
+            } else if (options.retryStale !== false) {
+              return this.loadLesson(courseId, lessonUnitId, { retryStale: false })
+            }
           }
           return response
         }
@@ -1060,7 +1064,8 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         if (this.courseId !== courseId) return response
         const lessons = Array.isArray(response.lessons) ? response.lessons : []
         const jobs = Array.isArray(response.jobs) ? response.jobs : []
-        if (readSequence >= this.appliedCourseReadSequence) {
+        const appliesCourseSnapshot = readSequence >= this.appliedCourseReadSequence
+        if (appliesCourseSnapshot) {
           this.outlineRevisionId = response.outline_revision_id
           this.appliedCourseReadSequence = readSequence
         }
@@ -1084,8 +1089,10 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         ].sort((left, right) => left.number - right.number)
         this.appliedLessonReadSequences = nextSequences
         this.jobs = mergeLessonJobSnapshots(this.jobs, jobs)
-        this.productionState = response.course_production_state || this.productionState
-        if (response.course_production_state) {
+        if (appliesCourseSnapshot) {
+          this.productionState = response.course_production_state || this.productionState
+        }
+        if (appliesCourseSnapshot && response.course_production_state) {
           useCourseStore().setTeacherProductionState(courseId, response.course_production_state)
         }
         this.loadedCourseId = courseId
@@ -1157,7 +1164,8 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         const lessons = Array.isArray(response.lessons) ? response.lessons : []
         const jobs = Array.isArray(response.jobs) ? response.jobs : []
         this.courseId = courseId
-        if (readSequence >= this.appliedCourseReadSequence) {
+        const appliesCourseSnapshot = readSequence >= this.appliedCourseReadSequence
+        if (appliesCourseSnapshot) {
           this.outlineRevisionId = response.outline_revision_id
           this.appliedCourseReadSequence = readSequence
         }
@@ -1180,8 +1188,10 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         ].sort((left, right) => left.number - right.number)
         this.appliedLessonReadSequences = nextSequences
         this.jobs = mergeLessonJobSnapshots(this.jobs, jobs)
-        this.productionState = response.course_production_state || this.productionState
-        if (response.course_production_state) {
+        if (appliesCourseSnapshot) {
+          this.productionState = response.course_production_state || this.productionState
+        }
+        if (appliesCourseSnapshot && response.course_production_state) {
           useCourseStore().setTeacherProductionState(courseId, response.course_production_state)
         }
         this.loadedCourseId = courseId

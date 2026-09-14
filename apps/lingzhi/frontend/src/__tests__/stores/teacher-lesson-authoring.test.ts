@@ -501,6 +501,9 @@ describe('teacher lesson authoring store', () => {
         script: { content_loaded: false, current_revision_id: 'script-2', sections: [] },
       }],
     } })
+    await vi.waitFor(() => {
+      expect(store.lessons[0]?.script.current_revision_id).toBe('script-2')
+    })
     targetedResolvers[0]!({ data: {
       schema_version: 'teacher_lesson_authoring_view_v1', view_scope: 'lesson',
       course_id: 'course-1', outline_revision_id: 'outline-1', jobs: [],
@@ -510,10 +513,9 @@ describe('teacher lesson authoring store', () => {
         script: { content_loaded: true, current_revision_id: 'script-1', sections: [{ section_node_id: 'S1', content: '旧正文' }] },
       }],
     } })
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(httpMock.get).toHaveBeenCalledTimes(3)
+    await vi.waitFor(() => {
+      expect(httpMock.get).toHaveBeenCalledTimes(3)
+    })
     targetedResolvers[1]!({ data: {
       schema_version: 'teacher_lesson_authoring_view_v1', view_scope: 'lesson',
       course_id: 'course-1', outline_revision_id: 'outline-2', jobs: [],
