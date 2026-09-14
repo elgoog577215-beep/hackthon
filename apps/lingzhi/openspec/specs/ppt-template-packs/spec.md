@@ -80,7 +80,15 @@ In the no-original-PPT branch, the system SHALL persist the template ID, immutab
 - **THEN** generation stops with a recoverable template-lock error and asks the teacher to regenerate the manuscript
 
 ### Requirement: Page recovery preserves source content and accepted work
-The system SHALL record `ppt_page_recovery_v3` on newly recovered blocks. Fixed-handout completion MUST preserve the source revision and accepted pages, repair only failed pages or source ranges, and withhold publication while required pages remain invalid or missing.
+The system SHALL record `ppt_page_recovery_v4` on newly recovered blocks. Fixed-handout completion MUST preserve the source revision and accepted pages, repair only failed pages or source ranges, and withhold publication while required pages remain invalid or missing.
+
+#### Scenario: A visible fact omitted its source choice
+- **WHEN** a visible item contains protected numbers, formulas, proper identifiers or code tokens that are all supported by an unambiguous supplied source range but the model omitted `sources`
+- **THEN** deterministic binding attaches the exact range before model repair and revalidates the unchanged visible claim
+
+#### Scenario: The repair model repeatedly keeps an unsupported fact
+- **WHEN** the same failed page remains source-invalid after both bounded semantic repair attempts
+- **THEN** only that failed source unit is replaced by ordered source-grounded pages whose quotes reconstruct the complete unit, the unsupported claim is absent, accepted pages remain unchanged and the fallback reason is recorded
 
 #### Scenario: A source code excerpt exceeds the real code frame
 - **WHEN** measured code exceeds the frozen template's frame capacity
