@@ -60,7 +60,7 @@ jobs:
           ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
             "mkdir -p '$test_root'"
-          tar --exclude='backend/data' --exclude='*/__pycache__' -C feature/apps/lingzhi -czf - backend \
+          tar --exclude='backend/data' --exclude='*/__pycache__' -C feature/apps/lingzhi -czf - backend shared \
             | ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
               -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
               "tar -xzf - -C '$test_root'"
@@ -75,7 +75,7 @@ jobs:
           ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=30 \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            "set -a; . /opt/lingzhi/state/.env; set +a; export PYTHONDONTWRITEBYTECODE=1; export PYTHONPATH='$test_root/backend'; cd '$test_root/backend'; /opt/lingzhi/.venv/bin/python -" \
+            "set -a; . /opt/lingzhi/state/.env; set +a; export PYTHONDONTWRITEBYTECODE=1; export PYTHONPATH='$test_root:$test_root/backend'; cd '$test_root/backend'; /opt/lingzhi/.venv/bin/python -" \
             < apps/lingzhi/scripts/replay_two_lesson_ppt_with_feature.py
 
       - name: Remove isolated feature directory
