@@ -772,9 +772,8 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       return created
     },
     async loadBlueprint(courseId: string, options: { force?: boolean } = {}) {
-      if (!options.force && this.blueprintCourseId === courseId && this.blueprint) {
-        return this.blueprint
-      }
+      // Generation can publish a new draft without changing the course ID.
+      // Reuse only pending reads; a completed snapshot is never a fresh read.
       const existing = blueprintReadRequests.get(courseId)
       if (!options.force && existing) return existing
       if (this.blueprintCourseId !== courseId) {
