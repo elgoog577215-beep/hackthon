@@ -13,6 +13,12 @@
 
 23.5 的真实模型跨学科、完整桌面交互和 30 页 P95 尚待完成。用户要求优先完成代码，并在 10 分钟内推送；本次保留构建和防止丢稿的必要校验，教学效果由教师后续验收，不以单元测试代替。
 
+## 24. 稳定语义布局绑定（2026-09-14）
+
+- [x] 24.1 模型合同使用与模板版本无关的 `layout_key`，系统绑定冻结模板的精确布局 ID；旧检查点继续兼容。
+- [x] 24.2 对旧模板前缀、唯一字段合同、歧义字段和身份冲突增加确定性处理与可诊断错误，并覆盖同次讲义/PPT生成及恢复入口。
+- [ ] 24.3 用设计/管理、数学/数据、编程/工程三类真实课程运行正式入口，记录首次完成率、局部修复、页面完整性和真实导出结果后再判断跨课程稳定性。
+
 ## 1. Baseline and contracts
 
 - [x] 1.1 Finish the current template-pack implementation on a clean commit and verify backend, frontend contract tests and production build.

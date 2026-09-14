@@ -46,11 +46,23 @@ The system SHALL keep slide titles, body text, formulas, code, tables and citati
 - **THEN** the image remains behind or beside the editable text and exactly one component owns the accent rail
 
 ### Requirement: Template and PPT manuscript constrain each other
-The system SHALL expose the selected immutable template's construction, slot and capacity contract to the AI manuscript planner. The planner MUST select only permitted construction IDs, while deterministic code MUST validate capacity and source binding without rewriting teaching content.
+The system SHALL expose the selected immutable template's construction, slot and capacity contract to the AI manuscript planner. The model-facing contract MUST use stable semantic layout keys, while deterministic code binds those keys to the exact layout IDs of the frozen template version and validates capacity and source binding without rewriting teaching content.
 
 #### Scenario: AI plans a page from confirmed script content
 - **WHEN** the manuscript planner receives one teaching unit and a personal template contract
-- **THEN** it selects one source-linked construction exposed by that contract and the resulting manuscript records the exact template layout ID
+- **THEN** it selects one source-linked semantic layout key exposed by that contract and deterministic binding records the exact template layout ID in the resulting manuscript
+
+#### Scenario: A resumable page carries an older template prefix
+- **WHEN** a saved page names a layout from an older or foreign template version whose semantic key exists exactly once in the frozen current template
+- **THEN** deterministic binding resolves the current exact layout ID before capacity and source validation, without a model call
+
+#### Scenario: An unknown layout has one compatible field contract
+- **WHEN** a model page names an unknown layout but its fields validate against exactly one construction in the frozen template
+- **THEN** deterministic binding selects that construction and preserves the page content and sources
+
+#### Scenario: Layout identity remains ambiguous or conflicting
+- **WHEN** a page's semantic key conflicts with its legacy layout ID, or its fields match more than one permitted construction
+- **THEN** the system refuses to guess, reports the supplied identity and permitted semantic keys, and routes the affected page through bounded repair
 
 #### Scenario: Content exceeds a selected construction
 - **WHEN** deterministic capacity checks show that a semantic unit cannot fit the selected construction
