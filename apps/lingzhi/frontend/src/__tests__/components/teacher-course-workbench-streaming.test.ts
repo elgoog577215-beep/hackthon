@@ -2254,6 +2254,30 @@ describe('teacher course workbench outline streaming', () => {
     expect(scriptWrapper.find('.context-pane-heading__actions [title="重新生成"]').exists()).toBe(false)
   })
 
+  it('已保存讲义来源过期时侧栏提示需更新，保留重新生成入口', () => {
+    const store = useTeacherLessonAuthoringStore()
+    store.courseId = 'course-1'
+    store.loadedCourseId = 'course-1'
+    store.productionState = strictProductionSnapshot({
+      lesson_plan: { display_state: 'available', availability: 'usable', source_state: 'current' },
+      script: {
+        display_state: 'available', availability: 'usable', source_state: 'stale', update_required: true,
+        allowed_actions: ['regenerate_from_latest_source'],
+      },
+    }) as any
+    store.lessons = [{
+      lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
+      arrangement: { source_state: 'current', blocks: [] },
+      plan: { working_revision_id: 'plan-2', source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
+      script: { current_revision_id: 'script-1', source_lesson_plan_revision_id: 'plan-1', source_state: 'stale', ready: false, can_generate: true, sections: [] },
+    }] as any
+    const wrapper = mountWorkbench({ initialStage: 'script' })
+    expect(wrapper.get('.context-pane-heading').text()).toContain('讲义需更新')
+    expect(wrapper.get('.context-pane-heading').text()).not.toContain('内容已就绪')
+    expect(wrapper.get('[data-testid="script-batch-start"]').attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('统一投影只允许查看原因时不得用本地 can_generate 绕过后端动作', () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     const productionStage = (overrides: Record<string, unknown> = {}) => ({

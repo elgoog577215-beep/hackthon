@@ -37,6 +37,61 @@ describe('统一讲义页面', () => {
     await setLocale('zh')
   })
 
+  it.each([undefined, 'completed', 'completed_with_warnings'] as const)('来源过期时仍展示已保存讲义（历史任务 %s）', async (status) => {
+    const staleLesson = structuredClone(lesson)
+    staleLesson.script = { ...staleLesson.script, ready: false, source_state: 'stale', unavailable_reason: 'upstream_plan_mismatch' }
+    const wrapper = mount(TeacherScriptDocument, { props: {
+      courseId: 'course-1', lesson: staleLesson, externalToolbar: true,
+      generationJob: status ? { id: 'old-job', status } as TeacherLessonJob : undefined,
+    } })
+
+    expect(wrapper.get('.script-continuous').text()).toContain('原始讲稿内容')
+    expect(wrapper.get('.script-continuous').attributes('data-state')).toBe('stale')
+    expect(wrapper.get('.script-status-notice').text()).toContain('讲义需更新')
+    expect(wrapper.get('.script-status-notice').text()).toContain('重新生成')
+    expect(wrapper.find('.script-source-review').exists()).toBe(false)
+    expect(staleLesson.script.ready).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('过期讲义可在新工作稿与已保存版本之间切换', async () => {
+    const staleLesson = structuredClone(lesson)
+    staleLesson.script = { ...staleLesson.script, ready: false, source_state: 'stale' }
+    const wrapper = mount(TeacherScriptDocument, { props: {
+      courseId: 'course-1', lesson: staleLesson, externalToolbar: true,
+      generationJob: { id: 'retry-job', status: 'failed', result_sections: [
+        { section_node_id: 'section-1', title: '新工作稿', content: '新任务保留的内容' },
+      ] } as TeacherLessonJob,
+    } })
+    expect(wrapper.get('.script-continuous').text()).toContain('新任务保留的内容')
+    await wrapper.findAll('.script-tabs button').find(button => button.text().includes('已保存讲义'))!.trigger('click')
+    expect(wrapper.get('.script-continuous').text()).toContain('原始讲稿内容')
+    expect(wrapper.get('.script-continuous').text()).not.toContain('新任务保留的内容')
+    wrapper.unmount()
+  })
+
+  it('独立阅读页的过期讲义允许按最新教案生成，不被历史完成任务挡住', async () => {
+    const staleLesson = structuredClone(lesson)
+    staleLesson.script = { ...staleLesson.script, ready: false, source_state: 'stale' }
+    const wrapper = mount(TeacherScriptDocument, { props: {
+      courseId: 'course-1', lesson: staleLesson, canGenerate: true,
+      generationJob: { id: 'old-job', status: 'completed' } as TeacherLessonJob,
+    } })
+    expect(wrapper.get('.script-continuous').text()).toContain('原始讲稿内容')
+    await wrapper.get('.script-source-review').trigger('submit')
+    expect(wrapper.emitted('generate')).toEqual([['']])
+    expect(wrapper.findAll('.script-actions button').every(button => button.attributes('disabled') !== undefined)).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('其他未通过检查的正文不会被当作可阅读旧讲义', () => {
+    const blockedLesson = structuredClone(lesson)
+    blockedLesson.script = { ...blockedLesson.script, ready: false, unavailable_reason: 'quality_blocked' }
+    const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson: blockedLesson } })
+    expect(wrapper.find('.script-continuous').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('在展示页面原位编辑并保存同一份课程正文', async () => {
     const store = useTeacherLessonAuthoringStore()
     const save = vi.spyOn(store, 'saveScriptDraft').mockResolvedValue(lesson as any)
