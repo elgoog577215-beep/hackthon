@@ -5,4 +5,3 @@ from service.analytics.service import (
 )
 
 __all__ = ["cleanup_expired_events", "ingest_events", "record_server_event"]
-

@@ -61,4 +61,3 @@ async def instrument_stream(
             outcome="success",
             duration_ms=int((time.perf_counter() - started) * 1000),
         )
-

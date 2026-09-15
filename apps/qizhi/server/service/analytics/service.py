@@ -93,4 +93,3 @@ async def cleanup_expired_events(db: AsyncSession, *, now: datetime | None = Non
     result = await db.execute(delete(AnalyticsEvent).where(AnalyticsEvent.received_at < cutoff))
     await db.commit()
     return max(0, int(result.rowcount or 0))
-
