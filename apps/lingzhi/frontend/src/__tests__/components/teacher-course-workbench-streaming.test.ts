@@ -2269,7 +2269,7 @@ describe('teacher course workbench outline streaming', () => {
       lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
       arrangement: { source_state: 'current', blocks: [] },
       plan: { working_revision_id: 'plan-2', source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
-      script: { current_revision_id: 'script-1', source_lesson_plan_revision_id: 'plan-1', source_state: 'stale', ready: false, can_generate: true, sections: [] },
+      script: { current_revision_id: 'script-1', source_lesson_plan_revision_id: 'plan-1', source_state: 'stale', ready: false, can_generate: true, sections: [{ section_node_id: 'S1', content: '已保存的讲义正文' }] },
     }] as any
     const wrapper = mountWorkbench({ initialStage: 'script' })
     expect(wrapper.get('.context-pane-heading').text()).toContain('讲义需更新')
