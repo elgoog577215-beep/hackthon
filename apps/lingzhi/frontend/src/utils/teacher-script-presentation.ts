@@ -1,6 +1,17 @@
 import { t } from '../shared/i18n'
-import type { TeacherLessonJob } from '../stores/teacherLessonAuthoring'
+import type { TeacherLessonJob, TeacherLessonScriptState } from '../stores/teacherLessonAuthoring'
 import { teacherFacingTeachingLabel } from './teaching-terminology'
+
+// A saved stale handout remains readable, but is not a current source for PPT.
+export function hasRetainedStaleScript(script?: TeacherLessonScriptState): boolean {
+  return Boolean(
+    script?.source_state === 'stale'
+    && script.current_revision_id
+    && script.sections?.some(section => (
+      section.content?.trim() || section.blocks?.some(block => block.content?.trim())
+    )),
+  )
+}
 
 export function hasScriptPreviewContent(job?: TeacherLessonJob): boolean {
   return Boolean(

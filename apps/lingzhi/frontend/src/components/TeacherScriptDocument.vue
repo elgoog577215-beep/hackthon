@@ -91,18 +91,18 @@
       @closed="inlineEditing = false"
     />
 
-    <aside v-if="scriptStatusNotice && !externalToolbar" class="script-status-notice" :data-state="scriptStatusNotice.state">
+    <slot v-if="externalToolbar" name="toolbar" />
+    <aside v-if="scriptStatusNotice && (!externalToolbar || savedScriptStale)" class="script-status-notice" :data-state="scriptStatusNotice.state" role="status">
       <strong>{{ scriptStatusNotice.title }}</strong>
       <span>{{ scriptStatusNotice.detail }}</span>
     </aside>
 
-    <slot v-if="externalToolbar" name="toolbar" />
-    <nav v-if="hasWorkingPreview && lesson.script.ready && !editing" class="script-tabs" :aria-label="tr('courseWorkbench.scriptDocument.previewVersions')">
+    <nav v-if="hasWorkingPreview && hasSavedScript && !editing" class="script-tabs" :aria-label="tr('courseWorkbench.scriptDocument.previewVersions')">
       <button type="button" :class="{ active: previewSelected }" :aria-pressed="previewSelected" @click="previewSelected = true">{{ tr('courseWorkbench.lessonStreamDraft') }}</button>
       <button type="button" :class="{ active: !previewSelected }" :aria-pressed="!previewSelected" @click="previewSelected = false">{{ tr('courseWorkbench.scriptDocument.savedVersion') }}</button>
     </nav>
 
-    <section v-if="!lesson.script.ready" class="script-generation-panel" :class="{ 'has-partial': scriptSections.length }">
+    <section v-if="!lesson.script.ready && (!externalToolbar || !hasSavedScript)" class="script-generation-panel" :class="{ 'has-partial': scriptSections.length }">
       <form v-if="showGenerationForm" class="script-source-review" @submit.prevent="requestGeneration">
         <ol v-if="!externalToolbar" class="script-source-steps" :aria-label="tr('courseWorkbench.scriptDocument.flowLabel')">
           <li class="active">
@@ -156,7 +156,7 @@
         </ol>
         <p v-else-if="canGenerate" class="script-source-empty">{{ tr('courseWorkbench.scriptDocument.mappingEmpty') }}</p>
       </form>
-      <div v-if="generationJob && !externalToolbar" class="script-generation-progress" :data-status="generationJob.status">
+      <div v-if="generationJob && !externalToolbar && !['completed', 'completed_with_warnings'].includes(generationJob.status)" class="script-generation-progress" :data-status="generationJob.status">
         <div>
           <span>{{ generationPresentation.title }}</span>
           <span class="script-generation-progress__actions">
@@ -183,7 +183,7 @@
       </button>
     </nav>
 
-    <div v-if="scriptSections.length" class="script-continuous" :data-state="lesson.script.ready && !showWorkingPreview ? 'ready' : 'partial'">
+    <div v-if="scriptSections.length" class="script-continuous" :data-state="!showWorkingPreview && savedScriptStale ? 'stale' : lesson.script.ready && !showWorkingPreview ? 'ready' : 'partial'">
       <article
         v-for="(node, nodeIndex) in scriptSections"
         :id="sectionAnchor(node)"
@@ -248,7 +248,7 @@ import { t } from '../shared/i18n'
 import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring'
 import type { TeacherLessonJob, TeacherLessonProjection, TeacherLessonScriptCandidate, TeacherLessonScriptState } from '../stores/teacherLessonAuthoring'
 import { toAppError } from '../utils/app-error'
-import { hasScriptPreviewContent, readableScriptTitle, scriptGenerationPresentation } from '../utils/teacher-script-presentation'
+import { hasRetainedStaleScript, hasScriptPreviewContent, readableScriptTitle, scriptGenerationPresentation } from '../utils/teacher-script-presentation'
 import { teacherFacingTeachingLabel } from '../utils/teaching-terminology'
 
 const props = withDefaults(defineProps<{
@@ -400,6 +400,8 @@ function tr(key: string): string {
 }
 
 type ScriptSection = TeacherLessonScriptState['sections'][number]
+const savedScriptStale = computed(() => hasRetainedStaleScript(props.lesson.script))
+const hasSavedScript = computed(() => props.lesson.script.ready || savedScriptStale.value)
 const sourceLabel = computed(() => {
   const source = String(props.lesson.script.generation_source || '')
   if (source.includes('recovery') || source.includes('fallback')) return tr('courseWorkbench.scriptDocument.sourceRecovery')
@@ -409,6 +411,11 @@ const sourceLabel = computed(() => {
   return tr('courseWorkbench.scriptDocument.sourceLegacy')
 })
 const scriptStatusNotice = computed(() => {
+  if (savedScriptStale.value && !showWorkingPreview.value) return {
+    state: 'suggestion',
+    title: tr('courseWorkbench.scriptDocument.staleTitle'),
+    detail: tr('courseWorkbench.scriptDocument.staleDetail'),
+  }
   if (!props.lesson.script.ready || showWorkingPreview.value) return null
   if (!props.lesson.script.generation_source && !props.lesson.script.quality_report) return null
   return {
@@ -427,7 +434,7 @@ const showWorkingPreview = computed(() => hasWorkingPreview.value && previewSele
 watch(() => [props.lesson.lesson_unit_id, props.generationJob?.id], () => { previewSelected.value = true })
 const scriptSections = computed<ScriptSection[]>(() => {
   if (editing.value) return editSections.value
-  if (props.lesson.script.ready && !showWorkingPreview.value) return props.lesson.script.sections || []
+  if (hasSavedScript.value && !showWorkingPreview.value) return props.lesson.script.sections || []
   if (!hasWorkingPreview.value) return []
   const sections = (props.generationJob?.result_sections || []).map(section => ({
     ...section,
@@ -489,7 +496,7 @@ const generationProgress = computed(() => Math.max(0, Math.min(100, Number(props
 const showGenerationForm = computed(() => (
   !props.generating
   && !(props.externalToolbar && hasWorkingPreview.value)
-  && !['completed', 'completed_with_warnings'].includes(String(props.generationJob?.status || ''))
+  && (savedScriptStale.value || !['completed', 'completed_with_warnings'].includes(String(props.generationJob?.status || '')))
 ))
 const generationActionLabel = computed(() => {
   if (props.generating) return tr('courseWorkbench.scriptDocument.generating')

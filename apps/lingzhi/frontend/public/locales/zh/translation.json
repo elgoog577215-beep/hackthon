@@ -1017,6 +1017,8 @@
     "scriptDocument": {
       "previewVersions": "讲义版本",
       "savedVersion": "已保存讲义",
+      "staleTitle": "讲义需更新",
+      "staleDetail": "教案或来源已变化，以下保留原讲义供查看。请点击“重新生成”更新讲义，完成后再生成 PPT。",
       "candidateCanvasTitle": "修改建议已嵌入讲义正文",
       "title": "课程讲义",
       "actions": "讲义操作",

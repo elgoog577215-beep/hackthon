@@ -882,6 +882,7 @@
           <span class="context-pane-heading__signal" aria-hidden="true">
             <LoaderCircle v-if="contextPhase === 'during' && (pptContext?.progress != null || referenceWorkflowState === 'generating') && !outlineAwaitingContinuation" :size="16" class="spin" />
             <Pause v-else-if="contextPhase === 'during' && referenceWorkflowState === 'paused'" :size="16" />
+            <TriangleAlert v-else-if="contextScriptNeedsUpdate" :size="16" />
             <Check v-else-if="contextPhase === 'after'" :size="16" />
             <TriangleAlert v-else-if="contextPhase === 'failed'" :size="16" />
             <FileText v-else :size="14" />
@@ -1150,7 +1151,7 @@ import TeacherLessonArrangementSummary from './TeacherLessonArrangementSummary.v
 import TeacherDocumentCommandBar from './TeacherDocumentCommandBar.vue'
 import TeacherLessonPlanDocument from './TeacherLessonPlanDocument.vue'
 import TeacherScriptDocument from './TeacherScriptDocument.vue'
-import { hasScriptPreviewContent, scriptGenerationPresentation } from '../utils/teacher-script-presentation'
+import { hasRetainedStaleScript, hasScriptPreviewContent, scriptGenerationPresentation } from '../utils/teacher-script-presentation'
 import { teacherFacingTeachingLabel } from '../utils/teaching-terminology'
 import UploadedPptReviewWorkspace from './UploadedPptReviewWorkspace.vue'
 import PptWorkspace from './PptWorkspace.vue'
@@ -2433,7 +2434,7 @@ const scriptGenerationBlockedReason = computed(() => {
 const scriptCoursePreviewVisible = computed(() => (
   activeStage.value === 'script'
   && lessonStore.lessons.length > 0
-  && !lessonStore.lessons.some(lesson => lessonScriptIsReady(lesson))
+  && !lessonStore.lessons.some(lesson => lessonScriptIsReady(lesson) || hasRetainedStaleScript(lesson.script))
   && !scriptBatchRunning.value
   && !scriptBatchStarting.value
   && !scriptGenerationActive.value
@@ -2884,6 +2885,10 @@ const regenerationAvailable = computed(() => {
         || productionActionTaskIds(projected, 'regenerate_from_latest_source').length > 0)
     : true
 })
+const contextScriptNeedsUpdate = computed(() => (
+  activeStage.value === 'script'
+  && (activeProjectedProduction.value?.update_required || selectedLesson.value?.script.source_state === 'stale')
+))
 const contextStatusLabel = computed(() => {
   if (pptContext.value) return pptContext.value.label
   if (outlineAwaitingContinuation.value) return t('courseWorkbench.outlineFlow.readyToContinue', '讲次方案已就绪')
@@ -2897,6 +2902,7 @@ const contextStatusLabel = computed(() => {
     ? scriptGenerationPresentation(scriptJob.value).title
     : t('courseWorkbench.contextPane.generating', '正在生成')
   if (referenceWorkflowState.value === 'paused') return t('courseWorkbench.contextPane.pausedStatus', '生成已暂停')
+  if (contextScriptNeedsUpdate.value) return t('courseWorkbench.scriptDocument.staleTitle')
   if (projectedLastGoodFailure.value) return t('courseWorkbench.contextPane.ready', '内容已就绪')
   if (referenceWorkflowState.value === 'failed') return t('courseWorkbench.contextPane.incomplete', '生成未完成')
   if (contextPhase.value === 'after') return t('courseWorkbench.contextPane.ready', '内容已就绪')

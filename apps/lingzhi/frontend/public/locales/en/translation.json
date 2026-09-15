@@ -1017,6 +1017,8 @@
     "scriptDocument": {
       "previewVersions": "Script versions",
       "savedVersion": "Saved script",
+      "staleTitle": "Handout needs updating",
+      "staleDetail": "The lesson plan or sources have changed. The saved handout remains available below. Regenerate the handout before generating the PPT.",
       "candidateCanvasTitle": "The AI option is embedded in the handout",
       "title": "Course handout",
       "actions": "Handout actions",
