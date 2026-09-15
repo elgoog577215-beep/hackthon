@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from common.models import ApiResponse
+from common.models import ApiResponse, BizException
 from common.models.operation_log import FeatureType
 from infra.db import User, get_db
 from service.admin import AgentPublicService, PublicAgentDetail
@@ -41,8 +41,11 @@ async def visit_agent(
     agent_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    service: AgentPublicService = Depends(get_agent_public_service),
 ) -> ApiResponse[None]:
     """前端在用户点击首页智能体卡片时调用一次。仅记录埋点，不做其他业务动作。"""
+    if not await service.is_published(agent_id):
+        raise BizException("智能体不存在或未上架")
     await log_operation(
         db,
         user_id=current_user.id,

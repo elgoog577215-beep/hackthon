@@ -6,8 +6,8 @@
 
 1. **智能体广场后台管理** — 全量 CRUD + 上下架开关 + **拖拽排序**；新建默认不上架；首页 `HomeView` 从数据库拉取。
 2. **用户反馈管理** — 后台筛选 + 导出 Excel；附件列支持**缩略条 + 弹窗预览 + 下载**。
-3. **数据驾驶舱** — 累计用户 / 日活 / 周活；用户明细导出；**功能使用排序 BarChart**（常驻 + 智能体）；**智能体使用 Top 10**。
-4. **用户操作日志** — 统一 `user_operation_logs` 事件表，覆盖 10 项常驻功能（大纲 / PPT / 教案 / 题目生成、我的课程、智能对话、智云课堂分析、上传视频分析、文本分析待上线、PPT 分析待上线）+ 论文审查 / 反馈提交 / 智能体点击，**也是 DAU / WAU 唯一数据源**。
+3. **数据驾驶舱** — 累计用户 / 日活 / 周活；页面 PV/UV、活跃停留、跳出率、滚动深度、任务完成/失败/取消率；用户明细导出；功能使用排序与智能体 Top 10。
+4. **用户行为分析** — `analytics_events` 是页面与任务转化的权威事件源；`user_operation_logs` 继续提供兼容的功能使用次数与 DAU/WAU。完整契约见 [`analytics.md`](./analytics.md)。
 5. **审计日志** — 取证级 `audit_logs` 表 + `log_audit(...)` helper + 通用 `POST /audit/report` 上报端点；覆盖 admin 所有写入 / PII 导出 + 论文检测「上传 / 删除 / 导出」demo；保留 IP、User-Agent、payload（自动 PII 关键字脱敏 + 8KiB 截断）、`idempotency_key`。
 
 ---
@@ -77,7 +77,7 @@ ADMIN_ZJU_IDS=0010759,0011234,0012345
 
 `feature_type` 枚举见 `server/common/models/operation_log.py::FeatureType`：
 
-- `chat`、`essay_check`、`video_analysis`、`resource`、`course`、`feedback`、`agent`、`text_analysis`（待上线）、`ppt_analysis`（待上线）
+- `chat`、`essay_check`、`video_analysis`、`resource`、`course`、`feedback`、`agent`、`text_analysis`、`ppt_analysis`
 
 资源生成 / 视频分析两类通过 **`feature_key` 二级区分**（沿用 `agent` 用 `feature_key=agent_id` 的惯例），驾驶舱图表里展开成独立行：
 
@@ -107,8 +107,8 @@ ADMIN_ZJU_IDS=0010759,0011234,0012345
 | `course` | — | `POST /course/visit`（前端 `MyCoursesView` onMounted 触发） | `visit` |
 | `feedback` | — | `POST /feedback` | `submit` |
 | `agent` | `agent_id` | `POST /agents/visit/{id}`（首页卡片点击） | `visit` |
-| `text_analysis` | — | **待上线**，暂无埋点入口 | — |
-| `ppt_analysis` | — | **待上线**，暂无埋点入口 | — |
+| `text_analysis` | — | `POST /document/analyze`（DOCX） | `analyze` |
+| `ppt_analysis` | — | `POST /document/analyze`（PPTX） | `analyze` |
 
 `videos` 表加了 `source` 列（`upload` 默认，`import_zhiyun_video` 设 `zhiyun`），是「视频来源」的权威记录；`analyze_video` 读它给 `feature_key` 赋值，重复分析也能正确归类。
 
@@ -153,6 +153,7 @@ ADMIN_ZJU_IDS=0010759,0011234,0012345
 | `GET` | `/admin/dashboard/users/export` | 返回 `.xlsx`，列：序号 / 用户ID / 姓名 / 学工号 / 学院 / 角色 / 手机号 / 邮箱 / 注册时间。支持 `keyword?` + `role?` 过滤 |
 | `PATCH` | `/admin/users/{user_id}/role` | body `{role: admin\|teacher\|student}`，写 `audit_logs.action=user.role_update`；admin 不能把自己改成非 admin（`BizException("不能降级自己")`） |
 | `GET` | `/admin/dashboard/feature-usage` | `days=7`，返回 `[{feature_type, feature_key?, label, count, unique_users, pending}]`。**常驻 12 个 slot 永远全量返回**（缺数据补 0），非待上线按 count 倒序、待上线钉到末尾；上架智能体按 count 倒序追加；`pending=true` 时前端会给 label 加「（待上线）」后缀 |
+| `GET` | `/admin/dashboard/behavior-metrics` | `days=7`，返回页面参与度、跳出、滚动深度与任务转化指标 |
 | `GET` | `/admin/dashboard/agent-usage` | `days=7&limit=10`，仅返回 `enabled=true` 的智能体使用 Top N，含 `agent_id, title, count, unique_users` |
 
 #### 课程访问埋点
@@ -275,7 +276,7 @@ client/website/src/
 ├── layouts/
 │   └── AdminLayout.vue   240px sidebar + 主区，复用全局 Navbar
 ├── views/admin/
-│   ├── AdminDashboardView.vue    3 张指标卡片 + 功能使用 BarChart + 智能体 Top BarChart + 用户表
+│   ├── AdminDashboardView.vue    核心指标 + 行为转化指标 + 功能/智能体图表 + 用户表
 │   ├── AdminAgentsView.vue       拖拽排序表格 + 上下架 toggle + 编辑/删除
 │   ├── AdminAgentEditModal.vue   新建/编辑模态（新建时上架复选框默认未勾）
 │   └── AdminFeedbacksView.vue    筛选 + 列表 + 附件缩略条 + lightbox + 导出
@@ -367,7 +368,8 @@ npm run build      # 或 npm run dev 开发模式
 - [ ] `curl /api/agents/public` 不带 token 也能返回已上架的卡片
 - [ ] 用白名单内学号登录后 `GET /api/admin/check` 返回 `{is_admin: true}`
 - [ ] `GET /api/admin/dashboard/stats` 返回三个数字，DAU/WAU 基于 `user_operation_logs` 计算
-- [ ] `GET /api/admin/dashboard/feature-usage` 返回至少 12 条常驻 slot + N 条 agent；待上线两条 `pending=true`
+- [ ] `GET /api/admin/dashboard/feature-usage` 返回至少 12 条常驻 slot + N 条 agent
+- [ ] `GET /api/admin/dashboard/behavior-metrics` 返回 PV/UV、活跃停留、跳出、滚动和任务终态
 - [ ] `GET /api/admin/feedbacks/export` 下载后用 Excel 打开，中文表头与文件名正常
 - [ ] `POST /api/admin/agents/operation create`（不带 `enabled`）→ 新建行 `enabled=false`
 - [ ] `POST /api/admin/agents/reorder` 提交反转的 id_list → 列表顺序整体反过来；缺/多 ID 会 400
@@ -385,7 +387,7 @@ npm run build      # 或 npm run dev 开发模式
 前端：
 
 - [ ] 首页 Network 面板能看到 `/api/agents/public` 请求并渲染卡片；点击任一卡片 Network 出现 `/api/agents/visit/{id}` 200
-- [ ] 管理员账号访问 `/admin/dashboard`：3 张数字卡 + 功能使用 BarChart（含 10 项常驻 + 论文审查 + 反馈，含两条「待上线」灰条）+ 智能体 Top BarChart + 用户表；切换时间范围（今天/近 7 天/近 30 天）数据更新
+- [ ] 管理员账号访问 `/admin/dashboard`：核心数字卡 + 行为转化指标 + 功能使用/智能体图表 + 用户表；切换时间范围（今天/近 7 天/近 30 天）数据同步更新
 - [ ] DAU / WAU tooltip 文案为「在 user_operation_logs 留下任意一条记录的去重用户数」
 - [ ] 打开 `/my-courses` → Network 面板看到 `POST /api/course/visit` 200；驾驶舱「我的课程」+1
 - [ ] `/admin/agents`：每行左侧 `⋮⋮` 把手；拖拽落下后顺序保持，刷新页面仍然如此

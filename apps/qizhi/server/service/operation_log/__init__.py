@@ -1,1 +1,1 @@
-from service.operation_log.service import log_operation
+from service.operation_log.service import log_operation, log_operation_isolated

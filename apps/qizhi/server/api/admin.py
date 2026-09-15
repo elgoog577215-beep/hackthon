@@ -25,6 +25,7 @@ from service.admin import (
     AuditLogDetail,
     AuditLogQueryParams,
     AuditReportParams,
+    BehaviorMetrics,
     DashboardStats,
     FeatureUsageItem,
     UserRoleUpdateParams,
@@ -248,6 +249,21 @@ async def get_dashboard_stats(
 ) -> ApiResponse[DashboardStats]:
     stats = await service.get_stats()
     return ApiResponse.success_response(stats)
+
+
+@router.get(
+    "/dashboard/behavior-metrics",
+    summary="驾驶舱：页面参与度、跳出、滚动与任务转化",
+    response_model=ApiResponse[BehaviorMetrics],
+)
+async def get_behavior_metrics(
+    days: int = Query(default=7, ge=1, le=365),
+    service: AdminDashboardService = Depends(get_admin_dashboard_service),
+    current_admin: User = Depends(get_current_admin),
+) -> ApiResponse[BehaviorMetrics]:
+    now_sh = datetime.now(ZoneInfo(TIMEZONE_SHANGHAI))
+    metrics = await service.get_behavior_metrics(now_sh - timedelta(days=days), now_sh)
+    return ApiResponse.success_response(metrics)
 
 
 @router.get(

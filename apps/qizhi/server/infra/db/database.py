@@ -109,6 +109,29 @@ _STARTUP_MIGRATIONS: list[tuple[str, str]] = [
         "ALTER TABLE courses ADD COLUMN IF NOT EXISTS extra_info JSONB",
     ),
     ("course_manager.manager_id.index", "CREATE INDEX IF NOT EXISTS ix_course_manager_manager_id ON course_manager(manager_id)"),
+    (
+        "task_queue.user_id",
+        "ALTER TABLE task_queue ADD COLUMN IF NOT EXISTS user_id VARCHAR REFERENCES users(id) ON DELETE SET NULL",
+    ),
+    ("task_queue.user_id.index", "CREATE INDEX IF NOT EXISTS ix_task_queue_user_id ON task_queue(user_id)"),
+    # 行为日志保留历史聚合，但账号删除后解除直接身份关联。
+    (
+        "user_operation_logs.user_id.on_delete_set_null",
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conname = 'user_operation_logs_user_id_fkey' AND confdeltype <> 'n'
+            ) THEN
+                ALTER TABLE user_operation_logs DROP CONSTRAINT user_operation_logs_user_id_fkey;
+                ALTER TABLE user_operation_logs
+                    ADD CONSTRAINT user_operation_logs_user_id_fkey
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+            END IF;
+        END $$
+        """,
+    ),
     # 资源版本化层级（课程 → 大纲版本 → 教案版本 → PPT 版本）
     (
         "resources.version_number",

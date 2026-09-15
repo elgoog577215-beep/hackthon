@@ -20,6 +20,7 @@ from service.essay_check.models import (
     EssayScoreCounts,
     EssayTaskItem,
 )
+from service.analytics import record_server_event
 
 logger = get_logger(__name__)
 
@@ -84,12 +85,16 @@ class EssayCheckService:
 
         # 对未结束的任务，去微服务同步状态
         pending_tasks = [t for t in rows if t.status not in ("completed", "failed")]
+        terminal_transitions: list[tuple[UserEssayTask, str]] = []
         for task in pending_tasks:
             try:
                 micro_data = await self._fetch_micro_task(task, current_user)
                 micro_status = micro_data.get("status", task.status)
+                previous_status = task.status
                 if micro_status != task.status:
                     task.status = micro_status
+                if previous_status not in ("completed", "failed") and micro_status in ("completed", "failed"):
+                    terminal_transitions.append((task, micro_status))
                 if task.total_pages is None and micro_data.get("total_pages"):
                     task.total_pages = micro_data.get("total_pages")
                 if micro_status == "completed" and micro_data.get("overall_score") and not task.result:
@@ -98,6 +103,8 @@ class EssayCheckService:
                 logger.warning(f"[service.py] 列表同步任务 {task.id} 状态失败: {e}")
         if pending_tasks:
             await self.db.commit()
+        for task, terminal_status in terminal_transitions:
+            await self._record_terminal_event(task, terminal_status)
 
         return [
             EssayTaskItem(
@@ -241,12 +248,15 @@ class EssayCheckService:
         data = await self._fetch_micro_task(task, current_user)
 
         # 同步更新本地状态
+        previous_status = task.status
         task.status = data.get("status", task.status)
         if task.total_pages is None:
             task.total_pages = data.get("total_pages")
         if data.get("status") == "completed" and data.get("overall_score"):
             task.result = json.dumps(data, ensure_ascii=False)
         await self.db.commit()
+        if previous_status not in ("completed", "failed") and task.status in ("completed", "failed"):
+            await self._record_terminal_event(task, task.status)
 
         return {
             "task_id": task.id,
@@ -263,6 +273,23 @@ class EssayCheckService:
             "reference_issues": data.get("reference_issues"),
             "recommendations": data.get("recommendations"),
         }
+
+    async def _record_terminal_event(self, task: UserEssayTask, status: str) -> None:
+        now = datetime.now(timezone.utc)
+        duration_ms = None
+        if task.create_time:
+            created = task.create_time if task.create_time.tzinfo else task.create_time.replace(tzinfo=timezone.utc)
+            duration_ms = max(0, int((now - created).total_seconds() * 1000))
+        succeeded = status == "completed"
+        await record_server_event(
+            event_name="task_succeeded" if succeeded else "task_failed",
+            user_id=task.user_id,
+            workflow_id=task.id,
+            feature="essay_check",
+            outcome="success" if succeeded else "failed",
+            duration_ms=duration_ms,
+            properties={"task_type": "essay_check"},
+        )
 
     async def _fetch_micro_task(self, task: UserEssayTask, current_user: User | None = None) -> dict:
         """请求微服务获取任务详情（单接口包含进度+报告）。"""

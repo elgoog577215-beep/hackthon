@@ -44,9 +44,29 @@ async def lifespan(app: FastAPI):
         ])
     )
 
+    async def analytics_cleanup_loop() -> None:
+        from infra.db.database import AsyncSessionLocal
+        from service.analytics import cleanup_expired_events
+
+        while True:
+            await asyncio.sleep(60)
+            try:
+                async with AsyncSessionLocal() as cleanup_db:
+                    deleted = await cleanup_expired_events(cleanup_db)
+                    if deleted:
+                        logger.info("清理过期行为事件: %d", deleted)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning("行为事件保留期清理失败", exc_info=True)
+            await asyncio.sleep(24 * 60 * 60)
+
+    analytics_cleanup_task = asyncio.create_task(analytics_cleanup_loop(), name="analytics-retention")
+
     yield
 
     worker_task.cancel()
+    analytics_cleanup_task.cancel()
     logger.info("EDU AI HOME应用关闭")
 
 # 创建应用
@@ -101,9 +121,10 @@ async def auth_exception_handler(request: Request, exc: AuthException) -> JSONRe
 # 未知异常
 @app.exception_handler(Exception)
 async def exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("未处理的服务端异常: %s %s", request.method, request.url.path)
     return JSONResponse(
         status_code=500,
-        content=ApiResponse.error_response(str(exc)).model_dump(),
+        content=ApiResponse.error_response("服务器内部错误，请稍后重试").model_dump(),
     )
 
 

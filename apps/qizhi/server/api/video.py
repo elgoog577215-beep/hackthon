@@ -134,15 +134,15 @@ async def analyze_video(
     """
     analyze_mode = "local" if mode == "local" else "cloud"
     source = await service.get_video_source(id, current_user)
+    await service.analyze_video(id, current_user, mode=analyze_mode)
     await log_operation(
         db,
         user_id=current_user.id,
         feature_type=FeatureType.VIDEO_ANALYSIS,
         feature_key=source,
         action="analyze",
-        extra={"video_id": id, "mode": analyze_mode},
+        extra={"mode": analyze_mode},
     )
-    await service.analyze_video(id, current_user, mode=analyze_mode)
     return ApiResponse.success_response()
 
 

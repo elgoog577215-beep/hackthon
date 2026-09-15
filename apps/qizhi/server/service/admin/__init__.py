@@ -10,6 +10,7 @@ from service.admin.models import (
     AuditLogDetail,
     AuditLogQueryParams,
     AuditReportParams,
+    BehaviorMetrics,
     DashboardStats,
     FeatureUsageItem,
     PublicAgentDetail,

@@ -163,6 +163,16 @@ async def get_current_user(
         raise AuthException("认证令牌无效")
 
 
+async def get_optional_current_user(
+    token: str | None = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> User | None:
+    """Resolve a valid bearer token when present; allow truly anonymous requests."""
+    if not token:
+        return None
+    return await get_current_user(token=token, db=db)
+
+
 def require_roles(*allowed: UserRole):
     """生成 FastAPI 依赖：当前用户的 role 必须命中 allowed 中之一，否则 401。"""
     allowed_values = {r.value for r in allowed}

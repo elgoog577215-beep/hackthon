@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, DateTime, Text
+from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey
 from sqlalchemy.sql import func
 
 from infra.db.database import Base
@@ -18,12 +18,13 @@ class TaskQueue(Base):
     id = Column(String, primary_key=True, default=generate_id)
     task_type = Column(String, nullable=False, index=True, comment="任务类型")
     business_id = Column(String, nullable=False, index=True, comment="业务模型ID")
+    user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True, comment="任务发起用户")
     status = Column(
         String,
         nullable=False,
         default="pending",
         index=True,
-        comment="状态：pending / processing / success / failed",
+        comment="状态：pending / processing / success / failed / cancelled",
     )
     retry_count = Column(Integer, default=0, comment="已重试次数")
     error_message = Column(Text, comment="失败原因")

@@ -130,6 +130,27 @@ class AgentUsageItem(BaseModel):
     unique_users: int
 
 
+class BehaviorMetrics(BaseModel):
+    """Privacy-safe product behavior metrics for one time window."""
+    page_views: int
+    unique_visitors: int
+    sessions: int
+    engaged_duration_ms: int
+    average_engaged_seconds: float
+    bounce_count: int
+    bounce_rate: float
+    task_started: int
+    task_succeeded: int
+    task_failed: int
+    task_cancelled: int
+    task_completion_rate: float
+    task_failure_rate: float
+    task_cancellation_rate: float
+    unfinished_tasks: int
+    scroll_reach: dict[str, int]
+    latest_event_at: str | None = None
+
+
 # ---------- 审计日志 ----------
 
 class AuditReportParams(BaseModel):

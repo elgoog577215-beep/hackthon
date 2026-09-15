@@ -12,14 +12,32 @@ from agents.question_bank import agent as question_bank_agent
 from agents.question_bank.models import QuestionBankGenerateParams
 from agents.teaching_plan import agent as teaching_plan_agent
 from agents.teaching_plan.models import TeachingPlanGenerateParams
-from common.models import BizException
 from common.models.operation_log import FeatureType
 from common.utils import safe_sse_stream
-from infra.db import User, get_db
+from infra.db import User, generate_id, get_db
+from service.analytics.lifecycle import instrument_stream
 from service.auth import get_current_user
-from service.operation_log import log_operation
+from service.operation_log import log_operation_isolated
 
 router = APIRouter()
+
+
+def _tracked_stream(stream, *, user_id: str, feature: str, feature_key: str | None, action: str):
+    async def record_legacy_success() -> None:
+        await log_operation_isolated(
+            user_id=user_id,
+            feature_type=FeatureType.CHAT if feature == "chat" else FeatureType.RESOURCE,
+            feature_key=feature_key,
+            action=action,
+        )
+
+    return safe_sse_stream(instrument_stream(
+        stream,
+        user_id=user_id,
+        feature=feature,
+        workflow_id=generate_id(),
+        on_success=record_legacy_success,
+    ))
 
 
 @router.post(
@@ -32,9 +50,8 @@ async def chat(
     db: AsyncSession = Depends(get_db),
 ) -> EventSourceResponse:
     """提交一条用户消息，并通过 SSE 持续返回 AI 回复及执行事件。"""
-    await log_operation(db, user_id=current_user.id, feature_type=FeatureType.CHAT, action="send")
     stream = assistant_agent.stream(db, request, current_user)
-    return EventSourceResponse(safe_sse_stream(stream))
+    return EventSourceResponse(_tracked_stream(stream, user_id=current_user.id, feature="chat", feature_key=None, action="send"))
 
 
 @router.post(
@@ -47,15 +64,8 @@ async def generate_outline(
     db: AsyncSession = Depends(get_db),
 ) -> EventSourceResponse:
     """根据表单数据流式生成教学大纲。"""
-    await log_operation(
-        db,
-        user_id=current_user.id,
-        feature_type=FeatureType.RESOURCE,
-        feature_key="outline",
-        action="generate",
-    )
     stream = outline_agent.stream(db, params, current_user)
-    return EventSourceResponse(safe_sse_stream(stream))
+    return EventSourceResponse(_tracked_stream(stream, user_id=current_user.id, feature="outline", feature_key="outline", action="generate"))
 
 
 @router.post(
@@ -68,15 +78,8 @@ async def generate_teaching_plan(
     db: AsyncSession = Depends(get_db),
 ) -> EventSourceResponse:
     """基于教学大纲流式生成教案。"""
-    await log_operation(
-        db,
-        user_id=current_user.id,
-        feature_type=FeatureType.RESOURCE,
-        feature_key="teaching_plan",
-        action="generate",
-    )
     stream = teaching_plan_agent.stream(db, params, current_user)
-    return EventSourceResponse(safe_sse_stream(stream))
+    return EventSourceResponse(_tracked_stream(stream, user_id=current_user.id, feature="teaching_plan", feature_key="teaching_plan", action="generate"))
 
 
 @router.post(
@@ -89,15 +92,8 @@ async def generate_question_bank(
     db: AsyncSession = Depends(get_db),
 ) -> EventSourceResponse:
     """基于教案流式生成题库。"""
-    await log_operation(
-        db,
-        user_id=current_user.id,
-        feature_type=FeatureType.RESOURCE,
-        feature_key="question_bank",
-        action="generate",
-    )
     stream = question_bank_agent.stream(db, params, current_user)
-    return EventSourceResponse(safe_sse_stream(stream))
+    return EventSourceResponse(_tracked_stream(stream, user_id=current_user.id, feature="question_bank", feature_key="question_bank", action="generate"))
 
 
 @router.post(
@@ -113,12 +109,5 @@ async def generate_ppt(
 
     SSE 事件：loading（进度）→ end（{html_url, pptx_url, title, slides}）。
     """
-    await log_operation(
-        db,
-        user_id=current_user.id,
-        feature_type=FeatureType.RESOURCE,
-        feature_key="ppt",
-        action="generate",
-    )
     stream = ppt_agent.stream(db, params, current_user)
-    return EventSourceResponse(safe_sse_stream(stream))
+    return EventSourceResponse(_tracked_stream(stream, user_id=current_user.id, feature="ppt", feature_key="ppt", action="generate"))

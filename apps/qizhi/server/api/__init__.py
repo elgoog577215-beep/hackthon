@@ -4,7 +4,7 @@ API 路由
 
 from fastapi import APIRouter
 
-from api import admin, agents, ai, audit, auth, common, course, document, essay_check, feedback, resource, session, user, video
+from api import admin, agents, ai, analytics, audit, auth, common, course, document, essay_check, feedback, resource, session, user, video
 
 
 api_router = APIRouter()
@@ -23,4 +23,5 @@ api_router.include_router(agents.router, prefix="/agents", tags=["agents"])
 api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
 api_router.include_router(document.router, prefix="/document", tags=["document"])
+api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 api_router.include_router(common.router, tags=["common"])

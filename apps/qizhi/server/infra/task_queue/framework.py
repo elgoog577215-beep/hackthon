@@ -22,6 +22,11 @@ class RetryableError(Exception):
     pass
 
 
+class TaskCancelledError(Exception):
+    """The user-facing task was intentionally removed or cancelled."""
+    pass
+
+
 class TaskHandler(ABC):
     """
     任务处理器抽象基类（策略模式）。
@@ -102,6 +107,7 @@ class AsyncTaskFramework:
         task_type: str,
         business_id: str,
         scheduled_at: datetime | None = None,
+        user_id: str | None = None,
     ) -> TaskQueue:
         """创建异步任务。"""
         if scheduled_at is None:
@@ -110,6 +116,7 @@ class AsyncTaskFramework:
         task = TaskQueue(
             task_type=task_type,
             business_id=business_id,
+            user_id=user_id,
             status="pending",
             scheduled_at=scheduled_at,
         )
@@ -121,6 +128,14 @@ class AsyncTaskFramework:
             task.id,
             task_type,
             business_id,
+        )
+        from service.analytics import record_server_event
+        await record_server_event(
+            event_name="task_started",
+            user_id=user_id,
+            workflow_id=task.id,
+            feature=task_type,
+            properties={"task_type": task_type},
         )
         return task
 
@@ -245,12 +260,18 @@ class AsyncTaskFramework:
         if not handler:
             logger.error("未找到任务类型 %s 的处理器", task.task_type)
             await self._mark_failed(db, task_id, f"未找到处理器: {task.task_type}")
+            await self._record_terminal_event(task, "task_failed")
             return
 
         try:
             await handler.execute(task, db)
             await self._mark_success(db, task_id)
+            await self._record_terminal_event(task, "task_succeeded")
             logger.info("任务执行成功: %s", task_id)
+        except TaskCancelledError:
+            await self._mark_cancelled(db, task_id)
+            await self._record_terminal_event(task, "task_cancelled")
+            logger.info("任务已取消: %s", task_id)
         except Exception as e:
             logger.exception("任务执行失败: %s", task_id)
             should_retry = await handler.should_retry(task, e)
@@ -269,7 +290,38 @@ class AsyncTaskFramework:
                     )
             else:
                 await self._mark_failed(db, task_id, str(e))
+                await self._record_terminal_event(task, "task_failed", error=e)
                 logger.info("任务标记为失败: %s", task_id)
+
+    async def _record_terminal_event(
+        self,
+        task: TaskQueue,
+        event_name: str,
+        *,
+        error: Exception | None = None,
+    ) -> None:
+        from service.analytics import record_server_event
+
+        now = datetime.now(ZoneInfo("Asia/Shanghai"))
+        duration_ms = None
+        if task.create_time:
+            duration_ms = max(0, int((now - task.create_time).total_seconds() * 1000))
+        properties = {"task_type": task.task_type}
+        if error:
+            properties["error_code"] = type(error).__name__
+        outcome = {
+            "task_succeeded": "success",
+            "task_cancelled": "cancelled",
+        }.get(event_name, "failed")
+        await record_server_event(
+            event_name=event_name,
+            user_id=task.user_id,
+            workflow_id=task.id,
+            duration_ms=duration_ms,
+            feature=task.task_type,
+            outcome=outcome,
+            properties=properties,
+        )
 
     async def _lock_task(self, db: AsyncSession, task_id: str) -> bool:
         """CAS 加锁：pending → processing"""
@@ -338,6 +390,18 @@ class AsyncTaskFramework:
             .values(
                 status="failed",
                 error_message=error_message,
+                completed_at=datetime.now(ZoneInfo("Asia/Shanghai")),
+            )
+        )
+        await db.commit()
+
+    async def _mark_cancelled(self, db: AsyncSession, task_id: str) -> None:
+        await db.execute(
+            update(TaskQueue)
+            .where(TaskQueue.id == task_id)
+            .values(
+                status="cancelled",
+                completed_at=datetime.now(ZoneInfo("Asia/Shanghai")),
             )
         )
         await db.commit()

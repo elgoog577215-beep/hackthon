@@ -13,6 +13,7 @@ from service.auth import get_current_user
 from service.essay_check import EssayCheckService, EssayTaskItem
 from service.essay_check.models import EssayOverview, ReportExportRequest
 from service.operation_log import log_operation
+from service.analytics import record_server_event
 from common.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -47,9 +48,16 @@ async def upload_essay(
         logger.warning(f"[essay_check.py] 只支持PDF文件")
         raise BizException("只支持PDF文件")
 
-    await log_operation(db, user_id=current_user.id, feature_type=FeatureType.ESSAY_CHECK, action="submit")
     file_bytes = await file.read()
     task_id = await service.submit_essay(file_bytes, file.filename, current_user)
+    await log_operation(db, user_id=current_user.id, feature_type=FeatureType.ESSAY_CHECK, action="submit")
+    await record_server_event(
+        event_name="task_started",
+        user_id=current_user.id,
+        workflow_id=task_id,
+        feature="essay_check",
+        properties={"task_type": "essay_check"},
+    )
     await log_audit(
         db,
         actor_type=AuditActorType.USER,

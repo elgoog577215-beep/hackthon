@@ -19,6 +19,11 @@ class AgentPublicService:
         )).scalars().all()
         return [_to_public(a) for a in rows]
 
+    async def is_published(self, agent_id: str) -> bool:
+        return bool((await self.db.execute(
+            select(Agent.id).where(Agent.id == agent_id, Agent.enabled.is_(True))
+        )).scalar_one_or_none())
+
 
 def _to_public(agent: Agent) -> PublicAgentDetail:
     return PublicAgentDetail(

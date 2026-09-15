@@ -16,6 +16,23 @@
       </div>
     </section>
 
+    <section class="usage-section" aria-label="用户行为与任务转化">
+      <div class="usage-toolbar">
+        <h3 class="usage-title">用户行为与任务转化</h3>
+        <span class="stat-card-hint">与下方统计共用最近 {{ usageDays }} 天范围</span>
+      </div>
+      <div class="dashboard-stats behavior-stats">
+        <div class="stat-card" v-for="card in behaviorCards" :key="card.key">
+          <div class="stat-card-label" :title="card.tooltip">{{ card.label }}</div>
+          <div class="stat-card-value">
+            <template v-if="behaviorLoading">—</template>
+            <template v-else>{{ card.value }}</template>
+          </div>
+          <div class="stat-card-hint">{{ card.hint }}</div>
+        </div>
+      </div>
+    </section>
+
     <section class="usage-section" aria-label="功能使用统计">
       <div class="usage-toolbar">
         <h3 class="usage-title">功能使用排序</h3>
@@ -109,6 +126,7 @@ import {
   exportAdminUsers,
   fetchAdminUsers,
   fetchAgentUsage,
+  fetchBehaviorMetrics,
   fetchDashboardStats,
   fetchFeatureUsage,
   triggerBlobDownload,
@@ -116,6 +134,7 @@ import {
 import type {
   AdminUserDetail,
   AgentUsageItem,
+  BehaviorMetrics,
   DashboardStats,
   FeatureUsageItem,
 } from '../../api/types'
@@ -124,6 +143,8 @@ const PAGE_SIZE = 100
 
 const stats = ref<DashboardStats | null>(null)
 const statsLoading = ref(false)
+const behavior = ref<BehaviorMetrics | null>(null)
+const behaviorLoading = ref(false)
 
 const users = ref<AdminUserDetail[]>([])
 const usersLoading = ref(false)
@@ -152,6 +173,23 @@ const agentChartData = computed<BarChartItem[]>(() =>
     value: it.count,
   })),
 )
+
+const behaviorCards = computed(() => {
+  const value = behavior.value
+  const scroll75 = value?.scroll_reach['75'] ?? 0
+  const scroll75Rate = value?.page_views ? scroll75 / value.page_views * 100 : 0
+  return [
+    { key: 'pv', label: '页面浏览量', value: formatNumber(value?.page_views ?? 0), hint: '全站路由进入次数', tooltip: '按 page_view 事件统计，不包含 URL 查询参数' },
+    { key: 'uv', label: '访问用户', value: formatNumber(value?.unique_visitors ?? 0), hint: '登录与匿名访问者去重', tooltip: '登录用户按 user_id，匿名用户按 anonymous_id 去重' },
+    { key: 'engagement', label: '平均活跃停留', value: `${value?.average_engaged_seconds ?? 0} 秒`, hint: '排除隐藏标签页时间', tooltip: '基于页面可见期间的低频心跳与离开汇总' },
+    { key: 'bounce', label: '跳出率', value: `${value?.bounce_rate ?? 0}%`, hint: '单页且活跃少于 10 秒', tooltip: '单页面、低参与会话 / 全部会话' },
+    { key: 'completion', label: '任务完成率', value: `${value?.task_completion_rate ?? 0}%`, hint: `${value?.task_succeeded ?? 0}/${value?.task_started ?? 0} 个任务`, tooltip: '成功 workflow_id / 已开始 workflow_id' },
+    { key: 'failure', label: '任务失败率', value: `${value?.task_failure_rate ?? 0}%`, hint: `${value?.task_failed ?? 0} 个失败任务`, tooltip: '失败 workflow_id / 已开始 workflow_id；取消单独记录，不计失败' },
+    { key: 'cancelled', label: '任务取消率', value: `${value?.task_cancellation_rate ?? 0}%`, hint: `${value?.task_cancelled ?? 0} 个取消任务`, tooltip: '断开或主动取消的 workflow_id / 已开始 workflow_id' },
+    { key: 'unfinished', label: '未结束任务', value: formatNumber(value?.unfinished_tasks ?? 0), hint: value?.latest_event_at ? `最新事件 ${value.latest_event_at}` : '暂未收到事件', tooltip: '已开始但尚无成功、失败或取消终态的任务' },
+    { key: 'scroll75', label: '滚动到 75%', value: `${scroll75Rate.toFixed(1)}%`, hint: `${scroll75} 个页面实例`, tooltip: '达到 75% 深度的页面实例 / 页面浏览量' },
+  ]
+})
 
 const statCards = computed(() => [
   {
@@ -195,19 +233,24 @@ async function loadStats() {
 
 async function loadUsage() {
   usageLoading.value = true
+  behaviorLoading.value = true
   try {
-    const [features, agents] = await Promise.all([
+    const [features, agents, behaviorResult] = await Promise.all([
       fetchFeatureUsage(usageDays.value),
       fetchAgentUsage(usageDays.value, 10),
+      fetchBehaviorMetrics(usageDays.value),
     ])
     featureUsage.value = features
     agentUsage.value = agents
+    behavior.value = behaviorResult
   } catch (e) {
     console.error('[Admin] 加载使用数据失败', e)
     featureUsage.value = []
     agentUsage.value = []
+    behavior.value = null
   } finally {
     usageLoading.value = false
+    behaviorLoading.value = false
   }
 }
 

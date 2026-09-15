@@ -12,3 +12,4 @@ from infra.db.models.user_operation_log import UserOperationLog
 from infra.db.models.audit_log import AuditLog
 from infra.db.models.task_queue import TaskQueue
 from infra.db.models.document_analysis import DocumentAnalysis
+from infra.db.models.analytics_event import AnalyticsEvent

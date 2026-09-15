@@ -76,7 +76,4 @@ RESIDENT_FEATURE_SLOTS: list[tuple[str, str | None]] = [
 
 # 待上线功能 slot：前端会给 label 加「（待上线）」后缀，
 # dashboard 接口也会在 FeatureUsageItem.pending 上置 True。
-PENDING_FEATURE_SLOTS: set[tuple[str, str | None]] = {
-    (FeatureType.TEXT_ANALYSIS.value, None),
-    (FeatureType.PPT_ANALYSIS.value, None),
-}
+PENDING_FEATURE_SLOTS: set[tuple[str, str | None]] = set()

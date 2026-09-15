@@ -141,5 +141,8 @@ class Settings(BaseModel):
     # 未配置（空串）时 /audit/report 端点关闭；admin JWT 上报路径不受影响。
     AUDIT_SERVICE_TOKEN: str = os.getenv("AUDIT_SERVICE_TOKEN", "")
 
+    # 原始行为事件只用于近期产品分析；长期趋势应使用聚合数据。
+    ANALYTICS_RAW_RETENTION_DAYS: int = max(30, int(os.getenv("ANALYTICS_RAW_RETENTION_DAYS", "180") or "180"))
+
 
 settings = Settings()

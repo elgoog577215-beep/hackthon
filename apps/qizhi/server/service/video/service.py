@@ -221,6 +221,7 @@ class VideoService:
                 task_type=LocalVideoAnalysisHandler.task_type,
                 business_id=id,
                 scheduled_at=datetime.now(ZoneInfo("Asia/Shanghai")),
+                user_id=current_user.id,
             )
             return
 
@@ -272,6 +273,7 @@ class VideoService:
                         task_type=VideoAnalysisHandler.task_type,
                         business_id=id,
                         scheduled_at=datetime.now(ZoneInfo("Asia/Shanghai")) + timedelta(hours=1),
+                        user_id=current_user.id,
                     )
                 except Exception:
                     logger.exception("视频上传后台任务失败: %s", id)

@@ -28,3 +28,6 @@ tmp/
 .playwright-cli/
 .pytest_cache/
 .ruff_cache/
+coverage/
+test-results/
+.coverage

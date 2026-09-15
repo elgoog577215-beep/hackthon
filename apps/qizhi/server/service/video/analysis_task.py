@@ -16,7 +16,7 @@ from common.utils import HTTPMethodEnum, http_request
 from common.utils.logger import get_logger
 from infra.db.models.task_queue import TaskQueue
 from infra.db.models.video import Video
-from infra.task_queue.framework import RetryableError, TaskHandler
+from infra.task_queue.framework import RetryableError, TaskCancelledError, TaskHandler
 from service.video.models import VideoStatusEnum
 from service.video.service import _build_chaoxing_enc
 
@@ -230,7 +230,7 @@ class LocalVideoAnalysisHandler(TaskHandler):
             # 视频在分析过程中被删除：属正常取消，不算失败；视频/任务已被删除，无需更新
             logger.info("[local_analysis_task] 视频已删除，本地分析取消: video_id=%s", video_id)
             await db.rollback()
-            return
+            raise TaskCancelledError("视频已删除")
         except Exception as exc:
             import traceback as _tb
             err_detail = f"{type(exc).__name__}: {exc}"
@@ -249,7 +249,7 @@ class LocalVideoAnalysisHandler(TaskHandler):
         fresh = (await db.execute(select(Video).where(Video.id == video_id))).scalars().first()
         if not fresh:
             logger.info("[local_analysis_task] 视频已删除，丢弃分析结果: video_id=%s", video_id)
-            return
+            raise TaskCancelledError("视频已删除")
         fresh.status = VideoStatusEnum.SUCCESS.value
         fresh.analysis_result = analysis_result
         await db.commit()

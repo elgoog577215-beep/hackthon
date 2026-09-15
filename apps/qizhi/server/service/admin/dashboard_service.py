@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, distinct, func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from common.models.constants import TIMEZONE_SHANGHAI
 from common.models.operation_log import (
@@ -15,10 +16,12 @@ from common.utils.datetime import format_datetime
 from infra.db import User
 from infra.db.models.agent import Agent
 from infra.db.models.user_operation_log import UserOperationLog
+from infra.db.models.analytics_event import AnalyticsEvent
 from service.admin.excel import build_workbook
 from service.admin.models import (
     AdminUserDetail,
     AgentUsageItem,
+    BehaviorMetrics,
     DashboardStats,
     FeatureUsageItem,
 )
@@ -69,6 +72,119 @@ class AdminDashboardService:
             dau=int(dau),
             wau=int(wau),
             as_of=format_datetime(now_sh) or "",
+        )
+
+    async def get_behavior_metrics(
+        self,
+        start: datetime,
+        end: datetime,
+    ) -> BehaviorMetrics:
+        filters = (
+            AnalyticsEvent.occurred_at >= start,
+            AnalyticsEvent.occurred_at < end,
+        )
+        visitor = func.coalesce(AnalyticsEvent.user_id, AnalyticsEvent.anonymous_id)
+        basics = (await self.db.execute(
+            select(
+                func.count().filter(AnalyticsEvent.event_name == "page_view"),
+                func.count(distinct(visitor)),
+                func.count(distinct(AnalyticsEvent.session_id)),
+                func.coalesce(func.sum(AnalyticsEvent.duration_ms).filter(
+                    AnalyticsEvent.event_name == "page_engagement"
+                ), 0),
+                func.max(AnalyticsEvent.received_at),
+            ).where(*filters)
+        )).one()
+        page_views, unique_visitors, sessions, engaged_duration_ms = (int(value or 0) for value in basics[:4])
+        latest_event_at = basics[4]
+
+        session_rollup = (
+            select(
+                AnalyticsEvent.session_id.label("session_id"),
+                func.count(distinct(AnalyticsEvent.page_instance_id)).filter(
+                    AnalyticsEvent.event_name == "page_view"
+                ).label("pages"),
+                func.coalesce(func.sum(AnalyticsEvent.duration_ms).filter(
+                    AnalyticsEvent.event_name == "page_engagement"
+                ), 0).label("engaged_ms"),
+            )
+            .where(*filters, AnalyticsEvent.session_id.is_not(None))
+            .group_by(AnalyticsEvent.session_id)
+            .subquery()
+        )
+        bounce_count = int((await self.db.execute(
+            select(func.count()).select_from(session_rollup).where(
+                session_rollup.c.pages <= 1,
+                session_rollup.c.engaged_ms < 10_000,
+            )
+        )).scalar() or 0)
+
+        started_workflows = (
+            select(AnalyticsEvent.workflow_id.label("workflow_id"))
+            .where(*filters, AnalyticsEvent.event_name == "task_started", AnalyticsEvent.workflow_id.is_not(None))
+            .distinct()
+            .subquery()
+        )
+        terminal = aliased(AnalyticsEvent)
+        task_counts = (await self.db.execute(
+            select(
+                func.count(distinct(started_workflows.c.workflow_id)),
+                func.count(distinct(terminal.workflow_id)).filter(terminal.event_name == "task_succeeded"),
+                func.count(distinct(terminal.workflow_id)).filter(terminal.event_name == "task_failed"),
+                func.count(distinct(terminal.workflow_id)).filter(terminal.event_name == "task_cancelled"),
+            )
+            .select_from(started_workflows)
+            .outerjoin(
+                terminal,
+                and_(
+                    terminal.workflow_id == started_workflows.c.workflow_id,
+                    terminal.occurred_at < end,
+                    terminal.event_name.in_(("task_succeeded", "task_failed", "task_cancelled")),
+                ),
+            )
+        )).one()
+        task_started, task_succeeded, task_failed, task_cancelled = (int(value or 0) for value in task_counts)
+
+        scroll_rollup = (
+            select(
+                AnalyticsEvent.page_instance_id.label("page_instance_id"),
+                func.max(AnalyticsEvent.scroll_depth).label("depth"),
+            )
+            .where(
+                *filters,
+                AnalyticsEvent.event_name == "scroll_depth_reached",
+                AnalyticsEvent.page_instance_id.is_not(None),
+            )
+            .group_by(AnalyticsEvent.page_instance_id)
+            .subquery()
+        )
+        scroll_row = (await self.db.execute(
+            select(*(func.count().filter(scroll_rollup.c.depth >= depth) for depth in (25, 50, 75, 100)))
+            .select_from(scroll_rollup)
+        )).one()
+        scroll_reach = {str(depth): int(value or 0) for depth, value in zip((25, 50, 75, 100), scroll_row)}
+
+        def rate(numerator: int, denominator: int) -> float:
+            return round(numerator / denominator * 100, 1) if denominator else 0.0
+
+        return BehaviorMetrics(
+            page_views=page_views,
+            unique_visitors=unique_visitors,
+            sessions=sessions,
+            engaged_duration_ms=engaged_duration_ms,
+            average_engaged_seconds=round(engaged_duration_ms / max(1, sessions) / 1000, 1),
+            bounce_count=bounce_count,
+            bounce_rate=rate(bounce_count, sessions),
+            task_started=task_started,
+            task_succeeded=task_succeeded,
+            task_failed=task_failed,
+            task_cancelled=task_cancelled,
+            task_completion_rate=rate(task_succeeded, task_started),
+            task_failure_rate=rate(task_failed, task_started),
+            task_cancellation_rate=rate(task_cancelled, task_started),
+            unfinished_tasks=max(0, task_started - task_succeeded - task_failed - task_cancelled),
+            scroll_reach=scroll_reach,
+            latest_event_at=format_datetime(latest_event_at) if latest_event_at else None,
         )
 
     async def list_users(

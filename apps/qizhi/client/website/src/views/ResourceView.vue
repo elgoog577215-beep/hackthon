@@ -427,7 +427,7 @@ import { buildTeachingPlanPromptSuggestions } from '../lib/teachingPlanPrompts'
 import { useRouter, useRoute, onBeforeRouteLeave } from 'vue-router'
 import type { RouteLocationNormalized } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import MdEditor from 'md-editor-v3'
+import { MdEditor } from 'md-editor-v3'
 import {
   queryResource,
   generateResource,

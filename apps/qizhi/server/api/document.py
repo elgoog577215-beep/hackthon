@@ -21,7 +21,8 @@ from common.utils.sse import SseEventEnum, SseResponse, build_sse_response
 from infra.db import User, DocumentAnalysis, generate_id, get_db
 from service.auth import get_current_user
 from service.document.analyzer import analyze_document
-from service.operation_log import log_operation
+from service.operation_log import log_operation_isolated
+from service.analytics.lifecycle import instrument_stream
 
 logger = get_logger(__name__)
 
@@ -74,19 +75,25 @@ async def analyze_doc(
     await asyncio.to_thread(save_path.write_bytes, content)
     logger.info("[doc-api] 文件已保存：%s (%d bytes)", save_path, len(content))
 
-    # 记录操作日志
     feature_type = FeatureType.PPT_ANALYSIS if ext == "pptx" else FeatureType.TEXT_ANALYSIS
-    await log_operation(
-        db,
-        user_id=current_user.id,
-        feature_type=feature_type,
-        action="analyze",
-        extra={"file_name": original_name, "file_type": ext},
-    )
-
-    # 返回 SSE 流
     stream = _analysis_stream(str(save_path), ext, original_name)
-    return EventSourceResponse(safe_sse_stream(stream))
+
+    async def record_success() -> None:
+        await log_operation_isolated(
+            user_id=current_user.id,
+            feature_type=feature_type,
+            action="analyze",
+            extra={"file_type": ext},
+        )
+
+    tracked = instrument_stream(
+        stream,
+        user_id=current_user.id,
+        feature=feature_type.value,
+        workflow_id=file_id,
+        on_success=record_success,
+    )
+    return EventSourceResponse(safe_sse_stream(tracked))
 
 
 async def _analysis_stream(

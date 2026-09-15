@@ -565,6 +565,27 @@ export interface DashboardStats {
   as_of: string
 }
 
+/** GET /admin/dashboard/behavior-metrics 返回的行为与任务指标 */
+export interface BehaviorMetrics {
+  page_views: number
+  unique_visitors: number
+  sessions: number
+  engaged_duration_ms: number
+  average_engaged_seconds: number
+  bounce_count: number
+  bounce_rate: number
+  task_started: number
+  task_succeeded: number
+  task_failed: number
+  task_cancelled: number
+  task_completion_rate: number
+  task_failure_rate: number
+  task_cancellation_rate: number
+  unfinished_tasks: number
+  scroll_reach: Record<'25' | '50' | '75' | '100', number>
+  latest_event_at?: string | null
+}
+
 /** GET /admin/dashboard/feature-usage 返回项 */
 export interface FeatureUsageItem {
   feature_type: string

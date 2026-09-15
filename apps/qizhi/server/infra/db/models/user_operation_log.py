@@ -17,7 +17,7 @@ class UserOperationLog(Base):
     __tablename__ = "user_operation_logs"
 
     id = Column(String, primary_key=True, default=generate_id)
-    user_id = Column(String, ForeignKey("users.id"), index=True, comment="用户ID")
+    user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True, comment="用户ID")
     feature_type = Column(String, index=True, nullable=False, comment="功能类型")
     feature_key = Column(String, nullable=True, index=True, comment="二级标识（如 agent_id）")
     action = Column(String, nullable=True, comment="动作 submit/view/generate/visit")

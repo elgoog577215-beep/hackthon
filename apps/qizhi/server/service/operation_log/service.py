@@ -39,4 +39,13 @@ async def log_operation(
         db.add(log)
         await db.commit()
     except Exception as e:
+        await db.rollback()
         logger.warning(f"[operation_log] 写入日志失败: feature={feature_type} err={e}", exc_info=True)
+
+
+async def log_operation_isolated(**kwargs: Any) -> None:
+    """Compatibility event writer that never commits the caller's transaction."""
+    from infra.db.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        await log_operation(db, **kwargs)

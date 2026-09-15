@@ -4,9 +4,9 @@ sqlalchemy==2.0.46
 asyncpg==0.31.0
 psycopg[binary]==3.3.3
 pydantic==2.12.5
-python-dotenv==1.2.1
-python-multipart==0.0.22
-pyjwt==2.11.0
+python-dotenv==1.2.2
+python-multipart==0.0.31
+pyjwt==2.13.0
 httpx==0.28.1
 sse-starlette==3.3.2
 python-docx==1.2.0

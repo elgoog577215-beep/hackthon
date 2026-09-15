@@ -17,6 +17,7 @@ import type {
   AuditLogListParams,
   AuditReportParams,
   DashboardStats,
+  BehaviorMetrics,
   FeatureUsageItem,
 } from './types'
 
@@ -110,6 +111,18 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
   const response = await get<ApiResponse<DashboardStats>>(`${API_PREFIX}/dashboard/stats`)
   if (!response.success || !response.data) {
     throw new Error(response.error || '获取驾驶舱指标失败')
+  }
+  return response.data
+}
+
+/** GET /admin/dashboard/behavior-metrics：页面参与度、滚动与任务转化 */
+export async function fetchBehaviorMetrics(days: number): Promise<BehaviorMetrics> {
+  const response = await get<ApiResponse<BehaviorMetrics>>(
+    `${API_PREFIX}/dashboard/behavior-metrics`,
+    { days },
+  )
+  if (!response.success || !response.data) {
+    throw new Error(response.error || '获取行为指标失败')
   }
   return response.data
 }
