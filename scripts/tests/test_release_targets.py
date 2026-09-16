@@ -31,6 +31,11 @@ class ReleaseTargetsTest(unittest.TestCase):
         self.assertFalse(targets(["deploy/zju/docker-compose.yml"])["tuotu"])
         self.assertFalse(targets(["deploy/tuotu/build.sh"])["zju"])
 
+    def test_qizhi_checks_only_target_school_release(self):
+        result = targets([".github/workflows/qizhi-checks.yml"])
+        self.assertFalse(result["tuotu"])
+        self.assertEqual(result["zju_services"], ["lingzhi", "server", "website"])
+
     def test_identical_git_revisions_do_not_release(self):
         paths = changed_paths("HEAD", "HEAD")
         self.assertEqual(paths, [])
