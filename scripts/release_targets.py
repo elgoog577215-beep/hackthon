@@ -26,7 +26,10 @@ def targets(paths):
             services.update(("server", "website", "lingzhi"))
         elif path.startswith("deploy/tuotu/") or path == ".github/workflows/deploy-lingzhi.yml":
             tuotu = True
-        elif path.startswith("deploy/zju/") or path == ".github/workflows/zju-release.yml":
+        elif path.startswith("deploy/zju/") or path in (
+            ".github/workflows/zju-release.yml",
+            ".github/workflows/qizhi-checks.yml",
+        ):
             services.update(("server", "website", "lingzhi"))
         elif path in (".gitignore", ".gitattributes", "LICENSE", "dev.sh", "dev.bat"):
             continue
