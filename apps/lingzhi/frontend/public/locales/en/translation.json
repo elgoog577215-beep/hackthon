@@ -3176,6 +3176,22 @@
     "searchLessons": "Search lessons or content",
     "noResults": "No matches. Try another keyword."
   },
+  "readingNotes": {
+    "tabs": "Reading sidebar",
+    "title": "Notes",
+    "following": "Follow reading",
+    "resume": "Resume following",
+    "selectSection": "Select a lesson to begin",
+    "sectionNotes": "Other notes in this lesson",
+    "unlocated": "Quote not located",
+    "sectionOnly": "Saved to this lesson",
+    "empty": "Your notes follow the text",
+    "emptyHint": "Select text to annotate it, or add a quick note.",
+    "allNotes": "View all notes",
+    "aiNote": "AI note",
+    "myNote": "My note",
+    "readingAt": "Reading now"
+  },
   "learningShell": {
     "openNavigator": "Open course outline",
     "openAi": "Open AI assistant",

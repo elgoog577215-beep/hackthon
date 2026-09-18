@@ -16,7 +16,7 @@
           <span><NotebookTabs :size="14" /></span>
           <strong>{{ typeLabel }}</strong>
           <small :data-state="saveState">{{ saveLabel }}</small>
-          <button v-if="interactive" type="button" :title="t('common.close', '关闭')" @click="emit('close')"><X :size="14" /></button>
+          <button v-if="interactive" type="button" :title="t('common.close', '关闭')" @click="closeEditor"><X :size="14" /></button>
         </header>
         <blockquote v-if="note.quote"><MathText :content="note.quote" /></blockquote>
         <textarea
@@ -28,7 +28,7 @@
         />
         <div v-else class="inline-record-content"><MathText :content="note.content || note.summary || t('inlineRecords.empty', '这条记录还没有正文')" /></div>
         <footer v-if="interactive">
-          <button type="button" @click="emit('askAi', note)"><MessageSquareText :size="14" />{{ t('courseWorkspace.records.ask', '问 AI') }}</button>
+          <button type="button" @click="askAi"><MessageSquareText :size="14" />{{ t('courseWorkspace.records.ask', '问 AI') }}</button>
           <button v-if="saveState === 'local_only'" type="button" @click="emit('retry', note)"><RefreshCw :size="14" />{{ t('inlineRecords.retry', '重试保存') }}</button>
           <button v-if="initialEdit" type="button" @click="emit('undo', note)"><Undo2 :size="14" />{{ t('inlineRecords.undo', '撤销') }}</button>
           <button type="button" class="danger" @click="emit('delete', note)"><Trash2 :size="14" />{{ t('common.delete', '删除') }}</button>
@@ -66,8 +66,9 @@ const emit = defineEmits<{
 const draft = ref('')
 const editorRef = ref<HTMLTextAreaElement | null>(null)
 let saveTimer: ReturnType<typeof setTimeout> | null = null
+let pendingSave: { note: Note; content: string } | null = null
 
-const editable = computed(() => props.note?.recordType === 'note' && props.note?.sourceType !== 'ai')
+const editable = computed(() => Boolean(props.note) && (!props.note?.recordType || props.note.recordType === 'note') && props.note?.sourceType !== 'ai')
 const typeLabel = computed(() => {
   if (props.note?.sourceType === 'ai') return t('courseWorkspace.records.type.aiNote', 'AI 笔记')
   if (props.note?.recordType === 'issue') return t('courseWorkspace.records.type.issue', '问题')
@@ -94,6 +95,7 @@ const positionStyle = computed(() => {
 })
 
 watch(() => [props.visible, props.note?.id], async () => {
+  flushSave()
   draft.value = props.note?.content || ''
   if (props.visible && props.interactive && props.initialEdit) {
     await nextTick()
@@ -101,14 +103,36 @@ watch(() => [props.visible, props.note?.id], async () => {
   }
 }, { immediate: true })
 
+function flushSave() {
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = null
+  const pending = pendingSave
+  pendingSave = null
+  if (pending && (pending.content.trim() || pending.note.revision)) emit('save', pending)
+}
+function cancelSave() {
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = null
+  pendingSave = null
+}
+function askAi() {
+  const note = props.note
+  if (!note) return
+  const content = pendingSave?.content ?? note.content
+  flushSave()
+  emit('askAi', { ...note, content })
+}
 function queueSave() {
   if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => {
-    if (props.note && draft.value.trim()) emit('save', { note: props.note, content: draft.value })
-  }, 650)
+  pendingSave = props.note ? { note: props.note, content: draft.value } : null
+  saveTimer = setTimeout(flushSave, 650)
 }
-
-onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer) })
+function closeEditor() {
+  flushSave()
+  emit('close')
+}
+onBeforeUnmount(flushSave)
+defineExpose({ flushSave, cancelSave })
 </script>
 
 <style scoped>

@@ -213,6 +213,7 @@
     <div class="flex-1 overflow-auto p-3 lg:p-5 xl:p-6 relative custom-scrollbar" style="scroll-behavior: auto;" id="content-scroll-container" @mouseup="handleMouseUp" @click="handleContentClick">
         <InlineAnnotationLayer ref="annotationLayerRef" :notes="displayedQuotedNotes" @open="openInlineRecord" />
         <InlineRecordPopover
+            ref="inlinePopoverRef"
             :visible="inlineRecord.visible"
             :note="inlineRecord.note"
             :x="inlineRecord.x"
@@ -402,6 +403,7 @@
 import { computed, ref, onMounted, onUnmounted, watch, nextTick, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { useNoteStore } from '../stores/notes'
+import { createInlineRecordPersistence } from '../composables/inline-record-persistence'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useLearningSessionStore } from '../stores/learningSession'
 
@@ -478,6 +480,7 @@ const handleContentClick = async (e: MouseEvent) => {
 
 const courseStore = useCourseStore()
 const noteStore = useNoteStore()
+const inlinePersistence = createInlineRecordPersistence(noteStore)
 const workspaceStore = useCourseWorkspaceStore()
 const learningSessionStore = useLearningSessionStore()
 // 教师学生预览复用当前教师课程投影，但交互语义仍是完整学生学习现场。
@@ -946,6 +949,7 @@ watch(() => courseStore.focusNoteId, (noteId) => {
 const isManualScrolling = ref(false)
 const activeNoteId = ref<string | null>(null)
 const hoveredNoteId = ref<string | null>(null)
+const inlinePopoverRef = ref<InstanceType<typeof InlineRecordPopover> | null>(null)
 const inlineRecord = reactive({
     visible: false,
     x: 0,
@@ -2018,8 +2022,9 @@ const openInlineRecord = (
 }
 
 const closeInlineRecord = async () => {
+    inlinePopoverRef.value?.flushSave()
     const note = inlineRecord.note
-    if (note && !note.revision && !note.content.trim()) await noteStore.deleteNote(note.id)
+    if (note && !note.revision && !note.content.trim()) await inlinePersistence.remove(note)
     inlineRecord.visible = false
     inlineRecord.note = null
     inlineRecord.interactive = false
@@ -2027,25 +2032,31 @@ const closeInlineRecord = async () => {
 }
 
 const saveInlineRecord = async (payload: { note: Note; content: string }) => {
-    inlineRecord.saveState = 'saving'
-    payload.note.content = payload.content
-    const saved = payload.note.revision
-        ? await noteStore.updateNote(payload.note.id, payload.content)
-        : await noteStore.createNote(payload.note)
+    if (inlineRecord.note?.id === payload.note.id) inlineRecord.saveState = 'saving'
+    const saved = await inlinePersistence.save(payload.note, payload.content)
     const current = noteStore.notes.find(item => item.id === payload.note.id) || payload.note
-    inlineRecord.note = current
-    inlineRecord.saveState = saved ? 'saved' : 'local_only'
+    if (inlineRecord.note?.id === payload.note.id && !inlinePersistence.isPending(payload.note.id)) {
+        inlineRecord.note = current
+        inlineRecord.saveState = saved ? 'saved' : 'local_only'
+    }
 }
 
 const retryInlineRecord = async (note: Note) => {
     inlineRecord.saveState = 'saving'
-    const saved = await noteStore.retryNote(note.id)
-    inlineRecord.note = noteStore.notes.find(item => item.id === note.id) || note
-    inlineRecord.saveState = saved ? 'saved' : 'local_only'
+    const saved = await inlinePersistence.save(note, note.content)
+    if (inlineRecord.note?.id === note.id) {
+        inlineRecord.note = noteStore.notes.find(item => item.id === note.id) || note
+        inlineRecord.saveState = saved ? 'saved' : 'local_only'
+    }
 }
 
 const undoInlineRecord = async (note: Note) => {
-    await noteStore.deleteNote(note.id)
+    inlinePopoverRef.value?.cancelSave()
+    if (!await inlinePersistence.remove(note)) {
+        ElMessage.error(t('inlineRecords.deleteFailed', '删除失败'))
+        return
+    }
+    if (inlineRecord.note?.id !== note.id) return
     inlineRecord.visible = false
     inlineRecord.note = null
     inlineRecord.interactive = false
@@ -2060,8 +2071,12 @@ const deleteInlineRecord = async (note: Note) => {
             t('common.delete', '删除'),
             { confirmButtonText: t('common.delete', '删除'), cancelButtonText: t('common.cancel', '取消') },
         )
-        await noteStore.deleteNote(note.id)
-        await closeInlineRecord()
+        inlinePopoverRef.value?.cancelSave()
+        if (!await inlinePersistence.remove(note)) {
+            ElMessage.error(t('inlineRecords.deleteFailed', '删除失败'))
+            return
+        }
+        if (inlineRecord.note?.id === note.id) await closeInlineRecord()
         reapplyHighlights()
     } catch (error) {
         if (error !== 'cancel' && error !== 'close') ElMessage.error(t('inlineRecords.deleteFailed', '删除失败'))
@@ -2399,6 +2414,8 @@ onUnmounted(() => {
 defineExpose({
     startPractice: handleStartPractice,
     scrollToCourseBlock,
+    openInlineRecord,
+    closeInlineRecord,
 })
 </script>
 

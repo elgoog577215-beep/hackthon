@@ -63,7 +63,7 @@
         @click="emit('knowledge-library')"
       >
         <Library :size="16" />
-        <span>{{ t('learningDock.knowledgeLibrary', '知识库') }}</span>
+        <span>{{ t('learningDock.knowledgeLibrary', '知识图谱') }}</span>
       </button>
       <button
         type="button"

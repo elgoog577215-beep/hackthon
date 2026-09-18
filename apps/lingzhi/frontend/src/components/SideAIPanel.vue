@@ -19,7 +19,12 @@
         </div>
 
         <div v-if="!props.blockTarget" class="ai-teacher-header-context">
-          <div class="context-line">
+          <div v-if="props.readingContext" class="reading-context" aria-live="polite">
+            <small>{{ t('readingNotes.readingAt', '正在阅读') }}</small>
+            <strong>{{ props.readingContext.nodeName || t('courseWorkspace.aiTeacher.courseContext', '当前课程') }}</strong>
+            <span v-if="props.readingContext.blockTitle">{{ props.readingContext.blockTitle }}</span>
+          </div>
+          <div v-if="!props.readingContext || quoteVisible || props.blockTarget" class="context-line">
             <BookOpenText :size="14" />
             <strong>{{ contextLabel }}</strong>
             <small
@@ -784,6 +789,7 @@ const props = withDefaults(defineProps<{
   quoteText: string
   quoteNodeId: string
   quoteAnchor?: Record<string, unknown>
+  readingContext?: { nodeId: string; nodeName: string; blockId: string; blockTitle: string }
   prefill?: string
   entrypoint?: 'global' | 'selection' | 'practice' | 'continuity' | 'record'
   blockTarget?: CourseBlockEditTarget
@@ -1050,7 +1056,7 @@ function contextRef() {
     objective_id: runtimeContext.objective_id || '',
     objective_revision_id: runtimeContext.objective_revision_id || '',
     content_anchor: {
-      ...(quoteVisible.value ? props.quoteAnchor || {} : {}),
+      ...(quoteVisible.value ? props.quoteAnchor || {} : props.readingContext?.nodeId === currentNode.value?.node_id && props.readingContext?.blockId ? { block_id: props.readingContext.blockId, block_title: props.readingContext.blockTitle } : {}),
       ...(isTeacherMode.value
         ? {
             file_scope: {
@@ -1847,6 +1853,10 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.reading-context { display:flex; flex-direction:column; gap:3px; color:var(--lz-text); line-height:1.5; overflow-wrap:anywhere; }
+.reading-context small { color:var(--lz-text-secondary); font-size:12px; }
+.reading-context strong { font-size:15px; font-weight:500; }
+.reading-context span { color:var(--lz-text-secondary); font-size:14px; }
 .ai-teacher-panel { min-width: 0; }
 .ai-teacher-panel.is-fullscreen { position: fixed; inset: 0; z-index: 620; width: 100vw; height: 100dvh; overflow: hidden; color: var(--lz-text); background: #fff; }
 .ai-teacher-panel.is-embedded { position:relative; width:100%; height:100%; min-height:0; overflow:hidden; color:var(--lz-text); background:#fff; }

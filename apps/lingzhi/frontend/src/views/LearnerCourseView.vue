@@ -99,15 +99,24 @@
 
     <Transition name="side-panel">
       <div v-show="sidePanelVisible" class="learning-side-panel" :class="{ 'is-docked': !isNarrow }">
-        <aside v-if="notebookOpen && !isNarrow" class="notebook-side-panel" :aria-label="t('notebook.title', '笔记本')">
+        <nav v-if="!isNarrow" class="reading-side-tabs" role="tablist" :aria-label="t('readingNotes.tabs', '阅读侧栏')">
+          <button id="reading-notes-tab" type="button" role="tab" :aria-selected="!aiVisible" :tabindex="aiVisible ? -1 : 0" :aria-controls="notebookOpen ? 'all-notes-panel' : 'reading-notes-panel'" @click="showReadingNotes" @keydown.right.prevent="selectAssistantTab" @keydown.end.prevent="selectAssistantTab">{{ t('readingNotes.title', '笔记') }}</button>
+          <button id="reading-assistant-tab" type="button" role="tab" :aria-selected="aiVisible" :tabindex="aiVisible ? 0 : -1" aria-controls="reading-assistant-panel" @click="selectAssistantTab" @keydown.left.prevent="selectNotesTab" @keydown.home.prevent="selectNotesTab">{{ t('learningDock.assistant', 'AI 助手') }}</button>
+        </nav>
+        <ReadingNotesPanel v-if="!isNarrow && !isGenerationPreview" v-show="!aiVisible && !notebookOpen" :key="courseStore.currentCourseId" :visible="sidePanelVisible && !aiVisible && !notebookOpen && !taskOpen && !statsOpen" @open="openReadingNote" @create="createReadingNote" @locate="locateRecord" @notebook="openNotebook" />
+        <aside id="all-notes-panel" v-show="notebookOpen && !aiVisible" v-if="!isNarrow" role="tabpanel" aria-labelledby="reading-notes-tab" class="notebook-side-panel" :aria-label="t('notebook.title', '笔记本')">
           <NotesPanel mode="sidebar" @locate="locateRecord" @view-detail="locateRecord" @close="closeNotebook" />
         </aside>
         <SideAIPanel
+          id="reading-assistant-panel"
+          role="tabpanel"
+          aria-labelledby="reading-assistant-tab"
           v-if="!isGenerationPreview"
           v-show="aiVisible && !courseStore.isFocusMode"
           :key="`${courseStore.currentCourseId}:${isTeacherPreview}`"
           :docked="!isNarrow"
           :visible="aiVisible && !courseStore.isFocusMode"
+          :reading-context="isNarrow ? undefined : readingContext"
           :quote-text="aiQuote"
           :quote-node-id="aiNodeId"
           :quote-anchor="aiAnchor"
@@ -154,6 +163,8 @@ import LearningDock from '../components/LearningDock.vue'
 import LearningStats from '../components/LearningStats.vue'
 import LearningTaskOverlay from '../components/LearningTaskOverlay.vue'
 import NotesPanel from '../components/NotesPanel.vue'
+import ReadingNotesPanel from '../components/ReadingNotesPanel.vue'
+import { createUuid } from '../utils/client-id'
 import SideAIPanel from '../components/SideAIPanel.vue'
 import AITeacherSuggestion from '../components/AITeacherSuggestion.vue'
 import { useAITeacherStore, type AISuggestion } from '../stores/aiTeacher'
@@ -167,7 +178,7 @@ import {
   useCourseEvolutionStore,
   type CourseEvolutionApplicationPresentation,
 } from '../stores/courseEvolution'
-import type { CourseBlockEditTarget, CourseBlockNavigationTarget, Node } from '../stores/types'
+import type { CourseBlockEditTarget, CourseBlockNavigationTarget, Node, Note } from '../stores/types'
 import { isWorkspaceTaskAction, learningActionLabel } from '../utils/learning-action'
 import { isStartableLearningObjective } from '../utils/learning-scope'
 import { isResumableLearningAction } from '../utils/learning-resume'
@@ -187,9 +198,7 @@ const contentAreaRef = ref<InstanceType<typeof ContentArea> | null>(null)
 
 const windowWidth = ref(window.innerWidth)
 const navigatorOpen = ref(window.innerWidth >= 1024)
-const assistantPanelStorageKey = 'lingzhi-learning-ai-open'
-const restoreAssistantPanelOpen = () => window.innerWidth >= 1024 && sessionStorage.getItem(assistantPanelStorageKey) !== 'closed'
-const aiVisible = ref(restoreAssistantPanelOpen())
+const aiVisible = ref(false)
 const notebookOpen = ref(false)
 const statsOpen = ref(false)
 const taskOpen = ref(false)
@@ -216,15 +225,13 @@ let courseGrowthLocationTimer: ReturnType<typeof setTimeout> | undefined
 let courseGrowthSettleTimer: ReturnType<typeof setTimeout> | undefined
 
 const isNarrow = computed(() => windowWidth.value < 1024)
-const sidePanelVisible = computed(() => !courseStore.isFocusMode && !isGenerationPreview.value && (aiVisible.value || (!isNarrow.value && notebookOpen.value)))
+const sidePanelVisible = computed(() => !courseStore.isFocusMode && !isGenerationPreview.value && (aiVisible.value || !isNarrow.value))
 const dockActiveDomain = computed(() => taskOpen.value ? 'question-book'
   : statsOpen.value ? 'overview'
   : courseStore.showKnowledgeLibrary ? 'knowledge-library'
   : notebookOpen.value ? 'notebook'
   : 'course')
-watch(aiVisible, visible => {
-  if (!isNarrow.value) sessionStorage.setItem(assistantPanelStorageKey, visible ? 'open' : 'closed')
-})
+
 const isTeacherPreview = computed(() => String(route.query.teacherPreview || '') === '1')
 // Keep the full learning UI; teacher trials use only session state and teacher APIs.
 const isGenerationPreview = computed(() => (
@@ -317,7 +324,7 @@ watch(() => route.params.courseId, async value => {
   aiAnchor.value = undefined
   aiPrefill.value = ''
   aiBlockTarget.value = undefined
-  aiVisible.value = restoreAssistantPanelOpen()
+  aiVisible.value = false
   courseAdjustmentOpen.value = false
   courseAdjustmentFocusPlanId.value = ''
   courseAdjustmentSectionId.value = ''
@@ -532,6 +539,47 @@ function handleActiveBlockChange(payload: { nodeId: string; blockId: string }) {
   activeCourseBlockId.value = payload.blockId
 }
 
+const readingContext = computed(() => {
+  const node = courseStore.currentNode
+  const block = node?.course_blocks?.find(item => item.block_id === activeCourseBlockId.value)
+  const legacyBlock = node?.content_blocks?.find(item => item.block_id === activeCourseBlockId.value)
+  return {
+    nodeId: node?.node_id || '', nodeName: node?.node_name || '',
+    blockId: block?.block_id || legacyBlock?.block_id || '',
+    blockTitle: String(block?.payload?.title || legacyBlock?.title || ''),
+  }
+})
+
+function showReadingNotes() {
+  aiVisible.value = false
+  notebookOpen.value = false
+}
+function selectNotesTab() {
+  showReadingNotes()
+  nextTick(() => document.getElementById('reading-notes-tab')?.focus())
+}
+function selectAssistantTab() {
+  void contentAreaRef.value?.closeInlineRecord?.()
+  notebookOpen.value = false
+  aiVisible.value = true
+  nextTick(() => document.getElementById('reading-assistant-tab')?.focus())
+}
+function openReadingNote(payload: { note: Note; x: number; y: number }) {
+  contentAreaRef.value?.openInlineRecord(payload)
+}
+function createReadingNote(event: MouseEvent) {
+  const node = courseStore.currentNode
+  if (!node) return
+  const note: Note = {
+    id: `note-${createUuid()}`, nodeId: node.node_id, highlightId: '', quote: '', content: '',
+    color: 'amber', createdAt: Date.now(), sourceType: 'user', recordType: 'note',
+    status: 'active', origin: 'user_quick_note', syncState: 'local_only',
+  }
+  noteStore.addNote(note)
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  contentAreaRef.value?.openInlineRecord({ note, x: rect.left, y: rect.bottom }, true)
+}
+
 function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string, unknown> }) {
   if (isGenerationPreview.value) return
   notebookOpen.value = false
@@ -689,8 +737,7 @@ function closeStats() {
 
 function toggleAi() {
   if (aiVisible.value) { closeAi(); return }
-  notebookOpen.value = false
-  aiVisible.value = true
+  selectAssistantTab()
   if (isNarrow.value) navigatorOpen.value = false
 }
 
@@ -817,13 +864,18 @@ function closeMobileSurfaces() {
 .learning-view { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; display: flex; gap: 12px; overflow: hidden; background: transparent; }
 .navigator-surface { flex: 0 0 292px; }
 .learning-side-panel { min-width:0; min-height:0; }
-.learning-side-panel.is-docked { --side-width:clamp(320px,25vw,380px); width:var(--side-width); flex:0 0 var(--side-width); overflow:hidden; border-radius:var(--lz-radius-surface); }
-.learning-side-panel.is-docked > .ai-teacher-panel { width:100%; height:100%; }
+.learning-side-panel.is-docked { display:flex; flex-direction:column; background:#fff; border:1px solid var(--lz-border); --side-width:clamp(320px,25vw,380px); width:var(--side-width); flex:0 0 var(--side-width); overflow:hidden; border-radius:var(--lz-radius-surface); }
+.learning-side-panel.is-docked > .ai-teacher-panel,.learning-side-panel.is-docked > .reading-notes { width:100%; flex:1; min-height:0; height:auto; }
+.reading-side-tabs { display:flex; flex:none; gap:3px; margin:10px 14px; padding:3px; width:fit-content; border:1px solid var(--lz-border); border-radius:10px; background:var(--lz-surface-subtle); }
+.reading-side-tabs button { min-height:34px; padding:5px 18px; border:0; border-radius:7px; color:var(--lz-text-secondary); background:transparent; font-size:15px; cursor:pointer; }
+.reading-side-tabs button[aria-selected="true"] { color:var(--lz-text-strong); background:#fff; box-shadow:0 1px 4px rgba(15,23,42,.08); font-weight:600; }
+.reading-side-tabs button:hover { color:var(--lz-brand-strong); }
+.reading-side-tabs button:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
 .learning-stage { position:relative; flex:1; display:flex; flex-direction:column; min-height:0; min-width:0; overflow:hidden; }
 .learning-main { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: #fff; box-shadow: var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
 .has-ai-course-growth .learning-main { border-color:rgba(165,180,252,.7); box-shadow:0 16px 42px rgba(30,64,175,.1),0 2px 8px rgba(15,23,42,.05); }
 .learning-content { min-height: 0; flex: 1; }
-.notebook-side-panel { width:100%; height:100%; min-width:0; min-height:0; overflow:hidden; border:1px solid rgba(255,255,255,.82); border-radius:var(--lz-radius-surface); background:#fff; box-shadow:var(--lz-shadow-panel); }
+.notebook-side-panel { width:100%; flex:1; min-width:0; min-height:0; overflow:hidden; border:1px solid rgba(255,255,255,.82); border-radius:var(--lz-radius-surface); background:#fff; box-shadow:var(--lz-shadow-panel); }
 .notebook-side-panel :deep(.records-panel) { height:100%; min-height:0; }
 .learning-tool-overlay { position:absolute; inset:0; z-index:34; min-width:0; min-height:0; display:flex; flex-direction:column; background:#fff; box-shadow:var(--lz-shadow-overlay); }
 .learning-tool-modal { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; padding:24px; }

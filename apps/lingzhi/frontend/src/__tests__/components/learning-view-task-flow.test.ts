@@ -152,6 +152,9 @@ describe('LearningView 正文任务覆盖层', () => {
       },
     })
     await flushPromises()
+    expect(wrapper.get('#reading-notes-tab').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(false)
+    await wrapper.get('#reading-assistant-tab').trigger('click')
     await wrapper.get('.ai-panel-stub textarea').setValue('保留这段草稿')
     await wrapper.get('[data-domain="assistant"]').trigger('click')
     expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(false)
@@ -160,7 +163,7 @@ describe('LearningView 正文任务覆盖层', () => {
     await wrapper.get('[data-domain="notebook"]').trigger('click')
     expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(false)
     await wrapper.get('[data-domain="assistant"]').trigger('click')
-    expect(wrapper.find('.notebook-side-panel').exists()).toBe(false)
+    expect(wrapper.get('.notebook-side-panel').isVisible()).toBe(false)
     expect((wrapper.get('.ai-panel-stub textarea').element as HTMLTextAreaElement).value).toBe('保留这段草稿')
     await wrapper.get('[data-domain="question-book"]').trigger('click')
     expect(wrapper.find('.learning-stage .task-overlay-stub').exists()).toBe(true)
@@ -240,7 +243,7 @@ describe('LearningView 正文任务覆盖层', () => {
     await flushPromises()
 
     expect(wrapper.find('.learning-context-bar').exists()).toBe(false)
-    expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['笔记本', '题库本1', '学习概况', '知识库', '智能助教'])
+    expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['笔记本', '题库本1', '学习概况', '知识图谱', '智能助教'])
 
     await wrapper.get('.open-practice').trigger('click')
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)

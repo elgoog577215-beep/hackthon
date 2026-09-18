@@ -20,7 +20,7 @@ describe('LearningDock', () => {
       '笔记本3',
       '题库本2',
       '学习概况',
-      '知识库',
+      '知识图谱',
       '智能助教',
     ])
     expect(wrapper.find('[data-domain="learning"]').exists()).toBe(false)

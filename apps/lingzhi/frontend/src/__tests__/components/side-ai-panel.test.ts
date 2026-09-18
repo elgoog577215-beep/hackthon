@@ -108,6 +108,20 @@ describe('SideAIPanel', () => {
     Object.defineProperty(navigator, 'onLine', { value: true, configurable: true })
   })
 
+  it('阅读位置实时更新，已发送问题锁定发送时的教学块', async () => {
+    const wrapper = mountPanel([], '', undefined, undefined, 'learner', [], false, true)
+    await wrapper.setProps({ readingContext: { nodeId: 'node-1', nodeName: '向量空间', blockId: 'block-a', blockTitle: '向量加法' } })
+    const sendMessage = vi.spyOn(useAITeacherStore(), 'sendMessage').mockResolvedValue(undefined)
+    vi.spyOn(useLearningProgressStore(), 'loadRuntime').mockResolvedValue(null)
+    await wrapper.get('textarea').setValue('请解释这里')
+    await wrapper.get('.send-button').trigger('click')
+    const sentContext = sendMessage.mock.calls[0]![0].contextRef
+    await wrapper.setProps({ readingContext: { nodeId: 'node-1', nodeName: '向量空间', blockId: 'block-b', blockTitle: '线性组合' } })
+    expect(wrapper.get('.reading-context').text()).toContain('线性组合')
+    expect(sentContext?.content_anchor).toEqual({ block_id: 'block-a', block_title: '向量加法' })
+    wrapper.unmount()
+  })
+
   it('停靠助手的快捷问题先填入草稿，由学生明确发送', async () => {
     const wrapper = mountPanel([], '', undefined, undefined, 'learner', [], false, true)
     await flushPromises()

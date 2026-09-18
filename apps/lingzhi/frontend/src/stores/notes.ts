@@ -338,31 +338,35 @@ export const useNoteStore = defineStore('notes', {
     },
 
     async deleteNote(id: string) {
-      if (isTeacherPreviewCourse()) { this.notes = this.notes.filter(n => n.id !== id); return }
+      if (isTeacherPreviewCourse()) { this.notes = this.notes.filter(n => n.id !== id); return true }
       const index = this.notes.findIndex(n => n.id === id)
       if (index !== -1) {
         const note = this.notes[index]
-        if (!note) return
+        if (!note) return true
         if (!note.revision) {
           this.notes.splice(index, 1)
           clearRecordDraft(this.courseId || useCourseStore().currentCourseId, id)
-          return
+          return true
         }
         if (note.sourceType === 'format') {
           this.notes.splice(index, 1)
           clearRecordDraft(this.courseId, id)
-          return
+          return true
         }
         try {
           await http.post(`/api/courses/${this.courseId}/learning-records/${id}/archive`, {
             expected_revision: note.revision,
           })
-          this.notes.splice(index, 1)
+          this.notes = this.notes.filter(item => item.id !== id)
+          clearRecordDraft(this.courseId, id)
           await refreshLearningRuntime(this.courseId, note.nodeId)
+          return true
         } catch (e) {
           logger.error('Failed to delete note persistence', e)
+          return false
         }
       }
+      return true
     },
 
     // ========== Tag & Category Management ==========

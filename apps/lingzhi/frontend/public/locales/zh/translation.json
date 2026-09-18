@@ -3176,6 +3176,22 @@
     "searchLessons": "查找讲次或内容",
     "noResults": "没有匹配的内容，试试其他关键词。"
   },
+  "readingNotes": {
+    "tabs": "阅读侧栏",
+    "title": "笔记",
+    "following": "随正文滚动",
+    "resume": "恢复跟随正文",
+    "selectSection": "选择一讲开始阅读",
+    "sectionNotes": "本讲其他笔记",
+    "unlocated": "原文待定位",
+    "sectionOnly": "记录在本讲",
+    "empty": "读到哪里，笔记就跟到哪里",
+    "emptyHint": "选中正文记笔记，或用随手记记录想法。",
+    "allNotes": "查看全部笔记",
+    "aiNote": "AI 笔记",
+    "myNote": "我的笔记",
+    "readingAt": "正在阅读"
+  },
   "learningShell": {
     "openNavigator": "打开课程目录",
     "openAi": "打开 AI 助手",

@@ -54,7 +54,7 @@ function mountBlockAI(attachToDocument = false, props: { active?: boolean } = {}
     metadata: { record_subtype: 'anchored_ai_qa' },
   }
   vi.spyOn(noteStore, 'upsertAnchoredAiNote').mockResolvedValue(persistedNote)
-  vi.spyOn(noteStore, 'deleteNote').mockResolvedValue()
+  vi.spyOn(noteStore, 'deleteNote').mockResolvedValue(true)
 
   vi.spyOn(aiStore, 'sendMessage').mockImplementation(async (payload: SendAIMessagePayload) => {
     const message: AIMessage = {

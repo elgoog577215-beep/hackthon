@@ -35,7 +35,7 @@ describe('LearningContextTabs', () => {
     })
 
     const tabs = wrapper.findAll('[role="tab"]')
-    expect(tabs.map(tab => tab.text())).toEqual(['知识库', '教学资源'])
+    expect(tabs.map(tab => tab.text())).toEqual(['知识图谱', '教学资源'])
     expect(tabs[0]!.attributes('aria-selected')).toBe('true')
 
     await tabs[0]!.trigger('click')

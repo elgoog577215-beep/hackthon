@@ -176,3 +176,46 @@ describe('learning records through notes store', () => {
     }))
   })
 })
+
+describe('inline record writes under slow transport', () => {
+  it('连续创建、修改等待前次修订，并在保存完成后归档', async () => {
+    const { createInlineRecordPersistence } = await import('@/composables/inline-record-persistence')
+    const store = useNoteStore()
+    store.courseId = 'c1'
+    const note = { id: 'lr-1', nodeId: 'n1', highlightId: '', quote: '', content: '', color: 'amber', createdAt: 1 }
+    store.addNote(note)
+    let finishCreate!: (value: unknown) => void
+    httpMock.post.mockImplementationOnce(() => new Promise(resolve => { finishCreate = resolve }))
+    httpMock.post.mockResolvedValue({ data: {} })
+    httpMock.patch.mockResolvedValue({ data: record({ content: '第二次输入', revision: 2 }) })
+    const writes = createInlineRecordPersistence(store)
+    const first = writes.save(note, '第一次输入')
+    const second = writes.save(note, '第二次输入')
+    const removal = writes.remove(note)
+    expect(httpMock.patch).not.toHaveBeenCalled()
+    expect(httpMock.post).toHaveBeenCalledTimes(1)
+    finishCreate({ data: record({ content: '第一次输入', revision: 1 }) })
+    await Promise.all([first, second, removal])
+    expect(httpMock.patch).toHaveBeenCalledWith('/api/courses/c1/learning-records/lr-1', { expected_revision: 1, content: '第二次输入' })
+    expect(httpMock.post).toHaveBeenLastCalledWith('/api/courses/c1/learning-records/lr-1/archive', { expected_revision: 2 })
+    expect(store.notes).toHaveLength(0)
+    expect(writes.isPending(note.id)).toBe(false)
+    expect(localStorage.getItem('learning_record_draft_v1:c1:lr-1')).toBeNull()
+  })
+
+  it('归档失败保留记录和本地草稿，成功后清除草稿避免刷新复活', async () => {
+    const store = useNoteStore()
+    store.courseId = 'c1'
+    const note = { id: 'lr-1', nodeId: 'n1', highlightId: '', quote: '', content: '草稿', color: 'amber', createdAt: 1, revision: 1 }
+    store.addNote(note)
+    localStorage.setItem('learning_record_draft_v1:c1:lr-1', JSON.stringify({ note }))
+    httpMock.post.mockRejectedValueOnce(new Error('offline'))
+    expect(await store.deleteNote(note.id)).toBe(false)
+    expect(store.notes).toHaveLength(1)
+    expect(localStorage.getItem('learning_record_draft_v1:c1:lr-1')).not.toBeNull()
+    httpMock.post.mockResolvedValueOnce({ data: {} })
+    expect(await store.deleteNote(note.id)).toBe(true)
+    expect(store.notes).toHaveLength(0)
+    expect(localStorage.getItem('learning_record_draft_v1:c1:lr-1')).toBeNull()
+  })
+})
