@@ -58,6 +58,7 @@
           :title="`${entry.roleLabel} · ${entry.title}`"
           @click.stop="emit('selectBlock', { node: selectionNode, blockId: entry.block.block_id })"
         >
+          <span class="course-block-number" aria-hidden="true">{{ entry.ordinal }}</span>
           <span class="course-block-role">{{ entry.roleLabel }}</span>
           <span class="course-block-title"><MathText :content="entry.title" /></span>
         </button>
@@ -305,6 +306,7 @@ const blockEntries = computed(() => (selectionNode.value.course_blocks || [])
   .sort((left, right) => left.position - right.position)
   .map((block, index) => ({
     block,
+    ordinal: index + 1,
     roleLabel: blockRoleLabel(block.role),
     title: String(block.payload.title || '').trim()
       || `${t('learningNavigator.blockFallback', '内容块')} ${index + 1}`,
@@ -414,11 +416,13 @@ watch(() => props.activeId, (value, previous) => {
 .adaptation-marker[data-state="review"] b { background:#d97706; }
 .course-block-outline { display:grid; gap:2px; margin:2px 0 12px 36px; padding:0; list-style:none; }
 .course-block-outline li { min-width:0; margin:0; padding:0; }
-.course-block-link { width:100%; min-height:38px; display:flex; align-items:center; padding:8px 12px; border:0; border-radius:6px; color:var(--lz-text-secondary); background:transparent; text-align:left; cursor:pointer; transition:color .15s ease,background .15s ease; }
+.course-block-link { width:100%; min-height:40px; display:grid; grid-template-columns:20px minmax(0,1fr); align-items:baseline; gap:10px; padding:8px 12px; border:0; border-radius:6px; color:var(--lz-text-secondary); background:transparent; text-align:left; cursor:pointer; transition:color .15s ease,background .15s ease; }
 .course-block-link:hover { color:var(--lz-text-strong); background:var(--lz-bg-page); }
 .course-block-link:focus-visible { outline:2px solid var(--lz-brand-strong); outline-offset:-2px; }
 .course-block-link:active { background:var(--lz-brand-soft); }
 .course-block-link.active { color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
+.course-block-number { color:var(--lz-text-muted); font-size:13px; font-weight:500; font-variant-numeric:tabular-nums; line-height:1.8; text-align:center; }
+.course-block-link.active .course-block-number { color:var(--lz-brand-strong); font-weight:600; }
 .course-block-role { display:none; }
 .course-block-title { min-width:0; white-space:normal; overflow-wrap:anywhere; font-size:15px; font-weight:400; line-height:1.55; letter-spacing:0; }
 .course-block-link.active .course-block-title { font-weight:600; }
