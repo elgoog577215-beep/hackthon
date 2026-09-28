@@ -20,3 +20,6 @@ tmp/
 coverage/
 test-results/
 .coverage
+
+# Private local reference materials; never publish with source
+/本地资料/
