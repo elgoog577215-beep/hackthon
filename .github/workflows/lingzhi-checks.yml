@@ -62,8 +62,3 @@ jobs:
         env:
           VITE_BASE_PATH: /lingzhi/
         run: npm run build
-
-      - name: Validate OpenSpec contracts
-        run: |
-          npm install --global @fission-ai/openspec@1.12.0
-          openspec validate --all --strict --no-interactive

@@ -9,7 +9,7 @@ app_port: 7860
 
 # 灵知（Knowledge Map AI）
 
-灵知是[启智统一仓库](../../README.md)中的课程子应用，源码位于 `apps/lingzhi`。本文件的安装、测试、OpenSpec 和脚本命令均从此应用目录执行；服务器分流见[发布说明](../../deploy/README.md)。
+灵知是[启智统一仓库](../../README.md)中的课程子应用，源码位于 `apps/lingzhi`。本文件的安装、测试和脚本命令均从此应用目录执行；服务器分流见[发布说明](../../deploy/README.md)。
 
 灵知是一套以结构化课程为核心，连接教师课程生产、统一学习现场、学习证据驱动课程生长和同源教学表达的 AI 课程系统。
 
@@ -25,7 +25,6 @@ app_port: 7860
 | 当前做到哪里、下一步是什么 | [产品状态](./docs/产品状态.md) |
 | 代码仓库、领域真源和运行链怎样组织 | [系统架构](./docs/系统架构.md) |
 | AI 开发时长期遵守哪些项目规则 | [项目规则](./AGENTS.md) |
-| 当前高影响功能怎样设计和实施 | [`openspec/changes/`](./openspec/changes/) |
 | 历史研究、验收和决策依据 | [`docs/研究/`](./docs/研究/)、[`docs/验收/`](./docs/验收/)、[`docs/归档/`](./docs/归档/) |
 
 AI Agent 的正式执行规则位于 [AGENTS.md](./AGENTS.md)。它主要面向 AI，不替代本文的人类上手说明。
@@ -38,7 +37,6 @@ AI Agent 的正式执行规则位于 [AGENTS.md](./AGENTS.md)。它主要面向 
 - 后端：FastAPI、Python 3.11+。
 - AI：浙大自建 OpenAI 兼容接口，文本模型固定为 `qwen3.8-27b`。
 - 代码执行：独立 `runner/` 服务。
-- 规格：OpenSpec。
 
 ## 本地开发
 
@@ -171,11 +169,10 @@ npm test
 npm run build
 ```
 
-规格和仓库卫生：
+仓库卫生：
 
 ```bash
-openspec validate --all --strict --no-interactive
-scripts/check-tracked-ignored.sh
+../../scripts/check-tracked-ignored.sh
 git diff --check
 ```
 
@@ -190,7 +187,6 @@ runner/          独立代码执行服务
 tests/           兼容与整链测试
 scripts/         迁移、验收、部署和诊断工具
 docs/            当前中文文档与按需历史材料
-openspec/        正式规格和变更任务
 ```
 
 详细模块、数据真源和主链查看[系统架构](./docs/系统架构.md)。
@@ -198,7 +194,7 @@ openspec/        正式规格和变更任务
 ## 开发协作
 
 - 小型修复直接修改代码并增加回归测试。
-- 高影响功能、核心流程、数据库迁移和正式接口变化进入 `openspec/changes/<change>/`。
+- 高影响功能、核心流程、数据库迁移和正式接口变化先明确设计与验收边界；已确认结论写回对应设计文档，当前进度写入产品状态。
 - 教学内容、产品机制、交互与界面结论分别更新对应的三份产品设计文档；当前进度更新产品状态；代码边界更新系统架构；重复高代价错误提炼到项目规则，并优先增加自动化测试。
 - 不提交密钥、运行数据、缓存、录屏和导出文档。
 - 用户可见文案同时维护中文和英文，并验证桌面、移动端与英文模式。

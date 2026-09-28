@@ -404,7 +404,7 @@ def _applied_personal_overlay_state(course: dict):
 
 
 def test_runtime_never_projects_legacy_overlay_into_body_adaptive_blocks(monkeypatch):
-    """OpenSpec 5.7: applied `personal_overlay` plans are not a second body stream."""
+    """Applied `personal_overlay` plans are not a second body stream."""
     course = project_learning_objective_bindings(_course())
     state = _applied_personal_overlay_state(course)
 

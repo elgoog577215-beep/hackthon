@@ -10,7 +10,6 @@ hackthon/
 │   ├── qizhi/             主平台：client/website、server、plugins
 │   └── lingzhi/           课程应用：frontend、backend、shared、runner
 │       ├── docs/          灵知产品、架构与状态真源
-│       ├── openspec/      灵知功能合同
 │       └── scripts/       灵知运行、诊断与发布工具
 ├── deploy/
 │   ├── tuotu/            个人服务器：仅发布灵知
@@ -26,7 +25,7 @@ hackthon/
 - [发布目标和明日接通步骤](deploy/README.md)：代码变更如何进入两台服务器。
 - [灵知产品状态](apps/lingzhi/docs/产品状态.md)、[灵知系统架构](apps/lingzhi/docs/系统架构.md)、[启智全局图](apps/qizhi/docs/全局图.md)。
 
-执行灵知 Python 测试、OpenSpec 和应用脚本时，工作目录为 `apps/lingzhi`。仓库结构检查从根运行：
+执行灵知 Python 测试和应用脚本时，工作目录为 `apps/lingzhi`。仓库结构检查从根运行：
 
 ```bash
 ./scripts/qizhi.sh check

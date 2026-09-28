@@ -5,7 +5,7 @@
 - `apps/lingzhi/AGENTS.md`：灵知领域边界、产品真源、工程与验收规则；涉及灵知及其发布流程时必须读取。文中相对路径均相对于 `apps/lingzhi`。
 - `apps/qizhi/README.md` 和 `apps/qizhi/docs/全局图.md`：启智门户、身份、旧版资源及子应用。
 - `deploy/README.md`：服务器别名、发布分流、当前接通状态与恢复边界。
-- 仓库脚本和 GitHub 工作流留在根目录；灵知测试与 OpenSpec 从 `apps/lingzhi` 执行。
+- 仓库脚本和 GitHub 工作流留在根目录；灵知测试从 `apps/lingzhi` 执行。
 
 代码只有 `apps/qizhi`、`apps/lingzhi` 两个应用入口，不创建子模块、重复源码或服务器专用源码分支。本机旧路径符号链接只用于迁移兼容，不提交 Git。
 

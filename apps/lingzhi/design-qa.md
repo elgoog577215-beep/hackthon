@@ -1,5 +1,7 @@
 # Design QA — 新建课程与课程工作台精修（2026-08-22）
 
+> 历史资料说明：本仓库已移除 OpenSpec。文中的旧流程、规格路径和校验结果仅用于追溯，不作为当前执行入口；其他项目的引用保留其原始语境。
+
 ## Comparison target
 
 - Source visual truth: `/var/folders/5z/ysrw5tcd3fngb509jyxr533c0000gn/T/codex-clipboard-7c86619e-fc93-460b-aea8-1baa353e3f97.png` (`1436 × 1552`, supplied Retina-style reference).

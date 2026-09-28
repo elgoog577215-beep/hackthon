@@ -3091,7 +3091,7 @@ def test_unrelated_later_success_cannot_prove_personal_adaptation_effective(
     assert result.effect_evaluation["attempt_ids"] == []
 
 
-# --- OpenSpec 5.7 / 5.5 acceptance: legacy overlay is a migration reader only ---
+# --- Acceptance: legacy overlay is a migration reader only ---
 
 
 def test_course_evolution_view_exposes_only_legacy_overlay_migration_summary():
@@ -3146,7 +3146,7 @@ def test_course_evolution_view_without_overlay_does_not_require_migration():
 
 
 def test_legacy_overlay_entry_is_never_silently_dropped_when_block_disappears():
-    """OpenSpec 5.5: a relocated-away anchor MUST surface as a conflict."""
+    """A relocated-away anchor MUST surface as a conflict."""
     state, document = _legacy_overlay_state(_course())
     target_block_id = document.blocks[0].block_id
     document.blocks = [
