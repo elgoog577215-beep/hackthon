@@ -4,8 +4,22 @@
 
 GitHub：[elgoog577215-beep/hackthon](https://github.com/elgoog577215-beep/hackthon)，主分支 `main`。普通 `git clone` / `git pull --ff-only` 即可取得全部源码，没有子模块或嵌套仓库。
 
+## 获取仓库
+
+在准备存放项目的父目录执行：
+
+```bash
+git clone https://github.com/elgoog577215-beep/hackthon.git 启智
+cd 启智
+```
+
+直接把此目录作为编辑器和 AI 工具的项目根目录；根目录包含 `.git`、`AGENTS.md`、`README.md`、`apps/`、`deploy/` 和 `scripts/`。本地目录名可自定，无需在项目目录内再嵌套一层 `hackthon/`；个人材料和备份放在仓库外。
+
+已有仓库在根目录运行 `git pull --ff-only` 更新；存在本地改动或分叉时先处理，不覆盖其他任务的工作。
+
+
 ```text
-hackthon/
+启智/
 ├── apps/
 │   ├── qizhi/             主平台：client/website、server、plugins
 │   └── lingzhi/           课程应用：frontend、backend、shared、runner
