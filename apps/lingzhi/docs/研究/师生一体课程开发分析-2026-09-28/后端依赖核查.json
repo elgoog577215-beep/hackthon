@@ -1,0 +1,73 @@
+{
+  "baseline_commit": "ea98294fc1ffc242208dc311e6d60476799746bc",
+  "method": "静态解析 Python 导入；不导入业务模块，不启动服务，不读取用户数据",
+  "command": "./.venv/bin/python scripts/audit_backend_dependencies.py --report --limit 8",
+  "audit_exit_code": 1,
+  "production_modules": 333,
+  "cycle_groups": [
+    [
+      "canonical_content_repair",
+      "course_commands",
+      "course_repository",
+      "dependencies",
+      "generation_workspace",
+      "learning_events",
+      "learning_progress",
+      "practice_attempts",
+      "storage",
+      "teacher_content_projection",
+      "teacher_lesson_authoring",
+      "teacher_script"
+    ]
+  ],
+  "actual_cycle_group_edges": {
+    "canonical_content_repair": [
+      "course_commands",
+      "course_repository"
+    ],
+    "course_commands": [
+      "course_repository"
+    ],
+    "course_repository": [
+      "learning_progress",
+      "teacher_content_projection"
+    ],
+    "dependencies": [
+      "course_repository",
+      "storage",
+      "teacher_lesson_authoring"
+    ],
+    "generation_workspace": [
+      "storage"
+    ],
+    "learning_events": [
+      "storage"
+    ],
+    "learning_progress": [
+      "learning_events",
+      "practice_attempts"
+    ],
+    "practice_attempts": [
+      "storage"
+    ],
+    "storage": [
+      "course_repository"
+    ],
+    "teacher_content_projection": [
+      "dependencies",
+      "generation_workspace",
+      "storage",
+      "teacher_lesson_authoring"
+    ],
+    "teacher_lesson_authoring": [
+      "storage",
+      "teacher_content_projection",
+      "teacher_script"
+    ],
+    "teacher_script": [
+      "canonical_content_repair"
+    ]
+  },
+  "other_architecture_rule_violations": [],
+  "report": "后端依赖报告（仅读取源码，不启动服务）\n- 生产模块：333\n- 循环依赖组：1\n\n被调用最多的模块：\n- course_document：62 个生产模块直接导入\n- course_versioning：49 个生产模块直接导入\n- storage：44 个生产模块直接导入\n- learner_context：39 个生产模块直接导入\n- dependencies：36 个生产模块直接导入\n- course_repository：30 个生产模块直接导入\n- learning_events：28 个生产模块直接导入\n- ai_base：24 个生产模块直接导入\n\n直接依赖最多的模块：\n- jobs.manager：62 个生产依赖\n- course_generation.service：44 个生产依赖\n- routers.teacher_lesson_authoring：41 个生产依赖\n- routers.teaching_representations：29 个生产依赖\n- routers.courses：27 个生产依赖\n- routers.practice：23 个生产依赖\n- routers.question_bank：23 个生产依赖\n- course_evolution.core：19 个生产依赖\n\n行数最多的生产模块：\n- jobs.manager：10874 行\n- course_generation.service：9988 行\n- slide_deck_v6：9397 行\n- slide_deck_v5：8058 行\n- routers.teacher_lesson_authoring：6681 行\n- teacher_lesson_authoring：6102 行\n- assessment_orchestrator：5998 行\n- slide_ai_planning_v6：5670 行\n\n需继续检查职责的路由：\n- routers/teacher_lesson_authoring.py：状态对象=jobs.manager,material_storage,question_bank\n- routers/teaching_representations.py：状态对象=course_repository,storage\n- routers/courses.py：状态对象=course_repository,jobs.manager,material_storage,storage\n- routers/practice.py：状态对象=learning_asset_storage,question_bank,storage\n- routers/question_bank.py：状态对象=course_repository,course_versions,learning_asset_storage,material_storage,question_bank,storage\n- routers/knowledge_libraries.py：状态对象=course_repository\n- routers/assistant.py：直接业务依赖=14\n- routers/course_versions.py：状态对象=course_repository,course_versions,jobs.manager,storage"
+}

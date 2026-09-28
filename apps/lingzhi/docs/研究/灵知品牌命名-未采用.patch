@@ -1,0 +1,54 @@
+diff --git a/apps/lingzhi/frontend/index.html b/apps/lingzhi/frontend/index.html
+index be12b6b8..a23732a4 100644
+--- a/apps/lingzhi/frontend/index.html
++++ b/apps/lingzhi/frontend/index.html
+@@ -4,7 +4,7 @@
+     <meta charset="UTF-8" />
+     <link rel="icon" type="image/svg+xml" href="/qizhi-favicon.svg" />
+     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+-    <title>启智 - AI 学习系统</title>
++    <title>灵知 - AI 学习系统</title>
+
+     <style>
+       /* Ensure KaTeX display equations have scroll if too wide */
+diff --git a/apps/lingzhi/frontend/public/locales/en/translation.json b/apps/lingzhi/frontend/public/locales/en/translation.json
+index 389da176..ca12ed65 100644
+--- a/apps/lingzhi/frontend/public/locales/en/translation.json
++++ b/apps/lingzhi/frontend/public/locales/en/translation.json
+@@ -1588,7 +1588,7 @@
+     }
+   },
+   "app": {
+-    "brand": "Qizhi AI",
++    "brand": "Lingzhi",
+     "product": "Qizhi AI",
+     "backToLibrary": "Back to course library",
+     "backToQizhi": "Back to Qizhi",
+diff --git a/apps/lingzhi/frontend/public/locales/zh/translation.json b/apps/lingzhi/frontend/public/locales/zh/translation.json
+index 60655cea..40cdd816 100644
+--- a/apps/lingzhi/frontend/public/locales/zh/translation.json
++++ b/apps/lingzhi/frontend/public/locales/zh/translation.json
+@@ -1588,7 +1588,7 @@
+     }
+   },
+   "app": {
+-    "brand": "启智",
++    "brand": "灵知",
+     "product": "启智",
+     "backToLibrary": "返回课程库",
+     "backToQizhi": "返回启智",
+diff --git a/apps/lingzhi/frontend/src/App.vue b/apps/lingzhi/frontend/src/App.vue
+index b0819fe2..d5f141dc 100644
+--- a/apps/lingzhi/frontend/src/App.vue
++++ b/apps/lingzhi/frontend/src/App.vue
+@@ -16,8 +16,8 @@
+           <span>{{ t('app.backToQizhi') }}</span>
+         </a>
+         <RouterLink v-else class="brand-button" :class="{ 'is-route-hidden': isCourseWorkspaceRoute }" :to="{ name: 'course-library' }" :aria-label="t('app.backToLibrary', '返回课程库')">
+-          <img class="brand-mark" src="/qizhi-favicon.svg" alt="启智" />
+-          <span class="brand-name">启智</span>
++          <img class="brand-mark" src="/qizhi-favicon.svg" :alt="t('app.brand')" />
++          <span class="brand-name">{{ t('app.brand') }}</span>
+         </RouterLink>
+         <div v-if="!isLearningRoute" id="app-header-route-context" class="route-header-context" />
+       </div>

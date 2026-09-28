@@ -1,0 +1,54 @@
+{
+  "source_blocks": 21,
+  "logical_pages": 35,
+  "physical_pages": 119,
+  "api": {
+    "save": 200,
+    "stale_save": 409,
+    "stale_confirm": 409,
+    "confirm": 200
+  },
+  "final_model_calls": 0,
+  "repeat_export_semantics_equal": true,
+  "all_pages_native_audited": true,
+  "source_knowledge_review": "pending-known-handout-issue",
+  "powerpoint_review": {
+    "status": "partial",
+    "checked_physical_pages": [
+      3,
+      26
+    ],
+    "editable_matrix_font": "Noto Sans CJK SC 20pt",
+    "remaining": [
+      "branch",
+      "exercise states",
+      "teacher review"
+    ]
+  },
+  "compiler": "teaching_scene_v2.4",
+  "template_version": "teaching_layout_v2.3-89470dfaa369",
+  "teacher_api_generation_and_download": {
+    "status": 200,
+    "export_status": 200,
+    "model_calls": 0
+  },
+  "browser_review": {
+    "saved_comparison_dimension": "矩阵表示",
+    "api_save": true,
+    "api_confirm": true,
+    "preview_verified": true,
+    "full_workbench_navigation": false
+  },
+  "files": {
+    "线性代数-三阶段验收.pptx": "a1e230d62cdaa56dbe053e8e51d6ea03626fca2e8ad88ab4708b332796c6b886",
+    "线性代数-三阶段验收.pdf": "6d42e7f32adb2ed1a43c1a99408a306ae20f92511fc25f20348492af38f5f9bc"
+  },
+  "linux_ci": {
+    "run_id": 33980470435,
+    "status": "success",
+    "tested_code_commit": "0e14a6f10bcc24eddc01203fc1f1ed82f27088dd",
+    "tests_passed": 66,
+    "primary_theme_physical_pages": 38,
+    "second_theme_sample_physical_pages": 11
+  }
+}

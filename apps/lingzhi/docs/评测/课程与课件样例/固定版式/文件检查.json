@@ -1,0 +1,10 @@
+{
+  "schema_version": "slide_render_review_v1",
+  "reviewer": "post_export_pptx_object_audit",
+  "passed": true,
+  "page_count": 9,
+  "issues": [],
+  "blockers": [],
+  "repair_attempts": 0,
+  "pixel_audit": null
+}

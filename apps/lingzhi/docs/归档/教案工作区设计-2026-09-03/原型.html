@@ -1,0 +1,510 @@
+<!--
+  本稿是用户已选“方向一”的纠偏版本，不是新方向。
+
+  核心判断
+  1. “导航、内容、操作、状态”是四种页面责任，不是四条视觉横栏。
+  2. 上一讲、下一讲只是辅助导航，必须留在标题同一行并主动退后。
+  3. 课型、状态与生成操作属于同一次决策，必须在同一条轻量工具栏中完成。
+  4. 工具栏之后直接进入正文，不再增加解释性标题、统计和卡片。
+  5. 按真实工作台宽度设计：同时保留左侧课程导航与右侧资料区，避免在假宽屏里成立、进入产品后换行。
+-->
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:," />
+  <title>教案工作区 · 克制单行修正版</title>
+  <style>
+    :root {
+      --page: #f5f7fb;
+      --surface: #ffffff;
+      --ink: #1e293b;
+      --ink-soft: #455468;
+      --muted: #718096;
+      --line: #e3e8f0;
+      --line-strong: #d5dce7;
+      --brand: #554fd7;
+      --brand-dark: #4338ca;
+      --brand-soft: #f0f0ff;
+      --success: #277a52;
+      --success-soft: #edf8f2;
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--page);
+      font-family: var(--font);
+      font-size: 15px;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+    button, select { font: inherit; }
+    button { cursor: pointer; }
+
+    .app-bar {
+      height: 64px;
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto minmax(260px, 1fr);
+      align-items: center;
+      padding: 0 22px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,.96);
+    }
+    .course-name {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 18px;
+      font-weight: 740;
+    }
+    .back {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border: 0;
+      border-radius: 7px;
+      color: var(--muted);
+      background: transparent;
+      font-size: 20px;
+    }
+    .stage-tabs {
+      display: flex;
+      align-items: center;
+      padding: 3px;
+      border: 1px solid var(--line-strong);
+      border-radius: 9px;
+      background: #f4f6fa;
+    }
+    .stage-tabs button {
+      min-height: 34px;
+      padding: 0 16px;
+      border: 0;
+      border-radius: 7px;
+      color: #68758a;
+      background: transparent;
+      font-size: 15px;
+      font-weight: 680;
+    }
+    .stage-tabs .active {
+      color: #4338ca;
+      background: #fff;
+      box-shadow: 0 1px 4px rgba(30,41,59,.08);
+    }
+    .app-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .app-actions button {
+      min-height: 36px;
+      padding: 0 13px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      color: #4f5d70;
+      background: #fff;
+      font-size: 15px;
+      font-weight: 680;
+    }
+    .app-actions .preview { color: #4338ca; border-color: #7772df; }
+
+    .workspace {
+      min-height: calc(100vh - 64px);
+      display: grid;
+      grid-template-columns: 188px minmax(0, 1fr) 294px;
+      gap: 16px;
+      padding: 16px;
+    }
+    .side, .sources, .lesson {
+      border: 1px solid var(--line);
+      background: var(--surface);
+    }
+    .side {
+      border-radius: 11px;
+      padding: 20px 10px;
+    }
+    .side h2 {
+      margin: 0 10px 20px;
+      font-size: 18px;
+      font-weight: 740;
+    }
+    .side nav { display: grid; gap: 5px; }
+    .side button {
+      min-height: 45px;
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      align-items: center;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 8px;
+      color: #59677a;
+      background: transparent;
+      text-align: left;
+      font-size: 15px;
+      font-weight: 650;
+    }
+    .side button.active { color: #4338ca; background: var(--brand-soft); }
+    .side .num { color: #8894a5; font-size: 15px; font-variant-numeric: tabular-nums; }
+
+    .lesson {
+      min-width: 0;
+      align-self: start;
+      overflow: hidden;
+      border-radius: 12px;
+    }
+    .lesson-head {
+      min-height: 74px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 16px;
+      padding: 14px 22px;
+      border-bottom: 1px solid var(--line);
+    }
+    .lesson-title {
+      min-width: 0;
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+    }
+    .lesson-title h1 {
+      min-width: 0;
+      margin: 0;
+      color: #202a3d;
+      font-size: 23px;
+      font-weight: 760;
+      letter-spacing: -.02em;
+      line-height: 1.32;
+      text-wrap: pretty;
+    }
+    .lesson-count {
+      flex: none;
+      color: var(--muted);
+      font-size: 15px;
+      font-weight: 680;
+      font-variant-numeric: tabular-nums;
+    }
+    .lesson-nav {
+      flex: none;
+      display: flex;
+      align-items: center;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .lesson-nav button {
+      min-height: 34px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0 10px;
+      border: 0;
+      color: #59667a;
+      background: transparent;
+      font-size: 15px;
+      font-weight: 660;
+    }
+    .lesson-nav button + button { border-left: 1px solid var(--line); }
+    .lesson-nav button:hover { color: #3730a3; background: #f8f8ff; }
+
+    .lesson-tools {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      min-height: 56px;
+      display: grid;
+      grid-template-columns: auto auto minmax(16px, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      padding: 9px 22px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,.98);
+    }
+    .type-control {
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0 6px 0 11px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      color: #59667a;
+      background: #fff;
+      font-size: 15px;
+      font-weight: 650;
+    }
+    .type-control select {
+      min-height: 32px;
+      padding: 0 24px 0 2px;
+      border: 0;
+      outline: 0;
+      color: #303b50;
+      background: transparent;
+      font-size: 15px;
+      font-weight: 720;
+    }
+    .state {
+      min-height: 32px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--success);
+      font-size: 15px;
+      font-weight: 680;
+      white-space: nowrap;
+    }
+    .state::before {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #3a9b6b;
+      content: "";
+    }
+    .generation-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .generation-actions button {
+      min-height: 36px;
+      padding: 0 13px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      color: #4f5d70;
+      background: #fff;
+      font-size: 15px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .generation-actions .primary {
+      border-color: var(--brand);
+      color: #fff;
+      background: var(--brand);
+    }
+    .generation-actions .primary:hover { border-color: var(--brand-dark); background: var(--brand-dark); }
+
+    .document { padding: 4px 22px 42px; }
+    .block {
+      display: grid;
+      grid-template-columns: 48px minmax(0, 1fr);
+      gap: 12px;
+      padding: 24px 0 25px;
+      border-bottom: 1px solid #edf0f5;
+    }
+    .block:last-child { border-bottom: 0; }
+    .block-index {
+      padding-top: 2px;
+      color: #758196;
+      font-size: 15px;
+      font-weight: 720;
+      font-variant-numeric: tabular-nums;
+    }
+    .block-main { min-width: 0; }
+    .block-title {
+      display: grid;
+      grid-template-columns: minmax(0,1fr) auto;
+      gap: 14px;
+      align-items: baseline;
+    }
+    .block-title h3 {
+      margin: 0;
+      color: #273247;
+      font-size: 18px;
+      font-weight: 730;
+      line-height: 1.45;
+    }
+    .minutes { color: var(--muted); font-size: 15px; white-space: nowrap; }
+    .summary {
+      max-width: 72ch;
+      margin: 8px 0 13px;
+      color: #536175;
+      font-size: 16px;
+      line-height: 1.75;
+      text-wrap: pretty;
+    }
+    .details {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin: 0;
+    }
+    .details div { min-width: 0; }
+    .details dt {
+      margin: 0 0 4px;
+      color: #788598;
+      font-size: 15px;
+      font-weight: 680;
+    }
+    .details dd {
+      margin: 0;
+      color: #4b596d;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    .sources {
+      align-self: start;
+      border-radius: 11px;
+      overflow: hidden;
+    }
+    .source-tabs {
+      min-height: 54px;
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      color: #727f92;
+      font-size: 15px;
+      font-weight: 680;
+    }
+    .source-tabs .active { color: #4338ca; }
+    .source-content { padding: 18px; }
+    .source-content h2 { margin: 0 0 14px; font-size: 16px; }
+    .source-row {
+      padding: 14px 0;
+      border-top: 1px solid #edf0f5;
+    }
+    .source-row strong { display: block; margin-bottom: 4px; font-size: 15px; }
+    .source-row span { color: var(--muted); font-size: 15px; line-height: 1.5; }
+
+    button:focus-visible, select:focus-visible { outline: 2px solid rgba(85,79,215,.3); outline-offset: 2px; }
+
+    @media (max-width: 1180px) {
+      .workspace { grid-template-columns: 174px minmax(0, 1fr); }
+      .sources { display: none; }
+    }
+    @media (max-width: 840px) {
+      .app-bar { grid-template-columns: 1fr auto; }
+      .stage-tabs { display: none; }
+      .workspace { grid-template-columns: minmax(0, 1fr); padding: 10px; }
+      .side { display: none; }
+    }
+    @media (max-width: 620px) {
+      .lesson-head { align-items: start; padding: 14px 16px; }
+      .lesson-title h1 { font-size: 21px; }
+      .lesson-nav button { width: 34px; padding: 0; justify-content: center; font-size: 0; }
+      .lesson-nav button span { font-size: 18px; }
+      .lesson-tools {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        padding: 9px 16px;
+        overflow-x: auto;
+      }
+      .state { display: none; }
+      .lesson-tools > i { display: none; }
+      .generation-actions { min-width: max-content; }
+      .generation-actions button { padding: 0 10px; }
+      .document { padding-inline: 16px; }
+      .details { grid-template-columns: 1fr; gap: 9px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="app-bar">
+    <div class="course-name"><button class="back" aria-label="返回">‹</button><span>C语言程序设计</span></div>
+    <nav class="stage-tabs" aria-label="工作区视图"><button class="active">备课工作台</button><button>课程文件</button></nav>
+    <div class="app-actions"><button>审计与更新</button><button class="preview">预览学生所见</button></div>
+  </header>
+
+  <main class="workspace">
+    <aside class="side">
+      <h2>课程工作台</h2>
+      <nav>
+        <button><span class="num">01</span><span>大纲</span></button>
+        <button class="active"><span class="num">02</span><span>教案</span></button>
+        <button><span class="num">03</span><span>讲义</span></button>
+        <button><span class="num">04</span><span>PPT</span></button>
+      </nav>
+    </aside>
+
+    <section class="lesson">
+      <header class="lesson-head">
+        <div class="lesson-title">
+          <h1>第10讲 指针与内存操作</h1>
+          <span class="lesson-count">10 / 16⌄</span>
+        </div>
+        <nav class="lesson-nav" aria-label="讲次导航">
+          <button><span>‹</span>上一讲</button>
+          <button>下一讲<span>›</span></button>
+        </nav>
+      </header>
+
+      <div class="lesson-tools">
+        <label class="type-control">本讲课型：
+          <select aria-label="本讲课型">
+            <option>理论讲授</option>
+            <option>讲练结合</option>
+            <option>案例研讨</option>
+          </select>
+        </label>
+        <span class="state">已确认</span>
+        <i aria-hidden="true"></i>
+        <div class="generation-actions">
+          <button id="single">只生成本讲</button>
+          <button class="primary" id="all">生成全部教案</button>
+        </div>
+      </div>
+
+      <article class="document">
+        <section class="block">
+          <div class="block-index">01</div>
+          <div class="block-main">
+            <div class="block-title"><h3>本节任务</h3><span class="minutes">7 分钟</span></div>
+            <p class="summary">理解指针与数组、字符串之间的关系，并能判断不同内存访问方式产生的实际结果。</p>
+            <dl class="details">
+              <div><dt>环节目标</dt><dd>建立可以观察和检验的学习目标</dd></div>
+              <div><dt>课堂活动</dt><dd>通过代码运行结果辨认指针变化</dd></div>
+              <div><dt>达成判断</dt><dd>能够解释结果并指出错误原因</dd></div>
+            </dl>
+          </div>
+        </section>
+        <section class="block">
+          <div class="block-index">02</div>
+          <div class="block-main">
+            <div class="block-title"><h3>指针与数组的对应关系</h3><span class="minutes">12 分钟</span></div>
+            <p class="summary">从数组首地址出发，对照下标访问与指针运算，理解两种写法在内存中的对应关系。</p>
+            <dl class="details">
+              <div><dt>环节目标</dt><dd>说清数组名与指针变量的区别</dd></div>
+              <div><dt>课堂活动</dt><dd>逐行预测地址和值的变化</dd></div>
+              <div><dt>达成判断</dt><dd>独立完成一组等价改写</dd></div>
+            </dl>
+          </div>
+        </section>
+        <section class="block">
+          <div class="block-index">03</div>
+          <div class="block-main">
+            <div class="block-title"><h3>字符串的内存表示</h3><span class="minutes">14 分钟</span></div>
+            <p class="summary">比较字符数组与字符指针的初始化方式，判断哪些内容可以修改，以及修改发生在哪里。</p>
+            <dl class="details">
+              <div><dt>环节目标</dt><dd>识别字符串结束标志与存储边界</dd></div>
+              <div><dt>课堂活动</dt><dd>对比三段代码的运行结果</dd></div>
+              <div><dt>达成判断</dt><dd>说明非法修改发生的原因</dd></div>
+            </dl>
+          </div>
+        </section>
+      </article>
+    </section>
+
+    <aside class="sources">
+      <div class="source-tabs"><span>AI 助手</span><span class="active">参考资料</span></div>
+      <div class="source-content">
+        <h2>信息来源</h2>
+        <div class="source-row"><strong>课程信息</strong><span>课时、课型与教学设置</span></div>
+        <div class="source-row"><strong>课程知识</strong><span>本讲关联的知识内容</span></div>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    document.querySelector('#single').addEventListener('click', () => { document.querySelector('#single').textContent = '正在生成…'; });
+    document.querySelector('#all').addEventListener('click', () => { document.querySelector('#all').textContent = '正在生成全部教案…'; });
+  </script>
+</body>
+</html>

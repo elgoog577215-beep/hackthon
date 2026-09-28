@@ -1,0 +1,4177 @@
+{
+  "schema_version": "ppt_manuscript_v1",
+  "teaching_content_contract_version": "page_teaching_v2",
+  "manuscript_revision": "pptman_14946501274384ca491f31f8",
+  "source_document_revision": "demo-source-v1",
+  "source_lesson_plan_revision_id": "",
+  "source_script_revision_id": "",
+  "material_bindings": [],
+  "narrative_brief": {
+    "schema_version": "slide_narrative_brief_v1",
+    "central_question": "怎样让评价帮助学习？",
+    "learning_path": [],
+    "observable_checkpoints": [],
+    "time_budget_minutes": 0,
+    "must_include_source_block_ids": []
+  },
+  "template_id": "qizhi-classroom",
+  "template_version": "fixed_classroom_v1",
+  "template_digest": "tmpl_bcf315cab5f4ec471efa3399",
+  "page_count": 9,
+  "pages": [
+    {
+      "page_id": "p1",
+      "page_number": 1,
+      "teaching_unit_id": "cpu_20ef1c58727b5e17bfcdca04",
+      "course_block_types": [
+        "rich_text"
+      ],
+      "page_type": "cover",
+      "page_goal": "理解课堂评价的作用",
+      "primary_claim": "",
+      "audience_question": "",
+      "audience_action": "",
+      "expected_response": "",
+      "observable_evidence": "",
+      "transition": "",
+      "reveal_steps": [
+        "教师结合本班实例讲解，完整依据保存在备注。"
+      ],
+      "title": "课堂评价设计",
+      "visible_copy": [
+        "课堂评价设计",
+        "围绕目标、证据与反馈组织教学"
+      ],
+      "layout_id": "qizhi-classroom@fixed_classroom_v1/cover",
+      "composition_notes": "",
+      "visual_kind": "text_native",
+      "source_script_block_ids": [
+        "source"
+      ],
+      "source_section_ids": [],
+      "speaker_note_source_block_ids": [
+        "source"
+      ],
+      "source_material_evidence_ids": [],
+      "question_bank_item_ids": [],
+      "shared_visual_expression_ids": [],
+      "teacher_locked": false,
+      "lock_source_document_revision": "",
+      "title_max_lines": 1,
+      "web_renderer_adapter": "teaching-scene-web-v2",
+      "pptx_renderer_adapter": "teaching-scene-pptx-v2",
+      "regions": [
+        {
+          "region_id": "p1:title",
+          "slot_id": "title",
+          "content_kind": "title",
+          "content": "课堂评价设计",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {}
+        },
+        {
+          "region_id": "p1:subtitle",
+          "slot_id": "subtitle",
+          "content_kind": "text",
+          "content": "围绕目标、证据与反馈组织教学",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "subtitle",
+            "subject_id": "",
+            "dimension_id": ""
+          }
+        }
+      ],
+      "artifact_kinds": [],
+      "visual_decision": {
+        "page_id": "p1",
+        "decision": "text_native",
+        "source_block_ids": [
+          "source"
+        ],
+        "source_section_ids": [],
+        "source_asset_ids": [],
+        "visual_payload": {},
+        "resolved_template_layout_id": "qizhi-classroom@fixed_classroom_v1/cover",
+        "provider": "",
+        "model": "",
+        "duration_ms": 0,
+        "attempts": 1,
+        "degraded": false,
+        "degradation_reason": ""
+      },
+      "speaker_notes": {
+        "schema_version": "slide_speaker_notes_v2",
+        "source_document_revision": "demo-source-v1",
+        "teaching_unit_id": "cpu_20ef1c58727b5e17bfcdca04",
+        "source_blocks": [
+          {
+            "block_id": "source",
+            "block_revision": "r1",
+            "full_text": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。",
+            "source_kind": "rich_text",
+            "source_payload": {
+              "markdown": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+            },
+            "asset_refs": []
+          }
+        ],
+        "source_section_ids": [],
+        "teaching_notes": [
+          "教师结合本班实例讲解，完整依据保存在备注。"
+        ]
+      },
+      "continuation_of_page_id": "",
+      "continuation_index": 1,
+      "continuation_count": 1,
+      "teaching": {
+        "schema_version": "page_teaching_v2",
+        "elements": [
+          {
+            "element_id": "subtitle",
+            "kind": "text",
+            "text": "围绕目标、证据与反馈组织教学",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          }
+        ],
+        "expression": {
+          "kind": "cover",
+          "ordered_element_ids": [
+            "subtitle"
+          ]
+        },
+        "must_show": [
+          "subtitle"
+        ],
+        "source_dispositions": [
+          {
+            "block_id": "source",
+            "purpose": "screen",
+            "element_ids": [
+              "subtitle"
+            ],
+            "reason": "屏幕保留本页教学表达所引用的内容，完整原文保存在备注。"
+          }
+        ],
+        "states": [
+          {
+            "state_id": "step-1",
+            "visible_element_ids": [
+              "subtitle"
+            ],
+            "emphasized_element_ids": [],
+            "teaching_note": "教师结合本班实例讲解，完整依据保存在备注。"
+          }
+        ],
+        "adopted_assets": [],
+        "adopted_diagram": null,
+        "presentation": {
+          "schema_version": "page_presentation_v1",
+          "mode": "complete",
+          "checkpoints": []
+        }
+      },
+      "resolved_scenes": [
+        {
+          "schema_version": "resolved_page_scene_v2",
+          "logical_page_id": "p1",
+          "state_id": "step-1",
+          "layout_id": "qizhi-classroom@fixed_classroom_v1/cover",
+          "template_digest": "tmpl_bcf315cab5f4ec471efa3399",
+          "source_document_revision": "demo-source-v1",
+          "width": 960.0,
+          "height": 540.0,
+          "background": "FFFFFF",
+          "accent_color": "4C479C",
+          "objects": [
+            {
+              "object_id": "title",
+              "element_id": "",
+              "slot_id": "title",
+              "kind": "text",
+              "text": "课堂评价设计",
+              "lines": [
+                "课堂评价设计"
+              ],
+              "x": 60.0,
+              "y": 140.0,
+              "width": 840.0,
+              "height": 124.0,
+              "font_size": 30.0,
+              "bold": true,
+              "color": "4C479C",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "subtitle",
+              "element_id": "subtitle",
+              "slot_id": "subtitle",
+              "kind": "text",
+              "text": "围绕目标、证据与反馈组织教学",
+              "lines": [
+                "围绕目标、证据与反馈组织教学"
+              ],
+              "x": 68.0,
+              "y": 285.0,
+              "width": 824.0,
+              "height": 120.0,
+              "font_size": 26.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "header-rule",
+              "element_id": "",
+              "slot_id": "decoration",
+              "kind": "shape",
+              "text": "",
+              "lines": [],
+              "x": 28.0,
+              "y": 24.0,
+              "width": 4.0,
+              "height": 48.0,
+              "font_size": 22.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "4C479C",
+              "stroke": "4C479C",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "native_shape"
+            }
+          ],
+          "edges": [],
+          "emphasized_element_ids": [],
+          "execution": {
+            "capability_contract_version": "teaching_layout_v2",
+            "mode": "component_render",
+            "component_id": "fixed-classroom/cover",
+            "component_version": "fixed_classroom_v1",
+            "expression_kinds": [
+              "cover"
+            ],
+            "max_subjects": 2,
+            "max_dimensions": 3,
+            "max_nodes": 4,
+            "font_family": "Noto Sans CJK SC",
+            "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+            "font_floor_pt": 22.0,
+            "targets": {},
+            "source_slide_number": 0,
+            "source_sha256": "",
+            "certification": {}
+          },
+          "tools": {
+            "compiler": "teaching_scene_v2.5",
+            "renderer": "teaching_native_v2.4",
+            "quality": "teaching_export_v2.5",
+            "python": "3.12.13",
+            "font_family": "Noto Sans CJK SC",
+            "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+            "python_pptx": "1.0.2",
+            "lxml": "6.1.1",
+            "pillow": "12.3.0",
+            "freetype": "2.14.3",
+            "pypdf": "unavailable",
+            "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+            "poppler": "pdftoppm version 26.05.0"
+          },
+          "scene_digest": "scene_ceb68e128cecb572848e0a4a"
+        }
+      ]
+    },
+    {
+      "page_id": "p2",
+      "page_number": 2,
+      "teaching_unit_id": "cpu_20ef1c58727b5e17bfcdca04",
+      "course_block_types": [
+        "rich_text"
+      ],
+      "page_type": "agenda",
+      "page_goal": "理解课堂评价的作用",
+      "primary_claim": "",
+      "audience_question": "",
+      "audience_action": "",
+      "expected_response": "",
+      "observable_evidence": "",
+      "transition": "",
+      "reveal_steps": [
+        "教师结合本班实例讲解，完整依据保存在备注。"
+      ],
+      "title": "怎样让评价帮助学习？",
+      "visible_copy": [
+        "怎样让评价帮助学习？",
+        "明确学习目标",
+        "收集评价证据",
+        "形成反馈行动"
+      ],
+      "layout_id": "qizhi-classroom@fixed_classroom_v1/agenda",
+      "composition_notes": "",
+      "visual_kind": "text_native",
+      "source_script_block_ids": [
+        "source"
+      ],
+      "source_section_ids": [],
+      "speaker_note_source_block_ids": [
+        "source"
+      ],
+      "source_material_evidence_ids": [],
+      "question_bank_item_ids": [],
+      "shared_visual_expression_ids": [],
+      "teacher_locked": false,
+      "lock_source_document_revision": "",
+      "title_max_lines": 1,
+      "web_renderer_adapter": "teaching-scene-web-v2",
+      "pptx_renderer_adapter": "teaching-scene-pptx-v2",
+      "regions": [
+        {
+          "region_id": "p2:title",
+          "slot_id": "title",
+          "content_kind": "title",
+          "content": "怎样让评价帮助学习？",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {}
+        },
+        {
+          "region_id": "p2:item-0",
+          "slot_id": "item-0",
+          "content_kind": "text",
+          "content": "明确学习目标",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "item-0",
+            "subject_id": "",
+            "dimension_id": ""
+          }
+        },
+        {
+          "region_id": "p2:item-1",
+          "slot_id": "item-1",
+          "content_kind": "text",
+          "content": "收集评价证据",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "item-1",
+            "subject_id": "",
+            "dimension_id": ""
+          }
+        },
+        {
+          "region_id": "p2:item-2",
+          "slot_id": "item-2",
+          "content_kind": "text",
+          "content": "形成反馈行动",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "item-2",
+            "subject_id": "",
+            "dimension_id": ""
+          }
+        }
+      ],
+      "artifact_kinds": [],
+      "visual_decision": {
+        "page_id": "p2",
+        "decision": "text_native",
+        "source_block_ids": [
+          "source"
+        ],
+        "source_section_ids": [],
+        "source_asset_ids": [],
+        "visual_payload": {},
+        "resolved_template_layout_id": "qizhi-classroom@fixed_classroom_v1/agenda",
+        "provider": "",
+        "model": "",
+        "duration_ms": 0,
+        "attempts": 1,
+        "degraded": false,
+        "degradation_reason": ""
+      },
+      "speaker_notes": {
+        "schema_version": "slide_speaker_notes_v2",
+        "source_document_revision": "demo-source-v1",
+        "teaching_unit_id": "cpu_20ef1c58727b5e17bfcdca04",
+        "source_blocks": [
+          {
+            "block_id": "source",
+            "block_revision": "r1",
+            "full_text": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。",
+            "source_kind": "rich_text",
+            "source_payload": {
+              "markdown": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+            },
+            "asset_refs": []
+          }
+        ],
+        "source_section_ids": [],
+        "teaching_notes": [
+          "教师结合本班实例讲解，完整依据保存在备注。"
+        ]
+      },
+      "continuation_of_page_id": "",
+      "continuation_index": 1,
+      "continuation_count": 1,
+      "teaching": {
+        "schema_version": "page_teaching_v2",
+        "elements": [
+          {
+            "element_id": "item-0",
+            "kind": "text",
+            "text": "明确学习目标",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "item-1",
+            "kind": "text",
+            "text": "收集评价证据",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "item-2",
+            "kind": "text",
+            "text": "形成反馈行动",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          }
+        ],
+        "expression": {
+          "kind": "agenda",
+          "ordered_element_ids": [
+            "item-0",
+            "item-1",
+            "item-2"
+          ]
+        },
+        "must_show": [
+          "item-0",
+          "item-1",
+          "item-2"
+        ],
+        "source_dispositions": [
+          {
+            "block_id": "source",
+            "purpose": "screen",
+            "element_ids": [
+              "item-0",
+              "item-1",
+              "item-2"
+            ],
+            "reason": "屏幕保留本页教学表达所引用的内容，完整原文保存在备注。"
+          }
+        ],
+        "states": [
+          {
+            "state_id": "step-1",
+            "visible_element_ids": [
+              "item-0",
+              "item-1",
+              "item-2"
+            ],
+            "emphasized_element_ids": [],
+            "teaching_note": "教师结合本班实例讲解，完整依据保存在备注。"
+          }
+        ],
+        "adopted_assets": [],
+        "adopted_diagram": null,
+        "presentation": {
+          "schema_version": "page_presentation_v1",
+          "mode": "complete",
+          "checkpoints": []
+        }
+      },
+      "resolved_scenes": [
+        {
+          "schema_version": "resolved_page_scene_v2",
+          "logical_page_id": "p2",
+          "state_id": "step-1",
+          "layout_id": "qizhi-classroom@fixed_classroom_v1/agenda",
+          "template_digest": "tmpl_bcf315cab5f4ec471efa3399",
+          "source_document_revision": "demo-source-v1",
+          "width": 960.0,
+          "height": 540.0,
+          "background": "FFFFFF",
+          "accent_color": "4C479C",
+          "objects": [
+            {
+              "object_id": "title",
+              "element_id": "",
+              "slot_id": "title",
+              "kind": "text",
+              "text": "怎样让评价帮助学习？",
+              "lines": [
+                "怎样让评价帮助学习？"
+              ],
+              "x": 48.0,
+              "y": 24.0,
+              "width": 864.0,
+              "height": 72.0,
+              "font_size": 30.0,
+              "bold": true,
+              "color": "4C479C",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "item-0",
+              "element_id": "item-0",
+              "slot_id": "point.0",
+              "kind": "text",
+              "text": "明确学习目标",
+              "lines": [
+                "明确学习目标"
+              ],
+              "x": 68.0,
+              "y": 126.0,
+              "width": 824.0,
+              "height": 75.0,
+              "font_size": 24.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "item-1",
+              "element_id": "item-1",
+              "slot_id": "point.1",
+              "kind": "text",
+              "text": "收集评价证据",
+              "lines": [
+                "收集评价证据"
+              ],
+              "x": 68.0,
+              "y": 202.0,
+              "width": 824.0,
+              "height": 75.0,
+              "font_size": 24.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "item-2",
+              "element_id": "item-2",
+              "slot_id": "point.2",
+              "kind": "text",
+              "text": "形成反馈行动",
+              "lines": [
+                "形成反馈行动"
+              ],
+              "x": 68.0,
+              "y": 278.0,
+              "width": 824.0,
+              "height": 75.0,
+              "font_size": 24.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "header-rule",
+              "element_id": "",
+              "slot_id": "decoration",
+              "kind": "shape",
+              "text": "",
+              "lines": [],
+              "x": 28.0,
+              "y": 24.0,
+              "width": 4.0,
+              "height": 48.0,
+              "font_size": 22.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "4C479C",
+              "stroke": "4C479C",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "native_shape"
+            }
+          ],
+          "edges": [],
+          "emphasized_element_ids": [],
+          "execution": {
+            "capability_contract_version": "teaching_layout_v2",
+            "mode": "component_render",
+            "component_id": "fixed-classroom/agenda",
+            "component_version": "fixed_classroom_v1",
+            "expression_kinds": [
+              "agenda"
+            ],
+            "max_subjects": 2,
+            "max_dimensions": 3,
+            "max_nodes": 4,
+            "font_family": "Noto Sans CJK SC",
+            "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+            "font_floor_pt": 22.0,
+            "targets": {},
+            "source_slide_number": 0,
+            "source_sha256": "",
+            "certification": {}
+          },
+          "tools": {
+            "compiler": "teaching_scene_v2.5",
+            "renderer": "teaching_native_v2.4",
+            "quality": "teaching_export_v2.5",
+            "python": "3.12.13",
+            "font_family": "Noto Sans CJK SC",
+            "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+            "python_pptx": "1.0.2",
+            "lxml": "6.1.1",
+            "pillow": "12.3.0",
+            "freetype": "2.14.3",
+            "pypdf": "unavailable",
+            "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+            "poppler": "pdftoppm version 26.05.0"
+          },
+          "scene_digest": "scene_41005007c3c9fc34a6454eb3"
+        }
+      ]
+    },
+    {
+      "page_id": "p3",
+      "page_number": 3,
+      "teaching_unit_id": "cpu_20ef1c58727b5e17bfcdca04",
+      "course_block_types": [
+        "rich_text"
+      ],
+      "page_type": "cover",
+      "page_goal": "理解课堂评价的作用",
+      "primary_claim": "",
+      "audience_question": "",
+      "audience_action": "",
+      "expected_response": "",
+      "observable_evidence": "",
+      "transition": "",
+      "reveal_steps": [
+        "教师结合本班实例讲解，完整依据保存在备注。"
+      ],
+      "title": "评价贯穿学习过程",
+      "visible_copy": [
+        "评价贯穿学习过程",
+        "形成性评价与总结性评价可以相互补充"
+      ],
+      "layout_id": "qizhi-classroom@fixed_classroom_v1/section",
+      "composition_notes": "",
+      "visual_kind": "text_native",
+      "source_script_block_ids": [
+        "source"
+      ],
+      "source_section_ids": [],
+      "speaker_note_source_block_ids": [
+        "source"
+      ],
+      "source_material_evidence_ids": [],
+      "question_bank_item_ids": [],
+      "shared_visual_expression_ids": [],
+      "teacher_locked": false,
+      "lock_source_document_revision": "",
+      "title_max_lines": 1,
+      "web_renderer_adapter": "teaching-scene-web-v2",
+      "pptx_renderer_adapter": "teaching-scene-pptx-v2",
+      "regions": [
+        {
+          "region_id": "p3:title",
+          "slot_id": "title",
+          "content_kind": "title",
+          "content": "评价贯穿学习过程",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {}
+        },
+        {
+          "region_id": "p3:subtitle",
+          "slot_id": "subtitle",
+          "content_kind": "text",
+          "content": "形成性评价与总结性评价可以相互补充",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "subtitle",
+            "subject_id": "",
+            "dimension_id": ""
+          }
+        }
+      ],
+      "artifact_kinds": [],
+      "visual_decision": {
+        "page_id": "p3",
+        "decision": "text_native",
+        "source_block_ids": [
+          "source"
+        ],
+        "source_section_ids": [],
+        "source_asset_ids": [],
+        "visual_payload": {},
+        "resolved_template_layout_id": "qizhi-classroom@fixed_classroom_v1/section",
+        "provider": "",
+        "model": "",
+        "duration_ms": 0,
+        "attempts": 1,
+        "degraded": false,
+        "degradation_reason": ""
+      },
+      "speaker_notes": {
+        "schema_version": "slide_speaker_notes_v2",
+        "source_document_revision": "demo-source-v1",
+        "teaching_unit_id": "cpu_20ef1c58727b5e17bfcdca04",
+        "source_blocks": [
+          {
+            "block_id": "source",
+            "block_revision": "r1",
+            "full_text": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。",
+            "source_kind": "rich_text",
+            "source_payload": {
+              "markdown": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+            },
+            "asset_refs": []
+          }
+        ],
+        "source_section_ids": [],
+        "teaching_notes": [
+          "教师结合本班实例讲解，完整依据保存在备注。"
+        ]
+      },
+      "continuation_of_page_id": "",
+      "continuation_index": 1,
+      "continuation_count": 1,
+      "teaching": {
+        "schema_version": "page_teaching_v2",
+        "elements": [
+          {
+            "element_id": "subtitle",
+            "kind": "text",
+            "text": "形成性评价与总结性评价可以相互补充",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          }
+        ],
+        "expression": {
+          "kind": "cover",
+          "ordered_element_ids": [
+            "subtitle"
+          ]
+        },
+        "must_show": [
+          "subtitle"
+        ],
+        "source_dispositions": [
+          {
+            "block_id": "source",
+            "purpose": "screen",
+            "element_ids": [
+              "subtitle"
+            ],
+            "reason": "屏幕保留本页教学表达所引用的内容，完整原文保存在备注。"
+          }
+        ],
+        "states": [
+          {
+            "state_id": "step-1",
+            "visible_element_ids": [
+              "subtitle"
+            ],
+            "emphasized_element_ids": [],
+            "teaching_note": "教师结合本班实例讲解，完整依据保存在备注。"
+          }
+        ],
+        "adopted_assets": [],
+        "adopted_diagram": null,
+        "presentation": {
+          "schema_version": "page_presentation_v1",
+          "mode": "complete",
+          "checkpoints": []
+        }
+      },
+      "resolved_scenes": [
+        {
+          "schema_version": "resolved_page_scene_v2",
+          "logical_page_id": "p3",
+          "state_id": "step-1",
+          "layout_id": "qizhi-classroom@fixed_classroom_v1/section",
+          "template_digest": "tmpl_bcf315cab5f4ec471efa3399",
+          "source_document_revision": "demo-source-v1",
+          "width": 960.0,
+          "height": 540.0,
+          "background": "FFFFFF",
+          "accent_color": "4C479C",
+          "objects": [
+            {
+              "object_id": "title",
+              "element_id": "",
+              "slot_id": "title",
+              "kind": "text",
+              "text": "评价贯穿学习过程",
+              "lines": [
+                "评价贯穿学习过程"
+              ],
+              "x": 60.0,
+              "y": 140.0,
+              "width": 840.0,
+              "height": 124.0,
+              "font_size": 30.0,
+              "bold": true,
+              "color": "4C479C",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "subtitle",
+              "element_id": "subtitle",
+              "slot_id": "subtitle",
+              "kind": "text",
+              "text": "形成性评价与总结性评价可以相互补充",
+              "lines": [
+                "形成性评价与总结性评价可以相互补充"
+              ],
+              "x": 68.0,
+              "y": 285.0,
+              "width": 824.0,
+              "height": 120.0,
+              "font_size": 26.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "header-rule",
+              "element_id": "",
+              "slot_id": "decoration",
+              "kind": "shape",
+              "text": "",
+              "lines": [],
+              "x": 28.0,
+              "y": 24.0,
+              "width": 4.0,
+              "height": 48.0,
+              "font_size": 22.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "4C479C",
+              "stroke": "4C479C",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "native_shape"
+            }
+          ],
+          "edges": [],
+          "emphasized_element_ids": [],
+          "execution": {
+            "capability_contract_version": "teaching_layout_v2",
+            "mode": "component_render",
+            "component_id": "fixed-classroom/section",
+            "component_version": "fixed_classroom_v1",
+            "expression_kinds": [
+              "cover"
+            ],
+            "max_subjects": 2,
+            "max_dimensions": 3,
+            "max_nodes": 4,
+            "font_family": "Noto Sans CJK SC",
+            "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+            "font_floor_pt": 22.0,
+            "targets": {},
+            "source_slide_number": 0,
+            "source_sha256": "",
+            "certification": {}
+          },
+          "tools": {
+            "compiler": "teaching_scene_v2.5",
+            "renderer": "teaching_native_v2.4",
+            "quality": "teaching_export_v2.5",
+            "python": "3.12.13",
+            "font_family": "Noto Sans CJK SC",
+            "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+            "python_pptx": "1.0.2",
+            "lxml": "6.1.1",
+            "pillow": "12.3.0",
+            "freetype": "2.14.3",
+            "pypdf": "unavailable",
+            "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+            "poppler": "pdftoppm version 26.05.0"
+          },
+          "scene_digest": "scene_8a0eb290edf24091523e0a0f"
+        }
+      ]
+    },
+    {
+      "page_id": "p4",
+      "page_number": 4,
+      "teaching_unit_id": "cpu_20ef1c58727b5e17bfcdca04",
+      "course_block_types": [
+        "rich_text"
+      ],
+      "page_type": "content",
+      "page_goal": "理解课堂评价的作用",
+      "primary_claim": "",
+      "audience_question": "",
+      "audience_action": "",
+      "expected_response": "",
+      "observable_evidence": "",
+      "transition": "",
+      "reveal_steps": [
+        "教师结合本班实例讲解，完整依据保存在备注。"
+      ],
+      "title": "反馈不只给出分数",
+      "visible_copy": [
+        "反馈不只给出分数",
+        "把抽象目标转成可观察表现",
+        "根据表现收集能够支持判断的证据",
+        "反馈应指出当前差距与下一步行动"
+      ],
+      "layout_id": "qizhi-classroom@fixed_classroom_v1/bullets",
+      "composition_notes": "",
+      "visual_kind": "text_native",
+      "source_script_block_ids": [
+        "source"
+      ],
+      "source_section_ids": [],
+      "speaker_note_source_block_ids": [
+        "source"
+      ],
+      "source_material_evidence_ids": [],
+      "question_bank_item_ids": [],
+      "shared_visual_expression_ids": [],
+      "teacher_locked": false,
+      "lock_source_document_revision": "",
+      "title_max_lines": 1,
+      "web_renderer_adapter": "teaching-scene-web-v2",
+      "pptx_renderer_adapter": "teaching-scene-pptx-v2",
+      "regions": [
+        {
+          "region_id": "p4:title",
+          "slot_id": "title",
+          "content_kind": "title",
+          "content": "反馈不只给出分数",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {}
+        },
+        {
+          "region_id": "p4:item-0",
+          "slot_id": "item-0",
+          "content_kind": "text",
+          "content": "把抽象目标转成可观察表现",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "item-0",
+            "subject_id": "",
+            "dimension_id": ""
+          }
+        },
+        {
+          "region_id": "p4:item-1",
+          "slot_id": "item-1",
+          "content_kind": "text",
+          "content": "根据表现收集能够支持判断的证据",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "item-1",
+            "subject_id": "",
+            "dimension_id": ""
+          }
+        },
+        {
+          "region_id": "p4:item-2",
+          "slot_id": "item-2",
+          "content_kind": "text",
+          "content": "反馈应指出当前差距与下一步行动",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "item-2",
+            "subject_id": "",
+            "dimension_id": ""
+          }
+        }
+      ],
+      "artifact_kinds": [],
+      "visual_decision": {
+        "page_id": "p4",
+        "decision": "text_native",
+        "source_block_ids": [
+          "source"
+        ],
+        "source_section_ids": [],
+        "source_asset_ids": [],
+        "visual_payload": {},
+        "resolved_template_layout_id": "qizhi-classroom@fixed_classroom_v1/bullets",
+        "provider": "",
+        "model": "",
+        "duration_ms": 0,
+        "attempts": 1,
+        "degraded": false,
+        "degradation_reason": ""
+      },
+      "speaker_notes": {
+        "schema_version": "slide_speaker_notes_v2",
+        "source_document_revision": "demo-source-v1",
+        "teaching_unit_id": "cpu_20ef1c58727b5e17bfcdca04",
+        "source_blocks": [
+          {
+            "block_id": "source",
+            "block_revision": "r1",
+            "full_text": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。",
+            "source_kind": "rich_text",
+            "source_payload": {
+              "markdown": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+            },
+            "asset_refs": []
+          }
+        ],
+        "source_section_ids": [],
+        "teaching_notes": [
+          "教师结合本班实例讲解，完整依据保存在备注。"
+        ]
+      },
+      "continuation_of_page_id": "",
+      "continuation_index": 1,
+      "continuation_count": 1,
+      "teaching": {
+        "schema_version": "page_teaching_v2",
+        "elements": [
+          {
+            "element_id": "item-0",
+            "kind": "text",
+            "text": "把抽象目标转成可观察表现",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "item-1",
+            "kind": "text",
+            "text": "根据表现收集能够支持判断的证据",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "item-2",
+            "kind": "text",
+            "text": "反馈应指出当前差距与下一步行动",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          }
+        ],
+        "expression": {
+          "kind": "evidence",
+          "ordered_element_ids": [
+            "item-0",
+            "item-1",
+            "item-2"
+          ]
+        },
+        "must_show": [
+          "item-0",
+          "item-1",
+          "item-2"
+        ],
+        "source_dispositions": [
+          {
+            "block_id": "source",
+            "purpose": "screen",
+            "element_ids": [
+              "item-0",
+              "item-1",
+              "item-2"
+            ],
+            "reason": "屏幕保留本页教学表达所引用的内容，完整原文保存在备注。"
+          }
+        ],
+        "states": [
+          {
+            "state_id": "step-1",
+            "visible_element_ids": [
+              "item-0",
+              "item-1",
+              "item-2"
+            ],
+            "emphasized_element_ids": [],
+            "teaching_note": "教师结合本班实例讲解，完整依据保存在备注。"
+          }
+        ],
+        "adopted_assets": [],
+        "adopted_diagram": null,
+        "presentation": {
+          "schema_version": "page_presentation_v1",
+          "mode": "complete",
+          "checkpoints": []
+        }
+      },
+      "resolved_scenes": [
+        {
+          "schema_version": "resolved_page_scene_v2",
+          "logical_page_id": "p4",
+          "state_id": "step-1",
+          "layout_id": "qizhi-classroom@fixed_classroom_v1/bullets",
+          "template_digest": "tmpl_bcf315cab5f4ec471efa3399",
+          "source_document_revision": "demo-source-v1",
+          "width": 960.0,
+          "height": 540.0,
+          "background": "FFFFFF",
+          "accent_color": "4C479C",
+          "objects": [
+            {
+              "object_id": "title",
+              "element_id": "",
+              "slot_id": "title",
+              "kind": "text",
+              "text": "反馈不只给出分数",
+              "lines": [
+                "反馈不只给出分数"
+              ],
+              "x": 48.0,
+              "y": 24.0,
+              "width": 864.0,
+              "height": 72.0,
+              "font_size": 30.0,
+              "bold": true,
+              "color": "4C479C",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "item-0",
+              "element_id": "item-0",
+              "slot_id": "point.0",
+              "kind": "text",
+              "text": "把抽象目标转成可观察表现",
+              "lines": [
+                "把抽象目标转成可观察表现"
+              ],
+              "x": 68.0,
+              "y": 126.0,
+              "width": 824.0,
+              "height": 75.0,
+              "font_size": 24.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "item-1",
+              "element_id": "item-1",
+              "slot_id": "point.1",
+              "kind": "text",
+              "text": "根据表现收集能够支持判断的证据",
+              "lines": [
+                "根据表现收集能够支持判断的证据"
+              ],
+              "x": 68.0,
+              "y": 202.0,
+              "width": 824.0,
+              "height": 75.0,
+              "font_size": 24.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "item-2",
+              "element_id": "item-2",
+              "slot_id": "point.2",
+              "kind": "text",
+              "text": "反馈应指出当前差距与下一步行动",
+              "lines": [
+                "反馈应指出当前差距与下一步行动"
+              ],
+              "x": 68.0,
+              "y": 278.0,
+              "width": 824.0,
+              "height": 75.0,
+              "font_size": 24.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "header-rule",
+              "element_id": "",
+              "slot_id": "decoration",
+              "kind": "shape",
+              "text": "",
+              "lines": [],
+              "x": 28.0,
+              "y": 24.0,
+              "width": 4.0,
+              "height": 48.0,
+              "font_size": 22.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "4C479C",
+              "stroke": "4C479C",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "native_shape"
+            }
+          ],
+          "edges": [],
+          "emphasized_element_ids": [],
+          "execution": {
+            "capability_contract_version": "teaching_layout_v2",
+            "mode": "component_render",
+            "component_id": "fixed-classroom/bullets",
+            "component_version": "fixed_classroom_v1",
+            "expression_kinds": [
+              "evidence"
+            ],
+            "max_subjects": 2,
+            "max_dimensions": 3,
+            "max_nodes": 4,
+            "font_family": "Noto Sans CJK SC",
+            "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+            "font_floor_pt": 22.0,
+            "targets": {},
+            "source_slide_number": 0,
+            "source_sha256": "",
+            "certification": {}
+          },
+          "tools": {
+            "compiler": "teaching_scene_v2.5",
+            "renderer": "teaching_native_v2.4",
+            "quality": "teaching_export_v2.5",
+            "python": "3.12.13",
+            "font_family": "Noto Sans CJK SC",
+            "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+            "python_pptx": "1.0.2",
+            "lxml": "6.1.1",
+            "pillow": "12.3.0",
+            "freetype": "2.14.3",
+            "pypdf": "unavailable",
+            "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+            "poppler": "pdftoppm version 26.05.0"
+          },
+          "scene_digest": "scene_c16cce8dc8dc4a0b3b989c35"
+        }
+      ]
+    },
+    {
+      "page_id": "p5",
+      "page_number": 5,
+      "teaching_unit_id": "cpu_20ef1c58727b5e17bfcdca04",
+      "course_block_types": [
+        "rich_text"
+      ],
+      "page_type": "comparison",
+      "page_goal": "理解课堂评价的作用",
+      "primary_claim": "",
+      "audience_question": "",
+      "audience_action": "",
+      "expected_response": "",
+      "observable_evidence": "",
+      "transition": "",
+      "reveal_steps": [
+        "教师结合本班实例讲解，完整依据保存在备注。"
+      ],
+      "title": "两类评价怎样配合",
+      "visible_copy": [
+        "两类评价怎样配合",
+        "同一课程中的两类评价",
+        "形成性评价",
+        "总结性评价",
+        "时点",
+        "用途",
+        "例子",
+        "学习过程中",
+        "阶段结束时",
+        "调整学习与教学",
+        "判断阶段达成情况",
+        "课堂反馈",
+        "结课评价",
+        "两类评价可以相互补充"
+      ],
+      "layout_id": "qizhi-classroom@fixed_classroom_v1/comparison",
+      "composition_notes": "",
+      "visual_kind": "text_native",
+      "source_script_block_ids": [
+        "source"
+      ],
+      "source_section_ids": [],
+      "speaker_note_source_block_ids": [
+        "source"
+      ],
+      "source_material_evidence_ids": [],
+      "question_bank_item_ids": [],
+      "shared_visual_expression_ids": [],
+      "teacher_locked": false,
+      "lock_source_document_revision": "",
+      "title_max_lines": 1,
+      "web_renderer_adapter": "teaching-scene-web-v2",
+      "pptx_renderer_adapter": "teaching-scene-pptx-v2",
+      "regions": [
+        {
+          "region_id": "p5:title",
+          "slot_id": "title",
+          "content_kind": "title",
+          "content": "两类评价怎样配合",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {}
+        },
+        {
+          "region_id": "p5:condition-0",
+          "slot_id": "condition-0",
+          "content_kind": "text",
+          "content": "同一课程中的两类评价",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "condition-0",
+            "subject_id": "",
+            "dimension_id": ""
+          }
+        },
+        {
+          "region_id": "p5:subject-0",
+          "slot_id": "subject-0",
+          "content_kind": "text",
+          "content": "形成性评价",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "subject-0",
+            "subject_id": "subject-0",
+            "dimension_id": ""
+          }
+        },
+        {
+          "region_id": "p5:subject-1",
+          "slot_id": "subject-1",
+          "content_kind": "text",
+          "content": "总结性评价",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "subject-1",
+            "subject_id": "subject-1",
+            "dimension_id": ""
+          }
+        },
+        {
+          "region_id": "p5:dimension-0",
+          "slot_id": "dimension-0",
+          "content_kind": "text",
+          "content": "时点",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "dimension-0",
+            "subject_id": "",
+            "dimension_id": "dimension-0"
+          }
+        },
+        {
+          "region_id": "p5:dimension-1",
+          "slot_id": "dimension-1",
+          "content_kind": "text",
+          "content": "用途",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "dimension-1",
+            "subject_id": "",
+            "dimension_id": "dimension-1"
+          }
+        },
+        {
+          "region_id": "p5:dimension-2",
+          "slot_id": "dimension-2",
+          "content_kind": "text",
+          "content": "例子",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "dimension-2",
+            "subject_id": "",
+            "dimension_id": "dimension-2"
+          }
+        },
+        {
+          "region_id": "p5:cell-0-0",
+          "slot_id": "cell-0-0",
+          "content_kind": "text",
+          "content": "学习过程中",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "cell-0-0",
+            "subject_id": "subject-0",
+            "dimension_id": "dimension-0"
+          }
+        },
+        {
+          "region_id": "p5:cell-1-0",
+          "slot_id": "cell-1-0",
+          "content_kind": "text",
+          "content": "阶段结束时",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "cell-1-0",
+            "subject_id": "subject-1",
+            "dimension_id": "dimension-0"
+          }
+        },
+        {
+          "region_id": "p5:cell-2-0",
+          "slot_id": "cell-2-0",
+          "content_kind": "text",
+          "content": "调整学习与教学",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "cell-2-0",
+            "subject_id": "subject-0",
+            "dimension_id": "dimension-1"
+          }
+        },
+        {
+          "region_id": "p5:cell-3-0",
+          "slot_id": "cell-3-0",
+          "content_kind": "text",
+          "content": "判断阶段达成情况",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "cell-3-0",
+            "subject_id": "subject-1",
+            "dimension_id": "dimension-1"
+          }
+        },
+        {
+          "region_id": "p5:cell-4-0",
+          "slot_id": "cell-4-0",
+          "content_kind": "text",
+          "content": "课堂反馈",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "cell-4-0",
+            "subject_id": "subject-0",
+            "dimension_id": "dimension-2"
+          }
+        },
+        {
+          "region_id": "p5:cell-5-0",
+          "slot_id": "cell-5-0",
+          "content_kind": "text",
+          "content": "结课评价",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "cell-5-0",
+            "subject_id": "subject-1",
+            "dimension_id": "dimension-2"
+          }
+        },
+        {
+          "region_id": "p5:conclusion",
+          "slot_id": "conclusion",
+          "content_kind": "text",
+          "content": "两类评价可以相互补充",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "conclusion",
+            "subject_id": "",
+            "dimension_id": ""
+          }
+        }
+      ],
+      "artifact_kinds": [],
+      "visual_decision": {
+        "page_id": "p5",
+        "decision": "text_native",
+        "source_block_ids": [
+          "source"
+        ],
+        "source_section_ids": [],
+        "source_asset_ids": [],
+        "visual_payload": {},
+        "resolved_template_layout_id": "qizhi-classroom@fixed_classroom_v1/comparison",
+        "provider": "",
+        "model": "",
+        "duration_ms": 0,
+        "attempts": 1,
+        "degraded": false,
+        "degradation_reason": ""
+      },
+      "speaker_notes": {
+        "schema_version": "slide_speaker_notes_v2",
+        "source_document_revision": "demo-source-v1",
+        "teaching_unit_id": "cpu_20ef1c58727b5e17bfcdca04",
+        "source_blocks": [
+          {
+            "block_id": "source",
+            "block_revision": "r1",
+            "full_text": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。",
+            "source_kind": "rich_text",
+            "source_payload": {
+              "markdown": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+            },
+            "asset_refs": []
+          }
+        ],
+        "source_section_ids": [],
+        "teaching_notes": [
+          "教师结合本班实例讲解，完整依据保存在备注。"
+        ]
+      },
+      "continuation_of_page_id": "",
+      "continuation_index": 1,
+      "continuation_count": 1,
+      "teaching": {
+        "schema_version": "page_teaching_v2",
+        "elements": [
+          {
+            "element_id": "condition-0",
+            "kind": "text",
+            "text": "同一课程中的两类评价",
+            "role": "condition",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "subject-0",
+            "kind": "text",
+            "text": "形成性评价",
+            "role": "label",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "subject-0",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "subject-1",
+            "kind": "text",
+            "text": "总结性评价",
+            "role": "label",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "subject-1",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "dimension-0",
+            "kind": "text",
+            "text": "时点",
+            "role": "label",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "dimension-0",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "dimension-1",
+            "kind": "text",
+            "text": "用途",
+            "role": "label",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "dimension-1",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "dimension-2",
+            "kind": "text",
+            "text": "例子",
+            "role": "label",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "dimension-2",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "cell-0-0",
+            "kind": "text",
+            "text": "学习过程中",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "subject-0",
+            "dimension_id": "dimension-0",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "cell-1-0",
+            "kind": "text",
+            "text": "阶段结束时",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "subject-1",
+            "dimension_id": "dimension-0",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "cell-2-0",
+            "kind": "text",
+            "text": "调整学习与教学",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "subject-0",
+            "dimension_id": "dimension-1",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "cell-3-0",
+            "kind": "text",
+            "text": "判断阶段达成情况",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "subject-1",
+            "dimension_id": "dimension-1",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "cell-4-0",
+            "kind": "text",
+            "text": "课堂反馈",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "subject-0",
+            "dimension_id": "dimension-2",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "cell-5-0",
+            "kind": "text",
+            "text": "结课评价",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "subject-1",
+            "dimension_id": "dimension-2",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "conclusion",
+            "kind": "text",
+            "text": "两类评价可以相互补充",
+            "role": "claim",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          }
+        ],
+        "expression": {
+          "kind": "comparison",
+          "subjects": [
+            {
+              "subject_id": "subject-0",
+              "label_element_id": "subject-0"
+            },
+            {
+              "subject_id": "subject-1",
+              "label_element_id": "subject-1"
+            }
+          ],
+          "dimensions": [
+            {
+              "dimension_id": "dimension-0",
+              "label_element_id": "dimension-0"
+            },
+            {
+              "dimension_id": "dimension-1",
+              "label_element_id": "dimension-1"
+            },
+            {
+              "dimension_id": "dimension-2",
+              "label_element_id": "dimension-2"
+            }
+          ],
+          "cells": [
+            {
+              "subject_id": "subject-0",
+              "dimension_id": "dimension-0",
+              "element_ids": [
+                "cell-0-0"
+              ]
+            },
+            {
+              "subject_id": "subject-1",
+              "dimension_id": "dimension-0",
+              "element_ids": [
+                "cell-1-0"
+              ]
+            },
+            {
+              "subject_id": "subject-0",
+              "dimension_id": "dimension-1",
+              "element_ids": [
+                "cell-2-0"
+              ]
+            },
+            {
+              "subject_id": "subject-1",
+              "dimension_id": "dimension-1",
+              "element_ids": [
+                "cell-3-0"
+              ]
+            },
+            {
+              "subject_id": "subject-0",
+              "dimension_id": "dimension-2",
+              "element_ids": [
+                "cell-4-0"
+              ]
+            },
+            {
+              "subject_id": "subject-1",
+              "dimension_id": "dimension-2",
+              "element_ids": [
+                "cell-5-0"
+              ]
+            }
+          ],
+          "condition_element_ids": [
+            "condition-0"
+          ],
+          "prompt_element_ids": [],
+          "conclusion_element_ids": [
+            "conclusion"
+          ],
+          "scale": "not_quantitative",
+          "scale_unit": "",
+          "relations": []
+        },
+        "must_show": [
+          "condition-0",
+          "subject-0",
+          "subject-1",
+          "dimension-0",
+          "dimension-1",
+          "dimension-2",
+          "cell-0-0",
+          "cell-1-0",
+          "cell-2-0",
+          "cell-3-0",
+          "cell-4-0",
+          "cell-5-0",
+          "conclusion"
+        ],
+        "source_dispositions": [
+          {
+            "block_id": "source",
+            "purpose": "screen",
+            "element_ids": [
+              "condition-0",
+              "subject-0",
+              "subject-1",
+              "dimension-0",
+              "dimension-1",
+              "dimension-2",
+              "cell-0-0",
+              "cell-1-0",
+              "cell-2-0",
+              "cell-3-0",
+              "cell-4-0",
+              "cell-5-0",
+              "conclusion"
+            ],
+            "reason": "本页引用的条件与比较信息列在屏幕元素中，完整原文保留在备注。"
+          }
+        ],
+        "states": [
+          {
+            "state_id": "step-1",
+            "visible_element_ids": [
+              "condition-0",
+              "subject-0",
+              "subject-1",
+              "dimension-0",
+              "dimension-1",
+              "dimension-2",
+              "cell-0-0",
+              "cell-1-0",
+              "cell-2-0",
+              "cell-3-0",
+              "cell-4-0",
+              "cell-5-0",
+              "conclusion"
+            ],
+            "emphasized_element_ids": [],
+            "teaching_note": "教师结合本班实例讲解，完整依据保存在备注。"
+          }
+        ],
+        "adopted_assets": [],
+        "adopted_diagram": null,
+        "presentation": {
+          "schema_version": "page_presentation_v1",
+          "mode": "complete",
+          "checkpoints": []
+        }
+      },
+      "resolved_scenes": [
+        {
+          "schema_version": "resolved_page_scene_v2",
+          "logical_page_id": "p5",
+          "state_id": "step-1",
+          "layout_id": "qizhi-classroom@fixed_classroom_v1/comparison",
+          "template_digest": "tmpl_bcf315cab5f4ec471efa3399",
+          "source_document_revision": "demo-source-v1",
+          "width": 960.0,
+          "height": 540.0,
+          "background": "FFFFFF",
+          "accent_color": "4C479C",
+          "objects": [
+            {
+              "object_id": "title",
+              "element_id": "",
+              "slot_id": "title",
+              "kind": "text",
+              "text": "两类评价怎样配合",
+              "lines": [
+                "两类评价怎样配合"
+              ],
+              "x": 48.0,
+              "y": 24.0,
+              "width": 864.0,
+              "height": 72.0,
+              "font_size": 30.0,
+              "bold": true,
+              "color": "4C479C",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "condition-0",
+              "element_id": "condition-0",
+              "slot_id": "condition",
+              "kind": "text",
+              "text": "同一课程中的两类评价",
+              "lines": [
+                "同一课程中的两类评价"
+              ],
+              "x": 48.0,
+              "y": 98.0,
+              "width": 864.0,
+              "height": 48.0,
+              "font_size": 22.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "subject-0",
+              "element_id": "subject-0",
+              "slot_id": "subject.0",
+              "kind": "text",
+              "text": "形成性评价",
+              "lines": [
+                "形成性评价"
+              ],
+              "x": 240.0,
+              "y": 154.0,
+              "width": 328.0,
+              "height": 48.0,
+              "font_size": 22.0,
+              "bold": true,
+              "color": "17243B",
+              "fill": "EEF0FB",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "subject-0",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "subject-1",
+              "element_id": "subject-1",
+              "slot_id": "subject.1",
+              "kind": "text",
+              "text": "总结性评价",
+              "lines": [
+                "总结性评价"
+              ],
+              "x": 580.0,
+              "y": 154.0,
+              "width": 328.0,
+              "height": 48.0,
+              "font_size": 22.0,
+              "bold": true,
+              "color": "17243B",
+              "fill": "EEF0FB",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "subject-1",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "dimension-0",
+              "element_id": "dimension-0",
+              "slot_id": "dimension.0",
+              "kind": "text",
+              "text": "时点",
+              "lines": [
+                "时点"
+              ],
+              "x": 48.0,
+              "y": 216.0,
+              "width": 180.0,
+              "height": 72.0,
+              "font_size": 22.0,
+              "bold": true,
+              "color": "17243B",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "dimension-0",
+              "editability": "text"
+            },
+            {
+              "object_id": "dimension-1",
+              "element_id": "dimension-1",
+              "slot_id": "dimension.1",
+              "kind": "text",
+              "text": "用途",
+              "lines": [
+                "用途"
+              ],
+              "x": 48.0,
+              "y": 296.0,
+              "width": 180.0,
+              "height": 72.0,
+              "font_size": 22.0,
+              "bold": true,
+              "color": "17243B",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "dimension-1",
+              "editability": "text"
+            },
+            {
+              "object_id": "dimension-2",
+              "element_id": "dimension-2",
+              "slot_id": "dimension.2",
+              "kind": "text",
+              "text": "例子",
+              "lines": [
+                "例子"
+              ],
+              "x": 48.0,
+              "y": 376.0,
+              "width": 180.0,
+              "height": 72.0,
+              "font_size": 22.0,
+              "bold": true,
+              "color": "17243B",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "dimension-2",
+              "editability": "text"
+            },
+            {
+              "object_id": "cell-0-0",
+              "element_id": "cell-0-0",
+              "slot_id": "cell.0.0",
+              "kind": "text",
+              "text": "学习过程中",
+              "lines": [
+                "学习过程中"
+              ],
+              "x": 240.0,
+              "y": 216.0,
+              "width": 328.0,
+              "height": 72.0,
+              "font_size": 22.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "F5F6FA",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "subject-0",
+              "dimension_id": "dimension-0",
+              "editability": "text"
+            },
+            {
+              "object_id": "cell-1-0",
+              "element_id": "cell-1-0",
+              "slot_id": "cell.0.1",
+              "kind": "text",
+              "text": "阶段结束时",
+              "lines": [
+                "阶段结束时"
+              ],
+              "x": 580.0,
+              "y": 216.0,
+              "width": 328.0,
+              "height": 72.0,
+              "font_size": 22.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "F5F6FA",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "subject-1",
+              "dimension_id": "dimension-0",
+              "editability": "text"
+            },
+            {
+              "object_id": "cell-2-0",
+              "element_id": "cell-2-0",
+              "slot_id": "cell.1.0",
+              "kind": "text",
+              "text": "调整学习与教学",
+              "lines": [
+                "调整学习与教学"
+              ],
+              "x": 240.0,
+              "y": 296.0,
+              "width": 328.0,
+              "height": 72.0,
+              "font_size": 22.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "F5F6FA",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "subject-0",
+              "dimension_id": "dimension-1",
+              "editability": "text"
+            },
+            {
+              "object_id": "cell-3-0",
+              "element_id": "cell-3-0",
+              "slot_id": "cell.1.1",
+              "kind": "text",
+              "text": "判断阶段达成情况",
+              "lines": [
+                "判断阶段达成情况"
+              ],
+              "x": 580.0,
+              "y": 296.0,
+              "width": 328.0,
+              "height": 72.0,
+              "font_size": 22.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "F5F6FA",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "subject-1",
+              "dimension_id": "dimension-1",
+              "editability": "text"
+            },
+            {
+              "object_id": "cell-4-0",
+              "element_id": "cell-4-0",
+              "slot_id": "cell.2.0",
+              "kind": "text",
+              "text": "课堂反馈",
+              "lines": [
+                "课堂反馈"
+              ],
+              "x": 240.0,
+              "y": 376.0,
+              "width": 328.0,
+              "height": 72.0,
+              "font_size": 22.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "F5F6FA",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "subject-0",
+              "dimension_id": "dimension-2",
+              "editability": "text"
+            },
+            {
+              "object_id": "cell-5-0",
+              "element_id": "cell-5-0",
+              "slot_id": "cell.2.1",
+              "kind": "text",
+              "text": "结课评价",
+              "lines": [
+                "结课评价"
+              ],
+              "x": 580.0,
+              "y": 376.0,
+              "width": 328.0,
+              "height": 72.0,
+              "font_size": 22.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "F5F6FA",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "subject-1",
+              "dimension_id": "dimension-2",
+              "editability": "text"
+            },
+            {
+              "object_id": "conclusion",
+              "element_id": "conclusion",
+              "slot_id": "conclusion",
+              "kind": "text",
+              "text": "两类评价可以相互补充",
+              "lines": [
+                "两类评价可以相互补充"
+              ],
+              "x": 48.0,
+              "y": 466.0,
+              "width": 864.0,
+              "height": 54.0,
+              "font_size": 22.0,
+              "bold": true,
+              "color": "17243B",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "header-rule",
+              "element_id": "",
+              "slot_id": "decoration",
+              "kind": "shape",
+              "text": "",
+              "lines": [],
+              "x": 28.0,
+              "y": 24.0,
+              "width": 4.0,
+              "height": 48.0,
+              "font_size": 22.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "4C479C",
+              "stroke": "4C479C",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "native_shape"
+            }
+          ],
+          "edges": [],
+          "emphasized_element_ids": [],
+          "execution": {
+            "capability_contract_version": "teaching_layout_v2",
+            "mode": "component_render",
+            "component_id": "fixed-classroom/comparison",
+            "component_version": "fixed_classroom_v1",
+            "expression_kinds": [
+              "comparison"
+            ],
+            "max_subjects": 2,
+            "max_dimensions": 3,
+            "max_nodes": 4,
+            "font_family": "Noto Sans CJK SC",
+            "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+            "font_floor_pt": 22.0,
+            "targets": {},
+            "source_slide_number": 0,
+            "source_sha256": "",
+            "certification": {}
+          },
+          "tools": {
+            "compiler": "teaching_scene_v2.5",
+            "renderer": "teaching_native_v2.4",
+            "quality": "teaching_export_v2.5",
+            "python": "3.12.13",
+            "font_family": "Noto Sans CJK SC",
+            "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+            "python_pptx": "1.0.2",
+            "lxml": "6.1.1",
+            "pillow": "12.3.0",
+            "freetype": "2.14.3",
+            "pypdf": "unavailable",
+            "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+            "poppler": "pdftoppm version 26.05.0"
+          },
+          "scene_digest": "scene_21e90d96cce0e022a6db6bf1"
+        }
+      ]
+    },
+    {
+      "page_id": "p6",
+      "page_number": 6,
+      "teaching_unit_id": "cpu_20ef1c58727b5e17bfcdca04",
+      "course_block_types": [
+        "rich_text"
+      ],
+      "page_type": "diagram",
+      "page_goal": "理解课堂评价的作用",
+      "primary_claim": "",
+      "audience_question": "",
+      "audience_action": "",
+      "expected_response": "",
+      "observable_evidence": "",
+      "transition": "",
+      "reveal_steps": [
+        "教师结合本班实例讲解，完整依据保存在备注。"
+      ],
+      "title": "从目标到反馈",
+      "visible_copy": [
+        "从目标到反馈",
+        "明确目标",
+        "收集证据",
+        "给出反馈"
+      ],
+      "layout_id": "qizhi-classroom@fixed_classroom_v1/flow",
+      "composition_notes": "",
+      "visual_kind": "text_native",
+      "source_script_block_ids": [
+        "source"
+      ],
+      "source_section_ids": [],
+      "speaker_note_source_block_ids": [
+        "source"
+      ],
+      "source_material_evidence_ids": [],
+      "question_bank_item_ids": [],
+      "shared_visual_expression_ids": [],
+      "teacher_locked": false,
+      "lock_source_document_revision": "",
+      "title_max_lines": 1,
+      "web_renderer_adapter": "teaching-scene-web-v2",
+      "pptx_renderer_adapter": "teaching-scene-pptx-v2",
+      "regions": [
+        {
+          "region_id": "p6:title",
+          "slot_id": "title",
+          "content_kind": "title",
+          "content": "从目标到反馈",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {}
+        },
+        {
+          "region_id": "p6:item-0",
+          "slot_id": "item-0",
+          "content_kind": "text",
+          "content": "明确目标",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "item-0",
+            "subject_id": "",
+            "dimension_id": ""
+          }
+        },
+        {
+          "region_id": "p6:item-1",
+          "slot_id": "item-1",
+          "content_kind": "text",
+          "content": "收集证据",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "item-1",
+            "subject_id": "",
+            "dimension_id": ""
+          }
+        },
+        {
+          "region_id": "p6:item-2",
+          "slot_id": "item-2",
+          "content_kind": "text",
+          "content": "给出反馈",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "item-2",
+            "subject_id": "",
+            "dimension_id": ""
+          }
+        }
+      ],
+      "artifact_kinds": [],
+      "visual_decision": {
+        "page_id": "p6",
+        "decision": "text_native",
+        "source_block_ids": [
+          "source"
+        ],
+        "source_section_ids": [],
+        "source_asset_ids": [],
+        "visual_payload": {},
+        "resolved_template_layout_id": "qizhi-classroom@fixed_classroom_v1/flow",
+        "provider": "",
+        "model": "",
+        "duration_ms": 0,
+        "attempts": 1,
+        "degraded": false,
+        "degradation_reason": ""
+      },
+      "speaker_notes": {
+        "schema_version": "slide_speaker_notes_v2",
+        "source_document_revision": "demo-source-v1",
+        "teaching_unit_id": "cpu_20ef1c58727b5e17bfcdca04",
+        "source_blocks": [
+          {
+            "block_id": "source",
+            "block_revision": "r1",
+            "full_text": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。",
+            "source_kind": "rich_text",
+            "source_payload": {
+              "markdown": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+            },
+            "asset_refs": []
+          }
+        ],
+        "source_section_ids": [],
+        "teaching_notes": [
+          "教师结合本班实例讲解，完整依据保存在备注。"
+        ]
+      },
+      "continuation_of_page_id": "",
+      "continuation_index": 1,
+      "continuation_count": 1,
+      "teaching": {
+        "schema_version": "page_teaching_v2",
+        "elements": [
+          {
+            "element_id": "item-0",
+            "kind": "text",
+            "text": "明确目标",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "item-1",
+            "kind": "text",
+            "text": "收集证据",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "item-2",
+            "kind": "text",
+            "text": "给出反馈",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          }
+        ],
+        "expression": {
+          "kind": "process",
+          "node_element_ids": [
+            "item-0",
+            "item-1",
+            "item-2"
+          ],
+          "relations": [
+            {
+              "relation_id": "relation-0",
+              "source_id": "item-0",
+              "target_id": "item-1",
+              "kind": "sequence",
+              "label": "",
+              "condition_element_ids": [],
+              "sources": [
+                {
+                  "block_id": "source",
+                  "block_revision": "r1",
+                  "start": 0,
+                  "end": 306,
+                  "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+                },
+                {
+                  "block_id": "source",
+                  "block_revision": "r1",
+                  "start": 0,
+                  "end": 306,
+                  "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+                }
+              ]
+            },
+            {
+              "relation_id": "relation-1",
+              "source_id": "item-1",
+              "target_id": "item-2",
+              "kind": "sequence",
+              "label": "",
+              "condition_element_ids": [],
+              "sources": [
+                {
+                  "block_id": "source",
+                  "block_revision": "r1",
+                  "start": 0,
+                  "end": 306,
+                  "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+                },
+                {
+                  "block_id": "source",
+                  "block_revision": "r1",
+                  "start": 0,
+                  "end": 306,
+                  "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+                }
+              ]
+            }
+          ],
+          "condition_element_ids": [],
+          "conclusion_element_ids": []
+        },
+        "must_show": [
+          "item-0",
+          "item-1",
+          "item-2"
+        ],
+        "source_dispositions": [
+          {
+            "block_id": "source",
+            "purpose": "screen",
+            "element_ids": [
+              "item-0",
+              "item-1",
+              "item-2"
+            ],
+            "reason": "屏幕保留本页教学表达所引用的内容，完整原文保存在备注。"
+          }
+        ],
+        "states": [
+          {
+            "state_id": "step-1",
+            "visible_element_ids": [
+              "item-0",
+              "item-1",
+              "item-2"
+            ],
+            "emphasized_element_ids": [],
+            "teaching_note": "教师结合本班实例讲解，完整依据保存在备注。"
+          }
+        ],
+        "adopted_assets": [],
+        "adopted_diagram": null,
+        "presentation": {
+          "schema_version": "page_presentation_v1",
+          "mode": "complete",
+          "checkpoints": []
+        }
+      },
+      "resolved_scenes": [
+        {
+          "schema_version": "resolved_page_scene_v2",
+          "logical_page_id": "p6",
+          "state_id": "step-1",
+          "layout_id": "qizhi-classroom@fixed_classroom_v1/flow",
+          "template_digest": "tmpl_bcf315cab5f4ec471efa3399",
+          "source_document_revision": "demo-source-v1",
+          "width": 960.0,
+          "height": 540.0,
+          "background": "FFFFFF",
+          "accent_color": "4C479C",
+          "objects": [
+            {
+              "object_id": "title",
+              "element_id": "",
+              "slot_id": "title",
+              "kind": "text",
+              "text": "从目标到反馈",
+              "lines": [
+                "从目标到反馈"
+              ],
+              "x": 48.0,
+              "y": 24.0,
+              "width": 864.0,
+              "height": 72.0,
+              "font_size": 30.0,
+              "bold": true,
+              "color": "4C479C",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "item-0",
+              "element_id": "item-0",
+              "slot_id": "step.0",
+              "kind": "text",
+              "text": "明确目标",
+              "lines": [
+                "明确目标"
+              ],
+              "x": 48.0,
+              "y": 212.0,
+              "width": 252.0,
+              "height": 166.0,
+              "font_size": 22.0,
+              "bold": true,
+              "color": "17243B",
+              "fill": "EEF0FB",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "item-1",
+              "element_id": "item-1",
+              "slot_id": "step.1",
+              "kind": "text",
+              "text": "收集证据",
+              "lines": [
+                "收集证据"
+              ],
+              "x": 354.0,
+              "y": 212.0,
+              "width": 252.0,
+              "height": 166.0,
+              "font_size": 22.0,
+              "bold": true,
+              "color": "17243B",
+              "fill": "EEF0FB",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "item-2",
+              "element_id": "item-2",
+              "slot_id": "step.2",
+              "kind": "text",
+              "text": "给出反馈",
+              "lines": [
+                "给出反馈"
+              ],
+              "x": 660.0,
+              "y": 212.0,
+              "width": 252.0,
+              "height": 166.0,
+              "font_size": 22.0,
+              "bold": true,
+              "color": "17243B",
+              "fill": "EEF0FB",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "header-rule",
+              "element_id": "",
+              "slot_id": "decoration",
+              "kind": "shape",
+              "text": "",
+              "lines": [],
+              "x": 28.0,
+              "y": 24.0,
+              "width": 4.0,
+              "height": 48.0,
+              "font_size": 22.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "4C479C",
+              "stroke": "4C479C",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "native_shape"
+            }
+          ],
+          "edges": [
+            {
+              "relation_id": "relation-0",
+              "source_id": "item-0",
+              "target_id": "item-1",
+              "kind": "sequence",
+              "label": "",
+              "x1": 300.0,
+              "y1": 295.0,
+              "x2": 354.0,
+              "y2": 295.0,
+              "start_site": 3,
+              "end_site": 1,
+              "label_object": null
+            },
+            {
+              "relation_id": "relation-1",
+              "source_id": "item-1",
+              "target_id": "item-2",
+              "kind": "sequence",
+              "label": "",
+              "x1": 606.0,
+              "y1": 295.0,
+              "x2": 660.0,
+              "y2": 295.0,
+              "start_site": 3,
+              "end_site": 1,
+              "label_object": null
+            }
+          ],
+          "emphasized_element_ids": [],
+          "execution": {
+            "capability_contract_version": "teaching_layout_v2",
+            "mode": "component_render",
+            "component_id": "fixed-classroom/flow",
+            "component_version": "fixed_classroom_v1",
+            "expression_kinds": [
+              "process"
+            ],
+            "max_subjects": 2,
+            "max_dimensions": 3,
+            "max_nodes": 4,
+            "font_family": "Noto Sans CJK SC",
+            "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+            "font_floor_pt": 22.0,
+            "targets": {},
+            "source_slide_number": 0,
+            "source_sha256": "",
+            "certification": {}
+          },
+          "tools": {
+            "compiler": "teaching_scene_v2.5",
+            "renderer": "teaching_native_v2.4",
+            "quality": "teaching_export_v2.5",
+            "python": "3.12.13",
+            "font_family": "Noto Sans CJK SC",
+            "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+            "python_pptx": "1.0.2",
+            "lxml": "6.1.1",
+            "pillow": "12.3.0",
+            "freetype": "2.14.3",
+            "pypdf": "unavailable",
+            "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+            "poppler": "pdftoppm version 26.05.0"
+          },
+          "scene_digest": "scene_1147ad0a447131fde5ac52a8"
+        }
+      ]
+    },
+    {
+      "page_id": "p7",
+      "page_number": 7,
+      "teaching_unit_id": "cpu_20ef1c58727b5e17bfcdca04",
+      "course_block_types": [
+        "rich_text"
+      ],
+      "page_type": "practice",
+      "page_goal": "理解课堂评价的作用",
+      "primary_claim": "",
+      "audience_question": "",
+      "audience_action": "",
+      "expected_response": "",
+      "observable_evidence": "",
+      "transition": "",
+      "reveal_steps": [
+        "教师结合本班实例讲解，完整依据保存在备注。",
+        "教师结合本班实例讲解，完整依据保存在备注。"
+      ],
+      "title": "先独立判断，再展示解释",
+      "visible_copy": [
+        "先独立判断，再展示解释",
+        "为什么需要过程中的反馈？",
+        "及时发现差距，帮助学生调整学习"
+      ],
+      "layout_id": "qizhi-classroom@fixed_classroom_v1/question",
+      "composition_notes": "",
+      "visual_kind": "text_native",
+      "source_script_block_ids": [
+        "source"
+      ],
+      "source_section_ids": [],
+      "speaker_note_source_block_ids": [
+        "source"
+      ],
+      "source_material_evidence_ids": [],
+      "question_bank_item_ids": [],
+      "shared_visual_expression_ids": [],
+      "teacher_locked": false,
+      "lock_source_document_revision": "",
+      "title_max_lines": 1,
+      "web_renderer_adapter": "teaching-scene-web-v2",
+      "pptx_renderer_adapter": "teaching-scene-pptx-v2",
+      "regions": [
+        {
+          "region_id": "p7:title",
+          "slot_id": "title",
+          "content_kind": "title",
+          "content": "先独立判断，再展示解释",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {}
+        },
+        {
+          "region_id": "p7:question",
+          "slot_id": "question",
+          "content_kind": "text",
+          "content": "为什么需要过程中的反馈？",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "question",
+            "subject_id": "",
+            "dimension_id": ""
+          }
+        },
+        {
+          "region_id": "p7:answer",
+          "slot_id": "answer",
+          "content_kind": "text",
+          "content": "及时发现差距，帮助学生调整学习",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "answer",
+            "subject_id": "",
+            "dimension_id": ""
+          }
+        }
+      ],
+      "artifact_kinds": [],
+      "visual_decision": {
+        "page_id": "p7",
+        "decision": "text_native",
+        "source_block_ids": [
+          "source"
+        ],
+        "source_section_ids": [],
+        "source_asset_ids": [],
+        "visual_payload": {},
+        "resolved_template_layout_id": "qizhi-classroom@fixed_classroom_v1/question",
+        "provider": "",
+        "model": "",
+        "duration_ms": 0,
+        "attempts": 1,
+        "degraded": false,
+        "degradation_reason": ""
+      },
+      "speaker_notes": {
+        "schema_version": "slide_speaker_notes_v2",
+        "source_document_revision": "demo-source-v1",
+        "teaching_unit_id": "cpu_20ef1c58727b5e17bfcdca04",
+        "source_blocks": [
+          {
+            "block_id": "source",
+            "block_revision": "r1",
+            "full_text": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。",
+            "source_kind": "rich_text",
+            "source_payload": {
+              "markdown": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+            },
+            "asset_refs": []
+          }
+        ],
+        "source_section_ids": [],
+        "teaching_notes": [
+          "教师结合本班实例讲解，完整依据保存在备注。",
+          "教师结合本班实例讲解，完整依据保存在备注。"
+        ]
+      },
+      "continuation_of_page_id": "",
+      "continuation_index": 1,
+      "continuation_count": 1,
+      "teaching": {
+        "schema_version": "page_teaching_v2",
+        "elements": [
+          {
+            "element_id": "question",
+            "kind": "text",
+            "text": "为什么需要过程中的反馈？",
+            "role": "question",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "answer",
+            "kind": "text",
+            "text": "及时发现差距，帮助学生调整学习",
+            "role": "answer",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": "question"
+          }
+        ],
+        "expression": {
+          "kind": "exercise",
+          "ordered_element_ids": [
+            "question",
+            "answer"
+          ]
+        },
+        "must_show": [
+          "question",
+          "answer"
+        ],
+        "source_dispositions": [
+          {
+            "block_id": "source",
+            "purpose": "screen",
+            "element_ids": [
+              "question",
+              "answer"
+            ],
+            "reason": "屏幕保留本页教学表达所引用的内容，完整原文保存在备注。"
+          }
+        ],
+        "states": [
+          {
+            "state_id": "step-1",
+            "visible_element_ids": [
+              "question"
+            ],
+            "emphasized_element_ids": [],
+            "teaching_note": "教师结合本班实例讲解，完整依据保存在备注。"
+          },
+          {
+            "state_id": "step-2",
+            "visible_element_ids": [
+              "question",
+              "answer"
+            ],
+            "emphasized_element_ids": [],
+            "teaching_note": "教师结合本班实例讲解，完整依据保存在备注。"
+          }
+        ],
+        "adopted_assets": [],
+        "adopted_diagram": null,
+        "presentation": {
+          "schema_version": "page_presentation_v1",
+          "mode": "question_answer",
+          "checkpoints": []
+        }
+      },
+      "resolved_scenes": [
+        {
+          "schema_version": "resolved_page_scene_v2",
+          "logical_page_id": "p7",
+          "state_id": "question",
+          "layout_id": "qizhi-classroom@fixed_classroom_v1/question",
+          "template_digest": "tmpl_bcf315cab5f4ec471efa3399",
+          "source_document_revision": "demo-source-v1",
+          "width": 960.0,
+          "height": 540.0,
+          "background": "FFFFFF",
+          "accent_color": "4C479C",
+          "objects": [
+            {
+              "object_id": "title",
+              "element_id": "",
+              "slot_id": "title",
+              "kind": "text",
+              "text": "先独立判断，再展示解释",
+              "lines": [
+                "先独立判断，再展示解释"
+              ],
+              "x": 48.0,
+              "y": 24.0,
+              "width": 864.0,
+              "height": 72.0,
+              "font_size": 30.0,
+              "bold": true,
+              "color": "4C479C",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "question",
+              "element_id": "question",
+              "slot_id": "question",
+              "kind": "text",
+              "text": "为什么需要过程中的反馈？",
+              "lines": [
+                "为什么需要过程中的反馈？"
+              ],
+              "x": 48.0,
+              "y": 126.0,
+              "width": 864.0,
+              "height": 158.0,
+              "font_size": 26.0,
+              "bold": true,
+              "color": "17243B",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "header-rule",
+              "element_id": "",
+              "slot_id": "decoration",
+              "kind": "shape",
+              "text": "",
+              "lines": [],
+              "x": 28.0,
+              "y": 24.0,
+              "width": 4.0,
+              "height": 48.0,
+              "font_size": 22.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "4C479C",
+              "stroke": "4C479C",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "native_shape"
+            }
+          ],
+          "edges": [],
+          "emphasized_element_ids": [],
+          "execution": {
+            "capability_contract_version": "teaching_layout_v2",
+            "mode": "component_render",
+            "component_id": "fixed-classroom/question",
+            "component_version": "fixed_classroom_v1",
+            "expression_kinds": [
+              "exercise"
+            ],
+            "max_subjects": 2,
+            "max_dimensions": 3,
+            "max_nodes": 4,
+            "font_family": "Noto Sans CJK SC",
+            "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+            "font_floor_pt": 22.0,
+            "targets": {},
+            "source_slide_number": 0,
+            "source_sha256": "",
+            "certification": {}
+          },
+          "tools": {
+            "compiler": "teaching_scene_v2.5",
+            "renderer": "teaching_native_v2.4",
+            "quality": "teaching_export_v2.5",
+            "python": "3.12.13",
+            "font_family": "Noto Sans CJK SC",
+            "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+            "python_pptx": "1.0.2",
+            "lxml": "6.1.1",
+            "pillow": "12.3.0",
+            "freetype": "2.14.3",
+            "pypdf": "unavailable",
+            "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+            "poppler": "pdftoppm version 26.05.0"
+          },
+          "scene_digest": "scene_7f448e54a1251b68363b025d"
+        },
+        {
+          "schema_version": "resolved_page_scene_v2",
+          "logical_page_id": "p7",
+          "state_id": "answer",
+          "layout_id": "qizhi-classroom@fixed_classroom_v1/question",
+          "template_digest": "tmpl_bcf315cab5f4ec471efa3399",
+          "source_document_revision": "demo-source-v1",
+          "width": 960.0,
+          "height": 540.0,
+          "background": "FFFFFF",
+          "accent_color": "4C479C",
+          "objects": [
+            {
+              "object_id": "title",
+              "element_id": "",
+              "slot_id": "title",
+              "kind": "text",
+              "text": "先独立判断，再展示解释",
+              "lines": [
+                "先独立判断，再展示解释"
+              ],
+              "x": 48.0,
+              "y": 24.0,
+              "width": 864.0,
+              "height": 72.0,
+              "font_size": 30.0,
+              "bold": true,
+              "color": "4C479C",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "question",
+              "element_id": "question",
+              "slot_id": "question",
+              "kind": "text",
+              "text": "为什么需要过程中的反馈？",
+              "lines": [
+                "为什么需要过程中的反馈？"
+              ],
+              "x": 48.0,
+              "y": 126.0,
+              "width": 864.0,
+              "height": 158.0,
+              "font_size": 26.0,
+              "bold": true,
+              "color": "17243B",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "answer",
+              "element_id": "answer",
+              "slot_id": "answer",
+              "kind": "text",
+              "text": "及时发现差距，帮助学生调整学习",
+              "lines": [
+                "及时发现差距，帮助学生调整学习"
+              ],
+              "x": 48.0,
+              "y": 322.0,
+              "width": 864.0,
+              "height": 174.0,
+              "font_size": 22.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "F5F6FA",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "header-rule",
+              "element_id": "",
+              "slot_id": "decoration",
+              "kind": "shape",
+              "text": "",
+              "lines": [],
+              "x": 28.0,
+              "y": 24.0,
+              "width": 4.0,
+              "height": 48.0,
+              "font_size": 22.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "4C479C",
+              "stroke": "4C479C",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "native_shape"
+            }
+          ],
+          "edges": [],
+          "emphasized_element_ids": [],
+          "execution": {
+            "capability_contract_version": "teaching_layout_v2",
+            "mode": "component_render",
+            "component_id": "fixed-classroom/question",
+            "component_version": "fixed_classroom_v1",
+            "expression_kinds": [
+              "exercise"
+            ],
+            "max_subjects": 2,
+            "max_dimensions": 3,
+            "max_nodes": 4,
+            "font_family": "Noto Sans CJK SC",
+            "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+            "font_floor_pt": 22.0,
+            "targets": {},
+            "source_slide_number": 0,
+            "source_sha256": "",
+            "certification": {}
+          },
+          "tools": {
+            "compiler": "teaching_scene_v2.5",
+            "renderer": "teaching_native_v2.4",
+            "quality": "teaching_export_v2.5",
+            "python": "3.12.13",
+            "font_family": "Noto Sans CJK SC",
+            "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+            "python_pptx": "1.0.2",
+            "lxml": "6.1.1",
+            "pillow": "12.3.0",
+            "freetype": "2.14.3",
+            "pypdf": "unavailable",
+            "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+            "poppler": "pdftoppm version 26.05.0"
+          },
+          "scene_digest": "scene_78be5f7d56a2fa99cca6d208"
+        }
+      ]
+    },
+    {
+      "page_id": "p8",
+      "page_number": 8,
+      "teaching_unit_id": "cpu_20ef1c58727b5e17bfcdca04",
+      "course_block_types": [
+        "rich_text"
+      ],
+      "page_type": "summary",
+      "page_goal": "理解课堂评价的作用",
+      "primary_claim": "",
+      "audience_question": "",
+      "audience_action": "",
+      "expected_response": "",
+      "observable_evidence": "",
+      "transition": "",
+      "reveal_steps": [
+        "教师结合本班实例讲解，完整依据保存在备注。"
+      ],
+      "title": "让评价支持学习改进",
+      "visible_copy": [
+        "让评价支持学习改进",
+        "目标决定证据",
+        "证据支持判断",
+        "反馈推动改进"
+      ],
+      "layout_id": "qizhi-classroom@fixed_classroom_v1/summary",
+      "composition_notes": "",
+      "visual_kind": "text_native",
+      "source_script_block_ids": [
+        "source"
+      ],
+      "source_section_ids": [],
+      "speaker_note_source_block_ids": [
+        "source"
+      ],
+      "source_material_evidence_ids": [],
+      "question_bank_item_ids": [],
+      "shared_visual_expression_ids": [],
+      "teacher_locked": false,
+      "lock_source_document_revision": "",
+      "title_max_lines": 1,
+      "web_renderer_adapter": "teaching-scene-web-v2",
+      "pptx_renderer_adapter": "teaching-scene-pptx-v2",
+      "regions": [
+        {
+          "region_id": "p8:title",
+          "slot_id": "title",
+          "content_kind": "title",
+          "content": "让评价支持学习改进",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {}
+        },
+        {
+          "region_id": "p8:item-0",
+          "slot_id": "item-0",
+          "content_kind": "text",
+          "content": "目标决定证据",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "item-0",
+            "subject_id": "",
+            "dimension_id": ""
+          }
+        },
+        {
+          "region_id": "p8:item-1",
+          "slot_id": "item-1",
+          "content_kind": "text",
+          "content": "证据支持判断",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "item-1",
+            "subject_id": "",
+            "dimension_id": ""
+          }
+        },
+        {
+          "region_id": "p8:item-2",
+          "slot_id": "item-2",
+          "content_kind": "text",
+          "content": "反馈推动改进",
+          "source_block_ids": [
+            "source"
+          ],
+          "source_section_ids": [],
+          "source_asset_refs": [],
+          "metadata": {
+            "element_id": "item-2",
+            "subject_id": "",
+            "dimension_id": ""
+          }
+        }
+      ],
+      "artifact_kinds": [],
+      "visual_decision": {
+        "page_id": "p8",
+        "decision": "text_native",
+        "source_block_ids": [
+          "source"
+        ],
+        "source_section_ids": [],
+        "source_asset_ids": [],
+        "visual_payload": {},
+        "resolved_template_layout_id": "qizhi-classroom@fixed_classroom_v1/summary",
+        "provider": "",
+        "model": "",
+        "duration_ms": 0,
+        "attempts": 1,
+        "degraded": false,
+        "degradation_reason": ""
+      },
+      "speaker_notes": {
+        "schema_version": "slide_speaker_notes_v2",
+        "source_document_revision": "demo-source-v1",
+        "teaching_unit_id": "cpu_20ef1c58727b5e17bfcdca04",
+        "source_blocks": [
+          {
+            "block_id": "source",
+            "block_revision": "r1",
+            "full_text": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。",
+            "source_kind": "rich_text",
+            "source_payload": {
+              "markdown": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+            },
+            "asset_refs": []
+          }
+        ],
+        "source_section_ids": [],
+        "teaching_notes": [
+          "教师结合本班实例讲解，完整依据保存在备注。"
+        ]
+      },
+      "continuation_of_page_id": "",
+      "continuation_index": 1,
+      "continuation_count": 1,
+      "teaching": {
+        "schema_version": "page_teaching_v2",
+        "elements": [
+          {
+            "element_id": "item-0",
+            "kind": "text",
+            "text": "目标决定证据",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "item-1",
+            "kind": "text",
+            "text": "证据支持判断",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          },
+          {
+            "element_id": "item-2",
+            "kind": "text",
+            "text": "反馈推动改进",
+            "role": "evidence",
+            "sources": [
+              {
+                "block_id": "source",
+                "block_revision": "r1",
+                "start": 0,
+                "end": 306,
+                "quote": "课堂评价设计。围绕目标、证据与反馈组织教学。怎样让评价帮助学习？先明确目标，再收集证据，最后给出反馈。学习目标、评价证据、反馈行动共同组成课堂评价。形成性评价与总结性评价具有不同的时点和用途。形成性评价在学习过程中进行，用于调整学习与教学，例如课堂反馈。总结性评价在阶段结束时进行，用于判断阶段达成情况，例如结课评价。同一课程中的两类评价可以相互补充。评价贯穿学习过程。把抽象目标转成可观察表现。根据表现收集能够支持判断的证据。反馈应指出当前差距与下一步行动。反馈不只给出分数。先让学生独立判断，再展示解释。为什么需要过程中的反馈？及时发现差距，帮助学生调整学习。总结：目标决定证据，证据支持判断，反馈推动改进。"
+              }
+            ],
+            "exact": false,
+            "subject_id": "",
+            "dimension_id": "",
+            "asset_id": "",
+            "asset_digest": "",
+            "answers_question_id": ""
+          }
+        ],
+        "expression": {
+          "kind": "recap",
+          "ordered_element_ids": [
+            "item-0",
+            "item-1",
+            "item-2"
+          ]
+        },
+        "must_show": [
+          "item-0",
+          "item-1",
+          "item-2"
+        ],
+        "source_dispositions": [
+          {
+            "block_id": "source",
+            "purpose": "screen",
+            "element_ids": [
+              "item-0",
+              "item-1",
+              "item-2"
+            ],
+            "reason": "屏幕保留本页教学表达所引用的内容，完整原文保存在备注。"
+          }
+        ],
+        "states": [
+          {
+            "state_id": "step-1",
+            "visible_element_ids": [
+              "item-0",
+              "item-1",
+              "item-2"
+            ],
+            "emphasized_element_ids": [],
+            "teaching_note": "教师结合本班实例讲解，完整依据保存在备注。"
+          }
+        ],
+        "adopted_assets": [],
+        "adopted_diagram": null,
+        "presentation": {
+          "schema_version": "page_presentation_v1",
+          "mode": "complete",
+          "checkpoints": []
+        }
+      },
+      "resolved_scenes": [
+        {
+          "schema_version": "resolved_page_scene_v2",
+          "logical_page_id": "p8",
+          "state_id": "step-1",
+          "layout_id": "qizhi-classroom@fixed_classroom_v1/summary",
+          "template_digest": "tmpl_bcf315cab5f4ec471efa3399",
+          "source_document_revision": "demo-source-v1",
+          "width": 960.0,
+          "height": 540.0,
+          "background": "FFFFFF",
+          "accent_color": "4C479C",
+          "objects": [
+            {
+              "object_id": "title",
+              "element_id": "",
+              "slot_id": "title",
+              "kind": "text",
+              "text": "让评价支持学习改进",
+              "lines": [
+                "让评价支持学习改进"
+              ],
+              "x": 48.0,
+              "y": 24.0,
+              "width": 864.0,
+              "height": 72.0,
+              "font_size": 30.0,
+              "bold": true,
+              "color": "4C479C",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "item-0",
+              "element_id": "item-0",
+              "slot_id": "point.0",
+              "kind": "text",
+              "text": "目标决定证据",
+              "lines": [
+                "目标决定证据"
+              ],
+              "x": 68.0,
+              "y": 126.0,
+              "width": 824.0,
+              "height": 75.0,
+              "font_size": 24.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "item-1",
+              "element_id": "item-1",
+              "slot_id": "point.1",
+              "kind": "text",
+              "text": "证据支持判断",
+              "lines": [
+                "证据支持判断"
+              ],
+              "x": 68.0,
+              "y": 202.0,
+              "width": 824.0,
+              "height": 75.0,
+              "font_size": 24.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "item-2",
+              "element_id": "item-2",
+              "slot_id": "point.2",
+              "kind": "text",
+              "text": "反馈推动改进",
+              "lines": [
+                "反馈推动改进"
+              ],
+              "x": 68.0,
+              "y": 278.0,
+              "width": 824.0,
+              "height": 75.0,
+              "font_size": 24.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "FFFFFF",
+              "stroke": "FFFFFF",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "text"
+            },
+            {
+              "object_id": "header-rule",
+              "element_id": "",
+              "slot_id": "decoration",
+              "kind": "shape",
+              "text": "",
+              "lines": [],
+              "x": 28.0,
+              "y": 24.0,
+              "width": 4.0,
+              "height": 48.0,
+              "font_size": 22.0,
+              "bold": false,
+              "color": "17243B",
+              "fill": "4C479C",
+              "stroke": "4C479C",
+              "asset_id": "",
+              "asset_digest": "",
+              "asset_course_id": "",
+              "asset_representation_id": "",
+              "subject_id": "",
+              "dimension_id": "",
+              "editability": "native_shape"
+            }
+          ],
+          "edges": [],
+          "emphasized_element_ids": [],
+          "execution": {
+            "capability_contract_version": "teaching_layout_v2",
+            "mode": "component_render",
+            "component_id": "fixed-classroom/summary",
+            "component_version": "fixed_classroom_v1",
+            "expression_kinds": [
+              "recap"
+            ],
+            "max_subjects": 2,
+            "max_dimensions": 3,
+            "max_nodes": 4,
+            "font_family": "Noto Sans CJK SC",
+            "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+            "font_floor_pt": 22.0,
+            "targets": {},
+            "source_slide_number": 0,
+            "source_sha256": "",
+            "certification": {}
+          },
+          "tools": {
+            "compiler": "teaching_scene_v2.5",
+            "renderer": "teaching_native_v2.4",
+            "quality": "teaching_export_v2.5",
+            "python": "3.12.13",
+            "font_family": "Noto Sans CJK SC",
+            "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+            "python_pptx": "1.0.2",
+            "lxml": "6.1.1",
+            "pillow": "12.3.0",
+            "freetype": "2.14.3",
+            "pypdf": "unavailable",
+            "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+            "poppler": "pdftoppm version 26.05.0"
+          },
+          "scene_digest": "scene_518a07c3a515173b14fb2c4c"
+        }
+      ]
+    }
+  ],
+  "story_page_count": 8,
+  "render_status": "v6_ready",
+  "quality_status": "passed",
+  "quality_issues": [],
+  "quality_contract_version": "teaching_manuscript_quality_v2.6"
+}
