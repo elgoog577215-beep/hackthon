@@ -13,16 +13,6 @@ artifacts/
 tmp/
 *.pem
 *.key
-# Local compatibility links installed only in an existing checkout
-/backend
-/frontend
-/shared
-/docs
-/runner
-/qizhi
-/output
-/demo_videos
-
 # Local browser evidence and development caches
 .playwright-cli/
 .pytest_cache/

@@ -48,6 +48,6 @@ python3 -m unittest discover -s scripts/tests -v
 python3 apps/lingzhi/scripts/audit_backend_dependencies.py
 ```
 
-旧本机工作区为保护运行中的进程可以保留根目录 `frontend`、`backend` 等本地符号链接；它们不进入 Git，不是另一份源码。新 clone 使用上面的正式路径。
+开发、测试和发布统一使用上述正式路径；仓库根目录不保留 `frontend`、`backend`、`qizhi` 等旧目录的迁移链接。应用脚本从各自的 `apps/` 目录执行。
 
 配置、账号、密钥和运行数据留在私有环境。提交和发布只更新代码，不同步两台服务器的用户或课程数据。
