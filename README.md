@@ -23,7 +23,7 @@ cd 启智
 ├── apps/
 │   ├── qizhi/             主平台：client/website、server、plugins
 │   └── lingzhi/           课程应用：frontend、backend、shared、runner
-│       ├── docs/          灵知产品、架构与状态真源
+│       ├── docs/          灵知蓝图、业务设计与实现差距
 │       └── scripts/       灵知运行、诊断与发布工具
 ├── deploy/
 │   ├── tuotu/            个人服务器：仅发布灵知
@@ -36,8 +36,8 @@ cd 启智
 
 - [灵知安装与开发](apps/lingzhi/README.md)：先 `cd apps/lingzhi` 安装依赖、建立本地 `.env`；完成后也可从仓库根运行 `./dev.sh`。前端 5173，后端 8000。
 - [启智安装与开发](apps/qizhi/README.md)：从根目录运行 `./scripts/qizhi.sh dev-web` / `dev-server`，分别使用 5174 / 8010。
-- [发布目标和明日接通步骤](deploy/README.md)：代码变更如何进入两台服务器。
-- [灵知产品状态](apps/lingzhi/docs/产品状态.md)、[灵知系统架构](apps/lingzhi/docs/系统架构.md)、[启智全局图](apps/qizhi/docs/全局图.md)。
+- [发布目标与接通条件](deploy/README.md)：代码变更如何进入两台服务器。
+- [灵知产品状态](apps/lingzhi/docs/产品状态.md)、[灵知产品蓝图](apps/lingzhi/docs/产品蓝图.md)、[启智全局图](apps/qizhi/docs/全局图.md)。
 
 执行灵知 Python 测试和应用脚本时，工作目录为 `apps/lingzhi`。仓库结构检查从根运行：
 

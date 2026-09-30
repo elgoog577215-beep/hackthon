@@ -7,7 +7,7 @@
 > 面向对象：灵知产品负责人、后端、前端、AI/算法、测试、安全与架构负责人
 > 文档性质：产品判断、源码研究、目标架构、融合决策与实施交接稿
 > DeepTutor 研究快照：`v1.5.2` / commit `b728354863540466f5410bec3530eb55a9fe0edc`
-> 灵知对照基线：[`docs/产品逻辑设计.md`](../产品逻辑设计.md) 及当前生产代码
+> 灵知对照基线：[`docs/产品逻辑设计.md`](https://github.com/elgoog577215-beep/hackthon/blob/4e7a1259/apps/lingzhi/docs/%E4%BA%A7%E5%93%81%E9%80%BB%E8%BE%91%E8%AE%BE%E8%AE%A1.md) 及当前生产代码
 > 证据边界：外部事实以固定版本源码、官方 Release、论文和公开 Issue 为准；融合建议为本报告分析，不代表已经实施
 > 质量检查：引用完整性 PASS；关键事实 spot-check PASS；报告结论仍需 PoC 验证
 
@@ -1785,9 +1785,9 @@ Proposal / Command / Receipt / CourseEvolutionPlan
 
 [24] [DeepTutor Apache-2.0 LICENSE](https://github.com/HKUDS/DeepTutor/blob/b728354863540466f5410bec3530eb55a9fe0edc/LICENSE)
 
-[25] [灵知产品逻辑设计](../产品逻辑设计.md)
+[25] [灵知产品逻辑设计](https://github.com/elgoog577215-beep/hackthon/blob/4e7a1259/apps/lingzhi/docs/%E4%BA%A7%E5%93%81%E9%80%BB%E8%BE%91%E8%AE%BE%E8%AE%A1.md)
 
-[26] [灵知 AI 课程智能体历史交接稿](../归档/历史需求/2026-07-15-AI课程智能体交接稿.md)
+[26] [灵知 AI 课程智能体历史交接稿](https://github.com/elgoog577215-beep/hackthon/blob/4e7a1259/apps/lingzhi/docs/%E5%BD%92%E6%A1%A3/%E5%8E%86%E5%8F%B2%E9%9C%80%E6%B1%82/2026-07-15-AI%E8%AF%BE%E7%A8%8B%E6%99%BA%E8%83%BD%E4%BD%93%E4%BA%A4%E6%8E%A5%E7%A8%BF.md)
 
 [27] [灵知 AIContextPackage v3](../../backend/ai_teacher_context.py)
 
