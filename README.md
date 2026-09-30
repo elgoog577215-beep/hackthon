@@ -2,6 +2,8 @@
 
 本仓库统一维护启智平台。`apps/qizhi` 承担门户、账号、管理和原有业务；`apps/lingzhi` 是其中的课程应用，也能独立部署到拓途服务器。两者使用同一 Git 提交，各自保留运行环境和数据。
 
+产品分工上，启智面向教师建设稳定生成、低成本联动更新、全面联动分析和有界自适应教辅教材；灵知面向学生成长，独立发展生成式复习与学习材料，并以同源教学内容与启智配合。当前教师课程工作台仍由 `apps/lingzhi` 承载，产品定位不等于代码搬迁；共同目标与边界由[启智与灵知产品蓝图](apps/lingzhi/docs/产品蓝图.md)维护，实现差距见[产品状态](apps/lingzhi/docs/产品状态.md)。
+
 GitHub：[elgoog577215-beep/hackthon](https://github.com/elgoog577215-beep/hackthon)，主分支 `main`。普通 `git clone` / `git pull --ff-only` 即可取得全部源码，没有子模块或嵌套仓库。
 
 ## 获取仓库
@@ -37,7 +39,7 @@ cd 启智
 - [灵知安装与开发](apps/lingzhi/README.md)：先 `cd apps/lingzhi` 安装依赖、建立本地 `.env`；完成后也可从仓库根运行 `./dev.sh`。前端 5173，后端 8000。
 - [启智安装与开发](apps/qizhi/README.md)：从根目录运行 `./scripts/qizhi.sh dev-web` / `dev-server`，分别使用 5174 / 8010。
 - [发布目标与接通条件](deploy/README.md)：代码变更如何进入两台服务器。
-- [灵知产品状态](apps/lingzhi/docs/产品状态.md)、[灵知产品蓝图](apps/lingzhi/docs/产品蓝图.md)、[启智全局图](apps/qizhi/docs/全局图.md)。
+- [课程与学习产品状态](apps/lingzhi/docs/产品状态.md)、[启智与灵知产品蓝图](apps/lingzhi/docs/产品蓝图.md)、[启智全局图](apps/qizhi/docs/全局图.md)。
 
 执行灵知 Python 测试和应用脚本时，工作目录为 `apps/lingzhi`。仓库结构检查从根运行：
 
