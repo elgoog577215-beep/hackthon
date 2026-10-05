@@ -9,6 +9,7 @@ from teacher_lesson_authoring import TeacherLessonAuthoringRepository
 
 
 def make_job(repo, lesson, *, batch="", size=1):
+    repo.set_outline("course-1", "outline-v1")
     job = repo.create_job("course-1", lesson, source_outline_revision_id="outline-v1")
     return repo.update_job("course-1", job["id"], restart_whole=True, parent_job_id=batch, batch_size=size)
 
@@ -56,6 +57,10 @@ def test_batch_retries_only_failed_child_and_publishes_each_lesson(tmp_path):
         assert not repo.lesson("course-1", "L1-2")["working_revision_id"]
         release_failed_child.set()
         await asyncio.wait_for(asyncio.gather(*tasks), timeout=10)
+        assert calls == [1, 1]
+        assert repo.get_job("course-1", jobs[1]["id"])["status"] == "failed"
+        repo.resume_lesson_generation("course-1", jobs[1]["id"], input_fingerprint="")
+        await _run_lesson_plan_job(course_id="course-1", job_id=jobs[1]["id"], repository=repo, run=lambda: run_one(1))
     asyncio.run(execute())
     assert calls == [1, 2]
     for index, job in enumerate(jobs):

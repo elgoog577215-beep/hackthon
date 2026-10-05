@@ -201,7 +201,6 @@ from models import NodeGenerationConfig
 from runtime_metrics import record_heartbeat_timeout
 from teacher_script import (
     compile_teacher_script_module_contract,
-    compile_teacher_script_section,
 )
 
 logger = logging.getLogger(__name__)
@@ -1697,8 +1696,8 @@ class CourseService(AIBase):
         """Generate one teacher lesson without entering learner content flow.
 
         The existing teaching-plan planner remains the capability engine, but
-        it receives a frozen single-lesson scope and is allowed to return a
-        schema-valid deterministic fallback.  No CourseDocument or student
+        it receives a frozen single-lesson scope with one combined request and
+        at most one explicit structural repair. No CourseDocument or student
         publication is written here.
         """
         source_plan = deepcopy(
@@ -1742,9 +1741,9 @@ class CourseService(AIBase):
                 "kind": str(item.get("kind") or "context"),
                 "section_node_id": str(item.get("section_node_id") or ""),
                 "summary": str(
-                    item.get("source_text") or item.get("summary") or ""
-                )[:8000],
-                "source_blocks": deepcopy(item.get("source_blocks") or [])[:80],
+                    item.get("source_text") or item.get("summary") or item.get("text") or item.get("content") or ""
+                ),
+                "source_blocks": deepcopy(item.get("source_blocks") or []),
                 "source_order_start": item.get("source_order_start"),
                 "source_order_end": item.get("source_order_end"),
                 "locator": deepcopy(item.get("locator") or {}),
@@ -1761,7 +1760,7 @@ class CourseService(AIBase):
             per_section = max(
                 1,
                 min(
-                    4,
+                    len(unscoped_hints) or 1,
                     (len(unscoped_hints) + len(scoped_sections) - 1)
                     // len(scoped_sections),
                 ),
@@ -2756,11 +2755,15 @@ class CourseService(AIBase):
             progress: int,
             heartbeat_message: str,
             phase_detail: dict[str, Any],
+            structural_repair: bool = False,
         ) -> str:
             input_tokens = self.estimate_request_tokens(
                 user_prompt,
                 system_prompt,
             )
+            if input_tokens + self._teaching_plan_budget.max_output_tokens + self._generation_budget.context_reserve_tokens > self._generation_budget.context_window_tokens:
+                raise CourseGenerationBudgetExceeded("教案输入与输出预留超过模型上下文预算。")
+            telemetry = []
             stream_batch_id = str(phase_detail.get("batch_id") or "")
             stream_enabled = (
                 phase == "course_teaching_plan_batch"
@@ -2843,15 +2846,20 @@ class CourseService(AIBase):
                             phase_detail=phase_detail,
                             max_input_tokens=(
                                 self._teaching_plan_budget.max_input_tokens
+                                + (self._teaching_plan_budget.max_output_tokens + 1024 if structural_repair else 0)
                             ),
                             max_input_chars=(
                                 self._generation_budget.max_input_chars
+                                + (self._teaching_plan_budget.max_output_tokens * 4 if structural_repair else 0)
                             ),
                             max_output_tokens=(
                                 self._teaching_plan_budget.max_output_tokens
                             ),
+                            telemetry_sink=telemetry.append,
+                            start_on_provider_request=combine_knowledge_and_plan,
+                            wall_timeout_seconds=600 if combine_knowledge_and_plan else None,
                             max_attempts=(
-                                self._generation_budget.provider_max_attempts
+                                1 if combine_knowledge_and_plan else self._generation_budget.provider_max_attempts
                             ),
                             on_content_delta=(
                                 collect_stream_delta if stream_enabled else None
@@ -2864,7 +2872,8 @@ class CourseService(AIBase):
                         await flush_stream_delta()
             finally:
                 async with counter_lock:
-                    counter["calls"] += 1
+                    teaching_stage.setdefault("request_telemetry", []).extend(telemetry)
+                    counter["calls"] += sum(int(t.get("physical_request_count", 0)) for t in telemetry) if telemetry else 1
                     counter["prompt_chars"] += (
                         len(user_prompt) + len(system_prompt)
                     )
@@ -3083,30 +3092,47 @@ class CourseService(AIBase):
                     await self._notify_checkpoint(on_checkpoint, course_data)
                     raise
 
-                parsed = self._extract_json(response)
-                payload = _remap_combined_teaching_plan_knowledge_ids(
-                    parsed if isinstance(parsed, dict) else {},
-                    outline_revision_id=outline_revision_id,
-                )
-                skeleton = normalize_teaching_plan_skeleton_v3(
-                    payload,
-                    outline_revision_id=outline_revision_id,
-                )
-                skeleton_report = validate_teaching_plan_skeleton_v3(
-                    skeleton,
-                    sections=planning_sections,
-                )
-                batch = normalize_teaching_plan_batch_v3(
-                    payload,
-                    batch_id=batch_id,
-                    skeleton_revision_id=str(skeleton.get("revision_id") or ""),
-                )
-                batch_report = validate_teaching_plan_batch_v3(
-                    batch,
-                    batch_spec=batch_spec,
-                    skeleton=skeleton,
-                    sections=planning_sections,
-                )
+                for structural_attempt in range(2):
+                    parsed = self._extract_json(response)
+                    payload = _remap_combined_teaching_plan_knowledge_ids(
+                        parsed if isinstance(parsed, dict) else {},
+                        outline_revision_id=outline_revision_id,
+                    )
+                    skeleton = normalize_teaching_plan_skeleton_v3(
+                        payload,
+                        outline_revision_id=outline_revision_id,
+                    )
+                    skeleton_report = validate_teaching_plan_skeleton_v3(
+                        skeleton,
+                        sections=planning_sections,
+                    )
+                    batch = normalize_teaching_plan_batch_v3(
+                        payload,
+                        batch_id=batch_id,
+                        skeleton_revision_id=str(skeleton.get("revision_id") or ""),
+                    )
+                    batch_report = validate_teaching_plan_batch_v3(
+                        batch,
+                        batch_spec=batch_spec,
+                        skeleton=skeleton,
+                        sections=planning_sections,
+                    )
+                    teaching_stage["raw_response"] = response
+                    issues = [*(skeleton_report.get("blocking_issues") or []), *(batch_report.get("blocking_issues") or [])]
+                    await self._notify_checkpoint(on_checkpoint, course_data)
+                    if not issues or structural_attempt or (isinstance(parsed, dict) and not any(
+                        issue.get("code") in {'teaching_batch:unknown_module', 'teaching_skeleton:unknown_owned_key', 'teaching_skeleton:duplicate_key', 'teaching_batch:unknown_relation_endpoint', 'teaching_skeleton:missing_module', 'teaching_skeleton:missing_key', 'teaching_batch:knowledge_key_mismatch', 'teaching_skeleton:section_order_mismatch', 'teaching_skeleton:unknown_module', 'teaching_batch:section_mismatch', 'teaching_skeleton:unknown_prerequisite'} for issue in issues
+                    )):
+                        break
+                    repair_prompt = selected.user_prompt + "\n只修复以下结构/引用错误，不改变知识内容：" + json.dumps(issues, ensure_ascii=False) + "\n原响应：\n" + str(response or "")
+                    teaching_stage["structure_repair_count"] = 1
+                    response = await request_model(
+                        user_prompt=repair_prompt, system_prompt=selected.system_prompt, enable_thinking=False,
+                        phase="course_teaching_plan_batch", progress=85,
+                        heartbeat_message="正在修复本讲教案的结构错误",
+                        phase_detail={"artifact_type": "course_teaching_plan_batch", "batch_id": batch_id + ":structure-repair"},
+                        structural_repair=True,
+                    )
                 if not skeleton_report.get("passed") or not batch_report.get("passed"):
                     issues = [
                         *(skeleton_report.get("blocking_issues") or []),
@@ -5213,7 +5239,9 @@ class CourseService(AIBase):
             # output, empty stream) otherwise discards the whole course run,
             # and every stage above this only recovers at checkpoint level.
             # `max_attempts` still caps the real number of provider requests.
-            retry_count=2,
+            retry_count=1 if max_attempts == 1 else 2,
+            require_stop=start_on_provider_request,
+            wait_for_capacity=start_on_provider_request,
             enable_thinking=enable_thinking,
             max_tokens=max_output_tokens,
             max_input_tokens=max_input_tokens,
@@ -7466,7 +7494,79 @@ class CourseService(AIBase):
     # 局部内容操作
     # ------------------------------------------------------------------
 
-    async def generate_teacher_script_section(
+    async def generate_teacher_handout(
+        self, *, course_id: str, outline_sections: list[dict[str, Any]],
+        plan_sections: dict[str, dict[str, Any]], lesson_context: dict[str, Any],
+        requirements: str = "", completed_sections: list[dict[str, Any]] | None = None,
+        partial_text: str = "", on_content_delta=None, on_content_reset=None,
+        on_scope=None,
+    ) -> dict[str, Any]:
+        """The single prose generation capability, scoped to remaining sections."""
+        from teacher_script import HANDOUT_CONTRACT_VERSION
+        metadata = self._course_generation_artifacts.get(course_id) or {}
+        instructions = (
+            "编写师生共用、可独立学习的完整教材式讲义，不是教案、口播稿或摘要。"
+            "一次连贯展开本次全部小节；教学环节是内容深度依据，不要求每环节一个标题。"
+            "定义交代条件与边界，公式解释符号与单位，推导写全依据与中间步骤；"
+            "例题给出条件、选法、过程及核验，练习给出题目和分开的参考解法或验收标准。"
+            "保留学科术语、必要知识与来源；不虚构资料、引用或学生表现。"
+            "来源与大纲中的事实、固定数据优先于教案中的示意案例；正文直接给出确定内容，不写内部修正过程。"
+            "使用完整闭合的 Markdown 代码围栏及 \\( \\) / \\[ \\] 数学定界符。"
+            "只能按请求小节的原 ID 和顺序输出，每节先写独占行 <!-- section:原ID -->，"
+            "紧接完整 Markdown 正文。前面各节写完直接输出下一小节标记，不得输出结束标记。"
+            "整次响应只能有一个 <!-- handout:end -->，只能写在最后一个请求小节正文之后。"
+            "不要输出外层代码围栏、前言、额外小节或结束标记后的文字。"
+            "既有完成内容只作衔接依据，不重写；未完成片段只供参考，必须从该小节开头完整重写。"
+        )
+        output_tokens = self._generation_budget.teacher_handout_max_output_tokens
+        def prompt_for(sections):
+            return json.dumps({
+                "contract": HANDOUT_CONTRACT_VERSION,
+                "output_marker_order": [*(f"<!-- section:{s['node_id']} -->" for s in sections), "<!-- handout:end -->"],
+                "course_title": metadata.get("course_name") or metadata.get("subject") or "",
+                "lesson": lesson_context,
+                "requirements": requirements,
+                "sections": [{"section_id": s.get("node_id"), "outline": s,
+                              "plan": plan_sections.get(str(s.get("node_id") or "")) or {}}
+                             for s in sections],
+                "completed_sections": completed_sections or [], "incomplete_draft": partial_text,
+            }, ensure_ascii=False)
+        def fits(prompt):
+            tokens = self.estimate_request_tokens(prompt, instructions)
+            return (len(prompt) + len(instructions) <= self._generation_budget.teacher_handout_max_input_chars
+                    and tokens <= self._generation_budget.teacher_handout_max_input_tokens
+                    and tokens + output_tokens + self._generation_budget.context_reserve_tokens
+                    <= self._generation_budget.context_window_tokens)
+        selected = list(outline_sections)
+        prompt = prompt_for(selected)
+        # Split only when the measured request budget cannot hold the range.
+        # This remains the same capability and requires explicit continuation.
+        while len(selected) > 1 and not fits(prompt):
+            selected.pop()
+            prompt = prompt_for(selected)
+        if not selected or not fits(prompt):
+            raise CourseGenerationBudgetExceeded("当前小节连同冻结来源超过讲义请求预算，请调整范围；没有截断来源或调用模型。")
+        section_ids = [str(s["node_id"]) for s in selected]
+        if on_scope:
+            await on_scope(section_ids)
+        telemetry = []
+        try:
+            text = await self._call_llm(
+                prompt, instructions, use_fast_model=True, retry_count=1, max_attempts=1,
+                enable_thinking=False, wait_for_capacity=True, reject_truncated=True,
+                require_stop=True, raise_on_failure=True, json_mode=False,
+                max_tokens=output_tokens, max_input_tokens=self._generation_budget.teacher_handout_max_input_tokens,
+                max_input_chars=self._generation_budget.teacher_handout_max_input_chars,
+                request_timeout_seconds=float(self._generation_budget.teacher_script_request_timeout_seconds),
+                on_content_delta=on_content_delta, on_content_reset=on_content_reset,
+                telemetry_sink=telemetry.append,
+            )
+        except Exception as exc:
+            exc.generation_telemetry = telemetry
+            raise
+        return {"text": text or "", "section_ids": section_ids, "telemetry": telemetry}
+
+    async def generate_teacher_ppt_from_handout(
         self,
         *,
         course_id: str,
@@ -7477,19 +7577,13 @@ class CourseService(AIBase):
         user_id: str = DEFAULT_USER_ID,
         on_content_delta: Callable[[str], Awaitable[None] | None] | None = None,
         on_content_reset: Callable[[], Awaitable[None] | None] | None = None,
-        allow_partial_quality: bool = False,
         generation_contract_version: str = "",
         ppt_template: dict[str, Any] | None = None,
         bundle_seed_blocks: dict[str, Any] | None = None,
         immutable_handout: bool = False,
         on_bundle_checkpoint=None,
     ) -> dict[str, Any]:
-        """Generate a self-contained course handout from the current plan.
-
-        The plan already owns the subject mode, lesson type and blocks. This
-        stage expands that design into shared teacher/student reading material.
-        Existing script identities, storage and task orchestration are retained.
-        """
+        """Build PPT content from immutable handout blocks; never generate prose here."""
         contract = compile_teacher_script_module_contract(
             outline_section,
             current_plan_section,
@@ -7500,138 +7594,21 @@ class CourseService(AIBase):
         if not modules:
             raise AIProviderRequestError("当前教案没有可编译为讲义的教学模块")
 
-        generation_metadata = self._course_generation_artifacts.get(course_id) or {}
-        pedagogy_context = self._pedagogy_contract(course_id, outline_section)
-        persisted_context = self._build_persisted_generation_context(
-            generation_metadata,
-            outline_section,
-        )
-        teaching_guidance = format_generation_teaching_guidance(
-            generation_metadata,
-            outline_section,
-            compact=True,
-        )
-        coherence_context = course_coherence_prompt_context(
-            generation_metadata,
-            str(outline_section.get("node_id") or ""),
-        )
+        if generation_contract_version != "script_ppt_bundle_v1" or not immutable_handout:
+            raise AIProviderRequestError("此入口只接受不可变讲义的 PPT 内容稿请求。")
+        if bundle_seed_blocks:
+            contract["modules"] = [deepcopy(block) for block in bundle_seed_blocks.values()]
+            modules = contract["modules"]
 
-        module_lines = []
-        for index, module in enumerate(modules, start=1):
-            role = str(module.get("role") or "")
-            role_structure = (
-                "硬性结构：正文必须明确出现“任务条件”与“参考解法”或“验收标准”，并分别写出具体内容"
-                if role == "activity"
-                else "硬性结构：正文必须明确出现“典型错误”“修正原因”与“核对标准”，并分别写出具体内容"
-                if role in {"feedback", "misconception"}
-                else ""
-            )
-            constraints = [
-                f"教学目的：{module.get('teaching_purpose')}"
-                if module.get("teaching_purpose") else "",
-                f"知识范围：{'、'.join(module.get('knowledge_names') or [])}"
-                if module.get("knowledge_names") else "",
-                f"内容深度参考：对应约 {module.get('planned_minutes')} 分钟的教学内容"
-                if module.get("planned_minutes") is not None else "",
-                str(module.get("output_contract") or ""),
-                str(module.get("prompt_instruction") or ""),
-                str((module.get("artifact_contract") or {}).get("guidance") or ""),
-                (
-                    f"教案教师动作：{(module.get('source_plan_context') or {}).get('teacher_activity')}"
-                    if (module.get("source_plan_context") or {}).get("teacher_activity") else ""
-                ),
-                (
-                    f"学生活动：{(module.get('source_plan_context') or {}).get('student_activity')}"
-                    if (module.get("source_plan_context") or {}).get("student_activity") else ""
-                ),
-                (
-                    f"预期证据：{(module.get('source_plan_context') or {}).get('expected_output')}"
-                    if (module.get("source_plan_context") or {}).get("expected_output") else ""
-                ),
-                (
-                    f"检查方法：{(module.get('source_plan_context') or {}).get('check_method')}"
-                    if (module.get("source_plan_context") or {}).get("check_method") else ""
-                ),
-                (
-                    f"反馈与调整：{(module.get('source_plan_context') or {}).get('feedback_strategy')}；"
-                    f"{json.dumps((module.get('source_plan_context') or {}).get('adaptation_options') or [], ensure_ascii=False)}"
-                    if (module.get("source_plan_context") or {}).get("feedback_strategy")
-                    or (module.get("source_plan_context") or {}).get("adaptation_options") else ""
-                ),
-                (
-                    f"衔接：{(module.get('source_plan_context') or {}).get('transition')}"
-                    if (module.get("source_plan_context") or {}).get("transition") else ""
-                ),
-                role_structure,
-                (
-                    f"篇幅参考：约 {module.get('target_characters')} 字，"
-                    f"建议控制在 {module.get('max_characters')} 字以内；"
-                    "完整说明知识、推导与解法优先，不按课堂语速删减必要内容"
-                    if module.get("max_characters") else ""
-                ),
-                (
-                    f"硬性产物：{(module.get('artifact_contract') or {}).get('hard_artifact')}"
-                    if (module.get("artifact_contract") or {}).get("hard_artifact")
-                    else ""
-                ),
-            ]
-            module_lines.append(
-                f"{index}. 只能输出二级标题 `## {module['title']}`，"
-                + "；".join(item for item in constraints if item)
-            )
-
-        archetype = contract.get("lesson_archetype") or {}
         system_prompt = "\n".join([
-            "你正在编写师生共用的标准课程讲义，形态是可独立阅读的电子教材或教辅。学生用它学习与复习，教师用它备课和授课。只输出完整 Markdown 正文，不输出写作计划、任务复述或身份说明。",
-            "使用清楚、连贯的教材式说明，直接展开知识内容。不要写教师口播稿、课堂实录、教案提纲或知识点摘要，不依赖教师现场补充、屏幕画面或学生实际回应才能读懂。",
-            "把教案动作转成可阅读的教学内容：讲解落实为定义与解释，演示落实为完整过程，提问落实为思考题，活动落实为任务条件与操作步骤，反馈落实为参考解答、典型错误与核对标准。不要虚构师生对话、学生可能回应、等待或巡视指令，不输出【提问】【板书】【巡视】【等待回应】等舞台标签。",
-            "以学生在既定先修基础上能否仅凭正文理解知识、复现推导、完成练习并核对结果为判断标准。必要条件和关键中间步骤必须写全，不能用“教师讲解”“自行推导”“课堂讨论”代替实际内容。",
-            "段落按知识关系自然推进，不堆砌程式化连接词；不强制使用“我们先看”“请大家”等课堂口头过渡。",
-            "定义要交代对象、成立条件和适用边界；公式首次出现要解释符号与单位，推导逐步说明依据，例题给出已知条件、选法理由、完整解答和结果核验。不能只罗列公式或只给结论。",
-            "解释、例题、练习和参考答案共用当前课程的知识范围、术语与判定标准；输出前检查题干、推导、答案和标准是否一致，不保留模型自我纠错痕迹。基础正文不根据临时学生表现改变知识主线。",
-            "讲义结构已经由课程的学科模式、本讲课型和当前教案决定；你只能把这些教学环节写成讲义内容，不能重新套用跨学科通用模板。",
-            f"本节课型：{archetype.get('label') or '沿用当前教案'}。",
-            f"课型目的：{archetype.get('purpose') or '完成本节已确认教学目标'}。",
-            f"本讲目标：{contract.get('learning_objective') or '见当前教案'}。",
-            f"重点：{'、'.join(contract.get('key_points') or []) or '见当前教案'}。",
-            f"难点：{'、'.join(contract.get('key_difficulties') or []) or '见当前教案'}。",
-            "",
-            "必须严格按下面的顺序和标题输出，每个标题恰好出现一次，不得增加、删除、合并或改名：",
-            *module_lines,
-            "",
-            "每个内容块都要形成可独立阅读的完整段落：概念有定义与边界，推理有中间步骤，例题有条件与解法，辨析有错因与修正，总结有知识关系。正文明确使用本块知识点名称，不能只用“本概念”“上述方法”等代词替代知识内容。",
-            "禁止输出“本块内容完整”“围绕已确认知识范围展开”“内容与方法”“展开过程”“任务与检验”等模板占位句；不能用复述块标题代替真实教学内容。",
-            "相邻教学环节必须承担不同的知识推进责任，不得只替换标题、术语或公式后重复同一套句式。",
-            "不得用“教师应当……”或“学生需要……”等教案说明代替正文。思考题可以直接面向读者，但不要求使用教师口吻。",
-            "不要把“全课知识地图、先修链定位、学习路径角色、可观察成果证据、证据检查、输入对象、输出对象、系统策略、课程主路径、本节负责”等内部规划词写入正文；只有当某个词本身就是该学科必须教授的概念时才可保留。",
-            "当前教案中的教师活动、学生活动、证据和反馈只是内容选择与深度的依据，不是需要照抄的话术。下方资料与教案中的课堂表达均按上述原则转化为教材正文，不能重新生成教案。",
-            "本次只生成当前请求列出的教学环节。只使用教案中已经确定的环节目录、内容责任和前后衔接；不读取上一分片的模型正文，不得重复其他环节的定义、目标、例子或结论。",
-            "依据确定性衔接锚点说明前后知识的联系，避免拼接感；需要回顾时明确所用条件，不假定读者听过未写出的课堂讲解。",
-            "讲解块要把概念、推理或步骤讲透；例子块要给出具体情境和完整推演；练习与作业按当前范围写清题目、条件、输出要求，并分开提供参考解法或验收标准。开放任务给出分析依据与评价标准，不编造唯一答案。",
-            "课堂评价与反馈是供师生使用的静态复习参考，包含核对标准、参考结论、推导依据、典型错误及修正原因，不得声称已经评价当前学生。多个任务用三级标题分别组织题目和参考解答，不把所有答案混成一个长段落。",
-            "工程内容中的代码、命令和配置必须使用成对出现的 Markdown 代码块标记；行内数学只用成对出现的 `\\(...\\)`，展示公式统一使用独占行且成对出现的 `\\[...\\]`，不得把公式拆断。",
-            "当前生成不得输出 `$$` 公式分隔符。任务条件、输出要求、参考解法、核对标准和解释正文必须写在公式分隔符之外；展示公式的结尾定界符后先换行，再继续解释正文。",
-            "需要表格比较时必须输出完整 Markdown 表头、分隔行和数据行；原资料中的代码、公式、表格只能在语义完整时引用，不能截取成无法使用的残片。",
-            "资料用于支持讲义内容。必须区分资料事实、学科通识和教学情境；不能编造资料未给出的来源、数据或结论。",
-            "不得输出一级标题，不得在模块内部再使用二级标题，不得编造来源。证据不足的高风险事实标注“需核验”。",
+            "你是 PPT 内容稿编排助手。讲义正文已确定且不可改写。",
+            "仅从请求中的真实讲义块提取页面内容，保留其 block_id 与逐页来源引用。",
+            "教案和大纲只提供教学目标与顺序；不能据此补造讲义中不存在的知识或例题。",
+            "严格遵循页面布局合同和容量约束；公式、代码、条件与答案保持原义。",
             f"教师补充要求：{requirements.strip() or '无'}",
-            "",
-            "学科类型与当前教学环节安排：",
-            clip_text(pedagogy_context, 2400),
-            "",
-            "当前教案对本节的教学引领：",
-            clip_text(teaching_guidance, 2400),
-            "",
-            "前后小节连贯与课程总编约束：",
-            clip_text(coherence_context, 2200),
-            "",
-            "持久化资料与前序知识范围：",
-            clip_text(persisted_context, 3200),
-            "",
-            "课程、讲次与选定资料上下文：",
-            json.dumps(lesson_context or {}, ensure_ascii=False),
+            "小节与教案背景：" + json.dumps({"outline": outline_section, "plan": current_plan_section}, ensure_ascii=False),
+            "课程与资料背景：" + json.dumps(lesson_context or {}, ensure_ascii=False),
         ])
-        user_prompt = f"请编写《{contract.get('title') or '当前小节'}》的完整课程讲义正文，供学生独立阅读复习、教师备课授课。"
         async def call_script_model(
             prompt: str,
             instructions: str,
@@ -7669,19 +7646,7 @@ class CourseService(AIBase):
                 seed_blocks=bundle_seed_blocks, on_checkpoint=on_bundle_checkpoint, immutable_handout=immutable_handout,
             )
 
-        # One provider request per handout block. Formatting is repaired locally;
-        # pedagogical heuristics never cause paid regeneration or gate delivery.
-        # Editorial character guidance is not a token ceiling. Activities, code
-        # and worked answers need the same output headroom as other course prose.
-        response = await call_script_model(
-            user_prompt, system_prompt,
-            output_tokens=self._generation_budget.content_max_output_tokens,
-        )
-        text = self.clean_response_text(response) if response else ""
-        compiled = compile_teacher_script_section(text, contract)
-        if not (compiled.get("quality_report") or {}).get("passed"):
-            raise AIProviderRequestError("模型没有返回完整教学环节正文，已保留收到的内容。")
-        return compiled
+        raise AIProviderRequestError("讲义正文请使用整讲生成入口；此接口只从已有讲义生成 PPT 内容稿。")
 
     async def redefine_content(
         self,

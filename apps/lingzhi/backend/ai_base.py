@@ -1243,6 +1243,7 @@ class AIBase:
         wait_for_capacity: bool = False,
         request_timeout_seconds: float | None = None,
         reject_truncated: bool = False,
+        require_stop: bool = False,
         raise_on_failure: bool = False,
         json_mode: bool = False,
         model_role: str | None = None,
@@ -1323,6 +1324,7 @@ class AIBase:
                 queue_wait_ms = 0
                 queue_wait_reason = ""
                 physical_request_count = 0
+                finish_reason = None
                 real_usage: tuple[int, int] | None = None
                 first_token_at: float | None = None
                 estimated_input_tokens = self.estimate_request_tokens(
@@ -1391,6 +1393,7 @@ class AIBase:
                     try:
                         telemetry_sink({
                             "model_id": model_id,
+                            "finish_reason": finish_reason,
                             "model_role": model_role or "",
                             "provider_attempt": attempts,
                             "physical_request_count": (
@@ -1570,7 +1573,10 @@ class AIBase:
                                             on_content_delta,
                                             delta.content,
                                         )
-                                    if getattr(chunk.choices[0], "finish_reason", None) == "length":
+                                    reason = getattr(chunk.choices[0], "finish_reason", None)
+                                    if reason:
+                                        finish_reason = reason
+                                    if reason == "length":
                                         truncated = True
                     finally:
                         try:
@@ -1578,6 +1584,9 @@ class AIBase:
                                 await response.close()
                         finally:
                             await lease.release()
+
+                    if require_stop and finish_reason != "stop" and not truncated:
+                        raise AIProviderRequestError("生成响应没有正常结束，已保留片段，请主动继续。")
 
                     if truncated:
                         logger.warning(

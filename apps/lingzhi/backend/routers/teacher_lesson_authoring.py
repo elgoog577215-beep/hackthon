@@ -4,6 +4,7 @@ from ppt_manuscript_quality import manuscript_quality_passed, quality_report
 
 import asyncio
 import json
+import hashlib
 import os
 import re
 import uuid
@@ -17,8 +18,6 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from ai_base import AIProviderRequestError, AIProviderUnavailable, AIResponseTruncated
-from course_generation_budget import TeacherScriptGenerationTimeout
 from teacher_asset_readiness import (
     teacher_lesson_plan_covers_sections as _plan_revision_covers_sections,
     teacher_lesson_script_can_generate,
@@ -68,7 +67,7 @@ from teacher_asset_readiness import (
 )
 from question_bank import approved_formal_tasks, question_bank_repository
 from teacher_script import (
-    compile_teacher_script_module_contract,
+    script_contract_for_revision,
     normalize_teacher_script_section,
     validate_teacher_script_section,
 )
@@ -174,7 +173,7 @@ async def _run_lesson_plan_job(
         job = await run_in_threadpool(repository.get_job, course_id, job_id)
         if job.get("status") not in {"pending", "running"}:
             return
-        if not job.get("restart_whole") or job.get("type") == "teacher_lesson_script_generation":
+        if not job.get("restart_whole") or job.get("type") in {"teacher_lesson_script_generation", "teacher_lesson_plan_generation"}:
             if job.get("restart_whole"):
                 repository.update_job(course_id, job_id, restart_whole=False)
             async def heartbeat():
@@ -188,6 +187,9 @@ async def _run_lesson_plan_job(
             pulse = asyncio.create_task(heartbeat())
             try:
                 await run()
+            except Exception as exc:
+                repository.update_job(course_id, job_id, status="failed", phase="generation_failed",
+                                      stream_complete=True, error=generation_failure(exc, "lesson_generation_failed"))
             finally:
                 pulse.cancel()
                 with suppress(asyncio.CancelledError):
@@ -347,6 +349,10 @@ def _validated_teacher_asset_resume_job(
         reason = "job_type_mismatch"
     elif str(candidate.get(source_revision_field) or "") != source_revision_id:
         reason = "source_revision_changed"
+    elif job_type == "teacher_lesson_script_generation" and (candidate.get("request_snapshot") or {}).get("generation_contract_version") != "handout_lecture_v2":
+        reason = "retired_generation_contract"
+    elif job_type == "teacher_lesson_plan_generation" and (candidate.get("request_snapshot") or {}).get("generation_contract_version") != "lesson_plan_single_v2":
+        reason = "retired_generation_contract"
     elif not _teacher_asset_job_can_resume(candidate) and not (
         job_type != "teacher_lesson_script_generation" and candidate.get("parent_job_id") and candidate.get("status") in {"completed", "completed_with_warnings"}
         and any(item.get("parent_job_id") == candidate["parent_job_id"] and item.get("status") in {"paused", "failed"}
@@ -360,6 +366,24 @@ def _validated_teacher_asset_resume_job(
             details={"resume_job_id": resume_job_id, "reason": reason},
         )
     return candidate
+
+
+def _check_generation_source(tm: TaskManager, course_id: str, actor: str, outline_revision: str) -> None:
+    from course_access import teacher_course_access_denial
+    current = tm.storage.load_course(course_id)
+    if current is None or teacher_course_access_denial(current, actor, method="POST"):
+        raise TeacherLessonAuthoringError("lesson_authorization_conflict", "课程已删除或编辑授权已变化，结果未发布。")
+    if _canonical_outline_revision(_source_course(tm, course_id, allow_empty=True)) != outline_revision:
+        raise TeacherLessonAuthoringError("lesson_source_changed", "大纲已变化，结果未发布。")
+
+
+def _primary_source_digest(package_id: str, asset_id: str, actor: str) -> str:
+    if not package_id or not asset_id:
+        return ""
+    package = teacher_course_space_repository.load_owned(package_id, actor)
+    _, path = teacher_course_space_repository.source_file(package, asset_id)
+    with path.open("rb") as source_file:
+        return hashlib.file_digest(source_file, "sha256").hexdigest()
 
 
 def _validate_new_attempt(repository: TeacherLessonAuthoringRepository, course_id: str, lesson_id: str, job_type: str, body: Any) -> None:
@@ -2820,7 +2844,7 @@ async def complete_teacher_ppt_manuscript(
                         ),
                     )
 
-                generated = await tm.course_service.generate_teacher_script_section(course_id=course_id,
+                generated = await tm.course_service.generate_teacher_ppt_from_handout(course_id=course_id,
                     outline_section=outlines[section["section_node_id"]], current_plan_section=plans[section["section_node_id"]],
                     generation_contract_version=CONTRACT, ppt_template=template.model_dump(mode="json"), bundle_seed_blocks=seeds, immutable_handout=True,
                     on_bundle_checkpoint=save_page_checkpoint, user_id=actor)
@@ -4783,6 +4807,8 @@ async def generate_lesson_plan(
                 "本讲教学结构不完整，请调整后重试。",
                 details={"blocking_issues": arrangement_issues},
             )
+        primary_digest = _primary_source_digest(effective_source_package_id, effective_source_asset_id, actor)
+        source_digest = stable_hash(source_evidence, prefix="lesson-sources")
         input_fingerprint = stable_hash({
             "lesson_unit_id": lesson_unit_id,
             "source_outline_revision_id": outline_revision,
@@ -4791,26 +4817,36 @@ async def generate_lesson_plan(
             "requirements": effective_requirements,
             "material_asset_ids": sorted(selected_material_ids),
             "arrangement": arrangement,
+            "source_digest": source_digest,
+            "primary_digest": primary_digest,
         }, prefix="teacher-lesson-plan-input")
-        resume_checkpoint: dict[str, Any] = {}
-        job = repository.create_job(
-            course_id,
-            lesson_unit_id,
-            request_id=body.request_id,
-            source_outline_revision_id=outline_revision,
-        )
+        resume_checkpoint: dict[str, Any] = deepcopy((previous or {}).get("checkpoint") or {})
+        expected_plan_revision = str((previous.get("request_snapshot") or {}).get("expected_plan_revision", "")
+                                     if previous else repository.lesson(course_id, lesson_unit_id).get("working_revision_id") or "")
+        if previous:
+            job, created = repository.resume_lesson_generation(course_id, str(previous["id"]), input_fingerprint=input_fingerprint)
+        else:
+            job, created = repository.create_job(course_id, lesson_unit_id, request_id=body.request_id,
+                source_outline_revision_id=outline_revision, return_created=True)
+        if not created:
+            return {"job": job}
         job = repository.update_job(
             course_id,
             str(job["id"]),
             input_fingerprint=input_fingerprint,
             retry_of_job_id=body.retry_of_job_id,
-            attempt_mode="revised_inputs" if body.retry_of_job_id else "restart_original" if body.resume_job_id else "initial",
+            attempt_mode="revised_inputs" if body.retry_of_job_id else "continue_original" if body.resume_job_id else "initial",
             resume_from_job_id=body.resume_job_id,
-            restart_whole=True,
+            restart_whole=False,
+            checkpoint=resume_checkpoint,
             actor=actor,
             requirements=effective_requirements,
             material_asset_ids=selected_material_ids,
             request_snapshot={
+                "generation_contract_version": "lesson_plan_single_v2",
+                "expected_plan_revision": expected_plan_revision,
+                "source_digest": source_digest,
+                "primary_digest": primary_digest,
                 "source_outline_revision_id": outline_revision,
                 "source_package_id": effective_source_package_id,
                 "source_asset_id": effective_source_asset_id,
@@ -4858,6 +4894,14 @@ async def generate_lesson_plan(
             task_id=str(job.get("id") or ""),
         )
 
+        async def before_save():
+            _check_generation_source(tm, course_id, actor, outline_revision)
+            _, live_evidence = _course_material_evidence(course_id, actor, effective_material_asset_ids)
+            if (stable_hash(live_evidence, prefix="selected-sources") != stable_hash(selected_evidence, prefix="selected-sources")
+                    or _primary_source_digest(effective_source_package_id, effective_source_asset_id, actor) != primary_digest
+                    or repository.current_arrangement(course_id, lesson_unit_id) != arrangement):
+                raise TeacherLessonAuthoringError("lesson_source_changed", "资料或教学安排已变化，教案未覆盖原版本。")
+
         service = TeacherLessonAuthoringService(repository)
 
         async def planner(
@@ -4903,31 +4947,19 @@ async def generate_lesson_plan(
                 on_phase=on_progress,
                 source_evidence=source_evidence,
                 lesson_arrangement=arrangement,
-                resume_checkpoint={},
+                resume_checkpoint=resume_checkpoint,
                 on_checkpoint=persist_checkpoint,
             )
 
         async def run() -> None:
             async def run_current_lesson() -> None:
-                async def repair_generated_plan(*, plan, issues):
-                    return await tm.course_service.optimize_teacher_lesson_plan(
-                        plan=plan,
-                        instruction=(
-                            "这是尚未交付的模型教案。请修复以下质量问题后返回完整候选，"
-                            "只改必要的教学表达与活动，不改小节、教学环节身份、顺序、时间、知识事实和资料来源。"
-                            + json.dumps(issues, ensure_ascii=False)
-                        ),
-                        lesson_context={"lesson_unit_id": lesson_unit_id, "requirements": effective_requirements},
-                        material_evidence=source_evidence,
-                    )
-
                 await service.run_plan_job(
                     course_id=course_id,
                     lesson_unit_id=lesson_unit_id,
                     job_id=str(job["id"]),
                     course_data=source,
                     planner=planner,
-                    repairer=repair_generated_plan,
+                    before_save=before_save,
                 )
 
             await _run_lesson_plan_job(
@@ -5493,7 +5525,7 @@ async def generate_lesson_script(
         selected_material_ids, source_evidence = _course_material_evidence(
             course_id, actor, effective_material_asset_ids
         )
-        prompt_evidence = _prompt_material_evidence(source_evidence)
+        prompt_evidence = deepcopy(source_evidence)
         register = getattr(tm.course_service, "register_course_generation_metadata", None)
         if callable(register):
             register(course_id, source)
@@ -5502,6 +5534,7 @@ async def generate_lesson_script(
             "source_lesson_plan_revision_id": plan_revision_id,
             "requirements": effective_requirements,
             "material_asset_ids": sorted(selected_material_ids),
+            "source_digest": stable_hash(source_evidence, prefix="handout-sources"),
         }, prefix="teacher-script-input")
         seed_sections = deepcopy((previous or {}).get("result_sections")
                                  or ((previous or {}).get("checkpoint") or {}).get("result_sections") or [])
@@ -5511,14 +5544,13 @@ async def generate_lesson_script(
             if previous else lesson.get("working_script_revision_id") or ""
         )
 
-        job, created = repository.create_job(
-            course_id,
-            lesson_unit_id,
-            job_type="teacher_lesson_script_generation",
-            return_created=True,
-            request_id=body.request_id,
-            source_outline_revision_id=_canonical_outline_revision(source),
-        )
+        if previous:
+            job, created = repository.resume_lesson_generation(course_id, str(previous["id"]), input_fingerprint=input_fingerprint)
+        else:
+            job, created = repository.create_job(
+                course_id, lesson_unit_id, job_type="teacher_lesson_script_generation", return_created=True,
+                request_id=body.request_id, source_outline_revision_id=_canonical_outline_revision(source),
+            )
         # create_job performs the atomic same-lecture check across callers.
         if not created:
             return {"job": job}
@@ -5540,8 +5572,9 @@ async def generate_lesson_script(
                 "source_lesson_plan_revision_id": plan_revision_id,
                 "requirements": effective_requirements,
                 "material_asset_ids": selected_material_ids,
-                "generation_contract_version": "handout_prose_v1",
+                "generation_contract_version": "handout_lecture_v2",
                 "expected_script_revision": expected_script_revision,
+                "source_digest": stable_hash(source_evidence, prefix="handout-sources"),
             },
             **({
                 "parent_job_id": body.batch_parent_job_id,
@@ -5569,129 +5602,19 @@ async def generate_lesson_script(
             str(item.get("node_name") or "") for item in scope["sections"]
         ]
 
-        async def generate_block(
-            outline_section: dict[str, Any],
-            current_plan: dict[str, Any],
-            module: dict[str, Any],
-            shard_context: dict[str, Any],
-            on_content_delta=None,
-            on_content_reset=None,
-        ) -> str:
-            module_id = str(module.get("module_id") or "")
-            single_outline = deepcopy(outline_section)
-            single_outline["module_plan"] = [{
-                **deepcopy(module),
-                "label": str(module.get("title") or module_id),
-            }]
-            single_plan = deepcopy(current_plan)
-            single_plan["teaching_modules"] = [{
-                **deepcopy(module),
-                "label": str(module.get("title") or module_id),
-            }]
-            stream_prefix = {"resolved": False, "buffer": ""}
+        async def generate_handout(**kwargs):
+            return await tm.course_service.generate_teacher_handout(
+                course_id=course_id, plan_sections=plan_sections,
+                lesson_context={"lesson_title": lesson_title, "lesson_sections": lesson_section_titles,
+                                "selected_material_evidence": prompt_evidence},
+                requirements=effective_requirements, **kwargs,
+            )
 
-            async def forward_stream_reset():
-                stream_prefix.update({"resolved": False, "buffer": ""})
-                if on_content_reset:
-                    await on_content_reset()
-
-            async def forward_stream_delta(delta: str):
-                if not on_content_delta or not str(delta or ""):
-                    return
-                if stream_prefix["resolved"]:
-                    await on_content_delta(str(delta))
-                    return
-                stream_prefix["buffer"] += str(delta)
-                if "\n" not in stream_prefix["buffer"]:
-                    return
-                first_line, remainder = stream_prefix["buffer"].split("\n", 1)
-                stream_prefix["resolved"] = True
-                stream_prefix["buffer"] = ""
-                visible = (
-                    remainder.lstrip("\n")
-                    if first_line.strip().startswith("## ")
-                    else f"{first_line}\n{remainder}"
-                )
-                if visible:
-                    await on_content_delta(visible)
-            try:
-                generated = await tm.course_service.generate_teacher_script_section(
-                    course_id=course_id,
-                    outline_section=single_outline,
-                    current_plan_section=single_plan,
-                    lesson_context={
-                        "lesson_title": lesson_title,
-                        "lesson_sections": lesson_section_titles,
-                        "current_block": {
-                            "block_id": module.get("block_id"),
-                            "module_id": module_id,
-                            "title": module.get("title"),
-                            "role": module.get("role"),
-                        },
-                        "script_shard_context": deepcopy(shard_context),
-                        "material_asset_ids": selected_material_ids,
-                        "selected_material_evidence": prompt_evidence,
-                    },
-                    requirements=effective_requirements,
-                    user_id=actor,
-                    on_content_delta=forward_stream_delta,
-                    on_content_reset=forward_stream_reset,
-                )
-            except (
-                asyncio.TimeoutError,
-                AIProviderRequestError,
-                AIProviderUnavailable,
-            ) as exc:
-                error_detail = str(exc).strip()
-                timeout_failed = isinstance(
-                    exc,
-                    (TeacherScriptGenerationTimeout, asyncio.TimeoutError),
-                )
-                quality_failed = error_detail.startswith(
-                    "讲义未通过当前教案的质量检查"
-                )
-                raise TeacherLessonAuthoringError(
-                    (
-                        "lesson_script_model_timeout"
-                        if timeout_failed
-                        else "lesson_script_output_truncated"
-                        if isinstance(exc, AIResponseTruncated)
-                        else "lesson_script_block_quality_failed"
-                        if quality_failed
-                        else "lesson_script_provider_failed"
-                    ),
-                    (
-                        f"{module.get('title') or module_id}模型调用超时，请重试。"
-                        if timeout_failed
-                        else f"{module.get('title') or module_id}的输出达到长度上限，正文尚未完成，请继续生成。"
-                        if isinstance(exc, AIResponseTruncated)
-                        else f"{module.get('title') or module_id}未通过硬校验，请重试。"
-                        if quality_failed
-                        else f"{module.get('title') or module_id}生成失败，请重试。"
-                    ),
-                    details={
-                        "retryable": getattr(exc, "retryable", True),
-                        "reason": (
-                            error_detail or "讲义模型调用超时"
-                        )[:1000]
-                    },
-                ) from exc
-            finally:
-                # Even a disconnect before the first newline must retain the
-                # received fragment instead of leaving it in a local buffer.
-                if stream_prefix["buffer"] and on_content_delta:
-                    await on_content_delta(stream_prefix["buffer"])
-                    stream_prefix["buffer"] = ""
-            blocks = [
-                item for item in generated.get("blocks") or [] if isinstance(item, dict)
-            ]
-            content = str((blocks[0] if blocks else {}).get("content") or "").strip()
-            if not content:
-                raise TeacherLessonAuthoringError(
-                    "lesson_script_block_empty",
-                    f"{module.get('title') or module_id} 没有生成有效内容，请重试。",
-                )
-            return content
+        async def before_save():
+            _check_generation_source(tm, course_id, actor, _canonical_outline_revision(source))
+            _, live_evidence = _course_material_evidence(course_id, actor, effective_material_asset_ids)
+            if stable_hash(live_evidence, prefix="handout-sources") != stable_hash(source_evidence, prefix="handout-sources"):
+                raise TeacherLessonAuthoringError("lesson_source_changed", "资料已变化，讲义未覆盖原版本。")
 
         async def run_current_lesson() -> None:
             await TeacherLessonAuthoringService(repository).run_script_job(
@@ -5701,7 +5624,9 @@ async def generate_lesson_script(
                 source_plan_revision_id=plan_revision_id,
                 outline_sections=scope["sections"],
                 plan_sections=plan_sections,
-                generator=generate_block,
+                generator=generate_handout,
+                before_save=before_save,
+                partial_text=str((previous or {}).get("raw_response") or ""),
                 seed_sections=seed_sections,
                 requirements=effective_requirements,
                 material_asset_ids=selected_material_ids,
@@ -6167,9 +6092,10 @@ async def save_lesson_script_draft(
         normalized_sections = []
         for item in body.sections:
             section_id = str(item.get("section_node_id") or "")
-            contract = compile_teacher_script_module_contract(
+            contract = script_contract_for_revision(
                 outline_sections.get(section_id) or {},
                 plan_sections.get(section_id) or {},
+                base_sections.get(section_id) or {},
             )
             normalized = normalize_teacher_script_section(item, contract)
             previous_blocks = {
@@ -6452,9 +6378,10 @@ async def resolve_lesson_script_candidate(
                 candidate_section["content"] = str(
                     candidate.get("replacement_text") or ""
                 ).strip()
-            contract = compile_teacher_script_module_contract(
+            contract = script_contract_for_revision(
                 outline_sections.get(section_id) or {},
                 plan_sections.get(section_id) or {},
+                section,
             )
             normalized = normalize_teacher_script_section(
                 candidate_section,

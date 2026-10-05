@@ -30,13 +30,15 @@ def workflow(tmp_path, monkeypatch):
         def register_course_generation_metadata(self, *args):
             pass
 
-        async def generate_teacher_script_section(self, **kwargs):
+        async def generate_teacher_handout(self, **kwargs):
+            calls.append("handout")
+            return {"text": "\n".join(f"<!-- section:{s['node_id']} -->\n{TEXT}" for s in kwargs["outline_sections"]) + "\n<!-- handout:end -->"}
+
+        async def generate_teacher_ppt_from_handout(self, **kwargs):
             contract = compile_teacher_script_module_contract(kwargs["outline_section"], kwargs["current_plan_section"])
-            if not kwargs.get("immutable_handout"):
-                assert not kwargs.get("ppt_template")
-                assert not kwargs.get("generation_contract_version")
-                calls.append("handout")
-                return compile_teacher_script_section(TEXT, contract)
+            assert kwargs.get("immutable_handout")
+            if kwargs.get("bundle_seed_blocks"):
+                contract["modules"] = list(kwargs["bundle_seed_blocks"].values())
             template = TemplateLayoutPackContractV1.model_validate(kwargs["ppt_template"])
             async def invoke(prompt, instructions, **options):
                 calls.append(prompt)
@@ -100,7 +102,7 @@ def generate(client, *, complete_ppt=True):
             break
         time.sleep(.01)
     assert job["status"] == "completed", job.get("error")
-    assert job["request_snapshot"]["generation_contract_version"] == "handout_prose_v1"
+    assert job["request_snapshot"]["generation_contract_version"] == "handout_lecture_v2"
     assert not job.get("bundle_blocks")
     if not complete_ppt:
         return job
@@ -295,6 +297,7 @@ def test_empty_page_repairs_preserve_handout_without_publishing_partial_fallback
         contract = compile_teacher_script_module_contract(
             kwargs["outline_section"], kwargs["current_plan_section"]
         )
+        contract["modules"] = list(kwargs["bundle_seed_blocks"].values())
         template = TemplateLayoutPackContractV1.model_validate(kwargs["ppt_template"])
 
         async def unavailable(*_args, **_options):
@@ -310,7 +313,7 @@ def test_empty_page_repairs_preserve_handout_without_publishing_partial_fallback
             immutable_handout=True,
         )
 
-    tm.course_service.generate_teacher_script_section = generate_with_empty_pages
+    tm.course_service.generate_teacher_ppt_from_handout = generate_with_empty_pages
     state = client.get(
         "/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/manuscript"
     ).json()["ppt_manuscript_state"]

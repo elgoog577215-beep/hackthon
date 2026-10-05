@@ -92,7 +92,7 @@ def test_http_retry_uses_latest_pages_and_fresh_budget_from_checkpoint(workflow,
     repository.save_script_bundle_checkpoint("course-1", job["id"], checkpoint)
     repository.update_job("course-1", job["id"], status="failed")
     tm = client.app.dependency_overrides[routes.require_task_manager]()
-    original = tm.course_service.generate_teacher_script_section
+    original = tm.course_service.generate_teacher_ppt_from_handout
     captured = []
 
     async def capture(**kwargs):
@@ -102,7 +102,7 @@ def test_http_retry_uses_latest_pages_and_fresh_budget_from_checkpoint(workflow,
                                         for key, b in kwargs["bundle_seed_blocks"].items()}
         return await original(**kwargs)
 
-    tm.course_service.generate_teacher_script_section = capture
+    tm.course_service.generate_teacher_ppt_from_handout = capture
     source = routes._teacher_v6_source
 
     def legacy_source(*args):
@@ -128,7 +128,7 @@ def test_page_errors_fail_before_final_compilation(workflow):
     client, repository, _ = workflow
     generate(client, complete_ppt=False)
     tm = client.app.dependency_overrides[routes.require_task_manager]()
-    original = tm.course_service.generate_teacher_script_section
+    original = tm.course_service.generate_teacher_ppt_from_handout
     phases = []
     update = repository.update_job
 
@@ -145,7 +145,7 @@ def test_page_errors_fail_before_final_compilation(workflow):
                                 "message": "teaching_fact_token_unsupported:item-1"}]
         return result
 
-    tm.course_service.generate_teacher_script_section = invalid
+    tm.course_service.generate_teacher_ppt_from_handout = invalid
     lesson = repository.lesson("course-1", "L1-1")
     response = client.post("/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/manuscript/complete",
         json={"source_script_revision_id": lesson["working_script_revision_id"]})
@@ -190,7 +190,7 @@ def test_saved_manuscript_build_stream_and_download_keep_all_pages_and_notes(wor
     monkeypatch.setattr(routes, "build_ai_base_visual_planner_v2", lambda: forbidden)
     if scene_variant != "default":
         tm = client.app.dependency_overrides[routes.require_task_manager]()
-        original = tm.course_service.generate_teacher_script_section
+        original = tm.course_service.generate_teacher_ppt_from_handout
 
         async def with_multiline_bullets(**kwargs):
             result = await original(**kwargs)
@@ -212,7 +212,7 @@ def test_saved_manuscript_build_stream_and_download_keep_all_pages_and_notes(wor
                     }
             return result
 
-        tm.course_service.generate_teacher_script_section = with_multiline_bullets
+        tm.course_service.generate_teacher_ppt_from_handout = with_multiline_bullets
     generate(client)
     state = repository.current_v6_ppt_manuscript("course-1", "L1-1")
     base = "/api/teacher/courses/course-1/lessons/L1-1/ppt-v6"

@@ -200,7 +200,7 @@
         <div v-if="editing && node.blocks?.length" class="script-block-editor">
           <section v-for="block in node.blocks" :key="block.block_id">
             <header>
-              <div><span>{{ blockRoleLabel(block.role) }}</span><h5><MathText :content="teacherFacingTeachingLabel(block.title, block.module_id)" /></h5></div>
+              <div v-if="block.module_id !== 'handout_prose'"><span>{{ blockRoleLabel(block.role) }}</span><h5><MathText :content="teacherFacingTeachingLabel(block.title, block.module_id)" /></h5></div>
               <small v-if="block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
             </header>
             <textarea v-model="blockDrafts[block.block_id]" rows="10" :aria-label="teacherFacingTeachingLabel(block.title, block.module_id)" @input="recordEditSnapshot" />
@@ -213,7 +213,7 @@
         </div>
         <div v-else-if="node.blocks?.length" class="script-modules">
           <section v-for="block in node.blocks" :key="block.block_id" class="script-module" data-ai-field="content" :data-ai-item-id="block.block_id" :data-ai-label="block.title">
-            <header v-if="block.title || (!showWorkingPreview && lesson.script.ready)">
+            <header v-if="block.module_id !== 'handout_prose' && (block.title || (!showWorkingPreview && lesson.script.ready))">
               <div><span v-if="!showWorkingPreview && lesson.script.ready">{{ blockRoleLabel(block.role) }}</span><h5 v-if="block.title"><MathText :content="teacherFacingTeachingLabel(block.title, block.module_id)" /></h5></div>
               <small v-if="!showWorkingPreview && lesson.script.ready && block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
             </header>
@@ -227,6 +227,11 @@
         <div v-else class="script-empty">{{ tr('courseWorkbench.scriptPending') }}</div>
       </article>
     </div>
+
+    <aside v-if="showWorkingPreview && generationJob?.unassigned_fragment" class="script-body" data-state="incomplete">
+      <h4>{{ tr('courseWorkbench.scriptDocument.unassignedDraft') }}</h4>
+      <MarkdownRenderer :content="generationJob.unassigned_fragment" />
+    </aside>
 
     <div v-if="waitingForScriptContent" class="script-block-waiting" role="status">
       <LoaderCircle :size="16" class="spin" aria-hidden="true" />
@@ -428,7 +433,7 @@ const previewSelected = ref(true)
 const hasWorkingPreview = computed(() => (
   ['pending', 'running', 'paused', 'failed', 'cancelled'].includes(String(props.generationJob?.status || ''))
   && !(props.lesson.script.ready && Date.parse(props.lesson.script.updated_at || '') > Date.parse(props.generationJob?.updated_at || ''))
-  && hasScriptPreviewContent(props.generationJob)
+  && (hasScriptPreviewContent(props.generationJob) || Boolean(props.generationJob?.unassigned_fragment?.trim()))
 ))
 const showWorkingPreview = computed(() => hasWorkingPreview.value && previewSelected.value && !editing.value)
 watch(() => [props.lesson.lesson_unit_id, props.generationJob?.id], () => { previewSelected.value = true })
@@ -442,11 +447,11 @@ const scriptSections = computed<ScriptSection[]>(() => {
   }))
   const streamedBlocks = props.generationJob?.streamed_block_content || {}
   Object.entries(streamedBlocks).forEach(([blockId, content]) => {
-    // Reset events arrive for all parallel blocks before they contain prose.
+    // Streaming uses server-assigned section identities for lecture prose.
     // They belong to task state, not to the teacher's reading surface.
     if (!content.trim()) return
     const arrangementBlock = props.lesson.arrangement?.blocks?.find(block => block.block_id === blockId)
-    const sectionId = arrangementBlock?.section_node_id || props.lesson.sections[0]?.section_node_id || `stream-${blockId}`
+    const sectionId = props.generationJob?.block_section_ids?.[blockId] || arrangementBlock?.section_node_id || props.lesson.sections[0]?.section_node_id || `stream-${blockId}`
     let section = sections.find(item => item.section_node_id === sectionId)
     if (!section) {
       section = {
@@ -469,9 +474,9 @@ const scriptSections = computed<ScriptSection[]>(() => {
       ...(section.blocks || []),
       {
         block_id: blockId,
-        module_id: arrangementBlock?.module_id || 'streaming',
+        module_id: props.generationJob?.block_section_ids?.[blockId] ? 'handout_prose' : arrangementBlock?.module_id || 'streaming',
         role: arrangementBlock?.role || '',
-        title: readableScriptTitle(arrangementBlock?.name, [blockId], arrangementBlock?.module_id),
+        title: props.generationJob?.block_titles?.[blockId] || readableScriptTitle(arrangementBlock?.name, [blockId], arrangementBlock?.module_id),
         content,
         planned_minutes: arrangementBlock?.planned_minutes,
       },

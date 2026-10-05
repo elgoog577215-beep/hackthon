@@ -124,11 +124,9 @@ def test_advisory_plan_does_not_call_repair_model(tmp_path):
     job = repo.create_job('course-1', 'L1-1', request_id='advice', source_outline_revision_id='outline-v1')
     async def planner(*args):
         return {'plan':standard_lesson_plan(), 'generation_source':'model'}
-    async def repairer(**kwargs):
-        raise AssertionError('Advice must not request another model generation')
     result = asyncio.run(TeacherLessonAuthoringService(repo).run_plan_job(
         course_id='course-1', lesson_unit_id='L1-1', job_id=job['id'],
-        course_data=single_section_course_data(), planner=planner, repairer=repairer))
+        course_data=single_section_course_data(), planner=planner))
     assert result['status'] == 'completed'
     assert repo.lesson('course-1', 'L1-1')['working_revision_id']
     assert not result.get('auto_improvement')

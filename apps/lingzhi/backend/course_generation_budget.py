@@ -50,6 +50,9 @@ class CourseGenerationBudget:
     max_input_chars: int = 32_000
     max_input_tokens: int = 16_000
     outline_max_output_tokens: int = 8192
+    teacher_handout_max_input_tokens: int = 32768
+    teacher_handout_max_input_chars: int = 64000
+    teacher_handout_max_output_tokens: int = 16384
     content_max_output_tokens: int = 8192
     provider_max_attempts: int = 2
     # Legacy field name: structured calls now interpret this as continuous
@@ -81,6 +84,9 @@ class CourseGenerationBudget:
     @classmethod
     def from_env(cls) -> CourseGenerationBudget:
         return cls(
+            teacher_handout_max_input_tokens=_env_int("COURSE_TEACHER_HANDOUT_MAX_INPUT_TOKENS", 32768, minimum=2048, maximum=65536),
+            teacher_handout_max_input_chars=_env_int("COURSE_TEACHER_HANDOUT_MAX_INPUT_CHARS", 64000, minimum=8000, maximum=192000),
+            teacher_handout_max_output_tokens=_env_int("COURSE_TEACHER_HANDOUT_MAX_OUTPUT_TOKENS", 16384, minimum=2048, maximum=32000),
             context_window_tokens=_env_int("COURSE_GENERATION_CONTEXT_WINDOW_TOKENS", 131_072, minimum=4096, maximum=1_048_576),
             context_reserve_tokens=_env_int("COURSE_GENERATION_CONTEXT_RESERVE_TOKENS", 1024, minimum=256, maximum=16384),
             max_input_chars=_env_int(

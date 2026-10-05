@@ -645,3 +645,29 @@ it('结构化讲义的真实正文提供修改入口，并把原段和 block ID 
   expect(document.querySelector('.inline-edit-diff')?.textContent).toContain('5.0')
   wrapper.unmount()
 })
+
+it('整讲流式正文按服务端小节身份归位，继续时保留已完成内容', async () => {
+  setActivePinia(createPinia())
+  vi.spyOn(useTeacherScriptVisualStore(), 'load').mockResolvedValue({} as any)
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => zhMessages })))
+  await setLocale('zh')
+  const twoSections = structuredClone(lesson)
+  twoSections.sections.push({ section_node_id: 'section-2', title: '第二节' })
+  const wrapper = mount(TeacherScriptDocument, { props: {
+    courseId: 'course-1', lesson: twoSections, externalToolbar: true,
+    generationJob: { id: 'same-task', type: 'teacher_lesson_script_generation', status: 'failed', attempt_number: 1,
+      result_sections: [{ section_node_id: 'section-1', title: '第一节', blocks: [{ block_id: 'prose-1', module_id: 'handout_prose', content: '已完成正文' }] }],
+      block_states: { 'prose-1': 'completed', 'prose-2': 'pending' },
+      block_section_ids: { 'prose-1': 'section-1', 'prose-2': 'section-2' },
+      block_titles: { 'prose-2': '第二节' }, streamed_block_content: { 'prose-2': '第二节未完成片段' },
+    } as any,
+  } })
+  const sections = (wrapper.vm as any).scriptSections
+  expect(sections.map((s: any) => s.section_node_id)).toEqual(['section-1', 'section-2'])
+  expect(sections[0].blocks[0].content).toBe('已完成正文')
+  expect(sections[1].blocks[0].content).toBe('第二节未完成片段')
+  await wrapper.setProps({ generationJob: { ...wrapper.props('generationJob')!, status: 'running', attempt_number: 2 } })
+  expect(wrapper.text()).toContain('已完成正文')
+  expect(wrapper.text()).toContain('第二节未完成片段')
+  wrapper.unmount()
+})

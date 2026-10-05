@@ -6,11 +6,11 @@ project these assets without persisting a second course body.
 
 from __future__ import annotations
 
+from course_production_state import teacher_asset_job_can_resume
 from ppt_manuscript_quality import manuscript_quality_passed
 
 import asyncio
 import fcntl
-import inspect
 import logging
 import json
 import os
@@ -20,7 +20,7 @@ import threading
 import time
 import uuid
 import hashlib
-from collections import Counter, OrderedDict
+from collections import OrderedDict
 from copy import deepcopy
 from ai_capacity import provider_request_schedule
 from datetime import datetime, timezone
@@ -35,12 +35,8 @@ from teacher_script import (
     SCRIPT_PIPELINE_VERSION,
     SCRIPT_QUALITY_VERSION,
     upgrade_script_quality_report,
-    compile_teacher_script_generation_shards,
-    compile_teacher_script_module_contract,
-    compile_teacher_script_shard_context,
     normalize_teacher_script_section,
     repair_teacher_script_section_formats,
-    teacher_script_revision_is_publishable,
     validate_teacher_script_section,
     validate_teacher_script_revision,
 )
@@ -64,6 +60,7 @@ JOB_TYPES = {
 _CLIENT_HIDDEN_JOB_FIELDS = frozenset({
     "bundle_blocks",
     "checkpoint",
+    "raw_response",
     "generation_base",
     "request_snapshot",
     "staged_base",
@@ -128,15 +125,17 @@ def generation_failure(exc: Exception, default_code: str) -> dict[str, Any]:
     code = str(getattr(exc, "code", "") or default_code)
     details = deepcopy(getattr(exc, "details", {}) or {})
     text = f"{code} {type(exc).__name__} {exc}".lower()
-    if any(word in text for word in ("conflict", "source_changed", "scope_stale", "revision_changed")):
+    if isinstance(exc, OSError) and not isinstance(exc, (TimeoutError, ConnectionError)):
+        category, action, retryable = "storage", "retry_original", True
+    elif any(word in text for word in ("conflict", "source_changed", "scope_stale", "revision_changed")):
         category, action, retryable = "conflict", "reanalyze", False
     elif details.get("missing_fields") or details.get("blocking_questions") or "missing_input" in code:
         category, action, retryable = "missing_input", "revise_inputs", False
-    elif any(word in text for word in ("timeout", "connect", "rate_limit", "provider", "output_truncated", "service_unavailable", "模型服务", "模型未返回")):
+    elif any(word in text for word in ("timeout", "connect", "rate_limit", "provider", "truncated", "service_unavailable", "模型服务", "模型未返回")):
         category, action, retryable = "provider", "retry_original", True
     elif details.get("quality_report") or "quality" in code:
         category, action, retryable = "quality", "retry_original", True
-    elif any(word in text for word in ("json", "schema", "parse", "structure", "validation", "lesson_plan_empty", "lesson_script_shard_invalid", "lesson_script_block_empty")):
+    elif any(word in text for word in ("json", "schema", "parse", "structure", "validation", "lesson_plan_empty", "lesson_script_shard_invalid", "lesson_script_block_empty", "lesson_script_output_incomplete", "lesson_script_budget_continuation")):
         category, action, retryable = "structure", "retry_original", True
     else:
         category, action, retryable = "unknown", "revise_inputs", False
@@ -2578,7 +2577,7 @@ class TeacherLessonAuthoringRepository:
             raise TeacherLessonAuthoringError("unsupported_teacher_job", "不支持的教师讲次任务。")
         with self._course_lock(course_id):
             value = self.load(course_id)
-            if job_type == "teacher_lesson_script_generation":
+            if job_type in {"teacher_lesson_script_generation", "teacher_lesson_plan_generation"}:
                 existing = next((job for job in (value.get("jobs") or {}).values()
                                  if job.get("lesson_unit_id") == lesson_unit_id
                                  and job.get("type") == job_type
@@ -2667,6 +2666,7 @@ class TeacherLessonAuthoringRepository:
             job["heartbeat_at"] = timestamp
         if "result_sections" in changes:
             job["checkpoint"] = {
+                **deepcopy(job.get("checkpoint") or {}),
                 "result_sections": deepcopy(changes.get("result_sections") or []),
                 "completed_blocks": int(changes.get("completed_blocks") or 0),
                 "current_block_id": str(changes.get("current_block_id") or ""),
@@ -2738,6 +2738,36 @@ class TeacherLessonAuthoringRepository:
                        heartbeat_at=_now(), updated_at=_now())
             self._save(value)
             return deepcopy(job)
+
+    def resume_lesson_generation(self, course_id: str, job_id: str, *, input_fingerprint: str) -> tuple[dict, bool]:
+        """Explicitly continue the same task, preserving its durable candidate."""
+        with self._course_lock(course_id):
+            value = self.load(course_id)
+            job = (value.get("jobs") or {}).get(job_id) or {}
+            if job.get("input_fingerprint", "") != input_fingerprint:
+                raise TeacherLessonAuthoringError("teacher_asset_resume_conflict", "生成依据已变化，请基于当前内容重新生成。")
+            if job.get("status") in TEACHER_JOB_ACTIVE_STATUSES:
+                return deepcopy(job), False
+            if job.get("status") not in {"failed", "paused"} or not teacher_asset_job_can_resume(job):
+                raise TeacherLessonAuthoringError("teacher_asset_resume_conflict", "原任务不能继续，请检查来源和任务状态。")
+            if job.get("source_outline_revision_id") and value.get("outline_revision_id") != job["source_outline_revision_id"]:
+                raise TeacherLessonAuthoringError("lesson_source_changed", "大纲已变化，请基于当前内容重新生成。")
+            other = next((item for item in value.get("jobs", {}).values()
+                          if item.get("id") != job_id and item.get("lesson_unit_id") == job.get("lesson_unit_id")
+                          and item.get("type") == job.get("type") and item.get("status") in TEACHER_JOB_ACTIVE_STATUSES), None)
+            if other:
+                raise TeacherLessonAuthoringError("teacher_asset_resume_conflict", "本讲已有生成任务，请先查看该任务。")
+            job.setdefault("attempt_history", []).append({
+                "attempt_number": int(job.get("attempt_number") or 1), "error": deepcopy(job.get("error")),
+                "generation_telemetry": deepcopy(job.get("generation_telemetry") or []),
+            })
+            job.update(status="pending", phase="queued", error=None, cancel_requested=False,
+                       pause_requested=False, stream_complete=False, restart_whole=False,
+                       attempt_number=int(job.get("attempt_number") or 1) + 1,
+                       heartbeat_at=_now(), updated_at=_now())
+            self._drop_live_stream_job_locked(course_id, job_id)
+            self._save(value)
+            return deepcopy(job), True
 
     def bind_ppt_completion(self, course_id: str, lesson_id: str, job_id: str, script_id: str, plan_id: str, template: dict) -> dict:
         from course_document import stable_hash
@@ -2840,23 +2870,6 @@ class TeacherLessonAuthoringRepository:
             for key in job_ids:
                 self._drop_live_stream_job_locked(course_id, key)
             return True
-
-    def reserve_generation_retry(
-        self, course_id: str, job_id: str, unit_id: str, failure: dict[str, Any],
-    ) -> int:
-        """Consume a bounded retry in the existing job, including concurrent shards."""
-        with self._course_lock(course_id):
-            job = self.get_job(course_id, job_id)
-            if job.get("cancel_requested") or job.get("status") not in TEACHER_JOB_ACTIVE_STATUSES:
-                return 0
-            recovery = deepcopy(job.get("auto_recovery") or {})
-            retries = int((recovery.get(unit_id) or {}).get("retries") or 0)
-            if retries >= 2:
-                return 0
-            retries += 1
-            recovery[unit_id] = {"retries": retries, "code": failure["code"], "category": failure["category"]}
-            self.update_job(course_id, job_id, auto_recovery=recovery, error=None)
-            return retries
 
     def update_job_live(
         self,
@@ -3077,11 +3090,14 @@ class TeacherLessonAuthoringRepository:
                 if (
                     not isinstance(active_job, dict)
                     or str(active_job.get("status") or "") not in TEACHER_JOB_ACTIVE_STATUSES
+                    or active_job.get("cancel_requested") or active_job.get("pause_requested")
                 ):
                     raise TeacherLessonAuthoringError(
                         "teacher_job_not_active",
                         "任务已停止，迟到的教案结果未保存。",
                     )
+                if source_outline_revision_id and value.get("outline_revision_id") != source_outline_revision_id:
+                    raise TeacherLessonAuthoringError("lesson_source_changed", "大纲已变化，教案结果未覆盖原版本。")
             lesson = value.setdefault("lessons", {}).setdefault(
                 lesson_unit_id,
                 _empty_lesson_asset(lesson_unit_id),
@@ -3186,7 +3202,16 @@ class TeacherLessonAuthoringRepository:
                 accepted_candidate["status"] = "accepted"
                 accepted_candidate["resolved_at"] = _now()
                 accepted_candidate["result_revision_id"] = revision_id
+            if active_job_id:
+                value["jobs"][active_job_id] = self._apply_job_changes_locked(active_job, {
+                    "status": "completed", "phase": "lesson_plan_ready", "progress": 100,
+                    "message": "本讲教案已生成", "result_revision_id": revision_id,
+                    "stream_complete": True, "error": None,
+                })
+            # Job completion and the formal revision share the same atomic file replacement.
             saved = self._save(value)
+            if active_job_id:
+                self._drop_live_stream_job_locked(course_id, active_job_id)
             return deepcopy(saved["lessons"][lesson_unit_id])
 
     def rollback_plan_revision(
@@ -4288,11 +4313,16 @@ class TeacherLessonAuthoringRepository:
                 if (
                     not isinstance(active_job, dict)
                     or str(active_job.get("status") or "") not in TEACHER_JOB_ACTIVE_STATUSES
+                    or active_job.get("cancel_requested") or active_job.get("pause_requested")
                 ):
                     raise TeacherLessonAuthoringError(
                         "teacher_job_not_active",
                         "任务已停止，迟到的讲义结果未保存。",
                     )
+            if active_job_id:
+                frozen_outline = str(active_job.get("source_outline_revision_id") or "")
+                if frozen_outline and value.get("outline_revision_id") != frozen_outline:
+                    raise TeacherLessonAuthoringError("lesson_source_changed", "大纲已变化，讲义结果未覆盖原版本。")
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             if not isinstance(lesson, dict):
                 raise TeacherLessonAuthoringError(
@@ -4413,7 +4443,16 @@ class TeacherLessonAuthoringRepository:
                 self._save(value)
                 self._drop_live_stream_job_locked(course_id, active_job_id)
                 return deepcopy(lesson)
+            if active_job_id:
+                value["jobs"][active_job_id] = self._apply_job_changes_locked(active_job, {
+                    "status": "completed", "phase": "lesson_script_ready", "progress": 100,
+                    "message": "本讲讲义已生成", "result_revision_id": revision_id,
+                    "stream_complete": True, "error": None,
+                })
+            # Job completion and the formal revision share the same atomic file replacement.
             saved = self._save(value)
+            if active_job_id:
+                self._drop_live_stream_job_locked(course_id, active_job_id)
             return deepcopy(saved["lessons"][lesson_unit_id])
 
     def rollback_script_revision(
@@ -4842,63 +4881,6 @@ class TeacherLessonAuthoringRepository:
 Planner = Callable[[dict[str, Any], str, Callable[..., Awaitable[None]]], Awaitable[dict[str, Any]]]
 
 
-def _teacher_script_retry_block_ids(
-    quality_report: dict[str, Any],
-    block_order: dict[str, int],
-) -> set[str]:
-    """Return the smallest safe set of cross-block failures to regenerate.
-
-    A checkpoint can contain blocks which all pass their individual contract
-    while the assembled lesson still repeats the same prose or canned
-    transition.  Keeping every such block makes a resumed job loop forever:
-    it has no missing work, immediately reaches the same revision gate, and
-    fails again.  Preserve the first occurrence and invalidate only the later
-    blocks involved in each repetition group.
-    """
-
-    retry_ids: set[str] = set()
-
-    def ordered(values: Any) -> list[str]:
-        unique = {str(value) for value in values or [] if str(value)}
-        return sorted(
-            unique,
-            key=lambda block_id: block_order.get(block_id, len(block_order)),
-        )
-
-    def keep_first(values: Any) -> None:
-        retry_ids.update(ordered(values)[1:])
-
-    for issue in quality_report.get("blocking_issues") or []:
-        if not isinstance(issue, dict):
-            continue
-        code = str(issue.get("code") or "")
-        if code == "teacher_script:repetitive_blocks":
-            for group in issue.get("repeated_clause_groups") or []:
-                keep_first(group)
-            for pair in issue.get("block_pairs") or []:
-                pair_ids = ordered(pair)
-                if len(pair_ids) > 1:
-                    retry_ids.add(pair_ids[-1])
-        elif code == "teacher_script:lesson_too_shallow":
-            retry_ids.update(block_order)
-        elif code == "teacher_script:repetitive_canned_transitions":
-            phrase_blocks = issue.get("phrase_blocks") or {}
-            if isinstance(phrase_blocks, dict):
-                for group in phrase_blocks.values():
-                    keep_first(group)
-    return retry_ids
-
-
-def _quality_improves(candidate: dict[str, Any], current: dict[str, Any]) -> bool:
-    def keys(report, field):
-        return Counter((i.get("code"), i.get("section_id") or i.get("section_node_id"))
-                       for i in report.get(field) or [])
-    old_hard, new_hard = keys(current, "blocking_issues"), keys(candidate, "blocking_issues")
-    if new_hard != old_hard:
-        return new_hard < old_hard
-    return keys(candidate, "review_issues") < keys(current, "review_issues")
-
-
 class TeacherLessonAuthoringService:
     def __init__(self, repository: TeacherLessonAuthoringRepository):
         self.repository = repository
@@ -4907,37 +4889,19 @@ class TeacherLessonAuthoringService:
         self, course_id: str, job_id: str, unit_id: str,
         generate: Callable[[], Awaitable[Any]], *, source_plan_revision_id: str = "",
     ) -> Any:
-        """Retry generation only; never replay a formal save or a stopped task."""
-        while True:
-            job = await asyncio.to_thread(self.repository.get_job, course_id, job_id)
-            if job.get("cancel_requested") or job.get("status") not in TEACHER_JOB_ACTIVE_STATUSES:
-                raise asyncio.CancelledError
-            view = await asyncio.to_thread(self.repository.view, course_id)
-            outline_id = str(job.get("source_outline_revision_id") or "")
-            if outline_id and view.get("outline_revision_id") and outline_id != view["outline_revision_id"]:
-                raise TeacherLessonAuthoringError("lesson_source_changed", "大纲已变化，请按当前来源生成。")
-            if source_plan_revision_id:
-                lesson = (view.get("lessons") or {}).get(str(job.get("lesson_unit_id") or "")) or {}
-                if lesson.get("working_revision_id") != source_plan_revision_id or lesson.get("source_state", "current") != "current":
-                    raise TeacherLessonAuthoringError("lesson_plan_revision_conflict", "教案已变化，请按当前来源生成。")
-            if job.get("restart_whole") or job.get("type") == "teacher_lesson_script_generation":
-                return await generate()
-            try:
-                return await generate()
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                failure = generation_failure(exc, "teacher_generation_request_failed")
-                text = str(exc).lower()
-                if (not failure["retryable"] or failure["category"] not in {"provider", "structure", "quality"}
-                        or any(word in text for word in ("unauthorized", "forbidden", "invalid_api_key", "authentication", "permission denied"))):
-                    raise
-                retries = await asyncio.to_thread(
-                    self.repository.reserve_generation_retry, course_id, job_id, unit_id, failure,
-                )
-                if not retries:
-                    raise
-                await asyncio.sleep(2 ** (retries - 1))
+        """Check the frozen source once; failures require an explicit continuation."""
+        job = await asyncio.to_thread(self.repository.get_job, course_id, job_id)
+        if job.get("cancel_requested") or job.get("status") not in TEACHER_JOB_ACTIVE_STATUSES:
+            raise asyncio.CancelledError
+        view = await asyncio.to_thread(self.repository.view, course_id)
+        outline_id = str(job.get("source_outline_revision_id") or "")
+        if outline_id and view.get("outline_revision_id") and outline_id != view["outline_revision_id"]:
+            raise TeacherLessonAuthoringError("lesson_source_changed", "大纲已变化，请按当前来源生成。")
+        if source_plan_revision_id:
+            lesson = (view.get("lessons") or {}).get(str(job.get("lesson_unit_id") or "")) or {}
+            if lesson.get("working_revision_id") != source_plan_revision_id or lesson.get("source_state", "current") != "current":
+                raise TeacherLessonAuthoringError("lesson_plan_revision_conflict", "教案已变化，请按当前来源生成。")
+        return await generate()
 
     def _quality_report(
         self,
@@ -5071,7 +5035,7 @@ class TeacherLessonAuthoringService:
         job_id: str,
         course_data: dict[str, Any],
         planner: Planner,
-        repairer: Callable[..., Awaitable[dict[str, Any]]] | None = None,
+        before_save: Callable[[], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         started_job = await asyncio.to_thread(
             self.repository.update_job,
@@ -5139,7 +5103,12 @@ class TeacherLessonAuthoringService:
                     raise TeacherLessonAuthoringError("lesson_plan_empty", "本讲教案生成结果为空。")
                 return result
 
-            result = await self._run_generation_step(course_id, job_id, "lesson_plan", generate_plan)
+            result = (self.repository.get_job(course_id, job_id).get("checkpoint") or {}).get("generated_plan_result")
+            if not result:
+                result = await self._run_generation_step(course_id, job_id, "lesson_plan", generate_plan)
+                checkpoint = deepcopy(self.repository.get_job(course_id, job_id).get("checkpoint") or {})
+                checkpoint["generated_plan_result"] = deepcopy(result)
+                self.repository.update_job(course_id, job_id, checkpoint=checkpoint)
             current_job = await asyncio.to_thread(
                 self.repository.get_job,
                 course_id,
@@ -5205,68 +5174,6 @@ class TeacherLessonAuthoringService:
                 ),
                 source_outline_revision_id=outline_revision,
             )
-            # Generated drafts are repaired before becoming a formal revision.
-            # Manual edits/candidate acceptance never enter this job path.
-            for attempt in range(2):
-                issues = list(quality_report.get("blocking_issues") or [])
-                if not repairer or not issues or any(
-                    item.get("code") in {"lesson_plan:stale_outline", "lesson_plan:knowledge_conflict"}
-                    for item in issues
-                ):
-                    break
-                await on_progress("lesson_plan_auto_improvement", 95, "正在自动优化教案并复审")
-                await asyncio.to_thread(
-                    self.repository.update_job, course_id, job_id,
-                    auto_improvement={"attempts": attempt + 1, "status": "running",
-                                      "plan": deepcopy(plan), "quality_report": deepcopy(quality_report)},
-                )
-                try:
-                    candidate_result = await asyncio.wait_for(
-                        repairer(plan=deepcopy(plan), issues=deepcopy(issues)), timeout=120,
-                    )
-                    candidate = candidate_result.get("plan") or {}
-                    # The shared optimizer owns merging. Protect the frozen
-                    # lesson identity, knowledge, sources and timing as well.
-                    before_sections = plan.get("sections") or []
-                    after_sections = candidate.get("sections") or []
-                    if [s.get("node_id") for s in before_sections] != [s.get("node_id") for s in after_sections]:
-                        raise ValueError("auto_lesson_scope_violation")
-                    for before, after in zip(before_sections, after_sections):
-                        for field in ("knowledge_structure", "resource_refs", "title"):
-                            if before.get(field) != after.get(field):
-                                raise ValueError("auto_lesson_source_violation")
-                        before_modules = before.get("teaching_modules") or []
-                        after_modules = after.get("teaching_modules") or []
-                        identity_fields = ("module_id", "arrangement_block_id", "planned_minutes")
-                        if [tuple(m.get(f) for f in identity_fields) for m in before_modules] != [
-                            tuple(m.get(f) for f in identity_fields) for m in after_modules
-                        ]:
-                            raise ValueError("auto_lesson_structure_violation")
-                    candidate_report = self._quality_report(
-                        course_data, lesson_unit_id, candidate,
-                        expected_outline_revision_id=str(course_view.get("outline_revision_id") or outline_revision),
-                        source_outline_revision_id=outline_revision,
-                    )
-                    improved = _quality_improves(candidate_report, quality_report)
-                    if improved:
-                        plan, quality_report = candidate, candidate_report
-                    await asyncio.to_thread(
-                        self.repository.update_job, course_id, job_id,
-                        auto_improvement={"attempts": attempt + 1, "status": "reviewed",
-                                          "plan": deepcopy(plan), "quality_report": deepcopy(quality_report)},
-                    )
-                    if not improved:
-                        break
-                except asyncio.CancelledError:
-                    raise
-                except Exception as repair_error:
-                    await asyncio.to_thread(
-                        self.repository.update_job, course_id, job_id,
-                        auto_improvement={"attempts": attempt + 1, "status": "failed",
-                                          "error_code": type(repair_error).__name__,
-                                          "plan": deepcopy(plan), "quality_report": deepcopy(quality_report)},
-                    )
-                    break
             current_job = await asyncio.to_thread(self.repository.get_job, course_id, job_id)
             if current_job.get("cancel_requested"):
                 raise asyncio.CancelledError
@@ -5283,6 +5190,8 @@ class TeacherLessonAuthoringService:
                     f"本讲教案未通过硬校验：{messages or '请重试'}",
                     details={"quality_report": deepcopy(quality_report)},
                 )
+            if before_save:
+                await before_save()
             lesson = await asyncio.to_thread(
                 self.repository.save_plan_revision,
                 course_id,
@@ -5295,6 +5204,7 @@ class TeacherLessonAuthoringService:
                 source_refs=source_refs,
                 quality_report=quality_report,
                 active_job_id=job_id,
+                expected_working_revision_id=(current_job.get("request_snapshot") or {}).get("expected_plan_revision"),
             )
             current_job = await asyncio.to_thread(
                 self.repository.get_job,
@@ -5324,6 +5234,10 @@ class TeacherLessonAuthoringService:
                 course_id,
                 job_id,
             )
+            frozen_outline = current_job.get("source_outline_revision_id")
+            if frozen_outline and self.repository.outline_revision_id(course_id) and self.repository.outline_revision_id(course_id) != frozen_outline:
+                exc = TeacherLessonAuthoringError("lesson_source_changed", "大纲已变化，请基于当前来源生成。")
+                code = exc.code
             if current_job.get("restart_whole"):
                 return self.repository.finish_generation_attempt(course_id, job_id, generation_failure(exc, code))
             return await asyncio.to_thread(
@@ -5339,764 +5253,165 @@ class TeacherLessonAuthoringService:
             )
 
     async def run_script_job(
-        self,
-        *,
-        course_id: str,
-        lesson_unit_id: str,
-        job_id: str,
-        source_plan_revision_id: str,
-        outline_sections: list[dict[str, Any]],
-        plan_sections: dict[str, dict[str, Any]],
-        generator: Callable[..., Awaitable[str]],
-        shard_generator: Callable[..., Awaitable[dict[str, str]]] | None = None,
-        repair_generator: Callable[..., Awaitable[str]] | None = None,
-        seed_sections: list[dict[str, Any]] | None = None,
-        requirements: str = "",
-        material_asset_ids: list[str] | None = None,
-        actor: str = "teacher",
-        ppt_bundle_builder=None,
-        expected_script_revision: str | None = None,
-        expected_manuscript_revision: str | None = None,
+        self, *, course_id: str, lesson_unit_id: str, job_id: str,
+        source_plan_revision_id: str, outline_sections: list[dict[str, Any]],
+        plan_sections: dict[str, dict[str, Any]], generator: Callable[..., Awaitable[dict]],
+        seed_sections: list[dict[str, Any]] | None = None, requirements: str = "",
+        material_asset_ids: list[str] | None = None, actor: str = "teacher",
+        expected_script_revision: str | None = None, partial_text: str = "",
+        before_save: Callable[[], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
-        """Generate one lesson's stable teaching blocks in a bounded wave.
-
-        Partial blocks live in the durable job until every current-plan block is
-        complete.  Each block reads only its deterministic plan-derived shard
-        context, so it can run independently; local code owns checkpointing,
-        ordering, validation and final assembly.
-        """
-        contracts: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]] = []
-        for outline_section in outline_sections:
-            section_id = str(outline_section.get("node_id") or "")
-            plan_section = plan_sections.get(section_id) or {}
-            contract = compile_teacher_script_module_contract(
-                outline_section,
-                plan_section,
-            )
-            if not contract.get("modules"):
-                raise TeacherLessonAuthoringError(
-                    "lesson_script_contract_empty",
-                    f"{contract.get('title') or section_id} 没有可生成的教学环节。",
-                )
-            contracts.append((outline_section, plan_section, contract))
-
-        total_blocks = sum(
-            len(contract.get("modules") or [])
-            for _outline, _plan, contract in contracts
+        """One lecture request; section checkpoints remain in the original job."""
+        from teacher_script import handout_section_contract, parse_handout_stream, handout_structure_closed
+        contracts = {str(s.get("node_id") or ""): handout_section_contract(
+            s, plan_sections.get(str(s.get("node_id") or "")) or {}) for s in outline_sections}
+        if not contracts or "" in contracts or len(contracts) != len(outline_sections):
+            raise TeacherLessonAuthoringError("lesson_script_contract_empty", "本讲小节身份缺失或重复。")
+        completed = {}
+        for section in seed_sections or []:
+            key = str(section.get("section_node_id") or "")
+            if key not in contracts:
+                continue
+            report = validate_teacher_script_section(section, contracts[key])
+            if report["passed"] and all(handout_structure_closed(b.get("content") or "") for b in section.get("blocks") or []):
+                completed[key] = deepcopy(section)
+        def sections() -> list[dict[str, Any]]:
+            return [deepcopy(completed[key]) for key in contracts if key in completed]
+        def states() -> dict[str, str]:
+            return {str(c["modules"][0]["block_id"]): "completed" if key in completed else "pending"
+                    for key, c in contracts.items()}
+        started = self.repository.update_job(
+            course_id, job_id, status="running", phase="lesson_script_generation", progress=5,
+            message="正在一次生成本讲讲义", total_blocks=len(contracts), completed_blocks=len(completed),
+            block_states=states(), result_sections=sections(), stream_complete=False, error=None,
+            block_section_ids={str(c["modules"][0]["block_id"]): key for key, c in contracts.items()},
+            block_titles={str(c["modules"][0]["block_id"]): str(c["title"]) for c in contracts.values()},
         )
-        global_block_order = {
-            str(module.get("block_id") or ""): index
-            for index, module in enumerate(
-                [
-                    module
-                    for _outline, _plan, contract in contracts
-                    for module in contract.get("modules") or []
-                    if isinstance(module, dict)
-                ]
-            )
-        }
-        invalid_seed_ids: set[str] = set()
-        if seed_sections:
-            seed_quality = validate_teacher_script_revision(
-                [
-                    item for item in seed_sections
-                    if isinstance(item, dict)
-                ],
-                generation_source="model_block_pipeline",
-            )
-            invalid_seed_ids.update(_teacher_script_retry_block_ids(
-                seed_quality,
-                global_block_order,
-            ))
-        seed_by_section = {
-            str(item.get("section_node_id") or ""): item
-            for item in seed_sections or []
-            if isinstance(item, dict) and item.get("section_node_id")
-        }
-        completed_by_section: dict[str, list[dict[str, Any]]] = {}
-        block_states: dict[str, str] = {}
-        for _outline, _plan, contract in contracts:
-            section_id = str(contract.get("section_node_id") or "")
-            expected = [
-                item for item in contract.get("modules") or [] if isinstance(item, dict)
-            ]
-            existing = {
-                str(item.get("block_id") or ""): item
-                for item in (seed_by_section.get(section_id) or {}).get("blocks") or []
-                if isinstance(item, dict)
-                and item.get("block_id")
-                and str(item.get("content") or "").strip()
-                and str(item.get("generation_source") or "") != "local_recovery"
-                and str(item.get("block_id") or "") not in invalid_seed_ids
-            }
-            completed: list[dict[str, Any]] = []
-            for module in expected:
-                block_id = str(module.get("block_id") or "")
-                previous = existing.get(block_id)
-                if previous:
-                    candidate = {
-                        **{key: deepcopy(previous[key]) for key in ("ppt_pages", "ppt_errors", "ppt_page_groups", "ppt_repair_attempts", "generation_contract_version") if key in previous},
-                        **deepcopy(module),
-                        "content": str(previous.get("content") or "").strip(),
-                        "generation_source": str(
-                            previous.get("generation_source") or "model"
-                        ),
-                    }
-                    candidate = repair_teacher_script_section_formats({"blocks": [candidate]})["blocks"][0]
-                    single_contract = {
-                        **deepcopy(contract),
-                        "modules": [deepcopy(module)],
-                    }
-                    seed_report = validate_teacher_script_section(
-                        {
-                            "section_node_id": section_id,
-                            "title": contract.get("title"),
-                            "blocks": [candidate],
-                        },
-                        single_contract,
-                    )
-                    if seed_report.get("passed"):
-                        completed.append(candidate)
-                        block_states[block_id] = "completed"
-                    else:
-                        # Checkpoints are reusable evidence, not trusted final
-                        # output. A truncated formula or newly tightened
-                        # quality rule must regenerate only the affected block.
-                        block_states[block_id] = "pending"
-                else:
-                    block_states[block_id] = "pending"
-            completed_by_section[section_id] = completed
-
-        def checkpoint_sections() -> list[dict[str, Any]]:
-            result: list[dict[str, Any]] = []
-            for _outline, _plan, contract in contracts:
-                section_id = str(contract.get("section_node_id") or "")
-                blocks = completed_by_section.get(section_id) or []
-                if not blocks:
-                    continue
-                result.append(normalize_teacher_script_section({
-                    "section_node_id": section_id,
-                    "title": contract.get("title"),
-                    "blocks": blocks,
-                }, contract))
-            return result
-
-        completed_count = sum(
-            1 for state in block_states.values() if state == "completed"
-        )
-        started_job = self.repository.update_job(
-            course_id,
-            job_id,
-            status="running",
-            phase="lesson_script_generation",
-            progress=max(5, int(90 * completed_count / max(1, total_blocks))),
-            message=(
-                f"继续生成本讲讲义，已保留 {completed_count}/{total_blocks} 个教学环节"
-                if completed_count
-                else "正在按当前教案生成本讲讲义"
-            ),
-            total_blocks=total_blocks,
-            completed_blocks=completed_count,
-            block_states=block_states,
-            result_sections=checkpoint_sections(),
-            stream_mode="",
-            stream_complete=False,
-            error=None,
-        )
-        if str(started_job.get("status") or "") not in TEACHER_JOB_ACTIVE_STATUSES:
-            return started_job
-
-        current_block_id = ""
-        current_block_title = ""
-        try:
-            block_order = {
-                str(module.get("block_id") or ""): index
-                for index, module in enumerate(
-                    [
-                        module
-                        for _outline, _plan, contract in contracts
-                        for module in contract.get("modules") or []
-                        if isinstance(module, dict)
-                    ]
-                )
-            }
-            block_entries: dict[str, dict[str, Any]] = {}
-            for outline_section, plan_section, contract in contracts:
-                for module in contract.get("modules") or []:
-                    if not isinstance(module, dict):
-                        continue
-                    block_id = str(module.get("block_id") or "")
-                    block_entries[block_id] = {
-                        "outline_section": outline_section,
-                        "plan_section": plan_section,
-                        "contract": contract,
-                        "module": module,
-                    }
-            shards: list[dict[str, Any]] = []
-            if shard_generator:
-                for planned_shard in compile_teacher_script_generation_shards(
-                    lesson_unit_id,
-                    [contract for _outline, _plan, contract in contracts],
-                ):
-                    entries = [
-                        block_entries[block_id]
-                        for block_id in planned_shard.get("block_ids") or []
-                        if block_id in block_entries
-                        and block_states.get(block_id) != "completed"
-                    ]
-                    if not entries:
-                        continue
-                    shards.append({
-                        "entries": entries,
-                        "context": deepcopy(planned_shard.get("context") or {}),
-                        "shard_id": str(planned_shard.get("shard_id") or ""),
-                    })
-                    for entry in entries:
-                        block_states[str(entry["module"].get("block_id") or "")] = (
-                            "running"
-                        )
-            else:
-                for block_id, entry in block_entries.items():
-                    if block_states.get(block_id) == "completed":
-                        continue
-                    shards.append({
-                        "entries": [entry],
-                        "context": compile_teacher_script_shard_context(
-                            entry["contract"],
-                            entry["module"],
-                        ),
-                        "shard_id": f"{block_id}:shard:1",
-                    })
-                    block_states[block_id] = "running"
-
-            if shards:
-                self.repository.update_job_live(
-                    course_id,
-                    job_id,
-                    phase="lesson_script_block_generation",
-                    message=f"已将 {len(shards)} 个讲义分片并发入队",
-                    current_block_id="",
-                    current_block_title="",
-                    block_states=block_states,
-                )
-
-            async def generate_shard(shard: dict[str, Any]) -> dict[str, Any]:
-                entries = list(shard.get("entries") or [])
-                modules = [entry["module"] for entry in entries]
-                context = shard["context"]
-                block_ids = [str(module.get("block_id") or "") for module in modules]
-                block_titles = [
-                    str(module.get("title") or "教学环节") for module in modules
-                ]
-                block_title = " / ".join(block_titles)
-                shard_id = str(shard.get("shard_id") or context.get("shard_id") or "")
-                stream_state = {
-                    "reset_blocks": set(),
-                    "delta_blocks": set(),
-                }
-
-                async def persist_stream_reset(block_id: str = "") -> None:
-                    targets = [block_id] if block_id else block_ids
-                    for target_block_id in targets:
-                        stream_key = f"{shard_id}:{target_block_id}"
-                        stream_state["reset_blocks"].add(target_block_id)
-                        stream_state["delta_blocks"].discard(target_block_id)
-                        await asyncio.to_thread(
-                            self.repository.update_job_stream,
-                            course_id,
-                            job_id,
-                            phase="lesson_script_block_generation",
-                            progress=max(
-                                5,
-                                int(90 * completed_count / max(1, total_blocks)),
-                            ),
-                            message=f"正在生成：{block_title}",
-                            batch_id=stream_key,
-                            event="reset",
-                            lesson_unit_id=lesson_unit_id,
-                            block_id=target_block_id,
-                            shard_id=stream_key,
-                            stream_mode="token_stream",
-                        )
-
-                async def persist_stream_delta(block_id: str, delta: str) -> None:
-                    if not str(delta or ""):
-                        return
-                    if block_id not in stream_state["reset_blocks"]:
-                        await persist_stream_reset(block_id)
-                    stream_state["delta_blocks"].add(block_id)
-                    stream_key = f"{shard_id}:{block_id}"
-                    await asyncio.to_thread(
-                        self.repository.update_job_stream,
-                        course_id,
-                        job_id,
-                        phase="lesson_script_block_generation",
-                        progress=max(
-                            5,
-                            int(90 * completed_count / max(1, total_blocks)),
-                        ),
-                        message=f"正在生成：{block_title}",
-                        batch_id=stream_key,
-                        event="delta",
-                        delta=str(delta),
-                        lesson_unit_id=lesson_unit_id,
-                        block_id=block_id,
-                        shard_id=stream_key,
-                        stream_mode="token_stream",
-                    )
-
-                request_count = 0
-
-                async def request_shard():
-                    nonlocal request_count
-                    if request_count:
-                        await persist_stream_reset()
-                    request_count += 1
-                    with provider_request_schedule(
-                        actor=actor, course=course_id,
-                        lecture=int(started_job.get("lecture_position") or started_job.get("batch_position") or 1),
-                        block=min(block_order[key] for key in block_ids),
-                    ):
-                        current = await asyncio.to_thread(
-                            self.repository.get_job,
-                            course_id,
-                            job_id,
-                        )
-                        if current.get("cancel_requested"):
-                            raise asyncio.CancelledError
-                        if shard_generator:
-                            generated_map = await shard_generator(
-                                deepcopy(entries),
-                                deepcopy(context),
-                                on_block_delta=persist_stream_delta,
-                                on_shard_reset=persist_stream_reset,
-                            )
-                        else:
-                            entry = entries[0]
-                            module = entry["module"]
-                            block_id = str(module.get("block_id") or "")
-                            parameters = inspect.signature(generator).parameters
-                            supports_stream_callbacks = (
-                                "on_content_delta" in parameters
-                                and "on_content_reset" in parameters
-                            ) or any(
-                                parameter.kind == inspect.Parameter.VAR_KEYWORD
-                                for parameter in parameters.values()
-                            )
-                            if supports_stream_callbacks:
-                                generated = await generator(
-                                    entry["outline_section"],
-                                    entry["plan_section"],
-                                    module,
-                                    deepcopy(context),
-                                    on_content_delta=lambda delta: persist_stream_delta(
-                                        block_id,
-                                        delta,
-                                    ),
-                                    on_content_reset=lambda: persist_stream_reset(block_id),
-                                )
-                            else:
-                                generated = await generator(
-                                    entry["outline_section"],
-                                    entry["plan_section"],
-                                    module,
-                                    deepcopy(context),
-                                )
-                            if not str(generated or "").strip():
-                                raise TeacherLessonAuthoringError("lesson_script_block_empty", "模型尚未返回教学环节正文。")
-                            generated_map = {block_id: deepcopy(generated) if isinstance(generated, dict) else str(generated or "").strip()}
-                            if isinstance(generated, dict):
-                                generated_map = {block_id: generated}
-                    if not isinstance(generated_map, dict):
-                        raise TeacherLessonAuthoringError("lesson_script_shard_invalid", "模型没有返回可定位的教学环节。")
-                    return generated_map
-
-                try:
-                    generated_map = await self._run_generation_step(
-                        course_id, job_id, shard_id, request_shard,
-                        source_plan_revision_id=source_plan_revision_id,
-                    )
-                    current = await asyncio.to_thread(
-                        self.repository.get_job,
-                        course_id,
-                        job_id,
-                    )
-                    if current.get("cancel_requested"):
-                        raise asyncio.CancelledError
-                    if str(current.get("status") or "") not in {"pending", "running"}:
-                        return {"terminal_job": current}
-                    if not isinstance(generated_map, dict):
-                        raise TeacherLessonAuthoringError(
-                            "lesson_script_shard_invalid",
-                            f"{block_title} 没有返回可定位的教学环节。",
-                        )
-                    candidates: list[dict[str, Any]] = []
-                    candidate_failures: list[dict[str, Any]] = []
-                    for entry in entries:
-                        module = entry["module"]
-                        contract = entry["contract"]
-                        block_id = str(module.get("block_id") or "")
-                        generated_block = generated_map.get(block_id)
-                        content = str((generated_block.get("content") if isinstance(generated_block, dict) else generated_block) or "").strip()
-                        if not content:
-                            candidate_failures.append({
-                                "block_id": block_id,
-                                "title": str(module.get("title") or block_id),
-                                "code": "lesson_script_block_empty",
-                                "message": (
-                                    f"{module.get('title') or block_id} "
-                                    "没有生成有效内容。"
-                                ),
-                            })
-                            continue
-                        candidate = {
-                            **deepcopy(module),
-                            "content": content,
-                            "generation_source": "model",
-                            **({key: deepcopy(generated_block[key]) for key in ("ppt_pages", "ppt_errors", "generation_contract_version") if key in generated_block}
-                               if isinstance(generated_block, dict) else {}),
-                        }
-                        candidate = repair_teacher_script_section_formats({"blocks": [candidate]})["blocks"][0]
-                        candidate_report = validate_teacher_script_section(
-                            {
-                                "section_node_id": str(
-                                    contract.get("section_node_id") or ""
-                                ),
-                                "title": contract.get("title"),
-                                "blocks": [candidate],
-                            },
-                            {**deepcopy(contract), "modules": [deepcopy(module)]},
-                        )
-                        if not candidate_report.get("passed"):
-                            messages = "；".join(
-                                str(item.get("message") or "未知讲义错误")
-                                for item in candidate_report.get("blocking_issues") or []
-                                if isinstance(item, dict)
-                            )
-                            candidate_failures.append({
-                                "block_id": block_id,
-                                "title": str(module.get("title") or block_id),
-                                "code": "lesson_script_block_quality_failed",
-                                "message": (
-                                    f"{module.get('title') or block_id}未通过硬校验："
-                                    f"{messages or '请重试'}"
-                                ),
-                                "quality_report": deepcopy(candidate_report),
-                            })
-                            continue
-                        candidates.append({
-                            "section_id": str(
-                                contract.get("section_node_id") or ""
-                            ),
-                            "candidate": candidate,
-                        })
-
-                    return {
-                        "block_ids": block_ids,
-                        "block_title": block_title,
-                        "shard_id": shard_id,
-                        "candidates": candidates,
-                        "failures": candidate_failures,
-                        "streamed_block_ids": list(stream_state["delta_blocks"]),
-                    }
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:
-                    return {
-                        "block_ids": block_ids,
-                        "block_title": block_title,
-                        "shard_id": shard_id,
-                        "error": exc,
-                    }
-
-            tasks = [asyncio.create_task(generate_shard(shard)) for shard in shards]
-            failed_shards: list[dict[str, Any]] = []
-            failed_blocks: list[dict[str, Any]] = []
-            try:
-                for completed_task in asyncio.as_completed(tasks):
-                    result = await completed_task
-                    if result.get("terminal_job"):
-                        for task in tasks:
-                            task.cancel()
-                        await asyncio.gather(*tasks, return_exceptions=True)
-                        return result["terminal_job"]
-                    block_ids = [
-                        str(block_id) for block_id in result.get("block_ids") or []
-                        if str(block_id)
-                    ]
-                    block_id = block_ids[0] if block_ids else ""
-                    block_title = str(result.get("block_title") or "教学环节")
-                    shard_id = str(result.get("shard_id") or block_id)
-                    if result.get("error") is not None:
-                        error = result["error"]
-                        for failed_block_id in block_ids:
-                            block_states[failed_block_id] = "failed"
-                        shard_failure = {
-                            "block_id": block_id,
-                            "block_ids": block_ids,
-                            "shard_id": shard_id,
-                            "title": block_title,
-                            "code": (
-                                error.code
-                                if isinstance(error, TeacherLessonAuthoringError)
-                                else "lesson_script_generation_failed"
-                            ),
-                            "message": str(error),
-                            "details": deepcopy(error.details) if isinstance(error, TeacherLessonAuthoringError) else {},
-                        }
-                        failed_shards.append(shard_failure)
-                        for failed_block_id in block_ids:
-                            failed_module = (
-                                block_entries.get(failed_block_id) or {}
-                            ).get("module") or {}
-                            failed_blocks.append({
-                                "block_id": failed_block_id,
-                                "shard_id": shard_id,
-                                "title": str(
-                                    failed_module.get("title") or failed_block_id
-                                ),
-                                "code": shard_failure["code"],
-                                "message": str(error),
-                                "details": deepcopy(shard_failure["details"]),
-                            })
-                        self.repository.update_job_live(
-                            course_id,
-                            job_id,
-                            phase="lesson_script_block_failed",
-                            message=f"{block_title}生成失败，其他教学环节继续",
-                            current_block_id=block_id,
-                            current_block_title=block_title,
-                            block_states=block_states,
-                        )
-                        continue
-
-                    shard_block_failures = [
-                        item for item in result.get("failures") or []
-                        if isinstance(item, dict) and item.get("block_id")
-                    ]
-                    if shard_block_failures:
-                        failed_ids = [
-                            str(item.get("block_id") or "")
-                            for item in shard_block_failures
-                        ]
-                        for failure in shard_block_failures:
-                            failed_block_id = str(failure.get("block_id") or "")
-                            block_states[failed_block_id] = "failed"
-                            failed_blocks.append({
-                                **deepcopy(failure),
-                                "block_id": failed_block_id,
-                                "shard_id": shard_id,
-                            })
-                        failed_shards.append({
-                            "block_id": failed_ids[0],
-                            "block_ids": failed_ids,
-                            "shard_id": shard_id,
-                            "title": " / ".join(
-                                str(item.get("title") or item.get("block_id") or "教学环节")
-                                for item in shard_block_failures
-                            ),
-                            "code": str(
-                                shard_block_failures[0].get("code")
-                                or "lesson_script_generation_failed"
-                            ),
-                            "message": str(
-                                shard_block_failures[0].get("message")
-                                or "讲义教学环节未通过校验"
-                            ),
-                        })
-                        self.repository.update_job_live(
-                            course_id,
-                            job_id,
-                            phase="lesson_script_block_failed",
-                            message=(
-                                f"{len(shard_block_failures)} 个教学环节未通过校验，"
-                                "其他教学环节继续"
-                            ),
-                            current_block_id=failed_ids[0],
-                            current_block_title=str(
-                                shard_block_failures[0].get("title") or "教学环节"
-                            ),
-                            block_states=block_states,
-                        )
-
-                    streamed_block_ids = set(result.get("streamed_block_ids") or [])
-                    for generated_item in result.get("candidates") or []:
-                        if not isinstance(generated_item, dict):
-                            continue
-                        candidate = generated_item["candidate"]
-                        section_id = str(generated_item.get("section_id") or "")
-                        generated_block_id = str(candidate.get("block_id") or "")
-                        completed_by_section[section_id].append(candidate)
-                        completed_by_section[section_id].sort(
-                            key=lambda item: block_order.get(
-                                str(item.get("block_id") or ""),
-                                len(block_order),
-                            )
-                        )
-                        block_states[generated_block_id] = "completed"
-                        completed_count += 1
-                        if generated_block_id not in streamed_block_ids:
-                            # A non-streaming provider exposes one honest whole
-                            # block, never a timer-sliced imitation.
-                            for event, delta in (
-                                ("reset", ""),
-                                ("delta", str(candidate.get("content") or "")),
-                            ):
-                                self.repository.update_job_stream(
-                                    course_id,
-                                    job_id,
-                                    phase="lesson_script_block_saved",
-                                    progress=max(
-                                        5,
-                                        min(
-                                            95,
-                                            int(95 * completed_count / max(1, total_blocks)),
-                                        ),
-                                    ),
-                                    message=f"已生成 {completed_count}/{total_blocks} 个教学环节",
-                                    batch_id=f"{shard_id}:{generated_block_id}",
-                                    event=event,
-                                    delta=delta,
-                                    lesson_unit_id=lesson_unit_id,
-                                    block_id=generated_block_id,
-                                    shard_id=f"{shard_id}:{generated_block_id}",
-                                    stream_mode="buffered_fallback",
-                                )
-                    self.repository.update_job(
-                        course_id,
-                        job_id,
-                        phase="lesson_script_block_saved",
-                        progress=max(
-                            5,
-                            min(95, int(95 * completed_count / max(1, total_blocks))),
-                        ),
-                        message=f"已生成 {completed_count}/{total_blocks} 个教学环节",
-                        completed_blocks=completed_count,
-                        current_block_id="",
-                        current_block_title="",
-                        block_states=block_states,
-                        result_sections=checkpoint_sections(),
-                    )
-            except asyncio.CancelledError:
-                for task in tasks:
-                    task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
-                raise
-
-            if failed_blocks:
-                first = failed_blocks[0]
-                current_block_id = str(first.get("block_id") or "")
-                current_block_title = str(first.get("title") or "教学环节")
-                raise TeacherLessonAuthoringError(
-                    str(first.get("code") or "lesson_script_generation_failed"),
-                    f"{len(failed_blocks)} 个教学环节生成失败，已保留其他成功结果。{first.get('message') or ''}",
-                    details={
-                        "failed_shards": failed_shards,
-                        "failed_blocks": failed_blocks,
-                        "retryable": all((failure.get("details") or {}).get("retryable") is not False for failure in failed_blocks),
-                    },
-                )
-
-            final_sections: list[dict[str, Any]] = []
-            for _outline, _plan, contract in contracts:
-                section_id = str(contract.get("section_node_id") or "")
+        if str(started.get("status") or "") not in TEACHER_JOB_ACTIVE_STATUSES:
+            return started
+        raw = ""
+        requested = [key for key in contracts if key not in completed]
+        streamed: dict[str, str] = {}
+        telemetry: list[dict] = []
+        last_emit = 0.0
+        def check_active() -> None:
+            job = self.repository.get_job(course_id, job_id)
+            if job.get("cancel_requested") or job.get("pause_requested") or job.get("status") not in TEACHER_JOB_ACTIVE_STATUSES:
+                raise asyncio.CancelledError
+        def snapshot(parsed: dict[str, Any]) -> None:
+            for key, content in parsed["completed"].items():
+                contract = contracts[key]
                 section = normalize_teacher_script_section({
-                    "section_node_id": section_id,
-                    "title": contract.get("title"),
-                    "blocks": completed_by_section.get(section_id) or [],
+                    "section_node_id": key, "title": contract["title"],
+                    "blocks": [{**deepcopy(contract["modules"][0]), "content": content, "generation_source": "model"}],
                 }, contract)
-                section["quality_report"] = validate_teacher_script_section(
-                    section,
-                    contract,
-                )
+                section["quality_report"] = validate_teacher_script_section(section, contract)
                 section["pipeline_version"] = SCRIPT_PIPELINE_VERSION
-                if not section["quality_report"].get("passed"):
-                    messages = "；".join(
-                        str(item.get("message") or "未知讲义错误")
-                        for item in section["quality_report"].get("blocking_issues") or []
-                        if isinstance(item, dict)
-                    )
-                    raise TeacherLessonAuthoringError(
-                        "lesson_script_section_quality_failed",
-                        f"{section.get('title') or section_id}未通过硬校验：{messages or '请重试'}",
-                        details={"quality_report": deepcopy(section["quality_report"])},
-                    )
-                final_sections.append(section)
-
-            revision_quality = validate_teacher_script_revision(
-                final_sections,
-                generation_source="model_block_pipeline",
+                if section["quality_report"]["passed"]:
+                    completed[key] = section
+            self.repository.update_job(
+                course_id, job_id, result_sections=sections(), raw_response=raw,
+                requested_section_ids=requested, completed_blocks=len(completed), block_states=states(),
+                unassigned_fragment=parsed.get("unassigned_fragment", ""),
+                progress=max(5, int(90 * len(completed) / len(contracts))),
+                checkpoint={"result_sections": sections(), "raw_response": raw,
+                            "requested_section_ids": requested, "fragments": parsed["fragments"]},
             )
-            if not revision_quality.get("passed"):
-                messages = "；".join(
-                    str(item.get("message") or "未知讲义错误")
-                    for item in revision_quality.get("blocking_issues") or []
-                    if isinstance(item, dict)
-                )
-                raise TeacherLessonAuthoringError(
-                    "lesson_script_quality_failed",
-                    f"本讲讲义未通过硬校验：{messages or '请重试'}",
-                    details={"quality_report": deepcopy(revision_quality)},
-                )
-            bundle_state = ppt_bundle_builder(final_sections) if ppt_bundle_builder else None
+        async def emit(force: bool = False, provider_complete: bool = False) -> dict[str, Any] | None:
+            nonlocal last_emit
+            check_active()
+            if not force and time.monotonic() - last_emit < 0.3:
+                return
+            last_emit = time.monotonic()
+            parsed = parse_handout_stream(raw, requested, provider_complete=provider_complete)
+            visible = {**parsed["completed"], **parsed["fragments"]}
+            for key, content in visible.items():
+                old = streamed.get(key)
+                if old == content:
+                    continue
+                block = contracts[key]["modules"][0]
+                kwargs = dict(phase="lesson_script_generation", progress=max(5, int(90 * len(completed) / len(contracts))),
+                              message="正在生成本讲讲义", batch_id=f"{job_id}:{key}",
+                              lesson_unit_id=lesson_unit_id, block_id=block["block_id"],
+                              shard_id=f"{job_id}:{key}", stream_mode="token_stream")
+                if old is None or not content.startswith(old):
+                    self.repository.update_job_stream(course_id, job_id, event="reset", **kwargs)
+                    old = ""
+                if content[len(old):]:
+                    self.repository.update_job_stream(course_id, job_id, event="delta", delta=content[len(old):], **kwargs)
+                streamed[key] = content
+            snapshot(parsed)
+            return parsed
+        async def on_delta(delta: str) -> None:
+            nonlocal raw
+            raw += str(delta or "")
+            await emit()
+        async def on_reset() -> None:
+            check_active()
+        async def on_scope(ids: list[str]) -> None:
+            nonlocal requested
+            if not ids or ids != requested[:len(ids)]:
+                raise TeacherLessonAuthoringError("lesson_script_scope_invalid", "讲义请求范围不能改变小节顺序。")
+            requested = list(ids)
+            self.repository.update_job(course_id, job_id, requested_section_ids=requested)
+        try:
+            if requested:
+                async def generate() -> dict[str, Any]:
+                    with provider_request_schedule(actor=actor, course=course_id,
+                            lecture=int(started.get("lecture_position") or started.get("batch_position") or 1), block=0):
+                        return await generator(
+                            outline_sections=[s for s in outline_sections if str(s.get("node_id") or "") in requested],
+                            completed_sections=sections(), partial_text=partial_text,
+                            on_content_delta=on_delta, on_content_reset=on_reset, on_scope=on_scope,
+                        )
+                result = await self._run_generation_step(course_id, job_id, "handout", generate,
+                                                        source_plan_revision_id=source_plan_revision_id)
+                telemetry = result.get("telemetry") or []
+                response = str(result.get("text") or "")
+                if response != raw:
+                    raw = response
+                parsed = await emit(force=True, provider_complete=True)
+                if parsed["error"] or any(key not in completed for key in requested):
+                    raise TeacherLessonAuthoringError("lesson_script_output_incomplete", "讲义结构尚未完整，已保留完成小节和片段，请继续。",
+                                                     details={"structure_error": parsed["error"]})
+            if len(completed) != len(contracts):
+                raise TeacherLessonAuthoringError("lesson_script_budget_continuation", "本次范围已完成，请继续生成因容量限制未请求的小节。")
+            check_active()
+            final_sections = sections()
+            quality = validate_teacher_script_revision(final_sections, generation_source="model_lecture")
+            if not quality["passed"]:
+                raise TeacherLessonAuthoringError("lesson_script_quality_failed", "讲义存储结构不完整。", details={"quality_report": quality})
+            # Candidate checkpoint precedes publication; a save failure resumes with zero model calls.
+            self.repository.update_job(course_id, job_id, result_sections=final_sections,
+                                       generation_telemetry=telemetry, phase="lesson_script_saving")
+            if before_save:
+                await before_save()
             lesson = self.repository.save_script_revision(
-                course_id,
-                lesson_unit_id,
-                final_sections,
-                source_lesson_plan_revision_id=source_plan_revision_id,
-                generation_source="model_block_pipeline",
-                requirements=requirements,
-                material_asset_ids=material_asset_ids or [],
-                actor=actor,
-                active_job_id=job_id,
-                ppt_bundle_state=bundle_state,
-                expected_working_revision_id=expected_script_revision,
-                expected_manuscript_revision=expected_manuscript_revision,
+                course_id, lesson_unit_id, final_sections,
+                source_lesson_plan_revision_id=source_plan_revision_id, generation_source="model_lecture",
+                requirements=requirements, material_asset_ids=material_asset_ids or [], actor=actor,
+                active_job_id=job_id, expected_working_revision_id=expected_script_revision,
             )
-            current_job = self.repository.get_job(course_id, job_id)
             return self.repository.update_job(
-                course_id,
-                job_id,
-                status="completed",
-                phase="lesson_script_ready",
-                progress=100,
-                message="本讲讲义已生成，PPT 内容稿待修复" if bundle_state and bundle_state.get("status") == "failed" else "本讲讲义与 PPT 内容稿已生成" if bundle_state else "本讲讲义已生成",
-                completed_blocks=total_blocks,
-                result_sections=final_sections,
-                result_revision_id=str(lesson.get("working_script_revision_id") or ""),
-                warnings=deepcopy(bundle_state.get("page_errors") or []) if bundle_state else [],
-                current_block_id="",
-                current_block_title="",
-                stream_sequence=int(current_job.get("stream_sequence") or 0) + 1,
-                stream_complete=True,
-                error=None,
+                course_id, job_id, status="completed", phase="lesson_script_ready", progress=100,
+                message="本讲讲义已生成", result_sections=final_sections, completed_blocks=len(contracts),
+                block_states=states(), result_revision_id=lesson.get("working_script_revision_id"),
+                stream_complete=True, error=None,
             )
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
-            if isinstance(exc, asyncio.CancelledError):
-                raise
-            if current_block_id:
-                block_states[current_block_id] = "failed"
-            code = (
-                exc.code
-                if isinstance(exc, TeacherLessonAuthoringError)
-                else "lesson_script_generation_failed"
-            )
-            current_job = self.repository.get_job(course_id, job_id)
-            if current_job.get("restart_whole"):
-                return self.repository.finish_generation_attempt(course_id, job_id, generation_failure(exc, code))
+            telemetry = getattr(exc, "generation_telemetry", telemetry)
+            # Never downgrade a completed last section after a save failure.
+            if raw:
+                snapshot(parse_handout_stream(raw, requested))
+            current = self.repository.get_job(course_id, job_id)
+            if current.get("status") not in TEACHER_JOB_ACTIVE_STATUSES:
+                return current
+            code = getattr(exc, "code", "lesson_script_generation_failed")
             return self.repository.update_job(
-                course_id,
-                job_id,
-                status="failed",
-                phase="lesson_script_failed",
-                progress=max(5, int(95 * completed_count / max(1, total_blocks))),
-                message=f"讲义生成中断，已保留 {completed_count}/{total_blocks} 个教学环节及收到的片段",
-                completed_blocks=completed_count,
-                current_block_id=current_block_id,
-                current_block_title=current_block_title,
-                block_states=block_states,
-                result_sections=checkpoint_sections(),
-                stream_sequence=int(current_job.get("stream_sequence") or 0) + 1,
-                stream_complete=True,
-                error=generation_failure(exc, code),
+                course_id, job_id, status="failed", phase="lesson_script_failed",
+                message=f"讲义未完成，已保留 {len(completed)}/{len(contracts)} 个小节及收到的片段",
+                completed_blocks=len(completed), block_states=states(), result_sections=sections(),
+                generation_telemetry=telemetry, stream_complete=True, error=generation_failure(exc, code),
             )

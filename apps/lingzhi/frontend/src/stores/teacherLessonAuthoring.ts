@@ -318,6 +318,9 @@ export interface TeacherLessonJob {
   last_stream_event?: TeacherLessonStreamDeltaEvent
   stream_complete?: boolean
   requirements?: string
+  unassigned_fragment?: string
+  block_section_ids?: Record<string, string>
+  block_titles?: Record<string, string>
   total_blocks?: number
   completed_blocks?: number
   current_block_id?: string

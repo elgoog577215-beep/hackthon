@@ -17,13 +17,146 @@ from teacher_visible_language import has_unnatural_system_language
 
 
 SCRIPT_SCHEMA_VERSION = "teacher_script_v2"
-# Retain pipeline identity so existing drafts and checkpoints remain usable.
+# Historical revisions retain their format identity; generation tasks use a separate contract.
 SCRIPT_PIPELINE_VERSION = "direct_teaching_script_v8"
 SCRIPT_QUALITY_VERSION = "teacher_script_quality_v12"
-SCRIPT_SINGLE_REQUEST_TARGET_CHARACTERS = 6400
-SCRIPT_SINGLE_REQUEST_MAX_CHARACTERS = 12000
-SCRIPT_SHARD_TARGET_CHARACTERS = 4200
-SCRIPT_SHARD_MAX_CHARACTERS = 8000
+
+HANDOUT_CONTRACT_VERSION = "handout_lecture_v2"
+
+
+def handout_section_contract(outline: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
+    """One stable prose block per source section, independent of plan modules."""
+    contract = compile_teacher_script_module_contract(outline, plan)
+    modules = contract.get("modules") or []
+    section_id = str(outline.get("node_id") or "")
+    contract["modules"] = [{
+        "block_id": _stable_block_id(section_id, "handout_prose", 1),
+        "module_id": "handout_prose", "role": "concept",
+        "title": str(outline.get("node_name") or plan.get("title") or section_id),
+        "required": True,
+        "knowledge_names": list(dict.fromkeys(name for m in modules for name in m.get("knowledge_names") or [])),
+        "source_plan_context": {"teaching_modules": deepcopy(plan.get("teaching_modules") or [])},
+    }]
+    return contract
+
+
+def script_contract_for_revision(outline: dict[str, Any], plan: dict[str, Any], existing: dict[str, Any]) -> dict[str, Any]:
+    """Keep historical block identities; new prose revisions use the lecture contract."""
+    blocks = existing.get("blocks") or []
+    if not blocks or all(b.get("module_id") == "handout_prose" for b in blocks):
+        return handout_section_contract(outline, plan)
+    return compile_teacher_script_module_contract(outline, plan)
+
+
+def handout_structure_closed(content: str) -> bool:
+    """Only syntax completeness; never a content/teaching quality gate."""
+    fence = ""
+    plain = []
+    for line in content.splitlines():
+        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if match:
+            token, tail = match.groups()
+            if not fence:
+                fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence) and not tail.strip():
+                fence = ""
+            continue
+        if not fence:
+            plain.append(line)
+    text = "\n".join(plain)
+    stack = []
+    for token in re.findall(r"\\[\[\]()]", text):
+        if token in (r"\[", r"\("):
+            stack.append(token)
+        elif not stack or stack.pop() != (r"\[" if token == r"\]" else r"\("):
+            return False
+    return bool(content.strip()) and not fence and not stack and text.count("$$") % 2 == 0
+
+
+def parse_handout_stream(text: str, section_ids: list[str], *, provider_complete: bool = False) -> dict[str, Any]:
+    """Parse checkpoints without trusting a model's end marker as provider EOF.
+
+    A previous section is complete only at the next valid section boundary.
+    The final one additionally needs the end marker AND provider completion.
+    Markers inside fenced code remain literal content.
+    """
+    completed: dict[str, str] = {}
+    fragments: dict[str, str] = {}
+    current = ""
+    body: list[str] = []
+    fence = ""
+    index = 0
+    ended = False
+    error = ""
+    if not section_ids or any(not key or re.search(r"[\s<>]", key) for key in section_ids) or len(section_ids) != len(set(section_ids)):
+        return {"completed": {}, "fragments": {}, "ended": False, "error": "invalid_section_ids"}
+    for line in text.splitlines(keepends=True):
+        stripped = line.strip()
+        if ended and stripped:
+            error = "trailing_content"
+            break
+        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r\n"))
+        if match:
+            token, tail = match.groups()
+            if not fence:
+                fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence) and not tail.strip():
+                fence = ""
+            body.append(line)
+            continue
+        marker = re.fullmatch(r"<!-- section:([^<>]+) -->", stripped) if not fence else None
+        if marker:
+            key = marker.group(1).strip()
+            if ended or index >= len(section_ids) or key != section_ids[index]:
+                error = "section_order_or_identity"
+                break
+            if current:
+                content = "".join(body).strip()
+                if not handout_structure_closed(content):
+                    error = "section_incomplete"
+                    break
+                completed[current] = content
+            elif "".join(body).strip():
+                error = "unexpected_preamble"
+                break
+            current, body = key, []
+            index += 1
+        elif not fence and stripped == "<!-- handout:end -->":
+            if ended or not current or index != len(section_ids):
+                error = "unexpected_end"
+                break
+            ended = True
+        elif ended and stripped:
+            error = "trailing_content"
+            break
+        elif not ended:
+            body.append(line)
+    if current:
+        fragments[current] = "".join(body).strip()
+    if ended and provider_complete and not error:
+        if handout_structure_closed("".join(body)):
+            completed[current] = "".join(body).strip()
+        else:
+            error = "section_incomplete"
+    if provider_complete and not ended and not error:
+        error = "missing_end"
+    unassigned = ""
+    if not current and text.strip():
+        draft_lines = []
+        draft_fence = ""
+        for line in text.splitlines(keepends=True):
+            match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r\n"))
+            if match:
+                token, tail = match.groups()
+                if not draft_fence:
+                    draft_fence = token
+                elif token[0] == draft_fence[0] and len(token) >= len(draft_fence) and not tail.strip():
+                    draft_fence = ""
+            if not draft_fence and re.match(r"^\s*<!--\s*(?:section|handout)", line):
+                continue
+            draft_lines.append(line)
+        unassigned = "".join(draft_lines).strip()
+    return {"completed": completed, "fragments": fragments, "ended": ended, "error": error, "unassigned_fragment": unassigned}
 
 _ALLOWED_ROLES = {
     "orientation",
@@ -522,179 +655,8 @@ def compile_teacher_script_module_contract(
     }
 
 
-def compile_teacher_script_shard_context(
-    contract: dict[str, Any],
-    module: dict[str, Any],
-) -> dict[str, Any]:
-    """Compile one stable block context without reading generated neighbours.
-
-    Every shard is derived only from the frozen lesson-plan contract.  Adjacent
-    identities explain the block's position and transition responsibility, but
-    their generated prose is deliberately absent so all blocks can run in the
-    same bounded-parallel wave.
-    """
-    modules = [
-        item for item in contract.get("modules") or [] if isinstance(item, dict)
-    ]
-    block_id = _text(module.get("block_id"))
-    position = next(
-        (
-            index for index, item in enumerate(modules)
-            if _text(item.get("block_id")) == block_id
-        ),
-        0,
-    )
-
-    def neighbour(index: int) -> dict[str, str] | None:
-        if index < 0 or index >= len(modules):
-            return None
-        item = modules[index]
-        return {
-            "block_id": _text(item.get("block_id")),
-            "title": _text(item.get("title")),
-            "role": _text(item.get("role")),
-            "teaching_purpose": _text(item.get("teaching_purpose")),
-        }
-
-    return {
-        "schema_version": "teacher_script_shard_context_v1",
-        "section_node_id": _text(contract.get("section_node_id")),
-        "block_id": block_id,
-        "shard_id": f"{block_id}:shard:1",
-        "sequence": position + 1,
-        "total_blocks": len(modules),
-        "previous_block": neighbour(position - 1),
-        "next_block": neighbour(position + 1),
-        "learning_objective": _text(contract.get("learning_objective")),
-        "key_points": _text_list(contract.get("key_points")),
-        "key_difficulties": _text_list(contract.get("key_difficulties")),
-        "in_class_checks": _text_list(contract.get("in_class_checks")),
-    }
 
 
-def compile_teacher_script_generation_shards(
-    lesson_unit_id: str,
-    contracts: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Pack adjacent complete teaching blocks into deterministic request shards."""
-    directory: list[dict[str, Any]] = []
-    for contract in contracts:
-        section_id = _text(contract.get("section_node_id"))
-        for module in contract.get("modules") or []:
-            if not isinstance(module, dict) or not _text(module.get("block_id")):
-                continue
-            directory.append({
-                "section_node_id": section_id,
-                "block_id": _text(module.get("block_id")),
-                "module_id": _text(module.get("module_id")),
-                "title": _text(module.get("title")),
-                "role": _text(module.get("role")),
-                "teaching_purpose": _text(module.get("teaching_purpose")),
-                "knowledge_names": _text_list(module.get("knowledge_names")),
-                "target_characters": int(module.get("target_characters") or 0),
-                "max_characters": int(module.get("max_characters") or 0),
-            })
-    if not directory:
-        return []
-
-    lesson_target = sum(item["target_characters"] for item in directory)
-    lesson_maximum = sum(item["max_characters"] for item in directory)
-    safe_single_request = (
-        lesson_target <= SCRIPT_SINGLE_REQUEST_TARGET_CHARACTERS
-        and lesson_maximum <= SCRIPT_SINGLE_REQUEST_MAX_CHARACTERS
-    )
-    groups: list[list[dict[str, Any]]] = []
-    if safe_single_request:
-        groups = [directory]
-    else:
-        current: list[dict[str, Any]] = []
-        current_target = 0
-        current_maximum = 0
-        for item in directory:
-            next_target = current_target + item["target_characters"]
-            next_maximum = current_maximum + item["max_characters"]
-            if current and (
-                next_target > SCRIPT_SHARD_TARGET_CHARACTERS
-                or next_maximum > SCRIPT_SHARD_MAX_CHARACTERS
-            ):
-                groups.append(current)
-                current = []
-                current_target = 0
-                current_maximum = 0
-            current.append(item)
-            current_target += item["target_characters"]
-            current_maximum += item["max_characters"]
-        if current:
-            groups.append(current)
-
-    lesson_objectives = [
-        {
-            "section_node_id": _text(contract.get("section_node_id")),
-            "learning_objective": _text(contract.get("learning_objective")),
-            "key_points": _text_list(contract.get("key_points")),
-            "key_difficulties": _text_list(contract.get("key_difficulties")),
-        }
-        for contract in contracts
-    ]
-    terminology = list(dict.fromkeys(
-        name
-        for item in directory
-        for name in item.get("knowledge_names") or []
-        if name
-    ))
-    result: list[dict[str, Any]] = []
-    for index, group in enumerate(groups, start=1):
-        first_position = directory.index(group[0])
-        last_position = directory.index(group[-1])
-        identity = "|".join(item["block_id"] for item in group)
-        shard_id = "tss-" + hashlib.sha1(
-            f"{lesson_unit_id}|{identity}".encode("utf-8")
-        ).hexdigest()[:12]
-        result.append({
-            "shard_id": shard_id,
-            "sequence": index,
-            "total_shards": len(groups),
-            "block_ids": [item["block_id"] for item in group],
-            "target_characters": sum(
-                item["target_characters"] for item in group
-            ),
-            "max_characters": sum(item["max_characters"] for item in group),
-            "context": {
-                "schema_version": "teacher_script_shard_context_v2",
-                "lesson_unit_id": lesson_unit_id,
-                "shard_id": shard_id,
-                "sequence": index,
-                "total_shards": len(groups),
-                "budget_mode": (
-                    "single_request" if safe_single_request else "bounded_shards"
-                ),
-                "lesson_target_characters": lesson_target,
-                "lesson_max_characters": lesson_maximum,
-                "lesson_objectives": deepcopy(lesson_objectives),
-                "block_directory": deepcopy(directory),
-                "current_block_ids": [item["block_id"] for item in group],
-                "current_responsibilities": deepcopy(group),
-                "terminology": terminology,
-                "previous_anchor": (
-                    deepcopy(directory[first_position - 1])
-                    if first_position > 0 else None
-                ),
-                "next_anchor": (
-                    deepcopy(directory[last_position + 1])
-                    if last_position + 1 < len(directory) else None
-                ),
-                "forbidden_repetition": [
-                    {
-                        "block_id": item["block_id"],
-                        "title": item["title"],
-                        "teaching_purpose": item["teaching_purpose"],
-                    }
-                    for item in directory
-                    if item["block_id"] not in {value["block_id"] for value in group}
-                ],
-            },
-        })
-    return result
 
 
 def teacher_script_blocks_to_markdown(blocks: list[dict[str, Any]]) -> str:
@@ -806,7 +768,9 @@ def normalize_teacher_script_section(
             })
     else:
         content = _text(value.get("content"))
-        blocks = parse_teacher_script_markdown(content, compiled) if has_contract else []
+        prose = compiled.get("modules") or []
+        blocks = ([{**deepcopy(prose[0]), "content": content}] if len(prose) == 1 and prose[0].get("module_id") == "handout_prose"
+                  else parse_teacher_script_markdown(content, compiled) if has_contract else [])
         if not blocks and content:
             blocks = [{
                 "block_id": _stable_block_id(

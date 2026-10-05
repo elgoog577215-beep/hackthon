@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 
 import pytest
@@ -13,7 +12,6 @@ from course_generation.service import CourseService
 from teacher_lesson_authoring import (
     TeacherLessonAuthoringRepository,
     TeacherLessonAuthoringService,
-    _quality_improves,
     generation_failure,
     validate_teacher_lesson_plan,
 )
@@ -46,9 +44,16 @@ def test_plan_recovers_in_original_job_and_publishes_once(tmp_path, failure):
         course_id="course-1", lesson_unit_id="L1-1", job_id=job["id"],
         course_data=single_section_course_data(), planner=planner,
     ))
+    assert result["status"] == "failed" and len(calls) == 1
+    resumed, changed = repo.resume_lesson_generation("course-1", job["id"], input_fingerprint="")
+    assert changed and resumed["id"] == job["id"]
+    result = asyncio.run(TeacherLessonAuthoringService(repo).run_plan_job(
+        course_id="course-1", lesson_unit_id="L1-1", job_id=job["id"],
+        course_data=single_section_course_data(), planner=planner,
+    ))
     assert result["status"] == "completed", result
     assert len(calls) == 2
-    assert result["auto_recovery"]["lesson_plan"]["retries"] == 1
+    assert not result.get("auto_recovery")
     assert len(repo.view("course-1")["jobs"]) == 1
     assert len(repo.lesson("course-1", "L1-1")["revisions"]) == 1
 
@@ -74,7 +79,7 @@ def test_plan_failure_is_bounded_and_preserves_previous_revision(tmp_path, mode)
         course_data=single_section_course_data(), planner=planner,
     ))
     assert result["status"] == "failed"
-    assert len(calls) == (3 if mode == "exhausted" else 1)
+    assert len(calls) == 1
     assert repo.lesson("course-1", "L1-1")["working_revision_id"] == old["working_revision_id"]
     if mode != "exhausted":
         assert not result["error"]["retryable"]
@@ -100,51 +105,8 @@ def test_stopping_task_during_recovery_never_restarts_it(tmp_path, status):
     assert not repo.lesson("course-1", "L1-1")["working_revision_id"]
 
 
-@pytest.mark.parametrize("first_result", ["timeout", "empty"])
-def test_script_preserves_successful_sibling_without_automatic_retry(tmp_path, first_result):
-    repo = TeacherLessonAuthoringRepository(tmp_path)
-    plan = standard_lesson_plan()
-    plan["sections"][0]["teaching_modules"].append({"module_id": "summary", "planned_minutes": 2})
-    lesson = repo.save_plan_revision("course-1", "L1-1", plan, source_outline_revision_id="outline-v1")
-    outline = {"node_id": "L2-1-1", "node_name": "函数", "module_plan": [
-        {"module_id": "core_explanation", "label": "概念"}, {"module_id": "summary", "label": "总结"},
-    ]}
-    job = repo.create_job("course-1", "L1-1", job_type="teacher_lesson_script_generation", request_id="script")
-    counts = {}
-
-    async def generator(_outline, _plan, module, _context):
-        key = module["module_id"]
-        counts[key] = counts.get(key, 0) + 1
-        assert repo.get_job("course-1", job["id"])["status"] == "running"
-        if key == "summary" and counts[key] == 1:
-            if first_result == "empty":
-                return ""
-            raise TimeoutError("model timeout")
-        return "请看函数定义：每个输入对应唯一输出。用两个输入检查对应关系，再说明它与一般关系的区别。"
-
-    result = asyncio.run(TeacherLessonAuthoringService(repo).run_script_job(
-        course_id="course-1", lesson_unit_id="L1-1", job_id=job["id"],
-        source_plan_revision_id=lesson["working_revision_id"], outline_sections=[outline],
-        plan_sections={"L2-1-1": plan["sections"][0]}, generator=generator,
-    ))
-    assert result["status"] == "failed", result
-    assert counts == {"core_explanation": 1, "summary": 1}
-    assert result["completed_blocks"] == 1
-    assert len(repo.view("course-1")["jobs"]) == 1
 
 
-def test_retry_budget_is_atomic_and_survives_repository_reload(tmp_path):
-    repo = TeacherLessonAuthoringRepository(tmp_path)
-    job = repo.create_job("course-1", "L1-1", request_id="budget")
-    error = generation_failure(TimeoutError(), "request_timeout")
-    def reserve(unit):
-        return repo.reserve_generation_retry("course-1", job["id"], unit, error)
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        assert list(pool.map(reserve, ["a", "b", "c", "d"])) == [1] * 4
-    repo = TeacherLessonAuthoringRepository(tmp_path)
-    assert set(repo.get_job("course-1", job["id"])["auto_recovery"]) == {"a", "b", "c", "d"}
-    assert reserve("a") == 2
-    assert reserve("a") == 0
 
 
 def test_auxiliary_plan_fields_are_advice_while_missing_teaching_content_blocks():
@@ -193,28 +155,3 @@ def test_old_speech_requirements_are_retired_without_hiding_content_failure():
     assert current["publication_eligible"]
     assert current["blocking_issues"] == []
     assert current["review_issues"] == []
-
-
-def test_quality_improvement_prioritizes_real_failure_over_new_advice():
-    assert _quality_improves({"blocking_issues": [], "review_issues": [{"code": "style"}]},
-                             {"blocking_issues": [{"code": "empty"}]})
-    assert not _quality_improves({"blocking_issues": [{"code": "empty"}]},
-                                 {"review_issues": [{"code": "style"}]})
-
-
-def test_optional_script_optimization_timeout_keeps_usable_draft(monkeypatch):
-    service = CourseService()
-    calls = []
-    async def model(*_, **__):
-        calls.append(True)
-        if len(calls) > 1:
-            raise TimeoutError("optional optimization timeout")
-        return "## 概念\n\n【板书】" + "函数为每个输入指定唯一输出，对应关系满足单值条件。" * 8
-    monkeypatch.setattr(service, "_call_llm", model)
-    result = asyncio.run(service.generate_teacher_script_section(
-        course_id="isolated-test", outline_section={"node_id": "s", "module_plan": [{"module_id": "core_explanation", "label": "概念"}]},
-        current_plan_section={"node_id": "s", "teaching_modules": [{"module_id": "core_explanation"}]},
-    ))
-    assert result["quality_report"]["passed"]
-    assert result["quality_report"]["review_issues"] == []
-    assert len(calls) == 1

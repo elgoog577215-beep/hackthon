@@ -36,7 +36,7 @@ from teacher_lesson_authoring import (
     teacher_lesson_v6_source,
 )
 from teacher_script import (
-    compile_teacher_script_module_contract,
+    script_contract_for_revision,
     normalize_teacher_script_section,
     teacher_script_blocks_to_markdown,
     validate_teacher_script_section,
@@ -1334,9 +1334,10 @@ def _apply_script_candidate(
         elif section_id in replacements:
             candidate_section.pop("blocks", None)
             candidate_section["content"] = str(replacements[section_id]).strip()
-        contract = compile_teacher_script_module_contract(
+        contract = script_contract_for_revision(
             outline_sections.get(section_id) or {},
             plan_sections.get(section_id) or {},
+            section,
         )
         normalized = normalize_teacher_script_section(candidate_section, contract)
         normalized["quality_report"] = validate_teacher_script_section(normalized, contract)

@@ -1023,6 +1023,7 @@
       "quickQuestionExplanationPrompt": "Improve canonical answers, step-by-step explanations, distractor analysis, and result checks"
     },
     "scriptDocument": {
+      "unassignedDraft": "Incomplete draft (section not identified)",
       "previewVersions": "Script versions",
       "savedVersion": "Saved script",
       "staleTitle": "Handout needs updating",

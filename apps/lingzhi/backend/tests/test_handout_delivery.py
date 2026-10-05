@@ -131,9 +131,9 @@ async def test_duplicate_route_reuses_frozen_job_and_interruption_retains_text(t
     gate = asyncio.Event()
     calls = []
     class Service:
-        async def generate_teacher_script_section(self, **kwargs):
+        async def generate_teacher_handout(self, **kwargs):
             calls.append(kwargs)
-            await kwargs["on_content_delta"]("没有换行的真实片段")
+            await kwargs["on_content_delta"]("<!-- section:L2-1-1 -->\n没有换行的真实片段")
             await gate.wait()
             raise asyncio.TimeoutError("provider disconnected")
     tm = SimpleNamespace(storage=SimpleNamespace(load_course=lambda _: source), course_service=Service(),
@@ -179,3 +179,36 @@ async def test_queued_handout_waits_through_rate_limit_without_a_paid_retry(monk
     assert not task.done() and not calls
     assert await asyncio.wait_for(task, 1) == "完成"
     assert len(calls) == 1
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('finish_reason', ['stop', 'length', None])
+async def test_handout_requires_provider_stop_and_keeps_received_text(monkeypatch, finish_reason):
+    from ai_base import AIProviderRequestError, AIResponseTruncated
+    monkeypatch.setenv('AI_API_KEY', 'isolated-test-key')
+    monkeypatch.setenv('AI_PROVIDER_START_INTERVAL_SECONDS', '0')
+    reset_provider_capacity_controllers()
+    ai = AIBase()
+    monkeypatch.setattr(ai, '_models_for', lambda *args: ['isolated-model'])
+    received, calls, metrics = [], [], []
+    class Stream:
+        def __aiter__(self):
+            return self.content()
+        async def content(self):
+            yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content='正文' * 100), finish_reason=None)])
+            yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=None), finish_reason=finish_reason)])
+        async def close(self):
+            pass
+    async def create(**kwargs):
+        calls.append(kwargs)
+        return Stream()
+    ai.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    async def invoke():
+        return await ai._call_llm('test', require_stop=True, reject_truncated=True, retry_count=1, max_attempts=1,
+                                  raise_on_failure=True, on_content_delta=received.append, telemetry_sink=metrics.append)
+    if finish_reason == 'stop':
+        assert await invoke() == '正文' * 100
+    else:
+        with pytest.raises((AIProviderRequestError, AIResponseTruncated)):
+            await invoke()
+    assert received == ['正文' * 100] and len(calls) == 1
+    assert metrics[0]['finish_reason'] == finish_reason
