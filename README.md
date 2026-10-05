@@ -30,11 +30,14 @@ cd 启智
 ├── deploy/
 │   ├── tuotu/            个人服务器：仅发布灵知
 │   └── zju/              学校正式服务器：启智 + 灵知
+├── changes/              跨应用开发变更、执行批次与验收条件
 ├── scripts/              仓库检查、变更分流和启智启动入口
 └── .github/workflows/    检查、构建与发布
 ```
 
 ## 开发入口
+
+- [开发变更](changes/README.md)：已确认设计的执行范围；当前准备完成的是[生成链路收敛](changes/生成链路收敛.md)，运行实现与验收尚未完成。
 
 - [灵知安装与开发](apps/lingzhi/README.md)：先 `cd apps/lingzhi` 安装依赖、建立本地 `.env`；完成后也可从仓库根运行 `./dev.sh`。前端 5173，后端 8000。
 - [启智安装与开发](apps/qizhi/README.md)：从根目录运行 `./scripts/qizhi.sh dev-web` / `dev-server`，分别使用 5174 / 8010。
