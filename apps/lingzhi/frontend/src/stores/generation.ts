@@ -181,6 +181,7 @@ const projectTaskProgress = (
 
 export const useGenerationStore = defineStore('generation', {
   state: () => ({
+    outlineResultReads: {} as Record<string, { taskId: string; status: 'loading' | 'ready' | 'failed' }>,
     tasks: new Map<string, Task>(),
     globalTasks: [] as any[],
     globalPollingTimer: null as number | null,
@@ -292,15 +293,7 @@ export const useGenerationStore = defineStore('generation', {
         case 'task_completed':
           this.handleWSProgressUpdate(message)
           if (currentTask?.taskType === 'teacher_outline_generation') {
-            const cs = this._courseStore()
-            void Promise.all([
-              cs.fetchCourseList({ surface: 'teacher' }),
-              cs.currentCourseId === message.course_id
-                ? cs.refreshGenerationPreview(message.course_id, 'teacher')
-                : Promise.resolve(false),
-            ]).catch((error) => {
-              console.error('Failed to reconcile teacher outline', error)
-            })
+            void this.reconcileTeacherOutline(message.course_id, currentTask.id)
           } else {
             void this.reconcilePublishedCourses([message.course_id]).catch((error) => {
               console.error('Failed to reconcile published course', error)
@@ -381,6 +374,10 @@ export const useGenerationStore = defineStore('generation', {
         if (payload.course_type === 'systematic' || payload.course_type === 'project'
           || payload.course_type === 'inquiry' || payload.course_type === 'exam') {
           localTask.courseType = payload.course_type
+        }
+        if (localTask.taskType === 'teacher_outline_generation'
+          && ['completed', 'completed_with_warnings'].includes(localTask.status)) {
+          void this.reconcileTeacherOutline(course_id, localTask.id)
         }
         if (
           previousStatus !== 'waiting_for_input'
@@ -695,6 +692,25 @@ export const useGenerationStore = defineStore('generation', {
             : 'idle'
       this.generationProgress = progress
       this.currentGeneratingNode = active && currentStep ? currentStep : null
+    },
+
+    async reconcileTeacherOutline(courseId: string, taskId: string) {
+      const current = this.tasks.get(courseId)
+      if (current?.id !== taskId || !['completed', 'completed_with_warnings'].includes(current.status)) return
+      const cs = this._courseStore()
+      const previous = this.outlineResultReads[courseId]
+      if (previous?.taskId === taskId && (previous.status === 'loading'
+        || (previous.status === 'ready' && (cs.currentCourseId !== courseId || cs.nodes.length > 0)))) return
+      this.outlineResultReads[courseId] = { taskId, status: 'loading' }
+      const results = await Promise.allSettled([
+        cs.fetchCourseList({ surface: 'teacher' }),
+        cs.currentCourseId === courseId ? cs.refreshGenerationPreview(courseId, 'teacher') : Promise.resolve(true),
+      ])
+      if (this.tasks.get(courseId)?.id !== taskId) return
+      this.outlineResultReads[courseId] = {
+        taskId,
+        status: results[1].status === 'fulfilled' && results[1].value ? 'ready' : 'failed',
+      }
     },
 
     async reconcilePublishedCourses(
@@ -1115,9 +1131,11 @@ export const useGenerationStore = defineStore('generation', {
             ) {
               publishedCourseIds.add(courseId)
             } else if (
-              prevStatus !== 'completed'
-              && localTask.taskType === 'teacher_outline_generation'
-              && localTask.status === 'completed'
+              localTask.taskType === 'teacher_outline_generation'
+              && ['completed', 'completed_with_warnings'].includes(localTask.status)
+              && (prevStatus !== localTask.status
+                || this.outlineResultReads[courseId]?.taskId !== localTask.id
+                || this.outlineResultReads[courseId]?.status === 'failed')
             ) {
               completedTeacherOutlineCourseIds.add(courseId)
             }
@@ -1137,13 +1155,8 @@ export const useGenerationStore = defineStore('generation', {
           await this.reconcilePublishedCourses(publishedCourseIds, currentSurface)
         }
         if (completedTeacherOutlineCourseIds.size) {
-          await cs.fetchCourseList({ surface: 'teacher' })
-          if (
-            cs.currentCourseId
-            && completedTeacherOutlineCourseIds.has(cs.currentCourseId)
-          ) {
-            await cs.refreshGenerationPreview(cs.currentCourseId, 'teacher')
-          }
+          await Promise.all([...completedTeacherOutlineCourseIds].map(courseId =>
+            this.reconcileTeacherOutline(courseId, this.tasks.get(courseId)!.id)))
         }
         if (!publishedCourseIds.size && !completedTeacherOutlineCourseIds.size && discoveredCourseIds.size) {
           await cs.fetchCourseList({ surface: currentSurface })

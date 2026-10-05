@@ -9384,9 +9384,10 @@ class TaskManager:
                     # Heartbeats carry only the active provider unit. Keep the
                     # latest persisted tree so the visible outline never shrinks.
                     next_detail["outline_growth"] = deepcopy(previous_growth)
-                elif int(next_growth.get("completed_sections") or 0) < int(
-                    previous_growth.get("completed_sections") or 0
-                ):
+                elif (next_growth.get("request_number") == previous_growth.get("request_number")
+                      and int(next_growth.get("completed_sections") or 0) < int(
+                          previous_growth.get("completed_sections") or 0
+                      )):
                     # Parallel chapter calls can report an older snapshot after
                     # another chapter saved. Preserve the monotonic tree while
                     # still following the newly active batch.

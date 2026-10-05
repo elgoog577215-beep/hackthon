@@ -341,6 +341,31 @@ describe('teacher course workbench outline streaming', () => {
     })).toContain('学生能够解释爬虫的工作流程')
   })
 
+  it('任务已保存而正文尚在加载时保留结果入口，不退回建课表单', async () => {
+    const courses = useCourseStore()
+    courses.currentCourseId = 'course-1'
+    courses.nodes = []
+    const generation = useGenerationStore()
+    const task = generation.createTask('outline-done', 'course-1', '统计学')
+    task.taskType = 'teacher_outline_generation'
+    task.status = 'completed'
+    vi.spyOn(generation, 'reconcileTeacherOutline').mockResolvedValue(undefined)
+    const wrapper = mountWorkbench()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="outline-workspace-loading"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('大纲已保存，正在载入结果')
+    expect(wrapper.find('.foundation-form').exists()).toBe(false)
+    generation.outlineResultReads['course-1'] = { taskId: 'outline-done', status: 'failed' }
+    await flushPromises()
+    expect(wrapper.text()).toContain('结果读取失败')
+    expect(wrapper.text()).toContain('重新加载结果')
+    courses.applyGenerationOutlineDraft([{ node_id: 'L1-1', node_name: '数据分析', node_level: 1 }])
+    await flushPromises()
+    expect(wrapper.find('[data-testid="inline-outline-editor"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="outline-flow-steps"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('旧检查点也只投影为讲次，不再回显章节与小节', () => {
     const task = useGenerationStore().createTask('job-1', 'course-1', 'C 语言程序设计')
     task.status = 'running'
@@ -460,17 +485,16 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.outline-workspace').exists()).toBe(false)
   })
 
-  it('新生成任务启动时不回显上一个任务的旧结构', async () => {
+  it('新任务替换已完成任务时不回显上一个任务的旧结构', async () => {
     const task = useGenerationStore().createTask('job-old', 'course-1', 'C 语言程序设计')
     task.status = 'completed'
     task.currentPhase = 'teacher_outline_ready'
     task.phaseDetail = { artifact_type: 'course_outline_growth', outline_growth: growth }
     const wrapper = mountWorkbench()
 
-    await wrapper.get('form.stage-form').trigger('submit')
+    useGenerationStore().createTask('job-new', 'course-1', 'C 语言程序设计')
     await flushPromises()
 
-    expect(wrapper.emitted('generateOutline')).toHaveLength(1)
     expect(wrapper.find('.generation-surface').exists()).toBe(true)
     expect(wrapper.find('[data-testid="outline-growth-stream"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Hello World 与编译过程')
@@ -994,7 +1018,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.stage-rail nav button.active').text()).toContain('大纲')
   })
 
-  it('后端没有大纲投影时不伪装成已生成文档', () => {
+  it('已完成任务的正文尚未返回时显示加载态，不伪装成已显示文档', () => {
     const task = useGenerationStore().createTask('job-1', 'course-1', 'C 语言程序设计')
     task.status = 'completed'
     task.currentPhase = 'teacher_outline_ready'
@@ -1002,9 +1026,9 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench()
 
-    expect(wrapper.find('[data-testid="outline-workspace"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="outline-workspace-loading"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="inline-outline-editor"]').exists()).toBe(false)
-    expect(wrapper.find('form.stage-form').exists()).toBe(true)
+    expect(wrapper.find('form.stage-form').exists()).toBe(false)
   })
 
   it('任务完成且后端存在大纲时直接展示当前文档', async () => {

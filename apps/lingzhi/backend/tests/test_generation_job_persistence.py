@@ -466,3 +466,18 @@ async def test_outline_growth_never_regresses_when_parallel_updates_arrive_out_o
 
     heartbeat_growth = manager.tasks["job-growth"]["phase_detail"]["outline_growth"]
     assert heartbeat_growth["completed_sections"] == 4
+
+
+@pytest.mark.asyncio
+async def test_outline_repair_request_replaces_previous_candidate_preview(tmp_path, monkeypatch):
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "jobs.json")
+    manager = TaskManager(storage=None, course_service=None, ws_service=None)
+    manager.tasks["job-growth"] = {
+        "id": "job-growth", "status": "running", "phase": "outline_generation",
+        "phase_detail": {"outline_growth": {"request_number": 1, "completed_sections": 6}},
+    }
+    await manager._update_phase("job-growth", "outline_generation", 33, "结构修复中",
+        phase_detail={"outline_growth": {"request_number": 2, "completed_sections": 0,
+            "course_preview": [{"field": "course_intro_zh", "text": "新的输出"}]}})
+    assert manager.tasks["job-growth"]["phase_detail"]["outline_growth"]["completed_sections"] == 0
+    assert manager.tasks["job-growth"]["phase_detail"]["outline_growth"]["request_number"] == 2

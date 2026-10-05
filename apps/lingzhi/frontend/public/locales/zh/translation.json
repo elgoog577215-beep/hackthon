@@ -479,6 +479,33 @@
     "createCourse": "创建课程"
   },
   "courseWorkbench": {
+    "outlineStream": {
+      "validating": "正在检查并保存大纲",
+      "received": "已接收 {count} 个字符，正在整理为大纲内容",
+      "parsed": "已解析 {completed}/{total} 讲",
+      "lecture": "第{number}讲",
+      "retained": "已保留收到的内容",
+      "incomplete": "本讲尚未完整",
+      "parsedLesson": "本讲已解析，整份大纲通过检查并保存后可使用",
+      "receiving": "正在接收本讲内容",
+      "notReceived": "尚未收到本讲内容",
+      "paused": "生成已暂停",
+      "cancelled": "生成已取消",
+      "failed": "生成未完成",
+      "loadingResult": "大纲已保存，正在载入结果…",
+      "loadFailed": "大纲已保存，结果读取失败，请重新加载。",
+      "reloadResult": "重新加载结果",
+      "fields": {
+        "course_intro_zh": "课程简介",
+        "positioning": "课程定位",
+        "learning_objectives": "学习目标",
+        "prerequisites": "先修要求",
+        "education_objectives": "育人目标",
+        "measurable_outcomes": "学习成果",
+        "teaching_methods": "教学方法",
+        "assessment_methods": "考核方式"
+      }
+    },
     "outlineMode": {
       "generatePlan": "生成讲次方案",
       "label": "大纲生成方式",

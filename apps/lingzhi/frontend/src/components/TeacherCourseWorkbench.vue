@@ -121,7 +121,7 @@
 
       <section v-if="showStreaming" class="generation-surface" aria-live="polite">
         <header>
-          <div><Pause v-if="generationFailed" :size="18" /><LoaderCircle v-else :size="18" class="spin" /><span><strong>{{ generationFailed ? t('courseWorkbench.contextPane.pausedStatus', '生成已暂停') : t('courseWorkbench.generating', '正在生成课程大纲') }}</strong><small v-if="!generationFailed">{{ currentGenerationLabel }}</small></span></div>
+          <div><Pause v-if="generationStopped" :size="18" /><LoaderCircle v-else :size="18" class="spin" /><span><strong>{{ generationStopped ? generationStoppedLabel : t('courseWorkbench.generating', '正在生成课程大纲') }}</strong><small v-if="!generationStopped">{{ currentGenerationLabel }}</small></span></div>
           <div v-if="generationRunning && (referenceWorkflowCanPause || referenceWorkflowCanCancel)" class="generation-header-actions">
             <button v-if="referenceWorkflowCanPause" type="button" @click="pauseReferenceWorkflow"><Pause :size="15" />{{ t('courseWorkbench.pause', '暂停') }}</button>
             <button v-if="referenceWorkflowCanCancel" type="button" :disabled="recoveryStarting" @click="cancelReferenceWorkflow"><X :size="15" />{{ t('common.cancel', '取消') }}</button>
@@ -132,6 +132,8 @@
           <OutlineGrowthStream
             v-if="outlineGrowth && !outlineLessonStatuses.length"
             :growth="outlineGrowth"
+            :mode="outlineMode"
+            :running="generationRunning"
           />
           <section
             v-if="outlineLessonStatuses.length"
@@ -169,10 +171,10 @@
               <pre v-if="lessonStatus.stream_preview && ['running', 'completed'].includes(outlineLessonStatusState(lessonStatus))" class="outline-detail-stream__preview"><MathText :content="lessonStatus.stream_preview" /><span v-if="outlineLessonStatusState(lessonStatus) === 'running'" class="stream-caret" /></pre>
             </article>
           </section>
-          <div v-if="!outlineGrowth && !outlineLessonStatuses.length && !generationFailed" class="stream-waiting"><LoaderCircle :size="20" class="spin" />{{ outlineContinuing
+          <div v-if="!outlineGrowth && !outlineLessonStatuses.length && !generationStopped" class="stream-waiting"><LoaderCircle :size="20" class="spin" />{{ outlineContinuing
             ? t('courseWorkbench.outlineFlow.continuing', '正在生成完整大纲…')
             : t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…') }}</div>
-          <div v-else-if="!outlineGrowth && !outlineLessonStatuses.length && generationFailed" class="stream-waiting stream-failed"><TriangleAlert :size="22" />{{ t('courseWorkbench.noContentGenerated', '本次没有生成课程内容，请检查提示后重试。') }}</div>
+          <div v-else-if="!outlineGrowth && !outlineLessonStatuses.length && generationStopped" class="stream-waiting stream-failed"><TriangleAlert :size="22" />{{ t('courseWorkbench.noContentGenerated', '本次没有生成课程内容，请检查提示后重试。') }}</div>
         </article>
       </section>
 
@@ -188,8 +190,12 @@
           data-testid="outline-workspace-loading"
           aria-live="polite"
         >
-          <LoaderCircle :size="20" class="spin" />
-          {{ t('courseWorkbench.outlineFlow.loadingEditablePlan', '正在载入可编辑讲次方案…') }}
+          <TriangleAlert v-if="outlineResultReadFailed" :size="20" />
+          <LoaderCircle v-else :size="20" class="spin" />
+          {{ outlineTaskCompleted
+            ? t(`courseWorkbench.outlineStream.${outlineResultReadFailed ? 'loadFailed' : 'loadingResult'}`)
+            : t('courseWorkbench.outlineFlow.loadingEditablePlan', '正在载入可编辑讲次方案…') }}
+          <button v-if="outlineResultReadFailed" type="button" @click="reloadOutlineResult">{{ t('courseWorkbench.outlineStream.reloadResult') }}</button>
         </div>
         <CourseOutlineReview
           v-else
@@ -1930,8 +1936,19 @@ const generationFailed = computed(() => generationTask.value
   ? ['error', 'failed', 'conflict'].includes(taskStatus.value)
   : generationStore.generationStatus === 'error')
 const generationRunning = computed(() => taskInFlight.value)
+const generationStopped = computed(() => ['paused', 'failed', 'error', 'cancelled', 'conflict'].includes(taskStatus.value))
+const generationStoppedLabel = computed(() => t(`courseWorkbench.outlineStream.${taskStatus.value === 'paused' ? 'paused' : taskStatus.value === 'cancelled' ? 'cancelled' : 'failed'}`))
+const outlineTaskCompleted = computed(() => ['completed', 'completed_with_warnings'].includes(taskStatus.value))
+const outlineResultReadFailed = computed(() => {
+  const read = generationStore.outlineResultReads[props.courseId]
+  return read?.taskId === generationTask.value?.id && read?.status === 'failed'
+})
+function reloadOutlineResult() {
+  if (generationTask.value?.id) void generationStore.reconcileTeacherOutline(props.courseId, generationTask.value.id)
+}
 const showStreaming = computed(() => activeStage.value === 'foundation'
-  && (generationRequested.value || outlineContinuing.value || taskInFlight.value))
+  && (generationRequested.value || outlineContinuing.value || taskInFlight.value
+    || (generationStopped.value && (outlineGrowth.value || !hasOutline.value))))
 const hasOutline = computed(() => courseStore.nodes.some(node => Number(node.node_level || 0) <= 2))
 const freshOutlineGenerationStarting = computed(() => generationRequested.value
   && !taskInFlight.value
@@ -2004,8 +2021,8 @@ const outlineAwaitingContinuation = computed(() => activeStage.value === 'founda
   && (outlineFrameworkReady.value || productionState.value?.stages.outline.task_state === 'waiting_for_input'))
 const showOutlineWorkspace = computed(() => activeStage.value === 'foundation'
   && !showStreaming.value
-  && (hasOutline.value || editingOutline.value || outlineFrameworkReady.value))
-const outlineWorkspaceHydrating = computed(() => outlineFrameworkReady.value && !hasOutline.value)
+  && (hasOutline.value || editingOutline.value || outlineFrameworkReady.value || outlineTaskCompleted.value))
+const outlineWorkspaceHydrating = computed(() => (outlineFrameworkReady.value || outlineTaskCompleted.value) && !hasOutline.value)
 const outlineDetailsStarted = computed(() => {
   const requested = generationTask.value?.outlineDetailRequested
   if (typeof requested === 'boolean') return requested
@@ -2095,7 +2112,7 @@ const outlineRegenerationAvailable = computed(() => Boolean(
     : courseWorkspaceStore.blueprint?.has_unconfirmed_draft),
 ))
 const outlineFlowStep = computed<1 | 2 | 3>(() => {
-  if (outlineContinuing.value || outlineDetailsStarted.value || outlineFullReady.value
+  if (outlineContinuing.value || outlineDetailsStarted.value || outlineFullReady.value || outlineTaskCompleted.value
     || (outlineMode.value === 'full' && taskInFlight.value && !outlineWaitingForInput.value
       && generationTask.value?.currentPhase !== 'outline_skeleton_generation')) return 3
   if (hasOutline.value || taskInFlight.value || outlineWaitingForInput.value) return 2
@@ -4690,6 +4707,9 @@ watch([() => props.courseId, activeStage], ([courseId, stage]) => {
   if (courseId && stage === 'question-bank') void loadQuestionBankStatus()
 }, { immediate: true })
 watch(taskStatus, status => { if (!['pending', 'running'].includes(status)) generationRequested.value = false })
+watch([() => props.courseId, () => generationTask.value?.id, outlineTaskCompleted], ([, , completed]) => {
+  if (completed) reloadOutlineResult()
+}, { immediate: true })
 onMounted(() => {
   try {
     const storedWidth = Number(window.localStorage.getItem(AI_PANE_STORAGE_KEY))

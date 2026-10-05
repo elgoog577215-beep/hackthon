@@ -479,6 +479,33 @@
     "createCourse": "Create course"
   },
   "courseWorkbench": {
+    "outlineStream": {
+      "validating": "Checking and saving the outline",
+      "received": "Received {count} characters; assembling the outline",
+      "parsed": "Parsed {completed}/{total} lectures",
+      "lecture": "Lecture {number}",
+      "retained": "Received content preserved",
+      "incomplete": "This lecture is incomplete",
+      "parsedLesson": "Lecture parsed; available after the full outline is checked and saved",
+      "receiving": "Receiving this lecture",
+      "notReceived": "No content received for this lecture yet",
+      "paused": "Generation paused",
+      "cancelled": "Generation cancelled",
+      "failed": "Generation incomplete",
+      "loadingResult": "Outline saved. Loading the result…",
+      "loadFailed": "The outline is saved, but could not be loaded. Please reload the result.",
+      "reloadResult": "Reload result",
+      "fields": {
+        "course_intro_zh": "Course introduction",
+        "positioning": "Course focus",
+        "learning_objectives": "Learning objectives",
+        "prerequisites": "Prerequisites",
+        "education_objectives": "Educational objectives",
+        "measurable_outcomes": "Learning outcomes",
+        "teaching_methods": "Teaching methods",
+        "assessment_methods": "Assessment methods"
+      }
+    },
     "outlineMode": {
       "generatePlan": "Generate lecture plan",
       "label": "Outline generation",

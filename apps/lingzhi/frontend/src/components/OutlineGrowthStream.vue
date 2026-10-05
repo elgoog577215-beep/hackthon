@@ -14,6 +14,13 @@
       <span>{{ progressLabel }}</span>
     </header>
 
+    <p v-if="receivedChars" class="growth-received">{{ t('courseWorkbench.outlineStream.received').replace('{count}', String(receivedChars)) }}</p>
+    <div v-if="coursePreview.length" class="growth-course-preview" data-testid="outline-course-stream">
+      <section v-for="field in coursePreview" :key="field.field">
+        <strong>{{ t(`courseWorkbench.outlineStream.fields.${field.field}`) }}</strong>
+        <p><MathText :content="field.text" /></p>
+      </section>
+    </div>
     <div class="growth-lessons">
       <article
         v-for="(lesson, index) in lessons"
@@ -25,7 +32,7 @@
         <header>
           <span class="lesson-index">
             <Check v-if="lesson.status === 'completed'" :size="14" />
-            <LoaderCircle v-else-if="lesson.status === 'growing'" :size="15" class="spin" />
+            <LoaderCircle v-else-if="lesson.status === 'growing' && running" :size="15" class="spin" />
             <span v-else>{{ String(lesson.number).padStart(2, '0') }}</span>
           </span>
           <div>
@@ -55,9 +62,13 @@ type GrowthLesson = {
 const props = withDefaults(defineProps<{
   growth?: Record<string, any> | null
   reviewReady?: boolean
+  running?: boolean
+  mode?: 'full' | 'plan_first'
 }>(), {
   growth: null,
   reviewReady: false,
+  running: true,
+  mode: 'plan_first',
 })
 
 function plainLectureTitle(value: unknown) {
@@ -66,6 +77,10 @@ function plainLectureTitle(value: unknown) {
     .trim()
 }
 
+const receivedChars = computed(() => Number(props.growth?.streamed_content_chars || 0))
+const coursePreview = computed(() => (Array.isArray(props.growth?.course_preview) ? props.growth!.course_preview : [])
+  .filter((field: any) => typeof field?.field === 'string' && typeof field?.text === 'string'))
+const fullGeneration = computed(() => props.mode === 'full' || props.growth?.state === 'full_growing')
 const lessons = computed<GrowthLesson[]>(() => {
   const projected = Array.isArray(props.growth?.chapters)
     ? props.growth!.chapters as Record<string, any>[]
@@ -92,7 +107,7 @@ const lessons = computed<GrowthLesson[]>(() => {
     return {
       id: String(rawLesson.lesson_id || rawLesson.node_id || `lesson-${number}`),
       number,
-      title: `第${number}讲 ${plainLectureTitle(rawLesson.title).replace('正在生成本讲主题…', '')}`.trim(),
+      title: `${t('courseWorkbench.outlineStream.lecture').replace('{number}', String(number))} ${plainLectureTitle(rawLesson.title).replace('正在生成本讲主题…', '')}`.trim(),
       detail: String(rawLesson.content_summary || rawLesson.learning_focus || ''),
       status,
     }
@@ -107,7 +122,9 @@ const summaryTitle = computed(() => {
   if (props.reviewReady || growthState.value === 'completed') {
     return t('courseWorkbench.outlineReady', '课程大纲已生成')
   }
-  if (growthState.value === 'detailing') {
+  if (!props.running) return t('courseWorkbench.outlineStream.retained')
+  if (growthState.value === 'validating') return t('courseWorkbench.outlineStream.validating')
+  if (fullGeneration.value || growthState.value === 'detailing') {
     return t(
       'courseWorkbench.outlineDetailGenerating',
       '正在生成完整课程大纲',
@@ -122,6 +139,10 @@ const summaryTitle = computed(() => {
   )
 })
 const progressLabel = computed(() => {
+  if (fullGeneration.value && !props.reviewReady && growthState.value !== 'completed') {
+    return t('courseWorkbench.outlineStream.parsed')
+      .replace('{completed}', String(completedLectures.value)).replace('{total}', String(lessons.value.length))
+  }
   if (!['detailing', 'completed'].includes(growthState.value)) {
     const completed = ['skeleton_ready', 'framework_ready'].includes(growthState.value)
       ? lessons.value.length
@@ -136,6 +157,8 @@ const progressLabel = computed(() => {
 })
 
 function lessonStateLabel(lesson: GrowthLesson) {
+  if (lesson.status !== 'completed' && !props.running) return t('courseWorkbench.outlineStream.incomplete')
+  if (fullGeneration.value) return t(`courseWorkbench.outlineStream.${lesson.status === 'completed' ? 'parsedLesson' : lesson.status === 'growing' ? 'receiving' : 'notReceived'}`)
   if (lesson.status === 'growing') {
     return t('courseWorkbench.outlineFlow.lessonRunning', '正在生成')
   }
@@ -150,6 +173,7 @@ function lessonStateLabel(lesson: GrowthLesson) {
 
 function lessonDisplayDetail(lesson: GrowthLesson) {
   const lightPlanComplete = ['skeleton_ready', 'framework_ready'].includes(growthState.value)
+  if (lesson.detail) return lesson.detail
   if (lesson.status !== 'completed' && !lightPlanComplete) {
     return lessonStateLabel(lesson)
   }
@@ -158,5 +182,7 @@ function lessonDisplayDetail(lesson: GrowthLesson) {
 </script>
 
 <style scoped>
-.outline-growth-stream{display:grid;gap:18px}.growth-summary{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:2px 0 16px;border-bottom:1px solid #e7ebf2}.growth-summary>div{display:grid;gap:4px}.growth-summary strong{color:#263147;font-size:14px}.growth-summary small{color:#64748b;font-size:12px}.growth-summary>span{min-width:68px;padding:6px 9px;border-radius:7px;color:#4338ca;background:#eef0ff;font-size:12px;font-weight:800;text-align:center}.growth-lessons{display:grid;gap:12px}.growth-lesson{overflow:hidden;border:1px solid #e1e7f0;border-radius:11px;background:#fff;animation:growth-in .32s ease both;animation-delay:calc(var(--growth-order) * 35ms)}.growth-lesson>header{min-height:62px;display:grid;grid-template-columns:30px minmax(0,1fr);align-items:center;gap:11px;padding:11px 14px}.lesson-index{width:28px;height:28px;display:grid;place-items:center;border-radius:50%;color:#64748b;background:#f1f5f9;font-size:10px;font-weight:800}.growth-lesson[data-state="completed"] .lesson-index{color:#047857;background:#ecfdf5}.growth-lesson[data-state="growing"] .lesson-index{color:#4f46e5;background:#eef2ff}.growth-lesson>header>div{min-width:0;display:grid;gap:3px}.growth-lesson>header strong{overflow:hidden;color:#263147;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.growth-lesson>header small{overflow:hidden;color:#64748b;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@keyframes growth-in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.growth-received{margin:0;color:#64748b;font-size:15px}.growth-course-preview{display:grid;gap:16px}.growth-course-preview strong{color:#263147;font-size:15px}.growth-course-preview p{margin:6px 0 0;white-space:pre-wrap;line-height:1.7;font-size:15px;color:#475569}
+
+.outline-growth-stream{display:grid;gap:18px}.growth-summary{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:2px 0 16px;border-bottom:1px solid #e7ebf2}.growth-summary>div{display:grid;gap:4px}.growth-summary strong{color:#263147;font-size:14px}.growth-summary small{color:#64748b;font-size:12px}.growth-summary>span{min-width:68px;padding:6px 9px;border-radius:7px;color:#4338ca;background:#eef0ff;font-size:12px;font-weight:800;text-align:center}.growth-lessons{display:grid;gap:12px}.growth-lesson{overflow:hidden;border:1px solid #e1e7f0;border-radius:11px;background:#fff;animation:growth-in .32s ease both;animation-delay:calc(var(--growth-order) * 35ms)}.growth-lesson>header{min-height:62px;display:grid;grid-template-columns:30px minmax(0,1fr);align-items:center;gap:11px;padding:11px 14px}.lesson-index{width:28px;height:28px;display:grid;place-items:center;border-radius:50%;color:#64748b;background:#f1f5f9;font-size:10px;font-weight:800}.growth-lesson[data-state="completed"] .lesson-index{color:#047857;background:#ecfdf5}.growth-lesson[data-state="growing"] .lesson-index{color:#4f46e5;background:#eef2ff}.growth-lesson>header>div{min-width:0;display:grid;gap:3px}.growth-lesson>header strong{overflow:hidden;color:#263147;font-size:15px;text-overflow:ellipsis;white-space:normal}.growth-lesson>header small{overflow:hidden;color:#64748b;font-size:15px;text-overflow:ellipsis;white-space:pre-wrap}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@keyframes growth-in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
 </style>

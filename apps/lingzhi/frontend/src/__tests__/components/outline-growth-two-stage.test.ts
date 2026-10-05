@@ -1,5 +1,7 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { setLocale } from '@/shared/i18n'
+import zhMessages from '../../../public/locales/zh/translation.json'
 import OutlineGrowthStream from '@/components/OutlineGrowthStream.vue'
 
 const lecture = (
@@ -18,15 +20,33 @@ const lecture = (
   sections: [],
 })
 
-describe('OutlineGrowthStream two-stage teacher outline', () => {
-  it('完整内容仍在自动优化时不会提前显示已生成', () => {
+describe('OutlineGrowthStream teacher outline', () => {
+  beforeEach(async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => zhMessages })))
+    await setLocale('zh')
+  })
+  it('整份生成展示未闭合内容和真实接收量，不冒充已保存', () => {
     const wrapper = mount(OutlineGrowthStream, { props: {
-      reviewReady: true,
-      growth: { state: 'optimizing', chapters: [lecture(1, '论点与证据', 'completed', 1)] },
+      mode: 'full',
+      growth: { state: 'full_growing', streamed_content_chars: 120,
+        course_preview: [{ field: 'course_intro_zh', text: '从真实问题开始分析' }],
+        chapters: [lecture(1, '数据分析', 'growing', 0, '能识别数据中的')],
+      },
     } })
-    expect(wrapper.text()).toContain('正在自动优化大纲并复审')
-    expect(wrapper.text()).toContain('正在检查最终内容')
+    expect(wrapper.text()).toContain('正在生成完整课程大纲')
+    expect(wrapper.text()).toContain('从真实问题开始分析')
+    expect(wrapper.text()).toContain('能识别数据中的')
+    expect(wrapper.text()).toContain('已接收 120 个字符')
+    expect(wrapper.text()).toContain('已解析 0/1 讲')
     expect(wrapper.text()).not.toContain('课程大纲已生成')
+  })
+  it('暂停保留部分内容并停止吐字动画', () => {
+    const wrapper = mount(OutlineGrowthStream, { props: { running: false, mode: 'full',
+      growth: { chapters: [lecture(1, '数据分析', 'growing', 0, '已收到的片段')] },
+    } })
+    expect(wrapper.text()).toContain('已收到的片段')
+    expect(wrapper.text()).toContain('已保留收到的内容')
+    expect(wrapper.find('.spin').exists()).toBe(false)
   })
   it('轻量方案生成时逐讲显示已返回内容和真实状态', () => {
     const wrapper = mount(OutlineGrowthStream, {

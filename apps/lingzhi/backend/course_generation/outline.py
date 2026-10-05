@@ -690,11 +690,32 @@ def project_streamed_teacher_outline_growth(
     topic: str,
     lecture_count: int,
 ) -> dict[str, Any]:
-    """Project complete streamed lecture objects without accepting partial JSON.
+    """Show received text while counting only structurally complete lectures.
 
-    The projection is display-only. The formal outline is still accepted only
-    after the provider response closes, parses and passes the full validator.
+    Partial values are display-only; they never become accepted outline data.
     """
+    from pydantic_core import from_json
+
+    try:
+        preview = from_json(content, allow_partial="trailing-strings")
+    except ValueError:
+        preview = {}
+    if not isinstance(preview, dict):
+        preview = {}
+    preview_lectures = preview.get("lectures")
+    if not isinstance(preview_lectures, list):
+        preview_lectures = []
+    visible_fields = (
+        "course_intro_zh", "positioning", "learning_objectives", "prerequisites",
+        "education_objectives", "measurable_outcomes", "teaching_methods", "assessment_methods",
+    )
+    course_preview = []
+    for field in visible_fields:
+        value = preview.get(field)
+        texts = [value] if isinstance(value, str) else value if isinstance(value, list) else []
+        text = "\n".join(item for item in texts if isinstance(item, str) and item.strip())
+        if text:
+            course_preview.append({"field": field, "text": text})
     expected_count = max(1, int(lecture_count or 0))
     raw_lectures = _completed_stream_array_items(
         content,
@@ -718,6 +739,13 @@ def project_streamed_teacher_outline_growth(
             if index <= completed
             else {}
         )
+        unfinished = preview_lectures[index - 1] if index <= len(preview_lectures) else {}
+        if not isinstance(unfinished, dict) or unfinished.get("lecture_number") != index:
+            unfinished = {}
+        # Do not count an open object as complete, even when its title is readable.
+        if index > completed:
+            generated = {key: value for key, value in unfinished.items()
+                         if key in {"title", "content_summary", "learning_objective"} and isinstance(value, str)}
         chapters.append({
             "chapter_number": index,
             "title": str(generated.get("title") or "正在生成本讲主题…"),
@@ -755,6 +783,7 @@ def project_streamed_teacher_outline_growth(
         "completed_sections": completed,
         "total_sections": expected_count,
         "streamed_content_chars": len(content),
+        "course_preview": course_preview,
         "chapters": chapters,
     }
 

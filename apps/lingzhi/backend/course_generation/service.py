@@ -5617,7 +5617,8 @@ class CourseService(AIBase):
                         "".join(chunks), topic=topic,
                         lecture_count=int((brief.get("course_shape_constraints") or {}).get("chapter_count") or 1),
                     )
-                    growth["state"] = "framework_growing" if scope == "plan" else "growing"
+                    growth["state"] = "framework_growing" if scope == "plan" else "full_growing"
+                    growth["request_number"] = int(stage.get("model_call_count") or 0)
                     await self._notify_phase(on_phase, phase, 33, message, phase_detail={
                         "artifact_type": "course_outline", "outline_growth": growth,
                         "model_call_count": int(stage.get("model_call_count") or 0),
@@ -5651,6 +5652,15 @@ class CourseService(AIBase):
                 # Save the returned candidate before assembly/publication. A failed
                 # publication can resume this response without another model call.
                 await persist()
+            growth = project_streamed_teacher_outline_growth(
+                response, topic=topic,
+                lecture_count=int((brief.get("course_shape_constraints") or {}).get("chapter_count") or 1),
+            )
+            growth.update(state="validating", request_number=int(stage.get("model_call_count") or 0))
+            await self._notify_phase(on_phase, phase, 80, "正在检查并保存大纲", phase_detail={
+                "artifact_type": "course_outline", "outline_growth": growth,
+                "generation_step": "validating", "model_call_count": int(stage.get("model_call_count") or 0),
+            })
             payload = self._extract_json(response)
             if not isinstance(payload, dict):
                 payload = {}

@@ -239,6 +239,64 @@ describe('course generation lifecycle reconciliation', () => {
     expect(refreshList).toHaveBeenCalledWith({ surface: 'teacher' })
   })
 
+  it('普通进度消息完成教师大纲也刷新正文，后续完成事件不重复读取', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    courses.currentCourseId = 'outline-course'
+    const task = generation.createTask('outline-job', 'outline-course', '统计学')
+    task.taskType = 'teacher_outline_generation'
+    task.status = 'running'
+    const refresh = vi.spyOn(courses, 'refreshGenerationPreview').mockImplementation(async () => {
+      courses.nodes = [{ node_id: 'lecture-1', node_level: 1 }] as any
+      return true
+    })
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    generation.handleWSMessage({ type: 'progress_update', course_id: 'outline-course', task_id: 'outline-job',
+      payload: { status: 'completed', progress: 100, phase: 'teacher_outline_ready' } })
+    await flushPromises()
+    expect(refresh).toHaveBeenCalledWith('outline-course', 'teacher')
+    expect(generation.outlineResultReads['outline-course']?.status).toBe('ready')
+    generation.handleWSMessage({ type: 'task_completed', course_id: 'outline-course', task_id: 'outline-job',
+      payload: { status: 'completed', progress: 100 } })
+    await flushPromises()
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('后台完成后进入课程仍读取正文，不能被后台成功缓存拦住', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    courses.currentCourseId = 'other-course'
+    const task = generation.createTask('outline-job', 'outline-course', '统计学')
+    task.taskType = 'teacher_outline_generation'
+    task.status = 'completed'
+    const refresh = vi.spyOn(courses, 'refreshGenerationPreview').mockResolvedValue(false)
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    await generation.reconcileTeacherOutline('outline-course', 'outline-job')
+    expect(refresh).not.toHaveBeenCalled()
+    courses.currentCourseId = 'outline-course'
+    courses.nodes = []
+    await generation.reconcileTeacherOutline('outline-course', 'outline-job')
+    expect(refresh).toHaveBeenCalledWith('outline-course', 'teacher')
+    expect(generation.outlineResultReads['outline-course']?.status).toBe('failed')
+  })
+
+  it('教师结果读取失败可重读，不重跑生成', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    courses.currentCourseId = 'outline-course'
+    const task = generation.createTask('outline-job', 'outline-course', '统计学')
+    task.taskType = 'teacher_outline_generation'
+    task.status = 'completed'
+    const refresh = vi.spyOn(courses, 'refreshGenerationPreview').mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    await generation.reconcileTeacherOutline('outline-course', 'outline-job')
+    expect(generation.outlineResultReads['outline-course']?.status).toBe('failed')
+    await generation.reconcileTeacherOutline('outline-course', 'outline-job')
+    expect(generation.outlineResultReads['outline-course']?.status).toBe('ready')
+    expect(refresh).toHaveBeenCalledTimes(2)
+    expect(task.status).toBe('completed')
+  })
+
   it('教师大纲完成只刷新教师投影而不伪装成学生课程发布', async () => {
     const generation = useGenerationStore()
     const courses = useCourseStore()

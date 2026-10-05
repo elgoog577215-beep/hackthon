@@ -247,7 +247,7 @@ def test_streamed_teacher_outline_projects_only_complete_lecture_objects():
     assert growth["chapters"][1]["learning_focus"] == (
         "能用图表与统计量描述数据{而不误导}"
     )
-    assert growth["chapters"][2]["title"] == "正在生成本讲主题…"
+    assert growth["chapters"][2]["title"] == "概率基础"
 
 
 def test_teacher_outline_request_timeout_is_bounded_and_configurable(
@@ -1468,3 +1468,20 @@ def test_full_term_course_may_still_claim_completeness():
     assert "outline_skeleton:unsupported_completeness_claim" not in {
         issue["code"] for issue in report["issues"]
     }
+
+
+def test_outline_stream_shows_received_course_text_before_any_complete_lecture():
+    text = '{"course_intro_zh":"从观察问题开始，逐步建立'
+    growth = project_streamed_teacher_outline_growth(text, topic="统计学", lecture_count=2)
+    assert growth["course_preview"] == [{"field": "course_intro_zh", "text": "从观察问题开始，逐步建立"}]
+    assert growth["completed_sections"] == 0
+    assert growth["streamed_content_chars"] == len(text)
+
+
+def test_outline_stream_partial_text_does_not_publish_or_expose_internal_fields():
+    text = '{"reasoning":"PRIVATE","schema_version":"v1","lectures":[{"lecture_number":1,"learning_objective":"能解释\\n数据中的\\"'
+    growth = project_streamed_teacher_outline_growth(text, topic="统计学", lecture_count=2)
+    assert growth["completed_sections"] == 0
+    assert growth["chapters"][0]["status"] == "growing"
+    assert growth["chapters"][0]["learning_focus"].startswith("能解释")
+    assert "PRIVATE" not in str(growth)
