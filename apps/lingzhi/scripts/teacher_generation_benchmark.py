@@ -1,4 +1,4 @@
-"""Compare teacher generation with isolated data and one/four concurrent samples."""
+"""Measure the existing teacher generation service with isolated synthetic data."""
 import argparse
 import asyncio
 import json
@@ -16,11 +16,20 @@ def main():
     parser.add_argument("--env-file", type=Path, required=True)
     parser.add_argument("--mock", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--stage", choices=("handout", "outline"), default="handout")
+    parser.add_argument("--case", default="statistics_basic")
+    parser.add_argument("--runs", type=int, default=3)
     args = parser.parse_args()
+    if args.runs < 1:
+        parser.error("--runs must be positive")
+    if args.stage == "outline" and args.mock:
+        parser.error("Outline request-count mocks are covered by backend tests; omit --mock for model evaluation")
+    if args.output.resolve().is_relative_to(args.app_root.resolve()):
+        parser.error("Save generated benchmark output outside the repository")
     from dotenv import load_dotenv
     load_dotenv(args.env_file, override=True)
     for key in ("MODELSCOPE_API_KEY", "MODELSCOPE_BASE_URL", "MODELSCOPE_MODEL", "MODELSCOPE_MODEL_CANDIDATES", "MODELSCOPE_MODEL_FAST_CANDIDATES"):
-        os.environ.pop(key, None)
+        os.environ[key] = ""
     logging.disable(logging.CRITICAL)
     with tempfile.TemporaryDirectory(prefix="teacher-benchmark-") as isolated:
         os.environ["LINGZHI_DATA_DIR"] = isolated
@@ -68,11 +77,49 @@ def main():
             return {"concurrency":count, "seconds":round(time.monotonic()-start, 3),
                     "model_call_count":requests, "samples":samples}
         async def run():
-            return [await measure(1), await measure(4)]
+            if args.stage == "handout":
+                return [await measure(1), await measure(4)]
+            fixture = args.app_root / "docs/评测/课程与课件样例/生成链路收敛/固定输入.json"
+            cases = json.loads(fixture.read_text())["cases"]
+            case = next((item for item in cases if item["case_id"] == args.case), None)
+            if case is None:
+                raise ValueError("Unknown evaluation case")
+            rows = []
+            for index in range(args.runs):
+                service = CourseService()
+                latest = {}
+                started = time.monotonic()
+                try:
+                    result = await service.build_course_draft(
+                        course_id=f"outline-benchmark-{index}", topic=case["title"],
+                        target_audience=case["audience"],
+                        requirements=case["source_text"] + "\n" + "\n".join(case["requirements"]),
+                        teacher_course_brief={"lecture_count": case["lesson_count"],
+                            "total_class_hours": case["lesson_count"], "course_period_minutes": 45,
+                            "target_audience": case["audience"], "teaching_context": "classroom"},
+                        stop_after_outline=True, on_checkpoint=lambda item: latest.update(item),
+                    )
+                    status, error_type = "completed", ""
+                except Exception as error:
+                    result = latest
+                    status, error_type = "failed", type(error).__name__
+                stage = (result.get("generation_stage_artifacts") or {}).get("outline") or {}
+                rows.append({"run": index + 1, "case_id": args.case,
+                    "status": status, "error_type": error_type,
+                    "seconds": round(time.monotonic() - started, 3),
+                    "model_call_count": stage.get("model_call_count", 0),
+                    "repair_count": stage.get("repair_count", 0),
+                    "metrics": stage.get("request_metrics") or [],
+                    "issues": (stage.get("validation_report") or {}).get("issues") or [],
+                    "result": result})
+            return rows
         results = asyncio.run(run())
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps({"mock":args.mock,"runs":results}, ensure_ascii=False, indent=2))
-    print(json.dumps({"mock":args.mock,"runs":[{**r,"samples":[{k:v for k,v in s.items() if k!='content'} for s in r['samples']]} for r in results]}, ensure_ascii=False))
+    if args.stage == "outline":
+        print(json.dumps({"stage": "outline", "runs": [{k: v for k, v in row.items() if k != "result"} for row in results]}, ensure_ascii=False))
+    else:
+        print(json.dumps({"mock":args.mock,"runs":[{**r,"samples":[{k:v for k,v in s.items() if k!='content'} for s in r['samples']]} for r in results]}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

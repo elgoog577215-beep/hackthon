@@ -446,6 +446,11 @@ def _teacher_outline_result_ready(course_data: Any) -> bool:
         or {}
     )
     strategy = str(outline_stage.get("strategy") or "")
+    if strategy == "teacher_complete_outline" and (
+        outline_stage.get("status") != "completed"
+        or not (outline_stage.get("validation_report") or {}).get("passed")
+    ):
+        return False
     if strategy in {
         "teacher_framework_then_detail_batches",
         "teacher_framework_then_lecture_tasks",
@@ -2015,15 +2020,17 @@ class TaskManager:
                 "course_contract_failure_reason",
             ):
                 outline_stage.pop(key, None)
+        for key in ("response", "response_scope", "validated_plan", "validation_report", "repair_count", "repair_issues", "repair_candidate"):
+            outline_stage.pop(key, None)
         outline_stage.update({
             "status": "framework_ready",
-            "strategy": "teacher_framework_then_lecture_tasks",
+            "strategy": "teacher_complete_outline",
             "skeleton": skeleton,
             "skeleton_revision_id": skeleton.get("revision_id"),
             "skeleton_validation_report": report,
             "chapter_count": len(lectures),
             "section_count": len(lectures),
-            "detail_batch_size": 1,
+            "shape_confirmed": True,
         })
         compiled.setdefault("generation_stage_artifacts", {})[
             "outline"
@@ -2126,9 +2133,9 @@ class TaskManager:
                 "artifact_type": "course_outline",
                 "status": "pending",
                 "stage": "outline_detail_generation",
-                "message": "已开始按讲生成完整大纲",
+                "message": "已开始生成完整大纲",
             }
-            task["message"] = "已开始按讲生成完整大纲"
+            task["message"] = "已开始生成完整大纲"
             task["outline_detail_requested"] = True
             task["error"] = None
             task["error_detail"] = None
@@ -7466,6 +7473,7 @@ class TaskManager:
 
             stop_after_skeleton = bool(
                 is_teacher_outline
+                and request.get("outline_mode", "full") == "plan_first"
                 and not task.get("outline_detail_requested")
             )
             stop_after_outline = bool(

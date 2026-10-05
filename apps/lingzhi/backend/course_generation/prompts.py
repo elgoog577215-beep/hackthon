@@ -24,11 +24,67 @@ from course_knowledge_base import (
     course_knowledge_base_prompt_context,
 )
 from course_pedagogy import SubjectPedagogyProfile, module_block_role
+from course_generation.outline import course_coverage_verdict
 from teaching_design import (
     format_generation_teaching_guidance,
 )
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v32"
+PROMPT_CONTRACT_VERSION = "course_prompt_v33"
+
+TEACHER_OUTLINE_COMPLETE_SCHEMA = {'schema_version': 'teacher_outline_complete_v1',
+ 'course_intro_zh': '中文课程简介',
+ 'course_intro_en': '与中文语义对应的英文简介',
+ 'positioning': '学习对象、课程边界与最终能力',
+ 'learning_objectives': ['可观察的学习目标'],
+ 'prerequisites': ['必要先修要求'],
+ 'education_objectives': ['与真实课程内容相关的育人目标'],
+ 'measurable_outcomes': ['可测量学习成果'],
+ 'outcome_alignment': [{'outcome_number': 1,
+                        'objective_refs': ['学习目标1'],
+                        'lecture_numbers': [1],
+                        'assessment_evidence': ['可检查证据'],
+                        'coverage_scope': '内容范围'}],
+ 'teaching_methods': ['授课方式'],
+ 'assessment_methods': ['考核方式摘要'],
+ 'assessment_plan': [{'item': '考核项目',
+                      'category': 'formative|summative',
+                      'weight_percent': 50,
+                      'criteria': '评分标准',
+                      'outcome_numbers': [1]}],
+ 'course_modules': [{'module_id': 'M1', 'title': '知识模块', 'lecture_numbers': [1]}],
+ 'ideology_cases': [],
+ 'reference_books': [],
+ 'reference_websites': [],
+ 'course_website': '',
+ 'course_title': '课程名称',
+ 'lectures': [{'lecture_number': 1,
+               'learning_objective': '本讲结束后学生能够完成的可观察目标',
+               'scope_boundary': '本讲负责讲到哪里，不提前替代哪些后续内容',
+               'hour_breakdown': {'classroom_lecture': 1,
+                                  'classroom_practice': 1,
+                                  'online_instruction': 0},
+               'key_points': ['教学重点'],
+               'key_difficulties': ['教学难点'],
+               'activities': ['主要教学活动'],
+               'homework': ['课后任务'],
+               'application_anchors': ['案例、问题、例题、实验或项目情境'],
+               'extension_resources': [{'resource_type': 'book|article|standard|regulation|dataset|video|website|other',
+                                        'title': '资源名称',
+                                        'edition': '已确认的版本；不适用则留空',
+                                        'locator': '章、节或已核验页码',
+                                        'source_ref': '与课程参考资料完全一致的来源',
+                                        'verification_status': 'verified|pending'}],
+               'learning_tasks': [{'mode': 'online|offline',
+                                   'stage': 'before_class|after_class',
+                                   'task': '学习任务',
+                                   'evidence': '学生提交或留下的证据',
+                                   'estimated_hours': 1}],
+               'education_objective_refs': [],
+               'ideology_implementation': '仅在真实相关时填写',
+               'external_mentor': {'name': '', 'organization': '', 'role': ''},
+               'assessment': ['学生产出和判断达成的标准'],
+               'title': '纯主题名称',
+               'content_summary': '本讲内容简介'}]}
 
 
 def _course_planning_rules(brief: dict[str, Any]) -> str:
@@ -401,343 +457,37 @@ class CoursePromptComposer:
 {clip_text(original_prompt, 8500)}
 """.strip()
 
-    def build_teacher_outline_course_contract_v1_prompt(
-        self,
-        *,
-        skeleton: dict[str, Any],
-        brief: dict[str, Any],
-        material_context: str,
-        detail_level: str = "full",
+    def build_teacher_outline_complete_prompt(
+        self, *, subject: str, audience: str, brief: dict[str, Any],
+        material_context: str, confirmed_plan: dict[str, Any] | None = None,
     ) -> str:
-        """Generate the course-level formal fields from the edited light plan."""
-        lectures = [
-            {
-                "lecture_number": int(
-                    item.get("lecture_number")
-                    or item.get("chapter_number")
-                    or index
-                ),
-                "title": str(item.get("title") or ""),
-                "content_summary": str(item.get("content_summary") or ""),
-            }
-            for index, item in enumerate(
-                skeleton.get("chapters") or [],
-                start=1,
-            )
-            if isinstance(item, dict)
-        ]
-        teacher_context = brief.get("teacher_course_brief") or {}
-        formal_profile = brief.get("formal_course_profile") or {}
-        formal_contract = compile_outline_prompt_contract(
-            subject=str(skeleton.get("course_title") or "课程"),
-            audience=str(
-                teacher_context.get("target_audience")
-                or brief.get("audience")
-                or "未填写"
-            ),
-            brief=brief,
-        )
-        if detail_level != "full":
-            max_text = 180 if detail_level == "compact" else 96
-            lectures = compact_value(
-                lectures,
-                max_string_chars=max_text,
-                max_list_items=36,
-                max_depth=3,
-            )
-            teacher_context = compact_value(
-                teacher_context,
-                max_string_chars=max_text,
-                max_list_items=8,
-                max_depth=3,
-            )
-            formal_profile = compact_value(
-                formal_profile,
-                max_string_chars=max_text,
-                max_list_items=8,
-                max_depth=3,
-            )
-            formal_contract = compact_value(
-                formal_contract,
-                max_string_chars=max_text,
-                max_list_items=12,
-                max_depth=4,
-            )
-            material_context = clip_text(
-                material_context,
-                4200 if detail_level == "compact" else 1800,
-            )
-        skeleton_revision_id = str(skeleton.get("revision_id") or "")
-        return f"""## 课程级完整大纲合同 V1
+        """One complete syllabus response; no per-lecture remote planning."""
+        contract = compile_outline_prompt_contract(subject=subject, audience=audience, brief=brief)
+        return f"""## 完整课程大纲 V1
+为「{subject}」面向「{audience}」一次生成课程级字段和全部讲次详情，只返回一个完整 JSON。
 
-这是完整大纲生成的第二轮。请先根据教师最新编辑的讲次方案，形成课程级正式字段。
-讲次方案作为本轮已经冻结的输入，响应使用下方课程级 JSON Schema。
+## 课程需求与正式模板
+{json.dumps(brief, ensure_ascii=False)}
+{json.dumps(contract, ensure_ascii=False)}
 
-## 轻量方案修订
-{skeleton_revision_id}
+## 教师已确认方案（有值时保留讲次顺序、标题、简介与已填写字段）
+{json.dumps(confirmed_plan or {}, ensure_ascii=False)}
 
-## 教师当前讲次方案
-{json.dumps(lectures, ensure_ascii=False)}
+## 资料依据
+{material_context or '没有上传资料；需要来源确认的书籍、网站、版次和网址保持空值。'}
 
-## 教师课程信息
-{json.dumps(teacher_context, ensure_ascii=False)}
+## 要求
+1. 严格满足指定讲数，lecture_number 从 1 连续递增，标题不含编号；每讲给出简介和全部详情，不只列目录。
+2. 各讲 hour_breakdown 的三项之和大于 0，全课之和等于教师指定总学时；课外学习任务时长单独记录。
+3. 课程目标、可测量成果、评价证据与讲次对应；知识模块是讲次的不重叠分组，不是跨讲知识点标签；所有模块的 lecture_numbers 合并后恰好为全部讲次，不能重复。考核权重合计 100。
+4. 每讲包含目标、内容边界、重点、难点、活动、作业、具体应用情境、学习任务及可提交证据、达成检验。
+5. 在线或混合课程包含在线学习任务；线下课程使用 offline。课型服从课程要求。
+6. 参考资料只能来自已提供资料，不编造出处；拓展资源 source_ref 对应同次输出中的确认参考来源，无来源时为空。
+7. 育人目标、案例和外部导师只填真实相关且有依据的内容。
+{_course_coverage_rules(course_coverage_verdict(subject=subject, brief=brief))}
 
-## 已有正式课程信息
-{json.dumps(formal_profile, ensure_ascii=False)}
-
-## 资料摘要
-{material_context or '未上传资料；请依据课程信息和通用知识生成，需要来源确认的字段保持空值。'}
-
-## 正式大纲模板合同
-{json.dumps(formal_contract, ensure_ascii=False)}
-
-## 生成要求
-1. 课程定位、学习目标、可测量成果、授课方式、考核方案和知识模块必须与讲次方案一致。
-2. 每项可测量成果都必须关联课程目标、覆盖讲次、评价证据和内容范围。
-3. 知识模块用于组织讲次分组，全部讲次恰好出现一次。
-4. 考核方案同时包含过程性与终结性评价，权重合计 100，并与可测量成果关联。
-5. 参考书籍、网站、版次和网址取自教师输入或已解析资料；无法核实时保持空数组或空字符串。
-6. 育人目标与实施案例使用和真实课程内容直接相关的具体表达。
-7. 响应使用下方 JSON Schema。
-
-## JSON Schema
-{{
-  "schema_version": "teacher_outline_course_contract_v1",
-  "skeleton_revision_id": "{skeleton_revision_id}",
-  "course_intro_zh": "中文课程简介",
-  "course_intro_en": "与中文语义对应的英文简介",
-  "positioning": "学习对象、课程边界与最终能力",
-  "learning_objectives": ["可观察的学习目标"],
-  "prerequisites": ["必要先修要求"],
-  "education_objectives": ["与真实课程内容相关的育人目标"],
-  "measurable_outcomes": ["可测量学习成果"],
-  "outcome_alignment": [{{
-    "outcome_number": 1,
-    "objective_refs": ["学习目标1"],
-    "lecture_numbers": [1],
-    "assessment_evidence": ["可检查证据"],
-    "coverage_scope": "内容范围"
-  }}],
-  "teaching_methods": ["授课方式"],
-  "assessment_methods": ["考核方式摘要"],
-  "assessment_plan": [{{
-    "item": "考核项目",
-    "category": "formative|summative",
-    "weight_percent": 50,
-    "criteria": "评分标准",
-    "outcome_numbers": [1]
-  }}],
-  "course_modules": [{{
-    "module_id": "M1",
-    "title": "知识模块",
-    "lecture_numbers": [1]
-  }}],
-  "ideology_cases": [],
-  "reference_books": [],
-  "reference_websites": [],
-  "course_website": ""
-}}""".strip()
-
-    def build_teacher_outline_course_contract_v1_correction_prompt(
-        self,
-        *,
-        original_prompt: str,
-        issues: list[dict[str, Any]],
-    ) -> str:
-        issue_text = "\n".join(
-            f"- {clip_text(item.get('message'), 240)}"
-            for item in issues[:12]
-        ) or "- 上一次输出不是完整有效的课程级大纲 JSON"
-        return f"""## 课程级完整大纲合同 V1 定点修复
-
-上一次课程级大纲字段存在以下结构问题：
-{issue_text}
-
-请根据这些问题重新生成完整的课程级字段，并保持轻量方案修订标识。
-响应继续使用原请求中的课程级 JSON Schema。
-
-{clip_text(original_prompt, 14000)}
-""".strip()
-
-    def build_teacher_outline_detail_batch_v1_prompt(
-        self,
-        *,
-        skeleton: dict[str, Any],
-        batch_spec: dict[str, Any],
-        brief: dict[str, Any],
-        material_context: str,
-        detail_level: str = "full",
-    ) -> str:
-        """Generate one complete lecture object from the edited light plan."""
-        selected_numbers = {
-            int(item) for item in batch_spec.get("lecture_numbers") or []
-        }
-        all_lectures = [
-            {
-                "lecture_number": int(
-                    item.get("lecture_number")
-                    or item.get("chapter_number")
-                    or index
-                ),
-                "title": str(item.get("title") or ""),
-                "content_summary": str(item.get("content_summary") or ""),
-            }
-            for index, item in enumerate(
-                skeleton.get("chapters") or [],
-                start=1,
-            )
-            if isinstance(item, dict)
-        ]
-        selected_lectures = [
-            item for item in all_lectures
-            if item["lecture_number"] in selected_numbers
-        ]
-        course_contract = {
-            "course_title": skeleton.get("course_title"),
-            "positioning": skeleton.get("positioning"),
-            "learning_objectives": skeleton.get("learning_objectives") or [],
-            "education_objectives": skeleton.get("education_objectives") or [],
-            "measurable_outcomes": skeleton.get("measurable_outcomes") or [],
-            "outcome_alignment": skeleton.get("outcome_alignment") or [],
-            "teaching_methods": skeleton.get("teaching_methods") or [],
-            "assessment_plan": skeleton.get("assessment_plan") or [],
-            "reference_books": skeleton.get("reference_books") or [],
-            "reference_websites": skeleton.get("reference_websites") or [],
-        }
-        teacher_context = brief.get("teacher_course_brief") or {}
-        if detail_level != "full":
-            max_text = 180 if detail_level == "compact" else 96
-            course_contract = compact_value(
-                course_contract,
-                max_string_chars=max_text,
-                max_list_items=8 if detail_level == "compact" else 4,
-                max_depth=4,
-            )
-            all_lectures = compact_value(
-                all_lectures,
-                max_string_chars=max_text,
-                max_list_items=24,
-                max_depth=3,
-            )
-            selected_lectures = compact_value(
-                selected_lectures,
-                max_string_chars=max_text,
-                max_list_items=8,
-                max_depth=3,
-            )
-            material_context = clip_text(
-                material_context,
-                3600 if detail_level == "compact" else 1600,
-            )
-            teacher_context = compact_value(
-                teacher_context,
-                max_string_chars=max_text,
-                max_list_items=6,
-                max_depth=3,
-            )
-        batch_id = str(batch_spec.get("batch_id") or "")
-        skeleton_revision_id = str(skeleton.get("revision_id") or "")
-        lecture_count = len(selected_lectures)
-        return f"""## 单讲完整大纲 V2
-
-这是完整大纲第二轮的逐讲生成任务。请根据已经冻结的讲次方案和课程级合同，
-生成当前一讲的目标、内容边界、学时、教学活动、学习任务和达成检验。
-
-## 批次身份
-- 批次：{batch_id}
-- 框架修订：{skeleton_revision_id}
-- 讲次：{json.dumps(list(batch_spec.get('lecture_numbers') or []), ensure_ascii=False)}
-
-## 课程级合同
-{json.dumps(course_contract, ensure_ascii=False)}
-
-## 全课讲次边界
-{json.dumps(all_lectures, ensure_ascii=False)}
-
-## 当前要补全的讲次
-{json.dumps(selected_lectures, ensure_ascii=False)}
-
-## 授课与教师输入
-{json.dumps(teacher_context, ensure_ascii=False)}
-
-## 资料摘要
-{material_context or '未上传资料；请依据课程信息和通用知识生成，需要来源确认的字段保持空值。'}
-
-## 生成要求
-1. 返回当前讲次的 1 个完整对象，讲次身份使用“批次身份”中的值。
-2. 根据冻结的标题和 `content_summary` 生成本讲目标、内容边界和分项学时；三项 `hour_breakdown` 之和必须大于 0。
-3. 重点、难点、活动、作业和达成检验必须与本讲目标一致；达成检验写清学生产出与教师判断标准。
-4. 每讲至少给出一个案例、问题、例题、实验或项目情境，以及一项课前或课后任务和可提交证据。
-5. 在线或混合课程每讲至少一项 `mode=online` 任务；纯线下课程使用 `mode=offline`。课外任务的 `estimated_hours` 单独记录。
-6. 拓展资源从课程级已确认参考资料中选择，`source_ref` 与确认来源完全一致；没有已确认来源时使用空数组。
-7. `education_objective_refs` 和 `ideology_implementation` 在本讲确有责任、规范或价值判断时填写；`external_mentor` 使用教师输入已提供的信息。
-8. 响应使用下方 JSON Schema。
-
-## JSON Schema
-{{
-  "batch_id": "{batch_id}",
-  "skeleton_revision_id": "{skeleton_revision_id}",
-  "lectures": [
-    {{
-      "lecture_number": 1,
-      "learning_objective": "本讲结束后学生能够完成的可观察目标",
-      "scope_boundary": "本讲负责讲到哪里，不提前替代哪些后续内容",
-      "hour_breakdown": {{
-        "classroom_lecture": 1,
-        "classroom_practice": 1,
-        "online_instruction": 0
-      }},
-      "key_points": ["教学重点"],
-      "key_difficulties": ["教学难点"],
-      "activities": ["主要教学活动"],
-      "homework": ["课后任务"],
-      "application_anchors": ["案例、问题、例题、实验或项目情境"],
-      "extension_resources": [
-        {{
-          "resource_type": "book|article|standard|regulation|dataset|video|website|other",
-          "title": "资源名称",
-          "edition": "已确认的版本；不适用则留空",
-          "locator": "章、节或已核验页码",
-          "source_ref": "与课程参考资料完全一致的来源",
-          "verification_status": "verified|pending"
-        }}
-      ],
-      "learning_tasks": [
-        {{
-          "mode": "online|offline",
-          "stage": "before_class|after_class",
-          "task": "学习任务",
-          "evidence": "学生提交或留下的证据",
-          "estimated_hours": 1
-        }}
-      ],
-      "education_objective_refs": [],
-      "ideology_implementation": "仅在真实相关时填写",
-      "external_mentor": {{"name": "", "organization": "", "role": ""}},
-      "assessment": ["学生产出和判断达成的标准"]
-    }}
-  ]
-}}""".strip()
-
-    def build_teacher_outline_detail_batch_v1_correction_prompt(
-        self,
-        *,
-        original_prompt: str,
-        issues: list[dict[str, Any]],
-    ) -> str:
-        issue_text = "\n".join(
-            f"- {clip_text(item.get('message'), 240)}"
-            for item in issues[:16]
-        ) or "- 上一次输出不是完整有效的讲次详情 JSON"
-        return f"""## 单讲完整大纲 V2 定点修复
-
-当前讲次详情批次存在以下问题：
-{issue_text}
-
-请根据这些问题重新生成当前讲次的完整 JSON。保持任务标识、框架修订和讲次身份，
-并继续使用原请求中的逐讲 JSON Schema。
-
-{clip_text(original_prompt, 12000)}
+## JSON Schema（lectures 按实际讲数展开）
+{json.dumps(TEACHER_OUTLINE_COMPLETE_SCHEMA, ensure_ascii=False)}
 """.strip()
 
     def build_outline_batch_v2_prompt(

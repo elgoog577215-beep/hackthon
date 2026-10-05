@@ -44,6 +44,9 @@ class TeacherScriptGenerationTimeout(AIProviderRequestError):
 
 @dataclass(frozen=True)
 class CourseGenerationBudget:
+    # Self-hosted service /v1/models reports 131072; deployments can override.
+    context_window_tokens: int = 131_072
+    context_reserve_tokens: int = 1024
     max_input_chars: int = 32_000
     max_input_tokens: int = 16_000
     outline_max_output_tokens: int = 8192
@@ -78,6 +81,8 @@ class CourseGenerationBudget:
     @classmethod
     def from_env(cls) -> CourseGenerationBudget:
         return cls(
+            context_window_tokens=_env_int("COURSE_GENERATION_CONTEXT_WINDOW_TOKENS", 131_072, minimum=4096, maximum=1_048_576),
+            context_reserve_tokens=_env_int("COURSE_GENERATION_CONTEXT_RESERVE_TOKENS", 1024, minimum=256, maximum=16384),
             max_input_chars=_env_int(
                 "COURSE_GENERATION_MAX_INPUT_CHARS",
                 32_000,

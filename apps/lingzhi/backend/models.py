@@ -341,6 +341,7 @@ class CourseGenerationRequest(BaseModel):
     generation_mode: Literal["fast", "review_blueprint"] = "review_blueprint"
     production_mode: Literal["manual", "automatic"] = "manual"
     teacher_authoring_mode: Optional[Literal["lesson_assets_v1"]] = None
+    outline_mode: Literal["full", "plan_first"] = "full"
     assessment_generation_profile: Literal["complete"] = "complete"
     course_purpose: Literal[
         "systematic",

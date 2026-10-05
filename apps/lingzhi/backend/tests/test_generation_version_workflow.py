@@ -698,6 +698,7 @@ async def test_teacher_outline_waits_through_restart_and_explicit_continue_reuse
     job = await manager._create_generation_job({
         "subject": "教师章节骨架",
         "teacher_authoring_mode": "lesson_assets_v1",
+        "outline_mode": "plan_first",
         "teacher_course_brief": {"total_class_hours": 16},
         "generation_mode": "review_blueprint",
         "course_purpose": "systematic",
@@ -913,6 +914,7 @@ async def test_teacher_outline_framework_is_editable_and_has_no_review_report(
     job = await manager._create_generation_job({
         "subject": "教师十讲课程",
         "teacher_authoring_mode": "lesson_assets_v1",
+        "outline_mode": "plan_first",
         "teacher_course_brief": {"chapter_count": 10, "lesson_duration_minutes": 90},
         "generation_mode": "review_blueprint",
         "course_purpose": "systematic",

@@ -327,12 +327,6 @@ class CourseOutlinePlanningBudget:
     # request with enough room instead of predictably truncating once and
     # repeating the whole outline at double headroom.
     teacher_lecture_max_output_tokens: int = 16_384
-    # Kept as compatibility settings for persisted deployments. Teacher
-    # outline details now use one task per lecture and the shared planning
-    # semaphore, so neither value creates a second batching/concurrency layer.
-    teacher_detail_batch_size: int = 4
-    teacher_detail_concurrency: int = 2
-
     @classmethod
     def from_env(cls) -> CourseOutlinePlanningBudget:
         return cls(
@@ -361,18 +355,7 @@ class CourseOutlinePlanningBudget:
                 minimum=8192,
                 maximum=32_768,
             ),
-            teacher_detail_batch_size=_env_int(
-                "COURSE_TEACHER_OUTLINE_DETAIL_BATCH_SIZE",
-                4,
-                minimum=2,
-                maximum=8,
-            ),
-            teacher_detail_concurrency=_env_int(
-                "COURSE_TEACHER_OUTLINE_DETAIL_CONCURRENCY",
-                2,
-                minimum=1,
-                maximum=4,
-            ),
+
         )
 
 
@@ -812,46 +795,6 @@ def _completed_stream_string_items(content: str, field: str) -> list[str]:
     return values
 
 
-def project_streamed_teacher_outline_detail_preview(
-    content: str,
-    *,
-    lecture_number: int,
-    max_chars: int = 1200,
-) -> str:
-    """Project visible model content into a cumulative teacher-facing preview.
-
-    The caller supplies only provider ``delta.content`` chunks. Reasoning
-    deltas travel through a separate callback and can therefore never enter
-    this projection.
-    """
-    raw = str(content or "")
-    if not raw.strip():
-        return ""
-    lines = [f"第 {max(1, int(lecture_number or 1))} 讲"]
-    summary = _completed_stream_value(raw, "content_summary")
-    if isinstance(summary, str) and summary.strip():
-        lines.append(f"内容：{_clip(summary, 480)}")
-    for field, label in (
-        ("learning_objective", "目标"),
-        ("scope_boundary", "范围"),
-        ("key_points", "重点"),
-        ("key_difficulties", "难点"),
-        ("activities", "活动"),
-        ("homework", "任务"),
-        ("application_anchors", "案例"),
-        ("assessment", "达成检验"),
-    ):
-        value = _completed_stream_value(raw, field)
-        items = (
-            [_clip(item, 180) for item in value if str(item or "").strip()]
-            if isinstance(value, list)
-            else [_clip(value, 180)]
-            if isinstance(value, str) and value.strip()
-            else _completed_stream_string_items(raw, field)
-        )
-        if items:
-            lines.append(f"{label}：{'；'.join(items[:6])}")
-    return _clip("\n".join(lines), max(80, int(max_chars or 1200))) if len(lines) > 1 else ""
 
 
 def validate_outline_skeleton(
@@ -1148,79 +1091,9 @@ _TEACHER_OUTLINE_DETAIL_FIELDS = (
     "assessment",
 )
 
-_TEACHER_OUTLINE_COURSE_FIELDS = (
-    "course_intro_zh",
-    "course_intro_en",
-    "positioning",
-    "learning_objectives",
-    "prerequisites",
-    "education_objectives",
-    "measurable_outcomes",
-    "outcome_alignment",
-    "teaching_methods",
-    "assessment_methods",
-    "assessment_plan",
-    "course_modules",
-    "ideology_cases",
-    "reference_books",
-    "reference_websites",
-    "course_website",
-)
 
 
-def normalize_teacher_outline_course_contract(
-    payload: dict[str, Any],
-    *,
-    skeleton: dict[str, Any],
-) -> dict[str, Any]:
-    """Normalize the course-level half of the full teacher outline.
 
-    The edited lightweight lecture plan remains the identity owner. The model
-    may only fill course-level formal fields and cannot rename, reorder, add or
-    remove lectures through this response.
-    """
-    lecture_plan = [
-        {
-            "lecture_number": int(
-                item.get("lecture_number")
-                or item.get("chapter_number")
-                or index
-            ),
-            "title": str(item.get("title") or ""),
-            "content_summary": str(item.get("content_summary") or ""),
-        }
-        for index, item in enumerate(skeleton.get("chapters") or [], start=1)
-        if isinstance(item, dict)
-    ]
-    normalized = normalize_outline_skeleton(
-        {
-            "authoring_structure_version": "lecture_v1",
-            "course_title": skeleton.get("course_title"),
-            "lectures": lecture_plan,
-            **{
-                field: deepcopy(payload.get(field))
-                for field in _TEACHER_OUTLINE_COURSE_FIELDS
-            },
-        },
-        topic=str(skeleton.get("course_title") or "课程"),
-        request_fingerprint=str(skeleton.get("request_fingerprint") or ""),
-    )
-    contract = {
-        "schema_version": "teacher_outline_course_contract_v1",
-        "skeleton_revision_id": str(
-            payload.get("skeleton_revision_id") or ""
-        ),
-        "formal_syllabus_contract_version": "formal_syllabus_v2",
-        **{
-            field: deepcopy(normalized.get(field))
-            for field in _TEACHER_OUTLINE_COURSE_FIELDS
-        },
-    }
-    contract["revision_id"] = stable_hash(
-        contract,
-        prefix="teacher_outline_course_contract_",
-    )
-    return contract
 
 
 def validate_teacher_outline_course_contract(
@@ -1293,187 +1166,76 @@ def validate_teacher_outline_course_contract(
     }
 
 
-def merge_teacher_outline_course_contract(
-    skeleton: dict[str, Any],
-    contract: dict[str, Any],
-) -> dict[str, Any]:
-    """Attach validated formal fields without changing the edited plan identity."""
-    merged = deepcopy(skeleton)
-    for field in _TEACHER_OUTLINE_COURSE_FIELDS:
-        merged[field] = deepcopy(contract.get(field))
-    merged["formal_syllabus_contract_version"] = "formal_syllabus_v2"
-    merged["course_contract_revision_id"] = str(
-        contract.get("revision_id") or ""
-    )
-    return merged
 
 
-def build_teacher_outline_detail_batch_specs(
-    skeleton: dict[str, Any],
-    *,
-    batch_size: int,
-    pending_lecture_numbers: list[int] | None = None,
+
+
+def allocate_teacher_outline_hours(
+    skeleton: dict[str, Any], *, brief: dict[str, Any], confirmed: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Build one stable detail task per lecture.
+    """Retain deterministic hour allocation formerly hosted by the auto-editor.
 
-    ``batch_size`` remains in the signature for compatibility with older
-    callers, but deliberately does not affect task identity or grouping.
+    Only generated values are scaled; teacher-confirmed allocations are fixed.
+    Missing or incompatible modality information stays a validation error.
     """
-    valid_numbers = [
-        int(item.get("lecture_number") or item.get("chapter_number") or index)
-        for index, item in enumerate(skeleton.get("chapters") or [], start=1)
-        if isinstance(item, dict)
-    ]
-    requested = (
-        [int(item) for item in pending_lecture_numbers]
-        if pending_lecture_numbers is not None
-        else valid_numbers
-    )
-    numbers = [item for item in requested if item in set(valid_numbers)]
-    revision_id = str(skeleton.get("revision_id") or "")
-    return [
-        {
-            "batch_id": f"OUT-TD-{number:03d}",
-            "lesson_id": f"L1-{number}",
-            "skeleton_revision_id": revision_id,
-            "lecture_numbers": [number],
-            "lecture_count": 1,
-        }
-        for number in numbers
-    ]
-
-
-def normalize_teacher_outline_detail_batch(
-    payload: dict[str, Any],
-    *,
-    spec: dict[str, Any],
-    skeleton: dict[str, Any],
-) -> dict[str, Any]:
-    """Normalize one detail response while keeping framework fields immutable."""
-    raw_lectures = [
-        item for item in payload.get("lectures") or []
-        if isinstance(item, dict)
-    ]
-    raw_by_number = {
-        number: item
-        for item in raw_lectures
-        if (number := _positive_int(item.get("lecture_number")))
+    requirements = _review_course_requirements({
+        "course_generation_brief": brief,
+    })
+    total = requirements["total_hours"]
+    mode = requirements["teaching_context"]
+    if not total or mode not in {"classroom", "online", "self_study", "blended"}:
+        return []
+    fields = ("classroom_lecture", "classroom_practice", "online_instruction")
+    protected = {
+        int(item.get("lecture_number") or item.get("chapter_number") or 0)
+        for item in confirmed.get("chapters") or []
+        if sum(_normalize_hour_breakdown(item.get("hour_breakdown")).values()) > 0
     }
-    confirmed_reference_labels = {
-        str(item).strip()
-        for item in [
-            *(skeleton.get("reference_books") or []),
-            *(skeleton.get("reference_websites") or []),
-        ]
-        if str(item).strip()
-    }
-    lectures: list[dict[str, Any]] = []
-    for lecture_number in spec.get("lecture_numbers") or []:
-        raw = raw_by_number.get(int(lecture_number))
-        if raw is None:
+    chapters = skeleton.get("chapters") or []
+    mutable = [item for item in chapters if int(item.get("lecture_number") or 0) not in protected]
+    fixed = sum(float(item.get("planned_hours") or 0) for item in chapters if item not in mutable)
+    remaining = round((total - fixed) * 100)
+    if not mutable or remaining < len(mutable):
+        return []
+    weights = [sum(_normalize_hour_breakdown(item.get("hour_breakdown")).values()) for item in mutable]
+    if not all(weights):
+        return []
+
+    def distribute(cents: int, proportions: list[float]) -> list[int]:
+        raw = [cents * weight / sum(proportions) for weight in proportions]
+        units = [int(value) for value in raw]
+        for index in sorted(range(len(units)), key=lambda i: raw[i] - units[i], reverse=True)[:cents - sum(units)]:
+            units[index] += 1
+        return units
+
+    updates = []
+    for chapter, cents in zip(mutable, distribute(remaining, weights)):
+        current = _normalize_hour_breakdown(chapter.get("hour_breakdown"))
+        ratios = [current[key] for key in fields]
+        if mode == "classroom":
+            ratios[2] = 0
+        elif mode in {"online", "self_study"}:
+            ratios[:2] = [0, 0]
+        elif not ratios[2] or not sum(ratios[:2]):
             continue
-        external_mentor = (
-            raw.get("external_mentor")
-            if isinstance(raw.get("external_mentor"), dict)
-            else {}
-        )
-        hour_breakdown = _normalize_hour_breakdown(raw.get("hour_breakdown"))
-        lectures.append({
-            "lecture_number": int(lecture_number),
-            "content_summary": _clip(raw.get("content_summary"), 720),
-            "learning_objective": _clip(
-                raw.get("learning_objective"), 260
-            ),
-            "scope_boundary": _clip(raw.get("scope_boundary"), 320),
-            "hour_breakdown": hour_breakdown,
-            "planned_hours": round(sum(hour_breakdown.values()), 2) or None,
-            "key_points": _text_items(
-                raw.get("key_points"), max_chars=160, limit=6
-            ),
-            "key_difficulties": _text_items(
-                raw.get("key_difficulties"), max_chars=160, limit=6
-            ),
-            "activities": _text_items(
-                raw.get("activities"), max_chars=180, limit=6
-            ),
-            "homework": _text_items(
-                raw.get("homework"), max_chars=180, limit=6
-            ),
-            "application_anchors": _text_items(
-                raw.get("application_anchors"), max_chars=240, limit=6
-            ),
-            "extension_resources": _normalize_extension_resources(
-                raw.get("extension_resources"),
-                confirmed_reference_labels=confirmed_reference_labels,
-            ),
-            "learning_tasks": _normalize_learning_tasks(
-                raw.get("learning_tasks")
-            ),
-            "education_objective_refs": _text_items(
-                raw.get("education_objective_refs"),
-                max_chars=160,
-                limit=6,
-            ),
-            "ideology_implementation": _clip(
-                raw.get("ideology_implementation"), 260
-            ),
-            "external_mentor": {
-                key: _clip(external_mentor.get(key), 160)
-                for key in ("name", "organization", "role")
-                if _clip(external_mentor.get(key), 160)
-            },
-            "assessment": _text_items(
-                raw.get("assessment"), max_chars=240, limit=8
-            ),
-        })
-    batch = {
-        "schema_version": "teacher_outline_detail_batch_v1",
-        "batch_id": str(payload.get("batch_id") or ""),
-        "skeleton_revision_id": str(
-            payload.get("skeleton_revision_id") or ""
-        ),
-        "lectures": lectures,
-    }
-    batch["revision_id"] = stable_hash(
-        batch,
-        prefix="teacher_outline_detail_",
-    )
-    return batch
+        if not sum(ratios):
+            continue
+        value = dict(zip(fields, [part / 100 for part in distribute(cents, ratios)]))
+        if current != value:
+            updates.append({"lecture_number": chapter.get("lecture_number"), "before": current, "after": value})
+            chapter["hour_breakdown"] = value
+            chapter["planned_hours"] = round(sum(value.values()), 2)
+    skeleton["total_hours"] = round(sum(float(item.get("planned_hours") or 0) for item in chapters), 2)
+    skeleton["revision_id"] = stable_hash({key: value for key, value in skeleton.items() if key != "revision_id"}, prefix="outline_skeleton_")
+    return updates
 
 
-def validate_teacher_outline_detail_batch(
-    batch: dict[str, Any],
-    *,
-    spec: dict[str, Any],
+def validate_teacher_outline_details(
     skeleton: dict[str, Any],
 ) -> dict[str, Any]:
-    """Reject an incomplete detail batch without invalidating other batches."""
+    """Validate every lecture in the complete response, without remote batches."""
     issues: list[dict[str, str]] = []
-    if batch.get("batch_id") != spec.get("batch_id"):
-        issues.append(_issue(
-            "teacher_outline_detail:batch_id_mismatch",
-            "讲次详情批次标识与请求不一致",
-        ))
-    if batch.get("skeleton_revision_id") != skeleton.get("revision_id"):
-        issues.append(_issue(
-            "teacher_outline_detail:stale_framework",
-            "讲次详情引用了旧课程框架",
-        ))
-    expected_numbers = [
-        int(item) for item in spec.get("lecture_numbers") or []
-    ]
-    lectures = [
-        item for item in batch.get("lectures") or []
-        if isinstance(item, dict)
-    ]
-    actual_numbers = [
-        int(item.get("lecture_number") or 0) for item in lectures
-    ]
-    if actual_numbers != expected_numbers:
-        issues.append(_issue(
-            "teacher_outline_detail:lecture_order_mismatch",
-            f"讲次详情应返回 {expected_numbers}，实际为 {actual_numbers}",
-        ))
+    lectures = [item for item in skeleton.get("chapters") or [] if isinstance(item, dict)]
     confirmed_references = {
         str(item).strip()
         for item in [
@@ -2724,24 +2486,19 @@ __all__ = [
     "CourseOutlinePlanningBudget",
     "assemble_course_outline",
     "build_outline_batch_specs",
-    "build_teacher_outline_detail_batch_specs",
     "compile_fallback_outline_batch",
     "compile_teacher_lecture_outline_batch",
     "course_coverage_verdict",
-    "merge_teacher_outline_course_contract",
     "merge_teacher_outline_detail",
     "normalize_outline_batch",
     "normalize_outline_skeleton",
-    "normalize_teacher_outline_course_contract",
-    "normalize_teacher_outline_detail_batch",
     "outline_neighbor_chapters",
     "outline_request_fingerprint",
-    "project_streamed_teacher_outline_detail_preview",
     "project_streamed_teacher_outline_growth",
     "review_course_outline_document",
     "select_chapter_evidence_hints",
     "validate_outline_batch",
     "validate_outline_skeleton",
     "validate_teacher_outline_course_contract",
-    "validate_teacher_outline_detail_batch",
+    "validate_teacher_outline_details",
 ]

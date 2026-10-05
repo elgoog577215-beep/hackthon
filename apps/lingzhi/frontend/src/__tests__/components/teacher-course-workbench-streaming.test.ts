@@ -440,11 +440,11 @@ describe('teacher course workbench outline streaming', () => {
     expect(detail.find('article[data-state="running"] .stream-caret').exists()).toBe(true)
   })
 
-  it('各讲已生成但仍在自动复审时保持第三步和进行中状态', () => {
+  it('生成结果正在保存时保持进行中状态', () => {
     const task = useGenerationStore().createTask('job-auto', 'course-1', '电动力学')
     task.status = 'running'
-    task.currentPhase = 'outline_auto_improvement'
-    task.currentStep = '已完成各讲内容'
+    task.currentPhase = 'outline_ready'
+    task.currentStep = '正在保存完整大纲'
     task.outlineDetailRequested = true
     task.phaseDetail = {
       outline_growth: { ...growth, state: 'completed' },
@@ -455,7 +455,7 @@ describe('teacher course workbench outline streaming', () => {
     }
     const wrapper = mountWorkbench()
     expect(wrapper.findAll('[data-testid="outline-flow-steps"] button')[2]!.classes()).toContain('active')
-    expect(wrapper.get('.generation-surface').text()).toContain('正在自动优化大纲并复审')
+    expect(wrapper.get('.generation-surface').text()).toContain('正在保存完整大纲')
     expect(wrapper.find('[data-testid="outline-detail-stream"]').exists()).toBe(true)
     expect(wrapper.find('.outline-workspace').exists()).toBe(false)
   })
@@ -549,6 +549,23 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.emitted('update:outlineEditing')?.[0]).toEqual([true])
   })
 
+  it('默认直接生成完整大纲，仅主动选择时先看方案', async () => {
+    const wrapper = mountWorkbench()
+    expect((wrapper.get('[data-testid="outline-generation-mode"]').element as HTMLSelectElement).value).toBe('full')
+    expect(wrapper.findAll('[data-testid="outline-flow-steps"] button')).toHaveLength(2)
+    await wrapper.get('form.stage-form').trigger('submit')
+    await flushPromises()
+    expect((wrapper.emitted('generateOutline')?.[0]?.[0] as any).options.outline_mode).toBe('full')
+    wrapper.unmount()
+    const optional = mountWorkbench()
+    await optional.get('[data-testid="outline-generation-mode"]').setValue('plan_first')
+    expect(optional.findAll('[data-testid="outline-flow-steps"] button')).toHaveLength(3)
+    await optional.get('form.stage-form').trigger('submit')
+    await flushPromises()
+    expect((optional.emitted('generateOutline')?.[0]?.[0] as any).options.outline_mode).toBe('plan_first')
+    optional.unmount()
+  })
+
   it('讲次方案生成后退出转圈并提供编辑与继续入口', () => {
     useCourseStore().nodes = [{
       node_id: 'L1-1', parent_node_id: 'root', node_name: '第1讲 设计导论', node_level: 1,
@@ -618,8 +635,8 @@ describe('teacher course workbench outline streaming', () => {
     for (const status of ['running', 'paused', 'failed']) {
       generation.handleWSProgressUpdate({
         type: 'progress_update', course_id: 'course-1', task_id: 'job-waiting',
-        payload: { status, current_phase: 'outline_course_contract_generation',
-          outline_detail_requested: true, phase_detail: { artifact_type: 'course_outline_course_contract' } },
+        payload: { status, current_phase: 'outline_generation',
+          outline_detail_requested: true, phase_detail: { artifact_type: 'course_outline' } },
       } as any)
       await flushPromises()
       expect(wrapper.findAll('[data-testid="outline-flow-steps"] button')[2]!.classes()).toContain('active')
@@ -636,7 +653,7 @@ describe('teacher course workbench outline streaming', () => {
     generation.createTask('outline-full', 'course-1', 'UI 设计')
     vi.mocked(http.get).mockResolvedValue({ data: [{
       id: 'outline-full', course_id: 'course-1', type: 'teacher_outline_generation',
-      status: 'running', current_phase: 'outline_course_contract_validation', progress: 40,
+      status: 'running', current_phase: 'outline_ready', progress: 40,
       outline_detail_requested: true,
     }] })
     await generation.fetchGlobalTasks()

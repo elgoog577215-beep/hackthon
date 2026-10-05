@@ -479,6 +479,14 @@
     "createCourse": "Create course"
   },
   "courseWorkbench": {
+    "outlineMode": {
+      "generatePlan": "Generate lecture plan",
+      "label": "Outline generation",
+      "full": "Generate complete outline",
+      "planFirst": "Review a plan first",
+      "fullHelp": "Generate course requirements and all lecture details together.",
+      "planHelp": "Review lecture titles and summaries, then continue to the complete outline."
+    },
     "autoImprovement": {
       "outline": "Improving and reviewing the outline",
       "lesson": "Improving and reviewing the lesson plan",

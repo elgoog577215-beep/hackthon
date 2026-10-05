@@ -19,6 +19,11 @@ def has_teaching_structure(source: Any) -> bool:
     }:
         return False
     outline_stage = (source.get("generation_stage_artifacts") or {}).get("outline") or {}
+    if outline_stage.get("strategy") == "teacher_complete_outline" and (
+        outline_stage.get("status") != "completed"
+        or not (outline_stage.get("validation_report") or {}).get("passed")
+    ):
+        return False
     if str(outline_stage.get("strategy") or "") in {
         "teacher_framework_then_detail_batches",
         "teacher_framework_then_lecture_tasks",

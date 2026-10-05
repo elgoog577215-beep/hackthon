@@ -104,7 +104,6 @@ const completedLectures = computed(() => lessons.value.filter(
 ).length)
 const growthState = computed(() => String(props.growth?.state || ''))
 const summaryTitle = computed(() => {
-  if (growthState.value === 'optimizing') return t('courseWorkbench.autoImprovement.outline', '正在自动优化大纲并复审')
   if (props.reviewReady || growthState.value === 'completed') {
     return t('courseWorkbench.outlineReady', '课程大纲已生成')
   }
@@ -123,7 +122,6 @@ const summaryTitle = computed(() => {
   )
 })
 const progressLabel = computed(() => {
-  if (growthState.value === 'optimizing') return t('courseWorkbench.autoImprovement.reviewing', '正在检查最终内容')
   if (!['detailing', 'completed'].includes(growthState.value)) {
     const completed = ['skeleton_ready', 'framework_ready'].includes(growthState.value)
       ? lessons.value.length

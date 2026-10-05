@@ -479,6 +479,14 @@
     "createCourse": "创建课程"
   },
   "courseWorkbench": {
+    "outlineMode": {
+      "generatePlan": "生成讲次方案",
+      "label": "大纲生成方式",
+      "full": "直接生成完整大纲",
+      "planFirst": "先看方案",
+      "fullHelp": "一次生成课程要求和全部讲次详情。",
+      "planHelp": "先生成讲次标题和简介，修改后再继续生成完整大纲。"
+    },
     "autoImprovement": {
       "outline": "正在自动优化大纲并复审",
       "lesson": "正在自动优化教案并复审",

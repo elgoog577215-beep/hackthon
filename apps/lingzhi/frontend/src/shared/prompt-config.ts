@@ -362,6 +362,7 @@ export interface GenerateCourseParams {
   generation_mode?: 'fast' | 'review_blueprint';
   production_mode?: 'manual' | 'automatic';
   teacher_authoring_mode?: 'lesson_assets_v1';
+  outline_mode?: 'full' | 'plan_first';
   asset_preferences?: Record<string, boolean>;
   web_question_enrichment?: {
     mode?: 'auto_on_gap' | 'off' | 'always';

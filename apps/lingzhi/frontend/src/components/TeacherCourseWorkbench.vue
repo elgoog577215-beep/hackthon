@@ -67,12 +67,8 @@
         v-if="activeStage === 'foundation' && !outlineFullReady"
         class="outline-flow-steps"
         :label="t('courseWorkbench.outlineFlow.title', '大纲生成步骤')"
-        :model-value="outlineFlowStep"
-        :steps="[
-          { value: 1, label: t('courseWorkbench.outlineFlow.courseInfo'), complete: outlineFlowStep > 1 },
-          { value: 2, label: t('courseWorkbench.outlineFlow.lightPlan'), complete: outlineFlowStep > 2, disabled: outlineFlowStep < 2 },
-          { value: 3, label: t('courseWorkbench.outlineFlow.fullOutline'), complete: outlineFullReady, disabled: outlineFlowStep < 3 },
-        ]"
+        :model-value="outlineShowsPlan ? outlineFlowStep : (outlineFlowStep === 3 ? 2 : 1)"
+        :steps="outlineFlowSteps"
         data-testid="outline-flow-steps"
         @select="$event === 1 ? emit('open-course-information') : scrollOutlineIntoView()"
       />
@@ -300,9 +296,17 @@
           </div>
         </section>
         <label class="form-field form-field--wide"><span>{{ t('courseWorkbench.form.requirements', '补充要求') }}</span><textarea v-model.trim="foundation.requirements" rows="4" :placeholder="t('courseWorkbench.form.requirementsPlaceholder', '例如：部分讲次安排案例讨论，兼顾理论与实践')" /></label>
+        <label class="form-field outline-generation-mode">
+          <span>{{ t('courseWorkbench.outlineMode.label') }}</span>
+          <select v-model="outlineMode" data-testid="outline-generation-mode">
+            <option value="full">{{ t('courseWorkbench.outlineMode.full') }}</option>
+            <option value="plan_first">{{ t('courseWorkbench.outlineMode.planFirst') }}</option>
+          </select>
+          <small>{{ t(outlineMode === 'full' ? 'courseWorkbench.outlineMode.fullHelp' : 'courseWorkbench.outlineMode.planHelp') }}</small>
+        </label>
         <footer>
           <span>{{ t('courseWorkbench.form.semanticHint', '系统先规划整课的课型分布，再为每一讲编排可调整的教学环节。') }}</span>
-          <button class="primary" type="submit" :disabled="generationStarting || !foundationReady || referenceGenerationBlocked" :title="referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"><Sparkles :size="16" />{{ t('courseWorkbench.generateOutline', '生成课程大纲') }}</button>
+          <button class="primary" type="submit" :disabled="generationStarting || !foundationReady || referenceGenerationBlocked" :title="referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"><Sparkles :size="16" />{{ outlineMode === 'plan_first' ? t('courseWorkbench.outlineMode.generatePlan') : t('courseWorkbench.generateOutline', '生成课程大纲') }}</button>
         </footer>
       </form>
 
@@ -1486,7 +1490,7 @@ const arrangementError = ref('')
 const outlineLessonTypeSavingId = ref('')
 const outlineLessonTypeError = ref('')
 const outlineLessonTypeErrorId = ref('')
-const lessonGenerationRequestError = ref(''); const lessonDocumentError = ref(''); const scriptGenerating = ref(false); const scriptGenerationError = ref(''); const scriptBatchStartError = ref(''); const scriptDocumentError = ref(''); const generationRequested = ref(false)
+const lessonGenerationRequestError = ref(''); const lessonDocumentError = ref(''); const scriptGenerating = ref(false); const scriptGenerationError = ref(''); const scriptBatchStartError = ref(''); const scriptDocumentError = ref(''); const generationRequested = ref(false); const outlineMode = ref<'full' | 'plan_first'>(props.generationOptions.outline_mode || 'full')
 const retainedOutlineGrowth = ref<{
   courseId: string
   taskId: string
@@ -1936,13 +1940,12 @@ const freshOutlineGenerationStarting = computed(() => generationRequested.value
 const outlineGrowth = computed<Record<string, any> | null>(() => {
   if (freshOutlineGenerationStarting.value || outlineContinuing.value) return null
   const value = generationTask.value?.phaseDetail?.outline_growth
-  if (value && typeof value === 'object') return generationTask.value?.currentPhase === 'outline_auto_improvement'
-    ? { ...value, state: 'optimizing' } : value as Record<string, any>
+  if (value && typeof value === 'object') return value as Record<string, any>
   const retained = retainedOutlineGrowth.value
   return retained
     && retained.courseId === props.courseId
     && retained.taskId === String(generationTask.value?.id || '')
-    ? generationTask.value?.currentPhase === 'outline_auto_improvement' ? { ...retained.value, state: 'optimizing' } : retained.value
+    ? retained.value
     : null
 })
 const outlineLessonStatuses = computed<OutlineLessonStatus[]>(() => {
@@ -2092,17 +2095,25 @@ const outlineRegenerationAvailable = computed(() => Boolean(
     : courseWorkspaceStore.blueprint?.has_unconfirmed_draft),
 ))
 const outlineFlowStep = computed<1 | 2 | 3>(() => {
-  if (outlineContinuing.value || outlineDetailsStarted.value || outlineFullReady.value) return 3
+  if (outlineContinuing.value || outlineDetailsStarted.value || outlineFullReady.value
+    || (outlineMode.value === 'full' && taskInFlight.value && !outlineWaitingForInput.value
+      && generationTask.value?.currentPhase !== 'outline_skeleton_generation')) return 3
   if (hasOutline.value || taskInFlight.value || outlineWaitingForInput.value) return 2
   return 1
 })
+const outlineShowsPlan = computed(() => outlineMode.value === 'plan_first' || outlineWaitingForInput.value || outlineDetailsStarted.value || generationTask.value?.currentPhase === 'outline_skeleton_generation')
+const outlineFlowSteps = computed(() => [
+  { value: 1, label: t('courseWorkbench.outlineFlow.courseInfo'), complete: outlineFlowStep.value > 1 },
+  ...(outlineShowsPlan.value ? [
+    { value: 2, label: t('courseWorkbench.outlineFlow.lightPlan'), complete: outlineFlowStep.value > 2, disabled: outlineFlowStep.value < 2 },
+  ] : []),
+  { value: outlineShowsPlan.value ? 3 : 2, label: t('courseWorkbench.outlineFlow.fullOutline'), complete: outlineFullReady.value, disabled: outlineFlowStep.value < 3 },
+])
 const generationProgress = computed(() => freshOutlineGenerationStarting.value
   ? 2
   : Math.max(2, Number(generationTask.value?.progress || 0)))
 const currentGenerationLabel = computed(() => outlineContinuing.value
   ? t('courseWorkbench.outlineFlow.continuing', '正在生成完整大纲…')
-  : generationTask.value?.currentPhase === 'outline_auto_improvement'
-    ? t('courseWorkbench.autoImprovement.outline', '正在自动优化大纲并复审')
   : teacherOutlineGenerationLabel(
       freshOutlineGenerationStarting.value ? '' : generationTask.value?.currentStep,
     ))
@@ -2640,7 +2651,6 @@ const referenceWorkflowDetail = computed(() => {
     if (activeStage.value === 'lesson') return lessonJob.value?.message || ''
     if (activeStage.value === 'script') return scriptGenerationPresentation(scriptJob.value).detail
   }
-  if (activeStage.value === 'foundation' && generationTask.value?.currentPhase === 'outline_auto_improvement') return t('courseWorkbench.autoImprovement.outline', '正在自动优化大纲并复审')
   if (activeStage.value === 'lesson' && lessonJob.value?.phase === 'lesson_plan_auto_improvement') return t('courseWorkbench.autoImprovement.lesson', '正在自动优化教案并复审')
   if (activeStage.value === 'script' && scriptJob.value?.phase === 'lesson_script_auto_improvement') return t('courseWorkbench.autoImprovement.script', '正在自动优化讲义并复审')
   const projected = activeStage.value === 'foundation' && !outlineLocalEventPendingProjection.value
@@ -3859,6 +3869,7 @@ async function submitFoundation() {
       options: {
         ...currentGenerationOptions(),
         requirements,
+        outline_mode: outlineMode.value,
         learning_purpose: foundation.learningPurpose,
         course_teaching_type: foundation.courseTeachingType,
         pedagogy_mode: foundation.subjectType,
@@ -4696,6 +4707,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.outline-generation-mode { max-width: 520px; }
+.outline-generation-mode select, .outline-generation-mode small { font-size: 15px; }
 .stage-prerequisite-reason { margin: 8px 12px 16px; color: #64748b; font-size: 15px; line-height: 1.6; }
 .is-ppt-stage .lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;align-items:center;min-height:58px}
 
@@ -5026,6 +5039,8 @@ onBeforeUnmount(() => {
 </style>
 
 <style scoped>
+.outline-generation-mode { max-width: 520px; }
+.outline-generation-mode select, .outline-generation-mode small { font-size: 15px; }
 .is-ppt-stage .lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;align-items:center;min-height:58px}
 
 .outline-review-evidence { margin-top: 10px; font-size: 15px; line-height: 1.65; color: #475467; }

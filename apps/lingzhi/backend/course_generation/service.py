@@ -69,6 +69,7 @@ from course_generation.adaptive import (
 from course_generation_budget import (
     CourseGenerationBudget,
     CourseGenerationDeadlineExceeded,
+    CourseGenerationBudgetExceeded,
     TeacherScriptGenerationTimeout,
 )
 from course_generation_strategy import (
@@ -110,31 +111,26 @@ from knowledge_structure import normalize_knowledge_structure
 from course_outline_adjustments import canonical_outline_node_name
 from course_generation.outline import (
     CourseOutlinePlanningBudget,
+    allocate_teacher_outline_hours,
     assemble_course_outline,
     build_outline_batch_specs,
-    build_teacher_outline_detail_batch_specs,
     compile_fallback_outline_batch,
     compile_teacher_lecture_outline_batch,
     course_coverage_verdict,
-    merge_teacher_outline_course_contract,
     merge_teacher_outline_detail,
     normalize_outline_batch,
     normalize_outline_skeleton,
-    normalize_teacher_outline_course_contract,
-    normalize_teacher_outline_detail_batch,
     outline_neighbor_chapters,
     outline_request_fingerprint,
     outline_detail_field_is_empty,
-    project_streamed_teacher_outline_detail_preview,
     project_streamed_teacher_outline_growth,
     review_course_outline_document,
     select_chapter_evidence_hints,
     validate_outline_batch,
     validate_outline_skeleton,
     validate_teacher_outline_course_contract,
-    validate_teacher_outline_detail_batch,
+    validate_teacher_outline_details,
 )
-from course_generation.outline_improvement import improve_generated_outline
 from course_pedagogy import (
     SubjectPedagogyProfile,
     attach_module_plans_to_plan,
@@ -907,6 +903,7 @@ class CourseService(AIBase):
             "secondary_mode": secondary_mode,
             "secondary_intensity": secondary_intensity,
             "generation_mode": generation_mode,
+            "outline_mode": "plan_first" if stop_after_skeleton else (existing.get("generation_request") or {}).get("outline_mode", "full"),
             "course_purpose": course_purpose,
             "asset_preferences": deepcopy(asset_preferences or {}),
             "web_question_enrichment": deepcopy(
@@ -967,7 +964,10 @@ class CourseService(AIBase):
             )
         )
         outline_stage_uses_complete_pipeline = bool(
-            outline_strategy == "hierarchical_chapter_batches"
+            (outline_strategy == "hierarchical_chapter_batches"
+                or (outline_strategy == "teacher_complete_outline"
+                    and existing_outline_stage.get("status") == "completed"
+                    and not existing.get("outline_framework_only")))
             or (
                 teacher_outline_strategy
                 and not existing.get("outline_framework_only")
@@ -1241,7 +1241,7 @@ class CourseService(AIBase):
             on_phase,
             "outline_ready",
             35,
-            "轻量课程目录已通过检查",
+            "课程大纲已通过检查",
             phase_progress=100,
             phase_detail={
                 "artifact_type": "course_outline",
@@ -1272,47 +1272,6 @@ class CourseService(AIBase):
         if existing.get("nodes"):
             plan = self._merge_outline_node_edits(plan, existing.get("nodes") or [])
         course_generation_brief = artifacts.get("course_generation_brief") or {}
-        auto_context = {
-            **deepcopy(existing),
-            "generation_request": generation_request_payload,
-            "course_generation_brief": deepcopy(course_generation_brief),
-            "teacher_course_brief": deepcopy(course_generation_brief.get("teacher_course_brief") or {}),
-        }
-        if (
-            plan.get("authoring_structure_version") == "lecture_v1"
-            and (outline_was_generated or (existing_outline_stage.get("auto_improvement") or {}).get("status") == "running")
-            and not (existing.get("outline_generation_status") == "completed" and not existing.get("outline_framework_only"))
-        ):
-            async def save_improvement(state: dict[str, Any]) -> None:
-                existing_outline_stage["auto_improvement"] = deepcopy(state)
-                await self._notify_checkpoint(on_checkpoint, {
-                    "generation_status": "outline_generation",
-                    "generation_stage_artifacts": {
-                        **deepcopy(existing.get("generation_stage_artifacts") or {}),
-                        "outline": deepcopy(existing_outline_stage),
-                    },
-                })
-
-            async def improvement_progress(attempt: int) -> None:
-                await self._notify_phase(
-                    on_phase, "outline_auto_improvement", 35, "正在自动优化大纲并复审",
-                    phase_progress=min(90, 10 + attempt * 35),
-                    phase_detail={"artifact_type": "course_outline", "attempt": attempt, "max_attempts": 2},
-                )
-
-            async def propose_improvement(**kwargs: Any) -> dict[str, Any]:
-                async with self._planning_semaphore:
-                    return await self.propose_outline_adjustment(**kwargs)
-
-            await improvement_progress(0)
-            plan, _, improvement_state = await improve_generated_outline(
-                plan=plan, context=auto_context, existing=existing,
-                saved_state=existing_outline_stage.get("auto_improvement") or {},
-                propose=propose_improvement, checkpoint=save_improvement, progress=improvement_progress,
-                timeout_seconds=min(120, self._outline_budget.teacher_lecture_request_timeout_seconds),
-            )
-            existing_outline_stage["auto_improvement"] = improvement_state
-            plan_constraint_report = validate_course_outline_constraints(plan, course_generation_brief)
         outline_plan = self._outline_only_plan(plan)
         outline_quality_report = review_course_outline_document(
             outline_plan,
@@ -5204,6 +5163,8 @@ class CourseService(AIBase):
         max_attempts: int | None = None,
         on_content_delta: Callable[[str], Awaitable[None] | None] | None = None,
         on_content_reset: Callable[[], Awaitable[None] | None] | None = None,
+        telemetry_sink: Callable[[dict], None] | None = None,
+        start_on_provider_request: bool = False,
     ) -> str:
         """Run one model unit until it completes or stops producing chunks."""
         inactivity_timeout_seconds = max(
@@ -5217,6 +5178,7 @@ class CourseService(AIBase):
         activity_event = asyncio.Event()
         last_activity = time.monotonic()
         visible_content_chars = 0
+        active_request_started = not start_on_provider_request
 
         def _mark_activity() -> None:
             nonlocal last_activity
@@ -5233,7 +5195,10 @@ class CourseService(AIBase):
                 await result
 
         async def _handle_content_reset() -> None:
-            nonlocal visible_content_chars
+            nonlocal visible_content_chars, active_request_started, started_at, last_activity
+            if start_on_provider_request:
+                active_request_started = True
+                started_at = last_activity = time.monotonic()
             visible_content_chars = 0
             if not on_content_reset:
                 return
@@ -5260,6 +5225,7 @@ class CourseService(AIBase):
             on_stream_activity=_mark_activity,
             on_content_delta=_handle_content_delta,
             on_content_reset=_handle_content_reset,
+            telemetry_sink=telemetry_sink,
         ))
         started_at = time.monotonic()
         last_heartbeat = started_at
@@ -5271,7 +5237,7 @@ class CourseService(AIBase):
         try:
             while not call_task.done():
                 now = time.monotonic()
-                inactive_for = now - last_activity
+                inactive_for = now - last_activity if active_request_started else 0
                 remaining = max(
                     0.01,
                     inactivity_timeout_seconds - inactive_for,
@@ -5280,7 +5246,7 @@ class CourseService(AIBase):
                     remaining,
                     max(0.05, heartbeat_seconds),
                 )
-                if effective_wall_timeout is not None:
+                if active_request_started and effective_wall_timeout is not None:
                     wait_for = min(
                         wait_for,
                         max(0.01, effective_wall_timeout - (now - started_at)),
@@ -5303,10 +5269,10 @@ class CourseService(AIBase):
                     await activity_task
 
                 now = time.monotonic()
-                inactive_for = now - last_activity
+                inactive_for = now - last_activity if active_request_started else 0
                 elapsed_for = now - started_at
                 if (
-                    effective_wall_timeout is not None
+                    active_request_started and effective_wall_timeout is not None
                     and elapsed_for >= effective_wall_timeout
                 ):
                     call_task.cancel()
@@ -5341,7 +5307,7 @@ class CourseService(AIBase):
                         f"{int(effective_wall_timeout)} 秒，已停止当前最小生成单元，"
                         "可从最近检查点继续"
                     )
-                if inactive_for >= inactivity_timeout_seconds:
+                if active_request_started and inactive_for >= inactivity_timeout_seconds:
                     call_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
                         await call_task
@@ -5522,6 +5488,219 @@ class CourseService(AIBase):
         plan = apply_course_learning_path_contract(plan, brief)
         return plan, validate_course_outline_constraints(plan, brief)
 
+    async def _generate_teacher_course_outline(
+        self, *, topic: str, audience: str, artifacts: dict[str, Any],
+        profile: SubjectPedagogyProfile, difficulty_profile: dict[str, Any],
+        gap_assessment: dict[str, Any], adaptation_decision: dict[str, Any],
+        existing_stage: dict[str, Any], existing_generation_stages: dict[str, Any],
+        stop_after_skeleton: bool, on_phase: Callable[..., Awaitable[None] | None] | None,
+        on_checkpoint: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any], dict[str, Any]]:
+        """Generate a complete teacher artifact, or an explicitly requested light plan."""
+        brief = deepcopy(artifacts.get("course_generation_brief") or {})
+        fingerprint = outline_request_fingerprint(
+            topic=topic, audience=audience, brief=brief, difficulty_profile=difficulty_profile,
+        )
+        stage = deepcopy(existing_stage)
+        if stage.get("strategy") not in {None, "", "teacher_complete_outline"}:
+            raise ValueError(
+                "course_outline_execution_retired: 旧大纲任务不可在新链路自动续跑；请保留原结果后重新发起生成"
+            )
+        if stage.get("request_fingerprint") not in {None, "", fingerprint} and (stage.get("response") or not stage.get("shape_confirmed")):
+            raise ValueError("course_outline_input_changed: 大纲输入已变化，请重新发起生成")
+        confirmed = deepcopy(stage.get("skeleton") or {}) if stage.get("shape_confirmed") else {}
+        if confirmed:
+            brief["course_shape_constraints"] = {
+                **(brief.get("course_shape_constraints") or {}),
+                "chapter_count": len(confirmed.get("chapters") or []),
+                "section_count": len(confirmed.get("chapters") or []),
+            }
+        scope = "plan" if stop_after_skeleton and not confirmed else "full"
+        if stage.get("response_scope") and stage["response_scope"] != scope:
+            stage["repair_count"] = 0
+            stage.pop("repair_issues", None)
+            stage.pop("repair_candidate", None)
+        stage.update(strategy="teacher_complete_outline", schema_version="course_outline_execution_v3",
+                     request_fingerprint=fingerprint, output_scope=scope)
+        phase = "outline_skeleton_generation" if scope == "plan" else "outline_generation"
+        message = "正在生成讲次方案" if scope == "plan" else "正在生成完整课程大纲"
+
+        async def persist() -> None:
+            await self._notify_checkpoint(on_checkpoint, {
+                "generation_pipeline_version": PIPELINE_VERSION,
+                "generation_schema_version": PIPELINE_VERSION,
+                "prompt_contract_version": PROMPT_CONTRACT_VERSION,
+                "generation_status": "outline_generation",
+                "generation_stage_artifacts": {
+                    **deepcopy(existing_generation_stages), "outline": deepcopy(stage),
+                },
+            })
+
+        material_context = build_outline_generation_context(artifacts)
+        if scope == "plan":
+            prompt = self._prompt_composer.build_outline_skeleton_v2_prompt(
+                subject=topic, audience=audience, brief=brief, profile=profile,
+                difficulty_profile=difficulty_profile, gap_assessment=gap_assessment,
+                adaptation_decision=adaptation_decision, material_context=material_context,
+                coverage_verdict=course_coverage_verdict(subject=topic, brief=brief),
+            )
+        else:
+            prompt = self._prompt_composer.build_teacher_outline_complete_prompt(
+                subject=topic, audience=audience, brief=brief,
+                material_context=material_context, confirmed_plan=confirmed,
+            )
+        user_prompt = f"为「{topic}」生成{'讲次方案' if scope == 'plan' else '完整课程大纲'}，只输出 JSON。"
+        budget = self._generation_budget
+        output_tokens = self._outline_budget.teacher_lecture_max_output_tokens
+        stage["request_budget"] = {
+            "max_input_tokens": budget.max_input_tokens, "max_input_chars": budget.max_input_chars,
+            "max_output_tokens": output_tokens, "provider_max_attempts": 1,
+            "token_count_method": "estimate", "context_window_tokens": budget.context_window_tokens,
+            "context_reserve_tokens": budget.context_reserve_tokens,
+            "context_limit_source": "deployment_configuration",
+        }
+        if stage.get("repair_issues") and stage.get("response_scope") == scope:
+            prompt += "\n## 结构修复\n仅修复下列问题，保留其余教学内容，返回完整 JSON：\n" + json.dumps(stage["repair_issues"], ensure_ascii=False)
+            prompt += "\n## 上一次输出\n" + str(stage.get("repair_candidate") or "")
+        response = str(stage.get("response") or "") if stage.get("response_scope") == scope else ""
+        report: dict[str, Any] = {}
+        while True:
+            if not response:
+                tokens = self.estimate_request_tokens(user_prompt, prompt)
+                if (tokens > budget.max_input_tokens or len(user_prompt) + len(prompt) > budget.max_input_chars
+                    or tokens + output_tokens + budget.context_reserve_tokens > budget.context_window_tokens):
+                    stage["status"] = "failed"
+                    stage["failure_reason"] = "input_budget_exceeded"
+                    await persist()
+                    raise CourseGenerationBudgetExceeded("完整大纲输入超过请求预算，请缩小资料范围；未截断输入")
+                stage["status"] = "in_progress"
+                await persist()
+                chunks: list[str] = []
+                last_push = 0.0
+
+                async def on_delta(chunk: str) -> None:
+                    nonlocal last_push
+                    chunks.append(chunk)
+                    now = time.monotonic()
+                    if now - last_push < 0.5:
+                        return
+                    last_push = now
+                    growth = project_streamed_teacher_outline_growth(
+                        "".join(chunks), topic=topic,
+                        lecture_count=int((brief.get("course_shape_constraints") or {}).get("chapter_count") or 1),
+                    )
+                    growth["state"] = "framework_growing" if scope == "plan" else "growing"
+                    await self._notify_phase(on_phase, phase, 33, message, phase_detail={
+                        "artifact_type": "course_outline", "outline_growth": growth,
+                        "model_call_count": int(stage.get("model_call_count") or 0),
+                    })
+
+                await self._notify_phase(on_phase, phase, 33, message, phase_detail={"artifact_type": "course_outline"})
+                try:
+                    async with self._planning_semaphore:
+                        stage["model_call_count"] = int(stage.get("model_call_count") or 0) + 1
+                        stage["prompt_chars"] = int(stage.get("prompt_chars") or 0) + len(user_prompt) + len(prompt)
+                        stage["prompt_tokens"] = int(stage.get("prompt_tokens") or 0) + tokens
+                        stage["max_prompt_tokens"] = max(int(stage.get("max_prompt_tokens") or 0), tokens)
+                        response = await self._call_llm_with_heartbeat(
+                            user_prompt, prompt, enable_thinking=False, on_phase=on_phase,
+                            phase=phase, base_progress=33, heartbeat_message=message,
+                            stage_timeout_seconds=self._outline_budget.batch_timeout_seconds,
+                            wall_timeout_seconds=self._outline_budget.teacher_lecture_request_timeout_seconds,
+                            max_input_tokens=budget.max_input_tokens, max_input_chars=budget.max_input_chars,
+                            max_output_tokens=output_tokens, max_attempts=1, on_content_delta=on_delta,
+                            start_on_provider_request=True,
+                            telemetry_sink=lambda item: stage.setdefault("request_metrics", []).append({
+                                key: item.get(key) for key in ("model_id", "status", "physical_request_count",
+                                "input_tokens", "output_tokens", "duration_ms", "queue_wait_ms", "error_code")
+                            }),
+                        )
+                except (AIProviderRequestError, asyncio.CancelledError):
+                    stage.update(status="failed", partial_response="".join(chunks))
+                    await persist()
+                    raise
+                stage.update(response=response, response_scope=scope, partial_response="")
+                # Save the returned candidate before assembly/publication. A failed
+                # publication can resume this response without another model call.
+                await persist()
+            payload = self._extract_json(response)
+            if not isinstance(payload, dict):
+                payload = {}
+            raw_lectures = payload.get("lectures") or []
+            identity_ok = bool(isinstance(raw_lectures, list) and raw_lectures and all(
+                isinstance(item, dict) and item.get("lecture_number") == index
+                and str(item.get("title") or "").strip()
+                for index, item in enumerate(raw_lectures, 1)
+            ))
+            skeleton = normalize_outline_skeleton(
+                payload, topic=topic, request_fingerprint=fingerprint, teacher_light_plan_only=scope == "plan",
+            )
+            if confirmed:
+                expected = confirmed.get("chapters") or []
+                identity_ok = identity_ok and len(raw_lectures) == len(expected)
+                for generated, original in zip(skeleton.get("chapters") or [], expected):
+                    generated.update(merge_teacher_outline_detail(original, generated))
+            report = validate_outline_skeleton(
+                skeleton, shape_constraints=brief.get("course_shape_constraints") or {},
+                request_fingerprint=fingerprint, course_type_contract=brief.get("course_type_contract") or {},
+                coverage_verdict=course_coverage_verdict(subject=topic, brief=brief, skeleton=skeleton),
+            )
+            issues = list(report.get("issues") or [])
+            if not identity_ok:
+                issues.append({"code": "outline:lecture_identity", "message": "讲次必须完整、连续且有标题，不得重复、遗漏或乱序"})
+            plan = None
+            if scope == "full":
+                stage["local_hour_adjustments"] = allocate_teacher_outline_hours(
+                    skeleton, brief=brief, confirmed=confirmed,
+                )
+                local_contract = {**skeleton, "skeleton_revision_id": skeleton.get("revision_id")}
+                issues.extend(validate_teacher_outline_course_contract(local_contract, skeleton=skeleton)["issues"])
+                # Existing local field validators and projections remain the sole
+                # schema owner; these operations perform no remote requests.
+                issues.extend(validate_teacher_outline_details(skeleton)["issues"])
+                specs = build_outline_batch_specs(skeleton, self._outline_budget)
+                batches = {str(spec["batch_id"]): compile_teacher_lecture_outline_batch(
+                    spec=spec, lecture=skeleton["chapters"][int(spec["chapter_number"]) - 1],
+                    skeleton_revision_id=str(skeleton.get("revision_id") or ""),
+                ) for spec in specs}
+                plan = apply_course_learning_path_contract(normalize_course_outline_contract(assemble_course_outline(
+                    skeleton=skeleton, batch_specs=specs, batches=batches,
+                )), brief)
+                constraints = validate_course_outline_constraints(plan, brief)
+                issues.extend(constraints.get("issues") or [])
+                expected_hours = float((brief.get("teacher_course_brief") or {}).get("total_class_hours")
+                                       or (brief.get("formal_course_profile") or {}).get("total_hours") or 0)
+                actual_hours = sum(float(item.get("planned_hours") or 0) for item in skeleton.get("chapters") or [])
+                if expected_hours and abs(actual_hours - expected_hours) > 0.01:
+                    issues.append({"code": "outline:hour_total", "message": f"总学时应为 {expected_hours}，实际为 {actual_hours}"})
+                weights = sum(float(item.get("weight_percent") or 0) for item in skeleton.get("assessment_plan") or [])
+                if abs(weights - 100) > 0.01:
+                    issues.append({"code": "outline:assessment_weights", "message": "考核权重之和必须等于 100"})
+            report.update(passed=not issues, issues=issues)
+            stage.update(validation_report=deepcopy(report))
+            if not issues:
+                stage.update(status="waiting_for_input" if scope == "plan" else "completed",
+                             skeleton=deepcopy(skeleton), skeleton_revision_id=skeleton.get("revision_id"),
+                             skeleton_validation_report=deepcopy(report), validated_plan=deepcopy(plan))
+                await persist()
+                if scope == "plan":
+                    report["skeleton_only"] = True
+                    await self._notify_phase(on_phase, "outline_framework_ready", 32,
+                                             "讲次方案已生成，可编辑后继续生成完整大纲", phase_progress=100)
+                return plan, report, stage
+            if int(stage.get("repair_count") or 0) >= 1:
+                stage["status"] = "failed"
+                await persist()
+                return None, report, stage
+            stage["repair_count"] = 1
+            stage["repair_issues"] = deepcopy(issues)
+            stage["repair_candidate"] = response
+            response = ""
+            stage.update(response="", response_scope=scope)
+            # One bounded structure repair, never an editorial review loop.
+            prompt += "\n## 结构修复\n仅修复下列问题，保留其余教学内容，返回完整 JSON：\n" + json.dumps(issues, ensure_ascii=False)
+            prompt += "\n## 上一次输出\n" + str(stage["repair_candidate"])
+
     async def _generate_hierarchical_course_outline(
         self,
         *,
@@ -5544,10 +5723,19 @@ class CourseService(AIBase):
         dict[str, Any],
         dict[str, Any],
     ]:
-        """Build every outline as chapter skeleton -> batches -> local assembly."""
+        """Use complete teacher requests; retain legacy learner planning until G5."""
         brief = artifacts.get("course_generation_brief") or {}
         shape_constraints = brief.get("course_shape_constraints") or {}
         teacher_lecture_mode = bool(shape_constraints.get("teacher_lecture_mode"))
+        if teacher_lecture_mode:
+            return await self._generate_teacher_course_outline(
+                topic=topic, audience=audience, artifacts=artifacts, profile=profile,
+                difficulty_profile=difficulty_profile, gap_assessment=gap_assessment,
+                adaptation_decision=adaptation_decision, existing_stage=existing_stage,
+                existing_generation_stages=existing_generation_stages,
+                stop_after_skeleton=stop_after_skeleton, on_phase=on_phase,
+                on_checkpoint=on_checkpoint,
+            )
         # D-1: decide what this course size can honestly promise before any
         # model call, so the skeleton is planned against a stated scope rather
         # than being silently downgraded and still called complete.
@@ -5599,35 +5787,23 @@ class CourseService(AIBase):
         ]
         counter_lock = asyncio.Lock()
         state_lock = asyncio.Lock()
-        teacher_detail_batch_size = 1
         stage.update({
             "status": "in_progress",
             "schema_version": "course_outline_execution_v2",
             "strategy": (
-                "teacher_framework_then_lecture_tasks"
-                if teacher_lecture_mode
-                else "hierarchical_chapter_batches"
+                "hierarchical_chapter_batches"
             ),
             "request_fingerprint": request_fingerprint,
             "batch_max_sections": self._outline_budget.batch_max_sections,
             "max_concurrency": self._planning_concurrency,
-            "detail_batch_size": (
-                teacher_detail_batch_size
-                if teacher_lecture_mode
-                else None
-            ),
             "inactivity_timeout_seconds": (
                 self._outline_budget.batch_timeout_seconds
             ),
             "request_wall_timeout_seconds": (
-                self._outline_budget.teacher_lecture_request_timeout_seconds
-                if teacher_lecture_mode
-                else None
+                None
             ),
             "request_max_output_tokens": (
-                self._outline_budget.teacher_lecture_max_output_tokens
-                if teacher_lecture_mode
-                else self._generation_budget.outline_max_output_tokens
+                self._generation_budget.outline_max_output_tokens
             ),
             "completion_policy": "all_units_succeeded",
         })
@@ -5713,10 +5889,7 @@ class CourseService(AIBase):
                             self._outline_budget.batch_timeout_seconds
                         ),
                         wall_timeout_seconds=(
-                            self._outline_budget
-                            .teacher_lecture_request_timeout_seconds
-                            if teacher_lecture_mode
-                            else None
+                            None
                         ),
                         heartbeat_message=message,
                         phase_detail=phase_detail,
@@ -5727,9 +5900,7 @@ class CourseService(AIBase):
                             self._generation_budget.max_input_chars
                         ),
                         max_output_tokens=(
-                            self._outline_budget.teacher_lecture_max_output_tokens
-                            if teacher_lecture_mode
-                            else self._generation_budget.outline_max_output_tokens
+                            self._generation_budget.outline_max_output_tokens
                         ),
                         max_attempts=(
                             self._generation_budget.provider_max_attempts
@@ -5758,7 +5929,7 @@ class CourseService(AIBase):
             raw_skeleton if isinstance(raw_skeleton, dict) else {},
             topic=topic,
             request_fingerprint=request_fingerprint,
-            teacher_light_plan_only=teacher_lecture_mode,
+            teacher_light_plan_only=False,
         )
         skeleton_report = validate_outline_skeleton(
             skeleton,
@@ -5807,7 +5978,7 @@ class CourseService(AIBase):
             }
             skeleton_user = (
                 f"为「{clip_text(topic, 160)}」规划"
-                f"{'轻量讲次方案' if teacher_lecture_mode else '全课章节骨架'}，只输出 JSON。"
+                f"{'全课章节骨架'}，只输出 JSON。"
             )
             selected_skeleton = select_budgeted_prompt(
                 (
@@ -5830,84 +6001,12 @@ class CourseService(AIBase):
                 prompt_detail_levels.append(
                     selected_skeleton.detail_level
                 )
-                lecture_count = max(
-                    1,
-                    int(shape_constraints.get("chapter_count") or 0),
-                )
-                streamed_outline_parts: list[str] = []
-                streamed_outline_chars = 0
-                last_stream_push_at = 0.0
-                last_stream_push_chars = 0
-                last_stream_completed = 0
-
-                async def on_teacher_outline_delta(chunk: str) -> None:
-                    nonlocal streamed_outline_chars
-                    nonlocal last_stream_push_at
-                    nonlocal last_stream_push_chars
-                    nonlocal last_stream_completed
-                    streamed_outline_parts.append(chunk)
-                    streamed_outline_chars += len(chunk)
-                    now = time.monotonic()
-                    if (
-                        last_stream_push_at
-                        and now - last_stream_push_at < 1.0
-                        and streamed_outline_chars - last_stream_push_chars < 128
-                    ):
-                        return
-                    growth = project_streamed_teacher_outline_growth(
-                        "".join(streamed_outline_parts),
-                        topic=topic,
-                        lecture_count=lecture_count,
-                    )
-                    completed = int(growth.get("completed_sections") or 0)
-                    if (
-                        last_stream_push_at
-                        and completed == last_stream_completed
-                        and now - last_stream_push_at < 1.0
-                    ):
-                        return
-                    last_stream_push_at = now
-                    last_stream_push_chars = streamed_outline_chars
-                    last_stream_completed = completed
-                    await self._notify_phase(
-                        on_phase,
-                        "outline_generation",
-                        32,
-                        (
-                            f"已生成第 {completed}/{lecture_count} 讲方案"
-                            if completed
-                            else "AI 已开始返回讲次方案"
-                        ),
-                        phase_progress=int(
-                            100 * completed / max(1, lecture_count)
-                        ),
-                        phase_detail={
-                            "artifact_type": "course_outline_growth",
-                            "received_content_chars": streamed_outline_chars,
-                            "stream_state": "visible_content",
-                            "outline_growth": growth,
-                        },
-                    )
-
-                async def reset_teacher_outline_stream() -> None:
-                    nonlocal streamed_outline_chars
-                    nonlocal last_stream_push_at
-                    nonlocal last_stream_push_chars
-                    nonlocal last_stream_completed
-                    streamed_outline_parts.clear()
-                    streamed_outline_chars = 0
-                    last_stream_push_at = 0.0
-                    last_stream_push_chars = 0
-                    last_stream_completed = 0
-
                 await self._notify_phase(
                     on_phase,
                     "outline_generation",
                     32,
                     (
-                        "正在生成轻量讲次方案"
-                        if teacher_lecture_mode
-                        else "正在生成轻量章节骨架"
+                        "正在生成轻量章节骨架"
                     ),
                     phase_progress=0,
                     phase_detail={
@@ -5920,9 +6019,7 @@ class CourseService(AIBase):
                         system_prompt=selected_skeleton.system_prompt,
                         phase="outline_generation",
                         message=(
-                            "仍在等待 AI 生成轻量讲次方案"
-                            if teacher_lecture_mode
-                            else "仍在等待 AI 生成轻量章节骨架"
+                            "仍在等待 AI 生成轻量章节骨架"
                         ),
                         phase_detail={
                             "artifact_type": "course_outline_skeleton",
@@ -5931,16 +6028,12 @@ class CourseService(AIBase):
                         # Hidden reasoning can consume minutes without a single
                         # teacher-visible character, so formal outlines use the
                         # model's direct structured-output mode.
-                        enable_thinking=not teacher_lecture_mode,
+                        enable_thinking=True,
                         on_content_delta=(
-                            on_teacher_outline_delta
-                            if teacher_lecture_mode
-                            else None
+                            None
                         ),
                         on_content_reset=(
-                            reset_teacher_outline_stream
-                            if teacher_lecture_mode
-                            else None
+                            None
                         ),
                     )
                 except (
@@ -5962,7 +6055,7 @@ class CourseService(AIBase):
                 parsed or {},
                 topic=topic,
                 request_fingerprint=request_fingerprint,
-                teacher_light_plan_only=teacher_lecture_mode,
+                teacher_light_plan_only=False,
             )
             coverage_verdict = course_coverage_verdict(
                 subject=topic,
@@ -5982,9 +6075,7 @@ class CourseService(AIBase):
                 and selected_skeleton is not None
             ):
                 correction_user = (
-                    "只修复轻量讲次方案，重新输出完整 JSON。"
-                    if teacher_lecture_mode
-                    else "只修复全课章节骨架，重新输出完整 JSON。"
+                    "只修复全课章节骨架，重新输出完整 JSON。"
                 )
                 correction_prompt = (
                     self._prompt_composer
@@ -6031,9 +6122,7 @@ class CourseService(AIBase):
                             ),
                             phase="outline_validation",
                             message=(
-                                "仍在等待 AI 修复轻量讲次方案"
-                                if teacher_lecture_mode
-                                else "仍在等待 AI 修复轻量章节骨架"
+                                "仍在等待 AI 修复轻量章节骨架"
                             ),
                             phase_detail={
                                 "artifact_type": (
@@ -6060,7 +6149,7 @@ class CourseService(AIBase):
                         candidate if isinstance(candidate, dict) else {},
                         topic=topic,
                         request_fingerprint=request_fingerprint,
-                        teacher_light_plan_only=teacher_lecture_mode,
+                        teacher_light_plan_only=False,
                     )
                     coverage_verdict = course_coverage_verdict(
                         subject=topic,
@@ -6132,23 +6221,17 @@ class CourseService(AIBase):
                 if isinstance(item, dict)
             ]
             stage["status"] = (
-                "waiting_for_input"
-                if teacher_lecture_mode
-                else "waiting_for_shape_review"
+                "waiting_for_shape_review"
             )
             await persist_stage()
             await self._notify_phase(
                 on_phase,
                 (
-                    "outline_framework_ready"
-                    if teacher_lecture_mode
-                    else "outline_shape_ready"
+                    "outline_shape_ready"
                 ),
                 32,
                 (
-                    "轻量讲次方案已生成，可编辑或主动生成完整大纲"
-                    if teacher_lecture_mode
-                    else "大章节骨架已生成，请确认每章小节数"
+                    "大章节骨架已生成，请确认每章小节数"
                 ),
                 phase_progress=100,
                 phase_detail={
@@ -6160,9 +6243,7 @@ class CourseService(AIBase):
                             "authoring_structure_version"
                         ),
                         "state": (
-                            "framework_ready"
-                            if teacher_lecture_mode
-                            else "shape_review"
+                            "shape_review"
                         ),
                         "course_title": str(
                             skeleton.get("course_title") or topic
@@ -6254,7 +6335,6 @@ class CourseService(AIBase):
                     continue
                 chapter_number = int(chapter.get("chapter_number") or 0)
                 sections: list[dict[str, Any]] = []
-                chapter_retry_required = False
                 for spec in sorted(
                     (
                         item
@@ -6268,13 +6348,6 @@ class CourseService(AIBase):
                 ):
                     batch_id = str(spec.get("batch_id") or "")
                     stored = stored_batches.get(batch_id)
-                    if (
-                        teacher_lecture_mode
-                        and isinstance(stored, dict)
-                        and stored.get("status") == "retry_required"
-                    ):
-                        chapter_retry_required = True
-                        continue
                     batch = results.get(batch_id) or {}
                     sections.extend(
                         {
@@ -6307,8 +6380,6 @@ class CourseService(AIBase):
                     "status": (
                         "completed"
                         if section_count > 0 and len(sections) >= section_count
-                        else "failed"
-                        if chapter_retry_required
                         else "growing"
                         if is_active
                         else "waiting"
@@ -6346,9 +6417,7 @@ class CourseService(AIBase):
             "outline_generation",
             32,
             (
-                "全课讲次方案已形成，正在准备完整大纲"
-                if teacher_lecture_mode
-                else "课程章节主干已形成，正在展开各章小节"
+                "课程章节主干已形成，正在展开各章小节"
             ),
             phase_progress=int(
                 100 * len(results) / max(1, len(batch_specs))
@@ -6360,1027 +6429,6 @@ class CourseService(AIBase):
         )
 
         assembly_skeleton = skeleton
-        if teacher_lecture_mode:
-            course_contract_started_at = time.monotonic()
-            raw_course_contract = stage.get("course_contract")
-            course_contract = normalize_teacher_outline_course_contract(
-                (
-                    raw_course_contract
-                    if isinstance(raw_course_contract, dict)
-                    else {}
-                ),
-                skeleton=skeleton,
-            )
-            course_contract_report = validate_teacher_outline_course_contract(
-                course_contract,
-                skeleton=skeleton,
-            )
-            course_contract_failure_reason = ""
-            course_contract_error: Exception | None = None
-            if not course_contract_report.get("passed"):
-                contract_levels = prompt_detail_levels_for_source(
-                    {
-                        "skeleton": skeleton,
-                        "brief": brief,
-                        "material_cards": artifacts.get("material_cards") or [],
-                    },
-                    max_input_chars=self._generation_budget.max_input_chars,
-                )
-                material_contexts = {
-                    detail_level: build_outline_generation_context(
-                        artifacts,
-                        detail_level=detail_level,
-                    )
-                    for detail_level in contract_levels
-                }
-                contract_prompts = {
-                    detail_level: (
-                        self._prompt_composer
-                        .build_teacher_outline_course_contract_v1_prompt(
-                            skeleton=skeleton,
-                            brief=brief,
-                            material_context=material_contexts[detail_level],
-                            detail_level=detail_level,
-                        )
-                    )
-                    for detail_level in contract_levels
-                }
-                selected_contract = select_budgeted_prompt(
-                    (
-                        PromptCandidate(
-                            detail_level=detail_level,
-                            user_prompt=(
-                                "根据当前轻量讲次方案生成"
-                                "课程级完整大纲字段，只输出 JSON。"
-                            ),
-                            system_prompt=contract_prompts[detail_level],
-                        )
-                        for detail_level in contract_levels
-                    ),
-                    max_input_chars=self._generation_budget.max_input_chars,
-                    max_input_tokens=self._generation_budget.max_input_tokens,
-                    token_estimator=self.estimate_request_tokens,
-                )
-                parsed_contract: dict[str, Any] | None = None
-                if selected_contract is None:
-                    course_contract_failure_reason = (
-                        "course_contract_prompt_did_not_fit"
-                    )
-                else:
-                    prompt_detail_levels.append(selected_contract.detail_level)
-                    await self._notify_phase(
-                        on_phase,
-                        "outline_course_contract_generation",
-                        32,
-                        "正在形成课程目标、知识模块与考核方案",
-                        phase_progress=0,
-                        phase_detail={
-                            "artifact_type": "course_outline_course_contract",
-                            "skeleton_revision_id": skeleton.get("revision_id"),
-                        },
-                    )
-                    try:
-                        response = await request_model(
-                            user_prompt=selected_contract.user_prompt,
-                            system_prompt=selected_contract.system_prompt,
-                            phase="outline_course_contract_generation",
-                            message="仍在等待 AI 生成课程级大纲字段",
-                            phase_detail={
-                                "artifact_type": (
-                                    "course_outline_course_contract"
-                                ),
-                                "skeleton_revision_id": (
-                                    skeleton.get("revision_id")
-                                ),
-                            },
-                        )
-                    except (
-                        AIProviderRequestError,
-                        CourseGenerationDeadlineExceeded,
-                    ) as exc:
-                        response = ""
-                        course_contract_error = exc
-                        course_contract_failure_reason = (
-                            f"provider_error:{type(exc).__name__}"
-                        )
-                    candidate = (
-                        self._extract_json(response) if response else None
-                    )
-                    parsed_contract = (
-                        candidate if isinstance(candidate, dict) else None
-                    )
-                course_contract = normalize_teacher_outline_course_contract(
-                    parsed_contract or {},
-                    skeleton=skeleton,
-                )
-                course_contract_report = (
-                    validate_teacher_outline_course_contract(
-                        course_contract,
-                        skeleton=skeleton,
-                    )
-                )
-                if (
-                    not course_contract_report.get("passed")
-                    and not course_contract_failure_reason
-                    and selected_contract is not None
-                ):
-                    correction_prompt = (
-                        self._prompt_composer
-                        .build_teacher_outline_course_contract_v1_correction_prompt(
-                            original_prompt=contract_prompts[
-                                selected_contract.detail_level
-                            ],
-                            issues=(
-                                course_contract_report.get("issues") or []
-                            ),
-                        )
-                    )
-                    selected_correction = select_budgeted_prompt(
-                        [
-                            PromptCandidate(
-                                detail_level=selected_contract.detail_level,
-                                user_prompt=(
-                                    "修复课程级大纲字段，只输出完整 JSON。"
-                                ),
-                                system_prompt=correction_prompt,
-                            ),
-                        ],
-                        max_input_chars=(
-                            self._generation_budget.max_input_chars
-                        ),
-                        max_input_tokens=(
-                            self._generation_budget.max_input_tokens
-                        ),
-                        token_estimator=self.estimate_request_tokens,
-                    )
-                    if selected_correction is None:
-                        course_contract_failure_reason = (
-                            "course_contract_correction_prompt_did_not_fit"
-                        )
-                    else:
-                        prompt_detail_levels.append(
-                            selected_correction.detail_level
-                        )
-                        try:
-                            corrected = await request_model(
-                                user_prompt=selected_correction.user_prompt,
-                                system_prompt=selected_correction.system_prompt,
-                                phase="outline_course_contract_validation",
-                                message=(
-                                    "仍在等待 AI 修复课程级大纲字段"
-                                ),
-                                phase_detail={
-                                    "artifact_type": (
-                                        "course_outline_course_contract"
-                                    ),
-                                    "skeleton_revision_id": (
-                                        skeleton.get("revision_id")
-                                    ),
-                                },
-                            )
-                        except (
-                            AIProviderRequestError,
-                            CourseGenerationDeadlineExceeded,
-                        ) as exc:
-                            corrected = ""
-                            course_contract_error = exc
-                            course_contract_failure_reason = (
-                                "correction_provider_error:"
-                                f"{type(exc).__name__}"
-                            )
-                        candidate = (
-                            self._extract_json(corrected)
-                            if corrected
-                            else None
-                        )
-                        course_contract = (
-                            normalize_teacher_outline_course_contract(
-                                (
-                                    candidate
-                                    if isinstance(candidate, dict)
-                                    else {}
-                                ),
-                                skeleton=skeleton,
-                            )
-                        )
-                        course_contract_report = (
-                            validate_teacher_outline_course_contract(
-                                course_contract,
-                                skeleton=skeleton,
-                            )
-                        )
-            stage.update({
-                "course_contract_status": (
-                    "completed"
-                    if course_contract_report.get("passed")
-                    else "retry_required"
-                ),
-                "course_contract": deepcopy(course_contract),
-                "course_contract_validation_report": deepcopy(
-                    course_contract_report
-                ),
-                "course_contract_duration_ms": int(
-                    (time.monotonic() - course_contract_started_at) * 1000
-                ),
-                "course_contract_failure_reason": (
-                    course_contract_failure_reason or None
-                ),
-            })
-            await persist_stage()
-            if not course_contract_report.get("passed"):
-                stage["status"] = "course_contract_failed"
-                await persist_stage()
-                if course_contract_error is not None:
-                    raise course_contract_error
-                messages = "；".join(
-                    str(item.get("message") or "课程级大纲字段无效")
-                    for item in course_contract_report.get("issues") or []
-                )
-                raise AIProviderRequestError(
-                    f"课程级大纲字段未通过结构验收："
-                    f"{messages or '无法解析完整 JSON'}"
-                )
-            assembly_skeleton = merge_teacher_outline_course_contract(
-                skeleton,
-                course_contract,
-            )
-            detail_started_at = time.monotonic()
-            detail_records = (
-                deepcopy(stage.get("detail_batches"))
-                if isinstance(stage.get("detail_batches"), dict)
-                else {}
-            )
-            specs_by_lecture = {
-                int(spec.get("chapter_number") or 0): spec
-                for spec in batch_specs
-            }
-
-            def framework_contains_legacy_details(
-                lecture: dict[str, Any],
-            ) -> bool:
-                return bool(
-                    str(lecture.get("content_summary") or "").strip()
-                    and list(lecture.get("key_points") or [])
-                    and list(lecture.get("key_difficulties") or [])
-                    and list(lecture.get("activities") or [])
-                    and list(lecture.get("homework") or [])
-                    and list(lecture.get("application_anchors") or [])
-                    and list(lecture.get("learning_tasks") or [])
-                    and list(lecture.get("assessment") or [])
-                )
-
-            pending_specs = [
-                spec for spec in batch_specs
-                if str(spec.get("batch_id") or "") not in results
-            ]
-            legacy_detail_specs = [
-                spec for spec in pending_specs
-                if framework_contains_legacy_details(
-                    chapter_by_number.get(
-                        int(spec.get("chapter_number") or 0)
-                    ) or {}
-                )
-            ]
-            # A checkpoint produced before the two-stage contract can already
-            # contain every detail field. Preserve it locally instead of
-            # spending new model calls after an upgrade or process restart.
-            for spec in legacy_detail_specs:
-                batch_id = str(spec.get("batch_id") or "")
-                lecture = chapter_by_number.get(
-                    int(spec.get("chapter_number") or 0)
-                ) or {}
-                batch = compile_teacher_lecture_outline_batch(
-                    spec=spec,
-                    lecture=lecture,
-                    skeleton_revision_id=str(
-                        skeleton.get("revision_id") or ""
-                    ),
-                )
-                report = validate_outline_batch(
-                    batch,
-                    spec=spec,
-                    skeleton_revision_id=str(
-                        skeleton.get("revision_id") or ""
-                    ),
-                )
-                if not report.get("passed"):
-                    raise AIProviderRequestError(
-                        f"第 {spec.get('chapter_number')} 讲的兼容投影失败；"
-                        "这是生成编排器错误"
-                    )
-                results[batch_id] = batch
-                stored_batches[batch_id] = {
-                    "status": "completed",
-                    "skeleton_revision_id": skeleton.get("revision_id"),
-                    "section_ids": list(
-                        spec.get("expected_node_ids") or []
-                    ),
-                    "payload": deepcopy(batch),
-                    "validation_report": deepcopy(report),
-                    "generation_source": "legacy_full_framework_projection",
-                    "fallback_reason": None,
-                    "prompt_detail_level": "local_projection",
-                }
-
-            pending_specs = [
-                spec for spec in batch_specs
-                if str(spec.get("batch_id") or "") not in results
-            ]
-            all_detail_specs = build_teacher_outline_detail_batch_specs(
-                assembly_skeleton,
-                batch_size=teacher_detail_batch_size,
-            )
-            lesson_statuses = (
-                deepcopy(stage.get("lesson_statuses"))
-                if isinstance(stage.get("lesson_statuses"), dict)
-                else {}
-            )
-            for detail_spec in all_detail_specs:
-                lecture_number = int(
-                    (detail_spec.get("lecture_numbers") or [0])[0]
-                )
-                lesson_id = str(
-                    detail_spec.get("lesson_id") or f"L1-{lecture_number}"
-                )
-                batch_id = str(
-                    (specs_by_lecture.get(lecture_number) or {}).get(
-                        "batch_id"
-                    )
-                    or ""
-                )
-                completed = batch_id in results
-                previous_status = (
-                    lesson_statuses.get(lesson_id)
-                    if isinstance(lesson_statuses.get(lesson_id), dict)
-                    else {}
-                )
-                lesson_statuses[lesson_id] = {
-                    "lesson_id": lesson_id,
-                    "status": "completed" if completed else str(
-                        previous_status.get("status") or "queued"
-                    ),
-                    "stage": "outline_detail_completed" if completed else str(
-                        previous_status.get("stage") or "queued"
-                    ),
-                    "message": (
-                        f"第 {lecture_number} 讲已生成"
-                        if completed
-                        else str(
-                            previous_status.get("message")
-                            or f"第 {lecture_number} 讲等待生成"
-                        )
-                    ),
-                    "progress": 100 if completed else int(
-                        previous_status.get("progress") or 0
-                    ),
-                    "stream_preview": str(
-                        previous_status.get("stream_preview") or ""
-                    ),
-                }
-            stage["lesson_statuses"] = deepcopy(lesson_statuses)
-            await persist_stage()
-            pending_lecture_numbers = {
-                int(spec.get("chapter_number") or 0)
-                for spec in pending_specs
-            }
-            # Each missing lecture owns one stable task. Successful lecture
-            # checkpoints are never regenerated when another lecture fails.
-            detail_specs = [
-                spec
-                for spec in all_detail_specs
-                if any(
-                    int(number) in pending_lecture_numbers
-                    for number in spec.get("lecture_numbers") or []
-                )
-            ]
-            detail_runtime_lock = asyncio.Lock()
-            active_detail_numbers: set[int] = set()
-            active_detail_count = 0
-            peak_detail_count = int(
-                stage.get("observed_peak_detail_concurrency") or 0
-            )
-
-            await self._notify_phase(
-                on_phase,
-                "outline_generation",
-                32,
-                "讲次方案已形成，正在并行生成完整大纲",
-                phase_progress=int(
-                    100 * len(results) / max(1, len(batch_specs))
-                ),
-                phase_detail={
-                    "artifact_type": "course_outline_growth",
-                    "outline_growth": outline_growth_detail(
-                        state="framework_ready",
-                    ),
-                },
-            )
-
-            def build_detail_prompt_options(
-                detail_spec: dict[str, Any],
-            ) -> tuple[Any, dict[str, str]]:
-                levels = prompt_detail_levels_for_source(
-                    {
-                        "skeleton": assembly_skeleton,
-                        "brief": brief,
-                        "material_cards": artifacts.get("material_cards") or [],
-                    },
-                    max_input_chars=self._generation_budget.max_input_chars,
-                )
-                material_contexts = {
-                    detail_level: build_outline_generation_context(
-                        artifacts,
-                        detail_level=detail_level,
-                    )
-                    for detail_level in levels
-                }
-                prompts = {
-                    detail_level: (
-                        self._prompt_composer
-                        .build_teacher_outline_detail_batch_v1_prompt(
-                            skeleton=assembly_skeleton,
-                            batch_spec=detail_spec,
-                            brief=brief,
-                            material_context=material_contexts[detail_level],
-                            detail_level=detail_level,
-                        )
-                    )
-                    for detail_level in levels
-                }
-                user_prompt = (
-                    f"补全讲次详情批次 "
-                    f"{detail_spec.get('batch_id')}，只输出 JSON。"
-                )
-                selected = select_budgeted_prompt(
-                    (
-                        PromptCandidate(
-                            detail_level=detail_level,
-                            user_prompt=user_prompt,
-                            system_prompt=prompts[detail_level],
-                        )
-                        for detail_level in levels
-                    ),
-                    max_input_chars=self._generation_budget.max_input_chars,
-                    max_input_tokens=self._generation_budget.max_input_tokens,
-                    token_estimator=self.estimate_request_tokens,
-                )
-                return selected, prompts
-
-            async def generate_teacher_detail_batch(
-                detail_spec: dict[str, Any],
-            ) -> None:
-                nonlocal active_detail_count
-                nonlocal peak_detail_count
-                detail_batch_id = str(detail_spec.get("batch_id") or "")
-                lecture_numbers = [
-                    int(item)
-                    for item in detail_spec.get("lecture_numbers") or []
-                ]
-                selected, prompts = build_detail_prompt_options(detail_spec)
-                failure_reason = ""
-                parsed: dict[str, Any] | None = None
-                batch_started_at = time.monotonic()
-                selected_level = (
-                    selected.detail_level if selected is not None else "local"
-                )
-                streamed_parts: list[str] = []
-                streamed_chars = 0
-                last_stream_push_chars = 0
-                last_stream_preview = ""
-
-                async def on_detail_delta(chunk: str) -> None:
-                    nonlocal streamed_chars
-                    nonlocal last_stream_push_chars
-                    nonlocal last_stream_preview
-                    streamed_parts.append(chunk)
-                    streamed_chars += len(chunk)
-                    stream_preview = (
-                        project_streamed_teacher_outline_detail_preview(
-                            "".join(streamed_parts),
-                            lecture_number=lecture_numbers[0],
-                        )
-                    )
-                    if (
-                        stream_preview == last_stream_preview
-                        and streamed_chars - last_stream_push_chars < 128
-                    ):
-                        return
-                    last_stream_push_chars = streamed_chars
-                    last_stream_preview = stream_preview
-                    message = f"第 {lecture_numbers[0]} 讲正在生成"
-                    lesson_progress = min(
-                        95,
-                        max(1, int(90 * streamed_chars / (streamed_chars + 600))),
-                    )
-                    async with state_lock:
-                        lesson_statuses[lesson_id] = {
-                            "lesson_id": lesson_id,
-                            "status": "running",
-                            "stage": "outline_detail_generation",
-                            "message": message,
-                            "progress": lesson_progress,
-                            "stream_preview": stream_preview,
-                        }
-                        stage["lesson_statuses"] = deepcopy(lesson_statuses)
-                        await persist_stage()
-                        status_snapshot = deepcopy(lesson_statuses)
-                    await self._notify_phase(
-                        on_phase,
-                        "outline_detail_generation",
-                        33,
-                        message,
-                        phase_progress=int(
-                            100 * len(results) / max(1, len(batch_specs))
-                        ),
-                        phase_detail={
-                            "artifact_type": "course_outline_lesson",
-                            "lesson_id": lesson_id,
-                            "status": "running",
-                            "stage": "outline_detail_generation",
-                            "message": message,
-                            "progress": lesson_progress,
-                            "received_content_chars": streamed_chars,
-                            "stream_preview": stream_preview,
-                            "lesson_statuses": status_snapshot,
-                        },
-                    )
-
-                async def reset_detail_stream() -> None:
-                    nonlocal streamed_chars
-                    nonlocal last_stream_push_chars
-                    nonlocal last_stream_preview
-                    streamed_parts.clear()
-                    streamed_chars = 0
-                    last_stream_push_chars = 0
-                    last_stream_preview = ""
-                    async with state_lock:
-                        current_status = lesson_statuses.get(lesson_id) or {}
-                        lesson_statuses[lesson_id] = {
-                            **deepcopy(current_status),
-                            "lesson_id": lesson_id,
-                            "status": "running",
-                            "stage": "outline_detail_generation",
-                            "message": f"第 {lecture_numbers[0]} 讲正在重试",
-                            "progress": 0,
-                            "stream_preview": "",
-                        }
-                        stage["lesson_statuses"] = deepcopy(lesson_statuses)
-                        await persist_stage()
-
-                lesson_id = str(
-                    detail_spec.get("lesson_id")
-                    or f"L1-{lecture_numbers[0]}"
-                )
-                async with (
-                    self._planning_semaphore,
-                    contextlib.AsyncExitStack() as activity_stack,
-                ):
-                    async with detail_runtime_lock:
-                        active_detail_count += 1
-                        peak_detail_count = max(
-                            peak_detail_count,
-                            active_detail_count,
-                        )
-                        active_detail_numbers.update(lecture_numbers)
-                        active_specs = [
-                            specs_by_lecture[number]
-                            for number in sorted(active_detail_numbers)
-                            if number in specs_by_lecture
-                        ]
-
-                    async with state_lock:
-                        lesson_statuses[lesson_id] = {
-                            "lesson_id": lesson_id,
-                            "status": "running",
-                            "stage": "outline_detail_generation",
-                            "message": f"正在生成第 {lecture_numbers[0]} 讲完整大纲",
-                            "progress": 0,
-                            "stream_preview": "",
-                        }
-                        stage["lesson_statuses"] = deepcopy(lesson_statuses)
-                        await persist_stage()
-                        running_status_snapshot = deepcopy(lesson_statuses)
-
-                    async def release_detail_activity() -> None:
-                        nonlocal active_detail_count
-                        async with detail_runtime_lock:
-                            active_detail_count = max(
-                                0,
-                                active_detail_count - 1,
-                            )
-                            active_detail_numbers.difference_update(
-                                lecture_numbers
-                            )
-
-                    # AsyncExitStack runs this on success, provider failure,
-                    # callback failure, or task cancellation.
-                    activity_stack.push_async_callback(
-                        release_detail_activity
-                    )
-                    await self._notify_phase(
-                        on_phase,
-                        "outline_detail_generation",
-                        33,
-                        f"正在生成第 {lecture_numbers[0]} 讲完整大纲",
-                        phase_progress=int(
-                            100 * len(results) / max(1, len(batch_specs))
-                        ),
-                        phase_detail={
-                            "artifact_type": "course_outline_lesson",
-                            "batch_id": detail_batch_id,
-                            "lesson_id": lesson_id,
-                            "status": "running",
-                            "stage": "outline_detail_generation",
-                            "message": f"正在生成第 {lecture_numbers[0]} 讲完整大纲",
-                            "progress": 0,
-                            "stream_preview": "",
-                            "lesson_statuses": running_status_snapshot,
-                            "active_lecture_numbers": sorted(
-                                active_detail_numbers
-                            ),
-                            "outline_growth": outline_growth_detail(
-                                active_specs=active_specs,
-                                state="detailing",
-                            ),
-                        },
-                    )
-                    try:
-                        if selected is None:
-                            failure_reason = "detail_prompt_did_not_fit"
-                            response = ""
-                        else:
-                            prompt_detail_levels.append(selected.detail_level)
-                            response = await request_model(
-                                user_prompt=selected.user_prompt,
-                                system_prompt=selected.system_prompt,
-                                phase="outline_detail_generation",
-                                message=(
-                                    f"仍在等待 AI 补全讲次详情 "
-                                    f"{detail_batch_id}"
-                                ),
-                                phase_detail={
-                                    "artifact_type": (
-                                        "course_outline_lesson"
-                                    ),
-                                    "batch_id": detail_batch_id,
-                                    "lesson_id": lesson_id,
-                                    "status": "running",
-                                    "stage": "outline_detail_generation",
-                                    "message": (
-                                        f"第 {lecture_numbers[0]} 讲正在生成"
-                                    ),
-                                },
-                                on_content_delta=on_detail_delta,
-                                on_content_reset=reset_detail_stream,
-                                planning_slot_acquired=True,
-                            )
-                    except (
-                        AIProviderRequestError,
-                        CourseGenerationDeadlineExceeded,
-                    ) as exc:
-                        response = ""
-                        failure_reason = (
-                            f"provider_error:{type(exc).__name__}"
-                        )
-                    candidate = (
-                        self._extract_json(response) if response else None
-                    )
-                    parsed = candidate if isinstance(candidate, dict) else None
-                    detail_batch = normalize_teacher_outline_detail_batch(
-                        parsed or {},
-                        spec=detail_spec,
-                        skeleton=assembly_skeleton,
-                    )
-                    detail_report = validate_teacher_outline_detail_batch(
-                        detail_batch,
-                        spec=detail_spec,
-                        skeleton=assembly_skeleton,
-                    )
-                    if (
-                        not detail_report.get("passed")
-                        and not failure_reason
-                        and selected is not None
-                    ):
-                        correction_prompt = (
-                            self._prompt_composer
-                            .build_teacher_outline_detail_batch_v1_correction_prompt(
-                                original_prompt=prompts[selected.detail_level],
-                                issues=detail_report.get("issues") or [],
-                            )
-                        )
-                        selected_correction = select_budgeted_prompt(
-                            [
-                                PromptCandidate(
-                                    detail_level=selected.detail_level,
-                                    user_prompt=(
-                                        f"修复讲次详情批次 "
-                                        f"{detail_batch_id}，只输出 JSON。"
-                                    ),
-                                    system_prompt=correction_prompt,
-                                ),
-                            ],
-                            max_input_chars=(
-                                self._generation_budget.max_input_chars
-                            ),
-                            max_input_tokens=(
-                                self._generation_budget.max_input_tokens
-                            ),
-                            token_estimator=self.estimate_request_tokens,
-                        )
-                        if selected_correction is None:
-                            failure_reason = (
-                                "detail_correction_prompt_did_not_fit"
-                            )
-                        else:
-                            prompt_detail_levels.append(
-                                selected_correction.detail_level
-                            )
-                            try:
-                                corrected = await request_model(
-                                    user_prompt=(
-                                        selected_correction.user_prompt
-                                    ),
-                                    system_prompt=(
-                                        selected_correction.system_prompt
-                                    ),
-                                    phase="outline_detail_validation",
-                                    message=(
-                                        f"仍在等待 AI 修复讲次详情 "
-                                        f"{detail_batch_id}"
-                                    ),
-                                    phase_detail={
-                                        "artifact_type": (
-                                            "course_outline_lesson"
-                                        ),
-                                        "batch_id": detail_batch_id,
-                                        "lesson_id": lesson_id,
-                                        "status": "running",
-                                        "stage": "outline_detail_validation",
-                                        "message": (
-                                            f"第 {lecture_numbers[0]} 讲正在校验"
-                                        ),
-                                    },
-                                    planning_slot_acquired=True,
-                                )
-                            except (
-                                AIProviderRequestError,
-                                CourseGenerationDeadlineExceeded,
-                            ) as exc:
-                                corrected = ""
-                                failure_reason = (
-                                    "correction_provider_error:"
-                                    f"{type(exc).__name__}"
-                                )
-                            candidate = (
-                                self._extract_json(corrected)
-                                if corrected
-                                else None
-                            )
-                            detail_batch = (
-                                normalize_teacher_outline_detail_batch(
-                                    (
-                                        candidate
-                                        if isinstance(candidate, dict)
-                                        else {}
-                                    ),
-                                    spec=detail_spec,
-                                    skeleton=assembly_skeleton,
-                                )
-                            )
-                            detail_report = (
-                                validate_teacher_outline_detail_batch(
-                                    detail_batch,
-                                    spec=detail_spec,
-                                    skeleton=assembly_skeleton,
-                                )
-                            )
-                detail_by_number = {
-                    int(item.get("lecture_number") or 0): item
-                    for item in detail_batch.get("lectures") or []
-                    if isinstance(item, dict)
-                }
-                succeeded = bool(detail_report.get("passed"))
-                if not succeeded:
-                    failure_reason = (
-                        failure_reason
-                        or "model_output_failed_validation"
-                    )
-                final_stream_preview = (
-                    project_streamed_teacher_outline_detail_preview(
-                        response,
-                        lecture_number=lecture_numbers[0],
-                    )
-                    if response
-                    else last_stream_preview
-                )
-
-                async with state_lock:
-                    for lecture_number in lecture_numbers:
-                        lecture_spec = specs_by_lecture[lecture_number]
-                        lecture = chapter_by_number.get(lecture_number) or {}
-                        batch_id = str(
-                            lecture_spec.get("batch_id") or ""
-                        )
-                        if not succeeded:
-                            stored_batches[batch_id] = {
-                                "status": "retry_required",
-                                "skeleton_revision_id": (
-                                    skeleton.get("revision_id")
-                                ),
-                                "section_ids": list(
-                                    lecture_spec.get("expected_node_ids") or []
-                                ),
-                                "payload": None,
-                                "validation_report": deepcopy(detail_report),
-                                "generation_source": "model_failed",
-                                "failure_reason": failure_reason,
-                                "prompt_detail_level": selected_level,
-                                "detail_task_id": detail_batch_id,
-                                "lesson_id": lesson_id,
-                            }
-                            continue
-                        detail = detail_by_number.get(lecture_number) or {}
-                        enriched = merge_teacher_outline_detail(
-                            lecture,
-                            detail,
-                        )
-                        batch = compile_teacher_lecture_outline_batch(
-                            spec=lecture_spec,
-                            lecture=enriched,
-                            skeleton_revision_id=str(
-                                skeleton.get("revision_id") or ""
-                            ),
-                        )
-                        report = validate_outline_batch(
-                            batch,
-                            spec=lecture_spec,
-                            skeleton_revision_id=str(
-                                skeleton.get("revision_id") or ""
-                            ),
-                        )
-                        if not report.get("passed"):
-                            raise AIProviderRequestError(
-                                f"第 {lecture_number} 讲的本地详情投影失败；"
-                                "这是生成编排器错误"
-                            )
-                        results[batch_id] = batch
-                        stored_batches[batch_id] = {
-                            "status": "completed",
-                            "skeleton_revision_id": (
-                                skeleton.get("revision_id")
-                            ),
-                            "section_ids": list(
-                                lecture_spec.get("expected_node_ids") or []
-                            ),
-                            "payload": deepcopy(batch),
-                            "validation_report": deepcopy(report),
-                            "generation_source": "model",
-                            "failure_reason": None,
-                            "prompt_detail_level": selected_level,
-                            "detail_task_id": detail_batch_id,
-                            "lesson_id": lesson_id,
-                        }
-                    if not succeeded:
-                        add_fallback(
-                            unit=detail_batch_id,
-                            reason=failure_reason,
-                            section_ids=[
-                                node_id
-                                for number in lecture_numbers
-                                for node_id in (
-                                    specs_by_lecture[number].get(
-                                        "expected_node_ids"
-                                    ) or []
-                                )
-                            ],
-                        )
-                    else:
-                        clear_fallback(detail_batch_id)
-                    detail_records[detail_batch_id] = {
-                        "status": "completed" if succeeded else "retry_required",
-                        "lesson_id": lesson_id,
-                        "lecture_numbers": lecture_numbers,
-                        "duration_ms": int(
-                            (time.monotonic() - batch_started_at) * 1000
-                        ),
-                        "generation_source": "model" if succeeded else "model_failed",
-                        "failure_reason": failure_reason if not succeeded else None,
-                        "validation_report": deepcopy(detail_report),
-                    }
-                    lesson_statuses[lesson_id] = {
-                        "lesson_id": lesson_id,
-                        "status": "completed" if succeeded else "retry_required",
-                        "stage": (
-                            "outline_detail_completed"
-                            if succeeded
-                            else "outline_detail_failed"
-                        ),
-                        "message": (
-                            f"第 {lecture_numbers[0]} 讲已生成"
-                            if succeeded
-                            else f"第 {lecture_numbers[0]} 讲生成失败，可单独重试"
-                        ),
-                        "progress": 100 if succeeded else int(
-                            (lesson_statuses.get(lesson_id) or {}).get(
-                                "progress"
-                            )
-                            or 0
-                        ),
-                        "stream_preview": final_stream_preview,
-                    }
-                    stage.update({
-                        "batch_count": len(batch_specs),
-                        "completed_batch_count": len(results),
-                        "completed_section_count": len(results),
-                        "batches": stored_batches,
-                        "detail_batches": detail_records,
-                        "lesson_statuses": deepcopy(lesson_statuses),
-                        "detail_batch_count": len(all_detail_specs),
-                        "detail_completed_batch_count": sum(
-                            1
-                            for item in detail_records.values()
-                            if item.get("status") == "completed"
-                        ),
-                        "observed_peak_detail_concurrency": (
-                            peak_detail_count
-                        ),
-                    })
-                    await persist_stage()
-                    active_specs = [
-                        specs_by_lecture[number]
-                        for number in sorted(active_detail_numbers)
-                        if number in specs_by_lecture
-                    ]
-                    growth_detail = outline_growth_detail(
-                        active_specs=active_specs,
-                        state="detailing",
-                    )
-                    status_snapshot = deepcopy(lesson_statuses)
-                await self._notify_phase(
-                    on_phase,
-                    "outline_detail_generation",
-                    33,
-                    (
-                        f"第 {lecture_numbers[0]} 讲已生成"
-                        if succeeded
-                        else f"第 {lecture_numbers[0]} 讲生成失败，可单独重试"
-                    ),
-                    phase_progress=int(
-                        100
-                        * int(growth_detail["completed_sections"])
-                        / max(1, int(growth_detail["total_sections"]))
-                    ),
-                    phase_detail={
-                        "artifact_type": "course_outline_lesson",
-                        "batch_id": detail_batch_id,
-                        "lesson_id": lesson_id,
-                        "status": "completed" if succeeded else "retry_required",
-                        "stage": (
-                            "outline_detail_completed"
-                            if succeeded
-                            else "outline_detail_failed"
-                        ),
-                        "message": (
-                            f"第 {lecture_numbers[0]} 讲已生成"
-                            if succeeded
-                            else f"第 {lecture_numbers[0]} 讲生成失败，可单独重试"
-                        ),
-                        "progress": 100 if succeeded else int(
-                            status_snapshot[lesson_id]["progress"]
-                        ),
-                        "stream_preview": final_stream_preview,
-                        "lesson_statuses": status_snapshot,
-                        "outline_growth": growth_detail,
-                    },
-                )
-
-            if detail_specs:
-                await asyncio.gather(*[
-                    asyncio.create_task(
-                        generate_teacher_detail_batch(detail_spec)
-                    )
-                    for detail_spec in detail_specs
-                ])
-            stage.update({
-                "detail_duration_ms": int(
-                    (time.monotonic() - detail_started_at) * 1000
-                ),
-                "observed_peak_detail_concurrency": peak_detail_count,
-            })
-            failed_detail_records = [
-                item
-                for item in detail_records.values()
-                if isinstance(item, dict)
-                and item.get("status") != "completed"
-            ]
-            if failed_detail_records:
-                stage["status"] = "detail_failed"
-                await persist_stage()
-                raise AIProviderRequestError(
-                    f"{len(failed_detail_records)} 个讲次生成失败，"
-                    "已保留其他成功讲次，可重试失败讲次"
-                )
-
         specs_by_chapter: dict[int, list[dict[str, Any]]] = {}
         for spec in batch_specs:
             specs_by_chapter.setdefault(
@@ -7853,9 +6901,7 @@ class CourseService(AIBase):
             "outline_generation",
             34,
             (
-                "全课讲次大纲已完整形成"
-                if teacher_lecture_mode
-                else "课程目录已完整形成，正在准备确认"
+                "课程目录已完整形成，正在准备确认"
             ),
             phase_progress=100,
             phase_detail={
