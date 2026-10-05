@@ -5594,8 +5594,14 @@ class CourseService(AIBase):
         report: dict[str, Any] = {}
         while True:
             if not response:
+                # A repair includes the previous bounded output in addition to
+                # the original input; retain the provider context ceiling.
+                repairing = bool(stage.get("repair_issues"))
+                input_tokens = budget.max_input_tokens + (output_tokens + 1024 if repairing else 0)
+                input_chars = budget.max_input_chars + (output_tokens * 4 if repairing else 0)
+                stage["request_budget"].update(max_input_tokens=input_tokens, max_input_chars=input_chars)
                 tokens = self.estimate_request_tokens(user_prompt, prompt)
-                if (tokens > budget.max_input_tokens or len(user_prompt) + len(prompt) > budget.max_input_chars
+                if (tokens > input_tokens or len(user_prompt) + len(prompt) > input_chars
                     or tokens + output_tokens + budget.context_reserve_tokens > budget.context_window_tokens):
                     stage["status"] = "failed"
                     stage["failure_reason"] = "input_budget_exceeded"
@@ -5636,7 +5642,7 @@ class CourseService(AIBase):
                             phase=phase, base_progress=33, heartbeat_message=message,
                             stage_timeout_seconds=self._outline_budget.batch_timeout_seconds,
                             wall_timeout_seconds=self._outline_budget.teacher_lecture_request_timeout_seconds,
-                            max_input_tokens=budget.max_input_tokens, max_input_chars=budget.max_input_chars,
+                            max_input_tokens=input_tokens, max_input_chars=input_chars,
                             max_output_tokens=output_tokens, max_attempts=1, on_content_delta=on_delta,
                             start_on_provider_request=True,
                             telemetry_sink=lambda item: stage.setdefault("request_metrics", []).append({
@@ -7540,6 +7546,11 @@ class CourseService(AIBase):
                               "plan": plan_sections.get(str(s.get("node_id") or "")) or {}}
                              for s in sections],
                 "completed_sections": completed_sections or [], "incomplete_draft": partial_text,
+                "completion_rule": (
+                    "正文全部写完后，最后一行必须原样输出 <!-- handout:end -->。"
+                    "它是响应完成协议的一部分，即使只有一个小节也不能省略。"
+                    "不要以‘本讲结束’等自然语言替代这个标记。"
+                ),
             }, ensure_ascii=False)
         def fits(prompt):
             tokens = self.estimate_request_tokens(prompt, instructions)

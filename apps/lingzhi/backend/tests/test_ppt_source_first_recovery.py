@@ -109,7 +109,7 @@ def test_repeated_invented_fact_falls_back_to_complete_source_grounded_page():
 
     block = result["blocks"][0]
     assert len(calls) == 2
-    assert block["ppt_recovery_contract_version"] == "ppt_page_recovery_v4"
+    assert block["ppt_recovery_contract_version"] == "ppt_page_recovery_v5"
     assert block["ppt_errors"] == []
     assert "65" not in _visible_text(block["ppt_pages"])
     assert "".join(_source_quotes(block["ppt_pages"])) == content

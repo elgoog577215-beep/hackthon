@@ -10,13 +10,36 @@ PAGE_REPAIR_SPLIT_TRIGGER_LINES = 80
 PAGE_REPAIR_UNIT_MAX_CHARS = 2000
 PAGE_REPAIR_UNIT_MIN_CHARS = 900
 PAGE_REPAIR_RETRY_UNIT_MAX_CHARS = 900
-_FENCE_RE = re.compile(r"(?:```|~~~)")
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 
 
 def _source_kind(content: str, start: int, end: int) -> str:
-    before = len(_FENCE_RE.findall(content[:start]))
-    inside_code = before % 2 == 1
-    return "code" if inside_code or _FENCE_RE.search(content[start:end]) else "prose"
+    # A lecture can contain explanations and several code fences. Seeing one
+    # fence does not make the whole source unit a code page.
+    fence = ""
+    kinds: set[str] = set()
+    offset = 0
+    for line in content.splitlines(keepends=True):
+        line_end = offset + len(line)
+        match = _FENCE_RE.match(line.rstrip("\r\n"))
+        marker = False
+        was_inside = bool(fence)
+        if match:
+            token, tail = match.groups()
+            if not fence and (token[0] != "`" or "`" not in tail):
+                fence, marker = token, True
+            elif fence and token[0] == fence[0] and len(token) >= len(fence) and not tail.strip():
+                marker = True
+        if line_end > start and offset < end:
+            excerpt = content[max(start, offset):min(end, line_end)]
+            if excerpt.strip():
+                kinds.add("code" if fence or marker else "prose")
+        if marker and was_inside:
+            fence = ""
+        offset = line_end
+        if offset >= end:
+            break
+    return "mixed" if len(kinds) > 1 else next(iter(kinds), "prose")
 
 
 def _unit(block_id: str, content: str, start: int, end: int) -> dict[str, Any]:

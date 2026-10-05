@@ -100,10 +100,7 @@ def main() -> None:
             **generation, 'target_course_id': cid, 'request_id': run_id})
         tid = task['job_id']
         report['outline_task_id'] = tid
-        poll('outline_framework', f'/api/tasks/{tid}',
-             lambda d: (d.get('phase') or d.get('current_phase')) == 'outline_framework_ready')
-        api('POST', f'/api/courses/{cid}/generation/outline-details/continue', {'task_id': tid})
-        poll('outline_details', f'/api/tasks/{tid}',
+        poll('outline', f'/api/tasks/{tid}',
              lambda d: d.get('status') in {'completed', 'completed_with_warnings'})
         view = api('GET', f'{teacher}/lesson-authoring')
         (args.output / 'outline.json').write_text(json.dumps(view, ensure_ascii=False, indent=2))

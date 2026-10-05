@@ -521,10 +521,10 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.stream-waiting').exists()).toBe(true)
   })
 
-  it('大纲继续沿用原任务身份重生成，不新建重复课程', async () => {
+  it.each(['error', 'paused'] as const)('大纲 %s 后继续沿用原任务身份，不新建重复课程', async status => {
     const generation = useGenerationStore()
     const task = generation.createTask('job-failed', 'course-1', 'C 语言程序设计')
-    task.status = 'error'
+    task.status = status
     task.error = 'AI provider unavailable: authentication_failed'
     const resume = vi.spyOn(generation, 'resumeTask').mockResolvedValue(undefined)
 

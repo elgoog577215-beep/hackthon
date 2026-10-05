@@ -34,7 +34,7 @@ from dependencies import (
 from learner_context import resolve_user_id
 from lesson_identity import chapter_matches_lesson
 from generation_streaming import structured_generation_stream
-from course_schedule import lecture_duration_minutes
+from course_schedule import teacher_lecture_duration_minutes
 from teaching_design import (
     LESSON_TYPES,
     normalize_lesson_arrangement,
@@ -1150,7 +1150,7 @@ def _canonical_outline_revision(source: dict[str, Any]) -> str:
         (source.get("course_knowledge_scope_contract") or {}).get("revision_id")
         or (source.get("course_teaching_plan") or {}).get("source_outline_revision_id")
         or source.get("blueprint_revision_id")
-        or ""
+        or (stable_hash(source["course_outline"], prefix="outline") if source.get("course_outline") else "")
     )
 
 
@@ -1519,7 +1519,6 @@ def _lesson_projection(
         )
     ]
     result = []
-    schedule_slots = (source.get("course_profile") or {}).get("schedule_slots") or []
     for lesson in lessons:
         lesson_id = str(lesson.get("node_id") or "")
         index = lesson_numbers[lesson_id]
@@ -1689,10 +1688,7 @@ def _lesson_projection(
             "lesson_unit_id": lesson_id,
             "number": index,
             "title": str(lesson.get("node_name") or f"第{index}讲"),
-            "duration_minutes": int(
-                lesson.get("duration_minutes")
-                or lecture_duration_minutes(schedule_slots, index - 1)
-            ),
+            "duration_minutes": teacher_lecture_duration_minutes(source, lesson_id),
             "sections": [
                 {
                     "section_node_id": str(section.get("node_id") or ""),

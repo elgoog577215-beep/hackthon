@@ -181,6 +181,27 @@ def lecture_duration_minutes(value: Any, lecture_index: int) -> int:
     return int(session["duration_minutes"])
 
 
+def teacher_lecture_duration_minutes(course_data: dict[str, Any], lesson_unit_id: str) -> int:
+    """Use the formal lecture's hours, keeping one class hour distinct from a lecture."""
+    from lesson_identity import lesson_chapter_index, resolve_lesson_chapter
+
+    nodes = [n for n in course_data.get("nodes") or [] if isinstance(n, dict)]
+    node = next((n for n in nodes if n.get("node_id") == lesson_unit_id), {})
+    explicit = node.get("duration_minutes")
+    if explicit:
+        return int(explicit)
+    plan = course_data.get("course_outline") or course_data.get("course_plan") or {}
+    chapter = resolve_lesson_chapter(plan, lesson_unit_id) or {}
+    brief = course_data.get("teacher_course_brief") or {}
+    hours = chapter.get("planned_hours")
+    if isinstance(hours, (int, float)) and not isinstance(hours, bool) and hours > 0:
+        return max(1, round(hours * int(brief.get("course_period_minutes") or COURSE_PERIOD_MINUTES)))
+    slots = (course_data.get("course_profile") or {}).get("schedule_slots") or []
+    if schedule_sessions(slots):
+        return lecture_duration_minutes(slots, lesson_chapter_index(plan, lesson_unit_id) or 0)
+    return int(brief.get("lesson_duration_minutes") or COURSE_PERIOD_MINUTES)
+
+
 def legacy_schedule_labels(value: Any) -> tuple[str, str]:
     """Project structured cells into the historic weekday/period display fields."""
     sessions = schedule_sessions(value)

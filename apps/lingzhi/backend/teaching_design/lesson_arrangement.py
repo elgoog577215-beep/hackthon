@@ -18,6 +18,7 @@ from course_pedagogy import (
     coerce_persisted_profile,
     module_block_role,
 )
+from course_schedule import teacher_lecture_duration_minutes
 from lesson_identity import lesson_chapter_index, resolve_lesson_chapter
 from .compiler import (
     LESSON_TYPE_CONTRACTS,
@@ -305,11 +306,7 @@ def recommend_lesson_arrangement(
                 "expected_output": _text(module.get("output_contract")),
                 "required": bool(module.get("required", True)),
             })
-    duration = int(
-        (next((item for item in course_data.get("nodes") or [] if _text(item.get("node_id")) == lesson_unit_id), {}) or {}).get("duration_minutes")
-        or (course_data.get("teacher_course_brief") or {}).get("lesson_duration_minutes")
-        or 45
-    )
+    duration = teacher_lecture_duration_minutes(course_data, lesson_unit_id)
     raw_blocks = _compact_large_legacy_lesson(raw_blocks, sections)
     for block, minutes in zip(raw_blocks, _allocate_minutes(duration, len(raw_blocks))):
         block["planned_minutes"] = minutes

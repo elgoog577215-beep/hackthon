@@ -481,3 +481,29 @@ async def test_outline_repair_request_replaces_previous_candidate_preview(tmp_pa
             "course_preview": [{"field": "course_intro_zh", "text": "新的输出"}]}})
     assert manager.tasks["job-growth"]["phase_detail"]["outline_growth"]["completed_sections"] == 0
     assert manager.tasks["job-growth"]["phase_detail"]["outline_growth"]["request_number"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('retryable', [True, False])
+async def test_outline_failure_is_visible_and_never_restarts_or_discards_checkpoint(tmp_path, monkeypatch, retryable):
+    from unittest.mock import AsyncMock
+    from ai_base import AIProviderRequestError
+    from course_generation_budget import CourseGenerationBudgetExceeded
+    monkeypatch.setattr(task_manager_module, 'TASKS_FILE', tmp_path / 'jobs.json')
+    manager = TaskManager(storage=None, course_service=None, ws_service=None,
+                          workspace_repository=GenerationWorkspaceRepository(tmp_path / 'workspaces'))
+    manager.tasks['job'] = {'id': 'job', 'course_id': 'course', 'type': 'teacher_outline_generation',
+                            'status': 'running', 'phase_detail': {'outline_growth': {'streamed_content_chars': 400}}}
+    failure = AIProviderRequestError('provider stopped') if retryable else CourseGenerationBudgetExceeded('input exceeded')
+    process = AsyncMock(side_effect=failure)
+    discard = AsyncMock()
+    monkeypatch.setattr(manager, '_process_task', process)
+    monkeypatch.setattr(manager, '_discard_teacher_outline_attempt', discard)
+    monkeypatch.setattr(manager, '_record_workspace_failure', AsyncMock())
+    await manager._run_job('job')
+    assert process.await_count == 1
+    discard.assert_not_called()
+    assert manager.tasks['job']['status'] == 'failed'
+    assert manager.tasks['job']['error']
+    assert not manager.tasks['job'].get('next_retry_at')
+    assert manager.tasks['job']['phase_detail']['outline_growth']['streamed_content_chars'] == 400

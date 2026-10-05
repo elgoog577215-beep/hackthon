@@ -31,6 +31,51 @@ afterEach(() => {
 })
 
 describe('teacher lesson authoring store', () => {
+  it('keeps one snapshot timer across Pinia action proxies and stops it on departure', async () => {
+    vi.useFakeTimers()
+    const store = useTeacherLessonAuthoringStore()
+    const job = { id: 'timer-job', status: 'running' } as any
+    store.courseId = 'timer-course'
+    store.jobs = [job]
+    store.observingWorkspace = true
+    vi.spyOn(store, 'streamJob').mockResolvedValue(undefined)
+    httpMock.get.mockResolvedValue({ data: {
+      course_id: 'timer-course', outline_revision_id: 'outline-1', lessons: [], jobs: [job],
+    } })
+    // Matches the distinct receiver identities used by Pinia's devtools plugin.
+    const actionProxy = () => new Proxy(store, {})
+    try {
+      for (let i = 0; i < 4; i++) store.scheduleSnapshot.call(actionProxy())
+      expect(vi.getTimerCount()).toBe(1)
+      await vi.advanceTimersByTimeAsync(15000)
+      expect(httpMock.get).toHaveBeenCalledTimes(3)
+      expect(vi.getTimerCount()).toBe(1)
+      store.stopObserving.call(actionProxy())
+      await vi.advanceTimersByTimeAsync(15000)
+      expect(httpMock.get).toHaveBeenCalledTimes(3)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      store.stopObserving()
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not reopen subscriptions when a refresh completes after leaving the workspace', async () => {
+    const store = useTeacherLessonAuthoringStore()
+    store.courseId = 'leaving-course'
+    store.observingWorkspace = true
+    const stream = vi.spyOn(store, 'streamJob').mockResolvedValue(undefined)
+    let complete!: (value: any) => void
+    httpMock.get.mockImplementation(() => new Promise(resolve => { complete = resolve }))
+    const loading = store.load('leaving-course')
+    store.stopObserving()
+    complete({ data: { course_id: 'leaving-course', lessons: [], jobs: [{ id: 'still-running', status: 'running' }] } })
+    await loading
+    expect(stream).not.toHaveBeenCalled()
+    expect(store.observingWorkspace).toBe(false)
+    expect(store.jobs[0]?.status).toBe('running')
+  })
+
   it('observes up to four active jobs so parallel lessons stream independently', () => {
     const queued = [3, 1, 2].map(position => ({
       id: `job-${position}`,
@@ -709,6 +754,7 @@ describe('teacher lesson authoring store', () => {
       },
     })
     const store = useTeacherLessonAuthoringStore()
+    store.observingWorkspace = true
     const stream = vi.spyOn(store, 'streamJob').mockResolvedValue(undefined)
 
     await store.generateAllScripts('course-1', '')

@@ -5983,54 +5983,8 @@ class TaskManager:
 
     async def _run_job(self, task_id: str) -> None:
         try:
-            if (self.tasks.get(task_id) or {}).get("type") == "teacher_outline_generation":
-                while True:
-                    task = self.tasks.get(task_id) or {}
-                    if task.get("status") not in {"pending", "running"}:
-                        return
-                    due = float(task.get("next_retry_at") or 0)
-                    while time.time() < due:
-                        await asyncio.sleep(min(1, due - time.time()))
-                        if (self.tasks.get(task_id) or {}).get("status") not in {"pending", "running"}:
-                            return
-                    if due:
-                        if not await self._restart_teacher_outline_attempt(task_id, automatic=True):
-                            return
-                    else:
-                        workspace_id = str(task.get("workspace_id") or "")
-                        if workspace_id:
-                            workspace = self._generation_workspace_repository.load(workspace_id)
-                            result = deepcopy(workspace.get("result") or {})
-                            if not result.get("restart_input"):
-                                result["restart_input"] = deepcopy(self._load_task_course(task_id))
-                                self._generation_workspace_repository.set_status(workspace_id, "active", result=result)
-                    try:
-                        async with self._course_semaphore:
-                            await self._process_task(task_id)
-                        if (self.tasks.get(task_id) or {}).get("status") != "failed":
-                            return
-                        failure = {"retryable": True, "code": "teacher_outline_generation_invalid"}
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as exc:
-                        failure = classify_generation_failure(exc)
-                    current = self.tasks.get(task_id) or {}
-                    if current.get("status") in {"paused", "cancelled", "waiting_for_input"}:
-                        return
-                    await self._discard_teacher_outline_attempt(task_id)
-                    draft = deepcopy(self.tasks[task_id])
-                    if not failure.get("retryable"):
-                        draft.update(status="paused", phase="paused", message="已暂停", error=None,
-                                     last_attempt_error=failure)
-                        self._commit_task_draft(task_id, draft)
-                        await self._push_progress(task_id)
-                        return
-                    delay = min(300, 2 ** min(int(draft.get("attempt_number") or 0) + 1, 9))
-                    draft.update(status="pending", phase="retry_wait", current_phase="retry_wait", progress=0,
-                                 next_retry_at=time.time() + delay, last_attempt_error=failure,
-                                 error=None, error_detail=None, phase_detail={}, message="正在准备重新生成")
-                    self._commit_task_draft(task_id, draft)
-                    await self._push_progress(task_id)
+            # Structure repair belongs to CourseService's bounded request.
+            # Never discard its checkpoint or restart a whole outline here.
             async with self._course_semaphore:
                 task = self.tasks.get(task_id) or {}
                 record_task_wait(

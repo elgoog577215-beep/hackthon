@@ -34,7 +34,7 @@ from teacher_script import normalize_teacher_script_section, validate_teacher_sc
 
 CONTRACT = "script_ppt_bundle_v1"
 DEFAULT_THEME = "qizhi-classroom"
-RECOVERY_CONTRACT = "ppt_page_recovery_v4"
+RECOVERY_CONTRACT = "ppt_page_recovery_v5"
 
 _SOURCE_GROUNDING_ERRORS = (
     "source_block_unknown",

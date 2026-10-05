@@ -102,3 +102,20 @@ def test_sixteen_lectures_fill_an_eight_week_term_twice_per_week():
 
     assert density == 2
     assert weeks == [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8]
+
+
+def test_formal_lecture_duration_preserves_explicit_minutes_and_uses_period_pattern():
+    from course_schedule import teacher_lecture_duration_minutes
+    course = {
+        "course_outline": {"authoring_structure_version": "lecture_v1", "chapters": [
+            {"lecture_number": 1, "planned_hours": 2}, {"lecture_number": 2},
+        ]},
+        "teacher_course_brief": {"lesson_duration_minutes": 45},
+        "course_profile": {"schedule_slots": [{"weekday": 1, "period": p} for p in [1, 2, 3]]},
+    }
+    assert teacher_lecture_duration_minutes(course, "L1-1") == 90
+    assert teacher_lecture_duration_minutes(course, "L1-2") == 135
+    course["nodes"] = [{"node_id": "L1-1", "duration_minutes": 120}]
+    assert teacher_lecture_duration_minutes(course, "L1-1") == 120
+    course["course_profile"] = {}
+    assert teacher_lecture_duration_minutes(course, "L1-2") == 45

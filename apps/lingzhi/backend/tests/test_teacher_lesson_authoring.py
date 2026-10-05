@@ -628,6 +628,17 @@ def test_lesson_arrangement_adapts_legacy_node_outline_into_same_recommendation(
     ) == []
 
 
+def test_formal_lecture_hours_drive_both_arrangement_and_read_projection(tmp_path):
+    source = lecture_course_data()
+    source["teacher_course_brief"] = {"lesson_duration_minutes": 45, "course_period_minutes": 45}
+    source["course_plan"]["chapters"][0]["planned_hours"] = 2
+    arrangement = recommend_lesson_arrangement(source, "L1-1")
+    assert sum(block["planned_minutes"] for block in arrangement["blocks"]) == 90
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    projected = teacher_lesson_router._lesson_projection(source, repository)
+    assert projected[0]["duration_minutes"] == 90
+
+
 def test_lesson_arrangement_resolves_lecture_v1_outline_by_lecture_number():
     source = lecture_course_data()
 
@@ -5545,3 +5556,19 @@ def test_generate_all_lesson_scripts_skips_lessons_without_ready_plan(
     }]
     assert [item[0] for item in requested_children] == ["L1-1"]
     assert requested_children[0][1].batch_size == 1
+
+
+def test_complete_outline_revision_is_stable_without_retired_knowledge_stages():
+    from copy import deepcopy
+    from routers.teacher_lesson_authoring import _canonical_outline_revision
+    course = {'course_outline': {'course_title': '数据结构', 'chapters': [{'title': '线性表'}]}}
+    first = _canonical_outline_revision(course)
+    assert first
+    observed = deepcopy(course)
+    observed['generation_status'] = 'completed'
+    observed['updated_at'] = 'later'
+    assert _canonical_outline_revision(observed) == first
+    observed['course_outline']['chapters'][0]['title'] = '树与查找'
+    assert _canonical_outline_revision(observed) != first
+    observed['blueprint_revision_id'] = 'teacher-edited-revision'
+    assert _canonical_outline_revision(observed) == 'teacher-edited-revision'

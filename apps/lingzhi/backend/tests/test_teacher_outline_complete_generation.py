@@ -213,3 +213,29 @@ async def test_default_task_completes_without_framework_wait(tmp_path, monkeypat
     assert manager.tasks[job['job_id']]['status'] == 'completed'
     assert manager.tasks[job['job_id']]['phase'] == 'teacher_outline_ready'
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_outline_repair_budget_includes_previous_output_but_keeps_context_limit(monkeypatch):
+    service = CourseService()
+    bad = payload()
+    bad['lectures'].pop()
+    bad['positioning'] = '用于验证完整响应计入结构修复预算。' * 800
+    calls = []
+    async def model(*args, **kwargs):
+        calls.append(kwargs)
+        return json.dumps(bad if len(calls) == 1 else payload(), ensure_ascii=False)
+    monkeypatch.setattr(service, '_call_llm', model)
+    result = await generate(service)
+    assert result['outline_generation_status'] == 'completed'
+    assert len(calls) == 2
+    assert calls[1]['max_input_tokens'] > calls[0]['max_input_tokens']
+    assert calls[1]['max_input_chars'] > calls[0]['max_input_chars']
+
+    constrained = CourseService()
+    constrained._generation_budget = replace(constrained._generation_budget, context_window_tokens=25000)
+    calls.clear()
+    monkeypatch.setattr(constrained, '_call_llm', model)
+    with pytest.raises(CourseGenerationBudgetExceeded):
+        await generate(constrained)
+    assert len(calls) == 1

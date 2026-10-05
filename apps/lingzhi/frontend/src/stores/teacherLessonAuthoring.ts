@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { toRaw } from 'vue'
 import http, { getTeacherIdentity, teacherIdentityHeaders, teacherReadRequestConfig, withApiBase } from '../utils/http'
 import { createUuid } from '../utils/client-id'
 import { postGenerationStream, type GenerationProgress } from '../shared/generation-stream'
@@ -712,9 +713,15 @@ export const lessonJobsToObserve = (jobs: TeacherLessonJob[], lessonId = '', typ
 
 const streamControllers = new WeakMap<object, Map<string, AbortController>>()
 const snapshotTimers = new WeakMap<object, ReturnType<typeof setTimeout>>()
-function controllersFor(store: object) {
-  if (!streamControllers.has(store)) streamControllers.set(store, new Map())
-  return streamControllers.get(store)!
+// Pinia devtools creates a fresh action proxy for each call. The state object is
+// shared by those proxies, so subscriptions and timers must use that identity.
+function observerKey(store: { $state: object }): object {
+  return toRaw(store.$state)
+}
+function controllersFor(store: { $state: object }) {
+  const key = observerKey(store)
+  if (!streamControllers.has(key)) streamControllers.set(key, new Map())
+  return streamControllers.get(key)!
 }
 
 function streamChunkContent(chunks: Record<string, string>): string {
@@ -938,8 +945,8 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
   actions: {
     stopObserving() {
       this.observingWorkspace = false
-      clearTimeout(snapshotTimers.get(this))
-      snapshotTimers.delete(this)
+      clearTimeout(snapshotTimers.get(observerKey(this)))
+      snapshotTimers.delete(observerKey(this))
       controllersFor(this).forEach(controller => controller.abort())
       controllersFor(this).clear()
       this.streamingJobIds = {}
@@ -952,15 +959,22 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       this.scheduleSnapshot()
     },
     scheduleSnapshot() {
-      clearTimeout(snapshotTimers.get(this))
-      if (!this.observingWorkspace || !this.jobs.some(job => ['pending', 'running'].includes(job.status))) return
+      const key = observerKey(this)
+      if (!this.observingWorkspace || !this.jobs.some(job => ['pending', 'running'].includes(job.status))) {
+        clearTimeout(snapshotTimers.get(key))
+        snapshotTimers.delete(key)
+        return
+      }
+      if (snapshotTimers.has(key)) return
       const courseId = this.courseId
-      snapshotTimers.set(this, setTimeout(async () => {
+      snapshotTimers.set(key, setTimeout(async () => {
+        snapshotTimers.delete(key)
         try { if (this.courseId === courseId) await this.load(courseId) } catch { /* Scoped refreshError retains the last good snapshot. */ }
         finally { if (this.courseId === courseId) this.scheduleSnapshot() }
       }, 5000))
     },
     syncJobObservers() {
+      if (!this.observingWorkspace) return
       const jobs = lessonJobsToObserve(this.jobs, this.focusedLessonId, this.focusedJobType)
       const desired = new Set(jobs.map(job => job.id))
       const controllers = controllersFor(this)
