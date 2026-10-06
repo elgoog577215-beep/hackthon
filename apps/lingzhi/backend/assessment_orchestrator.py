@@ -68,7 +68,7 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v5"
+ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v6"
 
 
 def _out_tokens(limit: int) -> int:
@@ -399,16 +399,19 @@ class UniversalAssessmentModel(AIBase):
                 "作答格式必须匹配 question_spec.input_contract：如果 mode=code，"
                 "answer 必须是 {\"code\": \"完整可运行的标准输入输出程序\"}；"
                 "如果 mode=structured_fields，answer 必须是以每个 field_id 为键的对象；"
-                "如果 mode=choice，answer 只能是 option id。"
+                "如果 mode=choice，单选answer是option id；selection.multiple=true时，answer必须是正确option id组成的JSON数组。"
                 "请独立求解下列题目。你没有也不得猜测生成器答案。"
                 "输出面向学生、提交后可公开的教学解析，不输出私有思维过程。"
                 "work必须给出明确的推导、代入、计算或证据步骤，不能只写"
                 "“分析题意”“按步骤计算”“检查答案”等模板话。选择题的"
-                "option_analysis必须逐项解释题面中的全部选项。"
+                "option_analysis必须逐项解释题面中的全部选项，字段只能使用"
+                "option_id、is_correct（布尔值）、explanation（非空字符串）。"
+                "非选择题option_analysis使用空数组。"
                 "只输出JSON：{\"answer\": ..., \"summary\": \"...\", "
                 "\"work\": [{\"title\": \"...\", \"explanation\": \"...\", "
                 "\"calculation\": \"...\", \"result\": \"...\"}], "
-                "\"checks\": [...], \"option_analysis\": [...], "
+                "\"checks\": [\"具体核验方法\"], \"option_analysis\": "
+                "[{\"option_id\": \"A\", \"is_correct\": true, \"explanation\": \"具体原因\"}], "
                 "\"common_errors\": [...]}。\n"
                 f"{code_answer_requirement}"
                 f"{json.dumps(public_question_spec, ensure_ascii=False)}"
@@ -2240,6 +2243,11 @@ class AssessmentGenerationOrchestrator:
                                 accepted_questions,
                             )
                         )
+                        if last_quality:
+                            generation_context["previous_failure"] = {
+                                "issues": deepcopy(last_quality.get("issues") or []),
+                                "validation_feedback": deepcopy(last_quality.get("validation_feedback") or {}),
+                            }
                         call_policy = generation_policy.call_policy(
                             "generate",
                             generation_context,
@@ -2480,6 +2488,10 @@ class AssessmentGenerationOrchestrator:
                         }
                         next_action = "repair"
                     else:
+                        last_quality = {
+                            "decision": "regenerate",
+                            "issues": [{"code": "MODEL_OUTPUT_SCHEMA_INVALID", "message": str(exc)}],
+                        }
                         candidate = None
                         next_action = "generate"
                     continue
@@ -2516,6 +2528,13 @@ class AssessmentGenerationOrchestrator:
                 )
                 last_contract = contract
                 last_quality = quality
+                if not validation.get("passed"):
+                    # Keep diagnostics for the next authoring attempt, never for
+                    # the independent solver or the learner-visible question.
+                    last_quality["validation_feedback"] = {
+                        "issue_code": validation.get("issue_code"),
+                        "details": deepcopy(validation.get("details") or {}),
+                    }
                 diversity_report = (
                     quality.get("diversity_report") or {}
                 )
@@ -4032,6 +4051,22 @@ def _attach_learner_worked_solution(
     common_errors = independent.get("common_errors")
     if not isinstance(common_errors, list):
         common_errors = []
+    independent_worked = {
+        "schema_version": "worked_solution_v1",
+        "summary": str(independent.get("summary") or "").strip(),
+        "steps": deepcopy(independent_work),
+        "final_answer": deepcopy(solution.get("canonical_answer")),
+        "checks": deepcopy(independent_checks),
+        "option_analysis": deepcopy(option_analysis),
+        "common_errors": deepcopy(common_errors),
+    }
+    if worked_solution_is_complete(
+        {**solution, "worked_solution": independent_worked}, option_ids=option_ids,
+    ):
+        # A nonempty but malformed candidate explanation must not shadow a
+        # complete independently derived one and trigger another model repair.
+        solution["worked_solution"] = independent_worked
+        return
     solution["worked_solution"] = {
         "schema_version": "worked_solution_v1",
         "summary": str(
@@ -4834,15 +4869,10 @@ _TRUE_FALSE_ALLOWED_TEXTS = "正确/错误、对/错、是/否、true/false"
 
 
 def _form_directive(question_form: str) -> str:
-    """按槽位声明的作答形态下发题面约束。
-
-    改动前这里写死「标准答案必须对应一个 option id」——多选是被 prompt 明确
-    禁止的，不是没提。single_choice 分支的措辞与改动前**逐字相同**，保证默认
-    路径的 prompt 不变（prompt 一变，既有题目的生成结果就不可比）。
-    """
+    """Use the same response contract in generation and targeted repair."""
     if question_form == "multiple_choice":
         return (
-            "本题是多选题：必须提供至少四个互斥 options，其中**两个或以上**成立；"
+            "本题是多选题：必须提供至少四个内容不同、可分别判断真假的 options，其中**两个或以上**成立；"
             "canonical_answer 必须是这些正确 option id 组成的 JSON 数组"
             "（例如 [\"A\",\"C\"]），不得只给一个。"
             "每个不成立的选项都必须在 misconception_rules 里写明它对应的具体误解，"
@@ -4864,14 +4894,13 @@ def _form_directive(question_form: str) -> str:
             "而不是「请计算…」这样的问句。每个空的答案文字必须**原样出现在题面里**——"
             "例如题面写「该过程内能变化 ΔU = 23 kJ」，同时 solution.blanks 里第 1 空的"
             "answer 就是「23 kJ」。系统会自动把答案文字挖成空位，"
-            "你**不需要**自己写 {{1}}；写了也可以，但答案必须能在题面里找到原文。\n"
-            "本题是填空题：stimulus 或 task 的题面中用 {{1}}、{{2}} 标出空位"
-            "（编号从 1 连续递增，最多 20 空），options 必须为空数组；"
+            "不要自己写 {{1}}、{{2}} 占位符，由系统按 blanks 自动挖空。\n"
+            "options 必须为空数组；blank_id 从 1 连续递增，最多 20 空；"
             "solution.blanks 必须为每个空位给出 "
             "{\"blank_id\": \"1\", \"answer\": 标准答案, "
             "\"match_mode\": \"exact\"|\"numeric\"|\"symbolic\", "
             "\"acceptable_answers\": [其他可接受写法]}；"
-            "题面里出现的每个空位都必须有对应的 blanks 条目，数量一致。"
+            "每个 blanks 条目的答案都必须在完整题面中有可明确定位的原文。"
             "match_mode 按答案性质选：数值带单位用 numeric，代数表达式用 symbolic，"
             "其余用 exact。\n"
             # A 方案（用户 2026-08-13 拍板）：只出短词空与数值空。
@@ -4990,32 +5019,6 @@ def _solver_contract_kind_hint() -> str:
     )
 
 
-def _generation_prompt(context: dict[str, Any]) -> str:
-    return (
-        "生成一道原创、可作答、可评分的课程题目。"
-        "只输出JSON，顶层必须为 question_spec 与 solution。"
-        "question_spec只能含公开题面；solution单独保存答案、量规、"
-        "验证方式与solution_graph。不得把答案写入题面。\n"
-        "<UNTRUSTED_SOURCE_DATA>\n"
-        f"{json.dumps(context, ensure_ascii=False)}\n"
-        "</UNTRUSTED_SOURCE_DATA>"
-    )
-
-
-def _repair_prompt(
-    context: dict[str, Any],
-    candidate: dict[str, Any],
-    validation: dict[str, Any],
-) -> str:
-    return (
-        "独立求解结果与拟定答案不一致。执行唯一一次显式修复，"
-        "返回完整 question_spec 与 solution JSON。\n"
-        f"上下文：{json.dumps(context, ensure_ascii=False)}\n"
-        f"原候选：{json.dumps(candidate, ensure_ascii=False)}\n"
-        f"验证报告：{json.dumps(validation, ensure_ascii=False)}"
-    )
-
-
 def _authoring_quality_directive() -> str:
     """Shared writing instructions; full contracts remain in local validation."""
     return (
@@ -5026,15 +5029,128 @@ def _authoring_quality_directive() -> str:
         "每题只考一个主要目标，作答须产生 required_observable_evidence。"
         "concept_check 检查一个关键辨析，objective_practice 检查一次有限应用与自查，"
         "mastery_check 检查一次迁移；共同覆盖章节，不让每题包办整章。"
+        "迁移改变条件或情境，不引入来源未教授的新算法、定理来替代当前目标。"
+        "可观察证据须由锁定的input_mode承载；代码题的边界解释写在程序注释中，"
+        "结果核验由测试体现，不额外要求作答组件无法提交的报告。"
         "遵守 assessment_scope_contract 的动作数、推理步数和题干长度。难度体现为"
         "必要推理、条件整合、独立性、迁移和诊断性干扰项，不能靠长文本、术语、题量"
         "或删掉必要提示与前置知识制造难度。"
-        "output_prediction 要有具体输出、异常、状态、身份或调用顺序；debugging_trace "
+        "output_prediction 必须在stimulus.rendered_text中给出完整可追踪代码和调用输入，"
+        "使用带语言标记的Markdown围栏，并询问具体输出、异常、状态、身份或调用顺序；"
+        "不能只描述代码功能、引用未提供的函数或改问概念定义。debugging_trace "
         "须有可复现的真实缺陷，答案涵盖位置、原因、修复及复测。每段材料都须服务解题，"
         "普通代码不超过20个有效行。遵守 diversity_plan 与 diversity_constraints，"
         "禁止复用已有核心实例、数据、段落、代码、公式组合或推理路径；仅换措辞、形态、"
         "标签、背景或数字不算新题。题间至少在实例、认知动作、推理路径三项中的两项不同。"
         "教师要求仅在以上目标、证据、契约和系统边界内生效，不得降低验证要求。\n"
+    )
+
+
+def _candidate_output_schema(contexts: list[dict[str, Any]], *, compact: bool) -> dict[str, Any]:
+    candidate_schema = {
+        "question_spec": {
+            "stimulus": {
+                "rendered_text": (
+                    "完整题目材料；代码必须使用带语言标记的"
+                    "Markdown围栏"
+                ),
+            },
+            "task": {
+                "rendered_text": "不超过300字的具体作答要求",
+                "deliverable": "学生需要提交的产物",
+            },
+            "constraints": ["可检查的约束"],
+            "response_contract": {
+                "format": "必须匹配对应input_mode",
+            },
+            "options": [
+                {"id": "A", "text": "选择题选项"},
+                {"id": "B", "text": "选择题选项"},
+            ],
+            "solver_contract": {
+                "kind": _solver_contract_kind_hint(),
+                "expression": "可选的公开数值表达式",
+                "unit": "可选答案单位",
+            },
+        },
+        "solution": {
+            "validation_mode": (
+                "必须逐字等于对应assessment_slot.validation_mode"
+            ),
+            "canonical_answer": "与input_mode匹配的答案payload",
+            "acceptable_answers": [],
+            "blanks": [{
+                "blank_id": "从1连续递增的空位编号，由系统依此挖空",
+                "answer": "该空的标准答案",
+                "match_mode": "exact | numeric | symbolic",
+                "acceptable_answers": [],
+            }],
+            "rubric": ["可观察的评分标准"],
+            "validator_config": {},
+            "misconception_rules": [],
+            "solution_graph": {
+                "schema_version": "solution_graph_v1",
+                "steps": [{
+                    "step_id": "step_1",
+                    "action": "简洁且可验证的解题步骤",
+                    "check": "结果检查",
+                }],
+            },
+            "worked_solution": {
+                "schema_version": "worked_solution_v1",
+                "summary": "教学性概述",
+                "steps": [{
+                    "title": "步骤标题",
+                    "explanation": "面向学生的完整推导",
+                    "calculation": "代入、计算或中间过程",
+                    "result": "本步结果",
+                }],
+                "final_answer": "必须与canonical_answer一致",
+                "checks": ["结果自查方法"],
+                "option_analysis": [{
+                    "option_id": "A",
+                    "is_correct": True,
+                    "explanation": "该选项正确或错误的具体原因",
+                }],
+                "common_errors": ["常见错误及避免方法"],
+            },
+        },
+    }
+    if any((context.get("assessment_slot") or {}).get("input_mode") == "code" for context in contexts):
+        candidate_schema["solution"]["hidden_tests"] = [{
+            "test_id": "唯一测试ID", "stdin": "输入文本", "expected_output": "预期输出文本",
+        }]
+        if all((context.get("assessment_slot") or {}).get("input_mode") == "code" for context in contexts):
+            candidate_schema["solution"]["canonical_answer"] = {"code": "完整标准输入/输出程序"}
+    if compact:
+        candidate_schema["solution"].pop("worked_solution", None)
+    if contexts and not any(
+        (context.get("assessment_slot") or {}).get("input_mode") == "choice"
+        or (not (context.get("assessment_slot") or {}).get("input_mode")
+            and _slot_question_form(context) in {"", "single_choice", "multiple_choice", "true_false"})
+        for context in contexts
+    ):
+        candidate_schema["question_spec"]["options"] = []
+    if not any(
+        str(
+            (context.get("assessment_slot") or {}).get("question_form") or ""
+        ) == "fill_blank"
+        for context in contexts
+    ):
+        candidate_schema["solution"].pop("blanks", None)
+    return candidate_schema
+
+
+def _code_generation_directive() -> str:
+    return (
+        "代码实现题使用标准输入/标准输出，只支持python或javascript，遵守input_contract.language。"
+        'solution.canonical_answer使用{"code":"完整程序"}，含读入、算法、输出，不写伪代码、TODO或省略号。'
+        "程序最多30个非空行、1200字符；禁止网络、文件、随机、线程、进程和第三方包。"
+        "题面写清数据范围、编号起点、重复或空输入是否允许、无解时输出，输出顺序及并列处理必须确定。"
+        "涉及图遍历必须明确有向性、起点、邻接访问顺序及不可达顶点的处理；不要依赖未声明的容器迭代顺序。"
+        "先核对公开示例与算法，再提供至少3个简短solution.hidden_tests，每项含test_id、stdin、expected_output。"
+        "测试覆盖普通情况和题面允许的边界，不能添加题面禁止的输入；预期输出须与公开规则逐项一致。"
+        "隐藏测试不写入question_spec，不能靠改变测试来迁就错误程序。"
     )
 
 
@@ -5044,110 +5160,11 @@ def _generation_prompt_v2(
     compact: bool = False,
 ) -> str:
     context = _prompt_generation_context(context)
-    code_requirement = ""
-    if (
-        context.get("assessment_slot") or {}
-    ).get("input_mode") == "code":
-        code_requirement = (
-            "代码题必须采用标准输入/标准输出程序契约。题面必须明确输入格式和输出格式；"
-            "solution.canonical_answer 必须是 {\"code\": \"完整程序\"}；"
-            "程序必须从stdin读取并只向stdout打印答案；hidden_tests至少3项。"
-            "代码实现题的 solution.hidden_tests 必须是数组；每项只含 "
-            "test_id、stdin、expected_output。首版语言只能是 python 或 "
-            "javascript。不得在 question_spec 中暴露隐藏测试。"
-            "The implementation must be a small deterministic transformation "
-            "or classification based on stdin. Canonical code must have at "
-            "most 30 non-empty lines and 1200 characters. Never require real "
-            "threads, processes, timers, performance benchmarks, network, "
-            "files, randomness, interactive input, or third-party packages. "
-            "When the chapter discusses concurrency or I/O, assess its rules "
-            "through deterministic input data instead of executing those "
-            "facilities. Hidden-test inputs and outputs must each be concise."
-        )
-    output_schema = {
-        "question_spec": {
-            "stimulus": {
-                "rendered_text": "Complete question material, at least 12 characters",
-            },
-            "task": {
-                "rendered_text": "Concrete instruction, at least 12 characters",
-                "deliverable": "What the learner must submit",
-            },
-            "constraints": ["A checkable constraint"],
-            "response_contract": {
-                "format": "Match assessment_slot.input_mode",
-            },
-            "options": [
-                {"id": "A", "text": "Choice text"},
-                {"id": "B", "text": "Choice text"},
-            ],
-            "solver_contract": {
-                "kind": _solver_contract_kind_hint(),
-                "expression": "Optional public numeric expression",
-                "unit": "Optional answer unit",
-            },
-        },
-        "solution": {
-            "validation_mode": (
-                "Must exactly equal assessment_slot.validation_mode"
-            ),
-            "canonical_answer": (
-                "Answer payload matching the input mode"
-            ),
-            "acceptable_answers": [],
-            "blanks": [{
-                "blank_id": "Matches a {{n}} placeholder in the prompt",
-                "answer": "The canonical answer for this blank",
-                "match_mode": "exact | numeric | symbolic",
-                "acceptable_answers": [],
-            }],
-            "rubric": ["Observable scoring criterion"],
-            "validator_config": {},
-            "misconception_rules": [],
-            "solution_graph": {
-                "schema_version": "solution_graph_v1",
-                "steps": [{
-                    "step_id": "step_1",
-                    "action": "A concise verifiable solution step",
-                    "check": "A concise result check",
-                }],
-            },
-            "worked_solution": {
-                "schema_version": "worked_solution_v1",
-                "summary": "A concise teaching overview",
-                "steps": [{
-                    "title": "Step title",
-                    "explanation": "Complete learner-facing derivation",
-                    "calculation": "Substitution or intermediate work when applicable",
-                    "result": "Intermediate result",
-                }],
-                "final_answer": "Must equal canonical_answer",
-                "checks": ["How the learner can verify the result"],
-                "option_analysis": [{
-                    "option_id": "A",
-                    "is_correct": True,
-                    "explanation": "Why this option is correct or incorrect",
-                }],
-                "common_errors": ["A likely error and how to avoid it"],
-            },
-        },
-    }
-    if code_requirement:
-        output_schema["solution"]["canonical_answer"] = {"code": "完整标准输入/输出程序"}
-        output_schema["solution"]["hidden_tests"] = [{
-            "test_id": "唯一测试ID", "stdin": "输入文本", "expected_output": "预期输出文本",
-        }]
-    if compact:
-        output_schema["solution"].pop("worked_solution", None)
-    if _slot_question_form(context) not in {
-        "single_choice",
-        "multiple_choice",
-        "true_false",
-    }:
-        output_schema["question_spec"]["options"] = []
-    if _slot_question_form(context) != "fill_blank":
-        # 非填空题不该输出 blanks；留在 schema 里模型会照着填一个空壳。
-        output_schema["solution"].pop("blanks", None)
+    code_requirement = (
+        _code_generation_directive()
+        if (context.get("assessment_slot") or {}).get("input_mode") == "code" else ""
+    )
+    output_schema = _candidate_output_schema([context], compact=compact)
     return (
         _authoring_quality_directive()
         +
@@ -5170,8 +5187,8 @@ def _generation_prompt_v2(
             if compact
             else "与worked_solution"
         )
-        + "，不得把答案或内部Markdown标记"
-        "写入题面。"
+        + "。最终学生题面不得泄漏答案；填空候选按blanks先写含答案的完整陈述，由系统挖空后展示。"
+        "内部Markdown标记不得写入题面。"
         + _form_directive(_slot_question_form(context))
         + (
             "不要输出worked_solution；独立求解器会在验证后补全教学解析。"
@@ -5235,12 +5252,7 @@ def _semantic_review_candidate_count(
     return count
 
 
-def _repair_prompt_v2(
-    context: dict[str, Any],
-    candidate: dict[str, Any],
-    validation: dict[str, Any],
-) -> str:
-    context = _prompt_generation_context(context)
+def _targeted_repair_directive(context: dict[str, Any], validation: dict[str, Any]) -> str:
     issue_codes = {
         str(issue.get("code") or "")
         for issue in validation.get("issues") or []
@@ -5286,8 +5298,10 @@ def _repair_prompt_v2(
             "rubric. "
         ),
         "OBSERVABLE_RESULT_MISSING": (
-            "Add deterministic visible inputs and ask for a concrete output, "
-            "exception, state, identity, or call order. "
+            "Put the complete executable code and concrete invocation inputs in "
+            "question_spec.stimulus.rendered_text using a language-tagged Markdown fence. "
+            "A description of a function is not code. Ask for a concrete output, "
+            "exception, state, identity, or call order using only that visible code. "
         ),
         "DISTRACTOR_NOT_SAME_QUESTION": (
             "Rewrite every option to answer the exact same question and derive "
@@ -5300,7 +5314,9 @@ def _repair_prompt_v2(
         "WORKED_SOLUTION_INCOMPLETE": (
             "Write a complete learner-facing worked_solution with a teaching "
             "summary, explicit derivation steps, the actual final answer and "
-            "result checks. For a choice question, explain every option. "
+            "result checks. For a choice question, explain every option using "
+            "option_analysis items with exactly option_id, is_correct (boolean), "
+            "explanation (nonempty string); do not use correct or reasoning aliases. "
         ),
     }
     input_mode = str(
@@ -5321,6 +5337,17 @@ def _repair_prompt_v2(
                 targeted_directive += directive
     if input_mode == "code":
         targeted_directive += _code_repair_directive()
+    return targeted_directive
+
+
+def _repair_prompt_v2(
+    context: dict[str, Any],
+    candidate: dict[str, Any],
+    validation: dict[str, Any],
+) -> str:
+    context = _prompt_generation_context(context)
+    context.pop("quality_report", None)
+    targeted_directive = _targeted_repair_directive(context, validation)
     form_directive = _form_directive(_slot_question_form(context))
     return (
         f"{targeted_directive}\n"
@@ -5340,101 +5367,7 @@ def _batch_generation_prompt(
     *,
     compact: bool = False,
 ) -> str:
-    candidate_schema = {
-        "question_spec": {
-            "stimulus": {
-                "rendered_text": (
-                    "完整题目材料；代码必须使用带语言标记的"
-                    "Markdown围栏"
-                ),
-            },
-            "task": {
-                "rendered_text": "不超过300字的具体作答要求",
-                "deliverable": "学生需要提交的产物",
-            },
-            "constraints": ["可检查的约束"],
-            "response_contract": {
-                "format": "必须匹配对应input_mode",
-            },
-            "options": [
-                {"id": "A", "text": "选择题选项"},
-                {"id": "B", "text": "选择题选项"},
-            ],
-            "solver_contract": {
-                "kind": _solver_contract_kind_hint(),
-                "expression": "可选的公开数值表达式",
-                "unit": "可选答案单位",
-            },
-        },
-        "solution": {
-            "validation_mode": (
-                "必须逐字等于对应assessment_slot.validation_mode"
-            ),
-            "canonical_answer": "与input_mode匹配的答案payload",
-            "acceptable_answers": [],
-            "blanks": [{
-                "blank_id": "与题面中 {{n}} 空位编号一致",
-                "answer": "该空的标准答案",
-                "match_mode": "exact | numeric | symbolic",
-                "acceptable_answers": [],
-            }],
-            "rubric": ["可观察的评分标准"],
-            "validator_config": {},
-            "misconception_rules": [],
-            "solution_graph": {
-                "schema_version": "solution_graph_v1",
-                "steps": [{
-                    "step_id": "step_1",
-                    "action": "简洁且可验证的解题步骤",
-                    "check": "结果检查",
-                }],
-            },
-            "worked_solution": {
-                "schema_version": "worked_solution_v1",
-                "summary": "教学性概述",
-                "steps": [{
-                    "title": "步骤标题",
-                    "explanation": "面向学生的完整推导",
-                    "calculation": "代入、计算或中间过程",
-                    "result": "本步结果",
-                }],
-                "final_answer": "必须与canonical_answer一致",
-                "checks": ["结果自查方法"],
-                "option_analysis": [{
-                    "option_id": "A",
-                    "is_correct": True,
-                    "explanation": "该选项正确或错误的具体原因",
-                }],
-                "common_errors": ["常见错误及避免方法"],
-            },
-        },
-    }
-    if any((context.get("assessment_slot") or {}).get("input_mode") == "code" for context in contexts):
-        candidate_schema["solution"]["hidden_tests"] = [{
-            "test_id": "唯一测试ID", "stdin": "输入文本", "expected_output": "预期输出文本",
-        }]
-    if compact:
-        candidate_schema["solution"].pop("worked_solution", None)
-    batch_forms = {
-        str(
-            (context.get("assessment_slot") or {}).get("question_form")
-            or ""
-        )
-        for context in contexts
-    }
-    if batch_forms and batch_forms.isdisjoint({
-        "single_choice",
-        "multiple_choice",
-        "true_false",
-    }):
-        candidate_schema["question_spec"]["options"] = []
-    if not any(
-        str(
-            (context.get("assessment_slot") or {}).get("question_form") or ""
-        ) == "fill_blank"
-        for context in contexts
-    ):
-        candidate_schema["solution"].pop("blanks", None)
+    candidate_schema = _candidate_output_schema(contexts, compact=compact)
     shared_context, batch = _batch_generation_payload([_prompt_generation_context(context) for context in contexts])
     envelope = {
         "candidates": [{
@@ -5458,12 +5391,12 @@ def _batch_generation_prompt(
                 "worked_solution只能写可公开的教学推导，不得输出私有思维过程。"
             )
         )
-        + "普通题不得复制整章材料，题面不得泄漏答案。"
-        "代码实现题必须是确定性的标准输入/标准输出任务，"
-        "仅支持python或javascript，并在solution.hidden_tests中"
-        "提供至少3个简短测试（每项test_id、stdin、expected_output）；"
-        "canonical_answer使用{\"code\":\"完整程序\"}。非代码题省略hidden_tests。禁止网络、文件、随机、线程、进程"
-        "和第三方包。\n"
+        + "普通题不得复制整章材料，最终学生题面不得泄漏答案；填空候选按blanks先写含答案的完整陈述，由系统挖空后展示。"
+        + (_code_generation_directive() if any(
+            (context.get("assessment_slot") or {}).get("input_mode") == "code" for context in contexts
+        ) else "非代码题省略hidden_tests。")
+        + "task.rendered_text不超过300字；背景、数据和示例放在stimulus，限制放在constraints。\n"
+        +
         "<REQUIRED_OUTPUT_ENVELOPE>\n"
         f"{json.dumps(envelope, ensure_ascii=False)}\n"
         "</REQUIRED_OUTPUT_ENVELOPE>\n"
@@ -5515,11 +5448,15 @@ def _code_repair_directive() -> str:
     return (
         '代码题必须保留 solution.hidden_tests，至少3项，每项含 test_id、stdin、expected_output；'
         'solution.canonical_answer 使用 {"code":"完整标准输入/输出程序"}。'
+        '已有测试及输入输出规则保持不变；依据validation_feedback区分标准程序失败和独立程序失败，'
+        '检查读入、边界及输出顺序，不得通过更改测试让错误程序通过。'
     )
 
 
 def _batch_repair_prompt(items: list[dict[str, Any]]) -> str:
     items = [{**item, "context": _prompt_generation_context(item.get("context") or {})} for item in items]
+    for item in items:
+        item["context"].pop("quality_report", None)
     envelope = {
         "repairs": [{
             "slot_id": "必须复制输入中的slot_id",
@@ -5536,10 +5473,11 @@ def _batch_repair_prompt(items: list[dict[str, Any]]) -> str:
         "普通代码材料不得超过20个有效代码行；题面引用代码时必须"
         "包含完整且带语言标记的Markdown代码围栏。"
         + _batch_form_directives(items)
-        + (_code_repair_directive() if any(
-            (item.get("context", {}).get("assessment_slot") or {}).get("input_mode") == "code"
-            for item in items
-        ) else "")
+        + "\n".join(
+            str(item.get("slot_id") or "") + "：" + _targeted_repair_directive(
+                item.get("context") or {}, item.get("quality_report") or {}
+            ) for item in items
+        )
         +
         "必须为每个REPAIR_ITEM返回且只返回一个candidate，不能遗漏、"
         "合并或交换slot_id。只输出JSON，不输出解释或私有思维过程。\n"
@@ -5573,7 +5511,11 @@ def _batch_solution_prompt(items: list[dict[str, Any]]) -> str:
                     "result": "本步结果",
                 }],
                 "checks": ["结果检查"],
-                "option_analysis": [],
+                "option_analysis": [{
+                    "option_id": "复制公开选项ID，非选择题使用空数组",
+                    "is_correct": True,
+                    "explanation": "该选项成立或不成立的具体原因",
+                }],
                 "common_errors": [],
             },
         }],
@@ -5583,7 +5525,9 @@ def _batch_solution_prompt(items: list[dict[str, Any]]) -> str:
         "不得猜测标准答案、量规或隐藏测试。必须逐项复制slot_id，"
         "不能遗漏、合并或交换题目。work必须给出具体推导，checks给出具体自查。"
         "选择题的option_analysis必须逐项填写所有选项的option_id、is_correct、explanation，"
-        "不能返回空数组；代码题answer使用{\"code\":\"完整程序\"}。只输出JSON。\n"
+        "不能返回空数组；非选择题option_analysis使用空数组。单选answer是option id，"
+        "selection.multiple=true时answer是正确option id组成的JSON数组；"
+        "代码题answer使用{\"code\":\"完整程序\"}。只输出JSON。\n"
         "<REQUIRED_OUTPUT_SCHEMA>\n"
         f"{json.dumps(schema, ensure_ascii=False)}\n"
         "</REQUIRED_OUTPUT_SCHEMA>\n"

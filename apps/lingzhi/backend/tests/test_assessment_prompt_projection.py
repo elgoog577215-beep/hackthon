@@ -1,5 +1,8 @@
 """Model inputs keep facts and constraints without duplicating backend contracts."""
 from copy import deepcopy
+import json
+
+import pytest
 
 from assessment_orchestrator import UniversalAssessmentModel, _prompt_generation_context, _batch_generation_prompt
 
@@ -71,3 +74,73 @@ def test_missing_code_tests_can_be_repaired_without_replacing_existing_tests():
     proposed['solution']['hidden_tests'] = [{'test_id': 'changed', 'stdin': '1', 'expected_output': 'wrong'}]
     preserved, _ = _apply_targeted_repair_candidate(repaired, proposed, issue_codes=['MATERIAL_BINDING_INVALID'])
     assert preserved['solution']['hidden_tests'] == tests
+
+
+@pytest.mark.parametrize('form,mode', [
+    ('single_choice', 'choice'), ('multiple_choice', 'choice'),
+    ('fill_blank', 'blanks'), ('coding', 'code'), ('structured', 'structured_fields'),
+])
+def test_single_and_batch_candidates_share_the_same_output_contract(form, mode):
+    from assessment_orchestrator import _generation_prompt_v2
+    context = {'assessment_slot': {'slot_id': 's1', 'question_form': form, 'input_mode': mode}}
+    single = _generation_prompt_v2(context, compact=True)
+    batch = _batch_generation_prompt([context], compact=True)
+    one = json.loads(single.split('<REQUIRED_OUTPUT_SCHEMA>\n')[1].split('\n</REQUIRED_OUTPUT_SCHEMA>')[0])
+    many = json.loads(batch.split('<REQUIRED_OUTPUT_ENVELOPE>\n')[1].split('\n</REQUIRED_OUTPUT_ENVELOPE>')[0])
+    assert one == many['candidates'][0]['candidate']
+    assert ('hidden_tests' in one['solution']) == (mode == 'code')
+    assert ('blanks' in one['solution']) == (form == 'fill_blank')
+    assert bool(one['question_spec']['options']) == (mode == 'choice')
+    if mode == 'code':
+        assert isinstance(one['solution']['canonical_answer'], dict)
+        for prompt in (single, batch):
+            assert '邻接访问顺序' in prompt and 'TODO' in prompt
+
+
+def test_batch_repair_receives_the_same_targeted_advice_without_duplicate_report():
+    from assessment_orchestrator import _batch_repair_prompt, _repair_prompt_v2
+    report = {'issues': [{'code': 'TASK_TOO_LONG', 'message': 'specific-unique-error'}]}
+    context = {'assessment_slot': {'input_mode': 'choice'}, 'quality_report': report}
+    single = _repair_prompt_v2(context, {}, report)
+    batch = _batch_repair_prompt([{'slot_id': 's1', 'context': context, 'quality_report': report}])
+    for prompt in (single, batch):
+        assert 'Move background, examples' in prompt
+        assert prompt.count('specific-unique-error') == 1
+
+
+def test_complete_independent_explanation_replaces_nonempty_invalid_candidate_explanation():
+    from assessment_orchestrator import _attach_learner_worked_solution
+    from solution_contracts import worked_solution_is_complete
+    contract = {
+        'question_spec': {'options': [{'id': 'A'}, {'id': 'B'}]},
+        'solution_envelope': {'canonical_answer': 'A', 'worked_solution': {
+            'summary': '错误字段不能盖过完整的独立解析',
+            'option_analysis': [{'option_id': 'A', 'correct': True, 'reasoning': '字段不合规'}],
+        }},
+    }
+    independent = {'summary': '队列先进先出，因此删除最早进入的元素。',
+        'work': ['初始队列为[1,2]，出队移除1，剩余队列为[2]。'],
+        'checks': ['出队后长度从2减为1'],
+        'option_analysis': [{'option_id': 'A', 'is_correct': True, 'explanation': '移除队首1'},
+                            {'option_id': 'B', 'is_correct': False, 'explanation': '移除队尾违反先进先出'}]}
+    _attach_learner_worked_solution(contract, independent)
+    assert worked_solution_is_complete(contract['solution_envelope'], option_ids=['A', 'B'])
+    assert contract['solution_envelope']['worked_solution']['option_analysis'] == independent['option_analysis']
+
+
+@pytest.mark.asyncio
+async def test_independent_solver_contract_supports_multiple_choice(monkeypatch):
+    from assessment_orchestrator import _batch_solution_prompt
+    model = UniversalAssessmentModel()
+    captured = []
+
+    async def respond(policy, prompt, **kwargs):
+        captured.append(prompt)
+        return json.dumps({'answer': ['A', 'C']})
+
+    monkeypatch.setattr(model, '_assessment_llm_call', respond)
+    public = {'input_contract': {'mode': 'choice', 'selection': {'multiple': True}}}
+    solved = await model.solve_candidate(public)
+    assert solved['answer'] == ['A', 'C']
+    for prompt in [captured[0], _batch_solution_prompt([{'slot_id': 'm1', 'question_spec': public}])]:
+        assert 'selection.multiple=true' in prompt and 'JSON数组' in prompt

@@ -87,6 +87,19 @@ def test_batch_prompt_now_carries_evidence():
     assert "瞬时变化率" in block
 
 
+def test_evidence_is_present_once_without_clipping_or_mutating_sources():
+    from copy import deepcopy
+    sections = _sections()
+    sections[0]['evidence_hints'] = _hints(count=7)
+    sections[0]['evidence_hints'][-1]['summary'] = '独有的资料边界。' * 1000
+    before = deepcopy(sections)
+    prompt = _prompt(sections)
+    assert sections == before
+    for evidence in sections[0]['evidence_hints']:
+        assert prompt.count(evidence['summary']) == 1
+    assert '"evidence_hints"' not in prompt
+
+
 def test_evidence_survives_every_detail_level():
     """minimal 档原本把证据整个丢弃——降级不该让链路悄悄退化成无依据生成。"""
     for level in ("full", "compact", "minimal"):

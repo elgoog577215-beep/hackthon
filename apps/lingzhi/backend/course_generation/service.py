@@ -7519,8 +7519,10 @@ class CourseService(AIBase):
     ) -> dict[str, Any]:
         """The single prose generation capability, scoped to remaining sections."""
         from teacher_script import HANDOUT_CONTRACT_VERSION
+        from course_generation.prompts import build_handout_prompt
         metadata = self._course_generation_artifacts.get(course_id) or {}
         instructions = (
+            "输出协议：每次响应必须以独占行 <!-- handout:end --> 结束，不能省略或以自然语言替代。"
             "编写师生共用、可独立学习的完整教材式讲义，不是教案、口播稿或摘要。"
             "一次连贯展开本次全部小节；教学环节是内容深度依据，不要求每环节一个标题。"
             "定义交代条件与边界，公式解释符号与单位，推导写全依据与中间步骤；"
@@ -7536,22 +7538,12 @@ class CourseService(AIBase):
         )
         output_tokens = self._generation_budget.teacher_handout_max_output_tokens
         def prompt_for(sections):
-            return json.dumps({
-                "contract": HANDOUT_CONTRACT_VERSION,
-                "output_marker_order": [*(f"<!-- section:{s['node_id']} -->" for s in sections), "<!-- handout:end -->"],
-                "course_title": metadata.get("course_name") or metadata.get("subject") or "",
-                "lesson": lesson_context,
-                "requirements": requirements,
-                "sections": [{"section_id": s.get("node_id"), "outline": s,
-                              "plan": plan_sections.get(str(s.get("node_id") or "")) or {}}
-                             for s in sections],
-                "completed_sections": completed_sections or [], "incomplete_draft": partial_text,
-                "completion_rule": (
-                    "正文全部写完后，最后一行必须原样输出 <!-- handout:end -->。"
-                    "它是响应完成协议的一部分，即使只有一个小节也不能省略。"
-                    "不要以‘本讲结束’等自然语言替代这个标记。"
-                ),
-            }, ensure_ascii=False)
+            return build_handout_prompt(
+                course_title=metadata.get("course_name") or metadata.get("subject") or "",
+                lesson=lesson_context, requirements=requirements, sections=sections,
+                plan_sections=plan_sections, completed_sections=completed_sections,
+                partial_text=partial_text, contract=HANDOUT_CONTRACT_VERSION,
+            )
         def fits(prompt):
             tokens = self.estimate_request_tokens(prompt, instructions)
             return (len(prompt) + len(instructions) <= self._generation_budget.teacher_handout_max_input_chars

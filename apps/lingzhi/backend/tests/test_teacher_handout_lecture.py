@@ -227,6 +227,35 @@ async def test_handout_request_has_complete_context_and_one_provider_attempt(mon
 
 
 @pytest.mark.asyncio
+async def test_continuation_keeps_complete_prose_once_and_only_requests_missing_sections(monkeypatch):
+    service = CourseService()
+    prose = '已完成的教材正文与完整推导。' * 200
+    source = '来源中的独有边界条件必须保留。' * 100
+    completed = [{'section_node_id': 'a', 'title': '已完成', 'content': prose,
+                  'blocks': [{'content': prose, 'source_plan_context': {'duplicate': prose}}]}]
+    before = deepcopy(completed)
+    calls = []
+
+    async def model(prompt, system, **kwargs):
+        calls.append(prompt)
+        return response(['b'])
+
+    monkeypatch.setattr(service, '_call_llm', model)
+    await service.generate_teacher_handout(
+        course_id='c', outline_sections=[{'node_id': 'b', 'learning_objective': '独有教学目标',
+            'node_content': '旧版已生成正文', 'content_blocks': [{'content': '旧版已生成正文'}]}], plan_sections={},
+        lesson_context={'source': source}, completed_sections=completed, partial_text='未完成的真实片段',
+    )
+    prompt = calls[0]
+    assert completed == before
+    assert prompt.count(prose) == 1
+    assert source in prompt and '未完成的真实片段' in prompt
+    assert '独有教学目标' in prompt and '旧版已生成正文' not in prompt
+    assert '<!-- section:a -->' not in prompt
+    assert prompt.endswith('<!-- section:b -->\n[在这里展开本小节完整正文]\n<!-- handout:end -->')
+
+
+@pytest.mark.asyncio
 async def test_budget_split_only_on_capacity_and_same_capability(monkeypatch):
     service = CourseService()
     calls = []

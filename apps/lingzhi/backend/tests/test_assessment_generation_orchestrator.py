@@ -1555,3 +1555,37 @@ async def test_zero_keyword_overlap_gets_reviewed_before_rewriting(monkeypatch):
     assert report['passed']
     assert review.await_count == 1
     assert model.generate_calls == model.repair_calls == 0
+
+
+async def test_regeneration_receives_failure_feedback_but_independent_solver_does_not(monkeypatch):
+    import assessment_orchestrator as module
+    model = RepairingModel()
+    contexts = []
+    generate = model.generate_candidate
+
+    async def capture(context):
+        contexts.append(deepcopy(context))
+        return await generate(context)
+
+    monkeypatch.setattr(model, 'generate_candidate', capture)
+    original_quality = module.evaluate_question_contract_quality
+    first = True
+
+    def quality(*args, **kwargs):
+        nonlocal first
+        report = original_quality(*args, **kwargs)
+        if first:
+            first = False
+            report.update(passed=False, decision='regenerate', issues=[{
+                'code': 'OBJECTIVE_MISMATCH', 'message': 'unique-regeneration-diagnostic',
+            }])
+        return report
+
+    monkeypatch.setattr(module, 'evaluate_question_contract_quality', quality)
+    await AssessmentGenerationOrchestrator(model=model).prepare_course(
+        _course(), node_ids=['thermo-1'], practice_levels_by_node={'thermo-1': ['concept_check']},
+    )
+    assert len(contexts) >= 2
+    assert 'previous_failure' not in contexts[0]
+    assert contexts[1]['previous_failure']['issues'][0]['message'] == 'unique-regeneration-diagnostic'
+    assert all('unique-regeneration-diagnostic' not in str(spec) for spec in model.solve_payloads)
