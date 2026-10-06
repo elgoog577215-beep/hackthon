@@ -287,10 +287,10 @@ def test_single_and_batch_prompts_share_answer_source_and_difficulty_rules() -> 
         _batch_generation_prompt([context]),
     ]
     for prompt in prompts:
-        assert "First lock one verifiable answer fact" in prompt
+        assert "先确定可验证的答案事实" in prompt
         assert "content_evidence" in prompt
-        assert "never invent a course fact" in prompt
-        assert "transfer distance" in prompt
+        assert "不编造课程事实或引用" in prompt
+        assert "迁移" in prompt
         assert "observable_evidence" in prompt
         assert '"options": []' in prompt
 

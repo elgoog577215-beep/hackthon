@@ -97,6 +97,7 @@ export async function runQuestionBankRebuild(
   request: QuestionBankRebuildRequest,
   options: RebuildOptions = {},
 ): Promise<QuestionBankRebuildJob> {
+  assertObserving(options.signal)
   const created = await http.post(
     `/api/courses/${courseId}/question-bank/rebuild`,
     {
@@ -114,6 +115,7 @@ export async function resumeQuestionBankRebuild(
   courseId: string,
   options: RebuildOptions = {},
 ): Promise<QuestionBankRebuildJob | null> {
+  assertObserving(options.signal)
   let response
   try {
     response = await http.get(
@@ -121,9 +123,11 @@ export async function resumeQuestionBankRebuild(
       { silentError: true },
     )
   } catch (error: any) {
+    assertObserving(options.signal)
     if (Number(error?.response?.status || 0) === 404) return null
     throw error
   }
+  assertObserving(options.signal)
   if (!response.data?.job_id) return null
   return pollQuestionBankRebuild(
     normalizeJob(response.data || {}),
@@ -135,6 +139,7 @@ async function pollQuestionBankRebuild(
   initialJob: QuestionBankRebuildJob,
   options: RebuildOptions,
 ): Promise<QuestionBankRebuildJob> {
+  assertObserving(options.signal)
   let job = initialJob
   options.onUpdate?.(job)
   const pollIntervalMs = Math.max(0, options.pollIntervalMs ?? 2500)
@@ -146,9 +151,7 @@ async function pollQuestionBankRebuild(
   let pollCount = 0
 
   while (!TERMINAL.has(job.status)) {
-    if (options.signal?.aborted) {
-      throw new DOMException('Question bank rebuild aborted', 'AbortError')
-    }
+    assertObserving(options.signal)
     if (pollCount >= maxPolls) {
       const detachedJob: QuestionBankRebuildJob = {
         ...job,
@@ -157,13 +160,12 @@ async function pollQuestionBankRebuild(
       options.onUpdate?.(detachedJob)
       throw new QuestionBankRebuildPollingDetached(detachedJob)
     }
-    if (pollIntervalMs > 0) {
-      await new Promise(resolve => setTimeout(resolve, pollIntervalMs))
-    }
+    await wait(pollIntervalMs, options.signal)
     let response
     try {
       response = await http.get(job.status_url, { silentError: true })
     } catch (error: any) {
+      assertObserving(options.signal)
       if (Number(error?.response?.status || 0) !== 429) throw error
       pollCount += 1
       job = {
@@ -177,6 +179,7 @@ async function pollQuestionBankRebuild(
       )
       continue
     }
+    assertObserving(options.signal)
     const next = normalizeJob({
       ...job,
       ...(response.data || {}),
@@ -193,6 +196,12 @@ async function pollQuestionBankRebuild(
     throw new QuestionBankRebuildError(job)
   }
   return job
+}
+
+function assertObserving(signal?: AbortSignal) {
+  if (signal?.aborted) {
+    throw new DOMException('Question bank observation stopped', 'AbortError')
+  }
 }
 
 async function wait(

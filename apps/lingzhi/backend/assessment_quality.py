@@ -17,7 +17,7 @@ from assessment_subject_facts import (
 from question_choice_grading import canonical_option_ids
 from solution_contracts import worked_solution_is_complete
 
-QUESTION_QUALITY_SCHEMA = "question_quality_report_v2"
+QUESTION_QUALITY_SCHEMA = "question_quality_report_v3"
 QUALITY_WEIGHTS = {
     "correctness_and_verifiability": 25,
     "curriculum_targeting": 20,
@@ -389,6 +389,20 @@ def evaluate_question_contract_quality(
         >= MINIMUM_TARGETING_SCORE
         and minimum_dimension_passed
     )
+    required_scores = {
+        name: int(QUALITY_WEIGHTS[name] * 0.6)
+        for name in blocking_dimension_names
+    }
+    required_scores["correctness_and_verifiability"] = MINIMUM_CORRECTNESS_SCORE
+    required_scores["curriculum_targeting"] = MINIMUM_TARGETING_SCORE
+    for name, minimum in sorted(required_scores.items()):
+        if dimensions[name] < minimum:
+            issues.append(_issue(
+                "QUALITY_DIMENSION_BELOW_MINIMUM",
+                "major",
+                f"质量维度 {name} 未达标：{dimensions[name]}/{minimum}，须修正该维度。",
+                evidence={"dimension": name, "score": dimensions[name], "minimum": minimum},
+            ))
     semantic_confidence = float(
         semantic.get("confidence")
         or (
@@ -492,12 +506,7 @@ def _dimension_scores(
     solution = contract.get("solution_envelope") or {}
     validation = contract.get("solution_validation") or {}
     prompt = str(contract.get("prompt") or "")
-    target_text = " ".join([
-        str(objective.get("objective") or ""),
-        *[str(value) for value in objective.get("knowledge") or []],
-        *[str(value) for value in objective.get("skills") or []],
-    ])
-    overlap = _token_overlap(prompt, target_text)
+    overlap = question_target_overlap(contract, objective)
     semantic_dimensions = semantic_report.get("dimensions") or {}
 
     correctness = (
@@ -722,19 +731,15 @@ def _code_rendering_valid(
             "上述代码",
             "以上代码",
             "下列代码",
+            "以下代码",
+            "给定代码",
+            "这段代码",
+            "上述程序",
+            "下列程序",
+            "given code",
+            "following program",
             "following code",
             "code above",
-        )
-    )
-    references_visible_code = bool(
-        references_visible_code
-        or any(
-            marker in combined.casefold()
-            for marker in (
-                "\u4ee3\u7801",
-                "\u7a0b\u5e8f",
-                "given code",
-            )
         )
     )
     raw_code_lines = sum(
@@ -963,6 +968,15 @@ def _maximum_prompt_similarity(
         ]
         or [0.0]
     )
+
+
+def question_target_overlap(contract: dict[str, Any], objective: dict[str, Any]) -> float:
+    target_text = " ".join([
+        str(objective.get("objective") or ""),
+        *[str(value) for value in objective.get("knowledge") or []],
+        *[str(value) for value in objective.get("skills") or []],
+    ])
+    return _token_overlap(str(contract.get("prompt") or ""), target_text)
 
 
 def _token_overlap(left: str, right: str) -> float:

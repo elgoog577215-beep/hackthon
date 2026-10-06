@@ -1091,3 +1091,47 @@ describe('QuestionBankReviewPanel', () => {
     )
   })
 })
+
+describe('question bank course switching', () => {
+  beforeEach(() => {
+    get.mockReset(); post.mockReset(); resumeQuestionBankRebuild.mockReset(); runQuestionBankRebuild.mockReset()
+    resumeQuestionBankRebuild.mockResolvedValue(null)
+  })
+
+  it('does not restore old questions when an earlier course read finishes last', async () => {
+    let resolveOld!: (value: unknown) => void
+    get.mockImplementation((url: string) => url === '/api/courses/old/question-bank'
+      ? new Promise(resolve => { resolveOld = resolve })
+      : Promise.resolve({ data: { items: [], papers: [] } }))
+    const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'old' } })
+    await wrapper.setProps({ courseId: 'new' })
+    await flushPromises()
+    resolveOld({ data: { items: [{ revision_id: 'old', prompt: 'OLD COURSE QUESTION', lifecycle_status: 'approved' }] } })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('OLD COURSE QUESTION')
+    wrapper.unmount()
+  })
+
+  it('detaches a single-question rework and rejects late updates on course switch', async () => {
+    get.mockImplementation((url: string) => Promise.resolve({ data: {
+      items: url.includes('/old/') ? [{ revision_id: 'old-item', prompt: 'old question', lifecycle_status: 'approved', quality_report: { passed: true } }] : [], papers: [],
+    } }))
+    let resolveJob!: (value: unknown) => void
+    runQuestionBankRebuild.mockReturnValue(new Promise(resolve => { resolveJob = resolve }))
+    const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'old', initialWorkspaceMode: 'generate' } })
+    await flushPromises()
+    await wrapper.get('[data-testid="toggle-question-details"]').trigger('click')
+    await wrapper.get('[data-testid="rework-question"]').trigger('click')
+    const options = runQuestionBankRebuild.mock.calls[0]![2]
+    expect(options.signal.aborted).toBe(false)
+    await wrapper.setProps({ courseId: 'new' })
+    await flushPromises()
+    expect(options.signal.aborted).toBe(true)
+    options.onUpdate({ job_id: 'old-job', status: 'running', progress: 70, message: 'OLD JOB PROGRESS' })
+    resolveJob({ status: 'completed' })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('OLD JOB PROGRESS')
+    expect(wrapper.emitted('updated')).toBeUndefined()
+    wrapper.unmount()
+  })
+})

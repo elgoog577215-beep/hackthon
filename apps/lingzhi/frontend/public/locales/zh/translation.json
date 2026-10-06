@@ -5968,6 +5968,10 @@
     "save": "保存笔记"
   },
   "questionBank": {
+    "scopeLoading": "正在读取课程讲次",
+    "scopeLoadingHelp": "正在读取出题范围，完成后即可查看题库。",
+    "scopeLoadFailed": "课程讲次读取失败",
+    "scopeLoadFailedHelp": "请重试读取出题范围。",
     "centerTitle": "课程题库",
     "courseList": "课程列表",
     "searchCourse": "搜索课程",

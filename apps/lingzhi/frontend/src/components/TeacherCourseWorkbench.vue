@@ -2965,7 +2965,7 @@ const lessonStageBlocked = computed(() => (
   || !lessonStore.lessons.length
 ))
 const lessonSyncNeedsRecovery = computed(() => (
-  ['lesson', 'script', 'ppt'].includes(activeStage.value)
+  ['lesson', 'script', 'ppt', 'question-bank'].includes(activeStage.value)
   && outlineAvailableForLessons.value
   && !lessonStore.lessons.length
   && Boolean(hasOutline.value || lessonStore.outlineRevisionId)
@@ -2981,6 +2981,15 @@ const lessonSyncing = computed(() => (
   && !lessonSyncExhausted.value
 ))
 const lessonPrerequisiteState = computed(() => {
+  if (activeStage.value === 'question-bank' && outlineAvailableForLessons.value) {
+    const failed = lessonSyncExhausted.value || (lessonStore.error && !lessonStore.lessons.length && !lessonSyncing.value)
+    return {
+      kind: failed ? 'error' : 'loading',
+      title: failed ? t('questionBank.scopeLoadFailed') : t('questionBank.scopeLoading'),
+      detail: failed ? lessonStore.error || t('questionBank.scopeLoadFailedHelp') : t('questionBank.scopeLoadingHelp'),
+      action: failed ? t('common.retry', '重试') : '',
+    }
+  }
   if (lessonSyncing.value) return {
     kind: 'loading',
     title: t('courseWorkbench.lessonPrerequisite.preparing', '正在准备教案'),
@@ -4526,7 +4535,7 @@ async function continueOutlineDetails() {
 function ensureLessonStageLoaded(stage: StageId) {
   const hasScopedLessonSnapshot = lessonStore.courseId === props.courseId
     && lessonStore.viewScope === 'lesson'
-  if (!['lesson', 'script', 'ppt'].includes(stage)
+  if (!['lesson', 'script', 'ppt', 'question-bank'].includes(stage)
     || lessonStore.loadedCourseId === props.courseId
     || (!hasScopedLessonSnapshot
       && lessonStore.courseId === props.courseId
@@ -4705,7 +4714,10 @@ watch(selectedLessonId, (lessonId, previousLessonId) => {
   }
 }, { immediate: true })
 watch([() => props.courseId, activeStage], ([courseId, stage]) => {
-  if (courseId && stage === 'question-bank') void loadQuestionBankStatus()
+  if (courseId && stage === 'question-bank') {
+    ensureLessonStageLoaded(stage)
+    void loadQuestionBankStatus()
+  }
 }, { immediate: true })
 watch(taskStatus, status => { if (!['pending', 'running'].includes(status)) generationRequested.value = false })
 watch([() => props.courseId, () => generationTask.value?.id, outlineTaskCompleted], ([, , completed]) => {

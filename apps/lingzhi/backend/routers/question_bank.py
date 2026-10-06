@@ -19,6 +19,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from assessment_quality import QUESTION_QUALITY_SCHEMA
 from assessment_blueprint import (
     compile_course_assessment_blueprint,
     slot_for,
@@ -144,6 +145,24 @@ async def _question_bank_course(course_id: str) -> dict[str, Any]:
             projected[key] = deepcopy(workspace[key])
     projected["teacher_generation_workspace_projection"] = True
     return projected
+
+
+def _question_source_revision(course: dict[str, Any]) -> str:
+    """Bind a question run to teaching inputs, excluding derived bank state."""
+    course_keys = (
+        "course_name", "course_purpose", "difficulty", "course_outline",
+        "subject_pedagogy_profile", "difficulty_profile", "material_bindings",
+        "teacher_handouts",
+    )
+    node_keys = (
+        "node_id", "parent_id", "node_level", "node_name", "node_content",
+        "content_blocks", "learning_objective", "key_points", "assessment",
+        "grounding_contract", "difficulty_contract", "knowledge_structure",
+    )
+    return stable_hash({
+        **{key: course.get(key) for key in course_keys},
+        "nodes": [{key: node.get(key) for key in node_keys} for node in course.get("nodes") or []],
+    })
 
 
 class QuestionBankRebuildRequest(BaseModel):
@@ -478,7 +497,7 @@ def _modern_published_chapter_node_ids(
             or item.get("lifecycle_status") != "approved"
             or item.get("generation_status") != "published"
             or quality.get("schema_version")
-            != "question_quality_report_v2"
+            not in {"question_quality_report_v2", QUESTION_QUALITY_SCHEMA}
             or quality.get("passed") is not True
         ):
             continue
@@ -562,6 +581,13 @@ def _chapter_rebuild_progress(
     total = len(course_node_ids)
     completed = len(published)
     status_value = str(checkpoint.get("status") or "")
+    job_id = str(checkpoint.get("job_id") or "")
+    if job_id:
+        job = question_bank_rebuild_job_repository.load(
+            str(course.get("course_id") or ""), job_id,
+        ) or {}
+        if job.get("status") == "failed":
+            status_value = "failed"
     if total and completed == total:
         progress_status = "completed"
     elif completed:
@@ -1279,6 +1305,11 @@ def _failed_chapters_message(failed_chapters: list[dict[str, Any]]) -> str:
         "ai_provider_empty_response",
         "ai_provider_processing_failed",
     }
+    if "formal_runner_unavailable" in codes:
+        return (
+            "代码验证服务不可用，代码实现题未发布；"
+            "已有题库和本轮通过的题目保留，服务恢复后可继续生成"
+        )
     if codes and codes.issubset(provider_codes):
         return (
             "模型服务当前不可用，本轮未形成可发布题目；"
@@ -1303,6 +1334,7 @@ async def _execute_question_bank_rebuild(
     job_id: str,
 ) -> dict[str, Any]:
     repository = question_bank_rebuild_job_repository
+    source_revision = _question_source_revision(course)
     previous = question_bank_repository.load_bundle(course_id)
     previous_assets = learning_asset_repository.load_bundle(course_id)
     item_practice_levels_by_node = (
@@ -1531,6 +1563,7 @@ async def _execute_question_bank_rebuild(
     )
     checkpoint_contract_matches = bool(
         checkpoint
+        and checkpoint.get("source_revision") == source_revision
         and checkpoint.get("blueprint_revision_id")
         == assessment_blueprint.get("blueprint_revision_id")
         and normalize_assessment_generation_profile(
@@ -1609,7 +1642,8 @@ async def _execute_question_bank_rebuild(
             if str(level) in PRACTICE_LEVELS
         }
         for node_id, levels in (
-            checkpoint.get("published_practice_levels_by_node") or {}
+            (checkpoint.get("published_practice_levels_by_node") or {})
+            if checkpoint_contract_matches else {}
         ).items()
         if str(node_id) in set(course_node_ids)
     }
@@ -1867,6 +1901,7 @@ async def _execute_question_bank_rebuild(
             publication_base[
                 "question_bank_chapter_rebuild"
             ] = {
+                "source_revision": source_revision,
                 "schema_version": (
                     "question_bank_chapter_rebuild_v1"
                 ),
@@ -1993,6 +2028,7 @@ async def _execute_question_bank_rebuild(
                 or None
             ),
             changed_node_ids=[node_id],
+            expected_source_revision=source_revision,
         )
         if chapter_passed:
             published_node_ids.add(node_id)
@@ -2270,6 +2306,7 @@ async def _execute_question_bank_rebuild(
             stored,
             stored_assets,
             request_id=payload.request_id,
+            expected_source_revision=source_revision,
             previous_question_bank_revision_id=(
                 str(previous.get("bundle_revision_id") or "")
                 if previous
@@ -2818,7 +2855,15 @@ async def _publish_rebuilt_course(
     previous_question_bank_revision_id: str | None,
     previous_asset_revision_id: str | None,
     changed_node_ids: list[str] | None = None,
+    expected_source_revision: str | None = None,
 ) -> dict[str, Any]:
+    if expected_source_revision is not None:
+        latest = await _question_bank_course(course_id)
+        if _question_source_revision(latest) != expected_source_revision:
+            raise HTTPException(status_code=409, detail={
+                "code": "question_bank_source_changed",
+                "message": "课程大纲、讲义或出题资料已更新；本次题目未发布，请按最新课程重新生成。",
+            })
     updated = _course_with_rebuilt_assets(
         course,
         question_bank_bundle,

@@ -86,6 +86,8 @@ notepad .env
 
 `dev.sh` 和 `dev.bat` 会检查配置、依赖、端口与健康状态，但不会在每次启动时自动安装依赖。
 
+生成或批改代码实现题还需要独立的 [Runner](runner/README.md)：启动 Docker 引擎和 Runner，预拉取其 Python / JavaScript 镜像，并向应用与 Runner 注入匹配的 `FORMAL_RUNNER_URL`、`FORMAL_RUNNER_TOKEN`。普通前后端启动不会自动启动 Runner。服务缺失时，代码题停止并保留已有题库，不通过反复调用模型尝试修复基础设施。
+
 macOS / Linux 的 `dev.sh` 与生产环境使用同一套 HTTP 文本路由政策：
 所有真实模型调用都读取 `.env` 中的浙大自建 `qwen3.8-27b` 配置；
 大纲、教案、讲义、页面内容稿和 PPT 仍由后端既有阶段、确认状态与质量门负责。

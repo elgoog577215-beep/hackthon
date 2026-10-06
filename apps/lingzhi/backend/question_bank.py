@@ -13,6 +13,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
+from assessment_quality import QUESTION_QUALITY_SCHEMA
 from assessment_blueprint import (
     compile_course_assessment_blueprint,
     slot_for,
@@ -2390,7 +2391,7 @@ def _generated_course_items(
             if (
                 isinstance(generated_quality, dict)
                 and generated_quality.get("schema_version")
-                == "question_quality_report_v2"
+                in {"question_quality_report_v2", QUESTION_QUALITY_SCHEMA}
             ):
                 item["quality_report"] = {
                     **deepcopy(generated_quality),

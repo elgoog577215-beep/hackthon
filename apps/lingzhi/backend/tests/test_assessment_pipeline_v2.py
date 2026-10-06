@@ -1204,3 +1204,35 @@ def test_incomplete_generation_is_blocked_before_persistence():
         match="daily quota exceeded",
     ):
         _require_complete_generation(course)
+
+
+@pytest.mark.parametrize('task,expected', [
+    ('编写一个 Python 程序，从标准输入读取整数并输出它的平方。', True),
+    ('修复上述代码中的错误，使程序输出整数的平方。', False),
+])
+def test_program_writing_does_not_require_a_provided_solution(task, expected):
+    from assessment_quality import _code_rendering_valid
+
+    contract = {
+        'question_type': 'implementation',
+        'prompt': task,
+        'question_spec': {
+            'input_contract': {'mode': 'code'},
+            'stimulus': {'rendered_text': '输入为一个整数 n，输出 n*n。'},
+            'task': {'rendered_text': task},
+        },
+    }
+    assert _code_rendering_valid(contract) is expected
+
+
+def test_failed_dimension_always_explains_why_repair_is_required():
+    contract, objective, slot = _quality_contract()
+    report = evaluate_question_contract_quality(
+        contract, objective=objective, slot=slot,
+        semantic_report={'passed': True, 'confidence': 1.0, 'solution_consistent': True,
+                         'dimensions': {'curriculum_targeting': 8}},
+    )
+    assert not report['passed']
+    assert any(issue['code'] == 'QUALITY_DIMENSION_BELOW_MINIMUM'
+               and issue['evidence']['dimension'] == 'curriculum_targeting'
+               for issue in report['issues'])

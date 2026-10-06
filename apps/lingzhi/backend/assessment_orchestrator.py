@@ -36,7 +36,11 @@ from assessment_generation_policy import (
     resolve_assessment_generation_policy,
 )
 from assessment_independent_solvers import IndependentSolverRegistry
-from assessment_quality import evaluate_question_contract_quality
+from assessment_quality import (
+    QUESTION_QUALITY_SCHEMA,
+    evaluate_question_contract_quality,
+    question_target_overlap,
+)
 from assessment_retrieval import (
     compile_local_reference_package,
     content_evidence_for_objective,
@@ -64,7 +68,7 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v4"
+ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v5"
 
 
 def _out_tokens(limit: int) -> int:
@@ -221,6 +225,15 @@ class AssessmentModel(Protocol):
 
 class UniversalAssessmentModel(AIBase):
     """LLM adapter with explicit generator/solver context isolation."""
+
+    @classmethod
+    def _request_messages(cls, *, prompt: str, system_prompt: str, model_id: str) -> list[dict[str, Any]]:
+        # Assessment requests contain text only. Hundreds of tiny content
+        # parts made the deployed gateway reject otherwise valid requests.
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ]
 
     async def generate_candidate(
         self,
@@ -1551,474 +1564,22 @@ class AssessmentGenerationOrchestrator:
             for node in target_nodes
         )
         audit["planned_item_count"] = total_items
-        completed_items = 0
-        if (
-            self.slot_concurrency > 1
-            or on_chapter_complete is not None
-            or callable(
-                getattr(
-                    self.model,
-                    "generate_candidate_batch",
-                    None,
-                )
-            )
-        ):
-            contracts = await self._generate_targets_concurrently(
-                prepared=prepared,
-                target_nodes=target_nodes,
-                profile=profile,
-                objective_by_node=objective_by_node,
-                blueprint=blueprint,
-                reference_package=resolved_reference_package,
-                audit=audit,
-                on_progress=on_progress,
-                on_chapter_complete=on_chapter_complete,
-                total_items=total_items,
-                practice_levels_by_node=requested_levels_by_node,
-                # 批量生成与合批评审不再看生成范围。
-                #
-                # 改动前生成范围会改变节点内部的并发方式，
-                # 于是 scoped_repair 会落进最慢的一条分支：不批量
-                # 首轮候选、语义评审 batch wait 归零（等于不合批）、三个练习层级
-                # 串行 await。而 scoped_repair 正是"教师点了重建、正等着看结果"
-                # 的场景——最需要快的路径用了全链路最慢的实现。
-                #
-                # 范围只决定"重建哪些节点"，不决定"每个节点内部怎么并发"。
-                # 供给侧的压力由 `semaphore`(slot_parallelism) 与
-                # `node_semaphore`(node_concurrency) 兜底，与生成范围无关。
-                generation_policy=generation_policy,
-            )
-            completed_items = total_items
-            target_nodes = []
-        for node in target_nodes:
-            node_id = str(node.get("node_id") or "")
-            objective = objective_by_node.get(node_id)
-            if not objective:
-                continue
-            contracts[node_id] = {}
-            accepted_questions = historical_questions_for_node(
-                prepared,
-                node_id=node_id,
-            )
-            audit["historical_diversity_comparison_count"] += len(
-                accepted_questions
-            )
-            for practice_level in levels_for(node_id):
-                variant_index = PRACTICE_LEVELS.index(practice_level)
-                slot = slot_for(
-                    blueprint,
-                    node_id=node_id,
-                    practice_level=practice_level,
-                )
-                if slot is None:
-                    raise ValueError(
-                        f"missing assessment slot: {node_id}/{practice_level}"
-                    )
-                references = references_for_objective(
-                    resolved_reference_package,
-                    objective_id=str(
-                        objective.get("objective_id") or ""
-                    ),
-                )
-                content_evidence = content_evidence_for_objective(
-                    resolved_reference_package,
-                    objective_id=str(
-                        objective.get("objective_id") or ""
-                    ),
-                )
-                reference_summary = reference_summary_for_slot(
-                    resolved_reference_package,
-                    objective_id=str(
-                        objective.get("objective_id") or ""
-                    ),
-                    question_type=str(
-                        slot.get("question_type") or ""
-                    ),
-                )
-                design_brief = compile_question_design_brief(
-                    objective=objective,
-                    slot=slot,
-                    reference_summary=reference_summary,
-                    practice_level=practice_level,
-                    variant_index=variant_index,
-                )
-                scoped_objective = _objective_for_design_brief(
-                    objective,
-                    design_brief=design_brief,
-                    slot=slot,
-                )
-                slot = _slot_for_design_brief(
-                    slot,
-                    design_brief=design_brief,
-                )
-                base = generate_universal_question_contract(
-                    prepared,
-                    node,
-                    profile=profile,
-                    objective=scoped_objective,
-                    practice_level=practice_level,
-                    variant_index=variant_index,
-                    slot=slot,
-                    references=references,
-                )
-                base["design_brief"] = deepcopy(design_brief)
-                base["retrieval_summary"] = deepcopy(reference_summary)
-                context = _generation_context(
-                    profile=profile,
-                    objective=scoped_objective,
-                    slot=slot,
-                    references=references,
-                    content_evidence=content_evidence,
-                    reference_summary=reference_summary,
-                    design_brief=design_brief,
-                    practice_level=practice_level,
-                    variant_index=variant_index,
-                    teacher_instruction=str(
-                        prepared.get("teacher_question_instruction") or ""
-                    ),
-                )
-                item_audit: dict[str, Any] = {
-                    "node_id": node_id,
-                    "practice_level": practice_level,
-                    "slot_id": slot.get("slot_id"),
-                    "attempts": [],
-                    "repair_count": 0,
-                    "final_decision": "discard",
-                    "first_pass_passed": False,
-                    "design_brief_revision_id": design_brief.get(
-                        "design_brief_revision_id"
-                    ),
-                    "content_reference_count": reference_summary.get(
-                        "content_reference_count",
-                        0,
-                    ),
-                    "authoring_pattern_count": reference_summary.get(
-                        "authoring_pattern_count",
-                        0,
-                    ),
-                    "semantic_reviewer_trigger": False,
-                }
-                try:
-                    existing_prompts = [
-                        str(item.get("prompt") or "")
-                        for item in accepted_questions
-                    ]
-                    final_contract: dict[str, Any] | None = None
-                    last_contract: dict[str, Any] | None = None
-                    last_quality: dict[str, Any] | None = None
-                    candidate: dict[str, Any] | None = None
-                    next_action = "generate"
-                    for attempt_index in range(4):
-                        try:
-                            if next_action == "generate":
-                                audit["generation_calls"] += 1
-                                generation_context = (
-                                    _context_with_diversity_constraints(
-                                        context,
-                                        accepted_questions,
-                                    )
-                                )
-                                candidate = (
-                                    await _timed_model_call(
-                                        audit,
-                                        role="generator",
-                                        operation="generate_single",
-                                        batch_size=1,
-                                        call=lambda: (
-                                            self.model.generate_candidate(
-                                                generation_context
-                                            )
-                                        ),
-                                    )
-                                )
-                            elif next_action == "repair":
-                                audit["repair_calls"] += 1
-                                generation_context = (
-                                    _context_with_diversity_constraints(
-                                        context,
-                                        accepted_questions,
-                                    )
-                                )
-                                original_candidate = deepcopy(candidate or {})
-                                repaired = (
-                                    await _timed_model_call(
-                                        audit,
-                                        role="generator",
-                                        operation="repair_single",
-                                        batch_size=1,
-                                        call=lambda: (
-                                            self.model.repair_candidate(
-                                                {
-                                                    **generation_context,
-                                                    "quality_report": deepcopy(
-                                                        last_quality or {}
-                                                    ),
-                                                },
-                                                deepcopy(candidate or {}),
-                                                deepcopy(last_quality or {}),
-                                            )
-                                        ),
-                                    )
-                                )
-                                issue_codes = [
-                                    str(issue.get("code") or "")
-                                    for issue in (
-                                        (last_quality or {}).get("issues") or []
-                                    )
-                                    if isinstance(issue, dict)
-                                    and issue.get("code")
-                                ]
-                                candidate, repair_guard = (
-                                    _apply_targeted_repair_candidate(
-                                        original_candidate,
-                                        repaired,
-                                        issue_codes=issue_codes,
-                                    )
-                                )
-                                item_audit.setdefault(
-                                    "targeted_repairs",
-                                    [],
-                                ).append(repair_guard)
-                            (
-                                contract,
-                                validation,
-                                independent,
-                            ) = await self._solve_and_build(
-                                base,
-                                candidate,
-                                audit,
-                                generation_policy=generation_policy,
-                                solution_batcher=None,
-                            )
-                            semantic_report = await self._semantic_report(
-                                contract,
-                                independent=independent,
-                                objective=scoped_objective,
-                                slot=slot,
-                                audit=audit,
-                            )
-                        except SemanticPreflightFailure as exc:
-                            issue_codes = [
-                                str(issue.get("code") or "")
-                                for issue in exc.report.get("issues") or []
-                                if issue.get("code")
-                            ]
-                            last_contract = deepcopy(exc.contract)
-                            last_quality = {
-                                "schema_version": "question_quality_report_v2",
-                                "passed": False,
-                                "score": 0,
-                                "decision": "repair",
-                                "issues": deepcopy(
-                                    exc.report.get("issues") or []
-                                ),
-                            }
-                            item_audit["semantic_preflight"] = deepcopy(
-                                exc.report
-                            )
-                            attempt = {
-                                "attempt": attempt_index + 1,
-                                "score": 0,
-                                "passed": False,
-                                "decision": "repair",
-                                "issue_codes": issue_codes,
-                                "repair_action": _repair_action_for_issues(
-                                    issue_codes
-                                ),
-                            }
-                            item_audit["attempts"].append(attempt)
-                            if attempt_index >= 3:
-                                break
-                            item_audit["repair_count"] += 1
-                            attempt["next_action"] = "repair"
-                            next_action = "repair"
-                            continue
-                        except AIProviderRequestError as exc:
-                            if not str(exc).startswith("invalid_"):
-                                raise
-                            preflight_issue = _preflight_issue_code(exc)
-                            decision = (
-                                "repair"
-                                if preflight_issue
-                                else "regenerate"
-                            )
-                            attempt = {
-                                "attempt": attempt_index + 1,
-                                "score": 0,
-                                "passed": False,
-                                "decision": decision,
-                                "issue_codes": [
-                                    preflight_issue
-                                    or "MODEL_OUTPUT_SCHEMA_INVALID"
-                                ],
-                            }
-                            item_audit["attempts"].append(attempt)
-                            if attempt_index >= 3:
-                                break
-                            item_audit["repair_count"] += 1
-                            attempt["next_action"] = decision
-                            if preflight_issue:
-                                last_quality = {
-                                    "decision": "repair",
-                                    "issues": [{
-                                        "code": preflight_issue,
-                                        "severity": "critical",
-                                    }],
-                                }
-                                next_action = "repair"
-                            else:
-                                candidate = None
-                                next_action = "generate"
-                            continue
-                        quality = evaluate_question_contract_quality(
-                            contract,
-                            objective=scoped_objective,
-                            slot=slot,
-                            references=references,
-                            existing_prompts=existing_prompts,
-                            existing_questions=accepted_questions,
-                            semantic_report=semantic_report,
-                        )
-                        contract["quality_report"] = deepcopy(quality)
-                        item_audit["semantic_preflight"] = deepcopy(
-                            contract.get("semantic_preflight") or {}
-                        )
-                        item_audit["semantic_reviewer_trigger"] = bool(
-                            item_audit.get("semantic_reviewer_trigger")
-                            or semantic_report.get("reviewer_triggered")
-                        )
-                        _apply_quality_decision(
-                            contract,
-                            quality,
-                            semantic_report,
-                        )
-                        last_contract = contract
-                        last_quality = quality
-                        diversity_report = (
-                            quality.get("diversity_report") or {}
-                        )
-                        item_audit["diversity_report"] = deepcopy(
-                            diversity_report
-                        )
-                        if not diversity_report.get("passed", True):
-                            audit["diversity_rejection_count"] += 1
-                        item_audit["attempts"].append({
-                            "attempt": attempt_index + 1,
-                            "score": quality.get("score"),
-                            "passed": quality.get("passed"),
-                            "decision": quality.get("decision"),
-                            "issue_codes": [
-                                str(issue.get("code"))
-                                for issue in quality.get("issues") or []
-                            ],
-                            "repair_action": _repair_action_for_issues([
-                                str(issue.get("code"))
-                                for issue in quality.get("issues") or []
-                            ]),
-                        })
-                        if quality.get("passed"):
-                            accepted_questions.append(
-                                deepcopy(contract)
-                            )
-                            item_audit["first_pass_passed"] = (
-                                attempt_index == 0
-                            )
-                            final_contract = contract
-                            item_audit["final_decision"] = (
-                                "teacher_review"
-                                if contract.get("review_required")
-                                else "publish"
-                            )
-                            break
-                        if attempt_index >= 3:
-                            break
-                        item_audit["repair_count"] += 1
-                        if quality.get("decision") == "regenerate":
-                            if not diversity_report.get("passed", True):
-                                audit[
-                                    "diversity_regeneration_count"
-                                ] += 1
-                            next_action = "generate"
-                            item_audit["attempts"][-1][
-                                "next_action"
-                            ] = "regenerate"
-                        else:
-                            next_action = "repair"
-                            item_audit["attempts"][-1][
-                                "next_action"
-                            ] = "repair"
-                    resolved = final_contract or last_contract
-                    if resolved is None:
-                        raise AIProviderRequestError(
-                            "invalid_assessment_generation_json_after_4_attempts"
-                        )
-                    if final_contract is None:
-                        _mark_discarded(
-                            resolved,
-                            last_quality or {},
-                        )
-                        item_audit["final_decision"] = "discard"
-                        audit["failure_count"] += 1
-                    _attach_generation_audit_summary(
-                        resolved,
-                        item_audit,
-                    )
-                    contracts[node_id][practice_level] = resolved
-                    audit["items"].append(item_audit)
-                except (
-                    AIProviderRequestError,
-                    AIProviderUnavailable,
-                ) as exc:
-                    audit["failure_count"] += 1
-                    item_audit["error_code"] = type(exc).__name__
-                    item_audit["error_message"] = str(exc)[:500]
-                    item_audit["final_decision"] = "discard"
-                    audit["items"].append(item_audit)
-                    raise
-                except Exception as exc:
-                    fallback = deepcopy(base)
-                    _mark_discarded(
-                        fallback,
-                        {
-                            "issues": [{
-                                "code": "MODEL_GENERATION_FAILED",
-                                "severity": "critical",
-                            }],
-                        },
-                    )
-                    fallback["risk_flags"] = list(dict.fromkeys([
-                        *fallback.get("risk_flags", []),
-                        "model_generation_failed",
-                    ]))
-                    fallback["solution_validation"] = {
-                        **deepcopy(
-                            fallback.get("solution_validation") or {}
-                        ),
-                        "passed": False,
-                        "status": "needs_review",
-                        "auto_publish_eligible": False,
-                        "issues": [{
-                            "code": "model_generation_failed",
-                            "severity": "major",
-                        }],
-                    }
-                    contracts[node_id][practice_level] = fallback
-                    audit["fallback_count"] += 1
-                    audit["failure_count"] += 1
-                    item_audit["error_code"] = type(exc).__name__
-                    item_audit["error_message"] = str(exc)[:500]
-                    item_audit["final_decision"] = "discard"
-                    audit["items"].append(item_audit)
-                completed_items += 1
-                await _notify_progress(
-                    on_progress,
-                    {
-                        "node_id": node_id,
-                        "practice_level": practice_level,
-                        "completed_items": completed_items,
-                        "total_items": total_items,
-                    },
-                )
+        # Serial and parallel execution share the same bounded slot lifecycle.
+        # Concurrency changes scheduling only, never validation or recovery rules.
+        contracts = await self._generate_targets_concurrently(
+            prepared=prepared,
+            target_nodes=target_nodes,
+            profile=profile,
+            objective_by_node=objective_by_node,
+            blueprint=blueprint,
+            reference_package=resolved_reference_package,
+            audit=audit,
+            on_progress=on_progress,
+            on_chapter_complete=on_chapter_complete,
+            total_items=total_items,
+            practice_levels_by_node=requested_levels_by_node,
+            generation_policy=generation_policy,
+        )
         prepared["_assessment_generated_contracts"] = contracts
         prepared["_assessment_generation_audit"] = audit
         audited_items = list(audit.get("items") or [])
@@ -2285,7 +1846,10 @@ class AssessmentGenerationOrchestrator:
                         str(item.get("error_code") or "")
                         for item in discarded_items
                     ).lower()
-                    if any(
+                    if "formal_runner_unavailable" in failure_code_text:
+                        chapter_error_code = "formal_runner_unavailable"
+                        chapter_error_message = "代码验证服务不可用；已通过的题目保留，代码实现题待服务恢复后继续。"
+                    elif any(
                         token in failure_text
                         for token in (
                             "insufficient balance",
@@ -2786,6 +2350,27 @@ class AssessmentGenerationOrchestrator:
                         solution_batcher=solution_batcher,
                         solve_budget=solve_budget,
                     )
+                    if validation.get("issue_code") == "formal_runner_unavailable":
+                        # Infrastructure cannot be repaired by rewriting a question.
+                        last_contract = contract
+                        last_quality = {
+                            "schema_version": QUESTION_QUALITY_SCHEMA,
+                            "passed": False,
+                            "score": 0,
+                            "decision": "discard",
+                            "issues": [{
+                                "code": "FORMAL_RUNNER_UNAVAILABLE",
+                                "severity": "critical",
+                                "message": "代码验证服务不可用，题目未发布；服务恢复后可继续。",
+                            }],
+                        }
+                        item_audit["error_code"] = "formal_runner_unavailable"
+                        item_audit["error_message"] = last_quality["issues"][0]["message"]
+                        item_audit["attempts"].append({
+                            "attempt": attempt_index + 1, "passed": False, "decision": "discard",
+                            "issue_codes": ["FORMAL_RUNNER_UNAVAILABLE"],
+                        })
+                        break
                     semantic_report = await self._semantic_report(
                         contract,
                         independent=independent,
@@ -2811,7 +2396,7 @@ class AssessmentGenerationOrchestrator:
                         "issue_codes": ["MODEL_SOLVE_BUDGET_EXHAUSTED"],
                     })
                     last_quality = {
-                        "schema_version": "question_quality_report_v2",
+                        "schema_version": QUESTION_QUALITY_SCHEMA,
                         "passed": False,
                         "score": 0,
                         "decision": "discard",
@@ -2833,7 +2418,7 @@ class AssessmentGenerationOrchestrator:
                     ]
                     last_contract = deepcopy(exc.contract)
                     last_quality = {
-                        "schema_version": "question_quality_report_v2",
+                        "schema_version": QUESTION_QUALITY_SCHEMA,
                         "passed": False,
                         "score": 0,
                         "decision": "repair",
@@ -3011,7 +2596,7 @@ class AssessmentGenerationOrchestrator:
             _mark_discarded(
                 fallback,
                 {
-                    "schema_version": "question_quality_report_v2",
+                    "schema_version": QUESTION_QUALITY_SCHEMA,
                     "passed": False,
                     "score": 0,
                     "decision": "discard",
@@ -3282,6 +2867,16 @@ class AssessmentGenerationOrchestrator:
             contract,
             preflight,
         )
+        # No lexical overlap is uncertain targeting, not proof of a bad question.
+        # Review it once instead of repeatedly rewriting a correct candidate.
+        if (
+            not reviewer_triggered
+            and preflight.get("passed")
+            and validation.get("passed")
+            and any(objective.get(key) for key in ("objective", "knowledge", "skills"))
+            and question_target_overlap(contract, objective) == 0
+        ):
+            reviewer_triggered = True
         contract["semantic_reviewer_trigger"] = reviewer_triggered
         if not reviewer_triggered:
             passed = bool(validation.get("passed"))
@@ -3908,6 +3503,13 @@ def _apply_targeted_repair_candidate(
         for code in normalized_codes
         for path in _TARGETED_REPAIR_PATHS.get(str(code or ""), ())
     })
+    if (
+        "MATERIAL_BINDING_INVALID" in normalized_codes
+        and not (original.get("solution") or {}).get("hidden_tests")
+        and (original.get("solution") or {}).get("validation_mode") == "code_validator"
+    ):
+        # A missing test bundle may be filled; existing tests stay immutable.
+        allowed_paths.append("solution.hidden_tests")
     if not allowed_paths and normalized_codes:
         allowed_paths = list(_SAFE_TARGETED_REPAIR_FALLBACK_PATHS)
     result = deepcopy(original)
@@ -4847,6 +4449,73 @@ def _compact_batch_generation_context(
     return compact
 
 
+def _prompt_generation_context(context: dict[str, Any]) -> dict[str, Any]:
+    """Project authoring inputs, not the full internal validation/audit graph.
+
+    Keep the immutable full contracts for local validation. Only remove exact
+    duplicates and bookkeeping from the model view; never shorten source text.
+    """
+    result = deepcopy(context)
+    slot = result.get("assessment_slot") or {}
+    objective = result.get("objective") or {}
+    brief = result.get("question_design_brief") or {}
+    for key in ("knowledge", "skills", "misconceptions", "observable_evidence", "difficulty_contract", "risk_level"):
+        if key in objective and slot.get(key) == objective[key]:
+            # The slot remains the single owner of difficulty and input shape.
+            objective.pop(key)
+    for key, brief_key in (("objective", "primary_skill"), ("observable_evidence", "required_observable_evidence")):
+        if key in objective and objective[key] == brief.get(brief_key):
+            objective.pop(key)
+    for key, brief_key in (("knowledge", "primary_knowledge"), ("skills", "primary_skill"), ("misconceptions", "primary_misconception")):
+        if slot.get(key) == [brief.get(brief_key)]:
+            slot.pop(key)
+    if slot.get("observable_evidence") == brief.get("required_observable_evidence"):
+        slot.pop("observable_evidence", None)
+    validation = brief.get("validation_contract") or {}
+    if validation and all(slot.get(key) == value for key, value in validation.items()):
+        brief.pop("validation_contract")
+    # These describe backend retrieval/identity decisions, not writing tasks.
+    result.pop("reference_coverage", None)
+    brief.pop("retrieval_contract", None)
+    brief.pop("generation_sequence", None)  # Already stated in the directive.
+    for key in ("question_type", "discipline_family", "practice_level", "node_id", "objective_id"):
+        if key in brief and brief[key] == slot.get(key):
+            brief.pop(key)
+    for key in ("source_skill_index", "source_observable_index"):
+        (brief.get("assessment_scope_contract") or {}).pop(key, None)
+    (slot.get("difficulty_contract") or {}).pop("anti_patterns", None)
+    diversity = brief.get("diversity_plan") or {}
+    diversity.pop("hard_rules", None)
+    (result.get("diversity_constraints") or {}).pop("rules", None)
+    for key in ("discipline_family", "practice_level", "variant_index"):
+        if key in diversity and diversity[key] in (slot.get(key), result.get(key)):
+            diversity.pop(key)
+    for key, source_key in (("knowledge_focus", "primary_knowledge"), ("target_misconception", "primary_misconception")):
+        if key in diversity and diversity[key] == brief.get(source_key):
+            diversity.pop(key)
+    # Built-in prose repeats the global authoring directive. Real examples,
+    # course evidence and their reference IDs remain available in full.
+    if "reference_patterns" in result:
+        result["reference_patterns"] = [r for r in result["reference_patterns"] if r.get("source_type") != "builtin_subject_template"]
+    source_texts = [str(r.get("fact_excerpt") or "") for r in result.get("content_evidence") or []]
+    source_texts.append(str((result.get("untrusted_source_package") or {}).get("source_excerpt") or ""))
+    fact_contract = brief.get("answer_fact_contract") or {}
+    if "fact_basis" in fact_contract:
+        fact_contract["fact_basis"] = [text for text in fact_contract["fact_basis"] if not any(str(text) in source for source in source_texts)]
+
+    def without_bookkeeping(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: without_bookkeeping(item) for key, item in value.items() if key not in {
+                "schema_version", "profile_revision_id", "design_brief_revision_id",
+                "plan_id", "signature_id", "registry_id", "contract_version",
+            }}
+        if isinstance(value, list):
+            return [without_bookkeeping(item) for item in value]
+        return value
+
+    return without_bookkeeping(result)
+
+
 def _local_solver_applicable(public_spec: dict[str, Any]) -> bool:
     """本地确定性解题器是否适用于这道题的**作答形状**。
 
@@ -5348,45 +5017,24 @@ def _repair_prompt(
 
 
 def _authoring_quality_directive() -> str:
-    """Single source of truth for single and batch authoring quality rules."""
+    """Shared writing instructions; full contracts remain in local validation."""
     return (
-        "Treat question_design_brief as immutable. First lock one verifiable "
-        "answer fact, canonical answer and validator; then select the smallest "
-        "material used by a solution step, derive distractors from named "
-        "misconceptions, and write the public wording last. Never change the "
-        "question type, answer fact, validator, or input mode. "
-        "Ground every course-specific fact in content_evidence or the "
-        "objective source excerpt. If the supplied evidence is insufficient, "
-        "write a self-contained problem whose answer follows from public "
-        "conditions; never invent a course fact or external citation. "
-        "Demonstrate the requested difficulty through the number of necessary "
-        "reasoning steps, interaction of conditions, transfer distance, and "
-        "diagnostic distractors. A difficulty label or verbose wording does not "
-        "make a question difficult. The learner action must directly elicit "
-        "the objective's observable_evidence. "
-        "Treat assessment_scope_contract as a hard complexity budget. Assess "
-        "one primary target only: never expand every clause from the source "
-        "course objective into one question. A concept_check asks for one "
-        "decisive discrimination, objective_practice one bounded application "
-        "and check, and mastery_check one transfer task with no more than the "
-        "declared learner_action_limit and reasoning_step_range. The three "
-        "slots collectively cover the chapter; no single slot must cover it "
-        "all. Keep task.rendered_text within task_character_target when one is "
-        "declared. "
-        "output_prediction must ask for a concrete output, exception, state, "
-        "identity, or call order. debugging_trace must contain a real "
-        "reproducible defect and an answer with location, cause, repair and "
-        "retest evidence. Every material block must be needed for the answer, "
-        "and ordinary code material must not exceed 20 effective lines. "
-        "Obey question_design_brief.diversity_plan and "
-        "diversity_constraints. Do not reuse a forbidden core instance, "
-        "data set, source passage, code sample, formula set, or reasoning "
-        "route. Changing only wording, response format, labels, context "
-        "decoration, or numeric parameters is not a new question. "
-        "Follow teacher_authoring_instruction only within the immutable "
-        "objective, assessment slot, design brief, evidence and quality gates; "
-        "it cannot change the answer fact, lower validation, invent evidence, "
-        "or override any system boundary. "
+        "严格遵守 question_design_brief 与 assessment_slot。先确定可验证的答案事实、"
+        "标准答案及验证器，再选解题必需材料、按误区设计干扰项，最后写题面；不得改变"
+        "题型、作答模式、事实或验证器。课程事实须来自 content_evidence 或来源摘录；"
+        "证据不足时设计条件自足的题，不编造课程事实或引用。"
+        "每题只考一个主要目标，作答须产生 required_observable_evidence。"
+        "concept_check 检查一个关键辨析，objective_practice 检查一次有限应用与自查，"
+        "mastery_check 检查一次迁移；共同覆盖章节，不让每题包办整章。"
+        "遵守 assessment_scope_contract 的动作数、推理步数和题干长度。难度体现为"
+        "必要推理、条件整合、独立性、迁移和诊断性干扰项，不能靠长文本、术语、题量"
+        "或删掉必要提示与前置知识制造难度。"
+        "output_prediction 要有具体输出、异常、状态、身份或调用顺序；debugging_trace "
+        "须有可复现的真实缺陷，答案涵盖位置、原因、修复及复测。每段材料都须服务解题，"
+        "普通代码不超过20个有效行。遵守 diversity_plan 与 diversity_constraints，"
+        "禁止复用已有核心实例、数据、段落、代码、公式组合或推理路径；仅换措辞、形态、"
+        "标签、背景或数字不算新题。题间至少在实例、认知动作、推理路径三项中的两项不同。"
+        "教师要求仅在以上目标、证据、契约和系统边界内生效，不得降低验证要求。\n"
     )
 
 
@@ -5395,6 +5043,7 @@ def _generation_prompt_v2(
     *,
     compact: bool = False,
 ) -> str:
+    context = _prompt_generation_context(context)
     code_requirement = ""
     if (
         context.get("assessment_slot") or {}
@@ -5483,6 +5132,11 @@ def _generation_prompt_v2(
             },
         },
     }
+    if code_requirement:
+        output_schema["solution"]["canonical_answer"] = {"code": "完整标准输入/输出程序"}
+        output_schema["solution"]["hidden_tests"] = [{
+            "test_id": "唯一测试ID", "stdin": "输入文本", "expected_output": "预期输出文本",
+        }]
     if compact:
         output_schema["solution"].pop("worked_solution", None)
     if _slot_question_form(context) not in {
@@ -5586,6 +5240,7 @@ def _repair_prompt_v2(
     candidate: dict[str, Any],
     validation: dict[str, Any],
 ) -> str:
+    context = _prompt_generation_context(context)
     issue_codes = {
         str(issue.get("code") or "")
         for issue in validation.get("issues") or []
@@ -5664,6 +5319,8 @@ def _repair_prompt_v2(
                 )
             else:
                 targeted_directive += directive
+    if input_mode == "code":
+        targeted_directive += _code_repair_directive()
     form_directive = _form_directive(_slot_question_form(context))
     return (
         f"{targeted_directive}\n"
@@ -5752,6 +5409,10 @@ def _batch_generation_prompt(
             },
         },
     }
+    if any((context.get("assessment_slot") or {}).get("input_mode") == "code" for context in contexts):
+        candidate_schema["solution"]["hidden_tests"] = [{
+            "test_id": "唯一测试ID", "stdin": "输入文本", "expected_output": "预期输出文本",
+        }]
     if compact:
         candidate_schema["solution"].pop("worked_solution", None)
     batch_forms = {
@@ -5774,7 +5435,7 @@ def _batch_generation_prompt(
         for context in contexts
     ):
         candidate_schema["solution"].pop("blanks", None)
-    shared_context, batch = _batch_generation_payload(contexts)
+    shared_context, batch = _batch_generation_payload([_prompt_generation_context(context) for context in contexts])
     envelope = {
         "candidates": [{
             "slot_id": "必须复制输入中的slot_id",
@@ -5786,10 +5447,6 @@ def _batch_generation_prompt(
         + f"一次生成{len(batch)}道相互独立的原创课程题目。"
         "必须为每个BATCH_ITEM生成且只生成一个candidate，"
         "不能遗漏、合并或交换slot_id。只输出JSON，不输出解释。\n"
-        "同批题目之间不得复用核心实例、材料、数据集、代码样例、"
-        "公式组合或解题路径；仅改变题型、措辞、标签、背景或数字不算新题。"
-        "每道题必须遵守各自question_design_brief.diversity_plan，"
-        "并至少在实例、认知动作、推理路径三项中的两项与其他题不同。\n"
         + _batch_form_directives(batch)
         + (
             "快速候选不得输出worked_solution；独立求解器将在验证后"
@@ -5804,7 +5461,8 @@ def _batch_generation_prompt(
         + "普通题不得复制整章材料，题面不得泄漏答案。"
         "代码实现题必须是确定性的标准输入/标准输出任务，"
         "仅支持python或javascript，并在solution.hidden_tests中"
-        "提供至少3个简短测试；禁止网络、文件、随机、线程、进程"
+        "提供至少3个简短测试（每项test_id、stdin、expected_output）；"
+        "canonical_answer使用{\"code\":\"完整程序\"}。非代码题省略hidden_tests。禁止网络、文件、随机、线程、进程"
         "和第三方包。\n"
         "<REQUIRED_OUTPUT_ENVELOPE>\n"
         f"{json.dumps(envelope, ensure_ascii=False)}\n"
@@ -5853,7 +5511,15 @@ def _batch_generation_payload(
     return shared, items
 
 
+def _code_repair_directive() -> str:
+    return (
+        '代码题必须保留 solution.hidden_tests，至少3项，每项含 test_id、stdin、expected_output；'
+        'solution.canonical_answer 使用 {"code":"完整标准输入/输出程序"}。'
+    )
+
+
 def _batch_repair_prompt(items: list[dict[str, Any]]) -> str:
+    items = [{**item, "context": _prompt_generation_context(item.get("context") or {})} for item in items]
     envelope = {
         "repairs": [{
             "slot_id": "必须复制输入中的slot_id",
@@ -5870,6 +5536,10 @@ def _batch_repair_prompt(items: list[dict[str, Any]]) -> str:
         "普通代码材料不得超过20个有效代码行；题面引用代码时必须"
         "包含完整且带语言标记的Markdown代码围栏。"
         + _batch_form_directives(items)
+        + (_code_repair_directive() if any(
+            (item.get("context", {}).get("assessment_slot") or {}).get("input_mode") == "code"
+            for item in items
+        ) else "")
         +
         "必须为每个REPAIR_ITEM返回且只返回一个candidate，不能遗漏、"
         "合并或交换slot_id。只输出JSON，不输出解释或私有思维过程。\n"
@@ -5911,7 +5581,9 @@ def _batch_solution_prompt(items: list[dict[str, Any]]) -> str:
     return (
         f"独立求解以下{len(public_items)}道题。每道题只能读取公开题面，"
         "不得猜测标准答案、量规或隐藏测试。必须逐项复制slot_id，"
-        "不能遗漏、合并或交换题目。只输出JSON。\n"
+        "不能遗漏、合并或交换题目。work必须给出具体推导，checks给出具体自查。"
+        "选择题的option_analysis必须逐项填写所有选项的option_id、is_correct、explanation，"
+        "不能返回空数组；代码题answer使用{\"code\":\"完整程序\"}。只输出JSON。\n"
         "<REQUIRED_OUTPUT_SCHEMA>\n"
         f"{json.dumps(schema, ensure_ascii=False)}\n"
         "</REQUIRED_OUTPUT_SCHEMA>\n"

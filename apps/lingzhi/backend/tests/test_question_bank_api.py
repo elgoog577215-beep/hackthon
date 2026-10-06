@@ -1431,3 +1431,35 @@ def test_partial_overlay_merges_new_chapter_questions_and_replaces_same_slot():
     assert selected["assets"]["final_assessment"] == [
         {"revision_id": "final-1"}
     ]
+
+
+def test_rebuild_rejects_results_if_course_body_changes_during_generation(monkeypatch, tmp_path):
+    class EditingOrchestrator(DeterministicAssessmentOrchestrator):
+        async def prepare_course(self, course_data, **kwargs):
+            repository.course_storage.course['nodes'][0]['node_content'] = '教师刚刚更新的正文'
+            kwargs.pop('generation_profile', None)
+            kwargs.pop('generation_scope', None)
+            return await super().prepare_course(course_data, **kwargs)
+
+    client, repository = _client(monkeypatch, tmp_path, orchestrator=EditingOrchestrator())
+    before = repository.save_bundle('course-api', build_question_bank(_course()))
+    response = client.post('/api/courses/course-api/question-bank/rebuild', headers={'X-User-Id': 'teacher-1'}, json={'request_id': 'source-change-case', 'scope': 'course', 'mode': 'full'})
+    job = client.get(response.json()['status_url'], headers={'X-User-Id': 'teacher-1'}).json()
+    assert job['status'] == 'failed'
+    assert job['error']['code'] == 'question_bank_source_changed'
+    assert job['error']['retryable'] is False
+    assert repository.load_bundle('course-api')['bundle_revision_id'] == before['bundle_revision_id']
+    assert repository.course_storage.course['nodes'][0]['node_content'] == '教师刚刚更新的正文'
+    assert repository.course_storage.save_count == 0
+
+
+def test_chapter_progress_reads_terminal_job_instead_of_stale_running_checkpoint(monkeypatch):
+    from routers import question_bank as module
+    monkeypatch.setattr(module.question_bank_rebuild_job_repository, 'load', lambda course_id, job_id: {'status': 'failed'})
+    progress = module._chapter_rebuild_progress({
+        'course_id': 'course-failed',
+        'nodes': [{'node_id': 'node-1', 'node_level': 2}],
+        'question_bank_chapter_rebuild': {'job_id': 'job-failed', 'status': 'running'},
+    }, None)
+    assert progress['status'] == 'failed'
+    assert progress['completed_chapters'] == 0

@@ -238,6 +238,30 @@ describe('teacher course workbench outline streaming', () => {
     wrapper.unmount()
   })
 
+  it.each(['foundation', 'question-bank'])('loads lecture scope when entering the question bank from %s', async (initialStage) => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    const courseStore = useCourseStore()
+    courseStore.setTeacherProductionState('course-1', {
+      schema_version: 'course_production_state_v1', course_id: 'course-1',
+      stages: { outline: { display_state: 'available', artifact_state: 'current', task_state: 'idle', issues: [], allowed_actions: [], action_targets: [] } },
+      lectures: [],
+    } as any)
+    const load = vi.spyOn(lessonStore, 'load').mockImplementation(async (courseId: string) => {
+      lessonStore.courseId = courseId
+      lessonStore.loadedCourseId = courseId
+      lessonStore.outlineRevisionId = 'outline-1'
+      lessonStore.lessons = [{ lesson_unit_id: 'L1-1', number: 1, title: '线性表', sections: [], plan: {}, script: {}, arrangement: { blocks: [] } }] as any
+      return { schema_version: 'teacher_lesson_authoring_view_v1', course_id: courseId, outline_revision_id: 'outline-1', lessons: lessonStore.lessons, jobs: [] }
+    })
+    const wrapper = mountWorkbench({ initialStage: initialStage as any })
+    if (initialStage === 'foundation') await wrapper.get('.companion-entry button').trigger('click')
+    await flushPromises()
+    expect(load).toHaveBeenCalledWith('course-1')
+    expect(wrapper.findComponent({ name: 'QuestionBankReviewPanel' }).exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('正在准备教案')
+    wrapper.unmount()
+  })
+
   it('侧栏只保留标题和导航名称，不再展示描述文本', () => {
     const wrapper = mountWorkbench()
 

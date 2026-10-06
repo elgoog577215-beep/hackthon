@@ -288,3 +288,47 @@ describe('runQuestionBankRebuild', () => {
     })
   })
 })
+
+describe('question bank observation lifetime', () => {
+  const request = { request_id: 'lifetime-test', scope: 'course' as const, node_ids: [], mode: 'full' as const }
+  const running = { job_id: 'job-old', status: 'running', progress: 50, status_url: '/api/jobs/old' }
+
+  beforeEach(() => { get.mockReset(); post.mockReset() })
+
+  it('does not deliver a create response after leaving the page', async () => {
+    const controller = new AbortController()
+    let resolve!: (value: unknown) => void
+    post.mockReturnValue(new Promise(r => { resolve = r }))
+    const onUpdate = vi.fn()
+    const pending = runQuestionBankRebuild('old-course', request, { signal: controller.signal, onUpdate })
+    controller.abort()
+    resolve({ data: { ...running, status: 'completed' } })
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    expect(onUpdate).not.toHaveBeenCalled()
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it('cancels the polling delay without making a late status request', async () => {
+    post.mockResolvedValue({ data: running })
+    const controller = new AbortController()
+    const onUpdate = vi.fn()
+    const pending = runQuestionBankRebuild('old-course', request, { signal: controller.signal, pollIntervalMs: 60000, onUpdate })
+    await Promise.resolve()
+    controller.abort()
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    expect(get).not.toHaveBeenCalled()
+    expect(onUpdate).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores a terminal status response already in flight at detach', async () => {
+    post.mockResolvedValue({ data: running })
+    const controller = new AbortController()
+    const onUpdate = vi.fn()
+    get.mockImplementation(async () => {
+      controller.abort()
+      return { data: { ...running, status: 'failed', error: { message: 'old failure' } } }
+    })
+    await expect(runQuestionBankRebuild('old-course', request, { signal: controller.signal, pollIntervalMs: 0, onUpdate })).rejects.toMatchObject({ name: 'AbortError' })
+    expect(onUpdate).toHaveBeenCalledTimes(1)
+  })
+})

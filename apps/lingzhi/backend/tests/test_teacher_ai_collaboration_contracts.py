@@ -199,5 +199,5 @@ def test_teacher_question_instruction_cannot_override_quality_gates():
     directive = _authoring_quality_directive()
 
     assert context["teacher_authoring_instruction"] == "增加应用情境"
-    assert "cannot change the answer fact" in directive
-    assert "cannot" in directive and "lower validation" in directive
+    assert "不得改变" in directive and "事实或验证器" in directive
+    assert "不得降低验证要求" in directive

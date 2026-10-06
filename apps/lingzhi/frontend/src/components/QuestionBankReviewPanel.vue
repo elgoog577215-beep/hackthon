@@ -1091,6 +1091,9 @@ const keepPublished = ref(true)
 const pendingAiCandidate = ref<QuestionBankAiCandidate | null>(null)
 const candidateRef = ref<HTMLElement | null>(null)
 let rebuildAbortController: AbortController | null = null
+let disposed = false
+let loadSequence = 0
+let papersSequence = 0
 const QUESTION_PAGE_SIZE = 10
 const COVERED_OBJECTIVE_PAGE_SIZE = 10
 
@@ -1603,6 +1606,7 @@ onMounted(() => {
   void recoverActiveRebuild()
 })
 onBeforeUnmount(() => {
+  disposed = true
   emit('import-mode-change', false)
   rebuildAbortController?.abort()
 })
@@ -1611,8 +1615,14 @@ watch(() => props.courseId, () => {
   questionReferences.value = []
   rebuildAbortController?.abort()
   rebuildAbortController = null
+  rebuilding.value = false
+  actingRevision.value = ''
   rebuildJob.value = null
   rebuildErrorMessage.value = ''
+  items.value = []
+  for (const key of Object.keys(solutions)) delete solutions[key]
+  for (const key of Object.keys(reviewNotes)) delete reviewNotes[key]
+  examPapers.value = []
   browserQuery.value = ''
   browserStatus.value = 'all'
   selectedQuestionChapterId.value = ''
@@ -1816,7 +1826,7 @@ async function recoverActiveRebuild() {
       await load()
     }
   } catch (error: any) {
-    if (!isAbortError(error)) {
+    if (!controller.signal.aborted && props.courseId === courseId && !isAbortError(error)) {
       if (error?.job) {
         rebuildJob.value = error.job
         rebuildErrorMessage.value = error?.message || t(
@@ -1839,15 +1849,19 @@ async function recoverActiveRebuild() {
 }
 
 async function load() {
-  if (!props.courseId) return
+  const courseId = props.courseId
+  const sequence = ++loadSequence
+  const current = () => !disposed && props.courseId === courseId && sequence === loadSequence
+  if (!courseId) return
   loading.value = true
   errorMessage.value = ''
   questionBankMissing.value = false
   try {
     const response = await http.get(
-      `/api/courses/${props.courseId}/question-bank`,
+      `/api/courses/${courseId}/question-bank`,
       teacherReadRequestConfig({ silentError: true }),
     )
+    if (!current()) return
     const data = response.data || {}
     bundleRevisionId.value = String(data.bundle_revision_id || '')
     coverage.value = data.coverage || {}
@@ -1865,28 +1879,33 @@ async function load() {
       revisionId => available.has(revisionId),
     )
   } catch (error: any) {
+    if (!current()) return
     if (error?.response?.status === 404) {
       questionBankMissing.value = true
     } else {
       errorMessage.value = t('questionBank.loadFailed', '题库读取失败，请稍后重试。')
     }
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
 async function loadExamPapers() {
-  if (!props.courseId) return
+  const courseId = props.courseId
+  const sequence = ++papersSequence
+  const current = () => !disposed && props.courseId === courseId && sequence === papersSequence
+  if (!courseId) return
   try {
     const response = await http.get(
-      `/api/courses/${props.courseId}/question-bank/exam-papers`,
+      `/api/courses/${courseId}/question-bank/exam-papers`,
       teacherReadRequestConfig({ silentError: true }),
     )
+    if (!current()) return
     examPapers.value = Array.isArray(response.data?.papers)
       ? response.data.papers
       : []
   } catch {
-    examPapers.value = []
+    if (current()) examPapers.value = []
   }
 }
 
@@ -1983,11 +2002,13 @@ async function requestAiCandidate(value: string) {
 async function resolveAiCandidate(accept: boolean) {
   const candidate = pendingAiCandidate.value
   if (!candidate || rebuilding.value) return false
+  const courseId = props.courseId
+  const current = () => !disposed && props.courseId === courseId
   emit('ai-resolving', { accept })
   try {
     if (accept) {
       const response = await http.post(
-        `/api/courses/${props.courseId}/question-bank/rebuild`,
+        `/api/courses/${courseId}/question-bank/rebuild`,
         {
           request_id: createUuid(),
           scope: candidate.scope,
@@ -1999,6 +2020,7 @@ async function resolveAiCandidate(accept: boolean) {
           teacher_instruction: candidate.teacher_instruction,
         },
       )
+      if (!current()) return false
       rebuildJob.value = response.data as QuestionBankRebuildJob
       rebuilding.value = true
       void recoverActiveRebuild()
@@ -2009,6 +2031,7 @@ async function resolveAiCandidate(accept: boolean) {
     emit('ai-resolved', { accept })
     return true
   } catch (error: any) {
+    if (!current()) return false
     emit(
       'ai-error',
       error?.response?.data?.detail?.message
@@ -2030,6 +2053,7 @@ function focusReferenceSources() {
 
 async function rebuild(nodeId?: string | string[], resumeExisting = true) {
   if (!props.courseId || rebuilding.value) return
+  const courseId = props.courseId
   rebuildAbortController?.abort()
   const controller = new AbortController()
   rebuildAbortController = controller
@@ -2042,7 +2066,7 @@ async function rebuild(nodeId?: string | string[], resumeExisting = true) {
       .map(value => String(value || ''))
       .filter(Boolean)
     await runQuestionBankRebuild(
-      props.courseId,
+      courseId,
       {
         request_id: createUuid(),
         scope: scopedNodeIds.length ? 'nodes' : 'course',
@@ -2057,13 +2081,13 @@ async function rebuild(nodeId?: string | string[], resumeExisting = true) {
         maxPolls: scopedNodeIds.length ? 450 : 3600,
         signal: controller.signal,
         onUpdate: job => {
-          rebuildJob.value = job
+          if (!controller.signal.aborted && props.courseId === courseId) rebuildJob.value = job
         },
       },
     )
-    await load()
+    if (!controller.signal.aborted && props.courseId === courseId) await load()
   } catch (error: any) {
-    if (isAbortError(error)) return
+    if (controller.signal.aborted || props.courseId !== courseId || isAbortError(error)) return
     rebuildErrorMessage.value = error?.message || t(
       'questionBank.rebuildFailed',
       '课程题目重新生成失败，当前有效题库未被覆盖，可以稍后重试。',
@@ -2130,13 +2154,17 @@ async function approve(item: QuestionBankItem) {
 }
 
 async function rework(item: QuestionBankItem) {
-  if (!props.courseId || actingRevision.value) return
+  if (!props.courseId || actingRevision.value || rebuilding.value) return
+  const courseId = props.courseId
+  rebuildAbortController?.abort()
+  const controller = new AbortController()
+  rebuildAbortController = controller
   actingRevision.value = item.revision_id
   rebuilding.value = true
   errorMessage.value = ''
   try {
     await runQuestionBankRebuild(
-      props.courseId,
+      courseId,
       {
         request_id: createUuid(),
         scope: 'items',
@@ -2148,16 +2176,20 @@ async function rework(item: QuestionBankItem) {
         teacher_instruction: reviewNotes[item.revision_id] || '',
       },
       {
+        signal: controller.signal,
         onUpdate: job => {
-          rebuildJob.value = job
+          if (!controller.signal.aborted && props.courseId === courseId) rebuildJob.value = job
         },
       },
     )
+    if (controller.signal.aborted || props.courseId !== courseId) return
     delete reviewNotes[item.revision_id]
     delete solutions[item.revision_id]
     await load()
     emit('updated', bundleRevisionId.value)
   } catch (error: any) {
+    if (controller.signal.aborted || props.courseId !== courseId || isAbortError(error)) return
+    if (error?.job) rebuildJob.value = error.job
     errorMessage.value = error?.response?.status === 409
       ? t('questionBank.conflict', '题库已被其他操作更新，已重新加载。')
       : t(
@@ -2166,8 +2198,11 @@ async function rework(item: QuestionBankItem) {
       )
     if (error?.response?.status === 409) await load()
   } finally {
-    actingRevision.value = ''
-    rebuilding.value = false
+    if (rebuildAbortController === controller) {
+      rebuildAbortController = null
+      actingRevision.value = ''
+      rebuilding.value = false
+    }
   }
 }
 
@@ -2314,7 +2349,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 </script>
 
 <style scoped>
-.question-bank-panel { height:calc(100vh - 128px); min-height:500px; display:grid; grid-template-rows:auto minmax(0,1fr); gap:14px; overflow:visible; padding:0; color:#263147; background:transparent; }
+.question-bank-panel { container-type:inline-size; container-name:question-bank; height:calc(100vh - 128px); min-height:500px; display:grid; grid-template-rows:auto minmax(0,1fr); gap:14px; overflow:visible; padding:0; color:#263147; background:transparent; }
 .question-bank-page-heading { min-height:54px; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:0 2px; }
 .question-bank-page-identity { min-width:0; display:flex; align-items:center; gap:10px; }
 .question-bank-page-identity>strong { min-width:0; overflow:hidden; color:#202a3d; font-size:18px; font-weight:760; line-height:1.35; letter-spacing:-.015em; text-overflow:ellipsis; white-space:nowrap; }
@@ -2632,6 +2667,18 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-generation-audit__grid b[data-status="failed"] { color:#b91c1c; }
 .question-generation-audit>p { margin:0 12px; color:#b45309; font:9px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; }
 .spin { animation: question-bank-spin .9s linear infinite; }
+/* Keep the question readable inside the narrower teacher workbench. */
+@container question-bank (max-width: 1200px) {
+  .question-bank-workspace-body { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(560px,1fr) auto; overflow:auto; }
+  .question-bank-workspace-main { min-height:560px; }
+  .question-bank-workspace-side { min-height:180px; overflow:visible; border-left:0; border-top:1px solid #e4e9f1; }
+  .question-browser.has-chapter-navigation { grid-template-columns:240px minmax(0,1fr); grid-template-rows:auto minmax(0,1fr); }
+  .question-chapter-index { grid-column:1/-1; grid-template-rows:auto; border-right:0; border-bottom:1px solid #e3e8f0; }
+  .question-chapter-index>header { display:none; }
+  .question-chapter-index>nav { display:flex; overflow-x:auto; }
+  .question-chapter-index button { width:210px; flex:0 0 auto; }
+  .question-reader__scroll { padding:20px; }
+}
 @keyframes question-bank-spin { to { transform: rotate(360deg); } }
 @media (max-width: 900px) { .question-review-item__summary-main { grid-template-columns:auto minmax(0,1fr); }.question-review-item__meta { grid-column:1/-1; max-width:none; } }
 @media (max-width: 720px) {

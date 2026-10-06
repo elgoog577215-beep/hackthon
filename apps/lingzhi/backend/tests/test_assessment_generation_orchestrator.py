@@ -1498,3 +1498,60 @@ async def test_settled_questions_survive_a_failing_sibling_in_same_section():
     contracts = prepared["_assessment_generated_contracts"]["thermo-1"]
     for level in ("concept_check", "objective_practice"):
         assert contracts[level]["generation_status"] != "discarded"
+
+
+@pytest.mark.parametrize("concurrency", [1, 3])
+async def test_runner_outage_does_not_trigger_question_repair_or_semantic_review(monkeypatch, concurrency):
+    from assessment_quality import QUESTION_QUALITY_SCHEMA
+
+    model = RepairingModel()
+    orchestrator = AssessmentGenerationOrchestrator(model=model)
+    orchestrator.slot_concurrency = concurrency
+    original = orchestrator._solve_and_build
+
+    async def unavailable(*args, **kwargs):
+        contract, validation, independent = await original(*args, **kwargs)
+        validation.update({'issue_code': 'formal_runner_unavailable', 'passed': False})
+        return contract, validation, independent
+
+    async def unexpected_review(*args, **kwargs):
+        raise AssertionError('A missing service must not cause another model review')
+
+    monkeypatch.setattr(orchestrator, '_solve_and_build', unavailable)
+    monkeypatch.setattr(orchestrator, '_semantic_report', unexpected_review)
+    prepared = await orchestrator.prepare_course(
+        _course(), node_ids=['thermo-1'],
+        practice_levels_by_node={'thermo-1': ['concept_check']},
+    )
+    assert model.generate_calls == 1
+    assert model.solve_calls == 1
+    assert model.repair_calls == 0
+    contract = prepared['_assessment_generated_contracts']['thermo-1']['concept_check']
+    assert contract['generation_status'] == 'discarded'
+    assert contract['quality_report']['schema_version'] == QUESTION_QUALITY_SCHEMA
+    assert contract['quality_report']['passed'] is False
+    audit = prepared['_assessment_generation_audit']
+    item = audit['items'][0]
+    assert len(item['attempts']) == 1
+    assert item['error_code'] == 'formal_runner_unavailable'
+
+
+async def test_zero_keyword_overlap_gets_reviewed_before_rewriting(monkeypatch):
+    from unittest.mock import AsyncMock
+    import assessment_orchestrator as module
+
+    model = RepairingModel()
+    review = AsyncMock(wraps=model.evaluate_candidate)
+    monkeypatch.setattr(model, 'evaluate_candidate', review)
+    monkeypatch.setattr(module, 'should_run_semantic_review', lambda *args: False)
+    orchestrator = AssessmentGenerationOrchestrator(model=model)
+    contract = {'prompt': 'bfs(g, root)', 'question_spec': {},
+                'semantic_preflight': {'passed': True},
+                'solution_validation': {'passed': True, 'deterministic': True}}
+    report = await orchestrator._semantic_report(
+        contract, independent={'answer': 'A'},
+        objective={'objective': '图的广度优先遍历'}, slot={}, audit={'semantic_evaluation_calls': 0},
+    )
+    assert report['passed']
+    assert review.await_count == 1
+    assert model.generate_calls == model.repair_calls == 0
