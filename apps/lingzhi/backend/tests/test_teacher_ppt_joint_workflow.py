@@ -32,7 +32,7 @@ def workflow(tmp_path, monkeypatch):
 
         async def generate_teacher_handout(self, **kwargs):
             calls.append("handout")
-            return {"text": "\n".join(f"<!-- section:{s['node_id']} -->\n{TEXT}" for s in kwargs["outline_sections"]) + "\n<!-- handout:end -->"}
+            return {"text": "\n".join(f'<!-- section:{s["node_id"]} -->\n<!-- block:{{"type":"解释","title":"完整讲解"}} -->\n{TEXT}' for s in kwargs["outline_sections"]) + "\n<!-- handout:end -->"}
 
         async def generate_teacher_ppt_from_handout(self, **kwargs):
             contract = compile_teacher_script_module_contract(kwargs["outline_section"], kwargs["current_plan_section"])
@@ -102,7 +102,7 @@ def generate(client, *, complete_ppt=True):
             break
         time.sleep(.01)
     assert job["status"] == "completed", job.get("error")
-    assert job["request_snapshot"]["generation_contract_version"] == "handout_lecture_v2"
+    assert job["request_snapshot"]["generation_contract_version"] == "handout_lecture_v3"
     assert not job.get("bundle_blocks")
     if not complete_ppt:
         return job

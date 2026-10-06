@@ -150,6 +150,9 @@ export interface TeacherLessonScriptCandidate {
 }
 
 export interface TeacherLessonScriptBlock {
+  content_type?: string
+  type_label?: string
+  answer_to?: string
   block_id: string
   module_id: string
   role: string
@@ -322,6 +325,7 @@ export interface TeacherLessonJob {
   unassigned_fragment?: string
   block_section_ids?: Record<string, string>
   block_titles?: Record<string, string>
+  block_metadata?: Record<string, Partial<TeacherLessonScriptBlock>>
   total_blocks?: number
   completed_blocks?: number
   current_block_id?: string

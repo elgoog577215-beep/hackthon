@@ -30,6 +30,27 @@ const lesson: TeacherLessonProjection = {
 }
 
 describe('统一讲义页面', () => {
+  it('自由编排与自定义块原序显示，流式完成后不重复正文', async () => {
+    const current = structuredClone(lesson) as any
+    current.script.ready = false
+    const blocks = [
+      { block_id: 'story', module_id: 'handout_content', role: 'concept', content_type: '典故', type_label: '典故', title: '从一个故事出发', content: '明确标注的假设故事' },
+      { block_id: 'derive', module_id: 'handout_content', role: 'reasoning', content_type: 'derivation', title: '由操作推导', content: '先推导后定义' },
+    ]
+    const job = { id: 'flex', status: 'running', block_states: { story: 'completed', derive: 'running' },
+      block_metadata: Object.fromEntries(blocks.map(({ content, ...block }) => [block.block_id, block])),
+      block_section_ids: { story: 'section-1', derive: 'section-1' },
+      streamed_block_content: { story: blocks[0]!.content, derive: blocks[1]!.content },
+      result_sections: [{ section_node_id: 'section-1', title: '自由编排', blocks }],
+    } as unknown as TeacherLessonJob
+    const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson: current, generationJob: job, generating: true } })
+    expect(wrapper.findAll('.script-module').map(block => block.attributes('data-content-type'))).toEqual(['典故', 'derivation'])
+    expect(wrapper.text()).toContain('典故')
+    expect(wrapper.text()).toContain('推导')
+    expect(wrapper.findAll('[data-ai-item-id="story"]')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
   beforeEach(async () => {
     setActivePinia(createPinia())
     vi.spyOn(useTeacherScriptVisualStore(), 'load').mockResolvedValue({} as any)

@@ -14,7 +14,7 @@ from typing import Any
 from assessment_diversity import compile_diversity_plan
 from course_versioning import stable_hash
 
-QUESTION_DESIGN_BRIEF_SCHEMA = "question_design_brief_v1"
+QUESTION_DESIGN_BRIEF_SCHEMA = "question_design_brief_v2"
 SEMANTIC_PREFLIGHT_SCHEMA = "question_semantic_preflight_v1"
 
 SEMANTIC_HARD_CODES = {
@@ -358,10 +358,20 @@ def compile_question_design_brief(
             "task_character_target": 240,
         },
     }
-    resolved_scope = scope_by_level.get(
+    resolved_scope = deepcopy(scope_by_level.get(
         practice_level,
         scope_by_level["objective_practice"],
-    )
+    ))
+    # The requested response modality limits what can actually be observed.
+    # A selected option cannot also prove that the learner wrote a derivation.
+    input_mode = str(slot.get("input_mode") or "")
+    if input_mode == "choice":
+        resolved_scope["observable"] = f"能在给定选项中识别符合{primary_knowledge}及题设条件的结论；不要求另交书面推导"
+    elif input_mode == "code":
+        resolved_scope["observable"] = f"能用已学的{primary_knowledge}实现程序，通过题设边界与测试；必要说明写在程序注释中"
+    if question_type == "output_prediction":
+        resolved_scope["primary_skill"] = f"运用{primary_knowledge}追踪给定程序并判断确定的输出或状态"
+        resolved_scope["observable"] = f"能根据完整代码及输入判断输出或状态，作答形式遵守{input_mode}合同"
     brief = {
         "schema_version": QUESTION_DESIGN_BRIEF_SCHEMA,
         "objective_id": objective.get("objective_id"),

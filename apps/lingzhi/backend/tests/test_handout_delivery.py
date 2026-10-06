@@ -150,7 +150,8 @@ async def test_duplicate_route_reuses_frozen_job_and_interruption_retains_text(t
     saved = TeacherLessonAuthoringRepository(tmp_path).get_job("course-1", first["job"]["id"])
     assert saved["status"] == "failed"
     assert len(calls) == 1
-    assert list(saved["streamed_block_content"].values()) == ["没有换行的真实片段"]
+    assert saved["unassigned_fragment"] == "没有换行的真实片段"
+    assert "没有换行的真实片段" in saved["raw_response"]
     assert not saved.get("auto_recovery")
     assert not repo.lesson("course-1", "L1-1")["working_script_revision_id"]
 

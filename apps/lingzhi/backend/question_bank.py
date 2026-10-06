@@ -15,6 +15,7 @@ from typing import Any
 
 from assessment_quality import QUESTION_QUALITY_SCHEMA
 from assessment_blueprint import (
+    ASSESSMENT_BLUEPRINT_SCHEMA,
     compile_course_assessment_blueprint,
     slot_for,
 )
@@ -135,7 +136,7 @@ def build_question_bank(
         course_data.get("_course_assessment_blueprint") or {}
     )
     if assessment_blueprint.get("schema_version") != (
-        "course_assessment_blueprint_v2"
+        ASSESSMENT_BLUEPRINT_SCHEMA
     ):
         assessment_blueprint = compile_course_assessment_blueprint(
             course_data,
@@ -1041,12 +1042,12 @@ def _merge_scoped_assessment_blueprint(
     """Keep each untouched chapter bound to the blueprint that made its items."""
     if (
         rebuilt.get("schema_version")
-        != "course_assessment_blueprint_v2"
+        != ASSESSMENT_BLUEPRINT_SCHEMA
     ):
         return deepcopy(rebuilt or previous)
     if (
         previous.get("schema_version")
-        != "course_assessment_blueprint_v2"
+        not in {"course_assessment_blueprint_v2", ASSESSMENT_BLUEPRINT_SCHEMA}
     ):
         return deepcopy(rebuilt)
     fresh_nodes = {
@@ -3367,7 +3368,7 @@ def _assessment_blueprint(
     compiled = course_data.get("_course_assessment_blueprint")
     if isinstance(compiled, dict) and compiled.get(
         "schema_version"
-    ) == "course_assessment_blueprint_v2":
+    ) == ASSESSMENT_BLUEPRINT_SCHEMA:
         return deepcopy(compiled)
     purpose = str(
         course_data.get("course_purpose")

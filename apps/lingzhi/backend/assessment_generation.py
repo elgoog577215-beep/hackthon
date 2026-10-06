@@ -13,7 +13,7 @@ from assessment_contracts import (
     compile_course_assessment_profile,
     select_assessment_archetype,
 )
-from assessment_blueprint import input_contract_for_slot
+from assessment_blueprint import ASSESSMENT_BLUEPRINT_SCHEMA, input_contract_for_slot
 from assessment_validators import validate_solution_envelope
 from course_versioning import stable_hash
 
@@ -65,7 +65,7 @@ def generate_universal_question_contract(
         )
         archetype.update({
             "archetype_id": str(slot["archetype_id"]),
-            "selection_method": "course_assessment_blueprint_v2",
+            "selection_method": ASSESSMENT_BLUEPRINT_SCHEMA,
             "selection_confidence": 1.0,
             "objective_id": resolved_objective.get("objective_id"),
         })

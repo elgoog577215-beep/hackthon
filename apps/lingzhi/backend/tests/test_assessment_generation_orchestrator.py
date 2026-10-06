@@ -639,14 +639,14 @@ async def test_prepared_contracts_drive_diverse_question_bank_items():
     ]["canonical_answer"] == {"value": 12, "unit": "kJ"}
     assert numeric["design_brief_summary"][
         "schema_version"
-    ] == "question_design_brief_v1"
+    ] == "question_design_brief_v2"
     assert numeric["semantic_preflight"]["passed"] is True
     assert numeric["material_bindings"]
     assert "content_coverage" in bundle["reference_package"]
     assert "method_coverage" in bundle["reference_package"]
     assert bundle["assessment_blueprint"][
         "schema_version"
-    ] == "course_assessment_blueprint_v2"
+    ] == "course_assessment_blueprint_v3"
 
 
 async def test_malformed_nested_candidate_is_regenerated_not_discarded():

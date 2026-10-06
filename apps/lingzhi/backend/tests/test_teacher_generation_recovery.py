@@ -130,7 +130,7 @@ def test_old_reports_reclassify_advice_without_erasing_real_failure(version):
     before = deepcopy(report)
     current = upgrade_script_quality_report(report)
     assert report == before
-    assert current["schema_version"] == "teacher_script_quality_v12"
+    assert current["schema_version"] == "teacher_script_quality_v13"
     assert not current["passed"]
     assert [i["code"] for i in current["blocking_issues"]] == ["teacher_script:block_empty"]
     assert current["review_issues"] == []

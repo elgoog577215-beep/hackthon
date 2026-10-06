@@ -62,7 +62,7 @@ def project_teacher_content(raw, *, storage=None, authoring=None):
             node["content_blocks"] = [{
                 "block_id": b["block_id"], "type": b.get("role", "concept"),
                 "title": b.get("title", ""), "content": b.get("content", ""),
-                "metadata": {key: deepcopy(b[key]) for key in ("module_id", "knowledge_names", "planned_minutes") if key in b},
+                "metadata": {key: deepcopy(b[key]) for key in ("module_id", "knowledge_names", "planned_minutes", "content_type", "type_label", "answer_to") if key in b},
             } for b in section.get("blocks") or []]
             original_blocks.update({b["block_id"]: b for b in section.get("blocks") or []})
         handouts[lid] = {"revision_id": revision["revision_id"],

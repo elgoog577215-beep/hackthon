@@ -200,6 +200,7 @@ def document_from_legacy_course(course_data: dict[str, Any]) -> CourseDocument:
             for trace_key in (
                 "module_id",
                 "module_instance_id",
+                "content_type", "type_label", "answer_to",
                 "planned_minutes",
                 "content_perspective",
                 "ppt_page_group_id",
@@ -398,6 +399,7 @@ def _legacy_block(block: CourseBlock) -> dict[str, Any]:
         "order": block.position,
         "status": "draft" if block.status == "draft" else "final",
         "metadata": {
+            **{key: deepcopy(block.payload[key]) for key in ("content_type", "type_label", "answer_to") if key in block.payload},
             "kind": block.kind,
             "role": block.role,
             "asset_refs": list(block.asset_refs),

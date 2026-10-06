@@ -89,6 +89,22 @@ def _course() -> dict:
     }
 
 
+def test_scoped_rebuild_preserves_historical_blueprint_for_untouched_nodes():
+    from question_bank import _merge_scoped_assessment_blueprint
+    from assessment_blueprint import ASSESSMENT_BLUEPRINT_SCHEMA
+    previous = {'schema_version': 'course_assessment_blueprint_v2', 'nodes': [
+        {'node_id': 'a', 'slots': [{'slot_id': 'old-a', 'question_type': 'output_prediction'}]},
+        {'node_id': 'b', 'slots': [{'slot_id': 'old-b', 'question_type': 'output_prediction'}]},
+    ]}
+    rebuilt = {'schema_version': ASSESSMENT_BLUEPRINT_SCHEMA, 'nodes': [
+        {'node_id': 'a', 'slots': [{'slot_id': 'new-a', 'question_type': 'selected_response'}]},
+        {'node_id': 'b', 'slots': [{'slot_id': 'new-b', 'question_type': 'selected_response'}]},
+    ]}
+    merged = _merge_scoped_assessment_blueprint(previous, rebuilt, {'a'})
+    assert merged['nodes'][0] == rebuilt['nodes'][0]
+    assert merged['nodes'][1] == previous['nodes'][1]
+
+
 def test_scoped_rebuild_preserves_unselected_nodes_and_private_solutions():
     previous = _bundle([
         _item("old-a", "node-a"),

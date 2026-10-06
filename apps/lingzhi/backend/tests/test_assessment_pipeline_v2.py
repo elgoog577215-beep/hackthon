@@ -81,7 +81,7 @@ def test_eight_subject_families_compile_diverse_generation_blueprints(
 
     slots = blueprint["nodes"][0]["slots"]
     assert blueprint["schema_version"] == (
-        "course_assessment_blueprint_v2"
+        "course_assessment_blueprint_v3"
     )
     assert len(slots) == 3
     assert len({slot["input_mode"] for slot in slots}) >= 2
@@ -177,7 +177,7 @@ def test_programming_blueprint_is_not_all_implementation_tasks():
     slots = blueprint["nodes"][0]["slots"]
 
     assert [slot["question_type"] for slot in slots] == [
-        "output_prediction",
+        "selected_response",
         "debugging_trace",
         "implementation_task",
     ]
@@ -205,7 +205,7 @@ def test_conceptual_programming_node_uses_state_transfer_mastery():
     slots = blueprint["nodes"][0]["slots"]
 
     assert [slot["question_type"] for slot in slots] == [
-        "output_prediction",
+        "selected_response",
         "debugging_trace",
         "state_trace_transfer",
     ]

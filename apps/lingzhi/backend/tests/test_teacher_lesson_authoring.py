@@ -1373,7 +1373,7 @@ def test_teacher_script_stale_quality_contract_is_never_publishable():
             "publication_eligible": True,
         },
     }) is False
-    assert SCRIPT_QUALITY_VERSION == "teacher_script_quality_v12"
+    assert SCRIPT_QUALITY_VERSION == "teacher_script_quality_v13"
 
 
 def test_teacher_script_revision_reports_canned_transitions_as_advice():
@@ -3905,7 +3905,7 @@ def test_script_generation_edit_candidate_and_ppt_share_one_asset_chain(tmp_path
         async def generate_teacher_handout(**kwargs):
             FakeCourseService.script_calls.append(kwargs)
             text = "\n".join(
-                f"<!-- section:{section['node_id']} -->\n完整讲义正文，定义、成立条件、适用边界与完整例题。"
+                f'<!-- section:{section["node_id"]} -->\n<!-- block:{{"type":"解释","title":"完整讲解"}} -->\n完整讲义正文，定义、成立条件、适用边界与完整例题。'
                 for section in kwargs["outline_sections"]
             ) + "\n<!-- handout:end -->"
             return {"text": text}
@@ -3989,7 +3989,7 @@ def test_script_generation_edit_candidate_and_ppt_share_one_asset_chain(tmp_path
             requirements="不应继续读取的旧顶层要求",
             material_asset_ids=["material-2"],
             request_snapshot={
-                "generation_contract_version": "handout_lecture_v2",
+                "generation_contract_version": "handout_lecture_v3",
                 "source_lesson_plan_revision_id": plan_revision,
                 "requirements": "增加案例",
                 "material_asset_ids": ["material-1"],
@@ -5368,7 +5368,7 @@ def test_generate_all_scripts_retries_only_ready_lesson_with_failed_attempt(
         "course-1",
         failed["id"],
         status="failed",
-        request_snapshot={"generation_contract_version": "handout_lecture_v2"},
+        request_snapshot={"generation_contract_version": "handout_lecture_v3"},
         source_lesson_plan_revision_id=str(
             repository.lesson("course-1", "L1-1")["working_revision_id"]
         ),

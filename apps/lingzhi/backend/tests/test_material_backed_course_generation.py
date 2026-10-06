@@ -936,7 +936,7 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
 
     assert data["generation_pipeline_version"] == "course_generation_v17"
     assert data["generation_schema_version"] == "course_generation_v17"
-    assert data["prompt_contract_version"] == "course_prompt_v34"
+    assert data["prompt_contract_version"] == "course_prompt_v35"
     assert data["course_generation_brief"]["formal_course_profile"] == {
         "course_code": "MATH-101",
         "credits": 3,

@@ -67,6 +67,7 @@ from teacher_asset_readiness import (
 )
 from question_bank import approved_formal_tasks, question_bank_repository
 from teacher_script import (
+    HANDOUT_CONTRACT_VERSION,
     script_contract_for_revision,
     normalize_teacher_script_section,
     validate_teacher_script_section,
@@ -349,7 +350,7 @@ def _validated_teacher_asset_resume_job(
         reason = "job_type_mismatch"
     elif str(candidate.get(source_revision_field) or "") != source_revision_id:
         reason = "source_revision_changed"
-    elif job_type == "teacher_lesson_script_generation" and (candidate.get("request_snapshot") or {}).get("generation_contract_version") != "handout_lecture_v2":
+    elif job_type == "teacher_lesson_script_generation" and (candidate.get("request_snapshot") or {}).get("generation_contract_version") != HANDOUT_CONTRACT_VERSION:
         reason = "retired_generation_contract"
     elif job_type == "teacher_lesson_plan_generation" and (candidate.get("request_snapshot") or {}).get("generation_contract_version") != "lesson_plan_single_v2":
         reason = "retired_generation_contract"
@@ -5362,6 +5363,9 @@ async def stream_lesson_job(
                         "current_block_id": str(job.get("current_block_id") or ""),
                         "current_block_title": str(job.get("current_block_title") or ""),
                         "block_states": deepcopy(job.get("block_states") or {}),
+                        "block_metadata": deepcopy(job.get("block_metadata") or {}),
+                        "block_section_ids": deepcopy(job.get("block_section_ids") or {}),
+                        "block_titles": deepcopy(job.get("block_titles") or {}),
                         "result_sections": deepcopy(job.get("result_sections") or []),
                         "updated_at": updated_at,
                     },
@@ -5568,7 +5572,7 @@ async def generate_lesson_script(
                 "source_lesson_plan_revision_id": plan_revision_id,
                 "requirements": effective_requirements,
                 "material_asset_ids": selected_material_ids,
-                "generation_contract_version": "handout_lecture_v2",
+                "generation_contract_version": HANDOUT_CONTRACT_VERSION,
                 "expected_script_revision": expected_script_revision,
                 "source_digest": stable_hash(source_evidence, prefix="handout-sources"),
             },

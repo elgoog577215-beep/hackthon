@@ -5262,7 +5262,7 @@ class TeacherLessonAuthoringService:
         before_save: Callable[[], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         """One lecture request; section checkpoints remain in the original job."""
-        from teacher_script import handout_section_contract, parse_handout_stream, handout_structure_closed
+        from teacher_script import handout_section_contract, parse_handout_stream, parse_handout_blocks, handout_structure_closed
         contracts = {str(s.get("node_id") or ""): handout_section_contract(
             s, plan_sections.get(str(s.get("node_id") or "")) or {}) for s in outline_sections}
         if not contracts or "" in contracts or len(contracts) != len(outline_sections):
@@ -5285,7 +5285,7 @@ class TeacherLessonAuthoringService:
             message="正在一次生成本讲讲义", total_blocks=len(contracts), completed_blocks=len(completed),
             block_states=states(), result_sections=sections(), stream_complete=False, error=None,
             block_section_ids={str(c["modules"][0]["block_id"]): key for key, c in contracts.items()},
-            block_titles={str(c["modules"][0]["block_id"]): str(c["title"]) for c in contracts.values()},
+            block_titles={}, block_metadata={}, streamed_block_content={},
         )
         if str(started.get("status") or "") not in TEACHER_JOB_ACTIVE_STATUSES:
             return started
@@ -5294,24 +5294,57 @@ class TeacherLessonAuthoringService:
         streamed: dict[str, str] = {}
         telemetry: list[dict] = []
         last_emit = 0.0
+        last_checkpoint = 0.0
+        block_metadata: dict[str, dict[str, Any]] = {}
+        block_sections: dict[str, str] = {}
+        block_statuses: dict[str, str] = {}
+        identity = f"{job_id}:{started.get('attempt_number') or 1}"
+        parsed_cache: dict[str, tuple[str, dict[str, Any]]] = {}
         def check_active() -> None:
             job = self.repository.get_job(course_id, job_id)
             if job.get("cancel_requested") or job.get("pause_requested") or job.get("status") not in TEACHER_JOB_ACTIVE_STATUSES:
                 raise asyncio.CancelledError
-        def snapshot(parsed: dict[str, Any]) -> None:
+        def parse_blocks(key: str, content: str, complete: bool) -> dict[str, Any]:
+            cached = parsed_cache.get(key) if complete else None
+            if cached and cached[0] == content:
+                return cached[1]
+            value = parse_handout_blocks(content, key, identity=identity, complete=complete)
+            if complete:
+                parsed_cache[key] = (content, value)
+            return value
+        def snapshot(parsed: dict[str, Any], *, force: bool = False) -> None:
+            nonlocal last_checkpoint
+            changed = False
             for key, content in parsed["completed"].items():
+                if key in completed:
+                    continue
                 contract = contracts[key]
+                value = parse_blocks(key, content, True)
+                if value["error"]:
+                    parsed["error"] = value["error"]
+                    continue
                 section = normalize_teacher_script_section({
                     "section_node_id": key, "title": contract["title"],
-                    "blocks": [{**deepcopy(contract["modules"][0]), "content": content, "generation_source": "model"}],
+                    "blocks": value["blocks"],
                 }, contract)
                 section["quality_report"] = validate_teacher_script_section(section, contract)
                 section["pipeline_version"] = SCRIPT_PIPELINE_VERSION
                 if section["quality_report"]["passed"]:
                     completed[key] = section
+                    changed = True
+                else:
+                    parsed["error"] = "block_contract_invalid"
+            # Stream deltas stay in the existing live stream cache; persist prose
+            # periodically and at section/lifecycle boundaries, not every token.
+            if not force and not changed and time.monotonic() - last_checkpoint < 2.0:
+                return
+            last_checkpoint = time.monotonic()
             self.repository.update_job(
                 course_id, job_id, result_sections=sections(), raw_response=raw,
-                requested_section_ids=requested, completed_blocks=len(completed), block_states=states(),
+                requested_section_ids=requested, completed_blocks=len(completed),
+                block_states={**states(), **block_statuses},
+                block_metadata=block_metadata, block_section_ids=block_sections,
+                block_titles={key: value["title"] for key, value in block_metadata.items()},
                 unassigned_fragment=parsed.get("unassigned_fragment", ""),
                 progress=max(5, int(90 * len(completed) / len(contracts))),
                 checkpoint={"result_sections": sections(), "raw_response": raw,
@@ -5326,21 +5359,39 @@ class TeacherLessonAuthoringService:
             parsed = parse_handout_stream(raw, requested, provider_complete=provider_complete)
             visible = {**parsed["completed"], **parsed["fragments"]}
             for key, content in visible.items():
-                old = streamed.get(key)
-                if old == content:
-                    continue
-                block = contracts[key]["modules"][0]
-                kwargs = dict(phase="lesson_script_generation", progress=max(5, int(90 * len(completed) / len(contracts))),
-                              message="正在生成本讲讲义", batch_id=f"{job_id}:{key}",
-                              lesson_unit_id=lesson_unit_id, block_id=block["block_id"],
-                              shard_id=f"{job_id}:{key}", stream_mode="token_stream")
-                if old is None or not content.startswith(old):
-                    self.repository.update_job_stream(course_id, job_id, event="reset", **kwargs)
-                    old = ""
-                if content[len(old):]:
-                    self.repository.update_job_stream(course_id, job_id, event="delta", delta=content[len(old):], **kwargs)
-                streamed[key] = content
-            snapshot(parsed)
+                value = parse_blocks(key, content, key in parsed["completed"])
+                if value["error"] and not value["blocks"]:
+                    # A protocol failure is a visible draft, never a fabricated
+                    # typed block. The exact raw response remains server-side.
+                    parsed["unassigned_fragment"] = "\n".join(
+                        line for line in content.splitlines()
+                        if not line.lstrip().startswith("<!--")
+                    ).strip()
+                for block in value["blocks"]:
+                    bid, prose = block["block_id"], block["content"]
+                    metadata = {name: deepcopy(block[name]) for name in ("module_id", "role", "title", "content_type", "type_label", "answer_to")}
+                    metadata_changed = block_metadata.get(bid) != metadata
+                    block_metadata[bid] = metadata
+                    block_sections[bid] = key
+                    if metadata_changed:
+                        self.repository.update_job(course_id, job_id, block_metadata=block_metadata,
+                                                   block_section_ids=block_sections,
+                                                   block_titles={bid: item["title"] for bid, item in block_metadata.items()})
+                    block_statuses[bid] = "completed" if key in parsed["completed"] and not value["error"] else "running"
+                    old = streamed.get(bid)
+                    if old == prose:
+                        continue
+                    kwargs = dict(phase="lesson_script_generation", progress=max(5, int(90 * len(completed) / len(contracts))),
+                                  message="正在生成本讲讲义", batch_id=f"{job_id}:{key}",
+                                  lesson_unit_id=lesson_unit_id, block_id=bid,
+                                  shard_id=f"{job_id}:{bid}", stream_mode="token_stream")
+                    if old is None or not prose.startswith(old):
+                        self.repository.update_job_stream(course_id, job_id, event="reset", **kwargs)
+                        old = ""
+                    if prose[len(old):]:
+                        self.repository.update_job_stream(course_id, job_id, event="delta", delta=prose[len(old):], **kwargs)
+                    streamed[bid] = prose
+            snapshot(parsed, force=force)
             return parsed
         async def on_delta(delta: str) -> None:
             nonlocal raw
@@ -5395,7 +5446,7 @@ class TeacherLessonAuthoringService:
             return self.repository.update_job(
                 course_id, job_id, status="completed", phase="lesson_script_ready", progress=100,
                 message="本讲讲义已生成", result_sections=final_sections, completed_blocks=len(contracts),
-                block_states=states(), result_revision_id=lesson.get("working_script_revision_id"),
+                block_states={**states(), **{bid: "completed" for bid in block_metadata}}, result_revision_id=lesson.get("working_script_revision_id"),
                 stream_complete=True, error=None,
             )
         except asyncio.CancelledError:
@@ -5404,7 +5455,10 @@ class TeacherLessonAuthoringService:
             telemetry = getattr(exc, "generation_telemetry", telemetry)
             # Never downgrade a completed last section after a save failure.
             if raw:
-                snapshot(parse_handout_stream(raw, requested))
+                parsed = parse_handout_stream(raw, requested)
+                previous = self.repository.get_job(course_id, job_id)
+                parsed["unassigned_fragment"] = parsed.get("unassigned_fragment") or previous.get("unassigned_fragment", "")
+                snapshot(parsed, force=True)
             current = self.repository.get_job(course_id, job_id)
             if current.get("status") not in TEACHER_JOB_ACTIVE_STATUSES:
                 return current
@@ -5412,6 +5466,6 @@ class TeacherLessonAuthoringService:
             return self.repository.update_job(
                 course_id, job_id, status="failed", phase="lesson_script_failed",
                 message=f"讲义未完成，已保留 {len(completed)}/{len(contracts)} 个小节及收到的片段",
-                completed_blocks=len(completed), block_states=states(), result_sections=sections(),
+                completed_blocks=len(completed), block_states={**states(), **block_statuses}, result_sections=sections(),
                 generation_telemetry=telemetry, stream_complete=True, error=generation_failure(exc, code),
             )

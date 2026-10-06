@@ -15,8 +15,10 @@ from teacher_lesson_authoring import TeacherLessonAuthoringRepository, TeacherLe
 from teacher_script import parse_handout_stream, handout_section_contract
 
 
+BLOCK = '<!-- block:{"type":"定义","title":"定义与条件","key":"b1"} -->\n'
+
 def response(ids):
-    return "\n".join(f"<!-- section:{key} -->\n定义、条件与完整解法。" for key in ids) + "\n<!-- handout:end -->"
+    return "\n".join(f"<!-- section:{key} -->\n{BLOCK}定义、条件与完整解法。" for key in ids) + "\n<!-- handout:end -->"
 
 
 @pytest.mark.parametrize(
@@ -28,9 +30,9 @@ def response(ids):
         (response(["a", "a"]), [], "section_order_or_identity"),
         (response(["a", "x"]), [], "section_order_or_identity"),
         ("<!-- section:a -->\n正文\n<!-- handout:end -->", [], "unexpected_end"),
-        ("<!-- section:a -->\n正文\n<!-- section:b -->\n未完成", ["a"], "missing_end"),
+        ("<!-- section:a -->\n正文\n<!-- section:b -->\n完整正文", ["a", "b"], ""),
         (response(["a", "b"]) + "\n```\ntrailing\n```", ["a"], "trailing_content"),
-        ("<!-- section:a -->\n正文\n<!-- section:b -->\n\\[x", ["a"], "missing_end"),
+        ("<!-- section:a -->\n正文\n<!-- section:b -->\n\\[x", ["a"], "section_incomplete"),
     ],
 )
 def test_marker_contract(text, expected, error):
@@ -107,20 +109,20 @@ async def test_one_request_covers_all_sections_and_preserves_saved_revision(tmp_
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["disconnect", "length", "missing_end", "bad_id"])
+@pytest.mark.parametrize("failure", ["disconnect", "length", "open_code", "bad_id"])
 async def test_failure_keeps_sections_without_publishing_then_one_explicit_resume(tmp_path, failure):
     repo, service, kwargs = fixture(tmp_path)
     calls = []
 
     async def broken(**request):
         calls.append(request)
-        text = "<!-- section:L2-1-1 -->\n完整正文\n<!-- section:L2-1-2 -->\n未完成片段"
+        text = "<!-- section:L2-1-1 -->\n" + BLOCK + "完整正文\n<!-- section:L2-1-2 -->\n" + BLOCK + "未完成片段"
         await request["on_content_delta"](text)
         if failure == "disconnect":
             raise AIProviderRequestError("offline")
         if failure == "length":
             raise AIResponseTruncated("length")
-        return {"text": text + ("\n<!-- section:unknown -->" if failure == "bad_id" else "")}
+        return {"text": text + ("\n<!-- section:unknown -->" if failure == "bad_id" else "\n```python\nx =")}
 
     failed = await service.run_script_job(**kwargs, job_id=new_job(repo), generator=broken)
     assert failed["status"] == "failed"
@@ -252,7 +254,8 @@ async def test_continuation_keeps_complete_prose_once_and_only_requests_missing_
     assert source in prompt and '未完成的真实片段' in prompt
     assert '独有教学目标' in prompt and '旧版已生成正文' not in prompt
     assert '<!-- section:a -->' not in prompt
-    assert prompt.endswith('<!-- section:b -->\n[在这里展开本小节完整正文]\n<!-- handout:end -->')
+    assert '<!-- section:b -->\n[在这里依教学需要自由编排内容块，每块标记后紧接完整正文]' in prompt
+    assert '完成全部请求小节' in prompt
 
 
 @pytest.mark.asyncio
@@ -261,7 +264,7 @@ async def test_budget_split_only_on_capacity_and_same_capability(monkeypatch):
     calls = []
     scopes = []
     service._generation_budget = replace(
-        service._generation_budget, teacher_handout_max_input_chars=2500, teacher_handout_max_input_tokens=10000
+        service._generation_budget, teacher_handout_max_input_chars=4000, teacher_handout_max_input_tokens=10000
     )
 
     async def model(*args, **kwargs):

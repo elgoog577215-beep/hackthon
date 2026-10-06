@@ -1,13 +1,14 @@
 """师生共用的课程讲义结构真源与确定性质量门。
 
-讲义不重新选择学科类型、课型或教学模板。它把当前可用教案中的教学模块编译为
-学生可独立阅读、教师可据以授课的电子教材，覆盖知识解释、推导、例题、练习与
-参考反馈。沿用 script 的数据身份和存储接口，不要求课堂话术或模拟师生回应。
+讲义依据当前教案、学科与学习目标自由编排有类型的内容块；常用类型提供写作参考，
+自定义类型使用相同的存储与显示结构。整讲一次生成，覆盖知识解释、推导、例题、
+练习与参考反馈，不要求内容块与教案环节一一对应。沿用 script 的数据身份和存储接口，不要求课堂话术或模拟师生回应。
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from copy import deepcopy
 from typing import Any
@@ -19,13 +20,134 @@ from teacher_visible_language import has_unnatural_system_language
 SCRIPT_SCHEMA_VERSION = "teacher_script_v2"
 # Historical revisions retain their format identity; generation tasks use a separate contract.
 SCRIPT_PIPELINE_VERSION = "direct_teaching_script_v8"
-SCRIPT_QUALITY_VERSION = "teacher_script_quality_v12"
+SCRIPT_QUALITY_VERSION = "teacher_script_quality_v13"
 
-HANDOUT_CONTRACT_VERSION = "handout_lecture_v2"
+HANDOUT_CONTRACT_VERSION = "handout_lecture_v3"
+
+# Writing guidance, not a closed vocabulary or a mandatory lesson sequence.
+HANDOUT_CONTENT_TYPES = {
+    "introduction": ("引入", "orientation"),
+    "definition": ("定义", "concept"),
+    "explanation": ("解释", "concept"),
+    "comparison": ("对比", "reasoning"),
+    "derivation": ("推导", "reasoning"),
+    "example": ("例题", "example"),
+    "exercise": ("练习", "activity"),
+    "answer": ("解答", "feedback"),
+    "misconception": ("辨析", "misconception"),
+    "summary": ("总结", "summary"),
+}
+
+
+def parse_handout_blocks(content: str, section_id: str, *, identity: str = "",
+                         complete: bool = False) -> dict[str, Any]:
+    """Parse open-vocabulary blocks locally, including a safe partial preview.
+
+    A marker starts a block; the next marker or enclosing section ends it.
+    IDs are scoped to a generation attempt, never reused by ordinal position
+    across regenerated revisions. Literal markers in code are ordinary text.
+    """
+    blocks: list[dict[str, Any]] = []
+    body: list[str] = []
+    meta: dict[str, Any] | None = None
+    fence = ""
+    error = ""
+    keys: set[str] = set()
+
+    def finish(closed: bool) -> None:
+        nonlocal error
+        text = "".join(body).strip()
+        if meta is None:
+            if text:
+                error = "block_marker_missing"
+            return
+        if closed and not handout_structure_closed(text):
+            error = "block_incomplete"
+        first, _, rest = text.partition("\n")
+        if re.fullmatch(r"#{1,6}\s+" + re.escape(meta["title"]), first):
+            text = rest.strip()  # A repeated block title is a display duplicate.
+            if closed and not text:
+                error = "block_incomplete"
+        kind = meta["type"]
+        kind = next((key for key, (label, _) in HANDOUT_CONTENT_TYPES.items() if label == kind), kind)
+        label, role = HANDOUT_CONTENT_TYPES.get(kind, (kind, "concept"))
+        key = meta.get("key") or str(len(blocks) + 1)
+        if key in keys:
+            error = "block_key_duplicate"
+        keys.add(key)
+        blocks.append({
+            "block_id": _stable_block_id(section_id, f"{identity}:{key}", 0),
+            "module_id": "handout_content", "role": role,
+            "content_type": kind, "type_label": label,
+            "title": meta["title"], "content": text,
+            "knowledge_names": list(meta.get("knowledge") or []),
+            "answer_to": meta.get("answer_to") or "",
+            "local_key": key, "generation_source": "model",
+        })
+
+    for line in content.splitlines(keepends=True):
+        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r\n"))
+        if match:
+            token, tail = match.groups()
+            if not fence:
+                fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence) and not tail.strip():
+                fence = ""
+            body.append(line)
+            continue
+        stripped = line.strip()
+        if not fence and stripped.startswith("<!-- block:"):
+            # An unfinished metadata line is not rendered as prose.
+            if not stripped.endswith("-->"):
+                if complete:
+                    error = "block_marker_incomplete"
+                break
+            finish(True)
+            if error:
+                break
+            try:
+                value = json.loads(stripped[len("<!-- block:"):-3])
+                if not isinstance(value, dict):
+                    raise ValueError
+                for key, limit in (("type", 40), ("title", 160)):
+                    if not isinstance(value.get(key), str) or not value[key].strip() or len(value[key]) > limit or re.search(r"[\r\n<>]", value[key]):
+                        raise ValueError
+                    value[key] = value[key].strip()
+                for key in ("key", "answer_to"):
+                    if key in value and (not isinstance(value[key], str) or not re.fullmatch(r"[\w.-]{1,64}", value[key])):
+                        raise ValueError
+                knowledge = value.get("knowledge", [])
+                if isinstance(knowledge, str):
+                    knowledge = [knowledge] if knowledge.strip() else []
+                    value["knowledge"] = knowledge
+                if not isinstance(knowledge, list) or any(not isinstance(name, str) for name in knowledge):
+                    raise ValueError
+                meta, body = value, []
+            except (ValueError, TypeError):
+                error = "block_metadata_invalid"
+                break
+        else:
+            # Suppress a split marker prefix while tokens are still arriving.
+            if not complete and not fence and "<!-- block:".startswith(stripped) and stripped:
+                continue
+            body.append(line)
+    if not error:
+        finish(complete)
+    by_key = {block["local_key"]: block for block in blocks}
+    for block in blocks:
+        target = block["answer_to"]
+        if target:
+            referenced = by_key.get(target)
+            if complete and (not referenced or referenced is block):
+                error = "block_answer_reference_invalid"
+            block["answer_to"] = referenced["block_id"] if referenced else ""
+        block.pop("local_key")
+    return {"blocks": blocks, "error": error,
+            "content": teacher_script_blocks_to_markdown(blocks)}
 
 
 def handout_section_contract(outline: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
-    """One stable prose block per source section, independent of plan modules."""
+    """Keep source scope, but let the model compose its own content blocks."""
     contract = compile_teacher_script_module_contract(outline, plan)
     modules = contract.get("modules") or []
     section_id = str(outline.get("node_id") or "")
@@ -37,14 +159,22 @@ def handout_section_contract(outline: dict[str, Any], plan: dict[str, Any]) -> d
         "knowledge_names": list(dict.fromkeys(name for m in modules for name in m.get("knowledge_names") or [])),
         "source_plan_context": {"teaching_modules": deepcopy(plan.get("teaching_modules") or [])},
     }]
+    contract["flexible_blocks"] = True
     return contract
 
 
 def script_contract_for_revision(outline: dict[str, Any], plan: dict[str, Any], existing: dict[str, Any]) -> dict[str, Any]:
     """Keep historical block identities; new prose revisions use the lecture contract."""
     blocks = existing.get("blocks") or []
+    if blocks and any(b.get("module_id") == "handout_content" for b in blocks):
+        contract = handout_section_contract(outline, plan)
+        contract["modules"] = deepcopy(blocks)
+        contract["flexible_blocks"] = False  # Editing preserves the chosen block identities.
+        return contract
     if not blocks or all(b.get("module_id") == "handout_prose" for b in blocks):
-        return handout_section_contract(outline, plan)
+        contract = handout_section_contract(outline, plan)
+        contract["flexible_blocks"] = False
+        return contract
     return compile_teacher_script_module_contract(outline, plan)
 
 
@@ -77,7 +207,8 @@ def parse_handout_stream(text: str, section_ids: list[str], *, provider_complete
     """Parse checkpoints without trusting a model's end marker as provider EOF.
 
     A previous section is complete only at the next valid section boundary.
-    The final one additionally needs the end marker AND provider completion.
+    The final one needs normal provider completion and all requested sections.
+    An optional end marker never substitutes for either requirement.
     Markers inside fenced code remain literal content.
     """
     completed: dict[str, str] = {}
@@ -133,13 +264,13 @@ def parse_handout_stream(text: str, section_ids: list[str], *, provider_complete
             body.append(line)
     if current:
         fragments[current] = "".join(body).strip()
-    if ended and provider_complete and not error:
+    if provider_complete and not error and current and index == len(section_ids):
         if handout_structure_closed("".join(body)):
             completed[current] = "".join(body).strip()
         else:
             error = "section_incomplete"
-    if provider_complete and not ended and not error:
-        error = "missing_end"
+    if provider_complete and index != len(section_ids) and not error:
+        error = "missing_sections"
     unassigned = ""
     if not current and text.strip():
         draft_lines = []
@@ -695,7 +826,11 @@ def parse_teacher_script_markdown(
     blocks: list[dict[str, Any]] = []
     for index, (title, content) in enumerate(parsed):
         module = expected[index] if index < len(expected) else {}
+        if expected and all(item.get("module_id") == "handout_content" for item in expected) and len(expected) > 1:
+            matches = [item for item in expected if item.get("title") == title]
+            module = matches[0] if len(matches) == 1 else {}
         blocks.append({
+            **{key: deepcopy(module[key]) for key in ("content_type", "type_label", "answer_to") if key in module},
             "block_id": _text(module.get("block_id")) or _stable_block_id(
                 _text(contract.get("section_node_id")),
                 _text(module.get("module_id")) or "extra",
@@ -729,7 +864,8 @@ def normalize_teacher_script_section(
         item for item in value.get("blocks") or [] if isinstance(item, dict)
     ]
     if raw_blocks:
-        expected = [item for item in compiled.get("modules") or [] if isinstance(item, dict)]
+        expected = ([] if compiled.get("flexible_blocks") else
+                    [item for item in compiled.get("modules") or [] if isinstance(item, dict)])
         blocks: list[dict[str, Any]] = []
         for index, raw in enumerate(raw_blocks, start=1):
             module = expected[index - 1] if index <= len(expected) else {}
@@ -738,6 +874,7 @@ def normalize_teacher_script_section(
             if role not in _ALLOWED_ROLES:
                 role = "concept"
             blocks.append({
+                **{key: deepcopy(raw.get(key, module.get(key))) for key in ("content_type", "type_label", "answer_to") if key in raw or key in module},
                 "block_id": _text(raw.get("block_id") or module.get("block_id"))
                 or _stable_block_id(
                     _text(compiled.get("section_node_id")), module_id or "unstructured", index
@@ -805,7 +942,8 @@ def validate_teacher_script_section(
 ) -> dict[str, Any]:
     normalized = normalize_teacher_script_section(section, contract)
     blocks = normalized["blocks"]
-    expected = [item for item in contract.get("modules") or [] if isinstance(item, dict)]
+    expected = ([] if contract.get("flexible_blocks") else
+                [item for item in contract.get("modules") or [] if isinstance(item, dict)])
     blocking: list[dict[str, str]] = []
     review: list[dict[str, str]] = []
 
@@ -821,6 +959,18 @@ def validate_teacher_script_section(
     block_ids = [_text(block.get("block_id")) for block in blocks]
     if any(not block_id for block_id in block_ids) or len(block_ids) != len(set(block_ids)):
         add(blocking, "teacher_script:block_identity", "讲义教学环节标识缺失或重复。")
+    by_id = {block.get("block_id"): block for block in blocks}
+    allowed_knowledge = {name for module in contract.get("modules") or [] for name in module.get("knowledge_names") or []}
+    for block in blocks:
+        if block.get("module_id") != "handout_content":
+            continue
+        if not _text(block.get("content_type")) or not _text(block.get("title")):
+            add(blocking, "teacher_script:block_type", "讲义内容块缺少类型或标题。")
+        target = block.get("answer_to")
+        if target and (target not in by_id or target == block.get("block_id")):
+            add(blocking, "teacher_script:answer_reference", "解答引用的内容不存在或引用了自身。")
+        if contract.get("flexible_blocks") and set(block.get("knowledge_names") or []) - allowed_knowledge:
+            add(blocking, "teacher_script:knowledge_scope", "内容块引用了当前教案范围外的知识身份。")
     expected_ids = [_text(item.get("module_id")) for item in expected]
     actual_ids = [_text(item.get("module_id")) for item in blocks]
     if expected_ids and actual_ids != expected_ids:
@@ -838,7 +988,7 @@ def validate_teacher_script_section(
         )
     expected_titles = [_text(item.get("title")) for item in expected]
     actual_titles = [_text(item.get("title")) for item in blocks]
-    if expected_titles and actual_titles != expected_titles:
+    if expected_titles and actual_titles != expected_titles and not all(item.get("module_id") == "handout_content" for item in expected):
         add(
             blocking,
             "teacher_script:module_heading",
@@ -927,13 +1077,14 @@ _SCRIPT_STRUCTURE_CODES = {
     "teacher_script:block_empty", "teacher_script:block_identity",
     "teacher_script:module_contract", "teacher_script:block_contract",
     "teacher_script:module_heading", "teacher_script:role_contract", "teacher_script:knowledge_scope",
+    "teacher_script:block_type", "teacher_script:answer_reference",
 }
 
 
 def upgrade_script_quality_report(report: dict[str, Any]) -> dict[str, Any]:
     """Retire old content checks without rewriting stored prose."""
     if report.get("schema_version") not in {
-        f"teacher_script_quality_v{version}" for version in range(8, 13)
+        f"teacher_script_quality_v{version}" for version in range(8, 14)
     } or report.get("pipeline_version") != SCRIPT_PIPELINE_VERSION:
         return report
     result = deepcopy(report)

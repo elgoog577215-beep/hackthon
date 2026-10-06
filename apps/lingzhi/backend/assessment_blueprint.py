@@ -20,7 +20,7 @@ from course_versioning import stable_hash
 from assessment_semantics import semantics_for_question_type
 
 
-ASSESSMENT_BLUEPRINT_SCHEMA = "course_assessment_blueprint_v2"
+ASSESSMENT_BLUEPRINT_SCHEMA = "course_assessment_blueprint_v3"
 REFERENCE_PACKAGE_SCHEMA = "question_reference_package_v2"
 INPUT_CONTRACT_SCHEMA = "input_contract_v2"
 
@@ -61,7 +61,7 @@ _FAMILY_SLOT_RECIPES: dict[str, tuple[dict[str, str], ...]] = {
         _slot("symbolic_derivation", "structured_fields", "expert_rubric_validator", "symbolic_derivation"),
     ),
     "programming_engineering": (
-        _slot("code_execution", "choice", "state_trace_validator", "output_prediction"),
+        _slot("concept_classification", "choice", "exact_validator", "selected_response"),
         _slot("code_execution", "structured_fields", "expert_rubric_validator", "debugging_trace"),
         _slot("code_execution", "code", "code_validator", "implementation_task"),
     ),

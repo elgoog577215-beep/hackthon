@@ -98,6 +98,22 @@ def test_design_brief_scopes_each_practice_level_to_one_primary_target():
     ] == [1, 2, 3]
 
 
+@pytest.mark.parametrize('mode,kind,expected', [
+    ('choice', 'selected_response', '不要求另交书面推导'),
+    ('code', 'coding', '程序注释'),
+    ('choice', 'output_prediction', '完整代码及输入'),
+])
+def test_evidence_matches_what_the_response_mode_can_observe(mode, kind, expected):
+    brief = compile_question_design_brief(
+        objective={'objective_id': 'o', 'knowledge': ['队列'], 'skills': ['辨析']},
+        slot={'question_type': kind, 'input_mode': mode},
+        practice_level='mastery_check', variant_index=0,
+    )
+    assert expected in brief['required_observable_evidence'][0]
+    if kind == 'output_prediction':
+        assert '追踪给定程序' in brief['primary_skill']
+
+
 def test_design_brief_scope_is_the_public_and_review_objective():
     objective = {
         "objective_id": "obj-calculus",

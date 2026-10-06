@@ -381,7 +381,7 @@ def test_questions_compile_formal_practice_contracts():
     final = finals[0]
     assert [item["practice_level"] for item in questions] == ["concept_check", "objective_practice", "mastery_check"]
     assert [item["question_type"] for item in questions] == [
-        "output_prediction",
+        "selected_response",
         "debugging_trace",
         "state_trace_transfer",
     ]

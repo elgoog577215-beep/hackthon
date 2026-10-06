@@ -200,7 +200,7 @@
         <div v-if="editing && node.blocks?.length" class="script-block-editor">
           <section v-for="block in node.blocks" :key="block.block_id">
             <header>
-              <div v-if="block.module_id !== 'handout_prose'"><span>{{ blockRoleLabel(block.role) }}</span><h5><MathText :content="teacherFacingTeachingLabel(block.title, block.module_id)" /></h5></div>
+              <div v-if="block.module_id !== 'handout_prose'"><span>{{ contentTypeLabel(block) }}</span><h5><MathText :content="teacherFacingTeachingLabel(block.title, block.module_id)" /></h5></div>
               <small v-if="block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
             </header>
             <textarea v-model="blockDrafts[block.block_id]" rows="10" :aria-label="teacherFacingTeachingLabel(block.title, block.module_id)" @input="recordEditSnapshot" />
@@ -212,9 +212,9 @@
           <MarkdownRenderer :inline-editable="true" :key="`candidate-${pendingCandidate.candidate_id || pendingCandidate.section_node_id}`" :content="contentFor(node)" />
         </div>
         <div v-else-if="node.blocks?.length" class="script-modules">
-          <section v-for="block in node.blocks" :key="block.block_id" class="script-module" data-ai-field="content" :data-ai-item-id="block.block_id" :data-ai-label="block.title">
+          <section v-for="block in node.blocks" :key="block.block_id" class="script-module" :data-content-type="block.content_type" :data-answer-to="block.answer_to || undefined" data-ai-field="content" :data-ai-item-id="block.block_id" :data-ai-label="block.title">
             <header v-if="block.module_id !== 'handout_prose' && (block.title || (!showWorkingPreview && lesson.script.ready))">
-              <div><span v-if="!showWorkingPreview && lesson.script.ready">{{ blockRoleLabel(block.role) }}</span><h5 v-if="block.title"><MathText :content="teacherFacingTeachingLabel(block.title, block.module_id)" /></h5></div>
+              <div><span v-if="block.content_type || (!showWorkingPreview && lesson.script.ready)">{{ contentTypeLabel(block) }}</span><h5 v-if="block.title"><MathText :content="teacherFacingTeachingLabel(block.title, block.module_id)" /></h5></div>
               <small v-if="!showWorkingPreview && lesson.script.ready && block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
             </header>
             <div class="script-streamed-block" :data-streaming="blockIsStreaming(block.block_id) ? 'true' : undefined">
@@ -251,7 +251,7 @@ import TextSelectionAiAction, { type TeacherInlineAiRequest } from './TextSelect
 import { useDocumentEditHistory } from '../composables/useDocumentEditHistory'
 import { t } from '../shared/i18n'
 import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring'
-import type { TeacherLessonJob, TeacherLessonProjection, TeacherLessonScriptCandidate, TeacherLessonScriptState } from '../stores/teacherLessonAuthoring'
+import type { TeacherLessonJob, TeacherLessonProjection, TeacherLessonScriptCandidate, TeacherLessonScriptState, TeacherLessonScriptBlock } from '../stores/teacherLessonAuthoring'
 import { toAppError } from '../utils/app-error'
 import { hasRetainedStaleScript, hasScriptPreviewContent, readableScriptTitle, scriptGenerationPresentation } from '../utils/teacher-script-presentation'
 import { teacherFacingTeachingLabel } from '../utils/teaching-terminology'
@@ -384,7 +384,7 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.scriptDocument.generateStep': '生成讲义',
   'courseWorkbench.scriptDocument.generateStepDetail': '按教案内容直接生成',
   'courseWorkbench.scriptDocument.mappingTitle': '本讲讲义将按以下教案生成',
-  'courseWorkbench.scriptDocument.mappingReady': '教学环节已与教案对应，核对后可直接开始。',
+  'courseWorkbench.scriptDocument.mappingReady': '教案提供教学依据，讲义将按本讲目标灵活编排。',
   'courseWorkbench.scriptDocument.mappingBlockedTitle': '暂无可用教案',
   'courseWorkbench.scriptDocument.mappingBlockedDetail': '请先完成本讲教案，再生成讲义。',
   'courseWorkbench.scriptDocument.generationBlockedTitle': '暂时无法生成讲义',
@@ -465,8 +465,10 @@ const scriptSections = computed<ScriptSection[]>(() => {
       }
       sections.push(section)
     }
+    const metadata = props.generationJob?.block_metadata?.[blockId]
     const existing = section.blocks?.find(block => block.block_id === blockId)
     if (existing) {
+      if (metadata) Object.assign(existing, metadata)
       if (props.generationJob?.block_states?.[blockId] !== 'completed') existing.content = content
       return
     }
@@ -479,6 +481,7 @@ const scriptSections = computed<ScriptSection[]>(() => {
         title: props.generationJob?.block_titles?.[blockId] || readableScriptTitle(arrangementBlock?.name, [blockId], arrangementBlock?.module_id),
         content,
         planned_minutes: arrangementBlock?.planned_minutes,
+        ...metadata,
       },
     ]
   })
@@ -750,6 +753,18 @@ function selectAiScope(scopeId: string) {
   if (pendingCandidate.value || aiBusy.value || !scriptSections.value.some(node => node.section_node_id === scopeId)) return false
   selectedNodeId.value = scopeId
   return true
+}
+
+function contentTypeLabel(block: TeacherLessonScriptBlock): string {
+  if (!block.content_type) return blockRoleLabel(block.role)
+  const known: Record<string, string> = {
+    introduction: '引入', definition: '定义', explanation: '解释', comparison: '对比',
+    derivation: '推导', example: '例题', exercise: '练习', answer: '解答',
+    misconception: '辨析', summary: '总结',
+  }
+  return known[block.content_type]
+    ? t(`courseWorkbench.scriptDocument.contentTypes.${block.content_type}`, known[block.content_type])
+    : block.type_label || block.content_type
 }
 
 function blockRoleLabel(role: string) {
