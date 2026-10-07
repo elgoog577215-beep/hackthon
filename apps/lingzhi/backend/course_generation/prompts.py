@@ -29,13 +29,39 @@ from teaching_design import (
     format_generation_teaching_guidance,
 )
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v35"
+PROMPT_CONTRACT_VERSION = "course_prompt_v36"
+
+
+def handout_course_context(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Project teaching choices once, without old prose or unrelated assets."""
+    brief = metadata.get('course_generation_brief') or {}
+    request = metadata.get('generation_request') or {}
+    fields = (
+        'target_audience', 'requirements', 'course_purpose', 'learning_purpose', 'course_intent',
+        'learner_starting_profile', 'learner_profile_summary', 'difficulty_profile',
+        'current_readiness', 'adaptation_preference', 'adaptation_decision',
+        'learning_purpose_contract', 'subject_pedagogy_profile', 'subject_type_contract',
+        'course_teaching_type', 'course_teaching_type_contract', 'classroom_constraint_contract',
+    )
+    sources = [value for value in (metadata, brief, request) if isinstance(value, dict)]
+    result = {}
+    for key in fields:
+        for source in sources:
+            if key not in source or source[key] is None:
+                continue
+            value = source[key]
+            if value != '' and value != {} and value != []:
+                result[key] = value
+            # An explicitly cleared current field must not revive an older brief.
+            break
+    return result
 
 
 def build_handout_prompt(
     *, course_title: str, lesson: dict[str, Any], requirements: str,
     sections: list[dict[str, Any]], plan_sections: dict[str, dict[str, Any]],
     completed_sections: list[dict[str, Any]] | None, partial_text: str, contract: str,
+    course_context: dict[str, Any] | None = None,
 ) -> str:
     """Project saved checkpoints once; retain all source and teaching content."""
     if partial_text:
@@ -74,6 +100,7 @@ def build_handout_prompt(
     data = {
         "contract": contract, "prompt_version": PROMPT_CONTRACT_VERSION,
         "course_title": course_title, "lesson": lesson, "requirements": requirements,
+        "course_context": course_context or {},
         "sections": [{"section_id": s["node_id"], "outline": {
                           key: value for key, value in s.items()
                           if key not in {"node_content", "content_blocks"}
@@ -97,6 +124,8 @@ def build_handout_prompt(
         "练习块只含题面和作答要求；参考解答必须另起解答块并引用练习的 key，不在练习块内用小标题混写答案。例题的完整解法留在例题块。"
         "knowledge 可选，格式为字符串数组，仅引用输入教案已有知识名称，无法精确绑定就省略，不能编造。"
         "教案模块提供目标和教学深度，不规定正文块一一对应或固定顺序；课堂组织、分组和教师话术不直接搬进教材。"
+        "课程上下文决定讲解深度与支架：目标难度和学习起点分开，基础不足时补必要解释与例子，不擅自降低目标；"
+        "学习目的、学科方法与教师要求决定案例、推导、练习和块编排。没有学习者信息就遵循已知授课对象，不编造个人弱点或学习表现。"
         "定义说清条件；对比明确共同维度与选择依据；推导交代中间依据；例题包含完整过程和核验；练习给出明确任务；解答说明理由。"
         "自定义块也必须服务学习目标；典故有可靠依据才作史实引用，否则明确为假设情境，不能编造出处。"
         "事实、题设、假设与推论分清：材料未说明不等于事实不存在，相关不等于因果，例子不能偷换输入或补造前提。"

@@ -157,6 +157,38 @@ async def test_duplicate_route_reuses_frozen_job_and_interruption_retains_text(t
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('change_context', [False, True])
+async def test_handout_freezes_personalization_and_checks_it_before_save(tmp_path, monkeypatch, change_context):
+    from backend.tests.test_teacher_handout_lecture import response
+    repo = TeacherLessonAuthoringRepository(tmp_path)
+    source = {**single_section_course_data(), 'blueprint_revision_id': 'outline-v1',
+              'learner_starting_profile': {'known': ['数组']}}
+    repo.save_plan_revision('course-1', 'L1-1', standard_lesson_plan(), source_outline_revision_id='outline-v1')
+    seen = []
+    class Service:
+        async def generate_teacher_handout(self, **kwargs):
+            seen.append(kwargs['course_context'])
+            if change_context:
+                source['learner_starting_profile']['known'] = ['递归']
+            return {'text': response(['L2-1-1'])}
+    tm = SimpleNamespace(storage=SimpleNamespace(load_course=lambda _: source), course_service=Service(),
+                         get_generation_workspace_course=lambda _: None, get_generation_preview=lambda _: None)
+    monkeypatch.setattr(routes, '_course_material_evidence', lambda *args: ([], []))
+    result = await routes.generate_lesson_script('course-1', 'L1-1', routes.GenerateLessonScriptRequest(),
+        SimpleNamespace(headers={'X-User-Id': 'teacher'}), tm, repo)
+    await asyncio.gather(*list(repo._runtime_jobs['course-1']))
+    job = repo.get_job('course-1', result['job']['id'])
+    assert seen[0]['learner_starting_profile']['known'] == ['数组']
+    assert job['request_snapshot']['course_context'] == seen[0]
+    if change_context:
+        assert job['status'] == 'failed'
+        assert job['error']['code'] == 'lesson_source_changed'
+        assert not repo.lesson('course-1', 'L1-1')['working_script_revision_id']
+    else:
+        assert job['status'] == 'completed', job.get('error')
+
+
+@pytest.mark.asyncio
 async def test_queued_handout_waits_through_rate_limit_without_a_paid_retry(monkeypatch):
     monkeypatch.setenv("AI_API_KEY", "isolated-test-key")
     monkeypatch.setenv("AI_PROVIDER_START_INTERVAL_SECONDS", "0")

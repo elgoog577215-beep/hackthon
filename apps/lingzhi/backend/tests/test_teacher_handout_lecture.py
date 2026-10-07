@@ -229,6 +229,68 @@ async def test_handout_request_has_complete_context_and_one_provider_attempt(mon
 
 
 @pytest.mark.asyncio
+async def test_handout_receives_saved_personalization_without_old_prose(monkeypatch):
+    import json
+    service = CourseService()
+    data = {
+        'course_name': '数据结构', 'target_audience': '转专业学生',
+        'course_intent': {'goal': '独立完成项目'},
+        'learner_starting_profile': {'known': ['数组'], 'needs_support': ['递归']},
+        'course_generation_brief': {'subject_type_contract': {'methods': ['复杂度分析']},
+                                    'old_prose': '不能传入的旧正文'},
+    }
+    service.register_course_generation_metadata('c', deepcopy(data))
+    seen = []
+    async def model(prompt, system, **kw):
+        seen.append(json.JSONDecoder().raw_decode(prompt.split('\n', 1)[1])[0])
+        return response(['a'])
+    monkeypatch.setattr(service, '_call_llm', model)
+    await service.generate_teacher_handout(course_id='c', outline_sections=[{'node_id': 'a'}],
+        plan_sections={}, lesson_context={})
+    context = seen[0]['course_context']
+    assert context['course_intent'] == data['course_intent']
+    assert context['learner_starting_profile'] == data['learner_starting_profile']
+    assert context['subject_type_contract']['methods'] == ['复杂度分析']
+    assert 'old_prose' not in str(seen)
+    frozen = {'target_audience': '冻结的授课对象'}
+    await service.generate_teacher_handout(course_id='c', outline_sections=[{'node_id': 'a'}],
+        plan_sections={}, lesson_context={}, course_context=frozen)
+    assert seen[1]['course_context'] == frozen
+
+
+def test_current_personalization_overrides_or_clears_historical_brief():
+    from course_generation.prompts import handout_course_context
+    context = handout_course_context({
+        'target_audience': '当前对象', 'learner_starting_profile': {},
+        'course_generation_brief': {'target_audience': '旧对象',
+                                    'learner_starting_profile': {'known': ['旧基础']}},
+    })
+    assert context['target_audience'] == '当前对象'
+    assert 'learner_starting_profile' not in context
+
+
+@pytest.mark.asyncio
+async def test_pause_persists_visible_raw_text_between_disk_checkpoints(tmp_path, monkeypatch):
+    import teacher_lesson_authoring as authoring
+    repo, service, kwargs = fixture(tmp_path)
+    jid = new_job(repo)
+    tick = [100.0]
+    monkeypatch.setattr(authoring.time, 'monotonic', lambda: tick[0])
+    prefix = '<!-- section:L2-1-1 -->\n' + BLOCK + '已显示正文'
+    async def generate(**request):
+        await request['on_content_delta'](prefix)
+        tick[0] += .5  # Next visible delta, before the two-second disk checkpoint.
+        await request['on_content_delta']('最后收到的内容')
+        repo.pause_job('course-1', jid)
+        raise asyncio.CancelledError
+    with pytest.raises(asyncio.CancelledError):
+        await service.run_script_job(**kwargs, job_id=jid, generator=generate)
+    reloaded = TeacherLessonAuthoringRepository(repo.root).get_job('course-1', jid)
+    assert reloaded['status'] == 'paused'
+    assert reloaded['raw_response'] == prefix + '最后收到的内容'
+
+
+@pytest.mark.asyncio
 async def test_continuation_keeps_complete_prose_once_and_only_requests_missing_sections(monkeypatch):
     service = CourseService()
     prose = '已完成的教材正文与完整推导。' * 200

@@ -13,7 +13,7 @@ AssessmentGenerationScope = Literal[
 ]
 
 ASSESSMENT_GENERATION_POLICY_VERSION = (
-    "assessment_generation_policy_v7"
+    "assessment_generation_policy_v8"
 )
 
 _COMPLEX_INPUT_MODES = {
@@ -76,13 +76,8 @@ class AssessmentGenerationPolicy:
     max_provider_attempts: int | None
     compact_candidate: bool
     prefer_local_solver: bool
-    # 每道题最多允许几次「模型独立求解」调用（跨全部重试轮次累计）。
-    #
-    # G3：独立求解承担真实的正确性验证（拿模型独立解出的答案去核对生成时锁定的
-    # canonical answer），所以不能一刀切删掉。但改动前它没有任何按题的预算——
-    # 单轮内有 2 次格式重试，外层最多 4 轮，于是一道病态的题最坏能烧掉 8 次求解。
-    # 这里给一个按题的上限：能本地确定性求解的题根本走不到模型（M1），必须模型
-    # 求解的题保留但限次，超限进 waiting_review 而不是继续重写。
+    # 每题累计模型求解调用数，包含格式重试和修正后再次求解。
+    # 本地确定性求解不占预算；预算耗尽不能跳过校验或继续重写。
     max_model_solve_calls_per_question: int
     stage_timeouts: dict[str, float | None]
 
@@ -131,25 +126,18 @@ def resolve_assessment_generation_policy(
     return AssessmentGenerationPolicy(
         profile="complete",
         version=ASSESSMENT_GENERATION_POLICY_VERSION,
-        max_generation_attempts=4,
+        max_generation_attempts=2,
         generation_batch_size=2,
         solution_batch_size=1,
-        max_provider_attempts=None,
+        # The orchestrator owns the one targeted correction. Transport retries
+        # must not multiply each generation, solution and review stage.
+        max_provider_attempts=1,
         # 候选生成器只负责锁定题面、答案和验证器；完整教学解析由看不到
         # 生成器答案的独立求解器补全。这样既缩短结构化 JSON，避免 reasoning
         # 吃光正文预算，也让解析天然成为一次独立正确性复核。
         compact_candidate=True,
-        max_model_solve_calls_per_question=3,
-        # 本地确定性解题器在完整链路中继续启用。
-        #
-        # 它不是"快但不准"的近似：`IndependentSolverRegistry.solve` 只在题目
-        # 自带 `solver_contract.kind` 且命中已注册的确定性解法时才返回结果，
-        # 解不出、算不动、结果不完整都返回 None 并原样落回模型求解
-        # （`assessment_orchestrator._solve_and_build`）。所以打开它只会把
-        # "本来就能被确定性算清的题"从模型手里接走，不会降低任何题的验证强度。
-        #
-        # 反过来说，关掉它并不换来更强的正确性——只是让模型把
-        # 同一道算术题再算一遍，这正是"6 道题 42 次请求"里最没有信息量的那部分。
+        max_model_solve_calls_per_question=2,
+        # 已注册的确定性解法优先；无法完整求解时才使用模型。
         prefer_local_solver=True,
         stage_timeouts={
             "generate": 150.0,

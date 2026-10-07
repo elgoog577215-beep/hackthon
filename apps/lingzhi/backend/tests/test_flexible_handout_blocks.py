@@ -146,3 +146,32 @@ def test_continuation_draft_does_not_duplicate_completed_prose_or_drop_code():
     assert payload['incomplete_draft'].startswith('<!-- section:b -->')
     assert '代码里的同形标记' in payload['incomplete_draft']
     assert prompt.count('已完成内容唯一出现') == 1
+
+
+def test_bad_metadata_after_valid_block_keeps_unassigned_prose_and_code():
+    text = marker('定义', '已解析', '有效正文', key='good') + '\n' + '\n'.join([
+        '<!-- block:{"type":"例题","title":"未转义"引号""} -->',
+        '已收到但无法归属的正文',
+        '```html', '<!-- block:literal -->', '```',
+        marker('总结', '后续总结', '仍应保留的结尾'),
+    ])
+    parsed = parse_handout_blocks(text, 's', complete=True)
+    assert parsed['error'] == 'block_metadata_invalid'
+    assert len(parsed['blocks']) == 1
+    assert '有效正文' not in parsed['unassigned_fragment']
+    assert '已收到但无法归属的正文' in parsed['unassigned_fragment']
+    assert '仍应保留的结尾' in parsed['unassigned_fragment']
+    assert '<!-- block:literal -->' in parsed['unassigned_fragment']
+    assert '未转义' not in parsed['unassigned_fragment']
+
+
+@pytest.mark.asyncio
+async def test_failed_second_block_remains_visible_in_original_job(tmp_path):
+    repo, service, kwargs = fixture(tmp_path)
+    async def generate(**request):
+        return {'text': '<!-- section:L2-1-1 -->\n' + marker('定义', '栈', '有效正文')
+                + '\n<!-- block:invalid -->\n错误标记之后的真实内容'}
+    result = await service.run_script_job(**kwargs, job_id=new_job(repo), generator=generate)
+    assert result['status'] == 'failed'
+    assert '错误标记之后的真实内容' in result['unassigned_fragment']
+    assert not repo.lesson('course-1', 'L1-1')['script_revisions']

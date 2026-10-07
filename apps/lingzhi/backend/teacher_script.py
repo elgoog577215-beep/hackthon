@@ -39,6 +39,23 @@ HANDOUT_CONTENT_TYPES = {
 }
 
 
+def handout_visible_draft(text: str) -> str:
+    """Hide protocol metadata while retaining prose and literal code samples."""
+    lines, fence = [], ""
+    for line in text.splitlines(keepends=True):
+        if not fence and re.match(r"^\s*<!--\s*(?:section|handout|block):", line):
+            continue
+        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r\n"))
+        if match:
+            token, tail = match.groups()
+            if not fence:
+                fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence) and not tail.strip():
+                fence = ""
+        lines.append(line)
+    return "".join(lines).strip()
+
+
 def parse_handout_blocks(content: str, section_id: str, *, identity: str = "",
                          complete: bool = False) -> dict[str, Any]:
     """Parse open-vocabulary blocks locally, including a safe partial preview.
@@ -52,6 +69,7 @@ def parse_handout_blocks(content: str, section_id: str, *, identity: str = "",
     meta: dict[str, Any] | None = None
     fence = ""
     error = ""
+    unassigned = ""
     keys: set[str] = set()
 
     def finish(closed: bool) -> None:
@@ -85,7 +103,8 @@ def parse_handout_blocks(content: str, section_id: str, *, identity: str = "",
             "local_key": key, "generation_source": "model",
         })
 
-    for line in content.splitlines(keepends=True):
+    source_lines = content.splitlines(keepends=True)
+    for line_index, line in enumerate(source_lines):
         match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r\n"))
         if match:
             token, tail = match.groups()
@@ -101,9 +120,11 @@ def parse_handout_blocks(content: str, section_id: str, *, identity: str = "",
             if not stripped.endswith("-->"):
                 if complete:
                     error = "block_marker_incomplete"
+                unassigned = handout_visible_draft("".join(source_lines[line_index + 1:]))
                 break
             finish(True)
             if error:
+                unassigned = handout_visible_draft("".join(source_lines[line_index:]))
                 break
             try:
                 value = json.loads(stripped[len("<!-- block:"):-3])
@@ -125,6 +146,7 @@ def parse_handout_blocks(content: str, section_id: str, *, identity: str = "",
                 meta, body = value, []
             except (ValueError, TypeError):
                 error = "block_metadata_invalid"
+                unassigned = handout_visible_draft("".join(source_lines[line_index + 1:]))
                 break
         else:
             # Suppress a split marker prefix while tokens are still arriving.
@@ -142,7 +164,9 @@ def parse_handout_blocks(content: str, section_id: str, *, identity: str = "",
                 error = "block_answer_reference_invalid"
             block["answer_to"] = referenced["block_id"] if referenced else ""
         block.pop("local_key")
-    return {"blocks": blocks, "error": error,
+    if error and not blocks:
+        unassigned = handout_visible_draft(content)
+    return {"blocks": blocks, "error": error, "unassigned_fragment": unassigned,
             "content": teacher_script_blocks_to_markdown(blocks)}
 
 
@@ -271,22 +295,7 @@ def parse_handout_stream(text: str, section_ids: list[str], *, provider_complete
             error = "section_incomplete"
     if provider_complete and index != len(section_ids) and not error:
         error = "missing_sections"
-    unassigned = ""
-    if not current and text.strip():
-        draft_lines = []
-        draft_fence = ""
-        for line in text.splitlines(keepends=True):
-            match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r\n"))
-            if match:
-                token, tail = match.groups()
-                if not draft_fence:
-                    draft_fence = token
-                elif token[0] == draft_fence[0] and len(token) >= len(draft_fence) and not tail.strip():
-                    draft_fence = ""
-            if not draft_fence and re.match(r"^\s*<!--\s*(?:section|handout)", line):
-                continue
-            draft_lines.append(line)
-        unassigned = "".join(draft_lines).strip()
+    unassigned = handout_visible_draft(text) if not current else ""
     return {"completed": completed, "fragments": fragments, "ended": ended, "error": error, "unassigned_fragment": unassigned}
 
 _ALLOWED_ROLES = {

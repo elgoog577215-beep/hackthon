@@ -545,7 +545,7 @@ async def test_orchestrator_uses_bounded_repair_and_isolates_solver():
     )
     audit = prepared["_assessment_generation_audit"]
     assert audit["repair_calls"] == 1
-    assert audit["max_repairs_per_question"] == 3
+    assert audit["max_repairs_per_question"] == 1
     assert audit["schema_version"] == "question_generation_audit_v2"
     assert audit["first_pass_pass_count"] == 2
     assert audit["first_pass_pass_rate"] == pytest.approx(2 / 3, abs=0.001)
@@ -567,44 +567,21 @@ async def test_orchestrator_generates_only_rejected_practice_slots():
     assert prepared["_assessment_generation_audit"]["planned_item_count"] == 1
 
 
-async def test_three_disagreements_discard_only_failed_slot():
+async def test_one_correction_disagreement_discards_only_failed_slot():
     model = DisagreeingModel()
-    prepared = await AssessmentGenerationOrchestrator(
-        model=model
-    ).prepare_course(_course())
-    contract = prepared["_assessment_generated_contracts"][
-        "thermo-1"
-    ]["objective_practice"]
-
-    # G3：按题的模型求解预算止住了「一道病态题反复求解」的循环。
-    #
-    # 改动前 generate 3 + repair 3 + solve 6 = 12 次模型调用，最后仍然 discard。
-    # 独立求解承担真实的正确性验证，所以不能删；但也不该无上限重试。现在求解
-    # 用满 3 次预算即停，转人工复核——结论相同（discard），求解从 6 降到 5，
-    # 且第 4 轮不再白跑一次求解。
+    prepared = await AssessmentGenerationOrchestrator(model=model).prepare_course(_course())
+    contracts = prepared['_assessment_generated_contracts']['thermo-1']
     assert model.generate_calls == 3
-    assert model.repair_calls == 3
-    assert model.solve_calls == 5
-    assert model.solve_calls <= 6, "求解次数不得回退到无预算时的水平"
-    assert contract["generation_status"] == "discarded"
-    audit_item = next(
-        item
-        for item in prepared["_assessment_generation_audit"][
-            "items"
-        ]
-        if item["practice_level"] == "objective_practice"
-    )
-    # 停在哪、为什么停，审计里要看得出来
-    assert audit_item["model_solve_budget"] == {
-        "used": 3,
-        "limit": 3,
-        "exhausted": True,
-    }
-    assert audit_item["attempts"][-1]["issue_codes"] == [
-        "MODEL_SOLVE_BUDGET_EXHAUSTED"
-    ]
-    assert len(audit_item["attempts"]) == 4
-    assert audit_item["final_decision"] == "discard"
+    assert model.repair_calls == 1
+    assert model.solve_calls == 4
+    assert contracts['objective_practice']['generation_status'] == 'discarded'
+    assert contracts['concept_check']['generation_status'] == 'ready'
+    assert contracts['mastery_check']['generation_status'] == 'ready'
+    item = next(i for i in prepared['_assessment_generation_audit']['items']
+                if i['practice_level'] == 'objective_practice')
+    assert len(item['attempts']) == 2
+    assert item['attempts'][-1]['issue_codes'] == ['VALIDATION_FAILED']
+    assert item['final_decision'] == 'discard'
 
 
 async def test_prepared_contracts_drive_diverse_question_bank_items():
@@ -919,6 +896,25 @@ async def test_solver_format_retry_keeps_generated_candidate():
     )
 
 
+async def test_solver_format_failures_exhaust_budget_without_regenerating_candidate():
+    model = RepairingModel()
+    calls = []
+    async def invalid_solution(*args, **kwargs):
+        calls.append(1)
+        raise AIProviderRequestError('invalid_independent_solution_json')
+    model.solve_candidate = invalid_solution
+    prepared = await AssessmentGenerationOrchestrator(model=model).prepare_course(
+        _course(), node_ids=['thermo-1'],
+        practice_levels_by_node={'thermo-1': ['concept_check']},
+    )
+    assert len(calls) == 2
+    assert model.generate_calls == 1
+    assert model.repair_calls == 0
+    item = prepared['_assessment_generation_audit']['items'][0]
+    assert item['model_solve_budget'] == {'used': 2, 'limit': 2, 'exhausted': True}
+    assert item['final_decision'] == 'discard'
+
+
 async def test_task_length_preflight_repairs_before_independent_solving():
     model = LongTaskThenRepairModel()
 
@@ -1103,8 +1099,8 @@ async def test_legacy_fast_profile_resolves_to_complete_policy():
     assert audit["assessment_prompt_template_version"] == (
         ASSESSMENT_PROMPT_TEMPLATE_VERSION
     )
-    assert audit["max_generation_attempts_per_question"] == 4
-    assert audit["max_repairs_per_question"] == 3
+    assert audit["max_generation_attempts_per_question"] == 2
+    assert audit["max_repairs_per_question"] == 1
 
 
 async def test_complete_profile_batches_failed_repairs():
@@ -1304,16 +1300,14 @@ async def test_fast_batch_repair_is_atomic_when_a_slot_is_missing():
 
     contracts = prepared["_assessment_generated_contracts"]["thermo-1"]
     audit = prepared["_assessment_generation_audit"]
-    assert {
-        contract["generation_status"]
-        for contract in contracts.values()
-    } == {"ready"}
-    assert audit["failure_count"] == 0
-    assert audit["batch_repair_fallback_count"] == 1
-    assert all(
-        item["final_decision"] == "publish"
-        for item in audit["items"]
-    )
+    assert contracts['mastery_check']['generation_status'] == 'ready'
+    assert contracts['concept_check']['generation_status'] == 'discarded'
+    assert contracts['objective_practice']['generation_status'] == 'discarded'
+    assert audit['failure_count'] == 2
+    assert audit['batch_repair_fallback_count'] == 1
+    failed = [item for item in audit['items'] if item['final_decision'] == 'discard']
+    assert all(len(item['attempts']) == 2 for item in failed)
+    assert all(item['attempts'][-1]['issue_codes'] == ['MODEL_OUTPUT_SCHEMA_INVALID'] for item in failed)
 
 
 def test_compact_batch_prompt_deduplicates_shared_course_context() -> None:

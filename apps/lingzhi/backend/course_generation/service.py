@@ -416,6 +416,13 @@ class CourseService(AIBase):
             "course_name",
             "difficulty",
             "target_audience",
+            "course_intent",
+            "learning_purpose",
+            "learner_starting_profile",
+            "learner_profile_summary",
+            "current_readiness",
+            "adaptation_preference",
+            "course_teaching_type",
             "generation_request",
             "generation_mode",
             "course_purpose",
@@ -7515,12 +7522,13 @@ class CourseService(AIBase):
         plan_sections: dict[str, dict[str, Any]], lesson_context: dict[str, Any],
         requirements: str = "", completed_sections: list[dict[str, Any]] | None = None,
         partial_text: str = "", on_content_delta=None, on_content_reset=None,
-        on_scope=None,
+        on_scope=None, course_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """The single prose generation capability, scoped to remaining sections."""
         from teacher_script import HANDOUT_CONTRACT_VERSION
-        from course_generation.prompts import build_handout_prompt
+        from course_generation.prompts import build_handout_prompt, handout_course_context
         metadata = self._course_generation_artifacts.get(course_id) or {}
+        course_context = deepcopy(course_context) if course_context is not None else handout_course_context(metadata)
         instructions = (
             "编写师生共用、可独立学习的完整教材式讲义，不是教案、口播稿或摘要。"
             "一次连贯展开本次全部小节，按提示协议自由编排带类型的内容块；常用类型可选，也允许自定义。"
@@ -7541,6 +7549,7 @@ class CourseService(AIBase):
                 lesson=lesson_context, requirements=requirements, sections=sections,
                 plan_sections=plan_sections, completed_sections=completed_sections,
                 partial_text=partial_text, contract=HANDOUT_CONTRACT_VERSION,
+                course_context=course_context,
             )
         def fits(prompt):
             tokens = self.estimate_request_tokens(prompt, instructions)

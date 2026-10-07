@@ -27,15 +27,15 @@ def test_generation_profile_defaults_and_legacy_values_use_complete() -> None:
         ).assessment_generation_profile == "complete"
 
 
-def test_complete_policy_preserves_the_full_quality_budget() -> None:
+def test_complete_policy_bounds_correction_without_transport_retry_multiplication() -> None:
     policy = resolve_assessment_generation_policy("complete")
 
     assert policy.version == ASSESSMENT_GENERATION_POLICY_VERSION
     assert policy.profile == "complete"
-    assert policy.max_generation_attempts == 4
+    assert policy.max_generation_attempts == 2
     assert policy.generation_batch_size == 2
     assert policy.solution_batch_size == 1
-    assert policy.max_provider_attempts is None
+    assert policy.max_provider_attempts == 1
     assert policy.compact_candidate is True
     assert policy.stage_timeouts == {
         "generate": 150.0,
@@ -359,7 +359,7 @@ def test_complete_profile_bounds_model_solving_per_question() -> None:
     """独立求解不能删（它承担真实正确性验证），但必须有按题上限。"""
     complete = resolve_assessment_generation_policy("complete")
 
-    assert complete.max_model_solve_calls_per_question == 3
+    assert complete.max_model_solve_calls_per_question == 2
     # 预算必须够健康题走完「首轮 + 一轮修复」，否则会误杀正常题
     assert complete.max_model_solve_calls_per_question >= 2
 

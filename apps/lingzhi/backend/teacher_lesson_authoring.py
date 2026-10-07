@@ -5356,17 +5356,19 @@ class TeacherLessonAuthoringService:
             if not force and time.monotonic() - last_emit < 0.3:
                 return
             last_emit = time.monotonic()
+            # Pause/cancel persists the live job. Keep its received draft current
+            # even between the less frequent durable section checkpoints.
+            self.repository.update_job_live(course_id, job_id, raw_response=raw)
             parsed = parse_handout_stream(raw, requested, provider_complete=provider_complete)
             visible = {**parsed["completed"], **parsed["fragments"]}
             for key, content in visible.items():
                 value = parse_blocks(key, content, key in parsed["completed"])
-                if value["error"] and not value["blocks"]:
+                if value["unassigned_fragment"]:
                     # A protocol failure is a visible draft, never a fabricated
                     # typed block. The exact raw response remains server-side.
-                    parsed["unassigned_fragment"] = "\n".join(
-                        line for line in content.splitlines()
-                        if not line.lstrip().startswith("<!--")
-                    ).strip()
+                    parsed["unassigned_fragment"] = "\n\n".join(filter(None, (
+                        parsed.get("unassigned_fragment", ""), value["unassigned_fragment"],
+                    )))
                 for block in value["blocks"]:
                     bid, prose = block["block_id"], block["content"]
                     metadata = {name: deepcopy(block[name]) for name in ("module_id", "role", "title", "content_type", "type_label", "answer_to")}

@@ -72,6 +72,7 @@ from teacher_script import (
     normalize_teacher_script_section,
     validate_teacher_script_section,
 )
+from course_generation.prompts import handout_course_context
 from teacher_script_visuals import (
     TeacherScriptVisualService,
     script_animation_runtime_enabled,
@@ -5526,6 +5527,8 @@ async def generate_lesson_script(
             course_id, actor, effective_material_asset_ids
         )
         prompt_evidence = deepcopy(source_evidence)
+        prompt_course_context = deepcopy(handout_course_context(source))
+        context_digest = stable_hash(prompt_course_context, prefix="handout-context")
         register = getattr(tm.course_service, "register_course_generation_metadata", None)
         if callable(register):
             register(course_id, source)
@@ -5535,6 +5538,7 @@ async def generate_lesson_script(
             "requirements": effective_requirements,
             "material_asset_ids": sorted(selected_material_ids),
             "source_digest": stable_hash(source_evidence, prefix="handout-sources"),
+            "course_context_digest": context_digest,
         }, prefix="teacher-script-input")
         seed_sections = deepcopy((previous or {}).get("result_sections")
                                  or ((previous or {}).get("checkpoint") or {}).get("result_sections") or [])
@@ -5573,6 +5577,8 @@ async def generate_lesson_script(
                 "requirements": effective_requirements,
                 "material_asset_ids": selected_material_ids,
                 "generation_contract_version": HANDOUT_CONTRACT_VERSION,
+                "course_context": prompt_course_context,
+                "course_context_digest": context_digest,
                 "expected_script_revision": expected_script_revision,
                 "source_digest": stable_hash(source_evidence, prefix="handout-sources"),
             },
@@ -5608,10 +5614,14 @@ async def generate_lesson_script(
                 lesson_context={"lesson_title": lesson_title, "lesson_sections": lesson_section_titles,
                                 "selected_material_evidence": prompt_evidence},
                 requirements=effective_requirements, **kwargs,
+                course_context=prompt_course_context,
             )
 
         async def before_save():
             _check_generation_source(tm, course_id, actor, _canonical_outline_revision(source))
+            current_context = handout_course_context(_source_course(tm, course_id, allow_empty=True))
+            if stable_hash(current_context, prefix="handout-context") != context_digest:
+                raise TeacherLessonAuthoringError("lesson_source_changed", "课程学习目标或学习起点已变化，讲义未覆盖原版本。")
             _, live_evidence = _course_material_evidence(course_id, actor, effective_material_asset_ids)
             if stable_hash(live_evidence, prefix="handout-sources") != stable_hash(source_evidence, prefix="handout-sources"):
                 raise TeacherLessonAuthoringError("lesson_source_changed", "资料已变化，讲义未覆盖原版本。")
