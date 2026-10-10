@@ -235,6 +235,7 @@ describe('教案 AI 协作编辑模式', () => {
 
   it('题库 AI 固定使用整门课程范围和题库内部资料', async () => {
     const store = useTeacherLessonAuthoringStore()
+    store.courseId = store.loadedCourseId = 'course-1'
     store.lessons = [structuredClone(lesson)]
     const focusReferenceSources = vi.fn()
     const wrapper = mountQuestionBankWorkbench(focusReferenceSources)
@@ -266,6 +267,7 @@ describe('教案 AI 协作编辑模式', () => {
 
   it('真实题库面板可以打开同一工作台的 AI 助手', async () => {
     const store = useTeacherLessonAuthoringStore()
+    store.courseId = store.loadedCourseId = 'course-1'
     store.lessons = [structuredClone(lesson)]
     const wrapper = mountActualQuestionBankWorkbench()
     await flushPromises()
@@ -280,6 +282,7 @@ describe('教案 AI 协作编辑模式', () => {
 
   it('支持键盘调整 AI 面板宽度并保存教师偏好', async () => {
     const store = useTeacherLessonAuthoringStore()
+    store.courseId = store.loadedCourseId = 'course-1'
     store.lessons = [structuredClone(lesson)]
     const wrapper = mountQuestionBankWorkbench(vi.fn())
 

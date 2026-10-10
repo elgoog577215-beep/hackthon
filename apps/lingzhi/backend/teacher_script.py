@@ -19,7 +19,7 @@ from teacher_visible_language import has_unnatural_system_language
 
 SCRIPT_SCHEMA_VERSION = "teacher_script_v2"
 # Historical revisions retain their format identity; generation tasks use a separate contract.
-SCRIPT_PIPELINE_VERSION = "direct_teaching_script_v8"
+SCRIPT_PIPELINE_VERSION = "direct_teaching_script_v9"
 SCRIPT_QUALITY_VERSION = "teacher_script_quality_v13"
 
 HANDOUT_CONTRACT_VERSION = "handout_lecture_v3"
@@ -54,6 +54,35 @@ def handout_visible_draft(text: str) -> str:
                 fence = ""
         lines.append(line)
     return "".join(lines).strip()
+
+
+def _parse_block_metadata(payload: str) -> dict[str, Any]:
+    """Recover only unescaped quotes inside a title, without inventing fields.
+
+    Delimiters, identity fields and references must remain valid JSON. Ambiguous
+    duplicate keys are rejected rather than silently overwriting metadata.
+    """
+    def unique_fields(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate block metadata")
+            result[key] = value
+        return result
+
+    try:
+        return json.loads(payload, object_pairs_hook=unique_fields)
+    except json.JSONDecodeError:
+        title_pattern = r'("title"\s*:\s*")((?:[^"\\]|\\.|"(?!\s*(?:,\s*"[^"]+"\s*:|})))*)"(?=\s*(?:,\s*"[^"]+"\s*:|}))'
+        matches = list(re.finditer(title_pattern, payload))
+        if len(matches) != 1:
+            raise
+        match = matches[0]
+        title = re.sub(r'\\.|"', lambda m: '\\"' if m[0] == '"' else m[0], match[2])
+        if title == match[2]:
+            raise
+        repaired = payload[:match.start(2)] + title + payload[match.end(2):]
+        return json.loads(repaired, object_pairs_hook=unique_fields)
 
 
 def parse_handout_blocks(content: str, section_id: str, *, identity: str = "",
@@ -127,7 +156,7 @@ def parse_handout_blocks(content: str, section_id: str, *, identity: str = "",
                 unassigned = handout_visible_draft("".join(source_lines[line_index:]))
                 break
             try:
-                value = json.loads(stripped[len("<!-- block:"):-3])
+                value = _parse_block_metadata(stripped[len("<!-- block:"):-3])
                 if not isinstance(value, dict):
                     raise ValueError
                 for key, limit in (("type", 40), ("title", 160)):

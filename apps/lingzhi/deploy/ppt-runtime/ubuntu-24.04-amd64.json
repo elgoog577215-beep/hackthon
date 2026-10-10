@@ -3,7 +3,8 @@
   "os_id": "ubuntu",
   "os_version": "24.04",
   "architecture": "amd64",
-  "source": "https://archive.ubuntu.com/ubuntu/",
+  "source": "https://snapshot.ubuntu.com/ubuntu/20260918T000000Z/",
+  "snapshot": "20260918T000000Z",
   "packages": {
     "libreoffice-common": {
       "Version": "4:24.2.7-0ubuntu0.24.04.6",

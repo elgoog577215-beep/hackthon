@@ -7577,7 +7577,8 @@ class CourseService(AIBase):
                 require_stop=True, raise_on_failure=True, json_mode=False,
                 max_tokens=output_tokens, max_input_tokens=self._generation_budget.teacher_handout_max_input_tokens,
                 max_input_chars=self._generation_budget.teacher_handout_max_input_chars,
-                request_timeout_seconds=float(self._generation_budget.teacher_script_request_timeout_seconds),
+                request_timeout_seconds=float(self._generation_budget.teacher_handout_request_timeout_seconds),
+                inactivity_timeout_seconds=float(self._generation_budget.content_inactivity_timeout_seconds),
                 on_content_delta=on_content_delta, on_content_reset=on_content_reset,
                 telemetry_sink=telemetry.append,
             )

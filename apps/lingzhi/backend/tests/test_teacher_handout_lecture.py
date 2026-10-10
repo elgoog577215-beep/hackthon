@@ -229,6 +229,31 @@ async def test_handout_request_has_complete_context_and_one_provider_attempt(mon
 
 
 @pytest.mark.asyncio
+async def test_lecture_uses_its_own_deadline_and_reserves_full_output(monkeypatch):
+    service = CourseService()
+    service._generation_budget = replace(service._generation_budget,
+        teacher_script_request_timeout_seconds=30,
+        teacher_handout_request_timeout_seconds=600,
+        teacher_handout_max_output_tokens=32000,
+        content_inactivity_timeout_seconds=90,
+    )
+    calls = []
+    async def model(*args, **kwargs):
+        calls.append(kwargs)
+        return response(['a'])
+    monkeypatch.setattr(service, '_call_llm', model)
+    kwargs = dict(course_id='c', outline_sections=[{'node_id': 'a'}], plan_sections={}, lesson_context={})
+    await service.generate_teacher_handout(**kwargs)
+    assert calls[0]['request_timeout_seconds'] == 600
+    assert calls[0]['inactivity_timeout_seconds'] == 90
+    assert calls[0]['max_tokens'] == 32000
+    service._generation_budget = replace(service._generation_budget, context_window_tokens=32000)
+    with pytest.raises(CourseGenerationBudgetExceeded):
+        await service.generate_teacher_handout(**kwargs)
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_handout_receives_saved_personalization_without_old_prose(monkeypatch):
     import json
     service = CourseService()

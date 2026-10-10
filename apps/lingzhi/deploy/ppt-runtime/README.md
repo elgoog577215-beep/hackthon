@@ -15,7 +15,7 @@ sudo python3 scripts/provision_ppt_runtime.py --install
 python -m pip install -r backend/requirements.txt -r backend/requirements-ppt.txt
 ```
 
-安装器下载官方安装包、核对摘要再安装，并把项目字体安装到系统字体目录。平台、版本或摘要不符即失败，不自动接受替代版本；脚本不启动或重启服务。普通发布脚本不调用此安装器，生产安装应安排在独立的运行依赖变更中。
+安装器从锁文件指定的 Ubuntu 历史快照下载官方安装包，核对原 SHA-256 后安装；APT 依赖解析使用同一快照，避免滚动镜像移除旧包导致 404 或混用依赖版本。随后把项目字体安装到系统字体目录。平台、版本或摘要不符即失败，不自动接受替代版本；脚本不启动或重启服务。普通发布脚本不调用此安装器，生产安装应安排在独立的运行依赖变更中。
 
 安装后，用项目虚拟环境运行 `scripts/ppt_template_tool.py certify` 对实际填充样本做原生回读和全页渲染。只有在相同运行环境中完成认证，才能用 `--publish` 写入当前模板认证及不可变版本。个人原生模板使用 `certify-native`，带图片样本时显式传 `--asset-repository`；人工校对绑定后通过 `register-native --reviewed --publish` 进入原模板仓库。
 

@@ -49,7 +49,7 @@ describe('calendar and course file-space boundary', () => {
   it('loads question-bank detail only when the teacher opens that stage', () => {
     const workbench = source('components/TeacherCourseWorkbench.vue')
     expect(workbench).toContain("watch([() => props.courseId, activeStage], ([courseId, stage]) => {")
-    expect(workbench).toContain("if (courseId && stage === 'question-bank') void loadQuestionBankStatus()")
+    expect(workbench).toMatch(/if \(courseId && stage === 'question-bank'\)\s*\{\s*ensureLessonStageLoaded\(stage\)\s*void loadQuestionBankStatus\(\)/)
     expect(workbench).toContain('ensureLessonStageLoaded(stage)')
     expect(workbench).toContain('void lessonStore.load(props.courseId).catch(() => undefined)')
     expect(workbench).toContain("requestStageChange(stage, { loadLesson: false })")
