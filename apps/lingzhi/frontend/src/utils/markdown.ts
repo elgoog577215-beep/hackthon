@@ -416,6 +416,37 @@ const md = new MarkdownIt({
     }
 });
 
+// Chinese quotation marks can touch the surrounding prose without spaces.
+// Keep MarkdownIt's delimiter pairing (including nested inline math), but
+// allow **“quoted text”** at those CJK boundaries. Code and escapes are still
+// handled by their normal inline rules before emphasis is considered.
+md.inline.ruler.before('emphasis', 'cjk_quoted_strong', (state, silent) => {
+    const start = state.pos;
+    if (silent || !state.src.startsWith('**', start)) return false;
+    const scanned = state.scanDelims(start, true);
+    if (scanned.length !== 2) return false;
+    const before = state.src[start - 1] || '';
+    const after = state.src[start + 2] || '';
+    const canOpen = /\p{Script=Han}/u.test(before) && /[“‘（「『【《〈]/u.test(after);
+    const canClose = /[”’）」』】》〉]/u.test(before) && /\p{Script=Han}/u.test(after);
+    if (!canOpen && !canClose) return false;
+
+    for (let i = 0; i < 2; i++) {
+        const token = state.push('text', '', 0);
+        token.content = '*';
+        state.delimiters.push({
+            marker: 0x2A,
+            length: 2,
+            token: state.tokens.length - 1,
+            end: -1,
+            open: canOpen || scanned.can_open,
+            close: canClose || scanned.can_close,
+        });
+    }
+    state.pos += 2;
+    return true;
+});
+
 // Security: Open links in new tab
 md.use(linkAttributes, {
   attrs: {
@@ -1364,7 +1395,13 @@ export const renderMarkdown = (content: string) => {
 
     // Normalize LaTeX delimiters for compatibility
     // Replace \[ ... \] with $$ ... $$
-    normalized = normalized.replace(/\\\[([\s\S]*?)\\\]/g, (_match, content) => {
+    normalized = normalized.replace(/\\\[([\s\S]*?)\\\]/g, (match, content, offset, source) => {
+        const linePrefix = source.slice(source.lastIndexOf('\n', offset - 1) + 1, offset);
+        const lineSuffix = source.slice(offset + match.length).split('\n', 1)[0];
+        // A standalone display already has the correct Markdown indentation.
+        // Adding an unindented line here ends its list item and turns the
+        // following indented explanation into a literal code block.
+        if (/^[\t ]*$/.test(linePrefix) && /^[\t ]*$/.test(lineSuffix)) return `$$${content}$$`;
         return `\n$$\n${String(content).trim()}\n$$\n`;
     });
     // Replace \( ... \) with $ ... $ (Inline math)
@@ -1374,7 +1411,10 @@ export const renderMarkdown = (content: string) => {
     
     // Normalize single-line display math into a block form. Existing multiline
     // $$ blocks were already masked and restored, so avoid rewriting them again.
-    normalized = normalized.replace(/\$\$([^\n$][^\n]*?)\$\$/g, (_match, content) => {
+    normalized = normalized.replace(/\$\$([^\n$][^\n]*?)\$\$/g, (match, content, offset, source) => {
+        const linePrefix = source.slice(source.lastIndexOf('\n', offset - 1) + 1, offset);
+        const lineSuffix = source.slice(offset + match.length).split('\n', 1)[0];
+        if (/^[\t ]*$/.test(linePrefix) && /^[\t ]*$/.test(lineSuffix)) return match;
         return `\n$$\n${content.trim()}\n$$\n`;
     });
     

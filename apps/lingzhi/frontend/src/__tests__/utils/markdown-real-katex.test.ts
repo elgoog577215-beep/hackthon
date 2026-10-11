@@ -30,6 +30,75 @@ const katexText = (html: string) => {
 }
 
 describe('renderMarkdown – 真实 KaTeX 兼容', () => {
+  it.each([
+    String.raw`\[
+    S(0) \times x = 0 \times x + x
+    \]`,
+    String.raw`\[S(0) \times x = 0 \times x + x\]`,
+    String.raw`$$S(0) \times x = 0 \times x + x$$`,
+    String.raw`$$
+    S(0) \times x = 0 \times x + x
+    $$`,
+  ])('保留列表内显示公式之后的说明、行内公式和粗体：%s', (display) => {
+    const html = renderMarkdown([
+      '1. **加法定义**：从起始元素构造。',
+      '2. **验证乘法单位元**：',
+      '    令 $m = 0$，代入递归定义：',
+      `    ${display}`,
+      String.raw`    根据 $0 \times x = 0$：`,
+      String.raw`    \[S(0) \times x = x\]`,
+      String.raw`    即 $1 \times x = x$。`,
+      '    **结论**：这是公理所**推导**出的结果。',
+      '3. **边界**：区分加法与乘法。',
+    ].join('\n'))
+    const box = document.createElement('div')
+    box.innerHTML = html
+    const items = box.querySelectorAll('ol > li')
+
+    expect(items).toHaveLength(3)
+    expect(items[1]?.querySelectorAll('.katex')).toHaveLength(5)
+    expect(items[1]?.textContent).toContain('根据')
+    expect(items[1]?.querySelectorAll('strong')).toHaveLength(3)
+    expect(box.querySelector('pre')).toBeNull()
+    expect(renderedText(html)).not.toMatch(/\$|\*\*/)
+    expect(katexErrors(html)).toEqual([])
+  })
+
+  it('渲染紧邻中文正文的带引号粗体，保留代码和转义标记', () => {
+    const html = renderMarkdown([
+      String.raw`形成了**“定义 $\to$ 构造 $\to$ 边界”**的逻辑链条。`,
+      '明确**「单位元」**的边界。',
+      '',
+      '代码 `**“原样”**` 与转义 \\*\\*“原样”\\*\\* 保留字面量。',
+      '',
+      '```text',
+      '**“代码块”**',
+      '```',
+    ].join('\n'))
+    const box = document.createElement('div')
+    box.innerHTML = html
+
+    expect(box.querySelectorAll('strong')).toHaveLength(2)
+    expect(box.querySelector('strong')?.querySelectorAll('.katex')).toHaveLength(2)
+    expect(box.querySelector('p')?.textContent).not.toContain('**')
+    expect(box.querySelector('p code')?.textContent).toBe('**“原样”**')
+    expect(box.querySelector('pre code')?.textContent).toContain('**“代码块”**')
+    expect(renderedText(html)).toContain('与转义 **“原样”**')
+  })
+
+  it('显示公式的结束分隔符与正文在同一行时仍正常分段', () => {
+    const html = renderMarkdown(String.raw`\[
+x = 1
+\]根据 $x = 1$，得到**结论**。`)
+    const box = document.createElement('div')
+    box.innerHTML = html
+
+    expect(box.querySelectorAll('.katex')).toHaveLength(2)
+    expect(box.querySelector('strong')?.textContent).toBe('结论')
+    expect(renderedText(html)).not.toMatch(/\$|\*\*/)
+    expect(katexErrors(html)).toEqual([])
+  })
+
   it('把裸露的 LaTeX 打字机代码恢复为 Markdown 行内代码', () => {
     const html = renderMarkdown(String.raw`可验证行为：\texttt{find("span", class\_="price")} 是从根开始第几个子节点被命中。`)
     const box = document.createElement('div')
