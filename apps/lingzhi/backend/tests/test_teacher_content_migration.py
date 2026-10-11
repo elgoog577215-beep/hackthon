@@ -36,7 +36,7 @@ def write_fixture(root, cid='c', conflict=False):
 
 
 def files(root):
-    return {str(p.relative_to(root)):p.read_bytes() for p in root.rglob('*.json')}
+    return {p.relative_to(root).as_posix():p.read_bytes() for p in root.rglob('*.json')}
 
 
 def test_preflight_apply_verify_are_idempotent_and_conflicts_untouched(tmp_path):

@@ -36,6 +36,9 @@ HANDOUT_CONTENT_TYPES = {
     "answer": ("解答", "feedback"),
     "misconception": ("辨析", "misconception"),
     "summary": ("总结", "summary"),
+    "theorem": ("定理", "reasoning"),
+    "result": ("结论", "summary"),
+    "warning": ("易错点", "misconception"),
 }
 
 

@@ -217,7 +217,7 @@ async def test_handout_request_has_complete_context_and_one_provider_attempt(mon
         course_id="c",
         outline_sections=[{"node_id": "a"}, {"node_id": "b"}],
         plan_sections={"a": {"knowledge": "定义边界"}},
-        lesson_context={"source": "指定资料"},
+        lesson_context={"source": "指定资料", "selected_material_evidence": [{"filename": "教材.pdf", "locator": "第 3 页", "source_text": "y-4=4(x-2)"}]},
         requirements="保留推导",
     )
     assert result["text"] == response(["a", "b"]) and len(calls) == 1
@@ -226,6 +226,7 @@ async def test_handout_request_has_complete_context_and_one_provider_attempt(mon
     assert kw["max_attempts"] == kw["retry_count"] == 1 and kw["require_stop"]
     assert not kw["json_mode"]
     assert "口播稿" in system and "参考解法" in system
+    assert all(x in prompt for x in ["教材.pdf", "第 3 页", "y-4=4(x-2)", "最终结果回代", "不输出 HTML"])
 
 
 @pytest.mark.asyncio

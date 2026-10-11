@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
-import fcntl
+import file_lock as fcntl
 import hashlib
 import json
 from pathlib import Path

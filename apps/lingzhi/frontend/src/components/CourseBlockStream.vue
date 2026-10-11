@@ -29,7 +29,7 @@
           {{ t('courseEvolution.applicationVisual.blockBadge', 'AI 个体化补充') }}
         </span>
         <header
-          v-if="item.block.title"
+          v-if="item.block.title && (!isHandoutBlock(item.block) || isPptSameSourcePrimary(item.block))"
           class="block-heading"
           :class="{ 'is-label-only': !shouldShowBlockTitle(item.block, index) }"
         >
@@ -41,8 +41,8 @@
             <div><dt>{{ t('teachingRepresentations.sameSourceAfter', '修改后') }}</dt><dd>{{ sameSourceState?.afterText }}</dd></div>
           </dl>
         </aside>
-          <span v-if="!shouldShowBlockTitle(item.block, index)" class="block-role">{{ blockLabel(item.block.type) }}</span>
-          <h4 v-if="shouldShowBlockTitle(item.block, index)"><MathText :content="teacherFacingTeachingLabel(item.block.title)" /></h4>
+          <span v-if="!isHandoutBlock(item.block) && !shouldShowBlockTitle(item.block, index)" class="block-role">{{ blockLabel(item.block.type) }}</span>
+          <h4 v-if="!isHandoutBlock(item.block) && shouldShowBlockTitle(item.block, index)"><MathText :content="teacherFacingTeachingLabel(item.block.title)" /></h4>
         </header>
         <button
           v-if="canImproveBlock(item.block.block_id)"
@@ -65,6 +65,17 @@
           :search-words="searchWords"
           @start-practice="emit('startPractice', $event)"
         />
+        <HandoutContentBlock
+          v-else-if="isHandoutBlock(item.block)"
+          :content-type="String(item.block.metadata?.content_type || '')"
+          :label="handoutLabel(item.block)"
+          :title="teacherFacingTeachingLabel(item.block.title || '')"
+          :answer-to="String(item.block.metadata?.answer_to || '')"
+          :collapse-answer="item.block.status !== 'draft' && !isStreaming"
+          :streaming="isStreaming"
+        >
+          <MarkdownRenderer :content="item.block.content || ''" :search-words="searchWords" />
+        </HandoutContentBlock>
         <FeedbackReviewBlock
           v-else-if="item.block.type === 'feedback'"
           :content="item.block.content || ''"
@@ -143,6 +154,7 @@ import CourseEvolutionContentBlock from './CourseEvolutionContentBlock.vue'
 import FeedbackReviewBlock from './FeedbackReviewBlock.vue'
 import MarkdownDocumentEditor from './MarkdownDocumentEditor.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import HandoutContentBlock from './HandoutContentBlock.vue'
 import MathText from './MathText.vue'
 import type { ContentBlock, CourseBlockEditTarget, Node, Note } from '../stores/types'
 import { useNoteStore } from '../stores/notes'
@@ -197,12 +209,22 @@ const blocks = computed(() => (props.node.course_blocks?.length
         animation_spec: block.payload.animation_spec,
         practice_task_id: block.payload.practice_task_id,
         practice_intent: block.payload.practice_intent,
+        content_type: block.payload.content_type,
+        type_label: block.payload.type_label,
+        answer_to: block.payload.answer_to,
       },
       block_revision_id: block.internal_revision,
     } as ContentBlock))
   : [...(props.node.content_blocks || [])])
   .filter(block => block && (String(block.content || '').trim() || block.status === 'draft'))
   .sort((left, right) => (left.order || 0) - (right.order || 0)))
+function isHandoutBlock(block: ContentBlock): boolean {
+  return Boolean(block.metadata?.content_type && !block.metadata?.course_evolution)
+}
+function handoutLabel(block: ContentBlock): string {
+  const type = String(block.metadata?.content_type || '')
+  return t(`courseWorkbench.scriptDocument.contentTypes.${type}`, String(block.metadata?.type_label || type))
+}
 const chapterSourceCards = computed(() => (props.node.source_cards || []).filter(source => {
   try {
     return new URL(String(source.url || '')).protocol === 'https:'

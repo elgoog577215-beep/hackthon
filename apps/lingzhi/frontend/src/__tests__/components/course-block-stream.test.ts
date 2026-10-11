@@ -55,6 +55,24 @@ beforeEach(() => {
 })
 
 describe('CourseBlockStream', () => {
+  it('正式讲义保留内容类型和答案关联，解答不落入旧反馈渲染器', async () => {
+    const node: CourseNode = { ...baseNode, course_blocks: [{
+      block_id: 'answer-1', section_id: 'node-1', position: 0, kind: 'rich_text', role: 'feedback',
+      payload: { title: '自测解答', markdown: '完整推导过程', content_type: 'answer', type_label: '解答', answer_to: 'exercise-1' },
+      asset_refs: [], objective_refs: [], concept_refs: [], evidence_refs: [], visibility_rule: {},
+      internal_revision: 'cbr-answer', status: 'final',
+    }] }
+    const wrapper = mount(CourseBlockStream, { props: { node, content: '', readOnly: true }, global })
+    expect(wrapper.get('details').attributes('data-answer-to')).toBe('exercise-1')
+    expect(wrapper.get('details').attributes('open')).toBeUndefined()
+    expect(wrapper.get('.markdown-renderer').text()).toBe('完整推导过程')
+    expect(wrapper.find('.feedback-review-stub').exists()).toBe(false)
+    expect(wrapper.findAll('h5').map(title => title.text())).toEqual(['自测解答'])
+    await wrapper.setProps({ isStreaming: true })
+    expect(wrapper.find('details').exists()).toBe(false)
+    expect(wrapper.get('.markdown-renderer').text()).toBe('完整推导过程')
+  })
+
   it('首个内容块与当前小节同名时只保留内容角色，不重复标题', () => {
     const node: CourseNode = {
       ...baseNode,

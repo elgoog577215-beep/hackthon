@@ -10,7 +10,7 @@ from course_production_state import teacher_asset_job_can_resume
 from ppt_manuscript_quality import manuscript_quality_passed
 
 import asyncio
-import fcntl
+import file_lock as fcntl
 import logging
 import json
 import os

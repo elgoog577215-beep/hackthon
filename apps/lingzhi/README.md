@@ -111,6 +111,20 @@ backend/.venv/bin/python scripts/probe_zju_qwen_runtime.py
 
 题目生成固定使用唯一的完整质量策略，不再暴露速度或思考档位。链路保留完整候选内容、逐题独立求解、选择性模型思考和最多三轮质量修复；确定性本地解题器只处理能严格证明的合同，其余继续交给模型独立求解。历史客户端传入的 `fast` 或 `deliberate` 只作为兼容值接收，服务端会在创建或恢复任务前统一归一为 `complete`。任何带有 `ai_validation_unavailable` 的本地保底合同都会被丢弃，不能自动进入正式题库。服务器中的模型密钥和端点只保存在目标环境私有配置，发布包和浏览器端都不包含真实密钥。
 
+### 授权的本地 Qwen 讲义实验
+
+需要在本机对照讲义效果时，使用隔离入口 `scripts/handout_local_experiment.py`。本地服务须提供 OpenAI 兼容 `/v1` 接口，模型别名为 `qwen3.8-27b`；脚本只接受回环地址，不修改应用 `.env` 或正式课程数据。生产环境继续使用上文规定的浙大端点。若本地服务需要认证，通过 `LINGZHI_LOCAL_API_KEY` 环境变量注入。
+
+从本应用目录执行，替换端口和仓库外输出目录：
+
+```powershell
+.\backend\.venv\Scripts\python.exe scripts\handout_local_experiment.py --base-url http://127.0.0.1:8012/v1 --output E:\lingzhi-local-experiments\my-first-handout
+```
+
+默认输入是自编的微积分实验资料；传入 `--input input.json` 可复用冻结的课程标题、讲次、小节、教案、来源片段和要求。输出保存输入、完整提示词及指纹、真实请求计数、耗时、讲义 Markdown 和带类型块的 `handout.json`；失败保留 `partial.md`，不自动重跑。输出目录必须位于仓库外，且为空。
+
+启动前端后打开 `/dev/handout-preview.html`，载入 `handout.json`，切换阅读/教师视图及中英文检查实际组件。此入口只在 Vite 开发环境使用，不进入生产构建；不保存正式课程或学习记录。结构通过与公式渲染成功不代表教学内容正确，实验应另行核对来源、推导、最终答案和代表性学科样本。
+
 ## 联网检索配置
 
 课程联网来源当前冻结；以下只说明保留配置，不表示可以启用课程检索。恢复、扩展或删除需明确授权。课程生成、题库和 AI 老师的既有实现共用 `backend/web_retrieval.py` 检索网关。默认 Provider 是与应用同机部署、仅监听 `127.0.0.1:8080` 的 SearXNG，不需要商业搜索 API 密钥；所有用户开关仍默认关闭，PPT 链路不使用联网检索。

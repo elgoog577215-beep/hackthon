@@ -213,14 +213,21 @@
         </div>
         <div v-else-if="node.blocks?.length" class="script-modules">
           <section v-for="block in node.blocks" :key="block.block_id" class="script-module" :data-content-type="block.content_type" :data-answer-to="block.answer_to || undefined" data-ai-field="content" :data-ai-item-id="block.block_id" :data-ai-label="block.title">
-            <header v-if="block.module_id !== 'handout_prose' && (block.title || (!showWorkingPreview && lesson.script.ready))">
-              <div><span v-if="block.content_type || (!showWorkingPreview && lesson.script.ready)">{{ contentTypeLabel(block) }}</span><h5 v-if="block.title"><MathText :content="teacherFacingTeachingLabel(block.title, block.module_id)" /></h5></div>
-              <small v-if="!showWorkingPreview && lesson.script.ready && block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
-            </header>
-            <div class="script-streamed-block" :data-streaming="blockIsStreaming(block.block_id) ? 'true' : undefined">
-              <MarkdownRenderer :inline-editable="true" :key="block.block_id" :content="block.content" />
-              <span v-if="blockIsStreaming(block.block_id)" class="stream-caret" aria-hidden="true" />
-            </div>
+            <HandoutContentBlock
+              :content-type="block.content_type"
+              :label="block.content_type || (!showWorkingPreview && lesson.script.ready) ? contentTypeLabel(block) : ''"
+              :title="teacherFacingTeachingLabel(block.title, block.module_id)"
+              :show-header="block.module_id !== 'handout_prose' && Boolean(block.title || (!showWorkingPreview && lesson.script.ready))"
+              :answer-to="block.answer_to"
+              :collapse-answer="lesson.script.ready && !showWorkingPreview"
+              :streaming="blockIsStreaming(block.block_id)"
+            >
+              <template #header-extra><small v-if="!showWorkingPreview && lesson.script.ready && block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small></template>
+              <div class="script-streamed-block" :data-streaming="blockIsStreaming(block.block_id) ? 'true' : undefined">
+                <MarkdownRenderer :inline-editable="true" :key="block.block_id" :content="block.content" />
+                <span v-if="blockIsStreaming(block.block_id)" class="stream-caret" aria-hidden="true" />
+              </div>
+            </HandoutContentBlock>
           </section>
         </div>
         <div v-else-if="contentFor(node)" class="script-content" data-state="current"><MarkdownRenderer :inline-editable="true" :content="contentFor(node)" /></div>
@@ -246,6 +253,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { Check, LoaderCircle, Pencil, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import HandoutContentBlock from './HandoutContentBlock.vue'
 import MathText from './MathText.vue'
 import TextSelectionAiAction, { type TeacherInlineAiRequest } from './TextSelectionAiAction.vue'
 import { useDocumentEditHistory } from '../composables/useDocumentEditHistory'
@@ -760,7 +768,7 @@ function contentTypeLabel(block: TeacherLessonScriptBlock): string {
   const known: Record<string, string> = {
     introduction: '引入', definition: '定义', explanation: '解释', comparison: '对比',
     derivation: '推导', example: '例题', exercise: '练习', answer: '解答',
-    misconception: '辨析', summary: '总结',
+    misconception: '辨析', summary: '总结', theorem: '定理', result: '结论', warning: '易错点',
   }
   return known[block.content_type]
     ? t(`courseWorkbench.scriptDocument.contentTypes.${block.content_type}`, known[block.content_type])
@@ -846,4 +854,7 @@ defineExpose({
 .script-streamed-block .stream-caret{width:2px;height:17px;display:inline-block;margin-left:3px;vertical-align:-2px;background:#5b57e8;animation:blink .8s steps(1) infinite}@keyframes blink{50%{opacity:0}}
 .script-source-review{display:grid;gap:22px;padding:24px 28px 30px}.script-source-steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;margin:0;padding:3px;border:1px solid #dfe4ed;border-radius:11px;background:#eef1f6;list-style:none}.script-source-steps li{min-width:0;min-height:48px;display:grid;grid-template-columns:24px minmax(0,1fr);align-items:center;gap:8px;padding:5px 10px;border-radius:8px;color:#69768a}.script-source-steps li>span{width:22px;height:22px;display:grid;place-items:center;border:1px solid #cbd3df;border-radius:50%;font-size:13px;font-weight:800}.script-source-steps li>div{min-width:0;display:grid;gap:1px}.script-source-steps strong{overflow:hidden;font-size:14px;font-weight:750;text-overflow:ellipsis;white-space:nowrap}.script-source-steps small{overflow:hidden;color:#7c8899;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.script-source-steps li.active{color:#312e81;background:#fff;box-shadow:0 2px 8px rgba(30,41,59,.08)}.script-source-steps li.active>span{border-color:#6965d8;color:#fff;background:#6965d8}.script-source-review__heading{display:flex;align-items:center;justify-content:space-between;gap:24px}.script-source-review__heading>div{min-width:0;display:grid;gap:5px}.script-source-review__heading strong{color:#263147;font-size:18px;font-weight:760}.script-source-review__heading span{color:#68768b;font-size:15px;line-height:1.5}.script-source-review__heading>.script-source-review__blocked{grid-template-columns:22px minmax(0,1fr);align-items:start;gap:10px}.script-source-review__blocked>svg{margin-top:2px;color:#b56a18}.script-source-review__blocked>div{min-width:0;display:grid;gap:4px}.script-source-review__blocked strong{color:#7a410f;font-size:19px}.script-source-review__blocked span{color:#8a561f}.script-source-review__heading button{min-height:42px;flex:none;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 18px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:14px;font-weight:750;cursor:pointer}.script-source-review__heading button:hover:not(:disabled){background:#4338ca}.script-source-review__heading button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.script-source-review__heading button:disabled{opacity:.45;cursor:not-allowed}.script-source-blocks{display:grid;gap:0;margin:0;padding:0;border-top:1px solid #e8ecf2;list-style:none}.script-source-blocks li{min-height:72px;display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:start;gap:12px;padding:14px 0;border-bottom:1px solid #e8ecf2}.script-source-blocks>li>span{padding-top:2px;color:#817dcf;font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}.script-source-blocks li>div{min-width:0;display:grid;gap:3px}.script-source-blocks strong{color:#303b50;font-size:15px;font-weight:720}.script-source-blocks small{color:#68768b;font-size:14px}.script-source-blocks p{max-width:75ch;margin:2px 0 0;color:#566277;font-size:15px;line-height:1.55}.script-source-blocks em{padding-top:2px;color:#68768b;font-size:14px;font-style:normal;white-space:nowrap}.script-source-empty{margin:0;padding:18px 0;border-top:1px solid #e8ecf2;color:#68768b;font-size:15px}
 @media(prefers-reduced-motion:reduce){.script-document .spin,.script-streamed-block .stream-caret{animation:none}}
+.script-modules>.script-module{padding:0;margin:0;border-bottom:0}
+.script-continuous>.script-body{max-width:960px;margin:0 auto;padding:34px 36px}
+.script-body>header{padding-bottom:18px;margin-bottom:26px;border-bottom:1px solid #e7eaf2}
 </style>
