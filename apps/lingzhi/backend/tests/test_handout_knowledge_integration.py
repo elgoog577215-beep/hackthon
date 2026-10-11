@@ -77,3 +77,38 @@ def test_unversioned_legacy_plan_remains_readable():
         {"knowledge_points": [{"name": "旧概念"}]}]}]}}
     result = project_course_teaching_plan(raw)
     assert result["sections"][0]["knowledge_structure"][0]["knowledge_points"][0]["name"] == "旧概念"
+
+
+def test_normalization_preserves_source_versions_and_ids_for_saved_blocks():
+    from teacher_script import normalize_teacher_script_section
+    raw = course_fixture()["course_document"]["blocks"][0]
+    block = {"block_id": "b1", "role": "concept", "content": "正文", "title": "讲解",
+             **{k: v for k, v in raw["payload"].items() if k != "markdown"},
+             "source_context_revision": "ctx", "source_evidence_package_revision": "ev", "source_scope_revision": "scope"}
+    saved = normalize_teacher_script_section({"section_node_id": "s1", "title": "第一讲", "blocks": [block]})["blocks"][0]
+    assert saved["knowledge_refs"] == block["knowledge_refs"]
+    assert saved["source_knowledge_revision"] == "tree-old"
+    assert saved["source_evidence_package_revision"] == "ev"
+
+
+def test_mixed_tree_revisions_show_conflict_and_never_count_references():
+    raw = course_fixture()
+    raw["course_document"]["blocks"][1]["payload"]["source_knowledge_revision"] = "other"
+    section = project_course_teaching_plan(raw)["sections"][0]
+    assert section["knowledge_source_status"] == "conflict"
+    assert section["knowledge_coverage"]["rows"] == []
+
+
+def test_trial_coverage_excludes_hidden_blocks_even_in_visible_section():
+    from routers.teacher_preview import public_document, public_handout_plan
+    raw = course_fixture()
+    raw["course_document"]["blocks"][1]["visibility_rule"] = {"audience": "teacher"}
+    # Use the actual canonical model's defaults for kind/status, as on reload.
+    for b in raw["course_document"]["blocks"]:
+        b["kind"] = "rich_text"
+    public = public_document(raw)
+    plan = public_handout_plan(raw, public)
+    rows = {r["knowledge_id"]: r for r in plan["sections"][0]["knowledge_coverage"]["rows"]}
+    assert rows["k1"]["block_ids"] == ["b1"]
+    assert rows["k2"]["block_ids"] == []
+    assert "b2" not in str(plan)
