@@ -154,6 +154,17 @@ def test_direct_question_about_condition_evaluation_is_not_a_proxy_observation()
     assert not measurement_findings(c)
 
 
+def test_passive_word_order_still_asks_for_evaluated_condition_set():
+    c = sample()
+    c["design_brief"]["primary_knowledge"] = "首个命中分支之后不再求值后续条件。"
+    code = "```c\nint flag = 0; if(flag==0) {} else if(flag==1) {}\n```\n"
+    for task in ["实际被求值（evaluated）的条件表达式集合是？", "实际求值的条件有哪些？"]:
+        c["prompt"] = code + task
+        assert "UNOBSERVABLE_CONDITION_EVALUATION" not in {i["code"] for i in measurement_findings(c)}
+    c["prompt"] = code + "执行后flag的值是多少？"
+    assert "UNOBSERVABLE_CONDITION_EVALUATION" in {i["code"] for i in measurement_findings(c)}
+
+
 def test_review_cannot_add_ungrounded_clause_numbers_either():
     w = witness()
     w["option_audit"][0]["reason"] = "C17 6.5.16规定这个规则。"
