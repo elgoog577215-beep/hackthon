@@ -13,6 +13,12 @@ declare module 'vue-router' {
 
 const routes: Array<RouteRecordRaw> = [
   {
+    path: '/study/:materialId?',
+    name: 'study',
+    component: () => import('../views/StudyView.vue'),
+    meta: { identityScope: 'learner' },
+  },
+  {
     path: '/',
     redirect: '/courses'
   },

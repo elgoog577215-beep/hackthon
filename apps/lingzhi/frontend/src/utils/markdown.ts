@@ -747,22 +747,43 @@ const normalizeNestedDisplayEnvironments = (content: string) => {
         (_match, environment) => String(environment).trim()
     ));
 
-    const multilineInlineEnvironmentRe = new RegExp(
-        `(?<!\\$)\\$([^$]*?\\\\begin\\{(?:${DISPLAY_MATH_ENVIRONMENTS})\\}[\\s\\S]*?\\\\end\\{(?:${DISPLAY_MATH_ENVIRONMENTS})\\}[^$]*?)\\$(?!\\$)`,
-        'g'
-    );
-    normalized = normalized.replace(multilineInlineEnvironmentRe, (_match, formula) => `\n$$\n${String(formula).trim()}\n$$\n`);
+    // Pair whole single-dollar expressions before looking for environments.
+    // Starting a search at a previous formula's closing dollar can otherwise
+    // reach a later \[cases\] block and the next formula's opening dollar.
+    const inlineEnvironmentRe = new RegExp(`\\\\begin\\{(${DISPLAY_MATH_ENVIRONMENTS})\\}[^$]*?\\\\end\\{\\1\\}`);
+    normalized = normalized.replace(/(?<!\$)\$([^$]+?)\$(?!\$)/g, (match, formula) => (
+        String(formula).includes('\n') && inlineEnvironmentRe.test(formula) ? `\n$$\n${String(formula).trim()}\n$$\n` : match
+    ));
     return normalized;
 };
 
 const protectBalancedDisplayEnvironments = (content: string) => {
     const blocks = new Map<string, string>();
     let index = 0;
+    // Protect the entire explicit expression first. Extracting each matrix
+    // from a valid formula leaves its coefficients, operators and outer dollar
+    // delimiters behind, which can pair with later prose and swallow Markdown.
+    const hasEnvironment = new RegExp(`\\\\begin\\{(?:${DISPLAY_MATH_ENVIRONMENTS})\\}`);
+    let normalized = content.replace(/\$\$([^$]*?)\$\$|(?<!\$)\$([^$\n]+?)\$(?!\$)/g, (match, display, inline, offset) => {
+        const formula = String(display ?? inline ?? '');
+        if (!hasEnvironment.test(formula)) return match;
+        const id = `MATHDISPLAYPLACEHOLDER${index++}`;
+        const html = renderMathContent(String(formula), display !== undefined);
+        blocks.set(id, display !== undefined ? `<div class="katex-display">${html}</div>` : html);
+        if (display === undefined) return id;
+        const prefix = content.slice(content.lastIndexOf('\n', offset - 1) + 1, offset);
+        const suffix = content.slice(offset + match.length).split('\n', 1)[0] || '';
+        // Keep display blocks inside the current list item. An unindented
+        // placeholder ends that item and turns its following prose into code.
+        return /^[\t ]*$/.test(prefix) && /^[\t ]*$/.test(suffix)
+            ? `\n${prefix}${id}\n${prefix}` : `\n\n${id}\n\n`;
+    });
+    normalized = normalizeBalancedDisplayEnvironments(normalized);
     const environmentRe = new RegExp(
         `(\\\\begin\\{(${DISPLAY_MATH_ENVIRONMENTS})\\}[\\s\\S]*?\\\\end\\{\\2\\})`,
         'g'
     );
-    let normalized = content.replace(environmentRe, (_match, environment) => {
+    normalized = normalized.replace(environmentRe, (_match, environment) => {
         const id = `MATHDISPLAYPLACEHOLDER${index++}`;
         blocks.set(id, `<div class="katex-display">${renderMathContent(String(environment), true)}</div>`);
         return `\n\n${id}\n\n`;
@@ -1459,7 +1480,6 @@ export const renderMarkdown = (content: string) => {
     normalized = normalized.replace(/(\w+)'\s+\((.+?)\)/g, "$1'($2)")
     normalized = normalized.replace(/(\w+)\s+'/g, "$1'")
 
-    normalized = normalizeBalancedDisplayEnvironments(normalized)
     const protectedDisplayMath = protectBalancedDisplayEnvironments(normalized)
     normalized = protectedDisplayMath.normalized
     normalized = normalized.replace(

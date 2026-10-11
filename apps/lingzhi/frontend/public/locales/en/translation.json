@@ -1,5 +1,6 @@
 {
   "handoutConcepts": {
+    "page": "Page", "slide": "Slide",
     "eyebrow": "CONCEPT CONNECTIONS", "title": "Concept connections", "hint": "Follow the connections. Select a concept to find it in the text.",
     "sections": "Concept map sections", "concepts": "concepts", "graph": "Section concept map", "prior": "Prior / reused",
     "jump": "Find in text", "noAnchor": "No matching passage in this handout yet", "relations": "Connections and reasons", "showAll": "Show all",

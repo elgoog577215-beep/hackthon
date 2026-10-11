@@ -4598,6 +4598,10 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if not task:
             return False
+        if task.get("type") == "personal_handout_generation":
+            if task.get("status") in {"pending", "running"}:
+                task.update(status="paused", message="服务中断，已保留资料与讲义，请主动继续")
+            return False
         if task.get("type") in {
             "teacher_course_change_analysis",
             "teacher_course_change_generation",
@@ -5176,6 +5180,11 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if not task:
             raise KeyError(task_id)
+        if task.get("type") == "personal_handout_generation":
+            if task.get("status") in {"paused", "failed"}:
+                if await self._update_task_status(task_id, "pending", message="继续生成缺失内容", allow_reactivation=True):
+                    await self._task_queue.put(task_id)
+            return {"status": "resumed", "task": self._task_view(self.tasks[task_id])}
         if task.get("type") == "teacher_outline_generation" and task.get("status") in {"paused", "failed"}:
             if await self._restart_teacher_outline_attempt(task_id):
                 await self._task_queue.put(task_id)
@@ -5543,6 +5552,7 @@ class TaskManager:
         failed_ids = [
             task_id for task_id, task in self.tasks.items()
             if task.get("status") == "failed"
+            and task.get("type") != "personal_handout_generation"
             and (
                 owner_id is None
                 or not _persisted_task_owner_id(task)
@@ -5570,6 +5580,8 @@ class TaskManager:
             raise ValueError(scope)
 
         def matches(task: dict[str, Any]) -> bool:
+            if task.get("type") == "personal_handout_generation":
+                return False
             if course_id and str(task.get("course_id") or "") != course_id:
                 return False
             task_owner_id = _persisted_task_owner_id(task)
@@ -7269,6 +7281,10 @@ class TaskManager:
         if str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
             return
 
+        if task.get("type") == "personal_handout_generation":
+            from study.service import run_personal_handout
+            await run_personal_handout(self, task_id)
+            return
         if task.get("type") == "teacher_course_change_analysis":
             from course_evolution.jobs import run_analysis
             await run_analysis(self, task_id)
@@ -9509,6 +9525,10 @@ class TaskManager:
         """Push progress update via WebSocket."""
         task = self.tasks.get(task_id)
         if not task or not self.ws_service:
+            return
+        if task.get("type") == "personal_handout_generation":
+            # Private materials are observed through their authenticated owner
+            # endpoint; never broadcast on a course (including an empty one).
             return
 
         course_id = task["course_id"]

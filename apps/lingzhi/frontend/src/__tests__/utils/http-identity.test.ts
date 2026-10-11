@@ -1,5 +1,5 @@
 import { AxiosHeaders } from 'axios'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { InternalAxiosRequestConfig } from 'axios'
 import {
   applyLearnerIdentity,
@@ -81,5 +81,21 @@ describe('learner identity request header', () => {
     expect(getActiveRequestIdentityScope()).toBe('teacher')
     expect(getActiveRequestIdentity()).toBe(LOCAL_TEACHER_USER_ID)
     expect(activeIdentityHeaders().get('X-User-Id')).toBe(LOCAL_TEACHER_USER_ID)
+  })
+
+  it('统一登录退出清除两种浏览器令牌，但保留按本人归属的草稿', async () => {
+    vi.stubEnv('VITE_QIZHI_AUTH_REQUIRED', 'true')
+    vi.resetModules()
+    try {
+      const auth = await import('@/utils/http')
+      localStorage.setItem('auth_token', 'test-local-token')
+      sessionStorage.setItem('auth_token', 'test-session-token')
+      sessionStorage.setItem('lingzhi-study-draft:student-a', 'private draft')
+      expect(auth.getQizhiAccessToken()).toBe('test-local-token')
+      auth.clearQizhiAccessToken()
+      expect(auth.getQizhiAccessToken()).toBe('')
+      expect(sessionStorage.getItem('auth_token')).toBeNull()
+      expect(sessionStorage.getItem('lingzhi-study-draft:student-a')).toBe('private draft')
+    } finally { vi.unstubAllEnvs(); vi.resetModules() }
   })
 })

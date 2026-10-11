@@ -34,6 +34,10 @@ def _task_owner_id(task: dict | None) -> str:
 
 
 def _task_is_visible_to(task: dict | None, actor_id: str) -> bool:
+    # Personal jobs have one authenticated observer/control path in /study.
+    # Legacy local teacher actor headers cannot grant access to this domain.
+    if task and task.get("type") == "personal_handout_generation":
+        return False
     owner_id = _task_owner_id(task)
     return not owner_id or owner_id == actor_id
 

@@ -1,5 +1,6 @@
 {
   "handoutConcepts": {
+    "page": "页", "slide": "幻灯片",
     "eyebrow": "CONCEPT CONNECTIONS", "title": "概念关系", "hint": "顺着关系理解知识，点击概念回到正文。",
     "sections": "概念图小节", "concepts": "个概念", "graph": "本节概念关系图", "prior": "前置 / 复用",
     "jump": "定位正文", "noAnchor": "本讲尚无对应段落", "relations": "关系与依据", "showAll": "查看全部",

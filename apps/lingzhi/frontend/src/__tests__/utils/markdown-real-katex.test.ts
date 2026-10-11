@@ -30,6 +30,66 @@ const katexText = (html: string) => {
 }
 
 describe('renderMarkdown – 真实 KaTeX 兼容', () => {
+  it('保留同一公式内的矩阵、系数与等号，不吞掉后续中文和粗体', () => {
+    const html = renderMarkdown(String.raw`证明线性无关：
+\[
+a \begin{pmatrix} 1 \\ 2 \end{pmatrix} + b \begin{pmatrix} 2 \\ 1 \end{pmatrix} = \begin{pmatrix} 0 \\ 0 \end{pmatrix}
+\]
+展开为标量方程：
+\[
+\begin{cases}
+a + 2b = 0 \\
+2a + b = 0
+\end{cases}
+\]
+由第一个方程得 \(a = -2b\)。
+**结论**：只有零解，因此线性无关。`)
+    const box = document.createElement('div')
+    box.innerHTML = html
+    const formulas = Array.from(box.querySelectorAll('.katex'))
+    expect(formulas).toHaveLength(3)
+    expect(formulas[0]?.querySelectorAll('.mtable')).toHaveLength(3)
+    expect(formulas[0]?.textContent).toMatch(/a.*\+.*b.*=/)
+    expect(box.querySelector('strong')?.textContent).toBe('结论')
+    expect(renderedText(html)).not.toMatch(/\$|\*\*|MATHDISPLAYPLACEHOLDER/)
+    expect(katexText(html)).not.toContain('由第一个方程')
+    expect(katexErrors(html)).toEqual([])
+  })
+
+  it('保留行内矩阵的完整表达式和之后的说明', () => {
+    const html = renderMarkdown(String.raw`设 \(v = \begin{pmatrix}1 \\ 2\end{pmatrix}\)，则**分量**为 1 和 2。`)
+    const box = document.createElement('div')
+    box.innerHTML = html
+    expect(box.querySelector('.katex')?.textContent).toContain('v=')
+    expect(box.querySelectorAll('.katex')).toHaveLength(1)
+    expect(box.querySelector('strong')?.textContent).toBe('分量')
+    expect(renderedText(html)).not.toMatch(/\$|\*\*|MATHDISPLAYPLACEHOLDER/)
+  })
+
+  it('已闭合的行内公式不会与后续列表中的 cases 和矩阵串联', () => {
+    const html = renderMarkdown(String.raw`1. **求解**：
+    由第一个方程得 $a = 5 - 2b$。
+    代入第二式：
+    \[
+    \begin{cases}a + 2b = 5 \\ 2a + b = 4\end{cases}
+    \]
+    解得 $a = 1, b = 2$。
+2. **核验**：
+    $$
+    \begin{bmatrix}1 & 2 \\ 2 & 1\end{bmatrix}
+    $$
+    **结论**：通解 $\begin{cases}x = 5 - 2t \\ y = t\end{cases}, t \in \mathbb{R}$。
+
+**继续阅读**：后续正文保留。`)
+    const box = document.createElement('div')
+    box.innerHTML = html
+    expect(box.querySelectorAll('.math-fallback,.katex-error')).toHaveLength(0)
+    expect(renderedText(html)).not.toMatch(/\$|\*\*|MATHDISPLAYPLACEHOLDER|\\end/)
+    expect(katexText(html)).not.toContain('代入第二式')
+    expect(katexText(html)).not.toContain('继续阅读')
+    expect(box.querySelectorAll('strong').length).toBeGreaterThanOrEqual(4)
+  })
+
   it.each([
     String.raw`\[
     S(0) \times x = 0 \times x + x
