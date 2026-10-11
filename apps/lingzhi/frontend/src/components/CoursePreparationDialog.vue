@@ -15,6 +15,8 @@
           <span><Sparkles :size="20" /></span>
           <h2 :id="titleId">{{ t('courseFiles.preparation.startTitle') }}</h2>
         </header>
+        <button class="knowledge-start" type="button" :disabled="busy" @click="startKnowledge"><strong>{{ t('knowledgeFirst.startGeneric') }}</strong><span>{{ t('knowledgeFirst.startGenericHint') }}</span><ArrowRight :size="18" /></button>
+        <p v-if="error" class="preparation-error" role="alert">{{ error }}</p>
         <div class="start-options">
           <button type="button" :disabled="busy" @click="startBlank">
             <div class="mode-illustration blank-route" aria-hidden="true">
@@ -210,6 +212,7 @@ type ImportOutcome = {
 const props = defineProps<{ courseId: string; courseTitle: string }>()
 const emit = defineEmits<{
   (event: 'completed', payload: { openAudit: boolean }): void
+  (event: 'knowledge'): void
 }>()
 const titleId = 'course-preparation-title'
 const dialogRef = ref<HTMLDialogElement | null>(null)
@@ -224,6 +227,15 @@ const updatingIds = ref(new Set<string>())
 const error = ref('')
 
 const visible = computed(() => ['pending', 'review'].includes(String(coursePackage.value?.preparation_status || '')))
+async function startKnowledge() {
+  busy.value = true; error.value = ''
+  try {
+    const view = (await http.get(`/api/courses/${props.courseId}/knowledge-first`, teacherRequestConfig())).data
+    await http.post(`/api/courses/${props.courseId}/knowledge-first/initialize`, { document_revision: view.document_revision, knowledge_revision: view.knowledge_revision }, teacherRequestConfig())
+    emit('knowledge')
+  } catch (e: any) { error.value = typeof e?.response?.data?.detail === 'string' ? e.response.data.detail : t('knowledgeFirst.requestFailed') }
+  finally { busy.value = false }
+}
 const documentTypeOptions = computed(() => [
   { value: 'outline' as const, label: t('courseFiles.preparation.documentTypes.outline') },
   { value: 'lesson_plan' as const, label: t('courseFiles.preparation.documentTypes.lessonPlan') },
@@ -480,4 +492,8 @@ onMounted(() => { void loadPackage() })
 @media(max-width:820px){.preparation-dialog.is-choice{width:calc(100vw - 24px);max-height:calc(100dvh - 24px)}.preparation-choice{min-height:0}.start-options{grid-template-columns:1fr;overflow:auto}.start-options>button{min-height:286px}}
 @media(max-width:700px){.preparation-dialog,.preparation-dialog.is-choice{width:calc(100vw - 16px);max-height:calc(100dvh - 16px)}.preparation-step>header,.recognized-structure,.preparation-review>footer{padding-inline:18px}.preparation-choice>header{padding-top:22px}.start-options{padding:14px 18px 22px}.start-options>button{min-height:276px}.mode-illustration{grid-template-columns:minmax(78px,1fr) 36px minmax(108px,1.2fr);padding:16px}.mode-copy{padding:17px 18px 19px}.preparation-dropzone{margin:20px}.understanding-overview{align-items:flex-start;flex-direction:column;padding-inline:18px}.understanding-gaps{max-width:100%;justify-content:flex-start;flex-wrap:wrap;white-space:normal}.recognized-file{grid-template-columns:20px minmax(0,1fr)}.recognized-file select{grid-column:2}.recognized-signals{flex-wrap:wrap}.preparation-review>footer{display:grid;grid-template-columns:1fr 1fr}}
 @media(prefers-reduced-motion:reduce){.preparation-dialog,.preparation-dialog::backdrop,.spin{animation:none}.start-options>button{transition:none}}
+</style>
+
+<style scoped>
+.knowledge-start{display:flex;align-items:center;gap:18px;margin:18px 28px 0;padding:20px 24px;width:calc(100% - 56px);border:1px solid #bbb5e8;border-radius:12px;background:#eeebff;color:#534899;text-align:left;cursor:pointer;font:15px/1.7 inherit}.knowledge-start strong{font-size:18px;white-space:nowrap}.knowledge-start span{flex:1}.knowledge-start:focus-visible{outline:3px solid #7266bc;outline-offset:3px}.preparation-error{color:#a94334;padding:0 28px}
 </style>

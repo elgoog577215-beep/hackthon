@@ -98,3 +98,104 @@ async def test_invented_quote_and_source_change_do_not_publish(svc):
     v=svc.view('c-pilot');job,_=svc.start('c-pilot','tree','bad','',v['document_revision']);await svc.run('c-pilot',job['id'])
     assert svc.view('c-pilot')['tree'] is None
     assert svc.authoring.load('c-pilot')['jobs'][job['id']]['status']=='failed'
+
+
+def test_identity_survives_rename_and_reordering_and_prerequisite_cycles_fail(svc):
+    from generic_knowledge import compile_tree
+    from knowledge_first import course_generation_context
+    source(svc);svc.initialize('c-pilot',svc.view('c-pilot')['document_revision'])
+    raw=svc.repository.load_raw('c-pilot');context=course_generation_context(raw)
+    before=compile_tree(raw,context,response())
+    changed=response();changed['points'][0]['name']='处理器基本职责';changed['points'].reverse()
+    after=compile_tree(raw,context,changed)
+    assert {p['statement']:p['knowledge_id'] for p in before['knowledge_points']} == {p['statement']:p['knowledge_id'] for p in after['knowledge_points']}
+    changed['relations']=[{'source_key':a,'target_key':b,'type':'prerequisite','reason':'先修'} for a,b in [('K1','K2'),('K2','K1')]]
+    with pytest.raises(CourseDocumentConflict,match='环'):compile_tree(raw,context,changed)
+
+
+def test_single_level_categories_are_valid_without_artificial_groups(svc):
+    from generic_knowledge import compile_tree
+    from knowledge_first import course_generation_context
+    source(svc);svc.initialize('c-pilot',svc.view('c-pilot')['document_revision'])
+    raw=svc.repository.load_raw('c-pilot');result=response()
+    result['categories']=result['categories'][:1]
+    for p in result['points']:p['category_key']='C1'
+    tree=compile_tree(raw,course_generation_context(raw),result)
+    assert len(tree['categories'])==1 and len(tree['knowledge_points'])==2
+
+
+def test_foreign_material_is_rejected_before_reading_its_contents(svc, monkeypatch):
+    from generic_knowledge import material_course
+    from teacher_course_space import teacher_course_space_repository
+    from material_storage import material_repository
+    monkeypatch.setattr(teacher_course_space_repository,'list_owned',lambda owner,course:[])
+    monkeypatch.setattr(material_repository,'get_asset',lambda aid:pytest.fail('foreign content read'))
+    with pytest.raises(CourseDocumentConflict,match='权限'):
+        material_course({'owner_id':'owner','course_id':'c','knowledge_material_asset_ids':['foreign']})
+
+
+@pytest.mark.asyncio
+async def test_changed_inputs_require_new_adoption_before_handouts(svc):
+    source(svc);svc.initialize('c-pilot',svc.view('c-pilot')['document_revision'])
+    async def call(*a,**k):return json.dumps(response(),ensure_ascii=False)
+    svc.provider_factory=lambda:SimpleNamespace(_call_llm=call,model_smart='test',client=None)
+    v=svc.view('c-pilot');job,_=svc.start('c-pilot','tree','initial','',v['document_revision']);await svc.run('c-pilot',job['id'])
+    svc.adopt('c-pilot',job['id'],'',v['document_revision'])
+    v=svc.view('c-pilot')
+    svc.storage.update_course_data('c-pilot',lambda raw:{**raw,'generation_request':{'requirements':'改变课程范围'}})
+    with pytest.raises(CourseDocumentConflict,match='重新生成并采用'):
+        svc.start('c-pilot',v['handouts'][0]['topic'],'stale',v['knowledge_revision'],v['document_revision'])
+
+
+def test_input_endpoint_rejects_duplicate_ids_and_private_inputs_are_not_public(svc):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from routers.knowledge_first import router
+    from dependencies import get_course_document_repository,get_teacher_lesson_authoring_repository
+    app=FastAPI();app.include_router(router,prefix='/api')
+    app.dependency_overrides[get_course_document_repository]=lambda:svc.repository
+    app.dependency_overrides[get_teacher_lesson_authoring_repository]=lambda:svc.authoring
+    client=TestClient(app);url='/api/courses/c-pilot/knowledge-first'
+    assert client.post(url+'/inputs',headers={'X-User-Id':'owner'},json={'document_revision':'x','requirements':'goal','material_asset_ids':['same','same']}).status_code==422
+    assert client.post(url+'/inputs',headers={'X-User-Id':'foreign'},json={'document_revision':'x','requirements':'goal'}).status_code==404
+    svc.storage.update_course_data('c-pilot',lambda raw:{**raw,'is_published':True,'generation_request':{'requirements':'private instructions'}})
+    assert client.get(url,headers={'X-User-Id':'foreign'}).json()['inputs']=={}
+
+
+def test_explicit_recheck_preserves_original_and_uses_no_model(svc):
+    source(svc);svc.initialize('c-pilot',svc.view('c-pilot')['document_revision'])
+    v=svc.view('c-pilot');original,_=svc.start('c-pilot','tree','old','',v['document_revision'])
+    result=response();result['gaps']=[{'key':'G1','name':'未覆盖范围','detail':'不包含虚拟内存。'}]
+    svc.authoring.update_job('c-pilot',original['id'],status='failed',raw_response=json.dumps(result,ensure_ascii=False),model='test-qwen')
+    svc.provider_factory=lambda:pytest.fail('recheck must not call model')
+    checked=svc.recheck('c-pilot',original['id'],'recheck',v['document_revision'],'')
+    assert checked['status']=='completed' and checked['model_request_sent'] is False
+    candidate=checked['checkpoint']['candidate']
+    assert candidate['gaps']==['未覆盖范围：不包含虚拟内存。']
+    assert candidate['gap_records']==result['gaps']
+    assert svc.authoring.load('c-pilot')['jobs'][original['id']]['status']=='failed'
+    assert svc.recheck('c-pilot',original['id'],'recheck',v['document_revision'],'')['id']==checked['id']
+    svc.storage.update_course_data('c-pilot',lambda raw:{**raw,'generation_request':{'requirements':'changed'}})
+    with pytest.raises(CourseDocumentConflict,match='变化'):
+        svc.recheck('c-pilot',original['id'],'late',v['document_revision'],'')
+
+
+def test_handout_reference_check_does_not_force_a_fixed_teaching_block_type(svc):
+    from generic_knowledge import compile_tree,compile_handout
+    from knowledge_first import course_generation_context
+    source(svc);svc.initialize('c-pilot',svc.view('c-pilot')['document_revision'])
+    raw=svc.repository.load_raw('c-pilot');tree=compile_tree(raw,course_generation_context(raw),response())
+    body='<!-- block:{"type":"example","title":"完整例题","key":"e1","knowledge":["K1"]} -->\n结合例子解释CPU如何执行指令。'
+    result=compile_handout(tree,tree['lessons'][0],body,'job')
+    assert result['blocks'][0]['content_type']=='example'
+    assert result['blocks'][0]['knowledge_refs'][0]['knowledge_id']==tree['knowledge_points'][0]['knowledge_id']
+
+
+@pytest.mark.parametrize('quote', ['cpu执行指令。', 'CPU 执行指令。'])
+def test_quotes_preserve_case_and_significant_whitespace(svc, quote):
+    from generic_knowledge import compile_tree
+    from knowledge_first import course_generation_context
+    source(svc);svc.initialize('c-pilot',svc.view('c-pilot')['document_revision'])
+    raw=svc.repository.load_raw('c-pilot');context=course_generation_context(raw)
+    invalid=response();invalid['points'][0]['sources'][0]['quote']=quote
+    with pytest.raises(CourseDocumentConflict,match='引文'):compile_tree(raw,context,invalid)
