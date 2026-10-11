@@ -1,5 +1,5 @@
 <template>
-  <div :class="[panelClasses, { 'is-learning-assistant': props.docked && !isTeacherMode }]" class="ai-teacher-panel glass-panel-elevated">
+  <div :class="[panelClasses, { 'is-learning-assistant': props.docked && !isTeacherMode, 'has-companion': Boolean(props.companionAvatar) }]" class="ai-teacher-panel glass-panel-elevated">
     <section
       class="ai-teacher-surface"
       :class="{
@@ -10,9 +10,13 @@
       :aria-modal="props.embedded || props.docked ? undefined : 'true'"
       :aria-label="assistantTitle"
     >
-      <header class="ai-teacher-header">
+      <CompanionPanelHeader v-if="companionAvatar && !isTeacherMode" :floating="floating" :history="conversationOpen" :busy="aiStore.loading || aiStore.loadingConversations" :live-pet="livePet" @new="createConversation" @history="conversationOpen = !conversationOpen" @mode="emit('toggleMode')" @close="emit('close')" />
+      <div v-if="knowledgeContext && !isTeacherMode && !aiStore.currentConversation?.study_workspace" class="knowledge-chat-context"><BookOpenText :size="15" /><span>{{ t('companionWorkspace.current', '当前知识点') }} · <strong>{{ knowledgeContext.name }}</strong></span><button type="button" :aria-label="t('companionWorkspace.clearContext', '移除知识点引用')" @click="emit('clearKnowledge')"><X :size="14" /></button></div>
+      <div v-if="companionAvatar && !knowledgeContext && readingContext && !isTeacherMode && !aiStore.currentConversation?.study_workspace" class="knowledge-chat-context"><BookOpenText :size="15" /><span>{{ t('readingNotes.readingAt', '正在阅读') }} · {{ readingContext.nodeName }}<small v-if="readingContext.blockTitle"> · {{ readingContext.blockTitle }}</small></span></div>
+      <header v-if="!companionAvatar || isTeacherMode" class="ai-teacher-header">
         <div class="ai-teacher-heading">
-          <span class="ai-teacher-icon"><Sparkles :size="16" /></span>
+          <img v-if="props.companionAvatar" class="ai-companion-avatar" :src="props.companionAvatar" alt="" width="40" height="40" />
+          <span v-else class="ai-teacher-icon"><Sparkles :size="16" /></span>
           <div class="ai-teacher-heading-copy">
             <strong>{{ assistantTitle }}</strong>
           </div>
@@ -148,7 +152,7 @@
             <button type="button" class="conversation-row__select" @click="switchConversation(conversation.conversation_id)">
               <MessageSquareText :size="14" />
               <span>
-                <strong>{{ localizedConversationTitle(conversation.title) }}</strong>
+                <strong><span v-if="conversation.study_workspace">{{ t(`studyDialogue.${conversation.study_workspace.kind}`) }} · </span>{{ localizedConversationTitle(conversation.title) }}</strong>
                 <small>{{ conversationTime(conversation.updated_at || conversation.created_at) }}</small>
               </span>
             </button>
@@ -168,7 +172,9 @@
         </div>
       </aside>
 
-      <div class="assistant-main" :inert="props.docked && conversationOpen ? true : undefined">
+      <p v-if="studyEntryError" class="study-entry-error" role="alert">{{ studyEntryError }} <button type="button" @click="openStudyRequest">{{ t('studyDialogue.retry') }}</button></p>
+      <StudyDialoguePanel v-if="aiStore.currentConversation?.study_workspace && !isTeacherMode" :key="aiStore.currentConversationId" ref="studyPanel" :inert="props.docked && conversationOpen ? true : undefined" :conversation="aiStore.currentConversation" @open-record="emit('openStudyRecord', $event)" />
+      <div v-else class="assistant-main" :inert="props.docked && conversationOpen ? true : undefined">
 
       <div v-if="props.blockTarget || quoteVisible" class="context-panel">
         <div v-if="props.blockTarget" class="block-target-line">
@@ -719,6 +725,8 @@
 </template>
 
 <script setup lang="ts">
+import StudyDialoguePanel from './StudyDialoguePanel.vue'
+import type { StudyRequest } from '../types/study-dialogue'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import {
   AlertCircle,
@@ -778,12 +786,20 @@ import type {
   PersonalizationDirection,
 } from '../types/changeProposal'
 import logger from '../utils/logger'
+import { useLearnerModelStore } from '../stores/learnerModel'
+import CompanionPanelHeader from './CompanionPanelHeader.vue'
+import type { KnowledgeProfileNode } from '../types/knowledge-profile'
 import { retrievalErrorTranslationKey } from '../utils/retrieval-errors'
 import { modelFailureHint, modelFailureLabel } from '../utils/ai-teacher-failures'
 import { getActiveRequestIdentityScope, type RequestIdentityScope } from '../utils/http'
 
 const props = withDefaults(defineProps<{
   visible: boolean
+  studyRequest?: StudyRequest
+  companionAvatar?: string
+  floating?: boolean
+  livePet?: boolean
+  knowledgeContext?: KnowledgeProfileNode | null
   mode?: 'learner' | 'teacher'
   identityScope?: RequestIdentityScope
   quoteText: string
@@ -809,11 +825,16 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (event: 'close'): void
+  (event: 'openStudyRecord', id:string):void
+  (event: 'toggleMode'): void
+  (event: 'clearKnowledge'): void
   (event: 'clearBlockTarget'): void
   (event: 'blockApplied', target: CourseBlockEditTarget): void
   (event: 'openCourseAdjustment', payload: { planId: string; sectionId: string }): void
   (event: 'courseBaselineDraft', payload: { conversationId: string; messageId: string }): void
 }>()
+const studyPanel = ref<InstanceType<typeof StudyDialoguePanel> | null>(null)
+const studyEntryError = ref('')
 const aiStore = useAITeacherStore()
 const courseStore = useCourseStore()
 const progressStore = useLearningProgressStore()
@@ -871,7 +892,7 @@ const assistantEmptyDescription = computed(() => isTeacherMode.value
   : t('courseWorkspace.aiTeacher.emptyBody', '可以解释概念、分析作答，也可以检查你是否真正理解。'))
 const panelClasses = computed(() => props.docked ? 'is-embedded is-docked' : props.embedded ? 'is-embedded' : 'is-fullscreen')
 const currentNode = computed(() => (
-  courseStore.nodes.find(node => node.node_id === ((quoteVisible.value || props.blockTarget ? props.quoteNodeId : '') || courseStore.currentNode?.node_id))
+  courseStore.nodes.find(node => node.node_id === (props.knowledgeContext?.section_refs[0] || (quoteVisible.value || props.blockTarget ? props.quoteNodeId : '') || courseStore.currentNode?.node_id))
   || courseStore.currentNode
 ))
 const contextLabel = computed(() => currentNode.value?.node_name
@@ -1051,12 +1072,14 @@ function contextRef() {
   return {
     course_id: courseStore.currentCourseId,
     course_version_id: courseStore.currentCourseVersionId,
-    node_id: currentNode.value?.node_id || '',
+    node_id: props.knowledgeContext?.section_refs[0] || currentNode.value?.node_id || '',
     node_name: currentNode.value?.node_name || '',
     objective_id: runtimeContext.objective_id || '',
     objective_revision_id: runtimeContext.objective_revision_id || '',
     content_anchor: {
-      ...(quoteVisible.value ? props.quoteAnchor || {} : props.readingContext?.nodeId === currentNode.value?.node_id && props.readingContext?.blockId ? { block_id: props.readingContext.blockId, block_title: props.readingContext.blockTitle } : {}),
+      ...(props.knowledgeContext ? { concept_ids: [props.knowledgeContext.knowledge_id], knowledge_revision_refs: { [props.knowledgeContext.knowledge_id]: props.knowledgeContext.knowledge_revision_id }, knowledge_name: props.knowledgeContext.name } : {}),
+      ...(quoteVisible.value ? props.quoteAnchor || {} : !props.knowledgeContext && props.readingContext?.nodeId === currentNode.value?.node_id && props.readingContext?.blockId ? { block_id: props.readingContext.blockId, block_title: props.readingContext.blockTitle } : {}),
+      ...(props.knowledgeContext?.block_refs?.[0] ? { block_id: props.knowledgeContext.block_refs[0] } : {}),
       ...(isTeacherMode.value
         ? {
             file_scope: {
@@ -1145,7 +1168,7 @@ async function send() {
     nodeId: currentNode.value?.node_id,
     nodeName: currentNode.value?.node_name,
     question,
-    selection: quoteVisible.value ? props.quoteText : '',
+    selection: [props.knowledgeContext ? `${props.knowledgeContext.name}\n${props.knowledgeContext.statement}` : '', quoteVisible.value ? props.quoteText : ''].filter(Boolean).join('\n\n'),
     perspective: props.mode,
     identityScope: props.identityScope || getActiveRequestIdentityScope(),
     entrypoint: props.entrypoint === 'selection' && !quoteVisible.value ? 'global' : props.entrypoint || (quoteVisible.value ? 'selection' : 'global'),
@@ -1629,7 +1652,7 @@ function clearBlockTarget() {
 }
 
 async function saveAnswerAsNote(message: AIMessage) {
-  const target = contextRef()
+  const target = message.context_ref || contextRef()
   if (isTeacherPreviewCourse(courseStore.currentCourseId)) {
     await noteStore.createNote({ id: `trial-note-${createUuid()}`, nodeId: target.node_id || '',
       highlightId: '', quote: quoteVisible.value ? props.quoteText || '' : '', content: message.content,
@@ -1641,8 +1664,9 @@ async function saveAnswerAsNote(message: AIMessage) {
     title: message.content.slice(0, 80),
     content: message.content,
     quote: quoteVisible.value ? props.quoteText : '',
-    anchor: props.quoteAnchor,
+    anchor: target.content_anchor || props.quoteAnchor,
     metadata: {
+      content_anchor: target.content_anchor,
       ai_conversation_id: aiStore.currentConversationId,
       ai_message_ids: [message.message_id],
       record_subtype: 'assistant_saved_note',
@@ -1650,6 +1674,7 @@ async function saveAnswerAsNote(message: AIMessage) {
   }, target)
   await aiStore.confirmProposal(message, proposal)
   await noteStore.loadCourseRecords(courseStore.currentCourseId)
+  await useLearnerModelStore().load(courseStore.currentCourseId).catch(()=>undefined)
 }
 
 async function createConversation() {
@@ -1771,7 +1796,9 @@ function handleMessageScroll() {
 function scrollToBottom() {
   followingLatest.value = true
   nextTick(() => {
-    if (props.visible && messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight
+    if (props.visible && messageList.value) {
+      messageList.value.scrollTop = aiStore.messages.length ? messageList.value.scrollHeight : 0
+    }
   })
 }
 
@@ -1788,6 +1815,27 @@ function handleSettingsFocusOut(event: FocusEvent) {
 
 function handleOnline() { isOnline.value = true }
 function handleOffline() { isOnline.value = false }
+
+async function openStudyRequest() {
+  const request = props.studyRequest
+  if (!request || isTeacherMode.value) return
+  studyEntryError.value = ''
+  try {
+    await initialize()
+    if (request !== props.studyRequest) return
+    const conversation = await aiStore.openStudyDialogue(request)
+    if (!conversation || request !== props.studyRequest) return
+    conversationOpen.value = false
+    await nextTick()
+    if (request.prompt && conversation.messages.length <= 1) await studyPanel.value?.startDiscussion(request.prompt)
+  } catch { studyEntryError.value = t('studyDialogue.openFailed') }
+}
+watch(() => [props.knowledgeContext?.knowledge_id, props.blockTarget?.block.block_id, props.entrypoint], async () => {
+  if (!props.studyRequest && aiStore.currentConversation?.study_workspace && (props.knowledgeContext || props.blockTarget || props.entrypoint === 'practice')) {
+    try { await aiStore.createConversation() } catch { studyEntryError.value = t('studyDialogue.openFailed') }
+  }
+})
+watch(() => props.studyRequest?.token, () => { if (props.studyRequest) void openStudyRequest() }, { immediate:true })
 
 watch(() => props.quoteText, value => {
   quoteVisible.value = Boolean(value)
@@ -1870,6 +1918,7 @@ onUnmounted(() => {
 .ai-teacher-header { grid-column:1 / -1; grid-row:1; min-height:64px; display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:18px; padding:0 18px; border-bottom:1px solid var(--lz-border); background:#fff; }
 .ai-teacher-heading { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .ai-teacher-icon { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.4); border-radius: 11px; color: #fff; background: linear-gradient(135deg,#6366f1,#8b5cf6); box-shadow: 0 7px 16px rgba(99,102,241,.23), inset 0 1px 0 rgba(255,255,255,.25); }
+.ai-companion-avatar { width:40px; height:40px; flex:none; object-fit:contain; }
 .ai-teacher-heading-copy { min-width: 0; display: flex; flex-direction: column; }
 .ai-teacher-heading-copy strong { color: #312e81; font-size: 14px; line-height: 1.2; }
 .ai-teacher-header-context { min-width:0; max-width:680px; display:flex; align-items:center; justify-content:center; gap:10px; color:var(--lz-text-muted); }
@@ -2179,3 +2228,9 @@ onUnmounted(() => {
 </style>
 
 <style scoped src="../styles/learning-assistant.css"></style>
+
+<style scoped>
+.knowledge-chat-context { display:flex; align-items:flex-start; gap:7px; margin:14px 16px 0; padding:11px 12px; background:#f3effd; color:#756196; border-radius:9px; font-size:13px; line-height:1.6; }.knowledge-chat-context svg { flex:none; margin-top:3px; }.knowledge-chat-context strong { font-weight:500; color:#7652bc; }.knowledge-chat-context button { margin-left:auto; flex:none; border:0; background:transparent; color:inherit; cursor:pointer; }
+.has-companion :deep(.companion-panel-header) { width:100%; }.has-companion .ai-teacher-surface { display:flex; flex-direction:column; }.has-companion .assistant-main { min-height:0; flex:1; }.has-companion .conversation-shell { position:relative; inset:auto; min-height:0; flex:1; z-index:8; background:#fff; }.has-companion .conversation-shell:not(.open) { display:none; }
+.has-companion .conversation-rail-open > .assistant-main,.has-companion .conversation-rail-open > .study-dialogue { display:none; }
+</style>

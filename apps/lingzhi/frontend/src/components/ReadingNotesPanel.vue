@@ -1,13 +1,13 @@
 <template>
-  <section id="reading-notes-panel" class="reading-notes" role="tabpanel" aria-labelledby="reading-notes-tab">
-    <header class="reading-notes-tools">
+  <section id="reading-notes-panel" class="reading-notes" role="region" :aria-label="t('readingNotes.title', '笔记')">
+    <header class="reading-notes-tools" data-companion-obstacle>
       <button type="button" class="follow-toggle" :aria-pressed="following" @click="toggleFollowing">
         <Link2 :size="15" /><span>{{ following ? t('readingNotes.following', '随正文滚动') : t('readingNotes.resume', '恢复跟随正文') }}</span>
       </button>
       <button type="button" class="quick-note-button" :disabled="!courseStore.currentNode" @click="emit('create', $event)"><Plus :size="15" />{{ t('quickNote.title', '随手记') }}</button>
     </header>
-    <div class="reading-notes-location"><MathText :content="courseStore.currentNode?.node_name || t('readingNotes.selectSection', '选择一讲开始阅读')" /></div>
-    <details v-if="looseNotes.length" class="loose-notes">
+    <div class="reading-notes-location" data-companion-obstacle><MathText :content="courseStore.currentNode?.node_name || t('readingNotes.selectSection', '选择一讲开始阅读')" /></div>
+    <details v-if="looseNotes.length" class="loose-notes" data-companion-obstacle>
       <summary>{{ t('readingNotes.sectionNotes', '本讲其他笔记') }} <span>{{ looseNotes.length }}</span></summary>
       <button v-for="note in looseNotes" :key="note.id" type="button" @click="openNote(note, $event)">
         <MathText :content="note.content || note.quote || t('inlineRecords.empty', '这条记录还没有正文')" />
@@ -15,14 +15,14 @@
       </button>
     </details>
     <div ref="viewport" class="reading-notes-viewport" tabindex="0" @wheel.passive="following = false" @keydown="onScrollKey">
-      <div v-if="!positioned.length" class="reading-notes-empty">
+      <div v-if="!positioned.length" class="reading-notes-empty" data-companion-obstacle>
         <NotebookPen :size="26" />
         <p>{{ t('readingNotes.empty', '读到哪里，笔记就跟到哪里') }}</p>
         <span>{{ t('readingNotes.emptyHint', '选中正文记笔记，或用随手记记录想法。') }}</span>
         <button type="button" @click="emit('notebook')">{{ t('readingNotes.allNotes', '查看全部笔记') }}</button>
       </div>
       <div v-else class="reading-notes-canvas" :style="{ height: `${canvasHeight}px` }">
-        <article v-for="item in positioned" :key="item.note.id" class="reading-note-strip" :class="{ 'is-current': item.note.id === currentNoteId }" :data-note-id="item.note.id" :data-color="item.note.sourceType === 'ai' ? 'violet' : item.note.color" :style="{ top: `${item.top}px` }">
+        <article v-for="item in positioned" :key="item.note.id" class="reading-note-strip" :class="{ 'is-current': item.note.id === currentNoteId }" :data-note-id="item.note.id" :data-color="item.note.sourceType === 'ai' ? 'violet' : item.note.color" :style="{ top: `${item.top}px` }" data-companion-obstacle>
           <button type="button" class="reading-note-main" @click="openNote(item.note, $event)">
             <span class="reading-note-quote"><MathText :content="item.note.quote" /></span>
             <span class="reading-note-copy"><MathText :content="item.note.content || item.note.summary || t('inlineRecords.empty', '这条记录还没有正文')" /></span>

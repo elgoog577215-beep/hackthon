@@ -173,9 +173,37 @@ class TrialMessage(BaseModel):
 class AskRequest(BaseModel):
     preview_revision: str = Field(min_length=1, max_length=160)
     question: str = Field(min_length=1, max_length=4000)
+    selection: str = Field(default="", max_length=12000)
     section_id: str = Field(default="", max_length=160)
     block_ids: list[str] = Field(default_factory=list, max_length=20)
     messages: list[TrialMessage] = Field(default_factory=list, max_length=12)
+
+
+class StudyDialogueRequest(AskRequest):
+    draft: str = Field(default="", max_length=12000)
+    language: Literal["zh", "en"] = "zh"
+
+
+@router.post("/study-dialogue")
+async def study_dialogue_preview(course_id: str, body: StudyDialogueRequest, request: Request):
+    """Return a reply and working draft without persisting any learner state."""
+    from routers.study_dialogues import _model
+
+    document, _, revision = snapshot(owned_course(course_id, request))
+    assert_revision(revision, body.preview_revision)
+    if body.section_id and not any(s["section_id"] == body.section_id for s in document["sections"]):
+        raise HTTPException(422, detail="Unknown section reference")
+    visible = {b["block_id"]: b for b in document["blocks"]}
+    if any(bid not in visible or (body.section_id and visible[bid]["section_id"] != body.section_id) for bid in body.block_ids):
+        raise HTTPException(422, detail="Unknown block reference")
+    source = "\n\n".join(str(b["payload"].get("markdown") or "") for b in visible.values()
+                           if (not body.section_id or b["section_id"] == body.section_id)
+                           and (not body.block_ids or b["block_id"] in body.block_ids))[:16000]
+    result = await _model({"source": source, "quote": body.selection, "draft": body.draft,
+                           "history": [m.model_dump() for m in body.messages], "message": body.question,
+                           "action": "discuss", "nearby_notes": []}, action="discuss", language=body.language)
+    assert_revision(snapshot(owned_course(course_id, request))[2], revision)
+    return {**result, "preview_revision": revision}
 
 
 @router.post("/ask")
@@ -195,9 +223,9 @@ async def ask_preview(course_id: str, body: AskRequest, request: Request):
         for b in visible.values() if b["section_id"] == sid and (not body.block_ids or b["block_id"] in body.block_ids)]}
         for sid, section in sections.items()]
     sources = _select_sources({"nodes": safe_nodes, "current_course_version_id": document["document_revision"]},
-        node_id=body.section_id, question=body.question, selection="", perspective="teacher",
+        node_id=body.section_id, question=body.question, selection=body.selection, perspective="teacher",
         context_ref={"content_anchor": {"file_scope": {"mode": "all"}}})
-    package = {"request": {"question": body.question, "perspective": "student", "entrypoint": "teacher_preview", "intent": "explain"},
+    package = {"request": {"question": body.question, "selection": body.selection, "perspective": "student", "entrypoint": "teacher_preview", "intent": "explain"},
         "scene": {"course_id": course_id, "node_id": body.section_id, "document_revision": document["document_revision"]},
         "sources": sources, "conversation": {"recent_messages": [m.model_dump() for m in body.messages]},
         "permissions": {"persist": False, "modify_course": False}, "runtime": {}, "learner_model": {}, "learner_evidence": []}
@@ -215,7 +243,7 @@ async def ask_preview(course_id: str, body: AskRequest, request: Request):
                 yield event('sources', {'sources':public_sources})
                 yield event('complete', {'preview_revision':revision})
             except AITeacherModelFailure as exc:
-                yield event('error', {'code':exc.code,'message':exc.message})
+                yield event('error', {'code':exc.code,'message':exc.message,'retryable':exc.retryable})
             except HTTPException as exc:
                 yield event('error', exc.detail if isinstance(exc.detail, dict) else {'message':str(exc.detail)})
         return StreamingResponse(stream(), media_type='text/event-stream', headers={'Cache-Control':'no-store','X-Accel-Buffering':'no'})

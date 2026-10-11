@@ -60,6 +60,46 @@ class RecordArchive(BaseModel):
     expected_revision: int = Field(ge=1)
 
 
+class CompanionReviewRequest(BaseModel):
+    expected_revision: int = Field(ge=1)
+    course_version_id: str = Field(max_length=160)
+    language: Literal["zh", "en"] = "zh"
+
+
+@router.post("/{record_id}/companion-review")
+async def companion_review(course_id: str, record_id: str, payload: CompanionReviewRequest, request: Request):
+    from ai_service import ai_service
+    from companion_note_review import review_note
+
+    course = await get_course_or_404(course_id)
+    user_id = require_user_id(request.headers.get("X-User-Id"))
+    records = await run_in_threadpool(learning_record_repository.list, user_id, course_id)
+    record = next((item for item in records if item.get("record_id") == record_id), None)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Learning record not found")
+    version = str(course.get("current_course_version_id") or "")
+    if record.get("revision") != payload.expected_revision or version != payload.course_version_id:
+        raise HTTPException(status_code=409, detail="Review context changed")
+    projected = project_record(record, course)
+    if (record.get("record_type") != "note" or record.get("status") == "archived"
+            or str(record.get("origin") or "").startswith("assistant")
+            or record.get("origin") == "legacy_ai_annotation"
+            or projected.get("migration_status") not in (None, "current")
+            or (record.get("course_version_id") and record["course_version_id"] != version)):
+        return {"status": "insufficient_context", "finding": None}
+    node = next((item for item in course.get("nodes", []) if item.get("node_id") == record.get("node_id")), None)
+    source = str((node or {}).get("node_content") or "")
+    result = await review_note(record, source, language=payload.language, service=ai_service)
+    # Reject results that completed after a note or course revision changed.
+    latest_course = await get_course_or_404(course_id)
+    latest_records = await run_in_threadpool(learning_record_repository.list, user_id, course_id)
+    latest = next((item for item in latest_records if item.get("record_id") == record_id), None)
+    if (not latest or latest.get("revision") != payload.expected_revision
+            or str(latest_course.get("current_course_version_id") or "") != version):
+        raise HTTPException(status_code=409, detail="Review context changed")
+    return {**result, "record_id": record_id, "revision": payload.expected_revision, "course_version_id": version}
+
+
 class LegacyAnnotationMigrationRequest(BaseModel):
     include_unowned: bool = False
 

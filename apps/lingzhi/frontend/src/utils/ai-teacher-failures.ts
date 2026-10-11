@@ -8,6 +8,7 @@ import { t } from '../shared/i18n'
  * same failure and a retryable outage reads differently from a config problem.
  */
 const MODEL_FAILURE_COPY: Record<string, [string, string]> = {
+  model_gateway_error: ['studyDialogue.gatewayError', '模型网关返回 502，暂时无法连接推理服务。输入已保留，请在服务恢复后重试。'],
   model_not_configured: ['courseWorkspace.aiTeacher.failure.notConfigured', 'AI 老师尚未配置模型'],
   model_auth_failed: ['courseWorkspace.aiTeacher.failure.authFailed', 'AI 模型认证失败'],
   model_quota_exhausted: ['courseWorkspace.aiTeacher.failure.quotaExhausted', 'AI 模型额度已用完'],

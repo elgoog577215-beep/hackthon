@@ -24,13 +24,40 @@ beforeEach(() => {
 })
 afterEach(() => { setTeacherPreviewCourse(''); vi.unstubAllGlobals() })
 
+it('updates preview drafts from structured replies without formal writes or caches', async () => {
+  const store=useAITeacherStore();await store.load('c','s1','teacher')
+  const conversation=await store.openStudyDialogue({kind:'note',nodeId:'s1',quote:'Selected text'})
+  conversation!.study_workspace!.draft='My manual draft'
+  vi.mocked(http.post).mockResolvedValue({data:{preview_revision:'r1',reply:'Explained.',draft:'My manual draft with an example.'}})
+  await store.discussStudyPreview(conversation!.conversation_id,'Add an example')
+  expect(conversation!.study_workspace!.draft).toBe('My manual draft with an example.')
+  expect(conversation!.messages.at(-1)?.content).toBe('Explained.')
+  expect(http.post).toHaveBeenCalledWith('/api/teacher/courses/c/preview/study-dialogue',expect.objectContaining({draft:'My manual draft',question:'Add an example'}),expect.anything())
+  expect(http.post).toHaveBeenCalledTimes(1)
+  expect(useNoteStore().notes).toEqual([]);expect(localStorage.length).toBe(0)
+})
+
+it('does not overwrite preview edits made while the model is responding', async () => {
+  const store=useAITeacherStore();await store.load('c','s1','teacher')
+  const conversation=await store.openStudyDialogue({kind:'note',nodeId:'s1',quote:'Selected text'})
+  let finish!: (response:any)=>void
+  vi.mocked(http.post).mockImplementation(()=>new Promise(resolve=>{finish=resolve}))
+  const pending=store.discussStudyPreview(conversation!.conversation_id,'Explain')
+  conversation!.study_workspace!.draft='Newer manual text'
+  finish({data:{preview_revision:'r1',reply:'Explained.',draft:'Older model text'}})
+  await pending
+  expect(conversation!.study_workspace!.draft).toBe('Newer manual text')
+  expect(conversation!.messages.at(-1)?.status).toBe('complete')
+})
+
 it('displays preview answer chunks before completion without formal conversation writes', async () => {
+  useCourseStore().teacherPreviewSnapshot.document.blocks = [{block_id:'public'}]
   const store=useAITeacherStore();await store.load('c','s1','teacher')
   let stream!: ReadableStreamDefaultController<Uint8Array>
   const body=new ReadableStream<Uint8Array>({start(controller){stream=controller}})
   const fetchMock=vi.fn().mockResolvedValue(new Response(body,{headers:{'Content-Type':'text/event-stream'}}))
   vi.stubGlobal('fetch',fetchMock)
-  const pending=store.sendMessage({courseId:'c',nodeId:'s1',question:'什么是函数',identityScope:'teacher'})
+  const pending=store.sendMessage({courseId:'c',nodeId:'s1',question:'什么是函数',displayQuestion:'讲解选中的原文',selection:'原文与我的笔记',identityScope:'teacher',contextRef:{course_id:'c',content_anchor:{block_id:'public'}}})
   const encoder=new TextEncoder()
   stream.enqueue(encoder.encode('event: answer\ndata: {"chunk":"函数"}\n\n'))
   await vi.waitFor(()=>expect(store.conversations[0]?.messages.at(-1)?.content).toBe('函数'))
@@ -40,6 +67,10 @@ it('displays preview answer chunks before completion without formal conversation
   expect(store.conversations[0]?.messages.at(-1)?.content).toBe('函数的输出唯一。')
   expect(store.conversations[0]?.messages.at(-1)?.status).toBe('complete')
   expect(fetchMock).toHaveBeenCalledWith('/api/teacher/courses/c/preview/ask',expect.objectContaining({body:expect.stringContaining('"preview_revision":"r1"')}))
+  expect(JSON.parse(fetchMock.mock.calls[0]![1].body).selection).toBe('原文与我的笔记')
+  expect(JSON.parse(fetchMock.mock.calls[0]![1].body).block_ids).toEqual(['public'])
+  expect(store.conversations[0]?.messages[0]?.content).toBe('讲解选中的原文')
+  expect(JSON.parse(fetchMock.mock.calls[0]![1].body).question).toBe('什么是函数')
   expect(http.post).not.toHaveBeenCalled();expect(localStorage.length).toBe(0)
 })
 
@@ -99,6 +130,7 @@ it('loads knowledge lazily from the same preview revision and reuses it', async 
   expect(http.get).toHaveBeenCalledTimes(1)
   expect(http.get).toHaveBeenCalledWith('/api/teacher/courses/c/preview',{params:{include_assets:true}})
 })
+
 
 it.each(['trial', 'canonical'] as const)('keeps saved handout types, answer links and concept anchors when loading %s', async (mode) => {
   const document = { course_id: 'c', title: '讲义', document_revision: 'r1', sections: [

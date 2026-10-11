@@ -52,6 +52,7 @@ except ImportError:
         raise
 
 # 导入路由模块
+from routers import study_dialogues
 from routers import (
     courses, course_baseline, nodes, assistant, ai_teacher,
     review,
@@ -220,6 +221,7 @@ app.include_router(learning_assets.router, prefix="/api")
 app.include_router(learning_snapshots.router, prefix="/api")
 app.include_router(learning_progress.router, prefix="/api")
 app.include_router(learning_records.router, prefix="/api")
+app.include_router(study_dialogues.router, prefix="/api/courses/{course_id}/learning-records")
 app.include_router(learning_continuation.router, prefix="/api")
 app.include_router(learning_runtime.router, prefix="/api")
 app.include_router(learner_model.router, prefix="/api")

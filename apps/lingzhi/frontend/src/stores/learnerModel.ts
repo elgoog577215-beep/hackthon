@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import http from '../utils/http'
 import { isTeacherPreviewCourse } from '../utils/teacher-preview'
+import type { KnowledgeProfile } from '../types/knowledge-profile'
 
 export type EvidenceConfidence = 'insufficient' | 'low' | 'medium' | 'high'
 export type EvidenceSufficiency = 'none' | 'limited' | 'moderate' | 'strong'
@@ -48,6 +49,7 @@ export interface LearnerModelItem {
 }
 
 export interface LearnerModelProjection {
+  knowledge_profile?: KnowledgeProfile
   schema_version: 'learner_model_v1'
   model_revision_id: string
   user_id: string

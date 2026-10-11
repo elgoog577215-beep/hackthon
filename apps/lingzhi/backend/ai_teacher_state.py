@@ -101,6 +101,39 @@ class AITeacherRepository:
             conversation["updated_at"] = _now()
             return deepcopy(conversation)
 
+    def open_study_conversation(self, user_id: str, course_id: str, *, conversation_id: str,
+                                workspace: dict, title: str, greeting: str) -> dict:
+        """One resumable workspace per source; ordinary conversation history owns it."""
+        with self._guard(user_id, course_id, write=True) as data:
+            current = self._conversation(data, conversation_id)
+            if current:
+                return deepcopy(current)
+            now = _now()
+            conversation = {
+                "conversation_id": conversation_id, "user_id": user_id, "course_id": course_id,
+                "course_version_id": workspace["course_version_id"], "title": _clip(title, 200),
+                "revision": 1, "retrieval_enabled": False, "study_workspace": deepcopy(workspace),
+                "messages": [{"message_id": f"{conversation_id}:welcome", "role": "assistant",
+                              "content": greeting, "status": "complete", "created_at": now}],
+                "created_at": now, "updated_at": now,
+            }
+            data["conversations"].insert(0, conversation)
+            return deepcopy(conversation)
+
+    def update_study_conversation(self, user_id: str, course_id: str, conversation_id: str,
+                                  expected_revision: int, update) -> dict:
+        with self._guard(user_id, course_id, write=True) as data:
+            conversation = self._conversation(data, conversation_id)
+            if not conversation or not conversation.get("study_workspace"):
+                raise KeyError(conversation_id)
+            if conversation["study_workspace"]["revision"] != expected_revision:
+                raise InteractionConflict(deepcopy(conversation))
+            update(conversation)
+            conversation["study_workspace"]["revision"] += 1
+            conversation["revision"] += 1
+            conversation["updated_at"] = _now()
+            return deepcopy(conversation)
+
     def get_conversation(
         self,
         user_id: str,

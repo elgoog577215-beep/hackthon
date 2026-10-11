@@ -45,6 +45,7 @@ class AITeacherModelFailure(RuntimeError):
 # Teacher-facing Chinese copy is the server-side audit line; the client
 # localizes from `code`.
 _FAILURE_COPY: dict[str, tuple[str, bool]] = {
+    "model_gateway_error": ("模型网关返回 502，暂时无法连接推理服务。输入已保留，请在服务恢复后重试。", True),
     "model_not_configured": ("AI 老师尚未配置模型，请联系管理员。", False),
     "model_auth_failed": ("AI 模型认证失败，请联系管理员检查密钥。", False),
     "model_quota_exhausted": ("AI 模型额度已用完，请稍后再试或联系管理员。", False),
@@ -116,6 +117,8 @@ def _failure_code_from_text(text: str) -> str:
     the same markers `ai_base` matches on so both layers agree on the kind.
     """
     lowered = text.lower()
+    if "bad gateway" in lowered or "error code: 502" in lowered or "http 502" in lowered or "502 bad" in lowered:
+        return "model_gateway_error"
     if "not configured" in lowered:
         return "model_not_configured"
     if any(marker in lowered for marker in (

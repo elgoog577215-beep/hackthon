@@ -13,6 +13,7 @@ from course_knowledge_map import (
     project_learning_assets_to_knowledge,
 )
 from course_versioning import stable_hash
+from knowledge_mastery import build_knowledge_profile
 
 
 SCHEMA_VERSION = "learner_model_v1"
@@ -35,8 +36,12 @@ def build_learner_model(
     """Build a read-only model without storing or calling an AI provider."""
     course_id = str(course_data.get("course_id") or "")
     course_version_id = str(course_data.get("current_course_version_id") or "")
+    profile_assets = project_learning_assets_to_knowledge(course_data, course_data.get("learning_assets") or {})
     course_map = project_course_knowledge_map(course_data)
-    skill_ids_by_node = _formal_refs_by_node(course_data, "skill_unit_ids")
+    profile_base = next(iter(profile_assets.get("course_knowledge_base") or []), {})
+    knowledge_profile = build_knowledge_profile(profile_base, course_id=course_id, course_version_id=course_version_id,
+                                                user_id=user_id, attempts=attempts, events=events)
+    skill_ids_by_node = _formal_refs_by_node(course_data, "skill_unit_ids", assets=profile_assets)
     objective_models = [
         _objective_model(
             objective,
@@ -86,6 +91,7 @@ def build_learner_model(
         "course_id": course_id,
         "source_revision_vector": source_revision_vector,
         "course_knowledge_map_revision_id": course_map.get("revision_id"),
+        "knowledge_profile_revision_id": knowledge_profile["revision_id"],
     }, prefix="lmr_")
 
     return {
@@ -119,6 +125,7 @@ def build_learner_model(
             "course_map_revision_id": course_map.get("revision_id"),
         },
         "knowledge_states": knowledge_states,
+        "knowledge_profile": knowledge_profile,
         "skill_states": skill_states,
         "mistake_signals": mistake_signals,
         "strengths": strengths,
@@ -372,12 +379,10 @@ def _mistake_signals(workflow: dict[str, Any]) -> list[dict[str, Any]]:
     return signals
 
 
-def _formal_refs_by_node(course_data: dict[str, Any], field: str) -> dict[str, list[str]]:
+def _formal_refs_by_node(course_data: dict[str, Any], field: str, *, assets: dict | None = None) -> dict[str, list[str]]:
     result: dict[str, list[str]] = {}
-    assets = project_learning_assets_to_knowledge(
-        course_data,
-        course_data.get("learning_assets") or {},
-    )
+    if assets is None:
+        assets = project_learning_assets_to_knowledge(course_data, course_data.get("learning_assets") or {})
     for collection in ("questions", "mastery_criteria", "diagnostic_templates", "remediation_units"):
         for item in assets.get(collection) or []:
             node_id = str(item.get("node_id") or "")

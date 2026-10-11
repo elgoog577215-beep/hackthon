@@ -1,6 +1,6 @@
 <template>
   <div class="learning-overview">
-    <header class="overview-header">
+    <header v-show="!pointActive" class="overview-header">
       <div class="overview-heading">
         <span class="overview-heading__icon" aria-hidden="true"><ChartNoAxesCombined :size="19" /></span>
         <div>
@@ -25,6 +25,15 @@
         </button>
       </div>
     </header>
+
+    <nav v-show="!pointActive" class="overview-modes" :aria-label="t('knowledgeProfile.view', '画像视图')">
+      <button type="button" :aria-pressed="overviewMode === 'knowledge'" @click="overviewMode = 'knowledge'">{{ t('knowledgeProfile.title', '知识掌握画像') }}</button>
+      <button type="button" :aria-pressed="overviewMode === 'activity'" @click="overviewMode = 'activity'">{{ t('knowledgeProfile.activityView', '阅读与学习记录') }}</button>
+    </nav>
+    <div v-if="overviewMode === 'knowledge'">
+      <KnowledgeMasteryProfile :profile="model?.knowledge_profile" :course-title="courseStore.currentCourse?.course_name" :preview="teacherPreview" :loading="loading" :error="error" can-locate @locate="locateKnowledge" @select="onSelectPoint" @ask="emit('askKnowledge', $event)" @evidence="(point, evidence) => emit('discussEvidence', point, evidence)" @lecture="emit('openLecture', $event)" />
+    </div>
+    <div v-show="overviewMode === 'activity'">
 
     <div v-if="loading && !model" class="overview-state" role="status">
       <LoaderCircle :size="20" class="spinning" />
@@ -154,11 +163,12 @@
         <span v-if="modelRevision">{{ t('courseWorkspace.learningOverview.revision', '模型修订') }} {{ shortRevision }}</span>
       </footer>
     </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   BadgeCheck,
@@ -182,6 +192,9 @@ import { useLearnerModelStore, type EvidenceConfidence, type LearnerModelItem } 
 import { useLearningProgressStore } from '../stores/learningProgress'
 import { learningActionPresentation } from '../utils/learning-action'
 import { t } from '../shared/i18n'
+import type { KnowledgeProfileNode } from '../types/knowledge-profile'
+import KnowledgeMasteryProfile from './KnowledgeMasteryProfile.vue'
+import { isTeacherPreviewCourse } from '../utils/teacher-preview'
 
 withDefaults(defineProps<{
   closable?: boolean
@@ -191,9 +204,21 @@ withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (event: 'close'): void
+  (event: 'selectKnowledge', point: KnowledgeProfileNode | null): void
+  (event: 'askKnowledge', point: KnowledgeProfileNode): void
+  (event: 'openLecture', point: KnowledgeProfileNode): void
+  (event: 'discussEvidence', point: KnowledgeProfileNode, evidence: KnowledgeProfileNode['evidence'][number]): void
 }>()
 
+const pointActive = ref(false)
+function onSelectPoint(point: KnowledgeProfileNode | null) { pointActive.value = Boolean(point); emit('selectKnowledge', point) }
 const courseStore = useCourseStore()
+const overviewMode = ref<'knowledge' | 'activity'>('knowledge')
+const teacherPreview = computed(() => isTeacherPreviewCourse(courseStore.currentCourseId))
+function locateKnowledge(id: string) {
+  courseStore.focusKnowledgeId = id
+  courseStore.showKnowledgeLibrary = true
+}
 const learnerModelStore = useLearnerModelStore()
 const learningProgressStore = useLearningProgressStore()
 
@@ -326,6 +351,10 @@ function exportModel() {
 </script>
 
 <style scoped>
+.overview-modes { display:flex; gap:8px; padding:16px 24px 0; }
+.overview-modes button { padding:8px 14px; border:1px solid #e5dfef; border-radius:9px; background:#fff; color:#7e718c; font:inherit; font-size:14px; cursor:pointer; }
+.overview-modes button[aria-pressed="true"] { background:#eee9fb; color:#6750a1; border-color:#ded3f6; }
+.overview-demo-link { display:inline-block; margin:0 24px 24px; color:#7258ae; font-size:14px; text-decoration:underline; }
 .learning-overview { height:100%; overflow:auto; color:var(--lz-text); background:rgba(255,255,255,.94); }
 .overview-header { position:sticky; top:0; z-index:4; display:flex; align-items:center; justify-content:space-between; min-height:68px; padding:12px 24px; border-bottom:1px solid var(--lz-border); background:var(--bg-secondary); }
 .overview-heading { display:flex; align-items:center; gap:11px; min-width:0; }

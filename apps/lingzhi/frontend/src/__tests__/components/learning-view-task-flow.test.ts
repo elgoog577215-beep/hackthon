@@ -1,4 +1,4 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -80,6 +80,7 @@ const LearningStatsStub = defineComponent({
 
 describe('LearningView 正文任务覆盖层', () => {
   beforeEach(async () => {
+    localStorage.removeItem('lingzhi-companion-layout')
     sessionStorage.removeItem('lingzhi-learning-ai-open')
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 })
     const pinia = createPinia()
@@ -133,6 +134,21 @@ describe('LearningView 正文任务覆盖层', () => {
     vi.spyOn(useChangeProposalsStore(), 'fetchChangeProposals').mockResolvedValue(undefined)
   })
 
+  it.each([false, true])('shows the first-use greeting only in a loaded learner course (teacher preview: %s)', async preview => {
+    const router = (globalThis as any).__learningTestRouter
+    if (preview) await router.replace('/course/c1/learn/n1?teacherPreview=1')
+    useCourseStore().currentCourseProjection = 'published'
+    const wrapper = mount(LearningView, { global: {
+      plugins: [(globalThis as any).__learningTestPinia, router],
+      stubs: { ContentArea: ContentAreaStub, CourseNavigator: true, LearningTaskOverlay: TaskOverlayStub,
+        LearningStats: LearningStatsStub, NotesPanel: NotesPanelStub,
+        SideAIPanel: true, Teleport: true },
+    } })
+    await flushPromises()
+    expect(wrapper.findComponent({ name:'LearningCompanion' }).props('welcome')).toBe(!preview)
+    wrapper.unmount()
+  })
+
   it('助手、笔记与正文切换保留输入；练习和概况不遮住助手与底栏', async () => {
     const StatefulAssistant = defineComponent({
       name: 'SideAIPanel',
@@ -146,24 +162,58 @@ describe('LearningView 正文任务覆盖层', () => {
         plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
         stubs: {
           ContentArea: ContentAreaStub, CourseNavigator: true,
-          LearningTaskOverlay: TaskOverlayStub, LearningStats: LearningStatsStub,
+          LearningTaskOverlay: TaskOverlayStub, LearningStats: LearningStatsStub, CourseKnowledgeStudy: true,
           NotesPanel: NotesPanelStub, SideAIPanel: StatefulAssistant,
+          Teleport: false,
         },
       },
     })
     await flushPromises()
-    expect(wrapper.get('#reading-notes-tab').attributes('aria-selected')).toBe('true')
+    expect(wrapper.find('.reading-side-tabs').exists()).toBe(false)
     expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(false)
-    await wrapper.get('#reading-assistant-tab').trigger('click')
+    const pet = new DOMWrapper(document.querySelector('.learning-companion') as HTMLElement)
+    expect(pet.isVisible()).toBe(true)
+    await pet.get('[data-testid="companion-dock"]').trigger('click')
+    expect(pet.find('[data-testid="companion-open"]').exists()).toBe(false)
+    await pet.get('[data-testid="companion-restore"]').trigger('click')
+    await pet.get('[data-testid="companion-open"]').trigger('click')
+    expect(pet.isVisible()).toBe(true)
+    expect(pet.get('[data-testid="companion-open"]').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(true)
     await wrapper.get('.ai-panel-stub textarea').setValue('保留这段草稿')
     await wrapper.get('[data-domain="assistant"]').trigger('click')
     expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(false)
+    expect(pet.isVisible()).toBe(true)
+    expect(document.activeElement).toBe(pet.get('[data-testid="companion-open"]').element)
+    expect(wrapper.get('.learning-side-panel').isVisible()).toBe(false)
     await wrapper.get('[data-domain="assistant"]').trigger('click')
     expect((wrapper.get('.ai-panel-stub textarea').element as HTMLTextAreaElement).value).toBe('保留这段草稿')
     await wrapper.get('[data-domain="notebook"]').trigger('click')
     expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(false)
     await wrapper.get('[data-domain="assistant"]').trigger('click')
     expect(wrapper.get('.notebook-side-panel').isVisible()).toBe(false)
+    expect((wrapper.get('.ai-panel-stub textarea').element as HTMLTextAreaElement).value).toBe('保留这段草稿')
+    const originalComposer = wrapper.get('.ai-panel-stub textarea').element
+    const assistant = wrapper.findComponent(StatefulAssistant)
+    assistant.vm.$emit('toggleMode')
+    await flushPromises()
+    const floatingPanel = new DOMWrapper(document.querySelector('.companion-modal-window') as HTMLElement)
+    expect(floatingPanel.isVisible()).toBe(true)
+    expect((floatingPanel.get('textarea').element as HTMLTextAreaElement).value).toBe('保留这段草稿')
+    expect(wrapper.attributes('inert')).toBeUndefined()
+    // Closing must leave the same input in the hidden floating host, without a docked frame.
+    assistant.vm.$emit('close')
+    await flushPromises()
+    expect(floatingPanel.isVisible()).toBe(false)
+    expect(floatingPanel.get('textarea').element).toBe(originalComposer)
+    expect(wrapper.find('.ai-panel-stub').exists()).toBe(false)
+    expect(localStorage.getItem('lingzhi-companion-layout')).toBe('floating')
+    await wrapper.get('[data-domain="assistant"]').trigger('click')
+    expect(floatingPanel.isVisible()).toBe(true)
+    expect((floatingPanel.get('textarea').element as HTMLTextAreaElement).value).toBe('保留这段草稿')
+    assistant.vm.$emit('toggleMode')
+    await flushPromises()
+    expect(wrapper.get('.ai-panel-stub textarea').element).toBe(originalComposer)
     expect((wrapper.get('.ai-panel-stub textarea').element as HTMLTextAreaElement).value).toBe('保留这段草稿')
     await wrapper.get('[data-domain="question-book"]').trigger('click')
     expect(wrapper.find('.learning-stage .task-overlay-stub').exists()).toBe(true)
@@ -178,7 +228,36 @@ describe('LearningView 正文任务覆盖层', () => {
     expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(true)
     await wrapper.get('[data-domain="overview"]').trigger('click')
     expect(wrapper.find('.stats-overlay').exists()).toBe(false)
+    useCourseStore().isFocusMode = true
+    await flushPromises()
+    expect(pet.isVisible()).toBe(false)
     wrapper.unmount()
+  })
+
+  it.each(['floating', 'docked'])('restores the %s layout on remount and preserves it across course changes', async layout => {
+    localStorage.setItem('lingzhi-companion-layout', layout)
+    const Assistant = defineComponent({
+      props: ['floating'],
+      template: '<aside class="layout-assistant" :data-floating="floating" />',
+    })
+    const createView = () => mount(LearningView, { attachTo: document.body, global: {
+      plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
+      stubs: { ContentArea: ContentAreaStub, CourseNavigator: true, LearningTaskOverlay: TaskOverlayStub,
+        LearningStats: LearningStatsStub, NotesPanel: NotesPanelStub,
+        SideAIPanel: Assistant, Teleport: false },
+    } })
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const wrapper = createView()
+      await flushPromises()
+      await wrapper.get('[data-domain="assistant"]').trigger('click')
+      const panel = new DOMWrapper(document.querySelector('.layout-assistant') as HTMLElement)
+      expect(panel.isVisible()).toBe(true)
+      expect(panel.attributes('data-floating')).toBe(String(layout === 'floating'))
+      useCourseStore().currentCourseId = `c${attempt + 2}`
+      await flushPromises()
+      expect(wrapper.findComponent(Assistant).props('floating')).toBe(layout === 'floating')
+      wrapper.unmount()
+    }
   })
 
   it('从正文打开任务并在关闭后恢复原滚动位置', async () => {
@@ -191,7 +270,7 @@ describe('LearningView 正文任务覆盖层', () => {
           LearningTaskOverlay: TaskOverlayStub,
           CourseNavigator: true,
           LearningDock: true,
-          LearningStats: LearningStatsStub,
+          LearningStats: LearningStatsStub, CourseKnowledgeStudy: true,
           MistakeNotebookPanel: { template: '<div class="mistake-notebook-stub">错题本</div>' },
           NotesPanel: NotesPanelStub,
           SideAIPanel: true,
@@ -230,7 +309,7 @@ describe('LearningView 正文任务覆盖层', () => {
           ContentArea: ContentAreaStub,
           LearningTaskOverlay: TaskOverlayStub,
           CourseNavigator: true,
-          LearningStats: LearningStatsStub,
+          LearningStats: LearningStatsStub, CourseKnowledgeStudy: true,
           MistakeNotebookPanel: { template: '<div class="mistake-notebook-stub">错题本</div>' },
           NotesPanel: NotesPanelStub,
           SideAIPanel: { template: '<aside class="ai-panel-stub">AI 老师</aside>' },
