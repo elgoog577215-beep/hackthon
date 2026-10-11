@@ -779,7 +779,7 @@ def _has_substantive_code(value: str) -> bool:
         for line in str(value or "").splitlines()
         if line.strip()
     ]
-    if len(lines) < 2:
+    if not lines:
         return False
     return bool(
         re.search(

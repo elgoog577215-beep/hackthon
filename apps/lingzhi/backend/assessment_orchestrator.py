@@ -74,7 +74,7 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v12"
+ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v23"
 
 
 def _out_tokens(limit: int) -> int:
@@ -457,12 +457,16 @@ class UniversalAssessmentModel(AIBase):
                 "解释规则即可，不引用未随题提供的精确标准段落编号；明确区分类型转换发生在运算前还是运算后。"
                 "解析保持简短：给运算前的类型、实际运算、最终值即可；不额外引入前缀后缀等无关术语。"
                 "追踪if/else时保持原始花括号和分号，不能为解释而改变语法结构。"
-                "只输出JSON：{\"answer\": ..., \"summary\": \"...\", "
+                "只输出一份最终结论，不写讨论、犹豫、纠错或备选推理过程。选择题work最多3步，每步解释不超过80字。"
+                "每个错误选项只用一句话说明与本题计算结果的差别，不扩展到其他语言、余数、未给出的转换等题外情境。"
+                "非终止小数或截断显示的有限小数必须标明约等于，不把干扰项的小数写法说成原算式的精确结果。"
+                "checks只写本题可核对的事实；common_errors最多一条。先写已核对的推导，最后填写answer。"
+                "只输出JSON：{\"summary\": \"...\", "
                 "\"work\": [{\"title\": \"...\", \"explanation\": \"...\", "
                 "\"calculation\": \"...\", \"result\": \"...\"}], "
                 "\"checks\": [\"具体核验方法\"], \"option_analysis\": "
                 "[{\"option_id\": \"A\", \"is_correct\": true, \"explanation\": \"具体原因\"}], "
-                "\"common_errors\": [...]}。\n"
+                "\"common_errors\": [...], \"answer\": ...}。\n"
                 f"{code_answer_requirement}"
                 f"{json.dumps(public_question_spec, ensure_ascii=False)}"
             ),
@@ -479,7 +483,7 @@ class UniversalAssessmentModel(AIBase):
             raise_on_failure=True,
             reject_truncated=True,
             max_tokens=_out_tokens(
-                1536
+                2048
                 if input_mode == "choice"
                 else (
                     6144
@@ -690,6 +694,7 @@ class UniversalAssessmentModel(AIBase):
             "evidence": ["Short evidence without code quotations"],
             "issues": [],
         }
+        evaluation_schema = _ordered_review_schema(evaluation_schema)
         response = await self._assessment_llm_call(
             call_policy,
             (
@@ -3839,8 +3844,8 @@ def _contract_from_candidate(
             "invalid_candidate_worked_solution"
         )
     if (
-        len(str(stimulus.get("rendered_text") or "").strip()) < 12
-        or len(str(task.get("rendered_text") or "").strip()) < 12
+        not str(stimulus.get("rendered_text") or "").strip()
+        or not str(task.get("rendered_text") or "").strip()
     ):
         raise AIProviderRequestError(
             "invalid_candidate_stimulus_and_task_not_concrete"
@@ -5724,6 +5729,7 @@ def _batch_evaluation_prompt(
             "evidence": "题面证据",
         }],
     }
+    report_schema = _ordered_review_schema(report_schema)
     envelope = {
         "reports": [{
             "slot_id": str(item.get("slot_id") or ""),
@@ -5752,6 +5758,14 @@ def _batch_evaluation_prompt(
     )
 
 
+def _ordered_review_schema(schema: dict) -> dict:
+    # Ask for grounded observations before the verdict, not after a guessed flag.
+    return {key: schema[key] for key in (
+        "review_witness", "evidence", "evidence_checks", "solution_consistent",
+        "dimensions", "confidence", "passed", "issues",
+    )}
+
+
 def _review_witness_schema(target_statement: str = "") -> dict:
     return {
         "option_audit": [{"option_id": "逐项复制实际ID", "meaning": "明确该选项按什么语义解释",
@@ -5769,6 +5783,11 @@ def _review_witness_schema(target_statement: str = "") -> dict:
 
 def _semantic_review_directive() -> str:
     return (
+        "Return ONE final, internally consistent report, never deliberation, self-correction or alternate drafts. "
+        "First complete the factual option audit and observation trace; then set all final flags and scores from them. "
+        "Keep evidence to at most three factual sentences of 60 Chinese characters each, and trace under 160 characters. "
+        "Inspect every assertion in independent option_analysis and checks, including irrelevant side claims. "
+        "An unexplained rejection or a verdict contradicted by its own trace is not a usable review. "
         "For atomic_assessment_v1, explicitly return evidence_checks with eight booleans: "
         "language_aligned (actual code and prose follow slot.language_contract), "
         "no_answer_leakage (the stem does not teach the tested rule or reveal the correct alternative), "
@@ -5782,6 +5801,9 @@ def _semantic_review_directive() -> str:
         "and verify that exactly the intended option(s) are correct. A numeric answer must not compete with an "
         "unevaluated arithmetic expression having another interpretation or the same value. "
         "For observation_test, change ONLY one aspect of the complete target rule; preserve all other semantics. "
+        "For a hypothetical skipped loop update, continue still skips the rest of the body. "
+        "Recompute termination: if it loops forever, report the finite output prefix and nontermination, "
+        "never invent prints from statements that continue still skips. "
         "If an incorrect rule still yields the same asked-for observation, set observation_discriminates=false "
         "and emit OBSERVATION_NOT_DISCRIMINATING. For example, an update wrongly performed just before exiting "
         "must still exit; do not change it into continuing the whole loop just to make outputs differ. "

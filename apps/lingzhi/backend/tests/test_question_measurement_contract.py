@@ -169,6 +169,8 @@ def test_for_local_counter_cannot_be_observed_after_its_scope_ends():
     c=sample()
     c["prompt"]="```c\nfor(int k=0;k<10;k+=3){if(k==3)break;}\n```\n程序结束时，变量 k 的值是多少？"
     assert "OBSERVED_VARIABLE_OUT_OF_SCOPE" in {i["code"] for i in measurement_findings(c)}
+    c["prompt"] = c["prompt"].replace("```c", "```C")
+    assert "OBSERVED_VARIABLE_OUT_OF_SCOPE" in {i["code"] for i in measurement_findings(c)}
     c["prompt"]="```c\nint k=0;for(;k<10;k+=3){if(k==3)break;}\n```\n退出循环后，变量 k 的值是多少？"
     assert "OBSERVED_VARIABLE_OUT_OF_SCOPE" not in {i["code"] for i in measurement_findings(c)}
 

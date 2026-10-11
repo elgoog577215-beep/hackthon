@@ -110,10 +110,17 @@ def measurement_findings(contract: dict, brief: dict | None = None) -> list[dict
                     )
                 numbers[number] = text
     target = str(brief.get("primary_knowledge") or "")
-    code = "\n".join(re.findall(r"```(?:c|cpp)?\s*\n([\s\S]*?)```", prompt))
+    code = "\n".join(re.findall(r"```(?:c|cpp)?\s*\n([\s\S]*?)```", prompt, re.I))
     prose = re.sub(r"```[\s\S]*?```", "", prompt)
+    local_counter = re.search(r"\bfor\s*\(\s*int\s+([A-Za-z_]\w*)\s*=", code)
+    if (local_counter and len(re.findall(r"\bfor\s*\(", code)) == 1
+            and len(re.findall(rf"\bint\s+{re.escape(local_counter[1])}\b", code)) == 1
+            and re.search(r"程序结束|循环结束|退出.*循环|循环.*之后", prose)
+            and re.search(rf"变量\s*`?{re.escape(local_counter[1])}`?\s*(?:的|值)", prose)):
+        issues.append(_issue("OBSERVED_VARIABLE_OUT_OF_SCOPE", "for头内声明的变量在循环结束后已离开作用域；应在外围声明并明确观察时点。"))
     asks_condition = bool(
         re.search(r"条件.{0,20}(?:是否|会不会|还会|求值|判断)|(?:是否|会不会|还会).{0,20}(?:求值|判断)", prose)
+        or re.search(r"(?:实际被|被实际|实际|被)求值.{0,24}条件", prose)
     )
     conditions = _following_conditions(code)
     if (
@@ -176,7 +183,7 @@ def fixed_input_witness_issues(prompt: str, witness: dict) -> list[dict]:
     Unknown expressions, escaped addresses, writes and volatile state are left
     for semantic review; this is deliberately not a C interpreter.
     """
-    code = "\n".join(re.findall(r"```(?:c|cpp)?\s*\n([\s\S]*?)```", prompt))
+    code = "\n".join(re.findall(r"```(?:c|cpp)?\s*\n([\s\S]*?)```", prompt, re.I))
     code = re.sub(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|/\*[\s\S]*?\*/|//[^\n]*', lambda m: " " * len(m[0]), code)
     if "volatile" in code:
         return []
@@ -371,7 +378,7 @@ def review_witness_issues(contract: dict, witness: dict) -> list[dict]:
     issues.extend(measurement_findings(review_contract))
     issues.extend(fixed_input_witness_issues(str(contract.get("prompt") or ""), witness))
     trace = str(obs.get("trace") or "") if isinstance(obs, dict) else ""
-    source_code = "\n".join(re.findall(r"```(?:c|cpp)?\s*\n([\s\S]*?)```", str(contract.get("prompt") or "")))
+    source_code = "\n".join(re.findall(r"```(?:c|cpp)?\s*\n([\s\S]*?)```", str(contract.get("prompt") or ""), re.I))
     first_if = re.search(r"\bif\s*\(", trace)
     if first_if and not re.search(
         r"错误|incorrect|counterfactual", trace[max(0, first_if.start() - 25) : first_if.start()], re.I

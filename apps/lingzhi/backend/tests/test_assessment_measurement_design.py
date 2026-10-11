@@ -316,8 +316,11 @@ def test_exit_observation_keeps_for_local_counter_alive_after_the_loop():
     assert "for (; k < 10; k += 3)" in fixed["public_material"]
     assert "变量 k" in fixed["ask"] and "所在语句块内" in fixed["ask"]
     assert fixed["design_normalization"]["original_material"] == p["public_material"]
-    for code in ["int k=8; for(int k=0;k<2;k++){break;}", "for(int k=f();k<2;k++){break;}",
-                 "int flag=1;if(flag) for(int k=0;k<2;k++){break;}"]:
+    for code in [
+        "int k=8; for(int k=0;k<2;k++){break;}",
+        "for(int k=f();k<2;k++){break;}",
+        "int flag=1;if(flag) for(int k=0;k<2;k++){break;}",
+    ]:
         unsupported = {**p, "public_material": "```c\n" + code + "\n```"}
         assert normalize_exit_observation(unsupported, {"kind": "exit_state"}) == unsupported
 
@@ -338,17 +341,19 @@ def test_continue_observation_is_derived_from_actual_for_header():
 
 def test_generated_empty_statement_material_defines_its_observed_variable():
     from assessment_measurement_design import synthesize_contrast_input
-    p={**plan(),"public_material":"```c\nint n=5;\nif(n>10);\ny=0;\n```", "options":["0","1"]}
-    fixed=synthesize_contrast_input(p,{"kind":"uncontrolled_statement"})
+
+    p = {**plan(), "public_material": "```c\nint n=5;\nif(n>10);\ny=0;\n```", "options": ["0", "1"]}
+    fixed = synthesize_contrast_input(p, {"kind": "uncontrolled_statement"})
     assert "int y = 1;" in fixed["public_material"]
     assert fixed["correct_prediction"] == "0" and fixed["incorrect_prediction"] == "1"
 
 
 def test_conversion_question_observes_scope_instead_of_a_lossy_destination():
     from assessment_measurement_design import normalize_conversion_observation
-    for expr,timing in [("(double)a / b","之前"),("(double)(a / b)","之后")]:
-        p={**plan(),"public_material":f"```c\nint a=7,b=2; int result={expr};\n```"}
-        fixed=normalize_conversion_observation(p,{"kind":"conversion_scope"})
+
+    for expr, timing in [("(double)a / b", "之前"), ("(double)(a / b)", "之后")]:
+        p = {**plan(), "public_material": f"```c\nint a=7,b=2; int result={expr};\n```"}
+        fixed = normalize_conversion_observation(p, {"kind": "conversion_scope"})
         assert expr in fixed["ask"]
         assert timing in fixed["correct_prediction"]
         assert "result" not in fixed["ask"]
@@ -356,8 +361,9 @@ def test_conversion_question_observes_scope_instead_of_a_lossy_destination():
 
 def test_assignment_question_isolates_the_literal_initialization():
     from assessment_measurement_design import normalize_assignment_observation
-    p={**plan(),"public_material":"```c\nint i=1; int r=(int)(i/2.0); double q=7/2;\n```"}
-    fixed=normalize_assignment_observation(p,{"kind":"assignment_sequence"})
+
+    p = {**plan(), "public_material": "```c\nint i=1; int r=(int)(i/2.0); double q=7/2;\n```"}
+    fixed = normalize_assignment_observation(p, {"kind": "assignment_sequence"})
     assert fixed["public_material"] == "```c\ndouble q=7/2;\n```"
     assert "整数" in fixed["correct_prediction"]
     assert "q" in fixed["ask"]
