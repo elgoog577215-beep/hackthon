@@ -70,7 +70,7 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v7"
+ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v9"
 
 
 def _out_tokens(limit: int) -> int:
@@ -409,6 +409,10 @@ class UniversalAssessmentModel(AIBase):
                 "option_analysis必须逐项解释题面中的全部选项，字段只能使用"
                 "option_id、is_correct（布尔值）、explanation（非空字符串）。"
                 "非选择题option_analysis使用空数组。"
+                "解析只使用题面给出的数值和条件，不假定未给定的初值或副作用。"
+                "逐项重新计算，不用近似数凑错误选项，也不为凑误区编造执行路径。"
+                "如果选项有多种合法解释或没有唯一正确项，应如实指出，不能强行选最接近的一项。"
+                "解释规则即可，不引用未随题提供的精确标准段落编号；明确区分类型转换发生在运算前还是运算后。"
                 "只输出JSON：{\"answer\": ..., \"summary\": \"...\", "
                 "\"work\": [{\"title\": \"...\", \"explanation\": \"...\", "
                 "\"calculation\": \"...\", \"result\": \"...\"}], "
@@ -618,6 +622,7 @@ class UniversalAssessmentModel(AIBase):
     ) -> dict[str, Any]:
         evaluation_schema = {
             "evidence_checks": {key: True for key in EVIDENCE_CHECKS},
+            "review_witness": _review_witness_schema(),
             "passed": True,
             "confidence": 0.9,
             "solution_consistent": True,
@@ -640,7 +645,7 @@ class UniversalAssessmentModel(AIBase):
                 f"{json.dumps(evaluation_schema, ensure_ascii=False)}\n"
                 "请在隔离上下文中评审题目质量。只输出JSON，禁止输出思维过程。"
                 "输出字段：passed、confidence、solution_consistent、dimensions、"
-                "evidence、issues、evidence_checks。dimensions仅可包含curriculum_targeting(0-20)、"
+                "evidence、issues、evidence_checks、review_witness。dimensions仅可包含curriculum_targeting(0-20)、"
                 "answerability_and_completeness(0-15)、difficulty_fit(0-10)、"
                 "clarity(0-5)。issues必须含code、severity、message和题面证据。\n"
                 f"题目：{json.dumps(public_question_spec, ensure_ascii=False)}\n"
@@ -660,7 +665,7 @@ class UniversalAssessmentModel(AIBase):
             use_fast_model=True,
             raise_on_failure=True,
             reject_truncated=True,
-            max_tokens=_out_tokens(2048),
+            max_tokens=_out_tokens(3072 if slot.get("assessment_binding_schema") else 2048),
             json_mode=True,
             model_role="assessment_reviewer",
         )
@@ -695,7 +700,7 @@ class UniversalAssessmentModel(AIBase):
             use_fast_model=True,
             raise_on_failure=True,
             reject_truncated=True,
-            max_tokens=_out_tokens(4096),
+            max_tokens=_out_tokens(6144 if any((item.get("slot") or {}).get("assessment_binding_schema") for item in items) else 4096),
             json_mode=True,
             model_role="assessment_reviewer",
         )
@@ -3641,10 +3646,38 @@ def _attach_generation_audit_summary(
     }
 
 
+def _normalize_candidate_layout(candidate: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """Move known misplaced siblings; never guess content or resolve conflicts."""
+    result = deepcopy(candidate)
+    spec = result.get("question_spec")
+    if not isinstance(spec, dict):
+        return result, []
+    receipt = []
+    def move(source, target, field, path):
+        if field not in source:
+            return
+        value = source[field]
+        if field in target and target[field] != value:
+            raise AIProviderRequestError("invalid_candidate_layout_conflict:" + path)
+        if value is not None:
+            target[field] = value
+        source.pop(field)
+        receipt.append(path)
+    move(spec, result, "solution", "question_spec.solution -> solution")
+    task = spec.get("task")
+    if isinstance(task, dict):
+        for field in ("options", "constraints", "response_contract", "solver_contract"):
+            move(task, spec, field, "question_spec.task." + field + " -> question_spec." + field)
+    return result, receipt
+
+
 def _contract_from_candidate(
     base: dict[str, Any],
     candidate: dict[str, Any],
 ) -> dict[str, Any]:
+    candidate, normalization = _normalize_candidate_layout(candidate)
+    if normalization:
+        base = {**base, "candidate_normalization": normalization}
     question_draft = candidate.get("question_spec") or {}
     solution_draft = candidate.get("solution") or {}
     if not isinstance(question_draft, dict) or not isinstance(
@@ -4165,12 +4198,11 @@ def _normalize_semantic_report(
     except (TypeError, ValueError):
         confidence = 0.0
     return {
-        "passed": bool(value.get("passed")),
+        "passed": value.get("passed") is True,
         "evidence_checks": deepcopy(value.get("evidence_checks") or {}),
+        "review_witness": deepcopy(value.get("review_witness") or {}),
         "confidence": max(0.0, min(1.0, confidence)),
-        "solution_consistent": bool(
-            value.get("solution_consistent")
-        ),
+        "solution_consistent": value.get("solution_consistent") is True,
         "dimensions": normalized_dimensions,
         "evidence": [
             str(item)[:500]
@@ -5042,6 +5074,17 @@ def _solver_contract_kind_hint() -> str:
 def _authoring_quality_directive() -> str:
     """Shared writing instructions; full contracts remain in local validation."""
     return (
+        "单点检查先完成solution.measurement_plan，再写题目。确定一个实际可见的观测量，"
+        "仅改变目标规则中的一项来构造错误理解，其余程序行为保持不变；正确与错误预测必须不同。"
+        "若观测量在两种规则下相同，就换可区分的观测，不能只在解析里声称测到了。"
+        "若目标是后续条件是否被求值，应直接询问该求值行为，或在条件中设置明确的观测副作用；"
+        "不能用分支体内的计数或赋值冒充条件求值的观测。严格区分数值与输出文本：如果区分2和2.0，"
+        "任务必须明确问逐字输出字符串，不能问数值。"
+        "多部分规则必须覆盖其关键限定，不能偷换成相邻的更弱结论。"
+        "求数值时选项只给明确数值，不混入未求值算式或2/2.0这类等价值；求输出则逐字给出所问范围，"
+        "不把最后一行与完整输出混用；求概念则避免顺序倒置或只有措辞不同的同义答案。"
+        "采用最少的已学前置，遵守assessment_slot.learning_scope；不额外引入需要理解的指针、函数传参等包装。"
+        "错误选项必须明确错误，但不要求每项都编造一个错误模型；不要写虚假的算术或臆测初值来解释它。"
         "严格遵守assessment_slot.language_contract中的语言和版本。C17必须使用C语法与C17规则，"
         "不得替换成C++或Python，也不得用其他语言的循环解释C的for第三部分。"
         "atomic_assessment_v1是无提示的单点检查：题干提供必要代码、数据、环境条件即可，"
@@ -5162,6 +5205,12 @@ def _candidate_output_schema(contexts: list[dict[str, Any]], *, compact: bool) -
         for context in contexts
     ):
         candidate_schema["solution"].pop("blanks", None)
+    if any((context.get("assessment_slot") or {}).get("assessment_binding_schema") for context in contexts):
+        candidate_schema["solution"]["measurement_plan"] = {
+            "target_rule": "完整主考规则", "observable": "题目实际要求的观测量与代码位置",
+            "incorrect_rule": "只改变目标规则中的一个方面，其他行为不变",
+            "correct_prediction": "正确规则下观测", "incorrect_prediction": "错误规则下不同的观测",
+        }
     return candidate_schema
 
 
@@ -5566,6 +5615,7 @@ def _batch_evaluation_prompt(
 ) -> str:
     report_schema = {
         "evidence_checks": {key: True for key in EVIDENCE_CHECKS},
+        "review_witness": _review_witness_schema(),
         "passed": True,
         "confidence": 0.9,
         "solution_consistent": True,
@@ -5606,15 +5656,48 @@ def _batch_evaluation_prompt(
     )
 
 
+def _review_witness_schema() -> dict:
+    return {
+        "option_audit": [{"option_id": "逐项复制实际ID", "meaning": "明确该选项按什么语义解释",
+                          "is_correct": True, "reason": "依题面条件核对的具体理由"}],
+        "observation_test": {
+            "target_statement": "原样复制objective.knowledge中的完整主考命题", "observed_quantity": "被问到的值、输出或语法归属",
+            "public_anchor": "从公开题面原样复制观测位置的短片段",
+            "incorrect_rule": "只改变目标规则的一个方面，不能改变其他行为来强造差异",
+            "correct_prediction": "正确规则下的观测", "incorrect_prediction": "错误规则下的观测",
+            "trace": "独立、可复核的简短执行或推导摘要，不是声明有区别",
+        },
+        "unsupported_assumptions": [],
+    }
+
+
 def _semantic_review_directive() -> str:
     return (
-        "For atomic_assessment_v1, explicitly return evidence_checks with four booleans: "
+        "For atomic_assessment_v1, explicitly return evidence_checks with eight booleans: "
         "language_aligned (actual code and prose follow slot.language_contract), "
         "no_answer_leakage (the stem does not teach the tested rule or reveal the correct alternative), "
         "explanation_consistent (independent work and option reasons are factually correct and noncontradictory), "
-        "independently_assessable (success requires applying the target rather than copying supplied guidance). "
-        "Do not confuse matching answer letters with valid reasons. An if can legally omit else; a cast does "
-        "not change the source variable's declared type; Python for has no C-style third clause. "
+        "independently_assessable (success requires applying the target rather than copying supplied guidance), "
+        "options_unambiguous, observation_discriminates, reasoning_grounded, prerequisites_within_scope. "
+        "Reconstruct review_witness independently, without seeing the generator's measurement plan. "
+        "Audit EVERY actual option, enumerate legal interpretations, recompute its value when applicable, "
+        "and verify that exactly the intended option(s) are correct. A numeric answer must not compete with an "
+        "unevaluated arithmetic expression having another interpretation or the same value. "
+        "For observation_test, change ONLY one aspect of the complete target rule; preserve all other semantics. "
+        "If an incorrect rule still yields the same asked-for observation, set observation_discriminates=false "
+        "and emit OBSERVATION_NOT_DISCRIMINATING. For example, an update wrongly performed just before exiting "
+        "must still exit; do not change it into continuing the whole loop just to make outputs differ. "
+        "The public_anchor must actually appear in the displayed question; you cannot invent a printed counter "
+        "or a condition side effect that exists only in the explanation. Test key qualifications of the "
+        "target, not only its easiest subclaim. Check learning_scope for hidden prerequisite demands. "
+        "List unsupported assumptions instead of inventing initial values, precise citations or rationales. "
+        "Do not cite any exact standard clause number unless it is present in the supplied source excerpts. "
+        "If the target is whether a later condition is evaluated, preserve branch-body selection while "
+        "changing only condition evaluation. With pure conditions, a final value changed only inside branch "
+        "bodies cannot demonstrate this target; demand a condition-side observation or a direct question "
+        "about evaluation. Do not reinterpret a public numeric-value question as a string-format question. "
+        "Matching answer letters do not excuse invalid arithmetic, reversed conversion order, contradictory "
+        "option reasons or a mismatch between last-line and full-output tasks. "
         "Set passed=false and a critical issue whenever any required check fails or is unverified. "
         "Use COURSE_LANGUAGE_MISMATCH, ANSWER_RULE_DISCLOSED, EXPLANATION_CONTRADICTION or "
         "INDEPENDENT_EVIDENCE_UNVERIFIED as appropriate. You must inspect the supplied independent work, "

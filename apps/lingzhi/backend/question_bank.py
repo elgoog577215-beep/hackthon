@@ -47,6 +47,7 @@ from question_generation import (
 from question_knowledge_binding import resolve_node_knowledge_binding, knowledge_point_coverage
 from knowledge_assessment import assessment_binding, atomic_baseline, item_slot_keys, slot_key, slots_for_node
 from question_public_guard import rejected_teacher_patch_fields
+from question_evidence_guard import independent_evidence_admitted, revalidate_evidence_admission
 from storage import DATA_DIR
 
 QUESTION_BANK_SCHEMA = "question_bank_bundle_v1"
@@ -189,7 +190,7 @@ def build_question_bank(
         solution_envelopes=solution_envelopes,
     )
 
-    coverage = _coverage_report(course_data, nodes, items, imported)
+    coverage = _coverage_report(course_data, nodes, items, imported, solutions=solution_envelopes)
     reference_package = deepcopy(
         course_data.get("_question_reference_package") or {}
     )
@@ -500,6 +501,8 @@ def approved_formal_tasks(
         if solution:
             hydrated["_solution_envelope"] = deepcopy(solution)
         projected = _formal_task_from_item(hydrated)
+        if item.get('assessment_binding_schema') and not independent_evidence_admitted(projected):
+            continue
         if (
             (item.get("question_spec") or {}).get(
                 "schema_version"
@@ -1427,6 +1430,7 @@ def recalculate_question_bank_coverage(
         nodes,
         items,
         imported,
+        solutions=result.get('solution_envelopes') or {},
     )
     result["review_queue"] = _review_queue(items)
     return refresh_question_bank_bundle(result)
@@ -3588,6 +3592,7 @@ def _coverage_report(
     nodes: list[dict[str, Any]],
     items: list[dict[str, Any]],
     imported: list[dict[str, Any]],
+    *, solutions: dict[str, dict] | None = None,
 ) -> dict[str, Any]:
     required = {
         _objective_ref(course_data, node): {
@@ -3637,7 +3642,7 @@ def _coverage_report(
     ]
     return {
         "required_objective_count": count,
-        "knowledge_coverage": knowledge_point_coverage(course_data, active),
+        "knowledge_coverage": knowledge_point_coverage(course_data, active, solutions=solutions),
         "covered_objective_count": count - len(missing),
         "coverage_ratio": round((count - len(missing)) / max(1, count), 4),
         "missing_required_objectives": missing,
@@ -4146,6 +4151,8 @@ def _leakage_check(
 
 def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
     private_solution = item.get("_solution_envelope") or {}
+    if item.get('assessment_binding_schema'):
+        item = {**item, 'evidence_admission': revalidate_evidence_admission(item, private_solution)}
     compiled = compile_formal_task_contract(
         item,
         private_solution,

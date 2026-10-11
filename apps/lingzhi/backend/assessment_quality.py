@@ -274,6 +274,7 @@ def evaluate_question_contract_quality(
         code, message = hard_issue_map[check]
         issues.append(_issue(code, "critical", message))
     fact_issues = _subject_fact_issues(contract)
+    issues.extend(deepcopy((contract.get("evidence_admission") or {}).get("local_issues") or []))
     hard_checks["subject_facts"] = not fact_issues
     issues.extend(fact_issues)
     issues.extend([

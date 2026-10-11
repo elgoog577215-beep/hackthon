@@ -8,7 +8,7 @@ import pytest
 
 from assessment_contracts import compile_course_assessment_profile
 from assessment_semantics import should_run_semantic_review
-from question_evidence_guard import evidence_findings, independent_evidence_admitted, stamp_evidence_admission
+from question_evidence_guard import CHECKS, evidence_findings, independent_evidence_admitted, stamp_evidence_admission
 
 
 def fixture(key):
@@ -78,9 +78,16 @@ def test_verified_admission_is_bound_to_exact_question_and_solution_revision():
         "passed": True,
         "solution_consistent": True,
         "reviewer_triggered": True,
-        "evidence_checks": dict(
-            language_aligned=True, no_answer_leakage=True, explanation_consistent=True, independently_assessable=True
-        ),
+        "evidence_checks": {key: True for key in CHECKS},
+        "review_witness": {
+            "option_audit": [{"option_id": o["id"], "meaning": o["text"], "is_correct": o["id"] == "B",
+                              "reason": "if控制空语句，后面的赋值在条件真假两种情况下都会执行。"} for o in contract["options"]],
+            "observation_test": {"target_statement": contract["design_brief"]["primary_knowledge"],
+                "observed_quantity": "n不大于10时是否执行赋值", "public_anchor": "flag = 1",
+                "incorrect_rule": "误认为if控制分号后面的赋值", "correct_prediction": "执行赋值",
+                "incorrect_prediction": "不执行赋值", "trace": "条件为假仍执行后续独立赋值，错误规则则跳过赋值。"},
+            "unsupported_assumptions": [],
+        },
     }
     stamp_evidence_admission(contract, report)
     assert independent_evidence_admitted(contract)

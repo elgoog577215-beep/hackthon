@@ -61,12 +61,19 @@ def _atomic_model():
         async def evaluate_candidate(self, *args, **kwargs):
             kwargs.pop("call_policy", None)
             report = await super().evaluate_candidate(*args, **kwargs)
-            report["evidence_checks"] = dict(
-                language_aligned=True,
-                no_answer_leakage=True,
-                explanation_consistent=True,
-                independently_assessable=True,
-            )
+            from question_evidence_guard import CHECKS
+            report["evidence_checks"] = {key: True for key in CHECKS}
+            spec, independent, objective, slot = args
+            report["review_witness"] = {
+                "option_audit": [{"option_id": o["id"], "meaning": o.get("text") or o.get("label"),
+                    "is_correct": o["id"] == independent["answer"],
+                    "reason": "Q为正表示吸热，W为正表示对外做功，按题面符号逐项核对。"} for o in spec["options"]],
+                "observation_test": {"target_statement": objective["knowledge"][0], "observed_quantity": "能量交换方向",
+                    "public_anchor": "Q=20", "incorrect_rule": "把热量与功的正号约定反转",
+                    "correct_prediction": "系统吸热且对外做功", "incorrect_prediction": "系统放热且外界对系统做功",
+                    "trace": "题面Q和W均为正；正号约定反转时两个方向均反转。"},
+                "unsupported_assumptions": [],
+            }
             return report
 
     return ReviewedAtomicModel()

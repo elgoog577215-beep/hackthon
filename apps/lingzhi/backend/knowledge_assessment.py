@@ -146,6 +146,7 @@ def atomic_slots(course: dict, objective: dict, recipe: dict) -> list[dict] | No
                 "source_refs": deepcopy(point["source_refs"]),
                 "conditions": deepcopy(point.get("conditions") or []),
                 "target_content_evidence": evidence,
+                "learning_scope": deepcopy((base.get("sources") or {}).get("course_context") or {}) if isinstance(base.get("sources"), dict) else {},
             }
         )
     return result
