@@ -102,6 +102,8 @@ if (retainedPreview) loadJson(retainedPreview)
 </script>
 
 <style scoped>
+/* This standalone document scrolls at page level; the app shell locks body scrolling. */
+:global(body.handout-preview-page){overflow-x:hidden;overflow-y:auto}
 .preview-shell{min-height:100vh;background:#f5f4f0;color:#242a35;font-family:var(--handout-sans)}
 .preview-layout{display:grid;grid-template-columns:minmax(0,1100px) 360px;max-width:1460px;margin:0 auto}
 .preview-sidebar{grid-column:2;grid-row:1;position:sticky;top:0;align-self:start;height:100vh;overflow:auto;padding:32px 24px;border-left:1px solid #e1e5ec;font-size:15px;line-height:1.65}
