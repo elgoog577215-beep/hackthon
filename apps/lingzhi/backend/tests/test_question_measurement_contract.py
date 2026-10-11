@@ -165,6 +165,14 @@ def test_passive_word_order_still_asks_for_evaluated_condition_set():
     assert "UNOBSERVABLE_CONDITION_EVALUATION" in {i["code"] for i in measurement_findings(c)}
 
 
+def test_for_local_counter_cannot_be_observed_after_its_scope_ends():
+    c=sample()
+    c["prompt"]="```c\nfor(int k=0;k<10;k+=3){if(k==3)break;}\n```\n程序结束时，变量 k 的值是多少？"
+    assert "OBSERVED_VARIABLE_OUT_OF_SCOPE" in {i["code"] for i in measurement_findings(c)}
+    c["prompt"]="```c\nint k=0;for(;k<10;k+=3){if(k==3)break;}\n```\n退出循环后，变量 k 的值是多少？"
+    assert "OBSERVED_VARIABLE_OUT_OF_SCOPE" not in {i["code"] for i in measurement_findings(c)}
+
+
 def test_review_cannot_add_ungrounded_clause_numbers_either():
     w = witness()
     w["option_audit"][0]["reason"] = "C17 6.5.16规定这个规则。"

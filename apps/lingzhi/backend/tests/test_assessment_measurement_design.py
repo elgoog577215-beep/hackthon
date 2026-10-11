@@ -237,8 +237,12 @@ def test_observation_strategy_follows_rule_not_point_id():
 def test_one_line_c_statement_is_real_visible_code_not_a_placeholder():
     from assessment_quality import _code_rendering_valid
 
-    c = {"question_spec": {"stimulus": {"rendered_text": "```c\ndouble d = 5 / 2;\n```"},
-                           "task": {"rendered_text": "执行上述代码后，d是多少？"}}}
+    c = {
+        "question_spec": {
+            "stimulus": {"rendered_text": "```c\ndouble d = 5 / 2;\n```"},
+            "task": {"rendered_text": "执行上述代码后，d是多少？"},
+        }
+    }
     assert _code_rendering_valid(c)
     for text in ("```c\n\n```", "```c\n待补全\n```", "double d = 5 / 2;"):
         c["question_spec"]["stimulus"]["rendered_text"] = text
@@ -248,7 +252,13 @@ def test_one_line_c_statement_is_real_visible_code_not_a_placeholder():
 @pytest.mark.parametrize("predicate", ["flag == 0", "flag <= 0", "flag >= 0", "flag", "flag != 1"])
 def test_empty_statement_design_synthesizes_a_discriminating_input(predicate):
     from assessment_measurement_design import synthesize_contrast_input
-    p = {**plan(), "public_material": f"```c\nint flag = 0;\nif ({predicate});\nflag = 5;\n```", "options": ["0", "5"], "correct_option_index": 1}
+
+    p = {
+        **plan(),
+        "public_material": f"```c\nint flag = 0;\nif ({predicate});\nflag = 5;\n```",
+        "options": ["0", "5"],
+        "correct_option_index": 1,
+    }
     result = synthesize_contrast_input(p, {"kind": "uncontrolled_statement"})
     assert result["correct_prediction"] == "5"
     assert result["incorrect_prediction"] != "5"
@@ -256,10 +266,51 @@ def test_empty_statement_design_synthesizes_a_discriminating_input(predicate):
     assert result["design_normalization"]["condition_value"] is False
     assert result["design_normalization"]["original_material"] == p["public_material"]
     assert p["public_material"].startswith("```c\nint flag = 0;")
+    import re
+
+    value = int(re.search(r"int flag = (-?\d+);", result["public_material"])[1])
+    actual = {
+        "flag == 0": value == 0,
+        "flag <= 0": value <= 0,
+        "flag >= 0": value >= 0,
+        "flag": value != 0,
+        "flag != 1": value != 1,
+    }[predicate]
+    assert actual is False
+    assert int(result["incorrect_prediction"]) == value
 
 
 def test_contrast_synthesis_does_not_guess_complex_c_or_nondecimal_literals():
     from assessment_measurement_design import synthesize_contrast_input
-    for code in ["int flag=0; if (f(flag)); flag=5;", "int flag=010; if(flag); flag=5;", "int flag=0; if(flag!=0); flag=0;"]:
-        p={**plan(), "public_material": f"```c\n{code}\n```"}
-        assert synthesize_contrast_input(p, {"kind":"uncontrolled_statement"}) == p
+
+    for code in [
+        "int flag=0; if (f(flag)); flag=5;",
+        "int flag=010; if(flag); flag=5;",
+        "int flag=0; if(flag!=0); flag=0;",
+    ]:
+        p = {**plan(), "public_material": f"```c\n{code}\n```"}
+        assert synthesize_contrast_input(p, {"kind": "uncontrolled_statement"}) == p
+
+
+def test_contrast_synthesis_handles_separate_condition_and_observed_variables():
+    from assessment_measurement_design import synthesize_contrast_input
+
+    p = {**plan(), "public_material": "```c\nint c = 0;\nint out = 5;\nif(c>=0);\nout=5;\n```", "options": ["5", "0"]}
+    fixed = synthesize_contrast_input(p, {"kind": "uncontrolled_statement"})
+    assert "int c = -1;" in fixed["public_material"]
+    assert "int out = 6;" in fixed["public_material"]
+    assert fixed["correct_prediction"] == "5"
+    assert fixed["incorrect_prediction"] == "6"
+
+
+def test_exit_observation_keeps_for_local_counter_alive_after_the_loop():
+    from assessment_measurement_design import normalize_exit_observation
+    p={**plan(), "public_material": "```c\nint main(void) { for (int k = 0; k < 10; k += 3) { if(k==3) break; } return 0; }\n```", "ask": "程序结束时k是多少？"}
+    fixed=normalize_exit_observation(p, {"kind":"exit_state"})
+    assert "int k = 0;" in fixed["public_material"]
+    assert "for (; k < 10; k += 3)" in fixed["public_material"]
+    assert "变量 k" in fixed["ask"] and "所在语句块内" in fixed["ask"]
+    assert fixed["design_normalization"]["original_material"] == p["public_material"]
+    for code in ["int k=8; for(int k=0;k<2;k++){break;}", "for(int k=f();k<2;k++){break;}"]:
+        unsupported={**p,"public_material":"```c\n"+code+"\n```"}
+        assert normalize_exit_observation(unsupported,{"kind":"exit_state"}) == unsupported
