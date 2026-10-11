@@ -45,6 +45,7 @@ from assessment_retrieval import (
 from course_document import COURSE_DOCUMENT_SCHEMA
 from course_repository import CourseDocumentRepository
 from course_versioning import stable_hash
+from knowledge_assessment import atomic_baseline, item_slot_keys, slot_keys_by_node
 from course_versions import course_version_repository
 from dependencies import get_course_or_404, get_task_manager_optional
 from exam_papers import exam_paper_repository
@@ -152,7 +153,8 @@ def _question_source_revision(course: dict[str, Any]) -> str:
     course_keys = (
         "course_name", "course_purpose", "difficulty", "course_outline",
         "subject_pedagogy_profile", "difficulty_profile", "material_bindings",
-        "teacher_handouts",
+        "teacher_handouts", "evidence_package", "evidence_catalog",
+        "parsed_documents", "course_knowledge_scope_contract",
     )
     node_keys = (
         "node_id", "parent_id", "node_level", "node_name", "node_content",
@@ -161,6 +163,7 @@ def _question_source_revision(course: dict[str, Any]) -> str:
     )
     return stable_hash({
         **{key: course.get(key) for key in course_keys},
+        "knowledge_baseline": atomic_baseline(course),
         "nodes": [{key: node.get(key) for key in node_keys} for node in course.get("nodes") or []],
     })
 
@@ -486,6 +489,11 @@ def _modern_published_chapter_node_ids(
         )
     }
     blueprint = (bundle or {}).get("assessment_blueprint") or {}
+    expected_keys = slot_keys_by_node(blueprint)
+    if atomic_baseline(course):
+        current = compile_course_assessment_blueprint(course)
+        if current.get("blueprint_revision_id") != blueprint.get("blueprint_revision_id"):
+            return set()
     solutions = (bundle or {}).get("solution_envelopes") or {}
     levels_by_node: dict[str, set[str]] = {}
     for item in (bundle or {}).get("items") or []:
@@ -502,7 +510,7 @@ def _modern_published_chapter_node_ids(
         ):
             continue
         hydrated = deepcopy(item)
-        level = str(
+        level = str(item.get("generation_key") or
             next(
                 iter(item.get("practice_levels") or []),
                 item.get("practice_level") or "",
@@ -535,19 +543,12 @@ def _modern_published_chapter_node_ids(
             )
         ):
             continue
-        levels = {
-            str(value)
-            for value in (
-                item.get("practice_levels")
-                or [item.get("practice_level")]
-            )
-            if str(value) in _PRACTICE_LEVELS
-        }
+        levels = set(item_slot_keys(item)) & set(expected_keys.get(node_id, list(_PRACTICE_LEVELS)))
         levels_by_node.setdefault(node_id, set()).update(levels)
     return {
         node_id
         for node_id, levels in levels_by_node.items()
-        if levels == _PRACTICE_LEVELS
+        if levels and levels == set(expected_keys.get(node_id, list(_PRACTICE_LEVELS)))
     }
 
 
@@ -1425,7 +1426,7 @@ async def _execute_question_bank_rebuild(
     repository.advance(
         job_id,
         stage_id="question_generation",
-        message="正在生成三层候选题",
+        message="正在按测评计划生成候选题",
     )
 
     async def report_generation_progress(
@@ -1435,12 +1436,12 @@ async def _execute_question_bank_rebuild(
         total_items = max(1, int(event.get("total_items") or 1))
         published_chapters = len(published_node_ids)
         overall_completed_items = (
-            resumed_chapter_count * 3 + completed_items
+            resumed_item_count + completed_items
             if chapter_publication_enabled
             else completed_items
         )
         overall_total_items = (
-            max(1, total_chapters * 3)
+            max(1, sum(len(planned_slot_keys.get(n, [])) for n in campaign_node_ids))
             if chapter_publication_enabled
             else total_items
         )
@@ -1464,18 +1465,15 @@ async def _execute_question_bank_rebuild(
                 ),
                 current_node_id,
             )
-        chapter_item = (
-            (completed_items - 1) % 3 + 1
-            if completed_items
-            else 0
-        )
+        chapter_total = int(event.get("chapter_item_total") or len(planned_slot_keys.get(str(event.get("node_id") or ""), [])) or 3)
+        chapter_item = int(event.get("chapter_completed_items") or ((completed_items - 1) % chapter_total + 1 if completed_items else 0))
         details = {
             **deepcopy(event),
             "published_chapters": published_chapters,
             "total_chapters": total_chapters,
             "current_chapter": current_chapter,
             "current_chapter_item": chapter_item,
-            "chapter_item_total": 3,
+            "chapter_item_total": chapter_total,
         }
         repository.heartbeat(
             job_id,
@@ -1486,7 +1484,7 @@ async def _execute_question_bank_rebuild(
                     f"已发布 {published_chapters}/"
                     f"{total_chapters} 个章节 · "
                     f"正在生成 {current_chapter} "
-                    f"第 {chapter_item}/3 道题"
+                    f"第 {chapter_item}/{chapter_total} 道题"
                 )
                 if chapter_publication_enabled
                 else (
@@ -1509,6 +1507,7 @@ async def _execute_question_bank_rebuild(
         profile=assessment_profile,
         objectives=assessment_objectives,
     )
+    planned_slot_keys = slot_keys_by_node(assessment_blueprint)
     active_job = repository.load(course_id, job_id) or {}
     reference_package = deepcopy(
         active_job.get("reference_package") or {}
@@ -1639,7 +1638,7 @@ async def _execute_question_bank_rebuild(
         str(node_id): {
             str(level)
             for level in levels or []
-            if str(level) in PRACTICE_LEVELS
+            if str(level) in planned_slot_keys.get(str(node_id), [])
         }
         for node_id, levels in (
             (checkpoint.get("published_practice_levels_by_node") or {})
@@ -1648,8 +1647,8 @@ async def _execute_question_bank_rebuild(
         if str(node_id) in set(course_node_ids)
     }
     for node_id in published_node_ids:
-        published_practice_levels_by_node[node_id] = set(PRACTICE_LEVELS)
-    resumed_chapter_count = len(published_node_ids)
+        published_practice_levels_by_node[node_id] = set(planned_slot_keys.get(node_id, []))
+    resumed_item_count = sum(len(v) for v in published_practice_levels_by_node.values())
     campaign_id = (
         str(checkpoint.get("campaign_id") or "")
         if resumable_checkpoint
@@ -1675,7 +1674,7 @@ async def _execute_question_bank_rebuild(
             {
                 node_id: [
                     level
-                    for level in PRACTICE_LEVELS
+                    for level in planned_slot_keys.get(node_id, [])
                     if level not in published_practice_levels_by_node.get(
                         node_id,
                         set(),
@@ -1833,7 +1832,7 @@ async def _execute_question_bank_rebuild(
         audit_by_slot = {
             (
                 str(item.get("node_id") or ""),
-                str(item.get("practice_level") or ""),
+                str(item.get("generation_key") or item.get("practice_level") or ""),
             ): deepcopy(item)
             for item in [
                 *prior_audit_items,
@@ -1857,7 +1856,7 @@ async def _execute_question_bank_rebuild(
             "assessment_prompt_template_version": (
                 ASSESSMENT_PROMPT_TEMPLATE_VERSION
             ),
-            "planned_item_count": total_chapters * 3,
+            "planned_item_count": sum(len(planned_slot_keys.get(n, [])) for n in campaign_node_ids),
             "published_item_count": len(audit_by_slot),
             "failure_count": 0,
             "items": list(audit_by_slot.values()),
@@ -1934,7 +1933,7 @@ async def _execute_question_bank_rebuild(
                 "published_practice_levels_by_node": {
                     key: [
                         level
-                        for level in PRACTICE_LEVELS
+                        for level in planned_slot_keys.get(key, [])
                         if level in levels
                     ]
                     for key, levels in sorted(
@@ -1989,7 +1988,7 @@ async def _execute_question_bank_rebuild(
                 "published_practice_levels_by_node": {
                     key: [
                         level
-                        for level in PRACTICE_LEVELS
+                        for level in planned_slot_keys.get(key, [])
                         if level in levels
                     ]
                     for key, levels in sorted(
@@ -2083,7 +2082,7 @@ async def _execute_question_bank_rebuild(
                 return
             elapsed = int(time.monotonic() - heartbeat_started_at)
             current_message = str(
-                current.get("message") or "正在生成三层候选题"
+                current.get("message") or "正在按测评计划生成候选题"
             )
             current_message = current_message.split("（任务仍在运行")[0]
             question_bank_rebuild_job_repository.heartbeat(
@@ -2337,58 +2336,26 @@ async def _execute_question_bank_rebuild(
     return response
 
 
-def _item_practice_levels_by_node(
-    bundle: dict[str, Any] | None,
-    *,
-    revision_ids: list[str],
-) -> dict[str, list[str]]:
-    """Resolve item revisions to the exact generated slots they own."""
-
-    selected = set(expand_question_atomic_revisions(
-        bundle,
-        revision_ids=revision_ids,
-    ))
-    result: dict[str, set[str]] = {}
+def _item_practice_levels_by_node(bundle: dict[str, Any] | None, *, revision_ids: list[str]) -> dict[str, list[str]]:
+    """Resolve selected revisions to exact slots, not sibling questions."""
+    selected = set(expand_question_atomic_revisions(bundle, revision_ids=revision_ids))
+    result: dict[str, list[str]] = {}
+    found = set()
     for item in (bundle or {}).get("items") or []:
-        if str(item.get("revision_id") or "") not in selected:
+        revision = str(item.get("revision_id") or "")
+        if revision not in selected or not item.get("node_id"):
             continue
-        node_id = str(item.get("node_id") or "").strip()
-        levels = [
-            str(level).strip()
-            for level in (
-                item.get("practice_levels")
-                or [item.get("practice_level")]
-            )
-            if str(level or "").strip() in PRACTICE_LEVELS
-        ]
-        if node_id and levels:
-            result.setdefault(node_id, set()).update(levels)
-    missing = selected - {
-        str(item.get("revision_id") or "")
-        for item in (bundle or {}).get("items") or []
-        if (
-            str(item.get("revision_id") or "") in selected
-            and str(item.get("node_id") or "").strip()
-            and any(
-                str(level or "").strip() in PRACTICE_LEVELS
-                for level in (
-                    item.get("practice_levels")
-                    or [item.get("practice_level")]
-                )
-            )
-        )
-    }
-    if missing:
-        raise ValueError(
-            "selected question revisions do not identify generated slots: "
-            f"{sorted(missing)}"
-        )
-    return {
-        node_id: [
-            level for level in PRACTICE_LEVELS if level in levels
-        ]
-        for node_id, levels in result.items()
-    }
+        keys = item_slot_keys(item)
+        if not item.get("generation_key"):
+            keys = [k for k in PRACTICE_LEVELS if k in keys]
+        if not keys:
+            continue
+        found.add(revision)
+        owned = result.setdefault(str(item["node_id"]), [])
+        owned.extend(k for k in keys if k not in owned)
+    if selected - found:
+        raise ValueError(f"selected question revisions do not identify generated slots: {sorted(selected - found)}")
+    return result
 
 
 def _settled_chapter_contracts(
@@ -2413,7 +2380,7 @@ def _settled_chapter_contracts(
         [
             deepcopy(item)
             for item in event.get("audit_items") or []
-            if str(item.get("practice_level") or "") in settled
+            if str(item.get("generation_key") or item.get("practice_level") or "") in settled
         ],
     )
 
@@ -2800,7 +2767,7 @@ def _question_asset_slot(
     question: dict[str, Any],
 ) -> tuple[str, str, str] | tuple[str, str]:
     node_id = str(question.get("node_id") or "")
-    practice_level = str(question.get("practice_level") or "")
+    practice_level = str(question.get("generation_key") or question.get("practice_level") or "")
     if node_id and practice_level:
         return (
             node_id,
@@ -2979,7 +2946,7 @@ def _course_with_rebuilt_assets(
         iter(updated["learning_assets"].get("course_knowledge_base") or []),
         None,
     )
-    if knowledge_base:
+    if knowledge_base and atomic_baseline(course) is None:
         updated["course_knowledge_base"] = deepcopy(knowledge_base)
         updated["course_knowledge_quality_report"] = deepcopy(
             knowledge_base.get("quality_report")

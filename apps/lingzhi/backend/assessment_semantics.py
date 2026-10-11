@@ -469,6 +469,13 @@ def compile_question_design_brief(
             "write_public_question_last",
         ],
     }
+    if slot.get("assessment_binding_schema"):
+        brief["assessment_binding_schema"] = slot["assessment_binding_schema"]
+        brief["primary_skill"] = str(objective.get("objective") or primary_knowledge)
+        brief["required_observable_evidence"] = list(objective.get("observable_evidence") or [])
+        brief["assessment_scope_contract"]["primary_knowledge_ids"] = list(slot["primary_knowledge_ids"])
+        brief["assessment_scope_contract"]["prerequisite_knowledge_ids"] = list(slot.get("prerequisite_knowledge_ids") or [])
+        brief["assessment_scope_contract"]["prerequisites_are_not_assessed"] = True
     brief["design_brief_revision_id"] = stable_hash(
         brief,
         prefix="qdbr_",

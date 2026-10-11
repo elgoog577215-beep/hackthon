@@ -58,6 +58,7 @@ from code_runner_client import (
     code_runner_client,
 )
 from course_versioning import stable_hash
+from knowledge_assessment import assessment_binding, slot_keys_by_node, target_reference_summary
 from question_choice_grading import canonical_option_ids
 from solution_contracts import worked_solution_is_complete
 from teaching_design import resolve_subject_standard_pack
@@ -1540,17 +1541,23 @@ class AssessmentGenerationOrchestrator:
             if node_ids is not None
             else None
         )
+        planned_keys = slot_keys_by_node(blueprint)
+        if blueprint.get("planning_schema") and not any(planned_keys.values()):
+            raise ValueError("knowledge_assessment_targets_unavailable: check adopted points, sources and lecture bindings")
         requested_levels_by_node = {
             str(node_id): tuple(
                 level
-                for level in PRACTICE_LEVELS
+                for level in planned_keys.get(str(node_id), [])
                 if level in {str(value) for value in levels}
             )
             for node_id, levels in (practice_levels_by_node or {}).items()
         }
+        for node_id, keys in (practice_levels_by_node or {}).items():
+            if set(keys) - set(planned_keys.get(str(node_id), [])):
+                raise ValueError(f"assessment slots no longer exist for {node_id}; rebind the question before rebuilding")
 
         def levels_for(node_id: str) -> tuple[str, ...]:
-            return requested_levels_by_node.get(node_id) or PRACTICE_LEVELS
+            return requested_levels_by_node.get(node_id, tuple(planned_keys.get(node_id, [])))
 
         target_nodes = [
             node
@@ -1671,7 +1678,7 @@ class AssessmentGenerationOrchestrator:
             async with node_semaphore:
                 node_id = str(node.get("node_id") or "")
                 node_practice_levels = (
-                    practice_levels_by_node.get(node_id) or PRACTICE_LEVELS
+                    practice_levels_by_node.get(node_id, tuple(slot_keys_by_node(blueprint).get(node_id, [])))
                 )
                 objective = objective_by_node.get(node_id)
                 if not objective:
@@ -1742,15 +1749,22 @@ class AssessmentGenerationOrchestrator:
                     Exception | None,
                 ]:
                     async with semaphore:
-                        return await self._generate_slot_contract(
+                        selected_slot = slot_for(blueprint, node_id, practice_level)
+                        actual_level = selected_slot["practice_level"]
+                        slot_blueprint = blueprint
+                        if selected_slot.get("generation_key"):
+                            local_slot = deepcopy(selected_slot)
+                            local_slot.pop("generation_key", None)
+                            slot_blueprint = {**blueprint, "nodes": [{"node_id": node_id, "slots": [local_slot]}]}
+                        result = await self._generate_slot_contract(
                             prepared=prepared,
                             node=node,
                             profile=profile,
-                            objective=objective,
-                            blueprint=blueprint,
+                            objective=selected_slot.get("target_objective") or objective,
+                            blueprint=slot_blueprint,
                             reference_package=reference_package,
-                            practice_level=practice_level,
-                            variant_index=variant_index,
+                            practice_level=actual_level,
+                            variant_index=PRACTICE_LEVELS.index(actual_level),
                             audit=audit,
                             accepted_questions=accepted_questions,
                             quality_lock=quality_lock,
@@ -1762,6 +1776,12 @@ class AssessmentGenerationOrchestrator:
                             repair_batcher=repair_batcher,
                             generation_policy=generation_policy,
                         )
+                        _, contract, item_audit, fatal = result
+                        if selected_slot.get("generation_key"):
+                            item_audit["generation_key"] = practice_level
+                            if contract is not None:
+                                contract.update(assessment_binding(selected_slot))
+                        return practice_level, contract, item_audit, fatal
 
                 fatal_errors: list[Exception] = []
                 node_audit_items: list[dict[str, Any]] = []
@@ -1789,6 +1809,8 @@ class AssessmentGenerationOrchestrator:
                             "practice_level": practice_level,
                             "completed_items": completed_items,
                             "total_items": total_items,
+                            "chapter_completed_items": len(node_audit_items),
+                            "chapter_item_total": len(node_practice_levels),
                         }
                     await _notify_progress(on_progress, progress_event)
 
@@ -1802,7 +1824,7 @@ class AssessmentGenerationOrchestrator:
                 async def run_level(level: str) -> None:
                     async with level_slots:
                         result = await run_slot(
-                            PRACTICE_LEVELS.index(level), level,
+                            node_practice_levels.index(level), level,
                         )
                     await record_result(result)
 
@@ -1814,7 +1836,7 @@ class AssessmentGenerationOrchestrator:
                 # already spent on the others.
                 accepted_decisions = {"publish", "teacher_review"}
                 decided_levels = {
-                    str(item.get("practice_level") or "")
+                    str(item.get("generation_key") or item.get("practice_level") or "")
                     for item in node_audit_items
                     if str(item.get("final_decision") or "")
                     in accepted_decisions
@@ -1974,21 +1996,27 @@ class AssessmentGenerationOrchestrator:
         )
         contexts: list[dict[str, Any]] = []
         levels_by_slot: dict[str, str] = {}
-        for practice_level in practice_levels:
-            variant_index = PRACTICE_LEVELS.index(practice_level)
+        chapter_objective = objective
+        for generation_key in practice_levels:
             slot = slot_for(
                 blueprint,
                 node_id=node_id,
-                practice_level=practice_level,
+                practice_level=generation_key,
             )
             if slot is None:
                 continue
+            practice_level = slot["practice_level"]
+            variant_index = PRACTICE_LEVELS.index(practice_level)
+            objective = slot.get("target_objective") or chapter_objective
+            if slot.get("assessment_binding_schema"):
+                content_evidence = deepcopy(slot.get("target_content_evidence") or [])
             slot_id = str(slot.get("slot_id") or "")
             reference_summary = reference_summary_for_slot(
                 reference_package,
                 objective_id=str(objective.get("objective_id") or ""),
                 question_type=str(slot.get("question_type") or ""),
             )
+            reference_summary = target_reference_summary(slot, reference_summary)
             design_brief = compile_question_design_brief(
                 objective=objective,
                 slot=slot,
@@ -2026,7 +2054,7 @@ class AssessmentGenerationOrchestrator:
                     )
                 )
             )
-            levels_by_slot[slot_id] = practice_level
+            levels_by_slot[slot_id] = generation_key
         grouped: dict[
             tuple[bool, tuple[str, ...]],
             list[dict[str, Any]],
@@ -2148,6 +2176,9 @@ class AssessmentGenerationOrchestrator:
             objective_id=str(objective.get("objective_id") or ""),
             question_type=str(slot.get("question_type") or ""),
         )
+        if slot.get("assessment_binding_schema"):
+            content_evidence = deepcopy(slot.get("target_content_evidence") or [])
+        reference_summary = target_reference_summary(slot, reference_summary)
         design_brief = compile_question_design_brief(
             objective=objective,
             slot=slot,
@@ -3242,7 +3273,7 @@ def _semantic_slot_count(
     }
     return sum(
         1
-        for practice_level in PRACTICE_LEVELS
+        for practice_level in slot_keys_by_node(blueprint).get(node_id, [])
         for slot in [
             slot_for(
                 blueprint,
@@ -5215,7 +5246,7 @@ def _semantic_review_candidate_count(
         "state_trace_validator",
     }
     count = 0
-    for practice_level in PRACTICE_LEVELS:
+    for practice_level in slot_keys_by_node(blueprint).get(node_id, []):
         slot = slot_for(
             blueprint,
             node_id=node_id,

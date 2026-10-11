@@ -30,6 +30,7 @@
 from __future__ import annotations
 
 from typing import Any
+from knowledge_assessment import ATOMIC_ASSESSMENT_SCHEMA
 
 QUESTION_KNOWLEDGE_BINDING_SCHEMA = "question_knowledge_binding_v1"
 
@@ -177,6 +178,8 @@ def knowledge_point_coverage(
     counts = {point_id: 0 for point_id in points}
     dangling: dict[str, int] = {}
     unbound_items: list[str] = []
+    available: set[str] = set()
+    assessable: set[str] = set()
 
     for item in _dicts(items):
         refs = _unique([
@@ -187,6 +190,17 @@ def knowledge_point_coverage(
             )
         ])
         matched = [ref for ref in refs if ref in counts]
+        if item.get("lifecycle_status") == "approved":
+            available.update(matched)
+            exact = item.get("primary_knowledge_ids") or []
+            revisions = item.get("knowledge_revision_refs") or {}
+            if (item.get("assessment_binding_schema") == ATOMIC_ASSESSMENT_SCHEMA
+                    and item.get("knowledge_baseline_revision") == bundle.get("revision_id")
+                    and len(exact) == 1 and exact == refs
+                    and exact[0] in points
+                    and revisions.get(exact[0]) == points[exact[0]].get("revision_id")
+                    and (item.get("quality_report") or {}).get("passed") is True):
+                assessable.add(exact[0])
         for ref in matched:
             counts[ref] += 1
         for ref in refs:
@@ -202,6 +216,9 @@ def knowledge_point_coverage(
         "schema_version": "question_knowledge_coverage_v1",
         "knowledge_point_total": len(points),
         "covered_knowledge_point_count": len(covered),
+        "available_knowledge_point_count": len(available),
+        "assessable_knowledge_point_count": len(assessable),
+        "assessable_knowledge_ids": sorted(assessable),
         "uncovered_knowledge_ids": sorted(
             point_id for point_id, count in counts.items() if count == 0
         ),
