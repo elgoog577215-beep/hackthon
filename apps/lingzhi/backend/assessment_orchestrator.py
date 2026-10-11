@@ -58,6 +58,7 @@ from code_runner_client import (
     code_runner_client,
 )
 from course_versioning import stable_hash
+from question_evidence_guard import CHECKS as EVIDENCE_CHECKS, stamp_evidence_admission
 from knowledge_assessment import assessment_binding, slot_keys_by_node, target_reference_summary
 from question_choice_grading import canonical_option_ids
 from solution_contracts import worked_solution_is_complete
@@ -69,7 +70,7 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v6"
+ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v7"
 
 
 def _out_tokens(limit: int) -> int:
@@ -616,6 +617,7 @@ class UniversalAssessmentModel(AIBase):
         call_policy: AssessmentModelCallPolicy | None = None,
     ) -> dict[str, Any]:
         evaluation_schema = {
+            "evidence_checks": {key: True for key in EVIDENCE_CHECKS},
             "passed": True,
             "confidence": 0.9,
             "solution_consistent": True,
@@ -638,7 +640,7 @@ class UniversalAssessmentModel(AIBase):
                 f"{json.dumps(evaluation_schema, ensure_ascii=False)}\n"
                 "请在隔离上下文中评审题目质量。只输出JSON，禁止输出思维过程。"
                 "输出字段：passed、confidence、solution_consistent、dimensions、"
-                "evidence、issues。dimensions仅可包含curriculum_targeting(0-20)、"
+                "evidence、issues、evidence_checks。dimensions仅可包含curriculum_targeting(0-20)、"
                 "answerability_and_completeness(0-15)、difficulty_fit(0-10)、"
                 "clarity(0-5)。issues必须含code、severity、message和题面证据。\n"
                 f"题目：{json.dumps(public_question_spec, ensure_ascii=False)}\n"
@@ -845,7 +847,7 @@ class _SemanticEvaluationBatcher:
                 contract["question_spec"]
             ),
             "independent_solution": {
-                "answer": deepcopy(independent.get("answer")),
+                **{key: deepcopy(independent.get(key)) for key in ("answer", "summary", "work", "option_analysis", "common_errors")},
                 "checks": deepcopy(
                     independent.get("checks") or []
                 ),
@@ -1041,9 +1043,7 @@ class _SemanticEvaluationBatcher:
                 evaluator,
                 deepcopy(contract["question_spec"]),
                 {
-                    "answer": deepcopy(
-                        independent.get("answer")
-                    ),
+                    **{key: deepcopy(independent.get(key)) for key in ("answer", "summary", "work", "option_analysis", "common_errors")},
                     "checks": deepcopy(
                         independent.get("checks") or []
                     ),
@@ -2529,6 +2529,9 @@ class AssessmentGenerationOrchestrator:
                         next_action = "generate"
                     continue
 
+                if slot.get("assessment_binding_schema"):
+                    contract.update(assessment_binding(slot))
+                    stamp_evidence_admission(contract, semantic_report)
                 async with quality_lock:
                     quality = evaluate_question_contract_quality(
                         contract,
@@ -2993,9 +2996,7 @@ class AssessmentGenerationOrchestrator:
             call=lambda: evaluator(
                 deepcopy(contract["question_spec"]),
                 {
-                    "answer": deepcopy(
-                        independent.get("answer")
-                    ),
+                    **{key: deepcopy(independent.get(key)) for key in ("answer", "summary", "work", "option_analysis", "common_errors")},
                     "checks": deepcopy(
                         independent.get("checks") or []
                     ),
@@ -4165,6 +4166,7 @@ def _normalize_semantic_report(
         confidence = 0.0
     return {
         "passed": bool(value.get("passed")),
+        "evidence_checks": deepcopy(value.get("evidence_checks") or {}),
         "confidence": max(0.0, min(1.0, confidence)),
         "solution_consistent": bool(
             value.get("solution_consistent")
@@ -5040,6 +5042,10 @@ def _solver_contract_kind_hint() -> str:
 def _authoring_quality_directive() -> str:
     """Shared writing instructions; full contracts remain in local validation."""
     return (
+        "严格遵守assessment_slot.language_contract中的语言和版本。C17必须使用C语法与C17规则，"
+        "不得替换成C++或Python，也不得用其他语言的循环解释C的for第三部分。"
+        "atomic_assessment_v1是无提示的单点检查：题干提供必要代码、数据、环境条件即可，"
+        "不得先讲出该点规则或正确选项含义再让学生复述。把教学解释留在答案解析中。"
         "严格遵守 question_design_brief 与 assessment_slot。先确定可验证的答案事实、"
         "标准答案及验证器，再选解题必需材料、按误区设计干扰项，最后写题面；不得改变"
         "题型、作答模式、事实或验证器。课程事实须来自 content_evidence 或来源摘录；"
@@ -5559,6 +5565,7 @@ def _batch_evaluation_prompt(
     items: list[dict[str, Any]],
 ) -> str:
     report_schema = {
+        "evidence_checks": {key: True for key in EVIDENCE_CHECKS},
         "passed": True,
         "confidence": 0.9,
         "solution_consistent": True,
@@ -5601,6 +5608,17 @@ def _batch_evaluation_prompt(
 
 def _semantic_review_directive() -> str:
     return (
+        "For atomic_assessment_v1, explicitly return evidence_checks with four booleans: "
+        "language_aligned (actual code and prose follow slot.language_contract), "
+        "no_answer_leakage (the stem does not teach the tested rule or reveal the correct alternative), "
+        "explanation_consistent (independent work and option reasons are factually correct and noncontradictory), "
+        "independently_assessable (success requires applying the target rather than copying supplied guidance). "
+        "Do not confuse matching answer letters with valid reasons. An if can legally omit else; a cast does "
+        "not change the source variable's declared type; Python for has no C-style third clause. "
+        "Set passed=false and a critical issue whenever any required check fails or is unverified. "
+        "Use COURSE_LANGUAGE_MISMATCH, ANSWER_RULE_DISCLOSED, EXPLANATION_CONTRADICTION or "
+        "INDEPENDENT_EVIDENCE_UNVERIFIED as appropriate. You must inspect the supplied independent work, "
+        "not only its final answer. "
         "Independently verify question-type semantics, whether every material "
         "block is necessary for the answer, whether the prompt presupposes a "
         "nonexistent error, consistency between public facts and the "

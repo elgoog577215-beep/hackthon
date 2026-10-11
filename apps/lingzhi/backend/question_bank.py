@@ -2252,6 +2252,7 @@ def _generated_course_items(
                 "course_misconception_refs": [] if assessment_slot.get("assessment_binding_schema") else _node_misconception_refs(course_data, node),
                 "course_mastery_refs": [] if assessment_slot.get("assessment_binding_schema") else _node_mastery_refs(course_data, node),
                 **assessment_binding(assessment_slot),
+                **({"evidence_admission": deepcopy(generated_contract.get("evidence_admission") or {})} if assessment_slot.get("assessment_binding_schema") else {}),
                 "source_type": source_type,
                 "source_records": source_records,
                 "parse_confidence": "high",
@@ -4153,6 +4154,7 @@ def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
     input_contract = deepcopy(compiled["input_contract"])
     task = {
         **assessment_binding(item),
+        **({"evidence_admission": deepcopy(item.get("evidence_admission") or {})} if item.get("assessment_binding_schema") else {}),
         "asset_id": stable_hash(
             {"course": item.get("course_id"), "question_bank_item": item.get("item_id")},
             prefix="qbt_",

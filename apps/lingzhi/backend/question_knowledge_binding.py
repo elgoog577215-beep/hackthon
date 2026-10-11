@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from typing import Any
 from knowledge_assessment import ATOMIC_ASSESSMENT_SCHEMA
+from question_evidence_guard import independent_evidence_admitted
 
 QUESTION_KNOWLEDGE_BINDING_SCHEMA = "question_knowledge_binding_v1"
 
@@ -195,6 +196,7 @@ def knowledge_point_coverage(
             exact = item.get("primary_knowledge_ids") or []
             revisions = item.get("knowledge_revision_refs") or {}
             if (item.get("assessment_binding_schema") == ATOMIC_ASSESSMENT_SCHEMA
+                    and independent_evidence_admitted(item)
                     and item.get("knowledge_baseline_revision") == bundle.get("revision_id")
                     and len(exact) == 1 and exact == refs
                     and exact[0] in points

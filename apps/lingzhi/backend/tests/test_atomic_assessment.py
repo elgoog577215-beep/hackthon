@@ -47,6 +47,31 @@ def atomic_course():
     }
 
 
+def _atomic_model():
+    from backend.tests.test_assessment_generation_orchestrator import RepairingModel
+
+    class ReviewedAtomicModel(RepairingModel):
+        async def generate_candidate(self, context):
+            candidate = await super().generate_candidate(context)
+            candidate["question_spec"]["stimulus"]["rendered_text"] = (
+                "某封闭系统的一次过程记录为Q=20 kJ、W=8 kJ。判断该过程的能量交换方向。"
+            )
+            return candidate
+
+        async def evaluate_candidate(self, *args, **kwargs):
+            kwargs.pop("call_policy", None)
+            report = await super().evaluate_candidate(*args, **kwargs)
+            report["evidence_checks"] = dict(
+                language_aligned=True,
+                no_answer_leakage=True,
+                explanation_consistent=True,
+                independently_assessable=True,
+            )
+            return report
+
+    return ReviewedAtomicModel()
+
+
 def test_atomic_plan_has_one_exact_target_per_point_instead_of_three_chapter_slots():
     course = atomic_course()
     blueprint = compile_course_assessment_blueprint(course)
@@ -151,7 +176,7 @@ async def test_orchestrator_uses_each_target_and_resumes_only_requested_slot(mon
 @pytest.mark.asyncio
 async def test_validated_single_point_question_becomes_one_profile_evidence():
     from assessment_orchestrator import AssessmentGenerationOrchestrator
-    from backend.tests.test_assessment_generation_orchestrator import RepairingModel, _course
+    from backend.tests.test_assessment_generation_orchestrator import _course
     from knowledge_mastery import build_knowledge_profile, freeze_knowledge_refs
     from question_bank import approved_formal_tasks, build_question_bank
 
@@ -165,7 +190,7 @@ async def test_validated_single_point_question_becomes_one_profile_evidence():
         name="热量和功的符号",
     )
     course["course_knowledge_base"]["knowledge_points"] = [point]
-    prepared = await AssessmentGenerationOrchestrator(model=RepairingModel()).prepare_course(course)
+    prepared = await AssessmentGenerationOrchestrator(model=_atomic_model()).prepare_course(course)
     bank = build_question_bank(prepared)
     assert len(bank["items"]) == 1
     tasks = approved_formal_tasks(bank)
@@ -312,7 +337,7 @@ def test_prerequisites_do_not_become_primary_targets_and_unknown_refs_are_ignore
 
 def test_api_publishes_atomic_slots_and_checkpoints_exact_ids(monkeypatch, tmp_path):
     from assessment_orchestrator import AssessmentGenerationOrchestrator
-    from backend.tests.test_assessment_generation_orchestrator import RepairingModel, _course
+    from backend.tests.test_assessment_generation_orchestrator import _course
     from backend.tests.test_question_bank_api import _client
 
     course = _course()
@@ -327,7 +352,7 @@ def test_api_publishes_atomic_slots_and_checkpoints_exact_ids(monkeypatch, tmp_p
     )
     course["course_knowledge_base"]["knowledge_points"] = [point]
     course["course_knowledge_base"]["sources"][0]["text"] = point["statement"]
-    runner = AssessmentGenerationOrchestrator(model=RepairingModel())
+    runner = AssessmentGenerationOrchestrator(model=_atomic_model())
     client, repo = _client(monkeypatch, tmp_path, course=course, orchestrator=runner)
     response = client.post(
         "/api/courses/course-api/question-bank/rebuild",
@@ -461,9 +486,19 @@ def test_legacy_derived_knowledge_does_not_conflict_with_its_own_question_public
 def test_legacy_question_identity_keeps_original_node_key_points():
     from course_versioning import stable_hash
     from question_bank import build_question_bank
+
     course = atomic_course()
     course.pop("course_knowledge_base")
-    expected = stable_hash({"course": course["course_id"], "node": "types", "level": "concept_check",
-                            "source": None, "objective": None, "knowledge": ["整数除法", "赋值转换"]}, prefix="qbi_")
+    expected = stable_hash(
+        {
+            "course": course["course_id"],
+            "node": "types",
+            "level": "concept_check",
+            "source": None,
+            "objective": None,
+            "knowledge": ["整数除法", "赋值转换"],
+        },
+        prefix="qbi_",
+    )
     item = next(i for i in build_question_bank(course)["items"] if i.get("practice_levels") == ["concept_check"])
     assert item["item_id"] == expected

@@ -13,6 +13,7 @@ from typing import Any
 
 from assessment_diversity import compile_diversity_plan
 from course_versioning import stable_hash
+from question_evidence_guard import evidence_findings
 
 QUESTION_DESIGN_BRIEF_SCHEMA = "question_design_brief_v2"
 SEMANTIC_PREFLIGHT_SCHEMA = "question_semantic_preflight_v1"
@@ -470,6 +471,7 @@ def compile_question_design_brief(
         ],
     }
     if slot.get("assessment_binding_schema"):
+        brief["language_contract"] = deepcopy(slot.get("language_contract") or {})
         brief["assessment_binding_schema"] = slot["assessment_binding_schema"]
         brief["primary_skill"] = str(objective.get("objective") or primary_knowledge)
         brief["required_observable_evidence"] = list(objective.get("observable_evidence") or [])
@@ -518,7 +520,7 @@ def evaluate_question_semantic_preflight(
         for line in block.splitlines()
         if line.strip() and not line.strip().startswith("#")
     )
-    issues: list[dict[str, Any]] = []
+    issues: list[dict[str, Any]] = evidence_findings(contract, brief)
     checks: dict[str, bool] = {}
 
     if question_type == "output_prediction":
@@ -729,6 +731,8 @@ def should_run_semantic_review(
     spec = contract.get("question_spec") or {}
     if not preflight.get("passed"):
         return False
+    if (contract.get("design_brief") or {}).get("assessment_binding_schema"):
+        return True
     if not validation.get("deterministic"):
         return True
     if preflight.get("requires_llm_review"):

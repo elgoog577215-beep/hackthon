@@ -347,6 +347,8 @@ def compile_course_assessment_blueprint(
         if knowledge_slots is not None:
             slots = knowledge_slots
             for slot in slots:
+                slot["language_contract"] = deepcopy(resolved_profile.get("notation_and_language") or {})
+                slot["evidence_policy_version"] = "question_evidence_admission_v1"
                 scoped_course = {**course_data, "course_knowledge_base": {**base, "knowledge_points": [
                     p for p in base["knowledge_points"] if p.get("knowledge_id") in slot["primary_knowledge_ids"]
                 ]}}
