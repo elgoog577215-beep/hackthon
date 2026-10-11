@@ -18,6 +18,7 @@ from knowledge_assessment import normalize_adopted_baseline
 from learner_context import require_user_id
 from learning_events import record_learning_event
 from learning_records import learning_record_repository, enrich_record_payload, RecordConflict
+from teaching_diagrams import teaching_diagram_prompt
 
 router = APIRouter(prefix="/study-dialogues", tags=["study_dialogues"])
 
@@ -181,6 +182,9 @@ async def _model(data, *, action, language):
                         'For discuss and refine, draft must be ONE coherent plain paragraph of final note text; no headings, preamble, lists or commentary about the note. '
                         'Correct misunderstandings already resolved in the conversation. Retain only unresolved questions explicitly raised by the student; '
                         'never invent new doubts, tasks or topics, and do not broaden the note to unrelated nearby material. Do not save it.')
+        instruction += teaching_diagram_prompt()
+        instruction += ('\nPut any diagram Markdown inside the JSON reply string, with newlines correctly escaped. '
+                        'Keep draft as the required single plain paragraph. Return only the outer reply/draft JSON object.')
     try:
         raw = await asyncio.wait_for(ai_service._call_llm(
             json.dumps(data, ensure_ascii=False), system_prompt=instruction, json_mode=True,

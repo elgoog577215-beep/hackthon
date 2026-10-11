@@ -616,9 +616,15 @@ const defaultFence = md.renderer.rules.fence || function(tokens: any, idx: numbe
   return self.renderToken(tokens, idx, options);
 };
 
-md.renderer.rules.fence = function(tokens: any, idx: number, options: any) {
+md.renderer.rules.fence = function(tokens: any, idx: number, options: any, env: any) {
   const token = tokens[idx];
   const info = token.info ? token.info.trim() : '';
+  if (info === 'lingzhi-diagram') {
+    const diagramIndex = env.diagramIndex || 0;
+    const closed = env.diagramClosed?.[diagramIndex] === true;
+    env.diagramIndex = diagramIndex + 1;
+    return `<div class="teaching-diagram-host" data-diagram="${encodeURIComponent(token.content)}" data-pending="${!closed}"></div>`;
+  }
   
   if (info === 'mermaid') {
     const code = prepareMermaidBlockSource(token.content);
@@ -1185,6 +1191,22 @@ export const renderMarkdown = (content: string) => {
     if (markdownCache.has(content)) {
         return markdownCache.get(content) || ''
     }
+    // Track the real fence closures before legacy preview repairs append a
+    // synthetic closing fence. A complete JSON object in an unfinished stream
+    // is still pending until its original Markdown fence has closed.
+    const diagramClosed: boolean[] = [];
+    let originalFence = '', originalDiagram = false;
+    for (const line of content.split('\n')) {
+        const fence = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+        if (!fence) continue;
+        const mark = fence[1] || '', tail = fence[2] || '';
+        if (!originalFence) { originalFence = mark; originalDiagram = tail.trim() === 'lingzhi-diagram'; }
+        else if (mark[0] === originalFence[0] && mark.length >= originalFence.length && !tail.trim()) {
+            if (originalDiagram) diagramClosed.push(true);
+            originalFence = ''; originalDiagram = false;
+        }
+    }
+    if (originalFence && originalDiagram) diagramClosed.push(false);
 
     // Fast path: If content looks simple (no code, no math delimiters, no obvious math symbols), 
     // skip the heavy robust preprocessing.
@@ -1460,7 +1482,7 @@ export const renderMarkdown = (content: string) => {
              normalized = normalized.replace(key, () => value);
         });
 
-        const rawHtml = recoverProtectedMathBlocks(md.render(normalized), protectedDisplayMath.blocks);
+        const rawHtml = recoverProtectedMathBlocks(md.render(normalized, { diagramClosed, diagramIndex: 0 }), protectedDisplayMath.blocks);
         sanitized = DOMPurify.sanitize(rawHtml, {
             ADD_TAGS: ['span', 'div', 'p', 'button', 'math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mtable', 'mtr', 'mtd', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
             ADD_ATTR: ['target', 'class', 'xmlns', 'display', 'mathvariant', 'loading', 'data-code', 'title']

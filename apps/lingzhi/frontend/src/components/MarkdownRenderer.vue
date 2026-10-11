@@ -3,7 +3,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, onBeforeUnmount } from 'vue'
+import { ref, watch, nextTick, onBeforeUnmount, h, render, getCurrentInstance, useId } from 'vue'
+import TeachingDiagram from './TeachingDiagram.vue'
 import { renderMarkdown } from '../utils/markdown'
 import { bindInlineMarkdownSource } from '../utils/inline-markdown-source'
 import { highlightRenderedMarkdownText } from '../utils/markdown-highlight'
@@ -24,6 +25,21 @@ const props = withDefaults(defineProps<{
 
 const containerRef = ref<HTMLElement | null>(null)
 const renderedContent = ref('')
+const appContext = getCurrentInstance()?.appContext
+const diagramPrefix = useId()
+const diagramHosts = new Set<Element>()
+const clearDiagrams = () => { for (const host of diagramHosts) render(null, host); diagramHosts.clear() }
+const renderTeachingDiagrams = async () => {
+    await nextTick()
+    if (!containerRef.value) return
+    let index = 0
+    for (const host of containerRef.value.querySelectorAll('.teaching-diagram-host')) {
+        const vnode = h(TeachingDiagram, { raw: decodeURIComponent(host.getAttribute('data-diagram') || ''), pending: host.getAttribute('data-pending') === 'true', instanceId: `${diagramPrefix}-${index++}` })
+        if (appContext) vnode.appContext = appContext
+        render(vnode, host)
+        diagramHosts.add(host)
+    }
+}
 
 const escapeHtml = (val: string) => val
     .replace(/&/g, '&amp;')
@@ -157,6 +173,7 @@ const enhanceCodeBlocks = async () => {
 const updateContent = () => {
     // 确保处理空内容
     if (!props.content) {
+        clearDiagrams()
         renderedContent.value = ''
         return
     }
@@ -170,10 +187,14 @@ const updateContent = () => {
         html = highlightRenderedMarkdownText(html, props.searchWords)
     }
 
-    renderedContent.value = html
+    if (renderedContent.value !== html) {
+        clearDiagrams()
+        renderedContent.value = html
+    }
 }
 
 watch(renderedContent, () => {
+    renderTeachingDiagrams()
     renderMermaid()
     enhanceCodeBlocks()
 }, { flush: 'post' })
@@ -229,6 +250,7 @@ watch(() => [props.content, props.searchWords], () => {
 }, { immediate: true, flush: 'sync' })
 
 onBeforeUnmount(() => {
+    clearDiagrams()
     if (pendingFrame) cancelAnimationFrame(pendingFrame)
 })
 

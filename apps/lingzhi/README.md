@@ -135,6 +135,8 @@ python scripts/connect_qwen_via_ssh.py --config <本机私有连接配置.json>
 
 启动前端后打开 `/dev/handout-preview.html`，载入 `handout.json`，切换阅读/教师视图及中英文检查实际组件。页面按参考项目的侧栏、宋体正文和五色重点框呈现，支持目录跳转、批量展开解答及打印；正式讲义组件使用同一阅读样式与操作。预览仅在当前浏览器会话保留已载入 JSON，刷新后仍可继续查看。此入口只在 Vite 开发环境使用，不进入生产构建；不保存正式课程或学习记录。结构通过与公式渲染成功不代表教学内容正确，实验应另行核对来源、推导、最终答案和代表性学科样本。
 
+`/dev/teaching-diagram-preview.html` 使用正式 Markdown/教学图表组件显示全部 44 种自编图型样例，可切换讲义与 AI 侧栏、中英文及流式未完成状态，也可粘贴隔离模型实验的 Markdown 检查。类型合同统一在 `shared/teaching-diagrams-v1.json`；讲义与师生 AI 回答在原模型请求中按内容选择图表，支持图注、来源、完整数据、放大和 SVG 下载。开发检查页不进入生产构建，图表错误只降级显示，不追加模型调用。具体证据和限制见[教学图表接入验收](docs/验收/教学图表接入验收.md)。
+
 讲义字体 `frontend/public/fonts/handout/SourceHanSerifCN-Subset.woff2` 来自参考项目的概统字体目录，原文件按 SIL OFL 1.1 分发，许可全文见同目录 `SourceHanSerif-LICENSE.txt`。字体按需加载，无第三方字体请求；子集之外的字符使用系统宋体。
 
 概念图复用冻结教案里的 `knowledge_structure` 与 `knowledge_relations`，展示六类关系及原有条件、理由、推导和来源引用。实验 JSON 同时保存 `plan_sections`；默认自编导数样例提供六个概念和六条关系，用于检查跳转和关系显示。关系是实验输入，不能据此宣称模型自动发现了这些关系。正式教师/课程阅读组件消费已有课程知识结构，不额外调用模型或写入一套图谱；缺关系或缺正文定位时如实显示。
