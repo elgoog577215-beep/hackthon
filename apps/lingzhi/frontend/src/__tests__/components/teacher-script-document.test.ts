@@ -30,6 +30,29 @@ const lesson: TeacherLessonProjection = {
 }
 
 describe('统一讲义页面', () => {
+  it('uses historical knowledge sections without requiring a lesson plan', () => {
+    const current = structuredClone(lesson)
+    current.plan.current_revision = null
+    current.script.knowledge_sections = [{ node_id: 'section-1', source_knowledge_revision: 'old', knowledge_source_status: 'historical', knowledge_structure: [{ knowledge_points: [{ knowledge_id: 'k1', revision_id: 'p1', name: '旧知识' }] }], key_points: [], reused_knowledge_names: [], knowledge_relations: [], teaching_modules: [] }]
+    current.script.sections[0]!.blocks = [{ block_id: 'old-body', module_id: '', role: 'concept', title: '旧讲义', content: '旧规则讲解', knowledge_refs: [{ knowledge_id: 'k1', revision_id: 'p1' }], source_knowledge_revision: 'old' }]
+    const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson: current }, global: { stubs: { HandoutConceptMap: { name: 'HandoutConceptMap', props: ['sections'], template: '<aside />' } } } })
+    const sections = wrapper.findComponent({ name: 'HandoutConceptMap' }).props('sections')
+    expect(sections[0].nodes[0]).toMatchObject({ id: 'k1', anchor: 'script-block-old-body' })
+    expect(wrapper.get('[data-handout-type="explanation"]').text()).toContain('旧规则讲解')
+    wrapper.unmount()
+  })
+  it('概念关系读取当前教案并绑定原讲义块，编辑时收起阅读图', async () => {
+    const current = structuredClone(lesson)
+    current.plan.current_revision = { plan: { sections: [{ node_id: 'section-1', knowledge_structure: [{ knowledge_points: [{ name: 'A' }, { name: 'B' }] }], knowledge_relations: [{ source_name: 'A', target_name: 'B', relation_type: 'derives', reason: '由定义得到', derivation_steps: ['展开定义'] }] }] } } as any
+    current.script.sections[0]!.blocks = [{ block_id: 'a', module_id: 'handout_content', role: 'concept', content_type: 'definition', title: 'A 定义', content: '实际定义', knowledge_names: ['A'] }]
+    const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson: current }, global: { stubs: { HandoutConceptMap: { name: 'HandoutConceptMap', props: ['sections'], template: '<aside class="concept-map-stub" />' } } } })
+    const sections = wrapper.findComponent({ name: 'HandoutConceptMap' }).props('sections')
+    expect(sections[0].relations).toHaveLength(1)
+    expect(sections[0].nodes[0].anchor).toBe('script-block-a')
+    await wrapper.findAll('button').find(button => button.text() === '编辑讲义')!.trigger('click')
+    expect(wrapper.find('.concept-map-stub').exists()).toBe(false)
+    wrapper.unmount()
+  })
   it('自由编排与自定义块原序显示，流式完成后不重复正文', async () => {
     const current = structuredClone(lesson) as any
     current.script.ready = false

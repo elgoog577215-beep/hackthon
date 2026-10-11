@@ -2,6 +2,7 @@ from copy import deepcopy
 
 from content_blocks import set_node_content_blocks
 from course_knowledge_base import (
+    apply_persisted_course_knowledge_base,
     bind_course_knowledge_base_to_map,
     compile_course_knowledge_base,
     course_knowledge_base_prompt_context,
@@ -17,6 +18,17 @@ from learning_assets import (
     compile_learning_assets,
     evaluate_learning_asset_quality,
 )
+
+
+def test_active_knowledge_relation_sources_survive_course_hydration():
+    course = _course()
+    knowledge_base = compile_course_knowledge_base(course)
+    knowledge_base["lifecycle_status"] = "active"
+    knowledge_base["relations"][0]["source_refs"] = ["ev-material-001"]
+    assert apply_persisted_course_knowledge_base(course, knowledge_base)
+    points = course["nodes"][0]["knowledge_structure"][0]["knowledge_points"]
+    relations = [relation for point in points for relation in point.get("relations") or []]
+    assert any(relation["source_refs"] == ["ev-material-001"] for relation in relations)
 
 
 def _course() -> dict:

@@ -89,7 +89,7 @@ def test_repository_save_keeps_body_without_cross_writing(course,tmp_path):
     original = deepcopy(storage.load_course('c1'))
     saved = repo._save(authoring())
     assert saved['lessons']['l1']['script_revisions'][0]['sections']
-    disk = json.loads((tmp_path/'authoring/c1.json').read_text())
+    disk = json.loads((tmp_path/'authoring/c1.json').read_text(encoding="utf-8"))
     assert '_canonical_baselines' not in disk
     assert disk['lessons']['l1']['script_revisions'][0]['sections']
     assert storage.load_course('c1') == original

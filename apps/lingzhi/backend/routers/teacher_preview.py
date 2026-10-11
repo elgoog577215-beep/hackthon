@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from assessment_contracts import project_public_question
 from ai_qa_service import AIQAService, AITeacherModelFailure
 from course_document import CourseDocument, course_view_from_document, stable_hash
+from course_teaching_plan_projection import project_course_teaching_plan
 from practice_grading import practice_grader
 from question_bank import approved_formal_tasks, migrate_question_bank_review_policy, question_bank_repository
 from storage import storage
@@ -46,10 +47,45 @@ def public_document(raw: dict) -> dict:
         blocks.append({"block_id": b.block_id, "section_id": b.section_id,
             "position": b.position, "role": b.role, "kind": b.kind,
             "internal_revision": b.internal_revision,
-            "payload": {key: deepcopy(b.payload[key]) for key in ("title", "markdown", "summary", "feedback_structure") if key in b.payload}})
+            "concept_refs": list(b.concept_refs),
+            "payload": {key: deepcopy(b.payload[key]) for key in ("title", "markdown", "summary", "feedback_structure", "content_type", "type_label", "answer_to", "knowledge_refs", "source_knowledge_revision", "source_terminology_revision") if key in b.payload}})
+    visible_ids = {b["block_id"] for b in blocks}
+    for block in blocks:
+        if block["payload"].get("answer_to") not in visible_ids:
+            block["payload"].pop("answer_to", None)
     return {"course_id": doc.course_id, "title": doc.title, "document_revision": doc.document_revision,
         "sections": [s.model_dump(include={"section_id", "parent_section_id", "title", "position", "level"}) for s in doc.sections],
         "blocks": blocks}
+
+
+def public_handout_plan(raw: dict, document: dict) -> dict:
+    """Expose concept data for disclosed sections, without teacher instructions."""
+    # Coverage and anchors must be computed from the disclosed body, never from
+    # private blocks that happen to share its section.
+    plan = project_course_teaching_plan({**raw, "course_document": document})
+    visible_sections = {b["section_id"] for b in document["blocks"]}
+    section_keys = ("node_id", "knowledge_structure", "key_points", "reused_knowledge_names", "knowledge_relations", "source_knowledge_revision", "source_terminology_revision", "knowledge_source_status", "knowledge_coverage")
+    sections = [{**{key: deepcopy(s[key]) for key in section_keys if key in s}, "teaching_modules": []}
+                for s in plan["sections"] if s["node_id"] in visible_sections]
+    names = {point["name"] for section in sections for group in section["knowledge_structure"] for point in group["knowledge_points"]}
+    identities = {identity for section in sections for group in section["knowledge_structure"]
+                  for point in group["knowledge_points"]
+                  for identity in [point["name"], point["knowledge_id"], *point["aliases"]] if identity}
+    visible_ids = {point["knowledge_id"] for section in sections for group in section["knowledge_structure"] for point in group["knowledge_points"] if point.get("knowledge_id")}
+    def endpoint_visible(relation, side):
+        identity = relation.get(side + "_knowledge_id")
+        return identity in visible_ids if identity else relation.get(side + "_name") in identities
+    for section in sections:
+        section["knowledge_relations"] = [r for r in section["knowledge_relations"] if endpoint_visible(r, "source") and endpoint_visible(r, "target")]
+        for group in section["knowledge_structure"]:
+            for point in group["knowledge_points"]:
+                point["relations"] = [r for r in point["relations"] if endpoint_visible(r, "target")]
+    return {
+        "schema_version": plan["schema_version"], "status": plan["status"],
+        "revision_id": plan["revision_id"], "strategy": plan["strategy"],
+        "section_count": len(sections), "knowledge_point_count": len(names),
+        "teaching_module_count": 0, "sections": sections,
+    }
 
 
 def formal_questions(raw: dict) -> list[dict]:
@@ -77,8 +113,9 @@ def read_preview(course_id: str, request: Request, include_assets: bool = False)
     raw = owned_course(course_id, request)
     document, questions, revision = snapshot(raw)
     result = {"course_id": course_id, "preview_revision": revision, "document": document,
+        "teaching_plan": public_handout_plan(raw, document),
         "questions": [project_public_question(q) for q in questions],
-        "handouts": {lid: {k: b.get(k) for k in ("revision_id", "source_lesson_plan_revision_id", "source_outline_revision_id")} for lid, b in (raw.get("teacher_handouts") or {}).items()},
+        "handouts": {lid: {k: b.get(k) for k in ("revision_id", "source_lesson_plan_revision_id", "source_outline_revision_id", "source_knowledge_revision", "source_terminology_revision")} for lid, b in (raw.get("teacher_handouts") or {}).items()},
         "availability": {"reading": bool(document["blocks"]), "practice": bool(questions)}}
     if include_assets:
         from course_knowledge_map import project_learning_assets_to_knowledge
@@ -145,6 +182,33 @@ class AskRequest(BaseModel):
     section_id: str = Field(default="", max_length=160)
     block_ids: list[str] = Field(default_factory=list, max_length=20)
     messages: list[TrialMessage] = Field(default_factory=list, max_length=12)
+
+
+class StudyDialogueRequest(AskRequest):
+    draft: str = Field(default="", max_length=12000)
+    language: Literal["zh", "en"] = "zh"
+
+
+@router.post("/study-dialogue")
+async def study_dialogue_preview(course_id: str, body: StudyDialogueRequest, request: Request):
+    """Return a reply and working draft without persisting any learner state."""
+    from routers.study_dialogues import _model
+
+    document, _, revision = snapshot(owned_course(course_id, request))
+    assert_revision(revision, body.preview_revision)
+    if body.section_id and not any(s["section_id"] == body.section_id for s in document["sections"]):
+        raise HTTPException(422, detail="Unknown section reference")
+    visible = {b["block_id"]: b for b in document["blocks"]}
+    if any(bid not in visible or (body.section_id and visible[bid]["section_id"] != body.section_id) for bid in body.block_ids):
+        raise HTTPException(422, detail="Unknown block reference")
+    source = "\n\n".join(str(b["payload"].get("markdown") or "") for b in visible.values()
+                           if (not body.section_id or b["section_id"] == body.section_id)
+                           and (not body.block_ids or b["block_id"] in body.block_ids))[:16000]
+    result = await _model({"source": source, "quote": body.selection, "draft": body.draft,
+                           "history": [m.model_dump() for m in body.messages], "message": body.question,
+                           "action": "discuss", "nearby_notes": []}, action="discuss", language=body.language)
+    assert_revision(snapshot(owned_course(course_id, request))[2], revision)
+    return {**result, "preview_revision": revision}
 
 
 @router.post("/ask")

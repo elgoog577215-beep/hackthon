@@ -1,5 +1,5 @@
 import asyncio
-import fcntl
+import file_lock as fcntl
 import json
 import logging
 import os

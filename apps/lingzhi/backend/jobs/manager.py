@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import hashlib
 import inspect
 import json
@@ -32,10 +33,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - production runs on Linux.
-    fcntl = None
+import file_lock as fcntl
 
 from ai_base import AIProviderRequestError, AIProviderUnavailable
 from assessment_blueprint import compile_course_assessment_blueprint
@@ -8539,8 +8537,10 @@ class TaskManager:
         handle = os.fdopen(descriptor, "r+", encoding="utf-8")
         try:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
+        except OSError as exc:
             handle.close()
+            if exc.errno not in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                raise
             self._leader_state = "conflict"
             raise TaskLeaderConflictError(
                 "Another TaskManager owns this data directory"

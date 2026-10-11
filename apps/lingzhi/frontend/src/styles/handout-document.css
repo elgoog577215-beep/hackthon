@@ -1,0 +1,49 @@
+/* Book typography shared by the canonical teacher and learner handouts.
+   Source Han Serif's unmodified OFL subset is accompanied by its license. */
+@font-face {
+  font-family: 'Lingzhi Handout Serif';
+  src: url('/fonts/handout/SourceHanSerifCN-Subset.woff2') format('woff2');
+  font-weight: 200 900;
+  font-display: swap;
+}
+:root {
+  --handout-serif: 'Lingzhi Handout Serif', 'Source Han Serif SC', 'Noto Serif CJK SC', 'Songti SC', SimSun, Georgia, serif;
+  --handout-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+.handout-document { color: #242a35; font: 18px/1.95 var(--handout-serif); }
+.handout-block .markdown-renderer p { margin: .7em 0; }
+.handout-document .markdown-renderer strong { color: inherit; font-weight: 700; }
+.handout-document .markdown-renderer :is(h2,h3,h4) { color: #242a35; font-family: var(--handout-serif); line-height: 1.6; }
+.handout-document .markdown-renderer :is(ul,ol) { margin: 1em 0; padding-left: 25px; }
+.handout-document .markdown-renderer li { margin: 10px 0; }
+.handout-document .markdown-renderer li::marker { color: inherit; font-weight: inherit; }
+.handout-document .markdown-renderer blockquote { margin: 24px 0; padding: 0 20px; border-left: 3px solid #bbc8d7; border-radius: 0; background: transparent; color: #526071; }
+.handout-document .markdown-renderer table { width: 100%; margin: 24px 0; font: 15px/1.75 var(--handout-sans); border-collapse: collapse; }
+.handout-document .markdown-renderer :is(th,td) { padding: 12px 14px; border: 0; border-bottom: 1px solid #e1e5ec; text-align: left; vertical-align: top; }
+.handout-document .markdown-renderer th { background: #f2f4f8; font-weight: 650; }
+.handout-document .markdown-renderer td:first-child { font-weight: 550; }
+.handout-document .markdown-renderer .katex { font-size: 1.09em; }
+.handout-document .markdown-renderer .katex-display { margin: 22px 0; padding: 12px 4px; max-width: 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.handout-document .handout-block:not(.handout-block--prose) .katex-display { margin: 12px 0; padding: 8px 0; }
+/* Markdown's display container wraps KaTeX's own display span. Space the
+   outer container once, so fractions do not acquire two sets of gutters. */
+.handout-document .markdown-renderer .katex-display .katex-display { margin: 0; padding: 0; overflow: visible; }
+.handout-document .markdown-renderer img { display: block; max-width: 100%; height: auto; margin: 24px auto; }
+.handout-document .markdown-renderer a { color: #315e91; text-underline-offset: 3px; overflow-wrap: anywhere; }
+@media print {
+  .handout-document { font-size: 11pt; color: #000; }
+  .handout-document :is(h2,h3,h4,h5) { break-after: avoid; }
+  .handout-document :is(p,li) { orphans: 3; widows: 3; }
+  .handout-document .markdown-renderer table { font-size: 9pt; }
+  .handout-document .markdown-renderer .katex-display { overflow: visible; }
+}
+.handout-reading-layout{display:block;min-width:0}
+.course-block-stream.handout-document{container-type:inline-size}
+.handout-reading-body{min-width:0}
+.handout-reading-layout.has-concept-map{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:24px;align-items:start}
+.handout-reading-aside{position:sticky;top:24px;max-height:calc(100vh - 48px);overflow:auto;margin:24px 18px 24px 0}
+@container (max-width:1000px){.handout-reading-layout.has-concept-map{display:flex;flex-direction:column}.handout-reading-aside{position:static;max-height:480px;order:-1;margin:12px 28px 20px;width:calc(100% - 56px)}}
+.handout-concept-flash{animation:handout-concept-flash 1.8s ease-out}
+@keyframes handout-concept-flash{from{background:#eae1f5;box-shadow:0 0 0 5px #eae1f5}to{background:transparent;box-shadow:0 0 0 0 transparent}}
+@media(prefers-reduced-motion:reduce){.handout-concept-flash{animation:none}}
+@media print{.handout-reading-layout.has-concept-map{display:block}.handout-reading-aside{display:none}}

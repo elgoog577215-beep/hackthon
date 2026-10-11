@@ -62,6 +62,7 @@ def test_missing_historical_tree_does_not_substitute_current_graph():
     assert section["knowledge_structure"] == []
     assert section["knowledge_relations"] == []
     assert section["knowledge_coverage"]["status"] == "unavailable"
+    assert section["knowledge_coverage"]["invalid_refs"] == []  # Missing history is not evidence of a bad reference.
 
 
 def test_mismatched_point_revision_is_not_counted_as_covered():

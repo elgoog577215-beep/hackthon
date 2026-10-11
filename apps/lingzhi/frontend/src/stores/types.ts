@@ -225,11 +225,16 @@ export interface CourseLessonDossierConsistency {
 
 export interface CourseTeachingPlanSection {
   node_id: string
+  source_knowledge_revision?: string
+  source_terminology_revision?: string
+  knowledge_source_status?: string
+  knowledge_coverage?: import('../utils/handout-concepts').HandoutCoverage
   knowledge_structure: Array<{
     concept_group?: string
     description?: string
     knowledge_points?: Array<{
       knowledge_id?: string
+        revision_id?: string
       knowledge_status?: 'bound' | 'awaiting_compilation' | string
       name?: string
       statement?: string
@@ -244,6 +249,7 @@ export interface CourseTeachingPlanSection {
       mastery_criteria?: Array<string | Record<string, unknown>>
       aliases?: string[]
       prerequisite_names?: string[]
+      relations?: Array<Record<string, unknown>>
     }>
   }>
   key_points: string[]

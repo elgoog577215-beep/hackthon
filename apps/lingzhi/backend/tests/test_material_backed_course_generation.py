@@ -936,7 +936,7 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
 
     assert data["generation_pipeline_version"] == "course_generation_v17"
     assert data["generation_schema_version"] == "course_generation_v17"
-    assert data["prompt_contract_version"] == "course_prompt_v36"
+    assert data["prompt_contract_version"] == "course_prompt_v37"
     assert data["course_generation_brief"]["formal_course_profile"] == {
         "course_code": "MATH-101",
         "credits": 3,
@@ -1602,7 +1602,9 @@ async def test_active_structured_call_still_persists_job_heartbeats(monkeypatch)
 
     async def active_reasoning(*_args, on_stream_activity=None, **_kwargs):
         for _ in range(10):
-            await asyncio.sleep(0.005)
+            # Stay above the Windows event-loop clock resolution so the fake
+            # request remains active long enough to observe a real heartbeat.
+            await asyncio.sleep(0.02)
             on_stream_activity()
         return '{"status":"ok"}'
 

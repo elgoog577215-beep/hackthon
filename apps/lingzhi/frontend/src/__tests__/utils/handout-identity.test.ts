@@ -35,6 +35,12 @@ describe('handout stable identity', () => {
     expect(buildHandoutConceptSections([p, plan('s2', 'k1', 'new')], reading)[0]!.relations).toEqual([])
   })
 
+  it('does not use a literal match for a mismatched point revision', () => {
+    const p = plan('s1', 'k0', 'old')
+    const body = [{ ...reading[0]!, blocks: [{ ...reading[0]!.blocks[0]!, sourceRevision: 'old', knowledgeRefs: [{ knowledge_id: 'k0', revision_id: 'wrong' }] }] }]
+    expect(buildHandoutConceptSections([p], body)[0]!.nodes[0]!.anchor).toBe('')
+  })
+
   it('keeps unavailable historical sources visible without pretending current content is a match', () => {
     const section = buildHandoutConceptSections([{ node_id: 's1', source_knowledge_revision: 'missing',
       knowledge_source_status: 'unavailable', knowledge_structure: [], knowledge_coverage: { status: 'unavailable', rows: [] } }], reading)[0]!

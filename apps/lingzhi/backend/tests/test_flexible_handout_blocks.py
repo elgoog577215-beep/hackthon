@@ -35,6 +35,35 @@ def test_free_order_custom_types_and_answer_identity():
     assert {b['block_id'] for b in blocks}.isdisjoint(b['block_id'] for b in regenerated['blocks'])
 
 
+@pytest.mark.parametrize('title,expected', [
+    ('比较"先进"与"后进"', '比较"先进"与"后进"'),
+    (r'比较\"先进\"与"后进"', '比较"先进"与"后进"'),
+    ('"理性"的边界', '"理性"的边界'),
+])
+def test_unescaped_title_quotes_preserve_exact_text_and_identity(title, expected):
+    text = '<!-- block:{"type":"思想实验","title":"' + title + '","key":"task"} -->\n原正文。'
+    text += '\n' + marker('反思', '核对', '反馈。', key='answer', answer_to='task')
+    parsed = parse_handout_blocks(text, 's', complete=True)
+    assert not parsed['error']
+    assert parsed['blocks'][0]['title'] == expected
+    assert parsed['blocks'][0]['content'] == '原正文。'
+    assert parsed['blocks'][1]['answer_to'] == parsed['blocks'][0]['block_id']
+    for index in range(len(text) + 1):
+        parse_handout_blocks(text[:index], 's')
+
+
+@pytest.mark.parametrize('payload', [
+    '{"type":"定义","title":"缺少结束引号}',
+    '{"type":"定义","title":"一","title":"二"}',
+    '{"type":"定义","title":"引号"内部"","key":"一","key":"二"}',
+    '{"type":"定义","title":"引号"内部"","knowledge":[}',
+])
+def test_title_repair_does_not_invent_missing_or_ambiguous_metadata(payload):
+    parsed = parse_handout_blocks('<!-- block:' + payload + ' -->\n真实草稿。', 's', complete=True)
+    assert parsed['error'] == 'block_metadata_invalid'
+    assert '真实草稿。' in parsed['unassigned_fragment']
+
+
 @pytest.mark.parametrize('text,error', [
     (marker('解答', '错误引用', '答案', key='a', answer_to='missing'), 'block_answer_reference_invalid'),
     (marker('定义', '空内容', ''), 'block_incomplete'),
@@ -150,7 +179,7 @@ def test_continuation_draft_does_not_duplicate_completed_prose_or_drop_code():
 
 def test_bad_metadata_after_valid_block_keeps_unassigned_prose_and_code():
     text = marker('定义', '已解析', '有效正文', key='good') + '\n' + '\n'.join([
-        '<!-- block:{"type":"例题","title":"未转义"引号""} -->',
+        '<!-- block:{"type":"例题","title":["错误类型"]} -->',
         '已收到但无法归属的正文',
         '```html', '<!-- block:literal -->', '```',
         marker('总结', '后续总结', '仍应保留的结尾'),

@@ -1242,6 +1242,7 @@ class AIBase:
         max_attempts: int | None = None,
         wait_for_capacity: bool = False,
         request_timeout_seconds: float | None = None,
+        inactivity_timeout_seconds: float | None = None,
         reject_truncated: bool = False,
         require_stop: bool = False,
         raise_on_failure: bool = False,
@@ -1273,6 +1274,7 @@ class AIBase:
             max_input_tokens: 最终 system + user prompt 的硬输入预算。
             max_input_chars: 最终请求的独立字符数硬上限。
             max_attempts: 跨候选模型共享的提供方总尝试次数。
+            inactivity_timeout_seconds: 取得模型容量后连续无内容/推理输出的上限，独立于总时限。
             reject_truncated: 输出达到 max_tokens 时是否直接报告截断。
             raise_on_failure: 失败时是否抛出统一的提供方异常，而不是返回 None
 
@@ -1495,7 +1497,10 @@ class AIBase:
                     request_started = time.perf_counter()
                     response = None
                     try:
-                        async with asyncio.timeout(request_timeout_seconds):
+                        async with (
+                            asyncio.timeout(request_timeout_seconds) as deadline,
+                            asyncio.timeout(inactivity_timeout_seconds) as inactivity,
+                        ):
                             try:
                                 await self._wait_for_request_slot()
                                 await _notify_stream_callback(on_content_reset)
@@ -1558,12 +1563,16 @@ class AIBase:
                                         chunk.choices[0].delta
                                     )
                                     if reasoning:
+                                        if inactivity_timeout_seconds is not None:
+                                            inactivity.reschedule(asyncio.get_running_loop().time() + inactivity_timeout_seconds)
                                         reasoning_chars += len(reasoning)
                                         if on_stream_activity:
                                             on_stream_activity()
 
                                     delta = chunk.choices[0].delta
                                     if delta.content:
+                                        if inactivity_timeout_seconds is not None:
+                                            inactivity.reschedule(asyncio.get_running_loop().time() + inactivity_timeout_seconds)
                                         if first_token_at is None:
                                             first_token_at = time.perf_counter()
                                         full_content += delta.content
@@ -1578,6 +1587,16 @@ class AIBase:
                                         finish_reason = reason
                                     if reason == "length":
                                         truncated = True
+                    except asyncio.TimeoutError as exc:
+                        if inactivity.expired():
+                            raise asyncio.TimeoutError(
+                                f"模型连续 {inactivity_timeout_seconds:g} 秒没有内容输出，已保留收到的片段。"
+                            ) from exc
+                        if deadline.expired():
+                            raise asyncio.TimeoutError(
+                                f"模型请求超过总时限 {request_timeout_seconds:g} 秒，已保留收到的片段。"
+                            ) from exc
+                        raise
                     finally:
                         try:
                             if response is not None and callable(getattr(response, "close", None)):
@@ -1743,7 +1762,7 @@ class AIBase:
                 raise AIProviderUnavailable(
                     provider_failure
                 ) from last_error
-            if request_timeout_seconds is not None and isinstance(last_error, asyncio.TimeoutError):
+            if (request_timeout_seconds is not None or inactivity_timeout_seconds is not None) and isinstance(last_error, asyncio.TimeoutError):
                 raise last_error
             if isinstance(last_error, AIProviderRequestError):
                 raise last_error

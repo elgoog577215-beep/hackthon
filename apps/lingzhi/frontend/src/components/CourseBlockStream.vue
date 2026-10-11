@@ -1,5 +1,11 @@
 <template>
-  <div v-if="blocks.length" class="course-block-stream">
+  <div v-if="blocks.length" ref="handoutRoot" class="course-block-stream" :class="{ 'handout-document': hasHandoutBlocks }">
+    <template v-if="hasHandoutBlocks && readingTools">
+      <HandoutReadingGuide :target="handoutRoot" :title="node.node_name" />
+      <HandoutTableOfContents v-if="handoutContents.length > 1" :entries="handoutContents" collapsible />
+    </template>
+    <HandoutReadingLayout :show-map="showConceptMap">
+    <template #aside><HandoutConceptMap class="handout-reading-aside" :sections="conceptSections" :target="handoutRoot" /></template>
     <template v-for="(item, index) in streamItems" :key="item.block.block_revision_id || item.block.block_id">
       <article
         :id="`course-block-${item.block.block_id}`"
@@ -11,6 +17,7 @@
         :data-course-evolution-plan-id="evolutionMetadata(item.block)?.change_set_id"
         :data-course-evolution-operation-id="evolutionMetadata(item.block)?.operation_id"
         :class="{
+          'is-handout-block': isHandoutBlock(item.block),
           'can-improve-formal': canImproveBlock(item.block.block_id),
           'is-ai-evolved-block': isAiEvolvedBlock(item.block),
           'is-ai-growth-highlight': isApplicationBlock(item.block) && applicationVisual?.phase === 'content',
@@ -29,7 +36,7 @@
           {{ t('courseEvolution.applicationVisual.blockBadge', 'AI 个体化补充') }}
         </span>
         <header
-          v-if="item.block.title"
+          v-if="item.block.title && (!isHandoutBlock(item.block) || isPptSameSourcePrimary(item.block))"
           class="block-heading"
           :class="{ 'is-label-only': !shouldShowBlockTitle(item.block, index) }"
         >
@@ -41,8 +48,8 @@
             <div><dt>{{ t('teachingRepresentations.sameSourceAfter', '修改后') }}</dt><dd>{{ sameSourceState?.afterText }}</dd></div>
           </dl>
         </aside>
-          <span v-if="!shouldShowBlockTitle(item.block, index)" class="block-role">{{ blockLabel(item.block.type) }}</span>
-          <h4 v-if="shouldShowBlockTitle(item.block, index)"><MathText :content="teacherFacingTeachingLabel(item.block.title)" /></h4>
+          <span v-if="!isHandoutBlock(item.block) && !shouldShowBlockTitle(item.block, index)" class="block-role">{{ blockLabel(item.block.type) }}</span>
+          <h4 v-if="!isHandoutBlock(item.block) && shouldShowBlockTitle(item.block, index)"><MathText :content="teacherFacingTeachingLabel(item.block.title)" /></h4>
         </header>
         <button
           v-if="canImproveBlock(item.block.block_id)"
@@ -65,6 +72,17 @@
           :search-words="searchWords"
           @start-practice="emit('startPractice', $event)"
         />
+        <HandoutContentBlock
+          v-else-if="isHandoutBlock(item.block)"
+          :content-type="String(item.block.metadata?.content_type || '')"
+          :label="handoutLabel(item.block)"
+          :title="teacherFacingTeachingLabel(item.block.title || '')"
+          :answer-to="String(item.block.metadata?.answer_to || '')"
+          :collapse-answer="item.block.status !== 'draft' && !isStreaming"
+          :streaming="isStreaming"
+        >
+          <MarkdownRenderer :content="item.block.content || ''" :search-words="searchWords" />
+        </HandoutContentBlock>
         <FeedbackReviewBlock
           v-else-if="item.block.type === 'feedback'"
           :content="item.block.content || ''"
@@ -113,6 +131,7 @@
       </div>
     </section>
     <span v-if="isStreaming" class="stream-cursor"></span>
+    </HandoutReadingLayout>
   </div>
   <template v-else>
     <MarkdownDocumentEditor
@@ -143,6 +162,9 @@ import CourseEvolutionContentBlock from './CourseEvolutionContentBlock.vue'
 import FeedbackReviewBlock from './FeedbackReviewBlock.vue'
 import MarkdownDocumentEditor from './MarkdownDocumentEditor.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import HandoutContentBlock from './HandoutContentBlock.vue'
+import HandoutReadingGuide from './HandoutReadingGuide.vue'
+import HandoutTableOfContents from './HandoutTableOfContents.vue'
 import MathText from './MathText.vue'
 import type { ContentBlock, CourseBlockEditTarget, Node, Note } from '../stores/types'
 import { useNoteStore } from '../stores/notes'
@@ -155,6 +177,9 @@ import {
 } from '../utils/ppt-same-source'
 import type { PptSameSourceHighlightState } from '../utils/ppt-same-source'
 import { teacherFacingTeachingLabel } from '../utils/teaching-terminology'
+import HandoutConceptMap from './HandoutConceptMap.vue'
+import HandoutReadingLayout from './HandoutReadingLayout.vue'
+import { buildHandoutConceptSections } from '../utils/handout-concepts'
 
 const props = withDefaults(defineProps<{
   node: Node
@@ -164,7 +189,10 @@ const props = withDefaults(defineProps<{
   isStreaming?: boolean
   canImproveBlocks?: boolean
   readOnly?: boolean
-}>(), { records: () => [], canImproveBlocks: false })
+  readingTools?: boolean
+  conceptMap?: boolean
+}>(), { records: () => [], canImproveBlocks: false, readingTools: true, conceptMap: true })
+const handoutRoot = ref<HTMLElement | null>(null)
 const emit = defineEmits<{
   openRecord: [payload: { note: Note; x: number; y: number }]
   improveBlock: [payload: CourseBlockEditTarget]
@@ -197,12 +225,36 @@ const blocks = computed(() => (props.node.course_blocks?.length
         animation_spec: block.payload.animation_spec,
         practice_task_id: block.payload.practice_task_id,
         practice_intent: block.payload.practice_intent,
+        content_type: block.payload.content_type,
+        type_label: block.payload.type_label,
+        answer_to: block.payload.answer_to,
+        concept_refs: block.concept_refs,
+        knowledge_refs: block.payload.knowledge_refs,
+        source_knowledge_revision: block.payload.source_knowledge_revision,
       },
       block_revision_id: block.internal_revision,
     } as ContentBlock))
   : [...(props.node.content_blocks || [])])
   .filter(block => block && (String(block.content || '').trim() || block.status === 'draft'))
   .sort((left, right) => (left.order || 0) - (right.order || 0)))
+function isHandoutBlock(block: ContentBlock): boolean {
+  return Boolean(block.metadata?.content_type && !block.metadata?.course_evolution)
+}
+const hasHandoutBlocks = computed(() => blocks.value.some(isHandoutBlock))
+const conceptSections = computed(() => buildHandoutConceptSections(courseStore.currentTeachingPlan?.sections, [{
+  id: props.node.node_id, title: props.node.node_name, anchor: '', blocks: blocks.value.map(block => ({
+    id: block.block_id, title: block.title, anchor: `course-block-${block.block_id}`, content: block.content,
+    knowledge: Array.isArray(block.metadata?.concept_refs) ? block.metadata.concept_refs : [],
+    knowledgeRefs: Array.isArray(block.metadata?.knowledge_refs) ? block.metadata.knowledge_refs.map(ref => ({ knowledge_id: String(ref?.knowledge_id || ''), revision_id: String(ref?.revision_id || '') })) : [],
+    sourceRevision: String(block.metadata?.source_knowledge_revision || ''),
+  })),
+}]))
+const showConceptMap = computed(() => props.conceptMap && hasHandoutBlocks.value && conceptSections.value.some(section => section.nodes.length || section.sourceStatus))
+const handoutContents = computed(() => blocks.value.filter(block => isHandoutBlock(block) && block.title && !block.metadata?.answer_to).map(block => ({ id: `course-block-${block.block_id}`, title: teacherFacingTeachingLabel(block.title || '') })))
+function handoutLabel(block: ContentBlock): string {
+  const type = String(block.metadata?.content_type || '')
+  return t(`courseWorkbench.scriptDocument.contentTypes.${type}`, String(block.metadata?.type_label || type))
+}
 const chapterSourceCards = computed(() => (props.node.source_cards || []).filter(source => {
   try {
     return new URL(String(source.url || '')).protocol === 'https:'
@@ -386,6 +438,8 @@ async function deleteAiRecord(note: Note) {
 
 <style scoped>
 .course-block-stream { display:grid; gap:34px; }
+.course-block-stream.handout-document { display:block; }
+.course-content-block.is-handout-block[data-content-block-type="summary"]:not(.is-ppt-same-source-highlight) { padding-top:0; border-top:0; }
 .legacy-inline-records { display:grid; gap:12px; margin-top:24px; }
 .course-content-block { --block-accent:#6366f1; --block-soft:#eef2ff; position:relative; min-width:0; scroll-margin-top:92px; }
 /* Examples are reading insets; the prose keeps one continuous left edge. */

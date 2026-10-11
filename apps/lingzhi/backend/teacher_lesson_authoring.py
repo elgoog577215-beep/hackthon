@@ -10,7 +10,7 @@ from course_production_state import teacher_asset_job_can_resume
 from ppt_manuscript_quality import manuscript_quality_passed
 
 import asyncio
-import fcntl
+import file_lock as fcntl
 import logging
 import json
 import os
@@ -1528,6 +1528,9 @@ def teacher_lesson_script_sections_revision(
                     "content": str(block.get("content") or ""),
                     "knowledge_names": list(block.get("knowledge_names") or []),
                     "planned_minutes": block.get("planned_minutes"),
+                    **{key: deepcopy(block[key]) for key in ("content_type", "type_label", "answer_to",
+                        "knowledge_refs", "source_knowledge_revision", "source_terminology_revision", "answer_refs",
+                        "source_context_revision", "source_evidence_package_revision", "source_scope_revision") if key in block},
                 }
                 for block in blocks
             ]
@@ -1718,12 +1721,15 @@ def teacher_lesson_v6_source(
                 "title": str(script_block.get("title") or module_id),
                 "content": str(script_block.get("content") or "").strip(),
                 "metadata": {
+                    **{key: deepcopy(script_block[key]) for key in ("content_type", "type_label", "answer_to",
+                        "knowledge_refs", "source_knowledge_revision", "source_terminology_revision", "answer_refs",
+                        "source_context_revision", "source_evidence_package_revision", "source_scope_revision") if key in script_block},
                     "role": role,
                     "module_id": module_id,
                     "module_instance_id": str(
                         script_block.get("block_id") or f"{section_id}:{module_id}"
                     ),
-                    "concept_refs": knowledge_names,
+                    "concept_refs": [r["knowledge_id"] for r in script_block["knowledge_refs"]] if "knowledge_refs" in script_block else knowledge_names,
                     "planned_minutes": script_block.get("planned_minutes"),
                     "ppt_page_group_id": ppt_page_group_id,
                     "content_perspective": "teacher_delivery",
@@ -1800,6 +1806,7 @@ def project_current_teacher_scripts(
         if item.get("node_id")
     }
     overlay_by_id: dict[str, dict[str, Any]] = {}
+    plan_sections: list[dict[str, Any]] = []
     covered_lessons: list[str] = []
     skipped_lessons: list[dict[str, str]] = []
     course_data = {
@@ -1869,6 +1876,11 @@ def project_current_teacher_scripts(
             continue
         for item in lesson_nodes:
             overlay_by_id[str(item.get("node_id") or "")] = item
+        lesson_section_ids = {str(item.get("node_id") or "") for item in lesson_nodes}
+        plan_sections.extend(
+            item for item in (lesson_view.get("course_teaching_plan") or {}).get("sections") or []
+            if isinstance(item, dict) and str(item.get("node_id") or "") in lesson_section_ids
+        )
         covered_lessons.append(lesson_id)
 
     for index, node in enumerate(nodes):
@@ -1888,6 +1900,10 @@ def project_current_teacher_scripts(
             "error_summary": None,
         }
 
+    from course_teaching_plan_projection import overlay_lesson_plan_sections, project_course_teaching_plan
+    projected["teaching_plan"] = project_course_teaching_plan({
+        **projected, "course_teaching_plan": overlay_lesson_plan_sections(projected, plan_sections),
+    })
     projected["projection"] = "teacher_lesson_authoring"
     projected["teacher_lesson_projection"] = {
         "schema_version": "teacher_lesson_preview_v1",

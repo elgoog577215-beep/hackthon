@@ -217,7 +217,7 @@ async def test_handout_request_has_complete_context_and_one_provider_attempt(mon
         course_id="c",
         outline_sections=[{"node_id": "a"}, {"node_id": "b"}],
         plan_sections={"a": {"knowledge": "定义边界"}},
-        lesson_context={"source": "指定资料"},
+        lesson_context={"source": "指定资料", "selected_material_evidence": [{"filename": "教材.pdf", "locator": "第 3 页", "source_text": "y-4=4(x-2)"}]},
         requirements="保留推导",
     )
     assert result["text"] == response(["a", "b"]) and len(calls) == 1
@@ -226,6 +226,32 @@ async def test_handout_request_has_complete_context_and_one_provider_attempt(mon
     assert kw["max_attempts"] == kw["retry_count"] == 1 and kw["require_stop"]
     assert not kw["json_mode"]
     assert "口播稿" in system and "参考解法" in system
+    assert all(x in prompt for x in ["教材.pdf", "第 3 页", "y-4=4(x-2)", "最终结果回代", "不输出 HTML"])
+
+
+@pytest.mark.asyncio
+async def test_lecture_uses_its_own_deadline_and_reserves_full_output(monkeypatch):
+    service = CourseService()
+    service._generation_budget = replace(service._generation_budget,
+        teacher_script_request_timeout_seconds=30,
+        teacher_handout_request_timeout_seconds=600,
+        teacher_handout_max_output_tokens=32000,
+        content_inactivity_timeout_seconds=90,
+    )
+    calls = []
+    async def model(*args, **kwargs):
+        calls.append(kwargs)
+        return response(['a'])
+    monkeypatch.setattr(service, '_call_llm', model)
+    kwargs = dict(course_id='c', outline_sections=[{'node_id': 'a'}], plan_sections={}, lesson_context={})
+    await service.generate_teacher_handout(**kwargs)
+    assert calls[0]['request_timeout_seconds'] == 600
+    assert calls[0]['inactivity_timeout_seconds'] == 90
+    assert calls[0]['max_tokens'] == 32000
+    service._generation_budget = replace(service._generation_budget, context_window_tokens=32000)
+    with pytest.raises(CourseGenerationBudgetExceeded):
+        await service.generate_teacher_handout(**kwargs)
+    assert len(calls) == 1
 
 
 @pytest.mark.asyncio

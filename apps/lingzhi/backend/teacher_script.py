@@ -19,7 +19,7 @@ from teacher_visible_language import has_unnatural_system_language
 
 SCRIPT_SCHEMA_VERSION = "teacher_script_v2"
 # Historical revisions retain their format identity; generation tasks use a separate contract.
-SCRIPT_PIPELINE_VERSION = "direct_teaching_script_v8"
+SCRIPT_PIPELINE_VERSION = "direct_teaching_script_v9"
 SCRIPT_QUALITY_VERSION = "teacher_script_quality_v13"
 
 HANDOUT_CONTRACT_VERSION = "handout_lecture_v3"
@@ -36,6 +36,9 @@ HANDOUT_CONTENT_TYPES = {
     "answer": ("解答", "feedback"),
     "misconception": ("辨析", "misconception"),
     "summary": ("总结", "summary"),
+    "theorem": ("定理", "reasoning"),
+    "result": ("结论", "summary"),
+    "warning": ("易错点", "misconception"),
 }
 
 
@@ -54,6 +57,35 @@ def handout_visible_draft(text: str) -> str:
                 fence = ""
         lines.append(line)
     return "".join(lines).strip()
+
+
+def _parse_block_metadata(payload: str) -> dict[str, Any]:
+    """Recover only unescaped quotes inside a title, without inventing fields.
+
+    Delimiters, identity fields and references must remain valid JSON. Ambiguous
+    duplicate keys are rejected rather than silently overwriting metadata.
+    """
+    def unique_fields(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate block metadata")
+            result[key] = value
+        return result
+
+    try:
+        return json.loads(payload, object_pairs_hook=unique_fields)
+    except json.JSONDecodeError:
+        title_pattern = r'("title"\s*:\s*")((?:[^"\\]|\\.|"(?!\s*(?:,\s*"[^"]+"\s*:|})))*)"(?=\s*(?:,\s*"[^"]+"\s*:|}))'
+        matches = list(re.finditer(title_pattern, payload))
+        if len(matches) != 1:
+            raise
+        match = matches[0]
+        title = re.sub(r'\\.|"', lambda m: '\\"' if m[0] == '"' else m[0], match[2])
+        if title == match[2]:
+            raise
+        repaired = payload[:match.start(2)] + title + payload[match.end(2):]
+        return json.loads(repaired, object_pairs_hook=unique_fields)
 
 
 def parse_handout_blocks(content: str, section_id: str, *, identity: str = "",
@@ -127,7 +159,7 @@ def parse_handout_blocks(content: str, section_id: str, *, identity: str = "",
                 unassigned = handout_visible_draft("".join(source_lines[line_index:]))
                 break
             try:
-                value = json.loads(stripped[len("<!-- block:"):-3])
+                value = _parse_block_metadata(stripped[len("<!-- block:"):-3])
                 if not isinstance(value, dict):
                     raise ValueError
                 for key, limit in (("type", 40), ("title", 160)):
@@ -883,7 +915,9 @@ def normalize_teacher_script_section(
             if role not in _ALLOWED_ROLES:
                 role = "concept"
             blocks.append({
-                **{key: deepcopy(raw.get(key, module.get(key))) for key in ("content_type", "type_label", "answer_to") if key in raw or key in module},
+                **{key: deepcopy(raw.get(key, module.get(key))) for key in ("content_type", "type_label", "answer_to",
+                    "knowledge_refs", "source_knowledge_revision", "source_terminology_revision", "answer_refs",
+                    "source_context_revision", "source_evidence_package_revision", "source_scope_revision") if key in raw or key in module},
                 "block_id": _text(raw.get("block_id") or module.get("block_id"))
                 or _stable_block_id(
                     _text(compiled.get("section_node_id")), module_id or "unstructured", index

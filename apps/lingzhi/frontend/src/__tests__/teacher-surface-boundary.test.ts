@@ -49,7 +49,7 @@ describe('calendar and course file-space boundary', () => {
   it('loads question-bank detail only when the teacher opens that stage', () => {
     const workbench = source('components/TeacherCourseWorkbench.vue')
     expect(workbench).toContain("watch([() => props.courseId, activeStage], ([courseId, stage]) => {")
-    expect(workbench).toContain("if (courseId && stage === 'question-bank') void loadQuestionBankStatus()")
+    expect(workbench).toMatch(/if \(courseId && stage === 'question-bank'\)\s*\{\s*ensureLessonStageLoaded\(stage\)\s*void loadQuestionBankStatus\(\)/)
     expect(workbench).toContain('ensureLessonStageLoaded(stage)')
     expect(workbench).toContain('void lessonStore.load(props.courseId).catch(() => undefined)')
     expect(workbench).toContain("requestStageChange(stage, { loadLesson: false })")
@@ -149,7 +149,9 @@ describe('calendar and course file-space boundary', () => {
     expect(workspace).toContain('class="preview-action"')
     expect(workspace).not.toContain('class="workspace-local-header"')
     expect(workspace).toContain('<TeacherCourseWorkbench')
-    expect(workspace).toContain('<CoursePreparationDialog\n      v-if="!loading"')
+    // Knowledge-first owners use the tree workflow; administrative preparation
+    // remains available for legacy teacher courses only.
+    expect(workspace).toMatch(/<CoursePreparationDialog\s+v-if="!loading && !knowledgeFirstEnabled"/)
     expect(workspace).not.toContain('<CourseWorkbench')
     expect(workspace).not.toContain('@open-tasks')
     expect(workspace).toContain("loadError.status === 404 ? backToSource() : loadWorkspace()")

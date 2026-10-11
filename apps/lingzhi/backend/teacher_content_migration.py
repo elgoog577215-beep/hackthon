@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
-import fcntl
+import file_lock as fcntl
 import hashlib
 import json
 from pathlib import Path
@@ -102,8 +102,8 @@ def migrate(data_dir, *, mode="preflight", backup_dir=None, course_ids=None, act
             continue
         ap = root / "teacher_lesson_authoring" / f"{cid}.json"
         try:
-            raw = json.loads(path.read_text())
-            author = json.loads(ap.read_text()) if ap.exists() else {"course_id": cid, "lessons": {}}
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            author = json.loads(ap.read_text(encoding="utf-8")) if ap.exists() else {"course_id": cid, "lessons": {}}
             inputs = [path] + ([ap] if ap.exists() else [])
             hashes = {str(p.relative_to(root)): digest(p) for p in inputs}
             result = prepare(raw, author, allow_paused=activation_check)

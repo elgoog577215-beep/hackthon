@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import asyncio
 import time
 from types import SimpleNamespace
 
@@ -35,6 +36,54 @@ class FakeCompletions:
                 content="正式答案",
             ))]),
         ])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('mode', ['active', 'queued', 'stall', 'deadline', 'cancel'])
+async def test_independent_stream_timeouts_preserve_deltas_and_close_stream(monkeypatch, mode):
+    monkeypatch.setenv('AI_API_KEY', 'test-key')
+    service = AIBase()
+    service.smart_models = service.fast_models = ['timeout-test-model']
+    service._model_failure_cache.clear()
+    service._model_transient_failures.clear()
+    closed, deltas, requests = [], [], []
+    count = 2 if mode == 'queued' else 8
+    if mode == 'queued':
+        from ai_base import get_provider_capacity_controller
+        capacity = get_provider_capacity_controller(service._primary_provider_scope())
+        acquire = capacity.acquire
+        async def queued_acquire(*args, **kwargs):
+            await asyncio.sleep(.2)
+            return await acquire(*args, **kwargs)
+        monkeypatch.setattr(capacity, 'acquire', queued_acquire)
+    class Stream:
+        def __aiter__(self):
+            return self.generate()
+        async def generate(self):
+            for i in range(count):
+                await asyncio.sleep(0.02 if mode != 'stall' or i == 0 else 1)
+                yield SimpleNamespace(choices=[SimpleNamespace(
+                    delta=SimpleNamespace(content='正文', reasoning_content=None),
+                    finish_reason='stop' if i == count - 1 else None)])
+        async def close(self):
+            closed.append(True)
+    async def create(**kwargs):
+        requests.append(kwargs)
+        return Stream()
+    service.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    async def delta(text):
+        deltas.append(text)
+        if mode == 'cancel':
+            raise asyncio.CancelledError
+    call = service._call_llm('test', retry_count=1, max_attempts=1, require_stop=True,
+        raise_on_failure=True, request_timeout_seconds=.09 if mode in {'deadline', 'queued'} else 2,
+        inactivity_timeout_seconds=.08, on_content_delta=delta)
+    if mode in {'active', 'queued'}:
+        assert await call == '正文' * count  # Active stream or queue can exceed inactivity limit.
+    else:
+        with pytest.raises(asyncio.CancelledError if mode == 'cancel' else asyncio.TimeoutError):
+            await call
+    assert deltas and len(requests) == 1 and closed == [True]
 
 
 def _clear_model_environment(monkeypatch):

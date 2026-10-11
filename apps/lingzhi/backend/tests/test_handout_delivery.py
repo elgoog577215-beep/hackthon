@@ -108,10 +108,21 @@ async def test_live_queue_heartbeat_persists_fragments_and_prevents_false_expiry
     repo.update_job_stream("course", job["id"], phase="queued", progress=5, message="等待资源",
                            batch_id="shard:block", event="delta", delta="尚未完成的正文", block_id="block")
     monkeypatch.setattr(routes, "_TEACHER_JOB_HEARTBEAT_SECONDS", .005)
+    # Observe a completed durable heartbeat. A fixed 30ms delay races Windows
+    # thread-pool scheduling and fsync (especially under coverage).
+    persisted = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    update_job = repo.update_job
+    def observed_update(*args, **kwargs):
+        result = update_job(*args, **kwargs)
+        if kwargs.get("heartbeat_at"):
+            loop.call_soon_threadsafe(persisted.set)
+        return result
+    monkeypatch.setattr(repo, "update_job", observed_update)
     gate = asyncio.Event()
     task = asyncio.create_task(routes._run_lesson_plan_job(course_id="course", job_id=job["id"], repository=repo, run=gate.wait), name=job["id"])
     repo.track_runtime_job("course", task)
-    await asyncio.sleep(.03)
+    await asyncio.wait_for(persisted.wait(), 3)
     assert repo.expire_stale_job("course", job["id"], stale_after_seconds=1)["status"] == "pending"
     reloaded = TeacherLessonAuthoringRepository(tmp_path).get_job("course", job["id"])
     assert reloaded["streamed_block_content"] == {"block": "尚未完成的正文"}

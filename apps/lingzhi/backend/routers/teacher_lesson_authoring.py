@@ -35,6 +35,7 @@ from learner_context import resolve_user_id
 from lesson_identity import chapter_matches_lesson
 from generation_streaming import structured_generation_stream
 from course_schedule import teacher_lecture_duration_minutes
+from handout_knowledge_projection import project_script_knowledge
 from teaching_design import (
     LESSON_TYPES,
     normalize_lesson_arrangement,
@@ -1731,6 +1732,7 @@ def _lesson_projection(
                 ),
                 "quality_report": script_quality,
                 "sections": script_sections,
+                "knowledge_sections": project_script_knowledge(source, script_sections) if include_content else [],
                 "actor": str((script_revision or {}).get("actor") or ""),
                 "updated_at": str(
                     (script_revision or {}).get("updated_at")

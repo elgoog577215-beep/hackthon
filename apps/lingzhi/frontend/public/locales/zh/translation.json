@@ -1095,7 +1095,11 @@
       "generateStepDetail": "按对应内容直接生成",
       "mappingTitle": "本讲讲义将按以下教案生成",
       "mappingReady": "教案提供教学依据，讲义将按本讲目标灵活编排。",
-      "contentTypes": {"introduction": "引入", "definition": "定义", "explanation": "解释", "comparison": "对比", "derivation": "推导", "example": "例题", "exercise": "练习", "answer": "解答", "misconception": "辨析", "summary": "总结"},
+      "contentTypes": {"introduction": "引入", "definition": "定义", "explanation": "解释", "comparison": "对比", "derivation": "推导", "example": "例题", "exercise": "练习", "answer": "解答", "misconception": "辨析", "summary": "总结",
+  "theorem": "定理",
+  "result": "结论",
+  "warning": "易错点"
+},
       "mappingBlockedTitle": "暂无可用教案",
       "mappingBlockedDetail": "请先完成本讲教案，再生成讲义。",
       "generationBlockedTitle": "暂时无法生成讲义",
@@ -1137,7 +1141,14 @@
         "remediation": "补充讲解",
         "summary": "课堂小结",
         "transfer": "综合迁移"
-      }
+      },
+      "revealAnswer": "展开解答",
+      "hideAnswer": "收起解答",
+      "expandAnswers": "展开全部解答",
+      "collapseAnswers": "收起全部解答",
+      "printHandout": "打印 / 保存 PDF",
+      "colorGuide": "内容颜色说明",
+      "readingContents": "目录"
     },
     "completeOutlineFirst": "请先生成并确认课程大纲",
     "backToFoundation": "返回课程基础",
@@ -6985,5 +6996,52 @@
     "sideBySideUnavailable": "当前空间不足，请收起右侧栏后使用并排对比。",
     "sideBySideSelected": "已切换为并排对比",
     "stackedSelected": "已切换为上下对比"
+  },
+  "handoutConcepts": {
+    "eyebrow": "CONCEPT CONNECTIONS",
+    "title": "概念关系",
+    "hint": "顺着关系理解知识，点击概念回到正文。",
+    "sections": "概念图小节",
+    "concepts": "个概念",
+    "graph": "本节概念关系图",
+    "prior": "前置 / 复用",
+    "jump": "定位正文",
+    "noAnchor": "本讲尚无对应段落",
+    "relations": "关系与依据",
+    "showAll": "查看全部",
+    "conditions": "条件：",
+    "distinction": "区别：",
+    "noRelations": "当前概念尚无记录的关系。",
+    "allOf": "共同前提：",
+    "anyOf": "可选前提（满足其一）：",
+    "helpful": "有助于理解",
+    "empty": "本节尚未记录概念关系。",
+    "origin": "来自当前教案 · 箭头方向按关系类型阅读",
+    "types": {
+      "prerequisite": "先修",
+      "derives": "推导",
+      "applies_to": "应用",
+      "contrasts_with": "对比",
+      "equivalent_to": "等价",
+      "generalizes": "推广"
+    },
+    "source": {
+      "current": "使用本讲引用的知识版本",
+      "historical": "使用本讲的历史知识版本；课程知识已更新",
+      "unavailable": "本讲引用的历史知识暂不可用，正文仍可阅读",
+      "conflict": "本讲包含不一致的知识版本，关系与覆盖暂不可用"
+    },
+    "coverage": {
+      "title": "知识引用覆盖",
+      "hint": "数字表示已绑定的正文块数量，不代表讲解正确、考点有效或已经掌握。",
+      "partialScope": "本讲知识范围尚未完整绑定，不能据此判断整讲是否覆盖齐全。",
+      "point": "知识点",
+      "explanation": "讲解",
+      "example": "例题",
+      "exercise": "练习",
+      "missing": "暂无正文引用",
+      "invalid": "未计入覆盖的失效引用："
+    },
+    "originPinned": "来自本讲引用的知识版本 · 箭头方向按关系类型阅读"
   }
 }

@@ -36,6 +36,9 @@ def _source(course, revision):
 
 
 def reference_coverage(points, blocks, revision, *, status, scope_known):
+    if status in {"unavailable", "conflict"}:
+        return {"status": status, "scope_known": False, "semantics_verified": False,
+                "source_knowledge_revision": revision, "rows": [], "invalid_refs": []}
     rows = {p["knowledge_id"]: {"knowledge_id": p["knowledge_id"], "name": p.get("name", ""),
         "revision_id": p.get("revision_id", ""), "block_ids": [], "explanation_block_ids": [],
         "example_block_ids": [], "exercise_block_ids": []} for p in points if p.get("knowledge_id")}
@@ -132,3 +135,12 @@ def project_handout_knowledge(course, sections):
             source_terminology_revision=tree.get("terminology_revision", ""), knowledge_source_status=status,
             knowledge_coverage=reference_coverage(points, body, revision, status=status, scope_known=bool(scoped)))
     return result
+
+
+def project_script_knowledge(course, sections):
+    """Adapt the owner's saved manuscript to the same read-only contract."""
+    document = {"sections": [{"section_id": s["section_node_id"]} for s in sections],
+        "blocks": [{"block_id": b["block_id"], "section_id": s["section_node_id"],
+            "role": b.get("role"), "payload": {**b, "markdown": b.get("content", "")}}
+            for s in sections for b in _records(s.get("blocks"))]}
+    return project_handout_knowledge({**course, "course_document": document}, [])

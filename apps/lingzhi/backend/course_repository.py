@@ -531,7 +531,9 @@ class CourseDocumentRepository:
                 "schema": raw.get("teacher_production_schema"),
                 "document_revision": document.document_revision,
                 "lectures": {lid: {key: binding.get(key) for key in (
-                    "revision_id", "source_lesson_plan_revision_id", "source_outline_revision_id")}
+                    "revision_id", "source_lesson_plan_revision_id", "source_outline_revision_id",
+                    "source_knowledge_revision", "source_terminology_revision", "source_context_revision",
+                    "source_evidence_package_revision", "source_scope_revision")}
                     for lid, binding in (raw.get("teacher_handouts") or {}).items()},
                 "reading_available": any(b.status == "final" for b in document.blocks),
             },

@@ -1095,7 +1095,11 @@
       "generateStepDetail": "Generate directly from the mapping",
       "mappingTitle": "This handout will follow the lesson plan below",
       "mappingReady": "The lesson plan guides the handout. Content blocks follow the learning goals, with a flexible sequence.",
-      "contentTypes": {"introduction": "Introduction", "definition": "Definition", "explanation": "Explanation", "comparison": "Comparison", "derivation": "Derivation", "example": "Worked example", "exercise": "Exercise", "answer": "Solution", "misconception": "Misconception", "summary": "Summary"},
+      "contentTypes": {"introduction": "Introduction", "definition": "Definition", "explanation": "Explanation", "comparison": "Comparison", "derivation": "Derivation", "example": "Worked example", "exercise": "Exercise", "answer": "Solution", "misconception": "Misconception", "summary": "Summary",
+  "theorem": "Theorem",
+  "result": "Result",
+  "warning": "Common pitfall"
+},
       "mappingBlockedTitle": "No usable lesson plan",
       "mappingBlockedDetail": "Complete this lesson plan before generating its handout.",
       "generationBlockedTitle": "Handout generation is temporarily unavailable",
@@ -1137,7 +1141,14 @@
         "remediation": "Remediation",
         "summary": "Summary",
         "transfer": "Transfer"
-      }
+      },
+      "revealAnswer": "Show answer",
+      "hideAnswer": "Hide answer",
+      "expandAnswers": "Show all answers",
+      "collapseAnswers": "Hide all answers",
+      "printHandout": "Print / Save PDF",
+      "colorGuide": "Content color guide",
+      "readingContents": "Contents"
     },
     "completeOutlineFirst": "Generate and confirm the course outline first",
     "backToFoundation": "Back to course foundation",
@@ -6804,5 +6815,52 @@
     "sideBySideUnavailable": "Collapse the right panel to compare side by side.",
     "sideBySideSelected": "Switched to side-by-side comparison",
     "stackedSelected": "Switched to stacked comparison"
+  },
+  "handoutConcepts": {
+    "eyebrow": "CONCEPT CONNECTIONS",
+    "title": "Concept connections",
+    "hint": "Follow the connections. Select a concept to find it in the text.",
+    "sections": "Concept map sections",
+    "concepts": "concepts",
+    "graph": "Section concept map",
+    "prior": "Prior / reused",
+    "jump": "Find in text",
+    "noAnchor": "No matching passage in this handout yet",
+    "relations": "Connections and reasons",
+    "showAll": "Show all",
+    "conditions": "Conditions: ",
+    "distinction": "Distinction: ",
+    "noRelations": "No recorded connections for this concept.",
+    "allOf": "All prerequisites: ",
+    "anyOf": "Any one prerequisite: ",
+    "helpful": "Helpful for understanding",
+    "empty": "No concepts recorded for this section yet.",
+    "origin": "From the current lesson plan · Read arrows by their relation labels",
+    "types": {
+      "prerequisite": "Prerequisite",
+      "derives": "Derivation",
+      "applies_to": "Application",
+      "contrasts_with": "Contrast",
+      "equivalent_to": "Equivalence",
+      "generalizes": "Generalization"
+    },
+    "source": {
+      "current": "Using the knowledge version cited by this handout",
+      "historical": "Using historical knowledge; the course baseline has changed",
+      "unavailable": "The cited knowledge version is unavailable. The handout remains readable.",
+      "conflict": "This handout cites conflicting knowledge versions; connections and coverage are unavailable."
+    },
+    "coverage": {
+      "title": "Knowledge reference coverage",
+      "hint": "Counts show linked content blocks, not teaching accuracy, assessment validity or mastery.",
+      "partialScope": "The lesson scope is not fully bound; this list cannot establish complete coverage.",
+      "point": "Concept",
+      "explanation": "Explanation",
+      "example": "Example",
+      "exercise": "Practice",
+      "missing": "No content reference",
+      "invalid": "Invalid references excluded from coverage:"
+    },
+    "originPinned": "From the knowledge version cited by this handout · Read arrows by relationship type"
   }
 }

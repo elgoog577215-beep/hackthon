@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -31,6 +32,9 @@ def check_packages(lock):
 
 
 def provision(lock, *, install=False):
+    snapshot = lock.get('snapshot', '')
+    if not re.fullmatch(r'\d{8}T\d{6}Z', snapshot) or lock['source'] != f'https://snapshot.ubuntu.com/ubuntu/{snapshot}/':
+        raise ValueError('ppt_runtime_snapshot_mismatch')
     check_platform(lock)
     source_font = ROOT / 'frontend/public/presentation-assets/fonts/NotoSansCJKsc-Regular.otf'
     if hashlib.sha256(source_font.read_bytes()).hexdigest() != lock['font_sha256']:
@@ -47,8 +51,8 @@ def provision(lock, *, install=False):
                 if hashlib.sha256(path.read_bytes()).hexdigest() != record['SHA256']:
                     raise ValueError(f'ppt_runtime_package_digest_mismatch:{package}')
                 packages.append(str(path))
-            subprocess.run(['apt-get', 'update', '-qq'], check=True)
-            subprocess.run(['apt-get', 'install', '-y', '--no-install-recommends', *packages], check=True)
+            subprocess.run(['apt-get', 'update', '-qq', '--snapshot', snapshot], check=True)
+            subprocess.run(['apt-get', 'install', '-y', '--no-install-recommends', '--snapshot', snapshot, *packages], check=True)
         target = Path('/usr/local/share/fonts/lingzhi')
         target.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_font, target / source_font.name)

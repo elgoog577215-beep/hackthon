@@ -390,6 +390,7 @@ export const useCourseStore = defineStore('course', {
                     course_id: courseId, course_name: data.document.title,
                     current_course_version_id: data.document.document_revision,
                     source_format: 'canonical', migration: { required: false }, document: data.document,
+                    teaching_plan: data.teaching_plan,
                 })
                 return
             }
@@ -698,6 +699,7 @@ export const useCourseStore = defineStore('course', {
                     source_format: 'canonical',
                     migration: { required: false },
                     document: preview.document,
+                    teaching_plan: preview.teaching_plan,
                 })
                 return true
             }
