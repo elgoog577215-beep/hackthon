@@ -230,6 +230,7 @@ def test_observation_strategy_follows_rule_not_point_id():
     assert measurement_strategy({"knowledge": ["continue之后执行for更新部分"]})["kind"] == "next_control_action"
     assert measurement_strategy({"knowledge": ["break退出时不做迭代部分"]})["kind"] == "exit_state"
     assert measurement_strategy({"knowledge": ["显式转换的位置决定操作数"]})["kind"] == "conversion_scope"
+    assert measurement_strategy({"knowledge": ["if后分号是空语句，后续语句独立"]})["kind"] == "uncontrolled_statement"
     assert measurement_strategy({"knowledge": ["封闭系统能量守恒"]})["kind"] == "direct_value"
 
 
@@ -242,3 +243,23 @@ def test_one_line_c_statement_is_real_visible_code_not_a_placeholder():
     for text in ("```c\n\n```", "```c\n待补全\n```", "double d = 5 / 2;"):
         c["question_spec"]["stimulus"]["rendered_text"] = text
         assert not _code_rendering_valid(c)
+
+
+@pytest.mark.parametrize("predicate", ["flag == 0", "flag <= 0", "flag >= 0", "flag", "flag != 1"])
+def test_empty_statement_design_synthesizes_a_discriminating_input(predicate):
+    from assessment_measurement_design import synthesize_contrast_input
+    p = {**plan(), "public_material": f"```c\nint flag = 0;\nif ({predicate});\nflag = 5;\n```", "options": ["0", "5"], "correct_option_index": 1}
+    result = synthesize_contrast_input(p, {"kind": "uncontrolled_statement"})
+    assert result["correct_prediction"] == "5"
+    assert result["incorrect_prediction"] != "5"
+    assert result["options"][1] == "5"
+    assert result["design_normalization"]["condition_value"] is False
+    assert result["design_normalization"]["original_material"] == p["public_material"]
+    assert p["public_material"].startswith("```c\nint flag = 0;")
+
+
+def test_contrast_synthesis_does_not_guess_complex_c_or_nondecimal_literals():
+    from assessment_measurement_design import synthesize_contrast_input
+    for code in ["int flag=0; if (f(flag)); flag=5;", "int flag=010; if(flag); flag=5;", "int flag=0; if(flag!=0); flag=0;"]:
+        p={**plan(), "public_material": f"```c\n{code}\n```"}
+        assert synthesize_contrast_input(p, {"kind":"uncontrolled_statement"}) == p
