@@ -70,7 +70,7 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v9"
+ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v10"
 
 
 def _out_tokens(limit: int) -> int:
@@ -5688,8 +5688,11 @@ def _semantic_review_directive() -> str:
         "and emit OBSERVATION_NOT_DISCRIMINATING. For example, an update wrongly performed just before exiting "
         "must still exit; do not change it into continuing the whole loop just to make outputs differ. "
         "The public_anchor must actually appear in the displayed question; you cannot invent a printed counter "
-        "or a condition side effect that exists only in the explanation. Test key qualifications of the "
-        "target, not only its easiest subclaim. Check learning_scope for hidden prerequisite demands. "
+        "or a condition side effect that exists only in the explanation. "
+        "For numeric/output tasks, evaluate BOTH predictions at the SAME public input. The prediction fields "
+        "must contain concrete results (or nontermination), never unevaluated conditionals such as 'if true X, "
+        "otherwise Y'. Put the supporting branch reasoning in trace instead. If both results coincide, reject. "
+        "Test key qualifications of the target, not only its easiest subclaim. Check learning_scope for hidden prerequisite demands. "
         "List unsupported assumptions instead of inventing initial values, precise citations or rationales. "
         "Do not cite any exact standard clause number unless it is present in the supplied source excerpts. "
         "If the target is whether a later condition is evaluated, preserve branch-body selection while "

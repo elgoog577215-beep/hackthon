@@ -5,7 +5,12 @@ from copy import deepcopy
 from difflib import SequenceMatcher
 
 from course_versioning import stable_hash
-from question_measurement_contract import fixed_input_witness_issues, measurement_findings, review_witness_issues
+from question_measurement_contract import (
+    fixed_input_witness_issues,
+    measurement_findings,
+    observation_prediction_issues,
+    review_witness_issues,
+)
 
 EVIDENCE_SCHEMA = "question_evidence_admission_v2"
 CHECKS = (
@@ -138,6 +143,9 @@ def independent_evidence_admitted(item: dict) -> bool:
         and admission.get("content_revision") == evidence_content_revision(item)
         and not evidence_findings(item)
         and not fixed_input_witness_issues(str(item.get("prompt") or ""), admission.get("review_witness") or {})
+        and not observation_prediction_issues(
+            str(item.get("prompt") or ""), (admission.get("review_witness") or {}).get("observation_test") or {}
+        )
     )
 
 
@@ -162,7 +170,12 @@ def revalidate_evidence_admission(item: dict, solution: dict) -> dict:
     if solution:
         issues.extend(review_witness_issues(context, admission.get("review_witness") or {}))
     else:
-        issues.extend(fixed_input_witness_issues(str(item.get('prompt') or ''), admission.get('review_witness') or {}))
+        issues.extend(fixed_input_witness_issues(str(item.get("prompt") or ""), admission.get("review_witness") or {}))
+        issues.extend(
+            observation_prediction_issues(
+                str(item.get("prompt") or ""), (admission.get("review_witness") or {}).get("observation_test") or {}
+            )
+        )
     if not solution:
         issues.append(
             {

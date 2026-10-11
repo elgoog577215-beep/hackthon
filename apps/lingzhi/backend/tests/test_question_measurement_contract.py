@@ -264,10 +264,62 @@ def test_existing_admission_is_rechecked_with_private_explanation_without_mutati
 
 def test_missing_private_answer_is_unknown_not_an_answer_disagreement():
     from question_evidence_guard import revalidate_evidence_admission
-    c=sample();c['evidence_admission']={'review_witness':witness()}
-    issues=revalidate_evidence_admission(c,{})['local_issues']
-    assert 'PRIVATE_SOLUTION_UNAVAILABLE' in {i['code'] for i in issues}
-    assert 'OPTION_REASONING_CONTRADICTION' not in {i['code'] for i in issues}
+
+    c = sample()
+    c["evidence_admission"] = {"review_witness": witness()}
+    issues = revalidate_evidence_admission(c, {})["local_issues"]
+    assert "PRIVATE_SOLUTION_UNAVAILABLE" in {i["code"] for i in issues}
+    assert "OPTION_REASONING_CONTRADICTION" not in {i["code"] for i in issues}
+
+
+def test_numeric_observation_predictions_must_be_evaluated_at_the_public_input():
+    c = sample()
+    c["prompt"] = "```c\nint i=5;if(i>3);i=10;\n```\ni的最终值是多少？"
+    w = witness()
+    w["observation_test"]["incorrect_prediction"] = "仅当i>3为真时i变为10，否则保持5"
+    assert "OBSERVATION_PREDICTION_UNEVALUATED" in {i["code"] for i in review_witness_issues(c, w)}
+    w["observation_test"]["incorrect_prediction"] = "无限循环，无法到达输出"
+    assert "OBSERVATION_PREDICTION_UNEVALUATED" not in {i["code"] for i in review_witness_issues(c, w)}
+
+
+def test_conceptual_control_relationship_can_have_a_conditional_description():
+    c = sample()
+    c["prompt"] = "```c\nint i=5;if(i>3);i=10;\n```\n赋值是否受if控制？请选择语法关系。"
+    w = witness()
+    w["observation_test"]["incorrect_prediction"] = "仅当条件为真时执行赋值，否则跳过"
+    assert "OBSERVATION_PREDICTION_UNEVALUATED" not in {i["code"] for i in review_witness_issues(c, w)}
+
+
+def test_cached_admission_does_not_bypass_concrete_prediction_requirement():
+    from question_evidence_guard import (
+        CHECKS,
+        EVIDENCE_SCHEMA,
+        evidence_content_revision,
+        independent_evidence_admitted,
+    )
+
+    c = sample()
+    c["prompt"] = "int i=5；程序结束时i的最终值是多少？"
+    w = witness()
+    w["observation_test"]["incorrect_prediction"] = "条件为真时是10，否则为5"
+    c["evidence_admission"] = {
+        "schema_version": EVIDENCE_SCHEMA,
+        "eligible": True,
+        "checks": {k: True for k in CHECKS},
+        "witness_verified": True,
+        "review_witness": w,
+        "content_revision": evidence_content_revision(c),
+    }
+    assert not independent_evidence_admitted(c)
+
+
+def test_colon_style_numeric_question_also_requires_concrete_predictions():
+    from question_measurement_contract import observation_prediction_issues
+
+    assert observation_prediction_issues(
+        "执行完毕之后，变量 i 的值是：",
+        {"correct_prediction": "10", "incorrect_prediction": "仅当i>3成立时为10，否则保持5"},
+    )
 
 
 def test_assessable_coverage_requires_private_solution_revalidation():

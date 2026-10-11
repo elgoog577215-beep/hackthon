@@ -280,6 +280,26 @@ def _if_binding_signature(code: str) -> tuple[list[str], list[str]] | None:
         return None
 
 
+def observation_prediction_issues(prompt: str, observation: dict) -> list[dict]:
+    public_task = re.sub(r"```[\s\S]*?```", "", prompt)
+    numeric_or_output = re.search(
+        r"数值|最终值|的值是|的值为|值是多少|值为多少|执行.{0,8}几次|执行次数|完整输出|打印出的|控制台.{0,12}输出|输出.{0,12}什么",
+        public_task,
+    )
+    predictions = (str(observation.get("correct_prediction") or ""), str(observation.get("incorrect_prediction") or ""))
+    if numeric_or_output and any(
+        re.search(r"若|如果|否则|仅当|取决于|依赖于|(?:为真|为假|成立|不成立)时|\bif\b|\bdepending\b", prediction, re.I)
+        for prediction in predictions
+    ):
+        return [
+            _issue(
+                "OBSERVATION_PREDICTION_UNEVALUATED",
+                "数值/输出任务的两种预测必须在题面相同输入下求值，给出具体结果或不终止，不能用未代入的条件句代替。",
+            )
+        ]
+    return []
+
+
 def review_witness_issues(contract: dict, witness: dict) -> list[dict]:
     if not isinstance(witness, dict):
         witness = {}
@@ -330,6 +350,7 @@ def review_witness_issues(contract: dict, witness: dict) -> list[dict]:
                 _issue("OBSERVATION_ANCHOR_MISSING", "声明的观测位置不存在于实际公开题目中。", obs["public_anchor"])
             )
         left, right = obs["correct_prediction"], obs["incorrect_prediction"]
+        issues.extend(observation_prediction_issues(str(contract.get("prompt") or ""), obs))
         if _plain(left) == _plain(right) or (_number(left) is not None and _number(left) == _number(right)):
             issues.append(
                 _issue("OBSERVATION_NOT_DISCRIMINATING", "正确规则与目标错误规则产生相同观测，本题不能区分该错误。")
