@@ -7,9 +7,11 @@ import { useLearningSessionStore } from '@/stores/learningSession'
 import { useNoteStore } from '@/stores/notes'
 import { useAITeacherStore } from '@/stores/aiTeacher'
 import http from '@/utils/http'
+import { buildHandoutConceptSections } from '@/utils/handout-concepts'
 
 vi.mock('@/utils/http', () => ({ default: {get:vi.fn(),post:vi.fn(),patch:vi.fn()},
   teacherRequestConfig:(value={})=>value, identityRequestConfig:(_scope:unknown,value={})=>value,
+  identityReadRequestConfig:(_scope:unknown,value={})=>value,
   getActiveRequestIdentityScope:()=> 'teacher', identityScopeHeaders:(_scope:unknown,value={})=>value,
   withApiBase:(value:string)=>value }))
 
@@ -96,4 +98,39 @@ it('loads knowledge lazily from the same preview revision and reuses it', async 
   await store.loadPreviewKnowledge('c');await store.loadPreviewKnowledge('c')
   expect(http.get).toHaveBeenCalledTimes(1)
   expect(http.get).toHaveBeenCalledWith('/api/teacher/courses/c/preview',{params:{include_assets:true}})
+})
+
+it.each(['trial', 'canonical'] as const)('keeps saved handout types, answer links and concept anchors when loading %s', async (mode) => {
+  const document = { course_id: 'c', title: '讲义', document_revision: 'r1', sections: [
+    { section_id: 's1', title: '定义', position: 0, level: 2, attributes: {} },
+  ], blocks: [
+    { block_id: 'd', section_id: 's1', position: 0, status: 'final', role: 'concept', kind: 'rich_text',
+      concept_refs: ['k1'], payload: { content_type: 'definition', markdown: '正式定义。' } },
+    { block_id: 'q', section_id: 's1', position: 1, status: 'final', role: 'checkpoint', kind: 'rich_text',
+      concept_refs: [], payload: { content_type: 'exercise', markdown: '练习。' } },
+    { block_id: 'a', section_id: 's1', position: 2, status: 'final', role: 'feedback', kind: 'rich_text',
+      concept_refs: ['k2'], payload: { content_type: 'answer', answer_to: 'q', markdown: '正式解答。' } },
+  ] }
+  const plan = { schema_version: 'course_teaching_plan_projection_v1', status: 'completed', sections: [{
+    node_id: 's1', knowledge_structure: [{ knowledge_points: [{ name: '概念', knowledge_id: 'k1' }, { name: '应用', knowledge_id: 'k2' }] }],
+    knowledge_relations: [{ source_name: '概念', target_name: '应用', relation_type: 'applies_to', reason: '依据定义应用。' }],
+  }] }
+  vi.mocked(http.get).mockResolvedValue({ data: { course_id: 'c', projection: 'canonical', document, teaching_plan: plan } })
+  const store = useCourseStore()
+  if (mode === 'trial') await store.loadCourse('c', { teacherTrial: true })
+  else { store.prepareCourseShell('c'); await store.refreshGenerationPreview('c', 'teacher') }
+  expect(store.currentTeachingPlan).toEqual(plan)
+  const blocks = store.nodes[0]!.course_blocks!
+  expect(blocks[0]!.payload.content_type).toBe('definition')
+  expect(blocks[2]!.payload.answer_to).toBe('q')
+  const concepts = buildHandoutConceptSections(store.currentTeachingPlan?.sections, [{
+    id: 's1', title: '定义', anchor: '', blocks: blocks.map(b => ({
+      id: b.block_id, anchor: `course-block-${b.block_id}`, content: String(b.payload.markdown), knowledge: b.concept_refs,
+    })),
+  }])
+  expect(concepts[0]!.relations).toHaveLength(1)
+  expect(concepts[0]!.nodes.map(n => n.anchor)).toEqual(['course-block-d', 'course-block-a'])
+  expect(http.get).toHaveBeenCalledTimes(1)
+  expect(http.post).not.toHaveBeenCalled()
+  expect(localStorage.length).toBe(0)
 })

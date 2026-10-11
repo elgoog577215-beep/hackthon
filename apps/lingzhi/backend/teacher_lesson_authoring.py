@@ -1718,6 +1718,7 @@ def teacher_lesson_v6_source(
                 "title": str(script_block.get("title") or module_id),
                 "content": str(script_block.get("content") or "").strip(),
                 "metadata": {
+                    **{key: deepcopy(script_block[key]) for key in ("content_type", "type_label", "answer_to") if key in script_block},
                     "role": role,
                     "module_id": module_id,
                     "module_instance_id": str(
@@ -1800,6 +1801,7 @@ def project_current_teacher_scripts(
         if item.get("node_id")
     }
     overlay_by_id: dict[str, dict[str, Any]] = {}
+    plan_sections: list[dict[str, Any]] = []
     covered_lessons: list[str] = []
     skipped_lessons: list[dict[str, str]] = []
     course_data = {
@@ -1869,6 +1871,11 @@ def project_current_teacher_scripts(
             continue
         for item in lesson_nodes:
             overlay_by_id[str(item.get("node_id") or "")] = item
+        lesson_section_ids = {str(item.get("node_id") or "") for item in lesson_nodes}
+        plan_sections.extend(
+            item for item in (lesson_view.get("course_teaching_plan") or {}).get("sections") or []
+            if isinstance(item, dict) and str(item.get("node_id") or "") in lesson_section_ids
+        )
         covered_lessons.append(lesson_id)
 
     for index, node in enumerate(nodes):
@@ -1888,6 +1895,10 @@ def project_current_teacher_scripts(
             "error_summary": None,
         }
 
+    from course_teaching_plan_projection import overlay_lesson_plan_sections, project_course_teaching_plan
+    projected["teaching_plan"] = project_course_teaching_plan({
+        **projected, "course_teaching_plan": overlay_lesson_plan_sections(projected, plan_sections),
+    })
     projected["projection"] = "teacher_lesson_authoring"
     projected["teacher_lesson_projection"] = {
         "schema_version": "teacher_lesson_preview_v1",

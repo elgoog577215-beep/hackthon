@@ -52,10 +52,35 @@ def _knowledge_id_index(course_data: dict[str, Any]) -> dict[str, str]:
     return index
 
 
+def overlay_lesson_plan_sections(
+    course_data: dict[str, Any], sections: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Combine current lesson plans for reading without writing either owner."""
+    raw_plan = course_data.get("course_teaching_plan")
+    plan = deepcopy(raw_plan) if isinstance(raw_plan, dict) else {}
+    existing = (
+        plan.get("sections")
+        or (course_data.get("teaching_plan") or {}).get("sections")
+        or []
+    )
+    by_id = {
+        _text(section.get("node_id")): deepcopy(section)
+        for section in existing if isinstance(section, dict) and section.get("node_id")
+    }
+    for section in sections:
+        by_id[_text(section["node_id"])] = deepcopy(section)
+    node_order = [_text(node.get("node_id")) for node in course_data.get("nodes") or []]
+    ordered_ids = [node_id for node_id in node_order if node_id in by_id]
+    ordered_ids.extend(node_id for node_id in by_id if node_id not in ordered_ids)
+    plan["sections"] = [by_id[node_id] for node_id in ordered_ids]
+    return plan
+
+
 def _project_knowledge_structure(
     value: Any,
     *,
     knowledge_ids: dict[str, str],
+    knowledge_names: dict[str, str],
 ) -> list[dict[str, Any]]:
     groups = []
     for raw_group in value if isinstance(value, list) else []:
@@ -112,7 +137,7 @@ def _project_knowledge_structure(
                     {**relation, "source_name": name}
                     for relation in raw_point.get("relations") or []
                     if isinstance(relation, dict)
-                ]),
+                ], knowledge_names=knowledge_names),
             })
         if not points:
             continue
@@ -130,14 +155,24 @@ def _project_knowledge_structure(
     return groups
 
 
-def _project_knowledge_relations(value: Any) -> list[dict[str, Any]]:
+def _project_knowledge_relations(
+    value: Any, *, knowledge_names: dict[str, str],
+) -> list[dict[str, Any]]:
     relations = []
     for raw in value if isinstance(value, list) else []:
         if not isinstance(raw, dict):
             continue
         relations.append({
-            "source_name": str(raw.get("source_name") or "").strip(),
-            "target_name": str(raw.get("target_name") or "").strip(),
+            "source_name": (
+                _text(raw.get("source_name"))
+                or knowledge_names.get(_text(raw.get("source_knowledge_id")), "")
+            ),
+            "target_name": (
+                _text(raw.get("target_name"))
+                or knowledge_names.get(_text(raw.get("target_knowledge_id")), "")
+            ),
+            "source_knowledge_id": _text(raw.get("source_knowledge_id")),
+            "target_knowledge_id": _text(raw.get("target_knowledge_id")),
             "relation_type": str(
                 raw.get("relation_type") or ""
             ).strip(),
@@ -249,12 +284,29 @@ def _project_overall_plan(
 def project_course_teaching_plan(course_data: dict[str, Any]) -> dict[str, Any]:
     """Expose teaching intent without prompts, hidden reasoning, or diagnostics."""
     plan = course_data.get("course_teaching_plan")
+    plan = plan if isinstance(plan, dict) else {}
     stage = (
         (course_data.get("generation_stage_artifacts") or {})
         .get("course_teaching_plan")
         or {}
     )
     knowledge_ids = _knowledge_id_index(course_data)
+    knowledge_base = course_data.get("course_knowledge_base") or {}
+    knowledge_base = knowledge_base if isinstance(knowledge_base, dict) else {}
+    points = [point for section in (plan or {}).get("sections") or []
+              if isinstance(section, dict)
+              for group in section.get("knowledge_structure") or []
+              if isinstance(group, dict)
+              for point in group.get("knowledge_points") or []]
+    knowledge_names = {
+        _text(point.get("knowledge_id")): _text(point.get("name"))
+        for point in [*(knowledge_base.get("knowledge_points") or []), *points]
+        if isinstance(point, dict) and point.get("knowledge_id") and point.get("name")
+    }
+    global_relations = _project_knowledge_relations([
+        *((plan or {}).get("knowledge_relations") or []),
+        *(knowledge_base.get("relations") or []),
+    ], knowledge_names=knowledge_names)
     course_plan = course_data.get("course_plan")
     course_plan = course_plan if isinstance(course_plan, dict) else {}
     outline_sections = {}
@@ -279,22 +331,33 @@ def project_course_teaching_plan(course_data: dict[str, Any]) -> dict[str, Any]:
                 item for item in outline_section.get("module_plan") or []
                 if isinstance(item, dict)
             ]
+            structure = _project_knowledge_structure(
+                raw.get("knowledge_structure"), knowledge_ids=knowledge_ids,
+                knowledge_names=knowledge_names,
+            )
+            section_names = {
+                point["name"] for group in structure for point in group["knowledge_points"]
+            } | set(_strings(raw.get("reused_knowledge_names")))
+            relations = _project_knowledge_relations(
+                raw.get("knowledge_relations"), knowledge_names=knowledge_names,
+            )
+            # These edges already exist in the frozen course graph. Membership
+            # only chooses which section displays them; it never infers an edge.
+            for relation in global_relations:
+                relevant = relation["source_name"] in section_names or relation["target_name"] in section_names
+                if relevant and relation not in relations:
+                    relations.append(deepcopy(relation))
             sections.append({
                 "node_id": node_id,
                 "lesson_archetype": deepcopy(
                     outline_section.get("lesson_archetype") or {}
                 ),
-                "knowledge_structure": _project_knowledge_structure(
-                    raw.get("knowledge_structure"),
-                    knowledge_ids=knowledge_ids,
-                ),
+                "knowledge_structure": structure,
                 "key_points": _strings(raw.get("key_points")),
                 "reused_knowledge_names": _strings(
                     raw.get("reused_knowledge_names")
                 ),
-                "knowledge_relations": _project_knowledge_relations(
-                    raw.get("knowledge_relations")
-                ),
+                "knowledge_relations": relations,
                 "teaching_modules": _project_teaching_modules(
                     raw.get("teaching_modules"),
                     module_plan={
@@ -359,11 +422,7 @@ def project_course_teaching_plan(course_data: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema_version": "course_teaching_plan_projection_v1",
         "status": status,
-        "revision_id": str(
-            (plan or {}).get("revision_id")
-            if isinstance(plan, dict)
-            else ""
-        ),
+        "revision_id": _text(plan.get("revision_id")),
         "strategy": str(stage.get("strategy") or "single_whole_course_call"),
         "section_count": int(stage.get("section_count") or len(sections)),
         "knowledge_point_count": int(

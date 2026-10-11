@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from assessment_contracts import project_public_question
 from ai_qa_service import AIQAService, AITeacherModelFailure
 from course_document import CourseDocument, course_view_from_document, stable_hash
+from course_teaching_plan_projection import project_course_teaching_plan
 from practice_grading import practice_grader
 from question_bank import approved_formal_tasks, migrate_question_bank_review_policy, question_bank_repository
 from storage import storage
@@ -46,10 +47,39 @@ def public_document(raw: dict) -> dict:
         blocks.append({"block_id": b.block_id, "section_id": b.section_id,
             "position": b.position, "role": b.role, "kind": b.kind,
             "internal_revision": b.internal_revision,
-            "payload": {key: deepcopy(b.payload[key]) for key in ("title", "markdown", "summary", "feedback_structure") if key in b.payload}})
+            "concept_refs": list(b.concept_refs),
+            "payload": {key: deepcopy(b.payload[key]) for key in ("title", "markdown", "summary", "feedback_structure", "content_type", "type_label", "answer_to") if key in b.payload}})
+    visible_ids = {b["block_id"] for b in blocks}
+    for block in blocks:
+        if block["payload"].get("answer_to") not in visible_ids:
+            block["payload"].pop("answer_to", None)
     return {"course_id": doc.course_id, "title": doc.title, "document_revision": doc.document_revision,
         "sections": [s.model_dump(include={"section_id", "parent_section_id", "title", "position", "level"}) for s in doc.sections],
         "blocks": blocks}
+
+
+def public_handout_plan(raw: dict, document: dict) -> dict:
+    """Expose concept data for disclosed sections, without teacher instructions."""
+    plan = project_course_teaching_plan(raw)
+    visible_sections = {b["section_id"] for b in document["blocks"]}
+    section_keys = ("node_id", "knowledge_structure", "key_points", "reused_knowledge_names", "knowledge_relations")
+    sections = [{**{key: deepcopy(s[key]) for key in section_keys}, "teaching_modules": []}
+                for s in plan["sections"] if s["node_id"] in visible_sections]
+    names = {point["name"] for section in sections for group in section["knowledge_structure"] for point in group["knowledge_points"]}
+    identities = {identity for section in sections for group in section["knowledge_structure"]
+                  for point in group["knowledge_points"]
+                  for identity in [point["name"], point["knowledge_id"], *point["aliases"]] if identity}
+    for section in sections:
+        section["knowledge_relations"] = [r for r in section["knowledge_relations"] if r["source_name"] in identities and r["target_name"] in identities]
+        for group in section["knowledge_structure"]:
+            for point in group["knowledge_points"]:
+                point["relations"] = [r for r in point["relations"] if r["target_name"] in identities]
+    return {
+        "schema_version": plan["schema_version"], "status": plan["status"],
+        "revision_id": plan["revision_id"], "strategy": plan["strategy"],
+        "section_count": len(sections), "knowledge_point_count": len(names),
+        "teaching_module_count": 0, "sections": sections,
+    }
 
 
 def formal_questions(raw: dict) -> list[dict]:
@@ -77,6 +107,7 @@ def read_preview(course_id: str, request: Request, include_assets: bool = False)
     raw = owned_course(course_id, request)
     document, questions, revision = snapshot(raw)
     result = {"course_id": course_id, "preview_revision": revision, "document": document,
+        "teaching_plan": public_handout_plan(raw, document),
         "questions": [project_public_question(q) for q in questions],
         "handouts": {lid: {k: b.get(k) for k in ("revision_id", "source_lesson_plan_revision_id", "source_outline_revision_id")} for lid, b in (raw.get("teacher_handouts") or {}).items()},
         "availability": {"reading": bool(document["blocks"]), "practice": bool(questions)}}
