@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; font-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>教学图解选型 · 灵知</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root { --paper:#fff; --ink:#0f172a; --muted:#475569; --rule:#e2e8f0; --accent:#4338ca; --tint:#eef2ff; --purple:#6e4a9c; --font:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif; }
+    body { margin:0; background:#f8fafc; color:var(--ink); font:16px/1.65 var(--font); }
+    button,a { -webkit-tap-highlight-color:transparent; }
+    button { font:inherit; cursor:pointer; }
+    button:focus-visible,a:focus-visible,summary:focus-visible { outline:3px solid #328dcc; outline-offset:4px; }
+    button:hover { border-color:var(--accent); }
+    [hidden] { display:none!important; }
+    .wrap { max-width:1480px; margin:auto; padding:36px 40px 48px; }
+    .topline { display:flex; justify-content:space-between; align-items:center; gap:24px; }
+    .eyebrow { color:var(--purple); font-size:13px; letter-spacing:1.5px; font-weight:650; }
+    .language { color:var(--accent); padding:7px 13px; background:#fff; border:1px solid var(--rule); border-radius:5px; }
+    h1 { font-size:34px; line-height:1.3; letter-spacing:-.8px; margin:12px 0; font-weight:700; }
+    .intro { margin:0; color:var(--muted); max-width:920px; }
+    .notice { border-left:3px solid var(--purple); padding:8px 15px; margin:20px 0 28px; color:var(--muted); background:#f1eef6; font-size:15px; }
+    .workspace { display:grid; grid-template-columns:190px minmax(0,1fr); gap:28px; align-items:start; }
+    .catalog { position:sticky; top:24px; }
+    .navlabel { margin:0 0 12px; color:var(--muted); font-size:15px; }
+    #choices { display:grid; gap:6px; }
+    .choice { text-align:left; display:flex; gap:11px; align-items:center; background:transparent; border:1px solid transparent; border-radius:5px; padding:12px 10px; color:var(--muted); }
+    .choice .number { font:13px/1.4 ui-monospace,monospace; color:#64748b; }
+    .choice[aria-pressed=true] { background:var(--tint); color:var(--accent); border-color:#c7d2fe; font-weight:650; }
+    .choice[aria-pressed=true] .number { color:var(--accent); }
+    .selection { min-width:0; }
+    .toolbar { display:flex; align-items:center; justify-content:space-between; gap:15px; flex-wrap:wrap; margin-bottom:14px; }
+    .segments { display:flex; border:1px solid var(--rule); background:#fff; border-radius:5px; padding:3px; }
+    .segments button { border:0; padding:6px 15px; border-radius:3px; color:var(--muted); background:transparent; }
+    .segments button[aria-pressed=true] { background:var(--accent); color:#fff; }
+    #download { padding:6px 12px; background:#fff; color:var(--accent); border:1px solid var(--rule); border-radius:5px; }
+    .paper { background:var(--paper); border:1px solid var(--rule); }
+    .paperhead { padding:25px 28px 0; }
+    .paperhead p { margin:0 0 4px; font-size:14px; color:var(--purple); }
+    .paperhead h2 { margin:0; font-size:25px; line-height:1.5; }
+    .paperhead .lead { color:var(--muted); font-size:16px; margin:7px 0 0; }
+    .canvas { overflow-x:auto; padding:8px 20px 0; }
+    .canvas svg { width:100%; min-width:720px; display:block; font-family:var(--font); }
+    .paperfoot { border-top:1px solid var(--rule); margin:0 28px; padding:12px 0 16px; color:var(--muted); font-size:15px; }
+    .paper.ppt { border-top:4px solid var(--accent); }
+    .paper.ppt .paperhead { padding-top:24px; }
+    .paper.ppt .paperhead h2 { font-size:30px; }
+    .paper.ppt .canvas { padding-top:0; }
+    .paper.ppt .paperfoot { font-size:15px; }
+    .rationale { display:grid; grid-template-columns:1fr 1fr; gap:12px 32px; margin:22px 0 18px; }
+    .rationale div { border-top:1px solid var(--rule); padding-top:12px; }
+    h3 { font-size:16px; margin:0 0 5px; color:var(--purple); }
+    .rationale p { margin:0; color:var(--muted); font-size:15px; }
+    details { background:#fff; border:1px solid var(--rule); padding:14px 18px; }
+    summary { cursor:pointer; color:var(--accent); font-size:15px; }
+    #source { margin:14px 0 0; color:var(--muted); white-space:pre-wrap; font:15px/1.8 var(--font); }
+    footer { margin:32px 0 0 218px; color:var(--muted); font-size:14px; }
+    footer a { color:var(--accent); }
+    .node { fill:#fff; stroke:#64748b; stroke-width:1.5; }
+    .focal { fill:#eef2ff; stroke:#4338ca; stroke-width:2; }
+    .edge { fill:none; stroke:#64748b; stroke-width:1.7; }
+    .edge.primary { stroke:#4338ca; }
+    .label { fill:#0f172a; font-size:22px; font-weight:600; text-anchor:middle; }
+    .small { fill:#475569; font-size:19px; text-anchor:middle; }
+    .mask { fill:#fff; }
+    .rule { stroke:#e2e8f0; stroke-width:1; }
+    @media(max-width:1050px) { .wrap { padding:25px 22px; } .workspace { grid-template-columns:1fr; gap:14px; } .catalog { position:static; } #choices { display:flex; flex-wrap:wrap; gap:5px; } .choice { padding:7px 10px; } .navlabel { margin-bottom:5px; } footer { margin-left:0; } }
+    @media(max-width:620px) { h1 { font-size:28px; } .rationale { grid-template-columns:1fr; } .paperhead { padding:20px 18px 0; } .paperhead h2 { font-size:22px; } .canvas { padding-left:0; padding-right:0; } .paperfoot { margin:0 18px; } }
+    @media print { .wrap { padding:0; } .topline,.intro,.notice,.catalog,.toolbar,.rationale,details,footer { display:none; } .workspace { display:block; } .paper { border:0; } .canvas { overflow:visible; } .canvas svg { min-width:0; } }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <div class="topline"><span class="eyebrow" data-i18n="eyebrow"></span><button id="language" class="language" type="button">English</button></div>
+    <h1 data-i18n="heading"></h1>
+    <p class="intro" data-i18n="intro"></p>
+    <p class="notice" data-i18n="notice"></p>
+    <div class="workspace">
+      <nav class="catalog" aria-label="图型选择"><p class="navlabel" data-i18n="navlabel"></p><div id="choices"></div></nav>
+      <section class="selection" aria-label="当前图解示例">
+        <div class="toolbar">
+          <div class="segments" role="group" aria-label="展示位置">
+            <button type="button" id="handout" aria-pressed="true" data-i18n="handout"></button>
+            <button type="button" id="ppt" aria-pressed="false" data-i18n="ppt"></button>
+          </div>
+          <button id="download" type="button" data-i18n="download"></button>
+        </div>
+        <article class="paper" id="paper">
+          <header class="paperhead"><p id="context"></p><h2 id="title"></h2><p class="lead" id="lead"></p></header>
+          <div class="canvas" id="canvas"></div>
+          <div class="paperfoot" id="caption"></div>
+        </article>
+        <div class="rationale">
+          <div><h3 data-i18n="where"></h3><p id="where"></p></div>
+          <div><h3 data-i18n="why"></h3><p id="why"></p></div>
+          <div><h3 data-i18n="requires"></h3><p id="requires"></p></div>
+          <div><h3 data-i18n="boundary"></h3><p id="boundary"></p></div>
+        </div>
+        <details><summary data-i18n="source"></summary><pre id="source"></pre></details>
+        <p id="status" role="status" aria-live="polite" hidden></p>
+      </section>
+    </div>
+    <footer><span data-i18n="credit"></span> <a href="https://github.com/cathrynlavery/diagram-design" target="_blank" rel="noopener noreferrer">Diagram Design</a> · <a href="README.md" data-i18n="report"></a> · <a href="UPSTREAM_LICENSE.txt">MIT</a></footer>
+  </main>
+  <script>
+    'use strict';
+    // Hand-written, isolated teaching examples. No course/API/model data enters this page.
+    let language = 'zh', selected = 'derivation', surface = 'handout';
+    const pair = (zh,en) => [zh,en];
+    const tx = value => value[language === 'zh' ? 0 : 1];
+    const escape = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const copy = {
+      eyebrow:pair('灵知 / 教学表达研究','LINGZHI / TEACHING EXPRESSIONS'),
+      heading:pair('先看内容的关系，再选择图解','Choose a diagram by the relationship it explains'),
+      intro:pair('七种局部表达，分别解释推导、分类、比较、分支、层次、交互与数量。用清楚的条件和来源，让图比一排卡片多说一点。','Seven local expressions for derivation, classification, comparison, decisions, layers, interactions and quantities. Conditions and sources keep their meaning visible.'),
+      notice:pair('选型示例 · 手写教学样本 · 未接入正式课程。讲义与 PPT 切换展示同一内容的两种阅读框架。','Design study · Hand-written samples · Independent of live courses. Handout and PPT views frame the same content differently.'),
+      navlabel:pair('选择要解释的关系','Choose a relationship'),handout:pair('讲义阅读','Handout'),ppt:pair('PPT 课堂','PPT'),download:pair('下载示例 SVG','Download sample SVG'),
+      where:pair('建议放在哪里','Suggested placement'),why:pair('为什么选择它','Why this expression'),requires:pair('内容需要具备什么','Required source content'),boundary:pair('接入时保留什么','Integration requirements'),
+      source:pair('查看本例完整来源与条件','Read the complete sample source and conditions'),credit:pair('布局原则参考','Layout principles informed by'),report:pair('融入评估','Integration assessment'),
+      contextHandout:pair('讲义 · 局部教学图解','HANDOUT · LOCAL TEACHING DIAGRAM'),contextPpt:pair('课堂 · 一页一个教学问题','CLASSROOM · ONE QUESTION PER SLIDE'),
+      saved:pair('示例 SVG 已下载。','Sample SVG downloaded.'),navAria:pair('图型选择','Diagram selection'),selectionAria:pair('当前图解示例','Selected diagram sample'),surfaceAria:pair('展示位置','Presentation surface')
+    };
+    const demos = [
+      { id:'derivation',name:pair('推导与条件','Derivation'),title:pair('从割线斜率到切线方程','From a secant slope to the tangent equation'),
+        lead:pair('每一步都保留它成立的条件。','Keep the condition that makes each step valid.'),
+        caption:pair('对象：f(x) = x²，x₀ ∈ ℝ。取 h ≠ 0 后求 h → 0 的极限；四步文字完整保留。','For f(x) = x² and real x₀. Start with h ≠ 0, then take the limit as h → 0. All four steps are retained.'),
+        where:pair('讲义推导旁或已有概念关系面板；PPT 用于逐步说明同一推导。','Beside a handout derivation or in its relation panel; reuse it to explain the derivation in PPT.'),
+        why:pair('箭头表达推导依据，条件靠近对应步骤；不把中间结果改成泛泛的“知识卡片”。','Arrows carry the reasoning and conditions stay beside the relevant step.'),
+        requires:pair('明确的原式、中间式、极限条件与最终结果，以及对应来源。','The original expression, intermediate result, limit condition, final result and their sources.'),
+        boundary:pair('复用已有 derives/conditions/steps；保留来源与正文跳转，公式不能截短。','Reuse derives/conditions/steps. Preserve sources and reading anchors; never truncate formulas.'),
+        source:pair('手写示例，不是模型输出。\n设 f(x)=x²，x₀ 为任意实数，h≠0。\n割线斜率 [f(x₀+h)−f(x₀)]/h = 2x₀+h。\n当 h→0 时，f′(x₀)=2x₀。\n曲线在 (x₀,x₀²) 处的切线为 y−x₀²=2x₀(x−x₀)。','Hand-written sample, not model output.\nLet f(x)=x², x₀ be real and h≠0.\nThe secant slope [f(x₀+h)−f(x₀)]/h equals 2x₀+h.\nTaking h→0 gives f′(x₀)=2x₀.\nThe tangent at (x₀,x₀²) is y−x₀²=2x₀(x−x₀).') },
+      { id:'tree',name:pair('分类与包含','Classification'),title:pair('线性表：逻辑结构与存储方式','Linear lists: logical structure and storage'),
+        lead:pair('同一种逻辑结构，可以用两种存储方式实现。','One logical structure can have two storage representations.'),
+        caption:pair('这是本例的两种基础实现，不是全部变体；分类连线表示“实现方式”，不表示执行顺序。','Two basic implementations in this sample, not an exhaustive taxonomy. Connectors mean “implementation”, not execution order.'),
+        where:pair('讲义小节开头、分类说明，或 PPT 的概念组织页。','A handout section opening, classification explanation, or PPT concept page.'),
+        why:pair('父子层级与同级对象一眼可见，避免把分类画成流程。','Parent–child levels and peer categories are visible without implying a process.'),
+        requires:pair('来源明确的单父层级和分类范围。多父依赖应使用关系图。','A source-supported single-parent hierarchy and its scope. Multiple parents require a relation graph.'),
+        boundary:pair('复用 PPT hierarchy/parent_child；知识 generalizes 与层级不能无条件互换。','Reuse PPT hierarchy/parent_child. Do not equate every generalizes relation with containment.'),
+        source:pair('手写分类示例。\n线性表是一种逻辑结构。本例介绍两种基础存储实现：顺序存储和链式存储。\n顺序表采用顺序存储；单链表与双链表是本例列出的两种链式实现。\n分类范围仅限本例，不宣称穷尽全部实现。','Hand-written classification sample.\nA linear list is a logical structure. This sample covers sequential and linked storage.\nAn array list uses sequential storage; singly and doubly linked lists are two linked implementations shown here.\nThis is not an exhaustive taxonomy.') },
+      { id:'comparison',name:pair('对照与辨析','Comparison'),title:pair('顺序表与单链表，按同一条件比较','Array list vs singly linked list under shared conditions'),
+        lead:pair('维度一致，前提一致，才有可用的比较。','Compare shared dimensions under explicit assumptions.'),
+        caption:pair('前提：n 个元素；顺序表忽略扩容；单链表从头访问。链表插删 O(1) 只适用于前驱已知。','Assume n elements, no array resizing and head-based linked access. O(1) linked insertion/deletion requires a known predecessor.'),
+        where:pair('讲义易混概念、方法选择或 PPT 比较页。','A handout misconception or method-choice section, or a PPT comparison slide.'),
+        why:pair('用行列对齐表达比较，不需要无含义的连线，也不凭复杂度数值推断优劣。','Alignment carries the comparison; no meaningless arrows or unsupported ranking are needed.'),
+        requires:pair('共同维度、各对象的完整条件、比较结果和依据。','Shared dimensions, complete assumptions, comparison results and sources.'),
+        boundary:pair('复用 ComparisonExpression；保留条件元素，不能只显示 O(1) 而丢掉前驱条件。','Reuse ComparisonExpression. Keep condition elements, especially the known-predecessor condition.'),
+        source:pair('手写比较示例。\n顺序表：第 i 项访问 O(1)；中间插删最坏 O(n)，此处忽略扩容。\n单链表：从头访问第 i 项最坏 O(n)；已知前驱时局部插删 O(1)。\n顺序表采用连续存储；单链表节点不要求连续存储。\n没有前驱条件时，定位前驱的代价须另计。','Hand-written comparison sample.\nArray list: O(1) indexed access; O(n) worst-case middle insertion/deletion, excluding resizing.\nSingly linked list: O(n) worst-case access from the head; O(1) local insertion/deletion with a known predecessor.\nArray storage is contiguous; linked nodes need not be contiguous.\nFinding a predecessor has an additional cost.') },
+      { id:'flow',name:pair('步骤与分支','Decision flow'),title:pair('顺序查找：命中与未命中','Linear search: found and not found'),
+        lead:pair('判断有明确出口，终点有明确含义。','Every decision has explicit exits; each endpoint has a clear result.'),
+        caption:pair('输入 A[0…n−1] 与目标 key，从 i=0 开始。本图包含空表出口；递增 i 后回到范围检查。','Given A[0…n−1] and key, start at i=0. The empty-list exit is included; incrementing i returns to the bounds check.'),
+        where:pair('讲义算法说明或 PPT 步骤演示；不是任务状态图。','A handout algorithm explanation or PPT step demonstration.'),
+        why:pair('菱形承担判断，矩形承担操作；只用颜色无法表达这类语义。','Diamonds encode decisions and rectangles encode actions. Color alone cannot carry these meanings.'),
+        requires:pair('来源明确的初始值、判断条件、循环、命中与未命中结果。','A source-supported initial state, guards, loop, and found/not-found results.'),
+        boundary:pair('普通过程可复用 process；此例的判断节点/出口需新增正式语义合同及原生 PPT 支持。','Ordinary steps can reuse process; this sample needs explicit decision/exit semantics and native PPT support.'),
+        source:pair('手写算法示例。输入长度 n≥0 的数组 A 与目标 key。\n1. i=0。\n2. 若 i≥n，返回未找到。\n3. 若 A[i]=key，返回 i。\n4. 否则 i=i+1，回到步骤 2。\n空数组在步骤 2 直接返回未找到。','Hand-written algorithm sample. Input array A of length n≥0 and target key.\n1. Set i=0.\n2. If i≥n, return not found.\n3. If A[i]=key, return i.\n4. Otherwise increment i and return to step 2.\nAn empty array returns not found at step 2.') },
+      { id:'layers',name:pair('层次与职责','Layers'),title:pair('一个示例应用的四层职责','Four responsibility layers in a sample application'),
+        lead:pair('从使用界面到数据保存，每层回答不同问题。','From the interface to persistence, each layer answers a different question.'),
+        caption:pair('这是手写架构样本，不是启智或灵知的实际系统拓扑。相邻层连线仅表示本例约定的访问方向。','A hand-written architecture sample, not the live Qizhi or Lingzhi topology. Arrows show this sample’s declared access direction.'),
+        where:pair('讲义中的系统结构说明，或 PPT 机制页。','A system-structure explanation in a handout or a PPT mechanism slide.'),
+        why:pair('横向带状结构表达抽象层次，不用大量系统图标制造复杂度。','Horizontal bands express abstraction levels without unnecessary system icons.'),
+        requires:pair('来源已有层次、职责、方向与跨层限制。普通并列列表不够。','Declared levels, responsibilities, direction and cross-layer constraints; a flat list is insufficient.'),
+        boundary:pair('先补层语义与固定布局；不要用树的 parent_child 假装调用层次。','Add layer semantics and a fixed layout; parent_child does not mean a call between layers.'),
+        source:pair('手写四层示例，独立于实际应用。\n界面层：展示内容、接收用户操作。\n应用层：编排用例，协调操作。\n领域层：执行业务规则。\n持久层：读取与保存数据。\n本例约定每层仅向下一层请求，不额外绘制未声明的跨层调用。','Hand-written sample independent of the actual apps.\nInterface: show content and receive actions.\nApplication: coordinate use cases.\nDomain: apply business rules.\nPersistence: read and store data.\nThis sample allows requests only to the next layer; no undeclared cross-layer calls are shown.') },
+      { id:'sequence',name:pair('参与者与时序','Sequence'),title:pair('一次示例读取请求，谁先做什么','Who does what in a sample read request'),
+        lead:pair('横向区分参与者，向下表示消息顺序。','Participants run across the page; message order runs downward.'),
+        caption:pair('仅演示正常读取：请求为实线，返回为虚线。未描述授权、失败与重试，不能据此认定真实接口完整。','Successful read only: solid calls and dashed returns. Authorization, failure and retry paths are outside this sample.'),
+        where:pair('协议、程序机制或多主体交互的讲义/PPT。','A handout or PPT explaining a protocol, program mechanism, or multi-party interaction.'),
+        why:pair('步骤列表说不清谁在等待谁；生命线与返回箭头明确交互对象和方向。','Lifelines and return arrows explain who waits for whom more clearly than a step list.'),
+        requires:pair('参与者、每条消息、先后顺序与请求/返回关系。','Participants, messages, order, and explicit call/return relationships.'),
+        boundary:pair('当前图解/PPT 合同没有专用生命线与消息类型；新增时两种渲染输出一起验收。','Current contracts lack dedicated lifelines and message kinds; verify both rendering outputs when adding them.'),
+        source:pair('手写交互样例，不表示真实 API。\n1. 页面向服务发送读取请求。\n2. 服务向存储请求数据。\n3. 存储向服务返回数据。\n4. 服务向页面返回展示结果。\n本例仅覆盖正常路径，未描述权限、错误或重试。','Hand-written interaction sample, not a real API contract.\n1. Page sends a read request to Service.\n2. Service requests data from Storage.\n3. Storage returns data to Service.\n4. Service returns a display result to Page.\nOnly the successful path is shown; permissions, errors and retries are unspecified.') },
+      { id:'bar',name:pair('数量与尺度','Quantities'),title:pair('四组样本的数量，用同一尺度比较','Compare four sample counts on one scale'),
+        lead:pair('数值才决定长度，颜色只引导关注。','Values determine length; color directs attention.'),
+        caption:pair('演示数据：甲 12、乙 18、丙 9、丁 24 个对象。非真实课程统计；零基线，单位一致。','Demo data: A 12, B 18, C 9 and D 24 objects. Not live course statistics. Zero baseline; one shared unit.'),
+        where:pair('已有明确数值的讲义/PPT 比较页。','A handout/PPT comparison backed by explicit numeric values.'),
+        why:pair('条长编码数量；同一尺度能直接比较，横向排布为中文标签保留空间。','Bar length encodes quantity. A shared scale supports comparison and leaves room for labels.'),
+        requires:pair('完整数值、相同单位、来源与统计条件。缺失值不是零。','Complete values, one unit, sources and counting conditions. Missing values are not zero.'),
+        boundary:pair('复用已有 horizontal_bar 合同及共享场景；不画无量规的能力雷达。','Reuse horizontal_bar and the shared scene. No ability radar without a defined scoring rubric.'),
+        source:pair('手写演示数据，不读取实际课程或学习记录。\n甲：12 个对象。乙：18 个对象。丙：9 个对象。丁：24 个对象。\n四类按同一条件计数；不包含缺失值。\n横轴从 0 开始，最大刻度 24；条长按 value/24 比例计算。','Hand-written demo data; no course or learning records are read.\nA: 12 objects. B: 18. C: 9. D: 24.\nAll categories share the same counting conditions; no values are missing.\nThe axis starts at 0 and ends at 24; bar length is proportional to value/24.') }
+    ];
+    const text = (x,y,value,cls='label',extra='') => `<text x="${x}" y="${y}" class="${cls}" ${extra}>${escape(value)}</text>`;
+    const node = (x,y,w,h,label,focal=false,sub='',radius=6) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${radius}" class="node${focal?' focal':''}"/>${text(x+w/2,y+h/2+(sub?-3:7),label)}${sub?text(x+w/2,y+h/2+25,sub,'small'):''}`;
+    const path = (d,label='',x=0,y=0,primary=false,dashed=false,arrow=true) => `<path d="${d}" class="edge${primary?' primary':''}" ${dashed?'stroke-dasharray="6 5"':''} ${arrow?`marker-end="url(#sample-${primary?'accent':'arrow'})"`:''}/>${label?`<rect class="mask" x="${x-(language==='zh'?label.length*10:label.length*5.6)-9}" y="${y-22}" width="${(language==='zh'?label.length*20:label.length*11.2)+18}" height="30"/>${text(x,y,label,'small')}`:''}`;
+    function draw(id) {
+      if (id === 'derivation') return [
+        path('M230 138 V206',tx(pair('h ≠ 0，展开并约分','h ≠ 0; expand and simplify')),405,182),
+        path('M230 286 V360 H590 V286',tx(pair('h → 0，取极限','Take the limit as h → 0')),410,365),
+        path('M590 206 V138',tx(pair('代入点斜式','Point–slope form')),728,180,true),
+        node(75,58,310,80,tx(pair('函数','Function')),false,'f(x) = x²'),
+        node(75,206,310,80,tx(pair('割线斜率','Secant slope')),false,'2x₀ + h'),
+        node(435,206,310,80,tx(pair('导数','Derivative')),true,'f′(x₀) = 2x₀'),
+        node(435,58,400,80,tx(pair('切线方程','Tangent equation')),false,'y − x₀² = 2x₀(x − x₀)')
+      ].join('');
+      if (id === 'tree') return [
+        path('M450 124 V170 H225 V208','',0,0,false,false,false),path('M450 170 H675 V208','',0,0,false,false,false),
+        path('M225 278 V346','',0,0,false,false,false),path('M675 278 V312 H570 V346','',0,0,false,false,false),path('M675 312 H790 V346','',0,0,false,false,false),
+        text(450,163,tx(pair('存储实现','Storage implementations')),'small'),
+        node(335,54,230,70,tx(pair('线性表','Linear list')),true),node(105,208,240,70,tx(pair('顺序存储','Sequential storage'))),node(555,208,240,70,tx(pair('链式存储','Linked storage'))),
+        node(105,346,240,70,tx(pair('顺序表','Array list'))),node(470,346,200,70,tx(pair('单链表','Singly linked'))),node(690,346,200,70,tx(pair('双链表','Doubly linked')))
+      ].join('');
+      if (id === 'comparison') {
+        const cells = [
+          [pair('比较维度','Dimension'),pair('顺序表','Array list'),pair('单链表','Singly linked list')],
+          [pair('第 i 项访问','Access item i'),pair('O(1)','O(1)'),pair('O(n)，从头访问','O(n), from the head')],
+          [pair('中间插入 / 删除','Middle insert / delete'),pair('O(n)，忽略扩容','O(n), no resizing'),pair('O(1)，前驱已知','O(1), known predecessor')],
+          [pair('存储方式','Storage'),pair('连续存储','Contiguous storage'),pair('节点不要求连续','Noncontiguous nodes')]
+        ];
+        return `<rect x="40" y="62" width="820" height="294" rx="4" class="node"/><rect x="41" y="63" width="818" height="65" fill="#eef2ff"/>`+cells.map((row,i)=>`${i?`<line x1="40" y1="${128+(i-1)*76}" x2="860" y2="${128+(i-1)*76}" class="rule"/>`:''}${row.map((cell,j)=>text([178,424,707][j],i===0?104:178+(i-1)*76,tx(cell),i===0?'label':'small')).join('')}`).join('')+`<line x1="315" y1="62" x2="315" y2="356" class="rule"/><line x1="550" y1="62" x2="550" y2="356" class="rule"/>`+text(450,414,tx(pair('定位前驱的代价须另计；比较前先检查条件。','Predecessor lookup has an additional cost. Check assumptions first.')),'small');
+      }
+      if (id === 'flow') return [
+        path('M380 70 V92'),path('M380 162 V198',tx(pair('否','No')),405,186),path('M280 127 H155 V190',tx(pair('是','Yes')),220,118),
+        path('M380 268 V310',tx(pair('否','No')),407,294),path('M490 233 H685 V198',tx(pair('是','Yes')),580,221,true),
+        path('M490 342 H850 V105 H530 V127 H480',tx(pair('继续检查','Check next')),697,329),
+        node(290,14,180,56,'i = 0',false,'',24),
+        `<polygon points="380,92 480,127 380,162 280,127" class="node"/>${text(380,135,'i ≥ n ?')}`,
+        node(45,190,220,70,tx(pair('未找到','Not found')),false,'',24),
+        `<polygon points="380,198 490,233 380,268 270,233" class="node"/>${text(380,241,'A[i] = key ?')}`,
+        node(575,128,220,70,tx(pair('返回 i','Return i')),true,'',24),node(270,310,220,64,'i = i + 1'),
+        text(450,426,tx(pair('范围检查在元素访问之前，空数组也能安全结束。','Check bounds before accessing an item; an empty array terminates safely.')),'small')
+      ].join('');
+      if (id === 'layers') return [
+        [pair('界面层','Interface'),pair('展示与接收操作','Display and receive actions')],
+        [pair('应用层','Application'),pair('编排用例','Coordinate use cases')],
+        [pair('领域层','Domain'),pair('业务规则','Business rules')],
+        [pair('持久层','Persistence'),pair('读取与保存','Read and store')]
+      ].map((row,i)=>`${i<3?path(`M450 ${119+i*101} V${149+i*101}`):''}<rect x="140" y="${48+i*101}" width="660" height="71" rx="4" class="node${i===2?' focal':''}"/>${text(180,92+i*101,'0'+(i+1),'small')}${text(355,92+i*101,tx(row[0]))}${text(640,92+i*101,tx(row[1]),'small')}`).join('');
+      if (id === 'sequence') return [
+        ...[140,450,760].map(x=>`<path d="M${x} 104 V435" class="edge" stroke-dasharray="5 6"/>`),
+        `<rect x="445" y="143" width="10" height="247" fill="#e0e7ff" stroke="#64748b"/><rect x="755" y="210" width="10" height="95" fill="#f1f5f9" stroke="#64748b"/>`,
+        path('M145 155 H445',tx(pair('1. 读取请求','1. Read request')),295,142),path('M455 222 H755',tx(pair('2. 请求数据','2. Request data')),605,208),
+        path('M755 301 H455',tx(pair('3. 返回数据','3. Return data')),605,286,false,true),path('M445 382 H145',tx(pair('4. 返回结果','4. Return result')),295,366,true,true),
+        node(45,34,190,70,tx(pair('页面','Page'))),node(355,34,190,70,tx(pair('服务','Service'))),node(665,34,190,70,tx(pair('存储','Storage')))
+      ].join('');
+      if (id === 'bar') {
+        const values = [12,18,9,24], plotX = 180, plotWidth = 600, maxValue = 24;
+        return [0,6,12,18,24].map(v=>`<line x1="${plotX+v/maxValue*plotWidth}" y1="55" x2="${plotX+v/maxValue*plotWidth}" y2="372" class="${v===0?'edge':'rule'}"/>${text(plotX+v/maxValue*plotWidth,406,v,'small')}`).join('')+values.map((v,i)=>`${text(105,101+i*80,tx(pair(['甲','乙','丙','丁'][i],['A','B','C','D'][i])))}<rect data-value="${v}" x="${plotX}" y="${74+i*80}" width="${v/maxValue*plotWidth}" height="42" rx="2" fill="${i===3?'#4338ca':'#cbd5e1'}" stroke="${i===3?'#4338ca':'#64748b'}"/>${text(plotX+v/maxValue*plotWidth+26,102+i*80,v,'small')}`).join('')+text(480,448,tx(pair('数量（个） · 从零开始','Count (objects) · Zero baseline')),'small');
+      }
+      throw new Error('Unknown demo');
+    }
+    function render() {
+      const demo = demos.find(item => item.id === selected);
+      document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
+      document.title = tx(pair('教学图解选型 · 灵知','Teaching diagram selection · Lingzhi'));
+      document.querySelectorAll('[data-i18n]').forEach(element => { element.textContent = tx(copy[element.dataset.i18n]); });
+      document.getElementById('language').textContent = language === 'zh' ? 'English' : '中文';
+      document.getElementById('language').setAttribute('aria-label',language === 'zh'?'Switch to English':'切换到中文');
+      document.querySelector('.catalog').setAttribute('aria-label',tx(copy.navAria));
+      document.querySelector('.selection').setAttribute('aria-label',tx(copy.selectionAria));
+      document.querySelector('.segments').setAttribute('aria-label',tx(copy.surfaceAria));
+      document.getElementById('choices').replaceChildren(...demos.map((item,i)=>{
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'choice'; button.dataset.demo = item.id;
+        button.setAttribute('aria-pressed',String(item.id===selected));
+        const number = document.createElement('span'); number.className = 'number'; number.textContent = String(i+1).padStart(2,'0'); number.setAttribute('aria-hidden','true');
+        const label = document.createElement('span'); label.textContent = tx(item.name); button.append(number,label);
+        button.addEventListener('click',()=>{ selected=item.id; render(); document.querySelector(`[data-demo="${item.id}"]`).focus(); }); return button;
+      }));
+      ['title','lead','caption','where','why','requires','boundary','source'].forEach(key=>{ document.getElementById(key).textContent=tx(demo[key]); });
+      document.getElementById('context').textContent=tx(surface==='handout'?copy.contextHandout:copy.contextPpt);
+      document.getElementById('paper').classList.toggle('ppt',surface==='ppt');
+      ['handout','ppt'].forEach(value=>document.getElementById(value).setAttribute('aria-pressed',String(surface===value)));
+      document.getElementById('canvas').innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 470" role="img" aria-labelledby="sample-title sample-desc"><title id="sample-title">${escape(tx(demo.title))}</title><desc id="sample-desc">${escape(tx(demo.source))}</desc><defs><marker id="sample-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#64748b"/></marker><marker id="sample-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#4338ca"/></marker></defs>${draw(selected)}</svg>`;
+    }
+    document.getElementById('language').addEventListener('click',()=>{language=language==='zh'?'en':'zh';render();});
+    ['handout','ppt'].forEach(value=>document.getElementById(value).addEventListener('click',()=>{surface=value;render();}));
+    document.getElementById('download').addEventListener('click',()=>{
+      const svg=document.querySelector('#canvas svg').cloneNode(true);
+      const style=document.createElementNS('http://www.w3.org/2000/svg','style');
+      style.textContent='svg{background:#fff;font-family:system-ui,"Microsoft YaHei",sans-serif}.node{fill:#fff;stroke:#64748b;stroke-width:1.5}.focal{fill:#eef2ff;stroke:#4338ca;stroke-width:2}.edge{fill:none;stroke:#64748b;stroke-width:1.7}.edge.primary{stroke:#4338ca}.label{fill:#0f172a;font-size:22px;font-weight:600;text-anchor:middle}.small{fill:#475569;font-size:19px;text-anchor:middle}.mask{fill:#fff}.rule{stroke:#e2e8f0;stroke-width:1}';
+      svg.append(style); svg.setAttribute('width','900');svg.setAttribute('height','470');
+      const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svg)],{type:'image/svg+xml;charset=utf-8'}));
+      const link=document.createElement('a');link.href=url;link.download=`lingzhi-${selected}-${language}-sample.svg`;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      const status=document.getElementById('status');status.hidden=false;status.textContent=tx(copy.saved);
+    });
+    render();
+  </script>
+</body>
+</html>
