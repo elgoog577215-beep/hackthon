@@ -1,0 +1,893 @@
+{
+  "model": "qwen3.8-27b",
+  "production_published": false,
+  "same_frozen_input": true,
+  "reviewer": "Codex content review; not teacher acceptance",
+  "questions": [
+    {
+      "key": "K-T07",
+      "name": "整数除法截断",
+      "prompt": "在C17中，考虑以下表达式：\n\n```c\nint result;\nint a = -7;\nint b = 2;\nresult = a / b;\n```\n\n在运算有定义的情况下，变量 `result` 的值是多少？\n选择 `result` 的正确数值。",
+      "options": [
+        {
+          "id": "A",
+          "text": "-3"
+        },
+        {
+          "id": "B",
+          "text": "-4"
+        },
+        {
+          "id": "C",
+          "text": "-2"
+        },
+        {
+          "id": "D",
+          "text": "3"
+        }
+      ],
+      "canonical_answer": "A",
+      "worked_solution": {
+        "schema_version": "worked_solution_v1",
+        "summary": "在C17中，整数除法 `-7 / 2` 的结果为 `-3`，这是因为C语言整数除法规则规定结果向零截断（truncation toward zero），而不是向下取整。",
+        "steps": [
+          {
+            "title": "识别C17整数除法规则",
+            "explanation": "根据C17标准（第6.5.5节第5段），对于整数除法，结果被定义为丢弃小数部分（即向零截断）。这与某些语言或数学中常用的向下取整（向负无穷方向）不同。",
+            "calculation": "C17标准规定：E1 / E2 的值是商，小数部分被丢弃。",
+            "result": "除法结果为向零截断的商。"
+          },
+          {
+            "title": "计算 -7 / 2",
+            "explanation": "计算 `-7` 除以 `2`。数学商为 `-3.5`。根据向零截断规则，我们舍去小数部分 `.5`，保留 `-3`。如果使用的是向下取整（floor），结果会是 `-4`。",
+            "calculation": "-7 / 2 = -3.5 → 向零截断 → -3",
+            "result": "result = -3"
+          }
+        ],
+        "final_answer": "A",
+        "checks": [
+          "验证 C17 标准文档第 6.5.5 节第 5 段关于整数除法的定义。",
+          "确认 -7 / 2 的精确商为 -3.5，向零截断得到 -3。"
+        ],
+        "option_analysis": [
+          {
+            "option_id": "A",
+            "is_correct": true,
+            "explanation": "-3 是 -7 / 2 向零截断的结果，符合 C17 整数除法规则。"
+          },
+          {
+            "option_id": "B",
+            "is_correct": false,
+            "explanation": "-4 是 -7 / 2 向下取整（向负无穷）的结果，不符合 C17 规则。"
+          },
+          {
+            "option_id": "C",
+            "is_correct": false,
+            "explanation": "-2 不是 -7 / 2 的合法整数商（2 * -2 = -4 ≠ -7）。"
+          },
+          {
+            "option_id": "D",
+            "is_correct": false,
+            "explanation": "3 忽略了被除数的负号，-7 / 2 不可能为正数。"
+          }
+        ],
+        "common_errors": [
+          "混淆 C 语言向零截断与数学/其他语言向下取整（floor）行为。",
+          "未正确应用除法符号规则，导致符号错误。"
+        ]
+      },
+      "knowledge_id": "kp_f264e18962e050d09e0e",
+      "knowledge_revision": "kpv_55cebbe824b1588df3d0d11d",
+      "question_revision": "qbir_fac8887797809e11",
+      "auto_score": 100,
+      "raw_auto_status": "approved",
+      "raw_evidence_admission": {
+        "schema_version": "question_evidence_admission_v1",
+        "eligible": true,
+        "checks": {
+          "language_aligned": true,
+          "no_answer_leakage": true,
+          "explanation_consistent": true,
+          "independently_assessable": true
+        },
+        "local_issues": [],
+        "content_revision": "qev_154da55fd4246d83"
+      },
+      "postflight_eligibility": {
+        "key": "K-T07",
+        "eligible": true,
+        "local_issues": []
+      },
+      "content_review": {
+        "decision": "需修解析细节",
+        "notes": "C17与向零截断结果正确；C项用2×−2≠−7作为否定商的理由不充分，正确整数商−3也不满足乘回等式，应依据向零截断或余数约束。精确标准段落引用尚未独立核验。"
+      }
+    },
+    {
+      "key": "K-T08",
+      "name": "接收类型不反向改变表达式",
+      "prompt": "在C17中，考虑以下代码片段：\n\n```c\ndouble y;\nint m = 9;\nint n = 4;\ny = m / n;\n```\n\n变量 `y` 的存储值是多少？\n选择 `y` 的正确数值。",
+      "options": [
+        {
+          "id": "A",
+          "text": "2.25"
+        },
+        {
+          "id": "B",
+          "text": "2.0"
+        },
+        {
+          "id": "C",
+          "text": "1.0"
+        },
+        {
+          "id": "D",
+          "text": "9/4"
+        }
+      ],
+      "canonical_answer": "B",
+      "worked_solution": {
+        "schema_version": "worked_solution_v1",
+        "summary": "在C17中，表达式 `m / n` 的两个操作数都是 `int`，所以先按整数除法计算得到 `2`，然后把这个 `int` 值转换为 `double` 存入 `y`，因此 `y` 的值是 `2.0`。",
+        "steps": [
+          {
+            "title": "判断除法运算类型",
+            "explanation": "题面代码是 `y = m / n;`，其中 `int m = 9;`、`int n = 4;`。C17规定普通算术运算先根据操作数类型决定运算类型，再把结果转换到目标类型；左侧 `double y` 不会把右侧 `m / n` 中的 `int / int` 改成浮点除法。",
+            "calculation": "m = 9, n = 4, m 和 n 都是 int，因此 9 / 4 是整数除法，结果为 2。",
+            "result": "整数除法结果是 2。"
+          },
+          {
+            "title": "计算 y 的存储值",
+            "explanation": "表达式 `m / n` 得到 `int` 值 `2` 后，赋值给 `double y`，会把 `int` 值转换为 `double` 再存储。整数 `2` 转为双精度浮点数是 `2.0`。",
+            "calculation": "y = (double)(9 / 4) = (double)2 = 2.0。",
+            "result": "y 的存储值是 2.0。"
+          }
+        ],
+        "final_answer": "B",
+        "checks": [
+          "检查 `m` 和 `n` 的声明类型：两者都是 `int`，所以 `m / n` 先执行整数除法。",
+          "代入数值：`9 / 4` 在整数除法下得到 `2`，而不是 `2.25`。",
+          "检查赋值左侧类型：`double y` 会接收整数 `2` 并转换为双精度浮点数 `2.0`。"
+        ],
+        "option_analysis": [
+          {
+            "option_id": "A",
+            "is_correct": false,
+            "explanation": "2.25 等价于 9.0 / 4.0，也就是把 `m / n` 当成浮点除法。但这里 `m` 和 `n` 都是 `int`，右侧先做整数除法，因此不会得到 2.25。"
+          },
+          {
+            "option_id": "B",
+            "is_correct": true,
+            "explanation": "`m / n` 中两个操作数都是 `int`，所以先计算整数除法 `9 / 4 = 2`，再转换给 `double y`，最终 `y` 是 `2.0`。"
+          },
+          {
+            "option_id": "C",
+            "is_correct": false,
+            "explanation": "1.0 相当于把 9 / 4 错误地算成 1。C语言整数除法舍去小数部分，但 9 / 4 的商是 2，不是 1。"
+          },
+          {
+            "option_id": "D",
+            "is_correct": false,
+            "explanation": "`9/4` 作为 C 表达式会先被求值为整数 2，再转换给 `double y`，因此不会保留成字符串或表达式 `9/4`。"
+          }
+        ],
+        "common_errors": [
+          "误认为左侧 `double y` 会让 `m / n` 直接变成浮点除法，从而得到 2.25。",
+          "忘记 C 语言的整数除法会先舍去小数部分，再赋值时只做一次类型转换。",
+          "把 `9 / 4` 当成普通数学除法 2.25，而没有考虑 C17 中 `int / int` 的整数除法规则。"
+        ]
+      },
+      "knowledge_id": "kp_42c760b4e0ce55a399ac",
+      "knowledge_revision": "kpv_56a51fec278dacde4f8f26b3",
+      "question_revision": "qbir_5750a405b442c94c",
+      "auto_score": 97,
+      "raw_auto_status": "approved",
+      "raw_evidence_admission": {
+        "schema_version": "question_evidence_admission_v1",
+        "eligible": true,
+        "checks": {
+          "language_aligned": true,
+          "no_answer_leakage": true,
+          "explanation_consistent": true,
+          "independently_assessable": true
+        },
+        "local_issues": [],
+        "content_revision": "qev_0637e673788059ef"
+      },
+      "postflight_eligibility": {
+        "key": "K-T08",
+        "eligible": true,
+        "local_issues": []
+      },
+      "content_review": {
+        "decision": "需改歧义选项",
+        "notes": "正确结果2.0，已不再声称从左到右求值；D项9/4既可能被理解为数学分数，也可能被理解为C整除表达式（值为2），应替换为明确不等价的数值。"
+      }
+    },
+    {
+      "key": "K-T09",
+      "name": "显式转换的位置",
+      "prompt": "在C17语言环境下，考虑以下表达式：\n\n```c\n(double)5 / 2\n```\n\n该表达式求值后，转换操作在语法上直接作用于哪个部分？\n请选择能正确描述 `(double)5 / 2` 中显式转换作用对象及发生位置的选项。",
+      "options": [
+        {
+          "id": "A",
+          "text": "转换作用于整个除法运算，即 `(double)(5 / 2)`，得到 2.0"
+        },
+        {
+          "id": "B",
+          "text": "转换仅作用于字面量 5，即先计算 `5.0 / 2`，再发生通常算术转换得到 2.5"
+        },
+        {
+          "id": "C",
+          "text": "转换作用于字面量 2，即先计算 `5 / 2.0`，再发生通常算术转换得到 2.5"
+        }
+      ],
+      "canonical_answer": "B",
+      "worked_solution": {
+        "schema_version": "worked_solution_v1",
+        "summary": "在 C17 中，`(double)5 / 2` 的显式类型转换只作用于紧邻其后的表达式 `5`。因此先将整数字面量 `5` 转换为 `double` 值 `5.0`，再与右侧整数 `2` 进行除法；由于左侧已是 `double`，右侧 `2` 在通常算术转换中提升为 `double`，最终按浮点除法计算得到 `2.5`。",
+        "steps": [
+          {
+            "title": "判断显式转换的语法作用对象",
+            "explanation": "C17 的显式类型转换形式为 `(type-name) expression`。在表达式 `(double)5 / 2` 中，`(double)` 后面紧邻的是 `5`，中间没有括号把 `5 / 2` 整体括起来，因此转换只能作用于 `5` 这个操作数，而不是整个 `5 / 2`。",
+            "calculation": "(double)5 / 2  ≡  ((double)5) / 2",
+            "result": "转换直接作用于 5，而不是 5 / 2 整体，也不是 2。"
+          },
+          {
+            "title": "代入求值并应用通常算术转换",
+            "explanation": "先计算被转换部分：`(double)5` 得到 `double` 类型的 `5.0`。接着执行 `5.0 / 2`。除法运算两侧的类型分别是 `double` 与 `int`，按 C17 的通常算术转换规则，`int` 值 `2` 被提升为 `double` 后参与运算。",
+            "calculation": "5.0 / 2  →  5.0 / 2.0  →  2.5",
+            "result": "表达式最终结果为 2.5，说明左侧 5 先被转换为 double。"
+          }
+        ],
+        "final_answer": "B",
+        "checks": [
+          "检查显式转换是否只绑定到其右侧最近的单一表达式：`(double)5` 不是 `(double)(5/2)`，除非写成 `(double)(5/2)`。",
+          "检查后续除法类型：`double / int` 会先对 `int` 进行通常算术转换，因此等价于 `double / double`。",
+          "检查最终值：`5.0 / 2.0` 的结果是 `2.5`，而不是整除得到的 `2` 或 `2.0`。",
+          "反向排除：如果转换作用于整个除法，应写成 `(double)(5 / 2)`，此时先做整除 `5 / 2 = 2`，再转换为 `2.0`，与题面写法不一致。"
+        ],
+        "option_analysis": [
+          {
+            "option_id": "A",
+            "is_correct": false,
+            "explanation": "A 认为转换作用于整个除法，即 `(double)(5 / 2)`。但题面写法是 `(double)5 / 2`，没有括号把 `5 / 2` 整体括起来，因此显式转换不能越过 `/` 作用于整个除法。这样描述与 C17 语法不符。"
+          },
+          {
+            "option_id": "B",
+            "is_correct": true,
+            "explanation": "B 正确指出转换仅作用于字面量 `5`：先得到 `5.0`，再计算 `5.0 / 2`；由于一侧已是 `double`，另一侧的 `2` 按通常算术转换为 `double`，最终得到 `2.5`。这与 C17 的语法和求值规则一致。"
+          },
+          {
+            "option_id": "C",
+            "is_correct": false,
+            "explanation": "C 认为转换作用于字面量 `2`。但 C 语言中显式转换语法中类型说明符位于被转换表达式左侧，`(double)` 在 `5` 的左侧，不在 `2` 的左侧，因此不可能直接作用于 `2`。该选项混淆了转换的位置与作用对象。"
+          }
+        ],
+        "common_errors": [
+          "误把 `(double)5 / 2` 理解成 `(double)(5 / 2)`，认为显式转换先作用在整个除法结果上。",
+          "误认为显式转换可以跨越运算符作用于后面的表达式，而实际上它只作用于紧随其后的那个表达式。",
+          "忽略了通常算术转换：在 `5.0 / 2` 中，右侧的 `2` 也会提升为 `double` 参与浮点除法。",
+          "把 C17 的浮点除法结果错误地按整除处理，得出 `2` 或 `2.0`。"
+        ]
+      },
+      "knowledge_id": "kp_beb3a555a3965103b268",
+      "knowledge_revision": "kpv_c74f19f4b25068c97a06c231",
+      "question_revision": "qbir_a60fe8cd772fd2ff",
+      "auto_score": 100,
+      "raw_auto_status": "approved",
+      "raw_evidence_admission": {
+        "schema_version": "question_evidence_admission_v1",
+        "eligible": true,
+        "checks": {
+          "language_aligned": true,
+          "no_answer_leakage": true,
+          "explanation_consistent": true,
+          "independently_assessable": true
+        },
+        "local_issues": [],
+        "content_revision": "qev_b13a282161f05fa4"
+      },
+      "postflight_eligibility": {
+        "key": "K-T09",
+        "eligible": true,
+        "local_issues": []
+      },
+      "content_review": {
+        "decision": "需修选项先后措辞",
+        "notes": "明确考显式转换位置，主答案B正确；但B项写成先计算5.0/2、再发生通常算术转换，顺序措辞不当，通常算术转换应在除法运算前。"
+      }
+    },
+    {
+      "key": "K-I04",
+      "name": "else 的词法就近配对",
+      "prompt": "```c\nvoid func(int a, int b) {\n    int x = 0;\n    if (a)\n        if (b)\n            x = 1;\n        else\n            x = 2;\n}\n```\n在上述 C17 代码中，else 语句属于哪个 if 的组成部分？",
+      "options": [
+        {
+          "id": "A",
+          "text": "属于 if (b)"
+        },
+        {
+          "id": "B",
+          "text": "属于 if (a)"
+        }
+      ],
+      "canonical_answer": "A",
+      "worked_solution": {
+        "schema_version": "worked_solution_v1",
+        "summary": "在 C 语言中，else 语句总是与词法上（书写顺序上）最近的前面、且语法允许的 if 配对。在题面代码中，else 紧跟在 if(b) 的语句块之后，因此它属于 if(b)，而不属于外层的 if(a)。",
+        "steps": [
+          {
+            "title": "定位 else 在代码中的位置",
+            "explanation": "查看给出的代码：\n\n```c\nvoid func(int a, int b) {\n    int x = 0;\n    if (a)          // 外层 if(a)\n        if (b)     // 内层 if(b)\n            x = 1;\n        else        // else 语句\n            x = 2;\n}\n```\n\n可以看到，else 出现在内层 if(b) 的 x = 1; 之后，而不是外层 if(a) 的末尾。",
+            "calculation": "",
+            "result": "else 紧跟在 if(b) 的 x = 1; 语句之后。"
+          },
+          {
+            "title": "应用 C17 的 if-else 配对规则",
+            "explanation": "C 语言规定：else 与词法上最近的前一个、语法允许的 if 配对（dangling else 问题中，else 属于最近的 if）。这里词法上最近的 if 是 if(b)，因此该 else 属于 if(b) 的组成部分。",
+            "calculation": "最近的 if：if(b)；外层的 if(a) 被排除。",
+            "result": "else 属于 if(b)。"
+          },
+          {
+            "title": "用变量取值验证行为",
+            "explanation": "为了确认语义，取几组 (a, b)：\n- a=0：两个 if 都不进入，x 仍为 0。\n- a=1, b=0：进入 if(a)，再进入 if(b) 为假，于是走 else，执行 x=2。\n- a=1, b=1：进入 if(b)，执行 x=1，不执行 else。\n\n这说明 else 只在内层 if(b) 为假时执行，与 else 属于 if(b) 的结论一致。",
+            "calculation": "",
+            "result": "行为与 else 属于 if(b) 一致。"
+          }
+        ],
+        "final_answer": "A",
+        "checks": [
+          "将代码按 C 文法展开：if (a) 的“语句”是 if (b) { x=1; } else { x=2; }，即外层 if 的体是内层完整的 if-else 结构。",
+          "检查词法距离：else 到 if(b) 的距离小于到 if(a) 的距离，故与 if(b) 配对。",
+          "用取值 (a=1,b=0) 验证：执行到 else，说明内层 if(b) 为假时走 else，符合 else 属于 if(b)。",
+          "若想让 else 属于外层 if(a)，必须给内层 if(b) 加花括号写成 if (a) { if (b) x = 1; } else x = 2;，而题面并非如此。"
+        ],
+        "option_analysis": [
+          {
+            "option_id": "A",
+            "is_correct": true,
+            "explanation": "根据 C17 规则，else 与词法上最近的前一个语法允许的 if 配对。代码中 else 紧跟在 if(b) 的 x = 1; 之后，因此属于 if(b)。"
+          },
+          {
+            "option_id": "B",
+            "is_correct": false,
+            "explanation": "虽然 else 在外层 if(a) 的语句体中出现，但按 C 语言的配对规则，else 优先属于内层 if(b)。要让 else 属于 if(a)，需要给内层 if(b) 加花括号，而题面未加。"
+          }
+        ],
+        "common_errors": [
+          "按缩进判断归属：认为 else 属于 if(a) 是因为它的缩进与 if(a) 对齐或看起来在外层。实际上 C 语言只按语法结构配对，不看缩进。",
+          "忽略“最近的 if”原则：看到 else 就把它归到第一个出现的 if 上，而不考虑内层 if 已经先出现，导致错选 if(a)。"
+        ]
+      },
+      "knowledge_id": "kp_8e6ec21f54915eb88a62",
+      "knowledge_revision": "kpv_563fb7c800468705c6a55756",
+      "question_revision": "qbir_04e39bd0814194f3",
+      "auto_score": 100,
+      "raw_auto_status": "approved",
+      "raw_evidence_admission": {
+        "schema_version": "question_evidence_admission_v1",
+        "eligible": true,
+        "checks": {
+          "language_aligned": true,
+          "no_answer_leakage": true,
+          "explanation_consistent": true,
+          "independently_assessable": true
+        },
+        "local_issues": [],
+        "content_revision": "qev_76a1f782efc4d597"
+      },
+      "postflight_eligibility": {
+        "key": "K-I04",
+        "eligible": true,
+        "local_issues": []
+      },
+      "content_review": {
+        "decision": "本轮可保留",
+        "notes": "C17最近合法if配对，答案与解析一致，上一轮if必须配else的错误理由未再出现。"
+      }
+    },
+    {
+      "key": "K-I08",
+      "name": "空语句对控制范围的破坏",
+      "prompt": "```c\nvoid func(int x, int *y) {\n    if (x > 10);\n    *y = 20;\n}\n```\n在上述 C17 代码中，调用 func(5, &res) 后，变量 res 的值是多少？",
+      "options": [
+        {
+          "id": "A",
+          "text": "0"
+        },
+        {
+          "id": "B",
+          "text": "20"
+        },
+        {
+          "id": "C",
+          "text": "未定义"
+        }
+      ],
+      "canonical_answer": "B",
+      "worked_solution": {
+        "schema_version": "worked_solution_v1",
+        "summary": "if(x > 10); 后面的分号构成一个空语句，因此它不会控制后续的 *y = 20;。在 func(5, &res) 中，无论条件真假，*y = 20; 都会执行；由于 *y 进入函数前为 0，执行后 res 为 20。",
+        "steps": [
+          {
+            "title": "识别 if 后的分号含义",
+            "explanation": "C 语句的语法中，if 后面需要跟随一个“语句”作为条件为真时执行的内容。分号本身代表一个空语句，因此 if (x > 10); 可以理解为：当 x > 10 时执行空操作；当 x <= 10 时也执行空操作。这里的 if 对后续语句没有语法上的控制作用。",
+            "calculation": "void func(int x, int *y) {\n    if (x > 10);   // 分号是空语句，if 的分支体是空语句\n    *y = 20;       // 该语句不属于 if 的分支，必然执行\n}",
+            "result": "后续 *y = 20; 不受 if 控制。"
+          },
+          {
+            "title": "代入调用 func(5, &res)",
+            "explanation": "调用 func(5, &res) 时，参数 x = 5，参数 y 指向变量 res。进入函数前已知 *y（即 res）为 0。函数执行到 *y = 20; 时，将 res 修改为 20。x 的值只影响 if (x > 10) 的条件，但该条件控制的分支体是空语句，不影响 *y。",
+            "calculation": "初始: res = 0\n执行 *y = 20; 后: res = 20",
+            "result": "返回函数后 res = 20。"
+          }
+        ],
+        "final_answer": "B",
+        "checks": [
+          "检查 if (x > 10); 中的分号是否为空语句，从而判断它是否是分支体",
+          "检查 *y = 20; 是否在语法上位于该 if 之后而非其分支内部",
+          "代入 x=5 和初始 *y=0，确认 *y=20 执行一次后得到 res=20"
+        ],
+        "option_analysis": [
+          {
+            "option_id": "A",
+            "is_correct": false,
+            "explanation": "若选 0，则默认 if (x > 10); 后面的 *y = 20; 是 if 的受控语句，只有 x>10 才执行。但这里的分号已经构成空语句，if 并不控制后面的赋值，因此 x=5 时也会执行 *y=20。"
+          },
+          {
+            "option_id": "B",
+            "is_correct": true,
+            "explanation": "if (x > 10); 中的分号是空语句，*y = 20; 不受 if 控制，一定会执行。初始 *y 为 0，执行后变为 20，因此调用 func(5, &res) 后 res 为 20。"
+          },
+          {
+            "option_id": "C",
+            "is_correct": false,
+            "explanation": "该函数没有未定义行为：*y 是合法的 int 指针且题目保证进入函数前已初始化，赋值 *y=20 是合法操作。条件判断也只是简单整数比较，不会产生未定义值。"
+          }
+        ],
+        "common_errors": [
+          "误以为 if 后面的分号只是普通标点，不产生空语句",
+          "把 if (x > 10); 当作 if(x > 10) 且 *y=20 为其受控语句",
+          "在 x<=10 时错误地认为函数不做任何赋值"
+        ]
+      },
+      "knowledge_id": "kp_55c412b975eb565f8090",
+      "knowledge_revision": "kpv_6b9fe258499420e8f1e5826b",
+      "question_revision": "qbir_082d4567f0a5058f",
+      "auto_score": 100,
+      "raw_auto_status": "approved",
+      "raw_evidence_admission": {
+        "schema_version": "question_evidence_admission_v1",
+        "eligible": true,
+        "checks": {
+          "language_aligned": true,
+          "no_answer_leakage": true,
+          "explanation_consistent": true,
+          "independently_assessable": true
+        },
+        "local_issues": [],
+        "content_revision": "qev_c97460ac0a989611"
+      },
+      "postflight_eligibility": {
+        "key": "K-I08",
+        "eligible": true,
+        "local_issues": []
+      },
+      "content_review": {
+        "decision": "需简化材料并修解析",
+        "notes": "空语句规则和结果20正确，但额外引入指针传参；解析自行假设调用前*y为0，而题面未给出，实测初值−999仍得到20。"
+      }
+    },
+    {
+      "key": "K-I10",
+      "name": "选择链首命中后停止判断",
+      "prompt": "在C17中，对于以下程序：\n\n```c\n#include <stdio.h>\nint main() {\n    int val = 7, eval_count = 0;\n    if (val > 5) {\n        printf(\"A:\\n\");\n    } else if (val > 5) {\n        eval_count++;\n        printf(\"B:\\n\");\n    }\n    printf(\"eval_count=%d\\n\", eval_count);\n    return 0;\n}\n```\n该程序在标准C17环境中编译并执行。请问控制台输出的最后一行（包含换行符）具体是什么？",
+      "options": [
+        {
+          "id": "A",
+          "text": "A: \neval_count=0"
+        },
+        {
+          "id": "B",
+          "text": "A: \neval_count=1"
+        },
+        {
+          "id": "C",
+          "text": "A: B: \neval_count=1"
+        },
+        {
+          "id": "D",
+          "text": "A: B: \neval_count=0"
+        }
+      ],
+      "canonical_answer": "A",
+      "worked_solution": {
+        "schema_version": "worked_solution_v1",
+        "summary": "当 `val=7` 时，`val>5` 为真，程序进入第一个 if 分支打印 \"A:\\n\"。由于 if/else if 链在首个分支命中后不再检查后续分支条件，`else if` 条件不被求值，`eval_count` 保持 0。最后一行输出为 \"eval_count=0\\n\"，对应完整输出选项 A。",
+        "steps": [
+          {
+            "title": "确定 `if (val > 5)` 的求值结果与分支选择",
+            "explanation": "程序初始化 `int val = 7, eval_count = 0;`。在 C17 普通顺序执行下，条件表达式 `val > 5` 先被求值。`7 > 5` 的布尔结果为 1（真）。因此 `if (val > 5)` 分支被选择执行，进入其复合语句。",
+            "calculation": "val = 7; condition = (val > 5) = (7 > 5) = true。",
+            "result": "选择第一个 if 分支。"
+          },
+          {
+            "title": "判断 `else if (val > 5)` 是否会被求值",
+            "explanation": "C 语言的 `if ... else if ...` 是一个 if-else 嵌套链。一旦某个 if 条件为真并执行了对应分支，后续 else-if 条件不会在正常控制流下被求值，也不会执行其后语句。因此第二个分支中的 `eval_count++;` 不会执行，`eval_count` 保持初始值 0。",
+            "calculation": "首个分支已执行；else-if 条件跳过，不发生求值；eval_count += 0。",
+            "result": "eval_count 仍为 0。"
+          },
+          {
+            "title": "推导程序全部标准输出与最后一行",
+            "explanation": "在第一个分支内执行 `printf(\"A:\\n\");`，标准输出先得到 `A:` 后跟换行符。随后跳过 else-if 分支，继续执行 `printf(\"eval_count=%d\\n\", eval_count);`。此时 eval_count 为 0，因此输出 `eval_count=0` 后跟换行符。题目要求最后一行（含换行符），即 `eval_count=0\n`；在给出的选项中完整匹配的输出是 A。",
+            "calculation": "stdout = \"A:\\n\" + \"eval_count=0\\n\" = \"A:\\neval_count=0\\n\"。",
+            "result": "对应选项 A。"
+          }
+        ],
+        "final_answer": "A",
+        "checks": [
+          "代入 val=7 验证 `val > 5` 为真，因此进入第一个 if 分支。",
+          "依据 C 语言 if/else if 控制流验证首个分支命中后第二个条件不求值，因此 `eval_count` 不增加。",
+          "逐行拼接标准输出，确认最后一行字符串为 `eval_count=0\n`，并与四个选项逐字符比对。"
+        ],
+        "option_analysis": [
+          {
+            "option_id": "A",
+            "is_correct": true,
+            "explanation": "该输出表示先打印 `A:\n`，最后一行为 `eval_count=0\n`。这与 `val>5` 为真、第一个分支执行、else-if 不被求值且 eval_count 保持 0 完全一致。"
+          },
+          {
+            "option_id": "B",
+            "is_correct": false,
+            "explanation": "该选项认为最后一行是 `eval_count=1\n`，意味着 `eval_count++` 被执行。但在首个 if 分支命中后，else-if 条件及其内部语句都不会执行，因此 eval_count 应为 0。"
+          },
+          {
+            "option_id": "C",
+            "is_correct": false,
+            "explanation": "该选项认为两个分支都执行，且 eval_count 变为 1。若 if/else if 是互不排斥的多个独立 if，则可能出现类似结果；但在 if/else if 链中首个真分支执行后，后续分支被跳过，因此该选项与 C 语言控制流矛盾。"
+          },
+          {
+            "option_id": "D",
+            "is_correct": false,
+            "explanation": "该选项认为 `A:` 与 `B:` 都被打印，但 eval_count 仍为 0。若 `B:` 被打印则说明进入了第二个分支，但进入该分支的前提是 `eval_count++` 被执行，会使 eval_count 变为 1，故该选项自相矛盾。"
+          }
+        ],
+        "common_errors": [
+          "把 `if ... else if ...` 误当作两个独立 if：只要前一个 if 为真，后续 else-if 仍被求值并可能执行。",
+          "忽略 C 语言顺序执行与 if-else 互斥语义，误以为同一表达式在两个分支中都会执行。",
+          "只关注 `eval_count` 的初始值，忘记进入第二个分支的前提是其条件为假，而这在此题中不可能发生。"
+        ]
+      },
+      "knowledge_id": "kp_1a0bfd83c70c519a9a21",
+      "knowledge_revision": "kpv_722dcc051a761ab0351d9e13",
+      "question_revision": "qbir_6e739d3f667dc8fe",
+      "auto_score": 96,
+      "raw_auto_status": "approved",
+      "raw_evidence_admission": {
+        "schema_version": "question_evidence_admission_v1",
+        "eligible": true,
+        "checks": {
+          "language_aligned": true,
+          "no_answer_leakage": true,
+          "explanation_consistent": true,
+          "independently_assessable": true
+        },
+        "local_issues": [],
+        "content_revision": "qev_a501ee25114bd22a"
+      },
+      "postflight_eligibility": {
+        "key": "K-I10",
+        "eligible": false,
+        "local_issues": [
+          {
+            "code": "RESPONSE_SCOPE_MISMATCH",
+            "severity": "critical",
+            "message": "题目只问最后一行，但所有选项都包含多行完整输出，没有符合要求的选项。",
+            "evidence": "在C17中，对于以下程序：\n\n```c\n#include <stdio.h>\nint main() {\n    int val = 7, eval_count = 0;\n    if (val > 5) {\n        printf(\"A:\\n\");\n    } else if (val > 5) {\n        eval_count++;\n        printf(\"B:\\n\");\n    }\n    printf(\"eval_count=%d\\n\", eval"
+          }
+        ]
+      },
+      "content_review": {
+        "decision": "本地守卫已排除计分，题目待重生",
+        "notes": "问最后一行，选项却均含完整的多行输出。补充本地检查后判为RESPONSE_SCOPE_MISMATCH。另有eval_count只在分支体内增加，不能直接观测后续条件是否被求值的问题。"
+      }
+    },
+    {
+      "key": "K-F03",
+      "name": "首判为假与零次执行",
+      "prompt": "考虑以下C17代码片段：\n```c\nfor (int i = 0; i < 0; i++) {\n    printf(\"Loop\\n\");\n}\n```\n上述代码中，for循环控制表达式在首次求值时为假。此时，循环体（即`{}`内的语句）执行了几次？",
+      "options": [
+        {
+          "id": "A",
+          "text": "1次"
+        },
+        {
+          "id": "B",
+          "text": "0次"
+        },
+        {
+          "id": "C",
+          "text": "10次"
+        },
+        {
+          "id": "D",
+          "text": "无限次"
+        }
+      ],
+      "canonical_answer": "B",
+      "worked_solution": {
+        "schema_version": "worked_solution_v1",
+        "summary": "for 循环先判断控制条件；条件为假时不进入循环体。题中 i=0 且 i<0 为假，因此 printf 不执行，循环体执行 0 次。",
+        "steps": [
+          {
+            "title": "分析首次求值",
+            "explanation": "for 循环的初始化 `int i = 0` 先执行，随后对控制表达式 `i < 0` 做第一次判断。由于此时 i 等于 0，比较 0 < 0 不成立，控制条件为假。",
+            "calculation": "i = 0; (i < 0) = (0 < 0) = false",
+            "result": "控制条件首次为假，程序跳过整个循环体。"
+          },
+          {
+            "title": "确定循环体执行次数",
+            "explanation": "C17 中 for 循环在条件为假时不会执行循环体内的语句，也不会执行迭代表达式 `i++`。因此 `printf(\"Loop\\n\");` 一次都不会执行。",
+            "calculation": "条件为假 => 循环体执行次数 = 0",
+            "result": "循环体执行 0 次。"
+          }
+        ],
+        "final_answer": "B",
+        "checks": [
+          "代入首次变量值：i=0，判断 0<0 是否为假。",
+          "追踪控制流：条件为假时直接跳出 for 循环，不执行 printf 和 i++。",
+          "对照选项：只有 B 表示 0 次，与执行轨迹一致。"
+        ],
+        "option_analysis": [
+          {
+            "option_id": "A",
+            "is_correct": false,
+            "explanation": "1次会意味着条件在首次判断时至少有一次为真。但 `i=0` 时 `i<0` 为假，循环体不会进入。"
+          },
+          {
+            "option_id": "B",
+            "is_correct": true,
+            "explanation": "首次判断 `i<0` 时 i 为 0，条件为假，for 循环体一次也不执行。"
+          },
+          {
+            "option_id": "C",
+            "is_correct": false,
+            "explanation": "10次通常对应类似 `i<10` 的正值上限场景；本题上限表达式 `i<0` 在初始 i=0 时立即为假。"
+          },
+          {
+            "option_id": "D",
+            "is_correct": false,
+            "explanation": "无限次需要条件始终为真且不会使 i 超出条件范围；本题条件首次即为假，不会形成任何迭代。"
+          }
+        ],
+        "common_errors": [
+          "误以为 for 循环会先执行一次循环体再判断条件。",
+          "混淆 `i<0` 与 `i<=0`：若写成 `i<=0`，首次条件才可能为真，但本题是 `i<0`。"
+        ]
+      },
+      "knowledge_id": "kp_b745aefb10735f088258",
+      "knowledge_revision": "kpv_b2de3bb45c0824eebd8d6940",
+      "question_revision": "qbir_ef776d9e047c8768",
+      "auto_score": 100,
+      "raw_auto_status": "approved",
+      "raw_evidence_admission": {
+        "schema_version": "question_evidence_admission_v1",
+        "eligible": true,
+        "checks": {
+          "language_aligned": true,
+          "no_answer_leakage": true,
+          "explanation_consistent": true,
+          "independently_assessable": true
+        },
+        "local_issues": [],
+        "content_revision": "qev_10fd69d6624c1910"
+      },
+      "postflight_eligibility": {
+        "key": "K-F03",
+        "eligible": true,
+        "local_issues": []
+      },
+      "content_review": {
+        "decision": "本轮可保留",
+        "notes": "提供i=0、i<0的代码而不直接给出零次规则，要求判断次数；答案B正确。"
+      }
+    },
+    {
+      "key": "K-F12",
+      "name": "continue 的执行逻辑",
+      "prompt": "在 C17 中，给定以下程序代码。当程序执行到标记 `continue` 处的语句时，紧接着会发生的动作是什么？\n\n```c\n#include <stdio.h>\n\nint main(void) {\n    int i;\n    int total = 0;\n\n    for (i = 0; i < 10; i++) {\n        if (i == 3) {\n            continue;\n        }\n        total += i;\n    }\n\n    return 0;\n}\n```\n请从下列选项中选出执行 continue 时紧接着发生的动作：\nA. 结束整个 main 函数，程序退出\nB. 结束当前这一轮循环，不再执行 i++，并判断 i < 10\nC. 跳过本轮剩余的循环体，先执行 i++，再判断 i < 10 是否进入下一轮\nD. 退出 for 循环，并执行 i++",
+      "options": [
+        {
+          "id": "A",
+          "text": "结束整个 main 函数，程序退出"
+        },
+        {
+          "id": "B",
+          "text": "结束当前这一轮循环，不再执行 i++，并判断 i < 10"
+        },
+        {
+          "id": "C",
+          "text": "跳过本轮剩余的循环体，先执行 i++，再判断 i < 10 是否进入下一轮"
+        },
+        {
+          "id": "D",
+          "text": "退出 for 循环，并执行 i++"
+        }
+      ],
+      "canonical_answer": "C",
+      "worked_solution": {
+        "schema_version": "worked_solution_v1",
+        "summary": "在 C17 的 for 循环中执行 continue 时，会跳过当前循环体剩余部分，接着执行更新表达式 i++，然后判断 i < 10 是否继续下一轮。",
+        "steps": [
+          {
+            "title": "定位 continue 的 C17 语义",
+            "explanation": "题目代码为 for (i = 0; i < 10; i++)。C 标准规定：continue 在循环语句中使程序跳转到该循环的下一次迭代点。对 for 循环而言，下一次迭代点位于更新表达式 i++ 之前，而不是直接退出循环。",
+            "calculation": "遇到 continue -> 跳过本轮循环体剩余语句 -> 执行 i++ -> 重新求值 i < 10。",
+            "result": "continue 不会结束 for 循环，而是进入更新表达式 i++。"
+          },
+          {
+            "title": "用给定代码追踪具体执行",
+            "explanation": "当 i == 3 时进入 if (i == 3) 并执行 continue。此时 total += i; 不会被执行。随后 for 的更新表达式 i++ 被执行，使 i 从 3 变为 4，然后判断 i < 10。条件为真，因此继续下一轮。",
+            "calculation": "i=3 时：continue 跳过 total += i;，执行 i++ 得 i=4；判断 4 < 10 为真。",
+            "result": "紧接着发生的动作是：跳过剩余循环体，执行 i++，再判断 i < 10。"
+          }
+        ],
+        "final_answer": "C",
+        "checks": [
+          "若 continue 后执行 i++，则 i=3 这一轮 total 不增加，下一轮 i 为 4，符合选项 C 描述。",
+          "若选 B（不执行 i++），下一轮仍会 i==3，导致无限循环；与 for 语法和 C17 语义不符。",
+          "若选 A 或 D（结束 main / 退出 for），则 continue 会被误当作 break 或 return，违反 C17 continue 的语义。"
+        ],
+        "option_analysis": [
+          {
+            "option_id": "A",
+            "is_correct": false,
+            "explanation": "continue 只影响当前循环，不会结束整个 main 函数或使程序退出；结束函数通常需要 return 或程序自然运行结束。"
+          },
+          {
+            "option_id": "B",
+            "is_correct": false,
+            "explanation": "该选项说不再执行 i++。在 C17 中 for 的更新表达式 i++ 在 continue 之后仍然会执行，否则 i 会一直停留在 3 并造成无限循环。"
+          },
+          {
+            "option_id": "C",
+            "is_correct": true,
+            "explanation": "continue 会跳过当前循环体剩余部分，然后执行 for 的更新表达式 i++，再判断 i < 10 决定是否进入下一轮，这完全符合 C17 语义。"
+          },
+          {
+            "option_id": "D",
+            "is_correct": false,
+            "explanation": "退出 for 循环是 break 的作用，不是 continue。continue 只是提前进入下一次迭代，不会直接离开整个 for 循环。"
+          }
+        ],
+        "common_errors": [
+          "把 continue 当成 break，误以为它会直接退出整个 for 循环。",
+          "误以为 continue 会跳过更新表达式 i++，从而认为 i 不会增加。",
+          "混淆 continue 与 return，认为执行 continue 会结束整个 main 函数。"
+        ]
+      },
+      "knowledge_id": "kp_60e6a76254c052088a7e",
+      "knowledge_revision": "kpv_c2b823ccfa9c33116544498a",
+      "question_revision": "qbir_534ef1306577e287",
+      "auto_score": 100,
+      "raw_auto_status": "approved",
+      "raw_evidence_admission": {
+        "schema_version": "question_evidence_admission_v1",
+        "eligible": true,
+        "checks": {
+          "language_aligned": true,
+          "no_answer_leakage": true,
+          "explanation_consistent": true,
+          "independently_assessable": true
+        },
+        "local_issues": [],
+        "content_revision": "qev_9f3aab8f7b315f33"
+      },
+      "postflight_eligibility": {
+        "key": "K-F12",
+        "eligible": true,
+        "local_issues": []
+      },
+      "content_review": {
+        "decision": "本轮可保留",
+        "notes": "C17完整代码，题干不再先讲continue规则，选项C正确；正文重复列选项属于展示冗余，建议后续清理。"
+      }
+    },
+    {
+      "key": "K-F13",
+      "name": "break 退出机制",
+      "prompt": "```c\n#include <stdio.h>\n\nint main(void) {\n    int x = 0;\n    for (int i = 0; i < 5; i++) {\n        if (i == 2) {\n            break;\n        }\n        x += i;\n    }\n    printf(\"%d\\n\", x);\n    return 0;\n}\n```\n运行上述 C17 代码，程序在标准输出中的具体打印内容是什么？",
+      "options": [
+        {
+          "id": "A",
+          "text": "1"
+        },
+        {
+          "id": "B",
+          "text": "3"
+        },
+        {
+          "id": "C",
+          "text": "6"
+        },
+        {
+          "id": "D",
+          "text": "9"
+        }
+      ],
+      "canonical_answer": "A",
+      "worked_solution": {
+        "schema_version": "worked_solution_v1",
+        "summary": "当 i 等于 2 时，if 语句执行 break 跳出循环，循环头部的更新表达式 i++ 不再执行；循环体内在 break 之前累计了 x += 0 与 x += 1，因此 x 为 1。",
+        "steps": [
+          {
+            "title": "逐步模拟循环",
+            "explanation": "for 循环的每次迭代顺序为：进入时先检查条件 i < 5；若为真，执行循环体；循环体结束后（且没有 break）才执行头部更新表达式 i++，然后再检查下一次条件。break 会立即跳出最内层 for 循环，跳过本次迭代剩余的循环体以及头部更新表达式。",
+            "calculation": "初始 i=0, x=0。\n\n第 1 次：\n- 检查 i < 5：0 < 5 为真，进入循环。\n- if (i == 2)：0 == 2 为假，不 break。\n- x += i：x = 0 + 0 = 0。\n- 没有 break，执行更新表达式 i++：i 变为 1。\n\n第 2 次：\n- 检查 i < 5：1 < 5 为真，进入循环。\n- if (i == 2)：1 == 2 为假，不 break。\n- x += i：x = 0 + 1 = 1。\n- 没有 break，执行更新表达式 i++：i 变为 2。\n\n第 3 次：\n- 检查 i < 5：2 < 5 为真，进入循环。\n- if (i == 2)：2 == 2 为真，执行 break；立即跳出 for 循环。\n- 本次迭代不再执行 x += i，也不执行更新表达式 i++。",
+            "result": "跳出循环后 x = 1，printf(\"%d\\n\", x) 打印：1"
+          }
+        ],
+        "final_answer": "A",
+        "checks": [
+          "模拟三种典型误解：若误认为 i=2 时仍执行 x += i，则 x 会为 3；若误认为 break 后仍执行 i++ 并继续到 i=3，则 x 会为 6；若误认为循环继续到 i=5 再停止，则 x 为 10（不在选项内）。正确执行路径是 i=0、i=1 累加，i=2 时 break，得到 1。",
+          "检查 C17 for 语句语义：break 作为跳转语句使控制流立即跳出最内层 for，不再继续执行该次迭代的剩余语句，也不再执行该次迭代的 for 头第三部分。",
+          "用选项反推：只有 1 对应“累加 i=0 和 i=1 后在 i=2 跳出”；3 对应“i=2 时累加”；6 对应“i=2、3 都累加”；9 对应“i=2、3、4 都累加”。题面中 i=2 已触发 break，因此排除 3、6、9。"
+        ],
+        "option_analysis": [
+          {
+            "option_id": "A",
+            "is_correct": true,
+            "explanation": "i=0 和 i=1 两次迭代没有触发 break，分别执行 x += 0 与 x += 1；i=2 时触发 break 跳出循环，x 保持为 1，因此标准输出为 1。"
+          },
+          {
+            "option_id": "B",
+            "is_correct": false,
+            "explanation": "3 表示 i=2 时仍执行了 x += i（0+1+2=3），但题面中 i==2 时 if 条件为真并执行 break，循环体中位于 break 之后的 x += i 不会被执行。"
+          },
+          {
+            "option_id": "C",
+            "is_correct": false,
+            "explanation": "6 表示累加了 i=2 与 i=3（0+1+2+3=6）或等价地继续执行了两次更多迭代，但 i=2 时已经 break，循环结束，不会再进入 i=3 的迭代。"
+          },
+          {
+            "option_id": "D",
+            "is_correct": false,
+            "explanation": "9 表示累加了 i=2、3、4（0+1+2+3+4=10 的近似错误目标，或某些误解下的值），与 break 在 i=2 时立即结束循环的事实不符，循环不会继续到 i=4。"
+          }
+        ],
+        "common_errors": [
+          "误以为 break 只跳出当前 if 或当前循环体片段，忽略 break 会立即结束最内层 for 循环。",
+          "误以为 break 后仍会执行本次迭代的 for 头更新表达式 i++，从而多算后续迭代。",
+          "把 break 之后循环体内剩余语句（x += i）误当作仍会执行，导致把 i=2 也加进 x。"
+        ]
+      },
+      "knowledge_id": "kp_d83459ca197951f0ad49",
+      "knowledge_revision": "kpv_89f6a3e5593937281d405ed3",
+      "question_revision": "qbir_0bdda0cf93a2fe3f",
+      "auto_score": 97,
+      "raw_auto_status": "approved",
+      "raw_evidence_admission": {
+        "schema_version": "question_evidence_admission_v1",
+        "eligible": true,
+        "checks": {
+          "language_aligned": true,
+          "no_answer_leakage": true,
+          "explanation_consistent": true,
+          "independently_assessable": true
+        },
+        "local_issues": [],
+        "content_revision": "qev_bbc1e7bfdcd27551"
+      },
+      "postflight_eligibility": {
+        "key": "K-F13",
+        "eligible": true,
+        "local_issues": []
+      },
+      "content_review": {
+        "decision": "需加强观测并修干扰项理由",
+        "notes": "已改为C17且输出1正确；但仅观察x不能区分break是否还执行了i++。错误规则模拟在break前额外++i仍输出1。D项9的错误理由也混用了和为10的式子。"
+      }
+    }
+  ]
+}
