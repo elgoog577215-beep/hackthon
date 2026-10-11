@@ -1,5 +1,6 @@
 """Knowledge-first and legacy handouts share identity, historical sources and coverage."""
 from copy import deepcopy
+import pytest
 
 from course_teaching_plan_projection import project_course_teaching_plan
 
@@ -91,6 +92,21 @@ def test_normalization_preserves_source_versions_and_ids_for_saved_blocks():
     assert saved["source_evidence_package_revision"] == "ev"
 
 
+@pytest.mark.parametrize("key,value", [
+    ("knowledge_refs", [{"knowledge_id": "k1", "revision_id": "p2"}]),
+    ("source_knowledge_revision", "tree-new"), ("source_terminology_revision", "terms-new"),
+    ("content_type", "example"), ("answer_to", "another-exercise"),
+])
+def test_reference_or_reading_semantics_change_creates_a_new_handout_revision(key, value):
+    from teacher_lesson_authoring import teacher_lesson_script_sections_revision
+    section = {"section_node_id": "s1", "title": "讲义", "blocks": [
+        {"block_id": "b1", "content": "不变的正文", "role": "concept", "knowledge_refs": [{"knowledge_id": "k1", "revision_id": "p1"}],
+         "source_knowledge_revision": "tree-old", "source_terminology_revision": "terms-old", "content_type": "definition"}]}
+    before = teacher_lesson_script_sections_revision([section])
+    section["blocks"][0][key] = value
+    assert teacher_lesson_script_sections_revision([section]) != before
+
+
 def test_mixed_tree_revisions_show_conflict_and_never_count_references():
     raw = course_fixture()
     raw["course_document"]["blocks"][1]["payload"]["source_knowledge_revision"] = "other"
@@ -112,3 +128,43 @@ def test_trial_coverage_excludes_hidden_blocks_even_in_visible_section():
     assert rows["k1"]["block_ids"] == ["b1"]
     assert rows["k2"]["block_ids"] == []
     assert "b2" not in str(plan)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("surface", ["teacher", "student"])
+async def test_knowledge_first_owner_reload_and_historical_reading(tmp_path, monkeypatch, surface):
+    from backend.tests.test_knowledge_first import adopted, generate
+    from course_document import CourseDocument, refresh_document_revision
+    from course_repository import CourseDocumentRepository
+    from knowledge_first import KnowledgeFirstService
+    from storage import Storage
+    from teacher_lesson_authoring import TeacherLessonAuthoringRepository
+    from backend.tests.test_handout_workflow_projection import snapshot
+    storage = Storage(str(tmp_path / "data"))
+    doc = refresh_document_revision(CourseDocument(course_id="c-pilot", title="C17"))
+    storage.save_course_sync("c-pilot", {"course_id": "c-pilot", "course_name": "C17", "owner_id": "owner", "authoring_surface": surface,
+        "course_schema_version": "course_document_v1", "course_document": doc.model_dump(mode="json"), "course_document_revision": doc.document_revision})
+    repo = CourseDocumentRepository(storage)
+    authoring = TeacherLessonAuthoringRepository(tmp_path / "authoring", canonical_storage=storage)
+    service = KnowledgeFirstService(repo, authoring)
+    await adopted(service)
+    await generate(service, "types")
+    old_revision = service.view("c-pilot")["knowledge_revision"]
+    # Real disk reload, then change the adopted tree while retaining its history.
+    fresh = TeacherLessonAuthoringRepository(authoring.root, canonical_storage=storage)
+    monkeypatch.setattr("teacher_content_projection.authoring_repository", lambda _: fresh)
+    def update(raw):
+        raw["course_knowledge_base"]["revision_id"] = "new-baseline"
+        raw["course_knowledge_base"]["knowledge_points"][0]["name"] = "新名称"
+        return raw
+    storage.update_course_data("c-pilot", update)
+    before = snapshot(tmp_path)
+    envelope = repo.document_envelope("c-pilot")
+    section = next(s for s in envelope["teaching_plan"]["sections"] if s["node_id"] == "types")
+    assert section["source_knowledge_revision"] == old_revision
+    assert section["knowledge_source_status"] == "historical"
+    assert len(section["knowledge_coverage"]["rows"]) == 16
+    assert all(row["explanation_block_ids"] for row in section["knowledge_coverage"]["rows"])
+    assert section["knowledge_coverage"]["invalid_refs"] == []
+    assert all(b["payload"]["content_type"] for b in envelope["document"]["blocks"])
+    assert snapshot(tmp_path) == before
