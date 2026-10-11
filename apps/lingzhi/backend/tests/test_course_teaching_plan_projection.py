@@ -88,6 +88,21 @@ def test_projects_overall_plan_and_binds_section_knowledge_ids():
     assert point["knowledge_status"] == "bound"
 
 
+def test_projection_preserves_point_relations_and_actual_source_locators():
+    relation = {"target_name": "导数", "relation_type": "derives", "reason": "由差商取极限得到。",
+                "conditions": ["有限极限存在"], "derivation_steps": ["构造差商", "令增量趋于零"],
+                "source_refs": [{"filename": "讲义.txt", "locator": "第 2 段"}]}
+    projection = project_course_teaching_plan({"course_teaching_plan": {"sections": [{
+        "node_id": "s1", "knowledge_structure": [{"concept_group": "变化率", "knowledge_points": [
+            {"name": "差商", "relations": [relation]}, {"name": "导数"}]}],
+    }]}})
+    saved = projection["sections"][0]["knowledge_structure"][0]["knowledge_points"][0]["relations"][0]
+    assert saved["source_name"] == "差商"
+    for key in ("reason", "conditions", "derivation_steps", "source_refs"):
+        assert saved[key] == relation[key]
+    assert "source_name" not in relation
+
+
 def test_uncompiled_knowledge_is_explicitly_marked_pending():
     projection = project_course_teaching_plan({
         "course_teaching_plan": {

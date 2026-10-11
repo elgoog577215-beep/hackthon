@@ -108,6 +108,11 @@ def _project_knowledge_structure(
                 "prerequisite_names": _strings(
                     raw_point.get("prerequisite_names")
                 ),
+                "relations": _project_knowledge_relations([
+                    {**relation, "source_name": name}
+                    for relation in raw_point.get("relations") or []
+                    if isinstance(relation, dict)
+                ]),
             })
         if not points:
             continue
@@ -146,6 +151,9 @@ def _project_knowledge_relations(value: Any) -> list[dict[str, Any]]:
             ),
             "necessity": str(raw.get("necessity") or "").strip(),
             "priority": str(raw.get("priority") or "").strip(),
+            "source_refs": deepcopy(raw.get("source_refs") or []),
+            "relation_group_id": str(raw.get("relation_group_id") or ""),
+            "group_operator": str(raw.get("group_operator") or ""),
         })
     return relations
 

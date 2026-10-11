@@ -26,7 +26,25 @@ def sample_input() -> dict:
         "requirements": "中文教材式讲义，约 1800 字。突出定义、结论和易错点。完整推导平方函数的导数，给出切线例题，并提供一题自测及独立解答。",
         "sections": [{"node_id": "local-derivative", "node_name": "导数与切线"}],
         "plan_sections": {"local-derivative": {
-            "knowledge_names": ["平均变化率", "导数定义", "切线斜率"],
+            "knowledge_names": ["平均变化率", "割线斜率", "差商极限", "导数定义", "切线斜率", "切线方程"],
+            "knowledge_structure": [{"concept_group": "变化率到切线", "knowledge_points": [
+                {"name": "平均变化率", "statement": "非零增量下，函数增量与自变量增量的比值。"},
+                {"name": "割线斜率", "statement": "连接曲线上两点的直线斜率。", "aliases": ["割线"]},
+                {"name": "差商极限", "statement": "自变量增量趋于零时差商的有限极限。", "aliases": ["平均变化率的极限"]},
+                {"name": "导数定义", "statement": "函数在一点的导数由差商的有限极限定义。", "aliases": ["导数", "瞬时变化率"]},
+                {"name": "切线斜率", "statement": "函数在该点可导时，切线斜率等于导数值。"},
+                {"name": "切线方程", "statement": "利用切点和导数值写出切线的点斜式方程。"},
+            ]}],
+            # Synthetic, explicitly supplied lesson-plan relationships for the
+            # local experiment; these do not modify any saved course graph.
+            "knowledge_relations": [
+                {"source_name": "平均变化率", "target_name": "割线斜率", "relation_type": "equivalent_to", "reason": "同一差商的数量解释与几何解释。", "conditions": ["两点横坐标不同，即 h≠0"]},
+                {"source_name": "割线斜率", "target_name": "差商极限", "relation_type": "prerequisite", "reason": "让第二个点逼近第一个点，考察割线斜率的极限。", "conditions": ["趋近过程不直接代入 h=0"]},
+                {"source_name": "差商极限", "target_name": "导数定义", "relation_type": "derives", "reason": "有限差商极限确定函数在该点的导数值。", "conditions": ["差商有有限极限"], "derivation_steps": ["构造非零增量下的差商", "令增量趋于零", "把所得有限极限记作该点导数"]},
+                {"source_name": "导数定义", "target_name": "切线斜率", "relation_type": "equivalent_to", "reason": "在可导点，导数值是切线斜率的数值表达。", "conditions": ["函数在切点可导"]},
+                {"source_name": "切线斜率", "target_name": "切线方程", "relation_type": "applies_to", "reason": "把斜率与切点坐标代入点斜式，再核验过点和斜率。", "conditions": ["切点坐标和导数值已知"]},
+                {"source_name": "平均变化率", "target_name": "导数定义", "relation_type": "contrasts_with", "reason": "区间平均变化与一点瞬时变化容易混淆。", "distinction": "平均变化率对应非零区间；导数来自增量趋于零的极限，不能把差商直接代入零。"},
+            ],
             "source_materials": [{"filename": "实验材料.txt", "locator": "第 1—3 段",
                 "source_text": "平均变化率是 [f(a+h)-f(a)]/h，h≠0。若 h→0 时差商有有限极限，该极限称为 f 在 a 处的导数。对 f(x)=x²，差商为 2a+h，因此 f'(a)=2a。在 a=2 处，点为 (2,4)，斜率为 4，切线为 y-4=4(x-2)。"}],
         }},
@@ -135,6 +153,8 @@ def main() -> int:
         parsed["sections"] = project_sections(parsed, sections)
         parsed["course_title"] = payload.get("course_title", "")
         parsed["lesson_title"] = (payload.get("lesson") or {}).get("title", "")
+        # The graph consumes this same frozen plan, never a second model call.
+        parsed["plan_sections"] = payload.get("plan_sections") or {}
         parsed["error"] = parsed["error"] or next((s["error"] for s in parsed["sections"] if s["error"]), "")
         (output / "handout.md").write_text(generated["text"], encoding="utf-8")
         (output / "handout.json").write_text(json.dumps(parsed, ensure_ascii=False, indent=2), encoding="utf-8")

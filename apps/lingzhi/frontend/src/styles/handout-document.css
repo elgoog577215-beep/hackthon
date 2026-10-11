@@ -37,3 +37,13 @@
   .handout-document .markdown-renderer table { font-size: 9pt; }
   .handout-document .markdown-renderer .katex-display { overflow: visible; }
 }
+.handout-reading-layout{display:block;min-width:0}
+.course-block-stream.handout-document{container-type:inline-size}
+.handout-reading-body{min-width:0}
+.handout-reading-layout.has-concept-map{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:24px;align-items:start}
+.handout-reading-aside{position:sticky;top:24px;max-height:calc(100vh - 48px);overflow:auto;margin:24px 18px 24px 0}
+@container (max-width:1000px){.handout-reading-layout.has-concept-map{display:flex;flex-direction:column}.handout-reading-aside{position:static;max-height:480px;order:-1;margin:12px 28px 20px;width:calc(100% - 56px)}}
+.handout-concept-flash{animation:handout-concept-flash 1.8s ease-out}
+@keyframes handout-concept-flash{from{background:#eae1f5;box-shadow:0 0 0 5px #eae1f5}to{background:transparent;box-shadow:0 0 0 0 transparent}}
+@media(prefers-reduced-motion:reduce){.handout-concept-flash{animation:none}}
+@media print{.handout-reading-layout.has-concept-map{display:block}.handout-reading-aside{display:none}}

@@ -52,9 +52,20 @@ const global = {
 
 beforeEach(() => {
   sessionStorage.clear()
+  useCourseStore(pinia).currentTeachingPlan = null
 })
 
 describe('CourseBlockStream', () => {
+  it('讲义关系沿用当前教案，并用 canonical 知识引用定位到正文块', () => {
+    useCourseStore(pinia).currentTeachingPlan = { sections: [{ node_id: 'node-1', knowledge_structure: [{ knowledge_points: [{ name: '向量空间', knowledge_id: 'k-vector' }, { name: '基', knowledge_id: 'k-basis' }] }], knowledge_relations: [{ source_name: '向量空间', target_name: '基', relation_type: 'prerequisite', reason: '先确定空间，再讨论生成与独立。' }] }] } as any
+    const node: CourseNode = { ...baseNode, course_blocks: [{ block_id: 'basis', section_id: 'node-1', position: 0, kind: 'rich_text', role: 'concept', payload: { title: '一组基', markdown: '说明', content_type: 'definition' }, concept_refs: ['k-basis'], asset_refs: [], objective_refs: [], evidence_refs: [], visibility_rule: {}, internal_revision: 'v1', status: 'final' }] }
+    const wrapper = mount(CourseBlockStream, { props: { node, content: '', readOnly: true }, global: { ...global, stubs: { ...global.stubs, HandoutConceptMap: { name: 'HandoutConceptMap', props: ['sections'], template: '<aside class="concept-map-stub" />' } } } })
+    const sections = wrapper.findComponent({ name: 'HandoutConceptMap' }).props('sections')
+    expect(sections[0].relations).toHaveLength(1)
+    expect(sections[0].nodes.find((point: any) => point.name === '基').anchor).toBe('course-block-basis')
+    expect(wrapper.get('.course-content-block').attributes('data-content-block-id')).toBe('basis')
+    wrapper.unmount()
+  })
   it('正式讲义保留内容类型和答案关联，解答不落入旧反馈渲染器', async () => {
     const node: CourseNode = { ...baseNode, course_blocks: [{
       block_id: 'answer-1', section_id: 'node-1', position: 0, kind: 'rich_text', role: 'feedback',

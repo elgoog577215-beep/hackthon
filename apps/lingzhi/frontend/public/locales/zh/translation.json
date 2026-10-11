@@ -1,4 +1,13 @@
 {
+  "handoutConcepts": {
+    "eyebrow": "CONCEPT CONNECTIONS", "title": "概念关系", "hint": "顺着关系理解知识，点击概念回到正文。",
+    "sections": "概念图小节", "concepts": "个概念", "graph": "本节概念关系图", "prior": "前置 / 复用",
+    "jump": "定位正文", "noAnchor": "本讲尚无对应段落", "relations": "关系与依据", "showAll": "查看全部",
+    "conditions": "条件：", "distinction": "区别：", "noRelations": "当前概念尚无记录的关系。",
+    "allOf": "共同前提：", "anyOf": "可选前提（满足其一）：", "helpful": "有助于理解",
+    "empty": "本节尚未记录概念关系。", "origin": "来自当前教案 · 箭头方向按关系类型阅读",
+    "types": { "prerequisite": "先修", "derives": "推导", "applies_to": "应用", "contrasts_with": "对比", "equivalent_to": "等价", "generalizes": "推广" }
+  },
   "courseReviewDetails": {
       "sourceAndChecks": "来源与核对",
       "revision": "来源版本",

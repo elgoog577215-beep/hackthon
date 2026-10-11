@@ -244,6 +244,7 @@ export interface CourseTeachingPlanSection {
       mastery_criteria?: Array<string | Record<string, unknown>>
       aliases?: string[]
       prerequisite_names?: string[]
+      relations?: Array<Record<string, unknown>>
     }>
   }>
   key_points: string[]

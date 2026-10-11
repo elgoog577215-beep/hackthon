@@ -715,6 +715,7 @@ def apply_persisted_course_knowledge_base(
                     "conditions": deepcopy(item.get("conditions") or []),
                     "distinction": str(item.get("distinction") or ""),
                     "derivation_steps": deepcopy(item.get("derivation_steps") or []),
+                    "source_refs": deepcopy(item.get("source_refs") or []),
                     "relation_group_id": item.get("relation_group_id"),
                     "group_operator": item.get("group_operator"),
                     "necessity": item.get("necessity"),

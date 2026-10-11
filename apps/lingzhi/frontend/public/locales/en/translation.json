@@ -1,4 +1,13 @@
 {
+  "handoutConcepts": {
+    "eyebrow": "CONCEPT CONNECTIONS", "title": "Concept connections", "hint": "Follow the connections. Select a concept to find it in the text.",
+    "sections": "Concept map sections", "concepts": "concepts", "graph": "Section concept map", "prior": "Prior / reused",
+    "jump": "Find in text", "noAnchor": "No matching passage in this handout yet", "relations": "Connections and reasons", "showAll": "Show all",
+    "conditions": "Conditions: ", "distinction": "Distinction: ", "noRelations": "No recorded connections for this concept.",
+    "allOf": "All prerequisites: ", "anyOf": "Any one prerequisite: ", "helpful": "Helpful for understanding",
+    "empty": "No concepts recorded for this section yet.", "origin": "From the current lesson plan · Read arrows by their relation labels",
+    "types": { "prerequisite": "Prerequisite", "derives": "Derivation", "applies_to": "Application", "contrasts_with": "Contrast", "equivalent_to": "Equivalence", "generalizes": "Generalization" }
+  },
   "courseReviewDetails": {
       "sourceAndChecks": "Sources and checks",
       "revision": "Source revision",

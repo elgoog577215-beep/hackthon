@@ -183,11 +183,13 @@
       </button>
     </nav>
 
-    <div v-if="scriptSections.length" ref="handoutRoot" class="script-continuous handout-document" :data-state="!showWorkingPreview && savedScriptStale ? 'stale' : lesson.script.ready && !showWorkingPreview ? 'ready' : 'partial'">
+    <div v-if="scriptSections.length" ref="handoutRoot" class="script-continuous handout-document" :class="{ 'has-concept-map': showConceptMap }" :data-state="!showWorkingPreview && savedScriptStale ? 'stale' : lesson.script.ready && !showWorkingPreview ? 'ready' : 'partial'">
       <div v-if="readingTools && !editing && !pendingCandidate" class="script-reading-tools">
         <HandoutReadingGuide :target="handoutRoot" :title="lesson.title" />
         <HandoutTableOfContents v-if="handoutContents.length > 1" :entries="handoutContents" collapsible />
       </div>
+      <div class="handout-reading-layout" :class="{ 'has-concept-map': showConceptMap }">
+      <div class="handout-reading-body">
       <article
         v-for="(node, nodeIndex) in scriptSections"
         :id="sectionAnchor(node)"
@@ -237,6 +239,9 @@
         <div v-else-if="contentFor(node)" class="script-content" data-state="current"><MarkdownRenderer :inline-editable="true" :content="contentFor(node)" /></div>
         <div v-else class="script-empty">{{ tr('courseWorkbench.scriptPending') }}</div>
       </article>
+      </div>
+      <HandoutConceptMap v-if="showConceptMap" class="handout-reading-aside" :sections="conceptSections" :target="handoutRoot" />
+      </div>
     </div>
 
     <aside v-if="showWorkingPreview && generationJob?.unassigned_fragment" class="script-body" data-state="incomplete">
@@ -269,6 +274,8 @@ import type { TeacherLessonJob, TeacherLessonProjection, TeacherLessonScriptCand
 import { toAppError } from '../utils/app-error'
 import { hasRetainedStaleScript, hasScriptPreviewContent, readableScriptTitle, scriptGenerationPresentation } from '../utils/teacher-script-presentation'
 import { teacherFacingTeachingLabel } from '../utils/teaching-terminology'
+import HandoutConceptMap from './HandoutConceptMap.vue'
+import { buildHandoutConceptSections } from '../utils/handout-concepts'
 
 const props = withDefaults(defineProps<{
   courseId: string
@@ -284,6 +291,7 @@ const props = withDefaults(defineProps<{
   externalToolbar?: boolean
   requestBusy?: boolean
   readingTools?: boolean
+  conceptMap?: boolean
 }>(), {
   generating: false,
   externalError: '',
@@ -295,6 +303,7 @@ const props = withDefaults(defineProps<{
   materialAssetIds: () => [],
   externalToolbar: false,
   readingTools: true,
+  conceptMap: true,
   requestBusy: false,
 })
 
@@ -329,6 +338,11 @@ const pendingCandidate = ref<TeacherLessonScriptCandidate | null>(null)
 const candidateRef = ref<HTMLElement | null>(null)
 const documentRoot = ref<HTMLElement | null>(null)
 const handoutRoot = ref<HTMLElement | null>(null)
+const conceptSections = computed(() => buildHandoutConceptSections(props.lesson.plan.current_revision?.plan?.sections, scriptSections.value.map(section => ({
+  id: section.section_node_id, title: section.title, anchor: sectionAnchor(section),
+  blocks: (section.blocks || []).map(block => ({ id: block.block_id, title: block.title, anchor: `script-block-${block.block_id}`, content: block.content, knowledge: block.knowledge_names || [] })),
+}))))
+const showConceptMap = computed(() => props.conceptMap && !editing.value && !pendingCandidate.value && !showWorkingPreview.value && !savedScriptStale.value && conceptSections.value.some(section => section.nodes.length))
 const handoutContents = computed(() => scriptSections.value.flatMap(node => [
   { id: sectionAnchor(node), title: node.title, child: false },
   ...(node.blocks || []).filter(block => block.title && !block.answer_to && block.module_id !== 'handout_prose').map(block => ({ id: `script-block-${block.block_id}`, title: teacherFacingTeachingLabel(block.title, block.module_id), child: true })),
@@ -869,7 +883,8 @@ defineExpose({
 @media(prefers-reduced-motion:reduce){.script-document .spin,.script-streamed-block .stream-caret{animation:none}}
 .script-modules>.script-module{padding:0;margin:0;border-bottom:0}
 .script-modules{display:block}
-.script-continuous>.script-body{max-width:960px;margin:0 auto;padding:0 56px 36px;border-bottom:0;scroll-margin-top:30px}
+.script-continuous .handout-reading-body>.script-body{max-width:960px;margin:0 auto;padding:0 56px 36px;border-bottom:0;scroll-margin-top:30px}
+.script-continuous.has-concept-map{width:min(100%,1450px)}
 .script-reading-tools{padding:0 56px}
 .script-document{container-type:inline-size}
 .script-body>header{padding-top:22px;margin:42px 0 24px;border-top:1px solid #d4dae4;border-bottom:0;align-items:baseline;gap:12px}
@@ -878,5 +893,5 @@ defineExpose({
 .script-continuous .script-body.active>header h4,.script-continuous .script-body.active>header span{color:#242a35}
 .script-content{font:18px/1.95 var(--handout-serif);color:#242a35}
 .script-module{scroll-margin-top:30px}
-@container (max-width:700px){.script-continuous>.script-body{padding-inline:28px}.script-reading-tools{padding-inline:28px}}
+@container (max-width:700px){.script-continuous .handout-reading-body>.script-body{padding-inline:28px}.script-reading-tools{padding-inline:28px}}
 </style>

@@ -5,7 +5,8 @@
         <a class="preview-brand" href="/dev/handout-preview.html">{{ tr('灵知 / 课程讲义', 'Lingzhi / Course handouts') }}</a>
         <h2>{{ data.course_title || tr('本地课程实验', 'Local course experiment') }}</h2>
         <p class="preview-course-tag">{{ data.lesson_title }}</p>
-        <HandoutTableOfContents v-if="sections.length" :entries="contents" />
+        <details v-if="sections.length" class="preview-toc"><summary>{{ tr('讲义目录', 'Contents') }}</summary><HandoutTableOfContents :entries="contents" /></details>
+        <HandoutConceptMap v-if="sections.length" :sections="conceptSections" :target="paper" />
         <p class="preview-isolation">{{ tr('独立实验 · 不写入正式课程', 'Isolated experiment') }}</p>
       </aside>
       <main class="preview-main">
@@ -25,11 +26,11 @@
           <template v-if="mode === 'reader'">
             <section v-for="(section, index) in sections" :id="`preview-${section.section_node_id}`" :key="section.section_node_id" class="preview-section">
               <header><span>{{ String(index + 1).padStart(2, '0') }}</span><h2>{{ section.title }}</h2></header>
-              <CourseBlockStream :node="readerNode(section)" content="" read-only :reading-tools="false" />
+              <CourseBlockStream :node="readerNode(section)" content="" read-only :reading-tools="false" :concept-map="false" />
               <aside v-if="section.unassigned_fragment" class="preview-fragment"><h3>{{ tr('未归入内容块的片段', 'Unassigned fragment') }}</h3><MarkdownRenderer :content="section.unassigned_fragment" /></aside>
             </section>
           </template>
-          <TeacherScriptDocument v-else course-id="local-preview" :lesson="lesson" external-toolbar :reading-tools="false" />
+          <TeacherScriptDocument v-else course-id="local-preview" :lesson="lesson" external-toolbar :reading-tools="false" :concept-map="false" />
           <template v-if="mode === 'teacher'"><aside v-for="section in sections.filter(item => item.unassigned_fragment)" :key="section.section_node_id" class="preview-fragment"><h3>{{ tr('未归入内容块的片段', 'Unassigned fragment') }}</h3><MarkdownRenderer :content="section.unassigned_fragment || ''" /></aside></template>
         </div>
       </main>
@@ -44,18 +45,25 @@ import TeacherScriptDocument from '../src/components/TeacherScriptDocument.vue'
 import MarkdownRenderer from '../src/components/MarkdownRenderer.vue'
 import HandoutReadingGuide from '../src/components/HandoutReadingGuide.vue'
 import HandoutTableOfContents from '../src/components/HandoutTableOfContents.vue'
+import HandoutConceptMap from '../src/components/HandoutConceptMap.vue'
+import { buildHandoutConceptSections } from '../src/utils/handout-concepts'
 import { activeLocale, setLocale } from '../src/shared/i18n'
 import type { ContentBlock, Node } from '../src/stores/types'
 import type { TeacherLessonProjection, TeacherLessonScriptSection } from '../src/stores/teacherLessonAuthoring'
 
 const tr = (zh: string, en: string) => activeLocale.value === 'zh' ? zh : en
 type ExperimentSection = TeacherLessonScriptSection & { unassigned_fragment?: string }
-const data = ref<{ course_title?: string; lesson_title?: string; error?: string; sections?: ExperimentSection[] }>({})
+const data = ref<{ course_title?: string; lesson_title?: string; error?: string; sections?: ExperimentSection[]; plan_sections?: Record<string, Record<string, unknown>> }>({})
 const mode = ref('reader')
 const jsonDraft = ref('')
 const error = ref('')
 const sections = computed(() => data.value.sections || [])
 const paper = ref<HTMLElement | null>(null)
+const conceptSections = computed(() => buildHandoutConceptSections(Object.entries(data.value.plan_sections || {}).map(([node_id, plan]) => ({ ...plan, node_id })), sections.value.map(section => ({
+  id: section.section_node_id, title: section.title,
+  anchor: mode.value === 'reader' ? `preview-${section.section_node_id}` : `script-section-${section.section_node_id.replace(/[^a-zA-Z0-9_-]/g, '-')}`,
+  blocks: (section.blocks || []).map(block => ({ id: block.block_id, title: block.title, anchor: `${mode.value === 'reader' ? 'course' : 'script'}-block-${block.block_id}`, content: block.content, knowledge: block.knowledge_names || [] })),
+}))))
 const contents = computed(() => sections.value.flatMap((section, index) => [
   { id: mode.value === 'reader' ? `preview-${section.section_node_id}` : `script-section-${section.section_node_id.replace(/[^a-zA-Z0-9_-]/g, '-')}`, title: `${index + 1} ${section.title}`, child: false },
   ...(section.blocks || []).filter(block => block.title && !block.answer_to).map(block => ({ id: `${mode.value === 'reader' ? 'course' : 'script'}-block-${block.block_id}`, title: block.title, child: true })),
@@ -95,13 +103,14 @@ if (retainedPreview) loadJson(retainedPreview)
 
 <style scoped>
 .preview-shell{min-height:100vh;background:#f5f4f0;color:#242a35;font-family:var(--handout-sans)}
-.preview-layout{display:grid;grid-template-columns:254px minmax(0,1100px);max-width:1354px;margin:0 auto}
-.preview-sidebar{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;padding:32px 24px;border-right:1px solid #e1e5ec;font-size:15px;line-height:1.65}
+.preview-layout{display:grid;grid-template-columns:minmax(0,1100px) 360px;max-width:1460px;margin:0 auto}
+.preview-sidebar{grid-column:2;grid-row:1;position:sticky;top:0;align-self:start;height:100vh;overflow:auto;padding:32px 24px;border-left:1px solid #e1e5ec;font-size:15px;line-height:1.65}
 .preview-brand{color:#315e91;font-size:15px;text-underline-offset:3px}
 .preview-sidebar h2{margin:26px 0 4px;font:700 16px/1.65 var(--handout-sans)}
 .preview-course-tag{margin:0 0 24px;color:#657080;font-size:15px;line-height:1.7}
 .preview-isolation{margin-top:32px;padding-top:20px;border-top:1px solid #e1e5ec;font-size:15px;color:#657080}
-.preview-main{min-width:0;min-height:100vh;padding:46px 70px 90px;background:#fff;border-right:1px solid #e8ebf0}
+.preview-toc{margin-bottom:22px}.preview-toc summary{font-weight:700;cursor:pointer;margin-bottom:10px}.preview-sidebar :deep(.handout-concept-map){border:0;background:transparent}.preview-sidebar :deep(.handout-concept-map header){padding:16px 0}.preview-sidebar :deep(.concept-relations){padding-inline:0}.preview-sidebar :deep(.concept-section-title){padding-inline:0}.preview-sidebar :deep(.handout-concept-map footer){padding-inline:0}
+.preview-main{grid-column:1;grid-row:1;min-width:0;min-height:100vh;padding:46px 70px 90px;background:#fff}
 .preview-utility{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:36px;font-size:15px;color:#657080}
 .preview-controls{display:flex;align-items:center;gap:12px}
 .preview-controls button,.preview-import,.preview-json button{border:0;border-radius:0;padding:7px 9px;background:transparent;color:#526071;font:15px/1.6 var(--handout-sans);cursor:pointer}
@@ -122,10 +131,11 @@ if (retainedPreview) loadJson(retainedPreview)
 .preview-paper :deep(.course-content-block){margin:0;padding:0;border:0;scroll-margin-top:30px}
 .preview-paper :deep(.script-document){border:0;border-radius:0;box-shadow:none;background:transparent}
 .preview-paper :deep(.script-continuous){width:100%;max-width:none}
-.preview-paper :deep(.script-continuous>.script-body){padding:0}
+.preview-paper :deep(.handout-reading-body>.script-body){padding:0}
 .preview-paper :deep(.script-tabs){display:none}
 .preview-failure,.preview-fragment{padding:18px 22px;margin-bottom:24px;border:1px solid #ead5c3;border-left:4px solid #9a531d;border-radius:0;background:#fcf2e9;color:#9a531d;font-size:15px;line-height:1.7}
 .preview-fragment h3{margin:0 0 15px;font-size:17px}
-@media(max-width:1150px){.preview-layout{grid-template-columns:230px minmax(0,1fr)}.preview-sidebar{padding-inline:18px}.preview-main{padding-inline:40px}}
+@media(max-width:1150px){.preview-layout{grid-template-columns:minmax(0,1fr) 330px}.preview-sidebar{padding-inline:18px}.preview-main{padding-inline:40px}}
+@media(max-width:850px){.preview-layout{display:flex;flex-direction:column}.preview-sidebar{position:static;width:100%;height:auto;max-height:560px;border-right:0;border-bottom:1px solid #e1e5ec}.preview-main{width:100%;padding:28px 24px 60px}.preview-hero h1{font-size:32px}}
 @media print{.preview-sidebar,.preview-utility,.preview-json{display:none}.preview-layout{display:block}.preview-main{padding:0;border:0}.preview-shell{background:#fff}}
 </style>

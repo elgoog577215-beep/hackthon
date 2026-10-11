@@ -4,6 +4,8 @@
       <HandoutReadingGuide :target="handoutRoot" :title="node.node_name" />
       <HandoutTableOfContents v-if="handoutContents.length > 1" :entries="handoutContents" collapsible />
     </template>
+    <HandoutReadingLayout :show-map="showConceptMap">
+    <template #aside><HandoutConceptMap class="handout-reading-aside" :sections="conceptSections" :target="handoutRoot" /></template>
     <template v-for="(item, index) in streamItems" :key="item.block.block_revision_id || item.block.block_id">
       <article
         :id="`course-block-${item.block.block_id}`"
@@ -129,6 +131,7 @@
       </div>
     </section>
     <span v-if="isStreaming" class="stream-cursor"></span>
+    </HandoutReadingLayout>
   </div>
   <template v-else>
     <MarkdownDocumentEditor
@@ -174,6 +177,9 @@ import {
 } from '../utils/ppt-same-source'
 import type { PptSameSourceHighlightState } from '../utils/ppt-same-source'
 import { teacherFacingTeachingLabel } from '../utils/teaching-terminology'
+import HandoutConceptMap from './HandoutConceptMap.vue'
+import HandoutReadingLayout from './HandoutReadingLayout.vue'
+import { buildHandoutConceptSections } from '../utils/handout-concepts'
 
 const props = withDefaults(defineProps<{
   node: Node
@@ -184,7 +190,8 @@ const props = withDefaults(defineProps<{
   canImproveBlocks?: boolean
   readOnly?: boolean
   readingTools?: boolean
-}>(), { records: () => [], canImproveBlocks: false, readingTools: true })
+  conceptMap?: boolean
+}>(), { records: () => [], canImproveBlocks: false, readingTools: true, conceptMap: true })
 const handoutRoot = ref<HTMLElement | null>(null)
 const emit = defineEmits<{
   openRecord: [payload: { note: Note; x: number; y: number }]
@@ -221,6 +228,7 @@ const blocks = computed(() => (props.node.course_blocks?.length
         content_type: block.payload.content_type,
         type_label: block.payload.type_label,
         answer_to: block.payload.answer_to,
+        concept_refs: block.concept_refs,
       },
       block_revision_id: block.internal_revision,
     } as ContentBlock))
@@ -231,6 +239,13 @@ function isHandoutBlock(block: ContentBlock): boolean {
   return Boolean(block.metadata?.content_type && !block.metadata?.course_evolution)
 }
 const hasHandoutBlocks = computed(() => blocks.value.some(isHandoutBlock))
+const conceptSections = computed(() => buildHandoutConceptSections(courseStore.currentTeachingPlan?.sections, [{
+  id: props.node.node_id, title: props.node.node_name, anchor: '', blocks: blocks.value.map(block => ({
+    id: block.block_id, title: block.title, anchor: `course-block-${block.block_id}`, content: block.content,
+    knowledge: Array.isArray(block.metadata?.concept_refs) ? block.metadata.concept_refs : [],
+  })),
+}]))
+const showConceptMap = computed(() => props.conceptMap && hasHandoutBlocks.value && conceptSections.value.some(section => section.nodes.length))
 const handoutContents = computed(() => blocks.value.filter(block => isHandoutBlock(block) && block.title && !block.metadata?.answer_to).map(block => ({ id: `course-block-${block.block_id}`, title: teacherFacingTeachingLabel(block.title || '') })))
 function handoutLabel(block: ContentBlock): string {
   const type = String(block.metadata?.content_type || '')

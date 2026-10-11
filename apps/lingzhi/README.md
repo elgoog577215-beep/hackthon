@@ -127,6 +127,8 @@ backend/.venv/bin/python scripts/probe_zju_qwen_runtime.py
 
 讲义字体 `frontend/public/fonts/handout/SourceHanSerifCN-Subset.woff2` 来自参考项目的概统字体目录，原文件按 SIL OFL 1.1 分发，许可全文见同目录 `SourceHanSerif-LICENSE.txt`。字体按需加载，无第三方字体请求；子集之外的字符使用系统宋体。
 
+概念图复用冻结教案里的 `knowledge_structure` 与 `knowledge_relations`，展示六类关系及原有条件、理由、推导和来源引用。实验 JSON 同时保存 `plan_sections`；默认自编导数样例提供六个概念和六条关系，用于检查跳转和关系显示。关系是实验输入，不能据此宣称模型自动发现了这些关系。正式教师/课程阅读组件消费已有课程知识结构，不额外调用模型或写入一套图谱；缺关系或缺正文定位时如实显示。
+
 ## 联网检索配置
 
 课程联网来源当前冻结；以下只说明保留配置，不表示可以启用课程检索。恢复、扩展或删除需明确授权。课程生成、题库和 AI 老师的既有实现共用 `backend/web_retrieval.py` 检索网关。默认 Provider 是与应用同机部署、仅监听 `127.0.0.1:8080` 的 SearXNG，不需要商业搜索 API 密钥；所有用户开关仍默认关闭，PPT 链路不使用联网检索。
