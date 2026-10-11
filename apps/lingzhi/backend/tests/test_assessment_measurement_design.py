@@ -334,3 +334,30 @@ def test_continue_observation_is_derived_from_actual_for_header():
     assert "控制流顺序" in fixed["ask"]
     nested = {**p, "public_material": "```c\nfor(int k=0;k<8;k++){while(x){continue;}}\n```"}
     assert normalize_control_action(nested, {"kind": "next_control_action"}) == nested
+
+
+def test_generated_empty_statement_material_defines_its_observed_variable():
+    from assessment_measurement_design import synthesize_contrast_input
+    p={**plan(),"public_material":"```c\nint n=5;\nif(n>10);\ny=0;\n```", "options":["0","1"]}
+    fixed=synthesize_contrast_input(p,{"kind":"uncontrolled_statement"})
+    assert "int y = 1;" in fixed["public_material"]
+    assert fixed["correct_prediction"] == "0" and fixed["incorrect_prediction"] == "1"
+
+
+def test_conversion_question_observes_scope_instead_of_a_lossy_destination():
+    from assessment_measurement_design import normalize_conversion_observation
+    for expr,timing in [("(double)a / b","之前"),("(double)(a / b)","之后")]:
+        p={**plan(),"public_material":f"```c\nint a=7,b=2; int result={expr};\n```"}
+        fixed=normalize_conversion_observation(p,{"kind":"conversion_scope"})
+        assert expr in fixed["ask"]
+        assert timing in fixed["correct_prediction"]
+        assert "result" not in fixed["ask"]
+
+
+def test_assignment_question_isolates_the_literal_initialization():
+    from assessment_measurement_design import normalize_assignment_observation
+    p={**plan(),"public_material":"```c\nint i=1; int r=(int)(i/2.0); double q=7/2;\n```"}
+    fixed=normalize_assignment_observation(p,{"kind":"assignment_sequence"})
+    assert fixed["public_material"] == "```c\ndouble q=7/2;\n```"
+    assert "整数" in fixed["correct_prediction"]
+    assert "q" in fixed["ask"]
