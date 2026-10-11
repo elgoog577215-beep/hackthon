@@ -123,7 +123,9 @@ backend/.venv/bin/python scripts/probe_zju_qwen_runtime.py
 
 默认输入是自编的微积分实验资料；传入 `--input input.json` 可复用冻结的课程标题、讲次、小节、教案、来源片段和要求。输出保存输入、完整提示词及指纹、真实请求计数、耗时、讲义 Markdown 和带类型块的 `handout.json`；失败保留 `partial.md`，不自动重跑。输出目录必须位于仓库外，且为空。
 
-启动前端后打开 `/dev/handout-preview.html`，载入 `handout.json`，切换阅读/教师视图及中英文检查实际组件。此入口只在 Vite 开发环境使用，不进入生产构建；不保存正式课程或学习记录。结构通过与公式渲染成功不代表教学内容正确，实验应另行核对来源、推导、最终答案和代表性学科样本。
+启动前端后打开 `/dev/handout-preview.html`，载入 `handout.json`，切换阅读/教师视图及中英文检查实际组件。页面按参考项目的侧栏、宋体正文和五色重点框呈现，支持目录跳转、批量展开解答及打印；正式讲义组件使用同一阅读样式与操作。预览仅在当前浏览器会话保留已载入 JSON，刷新后仍可继续查看。此入口只在 Vite 开发环境使用，不进入生产构建；不保存正式课程或学习记录。结构通过与公式渲染成功不代表教学内容正确，实验应另行核对来源、推导、最终答案和代表性学科样本。
+
+讲义字体 `frontend/public/fonts/handout/SourceHanSerifCN-Subset.woff2` 来自参考项目的概统字体目录，原文件按 SIL OFL 1.1 分发，许可全文见同目录 `SourceHanSerif-LICENSE.txt`。字体按需加载，无第三方字体请求；子集之外的字符使用系统宋体。
 
 ## 联网检索配置
 

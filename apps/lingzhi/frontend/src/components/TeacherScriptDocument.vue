@@ -183,7 +183,11 @@
       </button>
     </nav>
 
-    <div v-if="scriptSections.length" class="script-continuous" :data-state="!showWorkingPreview && savedScriptStale ? 'stale' : lesson.script.ready && !showWorkingPreview ? 'ready' : 'partial'">
+    <div v-if="scriptSections.length" ref="handoutRoot" class="script-continuous handout-document" :data-state="!showWorkingPreview && savedScriptStale ? 'stale' : lesson.script.ready && !showWorkingPreview ? 'ready' : 'partial'">
+      <div v-if="readingTools && !editing && !pendingCandidate" class="script-reading-tools">
+        <HandoutReadingGuide :target="handoutRoot" :title="lesson.title" />
+        <HandoutTableOfContents v-if="handoutContents.length > 1" :entries="handoutContents" collapsible />
+      </div>
       <article
         v-for="(node, nodeIndex) in scriptSections"
         :id="sectionAnchor(node)"
@@ -212,7 +216,7 @@
           <MarkdownRenderer :inline-editable="true" :key="`candidate-${pendingCandidate.candidate_id || pendingCandidate.section_node_id}`" :content="contentFor(node)" />
         </div>
         <div v-else-if="node.blocks?.length" class="script-modules">
-          <section v-for="block in node.blocks" :key="block.block_id" class="script-module" :data-content-type="block.content_type" :data-answer-to="block.answer_to || undefined" data-ai-field="content" :data-ai-item-id="block.block_id" :data-ai-label="block.title">
+          <section v-for="block in node.blocks" :id="`script-block-${block.block_id}`" :key="block.block_id" class="script-module" :data-content-type="block.content_type" :data-answer-to="block.answer_to || undefined" data-ai-field="content" :data-ai-item-id="block.block_id" :data-ai-label="block.title">
             <HandoutContentBlock
               :content-type="block.content_type"
               :label="block.content_type || (!showWorkingPreview && lesson.script.ready) ? contentTypeLabel(block) : ''"
@@ -254,6 +258,8 @@ import { Check, LoaderCircle, Pencil, Sparkles, TriangleAlert, X } from 'lucide-
 import AppErrorNotice from './AppErrorNotice.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import HandoutContentBlock from './HandoutContentBlock.vue'
+import HandoutReadingGuide from './HandoutReadingGuide.vue'
+import HandoutTableOfContents from './HandoutTableOfContents.vue'
 import MathText from './MathText.vue'
 import TextSelectionAiAction, { type TeacherInlineAiRequest } from './TextSelectionAiAction.vue'
 import { useDocumentEditHistory } from '../composables/useDocumentEditHistory'
@@ -277,6 +283,7 @@ const props = withDefaults(defineProps<{
   materialAssetIds?: string[]
   externalToolbar?: boolean
   requestBusy?: boolean
+  readingTools?: boolean
 }>(), {
   generating: false,
   externalError: '',
@@ -287,6 +294,7 @@ const props = withDefaults(defineProps<{
   assistantOpen: false,
   materialAssetIds: () => [],
   externalToolbar: false,
+  readingTools: true,
   requestBusy: false,
 })
 
@@ -320,6 +328,11 @@ const aiError = ref<unknown>(null)
 const pendingCandidate = ref<TeacherLessonScriptCandidate | null>(null)
 const candidateRef = ref<HTMLElement | null>(null)
 const documentRoot = ref<HTMLElement | null>(null)
+const handoutRoot = ref<HTMLElement | null>(null)
+const handoutContents = computed(() => scriptSections.value.flatMap(node => [
+  { id: sectionAnchor(node), title: node.title, child: false },
+  ...(node.blocks || []).filter(block => block.title && !block.answer_to && block.module_id !== 'handout_prose').map(block => ({ id: `script-block-${block.block_id}`, title: teacherFacingTeachingLabel(block.title, block.module_id), child: true })),
+]))
 const inlineAiAction = ref<{ openForDocument: (text?: string) => void } | null>(null)
 type ScriptEditSnapshot = { drafts: Record<string, string>; blockDrafts: Record<string, string> }
 const editHistory = useDocumentEditHistory<ScriptEditSnapshot>(snapshot => {
@@ -855,6 +868,15 @@ defineExpose({
 .script-source-review{display:grid;gap:22px;padding:24px 28px 30px}.script-source-steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;margin:0;padding:3px;border:1px solid #dfe4ed;border-radius:11px;background:#eef1f6;list-style:none}.script-source-steps li{min-width:0;min-height:48px;display:grid;grid-template-columns:24px minmax(0,1fr);align-items:center;gap:8px;padding:5px 10px;border-radius:8px;color:#69768a}.script-source-steps li>span{width:22px;height:22px;display:grid;place-items:center;border:1px solid #cbd3df;border-radius:50%;font-size:13px;font-weight:800}.script-source-steps li>div{min-width:0;display:grid;gap:1px}.script-source-steps strong{overflow:hidden;font-size:14px;font-weight:750;text-overflow:ellipsis;white-space:nowrap}.script-source-steps small{overflow:hidden;color:#7c8899;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.script-source-steps li.active{color:#312e81;background:#fff;box-shadow:0 2px 8px rgba(30,41,59,.08)}.script-source-steps li.active>span{border-color:#6965d8;color:#fff;background:#6965d8}.script-source-review__heading{display:flex;align-items:center;justify-content:space-between;gap:24px}.script-source-review__heading>div{min-width:0;display:grid;gap:5px}.script-source-review__heading strong{color:#263147;font-size:18px;font-weight:760}.script-source-review__heading span{color:#68768b;font-size:15px;line-height:1.5}.script-source-review__heading>.script-source-review__blocked{grid-template-columns:22px minmax(0,1fr);align-items:start;gap:10px}.script-source-review__blocked>svg{margin-top:2px;color:#b56a18}.script-source-review__blocked>div{min-width:0;display:grid;gap:4px}.script-source-review__blocked strong{color:#7a410f;font-size:19px}.script-source-review__blocked span{color:#8a561f}.script-source-review__heading button{min-height:42px;flex:none;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 18px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:14px;font-weight:750;cursor:pointer}.script-source-review__heading button:hover:not(:disabled){background:#4338ca}.script-source-review__heading button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.script-source-review__heading button:disabled{opacity:.45;cursor:not-allowed}.script-source-blocks{display:grid;gap:0;margin:0;padding:0;border-top:1px solid #e8ecf2;list-style:none}.script-source-blocks li{min-height:72px;display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:start;gap:12px;padding:14px 0;border-bottom:1px solid #e8ecf2}.script-source-blocks>li>span{padding-top:2px;color:#817dcf;font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}.script-source-blocks li>div{min-width:0;display:grid;gap:3px}.script-source-blocks strong{color:#303b50;font-size:15px;font-weight:720}.script-source-blocks small{color:#68768b;font-size:14px}.script-source-blocks p{max-width:75ch;margin:2px 0 0;color:#566277;font-size:15px;line-height:1.55}.script-source-blocks em{padding-top:2px;color:#68768b;font-size:14px;font-style:normal;white-space:nowrap}.script-source-empty{margin:0;padding:18px 0;border-top:1px solid #e8ecf2;color:#68768b;font-size:15px}
 @media(prefers-reduced-motion:reduce){.script-document .spin,.script-streamed-block .stream-caret{animation:none}}
 .script-modules>.script-module{padding:0;margin:0;border-bottom:0}
-.script-continuous>.script-body{max-width:960px;margin:0 auto;padding:34px 36px}
-.script-body>header{padding-bottom:18px;margin-bottom:26px;border-bottom:1px solid #e7eaf2}
+.script-modules{display:block}
+.script-continuous>.script-body{max-width:960px;margin:0 auto;padding:0 56px 36px;border-bottom:0;scroll-margin-top:30px}
+.script-reading-tools{padding:0 56px}
+.script-document{container-type:inline-size}
+.script-body>header{padding-top:22px;margin:42px 0 24px;border-top:1px solid #d4dae4;border-bottom:0;align-items:baseline;gap:12px}
+.script-body>header span{font:700 20px/1.45 var(--handout-serif);color:#242a35}
+.script-body>header h4{font:700 27px/1.45 var(--handout-serif);color:#242a35}
+.script-continuous .script-body.active>header h4,.script-continuous .script-body.active>header span{color:#242a35}
+.script-content{font:18px/1.95 var(--handout-serif);color:#242a35}
+.script-module{scroll-margin-top:30px}
+@container (max-width:700px){.script-continuous>.script-body{padding-inline:28px}.script-reading-tools{padding-inline:28px}}
 </style>

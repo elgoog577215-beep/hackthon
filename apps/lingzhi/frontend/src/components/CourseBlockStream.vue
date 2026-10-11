@@ -1,5 +1,9 @@
 <template>
-  <div v-if="blocks.length" class="course-block-stream">
+  <div v-if="blocks.length" ref="handoutRoot" class="course-block-stream" :class="{ 'handout-document': hasHandoutBlocks }">
+    <template v-if="hasHandoutBlocks && readingTools">
+      <HandoutReadingGuide :target="handoutRoot" :title="node.node_name" />
+      <HandoutTableOfContents v-if="handoutContents.length > 1" :entries="handoutContents" collapsible />
+    </template>
     <template v-for="(item, index) in streamItems" :key="item.block.block_revision_id || item.block.block_id">
       <article
         :id="`course-block-${item.block.block_id}`"
@@ -11,6 +15,7 @@
         :data-course-evolution-plan-id="evolutionMetadata(item.block)?.change_set_id"
         :data-course-evolution-operation-id="evolutionMetadata(item.block)?.operation_id"
         :class="{
+          'is-handout-block': isHandoutBlock(item.block),
           'can-improve-formal': canImproveBlock(item.block.block_id),
           'is-ai-evolved-block': isAiEvolvedBlock(item.block),
           'is-ai-growth-highlight': isApplicationBlock(item.block) && applicationVisual?.phase === 'content',
@@ -155,6 +160,8 @@ import FeedbackReviewBlock from './FeedbackReviewBlock.vue'
 import MarkdownDocumentEditor from './MarkdownDocumentEditor.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import HandoutContentBlock from './HandoutContentBlock.vue'
+import HandoutReadingGuide from './HandoutReadingGuide.vue'
+import HandoutTableOfContents from './HandoutTableOfContents.vue'
 import MathText from './MathText.vue'
 import type { ContentBlock, CourseBlockEditTarget, Node, Note } from '../stores/types'
 import { useNoteStore } from '../stores/notes'
@@ -176,7 +183,9 @@ const props = withDefaults(defineProps<{
   isStreaming?: boolean
   canImproveBlocks?: boolean
   readOnly?: boolean
-}>(), { records: () => [], canImproveBlocks: false })
+  readingTools?: boolean
+}>(), { records: () => [], canImproveBlocks: false, readingTools: true })
+const handoutRoot = ref<HTMLElement | null>(null)
 const emit = defineEmits<{
   openRecord: [payload: { note: Note; x: number; y: number }]
   improveBlock: [payload: CourseBlockEditTarget]
@@ -221,6 +230,8 @@ const blocks = computed(() => (props.node.course_blocks?.length
 function isHandoutBlock(block: ContentBlock): boolean {
   return Boolean(block.metadata?.content_type && !block.metadata?.course_evolution)
 }
+const hasHandoutBlocks = computed(() => blocks.value.some(isHandoutBlock))
+const handoutContents = computed(() => blocks.value.filter(block => isHandoutBlock(block) && block.title && !block.metadata?.answer_to).map(block => ({ id: `course-block-${block.block_id}`, title: teacherFacingTeachingLabel(block.title || '') })))
 function handoutLabel(block: ContentBlock): string {
   const type = String(block.metadata?.content_type || '')
   return t(`courseWorkbench.scriptDocument.contentTypes.${type}`, String(block.metadata?.type_label || type))
@@ -408,6 +419,8 @@ async function deleteAiRecord(note: Note) {
 
 <style scoped>
 .course-block-stream { display:grid; gap:34px; }
+.course-block-stream.handout-document { display:block; }
+.course-content-block.is-handout-block[data-content-block-type="summary"]:not(.is-ppt-same-source-highlight) { padding-top:0; border-top:0; }
 .legacy-inline-records { display:grid; gap:12px; margin-top:24px; }
 .course-content-block { --block-accent:#6366f1; --block-soft:#eef2ff; position:relative; min-width:0; scroll-margin-top:92px; }
 /* Examples are reading insets; the prose keeps one continuous left edge. */
