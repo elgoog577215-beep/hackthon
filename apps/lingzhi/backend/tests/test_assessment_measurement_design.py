@@ -199,3 +199,18 @@ def test_optional_null_solver_contract_does_not_waste_generation_attempt():
     candidate, receipt = _normalize_candidate_layout({"question_spec": {"solver_contract": None}})
     assert candidate["question_spec"]["solver_contract"] == {}
     assert receipt
+
+
+def test_short_complete_task_does_not_require_padding_or_regeneration():
+    from assessment_measurement_design import candidate_from_measurement_design
+    from assessment_orchestrator import _contract_from_candidate
+
+    design = {**plan(), "public_material": "```c\nint x = -7 / 2;\n```", "ask": "x的值是多少？"}
+    candidate = candidate_from_measurement_design({**context(), "private_measurement_design": design})
+    assert candidate["question_spec"]["task"]["rendered_text"] == design["ask"]
+    base = {"question_spec": {}, "solution_envelope": {"validation_mode": "exact_validator"}}
+    assert _contract_from_candidate(base, candidate)["question_spec"]["task"]["rendered_text"] == design["ask"]
+    candidate["question_spec"]["task"]["rendered_text"] = "  "
+    from ai_base import AIProviderRequestError
+    with pytest.raises(AIProviderRequestError, match="not_concrete"):
+        _contract_from_candidate(base, candidate)
