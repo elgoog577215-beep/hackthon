@@ -136,7 +136,9 @@ async def test_recovery_keeps_question_and_retries_responsible_artifact(failed_a
 
     model.evaluate_candidate = evaluate
     prepared = await AssessmentGenerationOrchestrator(model=model).prepare_course(course)
-    assert len(approved_formal_tasks(build_question_bank(prepared))) == (0 if failed_artifact == "review_persistent" else 1)
+    assert len(approved_formal_tasks(build_question_bank(prepared))) == (
+        0 if failed_artifact == "review_persistent" else 1
+    )
     assert model.generate_calls == 1
     assert model.solve_calls == (2 if failed_artifact == "solve" else 1)
     assert model.repair_calls == 0
@@ -212,5 +214,31 @@ def test_short_complete_task_does_not_require_padding_or_regeneration():
     assert _contract_from_candidate(base, candidate)["question_spec"]["task"]["rendered_text"] == design["ask"]
     candidate["question_spec"]["task"]["rendered_text"] = "  "
     from ai_base import AIProviderRequestError
+
     with pytest.raises(AIProviderRequestError, match="not_concrete"):
         _contract_from_candidate(base, candidate)
+
+
+def test_observation_strategy_follows_rule_not_point_id():
+    from assessment_measurement_design import measurement_strategy
+
+    a = {"primary_knowledge_ids": ["unseen-id"], "knowledge": ["首个分支命中后，不再对后续条件求值。"]}
+    b = {"primary_knowledge_ids": ["another-id"], "knowledge": list(a["knowledge"])}
+    assert measurement_strategy(a) == measurement_strategy(b)
+    assert measurement_strategy(a)["kind"] == "condition_evaluation_trace"
+    assert measurement_strategy({"knowledge": ["else归属到语法允许的最近if"]})["kind"] == "syntactic_binding"
+    assert measurement_strategy({"knowledge": ["continue之后执行for更新部分"]})["kind"] == "next_control_action"
+    assert measurement_strategy({"knowledge": ["break退出时不做迭代部分"]})["kind"] == "exit_state"
+    assert measurement_strategy({"knowledge": ["显式转换的位置决定操作数"]})["kind"] == "conversion_scope"
+    assert measurement_strategy({"knowledge": ["封闭系统能量守恒"]})["kind"] == "direct_value"
+
+
+def test_one_line_c_statement_is_real_visible_code_not_a_placeholder():
+    from assessment_quality import _code_rendering_valid
+
+    c = {"question_spec": {"stimulus": {"rendered_text": "```c\ndouble d = 5 / 2;\n```"},
+                           "task": {"rendered_text": "执行上述代码后，d是多少？"}}}
+    assert _code_rendering_valid(c)
+    for text in ("```c\n\n```", "```c\n待补全\n```", "double d = 5 / 2;"):
+        c["question_spec"]["stimulus"]["rendered_text"] = text
+        assert not _code_rendering_valid(c)
