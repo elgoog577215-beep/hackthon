@@ -49,6 +49,13 @@
     .paper.ppt .paperhead h2 { font-size:30px; }
     .paper.ppt .canvas { padding-top:0; }
     .paper.ppt .paperfoot { font-size:15px; }
+    .student-intro,.student-followup { padding:0 28px; margin:22px 0; }
+    .student-intro p,.student-followup>p { font:18px/1.95 "SimSun","Songti SC",Georgia,serif; margin:12px 0; }
+    .student-intro .learning-goal { font:650 15px/1.7 var(--font); color:var(--purple); }
+    .student-followup { border-top:1px solid var(--rule); padding-top:17px; }
+    .student-followup h3 { color:#126d9b; }
+    .student-followup details { background:#fafbfd; }
+    #student-answer { margin:12px 0 0; font:18px/1.95 "SimSun","Songti SC",Georgia,serif; }
     .rationale { display:grid; grid-template-columns:1fr 1fr; gap:12px 32px; margin:22px 0 18px; }
     .rationale div { border-top:1px solid var(--rule); padding-top:12px; }
     h3 { font-size:16px; margin:0 0 5px; color:var(--purple); }
@@ -82,15 +89,23 @@
       <section class="selection" aria-label="当前图解示例">
         <div class="toolbar">
           <div class="segments" role="group" aria-label="展示位置">
-            <button type="button" id="handout" aria-pressed="true" data-i18n="handout"></button>
+            <button type="button" id="student" aria-pressed="true" data-i18n="student"></button>
+            <button type="button" id="handout" aria-pressed="false" data-i18n="handout"></button>
             <button type="button" id="ppt" aria-pressed="false" data-i18n="ppt"></button>
           </div>
           <button id="download" type="button" data-i18n="download"></button>
         </div>
         <article class="paper" id="paper">
           <header class="paperhead"><p id="context"></p><h2 id="title"></h2><p class="lead" id="lead"></p></header>
+          <section class="student-intro" id="student-intro">
+            <p class="learning-goal" id="student-goal"></p><p id="student-before"></p>
+          </section>
           <div class="canvas" id="canvas"></div>
           <div class="paperfoot" id="caption"></div>
+          <section class="student-followup" id="student-followup">
+            <h3 data-i18n="explain"></h3><p id="student-question"></p>
+            <details id="student-answer-disclosure"><summary data-i18n="showExplanation"></summary><p id="student-answer"></p></details>
+          </section>
         </article>
         <div class="rationale">
           <div><h3 data-i18n="where"></h3><p id="where"></p></div>
@@ -107,19 +122,20 @@
   <script>
     'use strict';
     // Hand-written, isolated teaching examples. No course/API/model data enters this page.
-    let language = 'zh', selected = 'derivation', surface = 'handout';
+    let language = 'zh', selected = 'comparison', surface = 'student';
     const pair = (zh,en) => [zh,en];
     const tx = value => value[language === 'zh' ? 0 : 1];
     const escape = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const copy = {
       eyebrow:pair('灵知 / 教学表达研究','LINGZHI / TEACHING EXPRESSIONS'),
       heading:pair('先看内容的关系，再选择图解','Choose a diagram by the relationship it explains'),
-      intro:pair('七种局部表达，分别解释推导、分类、比较、分支、层次、交互与数量。用清楚的条件和来源，让图比一排卡片多说一点。','Seven local expressions for derivation, classification, comparison, decisions, layers, interactions and quantities. Conditions and sources keep their meaning visible.'),
-      notice:pair('选型示例 · 手写教学样本 · 未接入正式课程。讲义与 PPT 切换展示同一内容的两种阅读框架。','Design study · Hand-written samples · Independent of live courses. Handout and PPT views frame the same content differently.'),
-      navlabel:pair('选择要解释的关系','Choose a relationship'),handout:pair('讲义阅读','Handout'),ppt:pair('PPT 课堂','PPT'),download:pair('下载示例 SVG','Download sample SVG'),
+      intro:pair('44 种图型按内容需要选择。这里用十个样本展示：先读说明和条件，再看图解，最后试着解释或应用。','Select from 44 diagram types by content. Ten samples show a reading sequence: explanation and conditions, a local diagram, then a question to explain or apply.'),
+      notice:pair('学生阅读与选型原型 · 手写样本 · 未接入正式课程。示例问题不计分、不保存；可切换学生讲义、图解选型与 PPT。','Student reading and design prototype · Hand-written samples · Independent of live courses. Sample questions are not graded or saved. Switch between Student, Diagram and PPT views.'),
+      navlabel:pair('选择要解释的关系','Choose a relationship'),student:pair('学生讲义','Student'),handout:pair('图解选型','Diagram'),ppt:pair('PPT 课堂','PPT'),download:pair('下载示例 SVG','Download sample SVG'),
       where:pair('建议放在哪里','Suggested placement'),why:pair('为什么选择它','Why this expression'),requires:pair('内容需要具备什么','Required source content'),boundary:pair('接入时保留什么','Integration requirements'),
       source:pair('查看本例完整来源与条件','Read the complete sample source and conditions'),credit:pair('布局原则参考','Layout principles informed by'),report:pair('融入评估','Integration assessment'),
-      contextHandout:pair('讲义 · 局部教学图解','HANDOUT · LOCAL TEACHING DIAGRAM'),contextPpt:pair('课堂 · 一页一个教学问题','CLASSROOM · ONE QUESTION PER SLIDE'),
+      contextStudent:pair('学生讲义 · 说明、图解与理解','STUDENT HANDOUT · EXPLAIN, VISUALIZE, UNDERSTAND'),contextHandout:pair('图解选型 · 局部教学表达','DESIGN STUDY · LOCAL TEACHING DIAGRAM'),contextPpt:pair('课堂 · 一页一个教学问题','CLASSROOM · ONE QUESTION PER SLIDE'),
+      goal:pair('学习目标：','Learning goal: '),explain:pair('试着解释一下','Try explaining it'),showExplanation:pair('展开本例解释','Read the sample explanation'),
       saved:pair('示例 SVG 已下载。','Sample SVG downloaded.'),navAria:pair('图型选择','Diagram selection'),selectionAria:pair('当前图解示例','Selected diagram sample'),surfaceAria:pair('展示位置','Presentation surface')
     };
     const demos = [
@@ -178,12 +194,109 @@
         why:pair('条长编码数量；同一尺度能直接比较，横向排布为中文标签保留空间。','Bar length encodes quantity. A shared scale supports comparison and leaves room for labels.'),
         requires:pair('完整数值、相同单位、来源与统计条件。缺失值不是零。','Complete values, one unit, sources and counting conditions. Missing values are not zero.'),
         boundary:pair('复用已有 horizontal_bar 合同及共享场景；不画无量规的能力雷达。','Reuse horizontal_bar and the shared scene. No ability radar without a defined scoring rubric.'),
-        source:pair('手写演示数据，不读取实际课程或学习记录。\n甲：12 个对象。乙：18 个对象。丙：9 个对象。丁：24 个对象。\n四类按同一条件计数；不包含缺失值。\n横轴从 0 开始，最大刻度 24；条长按 value/24 比例计算。','Hand-written demo data; no course or learning records are read.\nA: 12 objects. B: 18. C: 9. D: 24.\nAll categories share the same counting conditions; no values are missing.\nThe axis starts at 0 and ends at 24; bar length is proportional to value/24.') }
+        source:pair('手写演示数据，不读取实际课程或学习记录。\n甲：12 个对象。乙：18 个对象。丙：9 个对象。丁：24 个对象。\n四类按同一条件计数；不包含缺失值。\n横轴从 0 开始，最大刻度 24；条长按 value/24 比例计算。','Hand-written demo data; no course or learning records are read.\nA: 12 objects. B: 18. C: 9. D: 24.\nAll categories share the same counting conditions; no values are missing.\nThe axis starts at 0 and ends at 24; bar length is proportional to value/24.') },
+      { id:'nested',name:pair('范围与嵌套','Containment'),title:pair('整数、有理数与实数的包含关系','Integers, rational numbers and real numbers'),
+        lead:pair('内层集合中的每个元素，也属于外层集合。','Every member of an inner set also belongs to the outer set.'),
+        caption:pair('ℤ ⊂ ℚ ⊂ ℝ。框的面积只示意包含，不编码集合大小；例子不是各集合的完整成员列表。','ℤ ⊂ ℚ ⊂ ℝ. Box areas show containment, not set size. The examples are not exhaustive membership lists.'),
+        where:pair('学生讲义的数系、范围与层次说明。','A student handout explaining number systems, scope or containment.'),
+        why:pair('套叠直接表达包含；它与互相交叉的集合图回答不同问题。','Nesting directly expresses containment, a different question from overlapping sets.'),
+        requires:pair('明确的集合定义与包含关系；不能把仅仅相关的概念套在一起。','Explicit set definitions and containment; association alone is insufficient.'),
+        boundary:pair('保存包含语义与来源，打印仍清楚；框的大小不冒充数量。','Preserve containment semantics and sources in print; area must not imply quantity.'),
+        source:pair('手写数系样例。\nℤ 为整数集合，ℚ 为有理数集合，ℝ 为实数集合。\n每个整数都是有理数，每个有理数都是实数，且两次包含均为真包含。\n−2、0、3 是整数；1/2、−3/4 是非整数有理数；√2、π 是无理数。\n框面积不表示集合基数。','Hand-written number-system sample.\nℤ is the set of integers, ℚ the rationals, and ℝ the reals.\nEvery integer is rational and every rational is real; both inclusions are proper.\n−2, 0 and 3 are integers; 1/2 and −3/4 are non-integer rationals; √2 and π are irrational.\nBox area does not encode cardinality.') },
+      { id:'venn',name:pair('集合与交集','Set intersection'),title:pair('两个集合共有的元素在哪里','Where are the shared elements of two sets?'),
+        lead:pair('交集、各自独有部分和全集，分别说明。','Distinguish the intersection, exclusive parts and universe.'),
+        caption:pair('U={1,2,3,4,5,6}；A={1,2,3,4}，B={3,4,5,6}。图形面积不编码元素个数。','U={1,2,3,4,5,6}; A={1,2,3,4}, B={3,4,5,6}. Areas do not encode element counts.'),
+        where:pair('学生讲义的集合运算、逻辑或明确共享属性的说明。','A student handout explaining set operations, logic or explicit shared properties.'),
+        why:pair('把共有和独有分开呈现；一般的概念比较仍用对照表。','Show shared and exclusive members separately; ordinary comparison still uses a table.'),
+        requires:pair('明确集合、全集、交集及各区域的成员或判断条件。','Defined sets, universe, intersection and membership criteria for every region.'),
+        boundary:pair('不凭语义相似性制造交集；文字完整，区域有标签。','Do not invent overlap from vague similarity. Label regions and preserve all text.'),
+        source:pair('手写有限集合示例。\n全集 U={1,2,3,4,5,6}。\nA={1,2,3,4}，B={3,4,5,6}。\nA∩B={3,4}；A\\B={1,2}；B\\A={5,6}；A∪B=U。\n圆和交叠面积仅作示意，不表示区域元素个数。','Hand-written finite-set sample.\nUniverse U={1,2,3,4,5,6}.\nA={1,2,3,4}, B={3,4,5,6}.\nA∩B={3,4}; A\\B={1,2}; B\\A={5,6}; A∪B=U.\nCircle and overlap areas are schematic, not cardinality encodings.') },
+      { id:'timeline',name:pair('时间与间隔','Time intervals'),title:pair('一次六秒观测中的记录时刻','Recorded moments in a six-second observation'),
+        lead:pair('时刻之间的距离，按真实间隔画。','Position moments according to their actual time intervals.'),
+        caption:pair('手写样例：0 秒开始，1 秒和 3 秒记录，6 秒结束。相邻间隔为 1、2、3 秒。','Hand-written sample: start at 0 s, record at 1 and 3 s, end at 6 s. Intervals are 1, 2 and 3 seconds.'),
+        where:pair('学生讲义中的实验记录、历史过程或有时间依据的阶段说明。','A student handout with experiment records, historical events or timed stages.'),
+        why:pair('既说明先后，也说明间隔；均匀排点会丢掉时间含义。','Show both order and intervals; equal spacing would lose the time meaning.'),
+        requires:pair('可追溯的时间与单位；只有先后顺序时用普通过程图。','Traceable times and a unit. Use a process diagram when only order is known.'),
+        boundary:pair('几何按时间值计算，不为美观改间隔，不制造缺失日期。','Compute positions from time values; do not alter intervals or invent missing dates.'),
+        source:pair('手写观测示例，不读取真实实验记录。\n0 秒：开始观测。\n1 秒：首次记录。3 秒：再次记录。\n6 秒：结束观测。\n相邻间隔为 1、2、3 秒，横坐标按 120+100t 计算。','Hand-written observation sample, not a real experiment record.\n0 s: begin observation.\n1 s: first record. 3 s: second record.\n6 s: end observation.\nIntervals are 1, 2 and 3 seconds; x=120+100t.') }
     ];
+    // A diagram is one part of an independently readable student passage.
+    const studentPassages = {
+      derivation:{
+        goal:pair('说明割线斜率如何得到导数，并写出切线方程。','Explain how the secant slope yields a derivative and a tangent equation.'),
+        before:pair('对 f(x)=x²，在 x₀ 附近取另一点 x₀+h，且 h≠0。先计算两点间的割线斜率，再让另一点趋近 x₀。下面把化简、取极限和写切线的依据放在各步骤之间。','For f(x)=x², choose a nearby point x₀+h with h≠0. Compute the secant slope, then let the point approach x₀. The diagram connects simplification, the limit and the tangent equation.'),
+        question:pair('能在求割线斜率时直接令 h=0 吗？解释计算次序。','Can you set h=0 directly in the secant slope? Explain the order of operations.'),
+        answer:pair('不能直接代入原差商，分母 h 会为零。先在 h≠0 时展开并约分得到 2x₀+h，再求 h→0 的极限，得到导数 2x₀。','Not in the original difference quotient: h is in the denominator. First simplify to 2x₀+h for h≠0, then take the limit h→0 to obtain 2x₀.')},
+      tree:{
+        goal:pair('区分逻辑结构与存储实现。','Distinguish a logical structure from its storage implementation.'),
+        before:pair('线性表描述元素之间的逻辑关系，存储方式说明它怎样保存在计算机中。本例只介绍顺序和链式两类基础实现；同级分支表达分类，不表达执行顺序。','A linear list describes logical relationships; storage describes how it is represented. This sample covers two basic storage families. Peer branches classify implementations rather than execution steps.'),
+        question:pair('为什么顺序存储和链式存储放在同一级，而不是先后两步？','Why are sequential and linked storage peers rather than successive steps?'),
+        answer:pair('它们是实现同一种逻辑结构的两种方式，不是必须依次执行的操作。选择哪种方式要结合访问和修改需求。','They are two ways to implement the same logical structure, not operations that must occur in order. The choice depends on access and modification needs.')},
+      comparison:{
+        goal:pair('按访问与插删条件，说明两种存储方式的差异。','Explain the storage trade-off under explicit access and update conditions.'),
+        before:pair('比较数据结构时，需要同时看操作和前提。下面假设有 n 个元素：顺序表忽略扩容，单链表从头访问。链表“插删快”还要求前驱已经找到；定位的代价要单独计算。','Compare both operations and assumptions. Assume n elements, no array resizing, and linked access from the head. Fast linked insertion/deletion also requires a known predecessor; finding it has an additional cost.'),
+        question:pair('“单链表插入和删除一定是 O(1)”是否完整？还缺什么条件？','Is “linked-list insertion and deletion are always O(1)” complete? What assumption is missing?'),
+        answer:pair('还缺“前驱已知”的条件。局部指针修改是 O(1)，但从头定位前驱可能需要 O(n)。不能把定位与修改的代价混为一谈。','The predecessor must already be known. Local pointer updates take O(1), but finding the predecessor from the head may take O(n). Keep lookup and update costs separate.')},
+      flow:{
+        goal:pair('跟随条件分支，解释查找如何安全结束。','Trace decision branches and explain how the search terminates safely.'),
+        before:pair('顺序查找从 i=0 开始。每次先判断 i 是否仍在数组范围内，再访问 A[i] 与目标比较；未命中时递增 i，继续检查。这个次序也覆盖空数组。','Linear search starts at i=0. Check bounds before reading A[i]. If the item does not match, increment i and check again. This order also handles an empty array.'),
+        question:pair('数组为空时走哪条路径？会读取 A[0] 吗？','Which path handles an empty array? Is A[0] read?'),
+        answer:pair('此时 n=0、i=0，第一次范围检查 i≥n 成立，直接返回未找到，不读取 A[0]。','With n=0 and i=0, the first guard i≥n is true. The algorithm returns not found without reading A[0].')},
+      layers:{
+        goal:pair('从职责解释示例中的四个层次。','Explain the four sample layers by their responsibilities.'),
+        before:pair('本例是独立的四层应用样本。界面、用例编排、业务规则与数据保存各有职责；相邻层箭头只表达本例约定的请求方向，不代表实际启智或灵知拓扑。','This is an independent four-layer sample. Interface, use-case coordination, business rules and persistence have separate responsibilities. Arrows show only the sample’s declared request direction.'),
+        question:pair('“接收用户操作”和“执行业务规则”分别属于哪层？','Which layers receive user actions and apply business rules?'),
+        answer:pair('本例由界面层接收用户操作，领域层执行业务规则。两种职责不同，不能仅凭上下排列把它们合并。','The interface receives user actions and the domain applies business rules. These are distinct responsibilities, not interchangeable steps.')},
+      sequence:{
+        goal:pair('按消息方向解释一次正常读取。','Explain a successful read by following message directions.'),
+        before:pair('一次读取由页面、服务与存储共同完成。沿时间向下看：页面请求服务，服务请求存储，存储返回数据，服务再返回结果。本例只描述正常路径。','A page, a service and storage participate in a read. Follow time downward: page calls service, service calls storage, storage returns data, then service returns the result. Only the successful path is described.'),
+        question:pair('本例中，服务是在存储返回之前还是之后向页面返回结果？','In this sample, does the service return before or after storage responds?'),
+        answer:pair('在存储返回数据之后。第 3 条消息先回到服务，第 4 条消息再由服务回到页面；未展示的失败与重试不能自行补出。','After storage responds. Message 3 returns to the service; message 4 then returns to the page. Unspecified failure and retry paths cannot be inferred.')},
+      bar:{
+        goal:pair('用数值和同一尺度比较数量。','Compare counts using their values and a shared scale.'),
+        before:pair('四组手写样本使用同一计数条件与单位。甲、乙、丙、丁分别为 12、18、9、24 个对象。横轴从零开始，条长只由数量决定，深色表示本例关注的丁组。','Four hand-written samples share counting conditions and a unit: A 12, B 18, C 9 and D 24 objects. The axis starts at zero. Values determine bar length; color highlights D.'),
+        question:pair('丁组的数量是甲组的几倍？从数值核对条长。','How many times A’s count is D’s? Check the lengths against the values.'),
+        answer:pair('24÷12=2，丁是甲的两倍。两条共用零点和尺度，因此丁的条长也是甲的两倍。','24÷12=2, so D has twice A’s count. Because both bars share a zero point and scale, D’s bar is also twice as long.')},
+      nested:{
+        goal:pair('根据集合包含关系判断一个数属于哪些集合。','Use containment to identify which sets contain a number.'),
+        before:pair('每个整数都能写成分母为 1 的分数，所以整数属于有理数；有理数又属于实数。嵌套框表达这种包含，框内只列几个例子，不表示全部成员。','Every integer can be written as a fraction with denominator 1, so integers are rational; rationals are real. Nested boxes show containment and list only a few examples.'),
+        question:pair('−2 属于哪些集合？1/2 是否属于整数集合？','Which sets contain −2? Is 1/2 an integer?'),
+        answer:pair('−2 同时属于 ℤ、ℚ、ℝ；1/2 属于 ℚ 和 ℝ，但不属于 ℤ。内层成员也属于外层，不意味着外层成员全在内层。','−2 belongs to ℤ, ℚ and ℝ. 1/2 belongs to ℚ and ℝ but not ℤ. Inner members belong to the outer set; the reverse does not follow.')},
+      venn:{
+        goal:pair('区分交集与两个集合各自独有的元素。','Distinguish shared members from each set’s exclusive members.'),
+        before:pair('给定全集 U={1,2,3,4,5,6}，A={1,2,3,4}，B={3,4,5,6}。共有元素放在交叠区，各自独有的元素放在两侧；圆面积只是示意。','Let U={1,2,3,4,5,6}, A={1,2,3,4} and B={3,4,5,6}. Shared members go in the overlap; exclusive members go on either side. Areas are schematic.'),
+        question:pair('3 属于哪一部分？A 中但不在 B 中的元素有哪些？','Where does 3 belong? Which elements are in A but not B?'),
+        answer:pair('3 属于 A∩B。A 中但不在 B 中的是 1、2，即 A\\B={1,2}；交集不等于并集。','3 belongs to A∩B. The elements in A but not B are 1 and 2, so A\\B={1,2}. Intersection is different from union.')},
+      timeline:{
+        goal:pair('读出记录的先后与间隔。','Read both the order and the intervals between records.'),
+        before:pair('本例观测持续六秒，在第 1 秒和第 3 秒各记录一次。先后关系只是信息的一部分：从开始到首次记录为 1 秒，两次记录相隔 2 秒，最后一段为 3 秒。','This sample observation lasts six seconds, with records at 1 and 3 seconds. Order is only part of the story: the three successive intervals are 1, 2 and 3 seconds.'),
+        question:pair('为什么第二次记录到结束的距离，比两次记录之间更长？','Why is the last interval longer than the interval between the two records?'),
+        answer:pair('两次记录相隔 3−1=2 秒，第二次记录到结束相隔 6−3=3 秒。使用同一时间尺度时，后者的图上距离是前者的 1.5 倍。','The two records are 3−1=2 seconds apart; the last record and the end are 6−3=3 seconds apart. On one time scale, the latter distance is 1.5 times the former.')}
+    };
     const text = (x,y,value,cls='label',extra='') => `<text x="${x}" y="${y}" class="${cls}" ${extra}>${escape(value)}</text>`;
     const node = (x,y,w,h,label,focal=false,sub='',radius=6) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${radius}" class="node${focal?' focal':''}"/>${text(x+w/2,y+h/2+(sub?-3:7),label)}${sub?text(x+w/2,y+h/2+25,sub,'small'):''}`;
     const path = (d,label='',x=0,y=0,primary=false,dashed=false,arrow=true) => `<path d="${d}" class="edge${primary?' primary':''}" ${dashed?'stroke-dasharray="6 5"':''} ${arrow?`marker-end="url(#sample-${primary?'accent':'arrow'})"`:''}/>${label?`<rect class="mask" x="${x-(language==='zh'?label.length*10:label.length*5.6)-9}" y="${y-22}" width="${(language==='zh'?label.length*20:label.length*11.2)+18}" height="30"/>${text(x,y,label,'small')}`:''}`;
     function draw(id) {
+      if (id === 'nested') return [
+        `<rect x="120" y="42" width="660" height="360" rx="6" class="node"/><rect x="220" y="124" width="460" height="245" rx="6" class="node"/><rect x="315" y="209" width="270" height="128" rx="6" class="focal"/>`,
+        text(260,81,tx(pair('实数 ℝ','Real numbers ℝ'))),text(505,94,'√2, π','small'),
+        text(355,160,tx(pair('有理数 ℚ','Rational numbers ℚ'))),text(490,189,'1/2, −3/4','small'),
+        text(450,258,tx(pair('整数 ℤ','Integers ℤ'))),text(450,302,'−2, 0, 3','small'),
+        text(450,445,tx(pair('成员的包含关系；面积不编码大小。','Containment of members; area does not encode size.')),'small')
+      ].join('');
+      if (id === 'venn') return [
+        `<rect x="80" y="52" width="740" height="354" rx="5" class="node"/><circle cx="340" cy="245" r="140" fill="#eef2ff" fill-opacity=".65" stroke="#64748b" stroke-width="1.5"/><circle cx="560" cy="245" r="140" fill="#f3eff9" fill-opacity=".65" stroke="#6e4a9c" stroke-width="1.5"/>`,
+        text(130,83,'U','small'),text(340,86,'A'),text(560,86,'B'),
+        text(274,252,'1, 2'),text(450,252,'3, 4','label','fill="#4338ca"'),text(626,252,'5, 6'),
+        text(450,443,'A ∩ B = {3, 4}','small')
+      ].join('');
+      if (id === 'timeline') {
+        const moments=[0,1,3,6],names=[pair('开始观测','Start'),pair('首次记录','First record'),pair('再次记录','Second record'),pair('结束观测','End')];
+        return path('M100 230 H810')+moments.map((time,i)=>{
+          const x=120+100*time,above=i%2===0;
+          return `${path(`M${x} 230 V${above?175:298}`,'',0,0,false,false,false)}<circle data-time="${time}" cx="${x}" cy="230" r="6" fill="${i===2?'#4338ca':'#64748b'}"/>${text(x,above?157:331,tx(names[i]))}<rect x="${x-28}" y="242" width="56" height="31" class="mask"/>${text(x,264,time+' s','small')}`;
+        }).join('')+text(450,420,tx(pair('时间（秒） · 位置按 x = 120 + 100t 计算','Time (seconds) · Positions use x = 120 + 100t')),'small');
+      }
       if (id === 'derivation') return [
         path('M230 138 V206',tx(pair('h ≠ 0，展开并约分','h ≠ 0; expand and simplify')),405,182),
         path('M230 286 V360 H590 V286',tx(pair('h → 0，取极限','Take the limit as h → 0')),410,365),
@@ -239,8 +352,11 @@
       }
       throw new Error('Unknown demo');
     }
+    let lastRendered = '';
     function render() {
       const demo = demos.find(item => item.id === selected);
+      const passage = studentPassages[selected];
+      document.getElementById('status').hidden=true;
       document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
       document.title = tx(pair('教学图解选型 · 灵知','Teaching diagram selection · Lingzhi'));
       document.querySelectorAll('[data-i18n]').forEach(element => { element.textContent = tx(copy[element.dataset.i18n]); });
@@ -257,13 +373,21 @@
         button.addEventListener('click',()=>{ selected=item.id; render(); document.querySelector(`[data-demo="${item.id}"]`).focus(); }); return button;
       }));
       ['title','lead','caption','where','why','requires','boundary','source'].forEach(key=>{ document.getElementById(key).textContent=tx(demo[key]); });
-      document.getElementById('context').textContent=tx(surface==='handout'?copy.contextHandout:copy.contextPpt);
+      document.getElementById('context').textContent=tx(surface==='student'?copy.contextStudent:surface==='handout'?copy.contextHandout:copy.contextPpt);
+      document.getElementById('student-intro').hidden=surface!=='student';
+      document.getElementById('student-followup').hidden=surface!=='student';
+      document.getElementById('student-goal').textContent=tx(copy.goal)+tx(passage.goal);
+      document.getElementById('student-before').textContent=tx(passage.before);
+      document.getElementById('student-question').textContent=tx(passage.question);
+      document.getElementById('student-answer').textContent=tx(passage.answer);
+      if(lastRendered!==selected) document.getElementById('student-answer-disclosure').open=false;
+      lastRendered=selected;
       document.getElementById('paper').classList.toggle('ppt',surface==='ppt');
-      ['handout','ppt'].forEach(value=>document.getElementById(value).setAttribute('aria-pressed',String(surface===value)));
+      ['student','handout','ppt'].forEach(value=>document.getElementById(value).setAttribute('aria-pressed',String(surface===value)));
       document.getElementById('canvas').innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 470" role="img" aria-labelledby="sample-title sample-desc"><title id="sample-title">${escape(tx(demo.title))}</title><desc id="sample-desc">${escape(tx(demo.source))}</desc><defs><marker id="sample-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#64748b"/></marker><marker id="sample-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#4338ca"/></marker></defs>${draw(selected)}</svg>`;
     }
     document.getElementById('language').addEventListener('click',()=>{language=language==='zh'?'en':'zh';render();});
-    ['handout','ppt'].forEach(value=>document.getElementById(value).addEventListener('click',()=>{surface=value;render();}));
+    ['student','handout','ppt'].forEach(value=>document.getElementById(value).addEventListener('click',()=>{surface=value;render();}));
     document.getElementById('download').addEventListener('click',()=>{
       const svg=document.querySelector('#canvas svg').cloneNode(true);
       const style=document.createElementNS('http://www.w3.org/2000/svg','style');
