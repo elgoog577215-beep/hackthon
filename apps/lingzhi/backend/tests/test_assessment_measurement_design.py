@@ -316,18 +316,21 @@ def test_exit_observation_keeps_for_local_counter_alive_after_the_loop():
     assert "for (; k < 10; k += 3)" in fixed["public_material"]
     assert "变量 k" in fixed["ask"] and "所在语句块内" in fixed["ask"]
     assert fixed["design_normalization"]["original_material"] == p["public_material"]
-    for code in ["int k=8; for(int k=0;k<2;k++){break;}", "for(int k=f();k<2;k++){break;}"]:
+    for code in ["int k=8; for(int k=0;k<2;k++){break;}", "for(int k=f();k<2;k++){break;}",
+                 "int flag=1;if(flag) for(int k=0;k<2;k++){break;}"]:
         unsupported = {**p, "public_material": "```c\n" + code + "\n```"}
         assert normalize_exit_observation(unsupported, {"kind": "exit_state"}) == unsupported
 
 
 def test_continue_observation_is_derived_from_actual_for_header():
     from assessment_measurement_design import normalize_control_action
-    p={**plan(),"public_material":"```c\nfor(int k=0;k<8;k+=2){if(k==2)continue;}\n```"}
-    fixed=normalize_control_action(p,{"kind":"next_control_action"})
-    assert fixed["public_material"] == p["public_material"]
+
+    p = {**plan(), "public_material": "```c\nfor(int k=0;k<8;k+=2){if(k==2)continue;}\n```"}
+    fixed = normalize_control_action(p, {"kind": "next_control_action"})
+    assert fixed["public_material"] == "```c\nfor(int k=0;k<8;k+=2){continue;}\n```"
+    assert fixed["design_normalization"]["original_material"] == p["public_material"]
     assert "k+=2" in fixed["correct_prediction"] and "k<8" in fixed["correct_prediction"]
     assert "不执行" in fixed["incorrect_prediction"]
     assert "控制流顺序" in fixed["ask"]
-    nested={**p,"public_material":"```c\nfor(int k=0;k<8;k++){while(x){continue;}}\n```"}
-    assert normalize_control_action(nested,{"kind":"next_control_action"}) == nested
+    nested = {**p, "public_material": "```c\nfor(int k=0;k<8;k++){while(x){continue;}}\n```"}
+    assert normalize_control_action(nested, {"kind": "next_control_action"}) == nested
