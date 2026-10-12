@@ -18,6 +18,9 @@ export interface StudyGenerationRequest {
   selections: { asset_id: string; section_id: string }[]
   level: string; time_minutes: number; requirements: string; language: 'zh' | 'en'
 }
+export interface AssistantContext { section_id: string; section_title: string; block_id: string; block_title: string; quote: string }
+export interface AssistantMessage { message_id: string; role: 'user' | 'assistant'; content: string; status: string; context_ref: AssistantContext; task_ref?: { task_id: string } }
+export interface AssistantConversation { conversation_id: string; messages: AssistantMessage[] }
 const SESSION_KEY = 'lingzhi_student_session_v1'
 export const studySession = {
   get: () => sessionStorage.getItem(SESSION_KEY) || '',
@@ -57,4 +60,7 @@ export const studyApi = {
   resume: (id: string) => request(`/materials/${encodeURIComponent(id)}/continue`, { method: 'POST' }),
   note: (id: string, revision_id: string, content: string) => request<{ content: string; updated_at: string }>(`/materials/${encodeURIComponent(id)}/note`, { ...json({ revision_id, content }), method: 'PUT' }),
   export: (id: string) => request<Blob>(`/materials/${encodeURIComponent(id)}/export`),
+  assistant: (id: string) => request<AssistantConversation>(`/materials/${encodeURIComponent(id)}/assistant`),
+  ask: (id: string, body: { request_id: string; revision_id: string; section_id: string; block_id: string; quote: string; text: string; language: 'zh' | 'en' }) => request<AssistantConversation>(`/materials/${encodeURIComponent(id)}/assistant`, json(body)),
+  continueAnswer: (id: string, taskId: string) => request(`/materials/${encodeURIComponent(id)}/assistant/${encodeURIComponent(taskId)}/continue`, { method: 'POST' }),
 }

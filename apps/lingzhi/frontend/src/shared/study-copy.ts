@@ -31,6 +31,11 @@ const messages = {
   connected: ['已连接个人学习空间', 'Connected to your study space'], requestFailure: ['操作未完成，请重试。', 'The operation did not complete. Please retry.'],
   preparingConcepts: ['概念关系会在资料梳理完成后显示。', 'Concept connections will appear when the source outline is ready.'],
   conceptOrigin: ['来自所选资料 · 箭头方向按关系类型阅读', 'From your selected sources · Read arrows by their relation labels'],
+  assistant: ['AI 助手', 'AI assistant'], aiIntro: ['围绕当前章节提问，或选中正文让 AI 解释。对话自动保存在这份讲义下。', 'Ask about this chapter or select text for an explanation. Conversations are saved with this handout.'],
+  aiInput: ['向 AI 提问', 'Ask the AI'], aiPlaceholder: ['哪里不明白？也可以让 AI 举例或画图解释…', 'Ask a question, request an example or a diagram…'],
+  aiSend: ['发送', 'Send'], aiExplain: ['解释这一章', 'Explain this chapter'], aiExample: ['举一个例子', 'Give an example'], aiDiagram: ['用图解说明', 'Explain with a diagram'],
+  aiWaiting: ['回复正在生成，离开页面后仍会保存。', 'The reply is generating and will be saved even if you leave.'], aiInterrupted: ['回复中断，问题与片段已保存。', 'The reply was interrupted. Your question and the partial answer are saved.'], aiContinue: ['继续这条回复', 'Continue this reply'],
+  aiSaved: ['对话已保存', 'Conversation saved'], askSelection: ['问 AI', 'Ask AI'], selectedQuote: ['已选正文', 'Selected text'], clearQuote: ['移除引用', 'Clear quote'], aiSelectedPrompt: ['请解释选中的这段内容。', 'Please explain the selected text.'],
   noteUnsaved: ['笔记尚未保存', 'Unsaved notes'], finishReading: ['本次讲义已生成并保存', 'Your handout has been generated and saved'],
 } as const
 export type StudyCopyKey = keyof typeof messages

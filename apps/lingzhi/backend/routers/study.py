@@ -50,6 +50,17 @@ class NoteRequest(BaseModel):
     content: str = Field(max_length=20000)
 
 
+class AssistantRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{16,64}$")
+    revision_id: str = Field(min_length=1, max_length=80)
+    section_id: str = Field(min_length=1, max_length=160)
+    block_id: str = Field(default="", max_length=160)
+    quote: str = Field(default="", max_length=3000)
+    text: str = Field(min_length=1, max_length=6000)
+    language: Literal["zh", "en"] = "zh"
+
+
 def repository() -> StudyRepository:
     return StudyRepository(storage)
 
@@ -211,3 +222,41 @@ def export(material_id: str, user=Depends(study_identity), repo=Depends(reposito
                       f"来源：{section['source']['filename']} · SHA-256: {section['source']['source_sha256']}", section["content"]])
     return Response("\n\n".join(lines), media_type="text/markdown; charset=utf-8",
                     headers={"Content-Disposition": 'attachment; filename="personal-handout.md"'})
+
+
+@router.get("/materials/{material_id}/assistant")
+def assistant_history(material_id: str, user=Depends(study_identity), repo=Depends(repository), manager=Depends(require_task_manager)):
+    from study.assistant import ai_teacher_repository, public_conversation
+    saved = material_or_404(repo, user['id'], material_id)
+    conversation = ai_teacher_repository.material_conversation(user['id'], material_id, saved['revisions'][-1]['id'])
+    return public_conversation(conversation, manager)
+
+
+@router.post("/materials/{material_id}/assistant")
+async def assistant_ask(material_id: str, request: AssistantRequest, user=Depends(study_identity), repo=Depends(repository), manager=Depends(require_task_manager)):
+    from study.assistant import ask
+    saved = material_or_404(repo, user['id'], material_id)
+    try:
+        return await ask(manager, repo, user['id'], saved, request.model_dump())
+    except StudyConflict as exc:
+        raise HTTPException(409, str(exc))
+
+
+@router.post("/materials/{material_id}/assistant/{task_id}/continue")
+async def assistant_continue(material_id: str, task_id: str, user=Depends(study_identity), repo=Depends(repository), manager=Depends(require_task_manager)):
+    from study.assistant import resolve_context, ai_teacher_repository
+    saved = material_or_404(repo, user['id'], material_id)
+    task = manager.tasks.get(task_id)
+    if not task or task.get('owner_id') != user['id'] or task.get('type') != 'personal_study_assistant' or task.get('resource_ref', {}).get('id') != material_id:
+        raise HTTPException(404, '回复任务不存在')
+    ref = task['resource_ref']
+    conv = ai_teacher_repository.material_conversation(user['id'], material_id, ref['revision_id'])
+    message = next((m for m in conv['messages'] if m['message_id'] == task_id + ':user'), None)
+    if not message:
+        raise HTTPException(409, '问题来源已不可用；已有对话仍保留')
+    try:
+        resolve_context(saved, message['context_ref'])
+    except StudyConflict as exc:
+        raise HTTPException(409, str(exc))
+    await manager.resume_task(task_id)
+    return {'task_id': task_id}

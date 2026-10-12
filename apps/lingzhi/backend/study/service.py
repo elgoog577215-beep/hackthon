@@ -17,6 +17,16 @@ PURPOSES = {
 }
 
 
+def visual_requirements(outline: dict) -> str:
+    text = '\n'.join(block['text'] for block in outline['blocks'])
+    hints = ['把本章最有解释价值的关系、过程、空间或数据与正文同步画出，用 lingzhi-diagram 格式；图前说明问题，图后解释结论。只放对比表不等于图解。来源不足时明确说明，不凑图、不编造数据。']
+    if re.search(r'向量|线性组合|vector|linear combination', text, re.I):
+        hints.append('优先用 vector_plot 呈现题设二维向量、数乘与首尾连接的线性组合，展示目标向量；坐标只取题设或正文已计算出的结果。')
+    if re.search(r'矩阵|消元|matrix|elimination', text, re.I):
+        hints.append('优先用 matrix_steps 对照消元前后完整矩阵和行操作；用 flowchart 说明相容性与唯一/无穷多解判定。几何缺少明确数据时不猜测平面位置。')
+    return '\n'.join(hints)
+
+
 def source_sections(asset, document) -> list[dict]:
     """Project real heading ranges, never guessed chapter or page boundaries."""
     blocks = document.blocks
@@ -185,6 +195,11 @@ async def run_personal_handout(manager, task_id: str) -> None:
             attempt = str(uuid.uuid4())
 
             def persist(provider_complete: bool = False):
+                # A provider reset is not replacement content. In particular,
+                # a failed continuation before its first token must retain the
+                # previous real fragment instead of saving an empty chapter.
+                if not buffer.strip():
+                    return False
                 parsed = parse_handout_stream(buffer, [section_id], provider_complete=provider_complete)
                 content = (parsed["completed"].get(section_id) or parsed["fragments"].get(section_id) or "")
                 blocks = parse_handout_blocks(content, section_id, identity=attempt,
@@ -216,7 +231,7 @@ async def run_personal_handout(manager, task_id: str) -> None:
                     course_id="", outline_sections=[outline],
                     plan_sections={plan["node_id"]: plan for plan in plans},
                     lesson_context={"title": request["title"], "learning_purpose": request["purpose"]},
-                    requirements=PURPOSES[request["purpose"]] + f"\n学习起点：{request['level']}；预计阅读 {request['time_minutes']} 分钟。"
+                    requirements=PURPOSES[request["purpose"]] + '\n' + visual_requirements(outline) + f"\n学习起点：{request['level']}；预计阅读 {request['time_minutes']} 分钟。"
                                  + "\n" + request.get("requirements", "")
                                  + ("\nWrite the handout in English." if request["language"] == "en" else "\n用中文编写讲义。"),
                     completed_sections=[{"section_node_id": section["id"], "title": section["title"], "content": section["content"]}

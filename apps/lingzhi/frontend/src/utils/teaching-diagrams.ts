@@ -70,6 +70,8 @@ export type TeachingDiagram = {
   effect?: string;
   before?: { nodes: DiagramNode[]; edges: DiagramEdge[] };
   after?: { nodes: DiagramNode[]; edges: DiagramEdge[] };
+  vectors?: { label: string; from: number[]; to: number[] }[];
+  steps?: { label: string; operation: string; values: (number | string)[][] }[];
 };
 export type DiagramScene = { width: number; height: number; body: string };
 
@@ -275,6 +277,23 @@ export function parseTeachingDiagram(raw: string): TeachingDiagram {
   unique(d.rows);
   unique(d.columns);
   const family = entry!.family;
+  if (family === 'vectors') {
+    d.vectors = array(r.vectors, 8).map(raw => {
+      const v = record(raw), from = array(v.from, 2).map(number), to = array(v.to, 2).map(number);
+      need(from.length === 2 && to.length === 2 && [...from, ...to].every(x => Math.abs(x) <= 1e6), 'Need bounded 2D coordinates / 需要有限二维坐标');
+      return { label: string(v.label, 240), from, to };
+    });
+    need(d.vectors.length, 'Missing vectors / 缺少向量');
+  }
+  if (family === 'matrix_steps') {
+    d.steps = array(r.steps, 6).map(raw => {
+      const s = record(raw), values = array(s.values, 6).map(row => array(row, 6).map(v => typeof v === 'number' ? number(v) : string(v, 20)));
+      need(values.length && values[0]!.length && values.every(row => row.length === values[0]!.length), 'Matrix dimensions disagree / 矩阵行列不一致');
+      need(values.flat().every(v => typeof v !== 'string' || !/[\\\n]/.test(v)), 'Use plain matrix values / 矩阵元素使用短纯文本');
+      return { label: string(s.label, 240), operation: s.operation === undefined ? '' : string(s.operation, 240), values };
+    });
+    need(d.steps.length && d.steps.every(s => s.values.length === d.steps![0]!.values.length && s.values[0]!.length === d.steps![0]!.values[0]!.length), 'Steps need matching matrices / 各步矩阵维度需要一致');
+  }
   if (
     [
       "graph",
@@ -725,11 +744,12 @@ const label = (x: number, y: number, text: string, width = 160) => {
   );
 };
 type Box = { x: number; y: number; w: number; h: number };
-const nodeHeight = (n: DiagramNode, width = 216) =>
-  30 +
-  (diagramTextLines(n.label, width).length +
-    (n.detail ? diagramTextLines(n.detail, width).length + 1 : 0)) *
-    21;
+const nodeHeight = (n: DiagramNode, width = 216) => {
+  const textWidth = n.kind === 'decision' ? (width + 24) / 2 : width;
+  const height = 30 + (diagramTextLines(n.label, textWidth).length +
+    (n.detail ? diagramTextLines(n.detail, textWidth).length + 1 : 0)) * 21;
+  return n.kind === 'decision' ? height * 2 : height;
+};
 const boxNode = (n: DiagramNode, b: Box, focal = false) => {
   const headingHeight = diagramTextLines(n.label, b.w - 24).length * 21;
   const shape =
@@ -743,6 +763,14 @@ const boxNode = (n: DiagramNode, b: Box, focal = false) => {
           focal ? "#eef2ff" : "#fff",
           focal ? "#4338ca" : "#94a3b8",
         );
+  if (n.kind === 'decision') {
+    // Text stays inside the diamond's central rectangle, rather than using
+    // the full width near its narrow top and bottom corners.
+    const width = b.w / 2, heading = diagramTextLines(n.label, width).length * 21;
+    const total = heading + (n.detail ? 21 + diagramTextLines(n.detail, width).length * 21 : 0);
+    const x = b.x + b.w / 2, y = b.y + b.h / 2 - total / 2 + 16;
+    return `<g data-node-id="${e(n.id)}">${shape}${txt(x, y, n.label, width)}${n.detail ? line(x - width / 2, y + heading - 7, x + width / 2, y + heading - 7) + txt(x, y + heading + 21, n.detail, width, 'middle', '#475569') : ''}</g>`;
+  }
   return `<g data-node-id="${e(n.id)}">${shape}${txt(b.x + b.w / 2, b.y + 25, n.label, b.w - 24)}${n.detail ? line(b.x, b.y + headingHeight + 17, b.x + b.w, b.y + headingHeight + 17) + txt(b.x + 12, b.y + headingHeight + 39, n.detail, b.w - 24, "start", "#475569") : ""}</g>`;
 };
 const connect = (
@@ -964,6 +992,8 @@ export function buildTeachingDiagramScene(
   marker = "td-arrow",
 ): DiagramScene {
   const family = catalog.types.find((t) => t.id === d.type)!.family;
+  if (family === 'vectors') return vectorScene(d, marker);
+  if (family === 'matrix_steps') return matrixStepsScene(d);
   if (["graph", "flow", "entity", "tree", "process"].includes(family))
     return graphScene(d, marker);
   if (["grouped", "kanban"].includes(family)) return groupedScene(d, marker);
@@ -1395,6 +1425,48 @@ function specializedScene(
   if (family === "exploded" || family === "plan")
     return spatialScene(d, family);
   throw new Error(`Unsupported layout: ${family}`);
+}
+
+function vectorScene(d: TeachingDiagram, marker: string): DiagramScene {
+  const vectors = d.vectors!, points = vectors.flatMap(v => [v.from, v.to]);
+  const xd = extent([0, ...points.map(p => p[0]!)]), yd = extent([0, ...points.map(p => p[1]!)]);
+  const span = Math.max(xd[1]! - xd[0]!, yd[1]! - yd[0]!) * 1.15;
+  const domain = (v: number[]) => { const c = (v[0]! + v[1]!) / 2; return [c - span / 2, c + span / 2]; };
+  const xDomain = domain(xd), yDomain = domain(yd), size = 430;
+  const x = (n: number) => map(n, xDomain, 85, 85 + size), y = (n: number) => map(n, yDomain, 35 + size, 35);
+  let body = axesGrid(xDomain, yDomain, 85, 35, size, size, d.x_label || 'x', d.y_label || 'y');
+  body += `<path data-axis="x" d="M85,${y(0)} H${85 + size}" stroke="#64748b"/><path data-axis="y" d="M${x(0)},35 V${35 + size}" stroke="#64748b"/>`;
+  let legendY = 55;
+  vectors.forEach((v, i) => {
+    const color = colors[i % colors.length]!;
+    body += `<g data-vector="${escapeDiagramText(v.label)}" data-from="${v.from.join(',')}" data-to="${v.to.join(',')}">`;
+    if (v.from[0] === v.to[0] && v.from[1] === v.to[1]) body += `<circle cx="${x(v.from[0]!)}" cy="${y(v.from[1]!)}" r="5" fill="${color}"/>`;
+    else body += `<path d="M${x(v.from[0]!)},${y(v.from[1]!)} L${x(v.to[0]!)},${y(v.to[1]!)}" stroke="${color}" stroke-width="3" fill="none" marker-end="url(#${marker})"/>`;
+    body += '</g>';
+    const label = `${v.label}\n(${v.from.join(', ')}) → (${v.to.join(', ')})`;
+    body += line(565, legendY - 6, 595, legendY - 6, color) + txt(610, legendY, label, 250, 'start');
+    legendY += diagramTextLines(label, 250).length * 21 + 30;
+  });
+  return { width: 920, height: Math.max(555, legendY + 30), body };
+}
+
+function matrixStepsScene(d: TeachingDiagram): DiagramScene {
+  let y = 15, body = '';
+  for (const [index, step] of d.steps!.entries()) {
+    const rows = step.values.length, cols = step.values[0]!.length;
+    const label = `${index + 1}. ${step.label}${step.operation ? '\n' + step.operation : ''}`;
+    const labelHeight = diagramTextLines(label, 265).length * 21 + 24;
+    const rowHeight = Math.max(49, ...step.values.flat().map(v => diagramTextLines(String(v), 65).length * 21 + 15));
+    const height = Math.max(rows * rowHeight + 44, labelHeight + 26), left = 360, top = y + (height - rows * rowHeight) / 2;
+    body += rect(10, y, 850, height, index % 2 ? '#f4f1fb' : '#f8fafc');
+    body += txt(30, y + 31, label, 280, 'start');
+    body += `<path d="M${left + 12},${top - 8} H${left} V${top + rows * rowHeight + 8} H${left + 12}" stroke="#64748b" fill="none"/>`;
+    const right = left + cols * 74 + 12;
+    body += `<path d="M${right - 12},${top - 8} H${right} V${top + rows * rowHeight + 8} H${right - 12}" stroke="#64748b" fill="none"/>`;
+    step.values.forEach((row, r) => row.forEach((value, c) => { body += `<g data-step="${index}" data-row="${r}" data-column="${c}">${txt(left + 38 + c * 74, top + 30 + r * rowHeight, String(value), 65)}</g>`; }));
+    y += height + 20;
+  }
+  return { width: 880, height: y + 5, body };
 }
 
 function axesGrid(

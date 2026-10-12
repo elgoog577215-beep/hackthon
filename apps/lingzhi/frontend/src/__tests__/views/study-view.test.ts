@@ -17,7 +17,7 @@ let wrapper: VueWrapper | undefined
 async function page(path = '/study') {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/study/:materialId?', name: 'study', component: StudyView }, { path: '/courses', component: { template: '<div />' } }] })
   await router.push(path); await router.isReady()
-  wrapper = mount({ components: { RouterView }, template: '<RouterView />' }, { global: { plugins: [createPinia(), router], stubs: { MarkdownRenderer: { props: ['content'], template: '<div>{{ content }}</div>' }, HandoutContentBlock: { template: '<div><slot /></div>' }, HandoutConceptMap: true, HandoutTableOfContents: true } } })
+  wrapper = mount({ components: { RouterView }, template: '<RouterView />' }, { attachTo: document.body, global: { plugins: [createPinia(), router], stubs: { PersonalHandoutAssistant: true, MarkdownRenderer: { props: ['content'], template: '<div>{{ content }}</div>' }, HandoutContentBlock: { template: '<div><slot /></div>' }, HandoutConceptMap: true, HandoutTableOfContents: true } } })
   await flushPromises()
   return { wrapper, router }
 }
@@ -27,7 +27,7 @@ beforeEach(() => {
   api.config.mockResolvedValue({ local_login_enabled: true }); api.me.mockResolvedValue(user)
   api.list.mockResolvedValue([]); api.sources.mockResolvedValue([source]); api.get.mockResolvedValue(structuredClone(saved)); api.logout.mockResolvedValue({})
 })
-afterEach(() => { wrapper?.unmount(); wrapper = undefined; vi.useRealTimers() })
+afterEach(() => { wrapper?.unmount(); wrapper = undefined; document.body.replaceChildren(); vi.useRealTimers() })
 
 describe('personal study handouts', () => {
   it('uses owned materials and source ranges for two learning purposes without teacher setup', async () => {
@@ -63,6 +63,7 @@ describe('personal study handouts', () => {
 
   it('keeps an unsaved note after save failure and saves it to its material revision on retry', async () => {
     const { wrapper } = await page('/study/material-a')
+    await wrapper.get('.study-tool-tabs button:nth-child(2)').trigger('click')
     expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '已保存的理解')
     await wrapper.get('.study-note textarea').setValue('新的理解与问题')
     api.note.mockRejectedValueOnce(new Error('保存失败')).mockResolvedValueOnce({})
@@ -75,10 +76,25 @@ describe('personal study handouts', () => {
     expect(wrapper.text()).toContain('笔记已保存')
   })
 
+  it('opens the assistant by default and binds a real reading selection to the exact owned block', async () => {
+    const { wrapper } = await page('/study/material-a')
+    const assistant = wrapper.getComponent({ name: 'PersonalHandoutAssistant' })
+    expect(assistant.props()).toMatchObject({ ownerId: 'student-a', materialId: 'material-a', revisionId: 'revision-a', context: { section_id: 's1', block_id: '', quote: '' } })
+    const body = wrapper.get('[data-block-id="b1"]').element
+    const range = document.createRange(); range.selectNodeContents(body)
+    const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range)
+    await wrapper.get('.study-document-scroll').trigger('pointerup')
+    expect(assistant.props('context')).toMatchObject({ section_id: 's1', section_title: '第一章', block_id: 'b1', block_title: '向量', quote: '真实讲义正文' })
+    await wrapper.get('.study-selection-actions button:last-child').trigger('click')
+    expect(assistant.props('context')).toMatchObject({ block_id: '', quote: '' })
+    selection.removeAllRanges()
+  })
+
   it('restores private note drafts without copying one student’s draft to another', async () => {
     sessionStorage.setItem('lingzhi-study-note:student-a:material-a:revision-a', '未提交的草稿')
     sessionStorage.setItem('lingzhi-study-note:student-b:material-a:revision-a', '另一人的笔记')
     const { wrapper } = await page('/study/material-a')
+    await wrapper.get('.study-tool-tabs button:nth-child(2)').trigger('click')
     expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '未提交的草稿')
     expect(wrapper.text()).not.toContain('另一人的笔记')
     expect(api.note).not.toHaveBeenCalled()

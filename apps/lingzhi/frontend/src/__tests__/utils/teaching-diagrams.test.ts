@@ -21,10 +21,45 @@ const svg = (type: string, overrides = {}) =>
   );
 
 describe("teaching diagram semantics and geometry", () => {
-  it("covers all 44 types with unique identities", () => {
-    expect(teachingDiagramCatalog.types).toHaveLength(44);
+  it('keeps vector endpoints and equal axis scale, including translated and zero vectors', () => {
+    const doc = svg('vector_plot')
+    expect(doc.querySelectorAll('[data-vector]')).toHaveLength(3)
+    expect(doc.querySelector('[data-vector="2v"]')?.getAttribute('data-from')).toBe('1,2')
+    expect(doc.querySelector('[data-vector="2v"]')?.getAttribute('data-to')).toBe('5,4')
+    const coordinates = doc.querySelector('[data-vector="u"] path')!.getAttribute('d')!.match(/-?\d+(?:\.\d+)?/g)!.map(Number)
+    expect(Math.abs((coordinates[3]! - coordinates[1]!) / (coordinates[2]! - coordinates[0]!))).toBeCloseTo(2)
+    const zero = svg('vector_plot', { vectors: [{label:'zero', from:[0,0], to:[0,0]}] })
+    expect(zero.querySelector('[data-vector] circle')).not.toBeNull()
+    expect(() => parseTeachingDiagram(fixture('vector_plot', { vectors: [{label:'bad', from:[0], to:[1,2]}] }))).toThrow()
+  })
+  it('draws every matrix cell and operation, rejecting inconsistent dimensions', () => {
+    const doc = svg('matrix_steps')
+    expect(doc.querySelectorAll('[data-step]')).toHaveLength(12)
+    expect(doc.documentElement.textContent).toContain('R₂ ← R₂ − 2R₁')
+    expect(doc.querySelector('[data-step="1"][data-row="1"][data-column="2"]')?.textContent).toBe('-6')
+    expect(() => parseTeachingDiagram(fixture('matrix_steps', { steps: [{label:'one', values:[[1,2]]}, {label:'two',values:[[1]]}] }))).toThrow()
+  })
+  it('keeps long decision labels and details inside their diamond', () => {
+    const doc = svg('flowchart', { nodes: [{ id:'check', kind:'decision', label:'是否出现矛盾行 [0...0, c]（c≠0）？', detail:'只讨论消元后矩阵' }, {id:'yes',label:'无解'}, {id:'no',label:'继续判断'}], edges:[{from:'check',to:'yes',label:'是'},{from:'check',to:'no',label:'否'}] })
+    const node = doc.querySelector('[data-node-id="check"]')!
+    const points = node.querySelector('polygon')!.getAttribute('points')!.split(' ').map(p=>p.split(',').map(Number))
+    const xs=points.map(p=>p[0]!), ys=points.map(p=>p[1]!), cx=(Math.min(...xs)+Math.max(...xs))/2, cy=(Math.min(...ys)+Math.max(...ys))/2
+    const rx=(Math.max(...xs)-Math.min(...xs))/2, ry=(Math.max(...ys)-Math.min(...ys))/2
+    for (const text of node.querySelectorAll('text')) {
+      let baseline=Number(text.getAttribute('y'))
+      for (const span of text.querySelectorAll('tspan')) {
+        baseline+=Number(span.getAttribute('dy'))
+        const width=[...span.textContent!].reduce((sum,c)=>sum+(/[^\x00-\xff]/.test(c)?16:8),0)
+        for (const y of [baseline-16,baseline+5]) expect((Math.abs(Number(span.getAttribute('x'))-cx)+width/2)/rx+Math.abs(y-cy)/ry).toBeLessThanOrEqual(1)
+      }
+    }
+    expect([...node.querySelectorAll('tspan')].map(n=>n.textContent).join('')).toContain('是否出现矛盾行 [0...0, c]（c≠0）？')
+    expect(node.textContent).toContain('只讨论消元后矩阵')
+  })
+  it("covers all 46 types with unique identities", () => {
+    expect(teachingDiagramCatalog.types).toHaveLength(46);
     expect(new Set(teachingDiagramCatalog.types.map((t) => t.id)).size).toBe(
-      44,
+      46,
     );
     expect(teachingDiagramSamples.map((s) => s.type)).toEqual(
       teachingDiagramCatalog.types.map((t) => t.id),

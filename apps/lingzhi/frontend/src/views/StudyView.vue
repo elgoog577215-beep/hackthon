@@ -55,19 +55,21 @@
       <template v-else>
         <div class="study-reading-pane">
           <div class="study-reading-toolbar"><button @click="goLibrary"><ArrowLeft :size="17" />{{ c('back') }}</button><span v-if="material" class="study-status" :class="materialStatus">{{ statusLabel(materialStatus) }}</span><button v-if="material?.revisions[0]?.sections.length" @click="exportHandout"><Download :size="17" />{{ c('export') }}</button></div>
-          <div v-if="material" ref="readingTarget" class="study-document-scroll">
+          <div v-if="selectedPassage" class="study-selection-actions"><span>{{ c('selectedQuote') }} · {{ selectedPassage.block_title || selectedPassage.section_title }}</span><button @pointerdown.prevent @click="toolTab = 'assistant'">{{ c('askSelection') }}</button><button @click="selectedPassage = null">{{ c('clearQuote') }}</button></div>
+          <div v-if="material" ref="readingTarget" class="study-document-scroll" @scroll="followChapter" @pointerup="selectPassage" @keyup="selectPassage">
             <article class="study-handout">
               <header class="study-handout-cover"><span class="study-eyebrow">{{ c(material.purpose) }}</span><h1>{{ material.title }}</h1><p>{{ c(material.purpose === 'exam_prep' ? 'examHint' : 'understandingHint') }}</p><div class="handout-rule" /></header>
               <div v-if="materialStatus !== 'completed'" class="study-progress" role="status"><span>{{ ['failed', 'paused'].includes(materialStatus) ? c('interrupted') : c('generatingHint') }}</span><progress v-if="isGenerating" :value="material.task?.progress || 0" max="100" /><button v-if="['failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('continue') }}</button></div>
               <HandoutTableOfContents v-if="readingSections.length" :entries="readingSections.map(section => ({ id: section.anchor, title: section.title }))" collapsible />
-              <section v-for="section in material.revisions[0]?.sections || []" :id="sectionAnchor(section.id)" :key="section.id" class="study-handout-section"><div class="study-section-kicker">{{ section.source.filename }}</div><h2>{{ section.title }}</h2><div v-for="block in section.blocks" :id="blockAnchor(block.block_id)" :key="block.block_id"><HandoutContentBlock :content-type="block.content_type" :label="block.type_label" :title="block.title" :answer-to="block.answer_to" :streaming="!section.complete"><MarkdownRenderer :content="block.content" :node-id="block.block_id" /></HandoutContentBlock></div><div v-if="section.fragment" class="study-draft"><span>{{ c('draft') }}</span><MarkdownRenderer :content="section.fragment" /></div></section>
+              <section v-for="section in material.revisions[0]?.sections || []" :id="sectionAnchor(section.id)" :data-section-id="section.id" :key="section.id" class="study-handout-section"><div class="study-section-kicker">{{ section.source.filename }}</div><h2>{{ section.title }}</h2><div v-for="block in section.blocks" :id="blockAnchor(block.block_id)" :data-block-id="block.block_id" :key="block.block_id"><HandoutContentBlock :content-type="block.content_type" :label="block.type_label" :title="block.title" :answer-to="block.answer_to" :streaming="!section.complete"><MarkdownRenderer :content="block.content" :node-id="block.block_id" /></HandoutContentBlock></div><div v-if="section.fragment" class="study-draft"><span>{{ c('draft') }}</span><MarkdownRenderer :content="section.fragment" /></div></section>
               <p v-if="materialStatus === 'completed'" class="study-end"><Check :size="17" />{{ c('finishReading') }}</p>
             </article>
           </div>
         </div>
         <aside v-if="material" class="study-reading-tools">
           <div class="study-tool-tabs"><button v-for="tab in toolTabs" :key="tab" :class="{ active: toolTab === tab }" @click="toolTab = tab">{{ c(tab) }}</button></div>
-          <div v-if="toolTab === 'note'" class="study-note"><h3>{{ c('note') }}</h3><p>{{ c('noteHint') }}</p><textarea v-model="noteText" rows="16" :placeholder="c('notePlaceholder')" :aria-label="c('note')" /><div class="study-note-status" role="status">{{ noteDirty ? c('noteUnsaved') : noteSaved ? c('noteSaved') : '' }}</div><button class="study-primary" :disabled="busy || !noteDirty" @click="saveNote">{{ c('saveNote') }}</button></div>
+          <PersonalHandoutAssistant v-if="toolTab === 'assistant' && material.revisions[0]" :key="`${user.id}:${material.id}:${material.revisions[0].id}`" :owner-id="user.id" :material-id="material.id" :revision-id="material.revisions[0].id" :context="assistantContext" @clear-quote="selectedPassage = null" @session-expired="showError" />
+          <div v-else-if="toolTab === 'note'" class="study-note"><h3>{{ c('note') }}</h3><p>{{ c('noteHint') }}</p><textarea v-model="noteText" rows="16" :placeholder="c('notePlaceholder')" :aria-label="c('note')" /><div class="study-note-status" role="status">{{ noteDirty ? c('noteUnsaved') : noteSaved ? c('noteSaved') : '' }}</div><button class="study-primary" :disabled="busy || !noteDirty" @click="saveNote">{{ c('saveNote') }}</button></div>
           <div v-else-if="toolTab === 'sources'" class="study-source-list"><h3>{{ c('sources') }}</h3><article v-for="source in selectedSourceScopes" :key="source.node_id"><FileText :size="18" /><strong>{{ source.filename }}</strong><p>{{ source.title }}</p><code>{{ source.source_sha256.slice(0, 12) }}</code><button :disabled="busy" @click="downloadSource(source.asset_id, source.filename)">{{ c('downloadSource') }}</button></article></div>
           <HandoutConceptMap v-else-if="conceptSections.some(section => section.nodes.length)" :sections="conceptSections" :target="readingTarget" :origin-label="c('conceptOrigin')" />
           <p v-else class="study-note">{{ c('preparingConcepts') }}</p>
@@ -85,6 +87,7 @@ import HandoutContentBlock from '../components/HandoutContentBlock.vue'
 import HandoutTableOfContents from '../components/HandoutTableOfContents.vue'
 import HandoutConceptMap from '../components/HandoutConceptMap.vue'
 import MarkdownRenderer from '../components/MarkdownRenderer.vue'
+import PersonalHandoutAssistant from '../components/PersonalHandoutAssistant.vue'
 import { studyApi, studySession, StudyApiError, type StudyMaterial, type StudyPurpose, type StudySource, type StudySummary, type StudyUser } from '../api/study'
 import { activeLocale, setLocale } from '../shared/i18n'
 import { studyCopy as c, type StudyCopyKey } from '../shared/study-copy'
@@ -98,7 +101,36 @@ const library = ref<StudySummary[]>([]), sources = ref<StudySource[]>([]), mater
 const creating = ref(false), pasting = ref(false), sourceTitle = ref(''), sourceText = ref(''), selectedRanges = ref<string[]>([])
 const form = reactive({ title: '', purpose: 'systematic' as StudyPurpose, level: 'beginner', time_minutes: 60, requirements: '' })
 const purposes: StudyPurpose[] = ['systematic', 'exam_prep'], levels = ['beginner', 'intermediate', 'advanced'] as const
-const toolTabs = ['note', 'concepts', 'sources'] as const, toolTab = ref<typeof toolTabs[number]>('note')
+const toolTabs = ['assistant', 'note', 'concepts', 'sources'] as const, toolTab = ref<typeof toolTabs[number]>('assistant')
+const activeChapter = ref(''), selectedPassage = ref<{ section_id: string; section_title: string; block_id: string; block_title: string; quote: string } | null>(null)
+const assistantContext = computed(() => {
+  if (selectedPassage.value) return selectedPassage.value
+  const section = material.value?.revisions[0]?.sections.find(s => s.id === activeChapter.value) || material.value?.revisions[0]?.sections[0]
+  return { section_id: section?.id || '', section_title: section?.title || '', block_id: '', block_title: '', quote: '' }
+})
+function followChapter() {
+  const root = readingTarget.value; if (!root) return
+  const boundary = root.getBoundingClientRect().top + 100
+  const chapters = Array.from(root.querySelectorAll<HTMLElement>('[data-section-id]'))
+  const visible = chapters.filter(node => node.getBoundingClientRect().top <= boundary).at(-1) || chapters[0]
+  if (visible) activeChapter.value = visible.dataset.sectionId || ''
+}
+function selectPassage() {
+  const selection = window.getSelection(), root = readingTarget.value
+  if (!selection || !root || selection.isCollapsed || !selection.rangeCount) return
+  const range = selection.getRangeAt(0)
+  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return
+  const start = range.startContainer.nodeType === 1 ? range.startContainer as Element : range.startContainer.parentElement
+  const end = range.endContainer.nodeType === 1 ? range.endContainer as Element : range.endContainer.parentElement
+  const sid = start?.closest<HTMLElement>('[data-section-id]')?.dataset.sectionId
+  if (!sid || sid !== end?.closest<HTMLElement>('[data-section-id]')?.dataset.sectionId) return
+  const section = material.value?.revisions[0]?.sections.find(s => s.id === sid)
+  const bid = start?.closest<HTMLElement>('[data-block-id]')?.dataset.blockId
+  const block = bid === end?.closest<HTMLElement>('[data-block-id]')?.dataset.blockId ? section?.blocks.find(b => b.block_id === bid) : null
+  const quote = selection.toString().trim()
+  if (!section || !quote || quote.length > 3000) return
+  selectedPassage.value = { section_id: sid, section_title: section.title, block_id: block?.block_id || '', block_title: block?.title || '', quote }
+}
 const readingTarget = ref<HTMLElement | null>(null), noteText = ref(''), savedNote = ref(''), noteSaved = ref(false)
 const noteDirty = computed(() => noteText.value !== savedNote.value)
 const materialId = computed(() => String(route.params.materialId || ''))
@@ -118,7 +150,7 @@ function showError(cause: unknown) {
   error.value = cause instanceof Error ? cause.message : c('requestFailure')
   if (cause instanceof StudyApiError && cause.status === 401) { persistDraft(); epoch++; user.value = null; clearPrivateUi(); clearTimeout(timer) }
 }
-function clearPrivateUi() { material.value = null; library.value = []; sources.value = []; selectedRanges.value = []; sourceText.value = ''; sourceTitle.value = ''; noteText.value = ''; savedNote.value = ''; creating.value = false; pasting.value = false; sourceBusy.value = false; Object.assign(form, { title: '', purpose: 'systematic', level: 'beginner', time_minutes: 60, requirements: '' }) }
+function clearPrivateUi() { material.value = null; library.value = []; sources.value = []; selectedRanges.value = []; sourceText.value = ''; sourceTitle.value = ''; noteText.value = ''; savedNote.value = ''; creating.value = false; pasting.value = false; sourceBusy.value = false; selectedPassage.value = null; activeChapter.value = ''; Object.assign(form, { title: '', purpose: 'systematic', level: 'beginner', time_minutes: 60, requirements: '' }) }
 const sameOwner = (owner: string | undefined) => !disposed && user.value?.id === owner
 async function action(operation: () => Promise<void>) { const owner = user.value?.id, sequence = ++actionSequence; busy.value = true; error.value = ''; try { await operation() } catch (cause) { if (!disposed && (!owner || sameOwner(owner))) showError(cause) } finally { if (sequence === actionSequence) busy.value = false } }
 function persistDraft() { if (user.value) sessionStorage.setItem(draftKey(), JSON.stringify({ form, selectedRanges: selectedRanges.value, sourceTitle: sourceTitle.value, sourceText: sourceText.value, requestId, submittedFingerprint })) }
@@ -168,6 +200,7 @@ async function generate() {
 async function openMaterial() {
   clearTimeout(timer); const id = materialId.value, current = ++epoch
   material.value = null; noteText.value = ''; savedNote.value = ''; noteSaved.value = false
+  activeChapter.value = ''; selectedPassage.value = null; toolTab.value = 'assistant'
   if (!id || !user.value) return
   async function refresh(first = false) {
     try {
@@ -194,6 +227,9 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 </script>
 
 <style scoped>
+.study-selection-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 20px;background:#eeeafa;color:#6b59a2;font:15px/1.6 var(--handout-sans)}.study-selection-actions span{flex:1}.study-selection-actions button{padding:4px 8px}
+.study-reading-tools{display:flex;flex-direction:column;min-height:0}.study-tool-tabs{flex:none}.study-reading-tools:has(.personal-assistant){overflow:hidden;width:360px}.study-reading-tools:has(.personal-assistant) .study-tool-tabs{padding-inline:5px;gap:0}
+@media(max-width:1200px){.study-reading-tools:has(.personal-assistant){width:320px}}
 .study-space{height:100%;min-height:0;display:flex;flex-direction:column;color:#263449;background:#f5f6fc;font:15px/1.6 var(--lz-font-sans,Inter,"Microsoft YaHei",sans-serif)}
 .study-space button,.study-space input,.study-space textarea,.study-space select{font:inherit}.study-space button,.study-space a{transition:background .15s,color .15s}.study-space button{cursor:pointer;border:1px solid #dbe0ed;border-radius:10px;background:white;color:#43536d;padding:9px 14px;display:inline-flex;justify-content:center;align-items:center;gap:8px}.study-space button:hover{background:#eeedf9;color:#5145a4}.study-space button:disabled{cursor:default;opacity:.55}.study-space :is(button,a,input,textarea,select):focus-visible{outline:3px solid #9385ed;outline-offset:3px}.study-space a{text-decoration:none;color:inherit}.study-space .study-primary{background:#6551c7;border-color:#6551c7;color:white;font-weight:650;padding:12px 20px;box-shadow:0 4px 10px #6551c71b}.study-space .study-primary:hover{background:#5140ac;color:white}
 .study-header{height:82px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 30px;background:#ffffffed;border-bottom:1px solid #e4e7f0;gap:20px}.study-brand{display:flex;align-items:center;gap:12px}.brand-symbol{width:46px;height:46px;display:grid;place-items:center;background:#eee9fb;color:#6551c7;border-radius:15px}.study-brand strong{font-size:20px;display:block}.study-brand small{font-size:15px;color:#8190a4}.study-header-actions{display:flex;align-items:center;gap:18px}.study-header-actions button{border:0;background:transparent;padding:7px}.study-user{display:flex;align-items:center;gap:7px;color:#647187}.study-eyebrow{font-size:15px;color:#7b6ca4;font-weight:650;letter-spacing:.09em}.study-error{flex:none;padding:10px 28px;background:#fff1f1;color:#a14253;display:flex;align-items:center;justify-content:space-between;gap:16px}.study-error button{padding:5px 12px;color:inherit}

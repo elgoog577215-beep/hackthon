@@ -54,6 +54,9 @@ def setup_study(tmp_path, monkeypatch):
     import jobs.manager as jobs
     import storage as storage_module
     import learning_events
+    import study.assistant as personal_assistant
+    from ai_teacher_state import AITeacherRepository
+    monkeypatch.setattr(personal_assistant, 'ai_teacher_repository', AITeacherRepository(tmp_path / 'ai_teacher'))
     monkeypatch.setenv('LINGZHI_LOCAL_STUDY_AUTH', 'true')
     monkeypatch.delenv('QIZHI_AUTH_VERIFY_URL', raising=False)
     monkeypatch.setenv('GIT_AUTO_SYNC_ENABLED', 'false')
@@ -221,6 +224,25 @@ async def test_restart_pauses_same_task_and_keeps_frozen_sources(setup_study):
     assert manager.tasks[material['task_id']]['status'] == 'paused'
     assert writer.calls == []
     assert repo.get(owner, material['id'])['request'] == original
+
+
+@pytest.mark.asyncio
+async def test_continuation_reset_without_new_output_does_not_erase_saved_fragment(setup_study, monkeypatch):
+    client, manager, repo, writer = setup_study
+    owner, headers = account(client)
+    material = await create_material(manager, repo, owner, request_for(add_source(client, headers)))
+    writer.fail_section = 'study-section-2'
+    await manager._run_job(material['task_id'])
+    previous = deepcopy(repo.get(owner, material['id'])['revisions'][0]['sections'])
+    assert previous[1]['content']
+    async def reset_then_fail(**kwargs):
+        await kwargs['on_content_reset']()
+        raise RuntimeError('provider timed out before new output')
+    monkeypatch.setattr(writer, 'generate_teacher_handout', reset_then_fail)
+    await manager.resume_task(material['task_id'])
+    await manager._run_job(material['task_id'])
+    assert repo.get(owner, material['id'])['revisions'][0]['sections'] == previous
+    assert manager.tasks[material['task_id']]['status'] == 'failed'
 
 
 def test_source_reference_and_nonempty_scope_contract(setup_study):
