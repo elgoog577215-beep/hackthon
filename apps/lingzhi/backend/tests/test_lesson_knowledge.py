@@ -63,3 +63,33 @@ def test_selected_context_does_not_depend_on_other_handout_content(svc):
     assert before['revision_id'] == after['revision_id']
     state['lessons']['cpu']['script_revisions'][0]['sections'][0]['blocks'][0]['content'] = '本讲更新'
     assert before['revision_id'] != handout_context(raw, state, lesson_id='cpu')['revision_id']
+
+
+@pytest.mark.asyncio
+async def test_next_lesson_references_existing_ids_and_can_reuse_without_duplicating(svc):
+    handouts(svc)
+    calls = []
+    async def call(prompt, **kwargs):
+        calls.append(prompt)
+        if len(calls) == 1: return json.dumps(one_lesson_response('cpu'), ensure_ascii=False)
+        assert 'existing_knowledge' in prompt and 'E1' in prompt and 'CPU执行指令。' in prompt
+        value = one_lesson_response('memory')
+        value['points'].append({'key': 'K1', 'reuse_key': 'E1', 'category_key': 'C2', 'sources': [{'key': 'S1'}]})
+        value['lessons'][0]['knowledge_keys'].append('K1')
+        value['relations'] = [{'source_key': 'E1', 'target_key': 'K2', 'type': 'prerequisite', 'reason': '处理器使用主存中的数据', 'conditions': []}]
+        return json.dumps(value, ensure_ascii=False)
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=call, model_smart='test', client=None)
+    for lid in ['cpu', 'memory']:
+        v = svc.view('c-pilot', source_mode='handouts')
+        job, _ = svc.start('c-pilot', 'tree', lid, v['knowledge_revision'], v['document_revision'], source_mode='handouts', lesson_id=lid)
+        await svc.run('c-pilot', job['id'])
+        assert svc.authoring.load('c-pilot')['jobs'][job['id']]['status'] == 'completed'
+        svc.adopt('c-pilot', job['id'], v['knowledge_revision'], v['document_revision'])
+        if lid == 'cpu': original = deepcopy(svc.view('c-pilot')['tree']['knowledge_points'][0])
+    tree = svc.view('c-pilot')['tree']
+    assert len(tree['knowledge_points']) == 2
+    reused = next(p for p in tree['knowledge_points'] if p['knowledge_id'] == original['knowledge_id'])
+    assert set(reused['section_refs']) == {'cpu', 'memory'}
+    assert reused['statement'] == original['statement']
+    assert tree['relations'][0]['source_id'] == original['knowledge_id']
+    assert tree['relations'][0]['cross_lesson'] is True
