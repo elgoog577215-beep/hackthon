@@ -88,7 +88,7 @@ def tree_prompt(raw, context):
         '"conditions":[],"meta_question":"可检查的问题","meta_answer":"依据材料的回答","sources":[{"key":"S1","quote":"逐字引文"}]}],'
         '"relations":[{"source_key":"K1","target_key":"K2","type":"prerequisite","reason":"理由","conditions":[]}],'
         '"lessons":[{"key":"L1","title":"本讲标题","knowledge_keys":["K1"]}],"gaps":["尚未覆盖的范围或待补充内容"]}\n'
-        + json.dumps({'course_title': raw.get('course_name'), 'requested_lesson_count': len(context['handout_lessons']) if context.get('source_mode') == 'handouts' else raw.get('knowledge_lesson_count', 3), 'handout_lessons': context.get('handout_lessons', []),
+        + json.dumps({'course_title': raw.get('course_name'), 'requested_lesson_count': len(context['handout_lessons']) if context.get('source_mode') == 'handouts' else raw.get('knowledge_lesson_count', 3), 'handout_lessons': context.get('handout_lessons', []), 'existing_knowledge': context.get('reference_knowledge', []), 'existing_relations': context.get('reference_relations', []), 'existing_categories': context.get('reference_categories', []),
             'course_information': context.get('generation_request'), 'course_profile': context.get('course_profile'),
             'requirements': context.get('requirements'), 'audience': context.get('target_audience'),
             'sources': [{'key': key, 'text': unit['source_text'], 'locator': unit['locator']} for key, unit in sources(context).items()]}, ensure_ascii=False))
@@ -98,6 +98,8 @@ def tree_prompt(raw, context):
             '只提取讲义段落支持的知识，每点的sources只填写有效S编号，不输出quote。程序按S编号保留原始段落，模型不得重写、缩写或拼接引文。')
         prompt = prompt.replace('"sources":[{"key":"S1","quote":"逐字引文"}]', '"sources":["S1"]')
         prompt += '\n逐段检查：分别列出定义、规则、适用边界及可独立判断的步骤。即使同段介绍，也不能将两个独立定义合并为一个叶子。保留命题的全部适用条件；不得把例题数值作为通用事实。'
+    if context.get('scope_lesson_id'):
+        prompt += '\n本次只生成当前一讲知识。existing_knowledge是课程已采用的元知识摘要，不是本讲原始讲义。自主检查已有知识，避免同义重复：若本讲确实复用已有元知识，用{"key":"K1","category_key":"C2","reuse_key":"E1","sources":["S1"]}，不要改写已有命题与条件。新元知识使用原格式。relations端点可用K短键或E短键，自主判断合理的跨讲先修、应用、对比等关联；至少一端必须是本讲输出点，给出理由和条件，不强凑关联。只作关联而不在本讲教授的旧知识无需加入本讲points。不得引用目录之外的元知识ID，不把其他讲的已知内容当成本讲漏项。'
     return prompt
 
 
@@ -114,7 +116,7 @@ def compile_tree(raw, context, response):
     for c in categories:
         key = text(c.get('key'), '分类键', 40)
         require(key not in cats, '分类键重复')
-        cats[key] = {'id': stable_hash({'course': cid, 'name': text(c.get('name'), '分类名称', 160), 'parent': c.get('parent_key')}, prefix='kg_'),
+        cats[key] = {'id': stable_hash({'course': cid, 'name': text(c.get('name'), '分类名称', 160), 'parent': c.get('parent_key'), **({'lesson_id': context['scope_lesson_id']} if context.get('scope_lesson_id') else {})}, prefix='kg_'),
                      'name': c['name'], 'parent_key': c.get('parent_key')}
     for c in cats.values():
         parent = c.pop('parent_key')
@@ -130,8 +132,15 @@ def compile_tree(raw, context, response):
             require(len(seen) <= 6, '分类深度不能超过六层')
             node = by_cat_id.get(node['parent_id'])
     available = sources(context)
+    references = {p['key']: p for p in context.get('reference_knowledge', [])}
     by_key, seen_ids, used_sources = {}, set(), set()
     for p in points:
+        reused = references.get(p.get('reuse_key'))
+        if p.get('reuse_key'):
+            require(reused is not None, '引用了未知的已有元知识')
+            for field in ('name', 'statement', 'conditions', 'meta_question', 'meta_answer'):
+                require(field not in p or p[field] == reused.get(field), '复用元知识不能改写已有定义')
+            p = {**{k: deepcopy(reused.get(k)) for k in ('name', 'statement', 'conditions', 'knowledge_type', 'meta_question', 'meta_answer')}, **p}
         key = text(p.get('key'), '知识短键', 40)
         require(key not in by_key and p.get('category_key') in cats, '知识短键重复或分类无效')
         statement = text(p.get('statement'), '知识命题')
@@ -150,7 +159,7 @@ def compile_tree(raw, context, response):
                 quotes[-1]['handout_ref'] = deepcopy(refs[0])
                 quotes[-1]['source_kind'] = 'canonical_handout_block'
             used_sources.add(source['evidence_id'])
-        kid = stable_hash({'course': cid, 'statement': normalized(statement), 'conditions': sorted(normalized(c) for c in conditions)}, prefix='kp_')
+        kid = reused['knowledge_id'] if reused else stable_hash({'course': cid, 'statement': normalized(statement), 'conditions': sorted(normalized(c) for c in conditions)}, prefix='kp_')
         require(kid not in seen_ids, '同一知识命题重复生成')
         seen_ids.add(kid)
         point = {'id': kid, 'knowledge_id': kid, 'key': key, 'name': text(p.get('name'), '知识名称', 200),
@@ -177,13 +186,18 @@ def compile_tree(raw, context, response):
     require(all(p['section_refs'] for p in by_key.values()), '部分知识尚未分配到讲次')
     edges, prereq = [], {}
     require(isinstance(response.get('relations', []), list), '知识关系必须是列表')
+    endpoints = {**references, **by_key}
     for r in response.get('relations', []):
-        require(isinstance(r, dict) and r.get('source_key') in by_key and r.get('target_key') in by_key and r.get('type') in RELATIONS, '知识关系端点或类型无效')
-        a, b = by_key[r['source_key']]['knowledge_id'], by_key[r['target_key']]['knowledge_id']
+        require(isinstance(r, dict) and r.get('source_key') in endpoints and r.get('target_key') in endpoints and r.get('type') in RELATIONS, '知识关系端点或类型无效')
+        require(r['source_key'] in by_key or r['target_key'] in by_key, '关联至少一端必须是本讲元知识')
+        a, b = endpoints[r['source_key']]['knowledge_id'], endpoints[r['target_key']]['knowledge_id']
         require(a != b, '知识不能关联自身')
         edge = {'source_id': a, 'target_id': b, 'source_knowledge_id': a, 'target_knowledge_id': b,
             'type': r['type'], 'relation_type': r['type'], 'reason': text(r.get('reason'), '关系理由'),
             'conditions': r.get('conditions', []), 'confidence': None, 'basis': 'model_proposed_owner_review'}
+        if context.get('scope_lesson_id'):
+            edge['cross_lesson'] = any(p['knowledge_id'] in (a, b) and any(lid != context['scope_lesson_id'] for lid in (p.get('section_refs') or [])) for p in references.values())
+            edge['reference_knowledge_revision'] = (raw.get('course_knowledge_base') or {}).get('revision_id', '')
         edge['id'] = edge['relation_id'] = stable_hash(edge, prefix='kr_')
         if r['type'] == 'prerequisite': prereq.setdefault(a, []).append(b)
         edges.append(edge)
