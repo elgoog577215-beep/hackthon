@@ -162,6 +162,12 @@ def test_api_handout_sources_require_course_access_and_reject_unknown_mode(svc):
     assert client.get(url, headers={'X-User-Id': 'stranger'}).status_code == 404
     assert client.get(url, headers={'X-User-Id': 'owner'}).json()['source_mode'] == 'handouts'
     assert client.get(url.replace('handouts', 'invalid'), headers={'X-User-Id': 'owner'}).status_code == 422
+    handouts(svc)
+    svc.storage.update_course_data('c-pilot', lambda raw: {**raw, 'is_published': True})
+    shared = client.get(url, headers={'X-User-Id': 'stranger'}).json()
+    assert shared['source_handouts'] == []
+    assert shared['handouts'] == []
+    assert not shared['can_generate_tree']
 
 
 @pytest.mark.asyncio
