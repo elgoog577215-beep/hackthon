@@ -51,3 +51,17 @@ it('renders and selects leaves below four recursive category levels', async () =
   expect(w.get('.point-card h2').text()).toBe('CPU作用')
   w.unmount()
 })
+
+it('reads every section of an ordinary handout before a tree has been adopted', async () => {
+  api.get.mockResolvedValue({ data: { ...state(), handouts: [{ topic: 'cpu', title: 'CPU', current_revision_id: 'r', revisions: [{ revision_id: 'r', sections: [
+    { section_node_id: 'one', blocks: [{ block_id: 'b1', content: '第一节段落' }] },
+    { section_node_id: 'two', blocks: [{ block_id: 'b2', content: '第二节段落' }] },
+  ] }] }] } })
+  const w = mount(View, { props: { courseId: 'c' } }); await flushPromises()
+  await w.findAll('button').find(b => b.text() === '查看讲义')!.trigger('click')
+  expect(w.text()).toContain('第一节段落')
+  expect(w.text()).toContain('第二节段落')
+  expect(w.text()).not.toContain('先采用知识树')
+  expect(w.findAll('button').some(b => b.text() === '生成本讲讲义')).toBe(false)
+  w.unmount()
+})
