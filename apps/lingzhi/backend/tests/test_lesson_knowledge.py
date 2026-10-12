@@ -134,3 +134,26 @@ def test_untouched_material_based_points_remain_readable_in_mixed_preview(svc):
     block = {'block_id': 'visible', 'payload': {'knowledge_refs': [{'knowledge_id': point['knowledge_id'], 'revision_id': point['revision_id']}]}}
     view = visible_handout_tree(tree, {'blocks': [block]}, {})
     assert [p['knowledge_id'] for p in view['knowledge_points']] == [point['knowledge_id']]
+
+
+@pytest.mark.asyncio
+async def test_independent_lecture_candidates_can_be_adopted_in_sequence(svc):
+    handouts(svc)
+    replies = iter(['cpu', 'memory'])
+    async def call(*args, **kwargs): return json.dumps(one_lesson_response(next(replies)), ensure_ascii=False)
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=call, model_smart='test', client=None)
+    jobs = []
+    for lid in ['cpu', 'memory']:
+        v = svc.view('c-pilot', source_mode='handouts')
+        job, _ = svc.start('c-pilot', 'tree', lid, v['knowledge_revision'], v['document_revision'], source_mode='handouts', lesson_id=lid)
+        await svc.run('c-pilot', job['id']); jobs.append(job)
+    for job in jobs:
+        v = svc.view('c-pilot', source_mode='handouts')
+        svc.adopt('c-pilot', job['id'], v['knowledge_revision'], v['document_revision'])
+    v = svc.view('c-pilot', source_mode='handouts')
+    assert {l['topic'] for l in v['tree']['lessons']} == {'cpu', 'memory'}
+    assert len(v['tree']['knowledge_points']) == 2
+    assert all(c['adopted'] for c in v['candidates'])
+    revision = v['knowledge_revision']
+    svc.adopt('c-pilot', jobs[0]['id'], revision, v['document_revision'])
+    assert svc.view('c-pilot')['knowledge_revision'] == revision
