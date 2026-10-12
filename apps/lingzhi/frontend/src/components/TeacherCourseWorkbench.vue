@@ -15,7 +15,8 @@
         <strong class="stage-rail-title">{{ t('courseWorkbench.title', '课程工作台') }}</strong>
       </header>
       <nav>
-        <button v-for="stage in stages" :key="stage.id" type="button" :class="{ active: activeStage === stage.id }" :disabled="stageSwitching || stagePrerequisiteBlocked(stage.id) || (aiCandidatePending && activeStage !== stage.id)" :title="stagePrerequisiteBlocked(stage.id) ? stagePrerequisiteReason(stage.id) : undefined" @click="requestStageChange(stage.id)">
+        <template v-for="stage in stages" :key="stage.id">
+        <button type="button" :class="{ active: activeStage === stage.id }" :disabled="stageSwitching || stagePrerequisiteBlocked(stage.id) || (aiCandidatePending && activeStage !== stage.id)" :title="stagePrerequisiteBlocked(stage.id) ? stagePrerequisiteReason(stage.id) : undefined" @click="requestStageChange(stage.id)">
           <span>{{ stage.step }}</span><component :is="stage.icon" :size="18" /><strong>{{ stage.label }}</strong>
           <span
             v-if="stage.id !== 'ppt' || legacyPptOpen"
@@ -27,6 +28,8 @@
             :aria-label="stageProgressLabel(stage.id)"
           ><Check v-if="stageReady(stage.id)" :size="12" aria-hidden="true" /></span>
         </button>
+        <button v-if="stage.id === 'script'" type="button" :disabled="stageSwitching || aiCandidatePending" @click="emit('open-knowledge')"><span>04</span><Layers3 :size="18" /><strong>{{ t('knowledgeFirst.tree') }}</strong></button>
+        </template>
       </nav>
       <p v-if="activeStage === 'foundation' && !outlineAvailableForLessons" class="stage-prerequisite-reason" role="status">{{ outlinePrerequisiteReason }}</p>
       <section class="companion-entry">
@@ -1306,6 +1309,7 @@ const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; 
 const emit = defineEmits<{
   (event: 'generateOutline', payload: { subject: string; options: CourseGenerationOptions; references: CourseReferenceItem[] }): void
   (event: 'update:outlineEditing', value: boolean): void
+  (event: 'open-knowledge'): void
   (event: 'open-course-information'): void
   (event: 'open-course-adjustment', payload: { planId: string }): void
 }>()
@@ -1509,7 +1513,7 @@ const stages = computed(() => [
   { id: 'foundation' as const, step: '01', label: t('courseWorkbench.stages.foundation', '大纲'), icon: markRaw(Layers3) },
   { id: 'lesson' as const, step: '02', label: t('courseWorkbench.stages.lesson', '教案'), icon: markRaw(ClipboardList) },
   { id: 'script' as const, step: '03', label: t('courseWorkbench.stages.script', '讲义'), icon: markRaw(BookOpenText) },
-  { id: 'ppt' as const, step: '04', label: t('courseWorkbench.stages.ppt', 'PPT'), icon: markRaw(Presentation) },
+  { id: 'ppt' as const, step: '05', label: t('courseWorkbench.stages.ppt', 'PPT'), icon: markRaw(Presentation) },
 ])
 const activeStageDefinition = computed(() => stages.value.find(item => item.id === activeStage.value) || {
   id: activeStage.value === 'question-bank' ? 'question-bank' as const : 'companion' as const,
