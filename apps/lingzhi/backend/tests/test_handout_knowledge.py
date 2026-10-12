@@ -52,6 +52,8 @@ async def test_no_upload_extracts_from_existing_handouts_without_rewriting_them(
     assert tree['knowledge_points'][0]['source_quotes'][0]['handout_ref']['script_revision_id'] == 'r-cpu'
     assert raw['course_document'] == document
     assert svc.authoring.load('c-pilot')['lessons'] == before
+    assert svc.view('c-pilot')['enabled']
+    assert svc.view('c-pilot')['tree']['revision_id'] == tree['revision_id']
 
 
 def test_without_handouts_gives_next_step_and_blocks_model(svc):
