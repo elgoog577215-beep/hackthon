@@ -91,3 +91,78 @@ def test_recursive_categories_preserve_point_identity_and_reject_cycles(svc):
     deep['categories'][0]['parent_key'] = 'C4'
     with pytest.raises(CourseDocumentConflict, match='环'):
         compile_tree(raw, context, deep)
+
+
+def test_handout_context_ignores_uploaded_caches_and_unfinished_blocks(svc):
+    from handout_knowledge import handout_context
+    handouts(svc)
+    state = svc.authoring.load('c-pilot')
+    state['lessons']['cpu']['script_revisions'][0]['sections'][0]['blocks'].append(
+        {'block_id': 'partial', 'content': '尚未完成，不能提取', 'status': 'failed'})
+    raw = svc.repository.load_raw('c-pilot')
+    raw.update(evidence_package={'invalid': True}, parsed_documents=[{'bad': 'cache'}])
+    context = handout_context(raw, state)
+    assert len(context['handout_lessons']) == 2
+    assert len(context['evidence_package']['units']) == 2
+    assert '尚未完成' not in json.dumps(context, ensure_ascii=False)
+    assert context['policy']['handouts_are_generated_content_not_independent_evidence']
+
+
+def test_cross_lecture_mapping_and_fabricated_quote_are_rejected(svc):
+    from handout_knowledge import handout_context
+    from generic_knowledge import compile_tree
+    handouts(svc)
+    raw = svc.repository.load_raw('c-pilot')
+    context = handout_context(raw, svc.authoring.load('c-pilot'))
+    wrong = answer(); wrong['lessons'][0]['knowledge_keys'].append('K2')
+    with pytest.raises(CourseDocumentConflict, match='讲次归属'):
+        compile_tree(raw, context, wrong)
+    wrong = answer(); wrong['points'][0]['sources'][0]['quote'] = '不存在的事实'
+    with pytest.raises(CourseDocumentConflict, match='引文'):
+        compile_tree(raw, context, wrong)
+
+
+@pytest.mark.asyncio
+async def test_recheck_uses_the_same_frozen_handouts_without_another_model_call(svc):
+    handouts(svc)
+    async def call(*args, **kwargs): return json.dumps(answer(), ensure_ascii=False)
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=call, model_smart='test', client=None)
+    v = svc.view('c-pilot', source_mode='handouts')
+    job, _ = svc.start('c-pilot', 'tree', 'initial', '', v['document_revision'], source_mode='handouts')
+    svc.authoring.update_job('c-pilot', job['id'], status='failed', raw_response=json.dumps(answer()))
+    checked = svc.recheck('c-pilot', job['id'], 'manual-check', v['document_revision'], '')
+    assert checked['source_mode'] == 'handouts'
+    assert checked['model_request_sent'] is False
+    svc.adopt('c-pilot', checked['id'], '', v['document_revision'])
+
+
+def test_api_handout_sources_require_course_access_and_reject_unknown_mode(svc):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from routers.knowledge_first import router
+    from dependencies import get_course_document_repository, get_teacher_lesson_authoring_repository
+    app = FastAPI(); app.include_router(router, prefix='/api')
+    app.dependency_overrides[get_course_document_repository] = lambda: svc.repository
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: svc.authoring
+    client = TestClient(app)
+    url = '/api/courses/c-pilot/knowledge-first?source_mode=handouts'
+    assert client.get(url, headers={'X-User-Id': 'stranger'}).status_code == 404
+    assert client.get(url, headers={'X-User-Id': 'owner'}).json()['source_mode'] == 'handouts'
+    assert client.get(url.replace('handouts', 'invalid'), headers={'X-User-Id': 'owner'}).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_connection_failure_explains_recovery_without_retrying(svc):
+    from ai_base import AIProviderRequestError
+    handouts(svc)
+    calls = []
+    async def call(*args, **kwargs):
+        calls.append(1)
+        raise AIProviderRequestError('Connection error.')
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=call, model_smart='test', client=None)
+    v = svc.view('c-pilot', source_mode='handouts')
+    job, _ = svc.start('c-pilot', 'tree', 'connection', '', v['document_revision'], source_mode='handouts')
+    await svc.run('c-pilot', job['id'])
+    failure = svc.authoring.load('c-pilot')['jobs'][job['id']]
+    assert failure['error']['code'] == 'ModelConnectionUnavailable'
+    assert calls == [1]
