@@ -1,0 +1,2378 @@
+{
+  "schema": "c17_reviewed_material_v1",
+  "scope": "C17：类型转换、if 配对、for 控制流三组；不是完整 C 语言课程",
+  "provenance": "经人工修订与编译核验的课程样板；AI 只组织知识分类和生成讲解，固定知识事实、诊断与例题答案来自材料。",
+  "baseline_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+  "bundles": {
+    "types": {
+      "topic": "types",
+      "title": "第1讲　数值类型转换",
+      "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+      "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9",
+      "course": "C17基础程序设计三组试写样稿",
+      "learner": "已认识变量、简单算术和语句的初学者",
+      "points": [
+        {
+          "key": "K-T01",
+          "knowledge_id": "kp_a5d0794652c45fdc98cc",
+          "name": "默认整型",
+          "statement": "在C17中，没有后缀的十进制整数字面量在能由int表示时，默认具有int类型。",
+          "conditions": [
+            "十进制整数字面量",
+            "数值能由int表示"
+          ],
+          "meta_question": "为什么不带后缀的十进制整数在能由int容纳时其类型被确定为int？",
+          "meta_answer": "C17规范规定，当整数字面量在可容纳的范围内没有后缀时，其类型就是int。",
+          "source_refs": [
+            "T-S1"
+          ]
+        },
+        {
+          "key": "K-T02",
+          "knowledge_id": "kp_6f7acf39ee685b02b0dc",
+          "name": "1U 的类型",
+          "statement": "整数字面量 1U 的类型是 unsigned int。",
+          "conditions": [
+            "C17",
+            "本点讨论值为1的U后缀字面量，不推广到任意大的U后缀常量"
+          ],
+          "meta_question": "字面量1U的类型是什么？",
+          "meta_answer": "unsigned int。",
+          "source_refs": [
+            "T-S1"
+          ]
+        },
+        {
+          "key": "K-T03",
+          "knowledge_id": "kp_a5dae2aa52035d95b867",
+          "name": "浮点默认",
+          "statement": "十进制浮点字面量如果没有 'f' 或 'l' 后缀，其类型是 double。",
+          "conditions": [
+            "十进制浮点字面量",
+            "没有 f 或 l 后缀"
+          ],
+          "meta_question": "为什么不带后缀的十进制小数在C17中被视为 double 而非 float？",
+          "meta_answer": "C17规范将默认没有后缀的浮点数类型指定为 double，以区分 float。",
+          "source_refs": [
+            "T-S1"
+          ]
+        },
+        {
+          "key": "K-T04",
+          "knowledge_id": "kp_298a70fc3ed458419629",
+          "name": "整数提升规则",
+          "statement": "需要整数提升时，若 int 可表示原整数类型全部值，则提升为 int，否则为 unsigned int。",
+          "conditions": [
+            "C17中需要整数提升的场合",
+            "原类型满足整数提升的适用条件；不把该步骤推广到所有混合浮点运算"
+          ],
+          "meta_question": "在需要整数提升的运算中，若int不能表示unsigned short的全部值，unsigned short提升为什么？",
+          "meta_answer": "unsigned int。",
+          "source_refs": [
+            "T-S1"
+          ]
+        },
+        {
+          "key": "K-T05",
+          "knowledge_id": "kp_69b2e7448aa15b7083f3",
+          "name": "int 与 double 的共同类型",
+          "statement": "本课的 int 与 double 操作数进行通常算术转换时，int 操作数转换为 double。",
+          "conditions": [
+            "实数算术操作数分别为int和double",
+            "运算有定义",
+            "本点不描述其他有符号/无符号类型组合"
+          ],
+          "meta_question": "int与double相除时，转换后的共同算术类型是什么？",
+          "meta_answer": "double。",
+          "source_refs": [
+            "T-S2"
+          ]
+        },
+        {
+          "key": "K-T06",
+          "knowledge_id": "kp_e064cc59684e52ccab22",
+          "name": "int与unsigned int的通常算术转换方向",
+          "statement": "int与unsigned int进行通常算术转换时，int操作数转换为unsigned int。",
+          "conditions": [
+            "两操作数分别为int与unsigned int，二者转换秩相同",
+            "不推广为任意有符号与无符号类型组合"
+          ],
+          "meta_question": "比较int值-1与unsigned int值1时，-1会先转换成哪种类型？",
+          "meta_answer": "unsigned int，转换值为UINT_MAX。",
+          "source_refs": [
+            "T-S3"
+          ]
+        },
+        {
+          "key": "K-T07",
+          "knowledge_id": "kp_f264e18962e050d09e0e",
+          "name": "整数除法截断",
+          "statement": "整数除法的结果会丢弃小数部分，且向零方向截断。",
+          "conditions": [
+            "除法操作数均为整数类型",
+            "运算具有定义的行为"
+          ],
+          "meta_question": "C17中整数除法为什么在得到商时执行向零截断而非向下取整？",
+          "meta_answer": "C17明确规定，在整数除法有定义的情况下，结果必须向零截断。",
+          "source_refs": [
+            "T-S2"
+          ]
+        },
+        {
+          "key": "K-T08",
+          "knowledge_id": "kp_42c760b4e0ce55a399ac",
+          "name": "接收类型不反向改变表达式",
+          "statement": "普通标量初始化或简单赋值把右侧表达式的值转换为目标类型；目标类型不会反向改变右侧子表达式的运算类型。",
+          "conditions": [
+            "C17普通标量初始化或简单赋值",
+            "右侧表达式及转换有定义",
+            "不主张赋值左右操作数固定先右后左求值"
+          ],
+          "meta_question": "double x=5/2中的double目标类型会把5/2本身变成浮点除法吗？",
+          "meta_answer": "不会。先得到int商2，再转换保存为double值2.0。",
+          "source_refs": [
+            "T-S2"
+          ]
+        },
+        {
+          "key": "K-T09",
+          "knowledge_id": "kp_beb3a555a3965103b268",
+          "name": "显式转换的位置",
+          "statement": "显式转换只作用于语法上指定的操作数；转换发生位置决定它在算术运算之前还是之后。",
+          "conditions": [
+            "C17算术转换",
+            "表达式求值有定义"
+          ],
+          "meta_question": "(double)5/2中的显式转换首先作用于哪个操作数？",
+          "meta_answer": "只作用于5，随后除法按double计算；(double)(5/2)则在整数除法完成后转换其结果。",
+          "source_refs": [
+            "T-S2"
+          ]
+        },
+        {
+          "key": "K-T10",
+          "knowledge_id": "kp_3dc45a3f0809584f88b4",
+          "name": "转换表达式不改原变量",
+          "statement": "读取变量并显式转换所得值，本身不会修改该变量的声明类型或存储值。",
+          "conditions": [
+            "操作数只是读取变量",
+            "排除赋值、自增、函数调用等另带副作用的操作数"
+          ],
+          "meta_question": "int n=5;单独求值(double)n后，n的类型和值会改变吗？",
+          "meta_answer": "不会，n仍是int，存储值仍为5。",
+          "source_refs": [
+            "T-S2"
+          ]
+        },
+        {
+          "key": "K-T11",
+          "knowledge_id": "kp_5ad9966d470d5bb0ae0b",
+          "name": "模转换",
+          "statement": "整数转换为无符号整数类型时，结果与原整数模目标最大值加一同余，并落在目标类型范围内。",
+          "conditions": [
+            "源值为整数",
+            "目标为非_Bool无符号整数类型",
+            "不用于浮点转整数"
+          ],
+          "meta_question": "把整数-1转换为unsigned int，是否必须假设unsigned int是32位才能确定结果？",
+          "meta_answer": "不必，结果总是UINT_MAX。",
+          "source_refs": [
+            "T-S3"
+          ]
+        },
+        {
+          "key": "K-T12",
+          "knowledge_id": "kp_1fe15bba50a25d8e943c",
+          "name": "有符号越界",
+          "statement": "整数转换为有符号类型且原值无法表示时，结果是实现定义的或触发实现定义的信号。",
+          "conditions": [
+            "目标类型为有符号整数类型",
+            "源值超出目标类型的表示范围"
+          ],
+          "meta_question": "为什么在C17中不能假设大正整数转成有符号类型一定会发生“截位”或变为特定值？",
+          "meta_answer": "因为C17标准将这种情况规定为实现定义的行为，允许编译器采取截位或发送信号等不同策略。",
+          "source_refs": [
+            "T-S3"
+          ]
+        },
+        {
+          "key": "K-T13",
+          "knowledge_id": "kp_a4392bd278485e0fa152",
+          "name": "可表示整数转换保持数值",
+          "statement": "整数转换到另一整数类型，若目标类型能表示原值，则数值不变。",
+          "conditions": [
+            "源值为整数",
+            "目标整数类型能表示该值"
+          ],
+          "meta_question": "整数100转为能够表示100的short，会改变数值吗？",
+          "meta_answer": "不会，数值仍为100。",
+          "source_refs": [
+            "T-S3"
+          ]
+        },
+        {
+          "key": "K-T14",
+          "knowledge_id": "kp_646a7a803bbe5177a604",
+          "name": "浮点截断",
+          "statement": "有限实浮点值转换为非 _Bool 整数类型时，会丢弃小数部分并向零截断。",
+          "conditions": [
+            "源类型为实浮点",
+            "目标类型为整数",
+            "源值是有限实数",
+            "截断后的值在目标范围内"
+          ],
+          "meta_question": "在 C17 中为什么 float 类型的 3.999 转为 int 会得到 3 而不是 4？",
+          "meta_answer": "因为浮点转整数执行的是向零截断（truncation toward zero），而非数学意义上的四舍五入。",
+          "source_refs": [
+            "T-S4"
+          ]
+        },
+        {
+          "key": "K-T15",
+          "knowledge_id": "kp_aa43887dd5d75734b73d",
+          "name": "浮点越界",
+          "statement": "有限实浮点值转非_Bool整数时，向零截断后的整数部分若不能由目标类型表示，行为未定义。",
+          "conditions": [
+            "源值有限",
+            "目标为非_Bool整数类型",
+            "按目标实际上下界判断整数部分，不对其取绝对值"
+          ],
+          "meta_question": "(unsigned int)-1.5能像整数-1转换那样使用取模规则吗？",
+          "meta_answer": "不能。截断后的-1不在unsigned int范围内，转换行为未定义。",
+          "source_refs": [
+            "T-S4"
+          ]
+        },
+        {
+          "key": "K-T16",
+          "knowledge_id": "kp_9a88aebecb8d52898f70",
+          "name": "整数到浮点",
+          "statement": "整数转实浮点时，目标数值范围足够并不保证精确，有限有效精度可能造成信息损失。",
+          "conditions": [
+            "整数在目标浮点数值范围内",
+            "不假设所有C实现的double有效精度或舍入方式相同"
+          ],
+          "meta_question": "仅知道某整数在double的数值范围内，能否保证转换后精确不变？",
+          "meta_answer": "不能，还必须判断该整数能否由目标浮点格式精确表示。",
+          "source_refs": [
+            "T-S4"
+          ]
+        }
+      ],
+      "terminology": [
+        {
+          "key": "integer_literal",
+          "canonical": "整数字面量",
+          "aliases": [
+            "整数常量"
+          ]
+        },
+        {
+          "key": "integer_promotion",
+          "canonical": "整数提升",
+          "aliases": []
+        },
+        {
+          "key": "usual_conversion",
+          "canonical": "通常算术转换",
+          "aliases": []
+        },
+        {
+          "key": "cast",
+          "canonical": "显式类型转换",
+          "aliases": [
+            "强制类型转换"
+          ]
+        },
+        {
+          "key": "truncate",
+          "canonical": "向零截断",
+          "aliases": []
+        },
+        {
+          "key": "mod_conversion",
+          "canonical": "无符号整数的模转换",
+          "aliases": [
+            "模转换"
+          ]
+        },
+        {
+          "key": "implementation_defined",
+          "canonical": "实现定义",
+          "aliases": []
+        },
+        {
+          "key": "undefined",
+          "canonical": "未定义行为",
+          "aliases": [
+            "UB"
+          ]
+        },
+        {
+          "key": "range",
+          "canonical": "数值范围",
+          "aliases": []
+        },
+        {
+          "key": "precision",
+          "canonical": "有效精度",
+          "aliases": []
+        }
+      ],
+      "sections": [
+        {
+          "key": "types1",
+          "title": "先确定表达式的类型",
+          "required_knowledge_keys": [
+            "K-T01",
+            "K-T02",
+            "K-T03",
+            "K-T04",
+            "K-T05",
+            "K-T06"
+          ]
+        },
+        {
+          "key": "types2",
+          "title": "先计算再转换",
+          "required_knowledge_keys": [
+            "K-T07",
+            "K-T08",
+            "K-T09",
+            "K-T10"
+          ]
+        },
+        {
+          "key": "types3",
+          "title": "转换的边界",
+          "required_knowledge_keys": [
+            "K-T11",
+            "K-T12",
+            "K-T13",
+            "K-T14",
+            "K-T15"
+          ]
+        },
+        {
+          "key": "types4",
+          "title": "精度与易错辨析",
+          "required_knowledge_keys": [
+            "K-T16"
+          ]
+        }
+      ],
+      "example_bank": [
+        {
+          "key": "E-T01",
+          "title": "整数除法截断",
+          "knowledge_keys": [
+            "K-T07"
+          ],
+          "code": "printf(\"%d\",-7/2);",
+          "answer_stdout": "-3",
+          "answer_ref": {
+            "check_id": "check_cb13ef04da0355cdb75e",
+            "code_hash": "fdf8331bdf0c9569260d8d75c12504923340c06b499c94c2c3da278707174464",
+            "receipt_hash": "07541f3954851ab193fcf6341180bb05ff62751fd5f4c9774f6d772ae1754e3b",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        },
+        {
+          "key": "E-T02",
+          "title": "接收类型不反向改变表达式",
+          "knowledge_keys": [
+            "K-T08"
+          ],
+          "code": "double x=7/2; printf(\"%.1f\",x);",
+          "answer_stdout": "3.0",
+          "answer_ref": {
+            "check_id": "check_eb3ce019c74550c498fe",
+            "code_hash": "fba576f34a46acaea7e0510f40bfe3e52f3266c8a31bdd679be30c77c3768a9f",
+            "receipt_hash": "8da77dabdc1cafd1dbfd7d933b36d62278d5bc77bde5f7763c11c03381d55c4a",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        },
+        {
+          "key": "E-T03",
+          "title": "显式转换的位置",
+          "knowledge_keys": [
+            "K-T09"
+          ],
+          "code": "printf(\"%.1f %.1f\",(double)5/2,(double)(5/2));",
+          "answer_stdout": "2.5 2.0",
+          "answer_ref": {
+            "check_id": "check_067e1a66001d528bb631",
+            "code_hash": "8e9640cbdfdffa246f5f8317d2b9f9c29b26577bc1c97d5170283c5f7afc0041",
+            "receipt_hash": "06c1963ca3c82fb5a66b6480398d2a189b23b7d5420c3ae0281c14820888bd1d",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        },
+        {
+          "key": "E-T04",
+          "title": "转换表达式不改原变量",
+          "knowledge_keys": [
+            "K-T10"
+          ],
+          "code": "int n=10; double tmp=(double)n; printf(\"%d %d\",_Generic(n,int:1,default:0),n);",
+          "answer_stdout": "1 10",
+          "answer_ref": {
+            "check_id": "check_965a23c1f5035db5b53c",
+            "code_hash": "7bb46aae1dd4502828f02bf2af9ac3a7e39f5be67c6e9a3efeb82e9d08746182",
+            "receipt_hash": "6936a14ba9600688be496a5024ebab3eab7eb509a660c95374ccf4d5b0f81cef",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        },
+        {
+          "key": "E-T05",
+          "title": "浮点截断",
+          "knowledge_keys": [
+            "K-T14"
+          ],
+          "code": "printf(\"%d\",(int)3.999f);",
+          "answer_stdout": "3",
+          "answer_ref": {
+            "check_id": "check_2482719b284f5ec59ab5",
+            "code_hash": "c20b943ef2dfb2645be92dd84e62e0349997cc797eace44d65bf015d11f9b92e",
+            "receipt_hash": "4d76b91661e889abc85fbe368d47f4c3bf23454f6fb1ed360e32de7d33825f7e",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        },
+        {
+          "key": "E-T06",
+          "title": "模转换",
+          "knowledge_keys": [
+            "K-T11"
+          ],
+          "code": "printf(\"%d\",(unsigned int)-1==UINT_MAX);",
+          "answer_stdout": "1",
+          "answer_ref": {
+            "check_id": "check_3320b6e90d165f189a55",
+            "code_hash": "d6def769172fc09854428de4fb82410041fa0803194bdea582291f13e6f7d410",
+            "receipt_hash": "3af90d99d56887eededcf09a9ae8da4bd441084ab62acb996dc1883184dbe7c8",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        }
+      ],
+      "diagnostic": {
+        "key": "D-T",
+        "knowledge_keys": [
+          "K-T07",
+          "K-T08",
+          "K-T09"
+        ],
+        "hypothesis_a": "误以为两个int的除法也保留数学上的小数商。",
+        "hypothesis_b": "知道int除法会截断，但误以为左侧double接收变量会反向把右侧int除法变成浮点除法。",
+        "repair_a": "先判定运算操作数类型：两个int相除在有定义时得到向零截断的整数商；需要小数时先转换一个操作数。",
+        "repair_b": "区分右侧表达式求值与接收转换：左侧double只转换已经算出的值，不会恢复已丢弃的小数。",
+        "examples": [
+          {
+            "role": "symptom",
+            "code": "double x=7/3; printf(\"%.2f\\n\",x);",
+            "answer_stdout": "2.00\n",
+            "prediction_a": "2.33\n",
+            "prediction_b": "2.33\n",
+            "answer_ref": {
+              "value": "2.00\n",
+              "check_id": "check_dcdf517c31fb5ee6a0f2",
+              "receipt_hash": "65f9843e2664019b0b9908dccd808bb29a8912ad138cbeb56a4eb47ca7dcd3e2",
+              "code_hash": "f42313beb3dd40ad18cf21c48c249713a17130abd39cf9e6f22f897d5aa6079c"
+            }
+          },
+          {
+            "role": "diagnostic",
+            "code": "printf(\"%.2f\\n\",(double)(7/3));",
+            "answer_stdout": "2.00\n",
+            "prediction_a": "2.33\n",
+            "prediction_b": "2.00\n",
+            "answer_ref": {
+              "value": "2.00\n",
+              "check_id": "check_3ec74c3e6e025f5e928e",
+              "receipt_hash": "f1c357761ef062728508dfa6ba18319b7f83e5bd8144895efb35c29056d508ca",
+              "code_hash": "0373602c37ded9674a54337fb493563852a03d53c7174f7aa94d90c6b867ed3e"
+            }
+          },
+          {
+            "role": "retest",
+            "code": "printf(\"%.2f %.2f\\n\",(double)(11/4),(double)11/4);",
+            "answer_stdout": "2.00 2.75\n",
+            "prediction_a": "2.75 2.75\n",
+            "prediction_b": "2.00 2.75\n",
+            "answer_ref": {
+              "value": "2.00 2.75\n",
+              "check_id": "check_2ee18a7340cb5bda9202",
+              "receipt_hash": "88412f608e9da24a75b3bbb80d7f77409ea8d1eb760da104961dc4e2136ce80b",
+              "code_hash": "459e2af460ad1709bbb7e46ef09dfd9d7f942124e92aa745ebd251a6ad7066f8"
+            }
+          }
+        ]
+      },
+      "exercise_bank": [
+        {
+          "key": "Q-T01",
+          "knowledge_keys": [
+            "K-T01"
+          ],
+          "question": "在C17中，若整数字面量 123 没有后缀且其值能由 int 表示，它的类型是什么？",
+          "answer": "int",
+          "rationale": "C17规定无后缀且值在int范围内的十进制整数字面量默认为int。",
+          "conditions": [
+            "十进制整数字面量",
+            "数值能由int表示"
+          ]
+        },
+        {
+          "key": "Q-T02",
+          "knowledge_keys": [
+            "K-T02"
+          ],
+          "question": "在C17中，字面量 1U 的类型是什么？",
+          "answer": "unsigned int",
+          "rationale": "U后缀表示unsigned，值1能由unsigned int表示，故类型为unsigned int。",
+          "conditions": [
+            "C17",
+            "本点讨论值为1的U后缀字面量，不推广到任意大的U后缀常量"
+          ]
+        },
+        {
+          "key": "Q-T03",
+          "knowledge_keys": [
+            "K-T03"
+          ],
+          "question": "在C17中，浮点字面量 3.14 没有 'f' 或 'l' 后缀，其类型是什么？",
+          "answer": "double",
+          "rationale": "C17规定无后缀的十进制浮点字面量默认为double。",
+          "conditions": [
+            "十进制浮点字面量",
+            "没有 f 或 l 后缀"
+          ]
+        },
+        {
+          "key": "Q-T04",
+          "knowledge_keys": [
+            "K-T04"
+          ],
+          "question": "假设在某C17实现中，int 不能表示 unsigned short 的所有值（即 unsigned short 的取值范围超出了 int 的范围）。在表达式 `unsigned short u = 65535; int result = u + 1;` 中，`u` 在参与 `+` 运算前被提升为什么类型？",
+          "answer": "unsigned int",
+          "rationale": "根据整数提升规则，如果 int 不能表示原整数类型（这里是 unsigned short）的全部值，则提升到 unsigned int。",
+          "conditions": [
+            "C17中需要整数提升的场合",
+            "原类型满足整数提升的适用条件；不把该步骤推广到所有混合浮点运算"
+          ]
+        },
+        {
+          "key": "Q-T05",
+          "knowledge_keys": [
+            "K-T05"
+          ],
+          "question": "在执行表达式 `double d = 10 / 2.0;` 时，操作数 `10` 和 `2.0` 进行通常算术转换后的共同类型是什么？",
+          "answer": "double",
+          "rationale": "int 和 double 参与运算时，int 操作数转换为 double，因此共同类型为 double。",
+          "conditions": [
+            "实数算术操作数分别为int和double",
+            "运算有定义",
+            "本点不描述其他有符号/无符号类型组合"
+          ]
+        },
+        {
+          "key": "Q-T06",
+          "knowledge_keys": [
+            "K-T06"
+          ],
+          "question": "在表达式 (int)-1 < (unsigned int)1 中，比较发生前 (int)-1 被转换为哪种类型？",
+          "answer": "unsigned int。",
+          "rationale": "直接测试 int 与 unsigned int 之间通常算术转换的定向规则。",
+          "conditions": [
+            "两操作数分别为int与unsigned int，二者转换秩相同",
+            "不推广为任意有符号与无符号类型组合"
+          ]
+        },
+        {
+          "key": "Q-T07",
+          "knowledge_keys": [
+            "K-T07"
+          ],
+          "question": "在C17中，整数表达式 -7 / 2 的结果是多少？",
+          "answer": "-3",
+          "rationale": "整数除法向零截断，-7除以2的商为-3.5，截断后为-3。",
+          "conditions": [
+            "除法操作数均为整数类型",
+            "运算具有定义的行为"
+          ]
+        },
+        {
+          "key": "Q-T08",
+          "knowledge_keys": [
+            "K-T08"
+          ],
+          "question": "执行语句 `double x = 7 / 2;` 后，变量 `x` 存储的数值是多少？右侧表达式 `7 / 2` 在转换为 double 之前的计算结果类型和值分别是什么？",
+          "answer": "x 存储 3.0；计算结果类型是 int，值是 3。",
+          "rationale": "目标类型 double 不会反向改变右侧子表达式 `7 / 2` 的运算类型，它先按整数除法得到 int 值 3，然后转换为 double 3.0。",
+          "conditions": [
+            "C17普通标量初始化或简单赋值",
+            "右侧表达式及转换有定义",
+            "不主张赋值左右操作数固定先右后左求值"
+          ]
+        },
+        {
+          "key": "Q-T09",
+          "knowledge_keys": [
+            "K-T09"
+          ],
+          "question": "表达式 `(double)5 / 2` 和 `(double)(5 / 2)` 的计算结果分别是多少？请分别说明显式转换作用的位置对结果的影响。",
+          "answer": "(double)5 / 2 结果是 2.5；(double)(5 / 2) 结果是 2.0。",
+          "rationale": "前者先将 5 转为 double 再执行浮点除法；后者先执行整数除法得到 2，再将结果转为 double。",
+          "conditions": [
+            "C17算术转换",
+            "表达式求值有定义"
+          ]
+        },
+        {
+          "key": "Q-T10",
+          "knowledge_keys": [
+            "K-T10"
+          ],
+          "question": "有代码段 `int n = 10;`，随后执行语句 `double tmp = (double)n;`。执行该语句后，变量 `n` 的声明类型和内存中存储的数值各是什么？",
+          "answer": "类型是 int，存储值仍是 10。",
+          "rationale": "显式转换作用于表达式的值，产生一个新的 double 值赋给 tmp，但原变量 n 只被读取，未被修改，其类型和值保持不变。",
+          "conditions": [
+            "操作数只是读取变量",
+            "排除赋值、自增、函数调用等另带副作用的操作数"
+          ]
+        },
+        {
+          "key": "Q-T11",
+          "knowledge_keys": [
+            "K-T11"
+          ],
+          "question": "把整数-1转换为unsigned int，是否必须假设unsigned int是32位才能确定结果？",
+          "answer": "不必，结果总是UINT_MAX。",
+          "rationale": "整数转为无符号时，结果与原值模目标最大值加一同余。对-1而言，同余值恒为目标类型的最大可表示值。",
+          "conditions": [
+            "源值为整数",
+            "目标为非_Bool无符号整数类型",
+            "不用于浮点转整数"
+          ]
+        },
+        {
+          "key": "Q-T12",
+          "knowledge_keys": [
+            "K-T12"
+          ],
+          "question": "在C17中，将超出int范围的大正整数转换为int时，是否保证结果一定是该整数的低32位（或等效截位值）？",
+          "answer": "否",
+          "rationale": "C17规定该行为是实现定义的，可能截位也可能产生信号，不保证特定值。",
+          "conditions": [
+            "目标类型为有符号整数类型",
+            "源值超出目标类型的表示范围"
+          ]
+        },
+        {
+          "key": "Q-T13",
+          "knowledge_keys": [
+            "K-T13"
+          ],
+          "question": "如果源整数 100 能够被目标 short 类型表示，那么表达式 (short)100 执行后的数值会发生改变吗？",
+          "answer": "不会，转换后数值仍为 100。",
+          "rationale": "直接测试可表示范围内的整数转换保持数值不变的规则。",
+          "conditions": [
+            "源值为整数",
+            "目标整数类型能表示该值"
+          ]
+        },
+        {
+          "key": "Q-T14",
+          "knowledge_keys": [
+            "K-T14"
+          ],
+          "question": "在C17中，将有限浮点值 3.999f 转换为 int 类型（假设在范围内），结果是多少？",
+          "answer": "3",
+          "rationale": "浮点转整数执行向零截断，3.999的小数部分被丢弃，结果为3。",
+          "conditions": [
+            "源类型为实浮点",
+            "目标类型为整数",
+            "源值是有限实数",
+            "截断后的值在目标范围内"
+          ]
+        },
+        {
+          "key": "Q-T15",
+          "knowledge_keys": [
+            "K-T15"
+          ],
+          "question": "表达式 (unsigned int)-1.5 的行为是确定的吗？如果是，其计算结果是什么？如果不是，请说明原因。",
+          "answer": "行为未定义。因为向零截断后的-1超出了 unsigned int 的取值范围，属于浮点越界。",
+          "rationale": "该题直接测试有限浮点转无符号整数时的截断越界规则，而非整数取模规则。",
+          "conditions": [
+            "源值有限",
+            "目标为非_Bool整数类型",
+            "按目标实际上下界判断整数部分，不对其取绝对值"
+          ]
+        },
+        {
+          "key": "Q-T16",
+          "knowledge_keys": [
+            "K-T16"
+          ],
+          "question": "假设已知整数 X 处于 double 的数值表示范围内，那么表达式 (double)X 转换后的值在数学上是否一定精确等于 X？",
+          "answer": "不一定。在数值范围内的整数也可能因浮点精度限制而丢失部分有效数字。",
+          "rationale": "直接测试整数到浮点转换中“范围内不保证精确”的核心命题。",
+          "conditions": [
+            "整数在目标浮点数值范围内",
+            "不假设所有C实现的double有效精度或舍入方式相同"
+          ]
+        }
+      ],
+      "baseline_scope": "用户指定第四轮复核样本用于本次试写，不代表正式课程已采用",
+      "applications": []
+    },
+    "if": {
+      "topic": "if",
+      "title": "第2讲　if 的语句范围与 else 配对",
+      "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+      "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9",
+      "course": "C17基础程序设计三组试写样稿",
+      "learner": "已认识变量、简单算术和语句的初学者",
+      "points": [
+        {
+          "key": "K-I01",
+          "knowledge_id": "kp_dc9e45a33fc15195a56f",
+          "name": "标量条件的真值语义",
+          "statement": "if 语句要求条件为标量表达式，其真值由与 0 的比较决定：非零值（包括负数）为真，零值为假。",
+          "conditions": [
+            "表达式求值符合 C17 标量类型转换规则",
+            "处于普通顺序执行上下文"
+          ],
+          "meta_question": "在 if 语句中，如何确定一个非零负整数表达式的分支走向？",
+          "meta_answer": "非零负整数不等于零，因此被视为真，程序将执行 if 的真分支。",
+          "source_refs": [
+            "I-S1"
+          ]
+        },
+        {
+          "key": "K-I02",
+          "knowledge_id": "kp_93a17945b3d7594a9cc2",
+          "name": "一次执行不重新选分支",
+          "statement": "一次普通顺序执行的if依据当时条件选择分支；分支内改变量不会自动改选或补执行另一个分支。",
+          "conditions": [
+            "普通结构化控制流",
+            "不讨论goto跳入分支"
+          ],
+          "meta_question": "if(x){x=0;}else{y=1;}中，真分支将x改成0会立即补执行else吗？",
+          "meta_answer": "不会。",
+          "source_refs": [
+            "I-S1"
+          ]
+        },
+        {
+          "key": "K-I03",
+          "knowledge_id": "kp_fccdeb3357e0528b861c",
+          "name": "分支体的语句范围",
+          "statement": "if每个分支体在语法上是一条语句；复合语句或整个嵌套if均可充当这条语句。",
+          "conditions": [
+            "普通结构化控制流"
+          ],
+          "meta_question": "if(a) x=1; y=2;中，if的真分支体包含y=2吗？",
+          "meta_answer": "不包含，真分支体只是x=1。",
+          "source_refs": [
+            "I-S2"
+          ]
+        },
+        {
+          "key": "K-I04",
+          "knowledge_id": "kp_8e6ec21f54915eb88a62",
+          "name": "else 的词法就近配对",
+          "statement": "else结合到语法允许的、词法上最近的前面的if。",
+          "conditions": [
+            "完整合法的C17语句结构",
+            "语法允许包含花括号边界，不能只机械找最近文本"
+          ],
+          "meta_question": "if(a) if(b) x=1; else x=2;中的else属于哪个if？",
+          "meta_answer": "内层if(b)。",
+          "source_refs": [
+            "I-S2",
+            "I-S3"
+          ]
+        },
+        {
+          "key": "K-I05",
+          "knowledge_id": "kp_63516508606e5a4eb6f5",
+          "name": "花括号显式修改 else 归属",
+          "statement": "内层if位于外层真分支的复合语句内时，该复合语句之后的else不能跨越块边界与内层if配对。",
+          "conditions": [
+            "特指if(a){if(b) x=1;} else x=2;中块外的else",
+            "不把块内另一个else也说成属于外层"
+          ],
+          "meta_question": "if(a){if(b) x=1;} else x=2;中的块外else属于哪个if？",
+          "meta_answer": "外层if(a)。",
+          "source_refs": [
+            "I-S2",
+            "I-S3"
+          ]
+        },
+        {
+          "key": "K-I06",
+          "knowledge_id": "kp_859f9b7a8cf35f8bbdaa",
+          "name": "缩进不改变语法归属",
+          "statement": "只改变空白缩进，不改变C语句的词法记号及语法结构，因此不改变else归属。",
+          "conditions": [
+            "不改变记号、花括号和注释内容",
+            "普通if/else语句"
+          ],
+          "meta_question": "把else视觉上缩进到外层if同一列，能改变合法程序中的配对吗？",
+          "meta_answer": "不能，配对由语法决定。",
+          "source_refs": [
+            "I-S2"
+          ]
+        },
+        {
+          "key": "K-I07",
+          "knowledge_id": "kp_1a02eb8b4bb050869942",
+          "name": "未进入外层则不执行内层",
+          "statement": "外层if未选中包含内层if/else的分支时，整个内层选择语句都不执行。",
+          "conditions": [
+            "普通结构化控制流，无goto或标签跳入",
+            "内层选择语句是外层该分支的一部分，不以花括号为必要条件"
+          ],
+          "meta_question": "a=0时，if(a) if(b) x=1; else x=2;会执行内层else吗？",
+          "meta_answer": "不会；外层未进入，整个内层if/else不执行。",
+          "source_refs": [
+            "I-S2"
+          ]
+        },
+        {
+          "key": "K-I08",
+          "knowledge_id": "kp_55c412b975eb565f8090",
+          "name": "空语句对控制范围的破坏",
+          "statement": "在 if 条件后直接跟随分号（if(cond);）会产生一个空语句作为分支体，其后的语句在语法上不受该 if 控制。",
+          "conditions": [
+            "分号紧跟在条件右括号后",
+            "后续语句未显式包含在 if 的复合分支内"
+          ],
+          "meta_question": "代码 if(x > 10); y = 20; 中，y=20 是否只有在 x>10 时执行？",
+          "meta_answer": "否。分号构成了 if 的空语句分支，y=20 是独立于 if 之后的后续语句，无论条件真假均会执行。",
+          "source_refs": [
+            "I-S3"
+          ]
+        },
+        {
+          "key": "K-I09",
+          "knowledge_id": "kp_7405348a55ab57459561",
+          "name": "else if 的语法结构",
+          "statement": "else if在C语法上是else分支中嵌套另一条if语句。",
+          "conditions": [
+            "C17语法"
+          ],
+          "meta_question": "else if是独立的C关键字组合语句种类吗？",
+          "meta_answer": "不是，它是else分支中的另一条if。",
+          "source_refs": [
+            "I-S4"
+          ]
+        },
+        {
+          "key": "K-I10",
+          "knowledge_id": "kp_1a0bfd83c70c519a9a21",
+          "name": "选择链首命中后停止判断",
+          "statement": "普通顺序执行if/else-if链时，首个命中分支之后不再求值后续分支条件。",
+          "conditions": [
+            "一条if/else-if选择链",
+            "普通结构化执行"
+          ],
+          "meta_question": "if(A)...else if(B)...中A为真时，还会求值B吗？",
+          "meta_answer": "不会。",
+          "source_refs": [
+            "I-S4"
+          ]
+        },
+        {
+          "key": "K-I11",
+          "knowledge_id": "kp_58c6183033225ff5ab9a",
+          "name": "独立 if 可以多次命中",
+          "statement": "多个独立if各自进行条件判断，前一个命中不阻止后一个也命中。",
+          "conditions": [
+            "顺序执行到各if",
+            "无提前return等跳转"
+          ],
+          "meta_question": "if(a) x++; if(b) y++;在a、b都为真时，两条自增能否都执行？",
+          "meta_answer": "能，因为这是两条独立if。",
+          "source_refs": [
+            "I-S4"
+          ]
+        },
+        {
+          "key": "K-I12",
+          "knowledge_id": "kp_98e613b4caf758e0aecd",
+          "name": "后续 if 读取新状态",
+          "statement": "后续独立if在自己求值时读取变量的当前值，能看到前面语句已完成的修改。",
+          "conditions": [
+            "普通顺序执行",
+            "变量已初始化，修改及读取有定义"
+          ],
+          "meta_question": "int x=1; if(x)x=0; if(x)y=1;第二条if的条件为真吗？",
+          "meta_answer": "为假，第二次求值读到x=0。",
+          "source_refs": [
+            "I-S4"
+          ]
+        }
+      ],
+      "terminology": [
+        {
+          "key": "scalar",
+          "canonical": "标量表达式",
+          "aliases": []
+        },
+        {
+          "key": "branch",
+          "canonical": "分支体",
+          "aliases": []
+        },
+        {
+          "key": "compound",
+          "canonical": "复合语句",
+          "aliases": [
+            "语句块"
+          ]
+        },
+        {
+          "key": "pairing",
+          "canonical": "else 配对",
+          "aliases": [
+            "else归属"
+          ]
+        },
+        {
+          "key": "null_statement",
+          "canonical": "空语句",
+          "aliases": []
+        },
+        {
+          "key": "chain",
+          "canonical": "if/else-if 选择链",
+          "aliases": [
+            "选择链"
+          ]
+        },
+        {
+          "key": "independent",
+          "canonical": "独立 if",
+          "aliases": [
+            "独立if"
+          ]
+        }
+      ],
+      "sections": [
+        {
+          "key": "if1",
+          "title": "条件、语句范围与一次分支选择",
+          "required_knowledge_keys": [
+            "K-I01",
+            "K-I02",
+            "K-I03"
+          ]
+        },
+        {
+          "key": "if2",
+          "title": "else 配对：语法、花括号与缩进",
+          "required_knowledge_keys": [
+            "K-I04",
+            "K-I05",
+            "K-I06"
+          ]
+        },
+        {
+          "key": "if3",
+          "title": "外层未进入与空语句陷阱",
+          "required_knowledge_keys": [
+            "K-I07",
+            "K-I08"
+          ]
+        },
+        {
+          "key": "if4",
+          "title": "选择链与独立判断",
+          "required_knowledge_keys": [
+            "K-I09",
+            "K-I10",
+            "K-I11",
+            "K-I12"
+          ]
+        }
+      ],
+      "example_bank": [
+        {
+          "key": "E-I01",
+          "title": "标量条件的真值语义",
+          "knowledge_keys": [
+            "K-I01"
+          ],
+          "code": "int n=-5;if(n)printf(\"T\");else printf(\"F\");",
+          "answer_stdout": "T",
+          "answer_ref": {
+            "check_id": "check_56b46fa7dbf85202aaf3",
+            "code_hash": "8bf3dee8a951483acaf03ac275be7460e64fd09d38b8ed108d4e6b6a1ae6fcba",
+            "receipt_hash": "c506d7f07edf54d31fa03f3adb876dd98827b481d425cedefcf3e684a94c6df1",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        },
+        {
+          "key": "E-I02",
+          "title": "一次执行不重新选分支",
+          "knowledge_keys": [
+            "K-I02"
+          ],
+          "code": "int x=1,y=0;if(x){x=0;}else{y=1;}printf(\"%d\",y);",
+          "answer_stdout": "0",
+          "answer_ref": {
+            "check_id": "check_2a45892813c755899cd7",
+            "code_hash": "e250df185e9929ca518e8b381fe15e75463d3e4717127aa219f374bc114afbdd",
+            "receipt_hash": "ffe7df7d6b04d3c9cec441e330044d223a2796d4ec1a2d2198a51ab10839f307",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        },
+        {
+          "key": "E-I03",
+          "title": "分支体的语句范围",
+          "knowledge_keys": [
+            "K-I03"
+          ],
+          "code": "int a=0,x=0,y=0;if(a)x=1;y=2;printf(\"%d\",y);",
+          "answer_stdout": "2",
+          "answer_ref": {
+            "check_id": "check_2558efbf31455a6aa2db",
+            "code_hash": "b27e0146858ce1de502bf1f85af232b4d025df26ee5fc121e268f0dd49000452",
+            "receipt_hash": "6ad4c6c08449db7019e2261c52c04e473f157f910b96779f9c80869b2daf1ce7",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        },
+        {
+          "key": "E-I04",
+          "title": "未进入外层则不执行内层",
+          "knowledge_keys": [
+            "K-I07"
+          ],
+          "code": "int a=0,b=1,x=0;if(a)if(b)x=1;else x=2;printf(\"%d\",x);",
+          "answer_stdout": "0",
+          "answer_ref": {
+            "check_id": "check_ab78814a72e553d6b46b",
+            "code_hash": "dca390c03426a8c59642a3e99d769b8482cae1ab00481587b7b54c05cb180c4d",
+            "receipt_hash": "a026260730d8135b8638a710e97fb24541c707601ec4feebc1e97008ca94d532",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        },
+        {
+          "key": "E-I05",
+          "title": "选择链首命中后停止判断",
+          "knowledge_keys": [
+            "K-I10"
+          ],
+          "code": "int b_calls=0;if(1){}else if(++b_calls){}printf(\"%d\",b_calls);",
+          "answer_stdout": "0",
+          "answer_ref": {
+            "check_id": "check_6c389bb98f3e5e3b81c9",
+            "code_hash": "6650693e3abd63fac276e148a6fbb7fb85e6d2d16eb4c0232f47ae738e5ea44d",
+            "receipt_hash": "5dcb5c06d5d7636e249f3a752aa9e2df4e8b35f574dff4eb35f512324004e82f",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        },
+        {
+          "key": "E-I06",
+          "title": "后续 if 读取新状态",
+          "knowledge_keys": [
+            "K-I12"
+          ],
+          "code": "int x=1,y=0;if(x)x=0;if(x)y=1;printf(\"%d %d\",x,y);",
+          "answer_stdout": "0 0",
+          "answer_ref": {
+            "check_id": "check_23acc2139cd25724ac78",
+            "code_hash": "7ba357aaf5986f17c59e738b0f7d8668a6c90cb2924fc433e89eb738314cdbcd",
+            "receipt_hash": "a505e89602709bddc7b67c6b0148560f3949896f747510e7b2beae2bd5f01448",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        }
+      ],
+      "diagnostic": {
+        "key": "D-I",
+        "knowledge_keys": [
+          "K-I07",
+          "K-I04",
+          "K-I06"
+        ],
+        "hypothesis_a": "误以为else与视觉上缩进同列的if配对，而不是由C语法决定。",
+        "hypothesis_b": "误以为无花括号嵌套if中的else总与最外层if配对。",
+        "repair_a": "忽略缩进提示，按语法允许的最近if配对；再用花括号明确期望边界。",
+        "repair_b": "先识别内层完整if/else结构；外层不进入时，内层if和else都不执行。",
+        "examples": [
+          {
+            "role": "symptom",
+            "code": "int a=1, b=0, v=0;\nif(a)\n  if(b) v=1;\nelse v=2;\nprintf(\"%d\\n\",v);",
+            "answer_stdout": "2\n",
+            "prediction_a": "0\n",
+            "prediction_b": "0\n",
+            "answer_ref": {
+              "value": "2\n",
+              "check_id": "check_dd1151e731fe5c988ce0",
+              "receipt_hash": "214f701a9926e3e17f30ab832c4501dbb83acfe3943d096dfd4d0b231fca5506",
+              "code_hash": "342172e915fa0cf44d5e57ab9d9b545ca25ab4d29bfc4897e354d1dcd242cbed"
+            }
+          },
+          {
+            "role": "diagnostic",
+            "code": "int a=1, b=0, v=0;\nif(a)\n  if(b) v=1;\n  else v=2;\nprintf(\"%d\\n\",v);",
+            "answer_stdout": "2\n",
+            "prediction_a": "2\n",
+            "prediction_b": "0\n",
+            "answer_ref": {
+              "value": "2\n",
+              "check_id": "check_5d7da619df91504a8333",
+              "receipt_hash": "ee5f804683a9700840b751c28c41858c21798c3a24a80d921320164de1e97d9a",
+              "code_hash": "a85e48ae734200e68940152f704ecdf09bd05d132d0c925814b47050cdec99f4"
+            }
+          },
+          {
+            "role": "retest",
+            "code": "int a=0, b=0, v=3;\nif(a)\n  if(b) v=1;\nelse v=2;\nprintf(\"%d\\n\",v);",
+            "answer_stdout": "3\n",
+            "prediction_a": "2\n",
+            "prediction_b": "2\n",
+            "answer_ref": {
+              "value": "3\n",
+              "check_id": "check_4db4e524f3fc597cb6a6",
+              "receipt_hash": "df834d41f180566eb42a59c69d51373b9409486ff952ec9389bb7b6489c0a91e",
+              "code_hash": "1be3de857ad9507049ccf2cdf51f37a2b1cdf9d0e8e0905639d17decc88b73b0"
+            }
+          }
+        ]
+      },
+      "exercise_bank": [
+        {
+          "key": "Q-I01",
+          "knowledge_keys": [
+            "K-I01"
+          ],
+          "question": "设有整数变量 `int n = -5;`，在语句 `if(n) printf(\"T\"); else printf(\"F\");` 中，程序会输出什么？",
+          "answer": "T",
+          "rationale": "标量表达式 -5 非零，根据 C17 语义被视为真，因此执行 if 分支。",
+          "conditions": [
+            "表达式求值符合 C17 标量类型转换规则",
+            "处于普通顺序执行上下文"
+          ]
+        },
+        {
+          "key": "Q-I02",
+          "knowledge_keys": [
+            "K-I02"
+          ],
+          "question": "设有 `int x = 1, y = 0;`，执行语句 `if(x) { x = 0; } else { y = 1; }` 后，y 的值是多少？",
+          "answer": "0",
+          "rationale": "if 语句依据当时条件选择分支，进入真分支后修改 x 不会重新评估条件或补执行 else 分支。",
+          "conditions": [
+            "普通结构化控制流",
+            "不讨论goto跳入分支"
+          ]
+        },
+        {
+          "key": "Q-I03",
+          "knowledge_keys": [
+            "K-I03"
+          ],
+          "question": "设有 `int a = 0, x = 0, y = 0;`，执行语句 `if(a) x = 1; y = 2;` 后，y 的值是多少？",
+          "answer": "2",
+          "rationale": "if 语句的分支体仅包含紧随其后的第一条语句（x=1），y=2 不受 if 控制，必然执行。",
+          "conditions": [
+            "普通结构化控制流"
+          ]
+        },
+        {
+          "key": "Q-I04",
+          "knowledge_keys": [
+            "K-I04"
+          ],
+          "question": "设有 `int a = 0, b = 1, x = 0;`，执行语句 `if(a) if(b) x = 1; else x = 2;` 后，x 的值是多少？",
+          "answer": "0",
+          "rationale": "else 词法上就近配对到内层 if(b)。因为 a 为假，外层 if 的整个分支体（包括内层 if 和配对的 else）都不执行。",
+          "conditions": [
+            "完整合法的C17语句结构",
+            "语法允许包含花括号边界，不能只机械找最近文本"
+          ]
+        },
+        {
+          "key": "Q-I05",
+          "knowledge_keys": [
+            "K-I05"
+          ],
+          "question": "在C17代码 `if(a) { if(b) x=1; } else y=2;` 中，位于外层 `if(a)` 的花括号 `}` 之后（即外层复合语句外部）的 `else`，在语法上属于哪一个 `if`？",
+          "answer": "外层 `if(a)`",
+          "rationale": "根据C17语法，`else` 与最内层的 `if` 配对，但如果内层 `if` 位于一个复合语句（`{}`块）内，其后续的 `else` 不能跨越该块边界去和内层 `if` 配对，因此它只能归属于块外的外层 `if(a)`。",
+          "conditions": [
+            "特指if(a){if(b) x=1;} else x=2;中块外的else",
+            "不把块内另一个else也说成属于外层"
+          ]
+        },
+        {
+          "key": "Q-I06",
+          "knowledge_keys": [
+            "K-I06"
+          ],
+          "question": "在不改变代码中的词法记号（字母、数字、操作符）和花括号结构的前提下，仅调整 `else` 的空格缩进位置（例如将其视觉上缩进到外层 `if` 的同一列），能够改变C17合法程序中 `if` 与 `else` 的语法配对结果吗？",
+          "answer": "不能，配对由语法（如花括号边界）决定，空白缩进无此效力。",
+          "rationale": "C17的词法分析会跳过空白字符（包括空格和制表符），词法记号序列和后续的语法分析（AST构建）完全不受视觉缩进的影响。`else` 的配对严格由其与 `if` 的相对语法位置（尤其是花括号边界）决定。",
+          "conditions": [
+            "不改变记号、花括号和注释内容",
+            "普通if/else语句"
+          ]
+        },
+        {
+          "key": "Q-I07",
+          "knowledge_keys": [
+            "K-I07"
+          ],
+          "question": "设有 `int a = 0, b = 1, x = 0;`，执行语句 `if(a) if(b) x = 1; else x = 2;` 后，x 的值是多少？",
+          "answer": "0",
+          "rationale": "外层 if 条件 a 为假，导致包含内层 if/else 的整个分支体不执行，因此内层 else 也不执行。",
+          "conditions": [
+            "普通结构化控制流，无goto或标签跳入",
+            "内层选择语句是外层该分支的一部分，不以花括号为必要条件"
+          ]
+        },
+        {
+          "key": "Q-I08",
+          "knowledge_keys": [
+            "K-I08"
+          ],
+          "question": "给定 `int x = 5, y = 0;`，执行 `if(x > 10); y = 20;` 后，变量 y 的值是多少？",
+          "answer": "20",
+          "rationale": "分号紧跟 if 条件后构成空语句作为分支体，y=20 是独立于 if 之后的语句，无论条件真假均执行。",
+          "conditions": [
+            "分号紧跟在条件右括号后",
+            "后续语句未显式包含在 if 的复合分支内"
+          ]
+        },
+        {
+          "key": "Q-I09",
+          "knowledge_keys": [
+            "K-I09"
+          ],
+          "question": "C17语法中，`else if` 是一个与 `if` 平级、独立的关键字组合语句种类吗？",
+          "answer": "不是，它是 `else` 分支中嵌套的一条 `if` 语句。",
+          "rationale": "在C17词法与文法中，并没有独立的 `else if` 复合关键字。`else if` 实际上被解析为 `else` 子句内部紧接着的一条完整的 `if` 语句。",
+          "conditions": [
+            "C17语法"
+          ]
+        },
+        {
+          "key": "Q-I10",
+          "knowledge_keys": [
+            "K-I10"
+          ],
+          "question": "在普通顺序执行的 `if(A)... else if(B)...` 链中，如果第一个条件 `A` 的求值为真，编译器/运行时是否还会对后续的 `else if(B)` 中的 `B` 进行条件求值？",
+          "answer": "不会",
+          "rationale": "由于 `else if` 在语法上是 `else` 的分支，而 `if`/`else` 的语义规定只有当条件为假时才会执行 `else` 分支。因此一旦 `A` 为真，控制流进入 `A` 分支，根本不会到达 `else` 分支去求值 `B`。",
+          "conditions": [
+            "一条if/else-if选择链",
+            "普通结构化执行"
+          ]
+        },
+        {
+          "key": "Q-I11",
+          "knowledge_keys": [
+            "K-I11"
+          ],
+          "question": "对于独立书写的两条语句 `if(a) x++; if(b) y++;`，在没有提前返回等跳转的情况下，若 `a` 和 `b` 在求值时都为真，第二条 `if` 的自增操作 `y++` 能否被执行？",
+          "answer": "能，因为这是两条独立的 `if`。",
+          "rationale": "两条独立的 `if` 语句之间没有语法上的分支绑定关系。第一条 `if` 命中并执行后，控制流继续往下，第二条 `if` 会独立地对其条件 `b` 进行求值并执行其分支。",
+          "conditions": [
+            "顺序执行到各if",
+            "无提前return等跳转",
+            "a、b、x、y已正确声明初始化，所有自增有定义。"
+          ]
+        },
+        {
+          "key": "Q-I12",
+          "knowledge_keys": [
+            "K-I12"
+          ],
+          "question": "已知代码段：`int x = 1; if(x) x = 0; if(x) y = 1;`，在普通顺序执行下，第二条 `if(x)` 中的条件 `x` 被求值时，其结果是什么？",
+          "answer": "为假（或0），因为求值时 `x` 的值已经被前一条语句修改为0。",
+          "rationale": "第二条 `if` 在执行到该语句时，才会对条件 `x` 进行求值。由于前一条 `if` 内的 `x=0` 已经执行完毕并改变了 `x` 的内存状态，因此第二次求值读到的是修改后的当前值 `0`（即假）。",
+          "conditions": [
+            "普通顺序执行",
+            "变量已初始化，修改及读取有定义",
+            "代码片段中的y事先声明为int。"
+          ]
+        }
+      ],
+      "baseline_scope": "用户指定第四轮复核样本用于本次试写，不代表正式课程已采用",
+      "applications": []
+    },
+    "for": {
+      "topic": "for",
+      "title": "第3讲　for 控制流",
+      "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+      "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9",
+      "course": "C17基础程序设计三组试写样稿",
+      "learner": "已认识变量、简单算术和语句的初学者",
+      "points": [
+        {
+          "key": "K-F01",
+          "knowledge_id": "kp_f856ba72892250f08018",
+          "name": "初始化子句执行频次",
+          "statement": "每次从for入口正常进入时，初始化子句执行一次，不在该次循环的每轮开始时重复。",
+          "conditions": [
+            "普通顺序进入for",
+            "初始化子句非空"
+          ],
+          "meta_question": "同一次for执行了三轮循环体，初始化子句执行几次？",
+          "meta_answer": "一次。",
+          "source_refs": [
+            "F-S1"
+          ]
+        },
+        {
+          "key": "K-F02",
+          "knowledge_id": "kp_4f1242fd70e25ce385ee",
+          "name": "每次入体前判断条件",
+          "statement": "for在每次进入循环体之前求值非空控制表达式，非零才进入循环体。",
+          "conditions": [
+            "普通顺序执行",
+            "控制表达式非空且求值有定义"
+          ],
+          "meta_question": "for是先执行循环体再第一次判断，还是先判断再入体？",
+          "meta_answer": "先判断再入体，并在每次入体前判断。",
+          "source_refs": [
+            "F-S1"
+          ]
+        },
+        {
+          "key": "K-F03",
+          "knowledge_id": "kp_b745aefb10735f088258",
+          "name": "首判为假与零次执行",
+          "statement": "若 for 循环控制条件在首次评估时即为假，循环体将被执行零次。",
+          "conditions": [
+            "无提前转移干扰",
+            "条件求值遵循逻辑"
+          ],
+          "meta_question": "如果 for 循环的控制条件在第一次判断时就是假，循环体会执行几次？",
+          "meta_answer": "零次。",
+          "source_refs": [
+            "F-S1"
+          ]
+        },
+        {
+          "key": "K-F04",
+          "knowledge_id": "kp_3de966be694f5b01bf14",
+          "name": "体后更新顺序",
+          "statement": "在正常完成一次循环体执行后，程序会执行 for 头部的迭代表达式，随后重新判断控制条件。",
+          "conditions": [
+            "循环体未被 break/continue/return 中断",
+            "头部存在非空迭代表达式"
+          ],
+          "meta_question": "在 for 循环中，若本轮循环体正常结束，更新表达式（迭代表达式）在什么时刻执行？",
+          "meta_answer": "循环体正常完成之后、下一次条件判断之前。",
+          "source_refs": [
+            "F-S1"
+          ]
+        },
+        {
+          "key": "K-F05",
+          "knowledge_id": "kp_b775dd1df9985792b19d",
+          "name": "正常退出时的条件判断次数",
+          "statement": "当 for 循环正常执行 n 次循环体（无 break/continue/return 干扰）后退出，其控制条件表达式总共被评估 n+1 次。",
+          "conditions": [
+            "循环体完整执行 n 次",
+            "无控制流转移（break/continue/return）",
+            "最终因条件为假而退出"
+          ],
+          "meta_question": "如果一个 for 循环正常执行了 5 次循环体后退出，其控制条件表达式总共被计算了多少次？",
+          "meta_answer": "6 次（n+1 次）。",
+          "source_refs": [
+            "F-S1"
+          ]
+        },
+        {
+          "key": "K-F06",
+          "knowledge_id": "kp_942734870a655157b6cf",
+          "name": "省略初始化使用已有状态",
+          "statement": "省略for初始化子句不会重新赋初值，循环从已有合法状态开始。",
+          "conditions": [
+            "所读取变量已正确初始化"
+          ],
+          "meta_question": "int i=2; for(;i<3;i++){}开始判断时i是多少？",
+          "meta_answer": "2。",
+          "source_refs": [
+            "F-S2"
+          ]
+        },
+        {
+          "key": "K-F07",
+          "knowledge_id": "kp_2a1b732aa3865e718961",
+          "name": "省略条件视为真",
+          "statement": "for省略控制表达式时，按非零常量处理。",
+          "conditions": [
+            "C17 for语句"
+          ],
+          "meta_question": "for(;;)会自动补上某个变量上限条件吗？",
+          "meta_answer": "不会，省略的条件按非零常量处理。",
+          "source_refs": [
+            "F-S2"
+          ]
+        },
+        {
+          "key": "K-F08",
+          "knowledge_id": "kp_9f3e95f2a2eb549eb732",
+          "name": "省略迭代不自动更新",
+          "statement": "省略for第三部分表示没有该处的迭代表达式，不会自动添加递增。",
+          "conditions": [
+            "状态仍可能由循环体等位置更新"
+          ],
+          "meta_question": "for(;i<3;)会自动执行i++吗？",
+          "meta_answer": "不会。",
+          "source_refs": [
+            "F-S2"
+          ]
+        },
+        {
+          "key": "K-F09",
+          "knowledge_id": "kp_74e63851e856567cbfe2",
+          "name": "for头部保留两个分号",
+          "statement": "for头部三部分即使省略，分隔它们的两个分号仍须保留。",
+          "conditions": [
+            "C17 for语法"
+          ],
+          "meta_question": "三部分全省略的头部是for()还是for(;;)？",
+          "meta_answer": "for(;;)。",
+          "source_refs": [
+            "F-S2"
+          ]
+        },
+        {
+          "key": "K-F10",
+          "knowledge_id": "kp_e28e3c552b0d516ca414",
+          "name": "for 的单语句体",
+          "statement": "for循环体是一条语句，复合语句可用来包含多条语句。",
+          "conditions": [
+            "普通结构化控制流"
+          ],
+          "meta_question": "for(i=0;i<2;i++) x++; y++;的循环体含y++吗？",
+          "meta_answer": "不含，循环体仅为x++。",
+          "source_refs": [
+            "F-S2"
+          ]
+        },
+        {
+          "key": "K-F11",
+          "knowledge_id": "kp_4adce10125b6567d935b",
+          "name": "for 的空语句体",
+          "statement": "for头部后紧接的分号可以作为空语句循环体，其后的独立语句不属于这个循环体。",
+          "conditions": [
+            "for(...);后的语句是独立语句"
+          ],
+          "meta_question": "for(i=0;i<2;i++); {x++;}中的x++会作为循环体重复吗？",
+          "meta_answer": "不会，循环体为空语句；结束后再执行独立的块。",
+          "source_refs": [
+            "F-S2"
+          ]
+        },
+        {
+          "key": "K-F12",
+          "knowledge_id": "kp_60e6a76254c052088a7e",
+          "name": "continue 的执行逻辑",
+          "statement": "continue 会跳过 for 循环当前剩余的循环体，并直接执行头部的第三部分（迭代/更新表达式），然后判断条件以决定是否进入下一轮。",
+          "conditions": [
+            "作用于最内层包围它的 for 循环",
+            "迭代表达式非空"
+          ],
+          "meta_question": "在 for(i=0; i<10; i++) 循环体内部遇到 continue 语句时，紧接着会发生什么？",
+          "meta_answer": "程序跳过循环体中 continue 之后的代码，直接执行 i++（迭代部分），然后判断 i<10。",
+          "source_refs": [
+            "F-S3"
+          ]
+        },
+        {
+          "key": "K-F13",
+          "knowledge_id": "kp_d83459ca197951f0ad49",
+          "name": "break 退出机制",
+          "statement": "break 用于结束最内层包围它的 for 循环或 switch，若跳出 for，该 for 头部对应的第三部分（迭代表达式）不再执行。",
+          "conditions": [
+            "作用于最内层",
+            "break退出最内层包围它的循环或switch；本点讨论实际退出所述for的路径。"
+          ],
+          "meta_question": "如果在一个 for 循环体内通过 break 跳出，该 for 循环头部定义的更新表达式（如 i++）会被执行吗？",
+          "meta_answer": "不会执行，循环直接结束。",
+          "source_refs": [
+            "F-S3"
+          ]
+        },
+        {
+          "key": "K-F14",
+          "knowledge_id": "kp_471a6a8df9e05e808da5",
+          "name": "return 结束机制",
+          "statement": "在 for 循环内执行 return 会立即结束当前所在的整个函数并返回调用者。",
+          "conditions": [
+            "函数内执行"
+          ],
+          "meta_question": "在 for 循环体内部调用 return 语句后，循环会先执行完当前的更新表达式再继续吗？",
+          "meta_answer": "不会，函数立即结束并返回，不再有任何循环操作。",
+          "source_refs": [
+            "F-S3"
+          ]
+        },
+        {
+          "key": "K-F15",
+          "knowledge_id": "kp_01bcd77813e953d388ec",
+          "name": "switch 内 break 的作用域",
+          "statement": "for体内switch中的break若最内层可退出结构是该switch，则只结束switch，随后继续执行switch之后的循环体语句。",
+          "conditions": [
+            "break未被更内层循环或switch包围",
+            "普通结构化执行"
+          ],
+          "meta_question": "for体内switch中的break会跳过switch后面的全部循环体语句直接去i++吗？",
+          "meta_answer": "不会；先从switch后的语句继续，之后的行为取决于实际控制流。",
+          "source_refs": [
+            "F-S5"
+          ]
+        },
+        {
+          "key": "K-F16",
+          "knowledge_id": "kp_78c6bb60264558319401",
+          "name": "switch 内 continue 的目标",
+          "statement": "在 for 循环内部 switch 中使用的 continue，其目标是包围它的最内层 for 循环，而非 switch；它跳过 for 循环当前剩余的体代码，直接执行 for 的迭代表达式并判断条件。",
+          "conditions": [
+            "for 循环体内包含 switch",
+            "continue 位于 switch 结构中",
+            "最内层包围该continue的循环是所述for，没有更内层循环；第三部分非空。"
+          ],
+          "meta_question": "在 for 循环内的 switch 中执行 continue，程序会跳转到 switch 的下一个 case 还是 for 循环的更新部分？",
+          "meta_answer": "跳转到 for 循环的更新部分（迭代表达式），而不是 switch 的其他 case。",
+          "source_refs": [
+            "F-S5"
+          ]
+        },
+        {
+          "key": "K-F17",
+          "knowledge_id": "kp_04d4dbcaa0a159cc8767",
+          "name": "头部声明的作用域",
+          "statement": "在 for 循环头部声明的变量（如 for(int i=0...)），其作用域局限于该循环内部，在循环结束后外部不可见。",
+          "conditions": [
+            "C17 局部变量声明"
+          ],
+          "meta_question": "在 for(int i = 0; i < 10; i++) 中声明的变量 i，在 for 语句结束后的外部代码中是否可以被访问？",
+          "meta_answer": "不可以访问，因为变量在循环外部不可见。",
+          "source_refs": [
+            "F-S1"
+          ]
+        },
+        {
+          "key": "K-F18",
+          "knowledge_id": "kp_814fdbf932ac5814b1da",
+          "name": "外部变量最终值",
+          "statement": "若循环控制变量声明在 for 循环之外，循环结束后可依据其实际退出路径观察该变量的最终值。",
+          "conditions": [
+            "变量声明在外部",
+            "程序未执行未定义行为"
+          ],
+          "meta_question": "如果一个控制变量 i 声明在 for 循环外部，在循环因条件变为假而正常结束后，该变量 i 的值是多少？",
+          "meta_answer": "是使条件为假（或触发退出）时的当前值，具体取决于退出路径。",
+          "source_refs": [
+            "F-S1"
+          ]
+        },
+        {
+          "key": "K-F19",
+          "knowledge_id": "kp_33cc2358ea4b5bf0ac0e",
+          "name": "循环体修改变量",
+          "statement": "循环体对控制变量的合法修改会影响随后更新、判断和实际入体的取值。",
+          "conditions": [
+            "变量可修改且已初始化",
+            "各次运算有定义"
+          ],
+          "meta_question": "for(int i=0;i<5;i++){记录入体i; i+=2;}的入体i有哪些？",
+          "meta_answer": "只有0和3；第二轮结束更新到6，因条件为假不再入体。",
+          "source_refs": [
+            "F-S4"
+          ]
+        },
+        {
+          "key": "K-F20",
+          "knowledge_id": "kp_9687402e73685ea4a23b",
+          "name": "无符号变量倒序终止失败",
+          "statement": "unsigned int变量始终非负，因此i>=0恒真，不能让该类型的倒序循环通过此条件退出。",
+          "conditions": [
+            "i类型为unsigned int",
+            "终止判断是i>=0",
+            "不把i!=0等其他判断也判成无效"
+          ],
+          "meta_question": "unsigned int i的i>=0能在i递减后变假吗？",
+          "meta_answer": "不能。无符号零再减一会按模回绕，回绕本身不是未定义行为。",
+          "source_refs": [
+            "F-S4"
+          ]
+        },
+        {
+          "key": "K-F21",
+          "knowledge_id": "kp_0fe89c09d41659469527",
+          "name": "有符号最大值后的迭代溢出",
+          "statement": "在有符号整数循环中，若变量达到 INT_MAX 且循环体正常结束，for 头部的迭代表达式（如 i++）仍会执行，导致有符号整数溢出，触发未定义行为。",
+          "conditions": [
+            "变量类型为 signed int",
+            "当前值为 INT_MAX",
+            "头部迭代表达式包含 i++",
+            "执行第三部分i++之前，i仍等于INT_MAX；循环体没有把它改为其他值。"
+          ],
+          "meta_question": "在 for(int i = INT_MAX - 1; i <= INT_MAX; i++) 循环中，当 i 等于 INT_MAX 且循环体执行完毕后，下一步会发生什么？",
+          "meta_answer": "执行 i++，导致有符号整数溢出，产生未定义行为。",
+          "source_refs": [
+            "F-S4"
+          ]
+        }
+      ],
+      "terminology": [
+        {
+          "key": "initializer",
+          "canonical": "初始化子句",
+          "aliases": [
+            "初始化部分"
+          ]
+        },
+        {
+          "key": "control",
+          "canonical": "控制表达式",
+          "aliases": [
+            "条件表达式",
+            "控制条件"
+          ]
+        },
+        {
+          "key": "iteration",
+          "canonical": "迭代表达式",
+          "aliases": [
+            "更新表达式",
+            "第三部分"
+          ]
+        },
+        {
+          "key": "body",
+          "canonical": "循环体",
+          "aliases": []
+        },
+        {
+          "key": "scope",
+          "canonical": "作用域",
+          "aliases": []
+        },
+        {
+          "key": "null_statement",
+          "canonical": "空语句",
+          "aliases": []
+        },
+        {
+          "key": "wrap",
+          "canonical": "无符号回绕",
+          "aliases": [
+            "无符号整数回绕"
+          ]
+        },
+        {
+          "key": "overflow",
+          "canonical": "有符号整数溢出",
+          "aliases": []
+        }
+      ],
+      "sections": [
+        {
+          "key": "for1",
+          "title": "一次 for 循环怎样推进",
+          "required_knowledge_keys": [
+            "K-F01",
+            "K-F02",
+            "K-F03",
+            "K-F04",
+            "K-F05"
+          ]
+        },
+        {
+          "key": "for2",
+          "title": "头部省略与循环体范围",
+          "required_knowledge_keys": [
+            "K-F06",
+            "K-F07",
+            "K-F08",
+            "K-F09",
+            "K-F10",
+            "K-F11"
+          ]
+        },
+        {
+          "key": "for3",
+          "title": "continue、break、return 与嵌套目标",
+          "required_knowledge_keys": [
+            "K-F12",
+            "K-F13",
+            "K-F14",
+            "K-F15",
+            "K-F16"
+          ]
+        },
+        {
+          "key": "for4",
+          "title": "变量作用域与终止边界",
+          "required_knowledge_keys": [
+            "K-F17",
+            "K-F18",
+            "K-F19",
+            "K-F20",
+            "K-F21"
+          ]
+        }
+      ],
+      "example_bank": [
+        {
+          "key": "E-F01",
+          "title": "首判为假与零次执行",
+          "knowledge_keys": [
+            "K-F03"
+          ],
+          "code": "int i;for(i=10;i>100;i++){i=-1;}printf(\"%d\",i);",
+          "answer_stdout": "10",
+          "answer_ref": {
+            "check_id": "check_1af78467b7de514c9974",
+            "code_hash": "b1296af7cc7b8b25a3ed574fab1ae7c61fe0d45a9800df66274754b116f7ccd2",
+            "receipt_hash": "de0ca1b1b807894338aa2c9f0379094d8ddfa63e1f12095739b109807984f19d",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        },
+        {
+          "key": "E-F02",
+          "title": "体后更新顺序",
+          "knowledge_keys": [
+            "K-F04"
+          ],
+          "code": "int i=0;for(i=0;i<2;i++){i+=10;}printf(\"%d\",i);",
+          "answer_stdout": "11",
+          "answer_ref": {
+            "check_id": "check_cc68f5b5b1185283829c",
+            "code_hash": "fcc6daf9d0d624348a9ec1f1f7ce7f5310904b6c661069f4115da9da6bea24a7",
+            "receipt_hash": "aaf9ced9d265b6335a7f67f8cc6fc9170ecfbdf04dc3b29e72cebab398339427",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        },
+        {
+          "key": "E-F03",
+          "title": "continue 的执行逻辑",
+          "knowledge_keys": [
+            "K-F12"
+          ],
+          "code": "int i=2,h=0;for(;i<3;i++){continue;h++;}printf(\"%d %d\",i,h);",
+          "answer_stdout": "3 0",
+          "answer_ref": {
+            "check_id": "check_dbc305bb3e365e0bbd56",
+            "code_hash": "a8b0136c522429aef5b798255659e5edfefa221bff9160d244b95537872c28e9",
+            "receipt_hash": "4d5f747cad0ef3cf06dd963664b382297e8cc20f2e438f6896d4302164f2a82a",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        },
+        {
+          "key": "E-F04",
+          "title": "break 退出机制",
+          "knowledge_keys": [
+            "K-F13"
+          ],
+          "code": "int i=2,h=0;for(;i<3;i++){break;h++;}printf(\"%d %d\",i,h);",
+          "answer_stdout": "2 0",
+          "answer_ref": {
+            "check_id": "check_eb7804f6b5195e88b5ae",
+            "code_hash": "aae748c689cd1bbf1ef5474b79f43849f23981d95a95e87a0ccaf228029e96b6",
+            "receipt_hash": "885f75d5aef799e14673943094f97609a504887b023f23b932ea5bcd1b80f8a5",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        },
+        {
+          "key": "E-F05",
+          "title": "return 结束机制",
+          "knowledge_keys": [
+            "K-F14"
+          ],
+          "code": "for(int i=0;i<3;i++,puts(\"update\")){if(i==1)return;}puts(\"after\");",
+          "answer_stdout": "update\n",
+          "answer_ref": {
+            "check_id": "check_fa60a4980e4c5bd1aceb",
+            "code_hash": "9bd1bc70c8c9c244dac0c227b0f202f03d4ddc118093c5915f14d337762f4be4",
+            "receipt_hash": "a61a2da8fa7df76008d9b5faa62cd032f43a55ea782ba1f1fff9cd820354628f",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        },
+        {
+          "key": "E-F06",
+          "title": "循环体修改变量",
+          "knowledge_keys": [
+            "K-F19"
+          ],
+          "code": "for(int i=0;i<5;i++){printf(\"%d \",i);i+=2;}",
+          "answer_stdout": "0 3 ",
+          "answer_ref": {
+            "check_id": "check_e06d05177f275dccadbd",
+            "code_hash": "3598d967c304f0dbc626c0b8e38fa3297537a82b33a25622f595ca0e31dd9eaf",
+            "receipt_hash": "f3dd57081c41eb674c1425e4385ae8e77972964f1e1326c36198f975b7aefeda",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        },
+        {
+          "key": "E-F07",
+          "title": "switch 内 break 的作用域",
+          "knowledge_keys": [
+            "K-F15"
+          ],
+          "code": "for(int i=0;i<2;i++){switch(i){case 0:break;default:break;}printf(\"A\");}",
+          "answer_stdout": "AA",
+          "answer_ref": {
+            "check_id": "check_a0eed527c9fd512b9143",
+            "code_hash": "88f61f52379cf61a39c393e7725e588e9d514ea9ca8777aa5fd3feb7fb3a190f",
+            "receipt_hash": "37a03ba0667c8a7a85c6e13a6cde1d52f58a34d05fc2912691f3f31c71146626",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        },
+        {
+          "key": "E-F08",
+          "title": "for 的空语句体",
+          "knowledge_keys": [
+            "K-F11"
+          ],
+          "code": "int i,x=0;for(i=0;i<3;i++);x++;printf(\"%d\",x);",
+          "answer_stdout": "1",
+          "answer_ref": {
+            "check_id": "check_d1b7a61cb28f579ea23e",
+            "code_hash": "50c0da27d840fd69d615d826e8d45e86a741caab5a283a94ca7be2b60ecf5ea4",
+            "receipt_hash": "bb85d3f780ee999fbeca952741b3b7328425c1835e7ef9935986030bbb9b6bf1",
+            "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+          },
+          "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+          "origin": "reviewed_baseline_probe"
+        }
+      ],
+      "diagnostic": {
+        "key": "D-F",
+        "knowledge_keys": [
+          "K-F12",
+          "K-F13",
+          "K-F19"
+        ],
+        "hypothesis_a": "误以为continue等同于break，遇到后直接退出整个for，不再更新。",
+        "hypothesis_b": "误以为continue只跳过本轮剩余循环体和第三部分更新，直接回到条件判断。",
+        "repair_a": "continue不会结束整个循环；用执行轨迹确认它仍会执行for第三部分，随后判断条件。",
+        "repair_b": "把for更新位置显式画在continue之后：只有break退出该for才跳过该次更新。",
+        "examples": [
+          {
+            "role": "symptom",
+            "code": "int i=0, hits=0;\nfor(;i<6;i++) {\n hits++;\n if(i==3) {i=6; continue;}\n}\nprintf(\"%d %d\\n\",i,hits);",
+            "answer_stdout": "7 4\n",
+            "prediction_a": "6 4\n",
+            "prediction_b": "6 4\n",
+            "answer_ref": {
+              "value": "7 4\n",
+              "check_id": "check_e2c1260d22115f809864",
+              "receipt_hash": "f48d777d1f3b6fb4fe73731d5fc8e3e26e378a7cd591b4b5448bbc7eb02b07e0",
+              "code_hash": "2eb2013bad72c0aaa2264c072657c24859d757d75a3df285fee4562170b514a5"
+            }
+          },
+          {
+            "role": "diagnostic",
+            "code": "int i=0, hits=0;\nfor(;i<6;i++) {\n hits++;\n if(i==3) {i=4; continue;}\n}\nprintf(\"%d %d\\n\",i,hits);",
+            "answer_stdout": "6 5\n",
+            "prediction_a": "4 4\n",
+            "prediction_b": "6 6\n",
+            "answer_ref": {
+              "value": "6 5\n",
+              "check_id": "check_3e06c1356745524b9399",
+              "receipt_hash": "f1a9bc7a391a6033954c8f7f90b60a1d9c38ebb7f45b0d38c1c497cc8794a20a",
+              "code_hash": "dd2975779d834e24895cff0673957bb3a85128809f9634ffdef9159107e74dd7"
+            }
+          },
+          {
+            "role": "retest",
+            "code": "int i=0, hits=0;\nfor(;i<7;i++) {\n hits++;\n if(i==3) {i=7; continue;}\n}\nprintf(\"%d %d\\n\",i,hits);",
+            "answer_stdout": "8 4\n",
+            "prediction_a": "7 4\n",
+            "prediction_b": "7 4\n",
+            "answer_ref": {
+              "value": "8 4\n",
+              "check_id": "check_e38ab044070a5a37a1e6",
+              "receipt_hash": "639c3457110a86d1a2eaadc90758e4b217e7adfcbbd0a879281d86b3c3c31808",
+              "code_hash": "3eb9fdc55d239c1b8d1a332eba7cb25c1b8d3400e9f72da7db984d244c3dea4e"
+            }
+          }
+        ]
+      },
+      "exercise_bank": [
+        {
+          "key": "Q-F01",
+          "knowledge_keys": [
+            "K-F01"
+          ],
+          "question": "同一次for执行了三轮循环体，初始化子句执行几次？",
+          "answer": "一次。",
+          "rationale": "for 语句的初始化子句仅在从入口正常进入时执行一次。随后的每轮迭代只执行循环体、更新表达式和条件判断，不重复初始化。",
+          "conditions": [
+            "普通顺序进入for",
+            "初始化子句非空"
+          ]
+        },
+        {
+          "key": "Q-F02",
+          "knowledge_keys": [
+            "K-F02"
+          ],
+          "question": "for是先执行循环体再第一次判断，还是先判断再入体？",
+          "answer": "先判断再入体，并在每次入体前判断。",
+          "rationale": "正常完成循环体后先执行第三部分，再重新求值控制表达式；条件非零才再次进入循环体。不能把入体说成发生在再次判断之前。",
+          "conditions": [
+            "普通顺序执行",
+            "控制表达式非空且求值有定义"
+          ]
+        },
+        {
+          "key": "Q-F03",
+          "knowledge_keys": [
+            "K-F03"
+          ],
+          "question": "考虑以下C代码：\n```c\nint i;\nfor (i = 10; i > 100; i++) {\n    i = -1;\n}\n```\n在上述代码执行完毕后，变量 `i` 的初始值 `10` 是否被修改过（即 `i` 是否等于 `-1`）？",
+          "answer": "未被修改，`i` 仍为 `10`。",
+          "rationale": "当控制条件在首次评估时即为假（10 > 100 为假），循环体将不被执行，因此变量不会被修改。",
+          "conditions": [
+            "无提前转移干扰",
+            "条件求值遵循逻辑"
+          ]
+        },
+        {
+          "key": "Q-F04",
+          "knowledge_keys": [
+            "K-F04"
+          ],
+          "question": "考虑以下C代码：\n```c\nint i = 0;\nint marker = 0;\nfor (i = 0; i < 2; i++) {\n    i += 10; // 循环体内正常执行\n}\n```\n假设循环正常执行。在第一轮循环体执行完毕（i 变为 10）后、下一次条件判断之前，`i` 的值是多少？",
+          "answer": "11",
+          "rationale": "循环体正常执行后，for 循环头部的迭代表达式 `i++` 会在下一次条件判断前执行，因此 `i` 从 10 变为 11。",
+          "conditions": [
+            "循环体未被 break/continue/return 中断",
+            "头部存在非空迭代表达式"
+          ]
+        },
+        {
+          "key": "Q-F05",
+          "knowledge_keys": [
+            "K-F05"
+          ],
+          "question": "for(int i=0; i<5; i++) { } 这个循环中，条件表达式 i<5 总共被计算了多少次？",
+          "answer": "6次。",
+          "rationale": "for 循环每次进入循环体前都会检查一次条件，执行完 5 次循环体后，会第 6 次检查条件（i=5 时为假）并退出，因此共 5+1=6 次。",
+          "conditions": [
+            "循环体完整执行 n 次",
+            "无控制流转移（break/continue/return）",
+            "最终因条件为假而退出"
+          ]
+        },
+        {
+          "key": "Q-F06",
+          "knowledge_keys": [
+            "K-F06"
+          ],
+          "question": "代码片段如下：\n```c\nint i = 5;\nfor (; i < 10; i++) {\n    // empty body\n}\n```\n在第一次执行条件判断 `i < 10` 时，i 的值是多少？",
+          "answer": "5",
+          "rationale": "for 语句省略初始化部分，变量 i 保持其之前的值 5。",
+          "conditions": [
+            "所读取变量已正确初始化"
+          ]
+        },
+        {
+          "key": "Q-F07",
+          "knowledge_keys": [
+            "K-F07"
+          ],
+          "question": "代码片段如下：\n```c\nfor (;;)\n    break;\n```\n这个循环会执行多少次迭代？",
+          "answer": "1",
+          "rationale": "省略的控制表达式视为真（1），循环进入一次，执行 break 退出。",
+          "conditions": [
+            "C17 for语句"
+          ]
+        },
+        {
+          "key": "Q-F08",
+          "knowledge_keys": [
+            "K-F08"
+          ],
+          "question": "for(;i<3;)会自动执行i++吗？",
+          "answer": "不会。",
+          "rationale": "for 语句的第三部分若省略，则视为没有该处的迭代表达式，系统不会自动添加任何递增或更新操作。",
+          "conditions": [
+            "状态仍可能由循环体等位置更新"
+          ]
+        },
+        {
+          "key": "Q-F09",
+          "knowledge_keys": [
+            "K-F09"
+          ],
+          "question": "三部分全省略的头部是for()还是for(;;)？",
+          "answer": "for(;;)。",
+          "rationale": "C17 语法规定 for 头部的三个部分由两个分号分隔，即使内容全部为空，这两个分号也必须在语法上保留。",
+          "conditions": [
+            "C17 for语法"
+          ]
+        },
+        {
+          "key": "Q-F10",
+          "knowledge_keys": [
+            "K-F10"
+          ],
+          "question": "给定代码片段：int i, x=0, y=0; for(i=0;i<2;i++) x++; y++; 在执行完这段代码后，y的值是多少？",
+          "answer": "1",
+          "rationale": "for语句后紧跟的第一条语句是x++，因此它是for的循环体。y++位于for语句之后，是独立语句，只执行一次。",
+          "conditions": [
+            "普通结构化控制流"
+          ]
+        },
+        {
+          "key": "Q-F11",
+          "knowledge_keys": [
+            "K-F11"
+          ],
+          "question": "给定代码片段：int i, x=0; for(i=0;i<3;i++); x++; 在执行完这段代码后，x的值是多少？",
+          "answer": "1",
+          "rationale": "for头部后的分号构成一个空语句，即为循环体。x++是位于空语句之后的独立语句，在循环结束后只执行一次。",
+          "conditions": [
+            "for(...);后的语句是独立语句"
+          ]
+        },
+        {
+          "key": "Q-F12",
+          "knowledge_keys": [
+            "K-F12"
+          ],
+          "question": "在 for(i=0; i<10; i++) 循环体内部遇到 continue 语句时，紧接着会发生什么？",
+          "answer": "程序跳过循环体中 continue 之后的代码，直接执行 i++（迭代部分），然后判断 i<10。",
+          "rationale": "continue 跳过当前循环体剩余部分，但仍会执行头部的迭代表达式，随后进行下一次条件的求值与判断。",
+          "conditions": [
+            "作用于最内层包围它的 for 循环",
+            "迭代表达式非空"
+          ]
+        },
+        {
+          "key": "Q-F13",
+          "knowledge_keys": [
+            "K-F13"
+          ],
+          "question": "如果在一个 for 循环体内通过 break 跳出，该 for 循环头部定义的更新表达式（如 i++）会被执行吗？",
+          "answer": "不会执行，循环直接结束。",
+          "rationale": "break 立即结束 for 循环的执行，程序跳转到循环后的下一条语句，头部的第三部分（迭代/更新表达式）被跳过。",
+          "conditions": [
+            "作用于最内层",
+            "break退出最内层包围它的循环或switch；本点讨论实际退出所述for的路径。"
+          ]
+        },
+        {
+          "key": "Q-F14",
+          "knowledge_keys": [
+            "K-F14"
+          ],
+          "question": "在 for(int i=0; i<3; i++) { if(i==1) return; } 语句中，当 i 为 1 时，return 执行后，循环中的 i++ 语句还会执行吗？",
+          "answer": "不会，函数立即结束，i++ 不执行。",
+          "rationale": "return 语句会立即终止整个函数的执行，控制流直接离开当前作用域，后续包括循环的更新表达式在内的任何语句都不再执行。",
+          "conditions": [
+            "函数内执行",
+            "题中return;位于返回类型为void的函数中。"
+          ]
+        },
+        {
+          "key": "Q-F15",
+          "knowledge_keys": [
+            "K-F15"
+          ],
+          "question": "代码片段如下：\n```c\nfor (int i = 0; i < 2; i++) {\n    switch(i) {\n        case 0:\n            break;\n        default:\n            break;\n    }\n    printf(\"A\");\n}\n```\n程序会输出多少个 'A'？",
+          "answer": "2",
+          "rationale": "break 仅退出 switch，不退出 for 循环体，因此 switch 后的 printf 会执行两次。",
+          "conditions": [
+            "break未被更内层循环或switch包围",
+            "普通结构化执行"
+          ]
+        },
+        {
+          "key": "Q-F16",
+          "knowledge_keys": [
+            "K-F16"
+          ],
+          "question": "在 for 循环内的 switch 中执行 continue，程序会跳转到 switch 的下一个 case 还是 for 循环的更新部分？",
+          "answer": "跳转到 for 循环的更新部分（迭代表达式），而不是 switch 的其他 case。",
+          "rationale": "continue 的目标是其包围的最内层循环。在 for 和 switch 嵌套中，continue 绑定 for 循环，跳过 switch 后的体代码，执行 for 的迭代。",
+          "conditions": [
+            "for 循环体内包含 switch",
+            "continue 位于 switch 结构中",
+            "最内层包围该continue的循环是所述for，没有更内层循环；第三部分非空。"
+          ]
+        },
+        {
+          "key": "Q-F17",
+          "knowledge_keys": [
+            "K-F17"
+          ],
+          "question": "以下C代码段能否合法地编译？\n```c\nfor (int i = 0; i < 5; i++) {\n    // 循环体\n}\nprintf(\"%d\", i);\n```\n请回答“能”或“不能”。",
+          "answer": "不能",
+          "rationale": "`for` 循环头部声明的变量 `i` 的作用域仅限于该循环内部，在循环结束后其生命周期结束，因此在外部的 `printf` 语句中访问 `i` 是非法的。",
+          "conditions": [
+            "C17 局部变量声明",
+            "片段位于合法函数体、已包含stdio.h，外层没有另一个名为i的声明。"
+          ]
+        },
+        {
+          "key": "Q-F18",
+          "knowledge_keys": [
+            "K-F18"
+          ],
+          "question": "考虑以下C代码：\n```c\nint i;\nfor (i = 0; i < 10; i++) {\n    // 空循环体\n}\nprintf(\"%d\", i);\n```\n在上述代码执行完毕后，`printf` 输出的 `i` 的值是多少？",
+          "answer": "10",
+          "rationale": "因为 `i` 声明在 `for` 循环之外，循环结束后它保留着使条件变为假的最后一次更新后的值，即 `10`。",
+          "conditions": [
+            "变量声明在外部",
+            "程序未执行未定义行为"
+          ]
+        },
+        {
+          "key": "Q-F19",
+          "knowledge_keys": [
+            "K-F19"
+          ],
+          "question": "执行 for(int i=0; i<5; i++) { printf(\"%d \", i); i+=2; } 代码，会依次输出哪些数字？",
+          "answer": "0 3",
+          "rationale": "第一轮：i=0 入体，输出 0，i+=2 变为 2，i++ 后变为 3；第二轮：i=3 入体，输出 3，i+=2 变为 5，i++ 后变为 6；此时条件 6<5 为假，循环结束。",
+          "conditions": [
+            "变量可修改且已初始化",
+            "各次运算有定义"
+          ]
+        },
+        {
+          "key": "Q-F20",
+          "knowledge_keys": [
+            "K-F20"
+          ],
+          "question": "unsigned int i的i>=0能在i递减后变假吗？",
+          "answer": "不能。无符号零再减一会按模回绕，回绕本身不是未定义行为。",
+          "rationale": "无符号整数在 C 标准中总是非负的，i>=0 恒为真。当 i 为 0 时递减会回绕为最大无符号整数，该行为是明确定义的。",
+          "conditions": [
+            "i类型为unsigned int",
+            "终止判断是i>=0",
+            "不把i!=0等其他判断也判成无效"
+          ]
+        },
+        {
+          "key": "Q-F21",
+          "knowledge_keys": [
+            "K-F21"
+          ],
+          "question": "for(int i = INT_MAX - 1; i <= INT_MAX; i++) { } 循环中，当 i 等于 INT_MAX 且循环体执行完毕后，执行 i++ 会发生什么？",
+          "answer": "发生有符号整数溢出，产生未定义行为。",
+          "rationale": "当 i 达到 INT_MAX 时，循环体正常结束，随后执行 for 头部的 i++。i++ 会将 INT_MAX 增加 1，这超出了 signed int 的最大值，根据 C 标准属于未定义行为。",
+          "conditions": [
+            "变量类型为 signed int",
+            "当前值为 INT_MAX",
+            "头部迭代表达式包含 i++",
+            "执行第三部分i++之前，i仍等于INT_MAX；循环体没有把它改为其他值。"
+          ]
+        }
+      ],
+      "baseline_scope": "用户指定第四轮复核样本用于本次试写，不代表正式课程已采用",
+      "applications": [
+        {
+          "id": "application_nested_transfer",
+          "question": "分别判断内层for中的break和continue转移到哪里，之后外层从哪里继续。",
+          "knowledge_ids": [
+            "kp_60e6a76254c052088a7e",
+            "kp_d83459ca197951f0ad49"
+          ],
+          "answer": "没有更内层包围结构时，内层for的continue执行该内层for的第三部分再判断；break结束内层for，并从其后的语句继续。二者均不自动转移或结束外层for。",
+          "conditions": [
+            "普通结构化控制流",
+            "没有更内层循环或switch改变跳转目标"
+          ],
+          "provenance": "Codex明确的应用题答案，不计为千问输出",
+          "knowledge_keys": [
+            "K-F12",
+            "K-F13"
+          ]
+        }
+      ]
+    }
+  },
+  "relations": [
+    {
+      "key": "r1",
+      "source_id": "kp_1a0bfd83c70c519a9a21",
+      "target_id": "kp_58c6183033225ff5ab9a",
+      "type": "contrasts_with",
+      "necessity": null,
+      "strength": 1.0,
+      "reason": "对比if/else-if选择链与多个独立if在顺序执行时的分支进入行为：选择链首命中后停止后续条件判断；独立if各自判断，前一个命中不会自动跳过后者的条件求值，但前者修改状态仍可能影响后者结果。",
+      "context": "控制流结构分析",
+      "distinction": "选择链首命中后停止后续条件判断；独立if各自判断，前一个命中不会自动跳过后者的条件求值，但前者修改状态仍可能影响后者结果。",
+      "derivation_steps": [],
+      "id": "relation_cccbaef41dfe5835b800",
+      "confidence": null,
+      "semantic_status": "needs_review"
+    },
+    {
+      "key": "r2",
+      "source_id": "kp_859f9b7a8cf35f8bbdaa",
+      "target_id": "kp_8e6ec21f54915eb88a62",
+      "type": "contrasts_with",
+      "necessity": null,
+      "strength": 0.6,
+      "reason": "说明视觉布局（缩进）与C17词法/语法定义的差异，强调else归属依据",
+      "context": "语法解析与代码格式化",
+      "distinction": "缩进仅改变视觉排版，不影响词法记号与语法树，从而不改变else与最近的if的语法配对",
+      "derivation_steps": [],
+      "id": "relation_bb04838439425c8f890b",
+      "confidence": null,
+      "semantic_status": "needs_review"
+    },
+    {
+      "key": "r1",
+      "source_id": "kp_60e6a76254c052088a7e",
+      "target_id": "kp_d83459ca197951f0ad49",
+      "type": "contrasts_with",
+      "necessity": null,
+      "strength": 1.0,
+      "reason": "continue 触发头部迭代表达式并尝试再次入体；break 则彻底中止当前循环并跳过该步骤，导致循环结束。",
+      "context": "C语言控制流退出机制",
+      "distinction": "continue 是循环内的“下一轮”跳转；break 是循环级的“退出”操作。",
+      "derivation_steps": [],
+      "id": "relation_946d48d5a7cb5865aa7f",
+      "confidence": null,
+      "semantic_status": "needs_review"
+    }
+  ],
+  "sources": {
+    "experiment": "C17 三组元知识树隔离小样本",
+    "course_context": {
+      "course": "C17 基础程序设计",
+      "learner": "已认识变量、简单算术和语句，正在学习类型转换、分支配对和循环控制的初学者",
+      "goal": "形成能指导后续讲义生成的知识与术语基线",
+      "source_note": "以下为本次实验人工编写的教学参考摘记，依据既有 C17 样板核对；不是用户教材，也不是已经由学科教师审定的金标准。不得声称覆盖完整 C 语言课程。",
+      "language_standard": "C17",
+      "out_of_scope": [
+        "C++ 或 C23 规则",
+        "指针转换",
+        "复数",
+        "并发",
+        "完整算法课程"
+      ],
+      "source_reference": "WG14 N2176: 6.3, 6.5, 6.8.4.1, 6.8.5.3, 6.8.6"
+    },
+    "topics": [
+      {
+        "id": "types",
+        "name": "数值类型转换",
+        "brief": "覆盖基础整数/浮点转换、表达式运算类型、转换发生位置，以及容易混淆的范围边界。",
+        "sources": [
+          {
+            "id": "T-S1",
+            "text": "普通、可由 int 容纳的无后缀十进制整数字面量具有 int 类型，1U 是 unsigned int，1.0 是 double。整数提升适用时，窄整数若其所有值均可由 int 表示，则先提升为 int，否则提升为 unsigned int。因此在已知 int 可表示 unsigned char 全部值的环境，两个 unsigned char 相加先在 int 中计算，不能直接视作字节回绕。"
+          },
+          {
+            "id": "T-S2",
+            "text": "通常算术转换先确定算术操作的共同类型。此处 int 与 double 的除法转为 double 运算；两个 int 的除法得到 int 商。在运算有定义时，整数商丢弃小数部分，朝零截断。普通标量初始化/赋值在右侧表达式求值后，将得到的值转换到目标类型。double x=5/2 先得到整数 2，随后保存为 2.0。显式转换只作用于语法上指定的子表达式，(double)(5/2) 与 (double)5/2 的转换位置不同。转换表达式不会单独改写原变量的声明类型或存储值。"
+          },
+          {
+            "id": "T-S3",
+            "text": "int 与同等级 unsigned int 混合运算或比较时，int 转为 unsigned int；不要推广成任何有符号类型遇到任何无符号类型都使用这一结果。整数转到无符号整数类型时，按目标类型最大值加一的数学模数调整；例如 (unsigned int)-1 得到 UINT_MAX。整数转到另一个整数类型，如果原值能由目标类型表示，则数值保持；如果目标是有符号整数且不能表示，C17 规定结果由实现定义，或引发实现定义的信号，不能一概说成固定截位或一概说成未定义行为。"
+          },
+          {
+            "id": "T-S4",
+            "text": "有限实浮点值转为非 _Bool 的整数类型时，丢弃小数部分且朝零截断；截断后的整数部分必须能由目标类型表示，否则行为未定义。这不等于整数转无符号的取模规则。整数转实浮点，即使数值范围够大，也可能因有效精度不足而不能精确表示。不能用某次本机溢出或越界运行结果证明可移植语言规则。"
+          }
+        ]
+      },
+      {
+        "id": "if",
+        "name": "if 的语句范围与 else 配对",
+        "brief": "重点覆盖嵌套 if/else 配对、花括号、缩进、空语句、执行路径，以及 else if 与独立 if 的区别。",
+        "sources": [
+          {
+            "id": "I-S1",
+            "text": "if 条件须为标量表达式；普通顺序执行时，条件与零比较不等则执行真分支，与零相等则走 else（若有）。负的非零整数同样为真。一次执行据当时条件选分支，分支内改变条件变量不会自动转而补执行其 else。"
+          },
+          {
+            "id": "I-S2",
+            "text": "if 的每个分支体是一条语句；该语句可以是复合语句，也可以是整个嵌套 if。花括号明确语句块边界，缩进不改变语法归属。else 结合到语法允许的、词法上最近的前面 if。若外层 if 没有选中包含内层 if/else 的分支，则整段内层选择语句都不执行，不能把内层 else 当作独立语句从外部进入。"
+          },
+          {
+            "id": "I-S3",
+            "text": "在 if(a) if(b) x=1; else x=2; 中，else 属于 if(b)。若写 if(a) { if(b) x=1; } else x=2;，这个 else 则属于外层 if(a)。if(condition); 的分号是一条空语句，后面的独立语句块并不因此受该 if 控制。以上均讨论普通结构化控制流，不讨论通过标签或 goto 跳入分支。"
+          },
+          {
+            "id": "I-S4",
+            "text": "else if 在语法上是 else 分支中的另一个 if；按普通顺序执行这种选择链时，首个命中分支之后不再判断链中后续条件。多个独立 if 则可能多次命中，并且后面的判断会看到之前语句修改后的值。测试应区分外层未进入、内层条件为假、分支执行后状态变化等情况，而不只挑所有条件为真的输入。"
+          }
+        ]
+      },
+      {
+        "id": "for",
+        "name": "for 控制流",
+        "brief": "覆盖执行顺序、缺省部分、零次循环、break/continue/return、嵌套控制转移以及终止边界。",
+        "sources": [
+          {
+            "id": "F-S1",
+            "text": "普通顺序进入 for 时，先执行初始化子句一次；每次进入循环体前求值控制表达式；正常完成循环体后执行非空的迭代表达式，然后再判断条件。第一次条件就为假时，循环体执行零次。若正常完成 n 次循环体且没有提前跳转，条件共判断 n+1 次。for(int i=...) 声明的 i 在循环之外不可见；若 i 声明在循环外，结束后可按实际退出路径观察其最终值。"
+          },
+          {
+            "id": "F-S2",
+            "text": "for 的初始化、条件、迭代三部分可以分别省略，但头部两个分号保留。省略初始化使用已有合法状态；省略控制条件视为非零常量；省略迭代表达式不自动补一个递增操作。for 的循环体同样是一条语句，无花括号不控制后续多条语句；for(...); 可以形成空循环体。"
+          },
+          {
+            "id": "F-S3",
+            "text": "continue 作用于最内层包围它的循环；对 for 而言，跳过本轮剩余循环体后到循环推进位置，执行非空的第三部分，再判断条件。break 则结束最内层包围它的循环或 switch，被退出 for 的第三部分不再执行。return 结束当前函数。外层循环中包含内层循环时，内层的 continue/break 不自动转移到外层。"
+          },
+          {
+            "id": "F-S4",
+            "text": "循环终止取决于实际状态推进，循环体也修改控制变量会改变实际遍历值。unsigned int 的值不可能小于零，因此 i>=0 不能用于该类型的倒序终止；从零继续减将无符号回绕。有符号闭区间若包含 INT_MAX，处理该值之后再 i++ 可能溢出，不能以最后一个业务值合法为由忽略更新操作。未定义行为和无界循环只作静态判断，不运行来推断规范。"
+          },
+          {
+            "id": "F-S5",
+            "text": "尾部补充：for 中若夹有 switch，位于 switch 内的 break 退出的是这个 switch，for 仍可继续；同一 switch 内若合法使用 continue，它跳转的对象仍是最内层循环，switch 本身不是 continue 的目标。需要按实际包围结构判断，不能把 break 与 continue 的目标都机械记为最近的花括号。"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -25,7 +25,7 @@ def authoring_repository(storage):
 
 
 def project_teacher_content(raw, *, storage=None, authoring=None):
-    if raw.get("authoring_surface") != "teacher" and raw.get("knowledge_first_workflow") != "knowledge_first_c17_v1":
+    if raw.get("authoring_surface") != "teacher" and raw.get("knowledge_first_workflow") not in {"knowledge_first_c17_v1", "knowledge_first_generic_v1"}:
         return raw
     started = time.monotonic()
     if authoring is None:

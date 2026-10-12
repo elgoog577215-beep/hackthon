@@ -1,0 +1,45 @@
+{
+  "frozen_before_calls": true,
+  "mode": "one_generation_one_review_at_most_one_repair_per_topic",
+  "not_a_claim_of": ["full course completeness", "teacher-reviewed gold standard", "repeatability across multiple trials", "independent same-model review"],
+  "provider_attempts_per_call": 1,
+  "topic_concurrency": 1,
+  "thinking": "use_existing_configuration",
+  "review_can_see": ["original sources", "generated result", "frozen coverage criteria", "deterministic structural findings"],
+  "generation_and_repair_cannot_see": ["holdout_probes.json"],
+  "coverage_criteria": {
+    "types": [
+      ["T01", "字面量类型与后缀"], ["T02", "整数提升及 int 足够范围的条件"],
+      ["T03", "int/double 通常算术转换"], ["T04", "整数商向零截断"],
+      ["T05", "右侧先求值再转换到接收类型"], ["T06", "强制转换位置及不修改原变量"],
+      ["T07", "int 与 unsigned int 的限定混合规则"], ["T08", "整数到无符号的模转换"],
+      ["T09", "整数到有符号越界为实现定义结果或信号"], ["T10", "浮点转整数向零截断及越界未定义"],
+      ["T11", "整数转浮点可能损失精度"]
+    ],
+    "if": [
+      ["I01", "标量条件零/非零含负值"], ["I02", "分支体一条语句与复合语句"],
+      ["I03", "else 语法允许范围内最近配对"], ["I04", "花括号改变归属、缩进不改变"],
+      ["I05", "外层未命中则整段内层不执行"], ["I06", "空语句造成非预期控制范围"],
+      ["I07", "else if 首次命中后停止后续条件"], ["I08", "独立 if 多次判断及读取新状态"],
+      ["I09", "同一个 if 分支内改值不会重选 else"]
+    ],
+    "for": [
+      ["F01", "初始化只执行一次"], ["F02", "体前判断与零次循环"],
+      ["F03", "正常体后更新再判断"], ["F04", "无提前转移时 n+1 次条件判断"],
+      ["F05", "头部声明的变量作用域与外部变量最终值"], ["F06", "三部分省略语义与分号保留"],
+      ["F07", "单语句体与空循环体"], ["F08", "continue 跳过本轮且执行 for 第三部分"],
+      ["F09", "break 退出最近循环或 switch 且不执行被退出 for 的更新"],
+      ["F10", "return 结束函数"], ["F11", "嵌套循环中转移范围"],
+      ["F12", "循环体修改变量影响推进"], ["F13", "无符号倒序与最大有符号值更新风险"],
+      ["F14", "尾部 switch 内 break 与 continue 目标差异"]
+    ]
+  },
+  "grading_rules": {
+    "coverage": "34 个预先冻结的范围单元逐项映射，covered/partial/missing；映射不代替语义审阅。",
+    "granularity": "逐点区分原子规则、可教学过程、复合规则、泛化模板、过度拆分；不以点数或字段完整率代替。",
+    "relations": "逐边检查端点、类型、方向、理由与情境；required 前置须有实际依赖理由。",
+    "misconceptions": "检查 belief、表现、替代解释、区分题、补救与复测；模型假设不得标成实测高频或学生事实。",
+    "semantic_reviewer": "由当前助手独立于千问的自审逐项复核；仍非学科教师盲审。",
+    "acceptance": "结构有效是必要条件；重大知识错误、范围漏项、伪前置或不可区分错因须单独报告，不用均分遮掩。"
+  }
+}

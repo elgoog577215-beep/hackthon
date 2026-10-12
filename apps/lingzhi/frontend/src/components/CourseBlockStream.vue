@@ -93,6 +93,8 @@
         <InlineCourseBlockAI
           v-if="!props.readOnly && !isCanonicalBlock(item.block.block_id)"
           :node="node"
+          :study-dialogues="props.studyDialogues"
+          @study-dialogue="emit('studyDialogue', $event)"
           :block="item.block"
           :active="activeBlockId === item.block.block_id"
           :regeneration-request="regenerationRequests[item.block.block_id]"
@@ -101,14 +103,10 @@
           @record-released="liveRecordIds.delete($event)"
         />
       </article>
-      <InlineLearningRecordBlock
-        v-for="record in item.records"
-        :key="record.id"
-        :note="record"
-        @open="emit('openRecord', $event)"
-        @regenerate="regenerateAiRecord"
-        @delete="deleteAiRecord"
-      />
+      <template v-for="record in item.records" :key="record.id">
+        <button v-if="props.studyDialogues && record.metadata?.study_conversation_id" type="button" class="study-note-marker" :title="record.content" @click="emit('openRecord', { note:record, x:$event.clientX, y:$event.clientY })">✎ {{ t('studyDialogue.marker') }}<span>{{ record.content }}</span></button>
+        <InlineLearningRecordBlock v-else :note="record" @open="emit('openRecord', $event)" @regenerate="regenerateAiRecord" @delete="deleteAiRecord" />
+      </template>
     </template>
     <section v-if="chapterSourceCards.length" class="chapter-sources" aria-label="本节来源">
       <header>
@@ -154,6 +152,7 @@
 </template>
 
 <script setup lang="ts">
+import type { StudyRequest } from '../types/study-dialogue'
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { GitCompareArrows, PencilLine, Sparkles } from 'lucide-vue-next'
 import InlineCourseBlockAI from './InlineCourseBlockAI.vue'
@@ -188,12 +187,14 @@ const props = withDefaults(defineProps<{
   searchWords?: string[]
   isStreaming?: boolean
   canImproveBlocks?: boolean
+  studyDialogues?: boolean
   readOnly?: boolean
   readingTools?: boolean
   conceptMap?: boolean
 }>(), { records: () => [], canImproveBlocks: false, readingTools: true, conceptMap: true })
 const handoutRoot = ref<HTMLElement | null>(null)
 const emit = defineEmits<{
+  studyDialogue: [payload:StudyRequest]
   openRecord: [payload: { note: Note; x: number; y: number }]
   improveBlock: [payload: CourseBlockEditTarget]
   startPractice: [taskRevisionId: string]
@@ -416,6 +417,7 @@ function requestBlockImprovement(blockId: string) {
 }
 
 function regenerateAiRecord(note: Note) {
+  if (props.studyDialogues) { emit('studyDialogue', { kind:'explain', nodeId:note.nodeId, quote:note.quote, anchor:note.anchor, recordId:note.revision ? note.id : undefined }); return }
   const blockId = String(note.anchor?.block_id || '')
   const prompt = String(note.metadata?.ai_prompt || '').trim()
   if (!blockId || !prompt) return
@@ -531,4 +533,8 @@ async function deleteAiRecord(note: Note) {
   .course-content-block.is-ai-growth-primary { animation:none; }
   .course-content-block.is-ppt-same-source-pulse { animation:none; }
 }
+</style>
+
+<style scoped>
+.study-note-marker { display:flex; align-items:center; gap:10px; max-width:100%; margin:6px 0 12px; padding:7px 12px; border:1px solid #ddcee9; border-radius:8px; color:#7753a0; background:#f8f4fc; cursor:pointer; font-size:14px; }.study-note-marker span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:250px; color:#95839f; }.study-note-marker:focus-visible { outline:2px solid #8b6cc3; outline-offset:2px; }
 </style>

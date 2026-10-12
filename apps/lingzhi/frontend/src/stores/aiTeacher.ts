@@ -1,3 +1,5 @@
+import type { StudyRequest, StudyWorkspace } from '../types/study-dialogue'
+import { activeLocale } from '../shared/i18n'
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import http, {
@@ -69,6 +71,7 @@ export interface AIActionReceipt {
 }
 
 export type AIModelFailureCode =
+  | 'model_gateway_error'
   | 'model_not_configured'
   | 'model_auth_failed'
   | 'model_quota_exhausted'
@@ -105,6 +108,7 @@ export interface AIMessage {
 }
 
 export interface AIConversation {
+  study_workspace?: StudyWorkspace
   conversation_id: string
   course_id: string
   course_version_id?: string
@@ -124,6 +128,7 @@ export interface SendAIMessagePayload {
   nodeId?: string
   nodeName?: string
   question: string
+  displayQuestion?: string
   selection?: string
   entrypoint?: 'global' | 'selection' | 'practice' | 'continuity' | 'record' | 'block'
   contextRef?: AIContextRef
@@ -282,7 +287,80 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     }
   }
 
+  let studyOpenSequence = 0
+  async function openStudyDialogue(payload: StudyRequest) {
+    const sequence = ++studyOpenSequence
+    const target = courseId.value
+    if (!target) return null
+    let conversation: AIConversation
+    if (isTeacherPreviewCourse(target)) {
+      const existing = conversations.value.find(c => c.study_workspace && (payload.recordId ? c.study_workspace.record_id === payload.recordId : c.study_workspace.node_id === payload.nodeId && c.study_workspace.quote === payload.quote && c.study_workspace.kind === payload.kind))
+      if (existing) { currentConversationId.value = existing.conversation_id; return existing }
+      const stamp = new Date().toISOString()
+      const id = `trial-study-${createUuid()}`
+      conversation = { conversation_id:id, course_id:target, revision:1, title:payload.quote.slice(0,40), created_at:stamp, updated_at:stamp, messages:[], study_workspace:{ kind:payload.kind, revision:1, course_version_id:useCourseStore().currentCourseVersionId || '', node_id:payload.nodeId, node_name:useCourseStore().nodes.find(n=>n.node_id===payload.nodeId)?.node_name || '', quote:payload.quote, anchor:payload.anchor || {}, record_id:payload.recordId || id, saved_revision:0, draft:'', assisted:false, proposal:null, versions:[], nearby:[], knowledge:[], checks:[] } }
+    } else {
+      const response = await http.post(`/api/courses/${encodeURIComponent(target)}/learning-records/study-dialogues/open`, {
+        kind:payload.kind, node_id:payload.nodeId, quote:payload.quote, anchor:payload.anchor || {}, record_id:payload.recordId || '', course_version_id:useCourseStore().currentCourseVersionId || '', language:activeLocale.value,
+      }, identityRequestConfig(identityScope.value))
+      conversation = response.data
+    }
+    if (courseId.value !== target || sequence !== studyOpenSequence) return null
+    replaceConversation(conversation)
+    currentConversationId.value = conversation.conversation_id
+    return conversation
+  }
+
+  async function studyCommand(conversationId:string, payload:Record<string,unknown>) {
+    const target = courseId.value
+    const conversation = conversations.value.find(c=>c.conversation_id===conversationId)
+    const ws = conversation?.study_workspace
+    if (!ws) throw new Error('workspace_missing')
+    const response = await http.post(`/api/courses/${encodeURIComponent(target)}/learning-records/study-dialogues/${encodeURIComponent(conversationId)}/command`, {
+      ...payload, expected_revision:ws.revision, language:activeLocale.value,
+    }, identityRequestConfig(identityScope.value, { timeout:65000 }))
+    if (courseId.value === target) replaceConversation(response.data)
+    return response.data as AIConversation
+  }
+
+  async function discussStudyPreview(conversationId:string, question:string) {
+    const target = courseId.value
+    const conversation = conversations.value.find(c => c.conversation_id === conversationId)
+    const ws = conversation?.study_workspace
+    const snapshot = useCourseStore().teacherPreviewSnapshot
+    if (!conversation || !ws || !snapshot || !isTeacherPreviewCourse(target) || loading.value) throw new Error('preview_context_changed')
+    const anchorBlockId = ws.anchor.block_id
+    const blockIds = typeof anchorBlockId === 'string' && snapshot.document?.blocks?.some((b:{block_id:string}) => b.block_id === anchorBlockId) ? [anchorBlockId] : []
+    const history = conversation.messages.filter(m => m.status !== 'failed' && m.role !== 'system').slice(-12).map(m => ({ role:m.role, content:m.content.slice(0,8000) }))
+    const submittedDraft = ws.draft
+    const message:AIMessage = { message_id:createUuid(), role:'assistant', content:'', status:'streaming' }
+    conversation.messages.push({ message_id:createUuid(), role:'user', content:question, status:'complete' }, message)
+    const pending = conversation.messages.at(-1)!
+    loading.value = true
+    try {
+      const { data } = await http.post(`/api/teacher/courses/${encodeURIComponent(target)}/preview/study-dialogue`, {
+        preview_revision:snapshot.preview_revision, section_id:ws.node_id, block_ids:blockIds,
+        question, selection:ws.quote, draft:submittedDraft, messages:history, language:activeLocale.value,
+      }, identityRequestConfig('teacher', { timeout:65000 }))
+      if (courseId.value !== target || !isTeacherPreviewCourse(target) || useCourseStore().teacherPreviewSnapshot !== snapshot || data.preview_revision !== snapshot.preview_revision) throw new Error('preview_context_changed')
+      pending.content = data.reply
+      pending.status = 'complete'
+      ws.assisted = true
+      if (typeof data.draft === 'string' && data.draft.trim()) {
+        if (ws.draft === submittedDraft) ws.draft = data.draft
+        ws.proposal = null; ws.solution_seen = true
+      }
+      return conversation
+    } catch (failure:any) {
+      pending.status = 'failed'
+      pending.failure_code = failure?.response?.data?.detail?.code || 'model_unavailable'
+      pending.failure_retryable = true
+      throw Object.assign(failure, { failureCode:pending.failure_code, contextChanged:failure?.message === 'preview_context_changed' })
+    } finally { loading.value = false }
+  }
+
   async function createConversation(title = '', retrievalEnabled = false) {
+    studyOpenSequence++
     if (!courseId.value) return null
     if (isTeacherPreviewCourse(courseId.value)) {
       const stamp = new Date().toISOString()
@@ -304,6 +382,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
   }
 
   async function selectConversation(conversationId: string) {
+    studyOpenSequence++
     currentConversationId.value = conversationId
     if (isTeacherPreviewCourse(courseId.value)) return
     persistCache()
@@ -379,7 +458,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     conversation.messages.push({
       message_id: localUserId,
       role: 'user',
-      content: payload.question,
+      content: payload.displayQuestion || payload.question,
       status: 'complete',
       context_ref: payload.contextRef,
     })
@@ -407,11 +486,13 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     try {
       if (isTeacherPreviewCourse(payload.courseId)) {
         const snapshot = useCourseStore().teacherPreviewSnapshot
+        const anchorBlockId = payload.contextRef?.content_anchor?.block_id
+        const blockIds = typeof anchorBlockId === 'string' && snapshot.document?.blocks?.some((block: { block_id:string }) => block.block_id === anchorBlockId) ? [anchorBlockId] : []
         const response = await fetch(withApiBase(`/api/teacher/courses/${payload.courseId}/preview/ask`), {
           method: 'POST', signal: controller.signal,
           headers: identityScopeHeaders('teacher', { 'Content-Type':'application/json', Accept:'text/event-stream' }),
           body: JSON.stringify({
-          preview_revision: snapshot.preview_revision, question: payload.question, section_id: payload.nodeId || '',
+          preview_revision: snapshot.preview_revision, question: payload.question, section_id: payload.nodeId || '', block_ids:blockIds, selection: (payload.selection || '').slice(0, 12000),
           messages: conversation.messages.slice(0, -2).filter(m => m.role !== 'system').slice(-12).map(m => ({ role: m.role, content: m.content })),
           }),
         })
@@ -793,6 +874,9 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     suggestion,
     load,
     createConversation,
+    openStudyDialogue,
+    studyCommand,
+    discussStudyPreview,
     selectConversation,
     deleteConversation,
     updateRetrievalEnabled,

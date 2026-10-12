@@ -18,6 +18,8 @@ from learning_events import (
     record_learning_event,
 )
 from learning_progress import build_learning_progress, project_learning_objective_bindings
+from knowledge_question_supply import current_question_assets
+from question_bank import load_active_question_bank, question_bank_repository
 
 router = APIRouter(prefix="/courses/{course_id}/learning-assets", tags=["learning_assets"])
 
@@ -37,6 +39,7 @@ async def get_learning_assets(course_id: str, request: Request, node_id: str | N
         course,
         deepcopy(course.get("learning_assets") or {}),
     )
+    assets = current_question_assets(course, assets, load_active_question_bank(course, repository=question_bank_repository))
     quality_report = evaluate_learning_asset_quality(
         course,
         compile_learning_asset_plan(course),
@@ -67,10 +70,8 @@ async def get_practice(course_id: str, node_id: str | None = None):
         course,
         deepcopy(course.get("learning_assets") or {}),
     )
-    questions = [
-        item for item in assets.get("questions") or []
-        if not node_id or item.get("node_id") == node_id
-    ]
+    assets = current_question_assets(course, assets, load_active_question_bank(course, repository=question_bank_repository))
+    questions = _public_learning_assets(assets, node_id=node_id).get("questions") or []
     return {
         "course_id": course_id,
         "course_version_id": course.get("current_course_version_id"),

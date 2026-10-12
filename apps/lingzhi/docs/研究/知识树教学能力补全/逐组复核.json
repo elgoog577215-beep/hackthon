@@ -1,0 +1,394 @@
+{
+  "schema_version": "wencode_teaching_eval_v1",
+  "ready_for_adoption": false,
+  "review_status": "needs_revision",
+  "knowledge_points": 49,
+  "capability_units": 15,
+  "criteria": 49,
+  "new_mistakes": 45,
+  "diagnostic_sets": 15,
+  "remediation_units": 45,
+  "transfer_tasks": 15,
+  "model_calls": 15,
+  "model_seconds": 325.79,
+  "raw_parse_passed": 14,
+  "format_normalized_units": [
+    "F2"
+  ],
+  "structural_passed_units": 15,
+  "semantic_passed_units": 0,
+  "reviews": [
+    {
+      "unit_key": "T1",
+      "name": "判定字面量类型",
+      "point_count": 3,
+      "structure_passed": true,
+      "reviewer": "Codex",
+      "status": "needs_revision",
+      "ready_for_adoption": false,
+      "issues": [
+        {
+          "field": "mistakes.B.repair_steps",
+          "message": "无后缀→int、U→unsigned int 等对照表丢失数值范围限制，不能推广到任意大整数常量。"
+        },
+        {
+          "field": "mistakes.C.repair_steps",
+          "message": "float a=3.14 的编译告警不保证出现，不能用有无告警证明字面量类型；应使用规则或适用的类型检查。"
+        },
+        {
+          "field": "mistakes.*.predictions",
+          "message": "A/B/C 分别作用于互不重合题目；无预测不能排除另一错因，尚未满足预定的成对区分证据标准。"
+        }
+      ]
+    },
+    {
+      "unit_key": "T2",
+      "name": "按适用规则确定操作数转换",
+      "point_count": 3,
+      "structure_passed": true,
+      "reviewer": "Codex",
+      "status": "needs_revision",
+      "ready_for_adoption": false,
+      "issues": [
+        {
+          "field": "mistakes.A.predictions[Q-T06]",
+          "message": "窄整数一律提升为int，不推出int/unsigned int比较时unsigned int转int；这里偷加了另一个错误规则。"
+        },
+        {
+          "field": "mistakes.B.wrong_rule",
+          "message": "把最小秩和保留负数合为一个或条件，预测不唯一；其补救又错误地泛化成总是向高秩转换。"
+        },
+        {
+          "field": "mistakes.C.repair_steps",
+          "message": "固定32位、补码位拷贝没有题设保证；C17的整数转无符号应按值域同余解释。"
+        },
+        {
+          "field": "mistakes.C.predictions[Q-T06]",
+          "message": "Q-T06问转换后的类型，模型预测却是数值0或Error，问答对象不一致。"
+        }
+      ]
+    },
+    {
+      "unit_key": "T3",
+      "name": "区分运算、显式转换与接收转换",
+      "point_count": 4,
+      "structure_passed": true,
+      "reviewer": "Codex",
+      "status": "needs_revision",
+      "ready_for_adoption": false,
+      "issues": [
+        {
+          "field": "mistakes.A.wrong_rule",
+          "message": "把负数向下取整与接收类型反向传播捆成一条错因；又给出变量被转换改类型的预测，超出该假设。"
+        },
+        {
+          "field": "mistakes.A.repair_steps",
+          "message": "把C标准7.16.2当作除法条款，来源错误；乘除规则在6.5.5。"
+        },
+        {
+          "field": "mistakes.C.repair_steps",
+          "message": "声称只有赋值、自增、自减才改变对象，遗漏函数调用等可带来的修改。"
+        },
+        {
+          "field": "practice.steps",
+          "message": "预期输出把a写成10，冻结复测的a=9；与本包后面的达标条件自相矛盾。"
+        }
+      ]
+    },
+    {
+      "unit_key": "T4",
+      "name": "判断整数转换的值与可移植性",
+      "point_count": 3,
+      "structure_passed": true,
+      "reviewer": "Codex",
+      "status": "needs_revision",
+      "ready_for_adoption": false,
+      "issues": [
+        {
+          "field": "skill.boundaries",
+          "message": "将_Bool纳入本组整数转换范围，但所引模转换/保值规则明确排除_Bool。"
+        },
+        {
+          "field": "mistakes.C.wrong_rule",
+          "message": "执行位运算不必改变可表示值；不能据此必然推出100转short会改变，假设不足以决定预测。"
+        },
+        {
+          "field": "mistakes.C.repair_steps",
+          "message": "检查目标short的范围时给出INT_MIN/INT_MAX，目标类型不匹配。"
+        }
+      ]
+    },
+    {
+      "unit_key": "T5",
+      "name": "区分浮点转换的截断、范围与精度",
+      "point_count": 3,
+      "structure_passed": true,
+      "reviewer": "Codex",
+      "status": "needs_revision",
+      "ready_for_adoption": false,
+      "issues": [
+        {
+          "field": "mistakes.B.predictions",
+          "message": "没有unsigned int为32位的前提，却把预测固定为4294967295。"
+        },
+        {
+          "field": "mistakes.B.repair_steps / practice",
+          "message": "要求执行越界浮点转整数并打印结果作验证；该行为未定义，某次输出不能作为正确性或可移植性证据。"
+        },
+        {
+          "field": "mistakes.C.repair_steps",
+          "message": "double约2^53需要具体格式假设，输入明确不假定所有实现精度相同。"
+        }
+      ]
+    },
+    {
+      "unit_key": "I1",
+      "name": "沿条件与分支体追踪一次执行",
+      "point_count": 4,
+      "structure_passed": true,
+      "reviewer": "Codex",
+      "status": "needs_revision",
+      "ready_for_adoption": false,
+      "issues": [
+        {
+          "field": "mistakes.C.repair_steps",
+          "message": "把 if(a)x=1;{y=2;} 标为错误示范并要求比较执行差异；它与 if(a){x=1;}y=2; 的y均独立执行，不能证明所宣称的差异。"
+        },
+        {
+          "field": "mistakes.C.wrong_rule",
+          "message": "缩进控制与忽略分号被合并，预测还追加跳过后续全部代码的假设，错因不可独立定位。"
+        },
+        {
+          "field": "practice.task",
+          "message": "引用一段未给出的混合代码并要求重构，没有原始代码及预期功能合同，训练需再补输入。"
+        }
+      ]
+    },
+    {
+      "unit_key": "I2",
+      "name": "按语法确定 else 归属与可达性",
+      "point_count": 4,
+      "structure_passed": true,
+      "reviewer": "Codex",
+      "status": "needs_revision",
+      "ready_for_adoption": false,
+      "issues": [
+        {
+          "field": "mistakes.A.wrong_rule",
+          "message": "缩进归属与机械文本就近可能给出相反判断，不能合成同一确定性假设。"
+        },
+        {
+          "field": "mistakes.A/B.repair_steps",
+          "message": "不能把特定块外else的限制泛化成任何else连线都不跨花括号；如 if(a){x=1;}else x=2; 本来合法。"
+        },
+        {
+          "field": "diagnostic_probe_keys",
+          "message": "Q-I04与Q-I07为完全相同的代码与问题，不构成两个独立区分证据；这是冻结输入题库本身的局限。"
+        }
+      ]
+    },
+    {
+      "unit_key": "I3",
+      "name": "区分选择链与独立 if 的状态变化",
+      "point_count": 4,
+      "structure_passed": true,
+      "reviewer": "Codex",
+      "status": "needs_revision",
+      "ready_for_adoption": false,
+      "issues": [
+        {
+          "field": "mistakes.B.predictions[Q-I12]",
+          "message": "B假设跳过第二个独立if，却回答第二个条件求值为假。未求值与求值为0是不同观察结果，当前预测掩盖了区别。"
+        },
+        {
+          "field": "mistakes.C.predictions",
+          "message": "理由多处承认无预测，却自行填入正确答案；不能把未定义的假设外行为当作已知正确。"
+        },
+        {
+          "field": "practice.task",
+          "message": "要求分析一段混合的5行代码但未给代码。复测本身完整，可用作训练输入，原训练字段尚不自足。"
+        }
+      ]
+    },
+    {
+      "unit_key": "F1",
+      "name": "列出 for 各阶段与执行次数",
+      "point_count": 5,
+      "structure_passed": true,
+      "reviewer": "Codex",
+      "status": "needs_revision",
+      "ready_for_adoption": false,
+      "issues": [
+        {
+          "field": "mistakes.B.wrong_rule / predictions",
+          "message": "把不同执行时机合并，预测给出10或12；还从更新时机错因推断出少算退出判断，加入了另一个错因。"
+        },
+        {
+          "field": "mistakes.A.predictions[Q-F03]",
+          "message": "只规定首判假仍入体，不足以推出最终i=-1；若随后正常执行头部i++则是0，需明确错误转移语义。"
+        },
+        {
+          "field": "mistakes.B.observable_error",
+          "message": "把迭代发生在条件判断之前写成错误表现，而正常for的体后迭代本就先于下一次条件判断。"
+        }
+      ]
+    },
+    {
+      "unit_key": "F2",
+      "name": "推导省略子句后的实际控制流",
+      "point_count": 4,
+      "structure_passed": true,
+      "reviewer": "Codex",
+      "status": "needs_revision",
+      "ready_for_adoption": false,
+      "issues": [
+        {
+          "field": "raw_json",
+          "message": "repair_steps尾部多余/错配括号导致原始JSON解析失败；仅格式修复后才可入结构检查。"
+        },
+        {
+          "field": "mistakes.B.repair_steps",
+          "message": "把 for(;;) 改为 for(1;) 是非法C语法；显式真条件应保留两个分号，如 for(;1;)。"
+        },
+        {
+          "field": "practice.mastery_requirements",
+          "message": "RETEST-A使用i+=2，但说明i未自增容易误成值不变化；应准确说没有头部隐式i++、体内仍修改i。"
+        }
+      ]
+    },
+    {
+      "unit_key": "F3",
+      "name": "确定单语句、复合语句与空循环体",
+      "point_count": 2,
+      "structure_passed": true,
+      "reviewer": "Codex",
+      "status": "needs_revision",
+      "ready_for_adoption": false,
+      "issues": [
+        {
+          "field": "mistakes.A/C.predictions",
+          "message": "对Q-F10预测相同，对Q-F11的A又无预测，尚不能据题组排除A/C之一；A的缩进前提也未由单行题目保证。"
+        },
+        {
+          "field": "mistakes.B.repair_steps",
+          "message": "空语句体与空复合语句体是不同语法节点，不能声称AST结构相同。格式化是否缩进也不是语义证明。"
+        },
+        {
+          "field": "practice",
+          "message": "两段代码仅第一段含Inner打印；必须分别明确输出，不能用一组Inner/Outer输出概括两段。"
+        }
+      ]
+    },
+    {
+      "unit_key": "F4",
+      "name": "分别追踪 continue、break 与 return",
+      "point_count": 3,
+      "structure_passed": true,
+      "reviewer": "Codex",
+      "status": "needs_revision",
+      "ready_for_adoption": false,
+      "issues": [
+        {
+          "field": "mistakes.A/C",
+          "message": "A与C最终都被写成continue直接退出，在实际选题上没有有效区分；C混淆跳过更新、跳过判断和结束循环。"
+        },
+        {
+          "field": "mistakes.B.predictions[E-F05]",
+          "message": "题目要求标准输出，update after丢失两个换行边界；应区分概念性预测与精确输出。"
+        },
+        {
+          "field": "criteria[K-F14]",
+          "message": "return后的无任何后续需限定为当前函数；调用者仍会继续，不能让学生把函数返回理解成整个程序结束。"
+        }
+      ]
+    },
+    {
+      "unit_key": "F5",
+      "name": "判定 switch 与循环嵌套中的转移目标",
+      "point_count": 2,
+      "structure_passed": true,
+      "reviewer": "Codex",
+      "status": "needs_revision",
+      "ready_for_adoption": false,
+      "issues": [
+        {
+          "field": "mistakes.A.predictions[Q-F15]",
+          "message": "如果误把switch内break当成退出for，第一次就跳过switch后的printf，应预测0个A而非1个。"
+        },
+        {
+          "field": "mistakes.B/C",
+          "message": "假设分别给出下一个case、switch结束、死循环或UB等多种走向，无法形成确定可检验的错误规则。"
+        },
+        {
+          "field": "mistakes.C.predictions",
+          "message": "从不穿透switch的错误信念不能推出C语言未定义行为，这是模型把错误认知模拟与真实语言行为混淆。"
+        }
+      ]
+    },
+    {
+      "unit_key": "F6",
+      "name": "区分变量作用域与退出后状态",
+      "point_count": 3,
+      "structure_passed": true,
+      "reviewer": "Codex",
+      "status": "needs_revision",
+      "ready_for_adoption": false,
+      "issues": [
+        {
+          "field": "mistakes.A.predictions[Q-F19]",
+          "message": "变量作用域错误不推出忽略i+=2，预测0 1 2 3 4偷加了另一个错因。"
+        },
+        {
+          "field": "mistakes.B.predictions[Q-F19]",
+          "message": "答案0 3本身正确，但理由反复假设没有体内修改，证据链不自洽。"
+        },
+        {
+          "field": "mistakes.C.wrong_rule",
+          "message": "头部更新被忽略与体内修改无效是不同规则，不能作为同一个错因。"
+        }
+      ]
+    },
+    {
+      "unit_key": "F7",
+      "name": "区分无符号终止失败与有符号溢出",
+      "point_count": 2,
+      "structure_passed": true,
+      "reviewer": "Codex",
+      "status": "needs_revision",
+      "ready_for_adoption": false,
+      "issues": [
+        {
+          "field": "mistakes.A.repair_steps",
+          "message": "unsigned int回绕数值直接写4294967295，缺少32位假设，应保留UINT_MAX。"
+        },
+        {
+          "field": "mistakes.C.wrong_rule / observable_error",
+          "message": "把正常体后先更新再判断称为错误顺序，又与达到INT_MAX会自动停止混合，纠错对象反而包含正确规则。"
+        },
+        {
+          "field": "practice.task",
+          "message": "要求对死循环/UB混合代码绘制完整执行轨迹，没有界定停止推导点；应在首个UB处停止，死循环仅给有限片段及证明。"
+        }
+      ]
+    }
+  ],
+  "claim_boundary": "候选教学框架已覆盖49点；新内容未达到WenCode精修语义门槛，禁止作为正式教学基线。",
+  "input_limitations": [
+    "Q-I04与Q-I07重复",
+    "不同错因可能独立并存，不能强行作互斥三选一",
+    "三个既有已验证诊断仍保留，新增候选未替代它们"
+  ],
+  "transfer_verification": {
+    "programs": 19,
+    "runs": 38,
+    "all_passed": true,
+    "not_executed": [
+      "T2假定的异平台整数提升",
+      "T4实现定义转换",
+      "T5浮点越界UB与任意整数精度",
+      "F6作用域错误",
+      "F7无退出循环和有符号溢出"
+    ],
+    "limit": "实际执行只核验当前实现；不以运行结果证明可移植规范或真实学生诊断效度。"
+  }
+}

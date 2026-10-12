@@ -163,6 +163,7 @@
 </template>
 
 <script setup lang="ts">
+import type { StudyRequest } from '../types/study-dialogue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
   AlignLeft,
@@ -199,10 +200,12 @@ type RegenerationRequest = {
 const props = withDefaults(defineProps<{
   node: CourseNode
   block: ContentBlock
+  studyDialogues?: boolean
   active?: boolean
   regenerationRequest?: RegenerationRequest
 }>(), { active: false, regenerationRequest: undefined })
 const emit = defineEmits<{
+  studyDialogue: [payload: StudyRequest]
   activate: [blockId: string]
   recordPersisted: [recordId: string]
   recordReleased: [recordId: string]
@@ -328,6 +331,11 @@ function handleMenuKeydown(event: KeyboardEvent) {
 }
 
 async function chooseAction(action: InlineAIAction) {
+  if (props.studyDialogues) {
+    emit('studyDialogue', { kind:'explain', nodeId:props.node.node_id, quote:sourceText.value, anchor:{ block_id:props.block.block_id, block_revision_id:props.block.block_revision_id }, prompt:action === 'ask' ? undefined : actionPrompt(action) })
+    closeMenu()
+    return
+  }
   activeAction.value = action
   resultVisible.value = true
   assistantMessage.value = null

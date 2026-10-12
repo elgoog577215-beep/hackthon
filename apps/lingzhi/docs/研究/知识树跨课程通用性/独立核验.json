@@ -1,0 +1,132 @@
+{
+  "python_runtime": "3.11.9",
+  "python": [
+    {
+      "key": "Q1",
+      "actual": true,
+      "expected": true,
+      "passed": true
+    },
+    {
+      "key": "Q2",
+      "actual": [
+        1,
+        2
+      ],
+      "expected": [
+        1,
+        2
+      ],
+      "passed": true
+    },
+    {
+      "key": "Q3",
+      "actual": [
+        1
+      ],
+      "expected": [
+        1
+      ],
+      "passed": true
+    },
+    {
+      "key": "Q4",
+      "actual": [
+        [
+          1
+        ]
+      ],
+      "expected": [
+        [
+          1
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "key": "Q5",
+      "actual": [
+        [
+          1,
+          2
+        ]
+      ],
+      "expected": [
+        [
+          1,
+          2
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "key": "Q6",
+      "actual": [
+        [
+          1
+        ]
+      ],
+      "expected": [
+        [
+          1
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "key": "R1",
+      "actual": [
+        [
+          [
+            3,
+            4
+          ]
+        ],
+        [
+          [
+            3,
+            4
+          ],
+          [
+            5
+          ]
+        ]
+      ],
+      "expected": [
+        [
+          [
+            3,
+            4
+          ]
+        ],
+        [
+          [
+            3,
+            4
+          ],
+          [
+            5
+          ]
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "key": "R2",
+      "actual": [
+        [
+          3
+        ]
+      ],
+      "expected": [
+        [
+          3
+        ]
+      ],
+      "passed": true
+    }
+  ],
+  "math_method": "手工差商与左右极限推导；不以有限采样代替极限证明",
+  "physics_method": "逐个标注施力者/受力者/系统，按材料核对",
+  "history_method": "论证评分规准，检查替代解释与证据限度；不使用唯一字符串答案"
+}

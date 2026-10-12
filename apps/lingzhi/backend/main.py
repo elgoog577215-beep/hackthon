@@ -234,6 +234,8 @@ app.include_router(block_regeneration.router, prefix="/api")
 app.include_router(change_proposals.router, prefix="/api")
 app.include_router(change_proposals.authoring_router, prefix="/api")
 app.include_router(knowledge_libraries.router, prefix="/api")
+from routers import knowledge_first
+app.include_router(knowledge_first.router, prefix="/api")
 app.include_router(teaching_representations.router, prefix="/api")
 app.include_router(course_evolution.router, prefix="/api")
 app.include_router(course_evolution.personal_router, prefix="/api")

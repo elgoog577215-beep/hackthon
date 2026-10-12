@@ -348,6 +348,8 @@
                         :can-improve-blocks="!props.readOnly && !isGenerationPreview && courseStore.currentCourseSourceFormat === 'canonical'"
                         :read-only="props.readOnly"
                         @start-practice="handleStartPractice"
+                        :study-dialogues="props.studyDialogues"
+                        @study-dialogue="emit('studyDialogue', $event)"
                         @open-record="openInlineRecord"
                         @improve-block="emit('improveBlock', $event)"
                     />
@@ -402,6 +404,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, watch, nextTick, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
+import type { StudyRequest } from '../types/study-dialogue'
 import { useNoteStore } from '../stores/notes'
 import { createInlineRecordPersistence } from '../composables/inline-record-persistence'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
@@ -432,10 +435,12 @@ dayjs.locale('zh-cn')
 const props = defineProps<{
   sideAiPanelVisible?: boolean
   readOnly?: boolean
+  studyDialogues?: boolean
   teacherPreview?: boolean
 }>()
 
 const emit = defineEmits<{
+  (e: 'studyDialogue', payload: StudyRequest): void
   (e: 'quoteAsk', payload: { text: string; nodeId: string; anchor?: Record<string, unknown> }): void
   (e: 'startPractice', node: any, taskRevisionId?: string): void
   (e: 'improveBlock', payload: CourseBlockEditTarget): void
@@ -1671,7 +1676,7 @@ const wrapRange = (range: Range, id: string, noteId: string) => {
     }
 }
 
-const scrollToNote = (noteId: string) => {
+const scrollToNote = async (noteId: string) => {
     const note = noteStore.notes.find(n => n.id === noteId)
     if (!note) {
         logger.warn('Note not found:', noteId)
@@ -1703,6 +1708,17 @@ const scrollToNote = (noteId: string) => {
             flashNoteCard()
             return
         }
+    }
+
+    // AI notes can have a precise block anchor without a text highlight.
+    // Resolve only blocks that still belong to this note's course node.
+    const anchoredBlockId = String(note.anchor?.block_id || '')
+    const sourceNode = flatNodes.value.find(node => node.node_id === note.nodeId)
+    if (anchoredBlockId && !['orphaned', 'needs_confirmation'].includes(note.migrationStatus || '')
+        && sourceNode?.course_blocks?.some((block: { block_id: string }) => block.block_id === anchoredBlockId)) {
+        await scrollToCourseBlock(note.nodeId, anchoredBlockId)
+        flashNoteCard()
+        return
     }
 
     // If no highlight or highlight not found, scroll to the node
@@ -1932,6 +1948,14 @@ const selectedNodeFromMenu = () => {
 
 const selectedNodeIdFromMenu = () => selectedNodeFromMenu()?.node_id || ''
 
+const studySelectionAnchor = (range:Range, node:HTMLElement, text:string) => {
+    const anchor = buildTextQuoteAnchor(range, node, text)
+    const start = (range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement)?.closest<HTMLElement>('[data-content-block-id]')
+    const end = (range.endContainer instanceof Element ? range.endContainer : range.endContainer.parentElement)?.closest<HTMLElement>('[data-content-block-id]')
+    if (start && start === end) return { ...anchor, block_id:start.dataset.contentBlockId, block_revision_id:start.dataset.contentBlockRevisionId }
+    return anchor
+}
+
 const handleAsk = () => {
     if (!selectionMenu.value.text) return
 
@@ -1939,10 +1963,11 @@ const handleAsk = () => {
     const nodeId = selectedNodeIdFromMenu()
     const nodeElement = nodeId ? document.getElementById(`node-${nodeId}`) : null
     const anchor = selectionMenu.value.range && nodeElement
-        ? buildTextQuoteAnchor(selectionMenu.value.range, nodeElement, text)
+        ? (props.studyDialogues ? studySelectionAnchor : buildTextQuoteAnchor)(selectionMenu.value.range, nodeElement, text)
         : undefined
 
-    emit('quoteAsk', { text, nodeId, anchor })
+    if (props.studyDialogues) emit('studyDialogue', { kind:'explain', quote:text, nodeId, anchor })
+    else emit('quoteAsk', { text, nodeId, anchor })
     
     // Hide menu
     selectionMenu.value.visible = false
@@ -1983,6 +2008,12 @@ const handleAddNote = async () => {
         ElMessage.warning(t('courseWorkspace.records.locationMissing', '无法定位选区所在章节'))
         return
     }
+    if (props.studyDialogues) {
+        emit('studyDialogue', { kind:'note', nodeId, quote, anchor:studySelectionAnchor(range, nodeElement, selectionMenu.value.text) })
+        selectionMenu.value.visible = false
+        window.getSelection()?.removeAllRanges()
+        return
+    }
     const noteId = `note-${createUuid()}`
     const note: Note = {
         id: noteId,
@@ -2011,6 +2042,11 @@ const openInlineRecord = (
     payload: { note: Note; x: number; y: number },
     initialEdit = false,
 ) => {
+    if (props.studyDialogues && (!payload.note.recordType || payload.note.recordType === 'note')) {
+        inlineRecord.visible = false
+        emit('studyDialogue', { kind:'note', nodeId:payload.note.nodeId, quote:payload.note.quote, anchor:payload.note.anchor, recordId:payload.note.revision ? payload.note.id : undefined })
+        return
+    }
     activeNoteId.value = payload.note.id
     inlineRecord.visible = true
     inlineRecord.note = payload.note

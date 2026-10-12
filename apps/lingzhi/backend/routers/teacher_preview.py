@@ -132,8 +132,15 @@ def read_preview(course_id: str, request: Request, include_assets: bool = False)
                 for key in ('knowledge_structure', 'key_points', 'reused_knowledge_names'):
                     if key in source:
                         node[key] = deepcopy(source[key])
+        tree = raw.get('course_knowledge_base') or {}
+        handout_tree = tree.get('source_mode') == 'handouts' and tree.get('status') == 'accepted'
+        if handout_tree:
+            from handout_knowledge import visible_handout_tree
+            public_course['course_knowledge_base'] = visible_handout_tree(tree, document, raw.get('teacher_handouts') or {})
         assets = project_learning_assets_to_knowledge(public_course, {})
         result['assets'] = _public_learning_assets(assets, node_id=None)
+        if handout_tree:
+            result['assets']['knowledge_tree_authoritative'] = True
         result['assets']['questions'] = result['questions']
         result['assets'].pop('checklist', None)
     return result
@@ -179,6 +186,7 @@ class TrialMessage(BaseModel):
 class AskRequest(BaseModel):
     preview_revision: str = Field(min_length=1, max_length=160)
     question: str = Field(min_length=1, max_length=4000)
+    selection: str = Field(default="", max_length=12000)
     section_id: str = Field(default="", max_length=160)
     block_ids: list[str] = Field(default_factory=list, max_length=20)
     messages: list[TrialMessage] = Field(default_factory=list, max_length=12)
@@ -228,9 +236,9 @@ async def ask_preview(course_id: str, body: AskRequest, request: Request):
         for b in visible.values() if b["section_id"] == sid and (not body.block_ids or b["block_id"] in body.block_ids)]}
         for sid, section in sections.items()]
     sources = _select_sources({"nodes": safe_nodes, "current_course_version_id": document["document_revision"]},
-        node_id=body.section_id, question=body.question, selection="", perspective="teacher",
+        node_id=body.section_id, question=body.question, selection=body.selection, perspective="teacher",
         context_ref={"content_anchor": {"file_scope": {"mode": "all"}}})
-    package = {"request": {"question": body.question, "perspective": "student", "entrypoint": "teacher_preview", "intent": "explain"},
+    package = {"request": {"question": body.question, "selection": body.selection, "perspective": "student", "entrypoint": "teacher_preview", "intent": "explain"},
         "scene": {"course_id": course_id, "node_id": body.section_id, "document_revision": document["document_revision"]},
         "sources": sources, "conversation": {"recent_messages": [m.model_dump() for m in body.messages]},
         "permissions": {"persist": False, "modify_course": False}, "runtime": {}, "learner_model": {}, "learner_evidence": []}
@@ -248,7 +256,7 @@ async def ask_preview(course_id: str, body: AskRequest, request: Request):
                 yield event('sources', {'sources':public_sources})
                 yield event('complete', {'preview_revision':revision})
             except AITeacherModelFailure as exc:
-                yield event('error', {'code':exc.code,'message':exc.message})
+                yield event('error', {'code':exc.code,'message':exc.message,'retryable':exc.retryable})
             except HTTPException as exc:
                 yield event('error', exc.detail if isinstance(exc.detail, dict) else {'message':str(exc.detail)})
         return StreamingResponse(stream(), media_type='text/event-stream', headers={'Cache-Control':'no-store','X-Accel-Buffering':'no'})

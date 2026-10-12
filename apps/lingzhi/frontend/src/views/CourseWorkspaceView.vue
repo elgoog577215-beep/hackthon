@@ -120,10 +120,11 @@
     />
 
     <CoursePreparationDialog
-      v-if="!loading"
+      v-if="!loading && !knowledgeFirstEnabled"
       :course-id="courseId"
       :course-title="courseTitle"
       @completed="handlePreparationCompleted"
+      @knowledge="handleKnowledgeUpdated"
     />
 
     <el-drawer v-model="calendarOpen" class="teaching-calendar-drawer" size="min(1500px, 98vw)" :title="t('courseFiles.calendarDrawerTitle')">
@@ -197,6 +198,8 @@ const loading = ref(true)
 const loadError = ref<AppErrorPresentation | null>(null)
 const outlineEditing = ref(false)
 const calendarOpen = ref(false)
+const knowledgeFirstEnabled = ref(false)
+async function handleKnowledgeUpdated() { await loadWorkspace() }
 const courseInformationOpen = ref(false)
 const courseAdjustmentOpen = ref(false)
 const globalChangeChoiceOpen = ref(false)
@@ -258,6 +261,7 @@ async function loadWorkspace() {
   loading.value = true
   loadError.value = null
   courseInformationEnvelope.value = null
+  knowledgeFirstEnabled.value = false
   try {
     const requestedSection = String(route.query.section || '')
     const requestedStage = String(route.query.stage || '')
@@ -283,6 +287,7 @@ async function loadWorkspace() {
       primaryContentLoad,
     ])
     if (courseId.value !== requestedCourseId || loadToken !== workspaceLoadToken) return
+    knowledgeFirstEnabled.value = ['knowledge_first_c17_v1', 'knowledge_first_generic_v1'].includes(courseInformation.data?.knowledge_first_workflow)
     if (loadBlueprintFirst) {
       const blueprint = primaryContent?.draft || primaryContent?.current || primaryContent || {}
       const blueprintNodes = Array.isArray(blueprint.nodes) ? blueprint.nodes : []

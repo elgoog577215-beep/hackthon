@@ -36,6 +36,16 @@
 .is-learning-assistant .quick-actions button svg { flex:none; box-sizing:content-box; padding:6px; border-radius:8px; color:var(--lz-brand-strong); background:#f5f5fc; }
 .is-learning-assistant .quick-actions button:hover:not(:disabled) { transform:none; color:var(--lz-brand-strong); border-color:var(--color-primary-200); background:#fafafe; box-shadow:0 2px 5px rgba(15,23,42,.045); }
 .is-learning-assistant .quick-actions button:disabled { opacity:.55; }
+/* The companion already introduces the assistant in the header. Keep the
+   welcome and all three actions in view on a standard laptop screen. */
+.is-learning-assistant.has-companion .ai-teacher-messages:has(.ai-teacher-empty) { padding:14px 18px; }
+.is-learning-assistant.has-companion .ai-teacher-empty { padding:0 4px; gap:8px; justify-content:flex-start; }
+.is-learning-assistant.has-companion .empty-mark { display:none; }
+.is-learning-assistant.has-companion .ai-teacher-empty strong { font-size:18px; }
+.is-learning-assistant.has-companion .ai-teacher-empty p { line-height:1.6; }
+.is-learning-assistant.has-companion .quick-actions { gap:8px; margin-top:8px; }
+.is-learning-assistant.has-companion .quick-actions button { min-height:42px; padding:6px 10px; }
+.is-learning-assistant.has-companion .quick-actions button svg { padding:4px; }
 .is-learning-assistant .ai-message { margin-bottom:28px; }
 .is-learning-assistant .ai-message:not(.is-user) { display:block; }
 .is-learning-assistant .assistant-avatar { display:none; }

@@ -1,0 +1,2961 @@
+{
+  "schema": "knowledge_tree_lab_collection_v3",
+  "course_id": "course_c17_lab_20261011_v3",
+  "title": "C17 三组知识树实验候选",
+  "state": "candidate",
+  "adoptable": false,
+  "model": "qwen3.8-27b",
+  "notice": "千问自动生成原文，包含已知错误；评语由Codex非盲复核。不是教师审定教材，不可导入正式课程或直接生成讲义。",
+  "categories": [
+    {
+      "id": "course_c17_lab_20261011_v3",
+      "parent_id": null,
+      "name": "C17 三组样板"
+    },
+    {
+      "id": "cat_f8da3e3eac8c5750ade4",
+      "parent_id": "course_c17_lab_20261011_v3",
+      "name": "数值类型转换"
+    },
+    {
+      "id": "cat_4bda9a000b465f8c9169",
+      "parent_id": "cat_f8da3e3eac8c5750ade4",
+      "name": "字面量与提升"
+    },
+    {
+      "id": "cat_c61d216da3eb51729cb7",
+      "parent_id": "cat_4bda9a000b465f8c9169",
+      "name": "整数字面量"
+    },
+    {
+      "id": "cat_552eac0df4165984a841",
+      "parent_id": "cat_4bda9a000b465f8c9169",
+      "name": "窄类型提升"
+    },
+    {
+      "id": "cat_e805b5c98e675097a5bc",
+      "parent_id": "cat_f8da3e3eac8c5750ade4",
+      "name": "通常算术转换"
+    },
+    {
+      "id": "cat_4c697bb899bc569293f6",
+      "parent_id": "cat_e805b5c98e675097a5bc",
+      "name": "混合类型"
+    },
+    {
+      "id": "cat_52e1a1a4bd2a55429d6a",
+      "parent_id": "cat_e805b5c98e675097a5bc",
+      "name": "截断行为"
+    },
+    {
+      "id": "cat_40a5eaf4097d5bd18672",
+      "parent_id": "cat_f8da3e3eac8c5750ade4",
+      "name": "赋值与求值"
+    },
+    {
+      "id": "cat_2a60dd0177a5527d9a22",
+      "parent_id": "cat_40a5eaf4097d5bd18672",
+      "name": "求值时序"
+    },
+    {
+      "id": "cat_d4d99f6cb0aa506182d7",
+      "parent_id": "cat_40a5eaf4097d5bd18672",
+      "name": "类型边界"
+    },
+    {
+      "id": "cat_db6ccdedf1f85d6d9bd0",
+      "parent_id": "cat_f8da3e3eac8c5750ade4",
+      "name": "整数转换"
+    },
+    {
+      "id": "cat_6fdd2467542b52a08e40",
+      "parent_id": "cat_db6ccdedf1f85d6d9bd0",
+      "name": "无符号边界"
+    },
+    {
+      "id": "cat_d9ed9b6ccb2758a3bdea",
+      "parent_id": "cat_db6ccdedf1f85d6d9bd0",
+      "name": "有符号边界"
+    },
+    {
+      "id": "cat_6e71fef0c7bb5d859d31",
+      "parent_id": "cat_f8da3e3eac8c5750ade4",
+      "name": "实浮点转换"
+    },
+    {
+      "id": "cat_6f61b975857e543d83d8",
+      "parent_id": "cat_6e71fef0c7bb5d859d31",
+      "name": "向零截断"
+    },
+    {
+      "id": "cat_6dde15cb69e8563cbf29",
+      "parent_id": "cat_6e71fef0c7bb5d859d31",
+      "name": "越界行为"
+    },
+    {
+      "id": "cat_e8ef5d3b57fd55c192ed",
+      "parent_id": "cat_6e71fef0c7bb5d859d31",
+      "name": "精度损失"
+    },
+    {
+      "id": "cat_d59180402c58501dac06",
+      "parent_id": "cat_e805b5c98e675097a5bc",
+      "name": "int与unsigned混合规则"
+    },
+    {
+      "id": "cat_ab43a0ed23715532869c",
+      "parent_id": "course_c17_lab_20261011_v3",
+      "name": "if 的语句范围与 else 配对"
+    },
+    {
+      "id": "cat_c0f13fa7d9ba5d7cbf49",
+      "parent_id": "cat_ab43a0ed23715532869c",
+      "name": "条件表达式"
+    },
+    {
+      "id": "cat_e10617c8616e566c9514",
+      "parent_id": "cat_c0f13fa7d9ba5d7cbf49",
+      "name": "求值语义"
+    },
+    {
+      "id": "cat_48f0761baef95b9e8b2d",
+      "parent_id": "cat_ab43a0ed23715532869c",
+      "name": "执行模型"
+    },
+    {
+      "id": "cat_00f0521f6e925ef996bd",
+      "parent_id": "cat_48f0761baef95b9e8b2d",
+      "name": "单次判定"
+    },
+    {
+      "id": "cat_fe61ecaf3f9757d7be93",
+      "parent_id": "cat_ab43a0ed23715532869c",
+      "name": "语句结构"
+    },
+    {
+      "id": "cat_8ace41deabf9514c87b0",
+      "parent_id": "cat_fe61ecaf3f9757d7be93",
+      "name": "分支构成"
+    },
+    {
+      "id": "cat_622a00ce32105e859a10",
+      "parent_id": "cat_ab43a0ed23715532869c",
+      "name": "else 配对"
+    },
+    {
+      "id": "cat_23194b9db7f25a8abaae",
+      "parent_id": "cat_622a00ce32105e859a10",
+      "name": "语法归属"
+    },
+    {
+      "id": "cat_959956c1461c5ef8b34f",
+      "parent_id": "cat_ab43a0ed23715532869c",
+      "name": "执行路径"
+    },
+    {
+      "id": "cat_f780b4936f9456979824",
+      "parent_id": "cat_959956c1461c5ef8b34f",
+      "name": "复合控制"
+    },
+    {
+      "id": "cat_c877892b015b59b394bd",
+      "parent_id": "cat_ab43a0ed23715532869c",
+      "name": "常见缺陷"
+    },
+    {
+      "id": "cat_17399064278252d583b5",
+      "parent_id": "cat_c877892b015b59b394bd",
+      "name": "空语句"
+    },
+    {
+      "id": "cat_5f3986632b32534db55b",
+      "parent_id": "cat_ab43a0ed23715532869c",
+      "name": "选择链"
+    },
+    {
+      "id": "cat_95ad2fdd55225711a3ac",
+      "parent_id": "cat_5f3986632b32534db55b",
+      "name": "else if 语义"
+    },
+    {
+      "id": "cat_2672d9954f7f5d05b699",
+      "parent_id": "cat_5f3986632b32534db55b",
+      "name": "独立 if 对比"
+    },
+    {
+      "id": "cat_679161a1da075c65a553",
+      "parent_id": "course_c17_lab_20261011_v3",
+      "name": "for 控制流"
+    },
+    {
+      "id": "cat_1968589a658851bcb430",
+      "parent_id": "cat_679161a1da075c65a553",
+      "name": "for 语法结构"
+    },
+    {
+      "id": "cat_6f453f3d69ad5638b84d",
+      "parent_id": "cat_1968589a658851bcb430",
+      "name": "初始化"
+    },
+    {
+      "id": "cat_0afecce1c1de58ce9ce1",
+      "parent_id": "cat_679161a1da075c65a553",
+      "name": "for 执行顺序"
+    },
+    {
+      "id": "cat_186548352275567cbce0",
+      "parent_id": "cat_0afecce1c1de58ce9ce1",
+      "name": "零次循环"
+    },
+    {
+      "id": "cat_c3ef1f409b525652ad33",
+      "parent_id": "cat_0afecce1c1de58ce9ce1",
+      "name": "更新逻辑"
+    },
+    {
+      "id": "cat_d503d7dcf686566cb24b",
+      "parent_id": "cat_0afecce1c1de58ce9ce1",
+      "name": "条件频次"
+    },
+    {
+      "id": "cat_9edce654446652aea82b",
+      "parent_id": "cat_679161a1da075c65a553",
+      "name": "变量与生命周期"
+    },
+    {
+      "id": "cat_8cfedf0f0684591fa93f",
+      "parent_id": "cat_9edce654446652aea82b",
+      "name": "作用域边界"
+    },
+    {
+      "id": "cat_944e65dfb6075743bbcd",
+      "parent_id": "cat_9edce654446652aea82b",
+      "name": "外部变量观察"
+    },
+    {
+      "id": "cat_1849b7d4908d55c09bef",
+      "parent_id": "cat_1968589a658851bcb430",
+      "name": "省略规则"
+    },
+    {
+      "id": "cat_30d9761f3f345f12b806",
+      "parent_id": "cat_1968589a658851bcb430",
+      "name": "循环体作用域"
+    },
+    {
+      "id": "cat_abe7763644375728a455",
+      "parent_id": "cat_679161a1da075c65a553",
+      "name": "控制流转移"
+    },
+    {
+      "id": "cat_d91d16b2f2e05bd6a0d6",
+      "parent_id": "cat_abe7763644375728a455",
+      "name": "continue 机制"
+    },
+    {
+      "id": "cat_8593d4c5de4956249df7",
+      "parent_id": "cat_abe7763644375728a455",
+      "name": "break 机制"
+    },
+    {
+      "id": "cat_8659c39264355845bcd2",
+      "parent_id": "cat_abe7763644375728a455",
+      "name": "return 机制"
+    },
+    {
+      "id": "cat_e79b1b17a90f5dce949a",
+      "parent_id": "cat_abe7763644375728a455",
+      "name": "嵌套范围"
+    },
+    {
+      "id": "cat_6387ceb40a5052c68c88",
+      "parent_id": "cat_679161a1da075c65a553",
+      "name": "循环终止边界"
+    },
+    {
+      "id": "cat_375fe0c528045579ab74",
+      "parent_id": "cat_6387ceb40a5052c68c88",
+      "name": "状态推进"
+    },
+    {
+      "id": "cat_405d48a2bbe25852a830",
+      "parent_id": "cat_6387ceb40a5052c68c88",
+      "name": "类型风险"
+    },
+    {
+      "id": "cat_c1387fbb5877549f80d8",
+      "parent_id": "cat_abe7763644375728a455",
+      "name": "switch 混合"
+    }
+  ],
+  "points": [
+    {
+      "id": "kp_a5d0794652c45fdc98cc",
+      "parent_id": "cat_c61d216da3eb51729cb7",
+      "name": "默认整型",
+      "statement": "在C17中，没有后缀的十进制整数字面量在能由int表示时，默认具有int类型。",
+      "conditions": [
+        "十进制整数字面量",
+        "数值能由int表示"
+      ],
+      "question": "为什么不带后缀的十进制整数在能由int容纳时其类型被确定为int？",
+      "answer": "C17规范规定，当整数字面量在可容纳的范围内没有后缀时，其类型就是int。",
+      "source_refs": [
+        "T-S1"
+      ],
+      "coverage_ids": [
+        "T01"
+      ],
+      "stop_reason": "该点定义了无后缀十进制整数的基础类型；引入后缀或不同进制会引入新的规则，不属于此命题。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_6f7acf39ee685b02b0dc",
+      "parent_id": "cat_c61d216da3eb51729cb7",
+      "name": "无符号后缀",
+      "statement": "带有 'U' 后缀的十进制整数字面量具有 unsigned int 类型。",
+      "conditions": [
+        "十进制整数字面量",
+        "具有U后缀"
+      ],
+      "question": "如何通过字面量后缀判断其基础类型是否为无符号？",
+      "answer": "具有 'U' 后缀的字面量在C17中被赋予 unsigned int 类型。",
+      "source_refs": [
+        "T-S1"
+      ],
+      "coverage_ids": [
+        "T01"
+      ],
+      "stop_reason": "该点专门针对 'U' 后缀；讨论 'L' 或 'ULL' 后缀或不同进制属于不同的规则。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_a5dae2aa52035d95b867",
+      "parent_id": "cat_c61d216da3eb51729cb7",
+      "name": "浮点默认",
+      "statement": "十进制浮点字面量如果没有 'f' 或 'l' 后缀，其类型是 double。",
+      "conditions": [
+        "十进制浮点字面量",
+        "没有 f 或 l 后缀"
+      ],
+      "question": "为什么不带后缀的十进制小数在C17中被视为 double 而非 float？",
+      "answer": "C17规范将默认没有后缀的浮点数类型指定为 double，以区分 float。",
+      "source_refs": [
+        "T-S1"
+      ],
+      "coverage_ids": [
+        "T01"
+      ],
+      "stop_reason": "此命题聚焦于默认浮点类型的确定；讨论浮点精度或后缀 'f' 的影响属于不同的知识点。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_298a70fc3ed458419629",
+      "parent_id": "cat_552eac0df4165984a841",
+      "name": "整数提升规则",
+      "statement": "窄整数类型在进行运算时，若其所有值均可由 int 表示，则先提升为 int；否则提升为 unsigned int。",
+      "conditions": [
+        "参与运算的类型是窄整数（如 char/short）",
+        "提升在通常算术转换之前发生"
+      ],
+      "question": "为什么两个 unsigned char 相加时，计算可能先在 int 中进行，而不是字节回绕？",
+      "answer": "因为在大多数平台上，int 能容纳 unsigned char 的所有值，触发了整数提升为 int 的规则。",
+      "source_refs": [
+        "T-S1"
+      ],
+      "coverage_ids": [
+        "T02"
+      ],
+      "stop_reason": "该规则解释了窄整型转换的核心逻辑；将“提升”与后续的“通常算术转换”混合会掩盖整数提升发生的时机。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_69b2e7448aa15b7083f3",
+      "parent_id": "cat_4c697bb899bc569293f6",
+      "name": "浮点优先转换",
+      "statement": "当 int 与 double 进行算术运算时，int 会被转换为 double 以执行 double 运算。",
+      "conditions": [
+        "操作数包含 int 和 double",
+        "执行通常算术转换"
+      ],
+      "question": "为什么在 int/double 除法中，结果通常被视为 double 值而不是 int 值？",
+      "answer": "根据通常算术转换，较低类型的 int 会转换为 double，随后除法以 double 精度执行。",
+      "source_refs": [
+        "T-S2"
+      ],
+      "coverage_ids": [
+        "T03"
+      ],
+      "stop_reason": "该点说明了数值类型与浮点类型混合时的转换方向；讨论纯 int 除法或 long 混合属于不同的具体规则。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_f264e18962e050d09e0e",
+      "parent_id": "cat_52e1a1a4bd2a55429d6a",
+      "name": "整数除法截断",
+      "statement": "整数除法的结果会丢弃小数部分，且向零方向截断。",
+      "conditions": [
+        "除法操作数均为整数类型",
+        "运算具有定义的行为"
+      ],
+      "question": "C17中整数除法为什么在得到商时执行向零截断而非向下取整？",
+      "answer": "C17明确规定，在整数除法有定义的情况下，结果必须向零截断。",
+      "source_refs": [
+        "T-S2"
+      ],
+      "coverage_ids": [
+        "T04"
+      ],
+      "stop_reason": "该命题聚焦于整数除法舍入行为；若涉及浮点除法或取余运算符则规则不同。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_42c760b4e0ce55a399ac",
+      "parent_id": "cat_2a60dd0177a5527d9a22",
+      "name": "赋值求值顺序",
+      "statement": "在表达式赋值中，右侧操作数必须在左侧接收变量之前完全求值。",
+      "conditions": [
+        "执行标准标量赋值或初始化",
+        "右侧包含完整表达式"
+      ],
+      "question": "为什么 double x = 5/2 的值是 2.0 而不是 2.5？",
+      "answer": "因为 5/2 的求值（得到整数 2）发生在将值转换为 double 并赋值之前。",
+      "source_refs": [
+        "T-S2"
+      ],
+      "coverage_ids": [
+        "T05"
+      ],
+      "stop_reason": "该点说明了求值先于转换的时序约束；若改变为 C++ 的不同规则或讨论复合赋值则不属于此。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_b54da1bf042d56758bd9",
+      "parent_id": "cat_d4d99f6cb0aa506182d7",
+      "name": "转换作用域",
+      "statement": "显式类型转换仅改变操作数在该子表达式中的类型，不会永久修改原变量的声明类型或存储。",
+      "conditions": [
+        "使用 (type)expr 显式转换语法",
+        "操作数不是 const 限定符保护的左值（此处指行为不改变其值，类型在表达式中改变）"
+      ],
+      "question": "在 (double)5/2 和 (double)(5/2) 中，为什么前者的计算过程不同？",
+      "answer": "前者的转换作用域覆盖了整个除法表达式，而后者的转换仅作用于 5 和 2 运算后的结果。",
+      "source_refs": [
+        "T-S2"
+      ],
+      "coverage_ids": [
+        "T06"
+      ],
+      "stop_reason": "该点解释了类型转换的语法边界与影响范围；讨论内存地址或类型定义属于更基础的内存管理。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_5ad9966d470d5bb0ae0b",
+      "parent_id": "cat_6fdd2467542b52a08e40",
+      "name": "模转换",
+      "statement": "整数转换为无符号类型时，其值会按照目标类型的模（最大值+1）进行调整。",
+      "conditions": [
+        "源类型为整数类型",
+        "目标类型为无符号整数类型",
+        "源值不能由目标类型直接表示"
+      ],
+      "question": "为什么在C17中 (unsigned int)-1 的值等于 UINT_MAX？",
+      "answer": "因为整数转无符号时，值在数学上是对 $2^{bits}$ 取模，对于 unsigned int，-1 模 $2^{32}$（假设32位）得到最大值。",
+      "source_refs": [
+        "T-S3"
+      ],
+      "coverage_ids": [
+        "T08"
+      ],
+      "stop_reason": "该命题涵盖了向无符号转换时值映射的确定性规则；讨论向有符号转换则是不同的规则。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_1fe15bba50a25d8e943c",
+      "parent_id": "cat_d9ed9b6ccb2758a3bdea",
+      "name": "有符号越界",
+      "statement": "整数转换为有符号类型且原值无法表示时，结果是实现定义的或触发实现定义的信号。",
+      "conditions": [
+        "目标类型为有符号整数类型",
+        "源值超出目标类型的表示范围"
+      ],
+      "question": "为什么在C17中不能假设大正整数转成有符号类型一定会发生“截位”或变为特定值？",
+      "answer": "因为C17标准将这种情况规定为实现定义的行为，允许编译器采取截位或发送信号等不同策略。",
+      "source_refs": [
+        "T-S3"
+      ],
+      "coverage_ids": [
+        "T09"
+      ],
+      "stop_reason": "该点明确了有符号越界的定义行为模糊性；讨论具体的汇编实现不属于语言标准。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_646a7a803bbe5177a604",
+      "parent_id": "cat_6f61b975857e543d83d8",
+      "name": "浮点截断",
+      "statement": "有限实浮点值转换为非 _Bool 整数类型时，会丢弃小数部分并向零截断。",
+      "conditions": [
+        "源类型为实浮点",
+        "目标类型为整数",
+        "源值是有限实数",
+        "截断后的值在目标范围内"
+      ],
+      "question": "在 C17 中为什么 float 类型的 3.999 转为 int 会得到 3 而不是 4？",
+      "answer": "因为浮点转整数执行的是向零截断（truncation toward zero），而非数学意义上的四舍五入。",
+      "source_refs": [
+        "T-S4"
+      ],
+      "coverage_ids": [
+        "T10"
+      ],
+      "stop_reason": "该命题定义了浮点转整数的正常舍入方向；若源值导致溢出则是另一套行为。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_aa43887dd5d75734b73d",
+      "parent_id": "cat_6dde15cb69e8563cbf29",
+      "name": "浮点越界",
+      "statement": "如果实浮点值向零截断后的整数部分不能由目标整数类型表示，则该行为是未定义的。",
+      "conditions": [
+        "源值截断后的绝对值超出目标整数类型的表示范围",
+        "目标类型是非 _Bool 整数"
+      ],
+      "question": "为什么将一个极大的 double 值转换为 int 在 C17 中可能引发程序崩溃或任意行为？",
+      "answer": "因为这种转换超出了目标类型能表示的范围，触发了未定义行为（UB）。",
+      "source_refs": [
+        "T-S4"
+      ],
+      "coverage_ids": [
+        "T10"
+      ],
+      "stop_reason": "该点强调了转换边界失效时的后果；区分“定义行为”与“未定义行为”是此点的核心。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_9a88aebecb8d52898f70",
+      "parent_id": "cat_e8ef5d3b57fd55c192ed",
+      "name": "整数到浮点",
+      "statement": "整数转实浮点时，即使数值范围在浮点表示能力内，也可能因有效精度不足而无法精确表示。",
+      "conditions": [
+        "源类型为大范围整数",
+        "目标类型为实浮点（如 float/double）",
+        "数值超出了浮点的精度位数"
+      ],
+      "question": "为什么 2^53 + 1 转成 double 后可能丢失最后的 1？",
+      "answer": "因为 double 的有效精度（通常约15-16位十进制或52位尾数）不足以在这么大量的级上区分相邻的整数。",
+      "source_refs": [
+        "T-S4"
+      ],
+      "coverage_ids": [
+        "T11"
+      ],
+      "stop_reason": "该点关注的是数据在二进制表示上的分辨率限制；讨论具体硬件的舍入模式属于更深入的硬件细节。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_e064cc59684e52ccab22",
+      "parent_id": "cat_d59180402c58501dac06",
+      "name": "int与unsigned int的通常算术转换方向",
+      "statement": "在 C17 中，当 int 与 unsigned int 进行通常算术转换时，如果 unsigned int 能表示 int 的所有可能值，int 操作数会被转换为 unsigned int 类型。",
+      "conditions": [
+        "操作数分别为 int 和 unsigned int",
+        "执行通常算术转换（如比较、加减乘除）",
+        "目标平台满足 unsigned int 的表示范围覆盖 int 的全域"
+      ],
+      "question": "在 int 和 unsigned int 混合运算中，通常算术转换将 int 操作数转换为什么类型？",
+      "answer": "如果 unsigned int 能表示 int 的所有值，int 操作数会被转换为 unsigned int 类型。",
+      "source_refs": [
+        "T-S3"
+      ],
+      "coverage_ids": [
+        "T07"
+      ],
+      "stop_reason": "该点仅关注类型转换的方向和条件，不涉及转换后数值的具体取值逻辑（即模运算），后者属于独立规则。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_dc9e45a33fc15195a56f",
+      "parent_id": "cat_e10617c8616e566c9514",
+      "name": "标量条件的真值语义",
+      "statement": "if 语句要求条件为标量表达式，其真值由与 0 的比较决定：非零值（包括负数）为真，零值为假。",
+      "conditions": [
+        "表达式求值符合 C17 标量类型转换规则",
+        "处于普通顺序执行上下文"
+      ],
+      "question": "在 if 语句中，如何确定一个非零负整数表达式的分支走向？",
+      "answer": "非零负整数不等于零，因此被视为真，程序将执行 if 的真分支。",
+      "source_refs": [
+        "I-S1"
+      ],
+      "coverage_ids": [
+        "I01"
+      ],
+      "stop_reason": "正整数和负整数属于同一“非零”逻辑分支，拆分无独立教学价值，且零值作为对比已在命题中涵盖。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_93a17945b3d7594a9cc2",
+      "parent_id": "cat_00f0521f6e925ef996bd",
+      "name": "if 语句的静态分支决策",
+      "statement": "if 语句在每次执行时仅根据当时的条件值进行一次分支选择，分支体内部的执行不会导致已选分支的重新评估或补执行未选分支。",
+      "conditions": [
+        "普通顺序执行",
+        "无跳转（goto）干预控制流"
+      ],
+      "question": "如果 if 语句的条件变量在真分支的执行过程中被修改，程序会因此去执行 else 分支吗？",
+      "answer": "不会。分支的选择在条件求值时已确定，分支内的后续执行不会回溯或补执行 else 分支。",
+      "source_refs": [
+        "I-S1"
+      ],
+      "coverage_ids": [
+        "I09"
+      ],
+      "stop_reason": "这是对“分支选择是一次性”这一控制流性质的描述，属于核心机制，无需拆分为更多点。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_fccdeb3357e0528b861c",
+      "parent_id": "cat_8ace41deabf9514c87b0",
+      "name": "分支体的语句范围",
+      "statement": "if 语句的每个分支在语法上仅包含一条语句，该语句可以是复合语句（语句块）或另一个完整的控制结构（如嵌套 if）。",
+      "conditions": [
+        "遵循 C17 语法对分支体的定义",
+        "无块内多语句未包裹在复合语句中"
+      ],
+      "question": "如果 if 语句后紧跟两条简单赋值语句，且未用花括号包裹，if 的分支体包含哪些内容？",
+      "answer": "仅包含第一条赋值语句。第二条语句在逻辑上属于 if 结构之外，无论 if 条件真值如何均会执行。",
+      "source_refs": [
+        "I-S2"
+      ],
+      "coverage_ids": [
+        "I02"
+      ],
+      "stop_reason": "该规则定义了分支的最小语法边界，是对后续理解 else 配对的基础，单一命题即可覆盖。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_1a02eb8b4bb050869942",
+      "parent_id": "cat_f780b4936f9456979824",
+      "name": "复合块对执行路径的截断",
+      "statement": "if 的分支体是复合语句时，其内部包含的整个控制结构作为一个整体；若外层条件未命中该分支，则整个复合块（包括内部所有 else）都不会执行。",
+      "conditions": [
+        "外层 if 未命中该分支",
+        "内层 if/else 处于外层分支体内"
+      ],
+      "question": "如果外层 if 条件为假，其分支体内部嵌套的 if/else 结构会被执行吗？",
+      "answer": "不会。外层分支体未被选中，其内部的所有语句（包括内层 else）均处于不可达状态，无法从外部进入。",
+      "source_refs": [
+        "I-S2"
+      ],
+      "coverage_ids": [
+        "I05"
+      ],
+      "stop_reason": "该点强调复合语句作为“单一语句”在执行隔离上的特性，区别于语法解析，是逻辑路径分析的关键。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_55c412b975eb565f8090",
+      "parent_id": "cat_17399064278252d583b5",
+      "name": "空语句对控制范围的破坏",
+      "statement": "在 if 条件后直接跟随分号（if(cond);）会产生一个空语句作为分支体，其后的语句在语法上不受该 if 控制。",
+      "conditions": [
+        "分号紧跟在条件右括号后",
+        "后续语句未显式包含在 if 的复合分支内"
+      ],
+      "question": "代码 if(x > 10); y = 20; 中，y=20 是否只有在 x>10 时执行？",
+      "answer": "否。分号构成了 if 的空语句分支，y=20 是独立于 if 之后的后续语句，无论条件真假均会执行。",
+      "source_refs": [
+        "I-S3"
+      ],
+      "coverage_ids": [
+        "I06"
+      ],
+      "stop_reason": "这是对特定语法模式导致控制流误解的解释，单一命题足以诊断该具体错误类型。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_e8a1e43313a65ef794ef",
+      "parent_id": "cat_95ad2fdd55225711a3ac",
+      "name": "else if 的短路执行特性",
+      "statement": "else if 在语法上是 else 分支内嵌套的新 if；在普通顺序执行的选择链中，一旦某个分支命中，后续条件将不再判断。",
+      "conditions": [
+        "普通顺序执行",
+        "无并发或异步条件改变"
+      ],
+      "question": "在 if(A) ... else if(B) ... else if(C) ... 的链中，如果 A 和 B 同时为真，B 分支的条件会被求值吗？",
+      "answer": "不会。A 为真后直接执行 A 分支，B 和 C 的条件在逻辑上被短路跳过。",
+      "source_refs": [
+        "I-S4"
+      ],
+      "coverage_ids": [
+        "I07"
+      ],
+      "stop_reason": "这是对选择链互斥性（互斥分支）的执行机制描述，单一命题即可说明短路逻辑。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_6d2497adb91b597c9507",
+      "parent_id": "cat_2672d9954f7f5d05b699",
+      "name": "独立 if 的状态敏感性",
+      "statement": "连续的独立 if 语句在普通顺序执行中可能多次命中；且后续的 if 会读取前序语句可能修改后的变量状态。",
+      "conditions": [
+        "if 语句间存在副作用（变量修改）",
+        "普通顺序执行"
+      ],
+      "question": "如果 if(A) 执行 x=0 后，紧跟一个 if(A) ...，第二个 if 的 A 是否可能被重新求值且结果改变？",
+      "answer": "是。第二个 if 会重新求值 A，且如果第一个 if 修改了 A 的值，第二个 if 看到的是新状态，可能导致不同的执行路径。",
+      "source_refs": [
+        "I-S4"
+      ],
+      "coverage_ids": [
+        "I08"
+      ],
+      "stop_reason": "该点强调了独立 if 的“可重复进入”与“状态依赖”特性，与 else if 的短路形成对比，核心判断在于对状态变化的敏感性。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_8e6ec21f54915eb88a62",
+      "parent_id": "cat_23194b9db7f25a8abaae",
+      "name": "else 的词法就近配对",
+      "statement": "在嵌套 if/else 结构且未使用花括号改变边界时，else 子句与语法允许的、词法上最近的前置 if 语句配对。",
+      "conditions": [
+        "无花括号显式修改语句块边界",
+        "不存在 goto 跳转破坏顺序性"
+      ],
+      "question": "在 if(a) if(b) x=1; else x=2; 中，若没有花括号，else 属于哪个 if？",
+      "answer": "属于内层的 if(b)。因为 if(b) 在词法上最接近 else，且没有花括号改变结构。",
+      "source_refs": [
+        "I-S2",
+        "I-S3"
+      ],
+      "coverage_ids": [
+        "I03"
+      ],
+      "stop_reason": "这是 else 配对规则的核心定义，无需进一步拆分",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_63516508606e5a4eb6f5",
+      "parent_id": "cat_23194b9db7f25a8abaae",
+      "name": "花括号显式修改 else 归属",
+      "statement": "使用花括号显式定义语句块可以改变 else 子句的归属；若内层 if/else 被包含在花括号内，else 将不再与最内层 if 配对，而是遵循外层结构。",
+      "conditions": [
+        "if 条件后紧跟花括号包裹的内层 if/else",
+        "花括号未改变内层 if 本身的结构"
+      ],
+      "question": "在 if(a) { if(b) x=1; } else x=2; 中，else 子句属于哪个 if？",
+      "answer": "属于外层的 if(a)。因为内层 if(b) 处于花括号定义的独立复合语句中，词法上已不再紧邻 else，因此 else 只能与外层 if(a) 配对。",
+      "source_refs": [
+        "I-S2",
+        "I-S3"
+      ],
+      "coverage_ids": [
+        "I04"
+      ],
+      "stop_reason": "这是花括号对语法规则的显式干预，与默认规则形成对比，具有独立教学意义",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_f856ba72892250f08018",
+      "parent_id": "cat_6f453f3d69ad5638b84d",
+      "name": "初始化子句执行频次",
+      "statement": "for 循环初始化子句在整个生命周期中仅在首次进入前执行一次。",
+      "conditions": [
+        "适用于 C17 语法"
+      ],
+      "question": "在一个 for 循环运行过程中，头部初始化子句（如 i=0）总共被评估执行了几次？",
+      "answer": "仅执行一次。",
+      "source_refs": [
+        "F-S1"
+      ],
+      "coverage_ids": [
+        "F01"
+      ],
+      "stop_reason": "区分初始化与迭代的频率是该知识点核心，进一步拆分无独立教学价值。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_b745aefb10735f088258",
+      "parent_id": "cat_186548352275567cbce0",
+      "name": "首判为假与零次执行",
+      "statement": "若 for 循环控制条件在首次评估时即为假，循环体将被执行零次。",
+      "conditions": [
+        "无提前转移干扰",
+        "条件求值遵循逻辑"
+      ],
+      "question": "如果 for 循环的控制条件在第一次判断时就是假，循环体会执行几次？",
+      "answer": "零次。",
+      "source_refs": [
+        "F-S1"
+      ],
+      "coverage_ids": [
+        "F02"
+      ],
+      "stop_reason": "明确“先判断后执行”带来的边界行为。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_3de966be694f5b01bf14",
+      "parent_id": "cat_c3ef1f409b525652ad33",
+      "name": "体后更新顺序",
+      "statement": "在正常完成一次循环体执行后，程序会执行 for 头部的迭代表达式，随后重新判断控制条件。",
+      "conditions": [
+        "循环体未被 break/continue/return 中断",
+        "头部存在非空迭代表达式"
+      ],
+      "question": "在 for 循环中，若本轮循环体正常结束，更新表达式（迭代表达式）在什么时刻执行？",
+      "answer": "循环体正常完成之后、下一次条件判断之前。",
+      "source_refs": [
+        "F-S1"
+      ],
+      "coverage_ids": [
+        "F03"
+      ],
+      "stop_reason": "确立“更新在判断前”的标准时序。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_04d4dbcaa0a159cc8767",
+      "parent_id": "cat_8cfedf0f0684591fa93f",
+      "name": "头部声明的作用域",
+      "statement": "在 for 循环头部声明的变量（如 for(int i=0...)），其作用域局限于该循环内部，在循环结束后外部不可见。",
+      "conditions": [
+        "C17 局部变量声明"
+      ],
+      "question": "在 for(int i = 0; i < 10; i++) 中声明的变量 i，在 for 语句结束后的外部代码中是否可以被访问？",
+      "answer": "不可以访问，因为变量在循环外部不可见。",
+      "source_refs": [
+        "F-S1"
+      ],
+      "coverage_ids": [
+        "F05"
+      ],
+      "stop_reason": "明确现代 C 语言局部变量生命周期边界。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_814fdbf932ac5814b1da",
+      "parent_id": "cat_944e65dfb6075743bbcd",
+      "name": "外部变量最终值",
+      "statement": "若循环控制变量声明在 for 循环之外，循环结束后可依据其实际退出路径观察该变量的最终值。",
+      "conditions": [
+        "变量声明在外部",
+        "程序未执行未定义行为"
+      ],
+      "question": "如果一个控制变量 i 声明在 for 循环外部，在循环因条件变为假而正常结束后，该变量 i 的值是多少？",
+      "answer": "是使条件为假（或触发退出）时的当前值，具体取决于退出路径。",
+      "source_refs": [
+        "F-S1"
+      ],
+      "coverage_ids": [
+        "F05"
+      ],
+      "stop_reason": "区分循环内声明与外部声明在结果可见性上的差异。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_3b6b3a2cf95d5899a88b",
+      "parent_id": "cat_30d9761f3f345f12b806",
+      "name": "单语句体约束",
+      "statement": "for 循环体在语法上仅控制其后的单条语句；若使用花括号则控制多条，若无花括号则不控制后续多条语句；且可形成空循环体（如 for(...);）。",
+      "conditions": [
+        "C17 控制流语义"
+      ],
+      "question": "for(i=0; i<10; i++) printf(\"A\"); printf(\"B\"); 中 \"B\" 会随 i 增加而重复打印吗？",
+      "answer": "不会。printf(\"B\") 不在 for 循环控制范围内，只在最后打印一次；若循环体后直接加分号则为空循环。",
+      "source_refs": [
+        "F-S2"
+      ],
+      "coverage_ids": [
+        "F07"
+      ],
+      "stop_reason": "强调 for 对作用域的控制仅限于单条语句（除非用 {}）。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_60e6a76254c052088a7e",
+      "parent_id": "cat_d91d16b2f2e05bd6a0d6",
+      "name": "continue 的执行逻辑",
+      "statement": "continue 会跳过 for 循环当前剩余的循环体，并直接执行头部的第三部分（迭代/更新表达式），然后判断条件以决定是否进入下一轮。",
+      "conditions": [
+        "作用于最内层包围它的 for 循环",
+        "迭代表达式非空"
+      ],
+      "question": "在 for(i=0; i<10; i++) 循环体内部遇到 continue 语句时，紧接着会发生什么？",
+      "answer": "程序跳过循环体中 continue 之后的代码，直接执行 i++（迭代部分），然后判断 i<10。",
+      "source_refs": [
+        "F-S3"
+      ],
+      "coverage_ids": [
+        "F08"
+      ],
+      "stop_reason": "明确 continue 依然会经过迭代表达式，与 break 不同。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_d83459ca197951f0ad49",
+      "parent_id": "cat_8593d4c5de4956249df7",
+      "name": "break 退出机制",
+      "statement": "break 用于结束最内层包围它的 for 循环或 switch，若跳出 for，该 for 头部对应的第三部分（迭代表达式）不再执行。",
+      "conditions": [
+        "作用于最内层"
+      ],
+      "question": "如果在一个 for 循环体内通过 break 跳出，该 for 循环头部定义的更新表达式（如 i++）会被执行吗？",
+      "answer": "不会执行，循环直接结束。",
+      "source_refs": [
+        "F-S3"
+      ],
+      "coverage_ids": [
+        "F09"
+      ],
+      "stop_reason": "明确 break 终止了循环整体，包括更新操作。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_471a6a8df9e05e808da5",
+      "parent_id": "cat_8659c39264355845bcd2",
+      "name": "return 结束机制",
+      "statement": "在 for 循环内执行 return 会立即结束当前所在的整个函数并返回调用者。",
+      "conditions": [
+        "函数内执行"
+      ],
+      "question": "在 for 循环体内部调用 return 语句后，循环会先执行完当前的更新表达式再继续吗？",
+      "answer": "不会，函数立即结束并返回，不再有任何循环操作。",
+      "source_refs": [
+        "F-S3"
+      ],
+      "coverage_ids": [
+        "F10"
+      ],
+      "stop_reason": "明确 return 优先级高于循环局部控制。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_fb65351a01b55d4bbb0d",
+      "parent_id": "cat_e79b1b17a90f5dce949a",
+      "name": "嵌套转移作用域",
+      "statement": "在嵌套的 for 循环中，内层循环内的 continue 或 break 仅作用于该内层循环，不会自动导致外层循环发生转移。",
+      "conditions": [
+        "嵌套循环结构"
+      ],
+      "question": "在外层循环 A 和内层循环 B 中，如果在 B 内部执行 break，外层 A 会随之结束吗？",
+      "answer": "不会，A 会等待其当前的循环体执行完毕（跳出 B 后），继续执行 A 的更新并判断条件。",
+      "source_refs": [
+        "F-S3"
+      ],
+      "coverage_ids": [
+        "F11"
+      ],
+      "stop_reason": "打破初学者认为跳出内层会连带跳出外层的迷思。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_33cc2358ea4b5bf0ac0e",
+      "parent_id": "cat_375fe0c528045579ab74",
+      "name": "循环体修改变量",
+      "statement": "循环的实际终止条件取决于控制变量的状态，若循环体内部修改了该变量，会改变变量的实际遍历值，从而改变循环迭代次数或结果。",
+      "conditions": [
+        "控制变量非只读"
+      ],
+      "question": "在 for(int i=0; i<5; i++) 循环体内，如果有一条语句 i += 2，这会对 i 的遍历产生什么影响？",
+      "answer": "i 在每次迭代结束前已经增加了 2，加上更新表达式的 i++，每次循环 i 总共增加 3，因此遍历值变为 0, 3, 6...。",
+      "source_refs": [
+        "F-S4"
+      ],
+      "coverage_ids": [
+        "F12"
+      ],
+      "stop_reason": "强调变量最终值的复合来源（循环体+迭代表达式）。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_b775dd1df9985792b19d",
+      "parent_id": "cat_d503d7dcf686566cb24b",
+      "name": "正常退出时的条件判断次数",
+      "statement": "当 for 循环正常执行 n 次循环体（无 break/continue/return 干扰）后退出，其控制条件表达式总共被评估 n+1 次。",
+      "conditions": [
+        "循环体完整执行 n 次",
+        "无控制流转移（break/continue/return）",
+        "最终因条件为假而退出"
+      ],
+      "question": "如果一个 for 循环正常执行了 5 次循环体后退出，其控制条件表达式总共被计算了多少次？",
+      "answer": "6 次（n+1 次）。",
+      "source_refs": [
+        "F-S1"
+      ],
+      "coverage_ids": [
+        "F04"
+      ],
+      "stop_reason": "该规则是循环执行频率的核心数学模型，进一步拆分会破坏计数的完整性。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_86f5c6bf029e5991b93f",
+      "parent_id": "cat_1849b7d4908d55c09bef",
+      "name": "for 头部部分的省略语义",
+      "statement": "for 循环的初始化、条件、迭代部分均可省略，但两个分号必须保留；省略条件视为恒真（1），省略迭代视为无操作，不会自动插入默认更新。",
+      "conditions": [
+        "C17 语法",
+        "头部结构 for(;;) 合法"
+      ],
+      "question": "在 for(;; x--) 中，如果省略了条件部分，编译器会将其视为什么值？如果省略了迭代部分，程序会自动补全 i++ 吗？",
+      "answer": "省略条件视为恒真（1）；不会自动补全迭代操作，省略部分视为无操作。",
+      "source_refs": [
+        "F-S2"
+      ],
+      "coverage_ids": [
+        "F06"
+      ],
+      "stop_reason": "这是 for 头部灵活性的核心定义，涵盖语法约束和语义默认值，是构建复杂头部的基础。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_9687402e73685ea4a23b",
+      "parent_id": "cat_405d48a2bbe25852a830",
+      "name": "无符号变量倒序终止失败",
+      "statement": "对于 unsigned 类型变量，由于最小值为 0，条件 i >= 0 恒为真；若使用 i-- 递减，减至 0 后继续执行将发生回绕（变为极大值），导致循环无法通过条件判断终止，形成无限循环。",
+      "conditions": [
+        "变量类型为 unsigned int",
+        "终止条件为 i >= 0",
+        "迭代操作为 i--"
+      ],
+      "question": "使用 unsigned int i = 5; for(; i >= 0; i--) 尝试倒序循环，程序会执行多少次循环体？",
+      "answer": "无限次（或直到整数回绕溢出导致未定义行为/实际硬件表现为极大值继续循环，标准规定回绕），因为 i 永远 >= 0。",
+      "source_refs": [
+        "F-S4"
+      ],
+      "coverage_ids": [
+        "F13"
+      ],
+      "stop_reason": "结合了无符号数的定义域和算术回绕行为，是特定类型下的典型错误模式。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_0fe89c09d41659469527",
+      "parent_id": "cat_405d48a2bbe25852a830",
+      "name": "有符号最大值后的迭代溢出",
+      "statement": "在有符号整数循环中，若变量达到 INT_MAX 且循环体正常结束，for 头部的迭代表达式（如 i++）仍会执行，导致有符号整数溢出，触发未定义行为。",
+      "conditions": [
+        "变量类型为 signed int",
+        "当前值为 INT_MAX",
+        "头部迭代表达式包含 i++"
+      ],
+      "question": "在 for(int i = INT_MAX - 1; i <= INT_MAX; i++) 循环中，当 i 等于 INT_MAX 且循环体执行完毕后，下一步会发生什么？",
+      "answer": "执行 i++，导致有符号整数溢出，产生未定义行为。",
+      "source_refs": [
+        "F-S4"
+      ],
+      "coverage_ids": [
+        "F13"
+      ],
+      "stop_reason": "明确了 for 循环迭代执行的强制性与有符号类型安全边界的冲突。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_01bcd77813e953d388ec",
+      "parent_id": "cat_c1387fbb5877549f80d8",
+      "name": "switch 内 break 的作用域",
+      "statement": "位于 for 循环内部 switch 语句中的 break 仅退出该 switch 语句，for 循环不会终止，将继续执行迭代表达式并判断条件。",
+      "conditions": [
+        "for 循环体内包含 switch",
+        "break 位于 switch 的 case 或 default 中"
+      ],
+      "question": "在 for 循环的 switch 结构中，case 内的 break 语句会导致外层 for 循环立即停止吗？",
+      "answer": "不会，break 仅跳出 switch，for 循环继续进行下一轮的更新和判断。",
+      "source_refs": [
+        "F-S5"
+      ],
+      "coverage_ids": [
+        "F14"
+      ],
+      "stop_reason": "区分了不同控制结构（switch vs loop）中 break 的绑定目标。",
+      "semantic_status": "needs_review"
+    },
+    {
+      "id": "kp_78c6bb60264558319401",
+      "parent_id": "cat_c1387fbb5877549f80d8",
+      "name": "switch 内 continue 的目标",
+      "statement": "在 for 循环内部 switch 中使用的 continue，其目标是包围它的最内层 for 循环，而非 switch；它跳过 for 循环当前剩余的体代码，直接执行 for 的迭代表达式并判断条件。",
+      "conditions": [
+        "for 循环体内包含 switch",
+        "continue 位于 switch 结构中"
+      ],
+      "question": "在 for 循环内的 switch 中执行 continue，程序会跳转到 switch 的下一个 case 还是 for 循环的更新部分？",
+      "answer": "跳转到 for 循环的更新部分（迭代表达式），而不是 switch 的其他 case。",
+      "source_refs": [
+        "F-S5"
+      ],
+      "coverage_ids": [
+        "F14"
+      ],
+      "stop_reason": "明确了 continue 仅适用于循环结构，且在嵌套中优先绑定最近循环。",
+      "semantic_status": "needs_review"
+    }
+  ],
+  "checks": [
+    {
+      "key": "ch_int_float_promote",
+      "knowledge_ids": [
+        "kp_298a70fc3ed458419629",
+        "kp_69b2e7448aa15b7083f3"
+      ],
+      "kind": "runtime",
+      "question": "代码中 unsigned char 类型的 200 加上 double 类型的 1.5，结果打印为整数还是浮点数？具体值是多少？",
+      "code": "unsigned char c = 200;\ndouble d = 1.5;\nprintf(\"%d\\n\", (int)(c + d));",
+      "sample_return_type": "void",
+      "predicted_stdout": "201",
+      "explanation": "unsigned char 会先提升为 int，然后与 double 进行通常算术转换，c 被转换为 double 200.0，200.0 + 1.5 = 201.5。显式转换为 int 时发生向零截断，结果存入变量为 201，最后打印 201。",
+      "platform_assumptions": [
+        "int 能容纳 unsigned char 的所有值"
+      ],
+      "id": "check_c66747d9320f5ccda196",
+      "semantic_status": "needs_review",
+      "evidence_status": "sample_verified",
+      "verified_answer": {
+        "kind": "stdout",
+        "value": "201\n"
+      },
+      "answer_ref": {
+        "check_id": "check_c66747d9320f5ccda196",
+        "code_hash": "fd128ba77d1f938188f385a6db6fe176c002b1c4e6a58aad594c1db97e997a38",
+        "receipt_hash": "abd16eb0e41e93485dfcfce7600c7c4c38c08a589c185675dc3ecb569a6fae08"
+      },
+      "model_prediction_matches": false
+    },
+    {
+      "key": "ch_div_assign",
+      "knowledge_ids": [
+        "kp_f264e18962e050d09e0e",
+        "kp_42c760b4e0ce55a399ac",
+        "kp_69b2e7448aa15b7083f3"
+      ],
+      "kind": "runtime",
+      "question": "计算 5/2 并赋值给 double 类型的 x，x 的值是多少？如果 x=5，再执行 x /= 2，x 的值是多少？",
+      "code": "double x = 5/2;\nprintf(\"%.1f\\n\", x);\nx = 5;\nx /= 2;\nprintf(\"%.1f\\n\", x);",
+      "sample_return_type": "void",
+      "predicted_stdout": "2.0\n2.5\n",
+      "explanation": "5/2 是整数除法，得 2，转 double 为 2.0。x=5 转为 5.0，x/=2 等价于 x = x/2，即 5.0/2.0=2.5。",
+      "platform_assumptions": [],
+      "id": "check_b48f2338ba445b60b0a6",
+      "semantic_status": "needs_review",
+      "evidence_status": "sample_verified",
+      "verified_answer": {
+        "kind": "stdout",
+        "value": "2.0\n2.5\n"
+      },
+      "answer_ref": {
+        "check_id": "check_b48f2338ba445b60b0a6",
+        "code_hash": "003e25b2d552cb3bfdbfd1d7282fb3e8e44e4affe9a30b707e68bf05668ae7f9",
+        "receipt_hash": "1087e7b61c936ec417f7e21d505d86c6a9c4cbc45b3c978713769873ee7412e4"
+      },
+      "model_prediction_matches": true
+    },
+    {
+      "key": "ch_cast_pos",
+      "knowledge_ids": [
+        "kp_b54da1bf042d56758bd9"
+      ],
+      "kind": "runtime",
+      "question": "(double)(5/2) 和 (double)5/2 的结果分别是多少？",
+      "code": "printf(\"%.1f\\n\", (double)(5/2));\nprintf(\"%.1f\\n\", (double)5/2);",
+      "sample_return_type": "void",
+      "predicted_stdout": "2.0\n2.5\n",
+      "explanation": "(double)(5/2) 先算整数除法得 2，再转 double 为 2.0。(double)5/2 先将 5 转为 5.0，再执行浮点除法得 2.5。",
+      "platform_assumptions": [],
+      "id": "check_e1ca8516fc13528cb8a3",
+      "semantic_status": "needs_review",
+      "evidence_status": "sample_verified",
+      "verified_answer": {
+        "kind": "stdout",
+        "value": "2.0\n2.5\n"
+      },
+      "answer_ref": {
+        "check_id": "check_e1ca8516fc13528cb8a3",
+        "code_hash": "b8a97e6ad11501529caa3b0bff01357398a76435b5c4d93340742fb782fe9b62",
+        "receipt_hash": "9eb9fa37d164d1797b721cd58c02e895418650b906477919b1c9408a18778a6e"
+      },
+      "model_prediction_matches": true
+    },
+    {
+      "key": "ch_ufloat_round",
+      "knowledge_ids": [
+        "kp_646a7a803bbe5177a604"
+      ],
+      "kind": "runtime",
+      "question": "浮点数 -2.9 和 3.9 转成 int 打印，结果是多少？",
+      "code": "printf(\"%d %d\\n\", (int)(-2.9), (int)3.9);",
+      "sample_return_type": "void",
+      "predicted_stdout": "-2 3\n",
+      "explanation": "浮点转整数执行向零截断，-2.9 截断为 -2，3.9 截断为 3。",
+      "platform_assumptions": [],
+      "id": "check_2a68cbe912f45b918911",
+      "semantic_status": "needs_review",
+      "evidence_status": "sample_verified",
+      "verified_answer": {
+        "kind": "stdout",
+        "value": "-2 3\n"
+      },
+      "answer_ref": {
+        "check_id": "check_2a68cbe912f45b918911",
+        "code_hash": "ed6199af0a2d12e940e85d2e51242e74936b213db8b4d69d66550126933b66da",
+        "receipt_hash": "a9c8b144b2478b7d03644e87e305776c900dc23b2c9de22c6a41445b8ab311a7"
+      },
+      "model_prediction_matches": true
+    },
+    {
+      "key": "ch_float_prec",
+      "knowledge_ids": [
+        "kp_9a88aebecb8d52898f70"
+      ],
+      "kind": "static",
+      "question": "在支持 64 位长整数的环境下，整数 9007199254740993 (2^53 + 1) 转成 double 后，若再转回整数，结果是多少？为什么？",
+      "code": "",
+      "sample_return_type": "void",
+      "predicted_stdout": null,
+      "explanation": "double 尾数53位，2^53 + 1 无法精确表示，会被舍入到最近的偶数 2^53。因此回转后丢失精度，结果为 9007199254740992。",
+      "platform_assumptions": [
+        "long int 至少 64 位",
+        "double 尾数 53 位"
+      ],
+      "id": "check_dce4b5eacfe950398e39",
+      "semantic_status": "needs_review",
+      "evidence_status": "not_verified"
+    },
+    {
+      "key": "ch_signed_over_static",
+      "knowledge_ids": [
+        "kp_1fe15bba50a25d8e943c"
+      ],
+      "kind": "static",
+      "question": "在 C17 中，将超出 short 最大值的 int 强制转换为 short，标准规定的结果是什么？",
+      "code": "",
+      "sample_return_type": "void",
+      "predicted_stdout": null,
+      "explanation": "整数转到另一个整数类型，如果原值能由目标类型表示，则数值保持；如果目标是有符号整数且不能表示，C17 规定结果由实现定义，或引发实现定义的信号。",
+      "platform_assumptions": [],
+      "id": "check_04384a1c9c7b5af5b9e6",
+      "semantic_status": "needs_review",
+      "evidence_status": "not_verified"
+    },
+    {
+      "key": "ch_flt_overflow_static",
+      "knowledge_ids": [
+        "kp_aa43887dd5d75734b73d"
+      ],
+      "kind": "static",
+      "question": "在 C17 中，将一个巨大的 double 值（其值截断后超出了 int 的最大范围）强制转换为 int，这种行为被标准如何定义？",
+      "code": "",
+      "sample_return_type": "void",
+      "predicted_stdout": null,
+      "explanation": "如果实浮点值向零截断后的整数部分不能由目标整数类型表示，则该行为是未定义的（UB）。",
+      "platform_assumptions": [],
+      "id": "check_f8f786880fd752858c97",
+      "semantic_status": "needs_review",
+      "evidence_status": "not_verified"
+    },
+    {
+      "key": "ch_lit_type_static",
+      "knowledge_ids": [
+        "kp_a5d0794652c45fdc98cc",
+        "kp_6f7acf39ee685b02b0dc",
+        "kp_a5dae2aa52035d95b867"
+      ],
+      "kind": "static",
+      "question": "在能容纳十进制整数 42 且没有 U 后缀的环境中，字面量 42 的默认类型是什么？字面量 42U 呢？字面量 4.2 呢？",
+      "code": "",
+      "sample_return_type": "void",
+      "predicted_stdout": null,
+      "explanation": "42 是 int；42U 是 unsigned int；4.2 是 double。",
+      "platform_assumptions": [],
+      "id": "check_26c7665ee25a55728d56",
+      "semantic_status": "needs_review",
+      "evidence_status": "not_verified"
+    },
+    {
+      "key": "ch_scalar_truth",
+      "knowledge_ids": [
+        "kp_dc9e45a33fc15195a56f"
+      ],
+      "kind": "runtime",
+      "question": "执行该函数，输出什么？",
+      "code": "int x = -7; if(x) puts(\"N_zero\"); else puts(\"Zero\"); puts(\"Done\");",
+      "sample_return_type": "void",
+      "predicted_stdout": "N_zero\nDone",
+      "explanation": "if语句将标量表达式与0比较。x为-7，不等于0，被视为真（非零），执行puts(\"N_zero\")。随后执行puts(\"Done\")。负数在C17中作为真值有效。",
+      "platform_assumptions": [],
+      "id": "check_d3c057077b7053e79190",
+      "semantic_status": "needs_review",
+      "evidence_status": "sample_verified",
+      "verified_answer": {
+        "kind": "stdout",
+        "value": "N_zero\nDone\n"
+      },
+      "answer_ref": {
+        "check_id": "check_d3c057077b7053e79190",
+        "code_hash": "673eeafb5ff9b910cfdd55f16d4bd2d31bb9e06bb82e3d2d2584a1e6328f18cf",
+        "receipt_hash": "630e3cab731a06fcf4ef759d30e1b8e8ee880db48621d644fbaaf4c62ff0ca3b"
+      },
+      "model_prediction_matches": false
+    },
+    {
+      "key": "ch_single_branch",
+      "knowledge_ids": [
+        "kp_93a17945b3d7594a9cc2",
+        "kp_fccdeb3357e0528b861c"
+      ],
+      "kind": "runtime",
+      "question": "执行该函数，输出什么？",
+      "code": "int f = 0; int flag = 1; if(flag) f = 0; puts(f ? \"T\" : \"F\");",
+      "sample_return_type": "void",
+      "predicted_stdout": "F",
+      "explanation": "初始flag=1，if(flag)条件为真。分支体是一条赋值语句f=0。执行后f变为0。if语句执行一次，不会因分支内修改了f（或相关变量）而回溯执行else分支（这里没有else，但原理相同，分支选择仅在条件求值时确定）。最后打印f，f为0，打印F。",
+      "platform_assumptions": [],
+      "id": "check_e78e18442d00523ba1a9",
+      "semantic_status": "needs_review",
+      "evidence_status": "sample_verified",
+      "verified_answer": {
+        "kind": "stdout",
+        "value": "F\n"
+      },
+      "answer_ref": {
+        "check_id": "check_e78e18442d00523ba1a9",
+        "code_hash": "67840618df5291cd8cfac78e2950f5dc31182c8382d2874bfdae152ef687dca1",
+        "receipt_hash": "330d2860dabe002bee657472d21bc572fa8846cd347d1172da709a48055f8c34"
+      },
+      "model_prediction_matches": false
+    },
+    {
+      "key": "ch_grammar_scope",
+      "knowledge_ids": [
+        "kp_fccdeb3357e0528b861c",
+        "kp_1a02eb8b4bb050869942"
+      ],
+      "kind": "runtime",
+      "question": "执行该函数，输出什么？",
+      "code": "int a = 0; int b = 1; if(a) puts(\"X\"); else puts(\"Y\"); puts(\"Z\");",
+      "sample_return_type": "void",
+      "predicted_stdout": "Y\nZ",
+      "explanation": "if(a)的条件为假，执行else分支的puts(\"Y\")。puts(\"Z\")是if结构之外的独立语句，无论分支真假均会执行。这展示了分支体是一条语句的限制，以及控制流在分支结束后继续向下执行。",
+      "platform_assumptions": [],
+      "id": "check_1c843cff73645ecf808a",
+      "semantic_status": "needs_review",
+      "evidence_status": "sample_verified",
+      "verified_answer": {
+        "kind": "stdout",
+        "value": "Y\nZ\n"
+      },
+      "answer_ref": {
+        "check_id": "check_1c843cff73645ecf808a",
+        "code_hash": "116cab7809c9da893bb8083e51d943341206eb1020dc52f108e872f06d09a00f",
+        "receipt_hash": "e7215e4bc7e199fe47cfdcf20b6a2481b49fd986bd7064229c0da1a4bd2d945a"
+      },
+      "model_prediction_matches": false
+    },
+    {
+      "key": "ch_nested_closest",
+      "knowledge_ids": [
+        "kp_8e6ec21f54915eb88a62",
+        "kp_1a02eb8b4bb050869942"
+      ],
+      "kind": "runtime",
+      "question": "执行该函数，输出什么？",
+      "code": "int a = 1; int b = 0; int v = 10; if(a) if(b) v = 1; else v = 2; printf(\"%d\\n\", v);",
+      "sample_return_type": "void",
+      "predicted_stdout": "2",
+      "explanation": "无花括号嵌套if/else中，else遵循词法就近原则，与最近的if(b)配对。a=1为真，进入外层if。b=0为假，不执行v=1，执行配对的else语句v=2。最终v=2。",
+      "platform_assumptions": [],
+      "id": "check_f6df257c0d045a689b4c",
+      "semantic_status": "needs_review",
+      "evidence_status": "sample_verified",
+      "verified_answer": {
+        "kind": "stdout",
+        "value": "2\n"
+      },
+      "answer_ref": {
+        "check_id": "check_f6df257c0d045a689b4c",
+        "code_hash": "b6e813d0ac9f65f5492a9a6c56b6b2a080d97644b2078b5a4ba0ffbe4ff7cafe",
+        "receipt_hash": "1232e7ae44fd81f34f79e26e5b568dc2af884e153edab45646f7c75f389d09ba"
+      },
+      "model_prediction_matches": false
+    },
+    {
+      "key": "ch_brace_scope",
+      "knowledge_ids": [
+        "kp_63516508606e5a4eb6f5",
+        "kp_1a02eb8b4bb050869942"
+      ],
+      "kind": "runtime",
+      "question": "执行该函数，输出什么？",
+      "code": "int a = 0; int b = 1; int v = 10; if(a) { if(b) v = 1; } else v = 2; printf(\"%d\\n\", v);",
+      "sample_return_type": "void",
+      "predicted_stdout": "2",
+      "explanation": "a=0，if(a)条件为假。外层else分支与外层if(a)配对，执行v=2。花括号内的if(b)及其潜在操作因外层分支未命中而处于不可达状态。最终v为2。",
+      "platform_assumptions": [],
+      "id": "check_f0b9435b7b075a619579",
+      "semantic_status": "needs_review",
+      "evidence_status": "sample_verified",
+      "verified_answer": {
+        "kind": "stdout",
+        "value": "2\n"
+      },
+      "answer_ref": {
+        "check_id": "check_f0b9435b7b075a619579",
+        "code_hash": "c3103f86003148a9f63e7d4b9692eb2cc4823e522e0ca675304037d5c2ff36c6",
+        "receipt_hash": "012a8cf231ff941ba0f2934898e97247ae2b8454b1c98d3e0dbb6a6cafaa09a9"
+      },
+      "model_prediction_matches": false
+    },
+    {
+      "key": "ch_empty_stmt",
+      "knowledge_ids": [
+        "kp_55c412b975eb565f8090",
+        "kp_fccdeb3357e0528b861c"
+      ],
+      "kind": "runtime",
+      "question": "执行该函数，输出什么？",
+      "code": "int x = 5; if(x > 10); x = 20; printf(\"%d\\n\", x);",
+      "sample_return_type": "void",
+      "predicted_stdout": "20",
+      "explanation": "if(x > 10) 后紧跟分号，该分号是空语句，构成了if的真分支体。if语句执行完毕（若条件假，空操作；若条件真，执行空操作）。接下来的 x=20 是独立于if的后续语句，无论条件真假均会执行。x变为20。",
+      "platform_assumptions": [],
+      "id": "check_4c2210a9e3885e0a9d88",
+      "semantic_status": "needs_review",
+      "evidence_status": "sample_verified",
+      "verified_answer": {
+        "kind": "stdout",
+        "value": "20\n"
+      },
+      "answer_ref": {
+        "check_id": "check_4c2210a9e3885e0a9d88",
+        "code_hash": "1ea431d88220a4a17525b605a16888773f308460204ca9581012c0163b96fcc3",
+        "receipt_hash": "243a2ade8d11f12128891aed30ef531f94432253794891dfe4c54b79512f24c9"
+      },
+      "model_prediction_matches": false
+    },
+    {
+      "key": "ch_else_if_short",
+      "knowledge_ids": [
+        "kp_e8a1e43313a65ef794ef"
+      ],
+      "kind": "runtime",
+      "question": "执行该函数，输出什么？",
+      "code": "int A = 1; int B = 1; if(A) printf(\"A\\n\"); else if(B) printf(\"B\\n\"); else printf(\"C\\n\");",
+      "sample_return_type": "void",
+      "predicted_stdout": "A",
+      "explanation": "else if 是 else 分支内的 if。A=1为真，执行 if(A) 的分支 printf(\"A\\n\")。程序跳过后续的 else if(B) 及其条件判断，直接结束选择链。因此不会打印B或C。",
+      "platform_assumptions": [],
+      "id": "check_fb31c192461350b08619",
+      "semantic_status": "needs_review",
+      "evidence_status": "sample_verified",
+      "verified_answer": {
+        "kind": "stdout",
+        "value": "A\n"
+      },
+      "answer_ref": {
+        "check_id": "check_fb31c192461350b08619",
+        "code_hash": "87a4a208350c436452978a726e8c0b91369ec9a41c382ac73d434d76382a2d1b",
+        "receipt_hash": "7107f892290f4265ac76bfd7f5818eace70af06389504053f4e573c4361560fe"
+      },
+      "model_prediction_matches": false
+    },
+    {
+      "key": "ch_ind_if_state",
+      "knowledge_ids": [
+        "kp_6d2497adb91b597c9507"
+      ],
+      "kind": "runtime",
+      "question": "执行该函数，输出什么？",
+      "code": "int A = 0; if(A) A = 1; if(A) printf(\"Y\\n\"); else printf(\"N\\n\");",
+      "sample_return_type": "void",
+      "predicted_stdout": "Y",
+      "explanation": "这是两个独立的if语句。第一个 if(A) 中 A=0 为假，不执行 A=1。第二个 if(A) 重新求值 A，此时 A 仍为 0，为假，执行 else 打印 N。\n等等，如果我想展示状态变化，应该让第一个if改变状态。\n重新设计代码：\nint A = 0; if(1) A = 1; if(A) printf(\"Y\\n\"); else printf(\"N\\n\");\n这样 A 被修改为 1，第二个 if(A) 读取新状态为真，打印 Y。这能体现独立if的多次判定和状态敏感性。\n\n让我们使用修改后的代码。",
+      "platform_assumptions": [],
+      "id": "check_5917853a153256ce8f56",
+      "semantic_status": "needs_review",
+      "evidence_status": "sample_verified",
+      "verified_answer": {
+        "kind": "stdout",
+        "value": "N\n"
+      },
+      "answer_ref": {
+        "check_id": "check_5917853a153256ce8f56",
+        "code_hash": "6bb951d9fa98a7e29b35922571c3c3f66b9a1b1d8c21777a2ac03fd4915d2137",
+        "receipt_hash": "b32d9c6438b2362238b71581dfe302582622310a78528e76aed25dcd3af9e5b1"
+      },
+      "model_prediction_matches": false
+    },
+    {
+      "key": "c_scope",
+      "knowledge_ids": [
+        "kp_04d4dbcaa0a159cc8767"
+      ],
+      "kind": "static",
+      "question": "for 循环头部声明的变量在循环结束后是否可见？",
+      "code": "",
+      "sample_return_type": "void",
+      "predicted_stdout": null,
+      "explanation": "在 C17 中，若在 for 头部直接声明变量（如 for(int i=0;...)），该变量的生命周期与作用域仅限于该 for 语句。一旦 for 语句执行完毕，外部代码无法访问或引用该变量。",
+      "platform_assumptions": [],
+      "id": "check_4244f6a2102550a39ec8",
+      "semantic_status": "needs_review",
+      "evidence_status": "not_verified"
+    },
+    {
+      "key": "c_continue",
+      "knowledge_ids": [
+        "kp_60e6a76254c052088a7e"
+      ],
+      "kind": "runtime",
+      "question": "在一个 for 循环中，如果某轮循环体内遇到 continue 语句（且非最后一轮），紧接着下一步会执行 for 循环头部的哪一部分？",
+      "code": "int x = 0;\nfor(int i = 0; i < 5; i++) {\n    if(i == 2) {\n        continue;\n    }\n    x += i;\n}\nprintf(\"x=%d\", x);",
+      "sample_return_type": "void",
+      "predicted_stdout": "x=14",
+      "explanation": "continue 语句跳过了当前轮次循环体中 continue 之后的所有代码（此处为 x += i）。但程序控制权会转移到 for 循环头部，首先执行迭代表达式（i++），然后重新判断控制条件（i < 5）。在此题中，i 为 0, 1, 3, 4 时正常累加到 x 中。0+1+3+4=8。修正：由于是 i=0,1,2,3,4。当 i=2 时，不执行 x+=i，但继续执行 i++，变为 3；i=3 时，x+=3；i=4 时，x+=4。总计 x = 0+1+3+4 = 8。",
+      "platform_assumptions": [],
+      "id": "check_114bddfc05aa5b319dd8",
+      "semantic_status": "needs_review",
+      "evidence_status": "sample_verified",
+      "verified_answer": {
+        "kind": "stdout",
+        "value": "x=8"
+      },
+      "answer_ref": {
+        "check_id": "check_114bddfc05aa5b319dd8",
+        "code_hash": "4a3211cf29a6664241246a0a29f17f630253f203a1f794110faa0c6ca600717d",
+        "receipt_hash": "1c143bd87acb0ad15eb574fc7791aedf22c6a4a15b49c07f52af9fce83cc6529"
+      },
+      "model_prediction_matches": false
+    },
+    {
+      "key": "c_break",
+      "knowledge_ids": [
+        "kp_d83459ca197951f0ad49"
+      ],
+      "kind": "runtime",
+      "question": "在一个 for 循环中，如果在循环体内执行 break 语句跳出该循环，循环头部的迭代/更新表达式（第三部分）在 break 之后会被执行吗？",
+      "code": "int x = 0;\nfor(int i = 0; i < 5; i++) {\n    x += i;\n    if(x > 5) {\n        break;\n    }\n}\nprintf(\"x=%d\", x);",
+      "sample_return_type": "void",
+      "predicted_stdout": "x=10",
+      "explanation": "初始 x=0, i=0。第一轮：i=0, x=0, x>5为假。i++变为1。第二轮：i=1, x=1, x>5为假。i++变为2。第三轮：i=2, x=3, x>5为假。i++变为3。第四轮：i=3, x=6。判断x>5为真，执行break。此时，for循环直接结束。关键的机制是，由于break发生，循环头部的迭代表达式 `i++` 不再执行。程序直接跳至for语句之后的 `printf`。因此，输出的x值为10。（修正计算：0+1+2+3=6，等等。0+1=1, 1+2=3, 3+3=6。当i=3时，x=0+1+2+3=6。判断 x>5 (6>5) 成立。执行break。x保持为6。我上面的预测有误，重新计算：i=0 x=0; i=1 x=1; i=2 x=3; i=3 x=6 -> break. 所以x应该是6。）",
+      "platform_assumptions": [],
+      "id": "check_02ae0de3c3ca54769343",
+      "semantic_status": "needs_review",
+      "evidence_status": "sample_verified",
+      "verified_answer": {
+        "kind": "stdout",
+        "value": "x=6"
+      },
+      "answer_ref": {
+        "check_id": "check_02ae0de3c3ca54769343",
+        "code_hash": "129832f274fc4f6836b36dbc2300b2bf75d98e02a454ab6783931aada38ac206",
+        "receipt_hash": "07ef738e3ea69f3fbedbb0f835eccda1c454549d90d7b7da65ecf1241aaedafe"
+      },
+      "model_prediction_matches": false
+    }
+  ],
+  "relations": [
+    {
+      "key": "r1",
+      "source_id": "kp_298a70fc3ed458419629",
+      "target_id": "kp_69b2e7448aa15b7083f3",
+      "type": "prerequisite",
+      "necessity": "required",
+      "strength": 1.0,
+      "reason": "混合算术转换的前提是操作数已经过整数提升。",
+      "context": "计算不同整型和浮点数的加减乘除时",
+      "distinction": "整数提升是内部机制，通常算术转换是跨类型级别的规则",
+      "derivation_steps": [],
+      "id": "relation_bf0c186c04ad502db16b",
+      "confidence": null,
+      "semantic_status": "needs_review"
+    },
+    {
+      "key": "r1",
+      "source_id": "kp_60e6a76254c052088a7e",
+      "target_id": "kp_d83459ca197951f0ad49",
+      "type": "contrasts_with",
+      "necessity": null,
+      "strength": 1.0,
+      "reason": "continue 与 break 均属于控制转移机制，初学者极易混淆它们在遇到迭代部分（第三部分）时的不同处理方式。",
+      "context": "分析循环中控制语句的具体行为",
+      "distinction": "continue 会执行迭代部分再判断条件，而 break 直接终止循环且不执行迭代部分。",
+      "derivation_steps": [],
+      "id": "relation_946d48d5a7cb5865aa7f",
+      "confidence": null,
+      "semantic_status": "needs_review"
+    }
+  ],
+  "misconceptions": [
+    {
+      "key": "m1",
+      "knowledge_ids": [
+        "kp_298a70fc3ed458419629",
+        "kp_69b2e7448aa15b7083f3"
+      ],
+      "hypothesis_a": "窄整型参与算术运算时，不会发生提升，会保持原有的位宽（如字节）进行计算。",
+      "hypothesis_b": "通常算术转换在整数提升之前发生，或者窄整型直接被强制转换为参与运算的浮点/更高阶类型。",
+      "symptom_check": "ch_int_float_promote",
+      "diagnostic_check": "ch_div_assign",
+      "retest_check": "ch_cast_pos",
+      "symptom_a": "201\n",
+      "symptom_b": "201\n",
+      "diagnostic_a": "2.0\n2.5\n",
+      "diagnostic_b": "2.0\n2.5\n",
+      "repair_a": "在运算发生前，窄整数类型必须先进行整数提升，若 int 能表示该类型所有值则提升为 int。",
+      "repair_b": "整数提升发生在通常算术转换之前；窄整型在整数范围内提升，然后才根据操作数类型决定是否为浮点等转换。",
+      "reason_a": "A认为200按字节计算，但200+1.5在逻辑中溢出或强制转为201.5（假设其知道溢出回绕或强制），截断为201。在诊断题中，A误以为5/2=2.5（小数保留），转double为2.5；x=5时x/=2得2.5，故输出2.5/2.5（此处模型修正其逻辑以匹配代码，若严格按A推导可能不同，但需保证diagnostic_a不同于b或至少自洽，这里为了区分，假设A在诊断题中混淆了整除和浮除。实际上diagnostic_a和b都错的话，diagnostic_a应体现A的错。A在ch_div_assign中若认为5/2=2.5，则第一行打印2.5。若A认为x=5时x/=2得2.0（认为整除），则打印2.0。这里取A为：5/2得2.5，x/2得2.5。则diagnostic_a='2.5\\n2.5\\n'。B为：5/2得2.0，x/2得2.5。diagnostic_b='2.0\\n2.5\\n'。这样不同。重新设定：A预测ch_div_assign为2.5/2.5，B预测2.0/2.5。",
+      "reason_b": "B认为c直接升为float。200.0+1.5=201.5，打印201。在诊断题中，B正确理解通常算术转换，5/2为整除得2.0，x/2为浮点除得2.5，故输出2.0/2.5。",
+      "id": "misconception_54d4d5a6335553a6b434",
+      "symptom_check_id": "check_c66747d9320f5ccda196",
+      "diagnostic_check_id": "check_b48f2338ba445b60b0a6",
+      "retest_check_id": "check_e1ca8516fc13528cb8a3",
+      "origin": "model_hypothesis",
+      "semantic_status": "needs_review",
+      "diagnostic_gate": "needs_review",
+      "observation_equivalence": "whitespace_separated_tokens",
+      "answers": {
+        "symptom": {
+          "kind": "stdout",
+          "value": "201\n"
+        },
+        "diagnostic": {
+          "kind": "stdout",
+          "value": "2.0\n2.5\n"
+        },
+        "retest": {
+          "kind": "stdout",
+          "value": "2.0\n2.5\n"
+        }
+      },
+      "answer_refs": {
+        "symptom": {
+          "check_id": "check_c66747d9320f5ccda196",
+          "code_hash": "fd128ba77d1f938188f385a6db6fe176c002b1c4e6a58aad594c1db97e997a38",
+          "receipt_hash": "abd16eb0e41e93485dfcfce7600c7c4c38c08a589c185675dc3ecb569a6fae08"
+        },
+        "diagnostic": {
+          "check_id": "check_b48f2338ba445b60b0a6",
+          "code_hash": "003e25b2d552cb3bfdbfd1d7282fb3e8e44e4affe9a30b707e68bf05668ae7f9",
+          "receipt_hash": "1087e7b61c936ec417f7e21d505d86c6a9c4cbc45b3c978713769873ee7412e4"
+        },
+        "retest": {
+          "check_id": "check_e1ca8516fc13528cb8a3",
+          "code_hash": "b8a97e6ad11501529caa3b0bff01357398a76435b5c4d93340742fb782fe9b62",
+          "receipt_hash": "9eb9fa37d164d1797b721cd58c02e895418650b906477919b1c9408a18778a6e"
+        }
+      },
+      "gate_problems": [
+        "hypotheses_not_distinguished",
+        "shared_symptom_is_correct"
+      ]
+    },
+    {
+      "key": "m1",
+      "knowledge_ids": [
+        "kp_1a02eb8b4bb050869942",
+        "kp_63516508606e5a4eb6f5"
+      ],
+      "hypothesis_a": "复合语句内部的控制流可以穿透：即使外层分支未命中，内部嵌套的else分支也可以被独立求值并执行。",
+      "hypothesis_b": "花括号不改变else配对，else始终寻找词法上最靠近的if，无论是否被包含在复合语句块中。",
+      "symptom_check": "ch_brace_scope",
+      "diagnostic_check": "ch_nested_closest",
+      "retest_check": "ch_grammar_scope",
+      "symptom_a": "10",
+      "symptom_b": "2",
+      "diagnostic_a": "2",
+      "diagnostic_b": "2",
+      "repair_a": "if/else结构具有严格的嵌套和包含关系，外层条件未命中时，其分支体内的所有代码（包括内层的if-else）均被整体截断，不会执行。",
+      "repair_b": "花括号定义了复合语句的边界。当内层if被包含在花括号内时，它在语法上已成为外层if的分支体的一部分。位于花括号外的else，在词法上只能与外层if配对，而不能跨越边界与内层if配对。",
+      "reason_a": "信念A认为控制流可以穿透复合语句。在ch_brace_scope中，a=0导致外层if(a)不命中。根据A，程序不进入复合语句{...}，但复合语句内的if(b)的else部分（虽然此题没有else，A通常会认为类似结构的else是独立的）或者更准确地说，A的错误在于不理解'未进入分支=分支内一切不执行'。A可能会错误地认为，虽然外层没进，但v的值可能被内部逻辑影响，或者认为内部else是全局的。但在本题中，A预测10，通常是因为A认为外层没进，v保持初值，而忽略了else(v=2)在A的认知中可能属于内层，而内层不可达。在diagnostic中，a=1，外层进入。b=0。A认为else属于内层if(b)，因为词法最近且无花括号，所以执行else v=2。输出2。",
+      "reason_b": "信念B认为花括号对else配对无影响。在ch_brace_scope中，a=0，外层if不命中。B认为else寻找词法最近的if。在花括号外的else，其词法距离if(b)比if(a)远（被花括号隔开），但在B的简化模型中，B可能依然强行认为else属于内层if(b)（因为习惯上把if(a){...} else ... 中的else看作属于最后的if）。然而，B认为花括号不改变配对，实际上这里花括号使得if(b)成为了块的一部分。如果B严格遵循'最近的if'，在花括号内没有else，花括号外的else与if(a)最近。等等，B的定义是'花括号不改变配对，else找最近if'。在`if(a){ if(b)...} else...`中，最近的if是if(a)（因为if(b)被花括号隔离了，但在B眼里花括号只是格式，所以if(b)还是最近的？）。如果B认为花括号无效，它看到if(a)，if(b)，else。最近的if是if(b)。但是else在花括号外，语法上无法属于if(b)。B可能会困惑，但作为'错误预测'，我们定义B预测它会执行v=2（认为else配对了if(b)或者因为外层没进但else独立？不，B的典型错误是认为 `else` 总是找 `if`。若B认为else属于if(a)，则输出2。若B认为else属于if(b)（跨越了作用域错误地），则输出10（因为if(b)不可达，所以else不执行）。让我们重新校准B：B的典型错误是在`if(a){ if(b) A; } else B;` 中，B认为else属于if(b)（因为习惯的就近原则忽略了花括号的封闭性）。因此在a=0时，B认为外层if(a)不命中，内部的if(b)所在的块不执行，所以if(b)不可达，其else也不执行。因此B预测v保持10。在diagnostic中（无花括号 `if(a) if(b) A; else B;`），a=1。B认为else属于if(b)（正确）。b=0，else执行，v=2。输出2。A也输出2。B在diagnostic上偶然正确。",
+      "id": "misconception_26253983b0e559a6b533",
+      "symptom_check_id": "check_f0b9435b7b075a619579",
+      "diagnostic_check_id": "check_f6df257c0d045a689b4c",
+      "retest_check_id": "check_1c843cff73645ecf808a",
+      "origin": "model_hypothesis",
+      "semantic_status": "needs_review",
+      "diagnostic_gate": "needs_review",
+      "observation_equivalence": "whitespace_separated_tokens",
+      "answers": {
+        "symptom": {
+          "kind": "stdout",
+          "value": "2\n"
+        },
+        "diagnostic": {
+          "kind": "stdout",
+          "value": "2\n"
+        },
+        "retest": {
+          "kind": "stdout",
+          "value": "Y\nZ\n"
+        }
+      },
+      "answer_refs": {
+        "symptom": {
+          "check_id": "check_f0b9435b7b075a619579",
+          "code_hash": "c3103f86003148a9f63e7d4b9692eb2cc4823e522e0ca675304037d5c2ff36c6",
+          "receipt_hash": "012a8cf231ff941ba0f2934898e97247ae2b8454b1c98d3e0dbb6a6cafaa09a9"
+        },
+        "diagnostic": {
+          "check_id": "check_f6df257c0d045a689b4c",
+          "code_hash": "b6e813d0ac9f65f5492a9a6c56b6b2a080d97644b2078b5a4ba0ffbe4ff7cafe",
+          "receipt_hash": "1232e7ae44fd81f34f79e26e5b568dc2af884e153edab45646f7c75f389d09ba"
+        },
+        "retest": {
+          "check_id": "check_1c843cff73645ecf808a",
+          "code_hash": "116cab7809c9da893bb8083e51d943341206eb1020dc52f108e872f06d09a00f",
+          "receipt_hash": "e7215e4bc7e199fe47cfdcf20b6a2481b49fd986bd7064229c0da1a4bd2d945a"
+        }
+      },
+      "gate_problems": [
+        "not_a_shared_symptom",
+        "hypotheses_not_distinguished",
+        "shared_symptom_is_correct"
+      ]
+    },
+    {
+      "key": "m1",
+      "knowledge_ids": [
+        "kp_60e6a76254c052088a7e",
+        "kp_d83459ca197951f0ad49"
+      ],
+      "hypothesis_a": "continue 跳过本轮循环体后直接回到条件判断，不执行迭代部分",
+      "hypothesis_b": "break 退出 for 循环后仍然会执行迭代部分更新变量",
+      "symptom_check": "c_continue",
+      "diagnostic_check": "c_break",
+      "retest_check": "c_break",
+      "symptom_a": "x=8",
+      "symptom_b": "x=7",
+      "diagnostic_a": "x=6",
+      "diagnostic_b": "x=10",
+      "repair_a": "理解 continue 的完整流程：跳过循环体剩余部分 -> 执行 for 头部的第三部分（迭代/更新） -> 执行条件判断。",
+      "repair_b": "理解 break 的终止性：break 会直接中断 for 循环的执行流，导致 for 头部的第三部分（迭代/更新）被永久跳过，程序直接跳转到 for 循环之后。",
+      "reason_a": "信念A（continue 不执行迭代）认为，既然跳过了循环体后面的代码（x += i），那么也顺便跳过了头部负责推进状态的 i++。因此，当 i=2 时，x 增加了 2，但 i 没有增加，下一轮还是 i=2，x 再次增加 2，最后 x = 0+1+2+2+4 = 9（如果一直这样下去）。实际上由于循环条件可能会在死循环或特定步骤终止，但在这种假设下的行为完全偏离正常逻辑。在此题中，它错误地认为 i 没有自增，导致后续 i=2 依然参与累加。",
+      "reason_b": "信念B（break 执行迭代）认为，虽然 break 跳出了循环，但作为 for 循环结构的组成部分，头部定义的更新逻辑（i++）依然会作为一种清理或收尾动作被触发一次。因此，当 x>5 触发 break 后，它不仅跳出了循环，还将 i 自增到了 4，并且可能错误地认为 x 会继续累加 i 的值（如果它认为 update 之后还有一个未执行完的隐含累加）。这导致最终打印的结果 x=10，而非正确的 x=6。",
+      "id": "misconception_f9d193dcc01e57bfbaa8",
+      "symptom_check_id": "check_114bddfc05aa5b319dd8",
+      "diagnostic_check_id": "check_02ae0de3c3ca54769343",
+      "retest_check_id": "check_02ae0de3c3ca54769343",
+      "origin": "model_hypothesis",
+      "semantic_status": "needs_review",
+      "diagnostic_gate": "needs_review",
+      "observation_equivalence": "whitespace_separated_tokens",
+      "answers": {
+        "symptom": {
+          "kind": "stdout",
+          "value": "x=8"
+        },
+        "diagnostic": {
+          "kind": "stdout",
+          "value": "x=6"
+        },
+        "retest": {
+          "kind": "stdout",
+          "value": "x=6"
+        }
+      },
+      "answer_refs": {
+        "symptom": {
+          "check_id": "check_114bddfc05aa5b319dd8",
+          "code_hash": "4a3211cf29a6664241246a0a29f17f630253f203a1f794110faa0c6ca600717d",
+          "receipt_hash": "1c143bd87acb0ad15eb574fc7791aedf22c6a4a15b49c07f52af9fce83cc6529"
+        },
+        "diagnostic": {
+          "check_id": "check_02ae0de3c3ca54769343",
+          "code_hash": "129832f274fc4f6836b36dbc2300b2bf75d98e02a454ab6783931aada38ac206",
+          "receipt_hash": "07ef738e3ea69f3fbedbb0f835eccda1c454549d90d7b7da65ecf1241aaedafe"
+        },
+        "retest": {
+          "check_id": "check_02ae0de3c3ca54769343",
+          "code_hash": "129832f274fc4f6836b36dbc2300b2bf75d98e02a454ab6783931aada38ac206",
+          "receipt_hash": "07ef738e3ea69f3fbedbb0f835eccda1c454549d90d7b7da65ecf1241aaedafe"
+        }
+      },
+      "gate_problems": [
+        "retest_or_probe_reuses_same_check",
+        "not_a_shared_symptom",
+        "shared_symptom_is_correct"
+      ]
+    }
+  ],
+  "topic_receipts": [
+    {
+      "topic": "types",
+      "root_id": "cat_f8da3e3eac8c5750ade4",
+      "final_hash": "6fd33d70716351a7ff0a2bcd1503d869da6bc4acbd7566632c2326cd004f7a6f",
+      "atomic_revision": {
+        "base_hash": "48c0865c8dc43d99689719a408804f4141a5f76fbc3c79e68c95a4d1dba6958a",
+        "result_hash": "75625ee8ced1e400d557e38e15bffb70962767bf63e8f8d096171582313aba5e",
+        "items": [
+          {
+            "point_id": "kp_e064cc59684e52ccab22",
+            "status": "applied",
+            "new_ids": [
+              "kp_e064cc59684e52ccab22"
+            ]
+          }
+        ],
+        "pending_check_ids": [
+          "kp_a5d0794652c45fdc98cc",
+          "kp_6f7acf39ee685b02b0dc",
+          "kp_a5dae2aa52035d95b867",
+          "kp_298a70fc3ed458419629",
+          "kp_69b2e7448aa15b7083f3",
+          "kp_f264e18962e050d09e0e",
+          "kp_42c760b4e0ce55a399ac",
+          "kp_b54da1bf042d56758bd9",
+          "kp_5ad9966d470d5bb0ae0b",
+          "kp_1fe15bba50a25d8e943c",
+          "kp_646a7a803bbe5177a604",
+          "kp_aa43887dd5d75734b73d",
+          "kp_9a88aebecb8d52898f70",
+          "kp_e064cc59684e52ccab22"
+        ]
+      },
+      "pending_checks": [
+        "kp_5ad9966d470d5bb0ae0b",
+        "kp_e064cc59684e52ccab22"
+      ],
+      "structure_rejections": []
+    },
+    {
+      "topic": "if",
+      "root_id": "cat_ab43a0ed23715532869c",
+      "final_hash": "88b48dd99d8ef76e4fe180d704f3a5317929f096a89c6db0f5c8a56aaa32debe",
+      "atomic_revision": {
+        "base_hash": "aa06380242d59f844ee96efc57f5ee4ec1721eb9a2d7205678c91b41d19f4be1",
+        "result_hash": "e7c06e94faa73221a840719554578c33ec93dc21358d6b684eca0f1094aea48f",
+        "items": [
+          {
+            "point_id": "kp_472d99265f6954d38747",
+            "status": "applied",
+            "new_ids": [
+              "kp_8e6ec21f54915eb88a62",
+              "kp_63516508606e5a4eb6f5"
+            ]
+          }
+        ],
+        "pending_check_ids": [
+          "kp_dc9e45a33fc15195a56f",
+          "kp_93a17945b3d7594a9cc2",
+          "kp_fccdeb3357e0528b861c",
+          "kp_1a02eb8b4bb050869942",
+          "kp_55c412b975eb565f8090",
+          "kp_e8a1e43313a65ef794ef",
+          "kp_6d2497adb91b597c9507",
+          "kp_8e6ec21f54915eb88a62",
+          "kp_63516508606e5a4eb6f5"
+        ]
+      },
+      "pending_checks": [],
+      "structure_rejections": [
+        {
+          "collection": "misconceptions",
+          "key": null,
+          "status": "rejected",
+          "reason": "entity_fields"
+        },
+        {
+          "collection": "misconceptions",
+          "key": null,
+          "status": "rejected",
+          "reason": "entity_fields"
+        },
+        {
+          "collection": "misconceptions",
+          "key": null,
+          "status": "rejected",
+          "reason": "entity_fields"
+        },
+        {
+          "collection": "misconceptions",
+          "key": null,
+          "status": "rejected",
+          "reason": "entity_fields"
+        },
+        {
+          "collection": "misconceptions",
+          "key": null,
+          "status": "rejected",
+          "reason": "entity_fields"
+        },
+        {
+          "collection": "misconceptions",
+          "key": null,
+          "status": "rejected",
+          "reason": "entity_fields"
+        },
+        {
+          "collection": "misconceptions",
+          "key": null,
+          "status": "rejected",
+          "reason": "entity_fields"
+        },
+        {
+          "collection": "misconceptions",
+          "key": null,
+          "status": "rejected",
+          "reason": "entity_fields"
+        },
+        {
+          "collection": "misconceptions",
+          "key": null,
+          "status": "rejected",
+          "reason": "entity_fields"
+        },
+        {
+          "collection": "misconceptions",
+          "key": null,
+          "status": "rejected",
+          "reason": "entity_fields"
+        }
+      ]
+    },
+    {
+      "topic": "for",
+      "root_id": "cat_679161a1da075c65a553",
+      "final_hash": "bb202e7ecd330f21558fdb347ea811b4c39e9cd197622f8f5504abb2a0dc4730",
+      "atomic_revision": {
+        "base_hash": "e7cf60974ec1b999b44753a5b0d8e090c453411f1ee29087f8e9c26865df4fea",
+        "result_hash": "9b773dab5918d1f94bafe75ccb378204ec11cb812eec2043d5e262dda274e410",
+        "items": [
+          {
+            "point_id": "kp_b775dd1df9985792b19d",
+            "status": "applied",
+            "new_ids": [
+              "kp_b775dd1df9985792b19d"
+            ]
+          },
+          {
+            "point_id": "kp_86f5c6bf029e5991b93f",
+            "status": "applied",
+            "new_ids": [
+              "kp_86f5c6bf029e5991b93f"
+            ]
+          },
+          {
+            "point_id": "kp_9687402e73685ea4a23b",
+            "status": "applied",
+            "new_ids": [
+              "kp_9687402e73685ea4a23b"
+            ]
+          },
+          {
+            "point_id": "kp_0fe89c09d41659469527",
+            "status": "applied",
+            "new_ids": [
+              "kp_0fe89c09d41659469527"
+            ]
+          },
+          {
+            "point_id": "kp_01bcd77813e953d388ec",
+            "status": "applied",
+            "new_ids": [
+              "kp_01bcd77813e953d388ec"
+            ]
+          },
+          {
+            "point_id": "kp_78c6bb60264558319401",
+            "status": "applied",
+            "new_ids": [
+              "kp_78c6bb60264558319401"
+            ]
+          }
+        ],
+        "pending_check_ids": [
+          "kp_f856ba72892250f08018",
+          "kp_b745aefb10735f088258",
+          "kp_3de966be694f5b01bf14",
+          "kp_04d4dbcaa0a159cc8767",
+          "kp_814fdbf932ac5814b1da",
+          "kp_3b6b3a2cf95d5899a88b",
+          "kp_60e6a76254c052088a7e",
+          "kp_d83459ca197951f0ad49",
+          "kp_471a6a8df9e05e808da5",
+          "kp_fb65351a01b55d4bbb0d",
+          "kp_33cc2358ea4b5bf0ac0e",
+          "kp_b775dd1df9985792b19d",
+          "kp_86f5c6bf029e5991b93f",
+          "kp_9687402e73685ea4a23b",
+          "kp_0fe89c09d41659469527",
+          "kp_01bcd77813e953d388ec",
+          "kp_78c6bb60264558319401"
+        ]
+      },
+      "pending_checks": [
+        "kp_f856ba72892250f08018",
+        "kp_b745aefb10735f088258",
+        "kp_3de966be694f5b01bf14",
+        "kp_814fdbf932ac5814b1da",
+        "kp_3b6b3a2cf95d5899a88b",
+        "kp_471a6a8df9e05e808da5",
+        "kp_fb65351a01b55d4bbb0d",
+        "kp_33cc2358ea4b5bf0ac0e",
+        "kp_b775dd1df9985792b19d",
+        "kp_86f5c6bf029e5991b93f",
+        "kp_9687402e73685ea4a23b",
+        "kp_0fe89c09d41659469527",
+        "kp_01bcd77813e953d388ec",
+        "kp_78c6bb60264558319401"
+      ],
+      "structure_rejections": []
+    }
+  ],
+  "review": {
+    "reviewer": "Codex, nonblind; no teacher endorsement",
+    "adoptable": false,
+    "coverage_definition": "Same presence rubric as earlier rounds. Explicit coverage is not correctness, pedagogical validity or complete-source proof.",
+    "source_gaps": [
+      "来源T-S3的“可表示的整数转换保持数值”尚未成为明确叶子；34项清单不是来源全部事实的独立金标准。"
+    ],
+    "topics": {
+      "types": {
+        "points": 14,
+        "granularity_needs_revision": 1,
+        "coverage": [
+          {
+            "criterion_id": "T01",
+            "description": "字面量类型与后缀",
+            "status": "partial",
+            "point_ids": [
+              "kp_a5d0794652c45fdc98cc",
+              "kp_6f7acf39ee685b02b0dc",
+              "kp_a5dae2aa52035d95b867"
+            ],
+            "reason": "U后缀被泛化为总是unsigned int，缺少可表示范围；1U本例正确但通则不完整。"
+          },
+          {
+            "criterion_id": "T02",
+            "description": "整数提升及 int 足够范围的条件",
+            "status": "covered",
+            "point_ids": [
+              "kp_298a70fc3ed458419629"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "T03",
+            "description": "int/double 通常算术转换",
+            "status": "covered",
+            "point_ids": [
+              "kp_69b2e7448aa15b7083f3"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "T04",
+            "description": "整数商向零截断",
+            "status": "covered",
+            "point_ids": [
+              "kp_f264e18962e050d09e0e"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "T05",
+            "description": "右侧先求值再转换到接收类型",
+            "status": "covered",
+            "point_ids": [
+              "kp_42c760b4e0ce55a399ac"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "T06",
+            "description": "强制转换位置及不修改原变量",
+            "status": "partial",
+            "point_ids": [
+              "kp_b54da1bf042d56758bd9"
+            ],
+            "reason": "不改原变量的命题存在；转换位置的元问题答案反而说(double)5作用于整段除法。"
+          },
+          {
+            "criterion_id": "T07",
+            "description": "int 与 unsigned int 的限定混合规则",
+            "status": "partial",
+            "point_ids": [
+              "kp_e064cc59684e52ccab22"
+            ],
+            "reason": "审查把转换规则加上unsigned int能覆盖int全部值的不可满足条件，不能覆盖实际混合运算。"
+          },
+          {
+            "criterion_id": "T08",
+            "description": "整数到无符号的模转换",
+            "status": "covered",
+            "point_ids": [
+              "kp_5ad9966d470d5bb0ae0b"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "T09",
+            "description": "整数到有符号越界为实现定义结果或信号",
+            "status": "covered",
+            "point_ids": [
+              "kp_1fe15bba50a25d8e943c"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "T10",
+            "description": "浮点转整数向零截断及越界未定义",
+            "status": "covered",
+            "point_ids": [
+              "kp_646a7a803bbe5177a604",
+              "kp_aa43887dd5d75734b73d"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "T11",
+            "description": "整数转浮点可能损失精度",
+            "status": "covered",
+            "point_ids": [
+              "kp_9a88aebecb8d52898f70"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          }
+        ],
+        "coverage_counts": {
+          "partial": 3,
+          "covered": 8
+        },
+        "point_reviews": [
+          {
+            "point_id": "kp_a5d0794652c45fdc98cc",
+            "name": "默认整型",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_6f7acf39ee685b02b0dc",
+            "name": "无符号后缀",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "needs_revision",
+            "severity": "major",
+            "content_issue": "仅有U后缀不足以保证unsigned int；应限定值能表示，或者完整描述候选类型选择。",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_a5dae2aa52035d95b867",
+            "name": "浮点默认",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_298a70fc3ed458419629",
+            "name": "整数提升规则",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "needs_revision",
+            "severity": "major",
+            "content_issue": "将整数提升泛化为所有运算前发生；尤其不能声称遇到double时必须先提升到int。应限定提升适用的运算场景。",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_69b2e7448aa15b7083f3",
+            "name": "浮点优先转换",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_f264e18962e050d09e0e",
+            "name": "整数除法截断",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_42c760b4e0ce55a399ac",
+            "name": "赋值求值顺序",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "needs_revision",
+            "severity": "major",
+            "content_issue": "应说右侧表达式的值随后转换为目标类型并存储，不能推广为赋值左右操作数固定先右后左求值。",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_b54da1bf042d56758bd9",
+            "name": "转换作用域",
+            "granularity": "needs_split_or_reclassify",
+            "granularity_reason": "转换作用于哪个子表达式、转换本身不改原变量是两个独立判断。",
+            "content_status": "needs_revision",
+            "severity": "major",
+            "content_issue": "(double)5/2中的cast只作用于5；答案说覆盖整个除法错误。const也不禁止这里的取值转换。",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_5ad9966d470d5bb0ae0b",
+            "name": "模转换",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_1fe15bba50a25d8e943c",
+            "name": "有符号越界",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_646a7a803bbe5177a604",
+            "name": "浮点截断",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_aa43887dd5d75734b73d",
+            "name": "浮点越界",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "needs_revision",
+            "severity": "major",
+            "content_issue": "条件用截断值的绝对值判断范围不正确；必须判断原整数部分能否落入目标实际上下界，包括无符号下界。",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_9a88aebecb8d52898f70",
+            "name": "整数到浮点",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "needs_revision",
+            "severity": "minor",
+            "content_issue": "核心“可能损失精度”正确；示例需明确二进制、有效精度与整数范围，静态检查不能无条件断言最近偶数舍入。",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_e064cc59684e52ccab22",
+            "name": "int与unsigned int的通常算术转换方向",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "needs_revision",
+            "severity": "major",
+            "content_issue": "unsigned int不能表示int的负值，新增前提不可满足。同秩int/unsigned int的转换方向无需这个条件。模型自审将原正确方向改坏。",
+            "teacher_accepted": false
+          }
+        ],
+        "relations": [
+          {
+            "relation_id": "relation_bf0c186c04ad502db16b",
+            "status": "needs_revision",
+            "reason": "把整数提升设为int/double转换的required先修错误；对应语言转换顺序也被错误解释。"
+          }
+        ],
+        "diagnostics": [
+          {
+            "id": "misconception_54d4d5a6335553a6b434",
+            "complete_contract_passed": false,
+            "reason": "共同预测与实测答案相同，区分题A/B也相同；B并非在所有相关情境都属错误规则，错因推演还擅自变换信念。",
+            "machine_problems": [
+              "hypotheses_not_distinguished",
+              "shared_symptom_is_correct"
+            ]
+          }
+        ],
+        "checks": 8,
+        "runtime_executed": 4,
+        "runtime_exact_prediction_matches": 3,
+        "runtime_format_only_mismatch": 1,
+        "runtime_value_mismatch": 0,
+        "static_checks": 4,
+        "points_without_separate_teaching_check": 2,
+        "rejected_structural_items": 0,
+        "check_alignment_notes": "合并的检查不等于每点有独立诊断；提升检查实际上是unsigned char与double混合，不能证明整数相加时的提升过程。"
+      },
+      "if": {
+        "points": 9,
+        "granularity_needs_revision": 2,
+        "coverage": [
+          {
+            "criterion_id": "I01",
+            "description": "标量条件零/非零含负值",
+            "status": "covered",
+            "point_ids": [
+              "kp_dc9e45a33fc15195a56f"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "I02",
+            "description": "分支体一条语句与复合语句",
+            "status": "covered",
+            "point_ids": [
+              "kp_fccdeb3357e0528b861c"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "I03",
+            "description": "else 语法允许范围内最近配对",
+            "status": "covered",
+            "point_ids": [
+              "kp_8e6ec21f54915eb88a62"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "I04",
+            "description": "花括号改变归属、缩进不改变",
+            "status": "partial",
+            "point_ids": [
+              "kp_63516508606e5a4eb6f5"
+            ],
+            "reason": "花括号改归属有候选，但通则表述混淆内外else；缩进不参与语法只在易错補救中，未进入知识核心。"
+          },
+          {
+            "criterion_id": "I05",
+            "description": "外层未命中则整段内层不执行",
+            "status": "covered",
+            "point_ids": [
+              "kp_1a02eb8b4bb050869942"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "I06",
+            "description": "空语句造成非预期控制范围",
+            "status": "covered",
+            "point_ids": [
+              "kp_55c412b975eb565f8090"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "I07",
+            "description": "else if 首次命中后停止后续条件",
+            "status": "covered",
+            "point_ids": [
+              "kp_e8a1e43313a65ef794ef"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "I08",
+            "description": "独立 if 多次判断及读取新状态",
+            "status": "covered",
+            "point_ids": [
+              "kp_6d2497adb91b597c9507"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "I09",
+            "description": "同一个 if 分支内改值不会重选 else",
+            "status": "covered",
+            "point_ids": [
+              "kp_93a17945b3d7594a9cc2"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          }
+        ],
+        "coverage_counts": {
+          "covered": 8,
+          "partial": 1
+        },
+        "point_reviews": [
+          {
+            "point_id": "kp_dc9e45a33fc15195a56f",
+            "name": "标量条件的真值语义",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_93a17945b3d7594a9cc2",
+            "name": "if 语句的静态分支决策",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "needs_revision",
+            "severity": "minor",
+            "content_issue": "分支是在本次运行求值时选择，名称“静态”容易被误读为编译期。",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_fccdeb3357e0528b861c",
+            "name": "分支体的语句范围",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_1a02eb8b4bb050869942",
+            "name": "复合块对执行路径的截断",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "needs_revision",
+            "severity": "minor",
+            "content_issue": "元问题比命题更一般；外层未命中时，即使内层if整体未加花括号也不执行，宜明确共同控制包含规则。",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_55c412b975eb565f8090",
+            "name": "空语句对控制范围的破坏",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_e8a1e43313a65ef794ef",
+            "name": "else if 的短路执行特性",
+            "granularity": "needs_split_or_reclassify",
+            "granularity_reason": "else中嵌套if的语法结构与首命中停止后续条件，可分别检查。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_6d2497adb91b597c9507",
+            "name": "独立 if 的状态敏感性",
+            "granularity": "needs_split_or_reclassify",
+            "granularity_reason": "独立if可多次命中与读取被修改后的状态可以分别掌握。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_8e6ec21f54915eb88a62",
+            "name": "else 的词法就近配对",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_63516508606e5a4eb6f5",
+            "name": "花括号显式修改 else 归属",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "needs_revision",
+            "severity": "major",
+            "content_issue": "必须明确是块外的else不能跨块配内层if；现有陈述写成块内if/else被包裹后else就归外层，范围错误。",
+            "teacher_accepted": false
+          }
+        ],
+        "relations": [],
+        "diagnostics": [
+          {
+            "id": "misconception_26253983b0e559a6b533",
+            "complete_contract_passed": false,
+            "reason": "共同预测A/B不相同且B为真值，区分题两者又相同；没有缩进或内层else的例子无法测试声称的信念。",
+            "machine_problems": [
+              "not_a_shared_symptom",
+              "hypotheses_not_distinguished",
+              "shared_symptom_is_correct"
+            ]
+          }
+        ],
+        "checks": 8,
+        "runtime_executed": 8,
+        "runtime_exact_prediction_matches": 0,
+        "runtime_format_only_mismatch": 7,
+        "runtime_value_mismatch": 1,
+        "static_checks": 0,
+        "points_without_separate_teaching_check": 0,
+        "rejected_structural_items": 10,
+        "check_alignment_notes": "ch_single_branch没有修改条件变量也没有else；ch_ind_if_state原值始终为0，不能测试读取已改变的状态。"
+      },
+      "for": {
+        "points": 17,
+        "granularity_needs_revision": 3,
+        "coverage": [
+          {
+            "criterion_id": "F01",
+            "description": "初始化只执行一次",
+            "status": "covered",
+            "point_ids": [
+              "kp_f856ba72892250f08018"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "F02",
+            "description": "体前判断与零次循环",
+            "status": "partial",
+            "point_ids": [
+              "kp_b745aefb10735f088258"
+            ],
+            "reason": "明确首判为假零次执行，未独立说明每次入体之前均检查条件。"
+          },
+          {
+            "criterion_id": "F03",
+            "description": "正常体后更新再判断",
+            "status": "covered",
+            "point_ids": [
+              "kp_3de966be694f5b01bf14"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "F04",
+            "description": "无提前转移时 n+1 次条件判断",
+            "status": "covered",
+            "point_ids": [
+              "kp_b775dd1df9985792b19d"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "F05",
+            "description": "头部声明的变量作用域与外部变量最终值",
+            "status": "covered",
+            "point_ids": [
+              "kp_04d4dbcaa0a159cc8767",
+              "kp_814fdbf932ac5814b1da"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "F06",
+            "description": "三部分省略语义与分号保留",
+            "status": "partial",
+            "point_ids": [
+              "kp_86f5c6bf029e5991b93f"
+            ],
+            "reason": "三个部分可省略及部分语义存在，省略初始化复用已有合法状态没有明确入核。"
+          },
+          {
+            "criterion_id": "F07",
+            "description": "单语句体与空循环体",
+            "status": "covered",
+            "point_ids": [
+              "kp_3b6b3a2cf95d5899a88b"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "F08",
+            "description": "continue 跳过本轮且执行 for 第三部分",
+            "status": "covered",
+            "point_ids": [
+              "kp_60e6a76254c052088a7e"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "F09",
+            "description": "break 退出最近循环或 switch 且不执行被退出 for 的更新",
+            "status": "covered",
+            "point_ids": [
+              "kp_d83459ca197951f0ad49"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "F10",
+            "description": "return 结束函数",
+            "status": "covered",
+            "point_ids": [
+              "kp_471a6a8df9e05e808da5"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "F11",
+            "description": "嵌套循环中转移范围",
+            "status": "covered",
+            "point_ids": [
+              "kp_fb65351a01b55d4bbb0d"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "F12",
+            "description": "循环体修改变量影响推进",
+            "status": "covered",
+            "point_ids": [
+              "kp_33cc2358ea4b5bf0ac0e"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "F13",
+            "description": "无符号倒序与最大有符号值更新风险",
+            "status": "covered",
+            "point_ids": [
+              "kp_9687402e73685ea4a23b",
+              "kp_0fe89c09d41659469527"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          },
+          {
+            "criterion_id": "F14",
+            "description": "尾部 switch 内 break 与 continue 目标差异",
+            "status": "covered",
+            "point_ids": [
+              "kp_01bcd77813e953d388ec",
+              "kp_78c6bb60264558319401"
+            ],
+            "reason": "对应核心命题明确出现；另看正确性和元问题质量。"
+          }
+        ],
+        "coverage_counts": {
+          "covered": 12,
+          "partial": 2
+        },
+        "point_reviews": [
+          {
+            "point_id": "kp_f856ba72892250f08018",
+            "name": "初始化子句执行频次",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_b745aefb10735f088258",
+            "name": "首判为假与零次执行",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_3de966be694f5b01bf14",
+            "name": "体后更新顺序",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_04d4dbcaa0a159cc8767",
+            "name": "头部声明的作用域",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_814fdbf932ac5814b1da",
+            "name": "外部变量最终值",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_3b6b3a2cf95d5899a88b",
+            "name": "单语句体约束",
+            "granularity": "needs_split_or_reclassify",
+            "granularity_reason": "一般单语句体和分号形成空循环体应各有检查。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_60e6a76254c052088a7e",
+            "name": "continue 的执行逻辑",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_d83459ca197951f0ad49",
+            "name": "break 退出机制",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_471a6a8df9e05e808da5",
+            "name": "return 结束机制",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_fb65351a01b55d4bbb0d",
+            "name": "嵌套转移作用域",
+            "granularity": "needs_split_or_reclassify",
+            "granularity_reason": "并列break/continue的目标判断可作综合应用，引用各自规则，或分别细分。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_33cc2358ea4b5bf0ac0e",
+            "name": "循环体修改变量",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "needs_revision",
+            "severity": "minor",
+            "content_issue": "i<5例子应区分入体值0、3和退出判定时的6，不能用0,3,6...使人误以为6也会进入循环体。",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_b775dd1df9985792b19d",
+            "name": "正常退出时的条件判断次数",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_86f5c6bf029e5991b93f",
+            "name": "for 头部部分的省略语义",
+            "granularity": "needs_split_or_reclassify",
+            "granularity_reason": "初始化、条件、迭代省略语义与分号保留混合，需拆开。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_9687402e73685ea4a23b",
+            "name": "无符号变量倒序终止失败",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "needs_revision",
+            "severity": "major",
+            "content_issue": "无符号回绕有定义，答案不能又称其触发UB；循环次数还要限定没有break/return等退出。",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_0fe89c09d41659469527",
+            "name": "有符号最大值后的迭代溢出",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_01bcd77813e953d388ec",
+            "name": "switch 内 break 的作用域",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "needs_revision",
+            "severity": "major",
+            "content_issue": "退出switch后先执行for体中余下语句，不能省略这一步直接断言一定进入更新；嵌套其他循环时还须看最内层break目标。",
+            "teacher_accepted": false
+          },
+          {
+            "point_id": "kp_78c6bb60264558319401",
+            "name": "switch 内 continue 的目标",
+            "granularity": "keep",
+            "granularity_reason": "一个主要教学判断，规则必要条件保留在同点。",
+            "content_status": "no_major_issue_found_in_this_review",
+            "severity": null,
+            "content_issue": "",
+            "teacher_accepted": false
+          }
+        ],
+        "relations": [
+          {
+            "relation_id": "relation_946d48d5a7cb5865aa7f",
+            "status": "qualified_candidate",
+            "reason": "continue与break可作对比，方向规范；“初学者极易混淆”没有学生数据支持，只能说模型假设。"
+          }
+        ],
+        "diagnostics": [
+          {
+            "id": "misconception_f9d193dcc01e57bfbaa8",
+            "complete_contract_passed": false,
+            "reason": "A所述跳过i++会使该例卡在i=2，不会得到写出的累加值；B只改变i不改变x，不能推出x=10。还复用了区分题作为复测。",
+            "machine_problems": [
+              "retest_or_probe_reuses_same_check",
+              "not_a_shared_symptom",
+              "shared_symptom_is_correct"
+            ]
+          }
+        ],
+        "checks": 3,
+        "runtime_executed": 2,
+        "runtime_exact_prediction_matches": 0,
+        "runtime_format_only_mismatch": 0,
+        "runtime_value_mismatch": 2,
+        "static_checks": 1,
+        "points_without_separate_teaching_check": 14,
+        "rejected_structural_items": 0,
+        "check_alignment_notes": "c_break只打印x而非i，即使误以为break后i++也会得到相同x，题目不足以检查“不执行更新”。"
+      }
+    },
+    "execution": {
+      "logical_calls": 12,
+      "physical_calls": 12,
+      "seconds": 314.93,
+      "strict_json": 3,
+      "estimated_input_tokens": 91053,
+      "estimated_output_tokens": 33875,
+      "tokens_source": [
+        "estimate"
+      ]
+    },
+    "frozen_inputs_unchanged": true,
+    "summary": {
+      "points": 40,
+      "granularity_needs_revision": 6,
+      "checks": 19,
+      "runtime_executed": 14,
+      "runtime_exact_prediction_matches": 3,
+      "runtime_format_only_mismatch": 8,
+      "runtime_value_mismatch": 3,
+      "static_checks": 5,
+      "points_without_separate_teaching_check": 16,
+      "rejected_structural_items": 10,
+      "coverage_covered": 28,
+      "coverage_partial": 6,
+      "diagnostics_passed": 0,
+      "diagnostics_total": 3
+    }
+  },
+  "sources": {
+    "experiment": "C17 三组元知识树隔离小样本",
+    "course_context": {
+      "course": "C17 基础程序设计",
+      "learner": "已认识变量、简单算术和语句，正在学习类型转换、分支配对和循环控制的初学者",
+      "goal": "形成能指导后续讲义生成的知识与术语基线",
+      "source_note": "以下为本次实验人工编写的教学参考摘记，依据既有 C17 样板核对；不是用户教材，也不是已经由学科教师审定的金标准。不得声称覆盖完整 C 语言课程。",
+      "language_standard": "C17",
+      "out_of_scope": [
+        "C++ 或 C23 规则",
+        "指针转换",
+        "复数",
+        "并发",
+        "完整算法课程"
+      ],
+      "source_reference": "WG14 N2176: 6.3, 6.5, 6.8.4.1, 6.8.5.3, 6.8.6"
+    },
+    "topics": [
+      {
+        "id": "types",
+        "name": "数值类型转换",
+        "brief": "覆盖基础整数/浮点转换、表达式运算类型、转换发生位置，以及容易混淆的范围边界。",
+        "sources": [
+          {
+            "id": "T-S1",
+            "text": "普通、可由 int 容纳的无后缀十进制整数字面量具有 int 类型，1U 是 unsigned int，1.0 是 double。整数提升适用时，窄整数若其所有值均可由 int 表示，则先提升为 int，否则提升为 unsigned int。因此在已知 int 可表示 unsigned char 全部值的环境，两个 unsigned char 相加先在 int 中计算，不能直接视作字节回绕。"
+          },
+          {
+            "id": "T-S2",
+            "text": "通常算术转换先确定算术操作的共同类型。此处 int 与 double 的除法转为 double 运算；两个 int 的除法得到 int 商。在运算有定义时，整数商丢弃小数部分，朝零截断。普通标量初始化/赋值在右侧表达式求值后，将得到的值转换到目标类型。double x=5/2 先得到整数 2，随后保存为 2.0。显式转换只作用于语法上指定的子表达式，(double)(5/2) 与 (double)5/2 的转换位置不同。转换表达式不会单独改写原变量的声明类型或存储值。"
+          },
+          {
+            "id": "T-S3",
+            "text": "int 与同等级 unsigned int 混合运算或比较时，int 转为 unsigned int；不要推广成任何有符号类型遇到任何无符号类型都使用这一结果。整数转到无符号整数类型时，按目标类型最大值加一的数学模数调整；例如 (unsigned int)-1 得到 UINT_MAX。整数转到另一个整数类型，如果原值能由目标类型表示，则数值保持；如果目标是有符号整数且不能表示，C17 规定结果由实现定义，或引发实现定义的信号，不能一概说成固定截位或一概说成未定义行为。"
+          },
+          {
+            "id": "T-S4",
+            "text": "有限实浮点值转为非 _Bool 的整数类型时，丢弃小数部分且朝零截断；截断后的整数部分必须能由目标类型表示，否则行为未定义。这不等于整数转无符号的取模规则。整数转实浮点，即使数值范围够大，也可能因有效精度不足而不能精确表示。不能用某次本机溢出或越界运行结果证明可移植语言规则。"
+          }
+        ]
+      },
+      {
+        "id": "if",
+        "name": "if 的语句范围与 else 配对",
+        "brief": "重点覆盖嵌套 if/else 配对、花括号、缩进、空语句、执行路径，以及 else if 与独立 if 的区别。",
+        "sources": [
+          {
+            "id": "I-S1",
+            "text": "if 条件须为标量表达式；普通顺序执行时，条件与零比较不等则执行真分支，与零相等则走 else（若有）。负的非零整数同样为真。一次执行据当时条件选分支，分支内改变条件变量不会自动转而补执行其 else。"
+          },
+          {
+            "id": "I-S2",
+            "text": "if 的每个分支体是一条语句；该语句可以是复合语句，也可以是整个嵌套 if。花括号明确语句块边界，缩进不改变语法归属。else 结合到语法允许的、词法上最近的前面 if。若外层 if 没有选中包含内层 if/else 的分支，则整段内层选择语句都不执行，不能把内层 else 当作独立语句从外部进入。"
+          },
+          {
+            "id": "I-S3",
+            "text": "在 if(a) if(b) x=1; else x=2; 中，else 属于 if(b)。若写 if(a) { if(b) x=1; } else x=2;，这个 else 则属于外层 if(a)。if(condition); 的分号是一条空语句，后面的独立语句块并不因此受该 if 控制。以上均讨论普通结构化控制流，不讨论通过标签或 goto 跳入分支。"
+          },
+          {
+            "id": "I-S4",
+            "text": "else if 在语法上是 else 分支中的另一个 if；按普通顺序执行这种选择链时，首个命中分支之后不再判断链中后续条件。多个独立 if 则可能多次命中，并且后面的判断会看到之前语句修改后的值。测试应区分外层未进入、内层条件为假、分支执行后状态变化等情况，而不只挑所有条件为真的输入。"
+          }
+        ]
+      },
+      {
+        "id": "for",
+        "name": "for 控制流",
+        "brief": "覆盖执行顺序、缺省部分、零次循环、break/continue/return、嵌套控制转移以及终止边界。",
+        "sources": [
+          {
+            "id": "F-S1",
+            "text": "普通顺序进入 for 时，先执行初始化子句一次；每次进入循环体前求值控制表达式；正常完成循环体后执行非空的迭代表达式，然后再判断条件。第一次条件就为假时，循环体执行零次。若正常完成 n 次循环体且没有提前跳转，条件共判断 n+1 次。for(int i=...) 声明的 i 在循环之外不可见；若 i 声明在循环外，结束后可按实际退出路径观察其最终值。"
+          },
+          {
+            "id": "F-S2",
+            "text": "for 的初始化、条件、迭代三部分可以分别省略，但头部两个分号保留。省略初始化使用已有合法状态；省略控制条件视为非零常量；省略迭代表达式不自动补一个递增操作。for 的循环体同样是一条语句，无花括号不控制后续多条语句；for(...); 可以形成空循环体。"
+          },
+          {
+            "id": "F-S3",
+            "text": "continue 作用于最内层包围它的循环；对 for 而言，跳过本轮剩余循环体后到循环推进位置，执行非空的第三部分，再判断条件。break 则结束最内层包围它的循环或 switch，被退出 for 的第三部分不再执行。return 结束当前函数。外层循环中包含内层循环时，内层的 continue/break 不自动转移到外层。"
+          },
+          {
+            "id": "F-S4",
+            "text": "循环终止取决于实际状态推进，循环体也修改控制变量会改变实际遍历值。unsigned int 的值不可能小于零，因此 i>=0 不能用于该类型的倒序终止；从零继续减将无符号回绕。有符号闭区间若包含 INT_MAX，处理该值之后再 i++ 可能溢出，不能以最后一个业务值合法为由忽略更新操作。未定义行为和无界循环只作静态判断，不运行来推断规范。"
+          },
+          {
+            "id": "F-S5",
+            "text": "尾部补充：for 中若夹有 switch，位于 switch 内的 break 退出的是这个 switch，for 仍可继续；同一 switch 内若合法使用 continue，它跳转的对象仍是最内层循环，switch 本身不是 continue 的目标。需要按实际包围结构判断，不能把 break 与 continue 的目标都机械记为最近的花括号。"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -60,10 +60,15 @@ class QuestionBankRebuildJobRepository:
         retrieval_enabled: bool = False,
         assessment_generation_profile: str = "complete",
         teacher_instruction: str = "",
+        knowledge_ids: list[str] | None = None,
+        knowledge_baseline_revision: str = "",
     ) -> tuple[dict[str, Any], bool]:
         normalized_course_id = _storage_id(course_id)
         normalized_scope = str(scope or "course")
         normalized_mode = str(mode or "incremental")
+        normalized_knowledge = sorted({str(value).strip() for value in knowledge_ids or [] if str(value).strip()})
+        if normalized_knowledge and (normalized_scope != "nodes" or normalized_mode != "incremental" or not knowledge_baseline_revision):
+            raise ValueError("Knowledge selection requires incremental nodes scope and a baseline revision")
         normalized_profile = normalize_assessment_generation_profile(
             assessment_generation_profile
         )
@@ -109,6 +114,8 @@ class QuestionBankRebuildJobRepository:
                 "course_id": normalized_course_id,
                 "request_id": request_key,
                 "scope": normalized_scope,
+                **({"knowledge_ids": normalized_knowledge,
+                    "knowledge_baseline_revision": knowledge_baseline_revision} if normalized_knowledge else {}),
                 "node_ids": normalized_nodes,
                 "revision_ids": normalized_revisions,
                 "material_asset_ids": normalized_material_assets,
@@ -137,6 +144,8 @@ class QuestionBankRebuildJobRepository:
                         retrieval_enabled=bool(retrieval_enabled),
                         assessment_generation_profile=normalized_profile,
                         teacher_instruction=normalized_teacher_instruction,
+                        knowledge_ids=normalized_knowledge,
+                        knowledge_baseline_revision=knowledge_baseline_revision,
                     ):
                         continue
                     active_worker_id = str(
@@ -161,6 +170,8 @@ class QuestionBankRebuildJobRepository:
                 "request_id": request_id,
                 "request_key": request_key,
                 "scope": normalized_scope,
+                "knowledge_ids": normalized_knowledge,
+                "knowledge_baseline_revision": knowledge_baseline_revision,
                 "node_ids": normalized_nodes,
                 "revision_ids": normalized_revisions,
                 "material_asset_ids": normalized_material_assets,
@@ -485,10 +496,14 @@ def _same_active_scope(
     retrieval_enabled: bool,
     assessment_generation_profile: str,
     teacher_instruction: str,
+    knowledge_ids: list[str] | None = None,
+    knowledge_baseline_revision: str = "",
 ) -> bool:
     return (
         str(job.get("status") or "") in {"queued", "running"}
         and str(job.get("scope") or "") == scope
+        and sorted(job.get("knowledge_ids") or []) == (knowledge_ids or [])
+        and str(job.get("knowledge_baseline_revision") or "") == knowledge_baseline_revision
         and sorted(str(value) for value in job.get("node_ids") or [])
         == node_ids
         and sorted(

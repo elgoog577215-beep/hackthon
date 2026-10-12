@@ -1,0 +1,632 @@
+{
+  "tree": {
+    "schema": "knowledge_foundation_v1",
+    "course_key": "calculus",
+    "course_scope": "实函数在内点a的双侧有限导数与连续性；不讨论端点单侧定义。以定义、左右极限和反例判定。",
+    "categories": [
+      {
+        "key": "G1",
+        "name": "讨论范围与前提",
+        "parent_key": null
+      },
+      {
+        "key": "G2",
+        "name": "连续性基础",
+        "parent_key": null
+      },
+      {
+        "key": "G3",
+        "name": "可导性基础",
+        "parent_key": null
+      },
+      {
+        "key": "G4",
+        "name": "可导与连续的逻辑关系",
+        "parent_key": null
+      }
+    ],
+    "points": [
+      {
+        "key": "P1",
+        "name": "讨论范围限定",
+        "statement": "本微积分单元关于连续与可导关系的讨论仅适用于定义域内的内点a。",
+        "conditions": [
+          "对象为实函数",
+          "点a位于定义域内部"
+        ],
+        "boundaries": [
+          "不讨论定义域端点"
+        ],
+        "meta_question": "本单元连续与可导规则的适用范围是什么？",
+        "meta_answer": "仅适用于定义域内的内点a，排除端点情况。",
+        "claim_refs": [
+          "C1"
+        ],
+        "knowledge_id": "kp_52fb9f7038ee5f27927e",
+        "parent_key": "G1",
+        "evidence": [
+          {
+            "claim_key": "C1",
+            "source_ref": "M1",
+            "quote": "本单元只讨论定义域内点a。",
+            "start": 0
+          }
+        ],
+        "attachments": [
+          {
+            "role": "scope",
+            "claim_key": "C1",
+            "claim": {
+              "key": "C1",
+              "kind": "scope",
+              "claim": "本单元的讨论范围仅限于定义域内的内点a，不包括端点。",
+              "source_ref": "M1",
+              "quote": "本单元只讨论定义域内点a。"
+            },
+            "mapping_reason": "界定了所有知识点的适用前提，作为范围限定点"
+          }
+        ],
+        "revision_id": "cfa8206822745c5a906614ccc136510f71a60c9765c6bbafeb92b2bcdf8abe83"
+      },
+      {
+        "key": "P2",
+        "name": "连续性的判定条件",
+        "statement": "函数在点a处连续当且仅当同时满足f(a)有定义、x趋于a的双侧有限极限存在，且该极限值等于f(a)。",
+        "conditions": [
+          "点a属于定义域"
+        ],
+        "boundaries": [],
+        "meta_question": "判定函数在内点a处连续的充分必要条件是什么？",
+        "meta_answer": "需联合满足函数有定义、双侧极限存在且极限值等于函数值。",
+        "claim_refs": [
+          "C2"
+        ],
+        "knowledge_id": "kp_1e7de8544b745e55aa54",
+        "parent_key": "G2",
+        "evidence": [
+          {
+            "claim_key": "C2",
+            "source_ref": "M1",
+            "quote": "连续要求f(a)有定义、x趋于a的双侧有限极限存在且等于f(a)。",
+            "start": 13
+          }
+        ],
+        "attachments": [],
+        "revision_id": "1b3858b0efaf0899eb1ee842427cf7b8bcf25a60f0f127edfb289231779fa0ab"
+      },
+      {
+        "key": "P3",
+        "name": "可导性的判定条件",
+        "statement": "函数在点a处可导当且仅当差商[f(a+h)-f(a)]/h在h趋于0时存在有限双侧极限。",
+        "conditions": [
+          "点a属于定义域"
+        ],
+        "boundaries": [],
+        "meta_question": "判定函数在内点a处可导的充分必要条件是什么？",
+        "meta_answer": "差商在h趋于0时的双侧极限必须存在且有限。",
+        "claim_refs": [
+          "C3"
+        ],
+        "knowledge_id": "kp_d2f8bb96f9e8504db1bd",
+        "parent_key": "G3",
+        "evidence": [
+          {
+            "claim_key": "C3",
+            "source_ref": "M1",
+            "quote": "点处可导意味着差商[f(a+h)-f(a)]/h在h趋于0时存在有限双侧极限。",
+            "start": 46
+          }
+        ],
+        "attachments": [],
+        "revision_id": "fd40c5af3a8ed5cc89830226a9efcf66b3068b92e66faf84db06b59001c85509"
+      },
+      {
+        "key": "P4",
+        "name": "左右导数不一致的后果",
+        "statement": "若函数在点a处的左差商极限与右差商极限不相等，则该点的导数不存在。",
+        "conditions": [
+          "点a属于定义域"
+        ],
+        "boundaries": [],
+        "meta_question": "左右差商极限不相等对导数存在性有何影响？",
+        "meta_answer": "导致该点导数不存在（不可导）。",
+        "claim_refs": [
+          "C4"
+        ],
+        "knowledge_id": "kp_46aab459f76a5bdbabdf",
+        "parent_key": "G3",
+        "evidence": [
+          {
+            "claim_key": "C4",
+            "source_ref": "M1",
+            "quote": "左右差商极限不同则不存在这个导数。",
+            "start": 85
+          }
+        ],
+        "attachments": [
+          {
+            "role": "example",
+            "claim_key": "C7",
+            "claim": {
+              "key": "C7",
+              "kind": "case",
+              "claim": "以f(x)=|x|为例，函数在x=0处具备连续性，但其左导数(-1)与右导数(1)不等，导致该点不可导。",
+              "source_ref": "M2",
+              "quote": "例如f(x)=|x|在0连续，但左导数为-1、右导数为1，所以不可导。"
+            },
+            "mapping_reason": "|x|在0处的表现作为具体案例，支撑左右导数不同、连续但不可导、不可导但连续的判断"
+          }
+        ],
+        "revision_id": "c4c7209d4852bdd101e904c73f0b299975edcf6c6a6948adb6556aacd03c77b2"
+      },
+      {
+        "key": "P5",
+        "name": "可导对连续的单向推导",
+        "statement": "若函数在点a处可导，则函数在点a处必连续。",
+        "conditions": [
+          "点a属于定义域"
+        ],
+        "boundaries": [],
+        "meta_question": "点a处可导能否推导出点a处连续？",
+        "meta_answer": "能，可导是连续的充分条件。",
+        "claim_refs": [
+          "C5"
+        ],
+        "knowledge_id": "kp_64f2930cb37a53198c10",
+        "parent_key": "G4",
+        "evidence": [
+          {
+            "claim_key": "C5",
+            "source_ref": "M2",
+            "quote": "点处可导必连续；",
+            "start": 0
+          }
+        ],
+        "attachments": [],
+        "revision_id": "ff88ab0139ba2ce08b0a9d608b05a555a392e230aeb5b73bda1f52642cc23bd1"
+      },
+      {
+        "key": "P6",
+        "name": "不连续对不可导的单向推导",
+        "statement": "若函数在点a处不连续，则函数在点a处必不可导。",
+        "conditions": [
+          "点a属于定义域"
+        ],
+        "boundaries": [],
+        "meta_question": "点a处不连续能否推导出点a处不可导？",
+        "meta_answer": "能，这是可导必连续的逆否命题。",
+        "claim_refs": [
+          "C8"
+        ],
+        "knowledge_id": "kp_d2e1afaf9fbd5fcdaf4b",
+        "parent_key": "G4",
+        "evidence": [
+          {
+            "claim_key": "C8",
+            "source_ref": "M2",
+            "quote": "不连续则不可导，这是可导必连续的逆否命题；",
+            "start": 52
+          }
+        ],
+        "attachments": [],
+        "revision_id": "c6cac49a6666af4b788b12c40da19f9f12607e4d1937ee44baa7ab2e74523b36"
+      },
+      {
+        "key": "P7",
+        "name": "连续不可推导可导",
+        "statement": "函数在点a处连续不能保证函数在点a处可导。",
+        "conditions": [
+          "点a属于定义域"
+        ],
+        "boundaries": [
+          "存在连续但不可导的情况"
+        ],
+        "meta_question": "点a处连续能否推导出点a处可导？",
+        "meta_answer": "不能，连续不是可导的充分条件。",
+        "claim_refs": [
+          "C6",
+          "C9"
+        ],
+        "knowledge_id": "kp_5992dd4d2a455b668417",
+        "parent_key": "G4",
+        "evidence": [
+          {
+            "claim_key": "C6",
+            "source_ref": "M2",
+            "quote": "连续不能保证可导。",
+            "start": 8
+          },
+          {
+            "claim_key": "C9",
+            "source_ref": "M2",
+            "quote": "不可导不能反推不连续，|x|在0就是反例。",
+            "start": 73
+          }
+        ],
+        "attachments": [
+          {
+            "role": "boundary",
+            "claim_key": "C6",
+            "claim": {
+              "key": "C6",
+              "kind": "boundary",
+              "claim": "点处连续不是可导的充分条件，存在连续但不可导的情况。",
+              "source_ref": "M2",
+              "quote": "连续不能保证可导。"
+            },
+            "mapping_reason": "说明连续不构成可导充分条件的边界，同时支撑连续推可导不可行的点"
+          },
+          {
+            "role": "example",
+            "claim_key": "C7",
+            "claim": {
+              "key": "C7",
+              "kind": "case",
+              "claim": "以f(x)=|x|为例，函数在x=0处具备连续性，但其左导数(-1)与右导数(1)不等，导致该点不可导。",
+              "source_ref": "M2",
+              "quote": "例如f(x)=|x|在0连续，但左导数为-1、右导数为1，所以不可导。"
+            },
+            "mapping_reason": "|x|在0处的表现作为具体案例，支撑左右导数不同、连续但不可导、不可导但连续的判断"
+          }
+        ],
+        "revision_id": "ed95e89048f80566385eb8e6ef4f3d60bdf58807ce6dacd3a3f5dfb3c75519e4"
+      },
+      {
+        "key": "P8",
+        "name": "不可导不可推导不连续",
+        "statement": "函数在点a处不可导不能推导出函数在点a处不连续。",
+        "conditions": [
+          "点a属于定义域"
+        ],
+        "boundaries": [
+          "存在不可导但连续的情况"
+        ],
+        "meta_question": "点a处不可导能否推导出点a处不连续？",
+        "meta_answer": "不能，不可导不包含不连续。",
+        "claim_refs": [
+          "C9",
+          "C6"
+        ],
+        "knowledge_id": "kp_1420fba202a25e4c9c35",
+        "parent_key": "G4",
+        "evidence": [
+          {
+            "claim_key": "C9",
+            "source_ref": "M2",
+            "quote": "不可导不能反推不连续，|x|在0就是反例。",
+            "start": 73
+          },
+          {
+            "claim_key": "C6",
+            "source_ref": "M2",
+            "quote": "连续不能保证可导。",
+            "start": 8
+          }
+        ],
+        "attachments": [
+          {
+            "role": "boundary",
+            "claim_key": "C6",
+            "claim": {
+              "key": "C6",
+              "kind": "boundary",
+              "claim": "点处连续不是可导的充分条件，存在连续但不可导的情况。",
+              "source_ref": "M2",
+              "quote": "连续不能保证可导。"
+            },
+            "mapping_reason": "说明连续不构成可导充分条件的边界，同时支撑连续推可导不可行的点"
+          },
+          {
+            "role": "example",
+            "claim_key": "C7",
+            "claim": {
+              "key": "C7",
+              "kind": "case",
+              "claim": "以f(x)=|x|为例，函数在x=0处具备连续性，但其左导数(-1)与右导数(1)不等，导致该点不可导。",
+              "source_ref": "M2",
+              "quote": "例如f(x)=|x|在0连续，但左导数为-1、右导数为1，所以不可导。"
+            },
+            "mapping_reason": "|x|在0处的表现作为具体案例，支撑左右导数不同、连续但不可导、不可导但连续的判断"
+          },
+          {
+            "role": "boundary",
+            "claim_key": "C9",
+            "claim": {
+              "key": "C9",
+              "kind": "boundary",
+              "claim": "不可导这一性质不能反推出函数不连续（反例：|x|在0处不可导但连续）。",
+              "source_ref": "M2",
+              "quote": "不可导不能反推不连续，|x|在0就是反例。"
+            },
+            "mapping_reason": "明确不可导推不连续的逻辑断点，作为边界条件"
+          }
+        ],
+        "revision_id": "737013eb567f431a870d9993c2680ce8d6ea41b4b6439bbe60d5278400f374bf"
+      }
+    ],
+    "inventory": [
+      {
+        "key": "C1",
+        "kind": "scope",
+        "claim": "本单元的讨论范围仅限于定义域内的内点a，不包括端点。",
+        "source_ref": "M1",
+        "quote": "本单元只讨论定义域内点a。"
+      },
+      {
+        "key": "C2",
+        "kind": "definition",
+        "claim": "函数在点a处连续必须同时满足三个条件：f(a)有定义、x趋于a时双侧极限存在、该极限值等于f(a)。",
+        "source_ref": "M1",
+        "quote": "连续要求f(a)有定义、x趋于a的双侧有限极限存在且等于f(a)。"
+      },
+      {
+        "key": "C3",
+        "kind": "definition",
+        "claim": "点a处的可导性通过差商在h趋于0时的双侧有限极限来判定。",
+        "source_ref": "M1",
+        "quote": "点处可导意味着差商[f(a+h)-f(a)]/h在h趋于0时存在有限双侧极限。"
+      },
+      {
+        "key": "C4",
+        "kind": "rule",
+        "claim": "如果函数在某点的左导数和右导数极限不相等，则该点导数不存在。",
+        "source_ref": "M1",
+        "quote": "左右差商极限不同则不存在这个导数。"
+      },
+      {
+        "key": "C5",
+        "kind": "rule",
+        "claim": "点处可导是点处连续的充分条件。",
+        "source_ref": "M2",
+        "quote": "点处可导必连续；"
+      },
+      {
+        "key": "C6",
+        "kind": "boundary",
+        "claim": "点处连续不是可导的充分条件，存在连续但不可导的情况。",
+        "source_ref": "M2",
+        "quote": "连续不能保证可导。"
+      },
+      {
+        "key": "C7",
+        "kind": "case",
+        "claim": "以f(x)=|x|为例，函数在x=0处具备连续性，但其左导数(-1)与右导数(1)不等，导致该点不可导。",
+        "source_ref": "M2",
+        "quote": "例如f(x)=|x|在0连续，但左导数为-1、右导数为1，所以不可导。"
+      },
+      {
+        "key": "C8",
+        "kind": "rule",
+        "claim": "点处不连续是该点不可导的充分条件（由“可导必连续”逆否得出）。",
+        "source_ref": "M2",
+        "quote": "不连续则不可导，这是可导必连续的逆否命题；"
+      },
+      {
+        "key": "C9",
+        "kind": "boundary",
+        "claim": "不可导这一性质不能反推出函数不连续（反例：|x|在0处不可导但连续）。",
+        "source_ref": "M2",
+        "quote": "不可导不能反推不连续，|x|在0就是反例。"
+      }
+    ],
+    "material_revision": "a42ac82bcc90ca05c904b168613feeee55789f31ae7a752c971f9385472bc04c",
+    "inventory_dispositions": [
+      {
+        "claim_key": "C1",
+        "role": "scope",
+        "point_keys": [
+          "P1"
+        ],
+        "reason": "界定了所有知识点的适用前提，作为范围限定点"
+      },
+      {
+        "claim_key": "C2",
+        "role": "point",
+        "point_keys": [
+          "P2"
+        ],
+        "reason": "直接承载连续性的联合定义条件"
+      },
+      {
+        "claim_key": "C3",
+        "role": "point",
+        "point_keys": [
+          "P3"
+        ],
+        "reason": "直接承载可导性的判定定义"
+      },
+      {
+        "claim_key": "C4",
+        "role": "point",
+        "point_keys": [
+          "P4"
+        ],
+        "reason": "承载左右极限不一致导致不可导的具体规则"
+      },
+      {
+        "claim_key": "C5",
+        "role": "point",
+        "point_keys": [
+          "P5"
+        ],
+        "reason": "承载可导推连续的正向逻辑关系"
+      },
+      {
+        "claim_key": "C6",
+        "role": "boundary",
+        "point_keys": [
+          "P7",
+          "P8"
+        ],
+        "reason": "说明连续不构成可导充分条件的边界，同时支撑连续推可导不可行的点"
+      },
+      {
+        "claim_key": "C7",
+        "role": "example",
+        "point_keys": [
+          "P4",
+          "P7",
+          "P8"
+        ],
+        "reason": "|x|在0处的表现作为具体案例，支撑左右导数不同、连续但不可导、不可导但连续的判断"
+      },
+      {
+        "claim_key": "C8",
+        "role": "point",
+        "point_keys": [
+          "P6"
+        ],
+        "reason": "承载不连续推不可导的逆向逻辑关系"
+      },
+      {
+        "claim_key": "C9",
+        "role": "boundary",
+        "point_keys": [
+          "P8"
+        ],
+        "reason": "明确不可导推不连续的逻辑断点，作为边界条件"
+      }
+    ],
+    "gaps": [],
+    "relations": [],
+    "ready_for_adoption": false,
+    "revision_id": "ae7669e692822b7658a45a659faa8b06cc2d88aa35a7c6b6e592ff8700d48895"
+  },
+  "review": {
+    "course": "calculus",
+    "title": "微积分：连续与可导的关系",
+    "claims": 9,
+    "points": 8,
+    "categories": 4,
+    "structure_checks_passed": true,
+    "classification_preserves_atoms": true,
+    "coverage": [
+      {
+        "requirement": "内点、双侧有限导数的范围",
+        "claims": [
+          "C1"
+        ],
+        "points": [
+          "P1"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "连续的点值存在、有限双侧极限及等值条件",
+        "claims": [
+          "C2"
+        ],
+        "points": [
+          "P2"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "差商有限双侧极限的可导定义",
+        "claims": [
+          "C3"
+        ],
+        "points": [
+          "P3"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "左右差商极限不同则不可导",
+        "claims": [
+          "C4"
+        ],
+        "points": [
+          "P4"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "可导推出连续",
+        "claims": [
+          "C5"
+        ],
+        "points": [
+          "P5"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "连续不能推出可导",
+        "claims": [
+          "C6"
+        ],
+        "points": [
+          "P7"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "不连续推出不可导（逆否）",
+        "claims": [
+          "C8"
+        ],
+        "points": [
+          "P6"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "不可导不能反推不连续",
+        "claims": [
+          "C9"
+        ],
+        "points": [
+          "P8"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "绝对值0处连续且左右导数-1/1作为案例",
+        "claims": [
+          "C7"
+        ],
+        "points": [
+          "P4",
+          "P7",
+          "P8"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      }
+    ],
+    "reviewer": "Codex source-by-source review",
+    "tree_digest": "2da530bf399e0133ec871d7337f0c11dd5e552491542646e033e6c8a48d61ee1",
+    "ready_for_adoption": false,
+    "accuracy": "主命题正确；P8答案有歧义",
+    "coverage_summary": "9/9要求有承载；反例作为附件保留",
+    "granularity": "四种推理方向分开；范围不应独立成叶子",
+    "structure": "分类合法；范围类需转为元数据",
+    "improvements": [
+      "正向、逆否、连续不能推可导、不可导不能推不连续分别成点。",
+      "绝对值反例没有继续冒充通用知识叶子。"
+    ],
+    "issues": [
+      [
+        "P1 / G1",
+        "“仅讨论内点”又被生成为范围叶子及分类；应作为全局范围并继承到相关点，不计作元知识。"
+      ],
+      [
+        "P2-P8.conditions",
+        "点内只写属于定义域，全局范围才写内点；单点展示或导出必须带上全局范围，不能丢失双侧/内点限制。"
+      ],
+      [
+        "P8.meta_answer",
+        "“不可导不包含不连续”表述不准确；应为“仅知不可导不能推出不连续”。不连续反而是不可导情形的子集。"
+      ]
+    ]
+  }
+}

@@ -10,6 +10,30 @@ from backend.tests.test_knowledge_first import svc, initialize, start, tree_resp
 from course_knowledge_context import knowledge_context_prompt
 
 
+def test_generic_final_wire_prompt_keeps_all_facts_once_and_uses_short_ids():
+    from generic_knowledge import tree_model_prompt
+    context = {'source_mode': 'handouts', 'scope_lesson_id': 'lesson',
+        'generation_request': {'requirements': '唯一课程要求'}, 'course_profile': {'title': '课程'},
+        'handout_lessons': [{'key': 'lesson', 'title': '本讲'}],
+        'reference_knowledge': [{'key': f'E{i}', 'knowledge_id': 'canonical_' + str(i), 'revision_id': 'version_' + str(i),
+            'name': f'既有知识{i}', 'statement': f'完整命题{i}', 'conditions': [f'完整边界{i}'], 'meta_question': f'检查问题{i}', 'meta_answer': f'完整答案{i}'} for i in range(1, 67)],
+        'reference_relations': [], 'reference_categories': [], 'reference_lessons': [],
+        'evidence_package': {'package_revision_id': 'ev', 'course_id': 'c', 'units': [
+            {'evidence_id': 'source', 'block_ids': ['block'], 'source_text': '完整讲义原文', 'locator': {'section_path': ['lesson']}, 'factual_allowed': True, 'purpose': 'content_source'}]},
+        'handout_source_refs': {'secret_audit_id': {'block_id': 'block'}}, 'policy': {}, 'material_coverage': {},
+        'scope_contract': {'revision_id': 'scope'}}
+    before = deepcopy(context)
+    prompt = tree_model_prompt({'course_name': '课程'}, context)
+    assert prompt.count('唯一课程要求') == 1
+    assert prompt.count('完整讲义原文') == 1
+    assert 'canonical_' not in prompt and 'version_' not in prompt and 'secret_audit_id' not in prompt
+    for point in context['reference_knowledge']:
+        for key in ('key', 'name', 'statement', 'conditions', 'meta_question', 'meta_answer'):
+            assert json.dumps(point[key], ensure_ascii=False) in prompt
+    AIBase.validate_request_budget(prompt, '生成知识树', 32768, 64000)
+    assert context == before
+
+
 @pytest.mark.asyncio
 async def test_tree_prompt_fits_real_input_gate_without_dropping_material(svc):
     svc.storage.update_course_data("c-pilot", lambda raw: {**raw,

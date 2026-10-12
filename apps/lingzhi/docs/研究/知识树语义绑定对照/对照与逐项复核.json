@@ -1,0 +1,562 @@
+{
+  "metrics": {
+    "baseline": {
+      "calls": 9,
+      "completed": 9,
+      "seconds": 180.56,
+      "models": [
+        "qwen3.8-27b"
+      ]
+    },
+    "new": {
+      "calls": 9,
+      "completed": 9,
+      "seconds": 240.05,
+      "models": [
+        "qwen3.8-27b"
+      ]
+    },
+    "points": 34,
+    "criteria": 29,
+    "frozen_criterion_answers_identical": 28,
+    "new_questions": 2,
+    "tree_structure_before": 4,
+    "tree_structure_after": 3,
+    "teaching_structure_before": 4,
+    "teaching_structure_after": 1,
+    "prediction_review": {
+      "passed": 10,
+      "total": 12
+    },
+    "repair_review": {
+      "passed": 9,
+      "total": 12
+    },
+    "usable_courses": 0,
+    "control": {
+      "passed": true
+    },
+    "model_content_edits": 0,
+    "production_course_writes": 0,
+    "limits": "一次四微单元试验；换合同并允许补题，不能解释成单一因素因果效应；人工复核不等于自动验证或真实学生诊断效度。"
+  },
+  "courses": [
+    {
+      "key": "python",
+      "title": "Python入门：列表别名与浅拷贝",
+      "before_points": 8,
+      "after_points": 7,
+      "before_criteria": 8,
+      "after_criteria": 7,
+      "before_tree_errors": [],
+      "after_tree_errors": [],
+      "before_teaching_errors": [],
+      "after_teaching_errors": [],
+      "new_questions": 1,
+      "coverage_review": [
+        {
+          "requirement": "赋值别名不复制",
+          "points": "P1"
+        },
+        {
+          "requirement": "共享对象修改可见",
+          "points": "P2"
+        },
+        {
+          "requirement": "名字重新绑定不传播",
+          "points": "P3"
+        },
+        {
+          "requirement": "浅拷贝外层独立",
+          "points": "P4"
+        },
+        {
+          "requirement": "浅拷贝内层共享",
+          "points": "P5/P6"
+        },
+        {
+          "requirement": "元素替换只改目标外层引用",
+          "points": "P7"
+        }
+      ],
+      "sample_usable": false,
+      "passed_axes": [
+        "prediction",
+        "repair"
+      ],
+      "improvements": [
+        "Q1/Q2/Q3回到各自冻结题；训练明确每题独立重置，消除串行初始状态混用。",
+        "四条错规则分别推出False、[9]、[[1]]、[[9]]，对象图补救均与材料相符。"
+      ],
+      "blockers": [
+        [
+          "tree.P4",
+          "把新外层对象、外层append隔离、元素替换又并入一条；比上轮8点的对象/操作分离更粗。"
+        ],
+        [
+          "supplemental_probes.N1 / S2.criteria.P5",
+          "a=[10]的元素是整数；不能回答c和a[0]是同一个“列表对象”。它也没有考到嵌套列表共享。"
+        ],
+        [
+          "S1.retest",
+          "R2涉及浅拷贝和元素替换，但前置仅列P1/P2/P3，仍缺P4/P5/P7；R2没有执行b=a的别名操作，不足复测整个S1。"
+        ],
+        [
+          "S2.retest",
+          "R1没有元素替换，不能代替P7的迁移检查；达标要求也没有包含复测成功。"
+        ]
+      ],
+      "prediction_checks": [
+        [
+          "S1.A",
+          true,
+          "赋值被错当复制→身份不同"
+        ],
+        [
+          "S1.B",
+          true,
+          "错规则明确同步改a指向→[9]"
+        ],
+        [
+          "S2.C",
+          true,
+          "错规则复制内层→原a不变"
+        ],
+        [
+          "S2.D",
+          true,
+          "错规则同步替换a[0]→[[9]]"
+        ]
+      ],
+      "repair_checks": [
+        [
+          "S1.A",
+          true,
+          "同对象图"
+        ],
+        [
+          "S1.B",
+          true,
+          "仅移b引用"
+        ],
+        [
+          "S2.C",
+          true,
+          "共享内层修改"
+        ],
+        [
+          "S2.D",
+          true,
+          "仅改b索引引用"
+        ]
+      ],
+      "coverage": [
+        "P1",
+        "P2",
+        "P3",
+        "P4",
+        "P5/P6",
+        "P7"
+      ],
+      "missing_criteria": []
+    },
+    {
+      "key": "calculus",
+      "title": "微积分：连续与可导的关系",
+      "before_points": 8,
+      "after_points": 8,
+      "before_criteria": 8,
+      "after_criteria": 6,
+      "before_tree_errors": [],
+      "after_tree_errors": [],
+      "before_teaching_errors": [],
+      "after_teaching_errors": [
+        {
+          "code": "criteria_coverage",
+          "path": "skills"
+        },
+        {
+          "code": "skill_count",
+          "path": "skills"
+        }
+      ],
+      "new_questions": 0,
+      "coverage_review": [
+        {
+          "requirement": "连续的点值极限等值条件",
+          "points": "P1"
+        },
+        {
+          "requirement": "有限双侧差商定义",
+          "points": "P2"
+        },
+        {
+          "requirement": "左右差商不同不可导",
+          "points": "P3"
+        },
+        {
+          "requirement": "可导推出连续",
+          "points": "P4"
+        },
+        {
+          "requirement": "连续不能推出可导",
+          "points": "P5/P6"
+        },
+        {
+          "requirement": "不连续推出不可导但反向不成立",
+          "points": "P7/P8"
+        }
+      ],
+      "sample_usable": false,
+      "passed_axes": [
+        "prediction"
+      ],
+      "improvements": [
+        "Q1的评分答案恢复为极限0≠点值1；Q2为差商h、导数0，均由冻结题库装配。",
+        "不再把R1原题放进训练；连续/可导的先修关系方向比上一轮清楚。",
+        "三条错因预测都能从各自写出的规则推出，没有夹带“不连续→可导”的症状。"
+      ],
+      "blockers": [
+        [
+          "S3.criteria.P7→Q6",
+          "P7是不连续→不可导；Q6问不可导能否推出不连续。绑定理由再充分也不能改变题目推理方向。"
+        ],
+        [
+          "skills.criteria",
+          "P6与P8没有标准；返回3包超出本轮1—2包合同（包数本身不是学科错误）。"
+        ],
+        [
+          "tree.P6",
+          "绝对值反例仍作为知识叶子，与可复用规则混放。"
+        ],
+        [
+          "S2.mastery_requirements",
+          "写左右极限相等就存在导数，遗漏共同值有限的必要条件。"
+        ],
+        [
+          "S3.mistakes.C1.repair_steps.scope_limit",
+          "“不可导是必要非充分条件”没有说明是谁的条件，补救不能省略“不连续的”这一逻辑对象。"
+        ],
+        [
+          "retest",
+          "S1选R2却未声明不可导判断所需的P7；S2选R1未声明连续性P1；复测与每个能力的前置、达标条件仍不完整。"
+        ]
+      ],
+      "prediction_checks": [
+        [
+          "S1.A1",
+          true,
+          "点值存在就连续→连续"
+        ],
+        [
+          "S2.B1",
+          true,
+          "连续就可导→|x|在0可导"
+        ],
+        [
+          "S3.C1",
+          true,
+          "不可导当不连续→能断定不连续"
+        ]
+      ],
+      "repair_checks": [
+        [
+          "S1.A1",
+          true,
+          "逐项比较点值和极限"
+        ],
+        [
+          "S2.B1",
+          true,
+          "计算左右差商"
+        ],
+        [
+          "S3.C1",
+          false,
+          "逻辑条件的对象缺失，补救仍不够明确"
+        ]
+      ],
+      "coverage": [
+        "P1",
+        "P2",
+        "P3",
+        "P4",
+        "P5/P6",
+        "P7/P8"
+      ],
+      "missing_criteria": [
+        "P6",
+        "P8"
+      ]
+    },
+    {
+      "key": "physics",
+      "title": "大学物理：作用反作用与受力对象",
+      "before_points": 8,
+      "after_points": 9,
+      "before_criteria": 8,
+      "after_criteria": 9,
+      "before_tree_errors": [],
+      "after_tree_errors": [],
+      "before_teaching_errors": [],
+      "after_teaching_errors": [
+        {
+          "code": "skill_count",
+          "path": "skills"
+        }
+      ],
+      "new_questions": 1,
+      "coverage_review": [
+        {
+          "requirement": "相互作用配对",
+          "points": "P1/P2"
+        },
+        {
+          "requirement": "等大反向",
+          "points": "P1"
+        },
+        {
+          "requirement": "不同受力对象",
+          "points": "P2"
+        },
+        {
+          "requirement": "等大不要求等质量静止",
+          "points": "P3"
+        },
+        {
+          "requirement": "单物体受力图与平衡力区别",
+          "points": "P5/P6/P7"
+        },
+        {
+          "requirement": "系统内力抵消不推出外力为零",
+          "points": "P8/P9"
+        }
+      ],
+      "sample_usable": false,
+      "passed_axes": [],
+      "improvements": [
+        "重新保留“力相等不能推出加速度相等”的材料边界P4。",
+        "A1明确采用施力者质量，正确推出甲对乙更大；不再把受力者质量与施力者偷换。",
+        "A1补救只说明这对力仍等大，不再宣称力值与质量无关；不再要求受力图箭头指向受力物体。"
+      ],
+      "blockers": [
+        [
+          "tree.P1/P3",
+          "大小与方向、等质量与静止两个独立条件仍合并；P1→Q2只覆盖大小，P3→Q4也不足检验全部条件。"
+        ],
+        [
+          "tree.P6.statement",
+          "“不能把其中任意一个力视为单个物体的受力平衡力”过强；正确边界是这一对力不能在单物体上互相平衡，其中一力可以与其他力平衡。"
+        ],
+        [
+          "S1.criteria.P4→Q2",
+          "Q2只比较相互作用力大小，并未要求回答加速度；学生不谈加速度也能答对，不能算P4已测。"
+        ],
+        [
+          "S2.criteria.P6/P7→Q5",
+          "Q5问是否同一作用反作用对；没有直接要求判断在单物体上抵消或证明平衡。标准仍写同对象“因此是平衡力”。"
+        ],
+        [
+          "S2.mistakes.A2",
+          "把平衡与作用反作用合成一个或规则，预测还混入可能正确的平衡相消；题干没有明确给出等大条件，不能暗加。"
+        ],
+        [
+          "S2.mistakes.A2.repair_steps",
+          "同对象就标平衡力、不同对象就标作用反作用力，两者都把必要条件当充分条件；逐字引文正确也不能使该动作成立。"
+        ],
+        [
+          "S2.discrimination",
+          "把Q5正确依据写成“受力对象不同故非作用反作用对”，实际两个力都作用在书上，正确依据是相同。"
+        ],
+        [
+          "S3.criteria.P8→Q6",
+          "Q6题干已给内部推力，主要检查内力抵消不推外力零；把读出已给条件当作独立的内力识别检查。"
+        ],
+        [
+          "supplemental_probes.N1",
+          "问大小和方向，候选答案只说不要求质量相等，缺少明确的反向判断；未承担真正缺题的P4。"
+        ],
+        [
+          "retest / mastery",
+          "S1的R1还需P5受力图规则，未列前置；“至少3个不同质量情境”也无足量题目支撑。"
+        ]
+      ],
+      "prediction_checks": [
+        [
+          "S1.A1",
+          true,
+          "施力者甲更重→甲施加力更大"
+        ],
+        [
+          "S2.A2",
+          false,
+          "多规则混合、前提增添、预测含可能正确结果"
+        ],
+        [
+          "S3.A3",
+          true,
+          "错误忽略外力→外力合力零"
+        ]
+      ],
+      "repair_checks": [
+        [
+          "S1.A1",
+          true,
+          "限于这对相互作用力等大"
+        ],
+        [
+          "S2.A2",
+          false,
+          "两个必要条件被当充分条件"
+        ],
+        [
+          "S3.A3",
+          true,
+          "内外力分别列项"
+        ]
+      ],
+      "coverage": [
+        "P1/P2",
+        "P1",
+        "P2",
+        "P3",
+        "P5/P6/P7",
+        "P8/P9"
+      ],
+      "missing_criteria": [],
+      "extra_material_boundary": "P4覆盖材料中加速度推断限制；旧六项覆盖表未单列此项，不能仅用旧24项总数判断完整性。"
+    },
+    {
+      "key": "history",
+      "title": "历史学习：史料观察、推断与互证",
+      "before_points": 12,
+      "after_points": 10,
+      "before_criteria": 12,
+      "after_criteria": 7,
+      "before_tree_errors": [],
+      "after_tree_errors": [
+        "relation_strength_format",
+        "relation_strength_format",
+        "relation_strength_format",
+        "relation_strength_format",
+        "relation_strength_format",
+        "relation_strength_format"
+      ],
+      "before_teaching_errors": [],
+      "after_teaching_errors": [
+        {
+          "code": "criteria_coverage",
+          "path": "skills"
+        }
+      ],
+      "new_questions": 0,
+      "coverage_review": [
+        {
+          "requirement": "观察与推断区分",
+          "points": "P1/P2"
+        },
+        {
+          "requirement": "作者时间受众目的",
+          "points": "P3"
+        },
+        {
+          "requirement": "立场不等于无价值或全客观",
+          "points": "P4"
+        },
+        {
+          "requirement": "转载不是独立互证",
+          "points": "P5/P10"
+        },
+        {
+          "requirement": "矛盾须比较与查证而非投票",
+          "points": "P6"
+        },
+        {
+          "requirement": "结论限度与多种合理解释",
+          "points": "P7/P9"
+        }
+      ],
+      "sample_usable": false,
+      "passed_axes": [],
+      "improvements": [
+        "材料A的可能动机仍用可能性表达，未断言确定动机。",
+        "程序保留原题的开放评分说明，没有把它转为唯一字符串答案匹配。"
+      ],
+      "blockers": [
+        [
+          "tree.P1 / S1.criteria.P1 / repair.A",
+          "把产量增加标为观察事实、生活改善标为推断，没有稳定区分两者均为可观察的原文陈述，与事件本身是否已证实。"
+        ],
+        [
+          "tree.P9.meta_answer",
+          "“仅能证明该个体工人的情况”仍把日记当成已核验的事件事实；收入增加且工时延长也未必构成生活改善的反例。"
+        ],
+        [
+          "tree.P8-P10 / relations",
+          "仍有3个案例叶子；6条强度返回中文强/中；P6→P9预设A/B存在矛盾。"
+        ],
+        [
+          "S1.criteria.P2→Q2",
+          "P2要求分析者提供推断的证据和推理，标准却改为解释经理动机，逻辑依据与动机不等同。"
+        ],
+        [
+          "S1.criteria.P3→Q2",
+          "从受众为投资人推出结论只能用于投资人利益评价，范围被无根据地缩窄。"
+        ],
+        [
+          "S2.criteria.P4/P5",
+          "Q4的代表性不能覆盖一手材料客观性/有立场不等于无价值；Q3转载问题未覆盖P5的对象和时段可比性。"
+        ],
+        [
+          "S2.mistakes.B",
+          "数量投票与立场偏好没有分开，既未固定偏好方向也未明确计数，不能唯一推出A真B假。"
+        ],
+        [
+          "S1.mistakes.A.repair_steps",
+          "按“所以”前后强制打观察/推断标签，补救没有解决原文记载与已核验事实的边界。"
+        ],
+        [
+          "skills.criteria / retest",
+          "P8/P9/P10缺标准；S1的R1所需证据限度P7未列前置，S2的R2只检查转载，不能作为整个互证/矛盾能力达标。"
+        ]
+      ],
+      "prediction_checks": [
+        [
+          "S1.A",
+          true,
+          "把文本因果结论当已核验事实→全体改善已证实"
+        ],
+        [
+          "S2.B",
+          false,
+          "多种规则与未给优先级不能导出单一结果"
+        ]
+      ],
+      "repair_checks": [
+        [
+          "S1.A",
+          false,
+          "连接词标签法没有保持认识层次"
+        ],
+        [
+          "S2.B",
+          true,
+          "在本案列差异/背景/查证是可用动作；应保留其他合理查证路径"
+        ]
+      ],
+      "coverage": [
+        "P1/P2",
+        "P3",
+        "P4",
+        "P5/P10",
+        "P6",
+        "P7/P9"
+      ],
+      "missing_criteria": [
+        "P8",
+        "P9",
+        "P10"
+      ]
+    }
+  ]
+}

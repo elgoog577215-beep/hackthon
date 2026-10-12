@@ -1,0 +1,399 @@
+{
+  "initial": {
+    "baseline": "D:\\lingzhi\\.codex_tmp\\foundation-20261011",
+    "max_calls": 4,
+    "max_attempts": 1,
+    "frozen": "相同四份材料、40条清单、40项范围要求；已有问题指导的定点修订，非无辅助重生成",
+    "program_owned": [
+      "分裂ID与旧新映射",
+      "范围继承及修订",
+      "分类归属",
+      "证据附件与清单去向"
+    ],
+    "gate": [
+      "无材料外断言或错误元答案",
+      "40项材料要求有正确承载",
+      "无已知可独立判断的复合点或范围叶子",
+      "结构完整且分类恰当",
+      "每个点独立导出仍带范围"
+    ],
+    "no_course_writes": true,
+    "no_teaching_generation": true,
+    "manual_content_edits": 0,
+    "limit": "四个短微单元各单次修订。通过仅指本次材料范围的候选内容复核，不是整课、教师正式验收或自动采用。"
+  },
+  "plans": {
+    "python": {
+      "edits": [
+        {
+          "key": "P1",
+          "parent": "P1",
+          "fields": [
+            "conditions"
+          ],
+          "intent": "只要求a引用普通列表并执行b=a，不要求b事先存在或原来也是列表。"
+        },
+        {
+          "key": "P4",
+          "parent": "P4",
+          "fields": [
+            "name",
+            "statement",
+            "conditions",
+            "boundaries",
+            "meta_question",
+            "meta_answer",
+            "claim_refs"
+          ],
+          "intent": "只保留copy创建新外层对象这一规则；移除元素引用、深浅拷贝对比和其他操作，元素共享由既有P6承载。依据C4原文。"
+        }
+      ],
+      "retire": {},
+      "placements": {
+        "P4": "G21"
+      },
+      "category_changes": {},
+      "new_categories": []
+    },
+    "calculus": {
+      "edits": [
+        {
+          "key": "P7",
+          "parent": "P7",
+          "fields": [
+            "claim_refs"
+          ],
+          "intent": "只引用直接支持连续不能推出可导的C6，案例由程序关联。"
+        },
+        {
+          "key": "P8",
+          "parent": "P8",
+          "fields": [
+            "meta_answer",
+            "claim_refs"
+          ],
+          "intent": "核心回答只表达仅知不可导不能推出不连续，不能写两者不包含或不相交。直接依据C9；不新增练习。"
+        }
+      ],
+      "retire": {
+        "P1": "scope"
+      },
+      "placements": {},
+      "remove_categories": [
+        "G1"
+      ],
+      "category_changes": {},
+      "new_categories": []
+    },
+    "physics": {
+      "edits": [
+        {
+          "key": "P1a",
+          "parent": "P1",
+          "fields": [
+            "name",
+            "statement",
+            "conditions",
+            "boundaries",
+            "meta_question",
+            "meta_answer",
+            "claim_refs"
+          ],
+          "intent": "只表达同一次相互作用中的两个力大小相等，不混入方向或受力对象。依据C1。"
+        },
+        {
+          "key": "P1b",
+          "parent": "P1",
+          "fields": [
+            "name",
+            "statement",
+            "conditions",
+            "boundaries",
+            "meta_question",
+            "meta_answer",
+            "claim_refs"
+          ],
+          "intent": "只表达同一次相互作用中的两个力方向相反，不混入大小或受力对象。依据C1。"
+        },
+        {
+          "key": "P1c",
+          "parent": "P1",
+          "fields": [
+            "name",
+            "statement",
+            "conditions",
+            "boundaries",
+            "meta_question",
+            "meta_answer",
+            "claim_refs"
+          ],
+          "intent": "只表达这一力对分别作用于B与A，受力对象不同。依据C1。"
+        },
+        {
+          "key": "P2a",
+          "parent": "P2",
+          "fields": [
+            "name",
+            "statement",
+            "conditions",
+            "boundaries",
+            "meta_question",
+            "meta_answer",
+            "claim_refs"
+          ],
+          "intent": "只表达相互作用力等大反向不要求两物体质量相等，不涉及静止。依据C2。"
+        },
+        {
+          "key": "P2b",
+          "parent": "P2",
+          "fields": [
+            "name",
+            "statement",
+            "conditions",
+            "boundaries",
+            "meta_question",
+            "meta_answer",
+            "claim_refs"
+          ],
+          "intent": "只表达相互作用力等大反向不要求两物体静止，不涉及质量。依据C2。"
+        },
+        {
+          "key": "P8",
+          "parent": "P1",
+          "fields": [
+            "name",
+            "statement",
+            "conditions",
+            "boundaries",
+            "meta_question",
+            "meta_answer",
+            "claim_refs"
+          ],
+          "intent": "独立表达不能仅由相互作用力大小相等推出加速度相等；也不能反向断定加速度必不等，不补F=ma或数值算题。依据C3原文。"
+        },
+        {
+          "key": "P5",
+          "parent": "P5",
+          "fields": [
+            "meta_question",
+            "meta_answer"
+          ],
+          "intent": "仅询问平衡力在受力对象方面必须满足的必要条件，明确这不是充分条件或完整判据。"
+        }
+      ],
+      "retire": {
+        "P1": "split",
+        "P2": "split"
+      },
+      "placements": {
+        "P1a": "G1",
+        "P1b": "G1",
+        "P1c": "G1",
+        "P2a": "G1",
+        "P2b": "G1",
+        "P8": "G1",
+        "P3": "G21",
+        "P4": "G21",
+        "P5": "G21",
+        "P6": "G22",
+        "P7": "G22"
+      },
+      "category_changes": {
+        "G2": "受力分析"
+      },
+      "new_categories": [
+        {
+          "key": "G21",
+          "name": "单物体受力图与平衡条件",
+          "parent_key": "G2"
+        },
+        {
+          "key": "G22",
+          "name": "系统内力与外力",
+          "parent_key": "G2"
+        }
+      ]
+    },
+    "history": {
+      "edits": [
+        {
+          "key": "P1a",
+          "parent": "P1",
+          "fields": [
+            "name",
+            "statement",
+            "conditions",
+            "boundaries",
+            "meta_question",
+            "meta_answer",
+            "claim_refs"
+          ],
+          "intent": "只表达区分原文可观察内容与分析者推断；原文确实写了什么不等于所述事件已证实。依据C1。"
+        },
+        {
+          "key": "P1b",
+          "parent": "P1",
+          "fields": [
+            "name",
+            "statement",
+            "conditions",
+            "boundaries",
+            "meta_question",
+            "meta_answer",
+            "claim_refs"
+          ],
+          "intent": "只表达推断须说明材料依据和推理，不混入作者动机或强制唯一结论。依据C1。"
+        },
+        {
+          "key": "P5a",
+          "parent": "P5",
+          "fields": [
+            "name",
+            "statement",
+            "conditions",
+            "boundaries",
+            "meta_question",
+            "meta_answer",
+            "claim_refs"
+          ],
+          "intent": "只表达互证前检查来源独立性，具体转载判定由现有P6承载。依据C5。"
+        },
+        {
+          "key": "P5b",
+          "parent": "P5",
+          "fields": [
+            "name",
+            "statement",
+            "conditions",
+            "boundaries",
+            "meta_question",
+            "meta_answer",
+            "claim_refs"
+          ],
+          "intent": "只表达互证时检查记载对象和时段的可比性，不混入来源独立性。依据C5。"
+        },
+        {
+          "key": "P8a",
+          "parent": "P8",
+          "fields": [
+            "name",
+            "statement",
+            "conditions",
+            "boundaries",
+            "meta_question",
+            "meta_answer",
+            "claim_refs"
+          ],
+          "intent": "只表达不能按来源数量投票直接判真假，不混入预设立场；不否定独立证据的合理互证价值。依据C8。"
+        },
+        {
+          "key": "P8b",
+          "parent": "P8",
+          "fields": [
+            "name",
+            "statement",
+            "conditions",
+            "boundaries",
+            "meta_question",
+            "meta_answer",
+            "claim_refs"
+          ],
+          "intent": "只表达不能凭预设立场定真假，不混入数量投票。依据C8。"
+        },
+        {
+          "key": "P9",
+          "parent": "P9",
+          "fields": [
+            "statement",
+            "meta_question",
+            "meta_answer"
+          ],
+          "intent": "忠实表达有限来源只能支持有限强度的结论，不偷换为可信度、来源数量与结论可信程度的单调/定量关系。原文C9。"
+        },
+        {
+          "key": "P10",
+          "parent": "P10",
+          "fields": [
+            "statement",
+            "meta_question",
+            "meta_answer"
+          ],
+          "intent": "保留可以说什么、不能确定什么、下一步查证；不能把可以说偷换为已经确定。以C10的quote为准，不沿用清单claim中的可以确定。"
+        }
+      ],
+      "retire": {
+        "P1": "split",
+        "P5": "split",
+        "P8": "split"
+      },
+      "placements": {
+        "P1a": "G1",
+        "P1b": "G1",
+        "P5a": "G2",
+        "P5b": "G2",
+        "P8a": "G2",
+        "P8b": "G2"
+      },
+      "category_changes": {},
+      "new_categories": []
+    }
+  },
+  "followup": {
+    "course": "history",
+    "max_additional_calls": 1,
+    "candidate_digest": "b444a3c6e9b08133be616cc60f40357a89f307d051bbdd8ed877baf705901806",
+    "reason": "首轮人工复核发现编辑指令混入知识边界，仅修正四个节点的五个字段；其他正文和分类不变。",
+    "plan": {
+      "edits": [
+        {
+          "key": "P1b",
+          "parent": "P1b",
+          "fields": [
+            "statement",
+            "boundaries"
+          ],
+          "intent": "正文只保留推断须说明材料依据和推理过程；不再重复编辑禁令。boundaries为空数组即可，全局课程范围已保留多种合理解释。"
+        },
+        {
+          "key": "P5a",
+          "parent": "P5a",
+          "fields": [
+            "boundaries"
+          ],
+          "intent": "删除由P6承载这一编辑说明，本点无须另列边界，返回空数组。"
+        },
+        {
+          "key": "P5b",
+          "parent": "P5b",
+          "fields": [
+            "boundaries"
+          ],
+          "intent": "删除不混入来源独立性检查这一编辑说明；它不是知识规则，不能误导为互证时无需检查来源。返回空数组。"
+        },
+        {
+          "key": "P8b",
+          "parent": "P8b",
+          "fields": [
+            "boundaries"
+          ],
+          "intent": "删除不混入数量投票法这一编辑说明，元知识正文已完整，返回空数组。"
+        }
+      ],
+      "retire": {},
+      "placements": {},
+      "category_changes": {},
+      "new_categories": []
+    }
+  },
+  "scope_projection": {
+    "source": "course.profile的逐字范围片段；不将核验方式作为知识成立条件",
+    "scope_quotes": {
+      "python": "Python 3基础；普通内置列表，不涉及自定义复制协议。",
+      "calculus": "实函数在内点a的双侧有限导数与连续性；不讨论端点单侧定义。",
+      "physics": "经典力学，宏观低速情境",
+      "history": "史料论证微单元。材料A/B/C均为虚构教学材料，不是真实史实。"
+    },
+    "content_edits": false,
+    "original_run_outputs_preserved": true
+  }
+}

@@ -114,7 +114,7 @@
     </main>
 
     <AppErrorCenter />
-    <KnowledgeLibrary v-if="!isPublicConceptRoute" :learning-mode="isLearningRoute" />
+    <KnowledgeLibrary v-if="!isPublicConceptRoute && !isLearningRoute" :learning-mode="isLearningRoute" />
   </div>
 </template>
 
@@ -146,7 +146,7 @@ const reconcileVisibleGenerationTasks = () => {
 }
 
 onMounted(() => {
-  if (window.location.pathname.startsWith('/workspace-concept')) return
+  if (window.location.pathname.startsWith('/workspace-concept') || (import.meta.env.DEV && window.location.pathname.includes('/student-profile-demo'))) return
   generationStore.restoreGenerationState()
   generationStore.startGlobalMonitor()
   window.addEventListener('storage', reconcileGenerationTasksFromStorage)

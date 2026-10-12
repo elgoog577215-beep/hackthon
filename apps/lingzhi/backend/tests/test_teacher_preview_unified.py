@@ -56,6 +56,28 @@ def test_teacher_trial_is_public_projection_and_has_no_persistence(client):
     assert digest(root)==before
 
 
+def test_preview_dialogue_returns_reply_and_draft_without_writes(client, monkeypatch):
+    c, _, root = client
+    from routers import study_dialogues
+    async def answer(data, **kwargs):
+        assert data['draft'] == 'My edited note'
+        assert data['message'] == 'Add an example'
+        assert 'private' not in data['source']
+        return {'reply':'Here is an example.', 'draft':'My edited note with an example.'}
+    monkeypatch.setattr(study_dialogues, '_model', answer)
+    url='/api/teacher/courses/c/preview';headers={'X-User-Id':'t'}
+    revision=c.get(url,headers=headers).json()['preview_revision']
+    before=digest(root)
+    response=c.post(url+'/study-dialogue',headers=headers,json={'preview_revision':revision,
+        'section_id':'s','block_ids':['public'],'question':'Add an example','draft':'My edited note'})
+    assert response.status_code == 200
+    assert response.json()['draft'] == 'My edited note with an example.'
+    assert response.json()['preview_revision'] == revision
+    assert digest(root) == before
+    assert c.post(url+'/study-dialogue',headers=headers,json={'preview_revision':revision,
+        'section_id':'s','block_ids':['private'],'question':'Read hidden block'}).status_code == 422
+
+
 def test_preview_knowledge_is_lazy_and_read_only(client):
     c, _, root = client
     before = digest(root)

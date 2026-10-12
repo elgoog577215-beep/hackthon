@@ -419,11 +419,14 @@ class Storage:
             except FileExistsError:
                 with open(filepath, encoding="utf-8") as handle:
                     return False, json.load(handle)
-            directory_fd = os.open(filepath.parent, os.O_RDONLY)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+            # Windows cannot open directories with os.open. The file itself is
+            # flushed above; retain the additional directory durability on POSIX.
+            if os.name != "nt":
+                directory_fd = os.open(filepath.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
             return True, deepcopy(data)
         finally:
             if temporary_path:
@@ -868,11 +871,12 @@ class Storage:
                 os.fsync(handle.fileno())
             os.replace(temporary_path, filepath)
             temporary_path = None
-            directory_fd = os.open(filepath.parent, os.O_RDONLY)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+            if os.name != "nt":
+                directory_fd = os.open(filepath.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
         finally:
             if temporary_path:
                 try:

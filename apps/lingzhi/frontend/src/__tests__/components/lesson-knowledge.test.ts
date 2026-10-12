@@ -4,11 +4,12 @@ import Manager from '@/components/TeacherKnowledgeManager.vue'
 import http from '@/utils/http'
 import { setLocale } from '@/shared/i18n'
 import zh from '../../../public/locales/zh/translation.json'
+import en from '../../../public/locales/en/translation.json'
 
 const tree = (revision = 'base') => ({ revision_id: revision,
   categories: [{ id: 'c', name: '硬件', parent_id: null }],
-  knowledge_points: [{ knowledge_id: 'cpu-k', name: 'CPU知识', parent_id: 'c', section_refs: ['cpu'] },
-    { knowledge_id: 'memory-k', name: '主存知识', parent_id: 'c', section_refs: ['memory'] }], relations: [], misconceptions: [] })
+  knowledge_points: [{ knowledge_id: 'cpu-k', name: 'CPU知识', statement: 'CPU执行指令', parent_id: 'c', section_refs: ['cpu'] },
+    { knowledge_id: 'memory-k', name: '主存知识', statement: '主存保存数据', parent_id: 'c', section_refs: ['memory'] }], relations: [], misconceptions: [] })
 const state = () => ({ enabled: true, source_mode: 'handouts', workflow: 'knowledge_first_generic_v1', can_edit: true,
   title: '计算机系统', document_revision: 'd', knowledge_revision: 'base', tree: tree(), history: [tree()], jobs: [], handouts: [],
   can_generate_tree: true, source_handouts: [{ lesson_id: 'cpu' }, { lesson_id: 'memory' }],
@@ -60,7 +61,76 @@ it('opens a cross-lecture knowledge link in the matching lecture without leaving
   expect(w.text()).toContain('跨讲关联')
   await w.findAll('button').find(b => b.text().includes('第2讲') && b.text().includes('主存知识'))!.trigger('click'); await flushPromises()
   expect((w.get('select[aria-label="讲次"]').element as HTMLSelectElement).value).toBe('memory')
-  expect(w.get('.leaf-content').text()).toContain('主存保存数据')
+  expect(w.get('.point-card').text()).toContain('主存保存数据')
   expect(http.post).not.toHaveBeenCalled()
+  w.unmount()
+})
+
+it('shows related definitions and provenance in the right pane without switching to the handout', async () => {
+  const v: any = state()
+  v.lesson_options[0].title = '第1讲 处理器'
+  v.tree.knowledge_points[0] = { ...v.tree.knowledge_points[0], statement: 'CPU执行指令', conditions: ['通电'],
+    meta_question: '指令由谁执行？', meta_answer: 'CPU执行', revision_id: 'point-v1',
+    source_quotes: [{ evidence_id: 's1', quote: '本讲讲义中的CPU原文', handout_ref: { lesson_id: 'cpu', script_revision_id: 'script-v1', block_id: 'b1' } }] }
+  v.tree.knowledge_points.push({ knowledge_id: 'alu', name: '运算器', statement: '运算器执行运算', parent_id: 'c', section_refs: ['cpu'] })
+  v.tree.relations = [{ id: 'local', source_id: 'cpu-k', target_id: 'alu', type: 'applies_to', reason: '执行依赖运算', conditions: ['算术指令'] }]
+  v.history = [v.tree]
+  vi.spyOn(http, 'get').mockResolvedValue({ data: v })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  expect(w.get('.tree-root').text()).not.toContain('第1讲 · 第1讲')
+  await w.get('[data-knowledge-id="cpu-k"]').trigger('click')
+  const pane = w.get('.point-card')
+  for (const content of ['CPU执行指令', '通电', '指令由谁执行', 'CPU执行', '运算器执行运算', '执行依赖运算', '算术指令', '本讲讲义中的CPU原文', 'point-v1']) expect(pane.text()).toContain(content)
+  expect(pane.text()).not.toContain('applies_to')
+  expect(pane.findAll('button').some(b => b.text().includes('定位讲义'))).toBe(false)
+  await pane.findAll('button').find(b => b.text().includes('运算器'))!.trigger('click'); await flushPromises()
+  expect(w.get('.point-card h2').text()).toBe('运算器')
+  expect(w.find('.handout-reader').exists()).toBe(false)
+  expect(http.post).not.toHaveBeenCalled()
+  w.unmount()
+})
+
+it('keeps a pending candidate open when navigating a relation within that lecture', async () => {
+  const v: any = state()
+  const candidate: any = tree('candidate')
+  candidate.base_knowledge_revision = 'base'
+  candidate.knowledge_points.push({ knowledge_id: 'new-point', name: '候选新增点', statement: '新增点的定义', parent_id: 'c', section_refs: ['cpu'] })
+  candidate.relations = [{ id: 'new-edge', source_id: 'cpu-k', target_id: 'new-point', type: 'derives' }]
+  v.candidates = [{ job_id: 'job', lesson_id: 'cpu', tree: candidate }]
+  vi.spyOn(http, 'get').mockResolvedValue({ data: v })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  await w.get('[data-knowledge-id="cpu-k"]').trigger('click')
+  await w.get('.point-card').findAll('button').find(b => b.text() === '候选新增点')!.trigger('click'); await flushPromises()
+  expect(w.get('.point-card h2').text()).toBe('候选新增点')
+  expect((w.get('.tree-version select').element as HTMLSelectElement).value).toBe('candidate')
+  w.unmount()
+})
+
+it('renders the detail panel and relation type labels in English', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => en })))
+  await setLocale('en')
+  const v: any = state()
+  v.lesson_options[0].title = 'Lecture 1: Processor'
+  v.tree.relations = [{ id: 'cross', source_id: 'cpu-k', target_id: 'memory-k', type: 'applies_to', cross_lesson: true }]
+  v.history = [v.tree]
+  vi.spyOn(http, 'get').mockResolvedValue({ data: v })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  expect(w.get('.point-placeholder').text()).toContain('Select a knowledge point')
+  expect(w.get('.tree-root').text()).not.toContain('Lecture 1:')
+  await w.get('[data-knowledge-id="cpu-k"]').trigger('click')
+  expect(w.get('.relation').text()).toContain(en.knowledgeFirst.relationTypes.applies_to)
+  expect(w.get('.knowledge-detail-pane').attributes('aria-label')).toBe('Knowledge point details')
+  w.unmount()
+})
+
+it('keeps the adopted lecture tree visible after a regeneration fails before the model call',async()=>{
+  const v:any=state()
+  vi.spyOn(http,'get').mockResolvedValue({data:v})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  vi.mocked(http.get).mockResolvedValue({data:{...v,jobs:[{id:'failed',status:'failed',knowledge_lesson_id:'cpu',error:{message:'输入容量超限'}}]}})
+  await w.findAll('button').find(b=>b.text().includes('生成本讲知识树'))!.trigger('click');await flushPromises()
+  expect(w.get('[role="alert"]').text()).toContain('输入容量超限')
+  expect(w.get('nav').text()).toContain('CPU知识')
+  expect((w.get('.tree-version select').element as HTMLSelectElement).value).toBe('base')
   w.unmount()
 })

@@ -15,6 +15,7 @@ def one_lesson_response(lid, name=None):
     data['points'][0]['sources'] = [{'key': 'S1'}]
     if name: data['points'][0]['name'] = name
     data['lessons'] = [data['lessons'][index]]
+    data['cross_alignment'] = [{'knowledge_key': p['key'], 'reason': '独立新命题', 'relation_reason': '已比较讲内与其他讲命题；只保留有依据的关系。', 'links': []} for p in data['points']]
     return data
 
 
@@ -77,6 +78,7 @@ async def test_next_lesson_references_existing_ids_and_can_reuse_without_duplica
         assert 'existing_knowledge' in prompt and 'E1' in prompt and 'CPU执行指令。' in prompt
         value = one_lesson_response('memory')
         value['points'].append({'key': 'K1', 'reuse_key': 'E1', 'category_key': 'C2', 'sources': [{'key': 'S1'}]})
+        value['cross_alignment'].append({'knowledge_key': 'K1', 'reason': '复用处理器命题', 'relation_reason': '处理器使用主存数据', 'links': []})
         value['lessons'][0]['knowledge_keys'].append('K1')
         value['relations'] = [{'source_key': reference_key, 'target_key': 'K2', 'type': 'prerequisite', 'reason': '处理器使用主存中的数据', 'conditions': []}]
         return json.dumps(value, ensure_ascii=False)
@@ -121,6 +123,8 @@ def test_unknown_reference_and_rewriting_existing_definition_are_rejected(svc):
     one = one_lesson_response('cpu'); one['relations'] = [{'source_key': 'E999', 'target_key': 'K1', 'type': 'prerequisite', 'reason': '未知端点'}]
     with pytest.raises(CourseDocumentConflict): compile_tree(raw, context, one)
     one = one_lesson_response('cpu'); one['points'][0]['reuse_key'] = 'E1'; one['points'][0]['statement'] = '把旧知识改成新定义'
+    with pytest.raises(CourseDocumentConflict, match='未知'): compile_tree(raw, context, one)
+    one['points'][0]['reuse_key'] = 'E2'
     with pytest.raises(CourseDocumentConflict, match='不能改写'): compile_tree(raw, context, one)
 
 

@@ -253,7 +253,7 @@ async def recover_teacher_generation_jobs(tm: TaskManager, repository: TeacherLe
             continue
         groups: dict[str, list[dict[str, Any]]] = {}
         for job in state.get("jobs", {}).values():
-            if (job.get("type") == "teacher_lesson_script_generation"
+            if (job.get("type") in {"teacher_lesson_script_generation", "course_knowledge_tree_generation", "knowledge_first_handout_generation"}
                     and job.get("status") in {"pending", "running"}):
                 # Startup has no surviving provider stream. Keep persisted work;
                 # only an explicit user action may start another model request.

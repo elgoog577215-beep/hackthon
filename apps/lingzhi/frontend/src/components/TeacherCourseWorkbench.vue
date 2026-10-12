@@ -6,8 +6,8 @@
     :class="{
       'is-ai-collaboration': aiCollaborationOpen && activeStage === 'question-bank',
       'is-question-bank-workspace': activeStage === 'question-bank',
-      'is-ppt-stage': activeStage === 'ppt',
-      'is-context-collapsed': !contextPaneVisible && activeStage !== 'question-bank',
+      'is-ppt-stage': !knowledgeOpen && activeStage === 'ppt',
+      'is-context-collapsed': knowledgeOpen || (!contextPaneVisible && activeStage !== 'question-bank'),
     }"
   >
     <aside v-show="!aiCollaborationOpen || activeStage !== 'question-bank'" class="stage-rail" :aria-label="t('courseWorkbench.stageNavigation', '备课阶段')">
@@ -16,7 +16,7 @@
       </header>
       <nav>
         <template v-for="stage in stages" :key="stage.id">
-        <button type="button" :class="{ active: activeStage === stage.id }" :disabled="stageSwitching || stagePrerequisiteBlocked(stage.id) || (aiCandidatePending && activeStage !== stage.id)" :title="stagePrerequisiteBlocked(stage.id) ? stagePrerequisiteReason(stage.id) : undefined" @click="requestStageChange(stage.id)">
+        <button type="button" :class="{ active: !knowledgeOpen && activeStage === stage.id }" :disabled="stageSwitching || stagePrerequisiteBlocked(stage.id) || (aiCandidatePending && activeStage !== stage.id)" :title="stagePrerequisiteBlocked(stage.id) ? stagePrerequisiteReason(stage.id) : undefined" @click="requestStageChange(stage.id)">
           <span>{{ stage.step }}</span><component :is="stage.icon" :size="18" /><strong>{{ stage.label }}</strong>
           <span
             v-if="stage.id !== 'ppt' || legacyPptOpen"
@@ -28,19 +28,19 @@
             :aria-label="stageProgressLabel(stage.id)"
           ><Check v-if="stageReady(stage.id)" :size="12" aria-hidden="true" /></span>
         </button>
-        <button v-if="stage.id === 'script'" type="button" :disabled="stageSwitching || aiCandidatePending" @click="emit('open-knowledge')"><span>04</span><Layers3 :size="18" /><strong>{{ t('knowledgeFirst.tree') }}</strong></button>
+        <button v-if="stage.id === 'script'" type="button" :class="{ active: knowledgeOpen }" :disabled="stageSwitching || aiCandidatePending" @click="openKnowledge"><span>04</span><Layers3 :size="18" /><strong>{{ t('knowledgeFirst.tree') }}</strong></button>
         </template>
       </nav>
-      <p v-if="activeStage === 'foundation' && !outlineAvailableForLessons" class="stage-prerequisite-reason" role="status">{{ outlinePrerequisiteReason }}</p>
+      <p v-if="!knowledgeOpen && activeStage === 'foundation' && !outlineAvailableForLessons" class="stage-prerequisite-reason" role="status">{{ outlinePrerequisiteReason }}</p>
       <section class="companion-entry">
         <small>{{ t('courseWorkbench.supporting.group', '其他课程文件') }}</small>
-        <button type="button" :class="{ active: activeStage === 'question-bank' }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== 'question-bank')" @click="requestStageChange('question-bank')">
+        <button type="button" :class="{ active: !knowledgeOpen && activeStage === 'question-bank' }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== 'question-bank')" @click="requestStageChange('question-bank')">
           <ListChecks :size="18" /><strong>{{ t('courseWorkbench.stages.questionBank', '题库') }}</strong>
         </button>
-        <button type="button" :class="{ active: activeStage === 'companion' && activeCompanionTemplateId === GRADING_RUBRIC_TEMPLATE_ID }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== 'companion')" @click="openCompanionTemplate(GRADING_RUBRIC_TEMPLATE_ID)">
+        <button type="button" :class="{ active: !knowledgeOpen && activeStage === 'companion' && activeCompanionTemplateId === GRADING_RUBRIC_TEMPLATE_ID }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== 'companion')" @click="openCompanionTemplate(GRADING_RUBRIC_TEMPLATE_ID)">
           <ClipboardCheck :size="18" /><strong>{{ t('courseWorkbench.supporting.gradingRubric', '评分细则') }}</strong>
         </button>
-        <button type="button" :class="{ active: activeStage === 'companion' && activeCompanionTemplateId === MATERIAL_CHECKLIST_TEMPLATE_ID }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== 'companion')" @click="openCompanionTemplate(MATERIAL_CHECKLIST_TEMPLATE_ID)">
+        <button type="button" :class="{ active: !knowledgeOpen && activeStage === 'companion' && activeCompanionTemplateId === MATERIAL_CHECKLIST_TEMPLATE_ID }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== 'companion')" @click="openCompanionTemplate(MATERIAL_CHECKLIST_TEMPLATE_ID)">
           <CheckSquare2 :size="18" /><strong>{{ t('courseWorkbench.supporting.materialChecklist', '考试课程材料自查清单') }}</strong>
         </button>
       </section>
@@ -50,10 +50,13 @@
       ref="workbenchCenter"
       class="workbench-center"
       :class="{
-        'is-outline-workspace': showOutlineWorkspace,
-        'is-lesson-workspace': !['foundation', 'companion'].includes(activeStage),
+        'is-outline-workspace': !knowledgeOpen && showOutlineWorkspace,
+        'is-knowledge-workspace': knowledgeOpen,
+        'is-lesson-workspace': !knowledgeOpen && !['foundation', 'companion'].includes(activeStage),
       }"
     >
+      <TeacherKnowledgeManager v-if="knowledgeOpen" :key="courseId" :course-id="courseId" :initial-lesson-id="selectedLessonId" tree-only />
+      <template v-else>
       <button
         v-if="!contextPaneVisible && !['question-bank', 'ppt'].includes(activeStage)"
         class="context-pane-reopen"
@@ -870,6 +873,7 @@
           </div>
         </div>
       </section>
+      </template>
     </main>
 
     <div
@@ -889,7 +893,7 @@
       @keydown="resizeAiPaneWithKeyboard"
     ><GripVertical :size="14" /></div>
 
-    <aside v-if="activeStage !== 'question-bank' && contextPaneVisible" class="context-pane" :aria-label="t('courseWorkbench.contextPane.title', '当前内容信息')">
+    <aside v-if="!knowledgeOpen && activeStage !== 'question-bank' && contextPaneVisible" class="context-pane" :aria-label="t('courseWorkbench.contextPane.title', '当前内容信息')">
       <header class="context-pane-heading" :data-phase="contextPhase">
         <div class="context-pane-heading__status" role="status" aria-live="polite" aria-atomic="true">
           <span class="context-pane-heading__signal" aria-hidden="true">
@@ -1150,6 +1154,7 @@
 </template>
 
 <script setup lang="ts">
+import TeacherKnowledgeManager from './TeacherKnowledgeManager.vue'
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { BookOpenText, Check, CheckSquare2, ChevronLeft, ChevronRight, ClipboardCheck, ClipboardList, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, PanelRightClose, PanelRightOpen, Pause, Pencil, Play, Presentation, RotateCcw, Sparkles, TriangleAlert, Upload, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
@@ -1309,7 +1314,6 @@ const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; 
 const emit = defineEmits<{
   (event: 'generateOutline', payload: { subject: string; options: CourseGenerationOptions; references: CourseReferenceItem[] }): void
   (event: 'update:outlineEditing', value: boolean): void
-  (event: 'open-knowledge'): void
   (event: 'open-course-information'): void
   (event: 'open-course-adjustment', payload: { planId: string }): void
 }>()
@@ -1337,6 +1341,7 @@ const activeProductionIssueSummary = computed(() => {
     : '本课程有 {count} 项内容需要处理。'
   return t(key, fallback).replace('{count}', String(count))
 })
+const knowledgeOpen = ref(false)
 const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = ref(props.initialLessonId)
 const activeCompanionTemplateId = ref<CompanionTemplateId>(GRADING_RUBRIC_TEMPLATE_ID)
 const stageSwitching = ref(false)
@@ -4547,11 +4552,24 @@ function ensureLessonStageLoaded(stage: StageId) {
     || lessonStore.loading) return
   void lessonStore.load(props.courseId).catch(() => undefined)
 }
-async function requestStageChange(stage: StageId, options: { loadLesson?: boolean } = {}) {
-  if (stage === activeStage.value || stageSwitching.value || stagePrerequisiteBlocked(stage)) return
+async function openKnowledge() {
+  if (knowledgeOpen.value || stageSwitching.value || aiCandidatePending.value) return
   stageSwitching.value = true
   try {
     if (!await finishEditing()) return
+    closeAiCollaboration()
+    knowledgeOpen.value = true
+    await nextTick()
+    if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0
+  } finally { stageSwitching.value = false }
+}
+async function requestStageChange(stage: StageId, options: { loadLesson?: boolean } = {}) {
+  if (stageSwitching.value || stagePrerequisiteBlocked(stage)) return
+  if (stage === activeStage.value) { knowledgeOpen.value = false; return }
+  stageSwitching.value = true
+  try {
+    if (!await finishEditing()) return
+    knowledgeOpen.value = false
     activeStage.value = stage
     if (options.loadLesson !== false) ensureLessonStageLoaded(stage)
     await nextTick()
@@ -4563,6 +4581,7 @@ async function requestStageChange(stage: StageId, options: { loadLesson?: boolea
 async function openCompanionTemplate(templateId: CompanionTemplateId) {
   activeCompanionTemplateId.value = templateId
   if (activeStage.value === 'companion') {
+    knowledgeOpen.value = false
     closeAiCollaboration()
     if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0
     return
@@ -5086,4 +5105,8 @@ onBeforeUnmount(() => {
 .outline-review-evidence p { margin: 8px 0 0; overflow-wrap: anywhere; }
 .generation-unavailable-reason { margin: 8px 0; color: #475467; font-size: 15px; line-height: 1.6; }
 .outline-flow-steps{max-width:860px;margin:0 auto 14px}
+</style>
+
+<style scoped>
+.workbench-center.is-knowledge-workspace{overflow:auto;padding:24px 30px 36px;background:#f7f8fc}
 </style>

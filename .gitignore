@@ -23,3 +23,7 @@ test-results/
 
 # Private local reference materials; never publish with source
 /本地资料/
+
+# Local runtime state left by legacy root-level test invocations.
+/backend/data/
+/backend/tasks.json

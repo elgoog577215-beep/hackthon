@@ -50,14 +50,31 @@ def handout_context(raw, state, lesson_id=""):
     context['source_mode'] = 'handouts'
     if lesson_id:
         context['scope_lesson_id'] = lesson_id
+        context['cross_lesson_alignment_contract'] = 'per_point_relations_v3'
         context['reference_knowledge'] = [{'key': f'E{i}', **{k: deepcopy(point.get(k)) for k in ('knowledge_id', 'revision_id', 'name', 'statement', 'conditions', 'knowledge_type', 'meta_question', 'meta_answer', 'section_refs')}}
-            for i, point in enumerate((raw.get('course_knowledge_base') or {}).get('knowledge_points', []), 1)]
+            for i, point in enumerate((raw.get('course_knowledge_base') or {}).get('knowledge_points', []), 1)
+            if (point.get('section_refs') or [point.get('topic')])
+            and any(point.get('section_refs') or [point.get('topic')])
+            and lesson_id not in (point.get('section_refs') or [point.get('topic')])]
         ref_keys = {p['knowledge_id']: p['key'] for p in context['reference_knowledge']}
         previous = raw.get('course_knowledge_base') or {}
+        titles = {s['section_id']: s.get('title', '') for s in (raw.get('course_document') or {}).get('sections', [])}
+        context['reference_lessons'] = [{'lesson_id': lid, 'title': titles.get(lid, lid),
+            'knowledge_keys': [p['key'] for p in context['reference_knowledge'] if lid in (p.get('section_refs') or [])]}
+            for lid in dict.fromkeys(lid for p in context['reference_knowledge'] for lid in (p.get('section_refs') or []))]
         context['reference_relations'] = [{'source_key': ref_keys[r['source_id']], 'target_key': ref_keys[r['target_id']], 'type': r['type'], 'reason': r.get('reason', ''), 'conditions': r.get('conditions', [])}
             for r in previous.get('relations', []) if r.get('source_id') in ref_keys and r.get('target_id') in ref_keys]
-        context['reference_categories'] = [{'id': c['id'], 'name': c['name'], 'parent_id': c.get('parent_id'), 'knowledge_keys': [ref_keys[p['knowledge_id']] for p in previous.get('knowledge_points', []) if p.get('parent_id') == c['id']]}
-            for c in previous.get('categories', [])]
+        categories = {c['id']: c for c in previous.get('categories', [])}
+        needed = set()
+        for point in previous.get('knowledge_points', []):
+            if point['knowledge_id'] not in ref_keys:
+                continue
+            parent = point.get('parent_id')
+            while parent in categories and parent not in needed:
+                needed.add(parent)
+                parent = categories[parent].get('parent_id')
+        context['reference_categories'] = [{'id': c['id'], 'name': c['name'], 'parent_id': c.get('parent_id'), 'knowledge_keys': [ref_keys[p['knowledge_id']] for p in previous.get('knowledge_points', []) if p['knowledge_id'] in ref_keys and p.get('parent_id') == c['id']]}
+            for c in previous.get('categories', []) if c['id'] in needed]
 
     context['handout_lessons'] = lessons
     context['handout_source_refs'] = {s['id']: s['handout_ref'] for s in sources}
@@ -132,6 +149,8 @@ def merge_lesson_tree(existing, candidate, lesson_id):
         visiting.remove(node); seen.add(node)
     for node in adjacency: visit(node)
     result['relations'] = list(edges.values())
+    from knowledge_relations import relation_index
+    result['relation_index'] = relation_index(result)
     lessons = {l['topic']: deepcopy(l) for l in existing.get('lessons', [])}
     lessons.update({l['topic']: deepcopy(l) for l in candidate['lessons']})
     result['lessons'] = list(lessons.values())
@@ -168,7 +187,7 @@ def lesson_fingerprint(tree, lesson_id):
 
 def handout_input_signature(context):
     # Other lecture adoption may change the reference catalog, not this input.
-    reference_keys = {'revision_id', 'knowledge_revision', 'terminology_revision', 'reference_knowledge', 'reference_relations', 'reference_categories'}
+    reference_keys = {'revision_id', 'knowledge_revision', 'terminology_revision', 'reference_knowledge', 'reference_relations', 'reference_categories', 'reference_lessons', 'cross_lesson_alignment_contract'}
     return stable_hash({k: v for k, v in context.items() if k not in reference_keys}, prefix='kls_')
 
 
@@ -217,4 +236,6 @@ def visible_handout_tree(tree, document, handouts):
     result['source_handouts'] = [s for s in result.get('source_handouts', []) if s['lesson_id'] in lesson_ids]
     result['sources'] = [s for s in result.get('sources', []) if s['evidence_id'] in evidence_ids]
     result.update(gaps=[], gap_records=[], uncovered_evidence_ids=[], projection_scope='visible_handout_blocks')
+    from knowledge_relations import relation_index
+    result['relation_index'] = relation_index(result)
     return result

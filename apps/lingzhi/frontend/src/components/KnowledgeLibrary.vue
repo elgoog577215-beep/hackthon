@@ -228,6 +228,7 @@
                       >
                         <component :is="nodeIcon(row.node.node_type)" :size="15" aria-hidden="true" />
                         <span class="knowledge-tree-node-name"><MathText :content="row.node.name" /></span>
+                        <span v-if="masteryFor(row.node)" class="knowledge-mastery-badge">{{ masteryFor(row.node)!.mastery === null ? t('knowledgeProfile.unassessed', '未评估') : `${masteryFor(row.node)!.mastery}%` }}</span>
                         <BookOpenCheck
                           v-if="row.node.covered_by_course"
                           :size="13"
@@ -279,6 +280,10 @@
                     :content="selectedNode.description || descriptionFallback(selectedNode)"
                   />
 
+                  <div v-if="masteryFor(selectedNode)" class="knowledge-mastery-summary">
+                    <strong>{{ t('knowledgeProfile.estimate', '掌握参考值') }} · {{ masteryFor(selectedNode)!.mastery === null ? t('knowledgeProfile.unassessed', '未评估') : `${masteryFor(selectedNode)!.mastery}%` }}</strong>
+                    <span>{{ t(`knowledgeProfile.confidence.${masteryFor(selectedNode)!.confidence}`) }} · {{ masteryFor(selectedNode)!.assessment_count }} {{ t('knowledgeProfile.checks', '次有效检查') }}</span>
+                  </div>
                   <div v-if="selectedNode.covered_by_course" class="knowledge-tree-bindings" :aria-label="t('knowledgeLibrary.bindingSummary', '本课绑定概况')">
                     <span><FileText :size="15" />{{ selectedNode.block_ids.length }} {{ t('knowledgeLibrary.contentBlocks', '处正文') }}</span>
                     <span><CheckCircle2 :size="15" />{{ selectedQuestions.length }} {{ t('knowledgeLibrary.questions', '道题目') }}</span>
@@ -443,6 +448,7 @@ import {
   X,
 } from 'lucide-vue-next'
 import { useCourseStore } from '../stores/course'
+import { useLearnerModelStore } from '../stores/learnerModel'
 import KnowledgeCommandPanel from './KnowledgeCommandPanel.vue'
 import KnowledgeRelationGraph from './KnowledgeRelationGraph.vue'
 import MathText from './MathText.vue'
@@ -467,8 +473,9 @@ import type {
 } from '../types/knowledge-library'
 
 const courseStore = useCourseStore()
+const learnerModelStore = useLearnerModelStore()
 const dialogRef = ref<HTMLElement | null>(null)
-defineProps<{ learningMode?: boolean }>()
+const props = defineProps<{ learningMode?: boolean }>()
 
 const loading = ref(false)
 const loadError = ref('')
@@ -476,6 +483,12 @@ const searchQuery = ref('')
 const coverageMode = ref<'course' | 'all'>('course')
 const viewMode = ref<'tree' | 'graph'>('graph')
 const libraryView = ref<KnowledgeLibraryView | null>(null)
+function masteryFor(node: KnowledgeNode) {
+  if (!props.learningMode || isTeacherPreviewCourse(courseStore.currentCourseId) || learnerModelStore.courseId !== courseStore.currentCourseId) return undefined
+  const profile = learnerModelStore.model?.knowledge_profile
+  if (!profile || profile.baseline_revision !== libraryView.value?.binding_revision_id) return undefined
+  return profile.nodes.find(point => point.knowledge_id === node.knowledge_id && point.knowledge_revision_id === node.revision_id)
+}
 const selectedNode = ref<KnowledgeNode | null>(null)
 const expandedIds = ref<Set<string>>(new Set())
 const mobileDetailOpen = ref(false)
@@ -777,6 +790,7 @@ function selectFirstMatch(): void {
 async function loadLibrary(options: { quiet?: boolean } = {}): Promise<void> {
   const courseId = courseStore.currentCourseId
   if (!courseId) return
+  if (props.learningMode && !isTeacherPreviewCourse(courseId)) void learnerModelStore.load(courseId).catch(() => undefined)
   // 静默刷新：知识修订确认后要拉取新数据，但不能翻成整页加载态——那会把
   // 详情区连同维护面板一起卸载，教师刚拿到的操作回执和"重建"入口随之消失。
   if (!options.quiet) loading.value = true
@@ -947,6 +961,9 @@ watch(() => courseStore.currentCourseId, () => {
 </script>
 
 <style scoped>
+.knowledge-mastery-badge { flex:none; padding:2px 6px; border-radius:6px; color:#7654ad; background:#f0eafa; font-size:11px; }
+.knowledge-mastery-summary { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:12px 15px; border-radius:10px; background:#f4effb; color:#70538f; margin:14px 0; font-size:14px; }
+.knowledge-mastery-summary span { color:#95809f; font-size:12px; }
 .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 .knowledge-tree-dialog { display:flex; flex-direction:column; outline:none; }
 .knowledge-tree-header { flex:0 0 auto; display:grid; grid-template-columns:minmax(210px,1fr) minmax(260px,440px) 38px; align-items:center; gap:12px; }

@@ -2,6 +2,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SideAIPanel from '@/components/SideAIPanel.vue'
+import profileDemo from '@/demo/knowledge-profile.json'
+import type { KnowledgeProfileNode } from '@/types/knowledge-profile'
 import enMessages from '@/../public/locales/en/translation.json'
 import zhMessages from '@/../public/locales/zh/translation.json'
 import { setLocale } from '@/shared/i18n'
@@ -97,6 +99,45 @@ function personalizationTarget(blockId = 'block-1', revision = 'cbr-1'): CourseB
 }
 
 describe('SideAIPanel', () => {
+  it('keeps a draft while switching presentation and binds the selected knowledge revision on send', async () => {
+    const wrapper = mountPanel([], '', undefined, undefined, 'learner', [], false, true)
+    const point = profileDemo.cases.at(-1)!.profile.nodes.find(node => node.knowledge_id === 'demo-k7') as KnowledgeProfileNode
+    await wrapper.setProps({ companionAvatar:'/images/learning-companion.png', knowledgeContext:{...point,block_refs:['knowledge-block']}, readingContext:{nodeId:'node-1',nodeName:'Reading',blockId:'intro',blockTitle:'Intro'} })
+    await flushPromises()
+    const ai = useAITeacherStore()
+    const send = vi.spyOn(ai, 'sendMessage').mockResolvedValue()
+    vi.spyOn(useLearningProgressStore(), 'loadRuntime').mockResolvedValue(null)
+    await wrapper.get('textarea').setValue('Explain this boundary')
+    const modeButton = wrapper.findAll('.companion-header-actions button').find(b => b.text().includes('切为浮窗'))!
+    await modeButton.trigger('click')
+    expect(wrapper.emitted('toggleMode')).toHaveLength(1)
+    await wrapper.setProps({ floating:true })
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('Explain this boundary')
+    expect(wrapper.text()).toContain('停靠右栏')
+    expect(send).not.toHaveBeenCalled()
+    await wrapper.get('.send-button').trigger('click')
+    await flushPromises()
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ selection:expect.stringContaining(point.statement), contextRef:expect.objectContaining({ content_anchor:expect.objectContaining({ block_id:'knowledge-block', concept_ids:[point.knowledge_id], knowledge_revision_refs:{ [point.knowledge_id]:point.knowledge_revision_id } }) }) }))
+    wrapper.unmount()
+  })
+
+  it('打开空会话时保留欢迎标题，已有消息才滚到最新回复', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+    const list = wrapper.get('.ai-teacher-messages').element as HTMLElement
+    Object.defineProperty(list, 'scrollHeight', { configurable: true, value: 600 })
+    list.scrollTop = 100
+    await wrapper.setProps({ visible: false })
+    await wrapper.setProps({ visible: true })
+    await flushPromises()
+    expect(list.scrollTop).toBe(0)
+    const ai = useAITeacherStore()
+    ai.currentConversation!.messages.push({ message_id: 'new-message', role: 'assistant', content: '回答', created_at: '2026-10-11T00:00:00Z' } as any)
+    await flushPromises()
+    expect(list.scrollTop).toBe(600)
+    wrapper.unmount()
+  })
+
   beforeEach(async () => {
     vi.restoreAllMocks()
     vi.stubGlobal('fetch', vi.fn(async () => ({

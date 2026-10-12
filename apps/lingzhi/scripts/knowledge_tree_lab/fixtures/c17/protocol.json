@@ -1,0 +1,18 @@
+{
+  "version": "v3-semantic-intents-evidence-binding",
+  "frozen_before_calls": true,
+  "model_calls_max": 12,
+  "stages": ["core", "atomize", "teach", "repair"],
+  "attempts_per_stage_topic": 1,
+  "topic_concurrency": 1,
+  "thinking": false,
+  "comparison": "Same three source fixtures and 34 coverage criteria as v1/v2. Core now sees the coverage checklist. No previous answer tree or final Codex content review is fed to Qwen. A single development-set trial, no causal or stability claim.",
+  "holdouts": "Copied unchanged, never included in prompts; not a model examination score.",
+  "atomicity": "Separate independently diagnosable rules. Conditions stay with their rule; combined application questions do not replace atoms.",
+  "structural_acceptance": ["Program assigns all formal IDs", "Each original point is a separate revision transaction", "Old revisions and replacement map preserved", "Dependent checks and edges are invalidated, not blindly copied to all children", "Stale hashes and scope escapes rejected", "Incomplete teaching remains a visible pending item"],
+  "answer_acceptance": ["Model predicted stdout is never a verified answer", "Exact code plus environment receipt required", "Run finite defined eligible snippets at O0 and O2", "A/B symptom predictions equal and incorrect", "A/B diagnostic predictions differ", "Retest uses a different check", "Numeric contract does not prove hypothesis semantics"],
+  "execution_eligibility": "Codex inspects each runtime snippet before exact-hash allowlisting; this is a restricted local experiment, not an automatic general C sandbox.",
+  "repair_scope": "Failed checks and checks linked to misconceptions, all misconception candidates and all relation candidates. Core is frozen. No additions/deletions; replacements only. Compiler and machine-contract feedback only, no Codex semantic corrections fed to model.",
+  "final_assessment": "Codex separately reviews every point, coverage unit, relation and misconception; nonblind, not teacher gold standard. Counts of candidates, structural successes, numeric checks, and semantic approvals reported separately.",
+  "data_boundary": "No live course writes, no production model configuration changes, no handout generation or rewriting."
+}

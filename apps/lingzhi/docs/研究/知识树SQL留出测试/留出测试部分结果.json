@@ -1,0 +1,1779 @@
+{
+  "metrics": {
+    "logical_call_records": 29,
+    "completed_json_calls": 10,
+    "recorded_provider_requests": 27,
+    "calls_without_provider_telemetry": 2,
+    "inventory_sections_available": 7,
+    "source_sections": 9,
+    "inventory_claims": 83,
+    "inventory_sections_valid": 5,
+    "quote_matches": 80,
+    "coverage_counts": {
+      "covered": 51,
+      "partial": 9,
+      "missing": 3,
+      "unavailable": 14
+    },
+    "coverage_requirements": 77,
+    "atomic_points": null,
+    "classification_tree": null,
+    "baseline_status": "not_evaluable_due_to_incomplete_generation",
+    "model_content_repairs": 0,
+    "human_node_guidance": false,
+    "production_course_writes": 0,
+    "meaning": "服务阻断导致原子化与分类未完成；不得视为知识准确率0，也不得宣称维持基线。"
+  },
+  "source": {
+    "origin": "https://www.postgresql.org/docs/18/tutorial-sql.html",
+    "license": "https://www.postgresql.org/about/licence/",
+    "chapter_complete": true,
+    "sections": 9,
+    "characters": 21215,
+    "words": 3447,
+    "source_hashes": {
+      "https://www.postgresql.org/docs/18/tutorial-sql-intro.html": "d3fbd1c1c3ad85f2efda1fba0740f3b328d2f5bd09ddbc633b8a20639b0b9233",
+      "https://www.postgresql.org/docs/18/tutorial-concepts.html": "e29671c6d6aca797a6092f529aaa9d00757fd86e597b87bc5ad78aa090fe4156",
+      "https://www.postgresql.org/docs/18/tutorial-table.html": "b0f031da5af1276603ddedc9c87fa5508735b97869d52866097a62c528d94402",
+      "https://www.postgresql.org/docs/18/tutorial-populate.html": "8d213b7ffaa53bd54db41d6491c26487c6abce58b7e2b0b080cbc1e362e334b1",
+      "https://www.postgresql.org/docs/18/tutorial-select.html": "7dcea2840ba734bcda99b7702e6ebc2e48bfb686ad8e5f79c79d7b712963ecfd",
+      "https://www.postgresql.org/docs/18/tutorial-join.html": "a61af09b507b85d1f82a522d6ab5ef5d5854748a9b4fde73601f0f698de82ab6",
+      "https://www.postgresql.org/docs/18/tutorial-agg.html": "10382f54355854d6e8d5debbfb80e340d4dec2e67a9dab1830356393be2911a4",
+      "https://www.postgresql.org/docs/18/tutorial-update.html": "ce7eddd63ddfa9be8a25f2c2c95823f4945bed384f3845e26f04655b4d4ff49b",
+      "https://www.postgresql.org/docs/18/tutorial-delete.html": "7b575107fad224c55524610564b86e2fa751c1f5af4bcbc0b3ba5a3d13637f5b"
+    },
+    "extraction": "官方HTML的sect1正文，保留脚注；段落仅折叠空白，pre代码/结果保留换行；未翻译或预先拆成知识点",
+    "known_exposure": "未用于本线程此前知识树生成/精修；不声称模型训练时未见过公开文档"
+  },
+  "sections": [
+    {
+      "source_id": "M1",
+      "title": "2.1. Introduction",
+      "url": "https://www.postgresql.org/docs/18/tutorial-sql-intro.html",
+      "inventory_available": true,
+      "claims": [
+        {
+          "key": "C1",
+          "kind": "scope",
+          "claim": "本章提供SQL简单操作的概览，旨在提供入门介绍，并非完整的SQL教程。",
+          "source_ref": "M1",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-sql-intro.html",
+          "quote_digest": "9e93376f6e4e768d520e881e1ec2c22a137a12e97bfb18bd413dad86b0ba9283",
+          "quote_start": 21,
+          "quote_length": 185
+        },
+        {
+          "key": "C2",
+          "kind": "scope",
+          "claim": "PostgreSQL的某些语言特性是标准之外的扩展。",
+          "source_ref": "M1",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-sql-intro.html",
+          "quote_digest": "c31170f3b3b46b3bcc6c56a2cca957bf80bd00c52373a7c31b11da817e0cc8a7",
+          "quote_start": 281,
+          "quote_length": 90
+        },
+        {
+          "key": "C3",
+          "kind": "scope",
+          "claim": "本章节的示例假定用户已创建名为mydb的数据库，并能够启动psql。",
+          "source_ref": "M1",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-sql-intro.html",
+          "quote_digest": "59b99cf12c18b2332d59addd8ac562bf838ee54856ac3b1085151dd3886bbe42",
+          "quote_start": 373,
+          "quote_length": 155
+        },
+        {
+          "key": "C4",
+          "kind": "case",
+          "claim": "PostgreSQL源代码分发包含本手册中示例所在的src/tutorial/目录；二进制分发可能不提供这些文件。",
+          "source_ref": "M1",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-sql-intro.html",
+          "quote_digest": "3dbee344467d1d8ede9c038d901040eb3e816f2aa680624a73462427c6dfead2",
+          "quote_start": 530,
+          "quote_length": 179
+        },
+        {
+          "key": "C5",
+          "kind": "method",
+          "claim": "使用src/tutorial中的文件时，需先变更到该目录并运行make命令。",
+          "source_ref": "M1",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-sql-intro.html",
+          "quote_digest": "935e67e5d2ac9069c9337210794850ce1568c780a8c1013a6d331680e4c69d82",
+          "quote_start": 710,
+          "quote_length": 64
+        },
+        {
+          "key": "C6",
+          "kind": "case",
+          "claim": "运行make命令会创建脚本并编译包含用户定义函数和类型的C文件。",
+          "source_ref": "M1",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-sql-intro.html",
+          "quote_digest": "5b41ec1d4274b7838a1ae0bf3b0344db8dd09191097b00cc61d4822a72dd7753",
+          "quote_start": 806,
+          "quote_length": 94
+        },
+        {
+          "key": "C7",
+          "kind": "method",
+          "claim": "启动教程需执行命令 psql -s mydb。",
+          "source_ref": "M1",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-sql-intro.html",
+          "quote_digest": "4d58fdb047a38e35b3cd9f583c30211063993dd2508395a28327874a4695575b",
+          "quote_start": 901,
+          "quote_length": 62
+        },
+        {
+          "key": "C8",
+          "kind": "case",
+          "claim": "在psql中使用\\i命令读取指定文件中的命令；-s选项使psql进入单步模式，在将每条语句发送到服务器前暂停。",
+          "source_ref": "M1",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-sql-intro.html",
+          "quote_digest": "8f19ff9690fb9ea0f1c70448d4ee398e24720fee0f01023ecce6712cabc583d8",
+          "quote_start": 992,
+          "quote_length": 161
+        },
+        {
+          "key": "C9",
+          "kind": "case",
+          "claim": "本章使用的命令位于文件 basics.sql 中。",
+          "source_ref": "M1",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-sql-intro.html",
+          "quote_digest": "0d82ffccb1947d3ee1381622548baea55881d7930943d38bc074e1c815145f4b",
+          "quote_start": 1154,
+          "quote_length": 61
+        }
+      ],
+      "inventory_errors": [],
+      "atoms_available": false,
+      "classification_available": false
+    },
+    {
+      "source_id": "M2",
+      "title": "2.2. Concepts",
+      "url": "https://www.postgresql.org/docs/18/tutorial-concepts.html",
+      "inventory_available": true,
+      "claims": [
+        {
+          "key": "C1",
+          "kind": "definition",
+          "claim": "PostgreSQL 是一种关系型数据库管理系统（RDBMS），即用于管理存储在关系中的数据的系统。",
+          "source_ref": "M2",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-concepts.html",
+          "quote_digest": "9af802237fcc227a16b25f38fd1c7a4dc33ed1a385b57fe6d2b3ec79d6837259",
+          "quote_start": 17,
+          "quote_length": 127
+        },
+        {
+          "key": "C2",
+          "kind": "definition",
+          "claim": "关系（Relation）在本质上是一个数学术语，指代表（table）。",
+          "source_ref": "M2",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-concepts.html",
+          "quote_digest": "260b9a73f33861e6fd0a48e346e35a709c8727227ccd8b62cac07d5a17d42ca8",
+          "quote_start": 145,
+          "quote_length": 54
+        },
+        {
+          "key": "C3",
+          "kind": "rule",
+          "claim": "Unix 类操作系统上的文件和目录构成了分层数据库的示例。",
+          "source_ref": "M2",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-concepts.html",
+          "quote_digest": "fe99817d3b1a1f5b71f8828a90d94925f6fed1ab110f5d7364b8814c6be5bf8b",
+          "quote_start": 362,
+          "quote_length": 96
+        },
+        {
+          "key": "C4",
+          "kind": "definition",
+          "claim": "对象数据库是一种比文件目录更现代的数据库组织方式。",
+          "source_ref": "M2",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-concepts.html",
+          "quote_digest": "0fe66d3178a9f66e0a9549384acf7ea60cbd7cb078406d6012ca6b2f5f40ad13",
+          "quote_start": 459,
+          "quote_length": 58
+        },
+        {
+          "key": "C5",
+          "kind": "rule",
+          "claim": "每张表都是行的命名集合。",
+          "source_ref": "M2",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-concepts.html",
+          "quote_digest": "81e4cee5943063e1711a6cc79e893d40262144eb147b2f6d543dee353fff7b52",
+          "quote_start": 519,
+          "quote_length": 41
+        },
+        {
+          "key": "C6",
+          "kind": "rule",
+          "claim": "给定表中的每一行都具有相同的一组命名列。",
+          "source_ref": "M2",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-concepts.html",
+          "quote_digest": "222076a76b33599d5ef4a4732c7202be1e3310c86c6dc4e90d9beb3a4e067619",
+          "quote_start": 561,
+          "quote_length": 59
+        },
+        {
+          "key": "C7",
+          "kind": "rule",
+          "claim": "每一列都具有特定的数据类型。",
+          "source_ref": "M2",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-concepts.html",
+          "quote_digest": "799d2a75aee21db06897e310879be795ded1897e670a529eadf43d1753541e7b",
+          "quote_start": 626,
+          "quote_length": 39
+        },
+        {
+          "key": "C8",
+          "kind": "rule",
+          "claim": "列在每一行中具有固定的顺序。",
+          "source_ref": "M2",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-concepts.html",
+          "quote_digest": "470f3d49bdb304f467e31aafe1a7c29ee41fffa4d56c4dd7195c5569a9849e55",
+          "quote_start": 674,
+          "quote_length": 38
+        },
+        {
+          "key": "C9",
+          "kind": "boundary",
+          "claim": "SQL 不以任何方式保证表中行的顺序（尽管可以显式排序用于显示）。",
+          "source_ref": "M2",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-concepts.html",
+          "quote_digest": "784b6e3beeba40d401b6e34acf33cfbfc5b40607611640a493ba627033d1cddb",
+          "quote_start": 747,
+          "quote_length": 126
+        },
+        {
+          "key": "C10",
+          "kind": "rule",
+          "claim": "表被分组到数据库中。",
+          "source_ref": "M2",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-concepts.html",
+          "quote_digest": "f2f2a842eb370e0c4b326e9ec005b4e9d3be66465e4debc28586f4528e9654b5",
+          "quote_start": 875,
+          "quote_length": 33
+        },
+        {
+          "key": "C11",
+          "kind": "definition",
+          "claim": "由单个 PostgreSQL 服务器实例管理的一组数据库构成一个数据库集群（database cluster）。",
+          "source_ref": "M2",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-concepts.html",
+          "quote_digest": "9cffefa0efe6d043cf2ca58b32e1bc4ed56880aff39cc8d7509b993d872c769c",
+          "quote_start": 914,
+          "quote_length": 104
+        }
+      ],
+      "inventory_errors": [],
+      "atoms_available": false,
+      "classification_available": false
+    },
+    {
+      "source_id": "M3",
+      "title": "2.3. Creating a New Table",
+      "url": "https://www.postgresql.org/docs/18/tutorial-table.html",
+      "inventory_available": true,
+      "claims": [
+        {
+          "key": "C1",
+          "kind": "method",
+          "claim": "创建新表时，必须指定表名以及所有列名和数据类型。",
+          "source_ref": "M3",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-table.html",
+          "quote_digest": "f5d5b5be9e3d555d7cf524b7228266080a1f2947b1e4daeca3a64a5d02dc6659",
+          "quote_start": 29,
+          "quote_length": 101
+        },
+        {
+          "key": "C2",
+          "kind": "rule",
+          "claim": "psql 客户端会识别命令未结束的状态，直到遇到分号才认为命令结束。",
+          "source_ref": "M3",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-table.html",
+          "quote_digest": "935859e551368249c039e9e3d2c840a6ad45e56caa2c69ee6b1c7a9093df36da",
+          "quote_start": 429,
+          "quote_length": 75
+        },
+        {
+          "key": "C3",
+          "kind": "rule",
+          "claim": "在 SQL 命令中，空格（包括空格、制表符和换行符）可以自由使用，允许不同对齐方式或单行书写。",
+          "source_ref": "M3",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-table.html",
+          "quote_digest": "33f11f0b51871b2a695796ac51e8948bd87b7490f058501061367835fd79ebe2",
+          "quote_start": 506,
+          "quote_length": 82
+        },
+        {
+          "key": "C4",
+          "kind": "rule",
+          "claim": "两个连字符（“--”）用于引入注释，其后的内容直到行尾都会被忽略。",
+          "source_ref": "M3",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-table.html",
+          "quote_digest": "db6abb1d62f6e2e80e116c6982f50eb4814a5c00314b7a611c77ff1ef738babd",
+          "quote_start": 682,
+          "quote_length": 97
+        },
+        {
+          "key": "C5",
+          "kind": "rule",
+          "claim": "SQL 对关键字和标识符是不区分大小写的，除非标识符被双引号包围以保留大小写。",
+          "source_ref": "M3",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-table.html",
+          "quote_digest": "ab8928add1bd0fcf18ffebfd81ea83dc91e122e4ecf20207cd9309cbfc5a3802",
+          "quote_start": 780,
+          "quote_length": 137
+        },
+        {
+          "key": "C6",
+          "kind": "definition",
+          "claim": "varchar(80) 定义了一种数据类型，可以存储长度不超过 80 个字符的任意字符串。",
+          "source_ref": "M3",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-table.html",
+          "quote_digest": "dbf0eaa1e352423ccb886b21d03267f019789c35193ab2e8bfe4595107893747",
+          "quote_start": 919,
+          "quote_length": 107
+        },
+        {
+          "key": "C7",
+          "kind": "definition",
+          "claim": "int 是标准的整数类型。",
+          "source_ref": "M3",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-table.html",
+          "quote_digest": "06745a7be8cc38e521e2dd712ab231a1e1ac8058403141376e20fc981d445360",
+          "quote_start": 1027,
+          "quote_length": 31
+        },
+        {
+          "key": "C8",
+          "kind": "definition",
+          "claim": "real 类型用于存储单精度浮点数。",
+          "source_ref": "M3",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-table.html",
+          "quote_digest": "af18a2f2d37b9e6687b7dc1a5e46d8ba97bed5b85488eb6d61d050482c67242c",
+          "quote_start": 1059,
+          "quote_length": 67
+        },
+        {
+          "key": "C9",
+          "kind": "scope",
+          "claim": "PostgreSQL 支持的标准 SQL 类型包括 int, smallint, real, double precision, char(N), varchar(N), date, time, timestamp, 和 interval。",
+          "source_ref": "M3",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-table.html",
+          "quote_digest": "901ae9a1802d65797ca6a687bd9037611127cc3f0ad7307462b35b59f7060554",
+          "quote_start": 1264,
+          "quote_length": 139
+        },
+        {
+          "key": "C10",
+          "kind": "scope",
+          "claim": "除了标准类型外，PostgreSQL 还包含其他通用类型以及丰富的几何类型。",
+          "source_ref": "M3",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-table.html",
+          "quote_digest": "570f8b6033f0301f02939c5a00cefcd3486928a129de95600ee89e3631b5c820",
+          "quote_start": 1404,
+          "quote_length": 76
+        },
+        {
+          "key": "C11",
+          "kind": "method",
+          "claim": "PostgreSQL 可以被定制以拥有任意数量的用户定义数据类型。",
+          "source_ref": "M3",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-table.html",
+          "quote_digest": "5a249847f5bbd81ec96e144a1071496a6389199b04370f4c8ad6a6a1e28f1e28",
+          "quote_start": 1481,
+          "quote_length": 81
+        },
+        {
+          "key": "C12",
+          "kind": "boundary",
+          "claim": "在语法上，类型名不是关键字，除非需要支持 SQL 标准中的特殊情况。",
+          "source_ref": "M3",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-table.html",
+          "quote_digest": "d4ca2f2af863f8ee04e6460f231f13f95667f9855e76bac4199cd972253c4f3f",
+          "quote_start": 1563,
+          "quote_length": 125
+        },
+        {
+          "key": "C13",
+          "kind": "case",
+          "claim": "示例中使用了 point 类型来存储城市及其相关的地理位置。",
+          "source_ref": "M3",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-table.html",
+          "quote_digest": "524fbf1be3405e76384a206ab6278083271990a6d82f44ed0c8ce6a4403c223f",
+          "quote_start": 1857,
+          "quote_length": 64
+        },
+        {
+          "key": "C14",
+          "kind": "method",
+          "claim": "如果不再需要表或希望重新创建它，可以使用 DROP TABLE tablename; 命令删除该表。",
+          "source_ref": "M3",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-table.html",
+          "quote_digest": "b70d39c0afe4afa07fbbe406823e65de03eef9816c8270597113a43be378c92b",
+          "quote_start": 1960,
+          "quote_length": 141
+        }
+      ],
+      "inventory_errors": [],
+      "atoms_available": false,
+      "classification_available": false
+    },
+    {
+      "source_id": "M4",
+      "title": "2.4. Populating a Table With Rows",
+      "url": "https://www.postgresql.org/docs/18/tutorial-populate.html",
+      "inventory_available": false,
+      "claims": [],
+      "inventory_errors": [
+        "call_failed"
+      ],
+      "atoms_available": false,
+      "classification_available": false
+    },
+    {
+      "source_id": "M5",
+      "title": "2.5. Querying a Table",
+      "url": "https://www.postgresql.org/docs/18/tutorial-select.html",
+      "inventory_available": true,
+      "claims": [
+        {
+          "key": "C1",
+          "kind": "definition",
+          "claim": "SQL SELECT语句用于从表中检索数据，由select list、table list和可选的qualification组成",
+          "source_ref": "M5",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-select.html",
+          "quote_digest": "ace52fd021706781a8e24ecb229ffe313bfd8ac0ad3dacb83adc9f7907e1ae27",
+          "quote_start": 78,
+          "quote_length": 290
+        },
+        {
+          "key": "C2",
+          "kind": "rule",
+          "claim": "SELECT * 是“所有列”的简写",
+          "source_ref": "M5",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-select.html",
+          "quote_digest": "510ea9827b43f3417b53da6cd624b8993fac2e5c30e70fd039732749dba13a78",
+          "quote_start": 456,
+          "quote_length": 40
+        },
+        {
+          "key": "C3",
+          "kind": "rule",
+          "claim": "在select list中，可以写表达式，而不只是简单的列引用",
+          "source_ref": "M5",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-select.html",
+          "quote_digest": "45c06073c0dbff7df431cc11ca943d98af6e3f588bf7f145c82775e00cb9aa98",
+          "quote_start": 898,
+          "quote_length": 81
+        },
+        {
+          "key": "C4",
+          "kind": "method",
+          "claim": "AS子句可用于重新标记输出列",
+          "source_ref": "M5",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-select.html",
+          "quote_digest": "b9ba60c741f664ce4f53165c20fe42e32f0b798ad295092799b0e32f6822408a",
+          "quote_start": 1289,
+          "quote_length": 62
+        },
+        {
+          "key": "C5",
+          "kind": "rule",
+          "claim": "AS子句是可选的",
+          "source_ref": "M5",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-select.html",
+          "quote_digest": "bd67518c0e0a5e6217cea2386577dc6f913d8ca471dcc4bb8d60d9dc16a5dd1a",
+          "quote_start": 1352,
+          "quote_length": 28
+        },
+        {
+          "key": "C6",
+          "kind": "method",
+          "claim": "通过添加指定所需行的WHERE子句，可以“限定”查询",
+          "source_ref": "M5",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-select.html",
+          "quote_digest": "e902182c01778ed3ec9557b72fcbdc5e954448ac760f1d886fab78463a165c9a",
+          "quote_start": 1382,
+          "quote_length": 89
+        },
+        {
+          "key": "C7",
+          "kind": "rule",
+          "claim": "WHERE子句包含一个布尔（真值）表达式，并且只有使布尔表达式为真的行才会被返回",
+          "source_ref": "M5",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-select.html",
+          "quote_digest": "dc89d5ecc5b788139fe0cc44e208015167554f804d8e7b1aba65f30097a7db55",
+          "quote_start": 1472,
+          "quote_length": 130
+        },
+        {
+          "key": "C8",
+          "kind": "rule",
+          "claim": "在限定条件中允许使用常用的布尔运算符（AND、OR和NOT）",
+          "source_ref": "M5",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-select.html",
+          "quote_digest": "1d970f08a5c953264e9ab7cbf8c9832b2d80cb10a83d8441164de338623e5973",
+          "quote_start": 1603,
+          "quote_length": 80
+        },
+        {
+          "key": "C9",
+          "kind": "method",
+          "claim": "可以请求以排序顺序返回查询结果（使用ORDER BY）",
+          "source_ref": "M5",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-select.html",
+          "quote_digest": "12ba6540b310da0249f984fd5733f00eac3443ea4b1ee3813a161db7f27885ac",
+          "quote_start": 2014,
+          "quote_length": 72
+        },
+        {
+          "key": "C10",
+          "kind": "boundary",
+          "claim": "如果排序顺序未完全指定，结果可能会以任意顺序出现",
+          "source_ref": "M5",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-select.html",
+          "quote_digest": "a27fe00299c5cf6a515bd321b3ba02eea0e25529673b9af2422108b51733a7b4",
+          "quote_start": 2399,
+          "quote_length": 115
+        },
+        {
+          "key": "C11",
+          "kind": "rule",
+          "claim": "可以请求从查询结果中移除重复行（使用DISTINCT）",
+          "source_ref": "M5",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-select.html",
+          "quote_digest": "0c8b128c1a37340821e69e1a8d5d2aafea244742b279bc7caf5ebe641fc63fe4",
+          "quote_start": 2623,
+          "quote_length": 74
+        },
+        {
+          "key": "C12",
+          "kind": "boundary",
+          "claim": "DISTINCT的结果行顺序可能会变化",
+          "source_ref": "M5",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-select.html",
+          "quote_digest": "87d491db16ccc6c44e981e2fa4f7c9db3f1a1951922c529498d0d8cda8e339bd",
+          "quote_start": 2794,
+          "quote_length": 47
+        },
+        {
+          "key": "C13",
+          "kind": "method",
+          "claim": "通过使用DISTINCT和ORDER BY一起，可以确保获得一致的结果",
+          "source_ref": "M5",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-select.html",
+          "quote_digest": "1295e3867015d6e4b85be3320036abdb765900beceeb03b16abb0692f87bac2a",
+          "quote_start": 2842,
+          "quote_length": 74
+        },
+        {
+          "key": "C14",
+          "kind": "boundary",
+          "claim": "虽然SELECT *对于临时查询很有用，但在生产代码中被广泛认为是糟糕的风格，因为向表中添加一列会改变结果",
+          "source_ref": "M5",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-select.html",
+          "quote_digest": "2881dfdd0437f56ac23d3d9a4bf50dc6af5457c8b359c870f8113cb1001bc6b4",
+          "quote_start": 2984,
+          "quote_length": 165
+        },
+        {
+          "key": "C15",
+          "kind": "boundary",
+          "claim": "SQL标准不要求DISTINCT自动对行进行排序，当前的PostgreSQL也不保证DISTINCT会导致行被排序",
+          "source_ref": "M5",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-select.html",
+          "quote_digest": "35cf2a80574ef147c4f166847fce7986885b028b17ec3d527a92e7352e93ca24",
+          "quote_start": 3314,
+          "quote_length": 132
+        }
+      ],
+      "inventory_errors": [],
+      "atoms_available": false,
+      "classification_available": false
+    },
+    {
+      "source_id": "M6",
+      "title": "2.6. Joins Between Tables",
+      "url": "https://www.postgresql.org/docs/18/tutorial-join.html",
+      "inventory_available": true,
+      "claims": [
+        {
+          "key": "C1",
+          "kind": "definition",
+          "claim": "同时访问多个表（或同一表的多个实例）的查询被称为join queries（连接查询）。",
+          "source_ref": "M6",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-join.html",
+          "quote_digest": "a5794e02eb72b54fe23550b6d72f34ab6506245a5864a69b1ea3188b0645ca30",
+          "quote_start": 244,
+          "quote_length": 114
+        },
+        {
+          "key": "C2",
+          "kind": "rule",
+          "claim": "内连接（inner join）会忽略未匹配的表行，导致结果集中不包含这些行。",
+          "source_ref": "M6",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-join.html",
+          "quote_digest": "9582f6faf0c9daa991ee150b8f498f35bc2c3deae7a59345c9774769f40b8a84",
+          "quote_start": 1301,
+          "quote_length": 136
+        },
+        {
+          "key": "C3",
+          "kind": "rule",
+          "claim": "使用SELECT *进行多表连接时，结果集包含两个表中所有列的拼接，可能导致列名重复。",
+          "source_ref": "M6",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-join.html",
+          "quote_digest": "a81eeaecb9c43293f67aa5aaeb5b6837041aba3ece6e724136f36750100e438e",
+          "quote_start": 1482,
+          "quote_length": 145
+        },
+        {
+          "key": "C4",
+          "kind": "rule",
+          "claim": "在SQL-92中，WHERE子句中包含连接条件被称为旧式隐式连接语法，其与JOIN/ON语法结果相同但可读性较差。",
+          "source_ref": "M6",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-join.html",
+          "quote_digest": "80d018a00ea5e32dd11f0df8b86a7018c322fb1821c504bd59e8ba902cb9d26a",
+          "quote_start": 2554,
+          "quote_length": 182
+        },
+        {
+          "key": "C5",
+          "kind": "rule",
+          "claim": "左外连接（LEFT OUTER JOIN）保证左表所有行至少出现一次，右表无匹配行时其列填入NULL值。",
+          "source_ref": "M6",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-join.html",
+          "quote_digest": "1fb0a3d27b5a1b6d44aad0767b7b659ca75e3a415aecf0741044074404037b03",
+          "quote_start": 3974,
+          "quote_length": 258
+        },
+        {
+          "key": "C6",
+          "kind": "definition",
+          "claim": "自连接（self join）是指一个表与其自身进行连接的操作。",
+          "source_ref": "M6",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-join.html",
+          "quote_digest": "bdbb017199e30b94737543c316d61f465c559134d88263b1fb71c3b793fe6c86",
+          "quote_start": 4470,
+          "quote_length": 68
+        },
+        {
+          "key": "C7",
+          "kind": "rule",
+          "claim": "在查询中为表起别名（如w1, w2）是为了在自连接或其他多实例场景中区分配对侧的行数据。",
+          "source_ref": "M6",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-join.html",
+          "quote_digest": "52386a1b2f59c42562a6f9fc898cc9dfd4004711fb5405c421ebbba761f0fe69",
+          "quote_start": 5284,
+          "quote_length": 116
+        },
+        {
+          "key": "C8",
+          "kind": "boundary",
+          "claim": "文中将行对比较描述为概念模型，实际执行引擎可能采用更高效的算法而非直接比较所有行对，这对用户是透明的。",
+          "source_ref": "M6",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-join.html",
+          "quote_digest": "565e8617470b55ae0cf642649b23261f3dcdd66c7765c4eda1014a9ad9d1cb53",
+          "quote_start": 5618,
+          "quote_length": 176
+        },
+        {
+          "key": "C9",
+          "kind": "case",
+          "claim": "示例中Weather表与Cities表连接后，Hayward因在Cities表中无匹配而被默认内连接排除，但在左外连接下保留并补全NULL。",
+          "source_ref": "M6",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-join.html",
+          "quote_digest": "5acab79b58a7fd92dc1a886608175d62dd199110dc3f70ce60088ff7a6499a4b",
+          "quote_start": 3726,
+          "quote_length": 71
+        },
+        {
+          "key": "C10",
+          "kind": "rule",
+          "claim": "在存在重名列名的表中，必须使用表名或表别名限定列名（如 weather.city），否则查询可能失败或产生歧义。",
+          "source_ref": "M6",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-join.html",
+          "quote_digest": "af089031ff9bf4f840f0a4e2a7a6ccb4130c73d5971b791574237931befff843",
+          "quote_start": 1950,
+          "quote_length": 121
+        }
+      ],
+      "inventory_errors": [],
+      "atoms_available": false,
+      "classification_available": false
+    },
+    {
+      "source_id": "M7",
+      "title": "2.7. Aggregate Functions",
+      "url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+      "inventory_available": true,
+      "claims": [
+        {
+          "key": "C1",
+          "kind": "definition",
+          "claim": "聚合函数（aggregate function）从多行输入中计算出一个单一结果。",
+          "source_ref": "M7",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+          "quote_digest": "6286d477348cc4a57be71a7329963f20e949fa6c526bd8f8fa7d659d2889c3b0",
+          "quote_start": 115,
+          "quote_length": 72
+        },
+        {
+          "key": "C2",
+          "kind": "case",
+          "claim": "PostgreSQL 中用于对行集计算 count, sum, avg, max, min 的聚合函数是特定示例，展示了可计算的聚合类型。",
+          "source_ref": "M7",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+          "quote_digest": "39527986018d86c4b1c7673c2331f081cbd574ebb6ccea57725a76c5b57fb8d7",
+          "quote_start": 188,
+          "quote_length": 127
+        },
+        {
+          "key": "C3",
+          "kind": "case",
+          "claim": "查询 max(temp_lo) 得到最高最低温度读数为 46。",
+          "source_ref": "M7",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+          "quote_digest": "018191c48b71126bd6ba7234eed7da127ec880701fb224f9452103ac0acb1b14",
+          "quote_start": 396,
+          "quote_length": 57
+        },
+        {
+          "key": "C4",
+          "kind": "rule",
+          "claim": "聚合函数（如 max）不能用于 WHERE 子句中。",
+          "source_ref": "M7",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+          "quote_digest": "a391e5542ce0fbfe6a00ffa216917864f24de658283bbc779afb2aa7515c66a2",
+          "quote_start": 608,
+          "quote_length": 82
+        },
+        {
+          "key": "C5",
+          "kind": "boundary",
+          "claim": "WHERE 子句必须先于聚合函数计算被评估，因为它决定了哪些行将包含在聚合计算中。",
+          "source_ref": "M7",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+          "quote_digest": "8fae83ea7295c63ce7ebaf03d562fa1e7877e7455b80ec15640b23d22cd6162a",
+          "quote_start": 691,
+          "quote_length": 196
+        },
+        {
+          "key": "C6",
+          "kind": "method",
+          "claim": "若需在查询中使用聚合函数作为条件，可以使用子查询（subquery）。",
+          "source_ref": "M7",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+          "quote_digest": "906327e076cc49cd50578c13fa6fe1559910f838f1eb01a6ba5b3bc488956d6f",
+          "quote_start": 888,
+          "quote_length": 197
+        },
+        {
+          "key": "C7",
+          "kind": "reason",
+          "claim": "子查询中的聚合计算是独立的，与外部查询中发生的事情分开进行，因此可以合法地在 WHERE 中引用。",
+          "source_ref": "M7",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+          "quote_digest": "acc404b3988870f00b64c5df9cfaf20b86cde0d20a491fc78f76b9c14dea340d",
+          "quote_start": 1132,
+          "quote_length": 147
+        },
+        {
+          "key": "C8",
+          "kind": "case",
+          "claim": "使用 GROUP BY city 查询各城市的记录数和最高最低温度，其中 Hayward 计数为 1，最高 37；San Francisco 计数为 2，最高 46。",
+          "source_ref": "M7",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+          "quote_digest": "904542416fc44fc11e088f771fdf429f895ab6d37925b5bdb282340932df7f18",
+          "quote_start": 1459,
+          "quote_length": 193
+        },
+        {
+          "key": "C9",
+          "kind": "rule",
+          "claim": "GROUP BY 子句生成每个组（如每个城市）一行输出，每个聚合结果仅在该组匹配的行上计算。",
+          "source_ref": "M7",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+          "quote_digest": "d5abc589515cda7290bb742c2fcb58e236c4e44af590df830430c8869ce7cc28",
+          "quote_start": 1654,
+          "quote_length": 113
+        },
+        {
+          "key": "C10",
+          "kind": "rule",
+          "claim": "HAVING 子句用于过滤分组后的行（grouped rows），即聚合计算完成之后。",
+          "source_ref": "M7",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+          "quote_digest": "1ccf9f9f4d0786a29b2e81ce64701eb31fee882ecc722f331561bc73c190be44",
+          "quote_start": 1768,
+          "quote_length": 148
+        },
+        {
+          "key": "C11",
+          "kind": "case",
+          "claim": "应用 HAVING max(temp_lo) < 40 仅保留 Hayward（最高 37），过滤掉 San Francisco（最高 46）。",
+          "source_ref": "M7",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+          "quote_digest": "3819fbd4b82232a3574c080331d36e7e077dc4d837150b45578723a6c9bdd65a",
+          "quote_start": 1995,
+          "quote_length": 90
+        },
+        {
+          "key": "C12",
+          "kind": "rule",
+          "claim": "WHERE 和 HAVING 的根本区别在于：WHERE 在分组和聚合计算之前选择输入行，控制哪些行进入聚合；而 HAVING 在分组和聚合计算之后选择组行。",
+          "source_ref": "M7",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+          "quote_digest": "d143c31774d099c4251e27d47a5eaa291e7bbdd7fadf9e843930e576011be2d6",
+          "quote_start": 2554,
+          "quote_length": 269
+        },
+        {
+          "key": "C13",
+          "kind": "boundary",
+          "claim": "WHERE 子句不能包含聚合函数，因为试图使用聚合来决定哪些行作为聚合输入在逻辑上无意义。",
+          "source_ref": "M7",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+          "quote_digest": "86d235d406ee1dc4455d6a9d5094d4a73a516d873f0bfb1aad25047817901155",
+          "quote_start": 2824,
+          "quote_length": 163
+        },
+        {
+          "key": "C14",
+          "kind": "rule",
+          "claim": "HAVING 子句通常包含聚合函数。",
+          "source_ref": "M7",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+          "quote_digest": "35b85fe9761e65e50257e1758a26fba58e13a1043199b9c75b4574d0b0dc1d47",
+          "quote_start": 2988,
+          "quote_length": 73
+        },
+        {
+          "key": "C15",
+          "kind": "scope",
+          "claim": "虽然允许编写不使用聚合的 HAVING 子句，但很少有用，同样的条件在 WHERE 阶段使用会更高效。",
+          "source_ref": "M7",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+          "quote_digest": "cd1a7972be30d26c615026eb58d6d12256341d405f92bccce248fa6cf59a4019",
+          "quote_start": 3062,
+          "quote_length": 184
+        },
+        {
+          "key": "C16",
+          "kind": "method",
+          "claim": "如果一个条件不需要聚合（如城市名限制），应放在 WHERE 中而不是 HAVING 中，以避免对未通过 WHERE 检查的所有行执行分组和聚合计算，从而更高效。",
+          "source_ref": "M7",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+          "quote_digest": "f773aceaea0b8355b4a531c32961bcbbbb68591dd7bdda14965300b803de0f70",
+          "quote_start": 3248,
+          "quote_length": 267
+        },
+        {
+          "key": "C17",
+          "kind": "definition",
+          "claim": "FILTER 是用于选择进入特定聚合计算的行的另一种方式，它是每个聚合的选项（per-aggregate option）。",
+          "source_ref": "M7",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+          "quote_digest": "e0da169271b98fe9ccf00aa1a45d92b1d1d7f3726772df67e57931751c7d6c8e",
+          "quote_start": 3517,
+          "quote_length": 119
+        },
+        {
+          "key": "C18",
+          "kind": "rule",
+          "claim": "FILTER 与 WHERE 类似，但它仅从其附加的特定聚合函数的输入中移除行。",
+          "source_ref": "M7",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+          "quote_digest": "d566c1e6a5a3352fbc654103e26c20b46977633b1ef66a5ae3f861edbf6b2a90",
+          "quote_start": 3861,
+          "quote_length": 135
+        },
+        {
+          "key": "C19",
+          "kind": "case",
+          "claim": "在示例中，使用 count(*) FILTER (WHERE temp_lo < 45)，count 仅计算 temp_lo 小于 45 的行（San Francisco 中仅 1 行符合），而 max(temp_lo) 仍应用于所有行（仍找到 46）。",
+          "source_ref": "M7",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-agg.html",
+          "quote_digest": "926d791a729794b6c1681ced8f49dd205c87ebe713d70f347e838a44fc320b3b",
+          "quote_start": 3997,
+          "quote_length": 154
+        }
+      ],
+      "inventory_errors": [
+        "claim_shape"
+      ],
+      "atoms_available": false,
+      "classification_available": false
+    },
+    {
+      "source_id": "M8",
+      "title": "2.8. Updates",
+      "url": "https://www.postgresql.org/docs/18/tutorial-update.html",
+      "inventory_available": true,
+      "claims": [
+        {
+          "key": "C1",
+          "kind": "method",
+          "claim": "可以使用UPDATE命令更新现有行。",
+          "source_ref": "M8",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-update.html",
+          "quote_digest": "548ac38acebbd9b64442aac0914f64c8061bdb4e53b20b9e7acf4de06a0bd48c",
+          "quote_start": 16,
+          "quote_length": 54
+        },
+        {
+          "key": "C2",
+          "kind": "case",
+          "claim": "在假设11月28日后气温读数均偏差2度的情境下，可通过UPDATE命令减去2度来修正数据。",
+          "source_ref": "M8",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-update.html",
+          "quote_digest": "33f00e625ee7daa2a5aa90dc117c0bc3f7be4a8b7fe35abaae32bc257077e4ef",
+          "quote_start": -1,
+          "quote_length": 217
+        },
+        {
+          "key": "C3",
+          "kind": "case",
+          "claim": "针对weather表，当date大于'1994-11-28'时，将temp_hi和temp_lo各减去2。",
+          "source_ref": "M8",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-update.html",
+          "quote_digest": "fdd82872007ddaa1af06b0b7c395b9c57a11b10ceb15c2ae41d8210b47620d88",
+          "quote_start": -1,
+          "quote_length": 90
+        },
+        {
+          "key": "C4",
+          "kind": "case",
+          "claim": "执行更新后，weather表中San Francisco在1994-11-29的数据为temp_lo 41, temp_hi 55；Hayward在1994-11-29的数据为temp_lo 35, temp_hi 52。",
+          "source_ref": "M8",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-update.html",
+          "quote_digest": "421206e70215beb07925ae35522dfec8007cd1cf4237ec38eede56a28c41b176",
+          "quote_start": -1,
+          "quote_length": 108
+        },
+        {
+          "key": "C5",
+          "kind": "case",
+          "claim": "更新后，weather表共有3行数据，包括San Francisco在1994-11-27和1994-11-29的记录，以及Hayward在1994-11-29的记录。",
+          "source_ref": "M8",
+          "source_url": "https://www.postgresql.org/docs/18/tutorial-update.html",
+          "quote_digest": "92fc80d6317f7e865bea8e4bffca77a08fa6d8aac8a194791167e7e68e5632d5",
+          "quote_start": 360,
+          "quote_length": 281
+        }
+      ],
+      "inventory_errors": [
+        "unanchored_quote:C2",
+        "unanchored_quote:C3",
+        "unanchored_quote:C4"
+      ],
+      "atoms_available": false,
+      "classification_available": false
+    },
+    {
+      "source_id": "M9",
+      "title": "2.9. Deletions",
+      "url": "https://www.postgresql.org/docs/18/tutorial-delete.html",
+      "inventory_available": false,
+      "claims": [],
+      "inventory_errors": [
+        "call_failed"
+      ],
+      "atoms_available": false,
+      "classification_available": false
+    }
+  ],
+  "coverage": [
+    {
+      "source_id": "M1",
+      "requirement": "入门范围非完整SQL教程，部分特性为扩展",
+      "status": "covered",
+      "claim_refs": [
+        "C1",
+        "C2"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M1",
+      "requirement": "示例前提mydb已创建且psql可启动",
+      "status": "covered",
+      "claim_refs": [
+        "C3"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M1",
+      "requirement": "教程源码位置及二进制发行版可能无文件",
+      "status": "covered",
+      "claim_refs": [
+        "C4"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M1",
+      "requirement": "make生成脚本并编译示例C文件",
+      "status": "covered",
+      "claim_refs": [
+        "C5",
+        "C6"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M1",
+      "requirement": "psql的文件读入命令",
+      "status": "covered",
+      "claim_refs": [
+        "C8"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M1",
+      "requirement": "单步模式在发送语句前暂停",
+      "status": "covered",
+      "claim_refs": [
+        "C8"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M2",
+      "requirement": "关系型数据库和关系/表",
+      "status": "covered",
+      "claim_refs": [
+        "C1",
+        "C2"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M2",
+      "requirement": "表为有名行集合",
+      "status": "covered",
+      "claim_refs": [
+        "C5"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M2",
+      "requirement": "各行具有相同命名列且列有类型",
+      "status": "covered",
+      "claim_refs": [
+        "C6",
+        "C7"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M2",
+      "requirement": "列顺序固定",
+      "status": "covered",
+      "claim_refs": [
+        "C8"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M2",
+      "requirement": "表行顺序无保证",
+      "status": "covered",
+      "claim_refs": [
+        "C9"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M2",
+      "requirement": "表/数据库/单服务器数据库簇的层次",
+      "status": "covered",
+      "claim_refs": [
+        "C10",
+        "C11"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M3",
+      "requirement": "建表需表名列名类型",
+      "status": "covered",
+      "claim_refs": [
+        "C1"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M3",
+      "requirement": "psql用分号判命令结束",
+      "status": "covered",
+      "claim_refs": [
+        "C2"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M3",
+      "requirement": "命令可用空格制表与换行排版",
+      "status": "covered",
+      "claim_refs": [
+        "C3"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M3",
+      "requirement": "双短横线注释到行尾",
+      "status": "covered",
+      "claim_refs": [
+        "C4"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M3",
+      "requirement": "关键字和未加双引号标识符大小写规则",
+      "status": "covered",
+      "claim_refs": [
+        "C5"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M3",
+      "requirement": "双引号标识符保留大小写的例外",
+      "status": "covered",
+      "claim_refs": [
+        "C5"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M3",
+      "requirement": "varchar的长度含义",
+      "status": "covered",
+      "claim_refs": [
+        "C6"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M3",
+      "requirement": "int与real等给定类型语义",
+      "status": "covered",
+      "claim_refs": [
+        "C7",
+        "C8"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M3",
+      "requirement": "支持标准类型并可自定义类型",
+      "status": "covered",
+      "claim_refs": [
+        "C9",
+        "C10",
+        "C11"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M3",
+      "requirement": "类型名一般非关键字且有SQL标准特例",
+      "status": "covered",
+      "claim_refs": [
+        "C12"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M3",
+      "requirement": "point为PostgreSQL特有类型",
+      "status": "partial",
+      "claim_refs": [
+        "C13"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M3",
+      "requirement": "DROP TABLE移除表",
+      "status": "covered",
+      "claim_refs": [
+        "C14"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M4",
+      "requirement": "INSERT添加行",
+      "status": "unavailable",
+      "claim_refs": [],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M4",
+      "requirement": "非简单数值常量通常需单引号",
+      "status": "unavailable",
+      "claim_refs": [],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M4",
+      "requirement": "date可接受多格式而教程采用无歧义形式",
+      "status": "unavailable",
+      "claim_refs": [],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M4",
+      "requirement": "point输入为坐标对",
+      "status": "unavailable",
+      "claim_refs": [],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M4",
+      "requirement": "隐式插入依赖列顺序",
+      "status": "unavailable",
+      "claim_refs": [],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M4",
+      "requirement": "显式列列表可换顺序或省略列",
+      "status": "unavailable",
+      "claim_refs": [],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M4",
+      "requirement": "显式列名的可维护性建议",
+      "status": "unavailable",
+      "claim_refs": [],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M4",
+      "requirement": "COPY批量读平面文本通常更快但灵活性较低",
+      "status": "unavailable",
+      "claim_refs": [],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M4",
+      "requirement": "COPY文件由后端读取须在服务器可访问",
+      "status": "unavailable",
+      "claim_refs": [],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M4",
+      "requirement": "示例数据/输入文件作为案例不冒充通用事实",
+      "status": "unavailable",
+      "claim_refs": [],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M5",
+      "requirement": "SELECT取数据及三部分结构",
+      "status": "covered",
+      "claim_refs": [
+        "C1"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M5",
+      "requirement": "星号代表所有列",
+      "status": "covered",
+      "claim_refs": [
+        "C2"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M5",
+      "requirement": "生产中星号受新增列影响的边界",
+      "status": "covered",
+      "claim_refs": [
+        "C14"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M5",
+      "requirement": "选择列表可为表达式",
+      "status": "covered",
+      "claim_refs": [
+        "C3"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M5",
+      "requirement": "AS改输出列标签及其可省略性",
+      "status": "covered",
+      "claim_refs": [
+        "C4",
+        "C5"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M5",
+      "requirement": "WHERE仅返回条件为真的行",
+      "status": "covered",
+      "claim_refs": [
+        "C6",
+        "C7"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M5",
+      "requirement": "AND/OR/NOT逻辑筛选",
+      "status": "covered",
+      "claim_refs": [
+        "C8"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M5",
+      "requirement": "ORDER BY排序",
+      "status": "covered",
+      "claim_refs": [
+        "C9"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M5",
+      "requirement": "单个排序键相同的行仍可任意次序",
+      "status": "partial",
+      "claim_refs": [
+        "C10"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M5",
+      "requirement": "增加排序键进一步确定次序",
+      "status": "missing",
+      "claim_refs": [],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M5",
+      "requirement": "DISTINCT去除重复结果行",
+      "status": "covered",
+      "claim_refs": [
+        "C11"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M5",
+      "requirement": "DISTINCT本身不保证当前PostgreSQL排序",
+      "status": "covered",
+      "claim_refs": [
+        "C12",
+        "C15"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M6",
+      "requirement": "连接按条件组合多表或同表实例的行",
+      "status": "partial",
+      "claim_refs": [
+        "C1"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M6",
+      "requirement": "内连接不保留不匹配行",
+      "status": "covered",
+      "claim_refs": [
+        "C2"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M6",
+      "requirement": "SELECT星号连接拼接两边列而显式列可控制输出",
+      "status": "partial",
+      "claim_refs": [
+        "C3"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M6",
+      "requirement": "同名列需限定所属表",
+      "status": "covered",
+      "claim_refs": [
+        "C10"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M6",
+      "requirement": "限定列名可防后续同名列变化",
+      "status": "missing",
+      "claim_refs": [],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M6",
+      "requirement": "本例隐式连接与JOIN ON等价且后者含义更清楚",
+      "status": "partial",
+      "claim_refs": [
+        "C4"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M6",
+      "requirement": "左外连接左行至少一次，可能不止一次",
+      "status": "covered",
+      "claim_refs": [
+        "C5"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M6",
+      "requirement": "不匹配左行的右列补NULL",
+      "status": "covered",
+      "claim_refs": [
+        "C5"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M6",
+      "requirement": "右/全外连接仅作为待探索提及，不编造材料未解释规则",
+      "status": "partial",
+      "claim_refs": [],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M6",
+      "requirement": "自连接是同表与自身连接",
+      "status": "covered",
+      "claim_refs": [
+        "C6"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M6",
+      "requirement": "别名区分表实例及简化名称",
+      "status": "covered",
+      "claim_refs": [
+        "C7"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M6",
+      "requirement": "逐对比较只是概念模型，不是保证的执行算法",
+      "status": "covered",
+      "claim_refs": [
+        "C8"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M7",
+      "requirement": "聚合多输入行得一个结果",
+      "status": "covered",
+      "claim_refs": [
+        "C1"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M7",
+      "requirement": "count/sum/avg/max/min作为聚合例子",
+      "status": "covered",
+      "claim_refs": [
+        "C2"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M7",
+      "requirement": "同一查询层WHERE先于聚合不能直接引用该层聚合",
+      "status": "partial",
+      "claim_refs": [
+        "C4",
+        "C13"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M7",
+      "requirement": "独立子查询可先算聚合供外层WHERE比较",
+      "status": "covered",
+      "claim_refs": [
+        "C6",
+        "C7"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M7",
+      "requirement": "GROUP BY按组计算聚合",
+      "status": "covered",
+      "claim_refs": [
+        "C9"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M7",
+      "requirement": "HAVING过滤聚合后分组结果",
+      "status": "covered",
+      "claim_refs": [
+        "C10"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M7",
+      "requirement": "WHERE筛聚合前输入行",
+      "status": "covered",
+      "claim_refs": [
+        "C5",
+        "C12"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M7",
+      "requirement": "HAVING允许不包含聚合的明确例外",
+      "status": "covered",
+      "claim_refs": [
+        "C14",
+        "C15"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M7",
+      "requirement": "无需聚合的条件可提前WHERE减少计算",
+      "status": "covered",
+      "claim_refs": [
+        "C16"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M7",
+      "requirement": "LIKE示例是模式匹配及前缀限制",
+      "status": "missing",
+      "claim_refs": [],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M7",
+      "requirement": "FILTER只影响所附聚合输入，不影响其他聚合",
+      "status": "covered",
+      "claim_refs": [
+        "C17",
+        "C18",
+        "C19"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M8",
+      "requirement": "UPDATE修改现有行",
+      "status": "covered",
+      "claim_refs": [
+        "C1"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M8",
+      "requirement": "SET可同时修改多个列并使用原列表达式",
+      "status": "partial",
+      "claim_refs": [
+        "C2",
+        "C3"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M8",
+      "requirement": "WHERE限定更新行",
+      "status": "partial",
+      "claim_refs": [
+        "C3"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M8",
+      "requirement": "更新后数据只作为可追溯案例",
+      "status": "covered",
+      "claim_refs": [
+        "C4",
+        "C5"
+      ],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M9",
+      "requirement": "DELETE删除行",
+      "status": "unavailable",
+      "claim_refs": [],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M9",
+      "requirement": "WHERE限定删除范围",
+      "status": "unavailable",
+      "claim_refs": [],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M9",
+      "requirement": "无WHERE删除全部行但表保留为空",
+      "status": "unavailable",
+      "claim_refs": [],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    },
+    {
+      "source_id": "M9",
+      "requirement": "删除不会先向用户请求确认",
+      "status": "unavailable",
+      "claim_refs": [],
+      "stage": "inventory only; not atomic knowledge acceptance",
+      "reviewer": "Codex"
+    }
+  ],
+  "findings": [
+    {
+      "path": "M5.C10",
+      "type": "semantic_scope",
+      "finding": "排序未完全指定时，是相同排序键的行相对次序未定；概括成结果可能任意顺序过宽。"
+    },
+    {
+      "path": "M1.C8",
+      "type": "granularity_risk",
+      "finding": "文件读入与单步模式两种独立功能合成case；尚未进入原子化，不能计作合格叶子。"
+    },
+    {
+      "path": "M3.C13",
+      "type": "coverage",
+      "finding": "仅保留point类型用于地理位置案例，未明确保留它是PostgreSQL特有类型的边界。"
+    },
+    {
+      "path": "M6.C4 / M7.C4,C13",
+      "type": "scope_review_needed",
+      "finding": "连接等价性需保留此前内连接情境；WHERE聚合限制需与独立子查询例外一起解释，不能泛化成任何嵌套层都禁止。"
+    },
+    {
+      "path": "M7.C7",
+      "type": "schema",
+      "finding": "kind返回reason，不在冻结枚举中，原流程守卫拒绝该节继续。"
+    },
+    {
+      "path": "M8.C2-C4",
+      "type": "citation",
+      "finding": "3处quote改写了空白/拼接片段，没有与冻结输入的连续原文精确匹配；未手工修正。"
+    },
+    {
+      "path": "M7.C14-C19",
+      "type": "positive",
+      "finding": "保留了HAVING允许无聚合的例外，以及FILTER仅影响所附聚合的边界。"
+    }
+  ]
+}

@@ -1,0 +1,177 @@
+{
+  "schema_version": "course_knowledge_base_v3_draft",
+  "artifact_kind": "design_example_not_runtime_data",
+  "course_id": "demo-c17-course",
+  "course_title": "C17 基础程序设计",
+  "knowledge_revision_id": "demo-revision-1",
+  "source_course_revision_id": null,
+  "status": "draft",
+  "scope_note": "仅演示五个元知识点的树与关联合同，尚未绑定实际课程，也不是当前后端可直接导入的数据格式。",
+  "strength_policy": {
+    "policy_id": "teaching_association_ordinal_v1",
+    "meaning": "在本课程指定教学情境中，将两点关联展示或引用的优先程度；不是相似度、错误概率、掌握率或逻辑正确率。",
+    "levels": {
+      "weak": 0.3,
+      "medium": 0.6,
+      "strong": 1.0
+    },
+    "unknown_value": null,
+    "comparison_rule": "优先按相同关系类型和教学情境比较；必要前置不依靠强度阈值判断。",
+    "sample_assignment_method": "author_proposed_example_not_calibrated"
+  },
+  "categories": [
+    {"category_id": "demo-cat-000", "parent_id": null, "name": "C17 基础程序设计", "sort_order": 0},
+    {"category_id": "demo-cat-001", "parent_id": "demo-cat-000", "name": "变量与类型", "sort_order": 1},
+    {"category_id": "demo-cat-002", "parent_id": "demo-cat-000", "name": "条件分支 if", "sort_order": 2},
+    {"category_id": "demo-cat-003", "parent_id": "demo-cat-000", "name": "循环 for", "sort_order": 3}
+  ],
+  "knowledge_points": [
+    {
+      "knowledge_id": "demo-kp-001",
+      "parent_id": "demo-cat-001",
+      "sort_order": 1,
+      "name": "标量值转为布尔值时的零与非零规则",
+      "statement": "在 C17 中，将标量值转换为 _Bool 时，与零比较相等的值转换为 0，否则转换为 1。",
+      "conditions": ["输入是具有合法确定值的标量表达式", "采用 C17 语义"],
+      "boundaries": ["不要把任意非零整数的原始值与布尔归一化后的值混淆"],
+      "meta_questions": [
+        {"question_id": "demo-mq-001", "prompt": "_Bool b = -3; 之后，b 保存什么值？", "expected_reasoning": "-3 不等于零，因此得到 1，而不是继续保存 -3。"}
+      ],
+      "capabilities": ["能将给定标量值按零与非零规则归一化为布尔值"],
+      "misconception_candidates": [
+        {"misconception_id": "demo-mc-001", "belief": "只有正数才是真", "discriminating_question": "比较 0、-3、3 转成 _Bool 的结果。", "repair": "先判断是否等于零，再确定结果为 0 或 1。", "retest": "用 -7 与 0 重新解释转换过程。", "evidence_status": "author_hypothesis_not_observed"}
+      ],
+      "source_bindings": [],
+      "source_status": "unbound_design_example",
+      "status": "candidate"
+    },
+    {
+      "knowledge_id": "demo-kp-002",
+      "parent_id": "demo-cat-002",
+      "sort_order": 1,
+      "name": "if 按条件是否等于零选择分支",
+      "statement": "普通顺序执行 if 时，标量条件不等于零则执行真分支，等于零则不执行真分支。",
+      "conditions": ["条件表达式具有标量类型且求值有定义", "普通顺序进入该 if"],
+      "boundaries": ["这是 if 的控制语义，不要求源代码显式声明 _Bool 变量"],
+      "meta_questions": [
+        {"question_id": "demo-mq-002", "prompt": "if (-2) 的真分支是否执行？", "expected_reasoning": "执行，因为 -2 不等于零。"}
+      ],
+      "capabilities": ["能依据条件值判断 if 真分支是否到达"],
+      "misconception_candidates": [],
+      "source_bindings": [],
+      "source_status": "unbound_design_example",
+      "status": "candidate"
+    },
+    {
+      "knowledge_id": "demo-kp-003",
+      "parent_id": "demo-cat-003",
+      "sort_order": 1,
+      "name": "for 在每次循环体执行前检查条件",
+      "statement": "普通顺序执行 for 时，在每次执行循环体前判断头部控制表达式；其与零比较相等时不进入该次循环体。",
+      "conditions": ["控制表达式存在且求值有定义", "不讨论 goto 或标签跳入循环的特殊控制流"],
+      "boundaries": ["条件被省略的情形另有默认规则"],
+      "meta_questions": [
+        {"question_id": "demo-mq-003", "prompt": "for (int i=3; i<3; i++) 的循环体执行几次？", "expected_reasoning": "零次；首次条件判断已为假。"}
+      ],
+      "capabilities": ["能识别循环零次执行的情况"],
+      "misconception_candidates": [],
+      "source_bindings": [],
+      "source_status": "unbound_design_example",
+      "status": "candidate"
+    },
+    {
+      "knowledge_id": "demo-kp-004",
+      "parent_id": "demo-cat-003",
+      "sort_order": 2,
+      "name": "for 中的 continue 转向迭代表达式",
+      "statement": "continue 作用于当前 for 时，跳过本轮循环体剩余部分，转到该 for 的推进位置，执行其非空迭代表达式。",
+      "conditions": ["该 for 是包围此 continue 的最内层循环", "头部第三部分非空时，该表达式求值有定义"],
+      "boundaries": ["第三部分为空时不凭空补出更新", "嵌套循环中先识别 continue 所属的循环"],
+      "meta_questions": [
+        {"question_id": "demo-mq-004", "prompt": "for 的 i++ 写在头部，i=1 时执行 continue，接下来是否仍执行 i++？", "expected_reasoning": "执行。continue 的转移目标包括这个 for 的迭代表达式。"}
+      ],
+      "capabilities": ["能指出 continue 的下一执行位置"],
+      "misconception_candidates": [
+        {"misconception_id": "demo-mc-004", "belief": "continue 与 break 一样结束整个循环", "discriminating_question": "保持循环条件不变，只替换 continue 与 break，询问后续轮次是否仍可能到达。", "repair": "分别标记推进位置和循环外的退出位置。", "retest": "用新的循环边界追踪替换两种语句后的执行路径。", "evidence_status": "author_hypothesis_not_observed"}
+      ],
+      "source_bindings": [],
+      "source_status": "unbound_design_example",
+      "status": "candidate"
+    },
+    {
+      "knowledge_id": "demo-kp-005",
+      "parent_id": "demo-cat-003",
+      "sort_order": 3,
+      "name": "break 退出最内层循环或 switch",
+      "statement": "break 结束包围它的最内层循环或 switch 语句。",
+      "conditions": ["break 位于合法的循环或 switch 语句内部"],
+      "boundaries": ["不能仅按视觉缩进决定退出范围", "不会因此直接结束整个函数"],
+      "meta_questions": [
+        {"question_id": "demo-mq-005", "prompt": "双重 for 的内层直接执行 break，且没有夹着 switch，会退出外层吗？", "expected_reasoning": "不会，只结束内层 for。"}
+      ],
+      "capabilities": ["能指出 break 实际退出的结构"],
+      "misconception_candidates": [],
+      "source_bindings": [],
+      "source_status": "unbound_design_example",
+      "status": "candidate"
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "demo-rel-001",
+      "source_knowledge_id": "demo-kp-001",
+      "target_knowledge_id": "demo-kp-002",
+      "relation_type": "prerequisite",
+      "strength": 1.0,
+      "necessity": "recommended",
+      "context": "本课程初学者学习 if 条件判断",
+      "reason": "先理解零与非零的布尔解释，有助于正确判断 if 的分支选择。此为教学顺序建议，不表示 if 必须先声明或转换成 _Bool。",
+      "confidence": null,
+      "evidence_refs": [],
+      "provenance": "author_proposed_design_example",
+      "review_status": "proposed"
+    },
+    {
+      "relation_id": "demo-rel-002",
+      "source_knowledge_id": "demo-kp-001",
+      "target_knowledge_id": "demo-kp-003",
+      "relation_type": "prerequisite",
+      "strength": 1.0,
+      "necessity": "recommended",
+      "context": "本课程初学者理解 for 的控制条件",
+      "reason": "真假解释在循环控制条件中再次使用；知识点仍保留在自己的主要分类位置，通过跨分支引用复用。",
+      "confidence": null,
+      "evidence_refs": [],
+      "provenance": "author_proposed_design_example",
+      "review_status": "proposed"
+    },
+    {
+      "relation_id": "demo-rel-003",
+      "source_knowledge_id": "demo-kp-002",
+      "target_knowledge_id": "demo-kp-003",
+      "relation_type": "contrasts_with",
+      "strength": 0.6,
+      "context": "比较一次分支选择与循环中的重复条件检查",
+      "reason": "两者都利用标量条件，但控制结构中的条件检查时机不同。",
+      "distinction": "普通顺序进入一次 if 时据当次条件选分支；for 在每次进入循环体前重新检查条件。",
+      "confidence": null,
+      "evidence_refs": [],
+      "provenance": "author_proposed_design_example",
+      "review_status": "proposed"
+    },
+    {
+      "relation_id": "demo-rel-004",
+      "source_knowledge_id": "demo-kp-004",
+      "target_knowledge_id": "demo-kp-005",
+      "relation_type": "contrasts_with",
+      "strength": 1.0,
+      "context": "在 for 中辨析 continue 与 break 的下一执行位置",
+      "reason": "这组差异直接决定继续推进还是退出；强度表示本场景的比较优先级，不表示实测混淆概率。",
+      "distinction": "continue 转向最内层循环的推进位置；break 结束最内层循环或 switch。",
+      "confidence": null,
+      "evidence_refs": [],
+      "provenance": "author_proposed_design_example",
+      "review_status": "proposed"
+    }
+  ]
+}

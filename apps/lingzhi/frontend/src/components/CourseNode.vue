@@ -7,7 +7,7 @@
         <MathText v-if="node.learning_objective" tag="p" :content="node.learning_objective" />
       </header>
       <div v-if="node.node_content" class="opening-content" :style="contentStyle">
-        <CourseBlockStream :node="node" :content="node.node_content" :records="readOnly ? [] : records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" :read-only="readOnly" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" @start-practice="emit('startPractice', node, $event)" />
+        <CourseBlockStream :study-dialogues="studyDialogues" @study-dialogue="emit('studyDialogue', $event)" :node="node" :content="node.node_content" :records="readOnly ? [] : records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" :read-only="readOnly" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" @start-practice="emit('startPractice', node, $event)" />
       </div>
       <div v-else-if="generationPreview" class="generation-placeholder" :data-state="generationState">
         <component :is="generationIcon" :size="16" :class="{ spinning: generationState === 'generating' }" />
@@ -38,7 +38,7 @@
       </header>
 
       <div v-if="node.node_content" class="chapter-content" :style="contentStyle">
-        <CourseBlockStream :node="node" :content="node.node_content" :records="readOnly ? [] : records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" :read-only="readOnly" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" @start-practice="emit('startPractice', node, $event)" />
+        <CourseBlockStream :study-dialogues="studyDialogues" @study-dialogue="emit('studyDialogue', $event)" :node="node" :content="node.node_content" :records="readOnly ? [] : records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" :read-only="readOnly" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" @start-practice="emit('startPractice', node, $event)" />
       </div>
 
       <div v-else-if="generationPreview" class="generation-placeholder" :data-state="generationState">
@@ -81,7 +81,7 @@
         </small>
       </header>
       <div v-if="node.node_content" class="section-content" :style="contentStyle">
-        <CourseBlockStream :node="node" :content="node.node_content" :records="readOnly ? [] : records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" :read-only="readOnly" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" @start-practice="emit('startPractice', node, $event)" />
+        <CourseBlockStream :study-dialogues="studyDialogues" @study-dialogue="emit('studyDialogue', $event)" :node="node" :content="node.node_content" :records="readOnly ? [] : records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" :read-only="readOnly" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" @start-practice="emit('startPractice', node, $event)" />
       </div>
       <div v-else-if="generationPreview" class="generation-placeholder" :data-state="generationState">
         <component :is="generationIcon" :size="16" :class="{ spinning: generationState === 'generating' }" />
@@ -93,6 +93,7 @@
 </template>
 
 <script setup lang="ts">
+import type { StudyRequest } from '../types/study-dialogue'
 import { computed } from 'vue'
 import { ArrowRight, CheckCircle2, ClipboardCheck, Clock3, LoaderCircle, TriangleAlert } from 'lucide-vue-next'
 import AdaptiveLearningBlock from './AdaptiveLearningBlock.vue'
@@ -114,10 +115,12 @@ const props = defineProps<{
   isStreaming?: boolean
   records?: Note[]
   canImproveBlocks?: boolean
+  studyDialogues?: boolean
   readOnly?: boolean
   generationPreview?: boolean
 }>()
 const emit = defineEmits<{
+  (event: 'studyDialogue', payload: StudyRequest): void
   (event: 'startPractice', node: Node, taskRevisionId?: string): void
   (event: 'openRecord', payload: { note: Note; x: number; y: number }): void
   (event: 'improveBlock', payload: CourseBlockEditTarget): void

@@ -46,6 +46,7 @@ from course_document import COURSE_DOCUMENT_SCHEMA
 from course_repository import CourseDocumentRepository
 from course_versioning import stable_hash
 from knowledge_assessment import atomic_baseline, item_slot_keys, slot_keys_by_node
+from knowledge_question_supply import knowledge_question_supply, select_knowledge_slots
 from course_versions import course_version_repository
 from dependencies import get_course_or_404, get_task_manager_optional
 from exam_papers import exam_paper_repository
@@ -172,6 +173,8 @@ class QuestionBankRebuildRequest(BaseModel):
     request_id: str | None = Field(default=None, min_length=8, max_length=200)
     scope: Literal["course", "nodes", "items"] = "course"
     node_ids: list[str] = Field(default_factory=list, max_length=200)
+    knowledge_ids: list[str] = Field(default_factory=list, max_length=200)
+    knowledge_baseline_revision: str = Field(default="", max_length=200)
     revision_ids: list[str] = Field(
         default_factory=list,
         max_length=200,
@@ -193,6 +196,11 @@ class QuestionBankRebuildRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_scope(self) -> QuestionBankRebuildRequest:
+        if self.knowledge_ids and any(not value.strip() or len(value) > 200 for value in self.knowledge_ids):
+            raise ValueError("Knowledge IDs must be nonempty and at most 200 characters")
+        self.knowledge_ids = sorted({value.strip() for value in self.knowledge_ids if value.strip()})
+        if self.knowledge_ids and (self.scope != "nodes" or not self.knowledge_baseline_revision or self.mode != "incremental"):
+            raise ValueError("Knowledge selection requires incremental nodes scope and an adopted baseline revision")
         self.teacher_instruction = " ".join(
             str(self.teacher_instruction or "").split()
         )
@@ -377,6 +385,42 @@ class ExamPaperCreateRequest(BaseModel):
         self.question_revision_ids = normalized
         self.title = self.title.strip()
         return self
+
+
+@router.get("/knowledge-supply")
+async def get_knowledge_question_supply(course_id: str) -> dict[str, Any]:
+    from knowledge_practice import adopted_knowledge_checks
+    from question_bank import approved_formal_tasks
+
+    course = await _question_bank_course(course_id)
+    base = atomic_baseline(course)
+    if base is None:
+        return {"knowledge_baseline_revision": "", "points": []}
+    bank = load_active_question_bank(course, repository=question_bank_repository) or {}
+    tasks = [*approved_formal_tasks(bank), *adopted_knowledge_checks(course)]
+    rows = knowledge_question_supply(base, tasks, bank.get("items") or [])
+    blueprint = compile_course_assessment_blueprint(course)
+    slots = {s["primary_knowledge_ids"][0]: n["node_id"]
+             for n in blueprint.get("nodes") or [] for s in n.get("slots") or []
+             if len(s.get("primary_knowledge_ids") or []) == 1 and s.get("generation_key")}
+    for row in rows:
+        row["node_id"] = slots.get(row["knowledge_id"], "")
+        row["can_generate"] = bool(row["node_id"])
+    latest = question_bank_rebuild_job_repository.latest_for_course(course_id)
+    return {"knowledge_baseline_revision": base["revision_id"], "points": rows,
+            "job": _job_response(latest, deduplicated=False) if latest else None}
+
+
+def _selected_knowledge_slots(course: dict, payload: QuestionBankRebuildRequest, blueprint: dict | None = None) -> dict[str, list[str]] | None:
+    if not payload.knowledge_ids:
+        return None
+    base = atomic_baseline(course)
+    if base is None or base.get("revision_id") != payload.knowledge_baseline_revision:
+        raise HTTPException(status_code=409, detail={"code": "knowledge_baseline_changed", "message": "知识树已变化，请刷新后重新选择"})
+    try:
+        return select_knowledge_slots(blueprint or compile_course_assessment_blueprint(course), payload.knowledge_ids, payload.node_ids)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail={"code": "knowledge_slots_unavailable", "message": "所选知识点缺少可出题依据或不属于本讲"}) from error
 
 
 @router.get("")
@@ -746,6 +790,7 @@ async def rebuild_question_bank(
 ) -> dict[str, Any]:
     actor_id = require_user_id(x_user_id)
     course = await _question_bank_course(course_id)
+    _selected_knowledge_slots(course, payload)
     question_source_material_ids = _question_bank_source_material_asset_ids(
         course_id,
         actor_id,
@@ -897,6 +942,8 @@ async def rebuild_question_bank(
                 payload.assessment_generation_profile
             ),
             teacher_instruction=payload.teacher_instruction,
+            knowledge_ids=payload.knowledge_ids,
+            knowledge_baseline_revision=payload.knowledge_baseline_revision,
         )
     )
     if created:
@@ -922,6 +969,8 @@ def _same_rebuild_request(
         str(job.get("scope") or "") == payload.scope
         and sorted(str(value) for value in job.get("node_ids") or [])
         == payload.node_ids
+        and sorted(job.get("knowledge_ids") or []) == payload.knowledge_ids
+        and str(job.get("knowledge_baseline_revision") or "") == payload.knowledge_baseline_revision
         and sorted(
             str(value) for value in job.get("revision_ids") or []
         ) == payload.revision_ids
@@ -1508,6 +1557,7 @@ async def _execute_question_bank_rebuild(
         objectives=assessment_objectives,
     )
     planned_slot_keys = slot_keys_by_node(assessment_blueprint)
+    knowledge_slot_selection = _selected_knowledge_slots(course_for_bank, payload, assessment_blueprint)
     active_job = repository.load(course_id, job_id) or {}
     reference_package = deepcopy(
         active_job.get("reference_package") or {}
@@ -1595,6 +1645,7 @@ async def _execute_question_bank_rebuild(
     )
     repairs_course_checkpoint = bool(
         payload.scope == "nodes"
+        and not payload.knowledge_ids
         and payload.resume_existing
         and checkpoint.get("status") in {"running", "failed"}
         and checkpoint_contract_matches
@@ -1668,7 +1719,9 @@ async def _execute_question_bank_rebuild(
         )
     )
     requested_practice_levels_by_node = (
-        item_practice_levels_by_node
+        knowledge_slot_selection
+        if knowledge_slot_selection is not None
+        else item_practice_levels_by_node
         if payload.scope == "items"
         else (
             {

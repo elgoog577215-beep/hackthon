@@ -16,7 +16,7 @@ beforeEach(async () => {
 })
 
 it('switches the existing center to knowledge and restores the original stage without opening a dialog', async () => {
-  const w = shallowMount(Workbench, { props: { courseId: 'c', courseTitle: '计算机系统', generationOptions: {} } })
+  const w = shallowMount(Workbench, { props: { courseId: 'c', courseTitle: '计算机系统', generationOptions: {} }, global: { stubs: { 'el-dialog': true } } })
   await flushPromises()
   const knowledge = w.findAll('.stage-rail button').find(b => b.text().includes('知识树'))!
   await knowledge.trigger('click'); await flushPromises()
@@ -40,11 +40,17 @@ it('tree-only mode keeps the tree and version actions without lecture tabs or un
   const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } })
   await flushPromises()
   expect(w.get('nav').text()).toContain('程序计数器')
-  expect(w.find('.point-card').exists()).toBe(false)
+  expect(w.get('.point-placeholder').text()).toContain('选择一个元知识点')
   expect(w.find('.handout-source-panel').exists()).toBe(false)
   expect(w.find('.tabs').exists()).toBe(false)
   expect(w.find('.source-review').exists()).toBe(false)
   expect(w.find('.manager-tools').exists()).toBe(false)
   expect(w.findAll('button').some(b => b.text().includes('更新候选'))).toBe(true)
+  expect(w.find('.leaf-content').exists()).toBe(false)
+  await w.get('nav button').trigger('click')
+  expect(w.get('.point-card').text()).toContain('PC保存指令地址')
+  expect(w.find('.leaf-content').exists()).toBe(false)
+  await w.get('nav button').trigger('click')
+  expect(w.get('.point-card').text()).toContain('PC保存指令地址')
   w.unmount()
 })

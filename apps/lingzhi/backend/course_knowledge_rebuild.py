@@ -106,6 +106,10 @@ class CourseKnowledgeRebuildService:
 
     async def rebuild_course(self, course_id: str, *, force: bool = False) -> dict[str, Any]:
         original = self.course_repository.load_course_view(course_id)
+        if original.get("knowledge_first_workflow") in {"knowledge_first_c17_v1", "knowledge_first_generic_v1"}:
+            raise CourseKnowledgeRebuildError(code="knowledge_first_workflow_required",
+                message="本课程先采用知识树，再生成讲义；请从知识树与讲义入口生成新候选。",
+                retryable=False, status_code=409)
         working = deepcopy(original)
         _ensure_content_blocks(working)
         source_fingerprint = course_knowledge_source_fingerprint(working)

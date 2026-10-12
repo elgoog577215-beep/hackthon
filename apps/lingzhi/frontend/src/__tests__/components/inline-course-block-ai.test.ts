@@ -27,7 +27,7 @@ const block: ContentBlock = {
   order: 0,
 }
 
-function mountBlockAI(attachToDocument = false, props: { active?: boolean } = {}) {
+function mountBlockAI(attachToDocument = false, props: { active?: boolean; studyDialogues?:boolean } = {}) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const courseStore = useCourseStore()
@@ -84,6 +84,16 @@ function mountBlockAI(attachToDocument = false, props: { active?: boolean } = {}
 
 describe('InlineCourseBlockAI', () => {
   beforeEach(() => vi.restoreAllMocks())
+
+  it('保留原菜单并将学习页讲解交给学伴，不再自动新增正文笔记', async () => {
+    const { wrapper } = mountBlockAI(false, { studyDialogues:true })
+    await wrapper.findAll('.block-ai-menu button')[0]!.trigger('click')
+    expect(wrapper.emitted('studyDialogue')?.[0]?.[0]).toMatchObject({ kind:'explain', nodeId:'node-1', anchor:{ block_id:'block-1', block_revision_id:'block-revision-1' } })
+    expect(useAITeacherStore().sendMessage).not.toHaveBeenCalled()
+    expect(useNoteStore().upsertAnchoredAiNote).not.toHaveBeenCalled()
+    expect(wrapper.find('.inline-ai-result').exists()).toBe(false)
+    wrapper.unmount()
+  })
 
   it('固定提供解释、举例、简化和提问四个块级动作', () => {
     const { wrapper } = mountBlockAI()

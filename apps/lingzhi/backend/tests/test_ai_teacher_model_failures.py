@@ -64,6 +64,7 @@ def _failing_service(error: Exception) -> AIQAService:
         (AIProviderRequestError("Error code: 429 rate limit"), "model_rate_limited", True),
         (AIProviderRequestError("insufficient_quota for this key"), "model_quota_exhausted", False),
         (AIProviderRequestError("something else broke"), "model_unavailable", True),
+        (AIProviderRequestError("Error code: 502"), "model_gateway_error", True),
     ],
 )
 def test_classify_model_failure_maps_provider_errors_to_stable_codes(

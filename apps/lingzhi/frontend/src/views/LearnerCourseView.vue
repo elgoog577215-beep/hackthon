@@ -1,11 +1,13 @@
 <template>
   <section class="learning-view" :class="{ 'focus-mode': courseStore.isFocusMode, 'has-mobile-resume': showMobileResumePrompt, 'is-generation-preview': isGenerationPreview, 'has-ai-course-growth': hasAppliedCourseGrowth }">
+  <CompanionFloatingWindow window-id="course-companion-window" :visible="aiFloating && aiVisible && !courseStore.isFocusMode" :detail="Boolean(selectedKnowledge) && (statsOpen || courseStore.showKnowledgeLibrary)" @close="closeAi" />
     <div v-if="overlayVisible" class="surface-backdrop" @click="closeMobileSurfaces"></div>
 
     <Transition name="slide-left">
       <CourseNavigator
         v-if="navigatorVisible"
         class="navigator-surface"
+        data-companion-obstacle
         :active-block-id="activeCourseBlockId"
         :production-mode="isGenerationPreview"
         :generation-task="generationTask"
@@ -16,7 +18,7 @@
       />
     </Transition>
 
-    <main class="learning-main glass-panel-elevated">
+    <main class="learning-main glass-panel-elevated" data-companion-obstacle>
       <AITeacherSuggestion
         :suggestion="aiTeacherStore.suggestion"
         @shown="aiTeacherStore.markSuggestionShown"
@@ -25,10 +27,12 @@
       />
       <div class="learning-stage">
         <ContentArea
-          v-show="!taskOpen && !statsOpen"
+          v-show="!taskOpen && !statsOpen && !courseStore.showKnowledgeLibrary"
           ref="contentAreaRef"
           :side-ai-panel-visible="aiVisible"
           :teacher-preview="isTeacherPreview"
+          study-dialogues
+          @study-dialogue="openStudyDialogue"
           class="learning-content"
           @quote-ask="openAi"
           @start-practice="openTask"
@@ -36,6 +40,11 @@
           @active-block-change="handleActiveBlockChange"
         />
 
+        <section v-show="courseStore.showKnowledgeLibrary" class="learning-tool-overlay knowledge-study-overlay">
+          <Teleport to="#course-companion-window-detail" :disabled="!aiFloating || !aiVisible || !selectedKnowledge || !courseStore.showKnowledgeLibrary">
+            <CourseKnowledgeStudy ref="knowledgeStudyRef" :visible="courseStore.showKnowledgeLibrary" :preview="isTeacherPreview" @close="closeKnowledgeLibrary" @select="selectKnowledge" @evidence="discussEvidence" @lecture="openKnowledgeLecture" @practice="openKnowledgePractice" />
+          </Teleport>
+        </section>
         <LearningTaskOverlay
           :embedded="!isNarrow"
           v-if="taskOpen && courseStore.currentCourseId && !isGenerationPreview"
@@ -66,14 +75,14 @@
                 @click="closeNotebook"
               ></button>
               <div class="learning-tool-modal__card is-notebook">
-                <NotesPanel class="notebook-tool" @locate="locateRecord" @view-detail="locateRecord" @close="closeNotebook" />
+                <NotesPanel class="notebook-tool" @locate="locateRecord" @view-detail="record => openStudyRecord(record.id)" @close="closeNotebook" />
               </div>
             </section>
           </Transition>
         </Teleport>
 
         <section v-if="statsOpen" class="learning-tool-overlay stats-overlay" role="region" :aria-label="t('learningDock.stats', '学习概况')">
-          <LearningStats class="stats-tool" closable @close="closeStats" />
+          <Teleport to="#course-companion-window-detail" :disabled="!aiFloating || !aiVisible || !selectedKnowledge"><LearningStats class="stats-tool" closable @close="closeStats" @select-knowledge="selectKnowledge" @ask-knowledge="askKnowledge" @discuss-evidence="discussEvidence" @open-lecture="openKnowledgeLecture" /></Teleport>
         </section>
       </div>
 
@@ -98,29 +107,35 @@
     </main>
 
     <Transition name="side-panel">
-      <div v-show="sidePanelVisible" class="learning-side-panel" :class="{ 'is-docked': !isNarrow }">
-        <nav v-if="!isNarrow" class="reading-side-tabs" role="tablist" :aria-label="t('readingNotes.tabs', '阅读侧栏')">
-          <button id="reading-notes-tab" type="button" role="tab" :aria-selected="!aiVisible" :tabindex="aiVisible ? -1 : 0" :aria-controls="notebookOpen ? 'all-notes-panel' : 'reading-notes-panel'" @click="showReadingNotes" @keydown.right.prevent="selectAssistantTab" @keydown.end.prevent="selectAssistantTab">{{ t('readingNotes.title', '笔记') }}</button>
-          <button id="reading-assistant-tab" type="button" role="tab" :aria-selected="aiVisible" :tabindex="aiVisible ? 0 : -1" aria-controls="reading-assistant-panel" @click="selectAssistantTab" @keydown.left.prevent="selectNotesTab" @keydown.home.prevent="selectNotesTab">{{ t('learningDock.assistant', 'AI 助手') }}</button>
-        </nav>
+      <div v-show="sidePanelVisible" class="learning-side-panel" :class="{ 'is-docked': !isNarrow, 'is-companion-floating': aiFloating && !notesVisible && !notebookOpen && !isNarrow }">
         <ReadingNotesPanel v-if="!isNarrow && !isGenerationPreview" v-show="!aiVisible && !notebookOpen" :key="courseStore.currentCourseId" :visible="sidePanelVisible && !aiVisible && !notebookOpen && !taskOpen && !statsOpen" @open="openReadingNote" @create="createReadingNote" @locate="locateRecord" @notebook="openNotebook" />
-        <aside id="all-notes-panel" v-show="notebookOpen && !aiVisible" v-if="!isNarrow" role="tabpanel" aria-labelledby="reading-notes-tab" class="notebook-side-panel" :aria-label="t('notebook.title', '笔记本')">
-          <NotesPanel mode="sidebar" @locate="locateRecord" @view-detail="locateRecord" @close="closeNotebook" />
+        <aside id="all-notes-panel" v-show="notebookOpen && !aiVisible" v-if="!isNarrow" role="region" class="notebook-side-panel" :aria-label="t('notebook.title', '笔记本')" data-companion-obstacle>
+          <NotesPanel mode="sidebar" @locate="locateRecord" @view-detail="record => openStudyRecord(record.id)" @close="closeNotebook" />
         </aside>
+        <Teleport to="#course-companion-window-chat" :disabled="!aiFloating">
         <SideAIPanel
+          data-companion-obstacle
           id="reading-assistant-panel"
-          role="tabpanel"
-          aria-labelledby="reading-assistant-tab"
+          role="region"
+          :aria-label="t('companionWorkspace.title')"
           v-if="!isGenerationPreview"
           v-show="aiVisible && !courseStore.isFocusMode"
           :key="`${courseStore.currentCourseId}:${isTeacherPreview}`"
           :docked="!isNarrow"
           :visible="aiVisible && !courseStore.isFocusMode"
+          :companion-avatar="companionAvatar"
+          :floating="aiFloating"
+          :live-pet="!isNarrow"
+          :knowledge-context="selectedKnowledge"
+          @toggle-mode="aiFloating = !aiFloating"
+          @clear-knowledge="selectedKnowledge = null"
           :reading-context="isNarrow ? undefined : readingContext"
           :quote-text="aiQuote"
           :quote-node-id="aiNodeId"
           :quote-anchor="aiAnchor"
           :prefill="aiPrefill"
+          :study-request="studyRequest"
+          @open-study-record="openStudyRecord"
           :entrypoint="aiEntrypoint"
           :identity-scope="isTeacherPreview ? 'teacher' : 'learner'"
           :block-target="aiBlockTarget"
@@ -130,8 +145,25 @@
           @course-applied="handleCourseGrowthApplied"
           @open-course-adjustment="openCourseAdjustment"
         />
+        </Teleport>
       </div>
     </Transition>
+
+    <LearningCompanion
+      v-if="!isNarrow && !isGenerationPreview"
+      ref="companionRef"
+      :expanded="aiVisible"
+      :modal="aiFloating && aiVisible"
+      :active="!courseStore.isFocusMode"
+      :reminder="companionReminder"
+      :reminders-enabled="remindersEnabled"
+      :welcome="companionWelcome"
+      @dismiss-welcome="dismissCompanionWelcome"
+      @open="toggleAi"
+      @reminder="openCompanionReminder"
+      @dismiss-reminder="dismissReminder"
+      @toggle-reminders="remindersEnabled = !remindersEnabled"
+    />
 
     <CourseEvolutionWorkspace
       v-model="courseAdjustmentOpen"
@@ -156,15 +188,18 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { History, LoaderCircle } from 'lucide-vue-next'
+import type { KnowledgeProfileNode } from '../types/knowledge-profile'
+import CompanionFloatingWindow from '../components/CompanionFloatingWindow.vue'
+import CourseKnowledgeStudy from '../components/CourseKnowledgeStudy.vue'
 import ContentArea from '../components/ContentArea.vue'
 import CourseEvolutionWorkspace from '../components/CourseEvolutionWorkspace.vue'
 import CourseNavigator from '../components/CourseNavigator.vue'
 import LearningDock from '../components/LearningDock.vue'
+import LearningCompanion from '../components/LearningCompanion.vue'
 import LearningStats from '../components/LearningStats.vue'
 import LearningTaskOverlay from '../components/LearningTaskOverlay.vue'
 import NotesPanel from '../components/NotesPanel.vue'
 import ReadingNotesPanel from '../components/ReadingNotesPanel.vue'
-import { createUuid } from '../utils/client-id'
 import SideAIPanel from '../components/SideAIPanel.vue'
 import AITeacherSuggestion from '../components/AITeacherSuggestion.vue'
 import { useAITeacherStore, type AISuggestion } from '../stores/aiTeacher'
@@ -173,6 +208,7 @@ import { useCourseStore } from '../stores/course'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
 import { useLearningProgressStore, type NextLearningAction } from '../stores/learningProgress'
+import { useLearnerModelStore } from '../stores/learnerModel'
 import { useNoteStore } from '../stores/notes'
 import {
   useCourseEvolutionStore,
@@ -183,6 +219,12 @@ import { isWorkspaceTaskAction, learningActionLabel } from '../utils/learning-ac
 import { isStartableLearningObjective } from '../utils/learning-scope'
 import { isResumableLearningAction } from '../utils/learning-resume'
 import { t } from '../shared/i18n'
+import type { StudyRequest } from '../types/study-dialogue'
+import { resolvePublicAssetUrl } from '../utils/publicAssetUrl'
+import { useCompanionReminders, type CompanionReminder } from '../composables/useCompanionReminders'
+import { useCompanionLayout } from '../composables/useCompanionLayout'
+import { useCompanionWelcome } from '../composables/useCompanionWelcome'
+import { getLearnerIdentity } from '../utils/http'
 
 const route = useRoute()
 const router = useRouter()
@@ -195,10 +237,40 @@ const aiTeacherStore = useAITeacherStore()
 const changeProposalsStore = useChangeProposalsStore()
 const courseEvolutionStore = useCourseEvolutionStore()
 const contentAreaRef = ref<InstanceType<typeof ContentArea> | null>(null)
+const knowledgeStudyRef = ref<InstanceType<typeof CourseKnowledgeStudy> | null>(null)
+const companionRef = ref<InstanceType<typeof LearningCompanion> | null>(null)
+const companionAvatar = resolvePublicAssetUrl('images/learning-companion.png', import.meta.env.BASE_URL)
 
 const windowWidth = ref(window.innerWidth)
 const navigatorOpen = ref(window.innerWidth >= 1024)
 const aiVisible = ref(false)
+const aiFloating = useCompanionLayout()
+const selectedKnowledge = ref<KnowledgeProfileNode | null>(null)
+function selectKnowledge(point: KnowledgeProfileNode | null) {
+  studyRequest.value = undefined
+  selectedKnowledge.value = point
+  if (point) { aiVisible.value = true; aiQuote.value = ''; aiAnchor.value = undefined; aiPrefill.value = ''; aiBlockTarget.value = undefined }
+}
+function askKnowledge(point: KnowledgeProfileNode) {
+  studyRequest.value = undefined
+  selectedKnowledge.value = point
+  aiVisible.value = true
+}
+function discussEvidence(point: KnowledgeProfileNode, evidence: KnowledgeProfileNode['evidence'][number]) {
+  askKnowledge(point)
+  aiQuote.value = `${t('companionWorkspace.checkReference', '检查记录')} · ${t(`knowledgeProfile.outcomes.${evidence.outcome}`)} · ${t(`knowledgeProfile.support.${evidence.support}`)}`
+  aiAnchor.value = { source_id: evidence.source_id, question_revision_id: evidence.question_revision_id, concept_ids: [point.knowledge_id] }
+}
+async function openKnowledgeLecture(point: KnowledgeProfileNode) {
+  const node = courseStore.nodes.find(item => point.section_refs.includes(item.node_id))
+  if (node) { await closeKnowledgeLibrary(false); statsOpen.value = false
+    const blockId=point.block_refs?.find(id=>node.course_blocks?.some(b=>b.block_id===id))
+    if(blockId) await selectCourseBlock({node,blockId})
+    else selectNode(node)
+  }
+}
+watch(() => courseStore.currentCourseId, () => { notesVisible.value = false; studyRequest.value = undefined; selectedKnowledge.value = null; knowledgeReadingReturn = null; knowledgeReturnSequence++ })
+const notesVisible = ref(false)
 const notebookOpen = ref(false)
 const statsOpen = ref(false)
 const taskOpen = ref(false)
@@ -210,6 +282,7 @@ const taskReturnScroll = ref(0)
 const taskOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
 const taskReturnElement = ref<HTMLElement | null>(null)
 const continuityBusy = ref(false)
+const studyRequest = ref<StudyRequest | undefined>()
 const aiQuote = ref('')
 const aiNodeId = ref('')
 const aiAnchor = ref<Record<string, unknown> | undefined>(undefined)
@@ -225,7 +298,7 @@ let courseGrowthLocationTimer: ReturnType<typeof setTimeout> | undefined
 let courseGrowthSettleTimer: ReturnType<typeof setTimeout> | undefined
 
 const isNarrow = computed(() => windowWidth.value < 1024)
-const sidePanelVisible = computed(() => !courseStore.isFocusMode && !isGenerationPreview.value && (aiVisible.value || !isNarrow.value))
+const sidePanelVisible = computed(() => !courseStore.isFocusMode && !isGenerationPreview.value && (aiVisible.value || (!isNarrow.value && (notesVisible.value || notebookOpen.value) && !courseStore.showKnowledgeLibrary)))
 const dockActiveDomain = computed(() => taskOpen.value ? 'question-book'
   : statsOpen.value ? 'overview'
   : courseStore.showKnowledgeLibrary ? 'knowledge-library'
@@ -240,6 +313,29 @@ const isGenerationPreview = computed(() => (
 const isTeacherCurrentProjection = computed(() => (
   courseStore.currentCourseProjection === 'generation_preview' && isTeacherPreview.value
 ))
+const { visible: companionWelcome, dismiss: dismissCompanionWelcome } = useCompanionWelcome(
+  computed(() => !isTeacherPreview.value && !isGenerationPreview.value && !isNarrow.value
+    && !courseStore.isFocusMode && Boolean(courseStore.currentCourseId)
+    && loadedLearningCourseId.value === courseStore.currentCourseId
+    && String(route.params.courseId || '') === courseStore.currentCourseId),
+  computed(() => isTeacherPreview.value ? '' : getLearnerIdentity()),
+)
+const { reminder:companionReminder, enabled:remindersEnabled, dismiss:dismissReminder } = useCompanionReminders(computed(() => !isTeacherPreview.value && !isGenerationPreview.value && !courseStore.isFocusMode && !isNarrow.value))
+async function openCompanionReminder(reminder:CompanionReminder) {
+  const courseId = courseStore.currentCourseId
+  await contentAreaRef.value?.closeInlineRecord?.()
+  if (courseStore.currentCourseId !== courseId) return
+  const note = noteStore.notes.find(item => item.id === reminder.note.id)
+  if (!note) return
+  closeAi()
+  statsOpen.value = false
+  taskOpen.value = false
+  await closeKnowledgeLibrary(false)
+  locateRecord(note)
+  await nextTick()
+  contentAreaRef.value?.openInlineRecord({ note, x:Math.max(20, window.innerWidth / 2 - 150), y:140 })
+  dismissReminder()
+}
 const generationTask = computed(() => courseStore.currentCourseId ? generationStore.tasks.get(courseStore.currentCourseId) : undefined)
 const activeGenerationNodeId = computed(() => generationTask.value?.currentNodes?.[0]?.node_id || generationStore.currentGeneratingNodeId || '')
 const navigatorVisible = computed(() => (
@@ -469,6 +565,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  knowledgeReturnSequence++
+  knowledgeReadingReturn = null
   aiTeacherStore.clearPreviewSession()
   if (noteStore.previewSession) {
     noteStore.$reset()
@@ -506,6 +604,7 @@ function selectInitialNode() {
 }
 
 function selectNode(node: Node, updateRoute = true, manualSelection = true) {
+  if(manualSelection && courseStore.showKnowledgeLibrary) void closeKnowledgeLibrary(false)
   if (isGenerationPreview.value && manualSelection && node.node_id !== activeGenerationNodeId.value) {
     autoFollowGeneration.value = false
   }
@@ -521,6 +620,7 @@ function selectNode(node: Node, updateRoute = true, manualSelection = true) {
 }
 
 async function selectCourseBlock(target: CourseBlockNavigationTarget) {
+  if(courseStore.showKnowledgeLibrary) await closeKnowledgeLibrary(false)
   activeCourseBlockId.value = target.blockId
   courseStore.selectNode(target.node)
   if (String(route.params.nodeId || '') !== target.node.node_id) {
@@ -550,37 +650,31 @@ const readingContext = computed(() => {
   }
 })
 
-function showReadingNotes() {
-  aiVisible.value = false
-  notebookOpen.value = false
-}
-function selectNotesTab() {
-  showReadingNotes()
-  nextTick(() => document.getElementById('reading-notes-tab')?.focus())
-}
-function selectAssistantTab() {
+function showAssistant() {
   void contentAreaRef.value?.closeInlineRecord?.()
+  notesVisible.value = false
   notebookOpen.value = false
   aiVisible.value = true
-  nextTick(() => document.getElementById('reading-assistant-tab')?.focus())
 }
 function openReadingNote(payload: { note: Note; x: number; y: number }) {
-  contentAreaRef.value?.openInlineRecord(payload)
+  openStudyRecord(payload.note.id)
 }
-function createReadingNote(event: MouseEvent) {
-  const node = courseStore.currentNode
-  if (!node) return
-  const note: Note = {
-    id: `note-${createUuid()}`, nodeId: node.node_id, highlightId: '', quote: '', content: '',
-    color: 'amber', createdAt: Date.now(), sourceType: 'user', recordType: 'note',
-    status: 'active', origin: 'user_quick_note', syncState: 'local_only',
-  }
-  noteStore.addNote(note)
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-  contentAreaRef.value?.openInlineRecord({ note, x: rect.left, y: rect.bottom }, true)
+function createReadingNote(_event: MouseEvent) {
+  if (courseStore.currentNode) void openStudyDialogue({ kind:'note', nodeId:courseStore.currentNode.node_id, quote:'' })
+}
+async function openStudyDialogue(request:StudyRequest) {
+  await contentAreaRef.value?.closeInlineRecord?.()
+  openAi({ text:request.quote, nodeId:request.nodeId, anchor:request.anchor })
+  studyRequest.value = { ...request, token:Date.now() + Math.random() }
+}
+function openStudyRecord(id:string) {
+  const note = noteStore.notes.find(item=>item.id===id)
+  if (note) void openStudyDialogue({ kind:'note', nodeId:note.nodeId, quote:note.quote, anchor:note.anchor, recordId:note.revision ? note.id : undefined })
 }
 
 function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string, unknown> }) {
+  studyRequest.value = undefined
+  selectedKnowledge.value = null
   if (isGenerationPreview.value) return
   notebookOpen.value = false
   statsOpen.value = false
@@ -680,6 +774,7 @@ function handleCourseGrowthApplied(presentation: CourseEvolutionApplicationPrese
 }
 
 function openAiForPractice(payload: { text: string; nodeId: string }) {
+  studyRequest.value = undefined
   aiBlockTarget.value = undefined
   aiQuote.value = payload.text
   aiNodeId.value = payload.nodeId
@@ -700,6 +795,7 @@ function openNotebook() {
 }
 
 function closeNotebook() {
+  notesVisible.value = false
   notebookOpen.value = false
 }
 
@@ -714,14 +810,59 @@ function openQuestionBook() {
   if (isNarrow.value) navigatorOpen.value = false
 }
 
-function openKnowledgeLibrary() {
-  if (courseStore.showKnowledgeLibrary) { courseStore.showKnowledgeLibrary = false; return }
-  notebookOpen.value = false
-  statsOpen.value = false
-  taskOpen.value = false
-  courseStore.showKnowledgeLibrary = true
-  if (isNarrow.value) navigatorOpen.value = false
+type KnowledgeReadingReturn = { courseId:string; version:string; nodeId:string; scrollTop:number; blockDomId:string; blockOffset:number; activeBlockId:string; aiVisible:boolean; notebookOpen:boolean }
+let knowledgeReadingReturn:KnowledgeReadingReturn|null = null
+let knowledgeReturnSequence = 0
+function captureKnowledgeReading() {
+  knowledgeReturnSequence++
+  const container=document.getElementById('content-scroll-container')
+  const top=container?.getBoundingClientRect().top || 0
+  const block=Array.from(container?.querySelectorAll<HTMLElement>('[id^="course-block-"]') || []).find(el=>el.getBoundingClientRect().height>0 && el.getBoundingClientRect().bottom>top+2)
+  knowledgeReadingReturn={courseId:courseStore.currentCourseId,version:courseStore.currentCourseVersionId,nodeId:courseStore.currentNode?.node_id || '',scrollTop:container?.scrollTop || 0,
+    blockDomId:block?.id || '',blockOffset:block ? block.getBoundingClientRect().top-top : 0,activeBlockId:activeCourseBlockId.value,aiVisible:aiVisible.value,notebookOpen:notebookOpen.value}
 }
+async function closeKnowledgeLibrary(restoreReading = true) {
+  const saved=knowledgeReadingReturn
+  const sequence=++knowledgeReturnSequence
+  knowledgeReadingReturn=null
+  selectedKnowledge.value=null
+  courseStore.showKnowledgeLibrary=false
+  if(!restoreReading || !saved || saved.courseId!==courseStore.currentCourseId || saved.version!==courseStore.currentCourseVersionId) return
+  aiVisible.value=saved.aiVisible
+  notebookOpen.value=saved.notebookOpen
+  const node=courseStore.nodes.find(n=>n.node_id===saved.nodeId)
+  if(node && courseStore.currentNode?.node_id!==node.node_id) courseStore.selectNode(node)
+  activeCourseBlockId.value=saved.activeBlockId
+  await nextTick()
+  const restore=()=>{
+    if(sequence!==knowledgeReturnSequence || courseStore.showKnowledgeLibrary || saved.courseId!==courseStore.currentCourseId || saved.version!==courseStore.currentCourseVersionId) return
+    const container=document.getElementById('content-scroll-container')
+    if(!container) return
+    const block=saved.blockDomId ? document.getElementById(saved.blockDomId) : null
+    const target=block?.getBoundingClientRect().height ? container.scrollTop + block.getBoundingClientRect().top-container.getBoundingClientRect().top-saved.blockOffset : saved.scrollTop
+    const behavior=container.style.scrollBehavior
+    container.style.scrollBehavior='auto'; container.scrollTop=target; container.style.scrollBehavior=behavior
+  }
+  restore()
+  await new Promise<void>(resolve=>requestAnimationFrame(()=>{ restore(); resolve() }))
+}
+async function openKnowledgePractice(nodeId:string, revision:string) {
+  const node=courseStore.nodes.find(n=>n.node_id===nodeId)
+  if(!node) return
+  await closeKnowledgeLibrary(false)
+  openTask(node,revision)
+}
+function openKnowledgeLibrary() {
+  if(courseStore.showKnowledgeLibrary) { void closeKnowledgeLibrary(); return }
+  captureKnowledgeReading()
+  notebookOpen.value=false
+  statsOpen.value=false
+  taskOpen.value=false
+  courseStore.showKnowledgeLibrary=true
+  if(isNarrow.value) navigatorOpen.value=false
+}
+// Other course tools can also request this same knowledge view.
+watch(()=>courseStore.showKnowledgeLibrary,visible=>{ if(visible && !knowledgeReadingReturn) captureKnowledgeReading(); else if(!visible) knowledgeReadingReturn=null },{flush:'sync'})
 
 function openStats() {
   if (statsOpen.value) { closeStats(); return }
@@ -732,17 +873,23 @@ function openStats() {
 }
 
 function closeStats() {
+  selectedKnowledge.value = null
   statsOpen.value = false
 }
 
 function toggleAi() {
   if (aiVisible.value) { closeAi(); return }
-  selectAssistantTab()
+  showAssistant()
   if (isNarrow.value) navigatorOpen.value = false
 }
 
 function closeAi() {
+  notesVisible.value = false
+  if (aiFloating.value && courseStore.showKnowledgeLibrary) knowledgeStudyRef.value?.closePoint()
   aiVisible.value = false
+  if (!isNarrow.value && !courseStore.isFocusMode) {
+    nextTick(() => companionRef.value?.focus())
+  }
 }
 
 function locateRecord(record: any) {
@@ -800,6 +947,7 @@ async function refreshRuntime() {
 
 async function refreshAfterGrade() {
   await refreshRuntime()
+  if(!isTeacherPreview.value && courseStore.currentCourseId) await useLearnerModelStore().load(courseStore.currentCourseId).catch(()=>undefined)
   if (courseStore.currentCourseId) {
     await workspaceStore.loadMistakeBook(courseStore.currentCourseId).catch(() => undefined)
   }
@@ -866,11 +1014,6 @@ function closeMobileSurfaces() {
 .learning-side-panel { min-width:0; min-height:0; }
 .learning-side-panel.is-docked { display:flex; flex-direction:column; background:#fff; border:1px solid var(--lz-border); --side-width:clamp(320px,25vw,380px); width:var(--side-width); flex:0 0 var(--side-width); overflow:hidden; border-radius:var(--lz-radius-surface); }
 .learning-side-panel.is-docked > .ai-teacher-panel,.learning-side-panel.is-docked > .reading-notes { width:100%; flex:1; min-height:0; height:auto; }
-.reading-side-tabs { display:flex; flex:none; gap:3px; margin:10px 14px; padding:3px; width:fit-content; border:1px solid var(--lz-border); border-radius:10px; background:var(--lz-surface-subtle); }
-.reading-side-tabs button { min-height:34px; padding:5px 18px; border:0; border-radius:7px; color:var(--lz-text-secondary); background:transparent; font-size:15px; cursor:pointer; }
-.reading-side-tabs button[aria-selected="true"] { color:var(--lz-text-strong); background:#fff; box-shadow:0 1px 4px rgba(15,23,42,.08); font-weight:600; }
-.reading-side-tabs button:hover { color:var(--lz-brand-strong); }
-.reading-side-tabs button:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
 .learning-stage { position:relative; flex:1; display:flex; flex-direction:column; min-height:0; min-width:0; overflow:hidden; }
 .learning-main { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: #fff; box-shadow: var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
 .has-ai-course-growth .learning-main { border-color:rgba(165,180,252,.7); box-shadow:0 16px 42px rgba(30,64,175,.1),0 2px 8px rgba(15,23,42,.05); }
@@ -927,4 +1070,15 @@ function closeMobileSurfaces() {
 @media (prefers-reduced-motion:reduce) {
   .learning-main { transition:none; }
 }
+</style>
+
+<style scoped>
+.learning-side-panel.is-docked { --side-width:clamp(350px,29vw,430px); }
+.learning-side-panel.is-companion-floating { align-self:flex-start; height:calc(100% - 26px); margin-top:14px; border:1px solid #dcd0f0; border-radius:20px; box-shadow:0 12px 32px #5d42731c; transform:none; }
+.stats-tool :deep(.learning-overview:has(.knowledge-detail-inline)) { padding:0; }
+</style>
+
+<style scoped>
+.learning-side-panel.is-companion-floating { background:transparent; border:0; box-shadow:none; overflow:visible; }
+.learning-side-panel.is-companion-floating { display:none; }
 </style>
