@@ -185,3 +185,14 @@ async def test_connection_failure_explains_recovery_without_retrying(svc):
     failure = svc.authoring.load('c-pilot')['jobs'][job['id']]
     assert failure['error']['code'] == 'ModelConnectionUnavailable'
     assert calls == [1]
+
+
+def test_handout_source_lists_preserve_all_repeated_refs_and_reject_other_duplicates():
+    from knowledge_first import parse_response
+    value = parse_response('{"points":[{"sources":[{"key":"S1","key":"S2"},"S3"]}]}', handout_sources=True)
+    assert value['points'][0]['sources'] == [{'key': 'S1'}, {'key': 'S2'}, {'key': 'S3'}]
+    assert value['_format_normalizations'] == ['expanded_repeated_source_keys']
+    with pytest.raises(CourseDocumentConflict, match='重复'):
+        parse_response('{"key":"S1","key":"S2"}', handout_sources=True)
+    with pytest.raises(CourseDocumentConflict, match='重复'):
+        parse_response('{"points":[],"points":[{}]}', handout_sources=True)
