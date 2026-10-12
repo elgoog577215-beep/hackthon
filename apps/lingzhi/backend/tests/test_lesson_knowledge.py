@@ -67,7 +67,8 @@ def test_selected_context_does_not_depend_on_other_handout_content(svc):
 
 
 @pytest.mark.asyncio
-async def test_next_lesson_references_existing_ids_and_can_reuse_without_duplicating(svc):
+@pytest.mark.parametrize('reference_key', ['E1', 'K1'])
+async def test_next_lesson_references_existing_ids_and_can_reuse_without_duplicating(svc, reference_key):
     handouts(svc)
     calls = []
     async def call(prompt, **kwargs):
@@ -77,7 +78,7 @@ async def test_next_lesson_references_existing_ids_and_can_reuse_without_duplica
         value = one_lesson_response('memory')
         value['points'].append({'key': 'K1', 'reuse_key': 'E1', 'category_key': 'C2', 'sources': [{'key': 'S1'}]})
         value['lessons'][0]['knowledge_keys'].append('K1')
-        value['relations'] = [{'source_key': 'E1', 'target_key': 'K2', 'type': 'prerequisite', 'reason': '处理器使用主存中的数据', 'conditions': []}]
+        value['relations'] = [{'source_key': reference_key, 'target_key': 'K2', 'type': 'prerequisite', 'reason': '处理器使用主存中的数据', 'conditions': []}]
         return json.dumps(value, ensure_ascii=False)
     svc.provider_factory = lambda: SimpleNamespace(_call_llm=call, model_smart='test', client=None)
     for lid in ['cpu', 'memory']:
@@ -157,3 +158,26 @@ async def test_independent_lecture_candidates_can_be_adopted_in_sequence(svc):
     revision = v['knowledge_revision']
     svc.adopt('c-pilot', jobs[0]['id'], revision, v['document_revision'])
     assert svc.view('c-pilot')['knowledge_revision'] == revision
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('changed_lesson', ['cpu', 'memory'])
+async def test_changed_local_or_cross_lecture_definition_blocks_adoption(svc, changed_lesson):
+    from generic_knowledge import compile_tree
+    from handout_knowledge import handout_context
+    handouts(svc); raw = svc.repository.load_raw('c-pilot')
+    baseline = compile_tree(raw, handout_context(raw, svc.authoring.load('c-pilot')), answer())
+    baseline['status'] = 'accepted'
+    svc.storage.update_course_data('c-pilot', lambda r: {**r, 'course_knowledge_base': baseline, 'knowledge_first_history': {baseline['revision_id']: deepcopy(baseline)}})
+    reply = one_lesson_response('cpu')
+    reply['relations'] = [{'source_key': 'E2', 'target_key': 'K1', 'type': 'applies_to', 'reason': '处理器读取主存', 'conditions': []}]
+    async def call(*args, **kwargs): return json.dumps(reply, ensure_ascii=False)
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=call, model_smart='test', client=None)
+    v = svc.view('c-pilot')
+    job, _ = svc.start('c-pilot', 'tree', 'changing', v['knowledge_revision'], v['document_revision'], source_mode='handouts', lesson_id='cpu')
+    await svc.run('c-pilot', job['id'])
+    changed = deepcopy(baseline); changed['revision_id'] = 'changed'
+    next(p for p in changed['knowledge_points'] if changed_lesson in p['section_refs'])['statement'] = '新的知识定义'
+    svc.storage.update_course_data('c-pilot', lambda r: {**r, 'course_knowledge_base': changed})
+    with pytest.raises(CourseDocumentConflict, match='更新|变化'):
+        svc.adopt('c-pilot', job['id'], 'changed', v['document_revision'])
