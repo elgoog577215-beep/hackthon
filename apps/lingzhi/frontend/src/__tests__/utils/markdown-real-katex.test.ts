@@ -30,6 +30,44 @@ const katexText = (html: string) => {
 }
 
 describe('renderMarkdown – 真实 KaTeX 兼容', () => {
+  it('增广矩阵及矛盾行中的竖线保留在公式内，不拆开讲义表格的五列', () => {
+    const html = renderMarkdown(String.raw`| 解的情况 | 秩的条件 | 消元后的行阶梯形特征 | 自由变量数 | 几何意义 |
+| :--- | :--- | :--- | :--- | :--- |
+| **无解** | $\text{rank}(A) < \text{rank}([A|\mathbf{b}])$ | 存在一行 $[0 \ \dots \ 0 \ | \ c]$，$c \neq 0$ | 无意义 | 平面/子空间不交汇，$\mathbf{b}$ 不在列空间 |
+| **唯一解** | $\text{rank}(A) = \text{rank}([A|\mathbf{b}]) = n$ | 无零行（或仅底部全零行），且每列有主元 | 0 | 子空间交汇于唯一一点 |
+| **无穷多解** | $\text{rank}(A) = \text{rank}([A|\mathbf{b}]) = r < n$ | 存在非主元列 | $n - r > 0$ | 子空间重叠为直线、平面等 |`)
+    const box = document.createElement('div')
+    box.innerHTML = html
+    expect(box.querySelectorAll('thead th')).toHaveLength(5)
+    const rows = Array.from(box.querySelectorAll('tbody tr'))
+    expect(rows).toHaveLength(3)
+    rows.forEach(row => expect(row.querySelectorAll('td')).toHaveLength(5))
+    expect(rows[0]?.querySelectorAll('td')[1]?.querySelectorAll('.katex')).toHaveLength(1)
+    expect(rows[0]?.querySelectorAll('td')[2]?.querySelectorAll('.katex')).toHaveLength(2)
+    expect(rows[0]?.querySelectorAll('td')[3]?.textContent).toBe('无意义')
+    expect(rows[0]?.querySelectorAll('td')[4]?.textContent).toContain('不在列空间')
+    expect(rows[1]?.querySelectorAll('td')[4]?.textContent).toBe('子空间交汇于唯一一点')
+    expect(rows[2]?.querySelectorAll('td')[4]?.textContent).toBe('子空间重叠为直线、平面等')
+    expect(box.querySelectorAll('.math-fallback,.katex-error')).toHaveLength(0)
+    expect(renderedText(html)).not.toMatch(/\$|\\(?:text|mathbf|dots)|MATHDISPLAYPLACEHOLDER/)
+  })
+
+  it('English tables preserve conditional probability and double norm bars', () => {
+    const html = renderMarkdown(String.raw`| Formula | Meaning |
+| --- | --- |
+| $P(A|B)$ | Conditional probability |
+| $\|x\|$ | Norm |
+| left\|right | A literal pipe |`)
+    const box = document.createElement('div')
+    box.innerHTML = html
+    const rows = Array.from(box.querySelectorAll('tbody tr'))
+    expect(rows.map(row => row.querySelectorAll('td')[1]?.textContent)).toEqual(['Conditional probability', 'Norm', 'A literal pipe'])
+    expect(rows[0]?.querySelector('.katex')?.textContent).toContain('P(A∣B)')
+    expect(rows[1]?.querySelector('.katex')?.textContent).toContain('∥x∥')
+    expect(rows[2]?.querySelectorAll('td')[0]?.textContent).toBe('left|right')
+    expect(box.querySelectorAll('.math-fallback,.katex-error')).toHaveLength(0)
+  })
+
   it('保留同一公式内的矩阵、系数与等号，不吞掉后续中文和粗体', () => {
     const html = renderMarkdown(String.raw`证明线性无关：
 \[

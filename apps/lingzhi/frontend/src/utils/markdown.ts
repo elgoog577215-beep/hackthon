@@ -797,6 +797,29 @@ const protectBalancedDisplayEnvironments = (content: string) => {
     return { normalized, blocks };
 };
 
+// GFM splits table cells before running inline rules. Protect only complete
+// pipe-bearing formulas in confirmed tables so augmented matrices, conditional
+// probabilities and LaTeX norm bars reach KaTeX unchanged. Escaping their pipes
+// instead would lose the distinction between `|` and the LaTeX `\|` command.
+const protectTableMath = (source: string, blocks: Map<string, string>) => {
+    const lines = source.split('\n');
+    let inTable = false;
+    return lines.map((line, index) => {
+        if (!inTable) {
+            inTable = countUnescapedTablePipes(line) > 0 && isMarkdownTableDelimiter(lines[index + 1] || '');
+        } else if (!line.includes('|')) {
+            inTable = false;
+        }
+        if (!inTable) return line;
+        return line.replace(/(?<!\$)\$([^$\n]+?)\$(?!\$)/g, (match, formula) => {
+            if (!String(formula).includes('|')) return match;
+            const id = `MATHDISPLAYPLACEHOLDER${blocks.size}`;
+            blocks.set(id, renderMathContent(String(formula), false));
+            return id;
+        });
+    }).join('\n');
+};
+
 const recoverProtectedMathBlocks = (rawHtml: string, blocks: Map<string, string>) => {
     let recovered = rawHtml;
     blocks.forEach((html, id) => {
@@ -1486,6 +1509,7 @@ export const renderMarkdown = (content: string) => {
         /(MATHDISPLAYPLACEHOLDER\d+)\s*\n\s*([+\-=])\s*\n\s*(MATHDISPLAYPLACEHOLDER\d+)/g,
         (_match, left, operator, right) => `${left}\n\n$${operator}$\n\n${right}`
     )
+    normalized = protectTableMath(normalized, protectedDisplayMath.blocks)
 
 
     // NOTE: Do not run additional auto-wrapping heuristics after restoring valid
