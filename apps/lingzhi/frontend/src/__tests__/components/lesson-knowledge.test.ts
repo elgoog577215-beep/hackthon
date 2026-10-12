@@ -46,3 +46,21 @@ it('keeps candidate selection tied to its lecture and disables generation for mi
   expect(w.findAll('button').find(b => b.text().includes('生成本讲知识树'))!.attributes('disabled')).toBeDefined()
   w.unmount()
 })
+
+it('opens a cross-lecture knowledge link in the matching lecture without leaving the workspace', async () => {
+  Element.prototype.scrollIntoView = vi.fn()
+  const v: any = state()
+  v.tree.knowledge_points[0].statement = 'CPU执行指令'
+  v.tree.knowledge_points[1].statement = '主存保存数据'
+  v.tree.relations = [{ id: 'cross', source_id: 'cpu-k', target_id: 'memory-k', type: 'applies_to', cross_lesson: true, reason: '取指使用主存' }]
+  v.history = [v.tree]
+  vi.spyOn(http, 'get').mockResolvedValue({ data: v })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  await w.findAll('button').find(b => b.text() === 'CPU知识')!.trigger('click')
+  expect(w.text()).toContain('跨讲关联')
+  await w.findAll('button').find(b => b.text().includes('第2讲') && b.text().includes('主存知识'))!.trigger('click'); await flushPromises()
+  expect((w.get('select[aria-label="讲次"]').element as HTMLSelectElement).value).toBe('memory')
+  expect(w.get('.leaf-content').text()).toContain('主存保存数据')
+  expect(http.post).not.toHaveBeenCalled()
+  w.unmount()
+})

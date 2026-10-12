@@ -31,12 +31,13 @@ async def test_single_lesson_generation_is_scoped_and_preserves_other_lesson_and
         v = svc.view('c-pilot', source_mode='handouts')
         job, _ = svc.start('c-pilot', 'tree', str(i), v['knowledge_revision'], v['document_revision'], source_mode='handouts', lesson_id=lid)
         assert job['knowledge_lesson_id'] == lid
+        assert [l['lesson_id'] for l in job['request_snapshot']['knowledge_generation_context']['handout_lessons']] == [lid]
         await svc.run('c-pilot', job['id'])
         assert svc.authoring.load('c-pilot')['jobs'][job['id']]['status'] == 'completed'
         svc.adopt('c-pilot', job['id'], v['knowledge_revision'], v['document_revision'])
         saved.append(deepcopy(svc.repository.load_raw('c-pilot')['course_knowledge_base']))
     assert '主存保存正在使用的数据。' not in prompts[0]
-    assert 'CPU执行指令。' not in prompts[1]
+    assert 'CPU执行指令。' in prompts[1]  # Prior knowledge is reference context, not another handout input.
     before = next(p for p in saved[1]['knowledge_points'] if 'memory' in p['section_refs'])
     after = next(p for p in saved[2]['knowledge_points'] if 'memory' in p['section_refs'])
     assert before == after
