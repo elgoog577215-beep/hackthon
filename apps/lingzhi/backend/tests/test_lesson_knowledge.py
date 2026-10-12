@@ -92,5 +92,45 @@ async def test_next_lesson_references_existing_ids_and_can_reuse_without_duplica
     reused = next(p for p in tree['knowledge_points'] if p['knowledge_id'] == original['knowledge_id'])
     assert set(reused['section_refs']) == {'cpu', 'memory'}
     assert reused['statement'] == original['statement']
+    assert reused['revision_id'] == original['revision_id']
     assert tree['relations'][0]['source_id'] == original['knowledge_id']
     assert tree['relations'][0]['cross_lesson'] is True
+
+
+def test_cross_lecture_cycle_is_rejected_after_merging_existing_edges(svc):
+    from handout_knowledge import handout_context, merge_lesson_tree
+    from generic_knowledge import compile_tree
+    handouts(svc); raw = svc.repository.load_raw('c-pilot')
+    old = compile_tree(raw, handout_context(raw, svc.authoring.load('c-pilot')), answer())
+    a, b = [p['knowledge_id'] for p in old['knowledge_points']]
+    old['relations'] = [{'id': 'old', 'type': 'prerequisite', 'source_id': a, 'target_id': b}]
+    one = deepcopy(old); one['knowledge_points'] = [one['knowledge_points'][0]]
+    one['relations'] = [{'id': 'new', 'type': 'prerequisite', 'source_id': b, 'target_id': a}]
+    one['lessons'] = [one['lessons'][0]]
+    with pytest.raises(CourseDocumentConflict, match='环'):
+        merge_lesson_tree(old, one, 'cpu')
+
+
+def test_unknown_reference_and_rewriting_existing_definition_are_rejected(svc):
+    from handout_knowledge import handout_context
+    from generic_knowledge import compile_tree
+    handouts(svc); raw = svc.repository.load_raw('c-pilot'); state = svc.authoring.load('c-pilot')
+    raw['course_knowledge_base'] = compile_tree(raw, handout_context(raw, state), answer())
+    context = handout_context(raw, state, lesson_id='cpu')
+    one = one_lesson_response('cpu'); one['relations'] = [{'source_key': 'E999', 'target_key': 'K1', 'type': 'prerequisite', 'reason': '未知端点'}]
+    with pytest.raises(CourseDocumentConflict): compile_tree(raw, context, one)
+    one = one_lesson_response('cpu'); one['points'][0]['reuse_key'] = 'E1'; one['points'][0]['statement'] = '把旧知识改成新定义'
+    with pytest.raises(CourseDocumentConflict, match='不能改写'): compile_tree(raw, context, one)
+
+
+def test_untouched_material_based_points_remain_readable_in_mixed_preview(svc):
+    from handout_knowledge import handout_context, visible_handout_tree
+    from generic_knowledge import compile_tree
+    handouts(svc); raw = svc.repository.load_raw('c-pilot')
+    tree = compile_tree(raw, handout_context(raw, svc.authoring.load('c-pilot')), answer())
+    point = tree['knowledge_points'][1]
+    for quote in point['source_quotes']: quote.pop('handout_ref')
+    point['verification_status'] = 'source_quote_checked_semantics_pending'
+    block = {'block_id': 'visible', 'payload': {'knowledge_refs': [{'knowledge_id': point['knowledge_id'], 'revision_id': point['revision_id']}]}}
+    view = visible_handout_tree(tree, {'blocks': [block]}, {})
+    assert [p['knowledge_id'] for p in view['knowledge_points']] == [point['knowledge_id']]
