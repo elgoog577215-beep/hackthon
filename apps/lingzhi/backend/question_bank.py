@@ -17,7 +17,6 @@ from assessment_quality import QUESTION_QUALITY_SCHEMA
 from assessment_blueprint import (
     ASSESSMENT_BLUEPRINT_SCHEMA,
     compile_course_assessment_blueprint,
-    slot_for,
 )
 from assessment_compiler import (
     compile_formal_task_contract,
@@ -45,8 +44,10 @@ from question_generation import (
     generate_question_contract,
     validate_question_spec,
 )
-from question_knowledge_binding import resolve_node_knowledge_binding
+from question_knowledge_binding import resolve_node_knowledge_binding, knowledge_point_coverage
+from knowledge_assessment import assessment_binding, atomic_baseline, item_slot_keys, slot_key, slots_for_node
 from question_public_guard import rejected_teacher_patch_fields
+from question_evidence_guard import independent_evidence_admitted, revalidate_evidence_admission
 from storage import DATA_DIR
 
 QUESTION_BANK_SCHEMA = "question_bank_bundle_v1"
@@ -151,7 +152,7 @@ def build_question_bank(
         objectives=assessment_objectives,
         blueprint=assessment_blueprint,
     )
-    finals, final_solutions = _comprehensive_items(
+    finals, final_solutions = ([], {}) if atomic_baseline(course_data) else _comprehensive_items(
         course_data,
         nodes,
         imported,
@@ -189,7 +190,7 @@ def build_question_bank(
         solution_envelopes=solution_envelopes,
     )
 
-    coverage = _coverage_report(course_data, nodes, items, imported)
+    coverage = _coverage_report(course_data, nodes, items, imported, solutions=solution_envelopes)
     reference_package = deepcopy(
         course_data.get("_question_reference_package") or {}
     )
@@ -500,6 +501,8 @@ def approved_formal_tasks(
         if solution:
             hydrated["_solution_envelope"] = deepcopy(solution)
         projected = _formal_task_from_item(hydrated)
+        if item.get('assessment_binding_schema') and not independent_evidence_admitted(projected):
+            continue
         if (
             (item.get("question_spec") or {}).get(
                 "schema_version"
@@ -923,14 +926,7 @@ def reconcile_scoped_question_bank(
             return False
         if not selected_levels:
             return True
-        item_levels = {
-            str(level)
-            for level in (
-                item.get("practice_levels")
-                or [item.get("practice_level")]
-            )
-            if str(level or "").strip()
-        }
+        item_levels = set(item_slot_keys(item))
         return any(
             not selected_levels.get(node_id)
             or bool(item_levels & selected_levels[node_id])
@@ -1434,6 +1430,7 @@ def recalculate_question_bank_coverage(
         nodes,
         items,
         imported,
+        solutions=result.get('solution_envelopes') or {},
     )
     result["review_queue"] = _review_queue(items)
     return refresh_question_bank_bundle(result)
@@ -2128,11 +2125,6 @@ def _generated_course_items(
         for item in imported
         if item.get("node_id") and item.get("lifecycle_status") in {"approved", "needs_review"}
     }
-    level_specs = (
-        ("concept_check", "概念辨析"),
-        ("objective_practice", "情境应用"),
-        ("mastery_check", "独立达标"),
-    )
     for node in nodes:
         node_id = str(node.get("node_id") or "")
         key_points = _node_key_points(node)
@@ -2140,14 +2132,11 @@ def _generated_course_items(
         objective = objective_by_node.get(node_id)
         if not objective:
             continue
-        for index, (level, label) in enumerate(level_specs):
-            assessment_slot = slot_for(
-                blueprint,
-                node_id=node_id,
-                practice_level=level,
-            )
-            if not assessment_slot:
-                continue
+        for index, assessment_slot in enumerate(slots_for_node(blueprint, node_id)):
+            level = assessment_slot["practice_level"]
+            generation_key = slot_key(assessment_slot)
+            objective = assessment_slot.get("target_objective") or objective_by_node[node_id]
+            key_points = list(objective.get("knowledge") or []) if assessment_slot.get("assessment_binding_schema") else _node_key_points(node)
             prepared_contract = (
                 (
                     course_data.get(
@@ -2156,8 +2145,13 @@ def _generated_course_items(
                     or {}
                 ).get(node_id)
                 or {}
-            ).get(level)
+            ).get(generation_key)
+            # A partial model run must never synthesize uncompleted sibling slots.
+            if ("_assessment_generated_contracts" in course_data or assessment_slot.get("assessment_binding_schema")) and not prepared_contract:
+                continue
             if prepared_contract:
+                if assessment_slot.get("assessment_binding_schema") and assessment_binding(prepared_contract) != assessment_binding(assessment_slot):
+                    raise ValueError("atomic_assessment_source_changed")
                 generated_contract = deepcopy(prepared_contract)
                 if generated_contract.get(
                     "generation_status"
@@ -2198,7 +2192,7 @@ def _generated_course_items(
                 {
                     "course": course_data.get("course_id"),
                     "node": node_id,
-                    "level": level,
+                    "level": generation_key,
                     "source": source_item.get("item_id") if source_item else None,
                     "objective": node.get("learning_objective"),
                     "knowledge": key_points,
@@ -2257,10 +2251,12 @@ def _generated_course_items(
                     or ""
                 ),
                 "objective_id": objective.get("objective_id"),
-                "course_knowledge_refs": _node_knowledge_refs(course_data, node),
-                "course_skill_refs": _node_skill_refs(course_data, node),
-                "course_misconception_refs": _node_misconception_refs(course_data, node),
-                "course_mastery_refs": _node_mastery_refs(course_data, node),
+                "course_knowledge_refs": deepcopy(assessment_slot["primary_knowledge_ids"]) if assessment_slot.get("assessment_binding_schema") else _node_knowledge_refs(course_data, node),
+                "course_skill_refs": [] if assessment_slot.get("assessment_binding_schema") else _node_skill_refs(course_data, node),
+                "course_misconception_refs": [] if assessment_slot.get("assessment_binding_schema") else _node_misconception_refs(course_data, node),
+                "course_mastery_refs": [] if assessment_slot.get("assessment_binding_schema") else _node_mastery_refs(course_data, node),
+                **assessment_binding(assessment_slot),
+                **({"evidence_admission": deepcopy(generated_contract.get("evidence_admission") or {})} if assessment_slot.get("assessment_binding_schema") else {}),
                 "source_type": source_type,
                 "source_records": source_records,
                 "parse_confidence": "high",
@@ -3596,6 +3592,7 @@ def _coverage_report(
     nodes: list[dict[str, Any]],
     items: list[dict[str, Any]],
     imported: list[dict[str, Any]],
+    *, solutions: dict[str, dict] | None = None,
 ) -> dict[str, Any]:
     required = {
         _objective_ref(course_data, node): {
@@ -3645,6 +3642,7 @@ def _coverage_report(
     ]
     return {
         "required_objective_count": count,
+        "knowledge_coverage": knowledge_point_coverage(course_data, active, solutions=solutions),
         "covered_objective_count": count - len(missing),
         "coverage_ratio": round((count - len(missing)) / max(1, count), 4),
         "missing_required_objectives": missing,
@@ -4153,6 +4151,8 @@ def _leakage_check(
 
 def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
     private_solution = item.get("_solution_envelope") or {}
+    if item.get('assessment_binding_schema'):
+        item = {**item, 'evidence_admission': revalidate_evidence_admission(item, private_solution)}
     compiled = compile_formal_task_contract(
         item,
         private_solution,
@@ -4160,6 +4160,8 @@ def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
     answer_spec = deepcopy(compiled["answer_spec"])
     input_contract = deepcopy(compiled["input_contract"])
     task = {
+        **assessment_binding(item),
+        **({"evidence_admission": deepcopy(item.get("evidence_admission") or {})} if item.get("assessment_binding_schema") else {}),
         "asset_id": stable_hash(
             {"course": item.get("course_id"), "question_bank_item": item.get("item_id")},
             prefix="qbt_",

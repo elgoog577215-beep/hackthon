@@ -126,6 +126,12 @@ PUBLIC_QUESTION_FIELDS = (
     "learning_objective",
     "objective_id",
     "concept_ids",
+    "assessment_binding_schema",
+    "assessment_purpose",
+    "primary_knowledge_ids",
+    "prerequisite_knowledge_ids",
+    "knowledge_revision_refs",
+    "knowledge_baseline_revision",
     "skill_unit_ids",
     "mistake_point_ids",
     "question_type",
@@ -221,6 +227,12 @@ def compile_course_assessment_profile(
             "family_sample_rate": 0,
         },
     }
+    baseline = course_data.get("course_knowledge_base") or {}
+    sources = baseline.get("sources") or {}
+    source_context = sources.get("course_context") or {} if isinstance(sources, dict) else {}
+    standard = str(source_context.get("language_standard") or "")
+    if (baseline.get("status") == "accepted" or baseline.get("lifecycle_status") == "active") and standard == "C17":
+        profile["notation_and_language"].update(programming_languages=["C"], language_standard="C17")
     profile["profile_revision_id"] = stable_hash(
         profile,
         prefix="cap_",
@@ -520,12 +532,19 @@ def _notation_contract(text: str, family: str) -> dict[str, Any]:
         for marker in ("C++", "Java", "Python", "JavaScript", "SQL")
         if marker.lower() in text.lower()
     ]
-    return {
+    c_standard = re.search(r"(?<![\w+])C\s*(89|90|99|11|17|18|23)(?![\w+])|C(17)(?=[\u4e00-\u9fff])", text, re.I)
+    is_c = bool(c_standard or re.search(r"(?<![\w+])C\s*语言", text, re.I))
+    if is_c:
+        languages.insert(0, "C")
+    contract = {
         "response_language": "zh-CN",
         "programming_languages": languages,
         "requires_units": family == "natural_science",
         "supports_symbolic_notation": family == "math_formal",
     }
+    if c_standard:
+        contract["language_standard"] = "C" + (c_standard.group(1) or c_standard.group(2))
+    return contract
 
 
 def _validation_modes_for_family(family: str) -> list[str]:

@@ -1,0 +1,214 @@
+"""The ordinary handout pipeline can supply a tree without uploaded files."""
+import json
+from copy import deepcopy
+from types import SimpleNamespace
+
+import pytest
+
+from backend.tests.test_knowledge_first import svc
+from backend.tests.test_generic_knowledge_first import response, source
+from course_repository import CourseDocumentConflict
+
+
+def handouts(svc):
+    state = svc.authoring.load('c-pilot')
+    state['lessons'] = {lid: {'lesson_unit_id': lid, 'title': title,
+        'working_script_revision_id': 'r-' + lid, 'script_revisions': [{
+            'revision_id': 'r-' + lid, 'sections': [{'section_node_id': lid,
+            'blocks': [{'block_id': 'b-' + lid, 'content': content, 'status': 'completed'}]}]}]}
+        for lid, title, content in [('cpu', '处理器', 'CPU执行指令。'), ('memory', '存储器', '主存保存正在使用的数据。')]}
+    svc.authoring._save(state)
+
+
+def answer():
+    value = response()
+    value['points'][1]['sources'][0]['key'] = 'S2'
+    value['lessons'][0]['key'] = 'cpu'
+    value['lessons'][1]['key'] = 'memory'
+    return value
+
+
+@pytest.mark.asyncio
+async def test_no_upload_extracts_from_existing_handouts_without_rewriting_them(svc, monkeypatch):
+    monkeypatch.setattr('knowledge_first.material', lambda: pytest.fail('C17 seed was accessed'))
+    handouts(svc)
+    before = deepcopy(svc.authoring.load('c-pilot')['lessons'])
+    document = deepcopy(svc.repository.load_raw('c-pilot')['course_document'])
+    async def call(prompt, **kwargs):
+        assert 'CPU执行指令。' in prompt and '主存保存正在使用的数据。' in prompt
+        assert kwargs['max_attempts'] == 1
+        return json.dumps(answer(), ensure_ascii=False)
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=call, model_smart='test', client=None)
+    v = svc.view('c-pilot', source_mode='handouts')
+    assert v['source_mode'] == 'handouts' and v['can_generate_tree']
+    job, _ = svc.start('c-pilot', 'tree', 'derived', '', v['document_revision'], source_mode='handouts')
+    await svc.run('c-pilot', job['id'])
+    assert svc.authoring.load('c-pilot')['jobs'][job['id']]['status'] == 'completed'
+    svc.adopt('c-pilot', job['id'], '', v['document_revision'])
+    raw = svc.repository.load_raw('c-pilot')
+    tree = raw['course_knowledge_base']
+    assert tree['source_mode'] == 'handouts'
+    assert tree['knowledge_points'][0]['section_refs'] == ['cpu']
+    assert tree['knowledge_points'][0]['source_quotes'][0]['handout_ref']['script_revision_id'] == 'r-cpu'
+    assert raw['course_document'] == document
+    assert svc.authoring.load('c-pilot')['lessons'] == before
+    assert svc.view('c-pilot')['enabled']
+    assert svc.view('c-pilot')['tree']['revision_id'] == tree['revision_id']
+
+
+def test_without_handouts_gives_next_step_and_blocks_model(svc):
+    v = svc.view('c-pilot', source_mode='handouts')
+    assert not v['can_generate_tree']
+    with pytest.raises(CourseDocumentConflict, match='讲义'):
+        svc.start('c-pilot', 'tree', 'empty', '', v['document_revision'], source_mode='handouts')
+
+
+@pytest.mark.asyncio
+async def test_handout_changes_invalidate_candidate_adoption(svc):
+    handouts(svc)
+    async def call(*args, **kwargs): return json.dumps(answer(), ensure_ascii=False)
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=call, model_smart='test', client=None)
+    v = svc.view('c-pilot', source_mode='handouts')
+    job, _ = svc.start('c-pilot', 'tree', 'stale', '', v['document_revision'], source_mode='handouts')
+    await svc.run('c-pilot', job['id'])
+    state = svc.authoring.load('c-pilot')
+    state['lessons']['cpu']['script_revisions'][0]['sections'][0]['blocks'][0]['content'] += '正文已修改。'
+    svc.authoring._save(state)
+    with pytest.raises(CourseDocumentConflict, match='变化'):
+        svc.adopt('c-pilot', job['id'], '', v['document_revision'])
+
+
+def test_recursive_categories_preserve_point_identity_and_reject_cycles(svc):
+    from generic_knowledge import compile_tree
+    from knowledge_first import course_generation_context
+    source(svc); svc.initialize('c-pilot', svc.view('c-pilot')['document_revision'])
+    raw = svc.repository.load_raw('c-pilot'); context = course_generation_context(raw)
+    shallow = compile_tree(raw, context, response())
+    deep = response()
+    deep['categories'] += [{'key': 'C3', 'name': '部件职责', 'parent_key': 'C2'},
+                           {'key': 'C4', 'name': '执行职责', 'parent_key': 'C3'}]
+    deep['points'][0]['category_key'] = 'C4'
+    tree = compile_tree(raw, context, deep)
+    assert tree['knowledge_points'][0]['knowledge_id'] == shallow['knowledge_points'][0]['knowledge_id']
+    deep['categories'][0]['parent_key'] = 'C4'
+    with pytest.raises(CourseDocumentConflict, match='环'):
+        compile_tree(raw, context, deep)
+
+
+def test_handout_context_ignores_uploaded_caches_and_unfinished_blocks(svc):
+    from handout_knowledge import handout_context
+    handouts(svc)
+    state = svc.authoring.load('c-pilot')
+    state['lessons']['cpu']['script_revisions'][0]['sections'][0]['blocks'].append(
+        {'block_id': 'partial', 'content': '尚未完成，不能提取', 'status': 'failed'})
+    raw = svc.repository.load_raw('c-pilot')
+    raw.update(evidence_package={'invalid': True}, parsed_documents=[{'bad': 'cache'}])
+    context = handout_context(raw, state)
+    assert len(context['handout_lessons']) == 2
+    assert len(context['evidence_package']['units']) == 2
+    assert '尚未完成' not in json.dumps(context, ensure_ascii=False)
+    assert context['policy']['handouts_are_generated_content_not_independent_evidence']
+
+
+def test_cross_lecture_mapping_and_foreign_block_are_rejected(svc):
+    from handout_knowledge import handout_context
+    from generic_knowledge import compile_tree
+    handouts(svc)
+    raw = svc.repository.load_raw('c-pilot')
+    context = handout_context(raw, svc.authoring.load('c-pilot'))
+    wrong = answer(); wrong['lessons'][0]['knowledge_keys'].append('K2')
+    with pytest.raises(CourseDocumentConflict, match='讲次归属'):
+        compile_tree(raw, context, wrong)
+    wrong = answer(); wrong['points'][0]['sources'][0]['key'] = 'S999'
+    with pytest.raises(CourseDocumentConflict, match='未知来源'):
+        compile_tree(raw, context, wrong)
+
+
+def test_handout_quotes_are_loaded_from_source_blocks_not_copied_by_model(svc):
+    from handout_knowledge import handout_context
+    from generic_knowledge import compile_tree
+    handouts(svc)
+    raw = svc.repository.load_raw('c-pilot')
+    context = handout_context(raw, svc.authoring.load('c-pilot'))
+    value = answer(); value['points'][0]['sources'] = [{'key': 'S1'}]
+    tree = compile_tree(raw, context, value)
+    point = tree['knowledge_points'][0]
+    assert point['source_quotes'][0]['quote'] == 'CPU执行指令。'
+    assert point['verification_status'] == 'handout_block_linked_semantics_pending'
+    from course_knowledge_base import _source_status
+    assert _source_status(point) == 'course_generated'
+
+
+@pytest.mark.asyncio
+async def test_recheck_uses_the_same_frozen_handouts_without_another_model_call(svc):
+    handouts(svc)
+    async def call(*args, **kwargs): return json.dumps(answer(), ensure_ascii=False)
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=call, model_smart='test', client=None)
+    v = svc.view('c-pilot', source_mode='handouts')
+    job, _ = svc.start('c-pilot', 'tree', 'initial', '', v['document_revision'], source_mode='handouts')
+    svc.authoring.update_job('c-pilot', job['id'], status='failed', raw_response=json.dumps(answer()))
+    checked = svc.recheck('c-pilot', job['id'], 'manual-check', v['document_revision'], '')
+    assert checked['source_mode'] == 'handouts'
+    assert checked['model_request_sent'] is False
+    svc.adopt('c-pilot', checked['id'], '', v['document_revision'])
+
+
+def test_api_handout_sources_require_course_access_and_reject_unknown_mode(svc):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from routers.knowledge_first import router
+    from dependencies import get_course_document_repository, get_teacher_lesson_authoring_repository
+    app = FastAPI(); app.include_router(router, prefix='/api')
+    app.dependency_overrides[get_course_document_repository] = lambda: svc.repository
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: svc.authoring
+    client = TestClient(app)
+    url = '/api/courses/c-pilot/knowledge-first?source_mode=handouts'
+    assert client.get(url, headers={'X-User-Id': 'stranger'}).status_code == 404
+    assert client.get(url, headers={'X-User-Id': 'owner'}).json()['source_mode'] == 'handouts'
+    assert client.get(url.replace('handouts', 'invalid'), headers={'X-User-Id': 'owner'}).status_code == 422
+    handouts(svc)
+    svc.storage.update_course_data('c-pilot', lambda raw: {**raw, 'is_published': True})
+    shared = client.get(url, headers={'X-User-Id': 'stranger'}).json()
+    assert shared['source_handouts'] == []
+    assert shared['handouts'] == []
+    assert not shared['can_generate_tree']
+
+
+@pytest.mark.asyncio
+async def test_connection_failure_explains_recovery_without_retrying(svc):
+    from ai_base import AIProviderRequestError
+    handouts(svc)
+    calls = []
+    async def call(*args, **kwargs):
+        calls.append(1)
+        raise AIProviderRequestError('Connection error.')
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=call, model_smart='test', client=None)
+    v = svc.view('c-pilot', source_mode='handouts')
+    job, _ = svc.start('c-pilot', 'tree', 'connection', '', v['document_revision'], source_mode='handouts')
+    await svc.run('c-pilot', job['id'])
+    failure = svc.authoring.load('c-pilot')['jobs'][job['id']]
+    assert failure['error']['code'] == 'ModelConnectionUnavailable'
+    assert calls == [1]
+
+
+def test_handout_source_lists_preserve_all_repeated_refs_and_reject_other_duplicates():
+    from knowledge_first import parse_response
+    value = parse_response('{"points":[{"sources":[{"key":"S1","key":"S2"},"S3"]}]}', handout_sources=True)
+    assert value['points'][0]['sources'] == [{'key': 'S1'}, {'key': 'S2'}, {'key': 'S3'}]
+    assert value['_format_normalizations'] == ['expanded_repeated_source_keys']
+    with pytest.raises(CourseDocumentConflict, match='重复'):
+        parse_response('{"key":"S1","key":"S2"}', handout_sources=True)
+    with pytest.raises(CourseDocumentConflict, match='重复'):
+        parse_response('{"points":[],"points":[{}]}', handout_sources=True)
+
+
+def test_preview_uses_adopted_tree_but_excludes_hidden_or_superseded_handouts(svc):
+    from handout_knowledge import handout_context, visible_handout_tree
+    from generic_knowledge import compile_tree
+    handouts(svc); raw = svc.repository.load_raw('c-pilot')
+    tree = compile_tree(raw, handout_context(raw, svc.authoring.load('c-pilot')), answer())
+    visible = visible_handout_tree(tree, {'blocks': [{'block_id': 'b-cpu'}]}, {'cpu': {'revision_id': 'r-cpu'}})
+    assert len(visible['knowledge_points']) == 1
+    assert visible['knowledge_points'][0]['name'] == 'CPU作用'
+    assert len(tree['knowledge_points']) == 2
+    assert visible_handout_tree(tree, {'blocks': [{'block_id': 'b-cpu'}]}, {'cpu': {'revision_id': 'new'}})['knowledge_points'] == []

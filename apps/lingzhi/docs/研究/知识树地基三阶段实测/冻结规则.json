@@ -1,0 +1,84 @@
+{
+  "eval": {
+    "max_calls": 13,
+    "stages": [
+      "inventory",
+      "atoms",
+      "classify"
+    ],
+    "max_attempts": 1,
+    "scope": "相同四微单元；非整课，不生成题目/诊断/补救/迁移/先修边或强度",
+    "axes": [
+      "accuracy",
+      "coverage",
+      "granularity",
+      "structure"
+    ],
+    "coverage_method": "逐项冻结材料要求对照，不以模型清单自称完整作依据",
+    "semantic_reviewer": "Codex independently reads source, inventory and final leaves; no model self-approval",
+    "baseline": "D:\\lingzhi\\.codex_tmp\\shared-context-20261011",
+    "shared_context_projection": "保留范围/证据/课程要求，移除教学模块执行指令，记录上游revision",
+    "no_course_writes": true,
+    "content_repairs": 0,
+    "limit": "协议与任务范围改变；四份短材料各一次，不能归因或推断整课稳定性"
+  },
+  "requirements": {
+    "python": [
+      "赋值使名字指向同一列表，不复制",
+      "共享列表修改对别名可见",
+      "名字重新绑定不传播",
+      "浅拷贝新建外层",
+      "外层append不改原外层",
+      "嵌套列表的对应内层引用共享",
+      "共享内层append从两个外层可见",
+      "替换b[0]仅改变b的元素引用"
+    ],
+    "calculus": [
+      "内点、双侧有限导数的范围",
+      "连续的点值存在、有限双侧极限及等值条件",
+      "差商有限双侧极限的可导定义",
+      "左右差商极限不同则不可导",
+      "可导推出连续",
+      "连续不能推出可导",
+      "不连续推出不可导（逆否）",
+      "不可导不能反推不连续",
+      "绝对值0处连续且左右导数-1/1作为案例"
+    ],
+    "physics": [
+      "相互作用力大小相等",
+      "相互作用力方向相反",
+      "相互作用力分属不同受力对象",
+      "等大反向不要求质量相等",
+      "等大反向不要求静止",
+      "力相等不能直接推出加速度相等",
+      "单体受力图只列它受到的力",
+      "作用反作用不能在单体上作为平衡力相消",
+      "平衡力须同一受力对象（仅必要条件）",
+      "A+B间相互作用属于该系统内力",
+      "内力抵消不推出外力合力为零"
+    ],
+    "history": [
+      "原文观察与分析者推断分开",
+      "推断须说明依据与推理",
+      "作者、时间、受众、目的影响材料支持的主张",
+      "一手材料不保证完全客观",
+      "有立场不等于毫无价值",
+      "互证检查来源独立性",
+      "互证检查对象和时段可比性",
+      "转载不构成新增独立见证",
+      "矛盾材料列差异、考察背景、寻新证据",
+      "不凭数量投票或预设立场定真假",
+      "有限来源、结论限度及下一步查证",
+      "虚构A/B/C及缺少资料作为案例，记载不冒充已证事件"
+    ]
+  },
+  "manifest": {
+    "input_hashes": {
+      "fixtures.json": "64c94277857de005ba586782004145827c06884213b8b1cd11a62317eabed035",
+      "contexts.json": "4fe198b55c9d98a6c3783d43db363f93f7ef61c1922aa518b3f09ffc809851fd",
+      "requirements.json": "9738d69c1e41fded603fe2069af415a039d985bc2dfd02a8d275a977ef9b054c",
+      "prompts.json": "661eebaec343a345c5b5a1d4a8f71de0df4fc6455f4eaa7186690bab065dcab0",
+      "eval.json": "bd812d6e1073d554917ca05ed0210d4b4ca58d9c3978b406e878a3b7060fd9ae"
+    }
+  }
+}

@@ -20,6 +20,7 @@ from assessment_diversity import (
 )
 from assessment_tasks import project_assessment_task, resolve_assessment_task
 from course_knowledge_map import project_learning_assets_to_knowledge
+from knowledge_mastery import freeze_knowledge_refs
 from course_learning_availability import (
     project_course_learning_availability,
     project_practice_availability,
@@ -268,6 +269,8 @@ async def create_attempt(course_id: str, payload: AttemptCreate, request: Reques
         "question_type": task.get("question_type"),
         "input_contract": task.get("input_contract") or {},
         "concept_ids": task.get("concept_ids") or [],
+        "knowledge_revision_refs": freeze_knowledge_refs(
+            next(iter(project_learning_assets_to_knowledge(course, course.get("learning_assets") or {}).get("course_knowledge_base") or []), {}), task),
         "skill_unit_ids": task.get("skill_unit_ids") or [],
         "mistake_point_ids": task.get("mistake_point_ids") or [],
         "improvement_point_ids": task.get("improvement_point_ids") or [],
@@ -1253,42 +1256,15 @@ def _question_bank_practice_overlay(
     asset_questions: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Prefer bank-backed compiled tasks and replace stale template peers."""
+    from knowledge_practice import adopted_knowledge_checks
+    authored = adopted_knowledge_checks(course)
     bank_tasks = _question_bank_practice_tasks(course)
     if not bank_tasks:
-        return [] if _has_active_question_bank(course) else list(asset_questions)
+        return authored if _has_active_question_bank(course) else list(asset_questions)
 
-    assets_by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for question in asset_questions:
-        key = (
-            str(question.get("node_id") or ""),
-            str(question.get("practice_level") or ""),
-        )
-        assets_by_key.setdefault(key, []).append(question)
-
-    result: list[dict[str, Any]] = []
-    for bank_task in bank_tasks:
-        key = (
-            str(bank_task.get("node_id") or ""),
-            str(bank_task.get("practice_level") or ""),
-        )
-        bank_item_revision = str(
-            bank_task.get("question_bank_item_revision_id") or ""
-        )
-        compiled = next(
-            (
-                question
-                for question in assets_by_key.get(key) or []
-                if bank_item_revision
-                and str(
-                    question.get("question_bank_item_revision_id") or ""
-                )
-                == bank_item_revision
-            ),
-            None,
-        )
-        result.append(compiled or bank_task)
-
-    return _unique_revision_items(result)
+    # The bank projection has just revalidated private evidence. An older asset
+    # with the same item revision must not overwrite that current contract.
+    return _unique_revision_items([*bank_tasks, *authored])
 
 
 def _course_evolution_practice_task_ids(course: dict[str, Any]) -> set[str]:

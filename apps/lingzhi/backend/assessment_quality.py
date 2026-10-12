@@ -15,6 +15,7 @@ from assessment_subject_facts import (
     subject_fact_issues,
 )
 from question_choice_grading import canonical_option_ids
+from question_evidence_guard import independent_evidence_admitted
 from solution_contracts import worked_solution_is_complete
 
 QUESTION_QUALITY_SCHEMA = "question_quality_report_v3"
@@ -141,6 +142,7 @@ def evaluate_question_contract_quality(
     )
     issues: list[dict[str, Any]] = []
     hard_checks = {
+        "independent_evidence": not bool(contract.get("assessment_binding_schema")) or independent_evidence_admitted(contract),
         "schema": spec.get("schema_version") == "question_spec_v2",
         "input_contract": _valid_input_contract(input_contract),
         "answer_or_rubric": (
@@ -265,12 +267,14 @@ def evaluate_question_contract_quality(
             "题目说不出学生要表现出的可观察动作",
         ),
     }
+    hard_issue_map["independent_evidence"] = ("INDEPENDENT_EVIDENCE_UNVERIFIED", "单点题缺少与当前题面和解析绑定的语言、无泄漏及独立证据核验")
     for check, passed in hard_checks.items():
         if passed:
             continue
         code, message = hard_issue_map[check]
         issues.append(_issue(code, "critical", message))
     fact_issues = _subject_fact_issues(contract)
+    issues.extend(deepcopy((contract.get("evidence_admission") or {}).get("local_issues") or []))
     hard_checks["subject_facts"] = not fact_issues
     issues.extend(fact_issues)
     issues.extend([
@@ -775,7 +779,7 @@ def _has_substantive_code(value: str) -> bool:
         for line in str(value or "").splitlines()
         if line.strip()
     ]
-    if len(lines) < 2:
+    if not lines:
         return False
     return bool(
         re.search(

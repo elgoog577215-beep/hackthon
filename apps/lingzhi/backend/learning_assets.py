@@ -19,6 +19,7 @@ from course_knowledge_map import (
 )
 from course_pedagogy import coerce_persisted_profile
 from course_versioning import stable_hash
+from knowledge_assessment import atomic_baseline
 from learning_progress import learning_objective_identity
 from practice_analysis import (
     build_assessment_intent,
@@ -242,6 +243,7 @@ def compile_learning_assets(
             assessment_role="practice",
         )
     }
+    atomic_tasks = approved_formal_tasks(question_bank_bundle, assessment_role="practice") if atomic_baseline(course_data) else None
     bank_practice_slots = {
         (
             str(item.get("node_id") or ""),
@@ -280,6 +282,18 @@ def compile_learning_assets(
         candidate_mistake_ids = list(local_binding["course_misconception_refs"])
         improvement_point_ids: list[str] = []
         node_questions: list[dict[str, Any]] = []
+        if atomic_tasks is not None:
+            # Formal tasks already own exact IDs, revisions and scoring contracts.
+            # Do not rebuild them from a lecture's knowledge union or fabricate
+            # remediation/whole-lecture mastery from its last single-point check.
+            for task in atomic_tasks:
+                if str(task.get("node_id") or "") != node_id:
+                    continue
+                question = deepcopy(task)
+                _attach_assessment_intent(question, course_knowledge_base)
+                if "questions" in enabled:
+                    questions.append(question)
+            continue
         for level_index, practice_level in enumerate(
             ("concept_check", "objective_practice", "mastery_check"),
             start=1,

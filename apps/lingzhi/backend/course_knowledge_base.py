@@ -82,6 +82,11 @@ def compile_course_knowledge_base(
         ):
             set_node_content_blocks(section, str(section.get("node_content") or ""))
     existing = course_data.get("course_knowledge_base")
+    if isinstance(existing, dict) and existing.get("tree_schema") in {"knowledge_first_c17_v1", "knowledge_first_generic_v1"}:
+        from knowledge_first import knowledge_projection
+        # Knowledge-first atoms precede prose. Never replace their identities by
+        # re-extracting a newly written lecture (including a one-level lecture).
+        return {**knowledge_projection(existing), "course_id": course_data.get("course_id", "")}
     if isinstance(existing, dict):
         apply_persisted_course_knowledge_base(course_data, existing)
     course_id = str(course_data.get("course_id") or "")
@@ -775,6 +780,9 @@ def validate_course_knowledge_base(
 ) -> dict[str, Any]:
     """Apply hard structural, semantic, relation, and binding gates."""
     del library  # Optional reference catalogs never participate in product validity.
+    if knowledge_base.get("tree_schema") in {"knowledge_first_c17_v1", "knowledge_first_generic_v1"}:
+        from knowledge_first import knowledge_projection
+        knowledge_base = knowledge_projection(knowledge_base)
     issues: list[dict[str, Any]] = []
     if knowledge_base.get("schema_version") != COURSE_KNOWLEDGE_BASE_SCHEMA:
         issues.append(_issue("invalid_schema", "structure", "critical", "课程知识库格式不是 v2"))
@@ -1327,9 +1335,24 @@ def build_course_knowledge_library_view(
         str(item.get("concept_group_id") or ""): item
         for item in knowledge_base.get("concept_groups") or []
     }
+    generic_tree = knowledge_base.get('tree_schema') == 'knowledge_first_generic_v1'
+    group_lecture = {}
+    if generic_tree:
+        for point in knowledge_base.get('knowledge_points') or []:
+            lecture = next(iter(point.get('section_refs') or []), '')
+            group_id = point.get('primary_concept_group_id') or point.get('parent_id')
+            visited = set()
+            while group_id in group_by_id and group_id not in visited:
+                visited.add(group_id)
+                group_lecture.setdefault(group_id, lecture)
+                group_id = group_by_id[group_id].get('parent_id')
     for group in knowledge_base.get("concept_groups") or []:
         group_id = str(group.get("concept_group_id") or "")
         parent_id = section_view_ids.get(str(group.get("primary_section_ref") or ""), course_root_id)
+        if generic_tree:
+            parent_group = group.get('parent_id')
+            lecture = group_lecture.get(group_id, '')
+            parent_id = parent_group if parent_group in group_by_id else section_view_ids.get(lecture, chapter_view_ids.get(lecture, course_root_id))
         path_ids, path_names = _view_path(view_nodes, parent_id)
         view_nodes.append({
             "knowledge_id": group_id,
@@ -2302,6 +2325,9 @@ def _source_status(
     高于联网结果，`web_grounded` 留给"只有联网来源"这一种情况，读起来才是一个
     需要复核的信号而不是噪声。
     """
+    if record.get("verification_status") == "handout_block_linked_semantics_pending":
+        # A saved generated paragraph is provenance, not uploaded evidence.
+        return SOURCE_STATUS_GENERATED
     refs = [ref for ref in record.get("source_refs") or [] if str(ref).strip()]
     if not refs:
         return SOURCE_STATUS_GENERATED

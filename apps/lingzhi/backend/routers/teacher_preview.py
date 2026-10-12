@@ -48,7 +48,7 @@ def public_document(raw: dict) -> dict:
             "position": b.position, "role": b.role, "kind": b.kind,
             "internal_revision": b.internal_revision,
             "concept_refs": list(b.concept_refs),
-            "payload": {key: deepcopy(b.payload[key]) for key in ("title", "markdown", "summary", "feedback_structure", "content_type", "type_label", "answer_to") if key in b.payload}})
+            "payload": {key: deepcopy(b.payload[key]) for key in ("title", "markdown", "summary", "feedback_structure", "content_type", "type_label", "answer_to", "knowledge_refs", "source_knowledge_revision", "source_terminology_revision") if key in b.payload}})
     visible_ids = {b["block_id"] for b in blocks}
     for block in blocks:
         if block["payload"].get("answer_to") not in visible_ids:
@@ -60,20 +60,26 @@ def public_document(raw: dict) -> dict:
 
 def public_handout_plan(raw: dict, document: dict) -> dict:
     """Expose concept data for disclosed sections, without teacher instructions."""
-    plan = project_course_teaching_plan(raw)
+    # Coverage and anchors must be computed from the disclosed body, never from
+    # private blocks that happen to share its section.
+    plan = project_course_teaching_plan({**raw, "course_document": document})
     visible_sections = {b["section_id"] for b in document["blocks"]}
-    section_keys = ("node_id", "knowledge_structure", "key_points", "reused_knowledge_names", "knowledge_relations")
-    sections = [{**{key: deepcopy(s[key]) for key in section_keys}, "teaching_modules": []}
+    section_keys = ("node_id", "knowledge_structure", "key_points", "reused_knowledge_names", "knowledge_relations", "source_knowledge_revision", "source_terminology_revision", "knowledge_source_status", "knowledge_coverage")
+    sections = [{**{key: deepcopy(s[key]) for key in section_keys if key in s}, "teaching_modules": []}
                 for s in plan["sections"] if s["node_id"] in visible_sections]
     names = {point["name"] for section in sections for group in section["knowledge_structure"] for point in group["knowledge_points"]}
     identities = {identity for section in sections for group in section["knowledge_structure"]
                   for point in group["knowledge_points"]
                   for identity in [point["name"], point["knowledge_id"], *point["aliases"]] if identity}
+    visible_ids = {point["knowledge_id"] for section in sections for group in section["knowledge_structure"] for point in group["knowledge_points"] if point.get("knowledge_id")}
+    def endpoint_visible(relation, side):
+        identity = relation.get(side + "_knowledge_id")
+        return identity in visible_ids if identity else relation.get(side + "_name") in identities
     for section in sections:
-        section["knowledge_relations"] = [r for r in section["knowledge_relations"] if r["source_name"] in identities and r["target_name"] in identities]
+        section["knowledge_relations"] = [r for r in section["knowledge_relations"] if endpoint_visible(r, "source") and endpoint_visible(r, "target")]
         for group in section["knowledge_structure"]:
             for point in group["knowledge_points"]:
-                point["relations"] = [r for r in point["relations"] if r["target_name"] in identities]
+                point["relations"] = [r for r in point["relations"] if endpoint_visible(r, "target")]
     return {
         "schema_version": plan["schema_version"], "status": plan["status"],
         "revision_id": plan["revision_id"], "strategy": plan["strategy"],
@@ -109,7 +115,7 @@ def read_preview(course_id: str, request: Request, include_assets: bool = False)
     result = {"course_id": course_id, "preview_revision": revision, "document": document,
         "teaching_plan": public_handout_plan(raw, document),
         "questions": [project_public_question(q) for q in questions],
-        "handouts": {lid: {k: b.get(k) for k in ("revision_id", "source_lesson_plan_revision_id", "source_outline_revision_id")} for lid, b in (raw.get("teacher_handouts") or {}).items()},
+        "handouts": {lid: {k: b.get(k) for k in ("revision_id", "source_lesson_plan_revision_id", "source_outline_revision_id", "source_knowledge_revision", "source_terminology_revision")} for lid, b in (raw.get("teacher_handouts") or {}).items()},
         "availability": {"reading": bool(document["blocks"]), "practice": bool(questions)}}
     if include_assets:
         from course_knowledge_map import project_learning_assets_to_knowledge
@@ -126,8 +132,15 @@ def read_preview(course_id: str, request: Request, include_assets: bool = False)
                 for key in ('knowledge_structure', 'key_points', 'reused_knowledge_names'):
                     if key in source:
                         node[key] = deepcopy(source[key])
+        tree = raw.get('course_knowledge_base') or {}
+        handout_tree = tree.get('source_mode') == 'handouts' and tree.get('status') == 'accepted'
+        if handout_tree:
+            from handout_knowledge import visible_handout_tree
+            public_course['course_knowledge_base'] = visible_handout_tree(tree, document, raw.get('teacher_handouts') or {})
         assets = project_learning_assets_to_knowledge(public_course, {})
         result['assets'] = _public_learning_assets(assets, node_id=None)
+        if handout_tree:
+            result['assets']['knowledge_tree_authoritative'] = True
         result['assets']['questions'] = result['questions']
         result['assets'].pop('checklist', None)
     return result

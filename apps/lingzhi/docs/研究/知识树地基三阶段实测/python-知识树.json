@@ -1,0 +1,630 @@
+{
+  "tree": {
+    "schema": "knowledge_foundation_v1",
+    "course_key": "python",
+    "course_scope": "Python 3基础；普通内置列表，不涉及自定义复制协议。以对象指向图和确定输出判定。",
+    "categories": [
+      {
+        "key": "G1",
+        "name": "列表赋值与引用共享",
+        "parent_key": null
+      },
+      {
+        "key": "G2",
+        "name": "浅拷贝机制",
+        "parent_key": null
+      },
+      {
+        "key": "G21",
+        "name": "外层对象特性",
+        "parent_key": "G2"
+      },
+      {
+        "key": "G22",
+        "name": "嵌套元素行为",
+        "parent_key": "G2"
+      }
+    ],
+    "points": [
+      {
+        "key": "P1",
+        "name": "列表赋值不复制",
+        "statement": "对列表执行赋值 b=a 会使 b 和 a 指向同一个列表对象，该操作本身不会复制列表的内容。",
+        "conditions": [
+          "a 和 b 是列表变量",
+          "执行赋值语句 b=a"
+        ],
+        "boundaries": [],
+        "meta_question": "列表赋值操作是否创建了新列表？",
+        "meta_answer": "不创建新列表，两个名字指向同一对象。",
+        "claim_refs": [
+          "C1"
+        ],
+        "knowledge_id": "kp_c36d4eba0e755ac78dab",
+        "parent_key": "G1",
+        "evidence": [
+          {
+            "claim_key": "C1",
+            "source_ref": "M1",
+            "quote": "赋值b=a使两个名字指向同一列表，不会复制列表。",
+            "start": 0
+          }
+        ],
+        "attachments": [
+          {
+            "role": "boundary",
+            "claim_key": "C9",
+            "claim": {
+              "key": "C9",
+              "kind": "scope",
+              "claim": "本课讨论的“列表别名与浅拷贝”仅局限于Python内置的普通列表操作，不涉及自定义复制协议。",
+              "source_ref": "M2",
+              "quote": "只讨论这些普通列表操作。"
+            },
+            "mapping_reason": "C9 限定了本课讨论范围仅涉及普通内置列表，作为所有知识点的适用边界。"
+          }
+        ],
+        "revision_id": "aaacc77e96264886a29fba10d07d5b9598fff7c22b9f49c0710237ae940e858c"
+      },
+      {
+        "key": "P2",
+        "name": "共享列表内容修改同步",
+        "statement": "当两个名字指向同一列表时，通过其中一个名字对该列表对象进行内容修改，另一个名字访问时会观察到同一对象的变化。",
+        "conditions": [
+          "两个名字指向同一列表对象",
+          "通过其中一个名字修改列表内容（非重新绑定名字）"
+        ],
+        "boundaries": [],
+        "meta_question": "修改共享列表的内容时，另一个引用该列表的名字能否看到变化？",
+        "meta_answer": "能看到，因为它们指向同一对象。",
+        "claim_refs": [
+          "C2"
+        ],
+        "knowledge_id": "kp_8932af87be79595c9313",
+        "parent_key": "G1",
+        "evidence": [
+          {
+            "claim_key": "C2",
+            "source_ref": "M1",
+            "quote": "通过其中一个名字修改该列表，另一个名字会看到同一对象的变化",
+            "start": 24
+          }
+        ],
+        "attachments": [
+          {
+            "role": "boundary",
+            "claim_key": "C9",
+            "claim": {
+              "key": "C9",
+              "kind": "scope",
+              "claim": "本课讨论的“列表别名与浅拷贝”仅局限于Python内置的普通列表操作，不涉及自定义复制协议。",
+              "source_ref": "M2",
+              "quote": "只讨论这些普通列表操作。"
+            },
+            "mapping_reason": "C9 限定了本课讨论范围仅涉及普通内置列表，作为所有知识点的适用边界。"
+          }
+        ],
+        "revision_id": "6c5cd9a37ad59068dc9ae5116bfa420979d63b3b5e89c29d74d80dcb63b82b81"
+      },
+      {
+        "key": "P3",
+        "name": "变量重新绑定独立性",
+        "statement": "当 b=a 时，将 b 重新绑定到一个全新的列表上，不会使 a 指向新列表，a 仍保持指向原来的列表对象。",
+        "conditions": [
+          "初始状态 b 和 a 指向同一列表",
+          "执行 b = 新列表 操作"
+        ],
+        "boundaries": [],
+        "meta_question": "重新绑定变量 b 到新的列表后，原变量 a 的指向会发生改变吗？",
+        "meta_answer": "不会，a 仍指向原列表，b 指向新列表。",
+        "claim_refs": [
+          "C3"
+        ],
+        "knowledge_id": "kp_79ca3dbf8b1b5eb98561",
+        "parent_key": "G1",
+        "evidence": [
+          {
+            "claim_key": "C3",
+            "source_ref": "M1",
+            "quote": "将b重新绑定到新列表不会重新绑定a。",
+            "start": 54
+          }
+        ],
+        "attachments": [
+          {
+            "role": "boundary",
+            "claim_key": "C9",
+            "claim": {
+              "key": "C9",
+              "kind": "scope",
+              "claim": "本课讨论的“列表别名与浅拷贝”仅局限于Python内置的普通列表操作，不涉及自定义复制协议。",
+              "source_ref": "M2",
+              "quote": "只讨论这些普通列表操作。"
+            },
+            "mapping_reason": "C9 限定了本课讨论范围仅涉及普通内置列表，作为所有知识点的适用边界。"
+          }
+        ],
+        "revision_id": "738c76f0c8d90a23ee1e142b6514f600d5968abd70aa40efb542b59ed9bf6ef2"
+      },
+      {
+        "key": "P4",
+        "name": "浅拷贝创建新外层",
+        "statement": "调用 a.copy() 会创建一个新列表，这个新列表是原列表的浅拷贝，其外层列表对象与原列表不同，但内部元素是原元素的引用。",
+        "conditions": [
+          "a 是列表",
+          "调用 a.copy() 方法"
+        ],
+        "boundaries": [],
+        "meta_question": "list.copy() 操作创建的是深拷贝还是浅拷贝？其外层和元素的关系如何？",
+        "meta_answer": "创建浅拷贝，外层是新对象，元素引用原对象。",
+        "claim_refs": [
+          "C4"
+        ],
+        "knowledge_id": "kp_9a32a43054f55ca6abfd",
+        "parent_key": "G2",
+        "evidence": [
+          {
+            "claim_key": "C4",
+            "source_ref": "M2",
+            "quote": "a.copy()新建外层列表",
+            "start": 0
+          }
+        ],
+        "attachments": [
+          {
+            "role": "boundary",
+            "claim_key": "C9",
+            "claim": {
+              "key": "C9",
+              "kind": "scope",
+              "claim": "本课讨论的“列表别名与浅拷贝”仅局限于Python内置的普通列表操作，不涉及自定义复制协议。",
+              "source_ref": "M2",
+              "quote": "只讨论这些普通列表操作。"
+            },
+            "mapping_reason": "C9 限定了本课讨论范围仅涉及普通内置列表，作为所有知识点的适用边界。"
+          }
+        ],
+        "revision_id": "1749622740b8b0283166a0c7d485328edfc4cc24f13e344ed7394c5d22c5221a"
+      },
+      {
+        "key": "P5",
+        "name": "浅拷贝外层独立性",
+        "statement": "对 a.copy() 返回的新外层列表执行 append 操作，不会影响原外层列表的内容。",
+        "conditions": [
+          "b 是 a 的浅拷贝 (b = a.copy())",
+          "对 b 执行 append 操作"
+        ],
+        "boundaries": [],
+        "meta_question": "在浅拷贝的列表上添加元素，原列表会增加该元素吗？",
+        "meta_answer": "不会，原列表外层内容不变。",
+        "claim_refs": [
+          "C5"
+        ],
+        "knowledge_id": "kp_8f90cba045855022a749",
+        "parent_key": "G21",
+        "evidence": [
+          {
+            "claim_key": "C5",
+            "source_ref": "M2",
+            "quote": "对新外层append不改变原外层。",
+            "start": 15
+          }
+        ],
+        "attachments": [
+          {
+            "role": "boundary",
+            "claim_key": "C9",
+            "claim": {
+              "key": "C9",
+              "kind": "scope",
+              "claim": "本课讨论的“列表别名与浅拷贝”仅局限于Python内置的普通列表操作，不涉及自定义复制协议。",
+              "source_ref": "M2",
+              "quote": "只讨论这些普通列表操作。"
+            },
+            "mapping_reason": "C9 限定了本课讨论范围仅涉及普通内置列表，作为所有知识点的适用边界。"
+          }
+        ],
+        "revision_id": "c0a43d98ca9498cba38639ee7bb0db37587ad5f3ece0fa7ddab6fee38ef024b6"
+      },
+      {
+        "key": "P6",
+        "name": "嵌套元素共享引用",
+        "statement": "对于包含嵌套列表的列表，使用浅拷贝后，新列表中的对应元素仍然引用与原列表完全相同的内层列表对象。",
+        "conditions": [
+          "原列表包含嵌套列表",
+          "执行浅拷贝操作"
+        ],
+        "boundaries": [],
+        "meta_question": "浅拷贝列表中嵌套的子列表对象，与原列表中的子列表对象是同一个吗？",
+        "meta_answer": "是同一个，引用相同。",
+        "claim_refs": [
+          "C6"
+        ],
+        "knowledge_id": "kp_0b4a7a39f68b58228801",
+        "parent_key": "G22",
+        "evidence": [
+          {
+            "claim_key": "C6",
+            "source_ref": "M2",
+            "quote": "对于嵌套列表，浅拷贝的对应元素仍引用同一个内层列表",
+            "start": 32
+          }
+        ],
+        "attachments": [
+          {
+            "role": "boundary",
+            "claim_key": "C9",
+            "claim": {
+              "key": "C9",
+              "kind": "scope",
+              "claim": "本课讨论的“列表别名与浅拷贝”仅局限于Python内置的普通列表操作，不涉及自定义复制协议。",
+              "source_ref": "M2",
+              "quote": "只讨论这些普通列表操作。"
+            },
+            "mapping_reason": "C9 限定了本课讨论范围仅涉及普通内置列表，作为所有知识点的适用边界。"
+          }
+        ],
+        "revision_id": "ca4dcdfa10ab556ffd1594130c2069996493b7f4569657b5a042175ca8c15502"
+      },
+      {
+        "key": "P7",
+        "name": "共享内层修改同步",
+        "statement": "如果一个内层列表被原列表和浅拷贝后的列表共同引用，对该共享的内层列表执行 append 操作，两个外层列表都能观察到该内层元素的变化。",
+        "conditions": [
+          "原列表和浅拷贝列表共享同一个内层列表对象",
+          "对该共享的内层列表执行 append 操作"
+        ],
+        "boundaries": [],
+        "meta_question": "修改浅拷贝列表中嵌套的子列表，原列表中的对应子列表会变化吗？",
+        "meta_answer": "会变化，因为内层对象是共享的。",
+        "claim_refs": [
+          "C7"
+        ],
+        "knowledge_id": "kp_dde095e24cfc5907998e",
+        "parent_key": "G22",
+        "evidence": [
+          {
+            "claim_key": "C7",
+            "source_ref": "M2",
+            "quote": "对共享内层append会同时从两个外层观察到变化。",
+            "start": 58
+          }
+        ],
+        "attachments": [
+          {
+            "role": "boundary",
+            "claim_key": "C9",
+            "claim": {
+              "key": "C9",
+              "kind": "scope",
+              "claim": "本课讨论的“列表别名与浅拷贝”仅局限于Python内置的普通列表操作，不涉及自定义复制协议。",
+              "source_ref": "M2",
+              "quote": "只讨论这些普通列表操作。"
+            },
+            "mapping_reason": "C9 限定了本课讨论范围仅涉及普通内置列表，作为所有知识点的适用边界。"
+          }
+        ],
+        "revision_id": "2302de0f706a201389991e551677e0693cab0b966adf310ea3754f850d81cb4e"
+      },
+      {
+        "key": "P8",
+        "name": "浅拷贝元素重新绑定独立性",
+        "statement": "对浅拷贝后的列表 b 的某个元素（如 b[0]）重新赋值为一个新的列表，这个操作只会修改 b 的对应元素引用，不会改变原列表 a 的对应元素（a[0]）。",
+        "conditions": [
+          "b 是 a 的浅拷贝",
+          "对 b[i] 执行 b[i] = 新列表 操作"
+        ],
+        "boundaries": [],
+        "meta_question": "将浅拷贝列表中某个嵌套元素替换为新列表，原列表的对应元素会变吗？",
+        "meta_answer": "不会变，只改变了浅拷贝列表中的引用。",
+        "claim_refs": [
+          "C8"
+        ],
+        "knowledge_id": "kp_abf4216aee8b5a319356",
+        "parent_key": "G22",
+        "evidence": [
+          {
+            "claim_key": "C8",
+            "source_ref": "M2",
+            "quote": "对浅拷贝的b[0]重新赋一个新列表，只改变b的该元素引用，不改变a[0]。",
+            "start": 83
+          }
+        ],
+        "attachments": [
+          {
+            "role": "boundary",
+            "claim_key": "C9",
+            "claim": {
+              "key": "C9",
+              "kind": "scope",
+              "claim": "本课讨论的“列表别名与浅拷贝”仅局限于Python内置的普通列表操作，不涉及自定义复制协议。",
+              "source_ref": "M2",
+              "quote": "只讨论这些普通列表操作。"
+            },
+            "mapping_reason": "C9 限定了本课讨论范围仅涉及普通内置列表，作为所有知识点的适用边界。"
+          }
+        ],
+        "revision_id": "226e6583df5a4365cde77b7820d16d0f49ec4013bb51346ed904cea299af6138"
+      }
+    ],
+    "inventory": [
+      {
+        "key": "C1",
+        "kind": "rule",
+        "claim": "在Python中，对列表执行赋值 b=a 会使两个名字指向同一个列表对象，该操作本身不会复制列表的内容。",
+        "source_ref": "M1",
+        "quote": "赋值b=a使两个名字指向同一列表，不会复制列表。"
+      },
+      {
+        "key": "C2",
+        "kind": "rule",
+        "claim": "当两个名字指向同一列表时，通过其中一个名字对该列表对象进行修改（如改变其内容），另一个名字访问时会观察到该同一对象的变化。",
+        "source_ref": "M1",
+        "quote": "通过其中一个名字修改该列表，另一个名字会看到同一对象的变化"
+      },
+      {
+        "key": "C3",
+        "kind": "boundary",
+        "claim": "当 b=a 时，将 b 重新绑定到一个全新的列表上，这个操作不会使 a 指向新列表，a 仍保持指向原来的列表对象。",
+        "source_ref": "M1",
+        "quote": "将b重新绑定到新列表不会重新绑定a。"
+      },
+      {
+        "key": "C4",
+        "kind": "method",
+        "claim": "调用 a.copy() 会创建一个新列表，这个新列表是原列表的浅拷贝（即外层是新对象，元素是引用）。",
+        "source_ref": "M2",
+        "quote": "a.copy()新建外层列表"
+      },
+      {
+        "key": "C5",
+        "kind": "rule",
+        "claim": "对 a.copy() 返回的新外层列表执行 append 操作，不会影响原外层列表的内容。",
+        "source_ref": "M2",
+        "quote": "对新外层append不改变原外层。"
+      },
+      {
+        "key": "C6",
+        "kind": "rule",
+        "claim": "对于包含嵌套列表的列表，使用浅拷贝后，新列表中的对应元素仍然引用与原列表完全相同的内层列表对象。",
+        "source_ref": "M2",
+        "quote": "对于嵌套列表，浅拷贝的对应元素仍引用同一个内层列表"
+      },
+      {
+        "key": "C7",
+        "kind": "rule",
+        "claim": "如果一个内层列表被外层和浅拷贝后的外层共同引用，对该共享的内层列表执行 append 操作，会导致两个外层列表都能观察到该内层元素的变化。",
+        "source_ref": "M2",
+        "quote": "对共享内层append会同时从两个外层观察到变化。"
+      },
+      {
+        "key": "C8",
+        "kind": "rule",
+        "claim": "对浅拷贝后的列表 b 的某个元素（如 b[0]）重新赋值为一个新的列表，这个操作只会修改 b 的对应元素引用，不会改变原列表 a 的对应元素（a[0]）。",
+        "source_ref": "M2",
+        "quote": "对浅拷贝的b[0]重新赋一个新列表，只改变b的该元素引用，不改变a[0]。"
+      },
+      {
+        "key": "C9",
+        "kind": "scope",
+        "claim": "本课讨论的“列表别名与浅拷贝”仅局限于Python内置的普通列表操作，不涉及自定义复制协议。",
+        "source_ref": "M2",
+        "quote": "只讨论这些普通列表操作。"
+      }
+    ],
+    "material_revision": "6cda7c436ab4e03ef7aca6d630bdfccd6d77c81c14ed6c8f7599484e569e5b2f",
+    "inventory_dispositions": [
+      {
+        "claim_key": "C1",
+        "role": "point",
+        "point_keys": [
+          "P1"
+        ],
+        "reason": "C1 定义了赋值操作不复制列表的核心规则，由 P1 承载。"
+      },
+      {
+        "claim_key": "C2",
+        "role": "point",
+        "point_keys": [
+          "P2"
+        ],
+        "reason": "C2 描述了共享对象内容修改的可见性，由 P2 承载。"
+      },
+      {
+        "claim_key": "C3",
+        "role": "point",
+        "point_keys": [
+          "P3"
+        ],
+        "reason": "C3 描述了变量重新绑定不影响其他变量的行为，由 P3 承载。"
+      },
+      {
+        "claim_key": "C4",
+        "role": "point",
+        "point_keys": [
+          "P4"
+        ],
+        "reason": "C4 定义了 copy 方法创建浅拷贝的性质，由 P4 承载。"
+      },
+      {
+        "claim_key": "C5",
+        "role": "point",
+        "point_keys": [
+          "P5"
+        ],
+        "reason": "C5 描述了浅拷贝外层操作不影响原外层，由 P5 承载。"
+      },
+      {
+        "claim_key": "C6",
+        "role": "point",
+        "point_keys": [
+          "P6"
+        ],
+        "reason": "C6 描述了浅拷贝中嵌套对象的引用关系，由 P6 承载。"
+      },
+      {
+        "claim_key": "C7",
+        "role": "point",
+        "point_keys": [
+          "P7"
+        ],
+        "reason": "C7 描述了共享内层对象修改对两个外层的可见性，由 P7 承载。"
+      },
+      {
+        "claim_key": "C8",
+        "role": "point",
+        "point_keys": [
+          "P8"
+        ],
+        "reason": "C8 描述了浅拷贝中元素引用重新绑定的独立性，由 P8 承载。"
+      },
+      {
+        "claim_key": "C9",
+        "role": "boundary",
+        "point_keys": [
+          "P1",
+          "P2",
+          "P3",
+          "P4",
+          "P5",
+          "P6",
+          "P7",
+          "P8"
+        ],
+        "reason": "C9 限定了本课讨论范围仅涉及普通内置列表，作为所有知识点的适用边界。"
+      }
+    ],
+    "gaps": [],
+    "relations": [],
+    "ready_for_adoption": false,
+    "revision_id": "c5174488a94ca21d6755c4b1a10db2d451792821260773cdd15059947df6ee0b"
+  },
+  "review": {
+    "course": "python",
+    "title": "Python入门：列表别名与浅拷贝",
+    "claims": 9,
+    "points": 8,
+    "categories": 4,
+    "structure_checks_passed": true,
+    "classification_preserves_atoms": true,
+    "coverage": [
+      {
+        "requirement": "赋值使名字指向同一列表，不复制",
+        "claims": [
+          "C1"
+        ],
+        "points": [
+          "P1"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "共享列表修改对别名可见",
+        "claims": [
+          "C2"
+        ],
+        "points": [
+          "P2"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "名字重新绑定不传播",
+        "claims": [
+          "C3"
+        ],
+        "points": [
+          "P3"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "浅拷贝新建外层",
+        "claims": [
+          "C4"
+        ],
+        "points": [
+          "P4"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "外层append不改原外层",
+        "claims": [
+          "C5"
+        ],
+        "points": [
+          "P5"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "嵌套列表的对应内层引用共享",
+        "claims": [
+          "C6"
+        ],
+        "points": [
+          "P6"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "共享内层append从两个外层可见",
+        "claims": [
+          "C7"
+        ],
+        "points": [
+          "P7"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "替换b[0]仅改变b的元素引用",
+        "claims": [
+          "C8"
+        ],
+        "points": [
+          "P8"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      }
+    ],
+    "reviewer": "Codex source-by-source review",
+    "tree_digest": "cd8430fa195bde21d1729a131dc8c3c8bd50b349358ac5990ef44c97b36c1db9",
+    "ready_for_adoption": false,
+    "accuracy": "核心规则符合材料；P4引用支撑需补全",
+    "coverage_summary": "8/8要求有承载；普通列表范围保留为全局限制及附件",
+    "granularity": "大体清楚，P4仍需收窄",
+    "structure": "树结构合法；外层分类可更整齐",
+    "improvements": [
+      "新建外层、外层append、内层引用共享、共享内层append、元素引用替换分别保留。",
+      "没有生成题目、迁移或深拷贝操作答案。"
+    ],
+    "issues": [
+      [
+        "P4.statement / meta_question",
+        "“新外层”又包含元素引用关系，与P6部分重复；元问题同时问深浅拷贝、外层与元素。建议只保留新外层身份，把元素引用交给P6。"
+      ],
+      [
+        "P4.claim_refs",
+        "仅引用C4的“新建外层”片段，却陈述元素引用规则；完整M2有依据，但逐点证据映射需补C6或收窄正文。"
+      ],
+      [
+        "P1.conditions",
+        "“a和b是列表变量”容易被读成b必须事先存在；改成a引用普通列表、执行b=a即可。"
+      ],
+      [
+        "G2/G21 placements",
+        "P4挂在浅拷贝总类，P5单独挂外层子类；把P4/P5并列放入外层类会更清楚。"
+      ]
+    ]
+  }
+}

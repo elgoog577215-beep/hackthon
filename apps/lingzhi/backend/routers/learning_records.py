@@ -308,3 +308,6 @@ def _record_event(event_type: str, record: dict[str, Any], *, user_id: str) -> N
 
 
 __all__ = ["router"]
+
+from routers.study_dialogues import router as study_dialogue_router
+router.include_router(study_dialogue_router)

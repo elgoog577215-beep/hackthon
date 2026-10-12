@@ -1,0 +1,337 @@
+{
+  "metrics": {
+    "model": "qwen3.8-27b",
+    "calls": 9,
+    "completed": 9,
+    "seconds": 175.25,
+    "points": 32,
+    "skills": 8,
+    "scope_requirements": 24,
+    "covered_scope_requirements": 24,
+    "tree_structure_passed": 2,
+    "teaching_structure_passed": 3,
+    "semantically_ready_courses": 0,
+    "insufficient_material_control": {
+      "passed": true
+    },
+    "production_changes": false,
+    "model_content_repairs": 0,
+    "configuration_changes": [
+      "中性学科提示词",
+      "材料抽取阶段为隔离原型新增能力",
+      "允许1-2个错因而非固定3个",
+      "按学科采用exact/reasoning/rubric证据"
+    ],
+    "comparison_limit": "这不是原C17代码原样运行的成功率，也不能和上一轮C17的0/15直接横比。"
+  },
+  "courses": [
+    {
+      "course": "python",
+      "title": "Python入门：列表别名与浅拷贝",
+      "point_count": 6,
+      "skills": 2,
+      "criteria": 6,
+      "tree_structure_errors": [
+        "relation_strength_format",
+        "relation_strength_format",
+        "relation_strength_format",
+        "relation_strength_format"
+      ],
+      "teaching_structure_errors": [],
+      "coverage_review": [
+        {
+          "requirement": "赋值别名不复制",
+          "covered_by": [
+            "P1"
+          ]
+        },
+        {
+          "requirement": "共享对象修改可见",
+          "covered_by": [
+            "P2"
+          ]
+        },
+        {
+          "requirement": "名字重新绑定不传播",
+          "covered_by": [
+            "P3"
+          ]
+        },
+        {
+          "requirement": "浅拷贝外层独立",
+          "covered_by": [
+            "P4"
+          ]
+        },
+        {
+          "requirement": "浅拷贝内层共享",
+          "covered_by": [
+            "P5"
+          ]
+        },
+        {
+          "requirement": "元素替换只改目标外层引用",
+          "covered_by": [
+            "P6"
+          ]
+        }
+      ],
+      "reviewer": "Codex",
+      "ready_for_adoption": false,
+      "findings": [
+        {
+          "field": "tree.relations[*].strength",
+          "finding": "返回“强/中”等字符串，未遵守可持久化的数值/未知强度格式。"
+        },
+        {
+          "field": "tree.P1.meta_answer / P6.statement",
+          "finding": "把Python对象身份、引用描述为内存地址或指针，超出给定材料及Python语言层面的保证；应统一为对象/引用术语。"
+        },
+        {
+          "field": "teaching.S1.mistakes.A",
+          "finding": "绑定Q1（a is b），预测却回答添加元素后a的值，即Q2情境；引用存在不等于真的检查了所引用的题。"
+        },
+        {
+          "field": "teaching.criteria",
+          "finding": "多个达标标准虽绑定冻结Q题，却使用新训练题的变量值与操作序号，无法直接作为所绑定Q题的评分条件。"
+        },
+        {
+          "field": "teaching.S1.retest",
+          "finding": "S1仅覆盖赋值别名，选择的R2还依赖浅拷贝和元素替换；应补齐能力依赖或调整复测范围。"
+        }
+      ],
+      "review_limit": "一份人工准备的短材料、每阶段单次生成；不代表整课覆盖或稳定通过率"
+    },
+    {
+      "course": "calculus",
+      "title": "微积分：连续与可导的关系",
+      "point_count": 8,
+      "skills": 2,
+      "criteria": 8,
+      "tree_structure_errors": [],
+      "teaching_structure_errors": [
+        "criterion_ref",
+        "criterion_ref"
+      ],
+      "coverage_review": [
+        {
+          "requirement": "连续的点值极限等值条件",
+          "covered_by": [
+            "P2"
+          ]
+        },
+        {
+          "requirement": "有限双侧差商定义",
+          "covered_by": [
+            "P3"
+          ]
+        },
+        {
+          "requirement": "左右差商不同不可导",
+          "covered_by": [
+            "P4"
+          ]
+        },
+        {
+          "requirement": "可导推出连续",
+          "covered_by": [
+            "P5"
+          ]
+        },
+        {
+          "requirement": "连续不能推出可导",
+          "covered_by": [
+            "P6",
+            "P8"
+          ]
+        },
+        {
+          "requirement": "不连续推出不可导但反向不成立",
+          "covered_by": [
+            "P6",
+            "P7"
+          ]
+        }
+      ],
+      "reviewer": "Codex",
+      "ready_for_adoption": false,
+      "findings": [
+        {
+          "field": "tree.P6",
+          "finding": "把连续不能推出可导、不可导不能推出不连续合在一个叶子；元问题只问前者，独立检查粒度不一致。"
+        },
+        {
+          "field": "tree.P8 / categories",
+          "finding": "将完整反例同时作为独立知识叶子，和定义/关系并列；应区分知识规则、范围前提和应用例证。"
+        },
+        {
+          "field": "teaching.S1.criteria[P1,P2]",
+          "finding": "两条probe_key为null，达标证据未绑定题库；P1范围前提被新增为叶子，但题库没有直接测试它。"
+        },
+        {
+          "field": "teaching.S2.criteria[P7]",
+          "finding": "P7是不连续→不可导，绑定Q6却检查不可导是否推出不连续；问的是另一推理方向。"
+        },
+        {
+          "field": "teaching.S1.mistakes.A.reason",
+          "finding": "用“没有尖角/拐点”描述可导，混淆尖角与可导函数也可具有的拐点；补救直观不宜替代差商条件。"
+        }
+      ],
+      "review_limit": "一份人工准备的短材料、每阶段单次生成；不代表整课覆盖或稳定通过率"
+    },
+    {
+      "course": "physics",
+      "title": "大学物理：作用反作用与受力对象",
+      "point_count": 8,
+      "skills": 2,
+      "criteria": 8,
+      "tree_structure_errors": [
+        "relation_strength_format",
+        "relation_strength_format",
+        "relation_strength_format",
+        "relation_strength_format"
+      ],
+      "teaching_structure_errors": [],
+      "coverage_review": [
+        {
+          "requirement": "相互作用配对",
+          "covered_by": [
+            "P1",
+            "P2"
+          ]
+        },
+        {
+          "requirement": "等大反向",
+          "covered_by": [
+            "P1"
+          ]
+        },
+        {
+          "requirement": "不同受力对象",
+          "covered_by": [
+            "P2"
+          ]
+        },
+        {
+          "requirement": "等大不要求等质量静止",
+          "covered_by": [
+            "P3"
+          ]
+        },
+        {
+          "requirement": "单物体受力图与平衡力区别",
+          "covered_by": [
+            "P5",
+            "P6",
+            "P7"
+          ]
+        },
+        {
+          "requirement": "系统内力抵消不推出外力为零",
+          "covered_by": [
+            "P8"
+          ]
+        }
+      ],
+      "reviewer": "Codex",
+      "ready_for_adoption": false,
+      "findings": [
+        {
+          "field": "tree.relations[*].strength",
+          "finding": "返回strong/moderate字符串，与通用存储格式不符。"
+        },
+        {
+          "field": "teaching.S1.criteria[P4]",
+          "finding": "材料只给相互作用力等大、质量不同，未说明各物体合力；不能直接推出加速度不等。F=ma使用合外力，不是任意一对相互作用力。"
+        },
+        {
+          "field": "teaching.S1.criteria[P4] / discrimination",
+          "finding": "Q2只问相互作用力谁更大，不能据此确认学生会比较加速度；引用的题没有实际考到标准。"
+        },
+        {
+          "field": "teaching.S2.task",
+          "finding": "将“两车及外部拉力系统”都选为整体，与只选两车的冻结题改变了系统边界，后续外力结论未同步。"
+        },
+        {
+          "field": "teaching.S2.mistakes.B.repair",
+          "finding": "把“箭头指向受力对象”作为受力图规则，容易混淆受力归属和力方向；应按施力者/受力者识别力，箭头表示其方向。"
+        }
+      ],
+      "review_limit": "一份人工准备的短材料、每阶段单次生成；不代表整课覆盖或稳定通过率"
+    },
+    {
+      "course": "history",
+      "title": "历史学习：史料观察、推断与互证",
+      "point_count": 10,
+      "skills": 2,
+      "criteria": 10,
+      "tree_structure_errors": [],
+      "teaching_structure_errors": [],
+      "coverage_review": [
+        {
+          "requirement": "观察与推断区分",
+          "covered_by": [
+            "P1"
+          ]
+        },
+        {
+          "requirement": "作者时间受众目的",
+          "covered_by": [
+            "P2"
+          ]
+        },
+        {
+          "requirement": "立场不等于无价值或全客观",
+          "covered_by": [
+            "P3"
+          ]
+        },
+        {
+          "requirement": "转载不是独立互证",
+          "covered_by": [
+            "P4",
+            "P9"
+          ]
+        },
+        {
+          "requirement": "矛盾须比较与查证而非投票",
+          "covered_by": [
+            "P5"
+          ]
+        },
+        {
+          "requirement": "结论限度与多种合理解释",
+          "covered_by": [
+            "P6",
+            "P10"
+          ]
+        }
+      ],
+      "reviewer": "Codex",
+      "ready_for_adoption": false,
+      "findings": [
+        {
+          "field": "tree.P7-P10",
+          "finding": "把具体虚构材料内容与证据缺口作为通用知识叶子，导致案例一变知识树就需重建；应作为材料/案例实体引用。"
+        },
+        {
+          "field": "tree.P8.meta_answer",
+          "finding": "将收入与工时同时变化写成“作为代价”，加入材料没有给出的因果解释。"
+        },
+        {
+          "field": "teaching.S1.criteria[P8] / S2.criteria[P6]",
+          "finding": "把工人日记中的陈述写成已证明的个人事实；应区分“材料记载如此”和“事件已经被证实”。"
+        },
+        {
+          "field": "teaching.S1.criteria[P2] / repair",
+          "finding": "将可能的选择性呈现、争取资金或隐瞒劳资纠纷写成确定动机，超出虚构材料；也不能要求学生必须采用这些特定解释。"
+        },
+        {
+          "field": "teaching.S1.expected_evidence",
+          "finding": "要求明确提及固定关键概念，缺少接受同义表达和其他有证据论证的显式标准；开放评价的方向已有，但边界未稳固。"
+        }
+      ],
+      "review_limit": "一份人工准备的短材料、每阶段单次生成；不代表整课覆盖或稳定通过率"
+    }
+  ]
+}

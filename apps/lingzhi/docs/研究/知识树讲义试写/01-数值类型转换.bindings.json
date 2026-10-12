@@ -1,0 +1,966 @@
+{
+  "input_bundle": {
+    "topic": "types",
+    "title": "第1讲　数值类型转换",
+    "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+    "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9",
+    "course": "C17基础程序设计三组试写样稿",
+    "learner": "已认识变量、简单算术和语句的初学者",
+    "points": [
+      {
+        "key": "K-T01",
+        "knowledge_id": "kp_a5d0794652c45fdc98cc",
+        "name": "默认整型",
+        "statement": "在C17中，没有后缀的十进制整数字面量在能由int表示时，默认具有int类型。",
+        "conditions": [
+          "十进制整数字面量",
+          "数值能由int表示"
+        ],
+        "meta_question": "为什么不带后缀的十进制整数在能由int容纳时其类型被确定为int？",
+        "meta_answer": "C17规范规定，当整数字面量在可容纳的范围内没有后缀时，其类型就是int。",
+        "source_refs": [
+          "T-S1"
+        ]
+      },
+      {
+        "key": "K-T02",
+        "knowledge_id": "kp_6f7acf39ee685b02b0dc",
+        "name": "1U 的类型",
+        "statement": "整数字面量 1U 的类型是 unsigned int。",
+        "conditions": [
+          "C17",
+          "本点讨论值为1的U后缀字面量，不推广到任意大的U后缀常量"
+        ],
+        "meta_question": "字面量1U的类型是什么？",
+        "meta_answer": "unsigned int。",
+        "source_refs": [
+          "T-S1"
+        ]
+      },
+      {
+        "key": "K-T03",
+        "knowledge_id": "kp_a5dae2aa52035d95b867",
+        "name": "浮点默认",
+        "statement": "十进制浮点字面量如果没有 'f' 或 'l' 后缀，其类型是 double。",
+        "conditions": [
+          "十进制浮点字面量",
+          "没有 f 或 l 后缀"
+        ],
+        "meta_question": "为什么不带后缀的十进制小数在C17中被视为 double 而非 float？",
+        "meta_answer": "C17规范将默认没有后缀的浮点数类型指定为 double，以区分 float。",
+        "source_refs": [
+          "T-S1"
+        ]
+      },
+      {
+        "key": "K-T04",
+        "knowledge_id": "kp_298a70fc3ed458419629",
+        "name": "整数提升规则",
+        "statement": "需要整数提升时，若 int 可表示原整数类型全部值，则提升为 int，否则为 unsigned int。",
+        "conditions": [
+          "C17中需要整数提升的场合",
+          "原类型满足整数提升的适用条件；不把该步骤推广到所有混合浮点运算"
+        ],
+        "meta_question": "在需要整数提升的运算中，若int不能表示unsigned short的全部值，unsigned short提升为什么？",
+        "meta_answer": "unsigned int。",
+        "source_refs": [
+          "T-S1"
+        ]
+      },
+      {
+        "key": "K-T05",
+        "knowledge_id": "kp_69b2e7448aa15b7083f3",
+        "name": "int 与 double 的共同类型",
+        "statement": "本课的 int 与 double 操作数进行通常算术转换时，int 操作数转换为 double。",
+        "conditions": [
+          "实数算术操作数分别为int和double",
+          "运算有定义",
+          "本点不描述其他有符号/无符号类型组合"
+        ],
+        "meta_question": "int与double相除时，转换后的共同算术类型是什么？",
+        "meta_answer": "double。",
+        "source_refs": [
+          "T-S2"
+        ]
+      },
+      {
+        "key": "K-T06",
+        "knowledge_id": "kp_e064cc59684e52ccab22",
+        "name": "int与unsigned int的通常算术转换方向",
+        "statement": "int与unsigned int进行通常算术转换时，int操作数转换为unsigned int。",
+        "conditions": [
+          "两操作数分别为int与unsigned int，二者转换秩相同",
+          "不推广为任意有符号与无符号类型组合"
+        ],
+        "meta_question": "比较int值-1与unsigned int值1时，-1会先转换成哪种类型？",
+        "meta_answer": "unsigned int，转换值为UINT_MAX。",
+        "source_refs": [
+          "T-S3"
+        ]
+      },
+      {
+        "key": "K-T07",
+        "knowledge_id": "kp_f264e18962e050d09e0e",
+        "name": "整数除法截断",
+        "statement": "整数除法的结果会丢弃小数部分，且向零方向截断。",
+        "conditions": [
+          "除法操作数均为整数类型",
+          "运算具有定义的行为"
+        ],
+        "meta_question": "C17中整数除法为什么在得到商时执行向零截断而非向下取整？",
+        "meta_answer": "C17明确规定，在整数除法有定义的情况下，结果必须向零截断。",
+        "source_refs": [
+          "T-S2"
+        ]
+      },
+      {
+        "key": "K-T08",
+        "knowledge_id": "kp_42c760b4e0ce55a399ac",
+        "name": "接收类型不反向改变表达式",
+        "statement": "普通标量初始化或简单赋值把右侧表达式的值转换为目标类型；目标类型不会反向改变右侧子表达式的运算类型。",
+        "conditions": [
+          "C17普通标量初始化或简单赋值",
+          "右侧表达式及转换有定义",
+          "不主张赋值左右操作数固定先右后左求值"
+        ],
+        "meta_question": "double x=5/2中的double目标类型会把5/2本身变成浮点除法吗？",
+        "meta_answer": "不会。先得到int商2，再转换保存为double值2.0。",
+        "source_refs": [
+          "T-S2"
+        ]
+      },
+      {
+        "key": "K-T09",
+        "knowledge_id": "kp_beb3a555a3965103b268",
+        "name": "显式转换的位置",
+        "statement": "显式转换只作用于语法上指定的操作数；转换发生位置决定它在算术运算之前还是之后。",
+        "conditions": [
+          "C17算术转换",
+          "表达式求值有定义"
+        ],
+        "meta_question": "(double)5/2中的显式转换首先作用于哪个操作数？",
+        "meta_answer": "只作用于5，随后除法按double计算；(double)(5/2)则在整数除法完成后转换其结果。",
+        "source_refs": [
+          "T-S2"
+        ]
+      },
+      {
+        "key": "K-T10",
+        "knowledge_id": "kp_3dc45a3f0809584f88b4",
+        "name": "转换表达式不改原变量",
+        "statement": "读取变量并显式转换所得值，本身不会修改该变量的声明类型或存储值。",
+        "conditions": [
+          "操作数只是读取变量",
+          "排除赋值、自增、函数调用等另带副作用的操作数"
+        ],
+        "meta_question": "int n=5;单独求值(double)n后，n的类型和值会改变吗？",
+        "meta_answer": "不会，n仍是int，存储值仍为5。",
+        "source_refs": [
+          "T-S2"
+        ]
+      },
+      {
+        "key": "K-T11",
+        "knowledge_id": "kp_5ad9966d470d5bb0ae0b",
+        "name": "模转换",
+        "statement": "整数转换为无符号整数类型时，结果与原整数模目标最大值加一同余，并落在目标类型范围内。",
+        "conditions": [
+          "源值为整数",
+          "目标为非_Bool无符号整数类型",
+          "不用于浮点转整数"
+        ],
+        "meta_question": "把整数-1转换为unsigned int，是否必须假设unsigned int是32位才能确定结果？",
+        "meta_answer": "不必，结果总是UINT_MAX。",
+        "source_refs": [
+          "T-S3"
+        ]
+      },
+      {
+        "key": "K-T12",
+        "knowledge_id": "kp_1fe15bba50a25d8e943c",
+        "name": "有符号越界",
+        "statement": "整数转换为有符号类型且原值无法表示时，结果是实现定义的或触发实现定义的信号。",
+        "conditions": [
+          "目标类型为有符号整数类型",
+          "源值超出目标类型的表示范围"
+        ],
+        "meta_question": "为什么在C17中不能假设大正整数转成有符号类型一定会发生“截位”或变为特定值？",
+        "meta_answer": "因为C17标准将这种情况规定为实现定义的行为，允许编译器采取截位或发送信号等不同策略。",
+        "source_refs": [
+          "T-S3"
+        ]
+      },
+      {
+        "key": "K-T13",
+        "knowledge_id": "kp_a4392bd278485e0fa152",
+        "name": "可表示整数转换保持数值",
+        "statement": "整数转换到另一整数类型，若目标类型能表示原值，则数值不变。",
+        "conditions": [
+          "源值为整数",
+          "目标整数类型能表示该值"
+        ],
+        "meta_question": "整数100转为能够表示100的short，会改变数值吗？",
+        "meta_answer": "不会，数值仍为100。",
+        "source_refs": [
+          "T-S3"
+        ]
+      },
+      {
+        "key": "K-T14",
+        "knowledge_id": "kp_646a7a803bbe5177a604",
+        "name": "浮点截断",
+        "statement": "有限实浮点值转换为非 _Bool 整数类型时，会丢弃小数部分并向零截断。",
+        "conditions": [
+          "源类型为实浮点",
+          "目标类型为整数",
+          "源值是有限实数",
+          "截断后的值在目标范围内"
+        ],
+        "meta_question": "在 C17 中为什么 float 类型的 3.999 转为 int 会得到 3 而不是 4？",
+        "meta_answer": "因为浮点转整数执行的是向零截断（truncation toward zero），而非数学意义上的四舍五入。",
+        "source_refs": [
+          "T-S4"
+        ]
+      },
+      {
+        "key": "K-T15",
+        "knowledge_id": "kp_aa43887dd5d75734b73d",
+        "name": "浮点越界",
+        "statement": "有限实浮点值转非_Bool整数时，向零截断后的整数部分若不能由目标类型表示，行为未定义。",
+        "conditions": [
+          "源值有限",
+          "目标为非_Bool整数类型",
+          "按目标实际上下界判断整数部分，不对其取绝对值"
+        ],
+        "meta_question": "(unsigned int)-1.5能像整数-1转换那样使用取模规则吗？",
+        "meta_answer": "不能。截断后的-1不在unsigned int范围内，转换行为未定义。",
+        "source_refs": [
+          "T-S4"
+        ]
+      },
+      {
+        "key": "K-T16",
+        "knowledge_id": "kp_9a88aebecb8d52898f70",
+        "name": "整数到浮点",
+        "statement": "整数转实浮点时，目标数值范围足够并不保证精确，有限有效精度可能造成信息损失。",
+        "conditions": [
+          "整数在目标浮点数值范围内",
+          "不假设所有C实现的double有效精度或舍入方式相同"
+        ],
+        "meta_question": "仅知道某整数在double的数值范围内，能否保证转换后精确不变？",
+        "meta_answer": "不能，还必须判断该整数能否由目标浮点格式精确表示。",
+        "source_refs": [
+          "T-S4"
+        ]
+      }
+    ],
+    "terminology": [
+      {
+        "key": "integer_literal",
+        "canonical": "整数字面量",
+        "aliases": [
+          "整数常量"
+        ]
+      },
+      {
+        "key": "integer_promotion",
+        "canonical": "整数提升",
+        "aliases": []
+      },
+      {
+        "key": "usual_conversion",
+        "canonical": "通常算术转换",
+        "aliases": []
+      },
+      {
+        "key": "cast",
+        "canonical": "显式类型转换",
+        "aliases": [
+          "强制类型转换"
+        ]
+      },
+      {
+        "key": "truncate",
+        "canonical": "向零截断",
+        "aliases": []
+      },
+      {
+        "key": "mod_conversion",
+        "canonical": "无符号整数的模转换",
+        "aliases": [
+          "模转换"
+        ]
+      },
+      {
+        "key": "implementation_defined",
+        "canonical": "实现定义",
+        "aliases": []
+      },
+      {
+        "key": "undefined",
+        "canonical": "未定义行为",
+        "aliases": [
+          "UB"
+        ]
+      },
+      {
+        "key": "range",
+        "canonical": "数值范围",
+        "aliases": []
+      },
+      {
+        "key": "precision",
+        "canonical": "有效精度",
+        "aliases": []
+      }
+    ],
+    "sections": [
+      {
+        "key": "types1",
+        "title": "先确定表达式的类型",
+        "required_knowledge_keys": [
+          "K-T01",
+          "K-T02",
+          "K-T03",
+          "K-T04",
+          "K-T05",
+          "K-T06"
+        ]
+      },
+      {
+        "key": "types2",
+        "title": "先计算再转换",
+        "required_knowledge_keys": [
+          "K-T07",
+          "K-T08",
+          "K-T09",
+          "K-T10"
+        ]
+      },
+      {
+        "key": "types3",
+        "title": "转换的边界",
+        "required_knowledge_keys": [
+          "K-T11",
+          "K-T12",
+          "K-T13",
+          "K-T14",
+          "K-T15"
+        ]
+      },
+      {
+        "key": "types4",
+        "title": "精度与易错辨析",
+        "required_knowledge_keys": [
+          "K-T16"
+        ]
+      }
+    ],
+    "example_bank": [
+      {
+        "key": "E-T01",
+        "title": "整数除法截断",
+        "knowledge_keys": [
+          "K-T07"
+        ],
+        "code": "printf(\"%d\",-7/2);",
+        "answer_stdout": "-3",
+        "answer_ref": {
+          "check_id": "check_cb13ef04da0355cdb75e",
+          "code_hash": "fdf8331bdf0c9569260d8d75c12504923340c06b499c94c2c3da278707174464",
+          "receipt_hash": "07541f3954851ab193fcf6341180bb05ff62751fd5f4c9774f6d772ae1754e3b",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-T02",
+        "title": "接收类型不反向改变表达式",
+        "knowledge_keys": [
+          "K-T08"
+        ],
+        "code": "double x=7/2; printf(\"%.1f\",x);",
+        "answer_stdout": "3.0",
+        "answer_ref": {
+          "check_id": "check_eb3ce019c74550c498fe",
+          "code_hash": "fba576f34a46acaea7e0510f40bfe3e52f3266c8a31bdd679be30c77c3768a9f",
+          "receipt_hash": "8da77dabdc1cafd1dbfd7d933b36d62278d5bc77bde5f7763c11c03381d55c4a",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-T03",
+        "title": "显式转换的位置",
+        "knowledge_keys": [
+          "K-T09"
+        ],
+        "code": "printf(\"%.1f %.1f\",(double)5/2,(double)(5/2));",
+        "answer_stdout": "2.5 2.0",
+        "answer_ref": {
+          "check_id": "check_067e1a66001d528bb631",
+          "code_hash": "8e9640cbdfdffa246f5f8317d2b9f9c29b26577bc1c97d5170283c5f7afc0041",
+          "receipt_hash": "06c1963ca3c82fb5a66b6480398d2a189b23b7d5420c3ae0281c14820888bd1d",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-T04",
+        "title": "转换表达式不改原变量",
+        "knowledge_keys": [
+          "K-T10"
+        ],
+        "code": "int n=10; double tmp=(double)n; printf(\"%d %d\",_Generic(n,int:1,default:0),n);",
+        "answer_stdout": "1 10",
+        "answer_ref": {
+          "check_id": "check_965a23c1f5035db5b53c",
+          "code_hash": "7bb46aae1dd4502828f02bf2af9ac3a7e39f5be67c6e9a3efeb82e9d08746182",
+          "receipt_hash": "6936a14ba9600688be496a5024ebab3eab7eb509a660c95374ccf4d5b0f81cef",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-T05",
+        "title": "浮点截断",
+        "knowledge_keys": [
+          "K-T14"
+        ],
+        "code": "printf(\"%d\",(int)3.999f);",
+        "answer_stdout": "3",
+        "answer_ref": {
+          "check_id": "check_2482719b284f5ec59ab5",
+          "code_hash": "c20b943ef2dfb2645be92dd84e62e0349997cc797eace44d65bf015d11f9b92e",
+          "receipt_hash": "4d76b91661e889abc85fbe368d47f4c3bf23454f6fb1ed360e32de7d33825f7e",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-T06",
+        "title": "模转换",
+        "knowledge_keys": [
+          "K-T11"
+        ],
+        "code": "printf(\"%d\",(unsigned int)-1==UINT_MAX);",
+        "answer_stdout": "1",
+        "answer_ref": {
+          "check_id": "check_3320b6e90d165f189a55",
+          "code_hash": "d6def769172fc09854428de4fb82410041fa0803194bdea582291f13e6f7d410",
+          "receipt_hash": "3af90d99d56887eededcf09a9ae8da4bd441084ab62acb996dc1883184dbe7c8",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      }
+    ],
+    "diagnostic": {
+      "key": "D-T",
+      "knowledge_keys": [
+        "K-T07",
+        "K-T08",
+        "K-T09"
+      ],
+      "hypothesis_a": "误以为两个int的除法也保留数学上的小数商。",
+      "hypothesis_b": "知道int除法会截断，但误以为左侧double接收变量会反向把右侧int除法变成浮点除法。",
+      "repair_a": "先判定运算操作数类型：两个int相除在有定义时得到向零截断的整数商；需要小数时先转换一个操作数。",
+      "repair_b": "区分右侧表达式求值与接收转换：左侧double只转换已经算出的值，不会恢复已丢弃的小数。",
+      "examples": [
+        {
+          "role": "symptom",
+          "code": "double x=7/3; printf(\"%.2f\\n\",x);",
+          "answer_stdout": "2.00\n",
+          "prediction_a": "2.33\n",
+          "prediction_b": "2.33\n",
+          "answer_ref": {
+            "value": "2.00\n",
+            "check_id": "check_dcdf517c31fb5ee6a0f2",
+            "receipt_hash": "65f9843e2664019b0b9908dccd808bb29a8912ad138cbeb56a4eb47ca7dcd3e2",
+            "code_hash": "f42313beb3dd40ad18cf21c48c249713a17130abd39cf9e6f22f897d5aa6079c"
+          }
+        },
+        {
+          "role": "diagnostic",
+          "code": "printf(\"%.2f\\n\",(double)(7/3));",
+          "answer_stdout": "2.00\n",
+          "prediction_a": "2.33\n",
+          "prediction_b": "2.00\n",
+          "answer_ref": {
+            "value": "2.00\n",
+            "check_id": "check_3ec74c3e6e025f5e928e",
+            "receipt_hash": "f1c357761ef062728508dfa6ba18319b7f83e5bd8144895efb35c29056d508ca",
+            "code_hash": "0373602c37ded9674a54337fb493563852a03d53c7174f7aa94d90c6b867ed3e"
+          }
+        },
+        {
+          "role": "retest",
+          "code": "printf(\"%.2f %.2f\\n\",(double)(11/4),(double)11/4);",
+          "answer_stdout": "2.00 2.75\n",
+          "prediction_a": "2.75 2.75\n",
+          "prediction_b": "2.00 2.75\n",
+          "answer_ref": {
+            "value": "2.00 2.75\n",
+            "check_id": "check_2ee18a7340cb5bda9202",
+            "receipt_hash": "88412f608e9da24a75b3bbb80d7f77409ea8d1eb760da104961dc4e2136ce80b",
+            "code_hash": "459e2af460ad1709bbb7e46ef09dfd9d7f942124e92aa745ebd251a6ad7066f8"
+          }
+        }
+      ]
+    },
+    "exercise_bank": [
+      {
+        "key": "Q-T01",
+        "knowledge_keys": [
+          "K-T01"
+        ],
+        "question": "在C17中，若整数字面量 123 没有后缀且其值能由 int 表示，它的类型是什么？",
+        "answer": "int",
+        "rationale": "C17规定无后缀且值在int范围内的十进制整数字面量默认为int。",
+        "conditions": [
+          "十进制整数字面量",
+          "数值能由int表示"
+        ]
+      },
+      {
+        "key": "Q-T02",
+        "knowledge_keys": [
+          "K-T02"
+        ],
+        "question": "在C17中，字面量 1U 的类型是什么？",
+        "answer": "unsigned int",
+        "rationale": "U后缀表示unsigned，值1能由unsigned int表示，故类型为unsigned int。",
+        "conditions": [
+          "C17",
+          "本点讨论值为1的U后缀字面量，不推广到任意大的U后缀常量"
+        ]
+      },
+      {
+        "key": "Q-T03",
+        "knowledge_keys": [
+          "K-T03"
+        ],
+        "question": "在C17中，浮点字面量 3.14 没有 'f' 或 'l' 后缀，其类型是什么？",
+        "answer": "double",
+        "rationale": "C17规定无后缀的十进制浮点字面量默认为double。",
+        "conditions": [
+          "十进制浮点字面量",
+          "没有 f 或 l 后缀"
+        ]
+      },
+      {
+        "key": "Q-T04",
+        "knowledge_keys": [
+          "K-T04"
+        ],
+        "question": "假设在某C17实现中，int 不能表示 unsigned short 的所有值（即 unsigned short 的取值范围超出了 int 的范围）。在表达式 `unsigned short u = 65535; int result = u + 1;` 中，`u` 在参与 `+` 运算前被提升为什么类型？",
+        "answer": "unsigned int",
+        "rationale": "根据整数提升规则，如果 int 不能表示原整数类型（这里是 unsigned short）的全部值，则提升到 unsigned int。",
+        "conditions": [
+          "C17中需要整数提升的场合",
+          "原类型满足整数提升的适用条件；不把该步骤推广到所有混合浮点运算"
+        ]
+      },
+      {
+        "key": "Q-T05",
+        "knowledge_keys": [
+          "K-T05"
+        ],
+        "question": "在执行表达式 `double d = 10 / 2.0;` 时，操作数 `10` 和 `2.0` 进行通常算术转换后的共同类型是什么？",
+        "answer": "double",
+        "rationale": "int 和 double 参与运算时，int 操作数转换为 double，因此共同类型为 double。",
+        "conditions": [
+          "实数算术操作数分别为int和double",
+          "运算有定义",
+          "本点不描述其他有符号/无符号类型组合"
+        ]
+      },
+      {
+        "key": "Q-T06",
+        "knowledge_keys": [
+          "K-T06"
+        ],
+        "question": "在表达式 (int)-1 < (unsigned int)1 中，比较发生前 (int)-1 被转换为哪种类型？",
+        "answer": "unsigned int。",
+        "rationale": "直接测试 int 与 unsigned int 之间通常算术转换的定向规则。",
+        "conditions": [
+          "两操作数分别为int与unsigned int，二者转换秩相同",
+          "不推广为任意有符号与无符号类型组合"
+        ]
+      },
+      {
+        "key": "Q-T07",
+        "knowledge_keys": [
+          "K-T07"
+        ],
+        "question": "在C17中，整数表达式 -7 / 2 的结果是多少？",
+        "answer": "-3",
+        "rationale": "整数除法向零截断，-7除以2的商为-3.5，截断后为-3。",
+        "conditions": [
+          "除法操作数均为整数类型",
+          "运算具有定义的行为"
+        ]
+      },
+      {
+        "key": "Q-T08",
+        "knowledge_keys": [
+          "K-T08"
+        ],
+        "question": "执行语句 `double x = 7 / 2;` 后，变量 `x` 存储的数值是多少？右侧表达式 `7 / 2` 在转换为 double 之前的计算结果类型和值分别是什么？",
+        "answer": "x 存储 3.0；计算结果类型是 int，值是 3。",
+        "rationale": "目标类型 double 不会反向改变右侧子表达式 `7 / 2` 的运算类型，它先按整数除法得到 int 值 3，然后转换为 double 3.0。",
+        "conditions": [
+          "C17普通标量初始化或简单赋值",
+          "右侧表达式及转换有定义",
+          "不主张赋值左右操作数固定先右后左求值"
+        ]
+      },
+      {
+        "key": "Q-T09",
+        "knowledge_keys": [
+          "K-T09"
+        ],
+        "question": "表达式 `(double)5 / 2` 和 `(double)(5 / 2)` 的计算结果分别是多少？请分别说明显式转换作用的位置对结果的影响。",
+        "answer": "(double)5 / 2 结果是 2.5；(double)(5 / 2) 结果是 2.0。",
+        "rationale": "前者先将 5 转为 double 再执行浮点除法；后者先执行整数除法得到 2，再将结果转为 double。",
+        "conditions": [
+          "C17算术转换",
+          "表达式求值有定义"
+        ]
+      },
+      {
+        "key": "Q-T10",
+        "knowledge_keys": [
+          "K-T10"
+        ],
+        "question": "有代码段 `int n = 10;`，随后执行语句 `double tmp = (double)n;`。执行该语句后，变量 `n` 的声明类型和内存中存储的数值各是什么？",
+        "answer": "类型是 int，存储值仍是 10。",
+        "rationale": "显式转换作用于表达式的值，产生一个新的 double 值赋给 tmp，但原变量 n 只被读取，未被修改，其类型和值保持不变。",
+        "conditions": [
+          "操作数只是读取变量",
+          "排除赋值、自增、函数调用等另带副作用的操作数"
+        ]
+      },
+      {
+        "key": "Q-T11",
+        "knowledge_keys": [
+          "K-T11"
+        ],
+        "question": "把整数-1转换为unsigned int，是否必须假设unsigned int是32位才能确定结果？",
+        "answer": "不必，结果总是UINT_MAX。",
+        "rationale": "整数转为无符号时，结果与原值模目标最大值加一同余。对-1而言，同余值恒为目标类型的最大可表示值。",
+        "conditions": [
+          "源值为整数",
+          "目标为非_Bool无符号整数类型",
+          "不用于浮点转整数"
+        ]
+      },
+      {
+        "key": "Q-T12",
+        "knowledge_keys": [
+          "K-T12"
+        ],
+        "question": "在C17中，将超出int范围的大正整数转换为int时，是否保证结果一定是该整数的低32位（或等效截位值）？",
+        "answer": "否",
+        "rationale": "C17规定该行为是实现定义的，可能截位也可能产生信号，不保证特定值。",
+        "conditions": [
+          "目标类型为有符号整数类型",
+          "源值超出目标类型的表示范围"
+        ]
+      },
+      {
+        "key": "Q-T13",
+        "knowledge_keys": [
+          "K-T13"
+        ],
+        "question": "如果源整数 100 能够被目标 short 类型表示，那么表达式 (short)100 执行后的数值会发生改变吗？",
+        "answer": "不会，转换后数值仍为 100。",
+        "rationale": "直接测试可表示范围内的整数转换保持数值不变的规则。",
+        "conditions": [
+          "源值为整数",
+          "目标整数类型能表示该值"
+        ]
+      },
+      {
+        "key": "Q-T14",
+        "knowledge_keys": [
+          "K-T14"
+        ],
+        "question": "在C17中，将有限浮点值 3.999f 转换为 int 类型（假设在范围内），结果是多少？",
+        "answer": "3",
+        "rationale": "浮点转整数执行向零截断，3.999的小数部分被丢弃，结果为3。",
+        "conditions": [
+          "源类型为实浮点",
+          "目标类型为整数",
+          "源值是有限实数",
+          "截断后的值在目标范围内"
+        ]
+      },
+      {
+        "key": "Q-T15",
+        "knowledge_keys": [
+          "K-T15"
+        ],
+        "question": "表达式 (unsigned int)-1.5 的行为是确定的吗？如果是，其计算结果是什么？如果不是，请说明原因。",
+        "answer": "行为未定义。因为向零截断后的-1超出了 unsigned int 的取值范围，属于浮点越界。",
+        "rationale": "该题直接测试有限浮点转无符号整数时的截断越界规则，而非整数取模规则。",
+        "conditions": [
+          "源值有限",
+          "目标为非_Bool整数类型",
+          "按目标实际上下界判断整数部分，不对其取绝对值"
+        ]
+      },
+      {
+        "key": "Q-T16",
+        "knowledge_keys": [
+          "K-T16"
+        ],
+        "question": "假设已知整数 X 处于 double 的数值表示范围内，那么表达式 (double)X 转换后的值在数学上是否一定精确等于 X？",
+        "answer": "不一定。在数值范围内的整数也可能因浮点精度限制而丢失部分有效数字。",
+        "rationale": "直接测试整数到浮点转换中“范围内不保证精确”的核心命题。",
+        "conditions": [
+          "整数在目标浮点数值范围内",
+          "不假设所有C实现的double有效精度或舍入方式相同"
+        ]
+      }
+    ],
+    "baseline_scope": "用户指定第四轮复核样本用于本次试写，不代表正式课程已采用"
+  },
+  "output_hash": "4730878bbeb25eeb8a54f7745cc33d68e77db848df0c8e61e6edc2e294ed0834",
+  "assessment": {
+    "issues": [
+      {
+        "code": "knowledge_revision_mismatch"
+      },
+      {
+        "code": "terminology_revision_mismatch"
+      },
+      {
+        "code": "section_order"
+      },
+      {
+        "code": "too_few_examples"
+      },
+      {
+        "code": "diagnosis_count",
+        "count": 0
+      },
+      {
+        "code": "missing_summary"
+      },
+      {
+        "code": "exercise_refs"
+      }
+    ],
+    "bindings": [],
+    "explained_keys": [],
+    "expected_knowledge_points": 16,
+    "unique_examples": 0,
+    "exercise_keys": [],
+    "diagnoses": 0,
+    "canonical_terms_present": [
+      "整数字面量",
+      "整数提升",
+      "通常算术转换",
+      "显式类型转换",
+      "向零截断",
+      "实现定义",
+      "未定义行为",
+      "数值范围",
+      "有效精度"
+    ],
+    "note": "Coverage counts references in explanation blocks, not proof of correct semantic explanation."
+  },
+  "returned_schema": "paragraph_sections_without_block_bindings",
+  "resolved_exercise_keys": [
+    "Q-T05",
+    "Q-T08",
+    "Q-T11",
+    "Q-T15",
+    "Q-T16"
+  ],
+  "resolved_assets": {
+    "examples": [
+      {
+        "key": "E-T01",
+        "title": "整数除法截断",
+        "knowledge_keys": [
+          "K-T07"
+        ],
+        "code": "printf(\"%d\",-7/2);",
+        "answer_stdout": "-3",
+        "answer_ref": {
+          "check_id": "check_cb13ef04da0355cdb75e",
+          "code_hash": "fdf8331bdf0c9569260d8d75c12504923340c06b499c94c2c3da278707174464",
+          "receipt_hash": "07541f3954851ab193fcf6341180bb05ff62751fd5f4c9774f6d772ae1754e3b",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-T02",
+        "title": "接收类型不反向改变表达式",
+        "knowledge_keys": [
+          "K-T08"
+        ],
+        "code": "double x=7/2; printf(\"%.1f\",x);",
+        "answer_stdout": "3.0",
+        "answer_ref": {
+          "check_id": "check_eb3ce019c74550c498fe",
+          "code_hash": "fba576f34a46acaea7e0510f40bfe3e52f3266c8a31bdd679be30c77c3768a9f",
+          "receipt_hash": "8da77dabdc1cafd1dbfd7d933b36d62278d5bc77bde5f7763c11c03381d55c4a",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-T03",
+        "title": "显式转换的位置",
+        "knowledge_keys": [
+          "K-T09"
+        ],
+        "code": "printf(\"%.1f %.1f\",(double)5/2,(double)(5/2));",
+        "answer_stdout": "2.5 2.0",
+        "answer_ref": {
+          "check_id": "check_067e1a66001d528bb631",
+          "code_hash": "8e9640cbdfdffa246f5f8317d2b9f9c29b26577bc1c97d5170283c5f7afc0041",
+          "receipt_hash": "06c1963ca3c82fb5a66b6480398d2a189b23b7d5420c3ae0281c14820888bd1d",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-T04",
+        "title": "转换表达式不改原变量",
+        "knowledge_keys": [
+          "K-T10"
+        ],
+        "code": "int n=10; double tmp=(double)n; printf(\"%d %d\",_Generic(n,int:1,default:0),n);",
+        "answer_stdout": "1 10",
+        "answer_ref": {
+          "check_id": "check_965a23c1f5035db5b53c",
+          "code_hash": "7bb46aae1dd4502828f02bf2af9ac3a7e39f5be67c6e9a3efeb82e9d08746182",
+          "receipt_hash": "6936a14ba9600688be496a5024ebab3eab7eb509a660c95374ccf4d5b0f81cef",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-T05",
+        "title": "浮点截断",
+        "knowledge_keys": [
+          "K-T14"
+        ],
+        "code": "printf(\"%d\",(int)3.999f);",
+        "answer_stdout": "3",
+        "answer_ref": {
+          "check_id": "check_2482719b284f5ec59ab5",
+          "code_hash": "c20b943ef2dfb2645be92dd84e62e0349997cc797eace44d65bf015d11f9b92e",
+          "receipt_hash": "4d76b91661e889abc85fbe368d47f4c3bf23454f6fb1ed360e32de7d33825f7e",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-T06",
+        "title": "模转换",
+        "knowledge_keys": [
+          "K-T11"
+        ],
+        "code": "printf(\"%d\",(unsigned int)-1==UINT_MAX);",
+        "answer_stdout": "1",
+        "answer_ref": {
+          "check_id": "check_3320b6e90d165f189a55",
+          "code_hash": "d6def769172fc09854428de4fb82410041fa0803194bdea582291f13e6f7d410",
+          "receipt_hash": "3af90d99d56887eededcf09a9ae8da4bd441084ab62acb996dc1883184dbe7c8",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      }
+    ],
+    "exercises": [
+      {
+        "key": "Q-T05",
+        "knowledge_keys": [
+          "K-T05"
+        ],
+        "question": "在执行表达式 `double d = 10 / 2.0;` 时，操作数 `10` 和 `2.0` 进行通常算术转换后的共同类型是什么？",
+        "answer": "double",
+        "rationale": "int 和 double 参与运算时，int 操作数转换为 double，因此共同类型为 double。",
+        "conditions": [
+          "实数算术操作数分别为int和double",
+          "运算有定义",
+          "本点不描述其他有符号/无符号类型组合"
+        ]
+      },
+      {
+        "key": "Q-T08",
+        "knowledge_keys": [
+          "K-T08"
+        ],
+        "question": "执行语句 `double x = 7 / 2;` 后，变量 `x` 存储的数值是多少？右侧表达式 `7 / 2` 在转换为 double 之前的计算结果类型和值分别是什么？",
+        "answer": "x 存储 3.0；计算结果类型是 int，值是 3。",
+        "rationale": "目标类型 double 不会反向改变右侧子表达式 `7 / 2` 的运算类型，它先按整数除法得到 int 值 3，然后转换为 double 3.0。",
+        "conditions": [
+          "C17普通标量初始化或简单赋值",
+          "右侧表达式及转换有定义",
+          "不主张赋值左右操作数固定先右后左求值"
+        ]
+      },
+      {
+        "key": "Q-T11",
+        "knowledge_keys": [
+          "K-T11"
+        ],
+        "question": "把整数-1转换为unsigned int，是否必须假设unsigned int是32位才能确定结果？",
+        "answer": "不必，结果总是UINT_MAX。",
+        "rationale": "整数转为无符号时，结果与原值模目标最大值加一同余。对-1而言，同余值恒为目标类型的最大可表示值。",
+        "conditions": [
+          "源值为整数",
+          "目标为非_Bool无符号整数类型",
+          "不用于浮点转整数"
+        ]
+      },
+      {
+        "key": "Q-T15",
+        "knowledge_keys": [
+          "K-T15"
+        ],
+        "question": "表达式 (unsigned int)-1.5 的行为是确定的吗？如果是，其计算结果是什么？如果不是，请说明原因。",
+        "answer": "行为未定义。因为向零截断后的-1超出了 unsigned int 的取值范围，属于浮点越界。",
+        "rationale": "该题直接测试有限浮点转无符号整数时的截断越界规则，而非整数取模规则。",
+        "conditions": [
+          "源值有限",
+          "目标为非_Bool整数类型",
+          "按目标实际上下界判断整数部分，不对其取绝对值"
+        ]
+      },
+      {
+        "key": "Q-T16",
+        "knowledge_keys": [
+          "K-T16"
+        ],
+        "question": "假设已知整数 X 处于 double 的数值表示范围内，那么表达式 (double)X 转换后的值在数学上是否一定精确等于 X？",
+        "answer": "不一定。在数值范围内的整数也可能因浮点精度限制而丢失部分有效数字。",
+        "rationale": "直接测试整数到浮点转换中“范围内不保证精确”的核心命题。",
+        "conditions": [
+          "整数在目标浮点数值范围内",
+          "不假设所有C实现的double有效精度或舍入方式相同"
+        ]
+      }
+    ],
+    "diagnostic": null
+  },
+  "renderer_contract": "Exposition remains model text; reference expansion inserts canonical code, answers and knowledge identities without another model call. Legacy paragraph fields are retained without inventing block knowledge links."
+}

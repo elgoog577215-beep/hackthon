@@ -12,6 +12,11 @@ declare module 'vue-router' {
 }
 
 const routes: Array<RouteRecordRaw> = [
+  ...(import.meta.env.DEV ? [{
+    path: '/student-profile-demo', name: 'student-profile-demo',
+    component: () => import('../views/KnowledgeProfileDemoView.vue'),
+    meta: { publicConcept: true, fullscreenConcept: true, identityScope: 'learner' as const },
+  }] : []),
   {
     path: '/study/:materialId?',
     name: 'study',
@@ -37,6 +42,11 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: '/course/:courseId',
     redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' } })
+  },
+  {
+    path: '/course/:courseId/knowledge-first',
+    name: 'course-knowledge-first',
+    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' }, query: to.query }),
   },
   {
     path: '/course/:courseId/workspace/:mode(setup|build)?',

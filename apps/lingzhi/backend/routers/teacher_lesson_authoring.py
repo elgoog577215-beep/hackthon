@@ -35,6 +35,7 @@ from learner_context import resolve_user_id
 from lesson_identity import chapter_matches_lesson
 from generation_streaming import structured_generation_stream
 from course_schedule import teacher_lecture_duration_minutes
+from handout_knowledge_projection import project_script_knowledge
 from teaching_design import (
     LESSON_TYPES,
     normalize_lesson_arrangement,
@@ -252,7 +253,7 @@ async def recover_teacher_generation_jobs(tm: TaskManager, repository: TeacherLe
             continue
         groups: dict[str, list[dict[str, Any]]] = {}
         for job in state.get("jobs", {}).values():
-            if (job.get("type") == "teacher_lesson_script_generation"
+            if (job.get("type") in {"teacher_lesson_script_generation", "course_knowledge_tree_generation", "knowledge_first_handout_generation"}
                     and job.get("status") in {"pending", "running"}):
                 # Startup has no surviving provider stream. Keep persisted work;
                 # only an explicit user action may start another model request.
@@ -1731,6 +1732,7 @@ def _lesson_projection(
                 ),
                 "quality_report": script_quality,
                 "sections": script_sections,
+                "knowledge_sections": project_script_knowledge(source, script_sections) if include_content else [],
                 "actor": str((script_revision or {}).get("actor") or ""),
                 "updated_at": str(
                     (script_revision or {}).get("updated_at")

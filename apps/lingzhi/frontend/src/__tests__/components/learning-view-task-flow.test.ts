@@ -134,6 +134,36 @@ describe('LearningView 正文任务覆盖层', () => {
     vi.spyOn(useChangeProposalsStore(), 'fetchChangeProposals').mockResolvedValue(undefined)
   })
 
+  it('returns from the knowledge tree to the saved reading position, but respects an explicit outline selection', async()=>{
+    const second={...node,node_id:'n2',node_name:'第二讲'}
+    useCourseStore().nodes=[node,second]
+    const wrapper=mount(LearningView,{attachTo:document.body,global:{plugins:[(globalThis as any).__learningTestPinia,(globalThis as any).__learningTestRouter],stubs:{
+      ContentArea:ContentAreaStub, LearningTaskOverlay:TaskOverlayStub, LearningStats:LearningStatsStub,
+      CourseKnowledgeStudy:defineComponent({emits:['close'],template:'<button class="back-reading" @click="$emit(\'close\')">返回讲义</button>'}),
+      CourseNavigator:defineComponent({emits:['select'],setup:()=>({second}),template:'<button class="select-second" @click="$emit(\'select\',second)">第二讲</button>'}),
+      NotesPanel:NotesPanelStub,SideAIPanel:{template:'<aside class="ai-panel-stub" />'},Teleport:true,
+    }}})
+    await flushPromises()
+    const content=wrapper.get('#content-scroll-container').element as HTMLElement
+    content.scrollTop=315
+    await wrapper.get('[data-domain="knowledge-library"]').trigger('click')
+    expect(wrapper.get('[data-domain="knowledge-library"]').attributes('aria-current')).toBe('page')
+    content.scrollTop=0
+    await wrapper.get('.back-reading').trigger('click');await flushPromises()
+    expect(content.scrollTop).toBe(315)
+    expect(useCourseStore().currentNode?.node_id).toBe('n1')
+    expect(wrapper.get('.learning-side-panel').isVisible()).toBe(false)
+    expect(wrapper.find('.reading-side-tabs').exists()).toBe(false)
+    content.scrollTop=510
+    await wrapper.get('[data-domain="knowledge-library"]').trigger('click')
+    content.scrollTop=0
+    await wrapper.get('.select-second').trigger('click');await flushPromises()
+    expect(useCourseStore().showKnowledgeLibrary).toBe(false)
+    expect(useCourseStore().currentNode?.node_id).toBe('n2')
+    expect(content.scrollTop).toBe(0)
+    wrapper.unmount()
+  })
+
   it.each([false, true])('shows the first-use greeting only in a loaded learner course (teacher preview: %s)', async preview => {
     const router = (globalThis as any).__learningTestRouter
     if (preview) await router.replace('/course/c1/learn/n1?teacherPreview=1')
@@ -141,7 +171,7 @@ describe('LearningView 正文任务覆盖层', () => {
     const wrapper = mount(LearningView, { global: {
       plugins: [(globalThis as any).__learningTestPinia, router],
       stubs: { ContentArea: ContentAreaStub, CourseNavigator: true, LearningTaskOverlay: TaskOverlayStub,
-        LearningStats: LearningStatsStub, NotesPanel: NotesPanelStub,
+        LearningStats: LearningStatsStub, CourseKnowledgeStudy: true, NotesPanel: NotesPanelStub,
         SideAIPanel: true, Teleport: true },
     } })
     await flushPromises()
@@ -243,7 +273,7 @@ describe('LearningView 正文任务覆盖层', () => {
     const createView = () => mount(LearningView, { attachTo: document.body, global: {
       plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
       stubs: { ContentArea: ContentAreaStub, CourseNavigator: true, LearningTaskOverlay: TaskOverlayStub,
-        LearningStats: LearningStatsStub, NotesPanel: NotesPanelStub,
+        LearningStats: LearningStatsStub, CourseKnowledgeStudy: true, NotesPanel: NotesPanelStub,
         SideAIPanel: Assistant, Teleport: false },
     } })
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -322,7 +352,7 @@ describe('LearningView 正文任务覆盖层', () => {
     await flushPromises()
 
     expect(wrapper.find('.learning-context-bar').exists()).toBe(false)
-    expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['笔记本', '题库本1', '学习概况', '知识图谱', '智能助教'])
+    expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['笔记本', '题库本1', '学习概况', '知识树', '智能助教'])
 
     await wrapper.get('.open-practice').trigger('click')
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)

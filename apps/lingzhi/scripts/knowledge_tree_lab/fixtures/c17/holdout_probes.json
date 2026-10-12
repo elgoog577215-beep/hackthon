@@ -1,0 +1,18 @@
+{
+  "visibility": "never included in generation, review or repair prompts",
+  "purpose": "验证本地参考判断，并在审阅生成知识时检查是否支持这些未见变式；不是把当前模型再次答题冒充知识树可用性",
+  "probes": [
+    {"id":"H-T1","topic":"types","kind":"runtime","code":"double a=7/2,b=(double)7/2,c=(double)(7/2); printf(\"%.1f %.1f %.1f\",a,b,c);","expected":"3.0 3.5 3.0","checks":["T04","T05","T06"]},
+    {"id":"H-T2","topic":"types","kind":"runtime","code":"int n=7; double d=(double)n/2; printf(\"%d %d %d %.1f\",(int)-3.9,-7/2,n,d);","expected":"-3 -3 7 3.5","checks":["T04","T06","T10"]},
+    {"id":"H-T3","topic":"types","kind":"runtime","code":"int n=-1; unsigned int u=1U; printf(\"%d %d\",n<u,(unsigned int)-1==UINT_MAX);","expected":"0 1","checks":["T07","T08"]},
+    {"id":"H-T4","topic":"types","kind":"static","question":"将超过 int 可表示整数范围的有限浮点值转 int，与把一个无法由 signed char 表示的 int 值转 signed char，C17 的结论是否相同？","expected":"不同：前者未定义行为；后者实现定义的结果或实现定义的信号。","checks":["T09","T10"]},
+    {"id":"H-I1","topic":"if","kind":"runtime","code":"int a=0,b=0,x=7;if(a)if(b)x=1;else x=2;printf(\"%d\",x);","expected":"7","checks":["I03","I05"]},
+    {"id":"H-I2","topic":"if","kind":"runtime","code":"int a=0,b=0,x=7;if(a){if(b)x=1;}else x=2;printf(\"%d\",x);","expected":"2","checks":["I02","I04"]},
+    {"id":"H-I3","topic":"if","kind":"runtime","code":"int x=1,n=0;if(x){x=0;n++;}if(x==0)n++;int y=1;if(y)y=0;else y=2;printf(\"%d %d\",n,y);","expected":"2 0","checks":["I08","I09"]},
+    {"id":"H-I4","topic":"if","kind":"runtime","code":"int x=0,n=0;if(0);{x=9;}if(1)n=1;else if(++x)n=2;printf(\"%d %d\",x,n);","expected":"9 1","checks":["I06","I07"]},
+    {"id":"H-F1","topic":"for","kind":"runtime","code":"int sum=0;for(int i=0;i<5;i++){if(i==2)continue;sum+=i;}printf(\"%d\",sum);","expected":"8","checks":["F03","F08"]},
+    {"id":"H-F2","topic":"for","kind":"runtime","code":"int i;for(i=0;i<5;i++){if(i==2)break;}printf(\"%d\",i);","expected":"2","checks":["F05","F09"]},
+    {"id":"H-F3","topic":"for","kind":"runtime","code":"int sum=0;for(int i=0;i<4;i++){switch(i){case 1:break;case 2:continue;default:break;}sum+=i;}printf(\"%d\",sum);","expected":"4","checks":["F08","F09","F14"]},
+    {"id":"H-F4","topic":"for","kind":"runtime","code":"int tests=0,bodies=0;for(int i=0;(tests++,i<3);i++)bodies++;printf(\"%d %d\",tests,bodies);","expected":"4 3","checks":["F01","F02","F04"]}
+  ]
+}

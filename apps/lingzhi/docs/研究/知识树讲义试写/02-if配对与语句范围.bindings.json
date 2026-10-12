@@ -1,0 +1,1025 @@
+{
+  "input_bundle": {
+    "topic": "if",
+    "title": "第2讲　if 的语句范围与 else 配对",
+    "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+    "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9",
+    "course": "C17基础程序设计三组试写样稿",
+    "learner": "已认识变量、简单算术和语句的初学者",
+    "points": [
+      {
+        "key": "K-I01",
+        "knowledge_id": "kp_dc9e45a33fc15195a56f",
+        "name": "标量条件的真值语义",
+        "statement": "if 语句要求条件为标量表达式，其真值由与 0 的比较决定：非零值（包括负数）为真，零值为假。",
+        "conditions": [
+          "表达式求值符合 C17 标量类型转换规则",
+          "处于普通顺序执行上下文"
+        ],
+        "meta_question": "在 if 语句中，如何确定一个非零负整数表达式的分支走向？",
+        "meta_answer": "非零负整数不等于零，因此被视为真，程序将执行 if 的真分支。",
+        "source_refs": [
+          "I-S1"
+        ]
+      },
+      {
+        "key": "K-I02",
+        "knowledge_id": "kp_93a17945b3d7594a9cc2",
+        "name": "一次执行不重新选分支",
+        "statement": "一次普通顺序执行的if依据当时条件选择分支；分支内改变量不会自动改选或补执行另一个分支。",
+        "conditions": [
+          "普通结构化控制流",
+          "不讨论goto跳入分支"
+        ],
+        "meta_question": "if(x){x=0;}else{y=1;}中，真分支将x改成0会立即补执行else吗？",
+        "meta_answer": "不会。",
+        "source_refs": [
+          "I-S1"
+        ]
+      },
+      {
+        "key": "K-I03",
+        "knowledge_id": "kp_fccdeb3357e0528b861c",
+        "name": "分支体的语句范围",
+        "statement": "if每个分支体在语法上是一条语句；复合语句或整个嵌套if均可充当这条语句。",
+        "conditions": [
+          "普通结构化控制流"
+        ],
+        "meta_question": "if(a) x=1; y=2;中，if的真分支体包含y=2吗？",
+        "meta_answer": "不包含，真分支体只是x=1。",
+        "source_refs": [
+          "I-S2"
+        ]
+      },
+      {
+        "key": "K-I04",
+        "knowledge_id": "kp_8e6ec21f54915eb88a62",
+        "name": "else 的词法就近配对",
+        "statement": "else结合到语法允许的、词法上最近的前面的if。",
+        "conditions": [
+          "完整合法的C17语句结构",
+          "语法允许包含花括号边界，不能只机械找最近文本"
+        ],
+        "meta_question": "if(a) if(b) x=1; else x=2;中的else属于哪个if？",
+        "meta_answer": "内层if(b)。",
+        "source_refs": [
+          "I-S2",
+          "I-S3"
+        ]
+      },
+      {
+        "key": "K-I05",
+        "knowledge_id": "kp_63516508606e5a4eb6f5",
+        "name": "花括号显式修改 else 归属",
+        "statement": "内层if位于外层真分支的复合语句内时，该复合语句之后的else不能跨越块边界与内层if配对。",
+        "conditions": [
+          "特指if(a){if(b) x=1;} else x=2;中块外的else",
+          "不把块内另一个else也说成属于外层"
+        ],
+        "meta_question": "if(a){if(b) x=1;} else x=2;中的块外else属于哪个if？",
+        "meta_answer": "外层if(a)。",
+        "source_refs": [
+          "I-S2",
+          "I-S3"
+        ]
+      },
+      {
+        "key": "K-I06",
+        "knowledge_id": "kp_859f9b7a8cf35f8bbdaa",
+        "name": "缩进不改变语法归属",
+        "statement": "只改变空白缩进，不改变C语句的词法记号及语法结构，因此不改变else归属。",
+        "conditions": [
+          "不改变记号、花括号和注释内容",
+          "普通if/else语句"
+        ],
+        "meta_question": "把else视觉上缩进到外层if同一列，能改变合法程序中的配对吗？",
+        "meta_answer": "不能，配对由语法决定。",
+        "source_refs": [
+          "I-S2"
+        ]
+      },
+      {
+        "key": "K-I07",
+        "knowledge_id": "kp_1a02eb8b4bb050869942",
+        "name": "未进入外层则不执行内层",
+        "statement": "外层if未选中包含内层if/else的分支时，整个内层选择语句都不执行。",
+        "conditions": [
+          "普通结构化控制流，无goto或标签跳入",
+          "内层选择语句是外层该分支的一部分，不以花括号为必要条件"
+        ],
+        "meta_question": "a=0时，if(a) if(b) x=1; else x=2;会执行内层else吗？",
+        "meta_answer": "不会；外层未进入，整个内层if/else不执行。",
+        "source_refs": [
+          "I-S2"
+        ]
+      },
+      {
+        "key": "K-I08",
+        "knowledge_id": "kp_55c412b975eb565f8090",
+        "name": "空语句对控制范围的破坏",
+        "statement": "在 if 条件后直接跟随分号（if(cond);）会产生一个空语句作为分支体，其后的语句在语法上不受该 if 控制。",
+        "conditions": [
+          "分号紧跟在条件右括号后",
+          "后续语句未显式包含在 if 的复合分支内"
+        ],
+        "meta_question": "代码 if(x > 10); y = 20; 中，y=20 是否只有在 x>10 时执行？",
+        "meta_answer": "否。分号构成了 if 的空语句分支，y=20 是独立于 if 之后的后续语句，无论条件真假均会执行。",
+        "source_refs": [
+          "I-S3"
+        ]
+      },
+      {
+        "key": "K-I09",
+        "knowledge_id": "kp_7405348a55ab57459561",
+        "name": "else if 的语法结构",
+        "statement": "else if在C语法上是else分支中嵌套另一条if语句。",
+        "conditions": [
+          "C17语法"
+        ],
+        "meta_question": "else if是独立的C关键字组合语句种类吗？",
+        "meta_answer": "不是，它是else分支中的另一条if。",
+        "source_refs": [
+          "I-S4"
+        ]
+      },
+      {
+        "key": "K-I10",
+        "knowledge_id": "kp_1a0bfd83c70c519a9a21",
+        "name": "选择链首命中后停止判断",
+        "statement": "普通顺序执行if/else-if链时，首个命中分支之后不再求值后续分支条件。",
+        "conditions": [
+          "一条if/else-if选择链",
+          "普通结构化执行"
+        ],
+        "meta_question": "if(A)...else if(B)...中A为真时，还会求值B吗？",
+        "meta_answer": "不会。",
+        "source_refs": [
+          "I-S4"
+        ]
+      },
+      {
+        "key": "K-I11",
+        "knowledge_id": "kp_58c6183033225ff5ab9a",
+        "name": "独立 if 可以多次命中",
+        "statement": "多个独立if各自进行条件判断，前一个命中不阻止后一个也命中。",
+        "conditions": [
+          "顺序执行到各if",
+          "无提前return等跳转"
+        ],
+        "meta_question": "if(a) x++; if(b) y++;在a、b都为真时，两条自增能否都执行？",
+        "meta_answer": "能，因为这是两条独立if。",
+        "source_refs": [
+          "I-S4"
+        ]
+      },
+      {
+        "key": "K-I12",
+        "knowledge_id": "kp_98e613b4caf758e0aecd",
+        "name": "后续 if 读取新状态",
+        "statement": "后续独立if在自己求值时读取变量的当前值，能看到前面语句已完成的修改。",
+        "conditions": [
+          "普通顺序执行",
+          "变量已初始化，修改及读取有定义"
+        ],
+        "meta_question": "int x=1; if(x)x=0; if(x)y=1;第二条if的条件为真吗？",
+        "meta_answer": "为假，第二次求值读到x=0。",
+        "source_refs": [
+          "I-S4"
+        ]
+      }
+    ],
+    "terminology": [
+      {
+        "key": "scalar",
+        "canonical": "标量表达式",
+        "aliases": []
+      },
+      {
+        "key": "branch",
+        "canonical": "分支体",
+        "aliases": []
+      },
+      {
+        "key": "compound",
+        "canonical": "复合语句",
+        "aliases": [
+          "语句块"
+        ]
+      },
+      {
+        "key": "pairing",
+        "canonical": "else 配对",
+        "aliases": [
+          "else归属"
+        ]
+      },
+      {
+        "key": "null_statement",
+        "canonical": "空语句",
+        "aliases": []
+      },
+      {
+        "key": "chain",
+        "canonical": "if/else-if 选择链",
+        "aliases": [
+          "选择链"
+        ]
+      },
+      {
+        "key": "independent",
+        "canonical": "独立 if",
+        "aliases": [
+          "独立if"
+        ]
+      }
+    ],
+    "sections": [
+      {
+        "key": "if1",
+        "title": "条件、语句范围与一次分支选择",
+        "required_knowledge_keys": [
+          "K-I01",
+          "K-I02",
+          "K-I03"
+        ]
+      },
+      {
+        "key": "if2",
+        "title": "else 配对：语法、花括号与缩进",
+        "required_knowledge_keys": [
+          "K-I04",
+          "K-I05",
+          "K-I06"
+        ]
+      },
+      {
+        "key": "if3",
+        "title": "外层未进入与空语句陷阱",
+        "required_knowledge_keys": [
+          "K-I07",
+          "K-I08"
+        ]
+      },
+      {
+        "key": "if4",
+        "title": "选择链与独立判断",
+        "required_knowledge_keys": [
+          "K-I09",
+          "K-I10",
+          "K-I11",
+          "K-I12"
+        ]
+      }
+    ],
+    "example_bank": [
+      {
+        "key": "E-I01",
+        "title": "标量条件的真值语义",
+        "knowledge_keys": [
+          "K-I01"
+        ],
+        "code": "int n=-5;if(n)printf(\"T\");else printf(\"F\");",
+        "answer_stdout": "T",
+        "answer_ref": {
+          "check_id": "check_56b46fa7dbf85202aaf3",
+          "code_hash": "8bf3dee8a951483acaf03ac275be7460e64fd09d38b8ed108d4e6b6a1ae6fcba",
+          "receipt_hash": "c506d7f07edf54d31fa03f3adb876dd98827b481d425cedefcf3e684a94c6df1",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-I02",
+        "title": "一次执行不重新选分支",
+        "knowledge_keys": [
+          "K-I02"
+        ],
+        "code": "int x=1,y=0;if(x){x=0;}else{y=1;}printf(\"%d\",y);",
+        "answer_stdout": "0",
+        "answer_ref": {
+          "check_id": "check_2a45892813c755899cd7",
+          "code_hash": "e250df185e9929ca518e8b381fe15e75463d3e4717127aa219f374bc114afbdd",
+          "receipt_hash": "ffe7df7d6b04d3c9cec441e330044d223a2796d4ec1a2d2198a51ab10839f307",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-I03",
+        "title": "分支体的语句范围",
+        "knowledge_keys": [
+          "K-I03"
+        ],
+        "code": "int a=0,x=0,y=0;if(a)x=1;y=2;printf(\"%d\",y);",
+        "answer_stdout": "2",
+        "answer_ref": {
+          "check_id": "check_2558efbf31455a6aa2db",
+          "code_hash": "b27e0146858ce1de502bf1f85af232b4d025df26ee5fc121e268f0dd49000452",
+          "receipt_hash": "6ad4c6c08449db7019e2261c52c04e473f157f910b96779f9c80869b2daf1ce7",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-I04",
+        "title": "未进入外层则不执行内层",
+        "knowledge_keys": [
+          "K-I07"
+        ],
+        "code": "int a=0,b=1,x=0;if(a)if(b)x=1;else x=2;printf(\"%d\",x);",
+        "answer_stdout": "0",
+        "answer_ref": {
+          "check_id": "check_ab78814a72e553d6b46b",
+          "code_hash": "dca390c03426a8c59642a3e99d769b8482cae1ab00481587b7b54c05cb180c4d",
+          "receipt_hash": "a026260730d8135b8638a710e97fb24541c707601ec4feebc1e97008ca94d532",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-I05",
+        "title": "选择链首命中后停止判断",
+        "knowledge_keys": [
+          "K-I10"
+        ],
+        "code": "int b_calls=0;if(1){}else if(++b_calls){}printf(\"%d\",b_calls);",
+        "answer_stdout": "0",
+        "answer_ref": {
+          "check_id": "check_6c389bb98f3e5e3b81c9",
+          "code_hash": "6650693e3abd63fac276e148a6fbb7fb85e6d2d16eb4c0232f47ae738e5ea44d",
+          "receipt_hash": "5dcb5c06d5d7636e249f3a752aa9e2df4e8b35f574dff4eb35f512324004e82f",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-I06",
+        "title": "后续 if 读取新状态",
+        "knowledge_keys": [
+          "K-I12"
+        ],
+        "code": "int x=1,y=0;if(x)x=0;if(x)y=1;printf(\"%d %d\",x,y);",
+        "answer_stdout": "0 0",
+        "answer_ref": {
+          "check_id": "check_23acc2139cd25724ac78",
+          "code_hash": "7ba357aaf5986f17c59e738b0f7d8668a6c90cb2924fc433e89eb738314cdbcd",
+          "receipt_hash": "a505e89602709bddc7b67c6b0148560f3949896f747510e7b2beae2bd5f01448",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      }
+    ],
+    "diagnostic": {
+      "key": "D-I",
+      "knowledge_keys": [
+        "K-I07",
+        "K-I04",
+        "K-I06"
+      ],
+      "hypothesis_a": "误以为else与视觉上缩进同列的if配对，而不是由C语法决定。",
+      "hypothesis_b": "误以为无花括号嵌套if中的else总与最外层if配对。",
+      "repair_a": "忽略缩进提示，按语法允许的最近if配对；再用花括号明确期望边界。",
+      "repair_b": "先识别内层完整if/else结构；外层不进入时，内层if和else都不执行。",
+      "examples": [
+        {
+          "role": "symptom",
+          "code": "int a=1, b=0, v=0;\nif(a)\n  if(b) v=1;\nelse v=2;\nprintf(\"%d\\n\",v);",
+          "answer_stdout": "2\n",
+          "prediction_a": "0\n",
+          "prediction_b": "0\n",
+          "answer_ref": {
+            "value": "2\n",
+            "check_id": "check_dd1151e731fe5c988ce0",
+            "receipt_hash": "214f701a9926e3e17f30ab832c4501dbb83acfe3943d096dfd4d0b231fca5506",
+            "code_hash": "342172e915fa0cf44d5e57ab9d9b545ca25ab4d29bfc4897e354d1dcd242cbed"
+          }
+        },
+        {
+          "role": "diagnostic",
+          "code": "int a=1, b=0, v=0;\nif(a)\n  if(b) v=1;\n  else v=2;\nprintf(\"%d\\n\",v);",
+          "answer_stdout": "2\n",
+          "prediction_a": "2\n",
+          "prediction_b": "0\n",
+          "answer_ref": {
+            "value": "2\n",
+            "check_id": "check_5d7da619df91504a8333",
+            "receipt_hash": "ee5f804683a9700840b751c28c41858c21798c3a24a80d921320164de1e97d9a",
+            "code_hash": "a85e48ae734200e68940152f704ecdf09bd05d132d0c925814b47050cdec99f4"
+          }
+        },
+        {
+          "role": "retest",
+          "code": "int a=0, b=0, v=3;\nif(a)\n  if(b) v=1;\nelse v=2;\nprintf(\"%d\\n\",v);",
+          "answer_stdout": "3\n",
+          "prediction_a": "2\n",
+          "prediction_b": "2\n",
+          "answer_ref": {
+            "value": "3\n",
+            "check_id": "check_4db4e524f3fc597cb6a6",
+            "receipt_hash": "df834d41f180566eb42a59c69d51373b9409486ff952ec9389bb7b6489c0a91e",
+            "code_hash": "1be3de857ad9507049ccf2cdf51f37a2b1cdf9d0e8e0905639d17decc88b73b0"
+          }
+        }
+      ]
+    },
+    "exercise_bank": [
+      {
+        "key": "Q-I01",
+        "knowledge_keys": [
+          "K-I01"
+        ],
+        "question": "设有整数变量 `int n = -5;`，在语句 `if(n) printf(\"T\"); else printf(\"F\");` 中，程序会输出什么？",
+        "answer": "T",
+        "rationale": "标量表达式 -5 非零，根据 C17 语义被视为真，因此执行 if 分支。",
+        "conditions": [
+          "表达式求值符合 C17 标量类型转换规则",
+          "处于普通顺序执行上下文"
+        ]
+      },
+      {
+        "key": "Q-I02",
+        "knowledge_keys": [
+          "K-I02"
+        ],
+        "question": "设有 `int x = 1, y = 0;`，执行语句 `if(x) { x = 0; } else { y = 1; }` 后，y 的值是多少？",
+        "answer": "0",
+        "rationale": "if 语句依据当时条件选择分支，进入真分支后修改 x 不会重新评估条件或补执行 else 分支。",
+        "conditions": [
+          "普通结构化控制流",
+          "不讨论goto跳入分支"
+        ]
+      },
+      {
+        "key": "Q-I03",
+        "knowledge_keys": [
+          "K-I03"
+        ],
+        "question": "设有 `int a = 0, x = 0, y = 0;`，执行语句 `if(a) x = 1; y = 2;` 后，y 的值是多少？",
+        "answer": "2",
+        "rationale": "if 语句的分支体仅包含紧随其后的第一条语句（x=1），y=2 不受 if 控制，必然执行。",
+        "conditions": [
+          "普通结构化控制流"
+        ]
+      },
+      {
+        "key": "Q-I04",
+        "knowledge_keys": [
+          "K-I04"
+        ],
+        "question": "设有 `int a = 0, b = 1, x = 0;`，执行语句 `if(a) if(b) x = 1; else x = 2;` 后，x 的值是多少？",
+        "answer": "0",
+        "rationale": "else 词法上就近配对到内层 if(b)。因为 a 为假，外层 if 的整个分支体（包括内层 if 和配对的 else）都不执行。",
+        "conditions": [
+          "完整合法的C17语句结构",
+          "语法允许包含花括号边界，不能只机械找最近文本"
+        ]
+      },
+      {
+        "key": "Q-I05",
+        "knowledge_keys": [
+          "K-I05"
+        ],
+        "question": "在C17代码 `if(a) { if(b) x=1; } else y=2;` 中，位于外层 `if(a)` 的花括号 `}` 之后（即外层复合语句外部）的 `else`，在语法上属于哪一个 `if`？",
+        "answer": "外层 `if(a)`",
+        "rationale": "根据C17语法，`else` 与最内层的 `if` 配对，但如果内层 `if` 位于一个复合语句（`{}`块）内，其后续的 `else` 不能跨越该块边界去和内层 `if` 配对，因此它只能归属于块外的外层 `if(a)`。",
+        "conditions": [
+          "特指if(a){if(b) x=1;} else x=2;中块外的else",
+          "不把块内另一个else也说成属于外层"
+        ]
+      },
+      {
+        "key": "Q-I06",
+        "knowledge_keys": [
+          "K-I06"
+        ],
+        "question": "在不改变代码中的词法记号（字母、数字、操作符）和花括号结构的前提下，仅调整 `else` 的空格缩进位置（例如将其视觉上缩进到外层 `if` 的同一列），能够改变C17合法程序中 `if` 与 `else` 的语法配对结果吗？",
+        "answer": "不能，配对由语法（如花括号边界）决定，空白缩进无此效力。",
+        "rationale": "C17的词法分析会跳过空白字符（包括空格和制表符），词法记号序列和后续的语法分析（AST构建）完全不受视觉缩进的影响。`else` 的配对严格由其与 `if` 的相对语法位置（尤其是花括号边界）决定。",
+        "conditions": [
+          "不改变记号、花括号和注释内容",
+          "普通if/else语句"
+        ]
+      },
+      {
+        "key": "Q-I07",
+        "knowledge_keys": [
+          "K-I07"
+        ],
+        "question": "设有 `int a = 0, b = 1, x = 0;`，执行语句 `if(a) if(b) x = 1; else x = 2;` 后，x 的值是多少？",
+        "answer": "0",
+        "rationale": "外层 if 条件 a 为假，导致包含内层 if/else 的整个分支体不执行，因此内层 else 也不执行。",
+        "conditions": [
+          "普通结构化控制流，无goto或标签跳入",
+          "内层选择语句是外层该分支的一部分，不以花括号为必要条件"
+        ]
+      },
+      {
+        "key": "Q-I08",
+        "knowledge_keys": [
+          "K-I08"
+        ],
+        "question": "给定 `int x = 5, y = 0;`，执行 `if(x > 10); y = 20;` 后，变量 y 的值是多少？",
+        "answer": "20",
+        "rationale": "分号紧跟 if 条件后构成空语句作为分支体，y=20 是独立于 if 之后的语句，无论条件真假均执行。",
+        "conditions": [
+          "分号紧跟在条件右括号后",
+          "后续语句未显式包含在 if 的复合分支内"
+        ]
+      },
+      {
+        "key": "Q-I09",
+        "knowledge_keys": [
+          "K-I09"
+        ],
+        "question": "C17语法中，`else if` 是一个与 `if` 平级、独立的关键字组合语句种类吗？",
+        "answer": "不是，它是 `else` 分支中嵌套的一条 `if` 语句。",
+        "rationale": "在C17词法与文法中，并没有独立的 `else if` 复合关键字。`else if` 实际上被解析为 `else` 子句内部紧接着的一条完整的 `if` 语句。",
+        "conditions": [
+          "C17语法"
+        ]
+      },
+      {
+        "key": "Q-I10",
+        "knowledge_keys": [
+          "K-I10"
+        ],
+        "question": "在普通顺序执行的 `if(A)... else if(B)...` 链中，如果第一个条件 `A` 的求值为真，编译器/运行时是否还会对后续的 `else if(B)` 中的 `B` 进行条件求值？",
+        "answer": "不会",
+        "rationale": "由于 `else if` 在语法上是 `else` 的分支，而 `if`/`else` 的语义规定只有当条件为假时才会执行 `else` 分支。因此一旦 `A` 为真，控制流进入 `A` 分支，根本不会到达 `else` 分支去求值 `B`。",
+        "conditions": [
+          "一条if/else-if选择链",
+          "普通结构化执行"
+        ]
+      },
+      {
+        "key": "Q-I11",
+        "knowledge_keys": [
+          "K-I11"
+        ],
+        "question": "对于独立书写的两条语句 `if(a) x++; if(b) y++;`，在没有提前返回等跳转的情况下，若 `a` 和 `b` 在求值时都为真，第二条 `if` 的自增操作 `y++` 能否被执行？",
+        "answer": "能，因为这是两条独立的 `if`。",
+        "rationale": "两条独立的 `if` 语句之间没有语法上的分支绑定关系。第一条 `if` 命中并执行后，控制流继续往下，第二条 `if` 会独立地对其条件 `b` 进行求值并执行其分支。",
+        "conditions": [
+          "顺序执行到各if",
+          "无提前return等跳转",
+          "a、b、x、y已正确声明初始化，所有自增有定义。"
+        ]
+      },
+      {
+        "key": "Q-I12",
+        "knowledge_keys": [
+          "K-I12"
+        ],
+        "question": "已知代码段：`int x = 1; if(x) x = 0; if(x) y = 1;`，在普通顺序执行下，第二条 `if(x)` 中的条件 `x` 被求值时，其结果是什么？",
+        "answer": "为假（或0），因为求值时 `x` 的值已经被前一条语句修改为0。",
+        "rationale": "第二条 `if` 在执行到该语句时，才会对条件 `x` 进行求值。由于前一条 `if` 内的 `x=0` 已经执行完毕并改变了 `x` 的内存状态，因此第二次求值读到的是修改后的当前值 `0`（即假）。",
+        "conditions": [
+          "普通顺序执行",
+          "变量已初始化，修改及读取有定义",
+          "代码片段中的y事先声明为int。"
+        ]
+      }
+    ],
+    "baseline_scope": "用户指定第四轮复核样本用于本次试写，不代表正式课程已采用"
+  },
+  "output_hash": "f413382eea31050fdc7411b4f42d03559ff4422b78139bf13c26484fb1f3a858",
+  "assessment": {
+    "issues": [
+      {
+        "code": "diagnosis_count",
+        "count": 0
+      },
+      {
+        "code": "missing_summary"
+      }
+    ],
+    "bindings": [
+      {
+        "block": "if1:1",
+        "kind": "explanation",
+        "knowledge_keys": [
+          "K-I01",
+          "K-I03"
+        ],
+        "knowledge_ids": [
+          "kp_dc9e45a33fc15195a56f",
+          "kp_fccdeb3357e0528b861c"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "if1:2",
+        "kind": "worked_example",
+        "knowledge_keys": [
+          "K-I01"
+        ],
+        "knowledge_ids": [
+          "kp_dc9e45a33fc15195a56f"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "if1:3",
+        "kind": "explanation",
+        "knowledge_keys": [
+          "K-I02"
+        ],
+        "knowledge_ids": [
+          "kp_93a17945b3d7594a9cc2"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "if1:4",
+        "kind": "worked_example",
+        "knowledge_keys": [
+          "K-I02"
+        ],
+        "knowledge_ids": [
+          "kp_93a17945b3d7594a9cc2"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "if1:5",
+        "kind": "worked_example",
+        "knowledge_keys": [
+          "K-I03"
+        ],
+        "knowledge_ids": [
+          "kp_fccdeb3357e0528b861c"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "if2:1",
+        "kind": "explanation",
+        "knowledge_keys": [
+          "K-I04"
+        ],
+        "knowledge_ids": [
+          "kp_8e6ec21f54915eb88a62"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "if2:2",
+        "kind": "explanation",
+        "knowledge_keys": [
+          "K-I05"
+        ],
+        "knowledge_ids": [
+          "kp_63516508606e5a4eb6f5"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "if2:3",
+        "kind": "explanation",
+        "knowledge_keys": [
+          "K-I06"
+        ],
+        "knowledge_ids": [
+          "kp_859f9b7a8cf35f8bbdaa"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "if3:1",
+        "kind": "explanation",
+        "knowledge_keys": [
+          "K-I07"
+        ],
+        "knowledge_ids": [
+          "kp_1a02eb8b4bb050869942"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "if3:2",
+        "kind": "worked_example",
+        "knowledge_keys": [
+          "K-I07"
+        ],
+        "knowledge_ids": [
+          "kp_1a02eb8b4bb050869942"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "if3:3",
+        "kind": "explanation",
+        "knowledge_keys": [
+          "K-I08"
+        ],
+        "knowledge_ids": [
+          "kp_55c412b975eb565f8090"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "if4:1",
+        "kind": "explanation",
+        "knowledge_keys": [
+          "K-I09",
+          "K-I10"
+        ],
+        "knowledge_ids": [
+          "kp_7405348a55ab57459561",
+          "kp_1a0bfd83c70c519a9a21"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "if4:2",
+        "kind": "worked_example",
+        "knowledge_keys": [
+          "K-I10"
+        ],
+        "knowledge_ids": [
+          "kp_1a0bfd83c70c519a9a21"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "if4:3",
+        "kind": "explanation",
+        "knowledge_keys": [
+          "K-I11",
+          "K-I12"
+        ],
+        "knowledge_ids": [
+          "kp_58c6183033225ff5ab9a",
+          "kp_98e613b4caf758e0aecd"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "if4:4",
+        "kind": "worked_example",
+        "knowledge_keys": [
+          "K-I12"
+        ],
+        "knowledge_ids": [
+          "kp_98e613b4caf758e0aecd"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      }
+    ],
+    "explained_keys": [
+      "K-I01",
+      "K-I02",
+      "K-I03",
+      "K-I04",
+      "K-I05",
+      "K-I06",
+      "K-I07",
+      "K-I08",
+      "K-I09",
+      "K-I10",
+      "K-I11",
+      "K-I12"
+    ],
+    "expected_knowledge_points": 12,
+    "unique_examples": 6,
+    "exercise_keys": [
+      "Q-I04",
+      "Q-I06",
+      "Q-I08",
+      "Q-I10",
+      "Q-I11",
+      "Q-I12"
+    ],
+    "diagnoses": 0,
+    "canonical_terms_present": [
+      "标量表达式",
+      "分支体",
+      "复合语句",
+      "else 配对",
+      "空语句",
+      "if/else-if 选择链",
+      "独立 if"
+    ],
+    "note": "Coverage counts references in explanation blocks, not proof of correct semantic explanation."
+  },
+  "returned_schema": "requested_block_schema",
+  "resolved_exercise_keys": [
+    "Q-I04",
+    "Q-I06",
+    "Q-I08",
+    "Q-I10",
+    "Q-I11",
+    "Q-I12"
+  ],
+  "resolved_assets": {
+    "examples": [
+      {
+        "key": "E-I01",
+        "title": "标量条件的真值语义",
+        "knowledge_keys": [
+          "K-I01"
+        ],
+        "code": "int n=-5;if(n)printf(\"T\");else printf(\"F\");",
+        "answer_stdout": "T",
+        "answer_ref": {
+          "check_id": "check_56b46fa7dbf85202aaf3",
+          "code_hash": "8bf3dee8a951483acaf03ac275be7460e64fd09d38b8ed108d4e6b6a1ae6fcba",
+          "receipt_hash": "c506d7f07edf54d31fa03f3adb876dd98827b481d425cedefcf3e684a94c6df1",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-I02",
+        "title": "一次执行不重新选分支",
+        "knowledge_keys": [
+          "K-I02"
+        ],
+        "code": "int x=1,y=0;if(x){x=0;}else{y=1;}printf(\"%d\",y);",
+        "answer_stdout": "0",
+        "answer_ref": {
+          "check_id": "check_2a45892813c755899cd7",
+          "code_hash": "e250df185e9929ca518e8b381fe15e75463d3e4717127aa219f374bc114afbdd",
+          "receipt_hash": "ffe7df7d6b04d3c9cec441e330044d223a2796d4ec1a2d2198a51ab10839f307",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-I03",
+        "title": "分支体的语句范围",
+        "knowledge_keys": [
+          "K-I03"
+        ],
+        "code": "int a=0,x=0,y=0;if(a)x=1;y=2;printf(\"%d\",y);",
+        "answer_stdout": "2",
+        "answer_ref": {
+          "check_id": "check_2558efbf31455a6aa2db",
+          "code_hash": "b27e0146858ce1de502bf1f85af232b4d025df26ee5fc121e268f0dd49000452",
+          "receipt_hash": "6ad4c6c08449db7019e2261c52c04e473f157f910b96779f9c80869b2daf1ce7",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-I04",
+        "title": "未进入外层则不执行内层",
+        "knowledge_keys": [
+          "K-I07"
+        ],
+        "code": "int a=0,b=1,x=0;if(a)if(b)x=1;else x=2;printf(\"%d\",x);",
+        "answer_stdout": "0",
+        "answer_ref": {
+          "check_id": "check_ab78814a72e553d6b46b",
+          "code_hash": "dca390c03426a8c59642a3e99d769b8482cae1ab00481587b7b54c05cb180c4d",
+          "receipt_hash": "a026260730d8135b8638a710e97fb24541c707601ec4feebc1e97008ca94d532",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-I05",
+        "title": "选择链首命中后停止判断",
+        "knowledge_keys": [
+          "K-I10"
+        ],
+        "code": "int b_calls=0;if(1){}else if(++b_calls){}printf(\"%d\",b_calls);",
+        "answer_stdout": "0",
+        "answer_ref": {
+          "check_id": "check_6c389bb98f3e5e3b81c9",
+          "code_hash": "6650693e3abd63fac276e148a6fbb7fb85e6d2d16eb4c0232f47ae738e5ea44d",
+          "receipt_hash": "5dcb5c06d5d7636e249f3a752aa9e2df4e8b35f574dff4eb35f512324004e82f",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-I06",
+        "title": "后续 if 读取新状态",
+        "knowledge_keys": [
+          "K-I12"
+        ],
+        "code": "int x=1,y=0;if(x)x=0;if(x)y=1;printf(\"%d %d\",x,y);",
+        "answer_stdout": "0 0",
+        "answer_ref": {
+          "check_id": "check_23acc2139cd25724ac78",
+          "code_hash": "7ba357aaf5986f17c59e738b0f7d8668a6c90cb2924fc433e89eb738314cdbcd",
+          "receipt_hash": "a505e89602709bddc7b67c6b0148560f3949896f747510e7b2beae2bd5f01448",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      }
+    ],
+    "exercises": [
+      {
+        "key": "Q-I04",
+        "knowledge_keys": [
+          "K-I04"
+        ],
+        "question": "设有 `int a = 0, b = 1, x = 0;`，执行语句 `if(a) if(b) x = 1; else x = 2;` 后，x 的值是多少？",
+        "answer": "0",
+        "rationale": "else 词法上就近配对到内层 if(b)。因为 a 为假，外层 if 的整个分支体（包括内层 if 和配对的 else）都不执行。",
+        "conditions": [
+          "完整合法的C17语句结构",
+          "语法允许包含花括号边界，不能只机械找最近文本"
+        ]
+      },
+      {
+        "key": "Q-I06",
+        "knowledge_keys": [
+          "K-I06"
+        ],
+        "question": "在不改变代码中的词法记号（字母、数字、操作符）和花括号结构的前提下，仅调整 `else` 的空格缩进位置（例如将其视觉上缩进到外层 `if` 的同一列），能够改变C17合法程序中 `if` 与 `else` 的语法配对结果吗？",
+        "answer": "不能，配对由语法（如花括号边界）决定，空白缩进无此效力。",
+        "rationale": "C17的词法分析会跳过空白字符（包括空格和制表符），词法记号序列和后续的语法分析（AST构建）完全不受视觉缩进的影响。`else` 的配对严格由其与 `if` 的相对语法位置（尤其是花括号边界）决定。",
+        "conditions": [
+          "不改变记号、花括号和注释内容",
+          "普通if/else语句"
+        ]
+      },
+      {
+        "key": "Q-I08",
+        "knowledge_keys": [
+          "K-I08"
+        ],
+        "question": "给定 `int x = 5, y = 0;`，执行 `if(x > 10); y = 20;` 后，变量 y 的值是多少？",
+        "answer": "20",
+        "rationale": "分号紧跟 if 条件后构成空语句作为分支体，y=20 是独立于 if 之后的语句，无论条件真假均执行。",
+        "conditions": [
+          "分号紧跟在条件右括号后",
+          "后续语句未显式包含在 if 的复合分支内"
+        ]
+      },
+      {
+        "key": "Q-I10",
+        "knowledge_keys": [
+          "K-I10"
+        ],
+        "question": "在普通顺序执行的 `if(A)... else if(B)...` 链中，如果第一个条件 `A` 的求值为真，编译器/运行时是否还会对后续的 `else if(B)` 中的 `B` 进行条件求值？",
+        "answer": "不会",
+        "rationale": "由于 `else if` 在语法上是 `else` 的分支，而 `if`/`else` 的语义规定只有当条件为假时才会执行 `else` 分支。因此一旦 `A` 为真，控制流进入 `A` 分支，根本不会到达 `else` 分支去求值 `B`。",
+        "conditions": [
+          "一条if/else-if选择链",
+          "普通结构化执行"
+        ]
+      },
+      {
+        "key": "Q-I11",
+        "knowledge_keys": [
+          "K-I11"
+        ],
+        "question": "对于独立书写的两条语句 `if(a) x++; if(b) y++;`，在没有提前返回等跳转的情况下，若 `a` 和 `b` 在求值时都为真，第二条 `if` 的自增操作 `y++` 能否被执行？",
+        "answer": "能，因为这是两条独立的 `if`。",
+        "rationale": "两条独立的 `if` 语句之间没有语法上的分支绑定关系。第一条 `if` 命中并执行后，控制流继续往下，第二条 `if` 会独立地对其条件 `b` 进行求值并执行其分支。",
+        "conditions": [
+          "顺序执行到各if",
+          "无提前return等跳转",
+          "a、b、x、y已正确声明初始化，所有自增有定义。"
+        ]
+      },
+      {
+        "key": "Q-I12",
+        "knowledge_keys": [
+          "K-I12"
+        ],
+        "question": "已知代码段：`int x = 1; if(x) x = 0; if(x) y = 1;`，在普通顺序执行下，第二条 `if(x)` 中的条件 `x` 被求值时，其结果是什么？",
+        "answer": "为假（或0），因为求值时 `x` 的值已经被前一条语句修改为0。",
+        "rationale": "第二条 `if` 在执行到该语句时，才会对条件 `x` 进行求值。由于前一条 `if` 内的 `x=0` 已经执行完毕并改变了 `x` 的内存状态，因此第二次求值读到的是修改后的当前值 `0`（即假）。",
+        "conditions": [
+          "普通顺序执行",
+          "变量已初始化，修改及读取有定义",
+          "代码片段中的y事先声明为int。"
+        ]
+      }
+    ],
+    "diagnostic": null
+  },
+  "renderer_contract": "Exposition remains model text; reference expansion inserts canonical code, answers and knowledge identities without another model call. Legacy paragraph fields are retained without inventing block knowledge links."
+}

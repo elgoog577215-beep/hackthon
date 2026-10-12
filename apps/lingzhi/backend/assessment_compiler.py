@@ -6,6 +6,8 @@ from copy import deepcopy
 from typing import Any
 
 from course_versioning import stable_hash
+from knowledge_assessment import ATOMIC_ASSESSMENT_SCHEMA
+from question_evidence_guard import independent_evidence_admitted
 from question_choice_grading import canonical_option_ids
 from solution_contracts import project_solution_spec
 from stepwise_answers import derive_stepwise_capability
@@ -320,7 +322,11 @@ def compile_formal_task_contract(
     result["contract_validation"] = validation
     result["validation_policy"] = {
         "mastery_eligible": bool(
-            practice_level in {"mastery_check", "final_assessment"}
+            (practice_level in {"mastery_check", "final_assessment"}
+             or (item.get("assessment_binding_schema") == ATOMIC_ASSESSMENT_SCHEMA
+                 and independent_evidence_admitted(item)
+                 and len(item.get("primary_knowledge_ids") or []) == 1
+                 and set(item.get("knowledge_revision_refs") or {}) == set(item["primary_knowledge_ids"])))
             and validation.get("passed")
             and not legacy_text_compat
         ),

@@ -15,6 +15,7 @@
           <span><Sparkles :size="20" /></span>
           <h2 :id="titleId">{{ t('courseFiles.preparation.startTitle') }}</h2>
         </header>
+        <p v-if="error" class="preparation-error" role="alert">{{ error }}</p>
         <div class="start-options">
           <button type="button" :disabled="busy" @click="startBlank">
             <div class="mode-illustration blank-route" aria-hidden="true">
@@ -210,6 +211,7 @@ type ImportOutcome = {
 const props = defineProps<{ courseId: string; courseTitle: string }>()
 const emit = defineEmits<{
   (event: 'completed', payload: { openAudit: boolean }): void
+  (event: 'knowledge'): void
 }>()
 const titleId = 'course-preparation-title'
 const dialogRef = ref<HTMLDialogElement | null>(null)

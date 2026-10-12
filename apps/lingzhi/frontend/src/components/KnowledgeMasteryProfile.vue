@@ -24,6 +24,15 @@
           <p v-if="selected.mastery === null" class="point-explanation">{{ t('knowledgeProfile.unknownHint') }}</p>
           <section class="point-rule"><h4>{{ t('knowledgeDetail.rule') }}</h4><p>{{ selectedContent?.rule || selected.statement }}</p></section>
           <section v-if="selectedContent?.example" class="point-example"><h4>{{ selectedContent.exampleTitle || t('knowledgeDetail.example') }}</h4><MarkdownRenderer v-if="selectedContent.exampleMarkdown" :content="selectedContent.example" /><p v-else>{{ selectedContent.example }}</p></section>
+          <section v-if="selected.links?.length" class="point-connections">
+            <h4>{{ t('knowledgeFirst.relations') }}</h4>
+            <article v-for="link in selected.links" :key="link.relation_id" class="point-connection">
+              <p>{{ t(`knowledgeFirst.${link.direction}`) }} · {{ t(`knowledgeFirst.relationTypes.${link.type}`, link.type) }}</p>
+              <button type="button" @click="openPoint(link.knowledge_id)">{{ link.name }} <ArrowUpRight :size="14" /></button>
+              <small v-if="link.lecture_names.length">{{ link.lecture_names.join(' · ') }}</small>
+              <p>{{ link.reason }}</p><ul v-if="link.conditions.length"><li v-for="condition in link.conditions" :key="condition">{{ condition }}</li></ul>
+            </article>
+          </section>
           <details :key="selected.knowledge_id" class="learning-evidence">
             <summary><span>{{ t('knowledgeDetail.records') }}</span><span>{{ selected.assessment_count }} {{ t('knowledgeProfile.checks') }}<ChevronRight :size="16" /></span></summary>
           <ul v-if="selected.evidence.length" class="point-evidence">
@@ -168,4 +177,8 @@ button:focus-visible,summary:focus-visible,input:focus-visible { outline:2px sol
 
 <style scoped>
 .point-example :deep(.markdown-renderer) { font-size:15px; line-height:1.8; color:#675574; }.point-example :deep(pre) { max-width:100%; overflow:auto; font-size:13px; }
+</style>
+
+<style scoped>
+.point-connections{margin:24px 0}.point-connection{padding:16px 18px;margin-top:12px;background:#f7f5fc;border:1px solid #e8e2f2;border-radius:12px}.point-connection button{display:flex;align-items:center;gap:8px;background:white;border:1px solid #ded5ee;border-radius:8px;padding:9px 12px;color:#66519b;font:inherit;cursor:pointer}.point-connection p,.point-connection li{font-size:15px;line-height:1.8}.point-connection small{display:block;margin-top:8px;color:#857494}
 </style>

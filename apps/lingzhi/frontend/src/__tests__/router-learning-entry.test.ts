@@ -17,6 +17,14 @@ describe('learning routes', () => {
     expect(router.getRoutes().map(route => route.name)).not.toContain('course-workbench')
   })
 
+  it('retired knowledge-first URLs return to the original course workbench', () => {
+    const oldRoute=router.getRoutes().find(route=>route.path==='/course/:courseId/knowledge-first')!
+    expect(oldRoute.components?.default).toBeUndefined()
+    const target=(oldRoute.redirect as Function)({params:{courseId:'c17'},query:{review:'teaching'}})
+    expect(router.resolve(target).path).toBe('/course/c17/workspace/setup')
+    expect(target.name).toBe('course-workspace')
+  })
+
   it('PPT 使用独立的课程级全屏路由', () => {
     const resolved = router.resolve('/course/course-1/ppt')
     expect(resolved.name).toBe('ppt-workspace')

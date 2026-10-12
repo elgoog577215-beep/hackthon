@@ -1,0 +1,209 @@
+{
+  "method": "Codex逐题读取后编写并执行的固定计算，不是任意题目自动求解器；未执行模型程序",
+  "python": [
+    {
+      "point_key": "P1",
+      "field": "check",
+      "question": "执行以下代码：\na = [1]\nb = a\nprint(a is b)\n输出结果是什么？",
+      "question_digest": "743eaef9ae073b603d246a715f698dcbb9b32756d02beb5d5d2e4b7883510b86",
+      "actual": true,
+      "model_answer": "True。因为b=a使b指向了a指向的同一列表对象。",
+      "answer_correct": true
+    },
+    {
+      "point_key": "P1",
+      "field": "transfer",
+      "question": "执行以下代码：\nd = {'k': 1}\ne = d\nprint(d is e)\n输出结果是什么？（注意：虽然材料只讨论列表，但请基于“赋值指向同一对象”这一元知识推导，且假设Python字典行为与列表赋值逻辑一致）",
+      "question_digest": "3eaa22e8b5bed508bbf5442560a4e233e079a01cf1a6e528406404eb47de6cbd",
+      "actual": true,
+      "model_answer": "True。赋值操作使e指向d所指向的同一字典对象。",
+      "answer_correct": true
+    },
+    {
+      "point_key": "P2",
+      "field": "check",
+      "question": "执行以下代码：\na = [1]\nb = a\nb.append(2)\nprint(a)\n输出结果是什么？",
+      "question_digest": "50edb6b21bc210f5af416bed5f1456c9f4651ae1ddf5f4320a86bf7dec2d72d9",
+      "actual": [
+        1,
+        2
+      ],
+      "model_answer": "[1, 2]。因为b和a指向同一列表，b的append操作改变了该列表对象，a也随之改变。",
+      "answer_correct": true
+    },
+    {
+      "point_key": "P2",
+      "field": "transfer",
+      "question": "执行以下代码：\nx = [10]\ny = x\nx[0] = 20\nprint(y)\n输出结果是什么？",
+      "question_digest": "daeffd8831d3583093474d1d3c195a86663fa910b058c43d558b4f96bf14a4b1",
+      "actual": [
+        20
+      ],
+      "model_answer": "[20]。索引赋值是原地修改，y和x共享同一列表，y看到变化。",
+      "answer_correct": true
+    },
+    {
+      "point_key": "P3",
+      "field": "check",
+      "question": "执行以下代码：\na = [1]\nb = a\nb = [9]\nprint(a)\n输出结果是什么？",
+      "question_digest": "b1c944f0e320f3a9b79428b6f639f54762fa3a66e8ec5334c7cd01fc7d29bc45",
+      "actual": [
+        1
+      ],
+      "model_answer": "[1]。b被重新绑定到新的列表[9]，a仍然指向原来的列表[1]。",
+      "answer_correct": true
+    },
+    {
+      "point_key": "P3",
+      "field": "transfer",
+      "question": "执行以下代码：\nm = [100]\nn = m\nm = [200]\nprint(n)\n输出结果是什么？",
+      "question_digest": "ff1d4208f81cd096e0bc66aec269e00cd77fc69667c29bb9d18753cd3c9b05dc",
+      "actual": [
+        100
+      ],
+      "model_answer": "[100]。m被重新绑定，n仍指向原对象。",
+      "answer_correct": true
+    },
+    {
+      "point_key": "P4",
+      "field": "check",
+      "question": "执行以下代码：\na = [[1]]\nb = a.copy()\nb.append([2])\nprint(a)\n输出结果是什么？",
+      "question_digest": "05c11b9fecaed00850d27307f5c2ca0f038271840e8c92514ee03caa1a753b6c",
+      "actual": [
+        [
+          1
+        ]
+      ],
+      "model_answer": "[[1]]。b是新的外层列表，对b的append不影响a的外层结构。",
+      "answer_correct": true
+    },
+    {
+      "point_key": "P4",
+      "field": "transfer",
+      "question": "执行以下代码：\nc = [1, 2]\nd = c.copy()\nd.append(3)\nprint(c)\n输出结果是什么？",
+      "question_digest": "62f167b88b4ced268238d5b93762d5c609291a4d80d8250f0190f106af17b305",
+      "actual": [
+        1,
+        2
+      ],
+      "model_answer": "[1, 2]。d是新的外层列表，c保持不变。",
+      "answer_correct": true
+    },
+    {
+      "point_key": "P5",
+      "field": "check",
+      "question": "执行以下代码：\na = [[1]]\nb = a.copy()\nprint(b[0] is a[0])\n输出结果是什么？",
+      "question_digest": "96407c1533ba932a9707f1b9611559292016ee0c4e9593b5ea80204b1f119df4",
+      "actual": true,
+      "model_answer": "True。浅拷贝只复制外层引用，b[0]和a[0]指向同一个内层列表对象。",
+      "answer_correct": true
+    },
+    {
+      "point_key": "P5",
+      "field": "transfer",
+      "question": "执行以下代码：\nx = [{'v': 1}]\ny = x.copy()\nprint(y[0] is x[0])\n输出结果是什么？（假设字典行为类似，考察浅拷贝引用原理）",
+      "question_digest": "b044e00490c762ddbd1e55d735336512917532e072751a0065a88f3216f8512c",
+      "actual": true,
+      "model_answer": "True。浅拷贝不复制内层对象（字典），y[0]和x[0]指向同一对象。",
+      "answer_correct": true
+    },
+    {
+      "point_key": "P6",
+      "field": "check",
+      "question": "执行以下代码：\na = [[1]]\nb = a.copy()\nb[0].append(2)\nprint(a)\n输出结果是什么？",
+      "question_digest": "1d8cf6bfbe52beff7cb0d317679189b9d550c725e7fbdc4a25d17b2789e299a5",
+      "actual": [
+        [
+          1,
+          2
+        ]
+      ],
+      "model_answer": "[[1, 2]]。b[0]和a[0]指向同一内层列表，b[0]的append修改了该内层列表，a因此看到变化。",
+      "answer_correct": true
+    },
+    {
+      "point_key": "P6",
+      "field": "transfer",
+      "question": "执行以下代码：\np = [[10, 20]]\nq = p.copy()\np[0].pop()\nprint(q)\n输出结果是什么？",
+      "question_digest": "6d7c171287d75d76fd13a5f285273d4b7fd1c80eba6a41b02ae0f6b304ee0d15",
+      "actual": [
+        [
+          10
+        ]
+      ],
+      "model_answer": "[[20]]。p[0]和q[0]共享同一列表，pop修改了共享对象，q看到变化。",
+      "answer_correct": false
+    },
+    {
+      "point_key": "P7",
+      "field": "check",
+      "question": "执行以下代码：\na = [[1]]\nb = a.copy()\nb[0] = [9]\nprint(a)\n输出结果是什么？",
+      "question_digest": "ed6fb5036a442afaaec21c711be253301bda06983fba8e2cc501ad1ba7ee349b",
+      "actual": [
+        [
+          1
+        ]
+      ],
+      "model_answer": "[[1]]。b[0]被重新绑定到新的列表[9]，a[0]仍指向原来的内层列表[1]。",
+      "answer_correct": true
+    },
+    {
+      "point_key": "P7",
+      "field": "transfer",
+      "question": "执行以下代码：\nlist_a = [[100]]\nlist_b = list_a.copy()\nlist_b[0] = [200]\nprint(list_a)\n输出结果是什么？",
+      "question_digest": "7601790042cd800ea2a46269d6d5992a865d4884d27bc91200a1462f9a99849f",
+      "actual": [
+        [
+          100
+        ]
+      ],
+      "model_answer": "[[100]]。list_b[0]被重绑定，list_a[0]不受影响。",
+      "answer_correct": true
+    }
+  ],
+  "physics_counterexample": {
+    "mass_A": 10,
+    "mass_B": 5,
+    "pair_on_A": -20,
+    "pair_on_B": 20,
+    "other_on_A": 40,
+    "other_on_B": -10,
+    "acceleration_A": 2.0,
+    "acceleration_B": 2.0,
+    "finding": "质量不等、相互作用力等大仍可有相同加速度；没有合外力条件不能直接断言谁更大。"
+  },
+  "calculus": {
+    "piecewise_at_1": {
+      "left_limit": 2,
+      "right_limit": 4,
+      "point_value": 3,
+      "two_sided_limit_exists": false
+    },
+    "sqrt_difference_quotient_h3": {
+      "original": "1/3",
+      "correct_rationalized": "1/3",
+      "wrong_model_intermediate": "3/5",
+      "finding": "正确有理化为1/(sqrt(1+h)+1)，不是h/((1+h)+1)；最终1/2不能掩盖推导错误。"
+    },
+    "initial_piecewise_derivative_at_1": {
+      "left": 2,
+      "right": 2,
+      "differentiable": true
+    },
+    "repaired_piecewise_at_1": {
+      "value_at_1": 1,
+      "left_function_limit": 1,
+      "right_function_limit": 3,
+      "left_difference_quotient": "2+h",
+      "right_difference_quotient": "2/h+2",
+      "right_quotients_at_h_0_1_0_01_0_001": [
+        "22",
+        "202",
+        "2002"
+      ],
+      "differentiable": false,
+      "finding": "应保留f(1)=1；不能只分别对两段表达式求导就认为左右导数均为2。"
+    }
+  },
+  "history_method": "逐条对照M1/M2/M3原文、证据范围及开放评分要求，不用关键词命中替代论证核验"
+}

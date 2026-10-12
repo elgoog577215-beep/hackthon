@@ -110,6 +110,7 @@ export interface TeacherLessonArrangement {
 }
 
 export interface TeacherLessonScriptState {
+  knowledge_sections?: import('./types').CourseTeachingPlanSection[]
   content_loaded?: boolean
   current_revision_id: string
   source_lesson_plan_revision_id: string
@@ -150,6 +151,8 @@ export interface TeacherLessonScriptCandidate {
 }
 
 export interface TeacherLessonScriptBlock {
+  knowledge_refs?: { knowledge_id: string; revision_id: string }[]
+  source_knowledge_revision?: string
   content_type?: string
   type_label?: string
   answer_to?: string

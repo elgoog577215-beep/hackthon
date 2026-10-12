@@ -1,6 +1,6 @@
 <template>
   <section class="learning-view" :class="{ 'focus-mode': courseStore.isFocusMode, 'has-mobile-resume': showMobileResumePrompt, 'is-generation-preview': isGenerationPreview, 'has-ai-course-growth': hasAppliedCourseGrowth }">
-  <CompanionFloatingWindow window-id="course-companion-window" :visible="aiFloating && aiVisible && !courseStore.isFocusMode" :detail="Boolean(selectedKnowledge) && statsOpen" @close="closeAi" />
+  <CompanionFloatingWindow window-id="course-companion-window" :visible="aiFloating && aiVisible && !courseStore.isFocusMode" :detail="Boolean(selectedKnowledge) && (statsOpen || courseStore.showKnowledgeLibrary)" @close="closeAi" />
     <div v-if="overlayVisible" class="surface-backdrop" @click="closeMobileSurfaces"></div>
 
     <Transition name="slide-left">
@@ -27,7 +27,7 @@
       />
       <div class="learning-stage">
         <ContentArea
-          v-show="!taskOpen && !statsOpen"
+          v-show="!taskOpen && !statsOpen && !courseStore.showKnowledgeLibrary"
           ref="contentAreaRef"
           :side-ai-panel-visible="aiVisible"
           :teacher-preview="isTeacherPreview"
@@ -40,6 +40,11 @@
           @active-block-change="handleActiveBlockChange"
         />
 
+        <section v-show="courseStore.showKnowledgeLibrary" class="learning-tool-overlay knowledge-study-overlay">
+          <Teleport to="#course-companion-window-detail" :disabled="!aiFloating || !aiVisible || !selectedKnowledge || !courseStore.showKnowledgeLibrary">
+            <CourseKnowledgeStudy ref="knowledgeStudyRef" :visible="courseStore.showKnowledgeLibrary" :preview="isTeacherPreview" @close="closeKnowledgeLibrary" @select="selectKnowledge" @evidence="discussEvidence" @lecture="openKnowledgeLecture" @practice="openKnowledgePractice" />
+          </Teleport>
+        </section>
         <LearningTaskOverlay
           :embedded="!isNarrow"
           v-if="taskOpen && courseStore.currentCourseId && !isGenerationPreview"
@@ -185,6 +190,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { History, LoaderCircle } from 'lucide-vue-next'
 import type { KnowledgeProfileNode } from '../types/knowledge-profile'
 import CompanionFloatingWindow from '../components/CompanionFloatingWindow.vue'
+import CourseKnowledgeStudy from '../components/CourseKnowledgeStudy.vue'
 import ContentArea from '../components/ContentArea.vue'
 import CourseEvolutionWorkspace from '../components/CourseEvolutionWorkspace.vue'
 import CourseNavigator from '../components/CourseNavigator.vue'
@@ -231,6 +237,7 @@ const aiTeacherStore = useAITeacherStore()
 const changeProposalsStore = useChangeProposalsStore()
 const courseEvolutionStore = useCourseEvolutionStore()
 const contentAreaRef = ref<InstanceType<typeof ContentArea> | null>(null)
+const knowledgeStudyRef = ref<InstanceType<typeof CourseKnowledgeStudy> | null>(null)
 const companionRef = ref<InstanceType<typeof LearningCompanion> | null>(null)
 const companionAvatar = resolvePublicAssetUrl('images/learning-companion.png', import.meta.env.BASE_URL)
 
@@ -256,13 +263,13 @@ function discussEvidence(point: KnowledgeProfileNode, evidence: KnowledgeProfile
 }
 async function openKnowledgeLecture(point: KnowledgeProfileNode) {
   const node = courseStore.nodes.find(item => point.section_refs.includes(item.node_id))
-  if (node) { courseStore.showKnowledgeLibrary = false; statsOpen.value = false
+  if (node) { await closeKnowledgeLibrary(false); statsOpen.value = false
     const blockId=point.block_refs?.find(id=>node.course_blocks?.some(b=>b.block_id===id))
     if(blockId) await selectCourseBlock({node,blockId})
     else selectNode(node)
   }
 }
-watch(() => courseStore.currentCourseId, () => { notesVisible.value = false; studyRequest.value = undefined; selectedKnowledge.value = null })
+watch(() => courseStore.currentCourseId, () => { notesVisible.value = false; studyRequest.value = undefined; selectedKnowledge.value = null; knowledgeReadingReturn = null; knowledgeReturnSequence++ })
 const notesVisible = ref(false)
 const notebookOpen = ref(false)
 const statsOpen = ref(false)
@@ -323,7 +330,7 @@ async function openCompanionReminder(reminder:CompanionReminder) {
   closeAi()
   statsOpen.value = false
   taskOpen.value = false
-  courseStore.showKnowledgeLibrary = false
+  await closeKnowledgeLibrary(false)
   locateRecord(note)
   await nextTick()
   contentAreaRef.value?.openInlineRecord({ note, x:Math.max(20, window.innerWidth / 2 - 150), y:140 })
@@ -558,6 +565,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  knowledgeReturnSequence++
+  knowledgeReadingReturn = null
   aiTeacherStore.clearPreviewSession()
   if (noteStore.previewSession) {
     noteStore.$reset()
@@ -595,6 +604,7 @@ function selectInitialNode() {
 }
 
 function selectNode(node: Node, updateRoute = true, manualSelection = true) {
+  if(manualSelection && courseStore.showKnowledgeLibrary) void closeKnowledgeLibrary(false)
   if (isGenerationPreview.value && manualSelection && node.node_id !== activeGenerationNodeId.value) {
     autoFollowGeneration.value = false
   }
@@ -610,6 +620,7 @@ function selectNode(node: Node, updateRoute = true, manualSelection = true) {
 }
 
 async function selectCourseBlock(target: CourseBlockNavigationTarget) {
+  if(courseStore.showKnowledgeLibrary) await closeKnowledgeLibrary(false)
   activeCourseBlockId.value = target.blockId
   courseStore.selectNode(target.node)
   if (String(route.params.nodeId || '') !== target.node.node_id) {
@@ -799,14 +810,59 @@ function openQuestionBook() {
   if (isNarrow.value) navigatorOpen.value = false
 }
 
-function openKnowledgeLibrary() {
-  if (courseStore.showKnowledgeLibrary) { courseStore.showKnowledgeLibrary = false; return }
-  notebookOpen.value = false
-  statsOpen.value = false
-  taskOpen.value = false
-  courseStore.showKnowledgeLibrary = true
-  if (isNarrow.value) navigatorOpen.value = false
+type KnowledgeReadingReturn = { courseId:string; version:string; nodeId:string; scrollTop:number; blockDomId:string; blockOffset:number; activeBlockId:string; aiVisible:boolean; notebookOpen:boolean }
+let knowledgeReadingReturn:KnowledgeReadingReturn|null = null
+let knowledgeReturnSequence = 0
+function captureKnowledgeReading() {
+  knowledgeReturnSequence++
+  const container=document.getElementById('content-scroll-container')
+  const top=container?.getBoundingClientRect().top || 0
+  const block=Array.from(container?.querySelectorAll<HTMLElement>('[id^="course-block-"]') || []).find(el=>el.getBoundingClientRect().height>0 && el.getBoundingClientRect().bottom>top+2)
+  knowledgeReadingReturn={courseId:courseStore.currentCourseId,version:courseStore.currentCourseVersionId,nodeId:courseStore.currentNode?.node_id || '',scrollTop:container?.scrollTop || 0,
+    blockDomId:block?.id || '',blockOffset:block ? block.getBoundingClientRect().top-top : 0,activeBlockId:activeCourseBlockId.value,aiVisible:aiVisible.value,notebookOpen:notebookOpen.value}
 }
+async function closeKnowledgeLibrary(restoreReading = true) {
+  const saved=knowledgeReadingReturn
+  const sequence=++knowledgeReturnSequence
+  knowledgeReadingReturn=null
+  selectedKnowledge.value=null
+  courseStore.showKnowledgeLibrary=false
+  if(!restoreReading || !saved || saved.courseId!==courseStore.currentCourseId || saved.version!==courseStore.currentCourseVersionId) return
+  aiVisible.value=saved.aiVisible
+  notebookOpen.value=saved.notebookOpen
+  const node=courseStore.nodes.find(n=>n.node_id===saved.nodeId)
+  if(node && courseStore.currentNode?.node_id!==node.node_id) courseStore.selectNode(node)
+  activeCourseBlockId.value=saved.activeBlockId
+  await nextTick()
+  const restore=()=>{
+    if(sequence!==knowledgeReturnSequence || courseStore.showKnowledgeLibrary || saved.courseId!==courseStore.currentCourseId || saved.version!==courseStore.currentCourseVersionId) return
+    const container=document.getElementById('content-scroll-container')
+    if(!container) return
+    const block=saved.blockDomId ? document.getElementById(saved.blockDomId) : null
+    const target=block?.getBoundingClientRect().height ? container.scrollTop + block.getBoundingClientRect().top-container.getBoundingClientRect().top-saved.blockOffset : saved.scrollTop
+    const behavior=container.style.scrollBehavior
+    container.style.scrollBehavior='auto'; container.scrollTop=target; container.style.scrollBehavior=behavior
+  }
+  restore()
+  await new Promise<void>(resolve=>requestAnimationFrame(()=>{ restore(); resolve() }))
+}
+async function openKnowledgePractice(nodeId:string, revision:string) {
+  const node=courseStore.nodes.find(n=>n.node_id===nodeId)
+  if(!node) return
+  await closeKnowledgeLibrary(false)
+  openTask(node,revision)
+}
+function openKnowledgeLibrary() {
+  if(courseStore.showKnowledgeLibrary) { void closeKnowledgeLibrary(); return }
+  captureKnowledgeReading()
+  notebookOpen.value=false
+  statsOpen.value=false
+  taskOpen.value=false
+  courseStore.showKnowledgeLibrary=true
+  if(isNarrow.value) navigatorOpen.value=false
+}
+// Other course tools can also request this same knowledge view.
+watch(()=>courseStore.showKnowledgeLibrary,visible=>{ if(visible && !knowledgeReadingReturn) captureKnowledgeReading(); else if(!visible) knowledgeReadingReturn=null },{flush:'sync'})
 
 function openStats() {
   if (statsOpen.value) { closeStats(); return }
@@ -829,6 +885,7 @@ function toggleAi() {
 
 function closeAi() {
   notesVisible.value = false
+  if (aiFloating.value && courseStore.showKnowledgeLibrary) knowledgeStudyRef.value?.closePoint()
   aiVisible.value = false
   if (!isNarrow.value && !courseStore.isFocusMode) {
     nextTick(() => companionRef.value?.focus())

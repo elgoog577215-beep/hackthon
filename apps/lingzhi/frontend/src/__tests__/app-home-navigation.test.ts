@@ -96,8 +96,7 @@ describe('App home navigation', () => {
 
     await router.push('/course/course-1/learn?teacherPreview=1')
     await flushPromises()
-    expect(wrapper.findComponent({name:'KnowledgeLibrary'}).exists()).toBe(true)
-    expect(wrapper.findComponent({name:'KnowledgeLibrary'}).props('learningMode')).toBe(true)
+    expect(wrapper.findComponent({name:'KnowledgeLibrary'}).exists()).toBe(false)
     expect(wrapper.find('.header-search').exists()).toBe(true)
     expect(wrapper.find('a.qizhi-home-link').exists()).toBe(schoolDeployment)
     wrapper.unmount()

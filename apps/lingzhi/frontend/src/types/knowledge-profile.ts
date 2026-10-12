@@ -4,6 +4,7 @@ export interface KnowledgeProfileSummary {
   mastered_count: number; attention_count: number
 }
 export interface KnowledgeProfileNode {
+  links?: Array<{ relation_id:string; knowledge_id:string; name:string; direction:'incoming'|'outgoing'; type:string; reason:string; conditions:string[]; lecture_names:string[] }>
   knowledge_id: string; knowledge_revision_id: string; name: string; statement: string
   parent_id: string; section_refs: string[]; block_refs?: string[]; mastery: number | null
   confidence: 'none' | 'limited' | 'moderate' | 'strong'
@@ -17,6 +18,6 @@ export interface KnowledgeProfile {
   rule_version: string; baseline_revision: string | null; revision_id: string
   course_id: string; course_version_id: string; availability: 'ready' | 'tree_unavailable'
   summary: KnowledgeProfileSummary; nodes: KnowledgeProfileNode[]
-  branches: Array<{ id: string; parent_id: string; name: string; knowledge_ids: string[]; summary: KnowledgeProfileSummary }>
+  branches: Array<{ id: string; parent_id: string; name: string; knowledge_ids: string[]; summary: KnowledgeProfileSummary; pending?: boolean }>
   policy: { calibrated_probability: boolean; unknown_is_zero_ability: boolean; equal_leaf_weights: boolean }
 }

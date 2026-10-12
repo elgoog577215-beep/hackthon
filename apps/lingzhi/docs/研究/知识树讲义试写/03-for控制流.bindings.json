@@ -1,0 +1,1364 @@
+{
+  "input_bundle": {
+    "topic": "for",
+    "title": "第3讲　for 控制流",
+    "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+    "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9",
+    "course": "C17基础程序设计三组试写样稿",
+    "learner": "已认识变量、简单算术和语句的初学者",
+    "points": [
+      {
+        "key": "K-F01",
+        "knowledge_id": "kp_f856ba72892250f08018",
+        "name": "初始化子句执行频次",
+        "statement": "每次从for入口正常进入时，初始化子句执行一次，不在该次循环的每轮开始时重复。",
+        "conditions": [
+          "普通顺序进入for",
+          "初始化子句非空"
+        ],
+        "meta_question": "同一次for执行了三轮循环体，初始化子句执行几次？",
+        "meta_answer": "一次。",
+        "source_refs": [
+          "F-S1"
+        ]
+      },
+      {
+        "key": "K-F02",
+        "knowledge_id": "kp_4f1242fd70e25ce385ee",
+        "name": "每次入体前判断条件",
+        "statement": "for在每次进入循环体之前求值非空控制表达式，非零才进入循环体。",
+        "conditions": [
+          "普通顺序执行",
+          "控制表达式非空且求值有定义"
+        ],
+        "meta_question": "for是先执行循环体再第一次判断，还是先判断再入体？",
+        "meta_answer": "先判断再入体，并在每次入体前判断。",
+        "source_refs": [
+          "F-S1"
+        ]
+      },
+      {
+        "key": "K-F03",
+        "knowledge_id": "kp_b745aefb10735f088258",
+        "name": "首判为假与零次执行",
+        "statement": "若 for 循环控制条件在首次评估时即为假，循环体将被执行零次。",
+        "conditions": [
+          "无提前转移干扰",
+          "条件求值遵循逻辑"
+        ],
+        "meta_question": "如果 for 循环的控制条件在第一次判断时就是假，循环体会执行几次？",
+        "meta_answer": "零次。",
+        "source_refs": [
+          "F-S1"
+        ]
+      },
+      {
+        "key": "K-F04",
+        "knowledge_id": "kp_3de966be694f5b01bf14",
+        "name": "体后更新顺序",
+        "statement": "在正常完成一次循环体执行后，程序会执行 for 头部的迭代表达式，随后重新判断控制条件。",
+        "conditions": [
+          "循环体未被 break/continue/return 中断",
+          "头部存在非空迭代表达式"
+        ],
+        "meta_question": "在 for 循环中，若本轮循环体正常结束，更新表达式（迭代表达式）在什么时刻执行？",
+        "meta_answer": "循环体正常完成之后、下一次条件判断之前。",
+        "source_refs": [
+          "F-S1"
+        ]
+      },
+      {
+        "key": "K-F05",
+        "knowledge_id": "kp_b775dd1df9985792b19d",
+        "name": "正常退出时的条件判断次数",
+        "statement": "当 for 循环正常执行 n 次循环体（无 break/continue/return 干扰）后退出，其控制条件表达式总共被评估 n+1 次。",
+        "conditions": [
+          "循环体完整执行 n 次",
+          "无控制流转移（break/continue/return）",
+          "最终因条件为假而退出"
+        ],
+        "meta_question": "如果一个 for 循环正常执行了 5 次循环体后退出，其控制条件表达式总共被计算了多少次？",
+        "meta_answer": "6 次（n+1 次）。",
+        "source_refs": [
+          "F-S1"
+        ]
+      },
+      {
+        "key": "K-F06",
+        "knowledge_id": "kp_942734870a655157b6cf",
+        "name": "省略初始化使用已有状态",
+        "statement": "省略for初始化子句不会重新赋初值，循环从已有合法状态开始。",
+        "conditions": [
+          "所读取变量已正确初始化"
+        ],
+        "meta_question": "int i=2; for(;i<3;i++){}开始判断时i是多少？",
+        "meta_answer": "2。",
+        "source_refs": [
+          "F-S2"
+        ]
+      },
+      {
+        "key": "K-F07",
+        "knowledge_id": "kp_2a1b732aa3865e718961",
+        "name": "省略条件视为真",
+        "statement": "for省略控制表达式时，按非零常量处理。",
+        "conditions": [
+          "C17 for语句"
+        ],
+        "meta_question": "for(;;)会自动补上某个变量上限条件吗？",
+        "meta_answer": "不会，省略的条件按非零常量处理。",
+        "source_refs": [
+          "F-S2"
+        ]
+      },
+      {
+        "key": "K-F08",
+        "knowledge_id": "kp_9f3e95f2a2eb549eb732",
+        "name": "省略迭代不自动更新",
+        "statement": "省略for第三部分表示没有该处的迭代表达式，不会自动添加递增。",
+        "conditions": [
+          "状态仍可能由循环体等位置更新"
+        ],
+        "meta_question": "for(;i<3;)会自动执行i++吗？",
+        "meta_answer": "不会。",
+        "source_refs": [
+          "F-S2"
+        ]
+      },
+      {
+        "key": "K-F09",
+        "knowledge_id": "kp_74e63851e856567cbfe2",
+        "name": "for头部保留两个分号",
+        "statement": "for头部三部分即使省略，分隔它们的两个分号仍须保留。",
+        "conditions": [
+          "C17 for语法"
+        ],
+        "meta_question": "三部分全省略的头部是for()还是for(;;)？",
+        "meta_answer": "for(;;)。",
+        "source_refs": [
+          "F-S2"
+        ]
+      },
+      {
+        "key": "K-F10",
+        "knowledge_id": "kp_e28e3c552b0d516ca414",
+        "name": "for 的单语句体",
+        "statement": "for循环体是一条语句，复合语句可用来包含多条语句。",
+        "conditions": [
+          "普通结构化控制流"
+        ],
+        "meta_question": "for(i=0;i<2;i++) x++; y++;的循环体含y++吗？",
+        "meta_answer": "不含，循环体仅为x++。",
+        "source_refs": [
+          "F-S2"
+        ]
+      },
+      {
+        "key": "K-F11",
+        "knowledge_id": "kp_4adce10125b6567d935b",
+        "name": "for 的空语句体",
+        "statement": "for头部后紧接的分号可以作为空语句循环体，其后的独立语句不属于这个循环体。",
+        "conditions": [
+          "for(...);后的语句是独立语句"
+        ],
+        "meta_question": "for(i=0;i<2;i++); {x++;}中的x++会作为循环体重复吗？",
+        "meta_answer": "不会，循环体为空语句；结束后再执行独立的块。",
+        "source_refs": [
+          "F-S2"
+        ]
+      },
+      {
+        "key": "K-F12",
+        "knowledge_id": "kp_60e6a76254c052088a7e",
+        "name": "continue 的执行逻辑",
+        "statement": "continue 会跳过 for 循环当前剩余的循环体，并直接执行头部的第三部分（迭代/更新表达式），然后判断条件以决定是否进入下一轮。",
+        "conditions": [
+          "作用于最内层包围它的 for 循环",
+          "迭代表达式非空"
+        ],
+        "meta_question": "在 for(i=0; i<10; i++) 循环体内部遇到 continue 语句时，紧接着会发生什么？",
+        "meta_answer": "程序跳过循环体中 continue 之后的代码，直接执行 i++（迭代部分），然后判断 i<10。",
+        "source_refs": [
+          "F-S3"
+        ]
+      },
+      {
+        "key": "K-F13",
+        "knowledge_id": "kp_d83459ca197951f0ad49",
+        "name": "break 退出机制",
+        "statement": "break 用于结束最内层包围它的 for 循环或 switch，若跳出 for，该 for 头部对应的第三部分（迭代表达式）不再执行。",
+        "conditions": [
+          "作用于最内层",
+          "break退出最内层包围它的循环或switch；本点讨论实际退出所述for的路径。"
+        ],
+        "meta_question": "如果在一个 for 循环体内通过 break 跳出，该 for 循环头部定义的更新表达式（如 i++）会被执行吗？",
+        "meta_answer": "不会执行，循环直接结束。",
+        "source_refs": [
+          "F-S3"
+        ]
+      },
+      {
+        "key": "K-F14",
+        "knowledge_id": "kp_471a6a8df9e05e808da5",
+        "name": "return 结束机制",
+        "statement": "在 for 循环内执行 return 会立即结束当前所在的整个函数并返回调用者。",
+        "conditions": [
+          "函数内执行"
+        ],
+        "meta_question": "在 for 循环体内部调用 return 语句后，循环会先执行完当前的更新表达式再继续吗？",
+        "meta_answer": "不会，函数立即结束并返回，不再有任何循环操作。",
+        "source_refs": [
+          "F-S3"
+        ]
+      },
+      {
+        "key": "K-F15",
+        "knowledge_id": "kp_01bcd77813e953d388ec",
+        "name": "switch 内 break 的作用域",
+        "statement": "for体内switch中的break若最内层可退出结构是该switch，则只结束switch，随后继续执行switch之后的循环体语句。",
+        "conditions": [
+          "break未被更内层循环或switch包围",
+          "普通结构化执行"
+        ],
+        "meta_question": "for体内switch中的break会跳过switch后面的全部循环体语句直接去i++吗？",
+        "meta_answer": "不会；先从switch后的语句继续，之后的行为取决于实际控制流。",
+        "source_refs": [
+          "F-S5"
+        ]
+      },
+      {
+        "key": "K-F16",
+        "knowledge_id": "kp_78c6bb60264558319401",
+        "name": "switch 内 continue 的目标",
+        "statement": "在 for 循环内部 switch 中使用的 continue，其目标是包围它的最内层 for 循环，而非 switch；它跳过 for 循环当前剩余的体代码，直接执行 for 的迭代表达式并判断条件。",
+        "conditions": [
+          "for 循环体内包含 switch",
+          "continue 位于 switch 结构中",
+          "最内层包围该continue的循环是所述for，没有更内层循环；第三部分非空。"
+        ],
+        "meta_question": "在 for 循环内的 switch 中执行 continue，程序会跳转到 switch 的下一个 case 还是 for 循环的更新部分？",
+        "meta_answer": "跳转到 for 循环的更新部分（迭代表达式），而不是 switch 的其他 case。",
+        "source_refs": [
+          "F-S5"
+        ]
+      },
+      {
+        "key": "K-F17",
+        "knowledge_id": "kp_04d4dbcaa0a159cc8767",
+        "name": "头部声明的作用域",
+        "statement": "在 for 循环头部声明的变量（如 for(int i=0...)），其作用域局限于该循环内部，在循环结束后外部不可见。",
+        "conditions": [
+          "C17 局部变量声明"
+        ],
+        "meta_question": "在 for(int i = 0; i < 10; i++) 中声明的变量 i，在 for 语句结束后的外部代码中是否可以被访问？",
+        "meta_answer": "不可以访问，因为变量在循环外部不可见。",
+        "source_refs": [
+          "F-S1"
+        ]
+      },
+      {
+        "key": "K-F18",
+        "knowledge_id": "kp_814fdbf932ac5814b1da",
+        "name": "外部变量最终值",
+        "statement": "若循环控制变量声明在 for 循环之外，循环结束后可依据其实际退出路径观察该变量的最终值。",
+        "conditions": [
+          "变量声明在外部",
+          "程序未执行未定义行为"
+        ],
+        "meta_question": "如果一个控制变量 i 声明在 for 循环外部，在循环因条件变为假而正常结束后，该变量 i 的值是多少？",
+        "meta_answer": "是使条件为假（或触发退出）时的当前值，具体取决于退出路径。",
+        "source_refs": [
+          "F-S1"
+        ]
+      },
+      {
+        "key": "K-F19",
+        "knowledge_id": "kp_33cc2358ea4b5bf0ac0e",
+        "name": "循环体修改变量",
+        "statement": "循环体对控制变量的合法修改会影响随后更新、判断和实际入体的取值。",
+        "conditions": [
+          "变量可修改且已初始化",
+          "各次运算有定义"
+        ],
+        "meta_question": "for(int i=0;i<5;i++){记录入体i; i+=2;}的入体i有哪些？",
+        "meta_answer": "只有0和3；第二轮结束更新到6，因条件为假不再入体。",
+        "source_refs": [
+          "F-S4"
+        ]
+      },
+      {
+        "key": "K-F20",
+        "knowledge_id": "kp_9687402e73685ea4a23b",
+        "name": "无符号变量倒序终止失败",
+        "statement": "unsigned int变量始终非负，因此i>=0恒真，不能让该类型的倒序循环通过此条件退出。",
+        "conditions": [
+          "i类型为unsigned int",
+          "终止判断是i>=0",
+          "不把i!=0等其他判断也判成无效"
+        ],
+        "meta_question": "unsigned int i的i>=0能在i递减后变假吗？",
+        "meta_answer": "不能。无符号零再减一会按模回绕，回绕本身不是未定义行为。",
+        "source_refs": [
+          "F-S4"
+        ]
+      },
+      {
+        "key": "K-F21",
+        "knowledge_id": "kp_0fe89c09d41659469527",
+        "name": "有符号最大值后的迭代溢出",
+        "statement": "在有符号整数循环中，若变量达到 INT_MAX 且循环体正常结束，for 头部的迭代表达式（如 i++）仍会执行，导致有符号整数溢出，触发未定义行为。",
+        "conditions": [
+          "变量类型为 signed int",
+          "当前值为 INT_MAX",
+          "头部迭代表达式包含 i++",
+          "执行第三部分i++之前，i仍等于INT_MAX；循环体没有把它改为其他值。"
+        ],
+        "meta_question": "在 for(int i = INT_MAX - 1; i <= INT_MAX; i++) 循环中，当 i 等于 INT_MAX 且循环体执行完毕后，下一步会发生什么？",
+        "meta_answer": "执行 i++，导致有符号整数溢出，产生未定义行为。",
+        "source_refs": [
+          "F-S4"
+        ]
+      }
+    ],
+    "terminology": [
+      {
+        "key": "initializer",
+        "canonical": "初始化子句",
+        "aliases": [
+          "初始化部分"
+        ]
+      },
+      {
+        "key": "control",
+        "canonical": "控制表达式",
+        "aliases": [
+          "条件表达式",
+          "控制条件"
+        ]
+      },
+      {
+        "key": "iteration",
+        "canonical": "迭代表达式",
+        "aliases": [
+          "更新表达式",
+          "第三部分"
+        ]
+      },
+      {
+        "key": "body",
+        "canonical": "循环体",
+        "aliases": []
+      },
+      {
+        "key": "scope",
+        "canonical": "作用域",
+        "aliases": []
+      },
+      {
+        "key": "null_statement",
+        "canonical": "空语句",
+        "aliases": []
+      },
+      {
+        "key": "wrap",
+        "canonical": "无符号回绕",
+        "aliases": [
+          "无符号整数回绕"
+        ]
+      },
+      {
+        "key": "overflow",
+        "canonical": "有符号整数溢出",
+        "aliases": []
+      }
+    ],
+    "sections": [
+      {
+        "key": "for1",
+        "title": "一次 for 循环怎样推进",
+        "required_knowledge_keys": [
+          "K-F01",
+          "K-F02",
+          "K-F03",
+          "K-F04",
+          "K-F05"
+        ]
+      },
+      {
+        "key": "for2",
+        "title": "头部省略与循环体范围",
+        "required_knowledge_keys": [
+          "K-F06",
+          "K-F07",
+          "K-F08",
+          "K-F09",
+          "K-F10",
+          "K-F11"
+        ]
+      },
+      {
+        "key": "for3",
+        "title": "continue、break、return 与嵌套目标",
+        "required_knowledge_keys": [
+          "K-F12",
+          "K-F13",
+          "K-F14",
+          "K-F15",
+          "K-F16"
+        ]
+      },
+      {
+        "key": "for4",
+        "title": "变量作用域与终止边界",
+        "required_knowledge_keys": [
+          "K-F17",
+          "K-F18",
+          "K-F19",
+          "K-F20",
+          "K-F21"
+        ]
+      }
+    ],
+    "example_bank": [
+      {
+        "key": "E-F01",
+        "title": "首判为假与零次执行",
+        "knowledge_keys": [
+          "K-F03"
+        ],
+        "code": "int i;for(i=10;i>100;i++){i=-1;}printf(\"%d\",i);",
+        "answer_stdout": "10",
+        "answer_ref": {
+          "check_id": "check_1af78467b7de514c9974",
+          "code_hash": "b1296af7cc7b8b25a3ed574fab1ae7c61fe0d45a9800df66274754b116f7ccd2",
+          "receipt_hash": "de0ca1b1b807894338aa2c9f0379094d8ddfa63e1f12095739b109807984f19d",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-F02",
+        "title": "体后更新顺序",
+        "knowledge_keys": [
+          "K-F04"
+        ],
+        "code": "int i=0;for(i=0;i<2;i++){i+=10;}printf(\"%d\",i);",
+        "answer_stdout": "11",
+        "answer_ref": {
+          "check_id": "check_cc68f5b5b1185283829c",
+          "code_hash": "fcc6daf9d0d624348a9ec1f1f7ce7f5310904b6c661069f4115da9da6bea24a7",
+          "receipt_hash": "aaf9ced9d265b6335a7f67f8cc6fc9170ecfbdf04dc3b29e72cebab398339427",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-F03",
+        "title": "continue 的执行逻辑",
+        "knowledge_keys": [
+          "K-F12"
+        ],
+        "code": "int i=2,h=0;for(;i<3;i++){continue;h++;}printf(\"%d %d\",i,h);",
+        "answer_stdout": "3 0",
+        "answer_ref": {
+          "check_id": "check_dbc305bb3e365e0bbd56",
+          "code_hash": "a8b0136c522429aef5b798255659e5edfefa221bff9160d244b95537872c28e9",
+          "receipt_hash": "4d5f747cad0ef3cf06dd963664b382297e8cc20f2e438f6896d4302164f2a82a",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-F04",
+        "title": "break 退出机制",
+        "knowledge_keys": [
+          "K-F13"
+        ],
+        "code": "int i=2,h=0;for(;i<3;i++){break;h++;}printf(\"%d %d\",i,h);",
+        "answer_stdout": "2 0",
+        "answer_ref": {
+          "check_id": "check_eb7804f6b5195e88b5ae",
+          "code_hash": "aae748c689cd1bbf1ef5474b79f43849f23981d95a95e87a0ccaf228029e96b6",
+          "receipt_hash": "885f75d5aef799e14673943094f97609a504887b023f23b932ea5bcd1b80f8a5",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-F05",
+        "title": "return 结束机制",
+        "knowledge_keys": [
+          "K-F14"
+        ],
+        "code": "for(int i=0;i<3;i++,puts(\"update\")){if(i==1)return;}puts(\"after\");",
+        "answer_stdout": "update\n",
+        "answer_ref": {
+          "check_id": "check_fa60a4980e4c5bd1aceb",
+          "code_hash": "9bd1bc70c8c9c244dac0c227b0f202f03d4ddc118093c5915f14d337762f4be4",
+          "receipt_hash": "a61a2da8fa7df76008d9b5faa62cd032f43a55ea782ba1f1fff9cd820354628f",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-F06",
+        "title": "循环体修改变量",
+        "knowledge_keys": [
+          "K-F19"
+        ],
+        "code": "for(int i=0;i<5;i++){printf(\"%d \",i);i+=2;}",
+        "answer_stdout": "0 3 ",
+        "answer_ref": {
+          "check_id": "check_e06d05177f275dccadbd",
+          "code_hash": "3598d967c304f0dbc626c0b8e38fa3297537a82b33a25622f595ca0e31dd9eaf",
+          "receipt_hash": "f3dd57081c41eb674c1425e4385ae8e77972964f1e1326c36198f975b7aefeda",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-F07",
+        "title": "switch 内 break 的作用域",
+        "knowledge_keys": [
+          "K-F15"
+        ],
+        "code": "for(int i=0;i<2;i++){switch(i){case 0:break;default:break;}printf(\"A\");}",
+        "answer_stdout": "AA",
+        "answer_ref": {
+          "check_id": "check_a0eed527c9fd512b9143",
+          "code_hash": "88f61f52379cf61a39c393e7725e588e9d514ea9ca8777aa5fd3feb7fb3a190f",
+          "receipt_hash": "37a03ba0667c8a7a85c6e13a6cde1d52f58a34d05fc2912691f3f31c71146626",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-F08",
+        "title": "for 的空语句体",
+        "knowledge_keys": [
+          "K-F11"
+        ],
+        "code": "int i,x=0;for(i=0;i<3;i++);x++;printf(\"%d\",x);",
+        "answer_stdout": "1",
+        "answer_ref": {
+          "check_id": "check_d1b7a61cb28f579ea23e",
+          "code_hash": "50c0da27d840fd69d615d826e8d45e86a741caab5a283a94ca7be2b60ecf5ea4",
+          "receipt_hash": "bb85d3f780ee999fbeca952741b3b7328425c1835e7ef9935986030bbb9b6bf1",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      }
+    ],
+    "diagnostic": {
+      "key": "D-F",
+      "knowledge_keys": [
+        "K-F12",
+        "K-F13",
+        "K-F19"
+      ],
+      "hypothesis_a": "误以为continue等同于break，遇到后直接退出整个for，不再更新。",
+      "hypothesis_b": "误以为continue只跳过本轮剩余循环体和第三部分更新，直接回到条件判断。",
+      "repair_a": "continue不会结束整个循环；用执行轨迹确认它仍会执行for第三部分，随后判断条件。",
+      "repair_b": "把for更新位置显式画在continue之后：只有break退出该for才跳过该次更新。",
+      "examples": [
+        {
+          "role": "symptom",
+          "code": "int i=0, hits=0;\nfor(;i<6;i++) {\n hits++;\n if(i==3) {i=6; continue;}\n}\nprintf(\"%d %d\\n\",i,hits);",
+          "answer_stdout": "7 4\n",
+          "prediction_a": "6 4\n",
+          "prediction_b": "6 4\n",
+          "answer_ref": {
+            "value": "7 4\n",
+            "check_id": "check_e2c1260d22115f809864",
+            "receipt_hash": "f48d777d1f3b6fb4fe73731d5fc8e3e26e378a7cd591b4b5448bbc7eb02b07e0",
+            "code_hash": "2eb2013bad72c0aaa2264c072657c24859d757d75a3df285fee4562170b514a5"
+          }
+        },
+        {
+          "role": "diagnostic",
+          "code": "int i=0, hits=0;\nfor(;i<6;i++) {\n hits++;\n if(i==3) {i=4; continue;}\n}\nprintf(\"%d %d\\n\",i,hits);",
+          "answer_stdout": "6 5\n",
+          "prediction_a": "4 4\n",
+          "prediction_b": "6 6\n",
+          "answer_ref": {
+            "value": "6 5\n",
+            "check_id": "check_3e06c1356745524b9399",
+            "receipt_hash": "f1a9bc7a391a6033954c8f7f90b60a1d9c38ebb7f45b0d38c1c497cc8794a20a",
+            "code_hash": "dd2975779d834e24895cff0673957bb3a85128809f9634ffdef9159107e74dd7"
+          }
+        },
+        {
+          "role": "retest",
+          "code": "int i=0, hits=0;\nfor(;i<7;i++) {\n hits++;\n if(i==3) {i=7; continue;}\n}\nprintf(\"%d %d\\n\",i,hits);",
+          "answer_stdout": "8 4\n",
+          "prediction_a": "7 4\n",
+          "prediction_b": "7 4\n",
+          "answer_ref": {
+            "value": "8 4\n",
+            "check_id": "check_e38ab044070a5a37a1e6",
+            "receipt_hash": "639c3457110a86d1a2eaadc90758e4b217e7adfcbbd0a879281d86b3c3c31808",
+            "code_hash": "3eb9fdc55d239c1b8d1a332eba7cb25c1b8d3400e9f72da7db984d244c3dea4e"
+          }
+        }
+      ]
+    },
+    "exercise_bank": [
+      {
+        "key": "Q-F01",
+        "knowledge_keys": [
+          "K-F01"
+        ],
+        "question": "同一次for执行了三轮循环体，初始化子句执行几次？",
+        "answer": "一次。",
+        "rationale": "for 语句的初始化子句仅在从入口正常进入时执行一次。随后的每轮迭代只执行循环体、更新表达式和条件判断，不重复初始化。",
+        "conditions": [
+          "普通顺序进入for",
+          "初始化子句非空"
+        ]
+      },
+      {
+        "key": "Q-F02",
+        "knowledge_keys": [
+          "K-F02"
+        ],
+        "question": "for是先执行循环体再第一次判断，还是先判断再入体？",
+        "answer": "先判断再入体，并在每次入体前判断。",
+        "rationale": "正常完成循环体后先执行第三部分，再重新求值控制表达式；条件非零才再次进入循环体。不能把入体说成发生在再次判断之前。",
+        "conditions": [
+          "普通顺序执行",
+          "控制表达式非空且求值有定义"
+        ]
+      },
+      {
+        "key": "Q-F03",
+        "knowledge_keys": [
+          "K-F03"
+        ],
+        "question": "考虑以下C代码：\n```c\nint i;\nfor (i = 10; i > 100; i++) {\n    i = -1;\n}\n```\n在上述代码执行完毕后，变量 `i` 的初始值 `10` 是否被修改过（即 `i` 是否等于 `-1`）？",
+        "answer": "未被修改，`i` 仍为 `10`。",
+        "rationale": "当控制条件在首次评估时即为假（10 > 100 为假），循环体将不被执行，因此变量不会被修改。",
+        "conditions": [
+          "无提前转移干扰",
+          "条件求值遵循逻辑"
+        ]
+      },
+      {
+        "key": "Q-F04",
+        "knowledge_keys": [
+          "K-F04"
+        ],
+        "question": "考虑以下C代码：\n```c\nint i = 0;\nint marker = 0;\nfor (i = 0; i < 2; i++) {\n    i += 10; // 循环体内正常执行\n}\n```\n假设循环正常执行。在第一轮循环体执行完毕（i 变为 10）后、下一次条件判断之前，`i` 的值是多少？",
+        "answer": "11",
+        "rationale": "循环体正常执行后，for 循环头部的迭代表达式 `i++` 会在下一次条件判断前执行，因此 `i` 从 10 变为 11。",
+        "conditions": [
+          "循环体未被 break/continue/return 中断",
+          "头部存在非空迭代表达式"
+        ]
+      },
+      {
+        "key": "Q-F05",
+        "knowledge_keys": [
+          "K-F05"
+        ],
+        "question": "for(int i=0; i<5; i++) { } 这个循环中，条件表达式 i<5 总共被计算了多少次？",
+        "answer": "6次。",
+        "rationale": "for 循环每次进入循环体前都会检查一次条件，执行完 5 次循环体后，会第 6 次检查条件（i=5 时为假）并退出，因此共 5+1=6 次。",
+        "conditions": [
+          "循环体完整执行 n 次",
+          "无控制流转移（break/continue/return）",
+          "最终因条件为假而退出"
+        ]
+      },
+      {
+        "key": "Q-F06",
+        "knowledge_keys": [
+          "K-F06"
+        ],
+        "question": "代码片段如下：\n```c\nint i = 5;\nfor (; i < 10; i++) {\n    // empty body\n}\n```\n在第一次执行条件判断 `i < 10` 时，i 的值是多少？",
+        "answer": "5",
+        "rationale": "for 语句省略初始化部分，变量 i 保持其之前的值 5。",
+        "conditions": [
+          "所读取变量已正确初始化"
+        ]
+      },
+      {
+        "key": "Q-F07",
+        "knowledge_keys": [
+          "K-F07"
+        ],
+        "question": "代码片段如下：\n```c\nfor (;;)\n    break;\n```\n这个循环会执行多少次迭代？",
+        "answer": "1",
+        "rationale": "省略的控制表达式视为真（1），循环进入一次，执行 break 退出。",
+        "conditions": [
+          "C17 for语句"
+        ]
+      },
+      {
+        "key": "Q-F08",
+        "knowledge_keys": [
+          "K-F08"
+        ],
+        "question": "for(;i<3;)会自动执行i++吗？",
+        "answer": "不会。",
+        "rationale": "for 语句的第三部分若省略，则视为没有该处的迭代表达式，系统不会自动添加任何递增或更新操作。",
+        "conditions": [
+          "状态仍可能由循环体等位置更新"
+        ]
+      },
+      {
+        "key": "Q-F09",
+        "knowledge_keys": [
+          "K-F09"
+        ],
+        "question": "三部分全省略的头部是for()还是for(;;)？",
+        "answer": "for(;;)。",
+        "rationale": "C17 语法规定 for 头部的三个部分由两个分号分隔，即使内容全部为空，这两个分号也必须在语法上保留。",
+        "conditions": [
+          "C17 for语法"
+        ]
+      },
+      {
+        "key": "Q-F10",
+        "knowledge_keys": [
+          "K-F10"
+        ],
+        "question": "给定代码片段：int i, x=0, y=0; for(i=0;i<2;i++) x++; y++; 在执行完这段代码后，y的值是多少？",
+        "answer": "1",
+        "rationale": "for语句后紧跟的第一条语句是x++，因此它是for的循环体。y++位于for语句之后，是独立语句，只执行一次。",
+        "conditions": [
+          "普通结构化控制流"
+        ]
+      },
+      {
+        "key": "Q-F11",
+        "knowledge_keys": [
+          "K-F11"
+        ],
+        "question": "给定代码片段：int i, x=0; for(i=0;i<3;i++); x++; 在执行完这段代码后，x的值是多少？",
+        "answer": "1",
+        "rationale": "for头部后的分号构成一个空语句，即为循环体。x++是位于空语句之后的独立语句，在循环结束后只执行一次。",
+        "conditions": [
+          "for(...);后的语句是独立语句"
+        ]
+      },
+      {
+        "key": "Q-F12",
+        "knowledge_keys": [
+          "K-F12"
+        ],
+        "question": "在 for(i=0; i<10; i++) 循环体内部遇到 continue 语句时，紧接着会发生什么？",
+        "answer": "程序跳过循环体中 continue 之后的代码，直接执行 i++（迭代部分），然后判断 i<10。",
+        "rationale": "continue 跳过当前循环体剩余部分，但仍会执行头部的迭代表达式，随后进行下一次条件的求值与判断。",
+        "conditions": [
+          "作用于最内层包围它的 for 循环",
+          "迭代表达式非空"
+        ]
+      },
+      {
+        "key": "Q-F13",
+        "knowledge_keys": [
+          "K-F13"
+        ],
+        "question": "如果在一个 for 循环体内通过 break 跳出，该 for 循环头部定义的更新表达式（如 i++）会被执行吗？",
+        "answer": "不会执行，循环直接结束。",
+        "rationale": "break 立即结束 for 循环的执行，程序跳转到循环后的下一条语句，头部的第三部分（迭代/更新表达式）被跳过。",
+        "conditions": [
+          "作用于最内层",
+          "break退出最内层包围它的循环或switch；本点讨论实际退出所述for的路径。"
+        ]
+      },
+      {
+        "key": "Q-F14",
+        "knowledge_keys": [
+          "K-F14"
+        ],
+        "question": "在 for(int i=0; i<3; i++) { if(i==1) return; } 语句中，当 i 为 1 时，return 执行后，循环中的 i++ 语句还会执行吗？",
+        "answer": "不会，函数立即结束，i++ 不执行。",
+        "rationale": "return 语句会立即终止整个函数的执行，控制流直接离开当前作用域，后续包括循环的更新表达式在内的任何语句都不再执行。",
+        "conditions": [
+          "函数内执行",
+          "题中return;位于返回类型为void的函数中。"
+        ]
+      },
+      {
+        "key": "Q-F15",
+        "knowledge_keys": [
+          "K-F15"
+        ],
+        "question": "代码片段如下：\n```c\nfor (int i = 0; i < 2; i++) {\n    switch(i) {\n        case 0:\n            break;\n        default:\n            break;\n    }\n    printf(\"A\");\n}\n```\n程序会输出多少个 'A'？",
+        "answer": "2",
+        "rationale": "break 仅退出 switch，不退出 for 循环体，因此 switch 后的 printf 会执行两次。",
+        "conditions": [
+          "break未被更内层循环或switch包围",
+          "普通结构化执行"
+        ]
+      },
+      {
+        "key": "Q-F16",
+        "knowledge_keys": [
+          "K-F16"
+        ],
+        "question": "在 for 循环内的 switch 中执行 continue，程序会跳转到 switch 的下一个 case 还是 for 循环的更新部分？",
+        "answer": "跳转到 for 循环的更新部分（迭代表达式），而不是 switch 的其他 case。",
+        "rationale": "continue 的目标是其包围的最内层循环。在 for 和 switch 嵌套中，continue 绑定 for 循环，跳过 switch 后的体代码，执行 for 的迭代。",
+        "conditions": [
+          "for 循环体内包含 switch",
+          "continue 位于 switch 结构中",
+          "最内层包围该continue的循环是所述for，没有更内层循环；第三部分非空。"
+        ]
+      },
+      {
+        "key": "Q-F17",
+        "knowledge_keys": [
+          "K-F17"
+        ],
+        "question": "以下C代码段能否合法地编译？\n```c\nfor (int i = 0; i < 5; i++) {\n    // 循环体\n}\nprintf(\"%d\", i);\n```\n请回答“能”或“不能”。",
+        "answer": "不能",
+        "rationale": "`for` 循环头部声明的变量 `i` 的作用域仅限于该循环内部，在循环结束后其生命周期结束，因此在外部的 `printf` 语句中访问 `i` 是非法的。",
+        "conditions": [
+          "C17 局部变量声明",
+          "片段位于合法函数体、已包含stdio.h，外层没有另一个名为i的声明。"
+        ]
+      },
+      {
+        "key": "Q-F18",
+        "knowledge_keys": [
+          "K-F18"
+        ],
+        "question": "考虑以下C代码：\n```c\nint i;\nfor (i = 0; i < 10; i++) {\n    // 空循环体\n}\nprintf(\"%d\", i);\n```\n在上述代码执行完毕后，`printf` 输出的 `i` 的值是多少？",
+        "answer": "10",
+        "rationale": "因为 `i` 声明在 `for` 循环之外，循环结束后它保留着使条件变为假的最后一次更新后的值，即 `10`。",
+        "conditions": [
+          "变量声明在外部",
+          "程序未执行未定义行为"
+        ]
+      },
+      {
+        "key": "Q-F19",
+        "knowledge_keys": [
+          "K-F19"
+        ],
+        "question": "执行 for(int i=0; i<5; i++) { printf(\"%d \", i); i+=2; } 代码，会依次输出哪些数字？",
+        "answer": "0 3",
+        "rationale": "第一轮：i=0 入体，输出 0，i+=2 变为 2，i++ 后变为 3；第二轮：i=3 入体，输出 3，i+=2 变为 5，i++ 后变为 6；此时条件 6<5 为假，循环结束。",
+        "conditions": [
+          "变量可修改且已初始化",
+          "各次运算有定义"
+        ]
+      },
+      {
+        "key": "Q-F20",
+        "knowledge_keys": [
+          "K-F20"
+        ],
+        "question": "unsigned int i的i>=0能在i递减后变假吗？",
+        "answer": "不能。无符号零再减一会按模回绕，回绕本身不是未定义行为。",
+        "rationale": "无符号整数在 C 标准中总是非负的，i>=0 恒为真。当 i 为 0 时递减会回绕为最大无符号整数，该行为是明确定义的。",
+        "conditions": [
+          "i类型为unsigned int",
+          "终止判断是i>=0",
+          "不把i!=0等其他判断也判成无效"
+        ]
+      },
+      {
+        "key": "Q-F21",
+        "knowledge_keys": [
+          "K-F21"
+        ],
+        "question": "for(int i = INT_MAX - 1; i <= INT_MAX; i++) { } 循环中，当 i 等于 INT_MAX 且循环体执行完毕后，执行 i++ 会发生什么？",
+        "answer": "发生有符号整数溢出，产生未定义行为。",
+        "rationale": "当 i 达到 INT_MAX 时，循环体正常结束，随后执行 for 头部的 i++。i++ 会将 INT_MAX 增加 1，这超出了 signed int 的最大值，根据 C 标准属于未定义行为。",
+        "conditions": [
+          "变量类型为 signed int",
+          "当前值为 INT_MAX",
+          "头部迭代表达式包含 i++",
+          "执行第三部分i++之前，i仍等于INT_MAX；循环体没有把它改为其他值。"
+        ]
+      }
+    ],
+    "baseline_scope": "用户指定第四轮复核样本用于本次试写，不代表正式课程已采用"
+  },
+  "output_hash": "391dbcf9439001c179a4b3ebb80f6439acd705bca9e3d4ee784c311bbba46c5c",
+  "assessment": {
+    "issues": [
+      {
+        "code": "missing_summary"
+      }
+    ],
+    "bindings": [
+      {
+        "block": "for1:1",
+        "kind": "explanation",
+        "knowledge_keys": [
+          "K-F01",
+          "K-F02",
+          "K-F03",
+          "K-F04",
+          "K-F05"
+        ],
+        "knowledge_ids": [
+          "kp_f856ba72892250f08018",
+          "kp_4f1242fd70e25ce385ee",
+          "kp_b745aefb10735f088258",
+          "kp_3de966be694f5b01bf14",
+          "kp_b775dd1df9985792b19d"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "for1:2",
+        "kind": "worked_example",
+        "knowledge_keys": [
+          "K-F03"
+        ],
+        "knowledge_ids": [
+          "kp_b745aefb10735f088258"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "for1:3",
+        "kind": "worked_example",
+        "knowledge_keys": [
+          "K-F04"
+        ],
+        "knowledge_ids": [
+          "kp_3de966be694f5b01bf14"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "for2:1",
+        "kind": "explanation",
+        "knowledge_keys": [
+          "K-F06",
+          "K-F07",
+          "K-F08",
+          "K-F09",
+          "K-F10",
+          "K-F11"
+        ],
+        "knowledge_ids": [
+          "kp_942734870a655157b6cf",
+          "kp_2a1b732aa3865e718961",
+          "kp_9f3e95f2a2eb549eb732",
+          "kp_74e63851e856567cbfe2",
+          "kp_e28e3c552b0d516ca414",
+          "kp_4adce10125b6567d935b"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "for2:2",
+        "kind": "worked_example",
+        "knowledge_keys": [
+          "K-F11"
+        ],
+        "knowledge_ids": [
+          "kp_4adce10125b6567d935b"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "for3:1",
+        "kind": "explanation",
+        "knowledge_keys": [
+          "K-F12",
+          "K-F13",
+          "K-F14",
+          "K-F15",
+          "K-F16"
+        ],
+        "knowledge_ids": [
+          "kp_60e6a76254c052088a7e",
+          "kp_d83459ca197951f0ad49",
+          "kp_471a6a8df9e05e808da5",
+          "kp_01bcd77813e953d388ec",
+          "kp_78c6bb60264558319401"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "for3:2",
+        "kind": "worked_example",
+        "knowledge_keys": [
+          "K-F12"
+        ],
+        "knowledge_ids": [
+          "kp_60e6a76254c052088a7e"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "for3:3",
+        "kind": "worked_example",
+        "knowledge_keys": [
+          "K-F13"
+        ],
+        "knowledge_ids": [
+          "kp_d83459ca197951f0ad49"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "for3:4",
+        "kind": "diagnosis",
+        "knowledge_keys": [
+          "K-F12",
+          "K-F13",
+          "K-F19"
+        ],
+        "knowledge_ids": [
+          "kp_60e6a76254c052088a7e",
+          "kp_d83459ca197951f0ad49",
+          "kp_33cc2358ea4b5bf0ac0e"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "for4:1",
+        "kind": "explanation",
+        "knowledge_keys": [
+          "K-F17",
+          "K-F18",
+          "K-F19",
+          "K-F20",
+          "K-F21"
+        ],
+        "knowledge_ids": [
+          "kp_04d4dbcaa0a159cc8767",
+          "kp_814fdbf932ac5814b1da",
+          "kp_33cc2358ea4b5bf0ac0e",
+          "kp_9687402e73685ea4a23b",
+          "kp_0fe89c09d41659469527"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      },
+      {
+        "block": "for4:2",
+        "kind": "worked_example",
+        "knowledge_keys": [
+          "K-F19"
+        ],
+        "knowledge_ids": [
+          "kp_33cc2358ea4b5bf0ac0e"
+        ],
+        "knowledge_revision": "f2146529237b78cf710aa8335320599b12f582146a09164e97a97951bbad1b4d",
+        "terminology_revision": "9a3b6a0a624286b2eee3c7f1b0a1722586fa04cea75f60be901895926ac0c8f9"
+      }
+    ],
+    "explained_keys": [
+      "K-F01",
+      "K-F02",
+      "K-F03",
+      "K-F04",
+      "K-F05",
+      "K-F06",
+      "K-F07",
+      "K-F08",
+      "K-F09",
+      "K-F10",
+      "K-F11",
+      "K-F12",
+      "K-F13",
+      "K-F14",
+      "K-F15",
+      "K-F16",
+      "K-F17",
+      "K-F18",
+      "K-F19",
+      "K-F20",
+      "K-F21"
+    ],
+    "expected_knowledge_points": 21,
+    "unique_examples": 6,
+    "exercise_keys": [
+      "Q-F03",
+      "Q-F05",
+      "Q-F07",
+      "Q-F10",
+      "Q-F17",
+      "Q-F21"
+    ],
+    "diagnoses": 1,
+    "canonical_terms_present": [
+      "初始化子句",
+      "控制表达式",
+      "迭代表达式",
+      "循环体",
+      "作用域",
+      "空语句",
+      "无符号回绕",
+      "有符号整数溢出"
+    ],
+    "note": "Coverage counts references in explanation blocks, not proof of correct semantic explanation."
+  },
+  "returned_schema": "requested_block_schema",
+  "resolved_exercise_keys": [
+    "Q-F03",
+    "Q-F05",
+    "Q-F07",
+    "Q-F10",
+    "Q-F17",
+    "Q-F21"
+  ],
+  "resolved_assets": {
+    "examples": [
+      {
+        "key": "E-F01",
+        "title": "首判为假与零次执行",
+        "knowledge_keys": [
+          "K-F03"
+        ],
+        "code": "int i;for(i=10;i>100;i++){i=-1;}printf(\"%d\",i);",
+        "answer_stdout": "10",
+        "answer_ref": {
+          "check_id": "check_1af78467b7de514c9974",
+          "code_hash": "b1296af7cc7b8b25a3ed574fab1ae7c61fe0d45a9800df66274754b116f7ccd2",
+          "receipt_hash": "de0ca1b1b807894338aa2c9f0379094d8ddfa63e1f12095739b109807984f19d",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-F02",
+        "title": "体后更新顺序",
+        "knowledge_keys": [
+          "K-F04"
+        ],
+        "code": "int i=0;for(i=0;i<2;i++){i+=10;}printf(\"%d\",i);",
+        "answer_stdout": "11",
+        "answer_ref": {
+          "check_id": "check_cc68f5b5b1185283829c",
+          "code_hash": "fcc6daf9d0d624348a9ec1f1f7ce7f5310904b6c661069f4115da9da6bea24a7",
+          "receipt_hash": "aaf9ced9d265b6335a7f67f8cc6fc9170ecfbdf04dc3b29e72cebab398339427",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-F08",
+        "title": "for 的空语句体",
+        "knowledge_keys": [
+          "K-F11"
+        ],
+        "code": "int i,x=0;for(i=0;i<3;i++);x++;printf(\"%d\",x);",
+        "answer_stdout": "1",
+        "answer_ref": {
+          "check_id": "check_d1b7a61cb28f579ea23e",
+          "code_hash": "50c0da27d840fd69d615d826e8d45e86a741caab5a283a94ca7be2b60ecf5ea4",
+          "receipt_hash": "bb85d3f780ee999fbeca952741b3b7328425c1835e7ef9935986030bbb9b6bf1",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-F03",
+        "title": "continue 的执行逻辑",
+        "knowledge_keys": [
+          "K-F12"
+        ],
+        "code": "int i=2,h=0;for(;i<3;i++){continue;h++;}printf(\"%d %d\",i,h);",
+        "answer_stdout": "3 0",
+        "answer_ref": {
+          "check_id": "check_dbc305bb3e365e0bbd56",
+          "code_hash": "a8b0136c522429aef5b798255659e5edfefa221bff9160d244b95537872c28e9",
+          "receipt_hash": "4d5f747cad0ef3cf06dd963664b382297e8cc20f2e438f6896d4302164f2a82a",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-F04",
+        "title": "break 退出机制",
+        "knowledge_keys": [
+          "K-F13"
+        ],
+        "code": "int i=2,h=0;for(;i<3;i++){break;h++;}printf(\"%d %d\",i,h);",
+        "answer_stdout": "2 0",
+        "answer_ref": {
+          "check_id": "check_eb7804f6b5195e88b5ae",
+          "code_hash": "aae748c689cd1bbf1ef5474b79f43849f23981d95a95e87a0ccaf228029e96b6",
+          "receipt_hash": "885f75d5aef799e14673943094f97609a504887b023f23b932ea5bcd1b80f8a5",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      },
+      {
+        "key": "E-F06",
+        "title": "循环体修改变量",
+        "knowledge_keys": [
+          "K-F19"
+        ],
+        "code": "for(int i=0;i<5;i++){printf(\"%d \",i);i+=2;}",
+        "answer_stdout": "0 3 ",
+        "answer_ref": {
+          "check_id": "check_e06d05177f275dccadbd",
+          "code_hash": "3598d967c304f0dbc626c0b8e38fa3297537a82b33a25622f595ca0e31dd9eaf",
+          "receipt_hash": "f3dd57081c41eb674c1425e4385ae8e77972964f1e1326c36198f975b7aefeda",
+          "environment_hash": "bfb2aade02aeaa600fbb962d8513834b96ae1e443193fb5c818d92ddf92357c4"
+        },
+        "context": "void sample(void)函数体；代码与输出来自前轮已核验例子",
+        "origin": "reviewed_baseline_probe"
+      }
+    ],
+    "exercises": [
+      {
+        "key": "Q-F03",
+        "knowledge_keys": [
+          "K-F03"
+        ],
+        "question": "考虑以下C代码：\n```c\nint i;\nfor (i = 10; i > 100; i++) {\n    i = -1;\n}\n```\n在上述代码执行完毕后，变量 `i` 的初始值 `10` 是否被修改过（即 `i` 是否等于 `-1`）？",
+        "answer": "未被修改，`i` 仍为 `10`。",
+        "rationale": "当控制条件在首次评估时即为假（10 > 100 为假），循环体将不被执行，因此变量不会被修改。",
+        "conditions": [
+          "无提前转移干扰",
+          "条件求值遵循逻辑"
+        ]
+      },
+      {
+        "key": "Q-F05",
+        "knowledge_keys": [
+          "K-F05"
+        ],
+        "question": "for(int i=0; i<5; i++) { } 这个循环中，条件表达式 i<5 总共被计算了多少次？",
+        "answer": "6次。",
+        "rationale": "for 循环每次进入循环体前都会检查一次条件，执行完 5 次循环体后，会第 6 次检查条件（i=5 时为假）并退出，因此共 5+1=6 次。",
+        "conditions": [
+          "循环体完整执行 n 次",
+          "无控制流转移（break/continue/return）",
+          "最终因条件为假而退出"
+        ]
+      },
+      {
+        "key": "Q-F07",
+        "knowledge_keys": [
+          "K-F07"
+        ],
+        "question": "代码片段如下：\n```c\nfor (;;)\n    break;\n```\n这个循环会执行多少次迭代？",
+        "answer": "1",
+        "rationale": "省略的控制表达式视为真（1），循环进入一次，执行 break 退出。",
+        "conditions": [
+          "C17 for语句"
+        ]
+      },
+      {
+        "key": "Q-F10",
+        "knowledge_keys": [
+          "K-F10"
+        ],
+        "question": "给定代码片段：int i, x=0, y=0; for(i=0;i<2;i++) x++; y++; 在执行完这段代码后，y的值是多少？",
+        "answer": "1",
+        "rationale": "for语句后紧跟的第一条语句是x++，因此它是for的循环体。y++位于for语句之后，是独立语句，只执行一次。",
+        "conditions": [
+          "普通结构化控制流"
+        ]
+      },
+      {
+        "key": "Q-F17",
+        "knowledge_keys": [
+          "K-F17"
+        ],
+        "question": "以下C代码段能否合法地编译？\n```c\nfor (int i = 0; i < 5; i++) {\n    // 循环体\n}\nprintf(\"%d\", i);\n```\n请回答“能”或“不能”。",
+        "answer": "不能",
+        "rationale": "`for` 循环头部声明的变量 `i` 的作用域仅限于该循环内部，在循环结束后其生命周期结束，因此在外部的 `printf` 语句中访问 `i` 是非法的。",
+        "conditions": [
+          "C17 局部变量声明",
+          "片段位于合法函数体、已包含stdio.h，外层没有另一个名为i的声明。"
+        ]
+      },
+      {
+        "key": "Q-F21",
+        "knowledge_keys": [
+          "K-F21"
+        ],
+        "question": "for(int i = INT_MAX - 1; i <= INT_MAX; i++) { } 循环中，当 i 等于 INT_MAX 且循环体执行完毕后，执行 i++ 会发生什么？",
+        "answer": "发生有符号整数溢出，产生未定义行为。",
+        "rationale": "当 i 达到 INT_MAX 时，循环体正常结束，随后执行 for 头部的 i++。i++ 会将 INT_MAX 增加 1，这超出了 signed int 的最大值，根据 C 标准属于未定义行为。",
+        "conditions": [
+          "变量类型为 signed int",
+          "当前值为 INT_MAX",
+          "头部迭代表达式包含 i++",
+          "执行第三部分i++之前，i仍等于INT_MAX；循环体没有把它改为其他值。"
+        ]
+      }
+    ],
+    "diagnostic": {
+      "key": "D-F",
+      "knowledge_keys": [
+        "K-F12",
+        "K-F13",
+        "K-F19"
+      ],
+      "hypothesis_a": "误以为continue等同于break，遇到后直接退出整个for，不再更新。",
+      "hypothesis_b": "误以为continue只跳过本轮剩余循环体和第三部分更新，直接回到条件判断。",
+      "repair_a": "continue不会结束整个循环；用执行轨迹确认它仍会执行for第三部分，随后判断条件。",
+      "repair_b": "把for更新位置显式画在continue之后：只有break退出该for才跳过该次更新。",
+      "examples": [
+        {
+          "role": "symptom",
+          "code": "int i=0, hits=0;\nfor(;i<6;i++) {\n hits++;\n if(i==3) {i=6; continue;}\n}\nprintf(\"%d %d\\n\",i,hits);",
+          "answer_stdout": "7 4\n",
+          "prediction_a": "6 4\n",
+          "prediction_b": "6 4\n",
+          "answer_ref": {
+            "value": "7 4\n",
+            "check_id": "check_e2c1260d22115f809864",
+            "receipt_hash": "f48d777d1f3b6fb4fe73731d5fc8e3e26e378a7cd591b4b5448bbc7eb02b07e0",
+            "code_hash": "2eb2013bad72c0aaa2264c072657c24859d757d75a3df285fee4562170b514a5"
+          }
+        },
+        {
+          "role": "diagnostic",
+          "code": "int i=0, hits=0;\nfor(;i<6;i++) {\n hits++;\n if(i==3) {i=4; continue;}\n}\nprintf(\"%d %d\\n\",i,hits);",
+          "answer_stdout": "6 5\n",
+          "prediction_a": "4 4\n",
+          "prediction_b": "6 6\n",
+          "answer_ref": {
+            "value": "6 5\n",
+            "check_id": "check_3e06c1356745524b9399",
+            "receipt_hash": "f1a9bc7a391a6033954c8f7f90b60a1d9c38ebb7f45b0d38c1c497cc8794a20a",
+            "code_hash": "dd2975779d834e24895cff0673957bb3a85128809f9634ffdef9159107e74dd7"
+          }
+        },
+        {
+          "role": "retest",
+          "code": "int i=0, hits=0;\nfor(;i<7;i++) {\n hits++;\n if(i==3) {i=7; continue;}\n}\nprintf(\"%d %d\\n\",i,hits);",
+          "answer_stdout": "8 4\n",
+          "prediction_a": "7 4\n",
+          "prediction_b": "7 4\n",
+          "answer_ref": {
+            "value": "8 4\n",
+            "check_id": "check_e38ab044070a5a37a1e6",
+            "receipt_hash": "639c3457110a86d1a2eaadc90758e4b217e7adfcbbd0a879281d86b3c3c31808",
+            "code_hash": "3eb9fdc55d239c1b8d1a332eba7cb25c1b8d3400e9f72da7db984d244c3dea4e"
+          }
+        }
+      ]
+    }
+  },
+  "renderer_contract": "Exposition remains model text; reference expansion inserts canonical code, answers and knowledge identities without another model call. Legacy paragraph fields are retained without inventing block knowledge links."
+}

@@ -2,7 +2,7 @@ import type { KnowledgeProfile } from '../types/knowledge-profile'
 
 export interface ProfileTreeItem {
   id: string; sourceId: string; kind: 'course' | 'branch' | 'knowledge'
-  label: string; progress: number | null; count: number; status?: string
+  label: string; progress: number | null; count: number; status?: string; pending?: boolean
   children: ProfileTreeItem[]
 }
 export interface PositionedProfileNode extends ProfileTreeItem {
@@ -28,9 +28,9 @@ export function createKnowledgeTree(profile: KnowledgeProfile, title: string, qu
       ...profile.branches.filter(b => b.parent_id === id).map(b => branch(b.id, next)),
       ...profile.nodes.filter(p => p.parent_id === id).map(point),
     ].filter((n): n is ProfileTreeItem => n !== null)
-    if (!children.length) return null
+    if (!children.length && !(current.pending && (!search || current.name.toLocaleLowerCase().includes(search)))) return null
     return { id: `branch:${id}`, sourceId: id, kind: 'branch', label: current.name,
-      progress: current.summary.assessed_count ? current.summary.verified_progress : null, count: current.summary.total_count, children }
+      progress: current.summary.assessed_count ? current.summary.verified_progress : null, count: current.summary.total_count, pending: current.pending, children }
   }
   const children = profile.branches.filter(b => !b.parent_id || !groups.has(b.parent_id))
     .map(b => branch(b.id, new Set())).filter((n): n is ProfileTreeItem => n !== null)

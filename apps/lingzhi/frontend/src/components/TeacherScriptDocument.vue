@@ -220,7 +220,7 @@
         <div v-else-if="node.blocks?.length" class="script-modules">
           <section v-for="block in node.blocks" :id="`script-block-${block.block_id}`" :key="block.block_id" class="script-module" :data-content-type="block.content_type" :data-answer-to="block.answer_to || undefined" data-ai-field="content" :data-ai-item-id="block.block_id" :data-ai-label="block.title">
             <HandoutContentBlock
-              :content-type="block.content_type"
+              :content-type="block.content_type || (block.knowledge_refs?.length ? ({ concept: 'explanation', reasoning: 'derivation', checkpoint: 'exercise', orientation: 'introduction', transfer: 'example' } as Record<string, string>)[block.role] || block.role : undefined)"
               :label="block.content_type || (!showWorkingPreview && lesson.script.ready) ? contentTypeLabel(block) : ''"
               :title="teacherFacingTeachingLabel(block.title, block.module_id)"
               :show-header="block.module_id !== 'handout_prose' && Boolean(block.title || (!showWorkingPreview && lesson.script.ready))"
@@ -338,11 +338,11 @@ const pendingCandidate = ref<TeacherLessonScriptCandidate | null>(null)
 const candidateRef = ref<HTMLElement | null>(null)
 const documentRoot = ref<HTMLElement | null>(null)
 const handoutRoot = ref<HTMLElement | null>(null)
-const conceptSections = computed(() => buildHandoutConceptSections(props.lesson.plan.current_revision?.plan?.sections, scriptSections.value.map(section => ({
+const conceptSections = computed(() => buildHandoutConceptSections(props.lesson.script.knowledge_sections?.length ? props.lesson.script.knowledge_sections : props.lesson.plan.current_revision?.plan?.sections, scriptSections.value.map(section => ({
   id: section.section_node_id, title: section.title, anchor: sectionAnchor(section),
-  blocks: (section.blocks || []).map(block => ({ id: block.block_id, title: block.title, anchor: `script-block-${block.block_id}`, content: block.content, knowledge: block.knowledge_names || [] })),
+  blocks: (section.blocks || []).map(block => ({ id: block.block_id, title: block.title, anchor: `script-block-${block.block_id}`, content: block.content, knowledge: block.knowledge_refs?.map(ref => ref.knowledge_id) || block.knowledge_names || [], knowledgeRefs: block.knowledge_refs, sourceRevision: block.source_knowledge_revision })),
 }))))
-const showConceptMap = computed(() => props.conceptMap && !editing.value && !pendingCandidate.value && !showWorkingPreview.value && !savedScriptStale.value && conceptSections.value.some(section => section.nodes.length))
+const showConceptMap = computed(() => props.conceptMap && !editing.value && !pendingCandidate.value && !showWorkingPreview.value && !savedScriptStale.value && conceptSections.value.some(section => section.nodes.length || section.sourceStatus))
 const handoutContents = computed(() => scriptSections.value.flatMap(node => [
   { id: sectionAnchor(node), title: node.title, child: false },
   ...(node.blocks || []).filter(block => block.title && !block.answer_to && block.module_id !== 'handout_prose').map(block => ({ id: `script-block-${block.block_id}`, title: teacherFacingTeachingLabel(block.title, block.module_id), child: true })),

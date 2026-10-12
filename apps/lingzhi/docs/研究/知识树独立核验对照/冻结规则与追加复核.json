@@ -1,0 +1,52 @@
+{
+  "initial": {
+    "baseline": "D:\\lingzhi\\.codex_tmp\\semantic-contract-20261011",
+    "max_calls": 17,
+    "max_repairs_per_course": 1,
+    "scope": "四门相同微单元；材料/上下文/原题保持不变；允许修树、逐点补题、独立审查和一次修正",
+    "usable": "材料覆盖完整，每个原子点直接检查且答案正确，错因可推导，补救不引入新错，迁移有效；须Codex独立复核",
+    "limitations": [
+      "fresh Qwen audit is same model, not independent model consensus",
+      "same course fixtures, changed protocol and budget",
+      "known previous failures supplied; not unseen-course validation"
+    ],
+    "no_course_writes": true,
+    "execute_model_code": false
+  },
+  "v2": {
+    "reason": "发现修正gaps可泄漏旧答案与自评，改为字段白名单后对最终候选追加四次新请求；不重生成、不追加内容修正。原17次回执保持不变。",
+    "max_additional_calls": 4,
+    "total_call_cap": 21,
+    "prompt": "独立核验此候选。生成器的正确答案已隐藏；不要根据错因prediction当正确答案。先根据原材料和题干独立求解每点check与transfer，再判断实际检查的命题及补救动作是否成立。不要替生成器圆场，不额外补题目前提。逐个检查所有point，不能只抽样。\n逐条核验：atomic（单个规则而非案例/多命题）；binding（题目实际要求覆盖该点，非先修或反方向）；prediction（单一错误规则确实推出预测）；repair（具体动作被材料支持、不扩大必要条件为充分条件、不偷换实体/证据层次）；transfer（确实直接迁移，未重复训练，前置明确）。每个false必须有具体证据或反例，true也简述推导证据。全局逐句检查材料覆盖，列出未承载的规则/边界。未知按false记录原因。\n输出 {\"reviews\":[{\"key\":\"P1\",\"check_answer\":\"独立解答或开放准则\",\"transfer_answer\":\"独立解答或开放准则\",\"actual_target\":\"题目真正检查什么\",\"atomic\":true,\"binding\":true,\"prediction\":true,\"repair\":true,\"transfer\":true,\"evidence\":\"具体推导/反例与材料依据\",\"issues\":[\"具体问题\"]}],\"coverage\":{\"complete\":true,\"missing\":[]},\"global_issues\":[]}。所有结论均为待独立复核的审查意见，不要输出整体采用决定。\n只把明确错误写入issues/global_issues；正常观察写evidence。检查repair的action与cannot_infer两部分。材料未要求的外部知识不算缺口。不要为了贴合知识点而改题或忽略点值；实际考点与既定目标不同就如实指出。",
+    "candidate_digests": {
+      "python": "07e64055ad747a13084097b1128a2660d1d2f24edaf49d9cee1dc7791789f653",
+      "calculus": "f179c7c5a2e555f4f4e3ceb5e20882a7885bc3fdabdb4aef660b049df83589a3",
+      "physics": "6e8fbd6e47b019e2b7b4964b45168d11347ce79962ed7326beb5e87bd6bae51a",
+      "history": "c925d9e17d12c2894863981cb555a96c6428770fde21da3fa72adc5d5838bf1f"
+    }
+  },
+  "format_recovery": [
+    {
+      "raw_digest": "edbadd47db259814f3f956e8c73620ae4348a8c45c4fd12a703c63511f668569",
+      "normalized_digest": "f28f0fc9c3b53d433e04136dfd82afc1004bfb9c4e5f593790ba8b60f08f2fe7",
+      "change": "删除字符串内部括号前一个未转义的多余双引号；未改变任何题目、答案或判断",
+      "old": "。\")\",",
+      "new": "。)\",",
+      "raw_call_status": "failed JSONDecodeError remains unchanged",
+      "content_repair": false
+    },
+    {
+      "raw_digest": "5949c758f0cd779a14f17eee0e83942498a6317d7864913e7c93a09dc26495a9",
+      "normalized_digest": "f4dbe945ca44d4378b17c8ed3c2827b45660c9aea1b9915cb452f95f50e02e99",
+      "change": "仅将JSON中非法的LaTeX反斜杠转义为双反斜杠，保留数学文字",
+      "count": 4,
+      "offsets": [
+        81,
+        288,
+        318,
+        837
+      ],
+      "content_repair": false
+    }
+  ]
+}

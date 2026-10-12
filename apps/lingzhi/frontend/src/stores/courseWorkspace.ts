@@ -185,10 +185,10 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       if (!isTeacherPreviewCourse(courseId) || useCourseStore().teacherPreviewSnapshot !== snapshot || this.currentAttempt !== attempt) throw new Error('preview_context_changed')
       return data
     },
-    async loadPreviewKnowledge(courseId: string) {
+    async loadPreviewKnowledge(courseId: string, refresh = false) {
       const snapshot = useCourseStore().teacherPreviewSnapshot
       if (!snapshot || snapshot.course_id !== courseId || !isTeacherPreviewCourse(courseId)) throw new Error('preview_not_loaded')
-      if (snapshot.assets) return snapshot.assets
+      if (snapshot.assets && !refresh) return snapshot.assets
       const { data } = await http.get(`/api/teacher/courses/${courseId}/preview`, teacherRequestConfig({ params: { include_assets: true } }))
       if (!isTeacherPreviewCourse(courseId) || useCourseStore().teacherPreviewSnapshot !== snapshot || data.preview_revision !== snapshot.preview_revision) throw new Error('preview_source_changed')
       snapshot.assets = data.assets
@@ -232,6 +232,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
           course_availability: { schema_version: 'course_learning_availability_v1', mode: 'standard', reason_code: '', capabilities: {} },
           practice_availability: { status: questions.length ? 'available' : 'empty', reason_code: '', scope, node_id: nodeId } }
         this.currentQuestionIndex = Math.min(this.currentQuestionIndex, Math.max(0, questions.length - 1))
+        this.applyRequestedTask(courseId)
         if (this.currentAttempt?.task_revision_id !== this.currentPracticeQuestion?.revision_id) {
           this.currentAttempt = null
           this.currentDraft = {}

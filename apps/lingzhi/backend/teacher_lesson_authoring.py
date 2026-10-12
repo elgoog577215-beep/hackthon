@@ -52,6 +52,8 @@ LESSON_JOB_STALE_SECONDS = 300
 LESSON_BATCH_QUEUED_STALE_SECONDS = 14400
 AUTHORING_LOAD_CACHE_MAX_COURSES = 8
 JOB_TYPES = {
+    "course_knowledge_tree_generation",
+    "knowledge_first_handout_generation",
     "teacher_lesson_plan_generation",
     "teacher_lesson_script_generation",
     "teacher_lesson_ppt_manuscript_generation",
@@ -1528,6 +1530,9 @@ def teacher_lesson_script_sections_revision(
                     "content": str(block.get("content") or ""),
                     "knowledge_names": list(block.get("knowledge_names") or []),
                     "planned_minutes": block.get("planned_minutes"),
+                    **{key: deepcopy(block[key]) for key in ("content_type", "type_label", "answer_to",
+                        "knowledge_refs", "source_knowledge_revision", "source_terminology_revision", "answer_refs",
+                        "source_context_revision", "source_evidence_package_revision", "source_scope_revision") if key in block},
                 }
                 for block in blocks
             ]
@@ -1718,13 +1723,15 @@ def teacher_lesson_v6_source(
                 "title": str(script_block.get("title") or module_id),
                 "content": str(script_block.get("content") or "").strip(),
                 "metadata": {
-                    **{key: deepcopy(script_block[key]) for key in ("content_type", "type_label", "answer_to") if key in script_block},
+                    **{key: deepcopy(script_block[key]) for key in ("content_type", "type_label", "answer_to",
+                        "knowledge_refs", "source_knowledge_revision", "source_terminology_revision", "answer_refs",
+                        "source_context_revision", "source_evidence_package_revision", "source_scope_revision") if key in script_block},
                     "role": role,
                     "module_id": module_id,
                     "module_instance_id": str(
                         script_block.get("block_id") or f"{section_id}:{module_id}"
                     ),
-                    "concept_refs": knowledge_names,
+                    "concept_refs": [r["knowledge_id"] for r in script_block["knowledge_refs"]] if "knowledge_refs" in script_block else knowledge_names,
                     "planned_minutes": script_block.get("planned_minutes"),
                     "ppt_page_group_id": ppt_page_group_id,
                     "content_perspective": "teacher_delivery",
@@ -4244,6 +4251,42 @@ class TeacherLessonAuthoringRepository:
         with self._course_lock(course_id):
             value = self._load_cached_value_locked(course_id)
             return str(value.get("outline_revision_id") or "")
+
+    def save_knowledge_first_revision(self, course_id, lesson_id, section, tree, job):
+        """The existing authoring repository remains the sole handout owner.
+
+        Caller holds the course storage lock and has checked the frozen knowledge
+        revision. Body + completed job checkpoint commit together in this file.
+        """
+        from knowledge_first import WORKFLOW, ACTIVE, require
+        from course_document import stable_hash
+        with self._course_lock(course_id):
+            value = self.load(course_id)
+            active = value["jobs"].get(job["id"]) or {}
+            require(active.get("status") in ACTIVE and not active.get("cancel_requested") and not active.get("pause_requested"), "任务已停止")
+            lesson = value["lessons"].setdefault(lesson_id, {"lesson_unit_id": lesson_id,
+                "working_revision_id": "", "source_state": "current", "revisions": [], "script_revisions": []})
+            require(lesson.get("working_script_revision_id", "") == job["source_script_revision"], "本讲讲义已变化")
+            revision = {"lesson_unit_id": lesson_id, "sections": [deepcopy(section)],
+                "source_lesson_plan_revision_id": lesson.get("working_revision_id", ""),
+                "source_knowledge_revision": tree["revision_id"],
+                "source_terminology_revision": tree["terminology_revision"],
+                "source_document_revision": job["source_document_revision"],
+                "source_context_revision": job.get("source_context_revision", ""),
+                "source_evidence_package_revision": job.get("source_evidence_package_revision", ""),
+                "source_scope_revision": job.get("source_scope_revision", ""),
+                "generation_job_id": job["id"], "model": active.get("model"),
+                "publication_eligible": True, "generation_source": "model_with_reviewed_assets",
+                "pipeline_version": tree.get("tree_schema", WORKFLOW), "semantic_review_status": "pending_teacher_review"}
+            revision["revision_id"] = stable_hash(revision, prefix="khr_")
+            revision["created_at"] = _now()
+            if not any(r["revision_id"] == revision["revision_id"] for r in lesson["script_revisions"]):
+                lesson["script_revisions"].append(revision)
+            lesson["working_script_revision_id"] = revision["revision_id"]
+            active.update(status="completed", progress=100, phase="completed", stage="completed", partial_text="", raw_response="", stream_complete=True,
+                message="讲义已保存；结构与引用检查通过，内容待教师审阅", updated_at=_now())
+            self._save(value)
+            return revision
 
     def save_script_revision(
         self,

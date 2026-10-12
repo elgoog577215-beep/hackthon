@@ -324,7 +324,7 @@ describe('teacher course workbench outline streaming', () => {
         expect(button.attributes('title')).toContain('完整大纲尚未就绪')
         await button.trigger('click')
       }
-      expect(nav[3]!.attributes('disabled')).toBeDefined() // PPT follows the generated handout chain.
+      expect(nav.find(button => button.text().includes('PPT'))!.attributes('disabled')).toBeDefined() // PPT follows the generated handout chain.
       expect(wrapper.find('[data-testid="lesson-course-preview-generate"]').exists()).toBe(false)
       const blockedGenerate = wrapper.get('.lesson-generation-actions button')
       expect(blockedGenerate.attributes('disabled')).toBeDefined()

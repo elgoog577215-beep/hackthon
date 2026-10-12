@@ -32,6 +32,7 @@
     </nav>
     <div v-if="overviewMode === 'knowledge'">
       <KnowledgeMasteryProfile :profile="model?.knowledge_profile" :course-title="courseStore.currentCourse?.course_name" :preview="teacherPreview" :loading="loading" :error="error" can-locate @locate="locateKnowledge" @select="onSelectPoint" @ask="emit('askKnowledge', $event)" @evidence="(point, evidence) => emit('discussEvidence', point, evidence)" @lecture="emit('openLecture', $event)" />
+      <a v-if="showProfileDemo && !pointActive" class="overview-demo-link" :href="profileDemoUrl">{{ t('knowledgeProfile.demoLink', '打开知识画像联动演示') }} →</a>
     </div>
     <div v-show="overviewMode === 'activity'">
 
@@ -195,6 +196,7 @@ import { t } from '../shared/i18n'
 import type { KnowledgeProfileNode } from '../types/knowledge-profile'
 import KnowledgeMasteryProfile from './KnowledgeMasteryProfile.vue'
 import { isTeacherPreviewCourse } from '../utils/teacher-preview'
+import { resolvePublicAssetUrl } from '../utils/publicAssetUrl'
 
 withDefaults(defineProps<{
   closable?: boolean
@@ -215,6 +217,8 @@ function onSelectPoint(point: KnowledgeProfileNode | null) { pointActive.value =
 const courseStore = useCourseStore()
 const overviewMode = ref<'knowledge' | 'activity'>('knowledge')
 const teacherPreview = computed(() => isTeacherPreviewCourse(courseStore.currentCourseId))
+const showProfileDemo = import.meta.env.DEV
+const profileDemoUrl = resolvePublicAssetUrl('student-profile-demo', import.meta.env.BASE_URL)
 function locateKnowledge(id: string) {
   courseStore.focusKnowledgeId = id
   courseStore.showKnowledgeLibrary = true

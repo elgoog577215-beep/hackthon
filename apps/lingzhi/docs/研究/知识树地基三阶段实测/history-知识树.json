@@ -1,0 +1,822 @@
+{
+  "tree": {
+    "schema": "knowledge_foundation_v1",
+    "course_key": "history",
+    "course_scope": "史料论证微单元。材料A/B/C均为虚构教学材料，不是真实史实。评价依据是引用、推理和不确定性，允许不同有证据的解释，不要求唯一结论。",
+    "categories": [
+      {
+        "key": "G1",
+        "name": "史料内容解析与评估",
+        "parent_key": null
+      },
+      {
+        "key": "G2",
+        "name": "互证逻辑与矛盾处理",
+        "parent_key": null
+      },
+      {
+        "key": "G3",
+        "name": "推论限制与结论表达",
+        "parent_key": null
+      }
+    ],
+    "points": [
+      {
+        "key": "P1",
+        "name": "史料分析步骤",
+        "statement": "分析史料时，应首先识别原文中可直接观察到的内容，并与分析者的推断进行区分；对于分析中得出的任何推断，都需要提供相应的依据和推理过程。",
+        "conditions": [],
+        "boundaries": [],
+        "meta_question": "处理史料信息时，可观察内容与分析推断的关系及推断要求是什么？",
+        "meta_answer": "需明确区分原文可观察事实与推断，并为推断提供依据和推理。",
+        "claim_refs": [
+          "C1"
+        ],
+        "knowledge_id": "kp_9fefaea810f5586a8f3e",
+        "parent_key": "G1",
+        "evidence": [
+          {
+            "claim_key": "C1",
+            "source_ref": "M1",
+            "quote": "分析史料先区分原文可观察内容与分析者的推断，推断应说明依据与推理。",
+            "start": 0
+          }
+        ],
+        "attachments": [
+          {
+            "role": "example",
+            "claim_key": "C12",
+            "claim": {
+              "key": "C12",
+              "kind": "case",
+              "claim": "材料B是同年度一名工人的私人日记，其中写道“我家收入增加，但工作时间更长了”。",
+              "source_ref": "M3",
+              "quote": "B是同年度一名工人的私人日记，写道“我家收入增加，但工作时间更长了”。"
+            },
+            "mapping_reason": "作为材料B的案例，提供可观察内容与背景的具体实例，用于承载相关概念，但不直接作为通用知识规则点。"
+          }
+        ],
+        "revision_id": "a6e4e5510f832a899fc36b22f7ca4f5f27265decd1928a8006f119f93fa789c8"
+      },
+      {
+        "key": "P2",
+        "name": "史料背景变量",
+        "statement": "在评估材料能够支持的主张时，需要考察史料的作者、写作时间、受众以及写作目的。",
+        "conditions": [],
+        "boundaries": [],
+        "meta_question": "影响史料能支持的主张的因素有哪些？",
+        "meta_answer": "史料的作者、写作时间、受众和目的。",
+        "claim_refs": [
+          "C2"
+        ],
+        "knowledge_id": "kp_8840ca4a4e8e5bd396b5",
+        "parent_key": "G1",
+        "evidence": [
+          {
+            "claim_key": "C2",
+            "source_ref": "M1",
+            "quote": "作者、写作时间、受众和目的影响材料可支持的主张",
+            "start": 33
+          }
+        ],
+        "attachments": [
+          {
+            "role": "example",
+            "claim_key": "C11",
+            "claim": {
+              "key": "C11",
+              "kind": "case",
+              "claim": "材料A是某工厂经理致投资人的年度报告，其中宣称“产量增加，所以所有工人的生活都改善了”。",
+              "source_ref": "M3",
+              "quote": "A是某工厂经理致投资人的年度报告，写道“产量增加，所以所有工人的生活都改善了”。"
+            },
+            "mapping_reason": "作为材料A的案例，提供作者/受众/目的的具体实例，用于承载相关概念，但不直接作为通用知识规则点。"
+          },
+          {
+            "role": "example",
+            "claim_key": "C12",
+            "claim": {
+              "key": "C12",
+              "kind": "case",
+              "claim": "材料B是同年度一名工人的私人日记，其中写道“我家收入增加，但工作时间更长了”。",
+              "source_ref": "M3",
+              "quote": "B是同年度一名工人的私人日记，写道“我家收入增加，但工作时间更长了”。"
+            },
+            "mapping_reason": "作为材料B的案例，提供可观察内容与背景的具体实例，用于承载相关概念，但不直接作为通用知识规则点。"
+          }
+        ],
+        "revision_id": "e688e4804a180b085fdf620a6fe43ed0ea52492e8c17944988537e726ee82112"
+      },
+      {
+        "key": "P3",
+        "name": "一手材料局限性",
+        "statement": "不能仅仅因为材料被判定为“一手材料”，就直接推论该内容是完全客观的。",
+        "conditions": [],
+        "boundaries": [
+          "该属性（一手材料）不能直接证明该结论（完全客观）"
+        ],
+        "meta_question": "仅凭“一手材料”属性，能否得出内容完全客观的结论？",
+        "meta_answer": "不能。",
+        "claim_refs": [
+          "C3"
+        ],
+        "knowledge_id": "kp_dbe54d43be9d596080f7",
+        "parent_key": "G1",
+        "evidence": [
+          {
+            "claim_key": "C3",
+            "source_ref": "M1",
+            "quote": "不能仅因是一手材料就认为完全客观",
+            "start": 57
+          }
+        ],
+        "attachments": [
+          {
+            "role": "example",
+            "claim_key": "C11",
+            "claim": {
+              "key": "C11",
+              "kind": "case",
+              "claim": "材料A是某工厂经理致投资人的年度报告，其中宣称“产量增加，所以所有工人的生活都改善了”。",
+              "source_ref": "M3",
+              "quote": "A是某工厂经理致投资人的年度报告，写道“产量增加，所以所有工人的生活都改善了”。"
+            },
+            "mapping_reason": "作为材料A的案例，提供作者/受众/目的的具体实例，用于承载相关概念，但不直接作为通用知识规则点。"
+          }
+        ],
+        "revision_id": "f33cb91967d4f46fd06925ae57aa210f27d417aec0c6fd6c49073efc53e722fb"
+      },
+      {
+        "key": "P4",
+        "name": "立场材料价值",
+        "statement": "不能仅仅因为史料的作者带有特定的立场，就直接认定该材料毫无价值。",
+        "conditions": [],
+        "boundaries": [
+          "该属性（有立场）不能直接证明该结论（毫无价值）"
+        ],
+        "meta_question": "仅凭“作者有立场”属性，能否得出材料毫无价值的结论？",
+        "meta_answer": "不能。",
+        "claim_refs": [
+          "C4"
+        ],
+        "knowledge_id": "kp_a993def909f252b3901c",
+        "parent_key": "G1",
+        "evidence": [
+          {
+            "claim_key": "C4",
+            "source_ref": "M1",
+            "quote": "也不能只因有立场就认定毫无价值。",
+            "start": 74
+          }
+        ],
+        "attachments": [],
+        "revision_id": "58dbd95f39810d823885581bb7aefd5588f601807b3fcf0638d5df9f799c43c6"
+      },
+      {
+        "key": "P5",
+        "name": "互证前提条件",
+        "statement": "在进行史料互证时，必须比较不同来源是否具有独立性，并且比较它们所记载的对象与时段是否具有可比性。",
+        "conditions": [],
+        "boundaries": [],
+        "meta_question": "进行史料互证必须比较哪些核心维度？",
+        "meta_answer": "来源的独立性，以及记载对象和时段的可比性。",
+        "claim_refs": [
+          "C5"
+        ],
+        "knowledge_id": "kp_0f38a4e62b765d66ba67",
+        "parent_key": "G2",
+        "evidence": [
+          {
+            "claim_key": "C5",
+            "source_ref": "M2",
+            "quote": "互证需比较来源是否独立、记载对象和时段是否可比。",
+            "start": 0
+          }
+        ],
+        "attachments": [
+          {
+            "role": "example",
+            "claim_key": "C12",
+            "claim": {
+              "key": "C12",
+              "kind": "case",
+              "claim": "材料B是同年度一名工人的私人日记，其中写道“我家收入增加，但工作时间更长了”。",
+              "source_ref": "M3",
+              "quote": "B是同年度一名工人的私人日记，写道“我家收入增加，但工作时间更长了”。"
+            },
+            "mapping_reason": "作为材料B的案例，提供可观察内容与背景的具体实例，用于承载相关概念，但不直接作为通用知识规则点。"
+          }
+        ],
+        "revision_id": "fdd0db5d22578e71664ae77df09e7a33610ce9df20284f3883cc094be2dc7da0"
+      },
+      {
+        "key": "P6",
+        "name": "转载独立性判定",
+        "statement": "两个文本若仅仅是转载了同一份报道，它们之间不构成两份独立的见证。",
+        "conditions": [],
+        "boundaries": [],
+        "meta_question": "仅转载同一份报道的两个文本是否构成独立见证？",
+        "meta_answer": "不构成。",
+        "claim_refs": [
+          "C6"
+        ],
+        "knowledge_id": "kp_9db30956a01d5ab182fb",
+        "parent_key": "G2",
+        "evidence": [
+          {
+            "claim_key": "C6",
+            "source_ref": "M2",
+            "quote": "两个转载同一报道的文本不构成两份独立见证。",
+            "start": 24
+          }
+        ],
+        "attachments": [
+          {
+            "role": "example",
+            "claim_key": "C13",
+            "claim": {
+              "key": "C13",
+              "kind": "case",
+              "claim": "材料C是报纸对材料A的原文转载。",
+              "source_ref": "M3",
+              "quote": "C是报纸对A的原文转载。"
+            },
+            "mapping_reason": "作为材料C的案例，提供了具体的转载文本实例，用于承载独立见证判定的概念背景。"
+          }
+        ],
+        "revision_id": "785affb1dacd59b9c6fcbafb348f28cc62e965e8e76b4048f4a8594faeae1119"
+      },
+      {
+        "key": "P7",
+        "name": "矛盾处理流程",
+        "statement": "当发现材料之间存在矛盾时，应采取的处理方式包括：列出具体差异、考察历史背景，以及寻找新的证据。",
+        "conditions": [
+          "材料之间相互矛盾"
+        ],
+        "boundaries": [],
+        "meta_question": "遇到材料相互矛盾时应如何处理？",
+        "meta_answer": "列出差异、考察背景和寻找新证据。",
+        "claim_refs": [
+          "C7"
+        ],
+        "knowledge_id": "kp_86dcf57869e355cbb53c",
+        "parent_key": "G2",
+        "evidence": [
+          {
+            "claim_key": "C7",
+            "source_ref": "M2",
+            "quote": "材料相互矛盾时应列出差异、考察背景和寻找新证据",
+            "start": 45
+          }
+        ],
+        "attachments": [],
+        "revision_id": "5ab02f8551a4b495f1a5fab8b9573446929520d26a624ac3b8bc51023ca3fe5f"
+      },
+      {
+        "key": "P8",
+        "name": "定真假禁区",
+        "statement": "判断史料的真假时，禁止依据持有该史料的来源数量进行“投票”，也禁止依据预设立场来判定。",
+        "conditions": [
+          "判断史料真假"
+        ],
+        "boundaries": [
+          "禁止使用数量投票法",
+          "禁止使用预设立场法"
+        ],
+        "meta_question": "判断史料真假时不能依据什么标准？",
+        "meta_answer": "不能依据来源数量投票，也不能依据预设立场。",
+        "claim_refs": [
+          "C8"
+        ],
+        "knowledge_id": "kp_34d27d7b653f505e9d17",
+        "parent_key": "G3",
+        "evidence": [
+          {
+            "claim_key": "C8",
+            "source_ref": "M2",
+            "quote": "不凭数量投票或预设立场定真假。",
+            "start": 69
+          }
+        ],
+        "attachments": [],
+        "revision_id": "b872c499ae3ab6b959385e85bfe916ee030b6ca716d51a3cfaa1f22a4b475182"
+      },
+      {
+        "key": "P9",
+        "name": "有限来源推论限制",
+        "statement": "基于有限的来源所能得出的结论，其可信度强度必然是有限的。",
+        "conditions": [
+          "基于有限来源"
+        ],
+        "boundaries": [],
+        "meta_question": "有限来源对结论强度有何种限制？",
+        "meta_answer": "有限来源只能支持有限强度的结论。",
+        "claim_refs": [
+          "C9"
+        ],
+        "knowledge_id": "kp_e9e6c463f1505c44ae7d",
+        "parent_key": "G3",
+        "evidence": [
+          {
+            "claim_key": "C9",
+            "source_ref": "M2",
+            "quote": "有限来源只支持有限强度的结论",
+            "start": 84
+          }
+        ],
+        "attachments": [
+          {
+            "role": "example",
+            "claim_key": "C12",
+            "claim": {
+              "key": "C12",
+              "kind": "case",
+              "claim": "材料B是同年度一名工人的私人日记，其中写道“我家收入增加，但工作时间更长了”。",
+              "source_ref": "M3",
+              "quote": "B是同年度一名工人的私人日记，写道“我家收入增加，但工作时间更长了”。"
+            },
+            "mapping_reason": "作为材料B的案例，提供可观察内容与背景的具体实例，用于承载相关概念，但不直接作为通用知识规则点。"
+          },
+          {
+            "role": "example",
+            "claim_key": "C14",
+            "claim": {
+              "key": "C14",
+              "kind": "case",
+              "claim": "当前材料中并未提供其他工人的记录，也没有提供物价、工资账簿或工时统计数据。",
+              "source_ref": "M3",
+              "quote": "没有提供其他工人的记录、物价、工资账簿或工时统计。"
+            },
+            "mapping_reason": "作为材料限制的描述，提供了有限来源的具体实例，用于承载结论限制与查证方向的概念背景。"
+          }
+        ],
+        "revision_id": "20221e8c32d089710bfdef8a85a19e325895725a097fe6ebe8024edcb9aceef3"
+      },
+      {
+        "key": "P10",
+        "name": "结论表达结构",
+        "statement": "在得出历史结论时，应当明确划分当前可以确定的内容、不能确定的内容，以及下一步需要查证的方向。",
+        "conditions": [],
+        "boundaries": [],
+        "meta_question": "历史结论应包含哪些不同的表达维度？",
+        "meta_answer": "应区分为可确定内容、不可确定内容以及下一步查证方向。",
+        "claim_refs": [
+          "C10"
+        ],
+        "knowledge_id": "kp_bf092a0bc09c5603a12f",
+        "parent_key": "G3",
+        "evidence": [
+          {
+            "claim_key": "C10",
+            "source_ref": "M2",
+            "quote": "应区分可以说什么、不能确定什么及下一步查证。",
+            "start": 99
+          }
+        ],
+        "attachments": [
+          {
+            "role": "example",
+            "claim_key": "C12",
+            "claim": {
+              "key": "C12",
+              "kind": "case",
+              "claim": "材料B是同年度一名工人的私人日记，其中写道“我家收入增加，但工作时间更长了”。",
+              "source_ref": "M3",
+              "quote": "B是同年度一名工人的私人日记，写道“我家收入增加，但工作时间更长了”。"
+            },
+            "mapping_reason": "作为材料B的案例，提供可观察内容与背景的具体实例，用于承载相关概念，但不直接作为通用知识规则点。"
+          },
+          {
+            "role": "example",
+            "claim_key": "C14",
+            "claim": {
+              "key": "C14",
+              "kind": "case",
+              "claim": "当前材料中并未提供其他工人的记录，也没有提供物价、工资账簿或工时统计数据。",
+              "source_ref": "M3",
+              "quote": "没有提供其他工人的记录、物价、工资账簿或工时统计。"
+            },
+            "mapping_reason": "作为材料限制的描述，提供了有限来源的具体实例，用于承载结论限制与查证方向的概念背景。"
+          }
+        ],
+        "revision_id": "1a285cd702792a4d1a043299a8a158849de88b1e8cdb0c76f971403cee826977"
+      }
+    ],
+    "inventory": [
+      {
+        "key": "C1",
+        "kind": "method",
+        "claim": "分析史料时应先区分原文的可观察内容与分析者的推断，且推断需说明依据与推理。",
+        "source_ref": "M1",
+        "quote": "分析史料先区分原文可观察内容与分析者的推断，推断应说明依据与推理。"
+      },
+      {
+        "key": "C2",
+        "kind": "rule",
+        "claim": "史料的作者、写作时间、受众和目的会影响该材料能够支持的主张。",
+        "source_ref": "M1",
+        "quote": "作者、写作时间、受众和目的影响材料可支持的主张"
+      },
+      {
+        "key": "C3",
+        "kind": "boundary",
+        "claim": "仅因材料是一手材料，不能直接认为其内容完全客观。",
+        "source_ref": "M1",
+        "quote": "不能仅因是一手材料就认为完全客观"
+      },
+      {
+        "key": "C4",
+        "kind": "boundary",
+        "claim": "仅因材料作者有立场，不能直接认定材料毫无价值。",
+        "source_ref": "M1",
+        "quote": "也不能只因有立场就认定毫无价值。"
+      },
+      {
+        "key": "C5",
+        "kind": "rule",
+        "claim": "进行史料互证时，需要比较不同来源是否独立，以及记载对象和时段是否具有可比性。",
+        "source_ref": "M2",
+        "quote": "互证需比较来源是否独立、记载对象和时段是否可比。"
+      },
+      {
+        "key": "C6",
+        "kind": "boundary",
+        "claim": "两个文本如果仅是转载同一份报道，它们之间不构成两份独立的见证。",
+        "source_ref": "M2",
+        "quote": "两个转载同一报道的文本不构成两份独立见证。"
+      },
+      {
+        "key": "C7",
+        "kind": "method",
+        "claim": "当材料之间相互矛盾时，应当列出具体差异、考察历史背景，并寻找新证据。",
+        "source_ref": "M2",
+        "quote": "材料相互矛盾时应列出差异、考察背景和寻找新证据"
+      },
+      {
+        "key": "C8",
+        "kind": "boundary",
+        "claim": "判断史料真假不能依据持有该史料的来源数量进行投票，也不能依据预设立场。",
+        "source_ref": "M2",
+        "quote": "不凭数量投票或预设立场定真假。"
+      },
+      {
+        "key": "C9",
+        "kind": "rule",
+        "claim": "基于有限的来源所能支持的结论，其强度也必然是有限的。",
+        "source_ref": "M2",
+        "quote": "有限来源只支持有限强度的结论"
+      },
+      {
+        "key": "C10",
+        "kind": "method",
+        "claim": "在得出历史结论时，应明确区分当前可以确定的内容、不能确定的内容，以及下一步需要查证的方向。",
+        "source_ref": "M2",
+        "quote": "应区分可以说什么、不能确定什么及下一步查证。"
+      },
+      {
+        "key": "C11",
+        "kind": "case",
+        "claim": "材料A是某工厂经理致投资人的年度报告，其中宣称“产量增加，所以所有工人的生活都改善了”。",
+        "source_ref": "M3",
+        "quote": "A是某工厂经理致投资人的年度报告，写道“产量增加，所以所有工人的生活都改善了”。"
+      },
+      {
+        "key": "C12",
+        "kind": "case",
+        "claim": "材料B是同年度一名工人的私人日记，其中写道“我家收入增加，但工作时间更长了”。",
+        "source_ref": "M3",
+        "quote": "B是同年度一名工人的私人日记，写道“我家收入增加，但工作时间更长了”。"
+      },
+      {
+        "key": "C13",
+        "kind": "case",
+        "claim": "材料C是报纸对材料A的原文转载。",
+        "source_ref": "M3",
+        "quote": "C是报纸对A的原文转载。"
+      },
+      {
+        "key": "C14",
+        "kind": "case",
+        "claim": "当前材料中并未提供其他工人的记录，也没有提供物价、工资账簿或工时统计数据。",
+        "source_ref": "M3",
+        "quote": "没有提供其他工人的记录、物价、工资账簿或工时统计。"
+      }
+    ],
+    "material_revision": "aae440485b054feba5168165091443fd3d4e1097141a34fe4fdc860f69f4450a",
+    "inventory_dispositions": [
+      {
+        "claim_key": "C1",
+        "role": "point",
+        "point_keys": [
+          "P1"
+        ],
+        "reason": "直接承载分析史料时的区分与推断要求。"
+      },
+      {
+        "claim_key": "C2",
+        "role": "point",
+        "point_keys": [
+          "P2"
+        ],
+        "reason": "直接承载影响主张的背景变量。"
+      },
+      {
+        "claim_key": "C3",
+        "role": "point",
+        "point_keys": [
+          "P3"
+        ],
+        "reason": "作为逆向推理的边界条件直接承载。"
+      },
+      {
+        "claim_key": "C4",
+        "role": "point",
+        "point_keys": [
+          "P4"
+        ],
+        "reason": "作为逆向推理的边界条件直接承载。"
+      },
+      {
+        "claim_key": "C5",
+        "role": "point",
+        "point_keys": [
+          "P5"
+        ],
+        "reason": "直接承载互证所需的核心比较维度。"
+      },
+      {
+        "claim_key": "C6",
+        "role": "point",
+        "point_keys": [
+          "P6"
+        ],
+        "reason": "直接承载关于转载文本独立性的具体判定规则。"
+      },
+      {
+        "claim_key": "C7",
+        "role": "point",
+        "point_keys": [
+          "P7"
+        ],
+        "reason": "直接承载处理矛盾史料的具体流程。"
+      },
+      {
+        "claim_key": "C8",
+        "role": "point",
+        "point_keys": [
+          "P8"
+        ],
+        "reason": "直接承载定真假时不可使用的判定标准。"
+      },
+      {
+        "claim_key": "C9",
+        "role": "point",
+        "point_keys": [
+          "P9"
+        ],
+        "reason": "直接承载来源数量与结论强度之间的对应规则。"
+      },
+      {
+        "claim_key": "C10",
+        "role": "point",
+        "point_keys": [
+          "P10"
+        ],
+        "reason": "直接承载历史结论表达时的结构要求。"
+      },
+      {
+        "claim_key": "C11",
+        "role": "example",
+        "point_keys": [
+          "P2",
+          "P3"
+        ],
+        "reason": "作为材料A的案例，提供作者/受众/目的的具体实例，用于承载相关概念，但不直接作为通用知识规则点。"
+      },
+      {
+        "claim_key": "C12",
+        "role": "example",
+        "point_keys": [
+          "P1",
+          "P2",
+          "P5",
+          "P9",
+          "P10"
+        ],
+        "reason": "作为材料B的案例，提供可观察内容与背景的具体实例，用于承载相关概念，但不直接作为通用知识规则点。"
+      },
+      {
+        "claim_key": "C13",
+        "role": "example",
+        "point_keys": [
+          "P6"
+        ],
+        "reason": "作为材料C的案例，提供了具体的转载文本实例，用于承载独立见证判定的概念背景。"
+      },
+      {
+        "claim_key": "C14",
+        "role": "example",
+        "point_keys": [
+          "P9",
+          "P10"
+        ],
+        "reason": "作为材料限制的描述，提供了有限来源的具体实例，用于承载结论限制与查证方向的概念背景。"
+      }
+    ],
+    "gaps": [],
+    "relations": [],
+    "ready_for_adoption": false,
+    "revision_id": "2c769d93b77d715204589e0ead1f265bfc076e65227dcc1b1842e8019701e852"
+  },
+  "review": {
+    "course": "history",
+    "title": "历史学习：史料观察、推断与互证",
+    "claims": 14,
+    "points": 10,
+    "categories": 3,
+    "structure_checks_passed": true,
+    "classification_preserves_atoms": true,
+    "coverage": [
+      {
+        "requirement": "原文观察与分析者推断分开",
+        "claims": [
+          "C1"
+        ],
+        "points": [
+          "P1"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "推断须说明依据与推理",
+        "claims": [
+          "C1"
+        ],
+        "points": [
+          "P1"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "作者、时间、受众、目的影响材料支持的主张",
+        "claims": [
+          "C2"
+        ],
+        "points": [
+          "P2"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "一手材料不保证完全客观",
+        "claims": [
+          "C3"
+        ],
+        "points": [
+          "P3"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "有立场不等于毫无价值",
+        "claims": [
+          "C4"
+        ],
+        "points": [
+          "P4"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "互证检查来源独立性",
+        "claims": [
+          "C5"
+        ],
+        "points": [
+          "P5"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "互证检查对象和时段可比性",
+        "claims": [
+          "C5"
+        ],
+        "points": [
+          "P5"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "转载不构成新增独立见证",
+        "claims": [
+          "C6"
+        ],
+        "points": [
+          "P6"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "矛盾材料列差异、考察背景、寻新证据",
+        "claims": [
+          "C7"
+        ],
+        "points": [
+          "P7"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "不凭数量投票或预设立场定真假",
+        "claims": [
+          "C8"
+        ],
+        "points": [
+          "P8"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "有限来源、结论限度及下一步查证",
+        "claims": [
+          "C9",
+          "C10"
+        ],
+        "points": [
+          "P9",
+          "P10"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      },
+      {
+        "requirement": "虚构A/B/C及缺少资料作为案例，记载不冒充已证事件",
+        "claims": [
+          "C11",
+          "C12",
+          "C13",
+          "C14"
+        ],
+        "points": [
+          "P1",
+          "P2",
+          "P3",
+          "P5",
+          "P6",
+          "P9",
+          "P10"
+        ],
+        "represented": true,
+        "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+      }
+    ],
+    "reviewer": "Codex source-by-source review",
+    "tree_digest": "ac9e683a2b1ae85345faacd9193d720168040845ad8953bad9d46a408a0f5bb4",
+    "ready_for_adoption": false,
+    "accuracy": "主要规则忠实；结论强度措辞需收紧",
+    "coverage_summary": "12/12要求有承载；A/B/C及缺证据保留为案例附件",
+    "granularity": "比前轮清楚，仍有三个复合点",
+    "structure": "分类合法，P8应移动到矛盾处理组",
+    "improvements": [
+      "一手不保证客观、有立场不等于无价值、转载不独立分别成点。",
+      "作者、时间、受众、目的及互证可比性恢复；案例不再作为独立叶子，也未断言A/B必然矛盾。"
+    ],
+    "issues": [
+      [
+        "P1",
+        "区分观察/推断与为推断提供依据是两项独立要求，仍合成一个元问题。"
+      ],
+      [
+        "P5",
+        "来源独立性与对象/时段可比性仍合并，应拆为不同核查维度。"
+      ],
+      [
+        "P8",
+        "数量投票和预设立场两条禁止推断仍合并；拆开可避免后续再次混成一个错因。"
+      ],
+      [
+        "P9.statement / disposition.C9",
+        "“结论强度”被写成“可信度强度”，映射理由又称数量与强度的对应规则；材料并未给出数量到可信度的定量或单调关系。"
+      ],
+      [
+        "P10",
+        "“可以说什么”改成“可以确定什么”，容易提高证据承诺；应保留可支持的主张及不确定性原意。"
+      ],
+      [
+        "P8.parent",
+        "真假判断禁区归入推论限制与结论表达，与同组其他点维度不一致；更适合互证逻辑与矛盾处理。"
+      ]
+    ]
+  }
+}

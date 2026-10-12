@@ -24,10 +24,25 @@ beforeEach(async () => {
 })
 
 describe('Handout concept relationships', () => {
+  it.each(['zh', 'en'] as const)('shows reference coverage and gaps in %s without calling it mastery', async locale => {
+    await setLocale(locale)
+    const section = buildHandoutConceptSections(plans, reading)[0]!
+    section.sourceStatus = 'historical'
+    section.coverage = { status: 'historical', scope_known: true, semantics_verified: false, source_knowledge_revision: 'old', invalid_refs: [], rows: [
+      { knowledge_id: 'id-a', name: 'A', revision_id: 'pa', block_ids: ['b2'], explanation_block_ids: ['b2'], example_block_ids: [], exercise_block_ids: [] },
+      { knowledge_id: 'id-b', name: 'B', revision_id: 'pb', block_ids: [], explanation_block_ids: [], example_block_ids: [], exercise_block_ids: [] },
+    ] }
+    const wrapper = mount(HandoutConceptMap, { props: { sections: [section] } })
+    expect(wrapper.get('[data-knowledge-id="id-a"]').text()).toContain('1')
+    expect(wrapper.get('[data-knowledge-id="id-b"]').text()).toContain(locale === 'zh' ? '暂无正文引用' : 'No content reference')
+    expect(wrapper.text()).toContain(locale === 'zh' ? '不代表讲解正确' : 'not teaching accuracy')
+    expect(wrapper.text()).toContain(locale === 'zh' ? '历史知识版本' : 'historical knowledge')
+    wrapper.unmount()
+  })
   it('沿用知识身份绑定和知识点内部关系，不从共同出现的词语造边', () => {
     const sections = buildHandoutConceptSections(plans, reading)
     expect(sections[0]?.nodes.find(node => node.name === 'A')?.anchor).toBe('b2')
-    expect(sections[0]?.relations[0]).toMatchObject({ source: 'A', target: 'B', type: 'derives', conditions: ['极限存在'], steps: ['建立差商', '求极限'] })
+    expect(sections[0]?.relations[0]).toMatchObject({ source: 'id-a', target: 'id-b', type: 'derives', conditions: ['极限存在'], steps: ['建立差商', '求极限'] })
     expect(buildHandoutConceptSections([{ ...plans[0], knowledge_structure: [{ knowledge_points: [{ name: 'A' }, { name: 'B' }] }] }], reading)[0]?.relations).toEqual([])
     expect(buildHandoutConceptSections([], reading)[0]?.nodes).toEqual([])
   })
@@ -39,8 +54,8 @@ describe('Handout concept relationships', () => {
   })
   it('有向循环和双向关系不导致无限递归，不漏掉节点', () => {
     const section = buildHandoutConceptSections(plans, reading)[0]!
-    section.relations.push({ ...section.relations[0]!, source: 'B', target: 'A', id: 'reverse' })
-    expect(conceptLayers(section).flat().map(node => node.id)).toEqual(['A', 'B'])
+    section.relations.push({ ...section.relations[0]!, source: 'id-b', target: 'id-a', id: 'reverse' })
+    expect(conceptLayers(section).flat().map(node => node.id)).toEqual(['id-a', 'id-b'])
     expect(conceptLayers(section)).toHaveLength(1)
   })
   it('显示结构化来源位置与学生资料说明，不把位置对象当成正文', () => {
@@ -64,12 +79,12 @@ describe('Handout concept relationships', () => {
     const scroll = vi.fn()
     root.querySelector<HTMLElement>('#b2')!.scrollIntoView = scroll
     const wrapper = mount(HandoutConceptMap, { props: { sections: buildHandoutConceptSections(plans, reading), target: root } })
-    await wrapper.get('[data-concept-id="A"]').trigger('click')
+    await wrapper.get('[data-concept-id="id-a"]').trigger('click')
     expect(scroll).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
     expect(root.querySelector('details')!.open).toBe(true)
     expect(wrapper.text()).toContain('极限存在')
     expect(wrapper.text()).toContain('建立差商')
-    expect(wrapper.get('[data-concept-id="A"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-concept-id="id-a"]').attributes('aria-pressed')).toBe('true')
     wrapper.unmount(); root.remove()
   })
   it('跟随小节阅读，中英文操作同步，缺少段落不假造定位', async () => {

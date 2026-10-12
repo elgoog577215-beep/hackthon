@@ -1,0 +1,35 @@
+{
+  "scope": "四门课各一个微单元；每课两阶段；非整课、非统计可靠性验证",
+  "comparison": "原实现静态核对；本次为中性提示词隔离原型，新增材料抽取测试，不冒充现有网站已通用",
+  "criteria": [
+    "分类与引用合法",
+    "六项隐藏覆盖要点完整",
+    "叶子单一且保留前提",
+    "无C语言残留或学科串用",
+    "错因预测可由规则推出",
+    "训练有具体输入与证据",
+    "数学/物理不把现象当证明",
+    "史料允许多解且不编造史实",
+    "材料不足明确停在缺口"
+  ],
+  "max_calls": 9,
+  "no_model_retries": true,
+  "no_course_writes": true,
+  "baseline_root": "D:\\lingzhi\\.codex_tmp\\cross-course-20261011",
+  "controlled_inputs": "材料、题库、复测、system/tree/teaching提示词及模型参数与上一轮一致；新增共享上下文",
+  "changed_inputs": [
+    "已声明的学科主模式（按实验课程类型指定）",
+    "原教学模块/质量提示",
+    "原范围合同",
+    "原证据编译与冻结包及引用映射"
+  ],
+  "not_isolated_effect": "同时增加多个上游上下文字段；单次顺序试跑，不可将差异因果归于某一个字段或宣称稳定提升",
+  "semantic_axes": [
+    "知识粒度",
+    "课程针对性与条件",
+    "题目实际考点与参数绑定",
+    "错因预测与区分逻辑"
+  ],
+  "repaired_model_content": false,
+  "production_course_mutation": false
+}

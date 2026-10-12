@@ -915,7 +915,9 @@ def normalize_teacher_script_section(
             if role not in _ALLOWED_ROLES:
                 role = "concept"
             blocks.append({
-                **{key: deepcopy(raw.get(key, module.get(key))) for key in ("content_type", "type_label", "answer_to") if key in raw or key in module},
+                **{key: deepcopy(raw.get(key, module.get(key))) for key in ("content_type", "type_label", "answer_to",
+                    "knowledge_refs", "source_knowledge_revision", "source_terminology_revision", "answer_refs",
+                    "source_context_revision", "source_evidence_package_revision", "source_scope_revision") if key in raw or key in module},
                 "block_id": _text(raw.get("block_id") or module.get("block_id"))
                 or _stable_block_id(
                     _text(compiled.get("section_node_id")), module_id or "unstructured", index

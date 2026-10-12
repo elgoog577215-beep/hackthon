@@ -353,6 +353,12 @@ def project_learning_assets_to_knowledge(
 
     projected_course = deepcopy(course_data)
     projected_assets = deepcopy(assets)
+    from knowledge_practice import adopted_knowledge_checks
+    authored = adopted_knowledge_checks(projected_course)
+    if authored:
+        existing = {q.get("task_revision_id") or q.get("revision_id") for q in projected_assets.get("questions") or []}
+        projected_assets["questions"] = [*(projected_assets.get("questions") or []),
+            *(q for q in authored if q["revision_id"] not in existing)]
     course_map = compile_course_knowledge_map(projected_course)
     course_knowledge_base = compile_course_knowledge_base(
         projected_course,

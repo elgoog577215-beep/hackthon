@@ -20,8 +20,8 @@
           <svg class="tree-edges" :width="layout.width" :height="layout.height" aria-hidden="true"><path v-for="edge in layout.edges" :key="edge.id" :d="edge.path" :class="{ 'edge-to-leaf': edge.target.kind === 'knowledge' }" /></svg>
           <template v-for="node in layout.nodes" :key="node.id">
             <div v-if="node.kind === 'course'" class="tree-course" :style="nodeStyle(node)"><span><BookOpen :size="16" />{{ t('knowledgeProfile.courseScope', '全课范围') }}</span><strong :title="node.label">{{ node.label }}</strong><small>{{ node.count }} {{ t('knowledgeProfile.points', '个元知识点') }}</small></div>
-            <button v-else-if="node.kind === 'branch'" type="button" class="tree-branch" :class="{ expanded: node.expanded }" :style="nodeStyle(node)" :data-branch-id="node.sourceId" :aria-expanded="node.expanded" :disabled="Boolean(query.trim())" @click="toggle(node.id)">
-              <span class="tree-branch-name">{{ node.label }}</span><span class="tree-branch-meta">{{ node.count }} {{ t('knowledgeProfile.points', '个元知识点') }} · {{ node.progress === null ? t('knowledgeProfile.unassessed') : `${node.progress}%` }}</span><span class="tree-branch-toggle"><Minus v-if="node.expanded" :size="13" /><Plus v-else :size="13" /></span>
+            <button v-else-if="node.kind === 'branch'" type="button" class="tree-branch" :class="{ expanded: node.expanded, pending: node.pending }" :style="nodeStyle(node)" :data-branch-id="node.sourceId" :aria-expanded="node.expanded" :disabled="Boolean(query.trim()) || node.pending" @click="toggle(node.id)">
+              <span class="tree-branch-name">{{ node.label }}</span><span v-if="node.pending" class="tree-branch-meta">{{ t('courseKnowledgeStudy.pendingLecture') }}</span><span v-else class="tree-branch-meta">{{ node.count }} {{ t('knowledgeProfile.points', '个元知识点') }} · {{ node.progress === null ? t('knowledgeProfile.unassessed') : `${node.progress}%` }}</span><span v-if="!node.pending" class="tree-branch-toggle"><Minus v-if="node.expanded" :size="13" /><Plus v-else :size="13" /></span>
             </button>
             <button v-else type="button" class="tree-leaf" :class="node.status" :style="nodeStyle(node)" :data-knowledge-id="node.sourceId" aria-haspopup="dialog"
               :aria-label="`${node.label} · ${node.progress === null ? t('knowledgeProfile.unassessed', '未评估') : `${node.progress}%`}`" @click="select(node.sourceId, $event)">
@@ -151,4 +151,8 @@ function endPan() {
 button:focus-visible,.tree-viewport:focus-visible,input:focus-visible { outline:2px solid #9376be; outline-offset:3px; }.tree-leaf:focus-visible { outline-offset:5px; border-radius:12px; }
 @media(max-width:900px) { .tree-toolbar { flex-wrap:wrap; }.tree-search { max-width:none; flex:1; }.tree-viewport { height:500px; } }
 @media(prefers-reduced-motion:reduce) { .mastery-orb { transition:none; }.tree-leaf:hover .mastery-orb { transform:none; } }
+</style>
+
+<style scoped>
+.tree-branch.pending{border-style:dashed;background:#faf9fd;color:#897996;opacity:1;cursor:default}.tree-branch.pending .tree-branch-meta{color:#94859e}
 </style>

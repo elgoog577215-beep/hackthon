@@ -25,6 +25,21 @@ describe('knowledge mastery profile', () => {
     expect(wrapper.find('.profile-metrics').exists()).toBe(false)
     wrapper.unmount()
   })
+  it('follows the relation from either endpoint while retaining the directed meaning',async()=>{
+    const profile=structuredClone(demo.cases[0]!.profile) as KnowledgeProfile
+    const a=profile.nodes[0]!,b=profile.nodes[1]!
+    a.links=[{relation_id:'r',knowledge_id:b.knowledge_id,name:b.name,direction:'outgoing',type:'applies_to',reason:'旧规则用于新方法',conditions:['适用条件'],lecture_names:['第二讲']}]
+    b.links=[{...a.links[0]!,knowledge_id:a.knowledge_id,name:a.name,direction:'incoming',lecture_names:['第一讲']}]
+    const w=mount(KnowledgeMasteryProfile,{props:{profile,knowledgeOnly:true}})
+    await w.get(`[data-knowledge-id="${a.knowledge_id}"]`).trigger('click')
+    expect(w.get('.point-connections').text()).toContain('本知识指向的关联')
+    await w.get('.point-connection button').trigger('click');await flushPromises()
+    expect(w.get('.profile-detail h3').text()).toBe(b.name)
+    expect(w.get('.point-connections').text()).toContain('指向本知识的关联')
+    await w.get('.point-connection button').trigger('click');await flushPromises()
+    expect(w.get('.profile-detail h3').text()).toBe(a.name)
+    w.unmount()
+  })
   it('filters browsing without changing the global denominator and exposes selected evidence', async () => {
     const wrapper = mount(KnowledgeMasteryProfile, { props: { profile: demo.cases.at(-1)!.profile as KnowledgeProfile } })
     const before = wrapper.get('[data-testid="profile-progress"]').text()

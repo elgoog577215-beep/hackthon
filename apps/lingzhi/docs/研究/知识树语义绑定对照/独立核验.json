@@ -1,0 +1,256 @@
+{
+  "runtime": "3.11.9",
+  "method": "固定、人工编写的局部运算及反例；未执行模型程序；不是通用语义求解器",
+  "checks": [
+    {
+      "key": "python.Q1",
+      "actual": true,
+      "expected": true,
+      "passed": true,
+      "purpose": "冻结题答案"
+    },
+    {
+      "key": "python.Q2",
+      "actual": [
+        1,
+        2
+      ],
+      "expected": [
+        1,
+        2
+      ],
+      "passed": true,
+      "purpose": "冻结题答案"
+    },
+    {
+      "key": "python.Q3",
+      "actual": [
+        1
+      ],
+      "expected": [
+        1
+      ],
+      "passed": true,
+      "purpose": "冻结题答案；独立重置"
+    },
+    {
+      "key": "python.Q4",
+      "actual": [
+        [
+          1
+        ]
+      ],
+      "expected": [
+        [
+          1
+        ]
+      ],
+      "passed": true,
+      "purpose": "冻结题答案"
+    },
+    {
+      "key": "python.Q5",
+      "actual": [
+        [
+          1,
+          2
+        ]
+      ],
+      "expected": [
+        [
+          1,
+          2
+        ]
+      ],
+      "passed": true,
+      "purpose": "冻结题答案"
+    },
+    {
+      "key": "python.Q6",
+      "actual": [
+        [
+          1
+        ]
+      ],
+      "expected": [
+        [
+          1
+        ]
+      ],
+      "passed": true,
+      "purpose": "冻结题答案"
+    },
+    {
+      "key": "python.R1",
+      "actual": [
+        [
+          [
+            3,
+            4
+          ]
+        ],
+        [
+          [
+            3,
+            4
+          ],
+          [
+            5
+          ]
+        ]
+      ],
+      "expected": [
+        [
+          [
+            3,
+            4
+          ]
+        ],
+        [
+          [
+            3,
+            4
+          ],
+          [
+            5
+          ]
+        ]
+      ],
+      "passed": true,
+      "purpose": "冻结复测答案"
+    },
+    {
+      "key": "python.R2",
+      "actual": [
+        [
+          3
+        ]
+      ],
+      "expected": [
+        [
+          3
+        ]
+      ],
+      "passed": true,
+      "purpose": "冻结复测答案"
+    },
+    {
+      "key": "python.N1.type",
+      "actual": [
+        "int",
+        "int"
+      ],
+      "expected": [
+        "int",
+        "int"
+      ],
+      "passed": true,
+      "purpose": "检出新补题声称内层列表的错误；不执行模型代码，而是独立写出其已检查的三条普通列表操作"
+    },
+    {
+      "key": "python.N1.is_list",
+      "actual": false,
+      "expected": false,
+      "passed": true,
+      "purpose": "模型答案“同一个列表对象：是”不成立"
+    },
+    {
+      "key": "python.A.wrong_model",
+      "actual": false,
+      "expected": false,
+      "passed": true,
+      "purpose": "错规则赋值即复制的预测"
+    },
+    {
+      "key": "python.B.wrong_model",
+      "actual": [
+        9
+      ],
+      "expected": [
+        9
+      ],
+      "passed": true,
+      "purpose": "错规则变量重绑同步传播的预测"
+    },
+    {
+      "key": "python.C.wrong_model",
+      "actual": [
+        [
+          1
+        ]
+      ],
+      "expected": [
+        [
+          1
+        ]
+      ],
+      "passed": true,
+      "purpose": "错规则浅拷贝复制内层的预测"
+    },
+    {
+      "key": "python.D.wrong_model",
+      "actual": [
+        [
+          9
+        ]
+      ],
+      "expected": [
+        [
+          9
+        ]
+      ],
+      "passed": true,
+      "purpose": "错规则元素替换同步传播的预测"
+    },
+    {
+      "key": "physics.same_receiver_counterexample",
+      "actual": 2,
+      "expected": 2,
+      "passed": true,
+      "purpose": "抽象向量反例：同一受力对象上两个反向但不等大的力不平衡；非模型补题执行"
+    },
+    {
+      "key": "physics.wrong_agent_mass_prediction",
+      "actual": true,
+      "expected": true,
+      "passed": true,
+      "purpose": "本轮错规则按施力者质量比较，甲更重确实预测甲对乙更大"
+    },
+    {
+      "key": "calculus.contrapositive",
+      "actual": true,
+      "expected": true,
+      "passed": true,
+      "purpose": "从可导→连续允许的真值行验证不连续→不可导"
+    },
+    {
+      "key": "calculus.inverse_counterexample",
+      "actual": [
+        [
+          true,
+          false
+        ]
+      ],
+      "expected": [
+        [
+          true,
+          false
+        ]
+      ],
+      "passed": true,
+      "purpose": "不可导→不连续存在反例，两个方向不能共用检查；具体例子为|x|在0"
+    }
+  ],
+  "manual_math": [
+    "Q1极限0、点值1，不连续；Q2差商h趋于0；Q3左右-1/+1；Q4正确蕴含，Q5/Q6反例成立。",
+    "R1平移不改变左右差商-1/+1；R2极限0不等于点值5，由不连续推出不可导。"
+  ],
+  "manual_physics": [
+    "大小问题不检查方向或加速度；同受力对象仅是平衡必要条件；不同对象还须核对同一次相互作用。"
+  ],
+  "manual_history": [
+    "A的两项原文陈述均可被观察到，但不等于所述事件均已核验。",
+    "B陈述收入增加和工时延长，不足推出生活质量改善或恶化；不能预先当作A的反例。",
+    "数量投票与立场偏好是不同错规则；未定义优先级及立场方向时不能唯一推出A真B假。"
+  ]
+}

@@ -25,7 +25,7 @@ def authoring_repository(storage):
 
 
 def project_teacher_content(raw, *, storage=None, authoring=None):
-    if raw.get("authoring_surface") != "teacher":
+    if raw.get("authoring_surface") != "teacher" and raw.get("knowledge_first_workflow") not in {"knowledge_first_c17_v1", "knowledge_first_generic_v1"}:
         return raw
     started = time.monotonic()
     if authoring is None:
@@ -72,19 +72,28 @@ def project_teacher_content(raw, *, storage=None, authoring=None):
             node["content_blocks"] = [{
                 "block_id": b["block_id"], "type": b.get("role", "concept"),
                 "title": b.get("title", ""), "content": b.get("content", ""),
-                "metadata": {"concept_refs": deepcopy(b.get("knowledge_names") or []),
-                             **{key: deepcopy(b[key]) for key in ("module_id", "planned_minutes", "content_type", "type_label", "answer_to") if key in b}},
+                "metadata": {"concept_refs": deepcopy(b.get("knowledge_names") or []), **{key: deepcopy(b[key]) for key in ("module_id", "knowledge_names", "planned_minutes", "content_type", "type_label", "answer_to", "knowledge_refs", "source_knowledge_revision", "source_terminology_revision", "answer_refs", "source_context_revision", "source_evidence_package_revision", "source_scope_revision") if key in b}},
             } for b in section.get("blocks") or []]
             original_blocks.update({b["block_id"]: b for b in section.get("blocks") or []})
         handouts[lid] = {"revision_id": revision["revision_id"],
                          "source_lesson_plan_revision_id": revision.get("source_lesson_plan_revision_id"),
-                         "source_outline_revision_id": authoring.get("outline_revision_id", "")}
+                         "source_outline_revision_id": authoring.get("outline_revision_id", ""),
+                         **{key: revision[key] for key in ("source_knowledge_revision", "source_terminology_revision", "source_document_revision", "source_context_revision", "source_evidence_package_revision", "source_scope_revision") if key in revision}}
     document = document_from_legacy_course({**source, "nodes": nodes})
     for block in document.blocks:
         original = original_blocks[block.block_id]
         block.visibility_rule = deepcopy(original.get("visibility_rule") or {})
         block.status = original.get("status", "final")
         block.payload["knowledge_names"] = deepcopy(original.get("knowledge_names") or [])
+        if "knowledge_refs" in original:
+            block.concept_refs = [r["knowledge_id"] for r in original["knowledge_refs"]]
+            block.payload.setdefault("content_type", {"concept": "explanation", "reasoning": "derivation",
+                "checkpoint": "exercise", "orientation": "introduction", "transfer": "example"}.get(block.role, block.role))
+            for key in ("knowledge_refs", "source_knowledge_revision", "source_terminology_revision", "answer_refs"):
+                block.payload[key] = deepcopy(original.get(key))
+            for key in ("source_context_revision", "source_evidence_package_revision", "source_scope_revision"):
+                if key in original:
+                    block.payload[key] = original[key]
     document = refresh_document_revision(document)
     result = {**raw, "course_document": document.model_dump(mode="json"),
               "course_teaching_plan": overlay_lesson_plan_sections(source, plan_sections),

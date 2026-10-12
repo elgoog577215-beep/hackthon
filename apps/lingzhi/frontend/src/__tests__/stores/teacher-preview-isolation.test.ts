@@ -131,6 +131,25 @@ it('loads knowledge lazily from the same preview revision and reuses it', async 
   expect(http.get).toHaveBeenCalledWith('/api/teacher/courses/c/preview',{params:{include_assets:true}})
 })
 
+it('refreshes adopted knowledge even when the handout preview revision has not changed',async()=>{
+  const store=useCourseWorkspaceStore()
+  vi.mocked(http.get).mockResolvedValueOnce({data:{preview_revision:'r1',assets:{knowledge_library:[]}}})
+  await store.loadPreviewKnowledge('c')
+  const adopted={knowledge_library:[{schema_version:'knowledge_library_view_v3',revision_id:'adopted'}]}
+  vi.mocked(http.get).mockResolvedValueOnce({data:{preview_revision:'r1',assets:adopted}})
+  expect(await store.loadPreviewKnowledge('c',true)).toEqual(adopted)
+  expect(http.get).toHaveBeenCalledTimes(2)
+  expect(http.post).not.toHaveBeenCalled()
+})
+
+it('opens the explicitly linked preview question instead of the first question',async()=>{
+  useCourseStore().teacherPreviewSnapshot!.questions.push({revision_id:'q3',node_id:'s1',prompt:'知识点对应题'})
+  const store=useCourseWorkspaceStore()
+  store.preparePracticeTask('c','s1','q3')
+  await store.loadPractice('c','s1')
+  expect(store.currentPracticeQuestion?.revision_id).toBe('q3')
+  expect(http.post).not.toHaveBeenCalled()
+})
 
 it.each(['trial', 'canonical'] as const)('keeps saved handout types, answer links and concept anchors when loading %s', async (mode) => {
   const document = { course_id: 'c', title: '讲义', document_revision: 'r1', sections: [

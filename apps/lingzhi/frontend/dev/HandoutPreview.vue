@@ -62,7 +62,7 @@ const paper = ref<HTMLElement | null>(null)
 const conceptSections = computed(() => buildHandoutConceptSections(Object.entries(data.value.plan_sections || {}).map(([node_id, plan]) => ({ ...plan, node_id })), sections.value.map(section => ({
   id: section.section_node_id, title: section.title,
   anchor: mode.value === 'reader' ? `preview-${section.section_node_id}` : `script-section-${section.section_node_id.replace(/[^a-zA-Z0-9_-]/g, '-')}`,
-  blocks: (section.blocks || []).map(block => ({ id: block.block_id, title: block.title, anchor: `${mode.value === 'reader' ? 'course' : 'script'}-block-${block.block_id}`, content: block.content, knowledge: block.knowledge_names || [] })),
+  blocks: (section.blocks || []).map(block => ({ id: block.block_id, title: block.title, anchor: `${mode.value === 'reader' ? 'course' : 'script'}-block-${block.block_id}`, content: block.content, knowledge: block.knowledge_refs?.map(ref => ref.knowledge_id) || block.knowledge_names || [], knowledgeRefs: block.knowledge_refs, sourceRevision: block.source_knowledge_revision })),
 }))))
 const contents = computed(() => sections.value.flatMap((section, index) => [
   { id: mode.value === 'reader' ? `preview-${section.section_node_id}` : `script-section-${section.section_node_id.replace(/[^a-zA-Z0-9_-]/g, '-')}`, title: `${index + 1} ${section.title}`, child: false },
@@ -78,7 +78,7 @@ function readerNode(section: TeacherLessonScriptSection): Node {
   return { node_id: section.section_node_id, parent_node_id: 'local-preview', node_name: section.title, node_level: 2,
     node_type: 'original', node_content: '', generation_status: data.value.error ? 'error' : 'completed', generated_chars: 0,
     content_blocks: (section.blocks || []).map((block, index) => ({ block_id: block.block_id, type: block.role as ContentBlock['type'], title: block.title, content: block.content, order: index, status: data.value.error ? 'draft' : 'final',
-      metadata: { content_type: block.content_type, type_label: block.type_label, answer_to: block.answer_to } })),
+      metadata: { content_type: block.content_type, type_label: block.type_label, answer_to: block.answer_to, concept_refs: block.knowledge_refs?.map(ref => ref.knowledge_id) || block.knowledge_names || [], knowledge_refs: block.knowledge_refs, source_knowledge_revision: block.source_knowledge_revision } })),
   }
 }
 function loadJson(text: string) {

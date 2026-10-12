@@ -18,6 +18,7 @@ from assessment_contracts import (
 )
 from course_versioning import stable_hash
 from assessment_semantics import semantics_for_question_type
+from knowledge_assessment import atomic_baseline, atomic_slots, slot_key, ATOMIC_ASSESSMENT_SCHEMA
 
 
 ASSESSMENT_BLUEPRINT_SCHEMA = "course_assessment_blueprint_v3"
@@ -214,6 +215,9 @@ def compile_course_assessment_blueprint(
 ) -> dict[str, Any]:
     """Compile the immutable generation plan consumed by the orchestrator."""
     resolved_profile = profile or compile_course_assessment_profile(course_data)
+    base = atomic_baseline(course_data)
+    if (course_data.get("course_knowledge_base") or {}).get("tree_schema") and base is None:
+        raise ValueError("knowledge_baseline_not_adopted")
     resolved_objectives = objectives or compile_assessment_objectives(
         course_data,
         resolved_profile,
@@ -339,7 +343,21 @@ def compile_course_assessment_blueprint(
                 ),
             }
             slots.append(slot)
-            all_slots.append(slot)
+        knowledge_slots = atomic_slots(course_data, objective, slots[0])
+        if knowledge_slots is not None:
+            slots = knowledge_slots
+            for slot in slots:
+                slot["language_contract"] = deepcopy(resolved_profile.get("notation_and_language") or {})
+                slot["evidence_policy_version"] = "question_evidence_admission_v2"
+                scoped_course = {**course_data, "course_knowledge_base": {**base, "knowledge_points": [
+                    p for p in base["knowledge_points"] if p.get("knowledge_id") in slot["primary_knowledge_ids"]
+                ]}}
+                slot["question_form"] = resolve_slot_question_form(scoped_course, node_id=node_id,
+                    input_mode=slot["input_mode"], practice_level=slot["practice_level"])
+                if slot["question_form"] == "fill_blank":
+                    slot.update(_FILL_BLANK_SLOT_OVERRIDES)
+                slot["input_contract"] = input_contract_for_slot(slot, family=family)
+        all_slots.extend(slots)
         nodes.append({
             "node_id": node_id,
             "objective_id": objective.get("objective_id"),
@@ -401,6 +419,19 @@ def compile_course_assessment_blueprint(
         },
         "teacher_distribution": teacher_distribution,
     }
+    if base is not None:
+        planned = {kid for slot in all_slots for kid in slot["primary_knowledge_ids"]}
+        required = {str(p["knowledge_id"]) for p in base.get("knowledge_points") or []
+                    if p.get("knowledge_id") and p.get("status", "active") == "active"
+                    and p.get("scope_role", "required") not in {"prerequisite", "extension"}}
+        blueprint["planning_schema"] = ATOMIC_ASSESSMENT_SCHEMA
+        blueprint["knowledge_baseline_revision"] = base["revision_id"]
+        blueprint["unplanned_knowledge_ids"] = sorted(required - planned)
+        # One initial check per point need not have several input modalities.
+        blueprint["diversity_policy"] = {"scope": "atomic_checks", "fixed_type_quota": False,
+                                         "passed": None, "status": "not_applicable"}
+        for node in nodes:
+            node["diversity_checks"] = {"status": "not_applicable", "passed": None}
     blueprint["blueprint_revision_id"] = stable_hash(
         blueprint,
         prefix="abp_",
@@ -420,8 +451,7 @@ def slot_for(
             (
                 deepcopy(slot)
                 for slot in node.get("slots") or []
-                if str(slot.get("practice_level") or "")
-                == str(practice_level)
+                if slot_key(slot) == str(practice_level)
             ),
             None,
         )

@@ -230,6 +230,8 @@ const blocks = computed(() => (props.node.course_blocks?.length
         type_label: block.payload.type_label,
         answer_to: block.payload.answer_to,
         concept_refs: block.concept_refs,
+        knowledge_refs: block.payload.knowledge_refs,
+        source_knowledge_revision: block.payload.source_knowledge_revision,
       },
       block_revision_id: block.internal_revision,
     } as ContentBlock))
@@ -244,9 +246,11 @@ const conceptSections = computed(() => buildHandoutConceptSections(courseStore.c
   id: props.node.node_id, title: props.node.node_name, anchor: '', blocks: blocks.value.map(block => ({
     id: block.block_id, title: block.title, anchor: `course-block-${block.block_id}`, content: block.content,
     knowledge: Array.isArray(block.metadata?.concept_refs) ? block.metadata.concept_refs : [],
+    knowledgeRefs: Array.isArray(block.metadata?.knowledge_refs) ? block.metadata.knowledge_refs.map(ref => ({ knowledge_id: String(ref?.knowledge_id || ''), revision_id: String(ref?.revision_id || '') })) : [],
+    sourceRevision: String(block.metadata?.source_knowledge_revision || ''),
   })),
 }]))
-const showConceptMap = computed(() => props.conceptMap && hasHandoutBlocks.value && conceptSections.value.some(section => section.nodes.length))
+const showConceptMap = computed(() => props.conceptMap && hasHandoutBlocks.value && conceptSections.value.some(section => section.nodes.length || section.sourceStatus))
 const handoutContents = computed(() => blocks.value.filter(block => isHandoutBlock(block) && block.title && !block.metadata?.answer_to).map(block => ({ id: `course-block-${block.block_id}`, title: teacherFacingTeachingLabel(block.title || '') })))
 function handoutLabel(block: ContentBlock): string {
   const type = String(block.metadata?.content_type || '')

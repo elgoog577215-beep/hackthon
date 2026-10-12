@@ -1,0 +1,1990 @@
+[
+  {
+    "fixture": {
+      "key": "python",
+      "title": "Python入门：列表别名与浅拷贝",
+      "profile": "Python 3基础；普通内置列表，不涉及自定义复制协议。以对象指向图和确定输出判定。",
+      "references": [
+        "https://docs.python.org/3/library/copy.html"
+      ],
+      "materials": [
+        {
+          "id": "M1",
+          "text": "赋值b=a使两个名字指向同一列表，不会复制列表。通过其中一个名字修改该列表，另一个名字会看到同一对象的变化；将b重新绑定到新列表不会重新绑定a。"
+        },
+        {
+          "id": "M2",
+          "text": "a.copy()新建外层列表；对新外层append不改变原外层。对于嵌套列表，浅拷贝的对应元素仍引用同一个内层列表；对共享内层append会同时从两个外层观察到变化。对浅拷贝的b[0]重新赋一个新列表，只改变b的该元素引用，不改变a[0]。只讨论这些普通列表操作。"
+        }
+      ],
+      "coverage": [
+        "赋值别名不复制",
+        "共享对象修改可见",
+        "名字重新绑定不传播",
+        "浅拷贝外层独立",
+        "浅拷贝内层共享",
+        "元素替换只改目标外层引用"
+      ],
+      "probes": [
+        {
+          "key": "Q1",
+          "question": "a=[1];b=a;判断a is b。",
+          "answer": "True",
+          "evidence_type": "exact"
+        },
+        {
+          "key": "Q2",
+          "question": "a=[1];b=a;b.append(2);a是什么？",
+          "answer": "[1,2]",
+          "evidence_type": "exact"
+        },
+        {
+          "key": "Q3",
+          "question": "a=[1];b=a;b=[9];a是什么？",
+          "answer": "[1]",
+          "evidence_type": "exact"
+        },
+        {
+          "key": "Q4",
+          "question": "a=[[1]];b=a.copy();b.append([2]);a是什么？",
+          "answer": "[[1]]",
+          "evidence_type": "exact"
+        },
+        {
+          "key": "Q5",
+          "question": "a=[[1]];b=a.copy();b[0].append(2);a是什么？",
+          "answer": "[[1,2]]",
+          "evidence_type": "exact"
+        },
+        {
+          "key": "Q6",
+          "question": "a=[[1]];b=a.copy();b[0]=[9];a是什么？",
+          "answer": "[[1]]",
+          "evidence_type": "exact"
+        }
+      ],
+      "retests": [
+        {
+          "key": "R1",
+          "question": "a=[[3]];b=a.copy();b[0].append(4);b.append([5]);分别给出a与b。",
+          "answer": "a=[[3,4]]；b=[[3,4],[5]]",
+          "evidence_type": "exact"
+        },
+        {
+          "key": "R2",
+          "question": "a=[[3]];b=a.copy();b[0]=[8];b=[0];a是什么，并画引用图？",
+          "answer": "a=[[3]]；两次操作均未修改a引用的内层列表。",
+          "evidence_type": "reasoning"
+        }
+      ]
+    },
+    "tree": {
+      "status": "candidate",
+      "categories": [
+        {
+          "key": "G1",
+          "parent_key": null,
+          "name": "列表赋值与别名机制"
+        },
+        {
+          "key": "G2",
+          "parent_key": null,
+          "name": "浅拷贝（copy()）的复制与共享"
+        }
+      ],
+      "points": [
+        {
+          "key": "P1",
+          "parent_key": "G1",
+          "name": "赋值操作的指向性",
+          "statement": "执行赋值操作 b = a 时，变量 b 被绑定到 a 指向的同一个列表对象，不会创建新的列表副本。",
+          "conditions": [
+            "使用普通内置列表（非自定义复制协议对象）"
+          ],
+          "meta_question": "执行 b = a 后，b 指向的是 a 的副本还是同一个对象？",
+          "meta_answer": "b 指向的是 a 指向的同一个列表对象，两者指向相同地址。",
+          "source_refs": [
+            "M1"
+          ]
+        },
+        {
+          "key": "P2",
+          "parent_key": "G1",
+          "name": "别名下的共享修改可见性",
+          "statement": "当两个名字指向同一列表时，通过其中一个名字对该列表进行内容修改（如 append、修改元素），另一个名字访问时会观察到相同的变化。",
+          "conditions": [
+            "两个名字绑定到同一个列表对象",
+            "操作是修改列表对象本身的内容，而非重新绑定变量"
+          ],
+          "meta_question": "b=a后，通过a执行 a.append(1)，b 的值是否改变？",
+          "meta_answer": "会改变，因为 a 和 b 指向同一个列表，列表内容的变化对两个名字可见。",
+          "source_refs": [
+            "M1"
+          ]
+        },
+        {
+          "key": "P3",
+          "parent_key": "G1",
+          "name": "重新绑定的独立性",
+          "statement": "对一个指向某列表的变量进行重新赋值（如 b = new_list），只改变该变量的指向，不会影响另一个原本指向旧列表的变量。",
+          "conditions": [
+            "两个变量之前指向同一个列表",
+            "操作是变量级别的重新赋值（=），而非列表对象的内容修改"
+          ],
+          "meta_question": "b=a后，执行 b=[] 会使 a 变成空列表吗？",
+          "meta_answer": "不会，b 被重新绑定到了一个新的空列表对象，a 仍然指向原来的列表。",
+          "source_refs": [
+            "M1"
+          ]
+        },
+        {
+          "key": "P4",
+          "parent_key": "G2",
+          "name": "外层列表的新建",
+          "statement": "调用 a.copy() 会创建一个新列表对象（新外层），包含与 a 相同的元素，且新外层与原外层是两个独立的列表对象。",
+          "conditions": [
+            "a 是普通内置列表",
+            "使用 .copy() 方法"
+          ],
+          "meta_question": "b = a.copy() 后，向 b 执行 append 操作，a 的内容会改变吗？",
+          "meta_answer": "不会，b 是新建的独立列表，修改 b 不会影响 a 的外层列表。",
+          "source_refs": [
+            "M2"
+          ]
+        },
+        {
+          "key": "P5",
+          "parent_key": "G2",
+          "name": "嵌套元素的共享引用",
+          "statement": "在浅拷贝中，新外层列表中的嵌套列表元素（如子列表）与原外层列表中的对应元素仍引用同一个内层列表对象。",
+          "conditions": [
+            "原列表包含嵌套列表",
+            "使用浅拷贝 a.copy()"
+          ],
+          "meta_question": "a=[[1,2],[3,4]]，b=a.copy()，修改 a[0].append(3) 会影响 b[0] 吗？",
+          "meta_answer": "会，因为 a[0] 和 b[0] 指向同一个内层列表对象 [1,2]，修改其内容双方均可见。",
+          "source_refs": [
+            "M2"
+          ]
+        },
+        {
+          "key": "P6",
+          "parent_key": "G2",
+          "name": "浅拷贝内层元素的重新赋值",
+          "statement": "对浅拷贝列表的某个嵌套元素位置重新赋值一个新列表（如 b[0] = [9,9]），只改变 b 中该位置的指针引用，不影响原列表 a 中该位置的引用。",
+          "conditions": [
+            "b 是 a 的浅拷贝",
+            "操作是重新赋值（=）b 中的嵌套位置，而非修改内层列表对象的内容"
+          ],
+          "meta_question": "b=a.copy() 后，执行 b[0]=[9,9]，a[0] 的值会变为 [9,9] 吗？",
+          "meta_answer": "不会，b[0] 的指针指向了新列表 [9,9]，a[0] 仍指向原来的内层列表对象。",
+          "source_refs": [
+            "M2"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "from": "P1",
+          "to": "P2",
+          "type": "prerequisite",
+          "reason": "只有理解赋值是共享指向（同一对象），才能推断为何修改会对两个名字可见。",
+          "strength": "强"
+        },
+        {
+          "from": "P1",
+          "to": "P3",
+          "type": "prerequisite",
+          "reason": "理解赋值建立共享指向，才能区分“对象内容修改”与“变量重新绑定”的不同影响。",
+          "strength": "强"
+        },
+        {
+          "from": "P4",
+          "to": "P5",
+          "type": "applies_to",
+          "reason": "浅拷贝外层是独立的，但正因为独立外层，才需要特别关注内部嵌套元素为何仍共享。",
+          "strength": "中"
+        },
+        {
+          "from": "P5",
+          "to": "P6",
+          "type": "contrasts_with",
+          "reason": "P5 强调对共享内层对象的内容修改双方可见，P6 强调对外层指针位置的重新赋值只改变一方，二者形成对比。",
+          "strength": "强"
+        }
+      ],
+      "gaps": []
+    },
+    "teaching": {
+      "skills": [
+        {
+          "key": "S1",
+          "name": "列表赋值与别名操作辨析",
+          "point_keys": [
+            "P1",
+            "P2",
+            "P3"
+          ],
+          "observable_behavior": "学生能够区分变量绑定（=）与对象内容修改（.append/[i]=）对列表别名的不同影响，并通过代码执行结果预测两个变量指向关系及最终值。",
+          "task": {
+            "prompt": "给定代码：\n1. `a=[1,2]; b=a; b.append(3)`\n2. `c=[4]; d=c; d=[5]`\n请回答：\n(1) 执行代码1后，a和b分别是什么？\n(2) 执行代码2后，c和d分别是什么？\n(3) 画出代码2执行后的内存引用简图（可用文字描述）。",
+            "expected_evidence": "包含(1)和(2)的具体列表值，以及(3)中显示c指向原列表对象[4]，d指向新列表对象[5]的文字描述或图示。"
+          },
+          "criteria": [
+            {
+              "point_key": "P1",
+              "probe_key": "Q1",
+              "pass_evidence": "正确判断a is b为True，或在任务(1)中隐含承认b与a指向同一对象从而得出一致结论。"
+            },
+            {
+              "point_key": "P2",
+              "probe_key": "Q2",
+              "pass_evidence": "在任务(1)中正确给出a=[1,2,3]，表明理解通过别名修改内容双方可见。"
+            },
+            {
+              "point_key": "P3",
+              "probe_key": "Q3",
+              "pass_evidence": "在任务(2)中正确给出c=[4], d=[5]，并在引用图中正确表示d指向新对象，c未变。"
+            }
+          ],
+          "mistakes": [
+            {
+              "key": "A",
+              "point_keys": [
+                "P1",
+                "P2"
+              ],
+              "wrong_rule": "认为赋值操作 b = a 会深拷贝或浅拷贝列表内容，创建一个新的独立列表对象。",
+              "observable_error": "在任务(1)中给出 a=[1,2], b=[1,2,3]，或者认为 a is b 为 False。",
+              "probe_key": "Q1",
+              "prediction": "若持有此错因，面对 `a=[1]; b=a; b.append(2); print(a)` 会预测 a 仍为 [1]。",
+              "reason": "错因导致学生无法建立“同一对象”的概念，因此无法推断内容修改的共享可见性。",
+              "repair_steps": [
+                "在Python解释器中执行 `a=[1]; b=a; print(a is b)` 并观察结果。",
+                "执行 `b.append(2); print(a)` 并观察 a 的变化，核对“指向同一对象”的含义。"
+              ]
+            },
+            {
+              "key": "B",
+              "point_keys": [
+                "P3"
+              ],
+              "wrong_rule": "混淆“变量重新赋值”与“列表元素内容修改”，认为 `d=[5]` 会修改 d 指向的列表对象，从而影响 c。",
+              "observable_error": "在任务(2)中给出 c=[5], d=[5]，或者在引用图中画 c 和 d 指向同一个新对象[5]。",
+              "probe_key": "Q3",
+              "prediction": "若持有此错因，面对 `a=[1]; b=a; b=[9]; print(a)` 会预测 a 变为 [9]。",
+              "reason": "错因将 `=` 操作作用于变量名的行为错误地泛化为作用于对象内容的行为。",
+              "repair_steps": [
+                "执行 `id(a)` 和 `id(b)` 观察初始地址，再执行 `b=[9]` 后再次执行 `id(b)` 和 `id(a)`。",
+                "对比 `b.append(9)` 前后 `id(b)` 是否变化，以区分“换对象”与“改内容”。"
+              ]
+            }
+          ],
+          "discrimination": {
+            "probe_keys": [
+              "Q1",
+              "Q2",
+              "Q3"
+            ],
+            "distinguishes": "Q1区分是否理解指向共享；Q2区分是否理解共享修改的可见性；Q3区分是否能识别重新绑定的独立性。若学生答对Q1但答错Q2，说明知道是同一对象但误以为修改不可见（可能混淆了值类型和引用类型的修改语义）；若答对Q1和Q2但答错Q3，说明混淆了变量绑定和对象修改。",
+            "limits": "无法判定学生是否能在非列表容器（如字典或集合）上应用相同的别名逻辑，仅基于列表证据。"
+          },
+          "retest_key": "R2",
+          "mastery_requirements": [
+            "能正确预测 b[0]=[8] 对 a 的影响（无影响）。",
+            "能正确预测 b=[0] 对 a 的影响（无影响）。",
+            "能绘制或描述出两次操作后 a、b 的引用关系，且区分了外层列表的重新赋值与内层元素的重新赋值。"
+          ]
+        },
+        {
+          "key": "S2",
+          "name": "浅拷贝行为与嵌套共享分析",
+          "point_keys": [
+            "P4",
+            "P5",
+            "P6"
+          ],
+          "observable_behavior": "学生能够准确预测 a.copy() 产生的新列表在外层独立性、内层共享性上的具体表现，并能区分对共享内层的内容修改与对浅拷贝位置的重绑定。",
+          "task": {
+            "prompt": "给定代码：\na = [[1, 2], [3, 4]]\nb = a.copy()\n\n请判断以下操作执行后 a 和 b 的值：\n操作1: b[0].append(9)\n操作2: b[1] = [7, 8, 9]\n操作3: b.append([5, 6])\n\n请分别给出操作1、2、3独立执行（即每次从初始状态开始）后 a 和 b 的值。",
+            "expected_evidence": "三组 (a, b) 的列表值。其中操作1后 a 和 b 的 [0] 元素均变化；操作2后仅 b 的 [1] 元素变化；操作3后仅 b 的长度增加。"
+          },
+          "criteria": [
+            {
+              "point_key": "P4",
+              "probe_key": "Q4",
+              "pass_evidence": "在操作3的预测中，正确给出 a 不变，b 增加新元素，表明理解 copy() 创建独立外层。"
+            },
+            {
+              "point_key": "P5",
+              "probe_key": "Q5",
+              "pass_evidence": "在操作1的预测中，正确给出 a 和 b 的 [0] 元素都变为 [1, 2, 9]，表明理解内层共享。"
+            },
+            {
+              "point_key": "P6",
+              "probe_key": "Q6",
+              "pass_evidence": "在操作2的预测中，正确给出 a 不变，b[1] 变为 [7, 8, 9]，表明理解浅拷贝中重绑定内层位置的独立性。"
+            }
+          ],
+          "mistakes": [
+            {
+              "key": "A",
+              "point_keys": [
+                "P5"
+              ],
+              "wrong_rule": "认为 a.copy() 是深拷贝，会递归复制所有嵌套列表，因此修改内层不会影响原列表。",
+              "observable_error": "在操作1的预测中，给出 a=[[1,2],[3,4]], b=[[1,2,9],[3,4]]，即认为 a[0] 未变。",
+              "probe_key": "Q5",
+              "prediction": "若持有此错因，面对 `a=[[1]]; b=a.copy(); b[0].append(2); print(a)` 会预测 a 仍为 [[1]]。",
+              "reason": "错因源于对“浅拷贝”定义的误解，将其等同于“深拷贝”或“完全独立副本”。",
+              "repair_steps": [
+                "执行 `a=[[1]]; b=a.copy(); print(a[0] is b[0])` 并观察结果。",
+                "执行 `b[0].append(2); print(a)` 并观察 a 是否变化，核对“浅拷贝只复制外层”的含义。"
+              ]
+            },
+            {
+              "key": "B",
+              "point_keys": [
+                "P6"
+              ],
+              "wrong_rule": "混淆“修改共享对象的内容”与“重新绑定引用”，认为对 b[0] 赋值新列表会修改该共享列表对象本身，从而影响 a。",
+              "observable_error": "在操作2的预测中，给出 a=[[1,2],[7,8,9]], b=[[1,2],[7,8,9]]，即认为 a[1] 也变了。",
+              "probe_key": "Q6",
+              "prediction": "若持有此错因，面对 `a=[[1]]; b=a.copy(); b[0]=[9]; print(a)` 会预测 a 变为 [[9]]。",
+              "reason": "错因未区分 `b[0] = new_list`（改变b中该位置的指针）与 `b[0].append(x)`（修改指针指向的共享对象）之间的本质差异。",
+              "repair_steps": [
+                "执行 `id(a[0])` 和 `id(b[0])` 确认初始相同，然后执行 `b[0]=[9]` 后再次比较 `id(b[0])` 与 `id(a[0])`。",
+                "对比执行 `b[0].append(9)` 后的 id 变化，以理解“换指针”与“改内容”的区别。"
+              ]
+            }
+          ],
+          "discrimination": {
+            "probe_keys": [
+              "Q4",
+              "Q5",
+              "Q6"
+            ],
+            "distinguishes": "Q4区分是否理解外层独立；Q5区分是否理解内层共享；Q6区分是否理解内层位置重绑定的独立性。若学生答对Q5但答错Q6，说明能识别共享修改但混淆了重绑定语义；若答对Q4但答错Q5，说明知道外层独立但误以为内层也独立。",
+            "limits": "无法判定学生是否能将此逻辑推广到非列表的可变嵌套对象（如字典中嵌套字典），仅基于列表证据。"
+          },
+          "retest_key": "R1",
+          "mastery_requirements": [
+            "能正确预测 b[0].append(4) 对 a 和 b 的影响（双方 [0] 均变为 [3,4]）。",
+            "能正确预测 b.append([5]) 对 a 和 b 的影响（a 不变，b 增加 [5]）。",
+            "能综合给出最终的 a=[[3,4]] 和 b=[[3,4],[5]]。"
+          ]
+        }
+      ],
+      "gaps": [
+        "材料仅涵盖普通内置列表的赋值、浅拷贝及嵌套操作，未涉及深拷贝（copy.deepcopy）或非列表可变对象（如 dict、set）的别名行为，因此无法评估学生在这些场景下的能力。",
+        "证据基于确定性的列表输出，未包含在不可变对象（如 tuple）或复杂自定义 __copy__ 实现下的行为，因此能力包的界限严格限定在 Python 内置普通列表的语义内。"
+      ]
+    },
+    "review": {
+      "course": "python",
+      "title": "Python入门：列表别名与浅拷贝",
+      "point_count": 6,
+      "skills": 2,
+      "criteria": 6,
+      "tree_structure_errors": [
+        "relation_strength_format",
+        "relation_strength_format",
+        "relation_strength_format",
+        "relation_strength_format"
+      ],
+      "teaching_structure_errors": [],
+      "coverage_review": [
+        {
+          "requirement": "赋值别名不复制",
+          "covered_by": [
+            "P1"
+          ]
+        },
+        {
+          "requirement": "共享对象修改可见",
+          "covered_by": [
+            "P2"
+          ]
+        },
+        {
+          "requirement": "名字重新绑定不传播",
+          "covered_by": [
+            "P3"
+          ]
+        },
+        {
+          "requirement": "浅拷贝外层独立",
+          "covered_by": [
+            "P4"
+          ]
+        },
+        {
+          "requirement": "浅拷贝内层共享",
+          "covered_by": [
+            "P5"
+          ]
+        },
+        {
+          "requirement": "元素替换只改目标外层引用",
+          "covered_by": [
+            "P6"
+          ]
+        }
+      ],
+      "reviewer": "Codex",
+      "ready_for_adoption": false,
+      "findings": [
+        {
+          "field": "tree.relations[*].strength",
+          "finding": "返回“强/中”等字符串，未遵守可持久化的数值/未知强度格式。"
+        },
+        {
+          "field": "tree.P1.meta_answer / P6.statement",
+          "finding": "把Python对象身份、引用描述为内存地址或指针，超出给定材料及Python语言层面的保证；应统一为对象/引用术语。"
+        },
+        {
+          "field": "teaching.S1.mistakes.A",
+          "finding": "绑定Q1（a is b），预测却回答添加元素后a的值，即Q2情境；引用存在不等于真的检查了所引用的题。"
+        },
+        {
+          "field": "teaching.criteria",
+          "finding": "多个达标标准虽绑定冻结Q题，却使用新训练题的变量值与操作序号，无法直接作为所绑定Q题的评分条件。"
+        },
+        {
+          "field": "teaching.S1.retest",
+          "finding": "S1仅覆盖赋值别名，选择的R2还依赖浅拷贝和元素替换；应补齐能力依赖或调整复测范围。"
+        }
+      ],
+      "review_limit": "一份人工准备的短材料、每阶段单次生成；不代表整课覆盖或稳定通过率"
+    }
+  },
+  {
+    "fixture": {
+      "key": "calculus",
+      "title": "微积分：连续与可导的关系",
+      "profile": "实函数在内点a的双侧有限导数与连续性；不讨论端点单侧定义。以定义、左右极限和反例判定。",
+      "references": [
+        "https://openstax.org/books/calculus-volume-1/pages/3-2-the-derivative-as-a-function"
+      ],
+      "materials": [
+        {
+          "id": "M1",
+          "text": "本单元只讨论定义域内点a。连续要求f(a)有定义、x趋于a的双侧有限极限存在且等于f(a)。点处可导意味着差商[f(a+h)-f(a)]/h在h趋于0时存在有限双侧极限。左右差商极限不同则不存在这个导数。"
+        },
+        {
+          "id": "M2",
+          "text": "点处可导必连续；连续不能保证可导。例如f(x)=|x|在0连续，但左导数为-1、右导数为1，所以不可导。不连续则不可导，这是可导必连续的逆否命题；不可导不能反推不连续，|x|在0就是反例。"
+        }
+      ],
+      "coverage": [
+        "连续的点值极限等值条件",
+        "有限双侧差商定义",
+        "左右差商不同不可导",
+        "可导推出连续",
+        "连续不能推出可导",
+        "不连续推出不可导但反向不成立"
+      ],
+      "probes": [
+        {
+          "key": "Q1",
+          "question": "f(x)=x(x≠0),f(0)=1，在0连续吗？说明极限与点值。",
+          "answer": "不连续；极限0，点值1。",
+          "evidence_type": "reasoning"
+        },
+        {
+          "key": "Q2",
+          "question": "f(x)=x²，写出0处差商并求导数。",
+          "answer": "差商h，极限0，导数0。",
+          "evidence_type": "reasoning"
+        },
+        {
+          "key": "Q3",
+          "question": "|x|在0的左右差商极限是什么，是否可导？",
+          "answer": "左-1右1，不可导。",
+          "evidence_type": "reasoning"
+        },
+        {
+          "key": "Q4",
+          "question": "已知内点a有有限双侧导数，能否断定连续？",
+          "answer": "能。",
+          "evidence_type": "reasoning"
+        },
+        {
+          "key": "Q5",
+          "question": "已知f在内点a连续，能否据此断定可导？",
+          "answer": "不能，可用|x|在0反驳。",
+          "evidence_type": "reasoning"
+        },
+        {
+          "key": "Q6",
+          "question": "已知f在内点a不可导，能否据此断定不连续？",
+          "answer": "不能；不可导也可能连续。",
+          "evidence_type": "reasoning"
+        }
+      ],
+      "retests": [
+        {
+          "key": "R1",
+          "question": "g(x)=|x-2|在2是否连续、可导？用左右差商说明。",
+          "answer": "连续；左-1右1，不可导。",
+          "evidence_type": "reasoning"
+        },
+        {
+          "key": "R2",
+          "question": "g(x)=x-2(x≠2),g(2)=5，判断2处连续与可导。",
+          "answer": "极限0不等于点值5，不连续，故不可导。",
+          "evidence_type": "reasoning"
+        }
+      ]
+    },
+    "tree": {
+      "status": "candidate",
+      "categories": [
+        {
+          "key": "G1",
+          "parent_key": null,
+          "name": "基础定义与判定"
+        },
+        {
+          "key": "G2",
+          "parent_key": null,
+          "name": "连续性"
+        },
+        {
+          "key": "G3",
+          "parent_key": null,
+          "name": "可导性"
+        },
+        {
+          "key": "G4",
+          "parent_key": null,
+          "name": "连续与可导的逻辑关系"
+        },
+        {
+          "key": "G5",
+          "parent_key": null,
+          "name": "经典反例"
+        }
+      ],
+      "points": [
+        {
+          "key": "P1",
+          "parent_key": "G1",
+          "name": "定义域内点条件",
+          "statement": "本单元的所有分析仅适用于函数定义域内的点a，不讨论端点或定义域外的点。",
+          "conditions": [
+            "讨论对象为函数定义域内的点a"
+          ],
+          "meta_question": "本单元讨论可导和连续性时，对点a在定义域中有何要求？",
+          "meta_answer": "点a必须严格属于函数的定义域内，非端点。",
+          "source_refs": [
+            "M1"
+          ]
+        },
+        {
+          "key": "P2",
+          "parent_key": "G2",
+          "name": "连续性的定义",
+          "statement": "函数在定义域内点a连续，需同时满足：f(a)有定义；当x趋于a时双侧有限极限存在；该极限值等于f(a)。",
+          "conditions": [
+            "点a在定义域内"
+          ],
+          "meta_question": "判断函数在内部点a连续的三个条件是什么？",
+          "meta_answer": "1. f(a)存在；2. lim(x→a) f(x)存在且为有限值；3. lim(x→a) f(x) = f(a)。",
+          "source_refs": [
+            "M1"
+          ]
+        },
+        {
+          "key": "P3",
+          "parent_key": "G3",
+          "name": "可导性的定义",
+          "statement": "函数在定义域内点a可导，意味着差商 [f(a+h)-f(a)]/h 当h趋于0时存在有限的双侧极限。",
+          "conditions": [
+            "点a在定义域内"
+          ],
+          "meta_question": "根据差商的极限定义，可导的核心要求是什么？",
+          "meta_answer": "差商 [f(a+h)-f(a)]/h 在h→0时的双侧极限必须存在且为有限值。",
+          "source_refs": [
+            "M1"
+          ]
+        },
+        {
+          "key": "P4",
+          "parent_key": "G3",
+          "name": "可导性的判定方法",
+          "statement": "判断点a不可导的判定方法是：若左差商极限与右差商极限不相等（或至少一侧不存在），则该点导数不存在。",
+          "conditions": [
+            "点a在定义域内",
+            "分别计算h→0+和h→0-的差商极限"
+          ],
+          "meta_question": "如果某点左差商极限和右差商极限不同，能得出什么结论？",
+          "meta_answer": "该点不可导。",
+          "source_refs": [
+            "M1"
+          ]
+        },
+        {
+          "key": "P5",
+          "parent_key": "G4",
+          "name": "可导推连续",
+          "statement": "在定义域内点a，若函数可导，则函数在该点必然连续。",
+          "conditions": [
+            "点a在定义域内"
+          ],
+          "meta_question": "如果已知函数在某内部点可导，能否直接推出其在该点连续？",
+          "meta_answer": "能，可导是连续的充分条件。",
+          "source_refs": [
+            "M2"
+          ]
+        },
+        {
+          "key": "P6",
+          "parent_key": "G4",
+          "name": "连续推可导的反例逻辑",
+          "statement": "在定义域内点a，若函数连续，不能保证其可导；不可导也不能反推不连续。",
+          "conditions": [
+            "点a在定义域内"
+          ],
+          "meta_question": "函数在内部点连续，是否一定可导？",
+          "meta_answer": "不一定。存在连续但不可导的情况。",
+          "source_refs": [
+            "M2"
+          ]
+        },
+        {
+          "key": "P7",
+          "parent_key": "G4",
+          "name": "不连续推不可导",
+          "statement": "在定义域内点a，若函数不连续，则函数在该点必然不可导（可导必连续的逆否命题）。",
+          "conditions": [
+            "点a在定义域内"
+          ],
+          "meta_question": "如果函数在内部点a不连续，可导吗？",
+          "meta_answer": "不可导，不连续是不可导的充分条件。",
+          "source_refs": [
+            "M2"
+          ]
+        },
+        {
+          "key": "P8",
+          "parent_key": "G5",
+          "name": "反例：绝对值函数",
+          "statement": "函数 f(x)=|x| 在点 x=0 处连续，但左导数为 -1，右导数为 1，由于左右极限不等，故该点不可导。",
+          "conditions": [
+            "函数为 f(x)=|x|",
+            "考察点为 x=0"
+          ],
+          "meta_question": "以 f(x)=|x| 为例，为什么它在 0 点不可导但连续？",
+          "meta_answer": "因为虽然左右极限（均为0）等于f(0)满足连续，但左导数(-1)与右导数(1)不相等，差商极限不存在。",
+          "source_refs": [
+            "M2"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "from": "P1",
+          "to": "P2",
+          "type": "prerequisite",
+          "reason": "讨论连续性定义的前提是该点必须在定义域内，属于本单元规定的讨论范围。",
+          "strength": null
+        },
+        {
+          "from": "P1",
+          "to": "P3",
+          "type": "prerequisite",
+          "reason": "讨论可导性定义的前提是该点必须在定义域内，属于本单元规定的讨论范围。",
+          "strength": null
+        },
+        {
+          "from": "P3",
+          "to": "P4",
+          "type": "prerequisite",
+          "reason": "必须先了解差商双侧极限的定义（P3），才能通过分别考察左右极限是否相等（P4）来进行判定。",
+          "strength": null
+        },
+        {
+          "from": "P2",
+          "to": "P5",
+          "type": "prerequisite",
+          "reason": "“可导必连续”这一逻辑关系（P5）依赖于对连续（P2）和可导的明确定义。",
+          "strength": null
+        },
+        {
+          "from": "P3",
+          "to": "P5",
+          "type": "prerequisite",
+          "reason": "“可导必连续”这一逻辑关系（P5）依赖于对可导的明确定义（P3）。",
+          "strength": null
+        },
+        {
+          "from": "P5",
+          "to": "P6",
+          "type": "contrasts_with",
+          "reason": "P5指出可导可以推出连续（单向充分），P6指出连续不能推出可导（不充分），两者形成逻辑方向上的对比。",
+          "strength": null
+        },
+        {
+          "from": "P5",
+          "to": "P7",
+          "type": "contrasts_with",
+          "reason": "P7是P5的逆否命题，P5说明可导则连续，P7说明不连续则不可导，两者互为等价命题，形成逻辑闭环。",
+          "strength": null
+        },
+        {
+          "from": "P6",
+          "to": "P8",
+          "type": "applies_to",
+          "reason": "反例P8（绝对值函数）是P6（连续不一定可导）的具体应用与证明。",
+          "strength": null
+        },
+        {
+          "from": "P6",
+          "to": "P7",
+          "type": "contrasts_with",
+          "reason": "P6说明连续推不出可导，P7说明不连续一定推不出可导，两者分别描述了连续性与可导性的两个不同边界情况。",
+          "strength": null
+        }
+      ],
+      "gaps": []
+    },
+    "teaching": {
+      "skills": [
+        {
+          "key": "S1",
+          "name": "基于极限与差商的单点性质判定",
+          "point_keys": [
+            "P1",
+            "P2",
+            "P3",
+            "P4",
+            "P8"
+          ],
+          "observable_behavior": "针对给定的具体函数和定义域内点，计算左右极限/差商，并依据数值相等性判断连续性与可导性。",
+          "task": {
+            "prompt": "针对 f(x)=|x| 在 x=0 处，请分别计算左右极限和左右差商极限，并判断该点的连续性与可导性。",
+            "expected_evidence": "包含左右极限值、左右差商极限值，以及基于这些数值得出的连续/不可导结论。"
+          },
+          "criteria": [
+            {
+              "point_key": "P1",
+              "probe_key": null,
+              "pass_evidence": "隐含在所有对 x=0 的计算中，确认 0 在 |x| 的定义域内"
+            },
+            {
+              "point_key": "P2",
+              "probe_key": null,
+              "pass_evidence": "指出左右极限均为0且等于 f(0)，判定连续"
+            },
+            {
+              "point_key": "P3",
+              "probe_key": "Q3",
+              "pass_evidence": "正确写出差商定义并计算其极限"
+            },
+            {
+              "point_key": "P4",
+              "probe_key": "Q3",
+              "pass_evidence": "明确指出左差商极限为-1，右差商极限为1"
+            },
+            {
+              "point_key": "P8",
+              "probe_key": "Q3",
+              "pass_evidence": "得出“连续但不可导”的结论，且理由是基于差商极限不相等"
+            }
+          ],
+          "mistakes": [
+            {
+              "key": "A",
+              "point_keys": [
+                "P4",
+                "P8"
+              ],
+              "wrong_rule": "认为可导性的判定等同于函数连续性，忽略了差商极限的独立性。",
+              "observable_error": "判定 f(x)=|x| 在 0 可导，理由是“函数在 0 连续，且左右极限都存在”。",
+              "probe_key": "Q3",
+              "prediction": "回答“可导”，因为学生将连续性判定标准错误地应用到了可导性判定上，未能意识到左右斜率（差商）不一致。",
+              "reason": "该错因混淆了“图像没有断开”（连续）和“图像没有尖角/拐点”（可导）的几何直观。独立应用时，只要函数在特定点连续，学生就会错误地推断其可导。",
+              "repair_steps": [
+                "分别计算 h→0+ 和 h→0- 的差商极限",
+                "核对左右差商极限是否数值相等，不等则直接判定不可导，不受连续性影响"
+              ]
+            }
+          ],
+          "discrimination": {
+            "probe_keys": [
+              "Q3"
+            ],
+            "distinguishes": "能区分那些正确计算了左右极限（连续）但错误计算或未计算左右差商极限（不可导）的学生。",
+            "limits": "无法直接判定学生是否清楚 P1（点必须在定义域内），因为对于 |x| 在 0 处，该条件是显见的。"
+          },
+          "retest_key": "R1",
+          "mastery_requirements": [
+            "正确计算平移后的绝对值函数在顶点的左右差商",
+            "基于差商不相等得出不可导结论"
+          ]
+        },
+        {
+          "key": "S2",
+          "name": "连续与可导的逻辑边界论证",
+          "point_keys": [
+            "P5",
+            "P6",
+            "P7"
+          ],
+          "observable_behavior": "给定函数的连续或可导状态，能正确推导另一状态，并在逻辑不成立时能准确援引反例。",
+          "task": {
+            "prompt": "已知函数 f 在内部点 a 连续，请判断“f 在 a 可导”这一结论是否必然成立？如果已知 f 在 a 不可导，请判断“f 在 a 不连续”是否必然成立？",
+            "expected_evidence": "针对两个逻辑推导分别给出“是/否”的结论；若为“否”，需提供明确的逻辑反例（如 |x| 在 0）。"
+          },
+          "criteria": [
+            {
+              "point_key": "P5",
+              "probe_key": "Q4",
+              "pass_evidence": "指出若已知可导，则可断定连续（可导是连续的充分条件）"
+            },
+            {
+              "point_key": "P6",
+              "probe_key": "Q5",
+              "pass_evidence": "指出连续不能断定可导，并能援引 f(x)=|x| 在 0 作为反例"
+            },
+            {
+              "point_key": "P7",
+              "probe_key": "Q6",
+              "pass_evidence": "指出不可导不能断定不连续（因为连续不可导的函数存在），且说明不连续必然推不出可导"
+            }
+          ],
+          "mistakes": [
+            {
+              "key": "B",
+              "point_keys": [
+                "P6",
+                "P7"
+              ],
+              "wrong_rule": "错误地认为连续与可导互为充要条件，或未能区分“充分条件”与“逆否命题”的适用方向。",
+              "observable_error": "得出结论“若 f 在 a 连续，则必可导”或“若 f 在 a 不可导，则必不连续”。",
+              "probe_key": "Q5",
+              "prediction": "回答“能断定”，因为学生错误地建立了双向推导逻辑。",
+              "reason": "该错源于对逻辑推导方向的记忆偏差。独立应用时，学生面对连续/不可导的前提，会机械地推向其对应的可导/连续结论，而忽略了需要反例来打破充分性。",
+              "repair_steps": [
+                "画出一个具体的连续但不可导函数（如 |x|）来反驳“连续推可导”",
+                "利用逻辑真值表确认“不可导”在逻辑上不能直接等同于“不连续”"
+              ]
+            }
+          ],
+          "discrimination": {
+            "probe_keys": [
+              "Q5",
+              "Q6"
+            ],
+            "distinguishes": "能区分正确理解“单向充分性”的学生与错误认为“双向等价”的学生。",
+            "limits": "此题侧重于逻辑推导，无法检测学生对具体点（如 x=2 处）计算差商细节的准确性。"
+          },
+          "retest_key": "R2",
+          "mastery_requirements": [
+            "正确识别不连续导致的必然不可导",
+            "能在逻辑推理中准确指出连续性对于可导性的非充分性"
+          ]
+        }
+      ],
+      "gaps": []
+    },
+    "review": {
+      "course": "calculus",
+      "title": "微积分：连续与可导的关系",
+      "point_count": 8,
+      "skills": 2,
+      "criteria": 8,
+      "tree_structure_errors": [],
+      "teaching_structure_errors": [
+        "criterion_ref",
+        "criterion_ref"
+      ],
+      "coverage_review": [
+        {
+          "requirement": "连续的点值极限等值条件",
+          "covered_by": [
+            "P2"
+          ]
+        },
+        {
+          "requirement": "有限双侧差商定义",
+          "covered_by": [
+            "P3"
+          ]
+        },
+        {
+          "requirement": "左右差商不同不可导",
+          "covered_by": [
+            "P4"
+          ]
+        },
+        {
+          "requirement": "可导推出连续",
+          "covered_by": [
+            "P5"
+          ]
+        },
+        {
+          "requirement": "连续不能推出可导",
+          "covered_by": [
+            "P6",
+            "P8"
+          ]
+        },
+        {
+          "requirement": "不连续推出不可导但反向不成立",
+          "covered_by": [
+            "P6",
+            "P7"
+          ]
+        }
+      ],
+      "reviewer": "Codex",
+      "ready_for_adoption": false,
+      "findings": [
+        {
+          "field": "tree.P6",
+          "finding": "把连续不能推出可导、不可导不能推出不连续合在一个叶子；元问题只问前者，独立检查粒度不一致。"
+        },
+        {
+          "field": "tree.P8 / categories",
+          "finding": "将完整反例同时作为独立知识叶子，和定义/关系并列；应区分知识规则、范围前提和应用例证。"
+        },
+        {
+          "field": "teaching.S1.criteria[P1,P2]",
+          "finding": "两条probe_key为null，达标证据未绑定题库；P1范围前提被新增为叶子，但题库没有直接测试它。"
+        },
+        {
+          "field": "teaching.S2.criteria[P7]",
+          "finding": "P7是不连续→不可导，绑定Q6却检查不可导是否推出不连续；问的是另一推理方向。"
+        },
+        {
+          "field": "teaching.S1.mistakes.A.reason",
+          "finding": "用“没有尖角/拐点”描述可导，混淆尖角与可导函数也可具有的拐点；补救直观不宜替代差商条件。"
+        }
+      ],
+      "review_limit": "一份人工准备的短材料、每阶段单次生成；不代表整课覆盖或稳定通过率"
+    }
+  },
+  {
+    "fixture": {
+      "key": "physics",
+      "title": "大学物理：作用反作用与受力对象",
+      "profile": "经典力学，宏观低速情境；必须指明施力者、受力者和所选系统。用受力图和受力对象核对，不泛化到其他物理理论。",
+      "references": [
+        "https://openstax.org/books/university-physics-volume-1/pages/5-5-newtons-third-law"
+      ],
+      "materials": [
+        {
+          "id": "M1",
+          "text": "两物体A与B的一次相互作用中，A对B的力与B对A的力大小相等、方向相反，分别作用于B和A。等大反向不以两物体质量相等或静止为前提；这里不据力相等推出它们加速度相等。"
+        },
+        {
+          "id": "M2",
+          "text": "画单个物体的受力图，只列它所受的力，不把它施加给别物体的力画进来；作用反作用作用在不同物体上，不能在单物体图上当作平衡力相消。平衡力要在同一受力对象上考察。若将A+B一起选为系统，A/B相互作用属于内力；其配对求和抵消不等于外力合力为零。"
+        }
+      ],
+      "coverage": [
+        "相互作用配对",
+        "等大反向",
+        "不同受力对象",
+        "等大不要求等质量静止",
+        "单物体受力图与平衡力区别",
+        "系统内力抵消不推出外力为零"
+      ],
+      "probes": [
+        {
+          "key": "Q1",
+          "question": "甲推乙，甲对乙的力的反作用力是什么？",
+          "answer": "乙对甲的力。",
+          "evidence_type": "reasoning"
+        },
+        {
+          "key": "Q2",
+          "question": "甲乙相互推，甲质量为乙的两倍，谁对谁的相互作用力更大？",
+          "answer": "二者大小相等。",
+          "evidence_type": "reasoning"
+        },
+        {
+          "key": "Q3",
+          "question": "甲对乙和乙对甲这两个力分别画在哪个物体的受力图？",
+          "answer": "前者画在乙上，后者画在甲上。",
+          "evidence_type": "reasoning"
+        },
+        {
+          "key": "Q4",
+          "question": "手推墙但墙未移动，能否据此说墙未对手施力？",
+          "answer": "不能；静止不否定反作用力。",
+          "evidence_type": "reasoning"
+        },
+        {
+          "key": "Q5",
+          "question": "桌上的书所受重力与桌面对书的支持力，是否为作用反作用力对？",
+          "answer": "不是；二者都作用在书上。",
+          "evidence_type": "reasoning"
+        },
+        {
+          "key": "Q6",
+          "question": "把两相互推的车选为整体，内部推力相消是否证明整体外力合力为零？",
+          "answer": "不能；仍需单独检查外力。",
+          "evidence_type": "reasoning"
+        }
+      ],
+      "retests": [
+        {
+          "key": "R1",
+          "question": "脚蹬地面时，地面对脚的力与脚对地面的力如何配对？只画人的受力图应保留哪一个？",
+          "answer": "等大反向、不同受力对象；人的受力图保留地面对脚/人的力。",
+          "evidence_type": "reasoning"
+        },
+        {
+          "key": "R2",
+          "question": "两车之间有相互作用力，外部绳子还拉着一辆车。选两车为整体时，能否仅因内力配对相消就说没有外力？",
+          "answer": "不能，外部绳子拉力仍属于外力。",
+          "evidence_type": "reasoning"
+        }
+      ]
+    },
+    "tree": {
+      "status": "candidate",
+      "categories": [
+        {
+          "key": "G1",
+          "parent_key": null,
+          "name": "作用反作用力特性"
+        },
+        {
+          "key": "G2",
+          "parent_key": null,
+          "name": "受力图绘制与平衡力辨析"
+        }
+      ],
+      "points": [
+        {
+          "key": "P1",
+          "parent_key": "G1",
+          "name": "作用反作用力等大反向",
+          "statement": "在A与B的一次相互作用中，A对B的力与B对A的力大小相等、方向相反。",
+          "conditions": [
+            "经典力学",
+            "宏观低速情境"
+          ],
+          "meta_question": "在宏观低速情境下，两物体相互作用时作用力与反作用力的大小和方向关系是什么？",
+          "meta_answer": "大小相等，方向相反。",
+          "source_refs": [
+            "M1"
+          ]
+        },
+        {
+          "key": "P2",
+          "parent_key": "G1",
+          "name": "作用反作用力作用对象",
+          "statement": "作用力与反作用力分别作用于相互作用的两个不同物体上。",
+          "conditions": [
+            "经典力学"
+          ],
+          "meta_question": "相互作用产生的两个力分别作用在哪里？",
+          "meta_answer": "分别作用在A和B上。",
+          "source_refs": [
+            "M1",
+            "M2"
+          ]
+        },
+        {
+          "key": "P3",
+          "parent_key": "G1",
+          "name": "作用反作用力的前提限制",
+          "statement": "作用力与反作用力大小相等，不以两物体质量相等或处于静止状态为前提。",
+          "conditions": [
+            "经典力学"
+          ],
+          "meta_question": "判断作用力与反作用力是否等大反向，是否需要两物体质量相等或静止？",
+          "meta_answer": "不需要。",
+          "source_refs": [
+            "M1"
+          ]
+        },
+        {
+          "key": "P4",
+          "parent_key": "G1",
+          "name": "力与加速度的独立判断",
+          "statement": "不能依据作用力与反作用力大小相等，直接推导出两物体的加速度相等。",
+          "conditions": [
+            "经典力学",
+            "宏观低速情境"
+          ],
+          "meta_question": "如果A对B的力等于B对A的力，能否直接得出A和B的加速度相等？",
+          "meta_answer": "不能，需结合质量等因素判断。",
+          "source_refs": [
+            "M1"
+          ]
+        },
+        {
+          "key": "P5",
+          "parent_key": "G2",
+          "name": "单物体受力图规则",
+          "statement": "绘制单个物体受力图时，只列出该物体所受的力，不将其施加给其他物体的力画入该物体受力图中。",
+          "conditions": [
+            "受力对象为单个物体"
+          ],
+          "meta_question": "画物体B的受力图时，是否需要画出B对物体A的力？",
+          "meta_answer": "不需要，只画作用于B的力。",
+          "source_refs": [
+            "M2"
+          ]
+        },
+        {
+          "key": "P6",
+          "parent_key": "G2",
+          "name": "作用反作用力非平衡力",
+          "statement": "作用反作用力分别作用于不同物体，不能在同一物体的受力图上作为平衡力相消。",
+          "conditions": [
+            "受力对象为单个物体",
+            "存在相互作用力对"
+          ],
+          "meta_question": "在单个物体的受力分析中，相互作用力能否相互抵消？",
+          "meta_answer": "不能，因为它们作用在不同物体上。",
+          "source_refs": [
+            "M2"
+          ]
+        },
+        {
+          "key": "P7",
+          "parent_key": "G2",
+          "name": "平衡力的受力对象限制",
+          "statement": "判断平衡力必须在同一受力对象上考察。",
+          "conditions": [
+            "受力对象为单个物体或整体系统"
+          ],
+          "meta_question": "判断两个力是否平衡，需要满足什么受力对象条件？",
+          "meta_answer": "必须作用于同一受力对象。",
+          "source_refs": [
+            "M2"
+          ]
+        },
+        {
+          "key": "P8",
+          "parent_key": "G2",
+          "name": "系统内力抵消性质",
+          "statement": "若将A+B选为整体系统，A与B间的相互作用力为内力；内力配对求和抵消不代表外力合力为零。",
+          "conditions": [
+            "系统包含相互作用物体A和B",
+            "经典力学"
+          ],
+          "meta_question": "当把A和B选为系统时，A与B间的相互作用力如何处理？能否据此认为外力合力为零？",
+          "meta_answer": "作为内力，配对抵消；不能据此推断外力合力为零。",
+          "source_refs": [
+            "M2"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "from": "P2",
+          "to": "P6",
+          "type": "prerequisite",
+          "reason": "明确作用反作用力作用在不同物体上，是理解它们不能在同一受力图抵消的前提。",
+          "strength": "strong"
+        },
+        {
+          "from": "P1",
+          "to": "P3",
+          "type": "applies_to",
+          "reason": "等大反向的性质不依赖于质量或运动状态。",
+          "strength": "strong"
+        },
+        {
+          "from": "P1",
+          "to": "P4",
+          "type": "contrasts_with",
+          "reason": "力的相等不能直接转化为运动状态（加速度）的相等，需警惕逻辑跳跃。",
+          "strength": "moderate"
+        },
+        {
+          "from": "P5",
+          "to": "P6",
+          "type": "prerequisite",
+          "reason": "遵循单物体受力图只列受力规则，才能识别出相互作用力未被误画或误抵消。",
+          "strength": "strong"
+        }
+      ],
+      "gaps": [
+        "材料未覆盖如何具体求解平衡力的数值计算方法（如牛顿第二定律具体代数式）。",
+        "材料未涉及非宏观低速（如相对论力学）情境下作用反作用定律的修正。"
+      ]
+    },
+    "teaching": {
+      "skills": [
+        {
+          "key": "S1",
+          "name": "作用反作用力配对与逻辑边界",
+          "point_keys": [
+            "P1",
+            "P2",
+            "P3",
+            "P4"
+          ],
+          "observable_behavior": "在给定物体与质量/运动状态的力学情境中，学生能准确配对相互作用力，明确其作用对象与前提条件，并在受力分析中阻断由'力相等'错误推导'加速度相等'的逻辑跳跃。",
+          "task": {
+            "prompt": "提供情境：质量不等的两物体A与B发生相互作用（如手推墙，或甲推乙）。1. 找出并配对相互作用力，指明施力者与受力者。2. 判断该相互作用力是否等大反向，是否受物体质量或静止状态影响。3. 在给出物体质量关系后，判断A与B的加速度是否必然相等，并给出受力分析推理。",
+            "expected_evidence": "1. 明确的力的配对清单（如：F_A对B 与 F_B对A）。2. 受力对象标注图（标出A受力、B受力）。3. 基于牛顿第二定律 $F=ma$ 的代数推理步骤，对比两物体质量与受力，指出加速度关系。"
+          },
+          "criteria": [
+            {
+              "point_key": "P1",
+              "probe_key": "Q1",
+              "pass_evidence": "正确配对A对B与B对A的力，并表述其大小相等、方向相反。"
+            },
+            {
+              "point_key": "P2",
+              "probe_key": "Q3",
+              "pass_evidence": "明确指出F_A对B作用在B上，F_B对A作用在A上，未混淆受力对象。"
+            },
+            {
+              "point_key": "P3",
+              "probe_key": "Q2",
+              "pass_evidence": "在质量不等的情境中，正确判断两物体间相互作用力大小相等，未受质量差影响。"
+            },
+            {
+              "point_key": "P4",
+              "probe_key": "Q2",
+              "pass_evidence": "结合受力（相等）与质量（不等）推理出两物体加速度不等，拒绝了'力等则加速度等'的错误结论。"
+            }
+          ],
+          "mistakes": [
+            {
+              "key": "A",
+              "point_keys": [
+                "P3",
+                "P4"
+              ],
+              "wrong_rule": "根据物体质量差异或运动状态（如静止），错误判断作用反作用力大小不相等。",
+              "observable_error": "在质量不等的两物体间，标注相互作用力 $F_{A\\to B} \\neq F_{B\\to A}$，或者以'物体B静止'为由说明A对B的力大于B对A的力。",
+              "probe_key": "Q2",
+              "prediction": "回答者会指出较轻物体受到的力较小，或静止物体施力较小，并试图据此推导较轻物体（或受力较小物体）的加速度更大或不匹配。",
+              "reason": "将牛顿第三定律与宏观直觉（'大力者推小力者'）混淆，误认为宏观力学中力的大小受受力对象质量或状态调节，违背了相互作用力等大反向的普适前提。",
+              "repair_steps": [
+                "复习牛顿第三定律的定义，强调'一对相互作用力'的大小与方向关系独立于质量、速度或静止状态。",
+                "在受力图上仅对单一受力对象列力，明确力的等量关系是力对自身的属性，然后针对每个受力对象独立使用 $F_{net} = ma$ 计算各自的运动学响应。"
+              ]
+            }
+          ],
+          "discrimination": {
+            "probe_keys": [
+              "Q1",
+              "Q2",
+              "Q4"
+            ],
+            "distinguishes": "Q1与Q4区分了学生是否受'墙未动'（静止状态）的干扰而误判反作用力不存在或不等；Q2结合质量差情境，区分了学生是否会将'力相等'直接错误映射为'加速度/运动状态相等'（P4的边界测试）。",
+            "limits": "无法仅凭这些题判定学生在多力复合系统（如多个物体同时存在摩擦力和重力时）能否正确隔离内力与外力。"
+          },
+          "retest_key": "R1",
+          "mastery_requirements": [
+            "在陌生情境（脚与地面）中正确配对等大反向的力，并准确指定受力对象。",
+            "在只画单物体（人）受力图时，能正确保留地面对人的力，并排除人对地面的反作用力。"
+          ]
+        },
+        {
+          "key": "S2",
+          "name": "受力图绘制与内力/平衡力辨析",
+          "point_keys": [
+            "P5",
+            "P6",
+            "P7",
+            "P8"
+          ],
+          "observable_behavior": "根据选定系统，学生能绘制正确的单物体受力图，准确排除施加给其他物体的力（反作用力），区分平衡力与相互作用力，并在选取整体系统时正确识别内力相消但不能推导外力为零的逻辑界限。",
+          "task": {
+            "prompt": "提供情境：桌面上的一本书（或相互推的车+外部拉力系统）。1. 画出书（或车A）的受力图，并标注重力、支持力等。2. 判定书中某两个力（如重力与支持力）是否为作用反作用力，并说明理由。3. 若将相互推的车（A、B）及外部拉力系统选为整体，判断内部推车力相消是否代表整体所受外力合力为零。",
+            "expected_evidence": "1. 包含受力对象和所有外部施加力的受力图（无多余力）。2. 平衡力与反作用力的受力对象对比说明（受力对象同/不同）。3. 对整体系统的受力分析，分离内力与外力。"
+          },
+          "criteria": [
+            {
+              "point_key": "P5",
+              "probe_key": "Q3",
+              "pass_evidence": "书（或车A）的受力图中未画出'书对桌面的压力'，只保留了作用于书（车A）的力。"
+            },
+            {
+              "point_key": "P6",
+              "probe_key": "Q5",
+              "pass_evidence": "正确识别书中重力与支持力不是作用反作用力对，因为二者作用在同一物体上，并指出书的重力的反作用力是书对地球的引力。"
+            },
+            {
+              "point_key": "P7",
+              "probe_key": "Q5",
+              "pass_evidence": "论证重力与支持力平衡时，明确前提'必须作用于同一受力对象'。"
+            },
+            {
+              "point_key": "P8",
+              "probe_key": "Q6",
+              "pass_evidence": "选出两车为整体后，指出内部推力相消仅代表内力合力为零，不能因此忽略外部绳子的拉力（外力），并画出外部绳拉力。"
+            }
+          ],
+          "mistakes": [
+            {
+              "key": "B",
+              "point_keys": [
+                "P5",
+                "P6",
+                "P7"
+              ],
+              "wrong_rule": "在绘制单一受力对象的受力图时，将施加给其他物体的反作用力画出，或将同一物体上的平衡力错误标记为作用反作用力对。",
+              "observable_error": "书的受力图中出现了'书对桌面的力'；或在受力分析中称'书的重力和桌面的支持力是一对相互作用力，故互相抵消'。",
+              "probe_key": "Q5",
+              "prediction": "在受力图环节，学生可能画出作用于其他物体的力；在辨析环节，学生会错误地用'力抵消'来解释静止，或者指出重力和支持力是'大小相等方向相反的作用反作用力'，并忽略它们作用在同一物体上的事实。",
+              "reason": "混淆了'系统边界'（受力对象），将受力图当成了'力场分布图'，未掌握牛顿第三定律要求'不同受力对象'及平衡力要求'同一受力对象'的严格区分。",
+              "repair_steps": [
+                "重新审视受力图的定义：以圈出的受力对象（如书）为原点，只画有实际接触点（或引力场）且箭头指向受力对象的力。",
+                "通过受力对象检验法：写出'施力者→受力者'。若施力者与受力者互换且受力者变为别的物体，则是作用反作用力对（不可相消）；若受力者相同，则可能为平衡力（可以相消）。"
+              ]
+            },
+            {
+              "key": "C",
+              "point_keys": [
+                "P8"
+              ],
+              "wrong_rule": "将整体系统中内力相互抵消的结果，错误推广至系统所受的所有外力合力为零。",
+              "observable_error": "在两车系统存在外部拉力（如绳子拉着一端）的情境下，学生得出'由于内部推力等大反向相互抵消，整体所受合外力为0，故整体静止/匀速'的结论。",
+              "probe_key": "Q6",
+              "prediction": "学生会列举A推B和B推A，并直接写出'内力抵消=0，因此外力合力也为0'，遗漏或抹杀外部绳子的拉力在整体受力分析中的作用。",
+              "reason": "逻辑跳跃，未能区分'系统内部'（A和B之间）与'系统与外部环境之间'（绳子与车之间）的力边界，误认为内力平衡可以抹平外部作用。",
+              "repair_steps": [
+                "使用系统切割法：画一个虚线框包住A和B。",
+                "区分穿框的力（外力，必须画出）和不穿框的力（内力，可以相消），对穿框的力（外部绳子拉力）单独进行矢量和计算。"
+              ]
+            }
+          ],
+          "discrimination": {
+            "probe_keys": [
+              "Q3",
+              "Q5",
+              "Q6"
+            ],
+            "distinguishes": "Q5区分了平衡力与反作用力在受力对象上的根本区别；Q6区分了学生是否能在选取系统时正确区分内力（相消）与外力（不可相消），检测出将内力抵消错误等价为系统平衡的能力缺失。",
+            "limits": "不能判定学生在涉及非接触力（如电场力与重力）或三维空间斜拉力的具体受力图投影计算能力。"
+          },
+          "retest_key": "R2",
+          "mastery_requirements": [
+            "在面对两车+外部绳拉力系统时，能准确识别内力（相互推力）相消不代表外力合力为零。",
+            "明确指出外部绳子的拉力属于系统外部力，必须参与合外力的计算。"
+          ]
+        }
+      ],
+      "gaps": [
+        "材料未覆盖如何具体求解平衡力的数值计算方法（如牛顿第二定律具体代数式）。",
+        "材料未涉及非宏观低速（如相对论力学）情境下作用反作用定律的修正。"
+      ]
+    },
+    "review": {
+      "course": "physics",
+      "title": "大学物理：作用反作用与受力对象",
+      "point_count": 8,
+      "skills": 2,
+      "criteria": 8,
+      "tree_structure_errors": [
+        "relation_strength_format",
+        "relation_strength_format",
+        "relation_strength_format",
+        "relation_strength_format"
+      ],
+      "teaching_structure_errors": [],
+      "coverage_review": [
+        {
+          "requirement": "相互作用配对",
+          "covered_by": [
+            "P1",
+            "P2"
+          ]
+        },
+        {
+          "requirement": "等大反向",
+          "covered_by": [
+            "P1"
+          ]
+        },
+        {
+          "requirement": "不同受力对象",
+          "covered_by": [
+            "P2"
+          ]
+        },
+        {
+          "requirement": "等大不要求等质量静止",
+          "covered_by": [
+            "P3"
+          ]
+        },
+        {
+          "requirement": "单物体受力图与平衡力区别",
+          "covered_by": [
+            "P5",
+            "P6",
+            "P7"
+          ]
+        },
+        {
+          "requirement": "系统内力抵消不推出外力为零",
+          "covered_by": [
+            "P8"
+          ]
+        }
+      ],
+      "reviewer": "Codex",
+      "ready_for_adoption": false,
+      "findings": [
+        {
+          "field": "tree.relations[*].strength",
+          "finding": "返回strong/moderate字符串，与通用存储格式不符。"
+        },
+        {
+          "field": "teaching.S1.criteria[P4]",
+          "finding": "材料只给相互作用力等大、质量不同，未说明各物体合力；不能直接推出加速度不等。F=ma使用合外力，不是任意一对相互作用力。"
+        },
+        {
+          "field": "teaching.S1.criteria[P4] / discrimination",
+          "finding": "Q2只问相互作用力谁更大，不能据此确认学生会比较加速度；引用的题没有实际考到标准。"
+        },
+        {
+          "field": "teaching.S2.task",
+          "finding": "将“两车及外部拉力系统”都选为整体，与只选两车的冻结题改变了系统边界，后续外力结论未同步。"
+        },
+        {
+          "field": "teaching.S2.mistakes.B.repair",
+          "finding": "把“箭头指向受力对象”作为受力图规则，容易混淆受力归属和力方向；应按施力者/受力者识别力，箭头表示其方向。"
+        }
+      ],
+      "review_limit": "一份人工准备的短材料、每阶段单次生成；不代表整课覆盖或稳定通过率"
+    }
+  },
+  {
+    "fixture": {
+      "key": "history",
+      "title": "历史学习：史料观察、推断与互证",
+      "profile": "史料论证微单元。材料A/B/C均为虚构教学材料，不是真实史实。评价依据是引用、推理和不确定性，允许不同有证据的解释，不要求唯一结论。",
+      "references": [
+        "https://www.loc.gov/programs/teachers/getting-started-with-primary-sources/guides/",
+        "https://blogs.loc.gov/teachers/2014/05/primary-sources-and-research-part-iii-evaluating-sources-and-using-evidence-2/"
+      ],
+      "materials": [
+        {
+          "id": "M1",
+          "text": "分析史料先区分原文可观察内容与分析者的推断，推断应说明依据与推理。作者、写作时间、受众和目的影响材料可支持的主张；不能仅因是一手材料就认为完全客观，也不能只因有立场就认定毫无价值。"
+        },
+        {
+          "id": "M2",
+          "text": "互证需比较来源是否独立、记载对象和时段是否可比。两个转载同一报道的文本不构成两份独立见证。材料相互矛盾时应列出差异、考察背景和寻找新证据，不凭数量投票或预设立场定真假。有限来源只支持有限强度的结论；应区分可以说什么、不能确定什么及下一步查证。"
+        },
+        {
+          "id": "M3",
+          "text": "以下均为虚构材料：A是某工厂经理致投资人的年度报告，写道“产量增加，所以所有工人的生活都改善了”。B是同年度一名工人的私人日记，写道“我家收入增加，但工作时间更长了”。C是报纸对A的原文转载。没有提供其他工人的记录、物价、工资账簿或工时统计。"
+        }
+      ],
+      "coverage": [
+        "观察与推断区分",
+        "作者时间受众目的",
+        "立场不等于无价值或全客观",
+        "转载不是独立互证",
+        "矛盾须比较与查证而非投票",
+        "结论限度与多种合理解释"
+      ],
+      "probes": [
+        {
+          "key": "Q1",
+          "question": "A中哪些是作者写出的说法，哪些还不能直接当作经证实的事实？",
+          "answer": "可观察到作者作了产量和生活改善的陈述；不能据此证实所有工人生活改善。",
+          "evidence_type": "rubric"
+        },
+        {
+          "key": "Q2",
+          "question": "解释A的受众与目的怎样影响其使用，并说能否因此把A全部作废。",
+          "answer": "需讨论面向投资人的目的与可能选择性呈现；不能据此全盘作废，须按具体主张评价。",
+          "evidence_type": "rubric"
+        },
+        {
+          "key": "Q3",
+          "question": "A和C是否是两份独立证据？",
+          "answer": "不是；C转载A，不增加独立来源。",
+          "evidence_type": "rubric"
+        },
+        {
+          "key": "Q4",
+          "question": "B是否足以证明所有工人生活改善或恶化？",
+          "answer": "均不足；B仅是一个人的记录，应限定对象并区分收入与工时。",
+          "evidence_type": "rubric"
+        },
+        {
+          "key": "Q5",
+          "question": "A、B出现张力时，应如何处理？",
+          "answer": "比较作者、对象、时段、生活指标，查新证据；不按来源数量直接判真假。",
+          "evidence_type": "rubric"
+        },
+        {
+          "key": "Q6",
+          "question": "提出下一步查证计划，是否只能接受一种方案？",
+          "answer": "可有多个合理方案，如工资物价工时及更多独立记录；需说明证据如何检验主张。",
+          "evidence_type": "rubric"
+        }
+      ],
+      "retests": [
+        {
+          "key": "R1",
+          "question": "虚构新材料D：一位商人的公开演讲称铁路开通让全城都富裕；E：一户居民信中说房租上涨且通勤更快。提出一个暂定解释、证据限度及查证方案。",
+          "answer": "接受不同暂定解释；须分别引用D/E、限定全城概括、区分经济与通勤指标，并提出能检验解释的独立证据。",
+          "evidence_type": "rubric"
+        },
+        {
+          "key": "R2",
+          "question": "若新增F只是转载D，如何调整证据数量与结论把握？",
+          "answer": "不新增独立见证；可作为传播证据但不能增强D所述全城富裕的独立互证强度。",
+          "evidence_type": "rubric"
+        }
+      ]
+    },
+    "tree": {
+      "status": "candidate",
+      "categories": [
+        {
+          "key": "G1",
+          "parent_key": null,
+          "name": "史料分析基础"
+        },
+        {
+          "key": "G2",
+          "parent_key": null,
+          "name": "互证与独立性"
+        },
+        {
+          "key": "G3",
+          "parent_key": null,
+          "name": "虚构材料应用"
+        }
+      ],
+      "points": [
+        {
+          "key": "P1",
+          "parent_key": "G1",
+          "name": "观察与推断的区分",
+          "statement": "在分析史料时，应将原文中可直接观察到的事实（如文字记录）与分析者基于这些事实进行的推断明确分开。",
+          "conditions": [
+            "适用于所有涉及分析者主观解读的史料阅读过程"
+          ],
+          "meta_question": "如何在史料分析中区分客观记录与主观推断？",
+          "meta_answer": "应明确列出原文的可观察内容，单独标注并说明分析者的推断依据和逻辑链条，不将两者混淆。",
+          "source_refs": [
+            "M1"
+          ]
+        },
+        {
+          "key": "P2",
+          "parent_key": "G1",
+          "name": "史料背景要素对主张的影响",
+          "statement": "史料的作者身份、写作时间、受众及写作目的构成了背景要素，这些因素决定了该材料能够支持哪些主张以及不能支持哪些主张。",
+          "conditions": [
+            "必须结合具体的作者、时间、受众信息进行判断，不可脱离背景。"
+          ],
+          "meta_question": "为什么评估史料的可信度时不能忽略其背景和意图？",
+          "meta_answer": "因为背景要素（如作者立场、目的）限制了材料的有效信息范围；忽视它们会导致错误地赋予材料超出其背景支持范围的证明力。",
+          "source_refs": [
+            "M1"
+          ]
+        },
+        {
+          "key": "P3",
+          "parent_key": "G1",
+          "name": "一手材料与客观性的关系",
+          "statement": "材料属于“一手材料”并不自动等同于其内容“完全客观”；同样，材料具有特定立场也不意味着其“毫无价值”。",
+          "conditions": [
+            "适用于判断一手材料的证明力和局限性"
+          ],
+          "meta_question": "一手材料的身份如何影响对其客观性和价值的判断？",
+          "meta_answer": "一手材料提供了原始视角但不保证绝对客观；评估价值时，应在承认其立场局限性的同时，提取其在特定视角下仍具价值的信息，避免绝对化。",
+          "source_refs": [
+            "M1"
+          ]
+        },
+        {
+          "key": "P4",
+          "parent_key": "G2",
+          "name": "互证的独立性标准",
+          "statement": "在进行史料互证时，必须比较不同来源是否具有独立来源，以及其记载的对象和时段是否具有可比性；若两个文本仅是同一报道的转载，则不能视为两份独立的见证。",
+          "conditions": [
+            "必须确认来源间的原始独立性，排除因转载或共同来源导致的重复。"
+          ],
+          "meta_question": "判断两份史料能否作为互证的前提条件是什么？",
+          "meta_answer": "前提条件是来源的独立性和记载范围（对象与时段）的可比性；若来源相同或存在从属关系，则不构成有效互证。",
+          "source_refs": [
+            "M2"
+          ]
+        },
+        {
+          "key": "P5",
+          "parent_key": "G2",
+          "name": "矛盾史料的处理方法",
+          "statement": "当材料之间出现矛盾时，应当列出具体差异，考察各自的背景，并寻找新的证据；不得仅凭支持某一说法的材料数量多，或预设立场来判定真假。",
+          "conditions": [
+            "适用于发现史料间记载冲突时的处理流程。"
+          ],
+          "meta_question": "面对相互矛盾的史料，正确的处理步骤是什么？",
+          "meta_answer": "列出矛盾点，调查矛盾双方的背景与动机，寻找第三方或新证据以辅助判断，拒绝用“数人头”或预设立场来强行定论。",
+          "source_refs": [
+            "M2"
+          ]
+        },
+        {
+          "key": "P6",
+          "parent_key": "G2",
+          "name": "有限来源的结论边界",
+          "statement": "当可获得的史料数量有限时，所支持的结论强度也是有限的；分析时必须明确区分“可以确定的陈述”、“无法确定的空白”以及“下一步需要查证的方向”。",
+          "conditions": [
+            "适用于所有基于现有不完整材料做出的任何总结或判断。"
+          ],
+          "meta_question": "在史料有限的情况下，如何规范地表述分析结论？",
+          "meta_answer": "结论应受证据强度约束；需明确说明哪些是证据支持的，哪些是未知的，以及后续可采取哪些查证行动，避免过度概括。",
+          "source_refs": [
+            "M2"
+          ]
+        },
+        {
+          "key": "P7",
+          "parent_key": "G3",
+          "name": "虚构工厂年报（材料A）的语境",
+          "statement": "在虚构材料中，A是一份由某工厂经理写给投资人的年度报告，其中包含了“产量增加，所以所有工人的生活都改善了”的主张。",
+          "conditions": [
+            "仅适用于针对该特定虚构情境的评估，材料本身为教学用虚构内容。"
+          ],
+          "meta_question": "材料A中经理的主张具体是什么？",
+          "meta_answer": "经理声称由于工厂产量增加，所有工人的生活质量都随之得到了改善。",
+          "source_refs": [
+            "M3"
+          ]
+        },
+        {
+          "key": "P8",
+          "parent_key": "G3",
+          "name": "虚构工人日记（材料B）的语境",
+          "statement": "在虚构材料中，B是同一年度内一名工人的私人日记，其中记录了“我家收入增加，但工作时间更长了”的陈述。",
+          "conditions": [
+            "仅适用于针对该特定虚构情境的评估，材料本身为教学用虚构内容。"
+          ],
+          "meta_question": "材料B中工人描述的切身情况是什么？",
+          "meta_answer": "该工人的个人收入有所增加，但作为代价，其劳动时间（工时）也随之延长了。",
+          "source_refs": [
+            "M3"
+          ]
+        },
+        {
+          "key": "P9",
+          "parent_key": "G3",
+          "name": "虚构报纸转载（材料C）的属性",
+          "statement": "在虚构材料中，C是一份报纸的内容，该报纸并非原始调查，而是对材料A（工厂经理的年度报告）中相关表述的原文转载。",
+          "conditions": [
+            "仅适用于针对该特定虚构情境的评估，材料本身为教学用虚构内容。"
+          ],
+          "meta_question": "材料C的信息来源是什么？它与材料A有怎样的关系？",
+          "meta_answer": "C的来源是对A的原文转载，这意味着C不具备独立于A的见证价值，两者在信息上是重复的。",
+          "source_refs": [
+            "M3"
+          ]
+        },
+        {
+          "key": "P10",
+          "parent_key": "G3",
+          "name": "虚构情境中的证据缺口",
+          "statement": "在给定的虚构情境中，除了A、B、C三类材料外，并未提供其他工人的记录、物价数据、工资账簿或工时统计数据，这构成了评估整体工人生活状况的证据缺口。",
+          "conditions": [
+            "指代特定虚构教学案例中明确缺少的数据维度。"
+          ],
+          "meta_question": "在该虚构情境中，如果要验证“所有工人都改善”的主张，目前缺乏哪些关键数据？",
+          "meta_answer": "缺乏能够代表工人整体的群体性数据，具体包括：其他工人的个人记录、物价水平、系统性的工资账簿以及工时统计。",
+          "source_refs": [
+            "M3"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "from": "P2",
+          "to": "P7",
+          "type": "applies_to",
+          "reason": "分析材料A（经理的年报）时，必须运用“背景要素决定主张支持范围”这一原则，因为受众是“投资人”会直接影响其陈述的重点。",
+          "strength": null
+        },
+        {
+          "from": "P4",
+          "to": "P9",
+          "type": "applies_to",
+          "reason": "运用“互证独立性”原则时，材料C因是材料A的转载而被直接排除在独立证据之外，无法用来证明或反驳材料A的主张。",
+          "strength": null
+        },
+        {
+          "from": "P6",
+          "to": "P10",
+          "type": "applies_to",
+          "reason": "正是因为存在“关键数据（物价、群体记录等）的缺口”，才导致了在对该虚构案例下结论时，必须严格运用“有限来源结论边界”原则来限制推断。",
+          "strength": null
+        }
+      ],
+      "gaps": []
+    },
+    "teaching": {
+      "skills": [
+        {
+          "key": "S1",
+          "name": "史料语境下的观察-推断区分与背景评估",
+          "point_keys": [
+            "P1",
+            "P2",
+            "P3",
+            "P7",
+            "P8"
+          ],
+          "observable_behavior": "学生能准确分离史料原文的可观察文本内容与分析者的主观推断；能结合作者身份（工厂经理）、受众（投资人）及写作目的，评估材料A的主张支持范围，避免将一手材料等同于完全客观事实，也不因立场而全盘否定其特定视角下的价值。",
+          "task": {
+            "prompt": "阅读虚构材料A（工厂经理致投资人年报）和材料B（工人日记）。1. 从材料A中挑出一句‘可直接观察到的文字记录’和一句‘经理的推断’，并分别标注。2. 基于材料A的作者、受众和目的，解释为什么‘产量增加’这一记录不能直接证实‘所有工人生活改善’，并指出该材料在什么特定方面仍有研究价值。3. 简述材料B中工人的描述，指出其中哪些是具体事实，哪些属于个人感受。",
+            "expected_evidence": "一份包含两个部分的书面分析：第一部分为文本内容分类表（列明可观察事实vs推断）；第二部分为段落式论证，明确提及‘受众为投资人’、‘选择性呈现’、‘一手材料局限性’等关键概念，并基于材料B给出具体事实与感受的区分。"
+          },
+          "criteria": [
+            {
+              "point_key": "P1",
+              "probe_key": "Q1",
+              "pass_evidence": "学生能清晰列出材料A中经理写下的‘产量增加’等陈述作为观察对象，而不将其直接等同于事实；同时识别出‘所有工人的生活都改善了’是基于产量增加的推断，而非原文直接观察到的生活状态指标（如工资、物价）。"
+            },
+            {
+              "point_key": "P2",
+              "probe_key": "Q2",
+              "pass_evidence": "学生明确引用‘受众是投资人’和‘年度报告的目的’，指出这会导致经理在报告中倾向于突出积极方面（如产量增加）并淡化消极方面（如工时增加或工人不满），从而限制了材料A证明‘生活全面改善’的有效性。"
+            },
+            {
+              "point_key": "P3",
+              "probe_key": "Q1",
+              "pass_evidence": "学生在评价材料A时，未使用‘因为是年报所以绝对客观’或‘因为是资本家写的所以一无是处’等极端表述，而是承认其作为原始视角的价值（如反映管理层当时的叙事逻辑）并指出其立场局限。"
+            },
+            {
+              "point_key": "P7",
+              "probe_key": "Q1",
+              "pass_evidence": "学生准确复述材料A的主张内容：经理声称因产量增加，所有工人的生活质量随之改善，并识别出这是核心待验证主张。"
+            },
+            {
+              "point_key": "P8",
+              "probe_key": "Q4",
+              "pass_evidence": "学生准确引用材料B内容：该工人记录收入增加和工时延长。学生能够指出这是个人层面的具体事实，而非群体统计数据。"
+            }
+          ],
+          "mistakes": [
+            {
+              "key": "A",
+              "point_keys": [
+                "P1",
+                "P3"
+              ],
+              "wrong_rule": "混淆观察与推断，认为一手材料的文字记录等同于客观真理。",
+              "observable_error": "学生直接引用‘所有工人的生活都改善了’作为已证实的事实，或者声称因为材料A是一手年报，所以里面关于产量的描述绝对可靠，忽略了推断成分。",
+              "probe_key": "Q1",
+              "prediction": "学生的回答中会将‘所有工人的生活都改善’标记为‘可观察事实’，或者在解释时完全不提及经理在此句中使用了归因（推断）和全称概括（逻辑跳跃）。",
+              "reason": "如果学生遵循‘观察与推断严格分离’的原则，他们会发现‘生活改善’是结论，‘产量增加’是前提，而中间缺乏生活指标的证据，因此不能直接作为观察事实提取。",
+              "repair_steps": [
+                "回到材料A，用高亮笔将‘产量增加’（动作/记录）与‘所有工人的生活都改善了’（结论/状态评估）圈出。",
+                "自问：‘生活改善’是经理眼睛看到的数字，还是他根据产量做出的判断？如果是判断，它就是推断。"
+              ]
+            },
+            {
+              "key": "B",
+              "point_keys": [
+                "P2"
+              ],
+              "wrong_rule": "忽视史料背景要素，仅凭文本表面信息做判断。",
+              "observable_error": "学生在分析材料A时，完全未提及‘受众’是投资人，也未分析这种受众关系如何影响经理的话语策略（如报喜不报忧），而是直接评价内容的真伪。",
+              "probe_key": "Q2",
+              "prediction": "学生的论证中缺乏对‘投资人’这一受众的分析，或者虽然提到受众，但得出的结论是‘投资人关心的内容就是事实’，未能指出受众与写作目的对‘选择性呈现’的塑造作用。",
+              "reason": "背景要素是评估主张支持范围的必要条件。如果未分析受众（投资人），就无法解释为什么一份‘年度报告’会侧重于‘产量’而非‘工人工资’或‘生活满意度’。",
+              "repair_steps": [
+                "识别材料A的三个元数据：作者（经理）、受众（投资人）、目的（年度报告/争取资金或信任）。",
+                "推理：向投资人汇报时，经理最需要展示什么指标？（效率/产量）。他最不想让投资人知道什么？（潜在的劳资纠纷/高工时导致的成本或风险）。"
+              ]
+            }
+          ],
+          "discrimination": {
+            "probe_keys": [
+              "Q1",
+              "Q2"
+            ],
+            "distinguishes": "Q1区分了学生是否仅停留在字面提取（观察）还是进行了逻辑归因分析（推断）；Q2区分了学生是否将材料A视为孤立文本，还是置于‘经理-投资人’的社会互动语境中评估其偏见与局限。",
+            "limits": "无法单独区分学生是否具备‘区分一手与二手’的深层理论素养，因为这主要依赖于材料A自身的属性（一手），需结合S2的互证任务来全面评估。"
+          },
+          "retest_key": "R1",
+          "mastery_requirements": [
+            "在R1的新情境（商人演讲D与居民信E）中，学生必须同样执行‘观察-推断分离’：识别D中的‘全城富裕’为推断/主张，E中的‘房租上涨’为具体观察。",
+            "在R1中，学生必须再次结合背景（商人的公开演讲目的）来分析D的主张为何可能带有夸大或选择性呈现的特征，体现背景评估能力的迁移。"
+          ]
+        },
+        {
+          "key": "S2",
+          "name": "史料互证的独立性与矛盾处理的证据边界",
+          "point_keys": [
+            "P4",
+            "P5",
+            "P6",
+            "P9",
+            "P10"
+          ],
+          "observable_behavior": "学生能准确判断材料C因系转载而不具备独立见证价值，无法与A构成有效互证。当面对A（全面改善）与B（收入增但工时增）的矛盾时，学生能列出具体差异并拒绝数量投票。针对证据缺口（无群体数据、物价等），学生能严格限定结论强度，并提出明确的下一步查证计划。",
+          "task": {
+            "prompt": "基于材料A、B、C及情境描述：1. 评估材料C是否能作为支持材料A主张的‘第二份独立证据’，并说明理由。2. 分析材料A的主张（所有工人改善）与材料B的记录（个人收入增、工时增）之间存在的张力/矛盾，说明为何不能简单地判定谁对谁错，以及需要关注哪些具体指标差异。3. 鉴于缺乏其他工人记录、物价和工资账簿（证据缺口），明确陈述目前证据能支持的有限结论是什么，并列出至少两项具体的下一步查证方案（如查阅何种档案或询问何种人群）以检验A的主张。",
+            "expected_evidence": "一份包含三个部分的评估报告：1. 独立性判断（明确指出C非独立）；2. 矛盾分析表（列出A与B在对象、指标上的差异，并解释为何不能直接定论）；3. 结论边界与查证计划（明确区分‘已证实’、‘未证实’和‘待查证’，列出具体的数据收集方法）。"
+          },
+          "criteria": [
+            {
+              "point_key": "P4",
+              "probe_key": "Q3",
+              "pass_evidence": "学生明确指出C是A的转载，两者来源不独立，因此C不能增加证据的独立见证数量，不能用于互证A的真伪。"
+            },
+            {
+              "point_key": "P5",
+              "probe_key": "Q5",
+              "pass_evidence": "学生能够识别A与B的矛盾点（如‘所有工人vs单个工人’、‘生活改善vs工时增加’），并提出通过考察背景、寻找新证据（如工资单、物价）来缓解矛盾，而非依据‘A+ C’两份材料反对‘B’一份材料来判定A为真。"
+            },
+            {
+              "point_key": "P6",
+              "probe_key": "Q4",
+              "pass_evidence": "学生明确表述：现有材料只能证明‘某个特定工人的收入与工时变化’以及‘经理声称产量增加’，但不能证明‘所有工人’或‘整体生活水平’。结论受限于样本大小和数据维度。"
+            },
+            {
+              "point_key": "P9",
+              "probe_key": "Q3",
+              "pass_evidence": "在分析C的属性时，学生能准确识别其‘报纸转载’的身份，并将其作为非独立来源的特征加以说明。"
+            },
+            {
+              "point_key": "P10",
+              "probe_key": "Q6",
+              "pass_evidence": "学生准确指出缺失的关键数据（物价、群体记录、工时统计等），并在查证计划中提出获取这些具体数据的方法（例如：查阅工厂的工资账簿、调查当地物价指数、收集更多工人的日记）。"
+            }
+          ],
+          "mistakes": [
+            {
+              "key": "A",
+              "point_keys": [
+                "P4",
+                "P9"
+              ],
+              "wrong_rule": "混淆证据数量与独立见证价值，认为转载文本增加了证据强度。",
+              "observable_error": "学生在评估时认为‘因为有报纸C报道了A的内容，所以A的主张有了两个来源，更可信’，未能指出C是A的派生复制而非独立来源。",
+              "probe_key": "Q3",
+              "prediction": "学生的结论中会包含‘A和C共同支持了...’或‘双重来源证实了...’等表述，忽略了‘转载’意味着信息链的单一源头。",
+              "reason": "互证的核心在于独立性。如果C只是复印了A，那么无论复印多少份，独立见证的数量仍然是1。如果学生混淆了‘传播广度’与‘证据强度’，就会得出错误结论。",
+              "repair_steps": [
+                "画出信息流向图：经理(源头) -> A(年报) -> C(报纸转载)。",
+                "自问：C的信息是从经理那里独立获得的，还是从A那里复制的？如果是复制的，C是否提供了经理没说的新信息？如果没有，C就是冗余证据。"
+              ]
+            },
+            {
+              "key": "B",
+              "point_keys": [
+                "P5",
+                "P6"
+              ],
+              "wrong_rule": "在证据不足时强行定论或进行过度概括。",
+              "observable_error": "学生直接判定经理A撒谎（因为B说工时长了）或者判定B以偏概全（因为A是年报），试图用现有有限材料给出一个‘真/假’的最终裁判，或者将B的个人情况推广到全体工人。",
+              "probe_key": "Q5",
+              "prediction": "学生的回答中缺乏‘待定’或‘需进一步查证’的表述，而是直接给出了‘A错’或‘B错’的二元结论；或者将B的描述直接当作全体工人的代表数据。",
+              "reason": "A与B的矛盾可能源于对象不同（全体vs个人）或指标不同（生活改善vs工时成本）。在缺乏中间数据（如物价、总体工资分布）的情况下，强行定论违背了证据边界原则。正确的做法是指出差异，并指出需要新证据来填补空白。",
+              "repair_steps": [
+                "列出A与B差异的维度：对象（所有工人 vs 1个工人）、指标（生活改善[模糊] vs 收入/工时[具体]）。",
+                "自问：现有的A和B能否解决‘其他工人’和‘生活综合指标’的问题？如果不能，结论应该是什么？（答案：结论应限于已知事实，其余标注为未知/待查）。"
+              ]
+            }
+          ],
+          "discrimination": {
+            "probe_keys": [
+              "Q3",
+              "Q5",
+              "Q6"
+            ],
+            "distinguishes": "Q3区分了学生是否理解‘独立性’在互证中的核心地位；Q5区分了学生是陷入二元对立的思维定势，还是能运用差异分析处理矛盾；Q6区分了学生是否能将‘证据缺口’转化为具体的、可操作的查证步骤，而非仅停留在口头承认‘证据不足’。",
+            "limits": "无法直接区分学生是否具备‘评估史料时效性’的能力，因为本情境中材料均为‘同年度’，时效性差异不是主要矛盾，主要矛盾在于来源独立性和数据维度。"
+          },
+          "retest_key": "R2",
+          "mastery_requirements": [
+            "在R2的新情境（新增转载F）中，学生必须能识别出F与S1/R1中的D（原源头）之间的关系，并明确指出F不能增强D的独立互证强度。",
+            "学生需能复述S2的核心逻辑：增加转载文本的数量不改变独立见证的数量，结论的把握程度不因转载而增加。"
+          ]
+        }
+      ],
+      "gaps": []
+    },
+    "review": {
+      "course": "history",
+      "title": "历史学习：史料观察、推断与互证",
+      "point_count": 10,
+      "skills": 2,
+      "criteria": 10,
+      "tree_structure_errors": [],
+      "teaching_structure_errors": [],
+      "coverage_review": [
+        {
+          "requirement": "观察与推断区分",
+          "covered_by": [
+            "P1"
+          ]
+        },
+        {
+          "requirement": "作者时间受众目的",
+          "covered_by": [
+            "P2"
+          ]
+        },
+        {
+          "requirement": "立场不等于无价值或全客观",
+          "covered_by": [
+            "P3"
+          ]
+        },
+        {
+          "requirement": "转载不是独立互证",
+          "covered_by": [
+            "P4",
+            "P9"
+          ]
+        },
+        {
+          "requirement": "矛盾须比较与查证而非投票",
+          "covered_by": [
+            "P5"
+          ]
+        },
+        {
+          "requirement": "结论限度与多种合理解释",
+          "covered_by": [
+            "P6",
+            "P10"
+          ]
+        }
+      ],
+      "reviewer": "Codex",
+      "ready_for_adoption": false,
+      "findings": [
+        {
+          "field": "tree.P7-P10",
+          "finding": "把具体虚构材料内容与证据缺口作为通用知识叶子，导致案例一变知识树就需重建；应作为材料/案例实体引用。"
+        },
+        {
+          "field": "tree.P8.meta_answer",
+          "finding": "将收入与工时同时变化写成“作为代价”，加入材料没有给出的因果解释。"
+        },
+        {
+          "field": "teaching.S1.criteria[P8] / S2.criteria[P6]",
+          "finding": "把工人日记中的陈述写成已证明的个人事实；应区分“材料记载如此”和“事件已经被证实”。"
+        },
+        {
+          "field": "teaching.S1.criteria[P2] / repair",
+          "finding": "将可能的选择性呈现、争取资金或隐瞒劳资纠纷写成确定动机，超出虚构材料；也不能要求学生必须采用这些特定解释。"
+        },
+        {
+          "field": "teaching.S1.expected_evidence",
+          "finding": "要求明确提及固定关键概念，缺少接受同义表达和其他有证据论证的显式标准；开放评价的方向已有，但边界未稳固。"
+        }
+      ],
+      "review_limit": "一份人工准备的短材料、每阶段单次生成；不代表整课覆盖或稳定通过率"
+    }
+  }
+]

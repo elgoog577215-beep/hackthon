@@ -1,0 +1,646 @@
+{
+  "metrics": {
+    "model": "qwen3.8-27b",
+    "calls": 13,
+    "completed": 13,
+    "seconds": 121.97,
+    "claims": 40,
+    "points": 33,
+    "requirements": 40,
+    "represented_requirements": 40,
+    "anchored_quotes": 40,
+    "valid_classification_trees": 4,
+    "atom_fields_preserved": 33,
+    "control": {
+      "passed": true
+    },
+    "content_edits": 0,
+    "teaching_calls": 0,
+    "production_course_writes": 0,
+    "interpretation": "40条冻结材料要求均找到承载；不是40个全部原子化知识点，也不是整课覆盖。当前四树可逐点审阅，仍需粒度与措辞修订。"
+  },
+  "courses": [
+    {
+      "course": "python",
+      "title": "Python入门：列表别名与浅拷贝",
+      "claims": 9,
+      "points": 8,
+      "categories": 4,
+      "structure_checks_passed": true,
+      "classification_preserves_atoms": true,
+      "coverage": [
+        {
+          "requirement": "赋值使名字指向同一列表，不复制",
+          "claims": [
+            "C1"
+          ],
+          "points": [
+            "P1"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "共享列表修改对别名可见",
+          "claims": [
+            "C2"
+          ],
+          "points": [
+            "P2"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "名字重新绑定不传播",
+          "claims": [
+            "C3"
+          ],
+          "points": [
+            "P3"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "浅拷贝新建外层",
+          "claims": [
+            "C4"
+          ],
+          "points": [
+            "P4"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "外层append不改原外层",
+          "claims": [
+            "C5"
+          ],
+          "points": [
+            "P5"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "嵌套列表的对应内层引用共享",
+          "claims": [
+            "C6"
+          ],
+          "points": [
+            "P6"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "共享内层append从两个外层可见",
+          "claims": [
+            "C7"
+          ],
+          "points": [
+            "P7"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "替换b[0]仅改变b的元素引用",
+          "claims": [
+            "C8"
+          ],
+          "points": [
+            "P8"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        }
+      ],
+      "reviewer": "Codex source-by-source review",
+      "tree_digest": "cd8430fa195bde21d1729a131dc8c3c8bd50b349358ac5990ef44c97b36c1db9",
+      "ready_for_adoption": false,
+      "accuracy": "核心规则符合材料；P4引用支撑需补全",
+      "coverage_summary": "8/8要求有承载；普通列表范围保留为全局限制及附件",
+      "granularity": "大体清楚，P4仍需收窄",
+      "structure": "树结构合法；外层分类可更整齐",
+      "improvements": [
+        "新建外层、外层append、内层引用共享、共享内层append、元素引用替换分别保留。",
+        "没有生成题目、迁移或深拷贝操作答案。"
+      ],
+      "issues": [
+        [
+          "P4.statement / meta_question",
+          "“新外层”又包含元素引用关系，与P6部分重复；元问题同时问深浅拷贝、外层与元素。建议只保留新外层身份，把元素引用交给P6。"
+        ],
+        [
+          "P4.claim_refs",
+          "仅引用C4的“新建外层”片段，却陈述元素引用规则；完整M2有依据，但逐点证据映射需补C6或收窄正文。"
+        ],
+        [
+          "P1.conditions",
+          "“a和b是列表变量”容易被读成b必须事先存在；改成a引用普通列表、执行b=a即可。"
+        ],
+        [
+          "G2/G21 placements",
+          "P4挂在浅拷贝总类，P5单独挂外层子类；把P4/P5并列放入外层类会更清楚。"
+        ]
+      ]
+    },
+    {
+      "course": "calculus",
+      "title": "微积分：连续与可导的关系",
+      "claims": 9,
+      "points": 8,
+      "categories": 4,
+      "structure_checks_passed": true,
+      "classification_preserves_atoms": true,
+      "coverage": [
+        {
+          "requirement": "内点、双侧有限导数的范围",
+          "claims": [
+            "C1"
+          ],
+          "points": [
+            "P1"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "连续的点值存在、有限双侧极限及等值条件",
+          "claims": [
+            "C2"
+          ],
+          "points": [
+            "P2"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "差商有限双侧极限的可导定义",
+          "claims": [
+            "C3"
+          ],
+          "points": [
+            "P3"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "左右差商极限不同则不可导",
+          "claims": [
+            "C4"
+          ],
+          "points": [
+            "P4"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "可导推出连续",
+          "claims": [
+            "C5"
+          ],
+          "points": [
+            "P5"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "连续不能推出可导",
+          "claims": [
+            "C6"
+          ],
+          "points": [
+            "P7"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "不连续推出不可导（逆否）",
+          "claims": [
+            "C8"
+          ],
+          "points": [
+            "P6"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "不可导不能反推不连续",
+          "claims": [
+            "C9"
+          ],
+          "points": [
+            "P8"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "绝对值0处连续且左右导数-1/1作为案例",
+          "claims": [
+            "C7"
+          ],
+          "points": [
+            "P4",
+            "P7",
+            "P8"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        }
+      ],
+      "reviewer": "Codex source-by-source review",
+      "tree_digest": "2da530bf399e0133ec871d7337f0c11dd5e552491542646e033e6c8a48d61ee1",
+      "ready_for_adoption": false,
+      "accuracy": "主命题正确；P8答案有歧义",
+      "coverage_summary": "9/9要求有承载；反例作为附件保留",
+      "granularity": "四种推理方向分开；范围不应独立成叶子",
+      "structure": "分类合法；范围类需转为元数据",
+      "improvements": [
+        "正向、逆否、连续不能推可导、不可导不能推不连续分别成点。",
+        "绝对值反例没有继续冒充通用知识叶子。"
+      ],
+      "issues": [
+        [
+          "P1 / G1",
+          "“仅讨论内点”又被生成为范围叶子及分类；应作为全局范围并继承到相关点，不计作元知识。"
+        ],
+        [
+          "P2-P8.conditions",
+          "点内只写属于定义域，全局范围才写内点；单点展示或导出必须带上全局范围，不能丢失双侧/内点限制。"
+        ],
+        [
+          "P8.meta_answer",
+          "“不可导不包含不连续”表述不准确；应为“仅知不可导不能推出不连续”。不连续反而是不可导情形的子集。"
+        ]
+      ]
+    },
+    {
+      "course": "physics",
+      "title": "大学物理：作用反作用与受力对象",
+      "claims": 8,
+      "points": 7,
+      "categories": 2,
+      "structure_checks_passed": true,
+      "classification_preserves_atoms": true,
+      "coverage": [
+        {
+          "requirement": "相互作用力大小相等",
+          "claims": [
+            "C1"
+          ],
+          "points": [
+            "P1"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "相互作用力方向相反",
+          "claims": [
+            "C1"
+          ],
+          "points": [
+            "P1"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "相互作用力分属不同受力对象",
+          "claims": [
+            "C1"
+          ],
+          "points": [
+            "P1"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "等大反向不要求质量相等",
+          "claims": [
+            "C2"
+          ],
+          "points": [
+            "P2"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "等大反向不要求静止",
+          "claims": [
+            "C2"
+          ],
+          "points": [
+            "P2"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "力相等不能直接推出加速度相等",
+          "claims": [
+            "C3"
+          ],
+          "points": [
+            "P1",
+            "P2"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "单体受力图只列它受到的力",
+          "claims": [
+            "C4"
+          ],
+          "points": [
+            "P3"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "作用反作用不能在单体上作为平衡力相消",
+          "claims": [
+            "C5"
+          ],
+          "points": [
+            "P4"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "平衡力须同一受力对象（仅必要条件）",
+          "claims": [
+            "C6"
+          ],
+          "points": [
+            "P5"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "A+B间相互作用属于该系统内力",
+          "claims": [
+            "C7"
+          ],
+          "points": [
+            "P6"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "内力抵消不推出外力合力为零",
+          "claims": [
+            "C8"
+          ],
+          "points": [
+            "P7"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        }
+      ],
+      "reviewer": "Codex source-by-source review",
+      "tree_digest": "a1ca5fa43d02771ebc553f67ac783fd90d3b74f30a3bbd88f117532fcb8b99be",
+      "ready_for_adoption": false,
+      "accuracy": "主陈述保留了必要条件与推断限制",
+      "coverage_summary": "11/11要求有承载；加速度边界通过附件保留",
+      "granularity": "明显不够细，P1/P2需要拆分",
+      "structure": "分类合法，单体与系统可再分组",
+      "improvements": [
+        "加速度不可推断边界留在清单C3并关联P1/P2，没有凭空补F=ma算题。",
+        "平衡力写为必须同一受力对象，没有写成同对象就必平衡。"
+      ],
+      "issues": [
+        [
+          "P1",
+          "大小、方向、受力对象三个可独立判断的属性仍合在一叶，元问题也一次问三件事。"
+        ],
+        [
+          "P2",
+          "不要求等质量与不要求静止仍合并，应按两种独立前提拆开。"
+        ],
+        [
+          "C3→P1/P2",
+          "原子化正文的boundaries为空，重要加速度边界仅在清单去向中；程序已把原清单内容装配为显式附件，展示不可省略。映射理由提到动力学结果差异不应被当作“加速度必不同”。"
+        ],
+        [
+          "P5.meta_question",
+          "“需要满足什么条件”容易读成完整平衡判据，应明确只问受力对象这一必要条件。"
+        ],
+        [
+          "G2",
+          "同一大类含单物体受力图和平衡判断、整体系统内外力；可分为单体与系统两个子组。"
+        ]
+      ]
+    },
+    {
+      "course": "history",
+      "title": "历史学习：史料观察、推断与互证",
+      "claims": 14,
+      "points": 10,
+      "categories": 3,
+      "structure_checks_passed": true,
+      "classification_preserves_atoms": true,
+      "coverage": [
+        {
+          "requirement": "原文观察与分析者推断分开",
+          "claims": [
+            "C1"
+          ],
+          "points": [
+            "P1"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "推断须说明依据与推理",
+          "claims": [
+            "C1"
+          ],
+          "points": [
+            "P1"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "作者、时间、受众、目的影响材料支持的主张",
+          "claims": [
+            "C2"
+          ],
+          "points": [
+            "P2"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "一手材料不保证完全客观",
+          "claims": [
+            "C3"
+          ],
+          "points": [
+            "P3"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "有立场不等于毫无价值",
+          "claims": [
+            "C4"
+          ],
+          "points": [
+            "P4"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "互证检查来源独立性",
+          "claims": [
+            "C5"
+          ],
+          "points": [
+            "P5"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "互证检查对象和时段可比性",
+          "claims": [
+            "C5"
+          ],
+          "points": [
+            "P5"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "转载不构成新增独立见证",
+          "claims": [
+            "C6"
+          ],
+          "points": [
+            "P6"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "矛盾材料列差异、考察背景、寻新证据",
+          "claims": [
+            "C7"
+          ],
+          "points": [
+            "P7"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "不凭数量投票或预设立场定真假",
+          "claims": [
+            "C8"
+          ],
+          "points": [
+            "P8"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "有限来源、结论限度及下一步查证",
+          "claims": [
+            "C9",
+            "C10"
+          ],
+          "points": [
+            "P9",
+            "P10"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        },
+        {
+          "requirement": "虚构A/B/C及缺少资料作为案例，记载不冒充已证事件",
+          "claims": [
+            "C11",
+            "C12",
+            "C13",
+            "C14"
+          ],
+          "points": [
+            "P1",
+            "P2",
+            "P3",
+            "P5",
+            "P6",
+            "P9",
+            "P10"
+          ],
+          "represented": true,
+          "note": "含边界/条件/案例承载；不表示每项都已成为独立原子叶子"
+        }
+      ],
+      "reviewer": "Codex source-by-source review",
+      "tree_digest": "ac9e683a2b1ae85345faacd9193d720168040845ad8953bad9d46a408a0f5bb4",
+      "ready_for_adoption": false,
+      "accuracy": "主要规则忠实；结论强度措辞需收紧",
+      "coverage_summary": "12/12要求有承载；A/B/C及缺证据保留为案例附件",
+      "granularity": "比前轮清楚，仍有三个复合点",
+      "structure": "分类合法，P8应移动到矛盾处理组",
+      "improvements": [
+        "一手不保证客观、有立场不等于无价值、转载不独立分别成点。",
+        "作者、时间、受众、目的及互证可比性恢复；案例不再作为独立叶子，也未断言A/B必然矛盾。"
+      ],
+      "issues": [
+        [
+          "P1",
+          "区分观察/推断与为推断提供依据是两项独立要求，仍合成一个元问题。"
+        ],
+        [
+          "P5",
+          "来源独立性与对象/时段可比性仍合并，应拆为不同核查维度。"
+        ],
+        [
+          "P8",
+          "数量投票和预设立场两条禁止推断仍合并；拆开可避免后续再次混成一个错因。"
+        ],
+        [
+          "P9.statement / disposition.C9",
+          "“结论强度”被写成“可信度强度”，映射理由又称数量与强度的对应规则；材料并未给出数量到可信度的定量或单调关系。"
+        ],
+        [
+          "P10",
+          "“可以说什么”改成“可以确定什么”，容易提高证据承诺；应保留可支持的主张及不确定性原意。"
+        ],
+        [
+          "P8.parent",
+          "真假判断禁区归入推论限制与结论表达，与同组其他点维度不一致；更适合互证逻辑与矛盾处理。"
+        ]
+      ]
+    }
+  ]
+}

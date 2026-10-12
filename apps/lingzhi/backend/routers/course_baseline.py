@@ -115,6 +115,7 @@ async def get_course_information(
     if view == "summary":
         return {
             "schema_version": "teacher_course_information_summary_v1",
+            **({"knowledge_first_workflow": course["knowledge_first_workflow"]} if course.get("knowledge_first_workflow") else {}),
             "course_id": course_id,
             "revision": course_information_revision(course),
             "information": course_information_snapshot(course),

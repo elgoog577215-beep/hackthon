@@ -8,6 +8,7 @@ import re
 from typing import Any
 
 from ai_base import AIBase
+from question_evidence_guard import independent_evidence_admitted
 from assessment_validators import validate_candidate_answer
 from code_runner_client import (
     CodeRunnerUnavailable,
@@ -96,6 +97,10 @@ class PracticeGrader(AIBase):
             result["mastery_eligible"] = False
         else:
             result["mastery_eligible"] = bool(result.get("passed")) and result.get("status") == "graded"
+        if question.get("assessment_binding_schema") and not independent_evidence_admitted(question):
+            result["mastery_eligible"] = False
+            result["evidence_strength"] = "invalid"
+            result["evidence_exclusion_reason"] = "independent_evidence_unverified_or_changed"
         return result
 
     @staticmethod

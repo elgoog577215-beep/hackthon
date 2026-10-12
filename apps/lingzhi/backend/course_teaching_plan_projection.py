@@ -48,7 +48,10 @@ def _knowledge_id_index(course_data: dict[str, Any]) -> dict[str, str]:
         for name in names:
             normalized = _normalized_knowledge_name(name)
             if normalized:
-                index.setdefault(normalized, knowledge_id)
+                if normalized in index and index[normalized] != knowledge_id:
+                    index[normalized] = ""
+                else:
+                    index.setdefault(normalized, knowledge_id)
     return index
 
 
@@ -99,6 +102,7 @@ def _project_knowledge_structure(
             )
             points.append({
                 "knowledge_id": knowledge_id,
+                "revision_id": _text(raw_point.get("revision_id")),
                 "knowledge_status": (
                     "bound" if knowledge_id else "awaiting_compilation"
                 ),
@@ -134,7 +138,7 @@ def _project_knowledge_structure(
                     raw_point.get("prerequisite_names")
                 ),
                 "relations": _project_knowledge_relations([
-                    {**relation, "source_name": name}
+                    {**relation, "source_name": name, "source_knowledge_id": knowledge_id}
                     for relation in raw_point.get("relations") or []
                     if isinstance(relation, dict)
                 ], knowledge_names=knowledge_names),
@@ -416,6 +420,8 @@ def project_course_teaching_plan(course_data: dict[str, Any]) -> dict[str, Any]:
             course_minutes_basis=minutes_basis,
         )
 
+    from handout_knowledge_projection import project_handout_knowledge
+    sections = project_handout_knowledge(course_data, sections)
     status = str(stage.get("status") or "")
     if not status:
         status = "completed" if sections else "pending"
@@ -433,7 +439,7 @@ def project_course_teaching_plan(course_data: dict[str, Any]) -> dict[str, Any]:
         ),
         "overall": overall,
         "dossier_consistency": build_lesson_dossier_consistency([
-            section["dossier"] for section in sections
+            section["dossier"] for section in sections if "dossier" in section
         ]),
         "sections": sections,
     }

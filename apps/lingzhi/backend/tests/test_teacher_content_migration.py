@@ -98,7 +98,7 @@ def test_activation_preserves_paused_jobs_without_permitting_migration(tmp_path)
     write_fixture(root)
     migrate(root, mode='apply', backup_dir=tmp_path/'backup')
     path = root/'teacher_lesson_authoring/c.json'
-    author = json.loads(path.read_text())
+    author = json.loads(path.read_text(encoding="utf-8"))
     author['jobs'] = {'j': {'status': 'paused', 'checkpoint': {'complete_blocks': ['b1']}}}
     path.write_text(json.dumps(author))
     before = files(root)
