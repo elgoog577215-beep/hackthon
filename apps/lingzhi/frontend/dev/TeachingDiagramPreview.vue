@@ -34,6 +34,9 @@
       <select v-model="surface">
         <option value="handout">{{ tr("讲义正文", "Handout") }}</option>
         <option value="answer">{{ tr("AI 回答", "AI answer") }}</option>
+        <option value="answer-narrow">
+          {{ tr("窄 AI 侧栏（280px）", "Narrow AI panel (280px)") }}
+        </option>
       </select></label
     ><label
       ><input type="checkbox" v-model="streaming" />
@@ -120,11 +123,15 @@ textarea {
   background: white;
   border: 1px solid #e2e8f0;
 }
-.answer {
+.answer,
+.answer-narrow {
   width: 460px;
   max-width: 100%;
   padding: 18px;
   background: white;
   border: 1px solid #c7d2fe;
+}
+.answer-narrow {
+  width: 280px;
 }
 </style>

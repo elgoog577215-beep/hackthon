@@ -212,7 +212,9 @@ onBeforeUnmount(() => {
 <style scoped>
 .teaching-diagram {
   margin: 22px 0;
+  width: 100%;
   max-width: 100%;
+  box-sizing: border-box;
   border: 1px solid #dbe3ed;
   background: white;
   min-width: 0;
@@ -241,6 +243,7 @@ h5 {
 }
 .diagram-tools {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
 }
 button {
@@ -260,14 +263,17 @@ summary:focus-visible,
 }
 .diagram-scroll {
   overflow: auto;
+  width: 100%;
   max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   max-height: 700px;
   padding: 12px;
   overscroll-behavior: contain;
 }
 .diagram-scroll :deep(svg) {
   display: block;
-  max-width: none;
+  max-width: 100%;
   height: auto;
   flex: none;
 }
@@ -342,6 +348,9 @@ figcaption p {
 }
 .diagram-dialog .diagram-scroll {
   max-height: calc(100vh - 240px);
+}
+.diagram-dialog .diagram-scroll :deep(svg) {
+  max-width: none;
 }
 @media print {
   .diagram-tools,
