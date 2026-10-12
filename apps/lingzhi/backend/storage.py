@@ -419,8 +419,8 @@ class Storage:
             except FileExistsError:
                 with open(filepath, encoding="utf-8") as handle:
                     return False, json.load(handle)
-            # Windows cannot open directories with os.open. The file itself is
-            # flushed above; retain the additional directory durability on POSIX.
+            # Windows cannot open/fsync a directory with the POSIX API. The
+            # replacement still follows a flushed, closed temporary file.
             if os.name != "nt":
                 directory_fd = os.open(filepath.parent, os.O_RDONLY)
                 try:

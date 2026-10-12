@@ -1,0 +1,37 @@
+import { activeLocale } from './i18n'
+
+const messages = {
+  brand: ['我的学习空间', 'My study space'], subtitle: ['让资料成为适合你的讲义', 'Turn your materials into a handout that fits you'],
+  library: ['我的学习材料', 'My materials'], create: ['生成个人讲义', 'Create a handout'], teacher: ['教师工作台', 'Teacher workspace'],
+  welcome: ['从你的资料，开始学习', 'Start with your own materials'], intro: ['选择资料和学习目的，生成一份属于自己的讲义。', 'Choose your sources and learning purpose to create your own handout.'],
+  exam_prep: ['应试讲义', 'Exam preparation'], systematic: ['整体理解讲义', 'Deep understanding'],
+  examHint: ['抓住考点、题型和解题方法，练习与解答分开呈现。', 'Focus on topics, question types and methods, with separate exercises and answers.'],
+  understandingHint: ['串起概念、推导和应用，弄清为什么与如何使用。', 'Connect concepts, derivations and applications to understand why and how.'],
+  sourceHeading: ['1. 选择学习资料', '1. Choose your sources'], sourceHint: ['上传教材、课件或笔记，也可以直接粘贴内容。按资料中的标题选择范围。', 'Upload a textbook, slides or notes, or paste text. Select the range using the source headings.'],
+  upload: ['上传文件', 'Upload files'], uploadHint: ['PDF / PPTX / DOCX / Markdown / TXT，单份不超过 20 MB', 'PDF / PPTX / DOCX / Markdown / TXT, up to 20 MB each'],
+  paste: ['粘贴资料', 'Paste text'], sourceTitle: ['资料名称', 'Source name'], sourceContent: ['资料原文', 'Source text'], addSource: ['保存并解析资料', 'Save and parse source'],
+  scope: ['所选范围', 'Selected range'], emptySources: ['还没有资料，先上传或粘贴一份。', 'Upload or paste your first source.'],
+  purposeHeading: ['2. 选择讲义用途', '2. Choose the purpose'], settingsHeading: ['3. 让讲义适合你', '3. Make it fit you'],
+  title: ['讲义名称', 'Handout title'], titlePlaceholder: ['例如：线性代数前两章复习', 'e.g. Linear algebra, chapters 1–2'],
+  level: ['学习起点', 'Starting level'], beginner: ['刚开始学习', 'Getting started'], intermediate: ['学过，需要梳理', 'Learned it, need a review'], advanced: ['已有基础，深入学习', 'Ready to go deeper'],
+  time: ['预计阅读时间（分钟）', 'Reading time (minutes)'], requirements: ['补充要求（选填）', 'Additional requests (optional)'], requirementsPlaceholder: ['例如：强调公式适用条件，逐步解释例题', 'e.g. Explain formula conditions and show worked steps'],
+  generate: ['开始生成讲义', 'Generate handout'], savedHint: ['讲义和笔记保存在个人空间，关闭页面后可再次打开。', 'Your handout and notes are saved in your space and can be reopened later.'],
+  emptyLibrary: ['第一份讲义，从这里开始', 'Your first handout starts here'], emptyHint: ['同一份资料可以生成不同用途的讲义，原始资料会继续保留。', 'Use the same source for different purposes. Your original materials are retained.'],
+  back: ['返回材料库', 'Back to materials'], sources: ['来源与范围', 'Sources and range'], concepts: ['概念关系', 'Concept connections'],
+  note: ['我的笔记', 'My notes'], noteHint: ['笔记关联当前讲义版本，只有本人可见。', 'Notes belong to this handout revision and are private.'], notePlaceholder: ['记下你的理解、问题或容易混淆的地方…', 'Write your understanding, questions or points of confusion…'], saveNote: ['保存笔记', 'Save notes'], noteSaved: ['笔记已保存', 'Notes saved'],
+  export: ['导出 Markdown', 'Export Markdown'], continue: ['继续缺失内容', 'Continue missing content'], interrupted: ['已保留完成内容与片段；可以主动继续。', 'Completed content and fragments are saved. You can continue.'],
+  downloadSource: ['下载原始资料', 'Download original source'],
+  pending: ['等待生成', 'Queued'], running: ['正在生成', 'Generating'], completed: ['已保存', 'Saved'], failed: ['生成中断', 'Interrupted'], paused: ['已暂停', 'Paused'], draft: ['生成中的片段', 'Draft in progress'],
+  generatingHint: ['正在梳理资料与编写讲义。你可以离开页面，稍后回来查看。', 'Organizing sources and writing your handout. You can leave and check back later.'],
+  login: ['学生登录', 'Student sign in'], register: ['创建学生账号', 'Create student account'], loginIntro: ['登录后，资料、讲义和笔记会保存到你的个人空间。', 'Sign in to keep your sources, handouts and notes in your own space.'],
+  username: ['用户名', 'Username'], password: ['密码', 'Password'], passwordHint: ['至少 8 位', 'At least 8 characters'], logout: ['退出登录', 'Sign out'],
+  localAccount: ['本地实验账号', 'Local experiment account'], unifiedLogin: ['通过启智统一登录', 'Sign in through Qizhi'], disabledLogin: ['本地学生登录未启用，请使用启智统一登录或启动学生实验环境。', 'Local student login is disabled. Use Qizhi sign-in or start the student experiment environment.'],
+  busy: ['处理中…', 'Working…'], retry: ['重新连接', 'Reconnect'], scopeRequired: ['请选择 1–6 个有正文的资料范围，并填写讲义名称。', 'Select 1–6 source ranges with text and enter a handout title.'],
+  sourceFailed: ['这份资料没有可读正文，请检查文件或换一份资料。', 'This source has no readable text. Check the file or choose another source.'],
+  connected: ['已连接个人学习空间', 'Connected to your study space'], requestFailure: ['操作未完成，请重试。', 'The operation did not complete. Please retry.'],
+  preparingConcepts: ['概念关系会在资料梳理完成后显示。', 'Concept connections will appear when the source outline is ready.'],
+  conceptOrigin: ['来自所选资料 · 箭头方向按关系类型阅读', 'From your selected sources · Read arrows by their relation labels'],
+  noteUnsaved: ['笔记尚未保存', 'Unsaved notes'], finishReading: ['本次讲义已生成并保存', 'Your handout has been generated and saved'],
+} as const
+export type StudyCopyKey = keyof typeof messages
+export const studyCopy = (key: StudyCopyKey): string => messages[key][activeLocale.value === 'en' ? 1 : 0]

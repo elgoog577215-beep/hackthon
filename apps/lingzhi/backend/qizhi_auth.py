@@ -167,6 +167,12 @@ class QizhiIdentityMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, *, verifier: QizhiIdentityVerifier) -> None:
         super().__init__(app)
         self.verifier = verifier
+        # Student identity is admitted only to its owned domain. The teacher
+        # API and WebSocket keep their existing teacher/admin role contract.
+        self.study_verifier = QizhiIdentityVerifier(
+            verifier.verify_url, allowed_roles={"student", "teacher", "admin"},
+            timeout_seconds=verifier.timeout_seconds, cache_ttl_seconds=verifier.cache_ttl_seconds,
+        )
 
     async def dispatch(
         self,
@@ -178,11 +184,13 @@ class QizhiIdentityMiddleware(BaseHTTPMiddleware):
         if not self.verifier.enabled or not protected or request.method == "OPTIONS":
             return await call_next(request)
         try:
-            identity = await self.verifier.resolve(request.headers.get("Authorization"))
+            resolver = self.study_verifier if path.startswith("/api/study/") else self.verifier
+            identity = await resolver.resolve(request.headers.get("Authorization"))
         except QizhiAuthError as exc:
             return auth_error_response(exc)
         _replace_header(request, "X-User-Id", identity.actor_id)
         _replace_header(request, "X-Qizhi-Role", identity.role)
+        request.state.qizhi_identity = identity
         return await call_next(request)
 
 

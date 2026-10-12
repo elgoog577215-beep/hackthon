@@ -149,6 +149,8 @@ def format_ai_teacher_context_prompt(package: dict[str, Any]) -> str:
     conversation = package.get("conversation") or {}
     permissions = package.get("permissions") or {}
     response_strategy = package.get("response_strategy") or {}
+    from teaching_diagrams import teaching_diagram_prompt
+    diagram_guidance = teaching_diagram_prompt()
 
     source_lines = [
         (
@@ -210,6 +212,7 @@ def format_ai_teacher_context_prompt(package: dict[str, Any]) -> str:
 5. 当底层事实或版本变化时，先说明影响到哪些教案、PPT、正文和练习，再由教师确认是否精确重建。
 6. 不得声称已自动修改或发布正式课程；课程正式变更必须先给影响预览，且可确认、可追溯。
 7. 教师未要求完整方案时保持紧凑，不为显得全面而机械堆叠模板，也不主动转去代答学生题目。
+{diagram_guidance}
 """
 
     return f"""你是灵知课程中的 AI 老师。你负责回答、解释和提出可确认动作，但不拥有学习状态，也不能修改正式课程、掌握结论、画像、诊断结论或替学生提交答案。
@@ -260,7 +263,8 @@ def format_ai_teacher_context_prompt(package: dict[str, Any]) -> str:
 7. 课程事实优先使用上面的当前版本来源；没有来源时明确说明是在做通用解释。区分课程事实、用户陈述和推断，不伪造知识 ID、来源或已执行动作。
 8. 回答正文中不伪造已经执行的系统动作。写动作由独立 ActionProposal 协议处理。
 9. 当前课程知识库是本课程知识身份、能力、易错与掌握标准的统一坐标；只允许使用已通过质量门的条目。回答仍须结合当前正文、任务和学习证据，不得忽略真实问题。
-10. 当入口为 block 时，回答到当前解释、例子、简化或问题本身为止；不得主动提出下一步、出题、保存或课程改写，也不要在结尾添加“如果你愿意”“需要我可以”等邀请。"""
+10. 当入口为 block 时，回答到当前解释、例子、简化或问题本身为止；不得主动提出下一步、出题、保存或课程改写，也不要在结尾添加“如果你愿意”“需要我可以”等邀请。
+{diagram_guidance}"""
 
 
 def context_public_summary(package: dict[str, Any]) -> dict[str, Any]:

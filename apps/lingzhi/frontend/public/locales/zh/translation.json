@@ -1,62 +1,124 @@
 {
-  "studyDialogue": {"gatewayError": "模型网关返回 502，暂时无法连接推理服务。输入已保留，请在服务恢复后重试。", "localConflict": "发现本机未完成的整理稿，与服务器最新版本不同。输入已保留，请加载最新会话核对后再保存。", "solutionSeen": "已看过学伴完整整理稿：本次只反馈理解，不计入掌握证据；可从知识树进入新题验证。", "title": "笔记与讲解", "note": "笔记", "explain": "讲解", "quickNote": "本讲随手记", "historical": "来源版本已更新。可以查看历史，请从当前讲义开启新的会话。", "preview": "教师预览：仅保留本次临时记录", "conversation": "对话", "draft": "整理稿", "understanding": "理解检查", "welcome": "可以先写下自己的理解、一个例子或疑问，我们一起完善这条笔记。", "you": "我", "nearby": "本讲相关笔记 · 点击继续", "currentDraft": "当前整理稿", "writeHint": "写下你真正理解的内容，也可以保留疑问。", "saveHint": "保存只更新这一条笔记，不会直接增加掌握度。", "refine": "请学伴整理", "save": "保存笔记", "proposal": "学伴建议稿 · 尚未采纳", "adopt": "采纳到整理稿", "versions": "已保存版本", "restore": "恢复到整理稿", "checkHint": "请独立组织自己的解释。只有绑定当前知识点且有可靠结论的检查才更新掌握参考值。", "noKnowledge": "这里暂无精确绑定的可检查知识点。笔记仍可保存，掌握程度保持不变。", "knowledge": "检查哪个知识点", "yourExplanation": "我自己的解释", "assisted": "已获得帮助：本次按辅助完成记录", "independent": "尚未获得本会话帮助：按独立解释检查", "submitCheck": "提交理解检查", "inconclusive": "依据不足，暂不更新", "passed": "本次检查通过", "notPassed": "本次仍有需要澄清的地方", "reload": "加载最新会话", "message": "补充想法，或请学伴讲解……", "working": "学伴正在处理…", "send": "发送", "saved": "已保存同一条笔记，可从讲义标记回到这里。", "conflict": "记录或来源已更新，你的输入仍保留。请加载最新会话后核对。", "failed": "本次操作未完成，输入已保留，请重试。", "reloaded": "已加载最新会话，本地整理稿仍保留，请核对后保存。", "refinePrompt": "请只输出一段连贯的最终笔记正文，不要标题、引导语或清单。依据当前整理稿、所引用的原文和本会话，修正已经澄清的误解；只保留用户明确提出且仍未解决的疑问，禁止新增疑问、任务或假设，不扩展到其他主题。", "retry": "重试", "openFailed": "暂时无法打开对应会话，请重试。", "marker": "查看笔记对话",
-  "autoDraftHint": "对话中会自动完善这份整理稿，你可以随时修改，最后确认保存。",
-  "autoDraftUpdated": "整理稿已随本轮对话更新，尚未保存为笔记。",
-  "manualDraftKept": "已保留你刚才的手工修改，下轮对话会以这份整理稿为准。",
-  "savedEarlierDraft": "提交的版本已保存；你刚才的新修改仍在整理稿中，尚未保存。"
-},
-  "companionReminder": {"label": "学伴学习提醒", "checkTitle": "这条笔记可能需要核对", "dueTitle": "这条记录到复习时间了", "issueTitle": "这里还有一个未解决的疑问", "openHint": "回到记录，继续梳理思路。", "open": "查看笔记与原文", "source": "查看课程依据", "hint": "提示供参考，由你决定", "pause": "暂停提醒", "resume": "恢复学习提醒", "dismiss": "忽略这条提醒"},
-  "companionWindow": {"move": "拖动移动窗口，也可使用方向键", "resize": "拖动调整大小，也可使用方向键", "reset": "重置位置"},
+  "studyDialogue": {
+    "gatewayError": "模型网关返回 502，暂时无法连接推理服务。输入已保留，请在服务恢复后重试。",
+    "localConflict": "发现本机未完成的整理稿，与服务器最新版本不同。输入已保留，请加载最新会话核对后再保存。",
+    "solutionSeen": "已看过学伴完整整理稿：本次只反馈理解，不计入掌握证据；可从知识树进入新题验证。",
+    "title": "笔记与讲解",
+    "note": "笔记",
+    "explain": "讲解",
+    "quickNote": "本讲随手记",
+    "historical": "来源版本已更新。可以查看历史，请从当前讲义开启新的会话。",
+    "preview": "教师预览：仅保留本次临时记录",
+    "conversation": "对话",
+    "draft": "整理稿",
+    "understanding": "理解检查",
+    "welcome": "可以先写下自己的理解、一个例子或疑问，我们一起完善这条笔记。",
+    "you": "我",
+    "nearby": "本讲相关笔记 · 点击继续",
+    "currentDraft": "当前整理稿",
+    "writeHint": "写下你真正理解的内容，也可以保留疑问。",
+    "saveHint": "保存只更新这一条笔记，不会直接增加掌握度。",
+    "refine": "请学伴整理",
+    "save": "保存笔记",
+    "proposal": "学伴建议稿 · 尚未采纳",
+    "adopt": "采纳到整理稿",
+    "versions": "已保存版本",
+    "restore": "恢复到整理稿",
+    "checkHint": "请独立组织自己的解释。只有绑定当前知识点且有可靠结论的检查才更新掌握参考值。",
+    "noKnowledge": "这里暂无精确绑定的可检查知识点。笔记仍可保存，掌握程度保持不变。",
+    "knowledge": "检查哪个知识点",
+    "yourExplanation": "我自己的解释",
+    "assisted": "已获得帮助：本次按辅助完成记录",
+    "independent": "尚未获得本会话帮助：按独立解释检查",
+    "submitCheck": "提交理解检查",
+    "inconclusive": "依据不足，暂不更新",
+    "passed": "本次检查通过",
+    "notPassed": "本次仍有需要澄清的地方",
+    "reload": "加载最新会话",
+    "message": "补充想法，或请学伴讲解……",
+    "working": "学伴正在处理…",
+    "send": "发送",
+    "saved": "已保存同一条笔记，可从讲义标记回到这里。",
+    "conflict": "记录或来源已更新，你的输入仍保留。请加载最新会话后核对。",
+    "failed": "本次操作未完成，输入已保留，请重试。",
+    "reloaded": "已加载最新会话，本地整理稿仍保留，请核对后保存。",
+    "refinePrompt": "请只输出一段连贯的最终笔记正文，不要标题、引导语或清单。依据当前整理稿、所引用的原文和本会话，修正已经澄清的误解；只保留用户明确提出且仍未解决的疑问，禁止新增疑问、任务或假设，不扩展到其他主题。",
+    "retry": "重试",
+    "openFailed": "暂时无法打开对应会话，请重试。",
+    "marker": "查看笔记对话",
+    "autoDraftHint": "对话中会自动完善这份整理稿，你可以随时修改，最后确认保存。",
+    "autoDraftUpdated": "整理稿已随本轮对话更新，尚未保存为笔记。",
+    "manualDraftKept": "已保留你刚才的手工修改，下轮对话会以这份整理稿为准。",
+    "savedEarlierDraft": "提交的版本已保存；你刚才的新修改仍在整理稿中，尚未保存。"
+  },
+  "companionReminder": {
+    "label": "学伴学习提醒",
+    "checkTitle": "这条笔记可能需要核对",
+    "dueTitle": "这条记录到复习时间了",
+    "issueTitle": "这里还有一个未解决的疑问",
+    "openHint": "回到记录，继续梳理思路。",
+    "open": "查看笔记与原文",
+    "source": "查看课程依据",
+    "hint": "提示供参考，由你决定",
+    "pause": "暂停提醒",
+    "resume": "恢复学习提醒",
+    "dismiss": "忽略这条提醒"
+  },
+  "companionWindow": {
+    "move": "拖动移动窗口，也可使用方向键",
+    "resize": "拖动调整大小，也可使用方向键",
+    "reset": "重置位置"
+  },
   "courseReviewDetails": {
-      "sourceAndChecks": "来源与核对",
-      "revision": "来源版本",
-      "fields": "来源字段",
-      "unknown": "未记录",
-      "formula": "公式",
-      "answer": "答案",
-      "citation": "引用",
-      "check": "涉及，采用前请核对",
-      "notDetected": "未检出明显标记，请结合原文核对",
-      "render": "PPT 预览",
-      "renderAfterApply": "采用后按内容稿更新预览"
+    "sourceAndChecks": "来源与核对",
+    "revision": "来源版本",
+    "fields": "来源字段",
+    "unknown": "未记录",
+    "formula": "公式",
+    "answer": "答案",
+    "citation": "引用",
+    "check": "涉及，采用前请核对",
+    "notDetected": "未检出明显标记，请结合原文核对",
+    "render": "PPT 预览",
+    "renderAfterApply": "采用后按内容稿更新预览"
   },
   "pptLive": {
-      "manuscript": "内容",
-      "render": "渲染",
-      "edit": "编辑内容",
-      "history": "历史 PPT",
-      "stale": "讲义已更新，部分页面需要同步。",
-      "sync": "同步受影响页",
-      "previousPreview": "当前显示上次预览，最新修改尚未渲染。",
-      "previewing": "正在准备预览…",
-      "previewUnavailable": "暂无可用预览",
-      "missing": "本讲尚无 PPT 内容稿",
-      "missingDescription": "讲义已独立保存。点击生成，将当前讲义整理为 PPT 页面内容稿。",
-      "complete": "生成页面内容稿",
-      "candidate": "同步候选",
-      "accept": "采用修改",
-      "reject": "保留原稿",
-      "progress": {
-        "title": "PPT 内容稿生成进度",
-        "starting": "正在启动 PPT 内容稿生成",
-        "failed": "生成在当前步骤停止，已完成的讲义保持不变。",
-        "attempt": "第 {attempt} 次尝试",
-        "waiting": "已等待 {seconds} 秒",
-        "steps": {
-          "prepare": "核对讲义来源",
-          "pages": "生成逐页内容",
-          "sources": "校验页面与引用",
-          "save": "保存内容稿"
-        }
-      },
-      "errors": {
-        "title": "PPT 内容稿未生成",
-        "block": "失败位置：讲义块 {block}。",
-        "capacity": "页面文字超过当前版式容量，系统没有保存无法完整显示的内容稿。",
-        "source": "页面引用未能匹配讲义原文，系统没有保存来源不可靠的内容稿。",
-        "pageContract": "页面内容或版式未通过最终检查，系统已保留讲义和可重试检查点。",
-        "technicalDetails": "查看技术详情"
+    "manuscript": "内容",
+    "render": "渲染",
+    "edit": "编辑内容",
+    "history": "历史 PPT",
+    "stale": "讲义已更新，部分页面需要同步。",
+    "sync": "同步受影响页",
+    "previousPreview": "当前显示上次预览，最新修改尚未渲染。",
+    "previewing": "正在准备预览…",
+    "previewUnavailable": "暂无可用预览",
+    "missing": "本讲尚无 PPT 内容稿",
+    "missingDescription": "讲义已独立保存。点击生成，将当前讲义整理为 PPT 页面内容稿。",
+    "complete": "生成页面内容稿",
+    "candidate": "同步候选",
+    "accept": "采用修改",
+    "reject": "保留原稿",
+    "progress": {
+      "title": "PPT 内容稿生成进度",
+      "starting": "正在启动 PPT 内容稿生成",
+      "failed": "生成在当前步骤停止，已完成的讲义保持不变。",
+      "attempt": "第 {attempt} 次尝试",
+      "waiting": "已等待 {seconds} 秒",
+      "steps": {
+        "prepare": "核对讲义来源",
+        "pages": "生成逐页内容",
+        "sources": "校验页面与引用",
+        "save": "保存内容稿"
       }
+    },
+    "errors": {
+      "title": "PPT 内容稿未生成",
+      "block": "失败位置：讲义块 {block}。",
+      "capacity": "页面文字超过当前版式容量，系统没有保存无法完整显示的内容稿。",
+      "source": "页面引用未能匹配讲义原文，系统没有保存来源不可靠的内容稿。",
+      "pageContract": "页面内容或版式未通过最终检查，系统已保留讲义和可重试检查点。",
+      "technicalDetails": "查看技术详情"
+    }
   },
   "common": {
     "cancel": "取消",
@@ -7351,7 +7413,7 @@
         "uploaded": "可预览或下载原件；删除只移除这个上传文件。",
         "folder": "新增内容将保存到当前资料目录。",
         "course": "导出当前课程文件包，不会改变正式课程。"
-    },
+      },
       "sources": {
         "courseStructure": "课程结构",
         "outlineSchedule": "当前课程大纲与人工排课",
@@ -7462,7 +7524,7 @@
         "help": "使用课程生成控制台建立整体结构，也可先导入已有大纲。",
         "requirements": "补充课程目标、学时或结构要求",
         "sourceHint": "支持导入已有大纲作为生成依据"
-    },
+      },
       "lesson_plan": {
         "title": "新建教案",
         "help": "先选课次，再导入已有教案或建立可编辑工作稿。",
@@ -7709,10 +7771,8 @@
     "lastGenerationFailed": "上次生成未完成",
     "incoming": "指向本知识的关联",
     "outgoing": "本知识指向的关联",
-
     "pointDetails": "元知识详情",
     "selectPointHint": "选择一个元知识点，查看定义、适用条件、关联内容与讲义出处。",
-
     "numberedLesson": "第{number}讲 · {title}",
     "lessonPicker": "讲次",
     "previousLesson": "上一讲",
@@ -7721,14 +7781,19 @@
     "lessonTreeEmpty": "本讲还没有知识树，点击“生成本讲知识树”开始。",
     "lessonHandoutRequired": "本讲尚无可用讲义，请先生成本讲讲义。",
     "crossLessonLinks": "跨讲关联",
-    "relationTypes": {"prerequisite": "先修", "derives": "推导", "applies_to": "应用", "contrasts_with": "对比", "equivalent_to": "等价", "generalizes": "推广"},
-
+    "relationTypes": {
+      "prerequisite": "先修",
+      "derives": "推导",
+      "applies_to": "应用",
+      "contrasts_with": "对比",
+      "equivalent_to": "等价",
+      "generalizes": "推广"
+    },
     "readSourceText": "查看来源原文",
     "modelDisconnected": "模型服务暂未连接，原讲义和知识树已保留。连接恢复后请手动重新发起。",
     "extractionNotes": "提取说明与待补充范围",
     "derivedReview": "知识由讲义提取，逐字引文已对账；采用不代表讲义内容通过学科核验。",
     "locateHandout": "在讲义中查看",
-
     "afterHandouts": "讲义之后 · 知识整理",
     "deriveTitle": "从讲义建立课程知识树",
     "deriveHint": "沿用课程信息与已保存讲义，按主题逐层梳理到具体知识点；上传资料可选，无需重复填写课程表单。",
@@ -7745,7 +7810,6 @@
     "noDerivedTree": "知识树生成后会显示主题层级与知识卡片；确认采用后保存为新版本。",
     "derivedAdoptHint": "采用将保存知识树新版本，原讲义与已有历史保持不变。",
     "handoutSource": "讲义来源",
-
     "adoptedReview": "当前知识基线已采用，讲义引用本版本。引文匹配不代表内容已通过独立学科核验。",
     "genericNoDiagnosis": "此点尚未建立独立核验的诊断与补救。",
     "genericAdoptHint": "审阅后采用当前候选，讲义将绑定这版知识与术语；后续更新保留历史版本。",
@@ -7906,7 +7970,7 @@
     "running": "正在生成与校验题目…",
     "refresh": "重新读取",
     "failed": "题目未能完成，请查看生成状态后重试。"
-},
+  },
   "companionWelcome": {
     "message": "你好，我是灵知学伴，选中文字就能记笔记或向我提问，底部还能查看笔记和知识树。",
     "dismiss": "知道了"
@@ -7956,6 +8020,8 @@
       "missing": "暂无正文引用",
       "invalid": "未计入覆盖的失效引用："
     },
-    "originPinned": "来自本讲引用的知识版本 · 箭头方向按关系类型阅读"
+    "originPinned": "来自本讲引用的知识版本 · 箭头方向按关系类型阅读",
+    "page": "页",
+    "slide": "幻灯片"
   }
 }

@@ -31,6 +31,7 @@ describe('App home navigation', () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
+        { path: '/study/:materialId?', name: 'study', component: { template: '<div>Personal study</div>' } },
         {
           path: '/courses',
           name: 'course-library',
@@ -68,6 +69,15 @@ describe('App home navigation', () => {
     const homeLink = wrapper.get(schoolDeployment ? 'a.qizhi-home-link' : 'a.brand-button')
     expect(homeLink.attributes('href')).toBe(schoolDeployment ? '/' : '/courses')
     expect(wrapper.find('a.qizhi-home-link').exists()).toBe(schoolDeployment)
+    await router.push('/study')
+    await flushPromises()
+    expect(wrapper.find('.app-header').exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'KnowledgeLibrary' }).exists()).toBe(false)
+    expect(generationStore.stopGlobalMonitor).toHaveBeenCalled()
+    await router.push('/courses')
+    await flushPromises()
+    expect(wrapper.find('a[href="/study"]').exists()).toBe(true)
+    expect(generationStore.startGlobalMonitor).toHaveBeenCalled()
     expect(homeLink.attributes('target')).toBeUndefined()
     expect(wrapper.find('.app-course-stages').exists()).toBe(false)
     expect(wrapper.findComponent({ name: 'CourseStageTabs' }).exists()).toBe(false)
@@ -86,8 +96,7 @@ describe('App home navigation', () => {
 
     await router.push('/course/course-1/learn?teacherPreview=1')
     await flushPromises()
-    expect(wrapper.findComponent({name:'KnowledgeLibrary'}).exists()).toBe(true)
-    expect(wrapper.findComponent({name:'KnowledgeLibrary'}).props('learningMode')).toBe(true)
+    expect(wrapper.findComponent({name:'KnowledgeLibrary'}).exists()).toBe(false)
     expect(wrapper.find('.header-search').exists()).toBe(true)
     expect(wrapper.find('a.qizhi-home-link').exists()).toBe(schoolDeployment)
     wrapper.unmount()

@@ -1,0 +1,213 @@
+from __future__ import annotations
+
+from typing import Literal
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel, ConfigDict, Field
+
+from dependencies import require_task_manager
+from material_parser import parse_material_asset
+from material_storage import MaterialStorageError
+from storage import storage
+from study.auth import LocalStudyAuth, study_identity
+from study.repository import StudyConflict, StudyRepository
+from study.service import create_material, source_sections
+
+router = APIRouter(prefix="/study", tags=["personal-study"])
+
+
+class Credentials(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str = Field(min_length=3, max_length=40)
+    password: str = Field(min_length=8, max_length=128)
+
+
+class TextSource(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    content: str = Field(min_length=1, max_length=120000)
+
+
+class Selection(BaseModel):
+    asset_id: str = Field(pattern=r"^mat-[a-f0-9]{32}$")
+    section_id: str = Field(min_length=1, max_length=160)
+
+
+class GenerationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{16,64}$")
+    title: str = Field(min_length=1, max_length=160)
+    purpose: Literal["systematic", "exam_prep"]
+    selections: list[Selection] = Field(min_length=1, max_length=6)
+    level: Literal["beginner", "intermediate", "advanced"] = "beginner"
+    time_minutes: int = Field(default=60, ge=10, le=600)
+    requirements: str = Field(default="", max_length=2000)
+    language: Literal["zh", "en"] = "zh"
+
+
+class NoteRequest(BaseModel):
+    revision_id: str = Field(min_length=1, max_length=80)
+    content: str = Field(max_length=20000)
+
+
+def repository() -> StudyRepository:
+    return StudyRepository(storage)
+
+
+def public_material(material: dict) -> dict:
+    # The private raw source snapshots remain server-side; source identity and
+    # selected ranges are sufficient for the reading/source panel.
+    result = {key: value for key, value in material.items() if key not in {"request", "fingerprint", "request_key", "planning_response"}}
+    result["sources"] = [{key: section[key] for key in ("node_id", "title", "filename", "asset_id", "source_sha256", "characters")}
+                         for section in material["request"]["source_sections"]]
+    return result
+
+
+def material_or_404(repo, owner, material_id):
+    try:
+        return repo.get(owner, material_id)
+    except KeyError:
+        raise HTTPException(404, "学习材料不存在")
+
+
+def source_view(asset, document=None):
+    return {"id": asset.asset_id, "filename": asset.filename, "status": asset.status,
+            "sha256": asset.sha256, "warnings": asset.warnings, "error": asset.error,
+            "sections": [{key: section[key] for key in ("id", "title", "characters")}
+                         for section in source_sections(asset, document)] if document else []}
+
+
+@router.get("/auth/config")
+def auth_config():
+    auth = LocalStudyAuth(storage)
+    import os
+    return {"local_login_enabled": auth.enabled and not bool(os.getenv("QIZHI_AUTH_VERIFY_URL", "")),
+            "identity_provider": "qizhi" if os.getenv("QIZHI_AUTH_VERIFY_URL", "") else "local"}
+
+
+@router.post("/auth/register")
+def register(request: Credentials):
+    return LocalStudyAuth(storage).login(request.username, request.password, register=True)
+
+
+@router.post("/auth/login")
+def login(request: Credentials):
+    return LocalStudyAuth(storage).login(request.username, request.password)
+
+
+@router.get("/auth/me")
+def me(user=Depends(study_identity)):
+    return user
+
+
+@router.post("/auth/logout")
+def logout(request: Request, user=Depends(study_identity)):
+    if not getattr(request.state, "qizhi_identity", None):
+        LocalStudyAuth(storage).logout(request.headers.get("Authorization", ""))
+    return {"status": "logged_out"}
+
+
+@router.get("/sources")
+def sources(user=Depends(study_identity), repo=Depends(repository)):
+    result, source_repo = [], repo.sources(user["id"])
+    for manifest in source_repo.root.glob("mat-*/manifest.json"):
+        asset = source_repo.get_asset(manifest.parent.name)
+        if asset:
+            result.append(source_view(asset, source_repo.load_parsed_document(asset.asset_id)))
+    return result
+
+
+async def parse_source(source_repo, asset):
+    document = await parse_material_asset(source_repo, asset)
+    return source_view(source_repo.get_asset(asset.asset_id), document)
+
+
+@router.post("/sources/text")
+async def text_source(request: TextSource, user=Depends(study_identity), repo=Depends(repository)):
+    source_repo = repo.sources(user["id"])
+    asset = await source_repo.create_text_asset(filename=request.title, content=request.content, upload_batch_id="study")
+    return await parse_source(source_repo, asset)
+
+
+@router.post("/sources/upload")
+async def upload_source(file: UploadFile = File(...), user=Depends(study_identity), repo=Depends(repository)):
+    source_repo = repo.sources(user["id"])
+    try:
+        asset = await source_repo.save_upload(file, upload_batch_id="study", max_bytes=20 * 1024 * 1024,
+                                             batch_file_limit=100, batch_bytes_limit=300 * 1024 * 1024)
+        return await parse_source(source_repo, asset)
+    except MaterialStorageError as exc:
+        raise HTTPException(422, str(exc))
+
+
+@router.get("/sources/{asset_id}/download")
+def download_source(asset_id: str, user=Depends(study_identity), repo=Depends(repository)):
+    source_repo = repo.sources(user["id"])
+    try:
+        asset = source_repo.get_asset(asset_id)
+    except MaterialStorageError:
+        asset = None
+    if not asset or not source_repo.source_path(asset).is_file():
+        raise HTTPException(404, "资料不存在")
+    return FileResponse(source_repo.source_path(asset), filename=asset.filename, media_type=asset.mime_type)
+
+
+@router.get("/materials")
+def materials(user=Depends(study_identity), repo=Depends(repository)):
+    return [{key: material[key] for key in ("id", "title", "purpose", "status", "task_id", "updated_at")}
+            for material in repo.list(user["id"])]
+
+
+@router.post("/materials")
+async def generate(request: GenerationRequest, user=Depends(study_identity),
+                   repo=Depends(repository), manager=Depends(require_task_manager)):
+    try:
+        return public_material(await create_material(manager, repo, user["id"], request.model_dump()))
+    except StudyConflict as exc:
+        raise HTTPException(409, str(exc))
+    except (ValueError, MaterialStorageError) as exc:
+        raise HTTPException(422, str(exc))
+
+
+@router.get("/materials/{material_id}")
+def material(material_id: str, user=Depends(study_identity), repo=Depends(repository),
+             manager=Depends(require_task_manager)):
+    result = public_material(material_or_404(repo, user["id"], material_id))
+    task = manager.tasks.get(result["task_id"])
+    # Never return global task snapshots or server/provider details to this UI.
+    result["task"] = {key: task.get(key) for key in ("id", "status", "progress", "completed_nodes", "total_nodes", "phase", "message", "error_code")} if task else None
+    return result
+
+
+@router.post("/materials/{material_id}/continue")
+async def continue_material(material_id: str, user=Depends(study_identity), repo=Depends(repository),
+                            manager=Depends(require_task_manager)):
+    saved = material_or_404(repo, user["id"], material_id)
+    task = manager.tasks.get(saved["task_id"])
+    if not task or task.get("owner_id") != user["id"] or task.get("type") != "personal_handout_generation":
+        raise HTTPException(409, "生成任务已不可用；讲义和资料仍保留，请重新选择范围生成")
+    await manager.resume_task(task["id"])
+    return {"task_id": task["id"]}
+
+
+@router.put("/materials/{material_id}/note")
+def note(material_id: str, request: NoteRequest, user=Depends(study_identity), repo=Depends(repository)):
+    material_or_404(repo, user["id"], material_id)
+    try:
+        saved = repo.save_note(user["id"], material_id, request.revision_id, request.content)
+        return saved["notes"][request.revision_id]
+    except StudyConflict as exc:
+        raise HTTPException(409, str(exc))
+
+
+@router.get("/materials/{material_id}/export")
+def export(material_id: str, user=Depends(study_identity), repo=Depends(repository)):
+    saved = material_or_404(repo, user["id"], material_id)
+    lines = [f"# {saved['title']}", "\n" + ("应试讲义" if saved["purpose"] == "exam_prep" else "整体理解讲义")]
+    if saved["status"] != "completed":
+        lines.append("生成尚未完成，以下包含已保存内容与片段。")
+    for section in saved["revisions"][-1]["sections"]:
+        lines.extend([f"\n## {section['title']}" + ("（片段）" if not section["complete"] else ""),
+                      f"来源：{section['source']['filename']} · SHA-256: {section['source']['source_sha256']}", section["content"]])
+    return Response("\n\n".join(lines), media_type="text/markdown; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="personal-handout.md"'})

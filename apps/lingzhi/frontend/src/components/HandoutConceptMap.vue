@@ -57,7 +57,7 @@
       </div>
       <p v-if="current.coverage.invalid_refs?.length" role="status">{{ tr('coverage.invalid') }} {{ current.coverage.invalid_refs.length }}</p>
     </details>
-    <footer>{{ tr(current?.sourceRevision ? 'originPinned' : 'origin') }}</footer>
+    <footer>{{ originLabel || tr(current?.sourceRevision ? 'originPinned' : 'origin') }}</footer>
   </aside>
 </template>
 
@@ -66,7 +66,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } fro
 import MathText from './MathText.vue'
 import { t } from '../shared/i18n'
 import { conceptLayers, type HandoutConcept, type HandoutConceptSection, type HandoutRelation } from '../utils/handout-concepts'
-const props = defineProps<{ sections: HandoutConceptSection[]; target?: HTMLElement | null }>()
+const props = defineProps<{ sections: HandoutConceptSection[]; target?: HTMLElement | null; originLabel?: string }>()
 const tr = (key: string) => t(`handoutConcepts.${key}`)
 const relationLabel = (type: string) => t(`handoutConcepts.types.${type}`)
 const currentId = ref(''), selected = ref(''), graph = ref<HTMLElement | null>(null)
@@ -78,7 +78,18 @@ const connected = (edge: HandoutRelation) => edge.source === selected.value || e
 const symmetric = (edge: HandoutRelation) => ['equivalent_to', 'contrasts_with'].includes(edge.type)
 const visibleRelations = computed(() => current.value?.relations.filter(edge => !selected.value || connected(edge)) || [])
 const paths = ref<{ relation: HandoutRelation; path: string; x: number; y: number }[]>([])
-function sourceLabel(source: string | Record<string, unknown>) { return typeof source === 'string' ? source : [source.filename || source.title || source.source_id || source.evidence_id, source.locator].filter(Boolean).join(' · ') }
+function sourceLabel(source: string | Record<string, unknown>) {
+  if (typeof source === 'string') return source
+  const locator = source.locator
+  let location = typeof locator === 'string' ? locator : ''
+  if (locator && typeof locator === 'object' && !Array.isArray(locator)) {
+    const value = locator as Record<string, unknown>
+    location = [Array.isArray(value.section_path) ? value.section_path.filter(item => typeof item === 'string').join(' › ') : '',
+      typeof value.page === 'number' ? `${tr('page')} ${value.page}` : '',
+      typeof value.slide === 'number' ? `${tr('slide')} ${value.slide}` : ''].filter(Boolean).join(' · ')
+  }
+  return [source.filename || source.title || source.source_id || source.evidence_id, location].filter(Boolean).join(' · ')
+}
 function conceptName(id: string) { return current.value?.nodes.find(node => node.id === id)?.name || id }
 function coverageAnchor(id: string) { return current.value?.nodes.find(node => node.id === id)?.anchor || '' }
 function groupNames(edge: HandoutRelation) { return [...new Set((current.value?.relations || []).filter(item => item.groupId === edge.groupId).map(item => conceptName(item.source)))] }

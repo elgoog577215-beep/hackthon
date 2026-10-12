@@ -58,6 +58,8 @@ _counter = SlidingWindowCounter()
 # 速率限制配置：路径前缀 -> (max_requests, window_seconds)
 # AI 相关端点更严格，普通读取端点更宽松
 RATE_LIMITS = {
+    "/api/study/auth/login": (10, 60),
+    "/api/study/auth/register": (5, 60),
     # AI 生成类（昂贵操作）
     "/api/course-generation/generate": (3, 60),
     "/api/execute": (10, 60),
@@ -87,6 +89,10 @@ def _match_rate_limit(
     method: str = "",
 ) -> Tuple[int, int]:
     """根据路径匹配速率限制规则"""
+    if path == "/api/study/materials" and method.upper() == "POST":
+        return 5, 60
+    if path.startswith("/api/study/materials/") and path.endswith("/continue"):
+        return 5, 60
     if (
         method.upper() == "GET"
         and QUESTION_BANK_REBUILD_STATUS_RE.fullmatch(path)

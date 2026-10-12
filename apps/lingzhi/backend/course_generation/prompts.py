@@ -28,8 +28,9 @@ from course_generation.outline import course_coverage_verdict
 from teaching_design import (
     format_generation_teaching_guidance,
 )
+from teaching_diagrams import teaching_diagram_prompt
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v37"
+PROMPT_CONTRACT_VERSION = "course_prompt_v38"
 
 
 def handout_course_context(metadata: dict[str, Any]) -> dict[str, Any]:
@@ -147,6 +148,7 @@ def build_handout_prompt(
         "合理分配篇幅，所有请求小节都必须完成，不能用提纲或省略号替代正文。"
         "全部小节及内容块写完、代码与公式闭合后正常结束响应：\n"
         + layout
+        + teaching_diagram_prompt()
         + "\n\n提交前检查输出协议：所有小节及内容块均已输出；块标记中的 JSON 在一行内闭合。"
         "本次必须完成全部请求小节，正文完整后正常结束响应。"
     )

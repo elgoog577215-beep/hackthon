@@ -1,62 +1,124 @@
 {
-  "studyDialogue": {"gatewayError": "The model gateway returned 502 and cannot reach the inference service. Your input is preserved; retry after service recovers.", "localConflict": "A recovered local draft differs from the latest server version. Your text is preserved; load the latest conversation and compare before saving.", "solutionSeen": "A complete AI draft was shown. This check gives feedback without mastery credit; use a new practice question from the knowledge tree to verify independently.", "title": "Notes and explanations", "note": "Note", "explain": "Explanation", "quickNote": "Lecture note", "historical": "The source version changed. Read this history or start a new conversation from the current text.", "preview": "Teacher preview: temporary session records only", "conversation": "Conversation", "draft": "Draft", "understanding": "Check understanding", "welcome": "Start with your understanding, an example, or a question. We can refine this note together.", "you": "Me", "nearby": "Related lecture notes · Continue a conversation", "currentDraft": "Current draft", "writeHint": "Write what you understand. Unresolved questions are welcome.", "saveHint": "Saving updates one note. It does not directly increase mastery.", "refine": "Ask companion to organize", "save": "Save note", "proposal": "Suggested draft · Not adopted", "adopt": "Adopt into draft", "versions": "Saved versions", "restore": "Restore into draft", "checkHint": "Explain in your own words. Only reliable checks bound to current knowledge update the mastery estimate.", "noKnowledge": "No precisely bound knowledge check is available here. You can save the note without changing mastery.", "knowledge": "Knowledge to check", "yourExplanation": "My own explanation", "assisted": "Help received: recorded as assisted completion", "independent": "No help received in this conversation: check as an independent explanation", "submitCheck": "Submit explanation", "inconclusive": "Insufficient evidence; no update", "passed": "This check passed", "notPassed": "Some points need clarification", "reload": "Load latest conversation", "message": "Add a thought, or ask for an explanation…", "working": "Working…", "send": "Send", "saved": "The same note is saved. Reopen it from its reading marker.", "conflict": "The record or source changed. Your input is preserved; load the latest conversation to compare.", "failed": "Could not complete this action. Your input is preserved; please retry.", "reloaded": "Latest conversation loaded. Your local draft is preserved for comparison.", "refinePrompt": "Output only one coherent paragraph of the final note, without headings, preamble, or lists. Use the current draft, quoted source and this conversation to correct resolved misunderstandings. Retain only unresolved questions explicitly raised by the user; do not invent doubts, tasks, assumptions or additional topics.", "retry": "Retry", "openFailed": "Could not open this conversation. Please retry.", "marker": "Open note conversation",
-  "autoDraftHint": "The draft evolves with your conversation. Edit it anytime and save when ready.",
-  "autoDraftUpdated": "Draft updated from this conversation. The note has not been saved yet.",
-  "manualDraftKept": "Your recent edits were kept. The next turn will use this draft.",
-  "savedEarlierDraft": "The submitted version was saved. Your more recent edits are still unsaved."
-},
-  "companionReminder": {"label": "Learning companion reminder", "checkTitle": "This note may need a check", "dueTitle": "This record is due for review", "issueTitle": "An open question in this lecture", "openHint": "Return to your record to continue.", "open": "Open record and source", "source": "Show course evidence", "hint": "A suggestion; you decide", "pause": "Pause reminders", "resume": "Resume learning reminders", "dismiss": "Dismiss this reminder"},
-  "companionWindow": {"move": "Drag to move, or use arrow keys", "resize": "Drag to resize, or use arrow keys", "reset": "Reset position"},
+  "studyDialogue": {
+    "gatewayError": "The model gateway returned 502 and cannot reach the inference service. Your input is preserved; retry after service recovers.",
+    "localConflict": "A recovered local draft differs from the latest server version. Your text is preserved; load the latest conversation and compare before saving.",
+    "solutionSeen": "A complete AI draft was shown. This check gives feedback without mastery credit; use a new practice question from the knowledge tree to verify independently.",
+    "title": "Notes and explanations",
+    "note": "Note",
+    "explain": "Explanation",
+    "quickNote": "Lecture note",
+    "historical": "The source version changed. Read this history or start a new conversation from the current text.",
+    "preview": "Teacher preview: temporary session records only",
+    "conversation": "Conversation",
+    "draft": "Draft",
+    "understanding": "Check understanding",
+    "welcome": "Start with your understanding, an example, or a question. We can refine this note together.",
+    "you": "Me",
+    "nearby": "Related lecture notes · Continue a conversation",
+    "currentDraft": "Current draft",
+    "writeHint": "Write what you understand. Unresolved questions are welcome.",
+    "saveHint": "Saving updates one note. It does not directly increase mastery.",
+    "refine": "Ask companion to organize",
+    "save": "Save note",
+    "proposal": "Suggested draft · Not adopted",
+    "adopt": "Adopt into draft",
+    "versions": "Saved versions",
+    "restore": "Restore into draft",
+    "checkHint": "Explain in your own words. Only reliable checks bound to current knowledge update the mastery estimate.",
+    "noKnowledge": "No precisely bound knowledge check is available here. You can save the note without changing mastery.",
+    "knowledge": "Knowledge to check",
+    "yourExplanation": "My own explanation",
+    "assisted": "Help received: recorded as assisted completion",
+    "independent": "No help received in this conversation: check as an independent explanation",
+    "submitCheck": "Submit explanation",
+    "inconclusive": "Insufficient evidence; no update",
+    "passed": "This check passed",
+    "notPassed": "Some points need clarification",
+    "reload": "Load latest conversation",
+    "message": "Add a thought, or ask for an explanation…",
+    "working": "Working…",
+    "send": "Send",
+    "saved": "The same note is saved. Reopen it from its reading marker.",
+    "conflict": "The record or source changed. Your input is preserved; load the latest conversation to compare.",
+    "failed": "Could not complete this action. Your input is preserved; please retry.",
+    "reloaded": "Latest conversation loaded. Your local draft is preserved for comparison.",
+    "refinePrompt": "Output only one coherent paragraph of the final note, without headings, preamble, or lists. Use the current draft, quoted source and this conversation to correct resolved misunderstandings. Retain only unresolved questions explicitly raised by the user; do not invent doubts, tasks, assumptions or additional topics.",
+    "retry": "Retry",
+    "openFailed": "Could not open this conversation. Please retry.",
+    "marker": "Open note conversation",
+    "autoDraftHint": "The draft evolves with your conversation. Edit it anytime and save when ready.",
+    "autoDraftUpdated": "Draft updated from this conversation. The note has not been saved yet.",
+    "manualDraftKept": "Your recent edits were kept. The next turn will use this draft.",
+    "savedEarlierDraft": "The submitted version was saved. Your more recent edits are still unsaved."
+  },
+  "companionReminder": {
+    "label": "Learning companion reminder",
+    "checkTitle": "This note may need a check",
+    "dueTitle": "This record is due for review",
+    "issueTitle": "An open question in this lecture",
+    "openHint": "Return to your record to continue.",
+    "open": "Open record and source",
+    "source": "Show course evidence",
+    "hint": "A suggestion; you decide",
+    "pause": "Pause reminders",
+    "resume": "Resume learning reminders",
+    "dismiss": "Dismiss this reminder"
+  },
+  "companionWindow": {
+    "move": "Drag to move, or use arrow keys",
+    "resize": "Drag to resize, or use arrow keys",
+    "reset": "Reset position"
+  },
   "courseReviewDetails": {
-      "sourceAndChecks": "Sources and checks",
-      "revision": "Source revision",
-      "fields": "Source fields",
-      "unknown": "Not recorded",
-      "formula": "Formulas",
-      "answer": "Answers",
-      "citation": "Citations",
-      "check": "Present; review before applying",
-      "notDetected": "No clear marker found; check the source",
-      "render": "Slide preview",
-      "renderAfterApply": "Preview updates from the applied manuscript"
+    "sourceAndChecks": "Sources and checks",
+    "revision": "Source revision",
+    "fields": "Source fields",
+    "unknown": "Not recorded",
+    "formula": "Formulas",
+    "answer": "Answers",
+    "citation": "Citations",
+    "check": "Present; review before applying",
+    "notDetected": "No clear marker found; check the source",
+    "render": "Slide preview",
+    "renderAfterApply": "Preview updates from the applied manuscript"
   },
   "pptLive": {
-      "manuscript": "Content",
-      "render": "Slides",
-      "edit": "Edit content",
-      "history": "PPT history",
-      "stale": "The handout changed. Some pages need to be synced.",
-      "sync": "Sync affected pages",
-      "previousPreview": "Showing the previous preview. Recent edits are not rendered yet.",
-      "previewing": "Preparing preview…",
-      "previewUnavailable": "No preview available",
-      "missing": "This lesson has no PPT manuscript yet",
-      "missingDescription": "The handout is saved independently. Generate a PPT manuscript from its current revision.",
-      "complete": "Generate PPT manuscript",
-      "candidate": "Proposed sync",
-      "accept": "Apply changes",
-      "reject": "Keep original",
-      "progress": {
-        "title": "PPT manuscript progress",
-        "starting": "Starting PPT manuscript generation",
-        "failed": "Generation stopped at the current step. The completed handout is unchanged.",
-        "attempt": "Attempt {attempt}",
-        "waiting": "Waiting for {seconds} seconds",
-        "steps": {
-          "prepare": "Check handout sources",
-          "pages": "Generate page content",
-          "sources": "Validate pages and citations",
-          "save": "Save manuscript"
-        }
-      },
-      "errors": {
-        "title": "PPT manuscript was not generated",
-        "block": "Failed at handout block {block}.",
-        "capacity": "The page text exceeds the selected layout capacity, so no clipped manuscript was saved.",
-        "source": "Page citations did not match the handout, so an ungrounded manuscript was not saved.",
-        "pageContract": "The page content or layout failed final validation. The handout and retry checkpoint were preserved.",
-        "technicalDetails": "View technical details"
+    "manuscript": "Content",
+    "render": "Slides",
+    "edit": "Edit content",
+    "history": "PPT history",
+    "stale": "The handout changed. Some pages need to be synced.",
+    "sync": "Sync affected pages",
+    "previousPreview": "Showing the previous preview. Recent edits are not rendered yet.",
+    "previewing": "Preparing preview…",
+    "previewUnavailable": "No preview available",
+    "missing": "This lesson has no PPT manuscript yet",
+    "missingDescription": "The handout is saved independently. Generate a PPT manuscript from its current revision.",
+    "complete": "Generate PPT manuscript",
+    "candidate": "Proposed sync",
+    "accept": "Apply changes",
+    "reject": "Keep original",
+    "progress": {
+      "title": "PPT manuscript progress",
+      "starting": "Starting PPT manuscript generation",
+      "failed": "Generation stopped at the current step. The completed handout is unchanged.",
+      "attempt": "Attempt {attempt}",
+      "waiting": "Waiting for {seconds} seconds",
+      "steps": {
+        "prepare": "Check handout sources",
+        "pages": "Generate page content",
+        "sources": "Validate pages and citations",
+        "save": "Save manuscript"
       }
+    },
+    "errors": {
+      "title": "PPT manuscript was not generated",
+      "block": "Failed at handout block {block}.",
+      "capacity": "The page text exceeds the selected layout capacity, so no clipped manuscript was saved.",
+      "source": "Page citations did not match the handout, so an ungrounded manuscript was not saved.",
+      "pageContract": "The page content or layout failed final validation. The handout and retry checkpoint were preserved.",
+      "technicalDetails": "View technical details"
+    }
   },
   "common": {
     "cancel": "Cancel",
@@ -5117,7 +5179,7 @@
       },
       "parseStatus": {
         "parsed": "Parsed",
-      "degraded": "Read with a backup method",
+        "degraded": "Read with a backup method",
         "failed": "Parse failed",
         "metadata_only": "Metadata only"
       },
@@ -7351,7 +7413,7 @@
         "uploaded": "Preview or download the original. Delete removes only this uploaded file.",
         "folder": "New content will be stored in the current materials folder.",
         "course": "Export the current course package without changing the formal course."
-    },
+      },
       "sources": {
         "courseStructure": "Course structure",
         "outlineSchedule": "Current outline and teacher scheduling",
@@ -7462,7 +7524,7 @@
         "help": "Use the course generation console to establish the structure, or import an existing outline.",
         "requirements": "Add course goals, hours, or structure requirements",
         "sourceHint": "Import an existing outline as a source"
-    },
+      },
       "lesson_plan": {
         "title": "Create lesson plan",
         "help": "Choose a session, then import an existing plan or create an editable working draft.",
@@ -7709,10 +7771,8 @@
     "lastGenerationFailed": "Previous generation failed",
     "incoming": "Incoming relation",
     "outgoing": "Outgoing relation",
-
     "pointDetails": "Knowledge point details",
     "selectPointHint": "Select a knowledge point to view its definition, conditions, connections and handout sources.",
-
     "numberedLesson": "Lecture {number} · {title}",
     "lessonPicker": "Lecture",
     "previousLesson": "Previous lecture",
@@ -7721,14 +7781,19 @@
     "lessonTreeEmpty": "No knowledge tree for this lecture yet. Generate it from the saved handout.",
     "lessonHandoutRequired": "Save a handout for this lecture before generating its knowledge tree.",
     "crossLessonLinks": "Cross-lecture links",
-    "relationTypes": {"prerequisite": "Prerequisite", "derives": "Derivation", "applies_to": "Application", "contrasts_with": "Contrast", "equivalent_to": "Equivalence", "generalizes": "Generalization"},
-
+    "relationTypes": {
+      "prerequisite": "Prerequisite",
+      "derives": "Derivation",
+      "applies_to": "Application",
+      "contrasts_with": "Contrast",
+      "equivalent_to": "Equivalence",
+      "generalizes": "Generalization"
+    },
     "readSourceText": "Read source paragraph",
     "modelDisconnected": "The model service is disconnected. Existing handouts and knowledge versions are preserved. Restore the connection and start again manually.",
     "extractionNotes": "Extraction notes and gaps",
     "derivedReview": "Knowledge is extracted from handouts with matched quotations. Adoption does not certify subject accuracy.",
     "locateHandout": "Locate in handout",
-
     "afterHandouts": "After handouts · Knowledge organization",
     "deriveTitle": "Build knowledge from handouts",
     "deriveHint": "Organize saved handouts into topics, subtopics and specific knowledge points. Uploads are optional; course information is reused.",
@@ -7745,7 +7810,6 @@
     "noDerivedTree": "Generated topics and knowledge cards will appear here. Review and adopt to save a new version.",
     "derivedAdoptHint": "Adoption saves a new knowledge version and preserves existing handouts and history.",
     "handoutSource": "Source handout",
-
     "adoptedReview": "This knowledge baseline is adopted and cited by the handouts. Matching quotations do not establish independent subject validation.",
     "genericNoDiagnosis": "No independently validated diagnosis or remediation is available for this point.",
     "genericAdoptHint": "Adopt this candidate after review. Handouts cite this knowledge and terminology version; later updates preserve history.",
@@ -7906,7 +7970,7 @@
     "running": "Generating and validating…",
     "refresh": "Reload",
     "failed": "The question could not be completed. Check the generation status before retrying."
-},
+  },
   "companionWelcome": {
     "message": "Hi, I’m your Lingzhi companion—select text to take a note or ask me a question, and use the bottom toolbar to explore your notes and knowledge tree.",
     "dismiss": "Got it"
@@ -7956,6 +8020,8 @@
       "missing": "No content reference",
       "invalid": "Invalid references excluded from coverage:"
     },
-    "originPinned": "From the knowledge version cited by this handout · Read arrows by relationship type"
+    "originPinned": "From the knowledge version cited by this handout · Read arrows by relationship type",
+    "page": "Page",
+    "slide": "Slide"
   }
 }

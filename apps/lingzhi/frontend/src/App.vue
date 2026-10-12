@@ -4,10 +4,11 @@
     :class="{
       'is-fullscreen-concept': isFullscreenConceptRoute,
       'is-course-workspace-route': isCourseWorkspaceRoute,
+      'is-study-route': isStudyRoute,
     }"
   >
     <header
-      v-if="!isFullscreenConceptRoute"
+      v-if="!isFullscreenConceptRoute && !isStudyRoute"
       class="app-header glass-panel-elevated"
     >
       <div class="app-header-start">
@@ -24,7 +25,9 @@
 
       <div v-if="!isLearningRoute" id="app-header-route-center" class="app-header-center" />
 
-      <div v-if="!isLearningRoute" id="app-header-route-actions" class="route-header-actions" />
+      <div v-if="!isLearningRoute" id="app-header-route-actions" class="route-header-actions">
+        <RouterLink v-if="route.name === 'course-library'" class="header-icon-button" to="/study">{{ activeLocale === 'en' ? 'My study space' : '我的学习空间' }}</RouterLink>
+      </div>
 
       <div v-if="isLearningRoute" class="header-actions">
         <label class="header-search">
@@ -114,12 +117,12 @@
     </main>
 
     <AppErrorCenter />
-    <KnowledgeLibrary v-if="!isPublicConceptRoute && !isLearningRoute" :learning-mode="isLearningRoute" />
+    <KnowledgeLibrary v-if="!isPublicConceptRoute && !isLearningRoute && !isStudyRoute" :learning-mode="isLearningRoute" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, Download, Scan, Search, Settings2, X } from 'lucide-vue-next'
 import AppErrorCenter from './components/AppErrorCenter.vue'
@@ -136,6 +139,7 @@ const generationStore = useGenerationStore()
 const qizhiHomeEnabled = isQizhiAuthRequired()
 
 const reconcileGenerationTasks = () => {
+  if (route.name === 'study') return
   void generationStore.fetchGlobalTasks()
 }
 const reconcileGenerationTasksFromStorage = (event: StorageEvent) => {
@@ -147,11 +151,21 @@ const reconcileVisibleGenerationTasks = () => {
 
 onMounted(() => {
   if (window.location.pathname.startsWith('/workspace-concept') || (import.meta.env.DEV && window.location.pathname.includes('/student-profile-demo'))) return
-  generationStore.restoreGenerationState()
-  generationStore.startGlobalMonitor()
+  const directStudyEntry = window.location.pathname.endsWith('/study') || window.location.pathname.includes('/study/')
+  if (route.name !== 'study' && !directStudyEntry) {
+    generationStore.restoreGenerationState()
+    generationStore.startGlobalMonitor()
+  }
   window.addEventListener('storage', reconcileGenerationTasksFromStorage)
   window.addEventListener('focus', reconcileGenerationTasks)
   document.addEventListener('visibilitychange', reconcileVisibleGenerationTasks)
+})
+watch(() => route.name, name => {
+  if (name === 'study') generationStore.stopGlobalMonitor()
+  else if (name !== 'workspace-concept') {
+    generationStore.restoreGenerationState()
+    generationStore.startGlobalMonitor()
+  }
 })
 onBeforeUnmount(() => {
   generationStore.stopGlobalMonitor()
@@ -161,6 +175,7 @@ onBeforeUnmount(() => {
 })
 
 const isLearningRoute = computed(() => route.name === 'learning')
+const isStudyRoute = computed(() => route.name === 'study')
 const isCourseWorkspaceRoute = computed(() => ['course-workspace', 'course-audit-updates'].includes(String(route.name || '')))
 const isPublicConceptRoute = computed(() => route.meta.publicConcept === true)
 const isFullscreenConceptRoute = computed(() => route.meta.fullscreenConcept === true)
@@ -210,6 +225,8 @@ function changeLocale(locale: string) {
   background: transparent;
 }
 .app-shell.is-fullscreen-concept { grid-template-rows:minmax(0,1fr); gap:0; padding:0; background:var(--lz-canvas); }
+.app-shell.is-study-route { grid-template-rows:minmax(0,1fr); gap:0; padding:0; }
+.app-shell.is-study-route .app-main { border-radius:0; }
 .app-shell.is-fullscreen-concept .app-main { border-radius:0; }
 .app-shell.is-public-concept { grid-template-rows:minmax(0,1fr); gap:0; padding:0; background:#f5f6f9; }
 .app-shell.is-public-concept .app-main { border-radius:0; }

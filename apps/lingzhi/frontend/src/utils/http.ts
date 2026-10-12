@@ -30,6 +30,12 @@ export const getQizhiAccessToken = (): string => {
 
 export const isQizhiAuthRequired = (): boolean => QIZHI_AUTH_REQUIRED;
 
+export const clearQizhiAccessToken = (): void => {
+  if (!QIZHI_AUTH_REQUIRED) return;
+  localStorage.removeItem(QIZHI_AUTH_TOKEN_KEY);
+  sessionStorage.removeItem(QIZHI_AUTH_TOKEN_KEY);
+};
+
 export const redirectToQizhiLogin = (): void => {
   if (typeof window === 'undefined') return;
   const redirect = `${window.location.pathname}${window.location.search}${window.location.hash}`;

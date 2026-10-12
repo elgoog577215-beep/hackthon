@@ -30,6 +30,173 @@ const katexText = (html: string) => {
 }
 
 describe('renderMarkdown – 真实 KaTeX 兼容', () => {
+  it('增广矩阵及矛盾行中的竖线保留在公式内，不拆开讲义表格的五列', () => {
+    const html = renderMarkdown(String.raw`| 解的情况 | 秩的条件 | 消元后的行阶梯形特征 | 自由变量数 | 几何意义 |
+| :--- | :--- | :--- | :--- | :--- |
+| **无解** | $\text{rank}(A) < \text{rank}([A|\mathbf{b}])$ | 存在一行 $[0 \ \dots \ 0 \ | \ c]$，$c \neq 0$ | 无意义 | 平面/子空间不交汇，$\mathbf{b}$ 不在列空间 |
+| **唯一解** | $\text{rank}(A) = \text{rank}([A|\mathbf{b}]) = n$ | 无零行（或仅底部全零行），且每列有主元 | 0 | 子空间交汇于唯一一点 |
+| **无穷多解** | $\text{rank}(A) = \text{rank}([A|\mathbf{b}]) = r < n$ | 存在非主元列 | $n - r > 0$ | 子空间重叠为直线、平面等 |`)
+    const box = document.createElement('div')
+    box.innerHTML = html
+    expect(box.querySelectorAll('thead th')).toHaveLength(5)
+    const rows = Array.from(box.querySelectorAll('tbody tr'))
+    expect(rows).toHaveLength(3)
+    rows.forEach(row => expect(row.querySelectorAll('td')).toHaveLength(5))
+    expect(rows[0]?.querySelectorAll('td')[1]?.querySelectorAll('.katex')).toHaveLength(1)
+    expect(rows[0]?.querySelectorAll('td')[2]?.querySelectorAll('.katex')).toHaveLength(2)
+    expect(rows[0]?.querySelectorAll('td')[3]?.textContent).toBe('无意义')
+    expect(rows[0]?.querySelectorAll('td')[4]?.textContent).toContain('不在列空间')
+    expect(rows[1]?.querySelectorAll('td')[4]?.textContent).toBe('子空间交汇于唯一一点')
+    expect(rows[2]?.querySelectorAll('td')[4]?.textContent).toBe('子空间重叠为直线、平面等')
+    expect(box.querySelectorAll('.math-fallback,.katex-error')).toHaveLength(0)
+    expect(renderedText(html)).not.toMatch(/\$|\\(?:text|mathbf|dots)|MATHDISPLAYPLACEHOLDER/)
+  })
+
+  it('English tables preserve conditional probability and double norm bars', () => {
+    const html = renderMarkdown(String.raw`| Formula | Meaning |
+| --- | --- |
+| $P(A|B)$ | Conditional probability |
+| $\|x\|$ | Norm |
+| left\|right | A literal pipe |`)
+    const box = document.createElement('div')
+    box.innerHTML = html
+    const rows = Array.from(box.querySelectorAll('tbody tr'))
+    expect(rows.map(row => row.querySelectorAll('td')[1]?.textContent)).toEqual(['Conditional probability', 'Norm', 'A literal pipe'])
+    expect(rows[0]?.querySelector('.katex')?.textContent).toContain('P(A∣B)')
+    expect(rows[1]?.querySelector('.katex')?.textContent).toContain('∥x∥')
+    expect(rows[2]?.querySelectorAll('td')[0]?.textContent).toBe('left|right')
+    expect(box.querySelectorAll('.math-fallback,.katex-error')).toHaveLength(0)
+  })
+
+  it('保留同一公式内的矩阵、系数与等号，不吞掉后续中文和粗体', () => {
+    const html = renderMarkdown(String.raw`证明线性无关：
+\[
+a \begin{pmatrix} 1 \\ 2 \end{pmatrix} + b \begin{pmatrix} 2 \\ 1 \end{pmatrix} = \begin{pmatrix} 0 \\ 0 \end{pmatrix}
+\]
+展开为标量方程：
+\[
+\begin{cases}
+a + 2b = 0 \\
+2a + b = 0
+\end{cases}
+\]
+由第一个方程得 \(a = -2b\)。
+**结论**：只有零解，因此线性无关。`)
+    const box = document.createElement('div')
+    box.innerHTML = html
+    const formulas = Array.from(box.querySelectorAll('.katex'))
+    expect(formulas).toHaveLength(3)
+    expect(formulas[0]?.querySelectorAll('.mtable')).toHaveLength(3)
+    expect(formulas[0]?.textContent).toMatch(/a.*\+.*b.*=/)
+    expect(box.querySelector('strong')?.textContent).toBe('结论')
+    expect(renderedText(html)).not.toMatch(/\$|\*\*|MATHDISPLAYPLACEHOLDER/)
+    expect(katexText(html)).not.toContain('由第一个方程')
+    expect(katexErrors(html)).toEqual([])
+  })
+
+  it('保留行内矩阵的完整表达式和之后的说明', () => {
+    const html = renderMarkdown(String.raw`设 \(v = \begin{pmatrix}1 \\ 2\end{pmatrix}\)，则**分量**为 1 和 2。`)
+    const box = document.createElement('div')
+    box.innerHTML = html
+    expect(box.querySelector('.katex')?.textContent).toContain('v=')
+    expect(box.querySelectorAll('.katex')).toHaveLength(1)
+    expect(box.querySelector('strong')?.textContent).toBe('分量')
+    expect(renderedText(html)).not.toMatch(/\$|\*\*|MATHDISPLAYPLACEHOLDER/)
+  })
+
+  it('已闭合的行内公式不会与后续列表中的 cases 和矩阵串联', () => {
+    const html = renderMarkdown(String.raw`1. **求解**：
+    由第一个方程得 $a = 5 - 2b$。
+    代入第二式：
+    \[
+    \begin{cases}a + 2b = 5 \\ 2a + b = 4\end{cases}
+    \]
+    解得 $a = 1, b = 2$。
+2. **核验**：
+    $$
+    \begin{bmatrix}1 & 2 \\ 2 & 1\end{bmatrix}
+    $$
+    **结论**：通解 $\begin{cases}x = 5 - 2t \\ y = t\end{cases}, t \in \mathbb{R}$。
+
+**继续阅读**：后续正文保留。`)
+    const box = document.createElement('div')
+    box.innerHTML = html
+    expect(box.querySelectorAll('.math-fallback,.katex-error')).toHaveLength(0)
+    expect(renderedText(html)).not.toMatch(/\$|\*\*|MATHDISPLAYPLACEHOLDER|\\end/)
+    expect(katexText(html)).not.toContain('代入第二式')
+    expect(katexText(html)).not.toContain('继续阅读')
+    expect(box.querySelectorAll('strong').length).toBeGreaterThanOrEqual(4)
+  })
+
+  it.each([
+    String.raw`\[
+    S(0) \times x = 0 \times x + x
+    \]`,
+    String.raw`\[S(0) \times x = 0 \times x + x\]`,
+    String.raw`$$S(0) \times x = 0 \times x + x$$`,
+    String.raw`$$
+    S(0) \times x = 0 \times x + x
+    $$`,
+  ])('保留列表内显示公式之后的说明、行内公式和粗体：%s', (display) => {
+    const html = renderMarkdown([
+      '1. **加法定义**：从起始元素构造。',
+      '2. **验证乘法单位元**：',
+      '    令 $m = 0$，代入递归定义：',
+      `    ${display}`,
+      String.raw`    根据 $0 \times x = 0$：`,
+      String.raw`    \[S(0) \times x = x\]`,
+      String.raw`    即 $1 \times x = x$。`,
+      '    **结论**：这是公理所**推导**出的结果。',
+      '3. **边界**：区分加法与乘法。',
+    ].join('\n'))
+    const box = document.createElement('div')
+    box.innerHTML = html
+    const items = box.querySelectorAll('ol > li')
+
+    expect(items).toHaveLength(3)
+    expect(items[1]?.querySelectorAll('.katex')).toHaveLength(5)
+    expect(items[1]?.textContent).toContain('根据')
+    expect(items[1]?.querySelectorAll('strong')).toHaveLength(3)
+    expect(box.querySelector('pre')).toBeNull()
+    expect(renderedText(html)).not.toMatch(/\$|\*\*/)
+    expect(katexErrors(html)).toEqual([])
+  })
+
+  it('渲染紧邻中文正文的带引号粗体，保留代码和转义标记', () => {
+    const html = renderMarkdown([
+      String.raw`形成了**“定义 $\to$ 构造 $\to$ 边界”**的逻辑链条。`,
+      '明确**「单位元」**的边界。',
+      '',
+      '代码 `**“原样”**` 与转义 \\*\\*“原样”\\*\\* 保留字面量。',
+      '',
+      '```text',
+      '**“代码块”**',
+      '```',
+    ].join('\n'))
+    const box = document.createElement('div')
+    box.innerHTML = html
+
+    expect(box.querySelectorAll('strong')).toHaveLength(2)
+    expect(box.querySelector('strong')?.querySelectorAll('.katex')).toHaveLength(2)
+    expect(box.querySelector('p')?.textContent).not.toContain('**')
+    expect(box.querySelector('p code')?.textContent).toBe('**“原样”**')
+    expect(box.querySelector('pre code')?.textContent).toContain('**“代码块”**')
+    expect(renderedText(html)).toContain('与转义 **“原样”**')
+  })
+
+  it('显示公式的结束分隔符与正文在同一行时仍正常分段', () => {
+    const html = renderMarkdown(String.raw`\[
+x = 1
+\]根据 $x = 1$，得到**结论**。`)
+    const box = document.createElement('div')
+    box.innerHTML = html
+
+    expect(box.querySelectorAll('.katex')).toHaveLength(2)
+    expect(box.querySelector('strong')?.textContent).toBe('结论')
+    expect(renderedText(html)).not.toMatch(/\$|\*\*/)
+    expect(katexErrors(html)).toEqual([])
+  })
+
   it('把裸露的 LaTeX 打字机代码恢复为 Markdown 行内代码', () => {
     const html = renderMarkdown(String.raw`可验证行为：\texttt{find("span", class\_="price")} 是从根开始第几个子节点被命中。`)
     const box = document.createElement('div')

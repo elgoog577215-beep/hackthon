@@ -18,6 +18,12 @@ const routes: Array<RouteRecordRaw> = [
     meta: { publicConcept: true, fullscreenConcept: true, identityScope: 'learner' as const },
   }] : []),
   {
+    path: '/study/:materialId?',
+    name: 'study',
+    component: () => import('../views/StudyView.vue'),
+    meta: { identityScope: 'learner' },
+  },
+  {
     path: '/',
     redirect: '/courses'
   },

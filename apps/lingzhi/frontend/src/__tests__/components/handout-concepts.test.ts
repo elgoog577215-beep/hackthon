@@ -58,6 +58,15 @@ describe('Handout concept relationships', () => {
     expect(conceptLayers(section).flat().map(node => node.id)).toEqual(['id-a', 'id-b'])
     expect(conceptLayers(section)).toHaveLength(1)
   })
+  it('显示结构化来源位置与学生资料说明，不把位置对象当成正文', () => {
+    const section = buildHandoutConceptSections(plans, reading)[0]!
+    section.relations[0]!.sourceRefs = [{ filename: '教材.pdf', locator: { section_path: ['向量', '线性组合'], page: 3, slide: null } }]
+    const wrapper = mount(HandoutConceptMap, { props: { sections: [section], originLabel: '来自所选资料' } })
+    expect(wrapper.text()).toContain('教材.pdf · 向量 › 线性组合 · 页 3')
+    expect(wrapper.get('footer').text()).toBe('来自所选资料')
+    expect(wrapper.text()).not.toMatch(/\[object Object\]|来自当前教案/)
+    wrapper.unmount()
+  })
   it('知识库重复投影不丢来源，组合前提保留 AND/OR 与必要性', () => {
     const relation = { source_name: 'A', target_name: 'B', relation_type: 'prerequisite', reason: '已有理由', relation_group_id: 'g1', group_operator: 'OR', necessity: 'helpful' }
     const section = buildHandoutConceptSections([{ ...plans[0], knowledge_relations: [relation, { ...relation, source_refs: ['ev-001'] }] }], reading)[0]!

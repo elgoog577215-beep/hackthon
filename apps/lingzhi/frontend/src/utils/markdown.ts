@@ -416,6 +416,37 @@ const md = new MarkdownIt({
     }
 });
 
+// Chinese quotation marks can touch the surrounding prose without spaces.
+// Keep MarkdownIt's delimiter pairing (including nested inline math), but
+// allow **“quoted text”** at those CJK boundaries. Code and escapes are still
+// handled by their normal inline rules before emphasis is considered.
+md.inline.ruler.before('emphasis', 'cjk_quoted_strong', (state, silent) => {
+    const start = state.pos;
+    if (silent || !state.src.startsWith('**', start)) return false;
+    const scanned = state.scanDelims(start, true);
+    if (scanned.length !== 2) return false;
+    const before = state.src[start - 1] || '';
+    const after = state.src[start + 2] || '';
+    const canOpen = /\p{Script=Han}/u.test(before) && /[“‘（「『【《〈]/u.test(after);
+    const canClose = /[”’）」』】》〉]/u.test(before) && /\p{Script=Han}/u.test(after);
+    if (!canOpen && !canClose) return false;
+
+    for (let i = 0; i < 2; i++) {
+        const token = state.push('text', '', 0);
+        token.content = '*';
+        state.delimiters.push({
+            marker: 0x2A,
+            length: 2,
+            token: state.tokens.length - 1,
+            end: -1,
+            open: canOpen || scanned.can_open,
+            close: canClose || scanned.can_close,
+        });
+    }
+    state.pos += 2;
+    return true;
+});
+
 // Security: Open links in new tab
 md.use(linkAttributes, {
   attrs: {
@@ -585,9 +616,15 @@ const defaultFence = md.renderer.rules.fence || function(tokens: any, idx: numbe
   return self.renderToken(tokens, idx, options);
 };
 
-md.renderer.rules.fence = function(tokens: any, idx: number, options: any) {
+md.renderer.rules.fence = function(tokens: any, idx: number, options: any, env: any) {
   const token = tokens[idx];
   const info = token.info ? token.info.trim() : '';
+  if (info === 'lingzhi-diagram') {
+    const diagramIndex = env.diagramIndex || 0;
+    const closed = env.diagramClosed?.[diagramIndex] === true;
+    env.diagramIndex = diagramIndex + 1;
+    return `<div class="teaching-diagram-host" data-diagram="${encodeURIComponent(token.content)}" data-pending="${!closed}"></div>`;
+  }
   
   if (info === 'mermaid') {
     const code = prepareMermaidBlockSource(token.content);
@@ -710,22 +747,43 @@ const normalizeNestedDisplayEnvironments = (content: string) => {
         (_match, environment) => String(environment).trim()
     ));
 
-    const multilineInlineEnvironmentRe = new RegExp(
-        `(?<!\\$)\\$([^$]*?\\\\begin\\{(?:${DISPLAY_MATH_ENVIRONMENTS})\\}[\\s\\S]*?\\\\end\\{(?:${DISPLAY_MATH_ENVIRONMENTS})\\}[^$]*?)\\$(?!\\$)`,
-        'g'
-    );
-    normalized = normalized.replace(multilineInlineEnvironmentRe, (_match, formula) => `\n$$\n${String(formula).trim()}\n$$\n`);
+    // Pair whole single-dollar expressions before looking for environments.
+    // Starting a search at a previous formula's closing dollar can otherwise
+    // reach a later \[cases\] block and the next formula's opening dollar.
+    const inlineEnvironmentRe = new RegExp(`\\\\begin\\{(${DISPLAY_MATH_ENVIRONMENTS})\\}[^$]*?\\\\end\\{\\1\\}`);
+    normalized = normalized.replace(/(?<!\$)\$([^$]+?)\$(?!\$)/g, (match, formula) => (
+        String(formula).includes('\n') && inlineEnvironmentRe.test(formula) ? `\n$$\n${String(formula).trim()}\n$$\n` : match
+    ));
     return normalized;
 };
 
 const protectBalancedDisplayEnvironments = (content: string) => {
     const blocks = new Map<string, string>();
     let index = 0;
+    // Protect the entire explicit expression first. Extracting each matrix
+    // from a valid formula leaves its coefficients, operators and outer dollar
+    // delimiters behind, which can pair with later prose and swallow Markdown.
+    const hasEnvironment = new RegExp(`\\\\begin\\{(?:${DISPLAY_MATH_ENVIRONMENTS})\\}`);
+    let normalized = content.replace(/\$\$([^$]*?)\$\$|(?<!\$)\$([^$\n]+?)\$(?!\$)/g, (match, display, inline, offset) => {
+        const formula = String(display ?? inline ?? '');
+        if (!hasEnvironment.test(formula)) return match;
+        const id = `MATHDISPLAYPLACEHOLDER${index++}`;
+        const html = renderMathContent(String(formula), display !== undefined);
+        blocks.set(id, display !== undefined ? `<div class="katex-display">${html}</div>` : html);
+        if (display === undefined) return id;
+        const prefix = content.slice(content.lastIndexOf('\n', offset - 1) + 1, offset);
+        const suffix = content.slice(offset + match.length).split('\n', 1)[0] || '';
+        // Keep display blocks inside the current list item. An unindented
+        // placeholder ends that item and turns its following prose into code.
+        return /^[\t ]*$/.test(prefix) && /^[\t ]*$/.test(suffix)
+            ? `\n${prefix}${id}\n${prefix}` : `\n\n${id}\n\n`;
+    });
+    normalized = normalizeBalancedDisplayEnvironments(normalized);
     const environmentRe = new RegExp(
         `(\\\\begin\\{(${DISPLAY_MATH_ENVIRONMENTS})\\}[\\s\\S]*?\\\\end\\{\\2\\})`,
         'g'
     );
-    let normalized = content.replace(environmentRe, (_match, environment) => {
+    normalized = normalized.replace(environmentRe, (_match, environment) => {
         const id = `MATHDISPLAYPLACEHOLDER${index++}`;
         blocks.set(id, `<div class="katex-display">${renderMathContent(String(environment), true)}</div>`);
         return `\n\n${id}\n\n`;
@@ -737,6 +795,29 @@ const protectBalancedDisplayEnvironments = (content: string) => {
     normalized = normalized.replace(/(MATHDISPLAYPLACEHOLDER\d+)(?:\s*\${2,})+/g, (_match, id) => `${id}\n`);
 
     return { normalized, blocks };
+};
+
+// GFM splits table cells before running inline rules. Protect only complete
+// pipe-bearing formulas in confirmed tables so augmented matrices, conditional
+// probabilities and LaTeX norm bars reach KaTeX unchanged. Escaping their pipes
+// instead would lose the distinction between `|` and the LaTeX `\|` command.
+const protectTableMath = (source: string, blocks: Map<string, string>) => {
+    const lines = source.split('\n');
+    let inTable = false;
+    return lines.map((line, index) => {
+        if (!inTable) {
+            inTable = countUnescapedTablePipes(line) > 0 && isMarkdownTableDelimiter(lines[index + 1] || '');
+        } else if (!line.includes('|')) {
+            inTable = false;
+        }
+        if (!inTable) return line;
+        return line.replace(/(?<!\$)\$([^$\n]+?)\$(?!\$)/g, (match, formula) => {
+            if (!String(formula).includes('|')) return match;
+            const id = `MATHDISPLAYPLACEHOLDER${blocks.size}`;
+            blocks.set(id, renderMathContent(String(formula), false));
+            return id;
+        });
+    }).join('\n');
 };
 
 const recoverProtectedMathBlocks = (rawHtml: string, blocks: Map<string, string>) => {
@@ -1154,6 +1235,22 @@ export const renderMarkdown = (content: string) => {
     if (markdownCache.has(content)) {
         return markdownCache.get(content) || ''
     }
+    // Track the real fence closures before legacy preview repairs append a
+    // synthetic closing fence. A complete JSON object in an unfinished stream
+    // is still pending until its original Markdown fence has closed.
+    const diagramClosed: boolean[] = [];
+    let originalFence = '', originalDiagram = false;
+    for (const line of content.split('\n')) {
+        const fence = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+        if (!fence) continue;
+        const mark = fence[1] || '', tail = fence[2] || '';
+        if (!originalFence) { originalFence = mark; originalDiagram = tail.trim() === 'lingzhi-diagram'; }
+        else if (mark[0] === originalFence[0] && mark.length >= originalFence.length && !tail.trim()) {
+            if (originalDiagram) diagramClosed.push(true);
+            originalFence = ''; originalDiagram = false;
+        }
+    }
+    if (originalFence && originalDiagram) diagramClosed.push(false);
 
     // Fast path: If content looks simple (no code, no math delimiters, no obvious math symbols), 
     // skip the heavy robust preprocessing.
@@ -1364,7 +1461,13 @@ export const renderMarkdown = (content: string) => {
 
     // Normalize LaTeX delimiters for compatibility
     // Replace \[ ... \] with $$ ... $$
-    normalized = normalized.replace(/\\\[([\s\S]*?)\\\]/g, (_match, content) => {
+    normalized = normalized.replace(/\\\[([\s\S]*?)\\\]/g, (match, content, offset, source) => {
+        const linePrefix = source.slice(source.lastIndexOf('\n', offset - 1) + 1, offset);
+        const lineSuffix = source.slice(offset + match.length).split('\n', 1)[0];
+        // A standalone display already has the correct Markdown indentation.
+        // Adding an unindented line here ends its list item and turns the
+        // following indented explanation into a literal code block.
+        if (/^[\t ]*$/.test(linePrefix) && /^[\t ]*$/.test(lineSuffix)) return `$$${content}$$`;
         return `\n$$\n${String(content).trim()}\n$$\n`;
     });
     // Replace \( ... \) with $ ... $ (Inline math)
@@ -1374,7 +1477,10 @@ export const renderMarkdown = (content: string) => {
     
     // Normalize single-line display math into a block form. Existing multiline
     // $$ blocks were already masked and restored, so avoid rewriting them again.
-    normalized = normalized.replace(/\$\$([^\n$][^\n]*?)\$\$/g, (_match, content) => {
+    normalized = normalized.replace(/\$\$([^\n$][^\n]*?)\$\$/g, (match, content, offset, source) => {
+        const linePrefix = source.slice(source.lastIndexOf('\n', offset - 1) + 1, offset);
+        const lineSuffix = source.slice(offset + match.length).split('\n', 1)[0];
+        if (/^[\t ]*$/.test(linePrefix) && /^[\t ]*$/.test(lineSuffix)) return match;
         return `\n$$\n${content.trim()}\n$$\n`;
     });
     
@@ -1397,13 +1503,13 @@ export const renderMarkdown = (content: string) => {
     normalized = normalized.replace(/(\w+)'\s+\((.+?)\)/g, "$1'($2)")
     normalized = normalized.replace(/(\w+)\s+'/g, "$1'")
 
-    normalized = normalizeBalancedDisplayEnvironments(normalized)
     const protectedDisplayMath = protectBalancedDisplayEnvironments(normalized)
     normalized = protectedDisplayMath.normalized
     normalized = normalized.replace(
         /(MATHDISPLAYPLACEHOLDER\d+)\s*\n\s*([+\-=])\s*\n\s*(MATHDISPLAYPLACEHOLDER\d+)/g,
         (_match, left, operator, right) => `${left}\n\n$${operator}$\n\n${right}`
     )
+    normalized = protectTableMath(normalized, protectedDisplayMath.blocks)
 
 
     // NOTE: Do not run additional auto-wrapping heuristics after restoring valid
@@ -1420,7 +1526,7 @@ export const renderMarkdown = (content: string) => {
              normalized = normalized.replace(key, () => value);
         });
 
-        const rawHtml = recoverProtectedMathBlocks(md.render(normalized), protectedDisplayMath.blocks);
+        const rawHtml = recoverProtectedMathBlocks(md.render(normalized, { diagramClosed, diagramIndex: 0 }), protectedDisplayMath.blocks);
         sanitized = DOMPurify.sanitize(rawHtml, {
             ADD_TAGS: ['span', 'div', 'p', 'button', 'math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mtable', 'mtr', 'mtd', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
             ADD_ATTR: ['target', 'class', 'xmlns', 'display', 'mathvariant', 'loading', 'data-code', 'title']
