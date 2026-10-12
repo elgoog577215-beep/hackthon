@@ -133,6 +133,8 @@ def test_handout_quotes_are_loaded_from_source_blocks_not_copied_by_model(svc):
     point = tree['knowledge_points'][0]
     assert point['source_quotes'][0]['quote'] == 'CPU执行指令。'
     assert point['verification_status'] == 'handout_block_linked_semantics_pending'
+    from course_knowledge_base import _source_status
+    assert _source_status(point) == 'course_generated'
 
 
 @pytest.mark.asyncio
