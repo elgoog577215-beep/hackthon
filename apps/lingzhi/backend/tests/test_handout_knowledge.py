@@ -108,7 +108,7 @@ def test_handout_context_ignores_uploaded_caches_and_unfinished_blocks(svc):
     assert context['policy']['handouts_are_generated_content_not_independent_evidence']
 
 
-def test_cross_lecture_mapping_and_fabricated_quote_are_rejected(svc):
+def test_cross_lecture_mapping_and_foreign_block_are_rejected(svc):
     from handout_knowledge import handout_context
     from generic_knowledge import compile_tree
     handouts(svc)
@@ -117,9 +117,22 @@ def test_cross_lecture_mapping_and_fabricated_quote_are_rejected(svc):
     wrong = answer(); wrong['lessons'][0]['knowledge_keys'].append('K2')
     with pytest.raises(CourseDocumentConflict, match='讲次归属'):
         compile_tree(raw, context, wrong)
-    wrong = answer(); wrong['points'][0]['sources'][0]['quote'] = '不存在的事实'
-    with pytest.raises(CourseDocumentConflict, match='引文'):
+    wrong = answer(); wrong['points'][0]['sources'][0]['key'] = 'S999'
+    with pytest.raises(CourseDocumentConflict, match='未知来源'):
         compile_tree(raw, context, wrong)
+
+
+def test_handout_quotes_are_loaded_from_source_blocks_not_copied_by_model(svc):
+    from handout_knowledge import handout_context
+    from generic_knowledge import compile_tree
+    handouts(svc)
+    raw = svc.repository.load_raw('c-pilot')
+    context = handout_context(raw, svc.authoring.load('c-pilot'))
+    value = answer(); value['points'][0]['sources'] = [{'key': 'S1'}]
+    tree = compile_tree(raw, context, value)
+    point = tree['knowledge_points'][0]
+    assert point['source_quotes'][0]['quote'] == 'CPU执行指令。'
+    assert point['verification_status'] == 'handout_block_linked_semantics_pending'
 
 
 @pytest.mark.asyncio
