@@ -1,4 +1,5 @@
 import catalog from "../../../shared/teaching-diagrams-v1.json";
+import { teachingDiagramMarkers, teachingDiagramStyle } from './teaching-diagram-layout';
 
 export const teachingDiagramCatalog = catalog;
 export type DiagramNode = {
@@ -955,7 +956,7 @@ const fmt = (v: number) => Number(v.toPrecision(6)).toString();
 export function teachingDiagramSvg(d: TeachingDiagram, id: string): string {
   const marker = `td-${id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const scene = buildTeachingDiagramScene(d, marker);
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${scene.width}" height="${scene.height}" viewBox="0 0 ${scene.width} ${scene.height}" role="img" aria-labelledby="${marker}-title ${marker}-desc"><title id="${marker}-title">${e(d.title)}</title><desc id="${marker}-desc">${e(d.summary + "\n" + d.source)}</desc><style>text{font-family:system-ui,"Microsoft YaHei",sans-serif}svg{background:#fff}path,line,rect,polygon,circle{vector-effect:non-scaling-stroke}</style><defs><marker id="${marker}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#64748b"/></marker><marker id="${marker}-inheritance" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="10" markerHeight="10" orient="auto"><path d="M1 1L11 6L1 11Z" fill="#fff" stroke="#64748b"/></marker><marker id="${marker}-composition" viewBox="0 0 16 12" refX="15" refY="6" markerWidth="11" markerHeight="8" orient="auto"><path d="M1 6L8 1L15 6L8 11Z" fill="#64748b"/></marker></defs>${scene.body}</svg>`;
+  return `<svg class="teaching-diagram-svg" xmlns="http://www.w3.org/2000/svg" width="${scene.width}" height="${scene.height}" viewBox="0 0 ${scene.width} ${scene.height}" role="img" aria-labelledby="${marker}-title ${marker}-desc"><title id="${marker}-title">${e(d.title)}</title><desc id="${marker}-desc">${e(d.summary + "\n" + d.source)}</desc><style>${teachingDiagramStyle}</style><defs>${teachingDiagramMarkers(marker)}</defs>${scene.body}</svg>`;
 }
 
 export function buildTeachingDiagramScene(
