@@ -200,3 +200,15 @@ def test_handout_source_lists_preserve_all_repeated_refs_and_reject_other_duplic
         parse_response('{"key":"S1","key":"S2"}', handout_sources=True)
     with pytest.raises(CourseDocumentConflict, match='重复'):
         parse_response('{"points":[],"points":[{}]}', handout_sources=True)
+
+
+def test_preview_uses_adopted_tree_but_excludes_hidden_or_superseded_handouts(svc):
+    from handout_knowledge import handout_context, visible_handout_tree
+    from generic_knowledge import compile_tree
+    handouts(svc); raw = svc.repository.load_raw('c-pilot')
+    tree = compile_tree(raw, handout_context(raw, svc.authoring.load('c-pilot')), answer())
+    visible = visible_handout_tree(tree, {'blocks': [{'block_id': 'b-cpu'}]}, {'cpu': {'revision_id': 'r-cpu'}})
+    assert len(visible['knowledge_points']) == 1
+    assert visible['knowledge_points'][0]['name'] == 'CPU作用'
+    assert len(tree['knowledge_points']) == 2
+    assert visible_handout_tree(tree, {'blocks': [{'block_id': 'b-cpu'}]}, {'cpu': {'revision_id': 'new'}})['knowledge_points'] == []
