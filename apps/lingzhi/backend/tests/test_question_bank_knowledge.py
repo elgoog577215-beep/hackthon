@@ -3,9 +3,9 @@ from copy import deepcopy
 
 import pytest
 
-from question_bank import QuestionBankRepository, formal_task_from_question_bank_item, refresh_question_bank_bundle
 from knowledge_mastery import freeze_knowledge_refs
-from question_bank_knowledge import binding_view, bind_questions
+from question_bank import QuestionBankRepository, formal_task_from_question_bank_item, refresh_question_bank_bundle
+from question_bank_knowledge import bind_questions, binding_view
 
 
 def course():
@@ -109,9 +109,10 @@ def test_foreign_ids_or_missing_model_rows_fail_without_partial_write():
 def api(tmp_path, monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    from routers import question_bank as routes
-    from question_bank_jobs import QuestionBankRebuildJobRepository
+
     import question_bank_knowledge as domain
+    from question_bank_jobs import QuestionBankRebuildJobRepository
+    from routers import question_bank as routes
 
     current = course()
     repository = QuestionBankRepository(tmp_path / 'banks')
@@ -218,6 +219,50 @@ def test_new_association_prepares_refs_but_does_not_certify_independent_mastery(
     from practice_grading import PracticeGrader
     updated = asyncio.run(bind_questions(course(), bank(), matcher=match))
     task = formal_task_from_question_bank_item(updated['items'][0])
-    result = asyncio.run(PracticeGrader().grade(task, {'selected_option_id': 'A'}))
+    task['grading_policy'] = {'method': 'choice'}
+    result = asyncio.run(PracticeGrader.__new__(PracticeGrader).grade(task, {'answer_payload': {'selected_option_id': 'A'}}))
     assert result['mastery_eligible'] is False
     assert result['evidence_exclusion_reason'] == 'knowledge_binding_requires_measurement_review'
+
+
+@pytest.mark.parametrize('failed', [False, True])
+def test_provider_is_bounded_and_closed_even_on_failure(monkeypatch, failed):
+    import json
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    import ai_base
+    from question_bank_knowledge import match_questions
+
+    call = AsyncMock(return_value=json.dumps({'bindings': []}), side_effect=RuntimeError('offline') if failed else None)
+    close = AsyncMock()
+    monkeypatch.setattr(ai_base, 'AIBase', lambda: SimpleNamespace(_call_llm=call, client=SimpleNamespace(close=close)))
+    if failed:
+        with pytest.raises(RuntimeError):
+            asyncio.run(match_questions(bank()['items'], course()['course_knowledge_base']['knowledge_points']))
+    else:
+        assert asyncio.run(match_questions(bank()['items'], course()['course_knowledge_base']['knowledge_points'])) == []
+    assert call.call_args.kwargs['max_attempts'] == 1
+    assert call.call_args.kwargs['request_timeout_seconds'] == 45
+    close.assert_awaited_once()
+
+
+def test_pending_retry_is_explicit_and_scoped():
+    async def uncertain(items, points):
+        return [{'revision_id': i['revision_id'], 'knowledge_ids': [], 'confidence': 0} for i in items]
+    pending = asyncio.run(bind_questions(course(), bank(), matcher=uncertain))
+    assert asyncio.run(bind_questions(course(), pending, matcher=match)) == pending
+    revision = pending['items'][0]['revision_id']
+    fixed = asyncio.run(bind_questions(course(), pending, matcher=match, retry_pending=True, revision_ids=[revision]))
+    assert binding_view(course(), fixed)['counts']['bound'] == 1
+    with pytest.raises(ValueError):
+        asyncio.run(bind_questions(course(), fixed, matcher=match, revision_ids=['r1']))
+
+
+def test_retargeting_generated_atomic_question_requires_new_review():
+    original = bank()
+    original['items'][0].update(assessment_binding_schema='atomic_assessment_v1',
+        primary_knowledge_ids=['k1'], course_knowledge_refs=['k1'], knowledge_revision_refs={'k1': 'kr1'}, knowledge_baseline_revision='tree1')
+    updated = asyncio.run(bind_questions(course(), original, mode='manual', revision_id='r1', knowledge_ids=['k2']))
+    assert updated['items'][0]['lifecycle_status'] == 'needs_review'
+    assert updated['items'][0]['primary_knowledge_ids'] == ['k2']

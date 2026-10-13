@@ -98,6 +98,13 @@
         </button>
       </nav>
     </header>
+    <QuestionKnowledgeBinding
+      v-if="workspaceMode === 'bank' && items.length && bundleRevisionId"
+      :course-id="courseId"
+      :bundle-revision="bundleRevisionId"
+      :generation-active="rebuilding"
+      @updated="load"
+    />
     <div class="question-bank-document-surface">
     <div class="question-bank-workspace-body">
     <QuestionBankImportWorkspace
@@ -911,6 +918,7 @@ import CourseReferenceTray, { type CourseReferenceItem } from './CourseReference
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import MathText from './MathText.vue'
 import QuestionBankImportWorkspace from './QuestionBankImportWorkspace.vue'
+import QuestionKnowledgeBinding from './QuestionKnowledgeBinding.vue'
 import http, { teacherReadRequestConfig } from '@/utils/http'
 import { t } from '@/shared/i18n'
 import { retrievalErrorTranslationKey } from '@/utils/retrieval-errors'

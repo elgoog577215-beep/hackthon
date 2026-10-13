@@ -12,6 +12,12 @@ RULE_VERSION = "knowledge_mastery_v2"
 
 def freeze_knowledge_refs(base: dict, task: dict) -> dict[str, str]:
     """Only exact task references qualify; never infer from a whole section."""
+    if task.get("knowledge_binding_schema") == "question_knowledge_binding_v2":
+        refs = task.get("knowledge_revision_refs") or {}
+        ids = task.get("concept_ids") or []
+        if task.get("knowledge_binding_status") != "bound" or not ids or set(refs) != set(ids):
+            return {}
+        return {str(k): str(v) for k, v in refs.items() if v}
     authored = frozen_assessment_refs(base, task)
     if authored is not None:
         return authored

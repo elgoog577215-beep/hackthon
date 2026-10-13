@@ -132,6 +132,8 @@ PUBLIC_QUESTION_FIELDS = (
     "prerequisite_knowledge_ids",
     "knowledge_revision_refs",
     "knowledge_baseline_revision",
+    "knowledge_binding_schema",
+    "knowledge_binding_status",
     "skill_unit_ids",
     "mistake_point_ids",
     "question_type",
