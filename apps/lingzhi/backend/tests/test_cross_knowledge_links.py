@@ -50,14 +50,14 @@ def test_invalid_relation_direction_without_unique_evidence_stays_rejected(svc, 
         compile_tree(raw, context, result)
 
 
-def test_relation_direction_prompt_uses_an_actual_enum_value(svc):
+def test_relation_prompt_uses_explicit_endpoints_instead_of_relative_direction(svc):
     handouts(svc)
     raw = svc.repository.load_raw('c-pilot')
     context = handout_context(raw, svc.authoring.load('c-pilot'), 'cpu')
     prompt = tree_prompt(raw, context)
-    assert '"direction":"outgoing"' in prompt
-    assert 'direction 只能是 incoming 或 outgoing' in prompt
-    assert '"direction":"incoming或outgoing"' not in prompt
+    assert '不输出 direction 或 other_key' in prompt
+    assert '"source_key":"K1","target_key":"K2"' in prompt
+    assert '"direction":' not in prompt
 
 
 def test_primary_output_template_requires_alignment_even_without_existing_knowledge(svc):
@@ -71,6 +71,46 @@ def test_primary_output_template_requires_alignment_even_without_existing_knowle
     assert {decision['knowledge_key'] for decision in template['cross_alignment']} == {point['key'] for point in template['points']}
     assert {'reason', 'relation_reason', 'links'} <= template['cross_alignment'][0].keys()
     assert '即使 existing_knowledge 为空也必须逐点填写 cross_alignment' in prompt
+
+
+@pytest.mark.parametrize('alias', [False, True])
+def test_alignment_links_use_explicit_endpoints_and_unambiguous_key_alias(svc, alias):
+    from copy import deepcopy
+    handouts(svc)
+    raw = svc.repository.load_raw('c-pilot')
+    context = handout_context(raw, svc.authoring.load('c-pilot'))
+    context['cross_lesson_alignment_contract'] = 'per_point_relations_v3'
+    result = answer()
+    result['relations'] = []
+    result['cross_alignment'] = [
+        {'key' if alias else 'knowledge_key': key, 'reason': '独立命题', 'relation_reason': 'CPU使用主存数据',
+         'links': [{'source_key': 'K1', 'target_key': 'K2', 'type': 'applies_to', 'reason': 'CPU使用主存数据', 'conditions': []}]}
+        for key in ['K1', 'K2']]
+    before = deepcopy(result)
+    tree = compile_tree(raw, context, result)
+    assert len(tree['relations']) == 1
+    assert tree['relations'][0]['source_id'] == tree['knowledge_points'][0]['knowledge_id']
+    assert tree['relations'][0]['target_id'] == tree['knowledge_points'][1]['knowledge_id']
+    assert result == before
+
+
+@pytest.mark.parametrize('case', ['foreign-parent', 'unknown-endpoint', 'conflicting-direction', 'conflicting-key'])
+def test_explicit_link_contract_still_rejects_ambiguous_or_unbound_edges(svc, case):
+    handouts(svc)
+    raw = svc.repository.load_raw('c-pilot')
+    context = handout_context(raw, svc.authoring.load('c-pilot'))
+    context['cross_lesson_alignment_contract'] = 'per_point_relations_v3'
+    result = answer()
+    result['relations'] = []
+    link = {'source_key': 'K1', 'target_key': 'K2', 'type': 'applies_to', 'reason': 'CPU使用主存数据', 'conditions': []}
+    if case == 'foreign-parent': link.update(source_key='K2', target_key='K3')
+    if case == 'unknown-endpoint': link['target_key'] = 'unknown'
+    if case == 'conflicting-direction': link.update(other_key='K2', direction='incoming')
+    decision = {'knowledge_key': 'K1', 'reason': '独立命题', 'relation_reason': '关系判断', 'links': [link]}
+    if case == 'conflicting-key': decision['key'] = 'K2'
+    result['cross_alignment'] = [decision]
+    with pytest.raises(CourseDocumentConflict):
+        compile_tree(raw, context, result)
 
 
 def test_saved_direction_failure_rechecks_without_model_or_source_changes(svc):
