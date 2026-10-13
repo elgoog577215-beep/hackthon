@@ -13,8 +13,8 @@
     <p>
       {{
         tr(
-          "44 种图型均通过讲义和 AI 使用的同一个 Markdown 组件显示。以下为自编样例，不写入正式课程。",
-          "All 44 types use the same Markdown component as handouts and AI. These examples do not write course records.",
+          `${teachingDiagramSamples.length} 种图型均通过讲义和 AI 使用的同一个 Markdown 组件显示。以下为自编样例，不写入正式课程。`,
+          `All ${teachingDiagramSamples.length} types use the same Markdown component as handouts and AI. These examples do not write course records.`,
         )
       }}
     </p>

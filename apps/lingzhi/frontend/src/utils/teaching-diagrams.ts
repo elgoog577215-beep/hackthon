@@ -1434,7 +1434,7 @@ function vectorScene(d: TeachingDiagram, marker: string): DiagramScene {
   const domain = (v: number[]) => { const c = (v[0]! + v[1]!) / 2; return [c - span / 2, c + span / 2]; };
   const xDomain = domain(xd), yDomain = domain(yd), size = 430;
   const x = (n: number) => map(n, xDomain, 85, 85 + size), y = (n: number) => map(n, yDomain, 35 + size, 35);
-  let body = axesGrid(xDomain, yDomain, 85, 35, size, size, d.x_label || 'x', d.y_label || 'y');
+  let body = axesGrid(xDomain, yDomain, 85, 35, size, size, d.x_label || 'x', d.y_label || 'y', false, true);
   body += `<path data-axis="x" d="M85,${y(0)} H${85 + size}" stroke="#64748b"/><path data-axis="y" d="M${x(0)},35 V${35 + size}" stroke="#64748b"/>`;
   let legendY = 55;
   vectors.forEach((v, i) => {
@@ -1469,6 +1469,16 @@ function matrixStepsScene(d: TeachingDiagram): DiagramScene {
   return { width: 880, height: y + 5, body };
 }
 
+function readableTicks(domain: number[]): number[] {
+  const interval = (domain[1]! - domain[0]!) / 5;
+  const magnitude = 10 ** Math.floor(Math.log10(interval));
+  const fraction = interval / magnitude;
+  const step = (fraction < 1.5 ? 1 : fraction < 3 ? 2 : fraction < 7 ? 5 : 10) * magnitude;
+  const first = Math.ceil(domain[0]! / step - 1e-9), last = Math.floor(domain[1]! / step + 1e-9);
+  return Array.from({ length: Math.max(0, Math.min(12, last - first + 1)) }, (_, i) =>
+    Number(((first + i) * step).toPrecision(12)));
+}
+
 function axesGrid(
   xd: number[],
   yd: number[],
@@ -1479,18 +1489,18 @@ function axesGrid(
   xLabel: string,
   yLabel: string,
   horizontalOnly = false,
+  niceTicks = false,
 ): string {
   let body = rect(x, y, w, h, "#fff", "#cbd5e1");
-  for (let k = 0; k <= 4; k++) {
-    const xv = xd[0]! + ((xd[1]! - xd[0]!) * k) / 4,
-      yv = yd[0]! + ((yd[1]! - yd[0]!) * k) / 4;
-    body +=
-      line(x + (w * k) / 4, y, x + (w * k) / 4, y + h) +
-      txt(x + (w * k) / 4, y + h + 28, fmt(xv), 100);
-    if (!horizontalOnly)
-      body +=
-        line(x, y + h - (h * k) / 4, x + w, y + h - (h * k) / 4) +
-        txt(x - 12, y + h - (h * k) / 4 + 6, fmt(yv), 100, "end");
+  const ticks = (domain: number[]) => niceTicks ? readableTicks(domain) :
+    Array.from({ length: 5 }, (_, k) => domain[0]! + ((domain[1]! - domain[0]!) * k) / 4);
+  for (const value of ticks(xd)) {
+    const position = map(value, xd, x, x + w);
+    body += `<g data-tick-x="${fmt(value)}">${line(position, y, position, y + h)}${txt(position, y + h + 28, fmt(value), 100)}</g>`;
+  }
+  if (!horizontalOnly) for (const value of ticks(yd)) {
+    const position = map(value, yd, y + h, y);
+    body += `<g data-tick-y="${fmt(value)}">${line(x, position, x + w, position)}${txt(x - 12, position + 6, fmt(value), 100, "end")}</g>`;
   }
   body +=
     txt(x + w / 2, y + h + 65, xLabel, 500) +

@@ -107,6 +107,7 @@
       <dialog
         ref="largeDialog"
         class="diagram-dialog"
+        :aria-label="spec?.title"
         @click="closeOnBackdrop"
         @close="onClose"
       >
@@ -206,7 +207,10 @@ function onClose() {
   trigger?.focus();
 }
 function closeOnBackdrop(event: MouseEvent) {
-  if (event.target === largeDialog.value) largeDialog.value?.close();
+  const dialog = largeDialog.value;
+  if (!dialog || event.target !== dialog) return;
+  const rect = dialog.getBoundingClientRect();
+  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close();
 }
 function download() {
   if (!svg.value) return;

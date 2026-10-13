@@ -21,6 +21,16 @@ const svg = (type: string, overrides = {}) =>
   );
 
 describe("teaching diagram semantics and geometry", () => {
+  it('uses readable vector ticks without changing exact endpoints or equal units', () => {
+    const doc = svg('vector_plot')
+    expect([...doc.querySelectorAll('[data-tick-x]')].map(el => el.getAttribute('data-tick-x'))).toEqual(['0','1','2','3','4','5'])
+    expect([...doc.querySelectorAll('[data-tick-y]')].map(el => el.getAttribute('data-tick-y'))).toEqual(['0','1','2','3','4'])
+    const fractional = svg('vector_plot', { vectors: [{label:'v', from:[-.4,.25],to:[.6,-.75]}] })
+    expect(fractional.querySelector('[data-vector]')?.getAttribute('data-from')).toBe('-0.4,0.25')
+    const ticks = [...fractional.querySelectorAll('[data-tick-x], [data-tick-y]')].map(el => Number(el.getAttribute('data-tick-x') ?? el.getAttribute('data-tick-y')))
+    expect(ticks.every(value => Number.isFinite(value) && Math.abs(value / .2 - Math.round(value / .2)) < 1e-6)).toBe(true)
+    expect(fractional.documentElement.outerHTML).not.toMatch(/NaN|Infinity/)
+  })
   it('keeps vector endpoints and equal axis scale, including translated and zero vectors', () => {
     const doc = svg('vector_plot')
     expect(doc.querySelectorAll('[data-vector]')).toHaveLength(3)

@@ -75,9 +75,37 @@ describe('study dialogue editing', () => {
     vi.mocked(useAITeacherStore().studyCommand).mockRejectedValue({response:{status:409}})
     await view.get('.study-actions button').trigger('click'); await flushPromises()
     expect(view.get('[role="alert"]').text()).toContain('studyDialogue.conflict')
+    expect(view.get('.study-actions button').attributes('disabled')).toBeDefined()
+    expect(view.get('[role="alert"] button').attributes('disabled')).toBeUndefined()
     view.unmount(); view=start()
     await view.findAll('.study-tabs button')[1]!.trigger('click')
     expect((view.get('.study-editor textarea').element as HTMLTextAreaElement).value).toBe('Keep this draft')
+  })
+  it('lets the learner compose the next question without erasing it when a reply arrives', async () => {
+    const view = start(), ai = useAITeacherStore()
+    let finish!: (response: AIConversation) => void
+    vi.mocked(ai.studyCommand).mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    await view.get('.study-composer textarea').setValue('First question')
+    await view.get('.study-composer').trigger('submit'); await flushPromises()
+    expect(view.get('.study-composer textarea').attributes('disabled')).toBeUndefined()
+    await view.get('.study-composer textarea').setValue('Next question typed while waiting')
+    const response = initial(); response.study_workspace!.revision = 2
+    ai.conversations = [response]; finish(response); await flushPromises()
+    expect((view.get('.study-composer textarea').element as HTMLTextAreaElement).value).toBe('Next question typed while waiting')
+  })
+  it('does not scroll the editable draft when a chat answer arrives', async () => {
+    const view = start(), ai = useAITeacherStore()
+    let finish!: (response: AIConversation) => void
+    vi.mocked(ai.studyCommand).mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    await view.get('.study-composer textarea').setValue('Explain this')
+    await view.get('.study-composer').trigger('submit'); await flushPromises()
+    await view.findAll('.study-tabs button')[1]!.trigger('click')
+    const body = view.get('.study-body').element as HTMLElement
+    body.scrollTop = 65
+    const response = initial(); response.messages = [{ message_id: 'a', role: 'assistant', content: 'Long reply', status: 'complete' }] as AIConversation['messages']
+    response.study_workspace!.revision = 2
+    ai.conversations = [response]; finish(response); await flushPromises()
+    expect(body.scrollTop).toBe(65)
   })
   it('does not offer an unbound mastery check or allow edits to historical sources', async () => {
     const view=start()

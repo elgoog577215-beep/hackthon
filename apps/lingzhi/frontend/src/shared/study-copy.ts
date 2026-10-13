@@ -34,6 +34,8 @@ const messages = {
   assistant: ['AI 助手', 'AI assistant'], aiIntro: ['围绕当前章节提问，或选中正文让 AI 解释。对话自动保存在这份讲义下。', 'Ask about this chapter or select text for an explanation. Conversations are saved with this handout.'],
   aiInput: ['向 AI 提问', 'Ask the AI'], aiPlaceholder: ['哪里不明白？也可以让 AI 举例或画图解释…', 'Ask a question, request an example or a diagram…'],
   aiSend: ['发送', 'Send'], aiExplain: ['解释这一章', 'Explain this chapter'], aiExample: ['举一个例子', 'Give an example'], aiDiagram: ['用图解说明', 'Explain with a diagram'],
+  aiLoading: ['正在恢复这份讲义的对话…', 'Restoring this handout’s conversation…'],
+  aiExplainQuote: ['解释选中内容', 'Explain selected text'],
   aiWaiting: ['回复正在生成，离开页面后仍会保存。', 'The reply is generating and will be saved even if you leave.'], aiInterrupted: ['回复中断，问题与片段已保存。', 'The reply was interrupted. Your question and the partial answer are saved.'], aiContinue: ['继续这条回复', 'Continue this reply'],
   aiSaved: ['对话已保存', 'Conversation saved'], askSelection: ['问 AI', 'Ask AI'], selectedQuote: ['已选正文', 'Selected text'], clearQuote: ['移除引用', 'Clear quote'], aiSelectedPrompt: ['请解释选中的这段内容。', 'Please explain the selected text.'],
   noteUnsaved: ['笔记尚未保存', 'Unsaved notes'], finishReading: ['本次讲义已生成并保存', 'Your handout has been generated and saved'],
