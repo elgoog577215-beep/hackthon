@@ -1,10 +1,17 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import router from '@/router'
 import {
   getActiveRequestIdentityScope,
   setActiveRequestIdentityScope,
 } from '@/utils/http'
 
+// Identity routing uses the real route metadata and guard, without compiling
+// unrelated workbench and PPT views during navigation.
+vi.mock('@/views/WorkspacePortalConceptView.vue', () => ({ default: { render: () => null } }))
+vi.mock('@/views/TeacherTeachingCalendarView.vue', () => ({ default: { render: () => null } }))
+vi.mock('@/views/CourseWorkspaceView.vue', () => ({ default: { render: () => null } }))
+vi.mock('@/views/PptWorkspaceView.vue', () => ({ default: { render: () => null } }))
+vi.mock('@/views/LearningView.vue', () => ({ default: { render: () => null } }))
 
 describe('explicit route identity scope', () => {
   beforeEach(async () => {
