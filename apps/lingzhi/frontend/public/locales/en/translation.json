@@ -6263,6 +6263,7 @@
     "save": "Save note"
   },
   "questionBank": {
+    "readingRegion": "Question content and explanation",
     "scopeLoading": "Loading course lectures",
     "scopeLoadingHelp": "Loading the question scope. The question bank will appear when ready.",
     "scopeLoadFailed": "Could not load course lectures",
