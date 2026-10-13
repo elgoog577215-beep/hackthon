@@ -6257,6 +6257,7 @@
     "save": "Save note"
   },
   "questionBank": {
+    "readingRegion": "Question content and explanation",
     "binding": {
       "saveFailed": "Could not save the binding. Please try again later.",
       "title": "Questions and atomic knowledge",

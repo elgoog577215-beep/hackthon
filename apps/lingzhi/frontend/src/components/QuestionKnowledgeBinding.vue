@@ -1,5 +1,5 @@
 <template>
-  <section class="knowledge-binding" :aria-label="t('questionBank.binding.title', '题目与元知识点')" :aria-busy="busy">
+  <section class="knowledge-binding" tabindex="0" :aria-label="t('questionBank.binding.title', '题目与元知识点')" :aria-busy="busy">
     <div class="binding-summary">
       <div>
         <strong>{{ t('questionBank.binding.title', '题目与元知识点') }}</strong>
@@ -173,6 +173,7 @@ onBeforeUnmount(() => { disposed = true; sequence++; controller?.abort(); window
 
 <style scoped>
 .knowledge-binding { margin: 16px 24px; padding: 16px 20px; border: 1px solid #dedcf2; border-radius: 14px; background: #faf9ff; color: #302e49; font-size: 15px; }
+.knowledge-binding:focus-visible { outline:2px solid #7562c8; outline-offset:-2px; }
 .binding-summary, .binding-controls, .binding-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 p { margin: 6px 0; line-height: 1.6; color: #605d76; }
 button { display: inline-flex; gap: 7px; align-items: center; justify-content: center; min-height: 38px; padding: 7px 12px; border: 1px solid #c6c0e4; border-radius: 8px; color: #51418f; background: white; font: inherit; white-space: nowrap; cursor: pointer; }

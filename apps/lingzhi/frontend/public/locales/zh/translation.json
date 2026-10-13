@@ -6257,6 +6257,7 @@
     "save": "保存笔记"
   },
   "questionBank": {
+    "readingRegion": "题目内容与解析",
     "binding": {
       "saveFailed": "绑定保存失败，请稍后重试。",
       "title": "题目与元知识点",
