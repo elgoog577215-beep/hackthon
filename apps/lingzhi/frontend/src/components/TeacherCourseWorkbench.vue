@@ -4015,7 +4015,9 @@ async function generateAllLessonPlans(requestedAction?: 'generate' | 'resume_gen
       await lessonStore.generateAllLessons(props.courseId, source, '', materialAssetIds)
     }
   } catch {
-    lessonGenerationRequestError.value = lessonStore.error || t('courseWorkbench.lessonBatch.failed', '全部教案任务创建失败，请重试。')
+    lessonGenerationRequestError.value = batchRunning.value
+      ? ''
+      : lessonStore.error || t('courseWorkbench.lessonBatch.failed', '全部教案任务创建失败，请重试。')
   } finally {
     batchStarting.value = false
   }
