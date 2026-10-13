@@ -219,6 +219,12 @@ async def _model(data, *, action, language):
         result = _study_response_json(raw or "")
         if not isinstance(result, dict):
             raise ValueError("invalid output")
+        if (action == "discuss" and "draft" not in result
+                and isinstance(result.get("reply"), str) and result["reply"].strip()):
+            # A complete reply can omit a note update, especially for a
+            # clarification. Keep the existing draft; never invent one or
+            # repeat the model request merely to supply this optional update.
+            result["draft"] = None
         if action == "check":
             if (result.get("passed") is not None and type(result["passed"]) is not bool) or not isinstance(result.get("feedback"), str):
                 raise ValueError("invalid check")
