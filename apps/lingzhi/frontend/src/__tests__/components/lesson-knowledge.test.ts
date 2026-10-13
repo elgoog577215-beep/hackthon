@@ -41,6 +41,7 @@ it('shows a blocking handout and refreshes when that job completes without resta
   const generate = () => w.findAll('button').find(b => b.text().includes('生成本讲知识树'))!
   expect(generate().attributes('disabled')).toBeDefined()
   expect(w.get('[data-testid="knowledge-source-blocker"]').text()).toContain('讲义')
+  expect(w.text()).not.toContain('本讲还没有知识树，点击“生成本讲知识树”开始。')
   get.mockResolvedValue({ data: { ...v, active_jobs: [], lesson_options: state().lesson_options } })
   await vi.advanceTimersByTimeAsync(2000); await flushPromises()
   expect(generate().attributes('disabled')).toBeUndefined()
@@ -59,8 +60,26 @@ it('reconciles a conflicting start response with the accepted background task', 
   await w.findAll('button').find(b => b.text().includes('生成本讲知识树'))!.trigger('click'); await flushPromises()
   expect(w.find('[role="alert"]').exists()).toBe(false)
   expect(w.get('[role="status"]').text()).toContain('正在生成')
+  expect(w.text()).not.toContain('本讲还没有知识树，点击“生成本讲知识树”开始。')
   expect(http.post).toHaveBeenCalledTimes(1)
   w.unmount()
+})
+
+it('explains a blocked source task in English and stops observing after unmount', async () => {
+  vi.useFakeTimers()
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => en })))
+  await setLocale('en')
+  const v: any = state()
+  v.active_jobs = [{ id: 'plan', type: 'teacher_lesson_plan_generation', lesson_unit_id: 'cpu', status: 'pending', progress: 0 }]
+  v.lesson_options[0].blocking_job_ids = ['plan']
+  const get = vi.spyOn(http, 'get').mockResolvedValue({ data: v })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  expect(w.get('[data-testid="knowledge-source-blocker"]').text()).toContain('Lesson plan generation in progress')
+  expect(w.get('[data-testid="knowledge-source-blocker"]').text()).toContain('source task finishes')
+  w.unmount()
+  const calls = get.mock.calls.length
+  await vi.advanceTimersByTimeAsync(4000)
+  expect(get).toHaveBeenCalledTimes(calls)
 })
 beforeEach(async () => {
   vi.restoreAllMocks()
