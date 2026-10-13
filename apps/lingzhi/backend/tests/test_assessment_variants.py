@@ -77,3 +77,39 @@ def test_variant_prompt_changes_observation_instead_of_only_numbers():
     prompt = measurement_design_prompt([c])
     assert 'contrast' in prompt
     assert '不能仅' in prompt
+
+
+def test_cosmetic_code_variant_is_a_blocking_quality_issue():
+    from assessment_quality import evaluate_question_contract_quality
+    def question(code, key):
+        return {'assessment_binding_schema': 'atomic_assessment_v1', 'primary_knowledge_ids': ['k'],
+                'generation_key': key, 'question_spec': {'stimulus': {'rendered_text': code}}}
+    first = question('```c\nint a=-7,b=2; int c=a/b;\n```', 'v1')
+    second = question('```c\nint x=-9,y=4; int z=x/y; // changed names\n```', 'v2')
+    report = evaluate_question_contract_quality(second, objective={}, slot={}, existing_questions=[first])
+    assert any(i['code'] == 'COSMETIC_ATOMIC_VARIANT' and i['severity'] == 'critical' for i in report['issues'])
+
+
+def test_code_variant_fingerprint_preserves_structure_but_ignores_names_comments_numbers():
+    from assessment_variants import atomic_material_fingerprint
+    def q(code):
+        return {'question_spec': {'stimulus': {'rendered_text': '```c\n'+code+'\n```'}}}
+    assert atomic_material_fingerprint(q('int a=7; a++;')) == atomic_material_fingerprint(q('int z=8; z++; // comment'))
+    assert atomic_material_fingerprint(q('int a=7; a++;')) != atomic_material_fingerprint(q('int a=7; --a;'))
+    assert atomic_material_fingerprint(q('int a=7; int b=a;')) != atomic_material_fingerprint(q('int a=7; int b=b;'))
+
+
+def test_repair_keeps_position_and_each_option_arity_balances():
+    from assessment_variants import ChoicePositionAllocator
+    allocator = ChoicePositionAllocator()
+    for size in (2, 3, 4, 8):
+        values = [allocator.allocate(f'q-{i}', size) for i in range(size * 3)]
+        assert Counter(values) == {i: 3 for i in range(size)}
+        assert allocator.allocate('q-0', size) == values[0]
+
+
+@pytest.mark.parametrize('kind', ['assignment_sequence', 'conversion_scope', 'syntactic_binding', 'uncontrolled_statement', 'condition_evaluation_trace', 'next_control_action', 'exit_state', 'direct_value'])
+def test_semantic_variant_strategies_offer_distinct_instructions(kind):
+    from assessment_variants import variant_instruction
+    values = [variant_instruction({'variant_role': role}, kind) for role in ('direct', 'contrast', 'transfer')]
+    assert len(set(values)) == 3
