@@ -7774,6 +7774,7 @@
     }
   },
   "knowledgeFirst": {
+    "treeGenerationInProgress": "This lecture’s knowledge tree is being generated. The candidate will appear automatically when ready.",
     "waitForSourceTask": "Knowledge generation becomes available when the source task finishes.",
     "handoutTask": "Handout generation in progress",
     "lessonPlanTask": "Lesson plan generation in progress",

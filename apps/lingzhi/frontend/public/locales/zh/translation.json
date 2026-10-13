@@ -7774,6 +7774,7 @@
     }
   },
   "knowledgeFirst": {
+    "treeGenerationInProgress": "本讲知识树正在生成，完成后会自动显示候选。",
     "waitForSourceTask": "等待来源任务完成后即可生成知识树。",
     "handoutTask": "讲义生成中",
     "lessonPlanTask": "教案生成中",

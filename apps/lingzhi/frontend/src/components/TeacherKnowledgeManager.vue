@@ -103,7 +103,7 @@
             <div v-else class="point-card point-placeholder"><h2>{{ t('knowledgeFirst.pointDetails') }}</h2><p>{{ t('knowledgeFirst.selectPointHint') }}</p></div>
             </aside>
           </div>
-          <p v-else class="empty-card">{{ t(perLesson ? (selectedLesson?.can_generate ? 'knowledgeFirst.lessonTreeEmpty' : 'knowledgeFirst.lessonHandoutRequired') : derived ? (!data.can_generate_tree ? 'knowledgeFirst.handoutsRequired' : 'knowledgeFirst.noDerivedTree') : 'knowledgeFirst.noTree') }}</p>
+          <p v-else class="empty-card">{{ t(activeJob ? 'knowledgeFirst.treeGenerationInProgress' : blockingJobs.length ? 'knowledgeFirst.waitForSourceTask' : perLesson ? (selectedLesson?.can_generate ? 'knowledgeFirst.lessonTreeEmpty' : 'knowledgeFirst.lessonHandoutRequired') : derived ? (!data.can_generate_tree ? 'knowledgeFirst.handoutsRequired' : 'knowledgeFirst.noDerivedTree') : 'knowledgeFirst.noTree') }}</p>
           <div v-if="!treeOnly && treeChoice === 'candidate' && displayTree && data.can_edit && canAdoptSelection" class="adopt-bar"><p>{{ t(derived ? 'knowledgeFirst.derivedAdoptHint' : generic ? 'knowledgeFirst.genericAdoptHint' : displayTree.teaching_assessment ? 'knowledgeFirst.candidateWarning' : 'knowledgeFirst.adoptHint') }}</p>
             <button class="primary" :disabled="busy || activeJobs.length > 0 || displayTree.revision_id === data.knowledge_revision || displayTree.teaching_assessment?.ready_for_adoption === false" @click="adopt">{{ t('knowledgeFirst.adoptTree') }}</button></div>
         </section>
