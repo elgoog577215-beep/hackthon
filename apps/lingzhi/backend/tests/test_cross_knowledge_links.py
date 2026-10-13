@@ -60,6 +60,29 @@ def test_relation_direction_prompt_uses_an_actual_enum_value(svc):
     assert '"direction":"incoming或outgoing"' not in prompt
 
 
+def test_saved_direction_failure_rechecks_without_model_or_source_changes(svc):
+    from copy import deepcopy
+    import json
+    handouts(svc)
+    raw = svc.repository.load_raw('c-pilot')
+    baseline = compile_tree(raw, handout_context(raw, svc.authoring.load('c-pilot')), answer())
+    svc.storage.update_course_data('c-pilot', lambda course: {**course, 'course_knowledge_base': baseline})
+    view = svc.view('c-pilot', source_mode='handouts')
+    original, _ = svc.start('c-pilot', 'tree', 'model-failed', view['knowledge_revision'], view['document_revision'], source_mode='handouts', lesson_id='memory')
+    response = one_lesson_response('memory')
+    response['relations'] = [{'source_key': 'E1', 'target_key': 'K2', 'type': 'applies_to', 'reason': '处理器读取主存数据', 'conditions': []}]
+    response['cross_alignment'][0]['links'] = [{'other_key': 'E1', 'direction': 'applies_to', 'type': 'applies_to', 'reason': '处理器读取主存数据', 'conditions': []}]
+    svc.authoring.update_job('c-pilot', original['id'], status='failed', raw_response=json.dumps(response, ensure_ascii=False))
+    before = deepcopy(svc.authoring.get_job('c-pilot', original['id']))
+    svc.provider_factory = lambda: pytest.fail('recheck must not call the model')
+    checked = svc.recheck('c-pilot', original['id'], 'explicit-recheck', view['document_revision'], view['knowledge_revision'])
+    assert checked['status'] == 'completed' and checked['model_request_sent'] is False
+    assert checked['source_model_job_id'] == original['id']
+    assert len(checked['checkpoint']['candidate']['knowledge_points']) == 2
+    assert svc.authoring.get_job('c-pilot', original['id']) == before
+    assert svc.repository.load_raw('c-pilot')['course_knowledge_base'] == baseline
+
+
 def test_non_reusable_new_point_still_links_to_old_rule_and_materializes_both_pointers(svc):
     from copy import deepcopy
     handouts(svc);raw=svc.repository.load_raw('c-pilot');state=svc.authoring.load('c-pilot')

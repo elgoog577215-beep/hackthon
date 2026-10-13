@@ -109,7 +109,7 @@ def tree_prompt(raw, context):
         prompt += '\n必做：在本次生成内完成全课程跨讲对齐，遍历existing_lessons中的所有旧讲及existing_knowledge全部已有点，不仅查看上一讲或同名点。对每个新命题分别比较先修依赖、推导依据、方法应用、条件差异、等价复用与一般化；旧点的结论被新方法使用时也必须检查。本讲旧知识树已从参考集合剔除；reuse_key只能指向其他讲的E短键。优先检查旧讲的复杂度规则是否被本讲选型使用、旧讲执行机制是否解释本讲方法的开销，以及旧讲结构是否是本讲算法的前提；仅在当前课程存在这些命题时才建立关联。确有语义依据时写入relations，说明两端命题如何相关以及适用条件，不能仅因同属一个学科连线。只作关联的旧点留在旧讲，不复制为新点。关系方向必须明确：prerequisite从必要基础指向依赖它的新知识；derives从可给出具体推导链的前提指向结论；applies_to从被使用的规则/方法指向使用它的任务/方法；generalizes从具体命题指向确实包含它的更一般命题；contrasts_with只比较同一问题、同一维度下可替代或易混的命题；equivalent_to要求命题与适用条件等价。仅有相同复杂度数量级、同属一个领域、宏观/微观层次不同，均不足以建立关系。reason必须点明两端实际命题及直接语义联系；无法说明时写无合理关联，不用“通常有关”凑边。系统自动建立两端索引，不输出一对方向相反的重复关系。额外输出cross_alignment数组，每个本讲输出点（包括reuse_key复用点）必须有一条：{"knowledge_key":"K1","reason":"比较了哪些旧讲/旧命题；建立关联的依据，或没有合理关联的具体原因"}。没有关联也必须填写原因，不得省略此步骤。不改写旧命题，不改变旧ID。'
     if context.get('cross_lesson_alignment_contract') == 'per_point_relations_v3':
         prompt += '\n关系完整性合同v3（以下格式替代前面的cross_alignment格式）：复用判断与关系判断是两件独立的事。不能复用、不完全相同、有新条件、有新场景、有多个组成部分，均不能作为没有关联的理由。对每个本讲K点分别寻找：本讲其他K点与其他讲E点中，哪些规则是理解它的前提、哪些机制解释它、哪些具体方法使用它、哪些边界限制它、哪些替代方案可与它对比。尤其检查“基础定义→操作规则→执行机制→步骤/边界→应用决策”链条，而非只列几个代表关系。只针对输入中实际存在的命题，不编造缺失前提。\n'
-        prompt += '每个K点必须输出一条cross_alignment：{"knowledge_key":"K1","reason":"是否复用及其依据，仅此字段描述复用判断","relation_reason":"单独说明讲内与跨讲的具体语义联系；若没有，说明比较后为何不成立，不得以无复用代替","links":[{"other_key":"E1或其他K短键","direction":"incoming或outgoing","type":"applies_to","reason":"精确说明被使用的规则与应用该规则的方法","conditions":[]}]}。incoming表示other_key→当前K点，outgoing表示当前K点→other_key。关联不要求覆盖旧命题的全部内容：新方法使用了旧命题的一个明确结论就可以是应用；明确条件补充、具体实现也可以与原理关联。links为空时必须给关系理由。无需让每点强制有边，也不设数量配额。相同语义边只输出一次，任一端登记即可，程序会补全另一端索引。推荐将全部讲内和跨讲边写入links，顶层relations可为空。'
+        prompt += '每个K点必须输出一条cross_alignment：{"knowledge_key":"K1","reason":"是否复用及其依据，仅此字段描述复用判断","relation_reason":"单独说明讲内与跨讲的具体语义联系；若没有，说明比较后为何不成立，不得以无复用代替","links":[{"other_key":"E1或其他K短键","direction":"outgoing","type":"applies_to","reason":"精确说明被使用的规则与应用该规则的方法","conditions":[]}]}。incoming表示other_key→当前K点，outgoing表示当前K点→other_key。direction 只能是 incoming 或 outgoing；不得把 prerequisite、generalizes、contrasts_with 等关系类型填入 direction。对比或等价关系也用 incoming/outgoing 标记登记端，type 决定关系语义。关联不要求覆盖旧命题的全部内容：新方法使用了旧命题的一个明确结论就可以是应用；明确条件补充、具体实现也可以与原理关联。links为空时必须给关系理由。无需让每点强制有边，也不设数量配额。相同语义边只输出一次，任一端登记即可，程序会补全另一端索引。推荐将全部讲内和跨讲边写入links，顶层relations可为空。'
     return prompt
 
 
@@ -130,6 +130,28 @@ def tree_model_prompt(raw, context):
     return tree_prompt(raw, context) + '\n共享课程上下文与冻结证据（不得扩大本次指定范围）：' + json.dumps(shared, ensure_ascii=False)
 
 
+def _link_direction(point_key, link, explicit_relations):
+    direction = link.get('direction')
+    if isinstance(direction, str) and direction in {'incoming', 'outgoing'}:
+        return direction, False
+    # A model can copy the relation type into the direction field. Recover
+    # only from an independently supplied edge with identical endpoints,
+    # type and conditions. Never infer direction from wording or list order.
+    if isinstance(direction, str) and direction == link.get('type') and direction in RELATIONS:
+        other = link.get('other_key')
+        matches = set()
+        for edge in explicit_relations:
+            if not isinstance(edge, dict) or edge.get('type') != link.get('type') or edge.get('conditions', []) != link.get('conditions', []):
+                continue
+            if (edge.get('source_key'), edge.get('target_key')) == (point_key, other):
+                matches.add('outgoing')
+            if (edge.get('source_key'), edge.get('target_key')) == (other, point_key):
+                matches.add('incoming')
+        if len(matches) == 1:
+            return matches.pop(), True
+    require(False, '知识关系方向无效：缺少唯一的明确端点依据')
+
+
 def compile_tree(raw, context, response):
     require(isinstance(response, dict), '知识树必须是JSON对象')
     if context.get('cross_lesson_alignment_contract') == 'per_point_relations_v3':
@@ -138,14 +160,20 @@ def compile_tree(raw, context, response):
         require(isinstance(decisions, list), '缺少逐点知识关系判断')
         require(isinstance(response.get('relations', []), list), '知识关系必须是列表')
         response.setdefault('relations', [])
+        explicit_relations = list(response['relations'])
         for decision in decisions:
             require(isinstance(decision, dict), '逐点知识关系判断格式无效')
             text(decision.get('relation_reason'), '独立关系判断理由')
             require(isinstance(decision.get('links'), list), '缺少逐点关系links列表')
             for link in decision['links']:
-                require(isinstance(link, dict) and link.get('direction') in {'incoming', 'outgoing'}, '知识关系方向无效')
+                require(isinstance(link, dict), '知识关系方向无效')
+                direction, direction_recovered = _link_direction(decision.get('knowledge_key'), link, explicit_relations)
+                if direction_recovered:
+                    repairs = response.setdefault('_format_normalizations', [])
+                    if 'relation_direction_from_explicit_edge' not in repairs:
+                        repairs.append('relation_direction_from_explicit_edge')
                 a, b = decision.get('knowledge_key'), link.get('other_key')
-                if link['direction'] == 'incoming': a, b = b, a
+                if direction == 'incoming': a, b = b, a
                 response['relations'].append({'source_key': a, 'target_key': b, 'type': link.get('type'),
                     'reason': link.get('reason'), 'conditions': link.get('conditions', [])})
     categories = records(response.get('categories'), '知识分类', 64)
