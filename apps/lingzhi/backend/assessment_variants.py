@@ -1,10 +1,52 @@
 """Bounded atomic variant planning and private, pre-solve choice allocation."""
 from collections import Counter
 import secrets
+import re
 
 from course_versioning import stable_hash
 
 VARIANT_ROLES = ('direct', 'contrast', 'transfer')
+
+
+def atomic_material_fingerprint(question: dict) -> str:
+    """Conservative lexical equivalence, not a C parser or novelty proof.
+
+    Preserve operators, control structure and identifier aliasing. Erase only
+    cosmetic changes. Unknown languages use exact whitespace-normalized text.
+    """
+    spec = question.get('question_spec') or {}
+    material = str((spec.get('stimulus') or {}).get('rendered_text') or '')
+    if not material:
+        material = '\n'.join(question.get('input_materials') or []) or str(question.get('prompt') or '')
+    code = re.findall(r'```c\s*\n(.*?)```', material, re.S | re.I)
+    if not code:
+        return re.sub(r'\s+', '', material)
+    keywords = set('auto break case char const continue default do double else enum extern float for goto if inline int long register restrict return short signed sizeof static struct switch typedef union unsigned void volatile while _Bool _Complex _Imaginary main printf'.split())
+    identifiers = {}
+    tokens = []
+    # Strings/chars are kept intact; comment-looking text in literals survives.
+    pattern = r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|//[^\n]*|/\*.*?\*/|[A-Za-z_]\w*|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?[uUlLfF]*|==|!=|<=|>=|\+\+|--|\+=|-=|&&|\|\||[^\s]'
+    for token in re.findall(pattern, '\n'.join(code), re.S):
+        if token.startswith(('//', '/*')):
+            continue
+        if re.fullmatch(r'[A-Za-z_]\w*', token) and token not in keywords:
+            token = identifiers.setdefault(token, f'v{len(identifiers)}')
+        elif token[0].isdigit():
+            # Floating vs integer operands are a substantive type difference.
+            token = 'FLOAT' if re.search(r'[.eEfF]', token) else 'INT'
+        tokens.append(token)
+    return ' '.join(tokens)
+
+
+def cosmetic_variant_matches(question: dict, existing: list[dict]) -> list[str]:
+    if not question.get('assessment_binding_schema') or len(question.get('primary_knowledge_ids') or []) != 1:
+        return []
+    fingerprint = atomic_material_fingerprint(question)
+    return [str(other.get('generation_key') or other.get('revision_id') or 'existing')
+            for other in existing
+            if other.get('primary_knowledge_ids') == question['primary_knowledge_ids']
+            and other.get('generation_key') != question.get('generation_key')
+            and fingerprint and atomic_material_fingerprint(other) == fingerprint]
 
 
 def expand_atomic_variants(slots: list[dict], count: int) -> list[dict]:
