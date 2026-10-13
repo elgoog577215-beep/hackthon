@@ -157,3 +157,73 @@ def test_seen_answer_and_hints_do_not_become_independent_variants():
     assert node['independent_count'] == 2
     assert node['status'] != 'supported_mastery'
     assert node['mastery'] == 76.5
+
+
+def test_attempt_api_freezes_server_variant_key_not_client_input(monkeypatch, tmp_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    import learning_events
+    from practice_attempts import PracticeAttemptRepository
+    from routers import practice as router
+    from backend.tests.test_practice_attempts import _course, MemoryStorage
+    course = _course()
+    course['learning_assets']['questions'][0]['assessment_evidence_key'] = 'server-variant'
+    async def get_course(_):
+        return course
+    repo = PracticeAttemptRepository(tmp_path)
+    monkeypatch.setattr(router, 'get_course_or_404', get_course)
+    monkeypatch.setattr(router, 'practice_attempt_repository', repo)
+    monkeypatch.setattr(learning_events, 'storage', MemoryStorage())
+    app = FastAPI()
+    app.include_router(router.router, prefix='/api')
+    client = TestClient(app, headers={'X-User-Id': 'u1'})
+    response = client.post('/api/courses/c1/practice/attempts', json={
+        'question_revision_id': 'qr1', 'assessment_evidence_key': 'forged-new-independent-evidence'})
+    assert response.status_code == 200, response.text
+    saved = repo.get('u1', 'c1', response.json()['attempt']['attempt_id'])
+    assert saved['assessment_evidence_key'] == 'server-variant'
+
+
+def test_contrast_plan_is_not_collapsed_back_to_single_direct_instance():
+    from assessment_measurement_design import attach_measurement_designs
+    c = context()
+    c['assessment_slot'].update(variant_role='contrast', knowledge=['赋值目标类型不会反向决定运算类型'])
+    p = plan()
+    p.update(public_material='```c\nint a=7/2; double b=7/2;\n```', ask='a和b的数值依次是多少？')
+    rendered = attach_measurement_designs([c], {'plans': [{'slot_id': 'slot-a', 'plan': p}]})
+    assert rendered[0]['private_measurement_design'] == p
+
+
+@pytest.mark.asyncio
+async def test_production_renderer_balances_a_provider_that_always_returns_b():
+    import json
+    from assessment_generation_policy import resolve_assessment_generation_policy
+    from assessment_orchestrator import UniversalAssessmentModel
+    model = object.__new__(UniversalAssessmentModel)
+    calls = []
+    async def call(policy, prompt, **kwargs):
+        calls.append(policy.stage)
+        p = plan()
+        p.update(options=['3', '2'], correct_option_index=1)
+        return json.dumps({'plans': [{'slot_id': f'slot-{len(calls)}', 'plan': p}]})
+    model._assessment_llm_call = call
+    answers = []
+    for n in range(1, 28):
+        c = context(f'slot-{n}')
+        candidate = await model.generate_candidate(c, call_policy=resolve_assessment_generation_policy(None).call_policy('generate', c))
+        answer = candidate['solution']['canonical_answer']
+        assert next(o['text'] for o in candidate['question_spec']['options'] if o['id'] == answer) == '2'
+        answers.append(answer)
+        assert 'option_position_receipt' not in json.dumps(candidate['question_spec'])
+    assert sorted(Counter(answers).values()) == [13, 14]
+    assert set(calls) == {'design'}
+
+
+def test_first_keyed_retry_of_legacy_question_does_not_double_count_old_attempt():
+    old = attempt(1, task_revision_id='legacy-q')
+    new = attempt(2, task_revision_id='legacy-q', assessment_evidence_key='variant-1')
+    node = project([old, new])['nodes'][0]
+    assert node['independent_count'] == 1
+    assert node['mastery'] == 66.7
+    new['result']['passed'] = False
+    assert project([old, new])['nodes'][0]['mastery'] == 33.3
