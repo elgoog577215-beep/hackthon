@@ -23,7 +23,7 @@
       <div v-else class="study-login-card"><h2>{{ c('login') }}</h2><p>{{ c('disabledLogin') }}</p><button v-if="qizhiAuth" class="study-primary" @click="redirectToQizhiLogin">{{ c('unifiedLogin') }}</button></div>
     </main>
 
-    <div v-else class="study-workspace" :class="{ 'is-reading': !!materialId }">
+    <div v-else ref="studyLayoutRoot" class="study-workspace" :class="{ 'is-reading': !!materialId }" :style="columnLayoutStyle">
       <aside class="study-navigation">
         <span class="study-eyebrow">PERSONAL LEARNING</span>
         <button :class="{ active: !materialId && !creating }" @click="goLibrary"><LibraryBig :size="19" />{{ c('library') }}</button>
@@ -32,6 +32,7 @@
         <p class="study-nav-hint"><LockKeyhole :size="16" />{{ c('savedHint') }}</p>
       </aside>
 
+      <ColumnResizeHandle v-bind="leftColumnHandle" />
       <section v-if="!materialId" class="study-main-scroll">
         <div v-if="!creating" class="study-library">
           <div class="study-page-heading"><div><span class="study-eyebrow">MY MATERIALS</span><h1>{{ c('library') }}</h1><p>{{ c('intro') }}</p></div><button class="study-primary" @click="startNew"><Plus :size="18" />{{ c('create') }}</button></div>
@@ -66,6 +67,7 @@
             </article>
           </div>
         </div>
+        <ColumnResizeHandle v-if="material" v-bind="rightColumnHandle" />
         <aside v-if="material" class="study-reading-tools">
           <div class="study-tool-tabs"><button v-for="tab in toolTabs" :key="tab" :class="{ active: toolTab === tab }" @click="toolTab = tab">{{ c(tab) }}</button></div>
           <PersonalHandoutAssistant v-if="toolTab === 'assistant' && material.revisions[0]" :key="`${user.id}:${material.id}:${material.revisions[0].id}`" :owner-id="user.id" :material-id="material.id" :revision-id="material.revisions[0].id" :context="assistantContext" @clear-quote="selectedPassage = null" @session-expired="showError" />
@@ -93,6 +95,8 @@ import { activeLocale, setLocale } from '../shared/i18n'
 import { studyCopy as c, type StudyCopyKey } from '../shared/study-copy'
 import { buildHandoutConceptSections } from '../utils/handout-concepts'
 import { clearQizhiAccessToken, isQizhiAuthRequired, redirectToQizhiLogin } from '../utils/http'
+import ColumnResizeHandle from '../components/ColumnResizeHandle.vue'
+import { useResizableColumns } from '../composables/useResizableColumns'
 
 const router = useRouter(), route = useRoute()
 const user = ref<StudyUser | null>(null), localLoginEnabled = ref(false), qizhiAuth = isQizhiAuthRequired()
@@ -134,6 +138,11 @@ function selectPassage() {
 const readingTarget = ref<HTMLElement | null>(null), noteText = ref(''), savedNote = ref(''), noteSaved = ref(false)
 const noteDirty = computed(() => noteText.value !== savedNote.value)
 const materialId = computed(() => String(route.params.materialId || ''))
+const studyLayoutRoot = ref<HTMLElement | null>(null)
+const { layoutStyle: columnLayoutStyle, leftHandle: leftColumnHandle, rightHandle: rightColumnHandle } = useResizableColumns(studyLayoutRoot, {
+  storageKey: 'lingzhi:personal-study:columns', left: 240, right: 360, leftMin: 170, rightMin: 280,
+  rightVisible: () => Boolean(materialId.value && material.value),
+})
 const materialStatus = computed(() => material.value?.task?.status || material.value?.status || 'pending')
 const isGenerating = computed(() => ['pending', 'running'].includes(materialStatus.value))
 const sectionAnchor = (id: string) => `study-${materialId.value}-${id}`
@@ -240,4 +249,8 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-reading-pane{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;background:#f3f4f9}.study-reading-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex:none;padding:13px 20px;background:white;border-bottom:1px solid #e4e7f0}.study-reading-toolbar button{border:0;font-size:15px;background:transparent;padding:5px 9px}.study-document-scroll{min-height:0;overflow:auto;scroll-behavior:smooth;padding:32px 32px 70px}.study-handout{max-width:950px;margin:auto;min-width:0;background:white;border:1px solid #e0e5ef;box-shadow:0 6px 25px #49567105;padding:40px 45px;color:#272e3d;font:18px/1.95 var(--handout-serif)}.study-handout-cover h1{font:700 32px/1.45 var(--handout-serif);margin:12px 0 16px}.study-handout-cover p{font:15px/1.8 var(--handout-sans);color:#7a879a;margin:0}.handout-rule{height:1px;background:#dce2ec;margin:26px 0}.study-section-kicker{font:15px/1.6 var(--handout-sans);color:#8c96a7;margin-top:30px}.study-handout-section{scroll-margin-top:25px}.study-handout-section h2{font:700 25px/1.6 var(--handout-serif);margin:8px 0 20px}.study-handout-section>div[id]{min-width:0;scroll-margin-top:25px}.study-progress{border:1px solid #dcd4ed;background:#faf7ff;padding:17px 20px;font:15px/1.8 var(--handout-sans);margin-bottom:24px;display:flex;flex-direction:column;gap:12px}.study-progress progress{width:100%;height:5px;accent-color:#8066c6}.study-progress button{align-self:flex-start}.study-draft{border-top:1px dashed #d3d8e6;padding:15px 0}.study-draft>span{font:15px/1.6 var(--handout-sans);color:#8792a5}.study-end{display:flex;gap:9px;justify-content:center;align-items:center;color:#8698a0;font:15px/1.8 var(--handout-sans);padding-top:30px;border-top:1px solid #e3e8ee;margin-top:35px}.study-reading-tools{width:300px;flex:none;overflow:auto;background:#fcfdff;border-left:1px solid #dfe4ef}.study-tool-tabs{display:flex;justify-content:space-around;gap:3px;padding:18px 10px;border-bottom:1px solid #e4e8f0}.study-tool-tabs button{padding:7px 6px;border:0;font-size:15px;color:#7e8899;background:transparent}.study-tool-tabs button.active{color:#715ab3;background:#efebfa}.study-note,.study-source-list{padding:23px}.study-note h3,.study-source-list h3{font-size:18px;margin:0 0 12px}.study-note>p{color:#8c97a8;font-size:15px;margin:0 0 22px}.study-note textarea{font-size:15px;line-height:1.9;min-height:290px}.study-note .study-primary{width:100%}.study-note-status{font-size:15px;color:#7d909b;min-height:27px;margin:10px 0}.study-source-list article{border:1px solid #dce2ed;border-radius:10px;background:white;padding:15px;margin-top:16px}.study-source-list strong{font-size:15px;display:block;margin:8px 0;overflow-wrap:anywhere}.study-source-list p{font-size:15px;color:#7e899b;margin:7px 0}.study-source-list code{font-size:15px;color:#9ba4b4}.study-reading-tools :deep(.handout-concept-map){position:static;border:0;max-height:none;overflow:visible}.study-reading-tools :deep(.concept-eyebrow){font-size:15px}
 @media(max-width:1200px){.study-navigation{width:190px;padding:25px 12px}.study-reading-tools{width:270px}.study-library,.study-create{padding:35px 30px}.study-document-scroll{padding:24px 18px 60px}.study-handout{padding:30px 25px}.study-login-page{gap:45px}.study-brand small{display:none}}
 @media(max-width:980px){.study-navigation{width:165px}.study-header{padding:0 20px}.study-header-actions{gap:10px}.study-reading-tools{width:235px}.study-user{max-width:180px;overflow:hidden}.study-login-page{grid-template-columns:minmax(0,1fr) 350px;gap:30px;padding:30px}.login-story h1{font-size:31px}.study-purpose-options{gap:12px}.study-reading-toolbar{flex-wrap:wrap}.study-handout{padding:25px 18px}}
+.study-workspace{min-width:0;overflow:hidden}
+.study-workspace>.study-navigation{box-sizing:border-box;width:var(--column-left-width);min-width:0;overflow-wrap:anywhere}
+.study-workspace>.study-reading-tools{box-sizing:border-box;width:var(--column-right-width);min-width:0}
+.study-workspace>.study-reading-tools .study-tool-tabs{flex-wrap:wrap}
 </style>

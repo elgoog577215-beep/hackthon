@@ -1,4 +1,10 @@
 {
+  "columnLayout": {
+    "left": "Resize left panel",
+    "right": "Resize right panel",
+    "value": "{width} pixels",
+    "hint": "Drag to resize; use arrow keys to adjust; double-click or press Enter to reset"
+  },
   "studyDialogue": {
     "gatewayError": "The model gateway returned 502 and cannot reach the inference service. Your input is preserved; retry after service recovers.",
     "localConflict": "A recovered local draft differs from the latest server version. Your text is preserved; load the latest conversation and compare before saving.",

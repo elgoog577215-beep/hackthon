@@ -27,7 +27,7 @@
     </section>
 
     <section v-else class="workspace-ready">
-      <section v-if="workspaceView === 'files'" class="file-layout">
+      <section v-if="workspaceView === 'files'" ref="fileLayoutRoot" class="file-layout" :style="columnLayoutStyle">
       <aside class="file-tree-pane">
         <header class="pane-heading">
           <span><FolderTree :size="15" /><strong>{{ t('courseFiles.folderNavigation') }}</strong></span>
@@ -53,6 +53,7 @@
         </footer>
       </aside>
 
+      <ColumnResizeHandle v-bind="leftColumnHandle" />
       <section
         class="file-list-pane"
         :class="{ 'is-dragging-files': fileDragActive }"
@@ -168,6 +169,7 @@
         <p v-if="status" class="runtime-note" role="status">{{ status }}</p>
       </section>
 
+      <ColumnResizeHandle v-bind="rightColumnHandle" />
       <aside class="file-inspector">
         <template v-if="inspectedNode">
           <header>
@@ -526,6 +528,8 @@ import { useTeachingCalendarStore } from '../stores/teachingCalendar'
 import http, { teacherRequestConfig } from '../utils/http'
 import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 import WorkspaceFolderTreeNode from '../components/WorkspaceFolderTreeNode.vue'
+import ColumnResizeHandle from '../components/ColumnResizeHandle.vue'
+import { useResizableColumns } from '../composables/useResizableColumns'
 
 type DocumentType = 'outline' | 'lesson_plan' | 'script' | 'ppt' | 'question_bank' | 'school_material' | 'other'
 type Asset = { asset_id: string; filename: string; relative_path: string; extension: string; size_bytes: number; category: string; document_type?: DocumentType; document_type_reason?: string; classification_confidence?: number; classification_source?: 'ai' | 'hybrid' | 'rule' | 'teacher'; course_alignment?: { match?: 'matched' | 'uncertain' | 'mismatched'; confidence?: number; reason?: string }; structure_matches?: Array<{ node_id: string; title: string; confidence?: number; reason?: string }>; version_role?: 'current' | 'older' | 'reference' | 'unknown'; version_reason?: string; related_asset_ids?: string[]; material_asset_id?: string; uploaded_at?: string; updated_at?: string }
@@ -596,6 +600,10 @@ const embedded = computed(() => props.embedded)
 const courseTitle = computed(() => props.courseTitle)
 const selected = ref<Package | null>(null)
 const initializing = ref(true)
+const fileLayoutRoot = ref<HTMLElement | null>(null)
+const { layoutStyle: columnLayoutStyle, leftHandle: leftColumnHandle, rightHandle: rightColumnHandle } = useResizableColumns(fileLayoutRoot, {
+  storageKey: 'lingzhi:course-files:columns', left: 260, right: 312, leftMin: 180, rightMin: 240,
+})
 const busy = ref(false)
 const exportingNodeId = ref('')
 const status = ref('')
@@ -2378,4 +2386,6 @@ onBeforeUnmount(() => {
 @media (max-width:760px){.category-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(210px,37vh) minmax(0,1fr)}.category-navigation{padding:10px;border-right:0;border-bottom:1px solid var(--lz-border)}.category-navigation>header{display:none}.category-progress{margin:0 2px 8px;padding:8px 10px}.category-group__button{min-height:54px;grid-template-columns:24px 16px minmax(0,1fr) auto;padding:7px 8px}.category-group__step{width:24px;height:24px}.category-group__copy small{display:none}.category-children{margin-bottom:5px}.category-detail-header{min-height:66px}.workbench-brief-bar{min-height:60px;grid-template-columns:minmax(0,1fr) auto;padding:8px 12px}.workbench-brief-bar__title small,.workbench-brief-items{display:none}.workbench-edit-baseline{min-height:38px;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 10px;border:1px solid var(--lz-border);border-radius:11px;color:var(--lz-text-secondary);background:#fff;font-size:12px;font-weight:750;white-space:nowrap;cursor:pointer}.category-console{padding:14px 10px 26px}.category-console__card{padding:22px 18px 24px;border-radius:12px}.category-console__card h3{margin-top:18px;font-size:19px}.category-console__actions{width:100%;display:grid;grid-template-columns:1fr;margin-top:20px}.category-console__actions button{width:100%}}
 @media (max-width:760px){.category-layout{grid-template-rows:minmax(210px,34vh) minmax(0,1fr)}.category-navigation{margin:8px 8px 0;padding:9px;border:1px solid #e6eaf1;border-radius:18px}.category-detail-pane{margin:8px;border-radius:18px}.category-detail-header{padding:11px 14px}.category-document-scroll{padding:10px 8px 24px}.category-document{padding:22px 18px 34px;border-radius:16px}.category-console{padding:12px 8px 22px}.category-console__card{padding:26px 20px 28px;border-radius:18px}.category-console__icon{width:48px;height:48px;border-radius:15px}.workbench-settings-button{min-height:38px;border-radius:11px}}
 @media (max-width:760px){.file-layout{grid-template-rows:170px minmax(280px,45vh) auto;align-content:start;overflow-y:auto}.file-inspector{max-height:none;display:block;overflow:visible}.inspector-overview{min-height:auto;overflow:visible}.inspector-actions{margin-top:0}}
+@media(min-width:761px){.file-layout{grid-template-columns:var(--column-left-width) 10px minmax(0,1fr) 10px var(--column-right-width)}}
+@media(max-width:760px){.file-layout>.column-resize-handle{display:none}}
 </style>

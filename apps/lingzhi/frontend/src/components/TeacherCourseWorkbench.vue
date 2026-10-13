@@ -2,7 +2,7 @@
   <section
     ref="workbenchRoot"
     class="teacher-workbench"
-    :style="{ '--ai-pane-width': `${aiPaneWidth}px` }"
+    :style="{ ...columnLayoutStyle, '--ai-pane-width': `${aiPaneWidth}px` }"
     :class="{
       'is-ai-collaboration': aiCollaborationOpen && activeStage === 'question-bank',
       'is-question-bank-workspace': activeStage === 'question-bank',
@@ -45,6 +45,8 @@
         </button>
       </section>
     </aside>
+
+    <ColumnResizeHandle v-if="!aiCollaborationOpen || activeStage !== 'question-bank'" v-bind="leftColumnHandle" />
 
     <main
       ref="workbenchCenter"
@@ -893,6 +895,7 @@
       @keydown="resizeAiPaneWithKeyboard"
     ><GripVertical :size="14" /></div>
 
+    <ColumnResizeHandle v-if="!knowledgeOpen && activeStage !== 'question-bank' && contextPaneVisible" v-bind="rightColumnHandle" />
     <aside v-if="!knowledgeOpen && activeStage !== 'question-bank' && contextPaneVisible" class="context-pane" :aria-label="t('courseWorkbench.contextPane.title', '当前内容信息')">
       <header class="context-pane-heading" :data-phase="contextPhase">
         <div class="context-pane-heading__status" role="status" aria-live="polite" aria-atomic="true">
@@ -1191,6 +1194,8 @@ import {
   type TeacherCoursePlanProjection,
 } from '../composables/useTeacherProductionAiCollaboration'
 import { t } from '../shared/i18n'
+import ColumnResizeHandle from './ColumnResizeHandle.vue'
+import { useResizableColumns } from '../composables/useResizableColumns'
 import { outlineReviewMessage, outlineReviewEvidence, outlineReviewAction } from '../shared/outline-review'
 import {
   lessonProductionState,
@@ -4454,6 +4459,11 @@ async function runPptContextAction(id: string) {
   return pptWorkspace.value?.runContextAction(id as Parameters<NonNullable<typeof pptWorkspace.value>['runContextAction']>[0])
 }
 const contextPaneVisible = computed(() => activeStage.value !== 'ppt' && !contextPaneCollapsed.value)
+const { layoutStyle: columnLayoutStyle, leftHandle: leftColumnHandle, rightHandle: rightColumnHandle } = useResizableColumns(workbenchRoot, {
+  storageKey: 'lingzhi:teacher-workbench:columns', left: 196, right: 310, leftMin: 176, rightMin: 260,
+  enabled: () => !aiCollaborationOpen.value || activeStage.value !== 'question-bank',
+  rightVisible: () => !knowledgeOpen.value && activeStage.value !== 'question-bank' && contextPaneVisible.value,
+})
 async function uploadPptAfterSave(upload: () => void) {
   if (pptSourceChangeBlocked.value) return
   const lessonId = selectedLessonId.value
@@ -5109,4 +5119,10 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .workbench-center.is-knowledge-workspace{overflow:auto;padding:24px 30px 36px;background:#f7f8fc}
+@media(min-width:761px){
+  .teacher-workbench:not(.is-ai-collaboration){grid-template-columns:var(--column-left-width) 10px minmax(0,1fr) 10px var(--column-right-width)}
+  .teacher-workbench:not(.is-ai-collaboration).is-context-collapsed,.teacher-workbench:not(.is-ai-collaboration).is-question-bank-workspace{grid-template-columns:var(--column-left-width) 10px minmax(0,1fr)}
+  .stage-rail,.context-pane{min-width:0;overflow-wrap:anywhere}
+}
+@media(max-width:760px){.teacher-workbench>.column-resize-handle{display:none}}
 </style>

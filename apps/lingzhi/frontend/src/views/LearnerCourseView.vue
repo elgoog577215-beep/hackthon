@@ -1,5 +1,5 @@
 <template>
-  <section class="learning-view" :class="{ 'focus-mode': courseStore.isFocusMode, 'has-mobile-resume': showMobileResumePrompt, 'is-generation-preview': isGenerationPreview, 'has-ai-course-growth': hasAppliedCourseGrowth }">
+  <section ref="learningLayoutRoot" class="learning-view" :style="columnLayoutStyle" :class="{ 'focus-mode': courseStore.isFocusMode, 'has-mobile-resume': showMobileResumePrompt, 'is-generation-preview': isGenerationPreview, 'has-ai-course-growth': hasAppliedCourseGrowth }">
   <CompanionFloatingWindow window-id="course-companion-window" :visible="aiFloating && aiVisible && !courseStore.isFocusMode" :detail="Boolean(selectedKnowledge) && (statsOpen || courseStore.showKnowledgeLibrary)" @close="closeAi" />
     <div v-if="overlayVisible" class="surface-backdrop" @click="closeMobileSurfaces"></div>
 
@@ -18,6 +18,7 @@
       />
     </Transition>
 
+    <ColumnResizeHandle v-if="!isNarrow && navigatorVisible" v-bind="leftColumnHandle" />
     <main class="learning-main glass-panel-elevated" data-companion-obstacle>
       <AITeacherSuggestion
         :suggestion="aiTeacherStore.suggestion"
@@ -106,6 +107,7 @@
 
     </main>
 
+    <ColumnResizeHandle v-if="dockedSidePanelVisible" v-bind="rightColumnHandle" />
     <Transition name="side-panel">
       <div v-show="sidePanelVisible" class="learning-side-panel" :class="{ 'is-docked': !isNarrow, 'is-companion-floating': aiFloating && !notesVisible && !notebookOpen && !isNarrow }">
         <ReadingNotesPanel v-if="!isNarrow && !isGenerationPreview" v-show="!aiVisible && !notebookOpen" :key="courseStore.currentCourseId" :visible="sidePanelVisible && !aiVisible && !notebookOpen && !taskOpen && !statsOpen" @open="openReadingNote" @create="createReadingNote" @locate="locateRecord" @notebook="openNotebook" />
@@ -186,6 +188,8 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import ColumnResizeHandle from '../components/ColumnResizeHandle.vue'
+import { useResizableColumns } from '../composables/useResizableColumns'
 import { useRoute, useRouter } from 'vue-router'
 import { History, LoaderCircle } from 'lucide-vue-next'
 import type { KnowledgeProfileNode } from '../types/knowledge-profile'
@@ -343,6 +347,13 @@ const navigatorVisible = computed(() => (
   && navigatorOpen.value
   && (!isGenerationPreview.value || courseStore.courseTree.length > 0)
 ))
+const learningLayoutRoot = ref<HTMLElement | null>(null)
+const dockedSidePanelVisible = computed(() => !isNarrow.value && sidePanelVisible.value && !(aiFloating.value && !notesVisible.value && !notebookOpen.value))
+const { layoutStyle: columnLayoutStyle, leftHandle: leftColumnHandle, rightHandle: rightColumnHandle } = useResizableColumns(learningLayoutRoot, {
+  storageKey: 'lingzhi:course-reading:columns', left: 292, right: 360, leftMin: 200, rightMin: 280,
+  enabled: () => !isNarrow.value,
+  leftVisible: navigatorVisible, rightVisible: dockedSidePanelVisible,
+})
 const courseAdjustmentSectionTitle = computed(() => (
   courseStore.nodes.find(node => node.node_id === courseAdjustmentSectionId.value)?.node_name || ''
 ))
@@ -1081,4 +1092,9 @@ function closeMobileSurfaces() {
 <style scoped>
 .learning-side-panel.is-companion-floating { background:transparent; border:0; box-shadow:none; overflow:visible; }
 .learning-side-panel.is-companion-floating { display:none; }
+@media(min-width:1024px){
+  .learning-view{gap:0}
+  .navigator-surface{min-width:0;width:var(--column-left-width);flex:0 0 var(--column-left-width)}
+  .learning-side-panel.is-docked:not(.is-companion-floating){--side-width:var(--column-right-width)}
+}
 </style>
