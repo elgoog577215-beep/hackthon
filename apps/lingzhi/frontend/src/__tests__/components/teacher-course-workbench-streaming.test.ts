@@ -178,6 +178,11 @@ describe('teacher course workbench outline streaming', () => {
     await flushPromises()
     expect(wrapper.text()).not.toContain('教案生成未开始')
     expect(wrapper.text()).not.toContain('原任务的来源或状态已变化')
+    store.jobs[0]!.status = 'completed'
+    store.lessons[0]!.plan.ready = true
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('教案生成未开始')
+    expect(wrapper.text()).not.toContain('原任务的来源或状态已变化')
     wrapper.unmount()
   })
 
