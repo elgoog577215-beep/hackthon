@@ -84,6 +84,17 @@ def build_knowledge_profile(base: dict, *, course_id: str, course_version_id: st
         feedback_only: dict[str, dict] = {}
         historical: set[str] = set()
         pending: set[str] = set()
+        # Upgrade old attempts only when a server-frozen key for this exact
+        # question revision is present in this learner's current knowledge scope.
+        # Do not invent cross-revision equivalence for unkeyed historical data.
+        revision_keys: dict[str, set[str]] = {}
+        for row in current_attempts:
+            revision = str(row.get("task_revision_id") or row.get("question_revision_id") or "")
+            key = str(row.get("assessment_evidence_key") or "")
+            if (revision and key and row.get("course_version_id") == course_version_id
+                    and row.get("concept_ids") == [kid]
+                    and (row.get("knowledge_revision_refs") or {}).get(kid) == point["revision_id"]):
+                revision_keys.setdefault(revision, set()).add(key)
         for a in sorted(current_attempts, key=lambda item: (str(item.get("updated_at") or item.get("created_at") or ""), str(item.get("attempt_id") or ""))):
             ids = list(dict.fromkeys(a.get("concept_ids") or []))
             aid = str(a.get("attempt_id") or "")
@@ -102,7 +113,8 @@ def build_knowledge_profile(base: dict, *, course_id: str, course_version_id: st
                     or result.get("historical_only") or not isinstance(result.get("passed"), bool)
                     or _number(result.get("grading_confidence")) < .72):
                 continue
-            qid = str(a.get("assessment_evidence_key") or qid)
+            keys = revision_keys.get(qid, set())
+            qid = next(iter(keys)) if len(keys) == 1 else qid
             # Feedback after revealing an answer cannot erase an earlier valid
             # check for the same question. Keep it visible without scoring it.
             if a.get("solution_revealed") or result.get("evidence_strength") == "invalid":
