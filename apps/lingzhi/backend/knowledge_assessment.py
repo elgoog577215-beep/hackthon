@@ -149,7 +149,8 @@ def atomic_slots(course: dict, objective: dict, recipe: dict) -> list[dict] | No
                 "learning_scope": deepcopy((base.get("sources") or {}).get("course_context") or {}) if isinstance(base.get("sources"), dict) else {},
             }
         )
-    return result
+    from assessment_variants import expand_atomic_variants
+    return expand_atomic_variants(result, course.get("assessment_variant_count", 3))
 
 
 def target_reference_summary(slot: dict, summary: dict) -> dict:
@@ -173,6 +174,9 @@ def assessment_binding(slot: dict) -> dict:
             "assessment_binding_schema",
             "assessment_purpose",
             "generation_key",
+            "variant_index",
+            "variant_role",
+            "assessment_evidence_key",
             "primary_knowledge_ids",
             "prerequisite_knowledge_ids",
             "knowledge_revision_refs",

@@ -63,6 +63,7 @@ from code_runner_client import (
 )
 from course_versioning import stable_hash
 from question_evidence_guard import CHECKS as EVIDENCE_CHECKS, stamp_evidence_admission
+from assessment_variants import ChoicePositionAllocator
 from knowledge_assessment import assessment_binding, slot_keys_by_node, target_reference_summary
 from question_choice_grading import canonical_option_ids
 from solution_contracts import worked_solution_is_complete
@@ -74,7 +75,7 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v23"
+ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v25"
 
 
 def _out_tokens(limit: int) -> int:
@@ -232,6 +233,11 @@ class AssessmentModel(Protocol):
 class UniversalAssessmentModel(AIBase):
     """LLM adapter with explicit generator/solver context isolation."""
 
+    def _render_measurement_candidate(self, context):
+        if not hasattr(self, "_choice_positions"):
+            self._choice_positions = ChoicePositionAllocator()
+        return candidate_from_measurement_design(context, position_allocator=self._choice_positions)
+
     async def _design_measurements(
         self,
         contexts: list[dict[str, Any]],
@@ -272,7 +278,7 @@ class UniversalAssessmentModel(AIBase):
         call_policy: AssessmentModelCallPolicy | None = None,
     ) -> dict[str, Any]:
         context = (await self._design_measurements([context], call_policy))[0]
-        rendered = candidate_from_measurement_design(context)
+        rendered = self._render_measurement_candidate(context)
         if rendered is not None:
             return rendered
         input_mode = str(
@@ -344,7 +350,7 @@ class UniversalAssessmentModel(AIBase):
         if not contexts:
             return {}
         contexts = await self._design_measurements(contexts, call_policy)
-        rendered = {str(c["assessment_slot"]["slot_id"]): candidate_from_measurement_design(c) for c in contexts}
+        rendered = {str(c["assessment_slot"]["slot_id"]): self._render_measurement_candidate(c) for c in contexts}
         if all(candidate is not None for candidate in rendered.values()):
             return rendered
         response = await self._assessment_llm_call(
@@ -577,7 +583,7 @@ class UniversalAssessmentModel(AIBase):
         call_policy: AssessmentModelCallPolicy | None = None,
     ) -> dict[str, Any]:
         context = (await self._design_measurements([{**context, "quality_report": validation}], call_policy))[0]
-        rendered = candidate_from_measurement_design(context)
+        rendered = self._render_measurement_candidate(context)
         if rendered is not None:
             return rendered
         input_mode = str(
@@ -627,7 +633,7 @@ class UniversalAssessmentModel(AIBase):
             [{**item["context"], "quality_report": item.get("quality_report")} for item in items], call_policy,
         )
         items = [{**deepcopy(item), "context": context} for item, context in zip(items, contexts)]
-        rendered = {str(item["slot_id"]): candidate_from_measurement_design(item["context"]) for item in items}
+        rendered = {str(item["slot_id"]): self._render_measurement_candidate(item["context"]) for item in items}
         if all(candidate is not None for candidate in rendered.values()):
             return rendered
         response = await self._assessment_llm_call(

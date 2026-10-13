@@ -6,6 +6,7 @@ import re
 import operator
 
 from ai_base import AIProviderRequestError
+from assessment_variants import ChoicePositionAllocator, variant_instruction
 
 
 def measurement_strategy(slot: dict) -> dict:
@@ -84,6 +85,8 @@ def measurement_design_prompt(contexts: list[dict]) -> str:
                     )
                 },
                 "measurement_strategy": measurement_strategy(slot),
+                "variant_role": slot.get("variant_role", "direct"),
+                "variant_instruction": variant_instruction(slot, measurement_strategy(slot)["kind"]),
                 "sources": context.get("content_evidence"),
                 "previous_failure": context.get("previous_failure") or context.get("quality_report"),
                 "diversity_constraints": context.get("diversity_constraints"),
@@ -92,7 +95,8 @@ def measurement_design_prompt(contexts: list[dict]) -> str:
     return (
         "输出最终定稿的测量设计JSON。每个输入槽位只保留一个小型、条件自足的实例。"
         "不要写讨论、犹豫、自我纠错或换例子的过程；先确定实例，所有字段对应同一份代码。"
-        "每个槽位的measurement_strategy限定了观测形式，必须按该形式设计设问与选项。"
+        "每个槽位的measurement_strategy限定目标观测，variant_instruction指定本次变式结构，冲突时以后者为准。"
+        "同一点的各变式不能仅换数字、变量名、选项顺序或同义问法；需改变代码结构、规则应用位置或需辨别的情形。"
         "trace只写不超过160字的可复核计算/执行摘要，再填写与该摘要一致的预测和选项。"
         "使用最少运算，直接询问目标决定的值或动作；不要额外加乘法、转型、计数器、打印格式或多变量组合。"
         "若目标不是输出格式，优先问变量的数学数值，避免引入浮点打印舍入这一额外考点。"
@@ -146,6 +150,9 @@ def attach_measurement_designs(contexts: list[dict], response: dict) -> list[dic
     bound = []
     for context in contexts:
         strategy = measurement_strategy(context["assessment_slot"])
+        if context["assessment_slot"].get("variant_role", "direct") != "direct":
+            bound.append({**deepcopy(context), "private_measurement_design": deepcopy(plans[str(context["assessment_slot"]["slot_id"])])})
+            continue
         plan = synthesize_contrast_input(plans[str(context["assessment_slot"]["slot_id"])], strategy)
         plan = normalize_exit_observation(plan, strategy)
         plan = normalize_control_action(plan, strategy)
@@ -456,7 +463,7 @@ def evidence_recovery_action(codes: list[str], *, validation_passed: bool) -> st
     return "author"
 
 
-def candidate_from_measurement_design(context: dict) -> dict | None:
+def candidate_from_measurement_design(context: dict, *, position_allocator: ChoicePositionAllocator | None = None) -> dict | None:
     """Render supported plans losslessly; never infer an answer from prose."""
     slot = context.get("assessment_slot") or {}
     plan = context.get("private_measurement_design") or {}
@@ -473,6 +480,15 @@ def candidate_from_measurement_design(context: dict) -> dict | None:
         and options[index] == plan.get("correct_prediction")
     ):
         return None
+    plan = deepcopy(plan)
+    if position_allocator is not None:
+        target = position_allocator.allocate(str(slot.get("slot_id") or ""), len(options))
+        order = list(range(len(options)))
+        order[index], order[target] = order[target], order[index]
+        options = [options[i] for i in order]
+        plan["option_position_receipt"] = {"original_options": plan["options"], "original_correct_index": index, "permutation": order}
+        index = target
+        plan.update(options=options, correct_option_index=index)
     ask = plan["ask"]
     return {
         "question_spec": {

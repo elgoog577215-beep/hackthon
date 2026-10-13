@@ -10,6 +10,7 @@ from typing import Any
 
 from assessment_blueprint import INPUT_CONTRACT_SCHEMA, INPUT_MODES
 from assessment_diversity import evaluate_question_diversity
+from assessment_variants import cosmetic_variant_matches
 from assessment_subject_facts import (
     SUBJECT_FACT_ISSUE_CODES,
     subject_fact_issues,
@@ -36,6 +37,7 @@ MINIMUM_TARGETING_SCORE = 16
 MAX_REFERENCE_SIMILARITY = 0.65
 
 _REPAIRABLE_HARD_CODES = {
+    "COSMETIC_ATOMIC_VARIANT",
     "MISSING_CONDITION",
     "ANSWER_CONFLICT",
     "ANSWER_OR_RUBRIC_MISSING",
@@ -324,6 +326,12 @@ def evaluate_question_contract_quality(
         diversity_report.get("signature") or {}
     )
     contract["diversity_report"] = deepcopy(diversity_report)
+    cosmetic_matches = cosmetic_variant_matches(contract, diversity_pool)
+    hard_checks["substantive_atomic_variant"] = not cosmetic_matches
+    if cosmetic_matches:
+        issues.append(_issue("COSMETIC_ATOMIC_VARIANT", "critical",
+            "同一点不能仅换数值、变量名、选项顺序或问句；请按变式角色改变表达式结构、控制方向或规则作用位置。",
+            evidence={"same_structure_slots": cosmetic_matches}))
     hard_checks["not_duplicate"] = bool(
         duplicate_similarity < 0.9
         or diversity_report.get("passed")
