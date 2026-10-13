@@ -113,3 +113,47 @@ def test_semantic_variant_strategies_offer_distinct_instructions(kind):
     from assessment_variants import variant_instruction
     values = [variant_instruction({'variant_role': role}, kind) for role in ('direct', 'contrast', 'transfer')]
     assert len(set(values)) == 3
+
+
+def test_variant_budget_is_part_of_resume_source_identity():
+    from routers.question_bank import _question_source_revision
+    course = atomic_course()
+    course['assessment_variant_count'] = 1
+    old = _question_source_revision(course)
+    course['assessment_variant_count'] = 3
+    assert _question_source_revision(course) != old
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_plans_all_variants_and_resumes_exactly_one(monkeypatch):
+    from assessment_orchestrator import AssessmentGenerationOrchestrator
+    from knowledge_question_supply import select_knowledge_slots
+    course = atomic_course()
+    course['assessment_variant_count'] = 3
+    runner = AssessmentGenerationOrchestrator(model=object())
+    seen = []
+    async def generate(**kw):
+        seen.append(kw['objective']['knowledge'])
+        return 'concept_check', {'generation_status': 'ready'}, {'final_decision': 'publish'}, None
+    monkeypatch.setattr(runner, '_generate_slot_contract', generate)
+    blueprint = compile_course_assessment_blueprint(course)
+    selection = select_knowledge_slots(blueprint, ['division'], ['types'])
+    assert len(selection['types']) == 3
+    prepared = await runner.prepare_course(course, node_ids=['types'], practice_levels_by_node=selection)
+    contracts = prepared['_assessment_generated_contracts']['types']
+    assert set(contracts) == set(selection['types'])
+    assert {q['variant_role'] for q in contracts.values()} == {'direct', 'contrast', 'transfer'}
+    assert all(q['assessment_evidence_key'] == key for key, q in contracts.items())
+    assert len(seen) == 3
+    seen.clear()
+    await runner.prepare_course(course, node_ids=['types'], practice_levels_by_node={'types': [selection['types'][1]]})
+    assert len(seen) == 1
+
+
+def test_seen_answer_and_hints_do_not_become_independent_variants():
+    rows = [attempt(1, assessment_evidence_key='v1'), attempt(2, assessment_evidence_key='v1', solution_revealed=True),
+            attempt(3, assessment_evidence_key='v2', revealed_hint_levels=[1]), attempt(4, assessment_evidence_key='v3')]
+    node = project(rows)['nodes'][0]
+    assert node['independent_count'] == 2
+    assert node['status'] != 'supported_mastery'
+    assert node['mastery'] == 76.5
