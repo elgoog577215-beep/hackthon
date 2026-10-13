@@ -13,6 +13,39 @@ from knowledge_mastery import build_knowledge_profile
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('fenced', [False, True])
+async def test_discussion_keeps_complete_reply_when_model_omits_draft(monkeypatch, fenced):
+    from ai_service import ai_service
+    raw = '{"reply":"Please provide the vector coordinates so I can explain the endpoint."}'
+    if fenced:
+        raw = '```json\n' + raw + '\n```'
+    call = AsyncMock(return_value=raw)
+    monkeypatch.setattr(ai_service, '_call_llm', call)
+    result = await routes._model({'draft': 'My existing note.'}, action='discuss', language='en')
+    assert result == {'reply': 'Please provide the vector coordinates so I can explain the endpoint.', 'draft': None}
+    assert call.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('action,raw', [
+    ('refine', '{"reply":"A reply without a requested refinement."}'),
+    ('discuss', '{"reply":""}'),
+    ('discuss', '{"reply":"   "}'),
+    ('discuss', '{"reply":"valid","draft":false}'),
+    ('discuss', '{"reply":"valid","draft":""}'),
+])
+async def test_missing_draft_compatibility_does_not_accept_invalid_replies(monkeypatch, action, raw):
+    from ai_service import ai_service
+    from fastapi import HTTPException
+    call = AsyncMock(return_value=raw)
+    monkeypatch.setattr(ai_service, '_call_llm', call)
+    with pytest.raises(HTTPException) as error:
+        await routes._model({}, action=action, language='en')
+    assert error.value.status_code == 503
+    assert call.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('fenced', [False, True])
 async def test_model_accepts_wrapped_json_and_preserves_latex_without_retry(monkeypatch, fenced):
     from ai_service import ai_service
     raw = r'{"reply":"按 $\vec{u}$ 与 $\\vec{v}$ 组合。","draft":"结果是 (5,4)。"}'
