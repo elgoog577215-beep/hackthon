@@ -75,7 +75,7 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v24"
+ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v25"
 
 
 def _out_tokens(limit: int) -> int:

@@ -155,7 +155,7 @@ def _question_source_revision(course: dict[str, Any]) -> str:
         "course_name", "course_purpose", "difficulty", "course_outline",
         "subject_pedagogy_profile", "difficulty_profile", "material_bindings",
         "teacher_handouts", "evidence_package", "evidence_catalog",
-        "parsed_documents", "course_knowledge_scope_contract",
+        "parsed_documents", "course_knowledge_scope_contract", "assessment_variant_count",
     )
     node_keys = (
         "node_id", "parent_id", "node_level", "node_name", "node_content",
