@@ -60,6 +60,19 @@ def test_relation_direction_prompt_uses_an_actual_enum_value(svc):
     assert '"direction":"incoming或outgoing"' not in prompt
 
 
+def test_primary_output_template_requires_alignment_even_without_existing_knowledge(svc):
+    import json
+    handouts(svc)
+    raw = svc.repository.load_raw('c-pilot')
+    context = handout_context(raw, svc.authoring.load('c-pilot'), 'cpu')
+    assert context['reference_knowledge'] == []
+    prompt = tree_prompt(raw, context)
+    template, _ = json.JSONDecoder().raw_decode(prompt.split('输出格式：', 1)[1])
+    assert {decision['knowledge_key'] for decision in template['cross_alignment']} == {point['key'] for point in template['points']}
+    assert {'reason', 'relation_reason', 'links'} <= template['cross_alignment'][0].keys()
+    assert '即使 existing_knowledge 为空也必须逐点填写 cross_alignment' in prompt
+
+
 def test_saved_direction_failure_rechecks_without_model_or_source_changes(svc):
     from copy import deepcopy
     import json
