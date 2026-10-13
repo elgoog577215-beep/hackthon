@@ -8,6 +8,58 @@ from generic_knowledge import compile_tree, tree_prompt
 from course_repository import CourseDocumentConflict
 
 
+@pytest.mark.parametrize('kind', ['contrasts_with', 'generalizes', 'prerequisite'])
+@pytest.mark.parametrize('reversed_edge', [False, True])
+def test_relation_type_in_direction_uses_only_explicit_matching_edge(svc, kind, reversed_edge):
+    from copy import deepcopy
+    handouts(svc)
+    raw = svc.repository.load_raw('c-pilot')
+    context = handout_context(raw, svc.authoring.load('c-pilot'))
+    context['cross_lesson_alignment_contract'] = 'per_point_relations_v3'
+    result = answer()
+    a, b = ('K2', 'K1') if reversed_edge else ('K1', 'K2')
+    result['relations'] = [{'source_key': a, 'target_key': b, 'type': kind, 'reason': '已有明确端点的关系', 'conditions': []}]
+    result['cross_alignment'] = [{'knowledge_key': key, 'reason': '独立命题', 'relation_reason': '两点有明确关系',
+        'links': [{'other_key': other, 'direction': kind, 'type': kind, 'reason': '已有明确端点的关系', 'conditions': []}]}
+        for key, other in [('K1', 'K2'), ('K2', 'K1')]]
+    before = deepcopy(result)
+    tree = compile_tree(raw, context, result)
+    by_key = {point['key']: point['knowledge_id'] for point in tree['knowledge_points']}
+    assert len(tree['relations']) == 1
+    assert (tree['relations'][0]['source_id'], tree['relations'][0]['target_id']) == (by_key[a], by_key[b])
+    assert 'relation_direction_from_explicit_edge' in tree['format_normalizations']
+    assert result == before
+
+
+@pytest.mark.parametrize('case', ['missing', 'ambiguous', 'other-type', 'other-conditions', 'unknown-direction'])
+def test_invalid_relation_direction_without_unique_evidence_stays_rejected(svc, case):
+    handouts(svc)
+    raw = svc.repository.load_raw('c-pilot')
+    context = handout_context(raw, svc.authoring.load('c-pilot'))
+    context['cross_lesson_alignment_contract'] = 'per_point_relations_v3'
+    result = answer()
+    edge = {'source_key': 'K1', 'target_key': 'K2', 'type': 'generalizes', 'reason': '明确关系', 'conditions': []}
+    result['relations'] = [] if case == 'missing' else [edge]
+    if case == 'ambiguous': result['relations'].append({**edge, 'source_key': 'K2', 'target_key': 'K1'})
+    if case == 'other-type': edge['type'] = 'applies_to'
+    if case == 'other-conditions': edge['conditions'] = ['另一种条件']
+    result['cross_alignment'] = [{'knowledge_key': 'K1', 'reason': '独立命题', 'relation_reason': '关系判断',
+        'links': [{'other_key': 'K2', 'direction': 'sideways' if case == 'unknown-direction' else 'generalizes',
+                   'type': 'generalizes', 'reason': '明确关系', 'conditions': []}]}]
+    with pytest.raises(CourseDocumentConflict, match='方向'):
+        compile_tree(raw, context, result)
+
+
+def test_relation_direction_prompt_uses_an_actual_enum_value(svc):
+    handouts(svc)
+    raw = svc.repository.load_raw('c-pilot')
+    context = handout_context(raw, svc.authoring.load('c-pilot'), 'cpu')
+    prompt = tree_prompt(raw, context)
+    assert '"direction":"outgoing"' in prompt
+    assert 'direction 只能是 incoming 或 outgoing' in prompt
+    assert '"direction":"incoming或outgoing"' not in prompt
+
+
 def test_non_reusable_new_point_still_links_to_old_rule_and_materializes_both_pointers(svc):
     from copy import deepcopy
     handouts(svc);raw=svc.repository.load_raw('c-pilot');state=svc.authoring.load('c-pilot')
