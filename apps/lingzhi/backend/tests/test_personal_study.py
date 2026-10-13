@@ -110,6 +110,21 @@ def test_local_identity_password_session_and_header_spoof(setup_study):
     assert client.get('/api/study/auth/me', headers=headers).status_code == 401
 
 
+def test_file_upload_parses_downloads_and_rejects_unsupported_files(setup_study):
+    client, _manager, _repo, _writer = setup_study
+    _owner, headers = account(client)
+    content = '# 向量\n\nu=(1,2)，v=(2,1)，u+2v=(5,4)。'.encode('utf-8')
+    uploaded = client.post('/api/study/sources/upload', headers=headers,
+                           files={'file': ('向量.md', content, 'text/markdown')})
+    assert uploaded.status_code == 200
+    source = uploaded.json()
+    assert source['status'] == 'parsed' and source['sections']
+    downloaded = client.get(f"/api/study/sources/{source['id']}/download", headers=headers)
+    assert downloaded.status_code == 200 and downloaded.content == content
+    assert client.post('/api/study/sources/upload', headers=headers,
+                       files={'file': ('bad.exe', b'unsupported', 'application/octet-stream')}).status_code == 422
+
+
 def test_students_cannot_read_sources_materials_notes_or_tasks_of_others(setup_study):
     client, manager, repo, _writer = setup_study
     owner, headers = account(client)

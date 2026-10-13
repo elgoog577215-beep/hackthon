@@ -145,7 +145,7 @@ async def upload_source(file: UploadFile = File(...), user=Depends(study_identit
     source_repo = repo.sources(user["id"])
     try:
         asset = await source_repo.save_upload(file, upload_batch_id="study", max_bytes=20 * 1024 * 1024,
-                                             batch_file_limit=100, batch_bytes_limit=300 * 1024 * 1024)
+                                             max_batch_files=100, max_batch_bytes=300 * 1024 * 1024)
         return await parse_source(source_repo, asset)
     except MaterialStorageError as exc:
         raise HTTPException(422, str(exc))

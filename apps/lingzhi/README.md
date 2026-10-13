@@ -139,6 +139,14 @@ python scripts/connect_qwen_via_ssh.py --config <本机私有连接配置.json>
 
 `/dev/teaching-diagram-preview.html` 使用正式 Markdown/教学图表组件显示全部 44 种自编图型样例，可切换讲义与 AI 侧栏、中英文及流式未完成状态，也可粘贴隔离模型实验的 Markdown 检查。类型合同统一在 `shared/teaching-diagrams-v1.json`；讲义与师生 AI 回答在原模型请求中按内容选择图表，支持图注、来源、完整数据、放大和 SVG 下载。开发检查页不进入生产构建，图表错误只降级显示，不追加模型调用。具体证据和限制见[教学图表接入验收](docs/验收/教学图表接入验收.md)。
 
+图型预览不验证后台接口。需要检查讲义和 AI 的真实连通性时，从本应用目录运行：
+
+```powershell
+.\backend\.venv\Scripts\python.exe scripts/teaching_api_connectivity.py --model-base-url http://127.0.0.1:8012/v1 --output E:/lingzhi-local-experiments/my-api-connectivity
+```
+
+使用已经运行、明确选择的本机 `qwen3.8-27b` 服务别名和新的仓库外空目录。脚本创建两个独立端口的临时前后端进程，以公开自编资料测试真实 HTTP、Vite 代理、SSE 与 WebSocket；覆盖登录、上传/解析/下载、师生讲义任务及回读、笔记与导出、AI 提问/历史、重复请求、来源修订冲突和权限拒绝。教师测试使用在隔离目录预置的大纲与正文，手动保存教案后发起真实讲义生成；不把夹具初始化算作大纲生成接口验收。退出仅关闭本次启动的进程，保留 `report.json`、结果与诊断日志，不修改 `.env` 或运行中的课程。此实验不替代启智正式身份、学校访问通道与生产验收，模型内容正确性及图形排版仍需分别检查。
+
 讲义字体 `frontend/public/fonts/handout/SourceHanSerifCN-Subset.woff2` 来自参考项目的概统字体目录，原文件按 SIL OFL 1.1 分发，许可全文见同目录 `SourceHanSerif-LICENSE.txt`。字体按需加载，无第三方字体请求；子集之外的字符使用系统宋体。
 
 概念图复用冻结教案里的 `knowledge_structure` 与 `knowledge_relations`，展示六类关系及原有条件、理由、推导和来源引用。实验 JSON 同时保存 `plan_sections`；默认自编导数样例提供六个概念和六条关系，用于检查跳转和关系显示。关系是实验输入，不能据此宣称模型自动发现了这些关系。正式教师/课程阅读组件消费已有课程知识结构，不额外调用模型或写入一套图谱；缺关系或缺正文定位时如实显示。
