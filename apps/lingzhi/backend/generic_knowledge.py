@@ -8,7 +8,7 @@ from course_repository import CourseDocumentConflict
 from material_models import MaterialBinding
 
 WORKFLOW = 'knowledge_first_generic_v1'
-TREE_OUTPUT_FORMAT_VERSION = 'knowledge_relation_endpoints_v1'
+TREE_OUTPUT_FORMAT_VERSION = 'knowledge_relation_endpoints_v2'
 RELATIONS = {'prerequisite', 'derives', 'applies_to', 'contrasts_with', 'equivalent_to', 'generalizes'}
 
 
@@ -188,10 +188,17 @@ def compile_tree(raw, context, response):
                 if 'source_key' in link or 'target_key' in link:
                     a = text(link.get('source_key'), '关系起点', 40)
                     b = text(link.get('target_key'), '关系终点', 40)
-                    require(point_key in (a, b), '逐点关系必须关联当前知识点')
                     if 'direction' in link or 'other_key' in link:
+                        require(point_key in (a, b), '逐点关系必须关联当前知识点')
                         require(link.get('other_key') == (b if a == point_key else a)
                                 and link.get('direction') == ('outgoing' if a == point_key else 'incoming'), '知识关系方向与明确端点冲突')
+                    elif point_key not in (a, b):
+                        # Explicit endpoints define the edge independently of its
+                        # display bucket. Validate both endpoints below and build
+                        # each point's relation index from those unchanged IDs.
+                        notes = response.setdefault('_format_normalizations', [])
+                        if 'explicit_relation_reindexed' not in notes:
+                            notes.append('explicit_relation_reindexed')
                 else:
                     direction, direction_recovered = _link_direction(point_key, link, explicit_relations)
                     if direction_recovered:
