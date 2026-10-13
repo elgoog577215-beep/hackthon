@@ -19,6 +19,35 @@ def one_lesson_response(lid, name=None):
     return data
 
 
+@pytest.mark.parametrize('kind', ['teacher_lesson_script_generation', 'teacher_lesson_plan_generation', 'course_knowledge_tree_generation'])
+def test_other_lecture_generation_does_not_block_selected_tree(svc, kind):
+    handouts(svc)
+    other = svc.authoring.create_job('c-pilot', 'tree' if kind == 'course_knowledge_tree_generation' else 'memory',
+        job_type=kind, request_id='other', source_outline_revision_id='outline')
+    svc.authoring.update_job('c-pilot', other['id'], status='running', knowledge_lesson_id='memory' if kind == 'course_knowledge_tree_generation' else '')
+    view = svc.view('c-pilot', source_mode='handouts')
+    job, created = svc.start('c-pilot', 'tree', 'cpu-new', view['knowledge_revision'], view['document_revision'], source_mode='handouts', lesson_id='cpu')
+    assert created and job['knowledge_lesson_id'] == 'cpu'
+    assert svc.authoring.get_job('c-pilot', other['id'])['status'] == 'running'
+
+
+@pytest.mark.parametrize('scope', ['cpu', 'whole-course'])
+def test_same_lecture_and_course_wide_jobs_still_block_and_are_visible(svc, scope):
+    handouts(svc)
+    blocker = svc.authoring.create_job('c-pilot', scope, job_type='teacher_lesson_script_generation', request_id='blocker')
+    svc.authoring.update_job('c-pilot', blocker['id'], status='running', progress=35)
+    view = svc.view('c-pilot', source_mode='handouts')
+    with pytest.raises(CourseDocumentConflict):
+        svc.start('c-pilot', 'tree', 'blocked', view['knowledge_revision'], view['document_revision'], source_mode='handouts', lesson_id='cpu')
+    assert view['active_jobs'][0]['id'] == blocker['id']
+    option = next(l for l in view['lesson_options'] if l['lesson_id'] == 'cpu')
+    assert option['blocking_job_ids'] == [blocker['id']]
+    svc.authoring.update_job('c-pilot', blocker['id'], status='failed')
+    view = svc.view('c-pilot', source_mode='handouts')
+    assert view['active_jobs'] == []
+    assert next(l for l in view['lesson_options'] if l['lesson_id'] == 'cpu')['blocking_job_ids'] == []
+
+
 @pytest.mark.asyncio
 async def test_single_lesson_generation_is_scoped_and_preserves_other_lesson_and_history(svc):
     handouts(svc)

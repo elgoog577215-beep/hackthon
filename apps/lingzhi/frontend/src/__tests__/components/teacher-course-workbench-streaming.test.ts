@@ -159,6 +159,28 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => {
 }
 
 describe('teacher course workbench outline streaming', () => {
+  it('shows resumed lesson work instead of a stale batch start failure', async () => {
+    const store = useTeacherLessonAuthoringStore()
+    store.lessons = [{ lesson_unit_id: 'L1-1', number: 1, title: '第一讲', source_outline_revision_id: 'outline-1',
+      sections: [{ section_node_id: 's1', title: '内容' }],
+      arrangement: { source_state: 'current', blocks: [{ block_id: 'b', section_node_id: 's1', name: '讲解' }] },
+      plan: { working_revision_id: '', source_state: 'current', current_revision: null, ppt_assets: [] },
+      script: { current_revision_id: '', source_state: 'current', ready: false, sections: [] },
+    }] as any
+    vi.spyOn(store, 'generateAllLessons').mockImplementation(async () => {
+      store.jobs = [{ id: 'resumed', lesson_unit_id: 'L1-1', type: 'teacher_lesson_plan_generation', status: 'running',
+        progress: 20, message: '正在生成教案', parent_job_id: 'batch', batch_size: 1 }] as any
+      store.error = '原任务的来源或状态已变化'
+      throw new Error(store.error)
+    })
+    const wrapper = mountWorkbench({ initialStage: 'lesson' })
+    await wrapper.get('[data-testid="lesson-course-preview-generate"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('教案生成未开始')
+    expect(wrapper.text()).not.toContain('原任务的来源或状态已变化')
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.restoreAllMocks()
