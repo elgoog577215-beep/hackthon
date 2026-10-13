@@ -36,16 +36,20 @@
             <option v-if="selectedCandidate && selectedCandidate.revision_id !== data.knowledge_revision" value="candidate">{{ t('knowledgeFirst.candidate') }} · {{ short(selectedCandidate.revision_id) }}</option>
             <option v-for="v in historyOptions" :key="v.revision_id" :value="v.revision_id">{{ v.revision_id === data.knowledge_revision ? t('knowledgeFirst.current') : t('knowledgeFirst.history') }} · {{ short(v.revision_id) }}</option>
           </select></label>
-          <button v-if="treeOnly && treeChoice === 'candidate' && displayTree && data.can_edit && canAdoptSelection" class="primary" :disabled="busy || !!activeJob || displayTree.revision_id === data.knowledge_revision || displayTree.teaching_assessment?.ready_for_adoption === false" @click="adopt">{{ t('knowledgeFirst.adoptTree') }}</button>
+          <button v-if="treeOnly && treeChoice === 'candidate' && displayTree && data.can_edit && canAdoptSelection" class="primary" :disabled="busy || activeJobs.length > 0 || displayTree.revision_id === data.knowledge_revision || displayTree.teaching_assessment?.ready_for_adoption === false" @click="adopt">{{ t('knowledgeFirst.adoptTree') }}</button>
           <div v-if="!treeOnly && (!derived || data.handouts?.length)" class="tabs"><button :class="{ active: tab === 'tree' }" @click="tab = 'tree'">{{ t('knowledgeFirst.tree') }}</button>
             <button :class="{ active: tab === 'handout' }" @click="tab = 'handout'">{{ t('knowledgeFirst.handouts') }}</button></div>
-          <button v-if="data.can_edit" class="primary" :disabled="busy || !!activeJob || (perLesson ? !selectedLesson?.can_generate : derived ? !data.can_generate_tree : generic && (inputDirty || !data.inputs?.material_asset_ids?.length))" @click="generate('tree')">{{ t(perLesson ? 'knowledgeFirst.generateLessonTree' : derived ? (data.tree ? 'knowledgeFirst.updateFromHandouts' : 'knowledgeFirst.generateFromHandouts') : data.tree ? 'knowledgeFirst.regenerateTree' : 'knowledgeFirst.generateTree') }}</button>
+          <button v-if="data.can_edit" class="primary" :disabled="busy || blockingJobs.length > 0 || (perLesson ? !selectedLesson?.can_generate : derived ? !data.can_generate_tree : generic && (inputDirty || !data.inputs?.material_asset_ids?.length))" @click="generate('tree')">{{ t(perLesson ? 'knowledgeFirst.generateLessonTree' : derived ? (data.tree ? 'knowledgeFirst.updateFromHandouts' : 'knowledgeFirst.generateFromHandouts') : data.tree ? 'knowledgeFirst.regenerateTree' : 'knowledgeFirst.generateTree') }}</button>
         </div>
         <div v-if="perLesson" class="knowledge-lesson-switch">
           <button type="button" :disabled="lessonOptions[0]?.lesson_id === knowledgeLessonId" @click="stepLesson(-1)">{{ t('knowledgeFirst.previousLesson') }}</button>
           <select v-model="knowledgeLessonId" :aria-label="t('knowledgeFirst.lessonPicker')"><option v-for="l in lessonOptions" :key="l.lesson_id" :value="l.lesson_id">{{ lessonLabels[l.lesson_id] }}</option></select>
           <button type="button" :disabled="lessonOptions.at(-1)?.lesson_id === knowledgeLessonId" @click="stepLesson(1)">{{ t('knowledgeFirst.nextLesson') }}</button>
         </div>
+        <section v-for="job in sourceBlockingJobs" :key="job.id" class="notice job" role="status" data-testid="knowledge-source-blocker">
+          <strong>{{ blockingJobLabel(job) }}</strong>
+          <span>{{ job.progress || 0 }}% · {{ t('knowledgeFirst.waitForSourceTask') }}</span>
+        </section>
         <section v-if="activeJob" class="notice job" role="status"><strong>{{ activeJob.knowledge_lesson_id ? `${lessonLabels[activeJob.knowledge_lesson_id] || ''} · ` : '' }}{{ activeJob.message }}</strong>
           <span>{{ activeJob.progress }}%<template v-if="!treeOnly"> · {{ activeJob.id }}</template></span>
           <button v-if="data.can_edit" :disabled="busy" @click="mutate(`cancel/${activeJob.id}`)">{{ t('knowledgeFirst.cancel') }}</button></section>
@@ -101,7 +105,7 @@
           </div>
           <p v-else class="empty-card">{{ t(perLesson ? (selectedLesson?.can_generate ? 'knowledgeFirst.lessonTreeEmpty' : 'knowledgeFirst.lessonHandoutRequired') : derived ? (!data.can_generate_tree ? 'knowledgeFirst.handoutsRequired' : 'knowledgeFirst.noDerivedTree') : 'knowledgeFirst.noTree') }}</p>
           <div v-if="!treeOnly && treeChoice === 'candidate' && displayTree && data.can_edit && canAdoptSelection" class="adopt-bar"><p>{{ t(derived ? 'knowledgeFirst.derivedAdoptHint' : generic ? 'knowledgeFirst.genericAdoptHint' : displayTree.teaching_assessment ? 'knowledgeFirst.candidateWarning' : 'knowledgeFirst.adoptHint') }}</p>
-            <button class="primary" :disabled="busy || !!activeJob || displayTree.revision_id === data.knowledge_revision || displayTree.teaching_assessment?.ready_for_adoption === false" @click="adopt">{{ t('knowledgeFirst.adoptTree') }}</button></div>
+            <button class="primary" :disabled="busy || activeJobs.length > 0 || displayTree.revision_id === data.knowledge_revision || displayTree.teaching_assessment?.ready_for_adoption === false" @click="adopt">{{ t('knowledgeFirst.adoptTree') }}</button></div>
         </section>
         <section v-else class="handout-layout">
           <aside class="lecture-nav"><h2>{{ t('knowledgeFirst.handouts') }}</h2><button v-for="h in data.handouts" :key="h.topic" :class="{ active: lesson === h.topic }" @click="lesson = h.topic; handoutChoice = ''">{{ h.title }}<small>{{ h.revisions.length ? t('knowledgeFirst.generated') : t('knowledgeFirst.pending') }}</small></button></aside>
@@ -158,7 +162,14 @@ const detailPane = ref<HTMLElement | null>(null)
 let timer: ReturnType<typeof setTimeout> | undefined
 let disposed = false, requestSequence = 0
 const base = computed(() => `/api/courses/${courseId.value}/knowledge-first`)
-const activeJob = computed(() => data.value?.jobs.find((j: any) => ['pending', 'running'].includes(j.status)))
+const activeJobs = computed<any[]>(() => (data.value?.active_jobs || data.value?.jobs || []).filter((j: any) => ['pending', 'running'].includes(j.status)))
+const blockingJobs = computed(() => {
+  const ids = perLesson.value ? selectedLesson.value?.blocking_job_ids : data.value?.blocking_job_ids
+  if (Array.isArray(ids)) return activeJobs.value.filter(j => ids.includes(j.id))
+  return activeJobs.value.filter(j => !perLesson.value || !j.knowledge_lesson_id || j.knowledge_lesson_id === knowledgeLessonId.value)
+})
+const activeJob = computed(() => blockingJobs.value.find(j => (data.value?.jobs || []).some((known: any) => known.id === j.id)))
+const sourceBlockingJobs = computed(() => blockingJobs.value.filter(j => !(data.value?.jobs || []).some((known: any) => known.id === j.id)))
 const latestJob = computed(() => (data.value?.jobs || []).filter((j: any) => !perLesson.value || j.knowledge_lesson_id === knowledgeLessonId.value).at(-1))
 const failedJobs = computed(() => (data.value?.jobs || []).filter((j: any) => j.status === 'failed').slice(-3))
 const derived = computed(() => data.value?.source_mode === 'handouts')
@@ -166,6 +177,12 @@ const lessonOptions = computed<any[]>(() => data.value?.lesson_options || [])
 const perLesson = computed(() => props.treeOnly && derived.value && lessonOptions.value.length > 0)
 const selectedLesson = computed(() => lessonOptions.value.find(l => l.lesson_id === knowledgeLessonId.value))
 const lessonLabels = computed(() => Object.fromEntries(lessonOptions.value.map((l, i) => [l.lesson_id, t('knowledgeFirst.numberedLesson').replace('{number}', String(i + 1)).replace('{title}', (l.title || '').replace(/^第\s*[\d一二三四五六七八九十百]+\s*讲\s*[·:：、.-]?\s*/u, '').replace(/^(?:lecture|lesson)\s+\d+\s*[·:.-]?\s*/i, ''))])))
+function blockingJobLabel(job: any) {
+  const label = lessonLabels.value[job.knowledge_lesson_id || job.lesson_unit_id] || data.value?.title || ''
+  const kind = job.type === 'teacher_lesson_script_generation' ? 'handoutTask'
+    : job.type === 'teacher_lesson_plan_generation' ? 'lessonPlanTask' : 'courseTask'
+  return `${label} · ${t(`knowledgeFirst.${kind}`)}`
+}
 const selectedCandidateRecord = computed(() => {
   if (!perLesson.value) return data.value?.candidate ? { tree: data.value.candidate, job_id: data.value.candidate_job_id, lesson_id: '' } : null
   const pending = (tree: any) => tree && !(data.value?.history || []).some((h: any) => h.revision_id === tree.revision_id)
@@ -264,13 +281,19 @@ async function refresh() {
     if (!treeChoice.value || (treeChoice.value === 'candidate' && !selectedCandidate.value && latestJob.value?.status === 'failed')) chooseTreeVersion()
     if (!selectedId.value && !props.treeOnly) selectedId.value = displayTree.value?.knowledge_points[0]?.knowledge_id || ''
     if (followLatest) handoutChoice.value = currentLesson.value?.current_revision_id || ''
-    if (activeJob.value) timer = setTimeout(refresh, 2000)
+    if (activeJobs.value.length) timer = setTimeout(refresh, 2000)
   } catch (e) { if (!disposed && seq === requestSequence) error.value = message(e) }
 }
 async function mutate(path: string, extra = {}) {
   busy.value = true; error.value = ''
   try { await http.post(`${base.value}/${path}`, { document_revision: data.value.document_revision, knowledge_revision: data.value.knowledge_revision, ...extra }); await refresh(); if (path === 'initialize') emit('updated') }
-  catch (e) { error.value = message(e) }
+  catch (e) {
+    if ((e as any)?.response?.status === 409) {
+      await refresh()
+      if (blockingJobs.value.length) return
+    }
+    error.value = message(e)
+  }
   finally { busy.value = false }
 }
 async function generate(topic: string) {

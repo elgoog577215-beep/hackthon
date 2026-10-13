@@ -334,6 +334,7 @@ def _validated_teacher_asset_resume_job(
     job_type: str,
     source_revision_field: str,
     source_revision_id: str,
+    allow_completed: bool = False,
 ) -> dict[str, Any]:
     try:
         candidate = repository.get_job(course_id, resume_job_id)
@@ -357,9 +358,7 @@ def _validated_teacher_asset_resume_job(
     elif job_type == "teacher_lesson_plan_generation" and (candidate.get("request_snapshot") or {}).get("generation_contract_version") != "lesson_plan_single_v2":
         reason = "retired_generation_contract"
     elif not _teacher_asset_job_can_resume(candidate) and not (
-        job_type != "teacher_lesson_script_generation" and candidate.get("parent_job_id") and candidate.get("status") in {"completed", "completed_with_warnings"}
-        and any(item.get("parent_job_id") == candidate["parent_job_id"] and item.get("status") in {"paused", "failed"}
-                for item in repository.view(course_id).get("jobs", {}).values())
+        allow_completed and candidate.get("status") in {"completed", "completed_with_warnings"}
     ):
         reason = "resume_not_allowed"
     if reason:
@@ -5012,11 +5011,6 @@ async def generate_all_lesson_plans(
         prior_jobs = list((repository.view(course_id).get("jobs") or {}).values())
         resume_jobs_by_lesson: dict[str, dict[str, Any]] = {}
         restart_ids = list(dict.fromkeys(body.resume_job_ids))
-        selected_jobs = [repository.get_job(course_id, key) for key in restart_ids]
-        parent_ids = {item.get("parent_job_id") for item in selected_jobs if item.get("parent_job_id")}
-        for item in prior_jobs:
-            if item.get("parent_job_id") in parent_ids and item.get("id") not in restart_ids:
-                restart_ids.append(item["id"])
         for resume_job_id in restart_ids:
             try:
                 candidate = repository.get_job(course_id, resume_job_id)
@@ -5041,7 +5035,12 @@ async def generate_all_lesson_plans(
                 job_type="teacher_lesson_plan_generation",
                 source_revision_field="source_outline_revision_id",
                 source_revision_id=outline_revision,
+                allow_completed=True,
             )
+            # Reconciled clients may still send an already finished child.
+            # Preserve that result and never expand the selection to its batch.
+            if validated.get("status") in {"completed", "completed_with_warnings"}:
+                continue
             if lesson_unit_id in resume_jobs_by_lesson:
                 raise TeacherLessonAuthoringError(
                     "teacher_asset_resume_conflict",
@@ -5058,7 +5057,7 @@ async def generate_all_lesson_plans(
                 "teacher_lesson_plan_generation",
             )
             latest_plan_status = str((latest_plan_job or {}).get("status") or "")
-            if resume_jobs_by_lesson:
+            if restart_ids:
                 if lesson_unit_id in resume_jobs_by_lesson:
                     if not bool(plan.get("can_generate")):
                         raise TeacherLessonAuthoringError(

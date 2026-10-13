@@ -7774,6 +7774,10 @@
     }
   },
   "knowledgeFirst": {
+    "waitForSourceTask": "等待来源任务完成后即可生成知识树。",
+    "handoutTask": "讲义生成中",
+    "lessonPlanTask": "教案生成中",
+    "courseTask": "课程任务进行中",
     "lastGenerationFailed": "上次生成未完成",
     "incoming": "指向本知识的关联",
     "outgoing": "本知识指向的关联",

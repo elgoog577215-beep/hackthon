@@ -2505,13 +2505,14 @@ const effectiveScriptGenerationError = computed(() => String(
     : scriptGenerationError.value,
 ))
 const lessonBatchStartErrorPresentation = computed(() => (
-  lessonGenerationRequestError.value
+  lessonGenerationRequestError.value && !batchRunning.value
     ? toAppError(lessonGenerationRequestError.value, {
         title: t('courseWorkbench.lessonBatch.failedTitle', '教案生成未开始'),
         fallback: lessonGenerationRequestError.value,
       })
     : null
 ))
+watch(batchRunning, running => { if (running) lessonGenerationRequestError.value = '' })
 const scriptBatchStartErrorPresentation = computed(() => (
   scriptBatchStartError.value
     ? toAppError(scriptBatchStartError.value, {

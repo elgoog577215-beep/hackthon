@@ -65,7 +65,7 @@ def read(course_id: str, request: Request, source_mode: Literal["", "handouts"] 
     view = svc.view(course_id, source_mode=source_mode)
     view["can_edit"] = svc.repository.load_raw(course_id).get("owner_id") == require_actor_id(request.headers.get("X-User-Id"))
     if not view["can_edit"]:
-        view.update(jobs=[], candidate=None, candidate_job_id="", candidates=[], lesson_options=[], inputs={}, source_handouts=[], handouts=[], can_generate_tree=False)
+        view.update(jobs=[], active_jobs=[], blocking_job_ids=[], candidate=None, candidate_job_id="", candidates=[], lesson_options=[], inputs={}, source_handouts=[], handouts=[], can_generate_tree=False)
     return view
 
 

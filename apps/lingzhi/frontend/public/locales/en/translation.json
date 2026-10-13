@@ -7774,6 +7774,10 @@
     }
   },
   "knowledgeFirst": {
+    "waitForSourceTask": "Knowledge generation becomes available when the source task finishes.",
+    "handoutTask": "Handout generation in progress",
+    "lessonPlanTask": "Lesson plan generation in progress",
+    "courseTask": "Course task in progress",
     "lastGenerationFailed": "Previous generation failed",
     "incoming": "Incoming relation",
     "outgoing": "Outgoing relation",
