@@ -103,3 +103,121 @@ def test_foreign_ids_or_missing_model_rows_fail_without_partial_write():
         with pytest.raises(ValueError):
             asyncio.run(bind_questions(course(), original, matcher=bad))
         assert original == before
+
+
+@pytest.fixture
+def api(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from routers import question_bank as routes
+    from question_bank_jobs import QuestionBankRebuildJobRepository
+    import question_bank_knowledge as domain
+
+    current = course()
+    repository = QuestionBankRepository(tmp_path / 'banks')
+    original = repository.save_bundle('c1', bank())
+    async def get_course(course_id):
+        assert course_id == 'c1'
+        return deepcopy(current)
+    monkeypatch.setattr(routes, 'get_course_or_404', get_course)
+    monkeypatch.setattr(routes, 'question_bank_repository', repository)
+    monkeypatch.setattr(routes, 'question_bank_rebuild_job_repository', QuestionBankRebuildJobRepository(tmp_path / 'jobs'))
+    monkeypatch.setattr(routes, '_require_bundle', lambda _: repository.load_bundle('c1'))
+    monkeypatch.setattr(domain, 'match_questions', match)
+    app = FastAPI()
+    app.include_router(routes.router, prefix='/api')
+    with TestClient(app) as client:
+        yield client, current, repository, original
+
+
+def request_body(original, **extras):
+    return {'mode': 'auto', 'expected_bundle_revision_id': original['bundle_revision_id'],
+            'knowledge_baseline_revision': 'tree1', **extras}
+
+
+def test_api_owner_auto_bind_and_read_is_side_effect_free(api):
+    client, current, repository, original = api
+    headers = {'X-User-Id': 'owner'}
+    path = '/api/courses/c1/question-bank/knowledge-bindings'
+    response = client.get(path, headers=headers)
+    assert response.status_code == 200
+    assert repository.load_bundle('c1') == original
+    response = client.post(path, headers=headers, json=request_body(original))
+    assert response.status_code == 200, response.text
+    assert response.json()['counts']['bound'] == 1
+    assert repository.load_bundle('c1', original['bundle_revision_id']) == original
+
+
+@pytest.mark.parametrize('surface', ['teacher', 'student'])
+def test_api_rejects_nonowner_even_for_published_course(api, surface):
+    client, current, repository, original = api
+    current.update(authoring_surface=surface, is_published=True)
+    path = '/api/courses/c1/question-bank/knowledge-bindings'
+    assert client.get(path, headers={'X-User-Id': 'stranger'}).status_code == 404
+    assert client.post(path, headers={'X-User-Id': 'stranger'}, json=request_body(original)).status_code == 404
+    assert repository.load_bundle('c1') == original
+
+
+def test_api_detects_tree_update_during_model_call(api, monkeypatch):
+    import question_bank_knowledge as domain
+    client, current, repository, original = api
+    async def concurrent(items, points):
+        current['course_knowledge_base']['revision_id'] = 'tree2'
+        return await match(items, points)
+    monkeypatch.setattr(domain, 'match_questions', concurrent)
+    response = client.post('/api/courses/c1/question-bank/knowledge-bindings', headers={'X-User-Id': 'owner'}, json=request_body(original))
+    assert response.status_code == 409
+    assert repository.load_bundle('c1') == original
+
+
+def test_api_detects_bank_update_during_model_call(api, monkeypatch):
+    import question_bank_knowledge as domain
+    client, current, repository, original = api
+    async def concurrent(items, points):
+        updated = deepcopy(original)
+        updated['items'][0]['prompt'] = '教师刚刚编辑过的题目'
+        repository.save_bundle('c1', updated)
+        return await match(items, points)
+    monkeypatch.setattr(domain, 'match_questions', concurrent)
+    response = client.post('/api/courses/c1/question-bank/knowledge-bindings', headers={'X-User-Id': 'owner'}, json=request_body(original))
+    assert response.status_code == 409
+    assert repository.load_bundle('c1')['items'][0]['prompt'] == '教师刚刚编辑过的题目'
+
+
+def test_api_provider_failure_keeps_original_and_hides_internal_details(api, monkeypatch):
+    import question_bank_knowledge as domain
+    client, current, repository, original = api
+    async def failed(*_args):
+        raise RuntimeError('private provider address')
+    monkeypatch.setattr(domain, 'match_questions', failed)
+    response = client.post('/api/courses/c1/question-bank/knowledge-bindings', headers={'X-User-Id': 'owner'}, json=request_body(original))
+    assert response.status_code == 503
+    assert 'private provider' not in response.text
+    assert repository.load_bundle('c1') == original
+
+
+def test_api_refuses_binding_during_generation(api, monkeypatch):
+    from routers import question_bank as routes
+    client, current, repository, original = api
+    monkeypatch.setattr(routes.question_bank_rebuild_job_repository, 'active_for_course', lambda _: {'job_id': 'active'})
+    response = client.post('/api/courses/c1/question-bank/knowledge-bindings', headers={'X-User-Id': 'owner'}, json=request_body(original))
+    assert response.status_code == 409
+    assert repository.load_bundle('c1') == original
+
+
+def test_wording_edit_requires_binding_confirmation_again():
+    from question_bank import revise_question_bank_item
+    updated = asyncio.run(bind_questions(course(), bank(), matcher=match))
+    item = updated['items'][0]
+    edited = revise_question_bank_item(updated, item['revision_id'], patch={'prompt': '判断 if 条件为假时是否执行分支。'}, editor_id='owner')
+    assert binding_view(course(), edited)['counts']['unbound'] == 1
+    assert formal_task_from_question_bank_item(edited['items'][0])['concept_ids'] == []
+
+
+def test_new_association_prepares_refs_but_does_not_certify_independent_mastery():
+    from practice_grading import PracticeGrader
+    updated = asyncio.run(bind_questions(course(), bank(), matcher=match))
+    task = formal_task_from_question_bank_item(updated['items'][0])
+    result = asyncio.run(PracticeGrader().grade(task, {'selected_option_id': 'A'}))
+    assert result['mastery_eligible'] is False
+    assert result['evidence_exclusion_reason'] == 'knowledge_binding_requires_measurement_review'
