@@ -469,7 +469,7 @@ def _sanitize_attempt(payload: dict[str, Any]) -> dict[str, Any]:
         "question_revision_id", "task_revision_id", "task_purpose", "task_source",
         "diagnostic_case_id", "remediation_session_id", "question_type", "input_contract", "metadata",
         "concept_ids", "skill_unit_ids", "mistake_point_ids", "improvement_point_ids", "knowledge_revision_refs",
-        "origin_attempt_id", "practice_intent",
+        "origin_attempt_id", "practice_intent", "assessment_evidence_key",
     }
     return {key: _sanitize_value(value) for key, value in payload.items() if key in allowed and value is not None}
 

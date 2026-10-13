@@ -77,4 +77,3 @@ def test_variant_prompt_changes_observation_instead_of_only_numbers():
     prompt = measurement_design_prompt([c])
     assert 'contrast' in prompt
     assert '不能仅' in prompt
-

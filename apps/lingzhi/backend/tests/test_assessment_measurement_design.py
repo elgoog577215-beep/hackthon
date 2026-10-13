@@ -97,6 +97,7 @@ async def test_recovery_keeps_question_and_retries_responsible_artifact(failed_a
     from question_bank import approved_formal_tasks, build_question_bank
 
     course = _course()
+    course["assessment_variant_count"] = 1
     course["course_knowledge_base"] = deepcopy(atomic_course()["course_knowledge_base"])
     point = course["course_knowledge_base"]["knowledge_points"][0]
     point.update(

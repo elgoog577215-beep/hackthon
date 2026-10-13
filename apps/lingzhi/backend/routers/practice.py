@@ -256,6 +256,7 @@ async def create_attempt(course_id: str, payload: AttemptCreate, request: Reques
         "resume": payload.resume,
         "practice_level": task.get("practice_level"),
         "task_revision_id": revision_id,
+        "assessment_evidence_key": task.get("assessment_evidence_key") or task.get("generation_key"),
         "task_purpose": task.get("task_purpose") or "course_practice",
         "task_source": task.get("task_source") or "course_asset",
         "course_version_id": course.get("current_course_version_id"),

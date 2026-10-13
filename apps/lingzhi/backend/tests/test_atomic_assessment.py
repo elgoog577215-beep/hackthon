@@ -10,6 +10,7 @@ from routers.question_bank import _item_practice_levels_by_node, _question_sourc
 def atomic_course():
     return {
         "course_id": "atomic-course",
+        "assessment_variant_count": 1,
         "course_name": "C语言",
         "nodes": [
             {
@@ -188,6 +189,7 @@ async def test_validated_single_point_question_becomes_one_profile_evidence():
     from question_bank import approved_formal_tasks, build_question_bank
 
     course = _course()
+    course["assessment_variant_count"] = 1
     course["course_knowledge_base"] = deepcopy(atomic_course()["course_knowledge_base"])
     point = course["course_knowledge_base"]["knowledge_points"][0]
     point.update(
@@ -247,6 +249,7 @@ def pilot_course():
     tree["status"] = "accepted"
     return {
         "course_id": "pilot-test",
+        "assessment_variant_count": 1,
         "course_name": "C17程序设计",
         "course_knowledge_base": tree,
         "nodes": [
@@ -348,6 +351,7 @@ def test_api_publishes_atomic_slots_and_checkpoints_exact_ids(monkeypatch, tmp_p
     from backend.tests.test_question_bank_api import _client
 
     course = _course()
+    course["assessment_variant_count"] = 1
     course["course_id"] = "course-api"
     course["course_knowledge_base"] = deepcopy(atomic_course()["course_knowledge_base"])
     point = course["course_knowledge_base"]["knowledge_points"][0]

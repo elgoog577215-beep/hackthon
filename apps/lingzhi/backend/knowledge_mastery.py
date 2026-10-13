@@ -7,7 +7,7 @@ from typing import Any
 from course_versioning import stable_hash
 from knowledge_assessment import frozen_assessment_refs, normalize_adopted_baseline
 
-RULE_VERSION = "knowledge_mastery_v1"
+RULE_VERSION = "knowledge_mastery_v2"
 
 
 def freeze_knowledge_refs(base: dict, task: dict) -> dict[str, str]:
@@ -102,6 +102,7 @@ def build_knowledge_profile(base: dict, *, course_id: str, course_version_id: st
                     or result.get("historical_only") or not isinstance(result.get("passed"), bool)
                     or _number(result.get("grading_confidence")) < .72):
                 continue
+            qid = str(a.get("assessment_evidence_key") or qid)
             # Feedback after revealing an answer cannot erase an earlier valid
             # check for the same question. Keep it visible without scoring it.
             if a.get("solution_revealed") or result.get("evidence_strength") == "invalid":
@@ -126,13 +127,15 @@ def build_knowledge_profile(base: dict, *, course_id: str, course_version_id: st
             negative += weight if not passed else 0
             independent_passed += int(independent and passed)
             independent_failed += int(independent and not passed)
-            evidence.append({"source_id": a["attempt_id"], "question_revision_id": qid,
+            evidence.append({"source_id": a["attempt_id"], "question_revision_id": a.get("task_revision_id") or a.get("question_revision_id") or qid,
+                             "assessment_evidence_key": qid,
                              "outcome": "passed" if passed else "not_passed",
                              "support": "solution_seen" if revealed else "invalid" if invalid else "assisted" if assistance else "practice_only" if practice_only else "independent",
                              "counted": weight > 0, "weight": weight,
                              "observed_at": a.get("updated_at") or a.get("created_at")})
         for qid, a in feedback_only.items():
-            evidence.append({"source_id": a["attempt_id"], "question_revision_id": qid,
+            evidence.append({"source_id": a["attempt_id"], "question_revision_id": a.get("task_revision_id") or a.get("question_revision_id") or qid,
+                             "assessment_evidence_key": qid,
                              "outcome": "passed" if a["result"]["passed"] else "not_passed",
                              "support": "solution_seen" if a.get("solution_revealed") else "invalid",
                              "counted": False, "weight": 0,
