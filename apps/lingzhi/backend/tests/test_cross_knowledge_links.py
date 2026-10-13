@@ -238,3 +238,50 @@ def test_regeneration_excludes_its_old_points_categories_and_edges_from_model_in
     assert '主存保存正在使用的数据。' in prompt  # Other lecture knowledge remains available.
     assert context['reference_relations']==[]
     assert raw==before
+
+
+@pytest.mark.parametrize('reverse', [False, True])
+def test_explicit_edge_registered_under_another_point_is_indexed_by_its_endpoints(svc, reverse):
+    from copy import deepcopy
+    handouts(svc)
+    raw = svc.repository.load_raw('c-pilot')
+    state = svc.authoring.load('c-pilot')
+    raw['course_knowledge_base'] = compile_tree(raw, handout_context(raw, state), answer())
+    context = handout_context(raw, state, 'memory')
+    response = one_lesson_response('memory')
+    response['points'].append({**deepcopy(response['points'][0]), 'key': 'K3',
+        'name': '主存访问', 'statement': '处理器通过地址访问主存数据。'})
+    response['lessons'][0]['knowledge_keys'].append('K3')
+    a, b = ('K3', 'E1') if reverse else ('E1', 'K3')
+    edge = {'source_key': a, 'target_key': b, 'type': 'applies_to',
+        'reason': '处理器通过地址访问主存数据', 'conditions': ['有效地址']}
+    response['relations'] = []
+    response['cross_alignment'] = [
+        {'knowledge_key': key, 'reason': '独立命题', 'relation_reason': '处理器访问主存数据',
+         'links': [edge] if key == 'K2' else []} for key in ['K2', 'K3']]
+    before = deepcopy(response)
+    tree = compile_tree(raw, context, response)
+    keys = {p['key']: p['knowledge_id'] for p in tree['knowledge_points']}
+    keys['E1'] = context['reference_knowledge'][0]['knowledge_id']
+    assert len(tree['relations']) == 1
+    relation = tree['relations'][0]
+    assert (relation['source_id'], relation['target_id']) == (keys[a], keys[b])
+    assert relation['reason'] == edge['reason'] and relation['conditions'] == edge['conditions']
+    decisions = {d['knowledge_id']: d for d in tree['cross_alignment']['decisions']}
+    assert decisions[keys['K2']]['relation_ids'] == []
+    assert decisions[keys['K3']]['relation_ids'] == [relation['id']]
+    assert 'explicit_relation_reindexed' in tree['format_normalizations']
+    assert response == before
+
+
+def test_misplaced_explicit_edge_cannot_override_relative_direction(svc):
+    handouts(svc)
+    raw = svc.repository.load_raw('c-pilot')
+    context = handout_context(raw, svc.authoring.load('c-pilot'))
+    context['cross_lesson_alignment_contract'] = 'per_point_relations_v3'
+    response = answer()
+    response['cross_alignment'] = [{'knowledge_key': 'K1', 'reason': '独立命题',
+        'relation_reason': '关系判断', 'links': [{'source_key': 'K2', 'target_key': 'K3',
+        'other_key': 'K2', 'direction': 'outgoing', 'type': 'applies_to', 'reason': '关系依据'}]}]
+    with pytest.raises(CourseDocumentConflict):
+        compile_tree(raw, context, response)
