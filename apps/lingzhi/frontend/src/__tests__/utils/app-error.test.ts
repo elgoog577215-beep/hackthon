@@ -26,6 +26,31 @@ function axiosError(overrides: Record<string, unknown> = {}) {
 }
 
 describe('application error presentation', () => {
+  it.each([
+    ['question_bank_rebuild_nodes_unknown', '重新选择'],
+    ['question_bank_rebuild_lessons_empty', '补全'],
+    ['question_bank_materials_unknown', '资料'],
+  ])('explains question generation error %s without an HTTP-only message', (code, action) => {
+    const result = toAppError(axiosError({
+      message: 'Request failed with status code 422',
+      config: { method: 'post', url: '/api/courses/c/question-bank/rebuild' },
+      response: { status: 422, data: { detail: { code, node_ids: ['L1-2'] } } },
+    }))
+    expect(result.title).toBe('题目生成条件不足')
+    expect(result.summary).toContain(action)
+    expect(result.summary).not.toContain('422')
+    expect(result.technicalDetail).toContain(code)
+  })
+
+  it('keeps generic HTTP validation diagnostics in technical details', () => {
+    const result = toAppError(axiosError({
+      message: 'Request failed with status code 422',
+      response: { status: 422, data: { detail: [{ loc: ['body', 'node_ids'], msg: 'Field required' }] } },
+    }))
+    expect(result.summary).toContain('检查输入')
+    expect(result.summary).not.toContain('Request failed')
+    expect(result.technicalDetail).toContain('node_ids')
+  })
   it('does not describe an unavailable PPT handout as a version conflict', () => {
     const result = toAppError(axiosError({
       config: { method: 'post', url: '/api/teacher/courses/c/ppt-projects' },
