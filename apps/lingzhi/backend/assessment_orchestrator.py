@@ -4755,6 +4755,10 @@ def _local_solver_applicable(public_spec: dict[str, Any]) -> bool:
         return False
     if "blanks" in input_contract or public_spec.get("blanks"):
         return False
+    if (public_spec.get("solver_contract") or {}).get("kind") == "numeric_expression":
+        # Arithmetic attests only a numerical value, not a probability model,
+        # derivation, diagnosis or program required by a structured response.
+        return mode == "numeric_unit"
     return True
 
 
