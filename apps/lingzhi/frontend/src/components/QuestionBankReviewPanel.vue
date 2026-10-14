@@ -98,6 +98,13 @@
         </button>
       </nav>
     </header>
+    <QuestionKnowledgeBinding
+      v-if="workspaceMode === 'bank' && items.length && bundleRevisionId"
+      :course-id="courseId"
+      :bundle-revision="bundleRevisionId"
+      :generation-active="rebuilding"
+      @updated="load"
+    />
     <div class="question-bank-document-surface">
     <div class="question-bank-workspace-body">
     <QuestionBankImportWorkspace
@@ -911,6 +918,7 @@ import CourseReferenceTray, { type CourseReferenceItem } from './CourseReference
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import MathText from './MathText.vue'
 import QuestionBankImportWorkspace from './QuestionBankImportWorkspace.vue'
+import QuestionKnowledgeBinding from './QuestionKnowledgeBinding.vue'
 import http, { teacherReadRequestConfig } from '@/utils/http'
 import { t } from '@/shared/i18n'
 import { retrievalErrorTranslationKey } from '@/utils/retrieval-errors'
@@ -2352,6 +2360,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-panel { container-type:inline-size; container-name:question-bank; height:calc(100vh - 128px); min-height:500px; display:flex; flex-direction:column; gap:14px; overflow:visible; padding:0; color:#263147; background:transparent; }
 .question-bank-page-heading { flex:0 0 auto; }
 .question-bank-panel > .knowledge-binding { flex:0 1 auto; min-height:0; max-height:50%; overflow:auto; }
+.question-bank-panel > .knowledge-binding :deep(fieldset) { max-height:none; overflow:visible; }
 .question-bank-document-surface { flex:1 1 0; }
 .question-bank-page-heading { min-height:54px; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:0 2px; }
 .question-bank-page-identity { min-width:0; display:flex; align-items:center; gap:10px; }
