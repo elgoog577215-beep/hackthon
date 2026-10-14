@@ -139,6 +139,7 @@
     "dismiss": "Dismiss this error",
     "showTechnicalDetails": "View technical details",
     "names": {
+      "questionGenerationScope": "Question generation prerequisites missing",
       "aiService": "AI service request failed",
       "quality": "Quality check failed",
       "conflict": "Content version conflict",
@@ -176,6 +177,9 @@
       "submit": "submission"
     },
     "reasons": {
+      "questionNodesUnknown": "The selected lessons or question content no longer exist. Refresh the course and select the generation scope again.",
+      "questionLessonsEmpty": "The selected lessons have no content available for questions yet. Complete their course outline content before generating questions.",
+      "questionMaterialsUnknown": "The selected question sources are no longer available. Refresh the material list and select them again.",
       "rateLimit": "The service is receiving too many requests. This action is incomplete; try again later.",
       "quota": "The AI service quota is exhausted. Retrying will not succeed until the service configuration is fixed.",
       "providerAuth": "The AI service could not complete its identity check. Check the service configuration and try again.",

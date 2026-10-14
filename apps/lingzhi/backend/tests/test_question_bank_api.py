@@ -709,8 +709,10 @@ def test_selected_lecture_generates_and_publishes_only_its_sections(monkeypatch,
     assert orchestrator.requested_node_ids == [["node-2"]]
     active = repository.load_bundle("course-api")
     assert [item for item in active["items"] if item["node_id"] == "node-1"] == other_items
-    generated = [item for item in active["items"] if item["node_id"] == "node-2"]
+    generated = [item for item in active["items"]
+                 if item["node_id"] == "node-2" and item.get("assessment_role") != "coverage_task"]
     assert len(generated) == 3
+    assert active["generation_audit"]["published_item_count"] == 3
     assert all(item["lifecycle_status"] == "approved" for item in generated)
     assert all(item["quality_report"]["passed"] for item in generated)
 

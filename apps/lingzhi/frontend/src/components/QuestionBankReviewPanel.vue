@@ -912,6 +912,7 @@ import MarkdownRenderer from './MarkdownRenderer.vue'
 import MathText from './MathText.vue'
 import QuestionBankImportWorkspace from './QuestionBankImportWorkspace.vue'
 import http, { teacherReadRequestConfig } from '@/utils/http'
+import { toAppError } from '@/utils/app-error'
 import { t } from '@/shared/i18n'
 import { retrievalErrorTranslationKey } from '@/utils/retrieval-errors'
 import { createUuid } from '@/utils/client-id'
@@ -2088,10 +2089,9 @@ async function rebuild(nodeId?: string | string[], resumeExisting = true) {
     if (!controller.signal.aborted && props.courseId === courseId) await load()
   } catch (error: any) {
     if (controller.signal.aborted || props.courseId !== courseId || isAbortError(error)) return
-    rebuildErrorMessage.value = error?.message || t(
-      'questionBank.rebuildFailed',
-      '课程题目重新生成失败，当前有效题库未被覆盖，可以稍后重试。',
-    )
+    rebuildErrorMessage.value = toAppError(error, {
+      fallback: t('questionBank.rebuildFailed', '课程题目重新生成失败，当前有效题库未被覆盖，可以稍后重试。'),
+    }).summary
     const latestJob = rebuildJob.value as QuestionBankRebuildJob | null
     rebuildJob.value = error?.job || {
       job_id: 'local-rebuild-error',
