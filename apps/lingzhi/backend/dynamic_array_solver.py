@@ -21,7 +21,7 @@ def public_dynamic_array_inputs(spec: dict[str, Any]) -> dict[str, int] | None:
     task = str((spec.get("task") or {}).get("rendered_text") or "")
     text = re.sub(r"\s+", "", stimulus + "\n" + task).casefold()
     text = text.replace("\\phi", "φ").replace("$", "").replace("{", "").replace("}", "").replace("−", "-")
-    if "动态数组" not in text or any(word in text for word in ("删除", "缩容", "弹出", "另一势函数", "ψ", "额外", "附加成本")):
+    if "动态数组" not in text or any(word in text for word in ("删除", "缩容", "弹出", "另一势函数", "ψ", "额外", "附加成本", "不倍增", "不采用倍增")):
         return None
     initial = bool(re.search(r"n_?0=1(?!\d)", text) and re.search(r"c_?0=1(?!\d)", text))
     initial = initial or bool(re.search(r"初始[^。]{0,60}n=c=1(?!\d)", text))
@@ -29,15 +29,15 @@ def public_dynamic_array_inputs(spec: dict[str, Any]) -> dict[str, int] | None:
         return None
     if not re.search(r"(?:φ|phi)\([^)]*\)=2\*?n-c-1(?![0-9nc+\-*/^])", text):
         return None
-    if not any(rule in text for rule in ("容量加倍", "容量翻倍", "c=2c")):
+    if not any(rule in text for rule in ("容量加倍", "容量翻倍", "倍增容量", "c=2c")):
         return None
-    if not ("复制" in text and "实际成本" in text and re.search(r"元素数加(?:插入)?1|复制原有n个元素.*插入1个元素", text)):
+    if not ("复制" in text and "实际成本" in text and re.search(r"(?:元素数|复制数)加(?:插入)?1|复制原有n个元素.*插入1个元素", text)):
         return None
     if not any(rule in text for rule in ("操作结束", "操作完成后", "追加结束", "追加操作结束")):
         return None
-    if not all(word in task for word in ("状态", "合法", "总实际成本")):
+    if "状态" not in text or not all(word in task for word in ("合法", "总实际成本")):
         return None
-    match = re.search(r"连续(?:执行|进行)?(\d+)次(?:追加|append)", text)
+    match = re.search(r"(?:连续(?:执行|进行)?|执行|进行)(\d+)次(?:追加|append)", text)
     if not match:
         match = re.search(r"(\d+)次连续(?:追加|append)", text)
     if not match or len(match[1]) > 2 or not 1 <= int(match[1]) <= 32:
