@@ -21,7 +21,7 @@ from assessment_semantics import semantics_for_question_type
 from knowledge_assessment import atomic_baseline, atomic_slots, slot_key, ATOMIC_ASSESSMENT_SCHEMA
 
 
-ASSESSMENT_BLUEPRINT_SCHEMA = "course_assessment_blueprint_v3"
+ASSESSMENT_BLUEPRINT_SCHEMA = "course_assessment_blueprint_v4"
 REFERENCE_PACKAGE_SCHEMA = "question_reference_package_v2"
 INPUT_CONTRACT_SCHEMA = "input_contract_v2"
 
@@ -145,6 +145,20 @@ _PROGRAMMING_CONCEPTUAL_SIGNALS = (
     "reference count",
     "event loop",
 )
+
+
+def _programming_analysis_recipe(objective: dict[str, Any], index: int) -> dict[str, str] | None:
+    """Match the same primary knowledge used by the frozen design brief."""
+    knowledge = [str(value).strip() for value in objective.get("knowledge") or [] if str(value).strip()]
+    target = (knowledge[index % len(knowledge)] if knowledge else str(objective.get("objective") or "")).casefold()
+    if any(word in target for word in ("实现", "调试", "编写", "implement", "debug")):
+        return None
+    if not any(word in target for word in ("期望", "均摊", "摊还", "复杂度", "概率", "渐近", "expected", "amortized", "complexity", "probabil")):
+        return None
+    recipe = _slot("symbolic_derivation", "structured_fields", "expert_rubric_validator",
+                   "structured_application" if index == 1 else "symbolic_derivation")
+    recipe["selection_reason"] = "quantitative_analysis_objective"
+    return recipe
 
 
 def _programming_mastery_recipe(
@@ -282,6 +296,8 @@ def compile_course_assessment_blueprint(
                         supported_runner_language
                     ),
                 )
+            if family == "programming_engineering" and practice_level != "concept_check":
+                recipe = _programming_analysis_recipe(objective, index) or recipe
             if (
                 recipe.get("input_mode") == "code"
                 and supported_runner_language
