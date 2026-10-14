@@ -1,7 +1,7 @@
 <template>
   <CourseWorkspaceHeaderAction :label="copy('发布与学生反馈', 'Publish & student feedback')" :display-label="copy('发布与反馈', 'Publish')" @click="open = true"><Send :size="16" /></CourseWorkspaceHeaderAction>
   <Teleport to="body"><div v-if="open" class="publication-backdrop" @click.self="open = false"><section class="publication-panel" role="dialog" aria-modal="true" :aria-label="copy('发布与学生反馈', 'Publish & student feedback')" @keydown.esc="open = false">
-    <header><div><span>COURSE PUBLICATION</span><h2>{{ t('courseWorkspaceFlow.deliveryTitle') }}</h2></div><button type="button" @click="open = false">{{ copy('关闭', 'Close') }}</button></header>
+    <header class="publication-heading"><span class="publication-heading-mark" aria-hidden="true"><Send :size="18" /></span><h2>{{ t('courseWorkspaceFlow.deliveryTitle') }}</h2><button type="button" @click="open = false">{{ copy('关闭', 'Close') }}</button></header>
     <p>{{ copy('每次发布固定一个课程版本。已授权学生可刷新课程列表获取更新；教师草稿不会自动进入学生讲义。', 'Each publication freezes a course version. Authorized students can refresh their library for updates; drafts stay in the teacher workspace.') }}</p>
     <nav class="delivery-tabs" :aria-label="t('courseWorkspaceFlow.deliveryTitle')"><button v-for="tab in deliveryTabs" :key="tab.id" type="button" :aria-pressed="deliveryTab === tab.id" :class="{ selected: deliveryTab === tab.id }" @click="deliveryTab = tab.id">{{ tab.label }}</button></nav>
     <p class="delivery-flow">{{ t('courseWorkspaceFlow.publicationHelp') }}</p>
@@ -66,10 +66,40 @@ watch([open, () => props.courseId], () => { generation++; status.value = null; f
 onBeforeUnmount(() => { generation++ })
 </script>
 <style scoped>
-button,textarea{font:inherit;font-size:15px}button{border:1px solid #dce1ed;border-radius:8px;background:white;padding:8px 13px;cursor:pointer}.publication-backdrop{position:fixed;inset:0;background:#26344955;z-index:2100;display:grid;place-items:center}.publication-panel{width:min(760px,88vw);max-height:85vh;overflow:auto;padding:30px;background:white;border-radius:18px;color:#263449;font:15px/1.7 var(--lz-font-sans,sans-serif)}header{display:flex;align-items:center;justify-content:space-between;gap:20px}header span{color:#7b6ca4;letter-spacing:.08em}h2{font-size:25px;margin:7px 0}h3{font-size:20px}.publication-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:20px;background:#f5f2fc;border-radius:12px}.publication-actions button:first-of-type,form button{background:#6551c7;color:white}p{color:#64718a;white-space:pre-wrap}article{border:1px solid #e0e5f0;border-radius:12px;padding:22px;margin-top:18px}.feedback-meta{display:flex;justify-content:space-between;gap:16px;overflow-wrap:anywhere}.feedback-meta span{color:#7b6ca4}.saved-reply{border-left:3px solid #8d7cce;padding-left:14px}label{display:flex;flex-direction:column;gap:8px}textarea{border:1px solid #d7deeb;border-radius:8px;padding:10px;resize:vertical}form button{margin-top:12px}button:disabled{opacity:.55;cursor:default}:is(textarea,button):focus-visible{outline:3px solid #9385ed;outline-offset:3px}
-</style>
-<style scoped>fieldset{margin-top:20px;border:1px solid #e0dded;border-radius:12px;padding:16px}.ppt-choice{display:flex;flex-direction:row;align-items:center;gap:10px;margin:8px 0}.ppt-choice input{width:18px;height:18px;accent-color:#6551c7}.attempt-evidence{padding:16px;background:#f7f6fc;border-radius:10px}.attempt-evidence pre{font:15px/1.7 var(--lz-font-sans,sans-serif);white-space:pre-wrap;overflow-wrap:anywhere}</style>
-
-<style scoped>
-.delivery-tabs{display:flex;gap:6px;margin-top:24px;padding:4px;border:1px solid #e0e4ed;border-radius:10px;background:#f7f8fc}.delivery-tabs button{flex:1;border:0;background:transparent;font-size:15px;min-height:40px}.delivery-tabs button.selected{background:#fff;color:#6551c7;box-shadow:0 2px 7px #33415510}.delivery-flow{padding:14px 0;border-bottom:1px solid #e7eaf0;font-size:15px;line-height:1.7;color:#6d608b}.inline-access{color:#6551c7!important;font-size:15px}.publication-actions{flex-wrap:wrap;gap:10px}.publication-actions strong{flex:1;min-width:180px}
+button, textarea { font: inherit; font-size: 15px; }
+button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 14px; border: 1px solid var(--lz-border); border-radius: 8px; color: var(--lz-text); background: #fff; line-height: 1.4; font-weight: 600; cursor: pointer; }
+button:hover { color: var(--lz-brand-strong); border-color: var(--lz-brand); }
+.publication-backdrop { position: fixed; inset: 0; z-index: 2100; display: grid; place-items: center; padding: 24px; background: rgba(30, 41, 59, .42); }
+.publication-panel { width: min(840px, 100%); max-height: calc(100dvh - 48px); overflow: auto; padding: 24px; border: 1px solid var(--lz-border); border-radius: var(--lz-radius-surface); color: var(--lz-text); background: #fff; box-shadow: var(--lz-shadow-overlay); font: inherit; font-size: 15px; line-height: 1.6; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.publication-heading { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid var(--lz-border); }
+.publication-heading-mark { width: 40px; height: 40px; display: grid; place-items: center; border-radius: var(--lz-radius-control); color: var(--lz-brand-strong); background: var(--lz-brand-soft); }
+h2, h3 { font-family: inherit; line-height: 1.4; color: var(--lz-text-strong); }
+h2 { margin: 0; font-size: 20px; font-weight: 700; }
+h3 { font-size: 17px; font-weight: 600; }
+p { color: var(--lz-text-secondary); white-space: pre-wrap; }
+.delivery-tabs { display: flex; gap: 4px; margin-top: 20px; padding: 3px; border: 1px solid var(--lz-border); border-radius: var(--lz-radius-control); background: var(--lz-surface-subtle); }
+.delivery-tabs button { flex: 1; min-width: 0; border: 0; background: transparent; }
+.delivery-tabs button.selected { color: var(--lz-brand-strong); background: #fff; box-shadow: 0 2px 7px rgba(15, 23, 42, .08); }
+.delivery-flow { margin: 0; padding: 16px 0; border-bottom: 1px solid var(--lz-border); font-size: 15px; line-height: 1.6; }
+.inline-access { min-height: 0; padding: 0 4px; border: 0; color: var(--lz-brand-strong); background: transparent; }
+.publication-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 16px; border: 1px solid var(--lz-border); border-radius: var(--lz-radius-control); background: var(--lz-surface-subtle); }
+.publication-actions strong { flex: 1; min-width: 180px; font-weight: 600; }
+.publication-actions button:first-of-type, form button { border-color: var(--lz-brand); color: #fff; background: var(--lz-brand); }
+.publication-actions button:first-of-type:hover, form button:hover { border-color: var(--lz-brand-strong); background: var(--lz-brand-strong); }
+article { margin-top: 20px; padding: 20px 0; border-top: 1px solid var(--lz-border); }
+.feedback-meta { display: flex; align-items: start; justify-content: space-between; gap: 16px; overflow-wrap: anywhere; }
+.feedback-meta span { color: var(--lz-text-secondary); }
+.saved-reply { padding: 10px 14px; border-left: 3px solid var(--lz-brand); background: var(--lz-surface-subtle); }
+label { display: flex; flex-direction: column; gap: 7px; color: var(--lz-text); }
+textarea { min-width: 0; padding: 10px 11px; border: 1px solid var(--lz-border); border-radius: 8px; color: var(--lz-text-strong); background: #fff; resize: vertical; line-height: 1.6; }
+form button { margin-top: 12px; }
+fieldset { margin: 20px 0 0; padding: 16px; border: 1px solid var(--lz-border); border-radius: var(--lz-radius-control); }
+.ppt-choice { display: flex; flex-direction: row; align-items: center; gap: 10px; margin: 8px 0; }
+.ppt-choice input { width: 18px; height: 18px; accent-color: var(--lz-brand); }
+.attempt-evidence { padding: 16px; border-radius: 8px; background: var(--lz-surface-subtle); }
+.attempt-evidence pre { font: inherit; font-size: 15px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+button:disabled { opacity: .55; cursor: not-allowed; }
+:is(textarea, button):focus-visible { outline: 2px solid var(--lz-brand); outline-offset: 2px; }
+@media (max-width: 680px) { .publication-backdrop { padding: 12px; } .publication-panel { max-height: calc(100dvh - 24px); padding: 16px; } }
 </style>

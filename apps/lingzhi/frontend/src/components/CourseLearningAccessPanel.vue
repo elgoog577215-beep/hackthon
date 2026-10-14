@@ -20,9 +20,24 @@ async function revoke(id: string) { busy.value = true; error.value = ''; try { a
 watch([open, () => props.courseId], () => { sequence++; grants.value = []; error.value = ''; if (open.value || props.embedded) void load() }, { immediate: props.embedded })
 </script>
 <style scoped>
-button,input{font:inherit;font-size:15px}button{border:1px solid #dce1ed;border-radius:8px;background:white;padding:8px 13px;cursor:pointer}.grant-backdrop{position:fixed;inset:0;background:#26344955;z-index:2100;display:grid;place-items:center}.grant-panel{width:min(620px,85vw);max-height:85vh;overflow:auto;padding:30px;background:white;border-radius:18px;color:#263449;font:15px/1.7 var(--lz-font-sans,sans-serif)}header{display:flex;align-items:center;justify-content:space-between;gap:20px}h2{font-size:23px}form{display:flex;align-items:end;gap:15px;margin:24px 0}label{flex:1;display:flex;flex-direction:column;gap:10px}input{border:1px solid #d7deeb;padding:10px;border-radius:8px;min-width:0}form button{background:#6551c7;color:white}p,small{color:#758195}ul{list-style:none;padding:0}li{display:flex;align-items:center;justify-content:space-between;gap:16px;border-top:1px solid #e5e8f0;padding:15px 0;overflow-wrap:anywhere}small{display:block;font-size:15px}:is(input,button):focus-visible{outline:3px solid #9385ed;outline-offset:3px}
-</style>
-
-<style scoped>
-.grant-panel.is-embedded{width:100%;max-height:none;padding:0;border-radius:0}.grant-panel.is-embedded h2{font-size:20px;margin:12px 0}.grant-panel.is-embedded form{flex-wrap:wrap}.grant-panel.is-embedded label{min-width:220px}
+button, input { font: inherit; font-size: 15px; }
+button { min-height: 40px; padding: 8px 14px; border: 1px solid var(--lz-border); border-radius: 8px; color: var(--lz-text); background: #fff; font-weight: 600; line-height: 1.4; cursor: pointer; }
+button:hover { color: var(--lz-brand-strong); border-color: var(--lz-brand); }
+button:disabled { opacity: .55; cursor: not-allowed; }
+.grant-backdrop { position: fixed; inset: 0; z-index: 2100; display: grid; place-items: center; padding: 24px; background: rgba(30, 41, 59, .42); }
+.grant-panel { width: min(620px, 100%); max-height: calc(100dvh - 48px); overflow: auto; padding: 24px; border: 1px solid var(--lz-border); border-radius: var(--lz-radius-surface); color: var(--lz-text); background: #fff; box-shadow: var(--lz-shadow-overlay); font: inherit; font-size: 15px; line-height: 1.6; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+h2 { margin: 0; font-family: inherit; font-size: 20px; font-weight: 700; line-height: 1.4; color: var(--lz-text-strong); }
+form { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin: 20px 0; }
+label { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 7px; }
+input { min-width: 0; min-height: 42px; padding: 9px 11px; border: 1px solid var(--lz-border); border-radius: 8px; color: var(--lz-text-strong); background: #fff; }
+form button { border-color: var(--lz-brand); color: #fff; background: var(--lz-brand); }
+form button:hover { border-color: var(--lz-brand-strong); color: #fff; background: var(--lz-brand-strong); }
+p, small { color: var(--lz-text-secondary); }
+ul { list-style: none; padding: 0; }
+li { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid var(--lz-border); padding: 15px 0; overflow-wrap: anywhere; }
+small { display: block; font-size: 15px; }
+:is(input, button):focus-visible { outline: 2px solid var(--lz-brand); outline-offset: 2px; }
+.grant-panel.is-embedded { width: 100%; max-height: none; padding: 0; border: 0; border-radius: 0; box-shadow: none; }
+.grant-panel.is-embedded h2 { font-size: 17px; margin: 20px 0 12px; }
 </style>

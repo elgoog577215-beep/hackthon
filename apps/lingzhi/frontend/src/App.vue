@@ -5,6 +5,7 @@
       'is-fullscreen-concept': isFullscreenConceptRoute,
       'is-course-workspace-route': isCourseWorkspaceRoute,
       'is-study-route': isStudyRoute,
+      'is-course-library-route': route.name === 'course-library',
     }"
   >
     <header
@@ -26,8 +27,8 @@
       <div v-if="!isLearningRoute" id="app-header-route-center" class="app-header-center" />
 
       <div v-if="!isLearningRoute" id="app-header-route-actions" class="route-header-actions">
-        <a v-if="route.name === 'course-library' && studyPortalUrl" class="header-icon-button" :href="studyPortalUrl">{{ t('courseWorkspaceFlow.studentSpace') }}</a>
-        <RouterLink v-else-if="route.name === 'course-library'" class="header-icon-button" to="/study">{{ t('courseWorkspaceFlow.studentSpace') }}</RouterLink>
+        <a v-if="route.name === 'course-library' && studyPortalUrl" class="header-text-link" :href="studyPortalUrl">{{ t('courseWorkspaceFlow.studentSpace') }}</a>
+        <RouterLink v-else-if="route.name === 'course-library'" class="header-text-link" to="/study">{{ t('courseWorkspaceFlow.studentSpace') }}</RouterLink>
       </div>
 
       <div v-if="isLearningRoute" class="header-actions">
@@ -312,6 +313,11 @@ function changeLocale(locale: string) {
 
 .app-header-center { min-width:0; width:100%; justify-self:center; }
 .route-header-actions { min-width:0; grid-column:3; justify-self:end; }
+.app-shell.is-course-library-route .app-header { grid-template-columns:minmax(0,1fr) auto minmax(max-content,1fr); }
+.app-shell.is-course-library-route .route-header-actions { display:flex; align-items:center; gap:10px; }
+.header-text-link { flex:none; min-height:38px; display:inline-flex; align-items:center; justify-content:center; padding:0 12px; border:1px solid transparent; border-radius:10px; color:var(--lz-text-secondary); background:transparent; font-size:15px; font-weight:600; line-height:1.4; text-decoration:none; white-space:nowrap; }
+.header-text-link:hover { border-color:var(--lz-border); color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
+.header-text-link:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
 .course-context-copy {
   min-width: 0;
   display: flex;

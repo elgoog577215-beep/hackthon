@@ -28,7 +28,10 @@ defineProps<{ label: string; displayLabel?: string; hint?: string; primary?: boo
   border-radius: 8px;
   background: #fff;
   color: var(--lz-text-secondary, #475569);
-  font: 700 15px/1.4 var(--lz-font-sans, sans-serif);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
   white-space: nowrap;
   cursor: pointer;
 }
