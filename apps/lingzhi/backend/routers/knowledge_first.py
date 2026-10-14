@@ -42,13 +42,20 @@ class InputRequest(SourceRequest):
 
 def service(course_id: str, request: Request,
             repo=Depends(get_course_document_repository), authoring=Depends(get_teacher_lesson_authoring_repository)):
+    from course_exchange import remote_course_context
+    remote = remote_course_context.get()
+    if remote and remote["course_id"] == course_id and request.method == "GET":
+        return None
     try:
         course = repo.load_raw(course_id)
     except CourseDocumentNotFound:
         raise HTTPException(404, "课程不存在")
     actor = require_actor_id(request.headers.get("X-User-Id"))
     owner = course.get("owner_id")
-    if owner != actor and not (request.method == "GET" and (course.get("is_published") or course.get("course_document_publication"))):
+    from course_learning_access import CourseLearningAccess, trusted_student
+    granted_read = (request.method == "GET" and trusted_student(request)
+                    and bool(CourseLearningAccess(repo.storage).active(course, actor)))
+    if owner != actor and not granted_read and not (request.method == "GET" and (course.get("is_published") or course.get("course_document_publication"))):
         raise HTTPException(404, "课程不存在或无权限")
     return KnowledgeFirstService(repo, authoring)
 
@@ -62,10 +69,23 @@ def action(fn):
 
 @router.get("/courses/{course_id}/knowledge-first")
 def read(course_id: str, request: Request, source_mode: Literal["", "handouts"] = "", svc=Depends(service)):
+    if svc is None:
+        from course_exchange import remote_course_context
+        tree = remote_course_context.get().get("course_knowledge_base") or {}
+        return {"course_id":course_id, "tree":tree, "can_edit":False, "history":[], "jobs":[],
+                "candidate":None, "candidates":[], "inputs":{}, "handouts":[], "source_handouts":[], "can_generate_tree":False}
     view = svc.view(course_id, source_mode=source_mode)
     view["can_edit"] = svc.repository.load_raw(course_id).get("owner_id") == require_actor_id(request.headers.get("X-User-Id"))
     if not view["can_edit"]:
         view.update(jobs=[], active_jobs=[], blocking_job_ids=[], candidate=None, candidate_job_id="", candidates=[], lesson_options=[], inputs={}, source_handouts=[], handouts=[], can_generate_tree=False)
+        # Historical candidates/source packages remain teacher data.
+        view["history"] = []
+        tree = view.get("tree") or {}
+        if tree.get("source_mode") == "handouts":
+            from course_learning_projection import public_document
+            from handout_knowledge import visible_handout_tree
+            raw = svc.repository.load_course_view(course_id)
+            view["tree"] = visible_handout_tree(tree, public_document(raw), raw.get("teacher_handouts") or {})
     return view
 
 

@@ -1,4 +1,6 @@
 import { getQizhiAccessToken, withApiBase } from '../utils/http'
+import { STUDY_SESSION_KEY, setStudyIdentity } from '../utils/study-identity'
+import type { NextLearningAction } from '../stores/learningProgress'
 
 export type StudyPurpose = 'systematic' | 'exam_prep'
 export interface StudyUser { id: string; username: string; role: string }
@@ -21,11 +23,11 @@ export interface StudyGenerationRequest {
 export interface AssistantContext { section_id: string; section_title: string; block_id: string; block_title: string; quote: string }
 export interface AssistantMessage { message_id: string; role: 'user' | 'assistant'; content: string; status: string; context_ref: AssistantContext; task_ref?: { task_id: string } }
 export interface AssistantConversation { conversation_id: string; messages: AssistantMessage[] }
-const SESSION_KEY = 'lingzhi_student_session_v1'
+const SESSION_KEY = STUDY_SESSION_KEY
 export const studySession = {
   get: () => sessionStorage.getItem(SESSION_KEY) || '',
   set: (token: string) => sessionStorage.setItem(SESSION_KEY, token),
-  clear: () => sessionStorage.removeItem(SESSION_KEY),
+  clear: () => { sessionStorage.removeItem(SESSION_KEY); setStudyIdentity(null) },
 }
 export class StudyApiError extends Error {
   constructor(public status: number, message: string) { super(message) }
@@ -46,6 +48,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 const json = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body) })
 export const studyApi = {
+  courses: () => request<StudyCourse[]>('/courses'),
+  path: (id: string) => request<StudyLearningPath>(`/courses/${encodeURIComponent(id)}/path`),
+  courseSource: (id: string, revision_id: string) => request<StudySource>(`/courses/${encodeURIComponent(id)}/sources`, json({ revision_id })),
+  updateCourse: (id: string, expected_release_id: string) => request(`/courses/${encodeURIComponent(id)}/exchange/update`, json({ expected_release_id })),
+  coursePpt: (id: string, assetId: string, expected_release_id: string) => request<Blob>(`/courses/${encodeURIComponent(id)}/exchange/ppt/${encodeURIComponent(assetId)}/download`, json({ expected_release_id })),
+  courseFeedback: (id: string) => request<{ items: CourseFeedback[]; replies_available: boolean }>(`/courses/${encodeURIComponent(id)}/exchange/feedback`),
+  sendCourseFeedback: (id: string, body: { request_id: string; expected_release_id: string; text: string }) => request<{ feedback_id: string; status: string }>(`/courses/${encodeURIComponent(id)}/exchange/feedback`, json(body)),
+  retryCourseFeedback: (id: string, feedbackId: string) => request(`/courses/${encodeURIComponent(id)}/exchange/feedback/${encodeURIComponent(feedbackId)}/retry`, { method: 'POST' }),
   config: () => request<{ local_login_enabled: boolean; identity_provider: string }>('/auth/config'),
   me: () => request<StudyUser>('/auth/me'),
   login: (username: string, password: string, register: boolean) => request<{ token: string; user: StudyUser }>(`/auth/${register ? 'register' : 'login'}`, json({ username, password })),
@@ -64,3 +74,7 @@ export const studyApi = {
   ask: (id: string, body: { request_id: string; revision_id: string; section_id: string; block_id: string; quote: string; text: string; language: 'zh' | 'en' }) => request<AssistantConversation>(`/materials/${encodeURIComponent(id)}/assistant`, json(body)),
   continueAnswer: (id: string, taskId: string) => request(`/materials/${encodeURIComponent(id)}/assistant/${encodeURIComponent(taskId)}/continue`, { method: 'POST' }),
 }
+export interface PublishedCoursePpt { asset_id: string; filename: string; sha256: string; size_bytes: number }
+export interface StudyCourse { course_id: string; title: string; revision_id: string; section_count: number; reading_available: boolean; grant: { grant_id: string; label: string }; exchange_origin?: { node_id: string; source_course_id: string; release_id: string }; update_available?: boolean; question_count?: number; feedback_policy?: { formal_practice: string; personal_materials: string }; published_ppts?: PublishedCoursePpt[] }
+export interface CourseFeedback { feedback_id: string; kind: 'course_question' | 'practice_result'; payload: { text?: string; attempt_id?: string }; status: string; created_at: string; reply?: string; revision?: number }
+export interface StudyLearningPath { course_id: string; next_action: NextLearningAction; chapter: { chapter_id: string; chapter_name: string }; attempt_count: number; steps: { chapter_id: string; title: string; progress: { learning: string; mastery: string }; action: NextLearningAction }[] }

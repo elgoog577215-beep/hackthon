@@ -69,7 +69,6 @@ export function unresolvedMistakeAttempts(attempts: PracticeAttempt[]): Practice
     const needsReview = (
       attempt.status === 'grading'
       || attempt.result?.passed === false
-      || attempt.result?.mastery_eligible === false
     )
     return needsReview && !supersededOriginIds.has(attempt.attempt_id)
   })

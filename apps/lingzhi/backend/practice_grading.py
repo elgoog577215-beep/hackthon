@@ -214,6 +214,8 @@ class PracticeGrader(AIBase):
         passed = bool(result.get("passed"))
         total = int(result.get("total_count") or 0)
         passed_count = int(result.get("passed_count") or 0)
+        if total <= 0 or "runner_unavailable" in (result.get("failure_categories") or []):
+            return _pending_review("安全判题环境暂不可用，答案已保存且不计作错误")
         score = (
             int(round(passed_count * 100 / total))
             if total

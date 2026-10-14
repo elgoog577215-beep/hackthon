@@ -78,6 +78,7 @@
           <button type="button" :aria-label="t('common.back', '返回')" :disabled="busy" @click="step = 'choice'"><ArrowLeft :size="18" /></button>
           <h2 :id="titleId">{{ t('courseFiles.preparation.importTitle') }}</h2>
         </header>
+        <p class="import-context">{{ t('courseWorkspaceFlow.importContext') }}</p>
         <div class="preparation-dropzone" :class="{ dragging, busy }">
           <LoaderCircle v-if="busy" :size="29" class="spin" />
           <FolderOpen v-else :size="29" />
@@ -88,6 +89,7 @@
           </div>
         </div>
         <p v-if="error" class="dialog-error" role="alert"><TriangleAlert :size="15" />{{ error }}</p>
+        <button type="button" :disabled="busy" class="defer-import" @click="startBlank">{{ t('courseWorkspaceFlow.skipImport') }}</button>
       </section>
 
       <section v-else class="preparation-step preparation-review">
@@ -208,7 +210,7 @@ type ImportOutcome = {
   analysis_error?: string
 }
 
-const props = defineProps<{ courseId: string; courseTitle: string }>()
+const props = defineProps<{ courseId: string; courseTitle: string; startMode?: 'blank' | 'materials' }>()
 const emit = defineEmits<{
   (event: 'completed', payload: { openAudit: boolean }): void
   (event: 'knowledge'): void
@@ -298,7 +300,11 @@ async function loadPackage() {
     emit('completed', { openAudit: true })
     return
   }
-  step.value = 'choice'
+  if (props.startMode === 'blank' && coursePackage.value.preparation_status === 'pending') {
+    await updateStatus('skipped', false)
+    return
+  }
+  step.value = props.startMode === 'materials' ? 'import' : 'choice'
 }
 
 async function updateStatus(status: 'completed' | 'skipped', openAudit: boolean) {
@@ -482,4 +488,8 @@ onMounted(() => { void loadPackage() })
 @media(max-width:820px){.preparation-dialog.is-choice{width:calc(100vw - 24px);max-height:calc(100dvh - 24px)}.preparation-choice{min-height:0}.start-options{grid-template-columns:1fr;overflow:auto}.start-options>button{min-height:286px}}
 @media(max-width:700px){.preparation-dialog,.preparation-dialog.is-choice{width:calc(100vw - 16px);max-height:calc(100dvh - 16px)}.preparation-step>header,.recognized-structure,.preparation-review>footer{padding-inline:18px}.preparation-choice>header{padding-top:22px}.start-options{padding:14px 18px 22px}.start-options>button{min-height:276px}.mode-illustration{grid-template-columns:minmax(78px,1fr) 36px minmax(108px,1.2fr);padding:16px}.mode-copy{padding:17px 18px 19px}.preparation-dropzone{margin:20px}.understanding-overview{align-items:flex-start;flex-direction:column;padding-inline:18px}.understanding-gaps{max-width:100%;justify-content:flex-start;flex-wrap:wrap;white-space:normal}.recognized-file{grid-template-columns:20px minmax(0,1fr)}.recognized-file select{grid-column:2}.recognized-signals{flex-wrap:wrap}.preparation-review>footer{display:grid;grid-template-columns:1fr 1fr}}
 @media(prefers-reduced-motion:reduce){.preparation-dialog,.preparation-dialog::backdrop,.spin{animation:none}.start-options>button{transition:none}}
+</style>
+
+<style scoped>
+.import-context{font-size:15px;line-height:1.7;color:#748096}.defer-import{justify-self:start;padding:10px 14px;border:1px solid #dedfed;border-radius:8px;background:#fff;font:inherit;font-size:15px;color:#6551c7;cursor:pointer}
 </style>

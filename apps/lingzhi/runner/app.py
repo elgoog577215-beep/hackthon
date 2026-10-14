@@ -28,6 +28,11 @@ DATA_DIR = Path(
 )
 TOKEN = os.getenv("FORMAL_RUNNER_TOKEN", "")
 MAX_OUTPUT = 32 * 1024
+# A Windows-hosted runner may invoke the existing WSL OCI engine. This is a
+# trusted operator setting, never a field accepted from a judge request.
+DOCKER_COMMAND = json.loads(os.getenv("RUNNER_DOCKER_COMMAND", '["docker"]'))
+if not isinstance(DOCKER_COMMAND, list) or not DOCKER_COMMAND or not all(isinstance(arg, str) and arg for arg in DOCKER_COMMAND):
+    raise RuntimeError("RUNNER_DOCKER_COMMAND must be a nonempty JSON argument array")
 IMAGES = {
     "python": os.getenv(
         "RUNNER_PYTHON_IMAGE",
@@ -76,6 +81,13 @@ def require_token(
 
 @app.get("/internal/health", dependencies=[Depends(require_token)])
 def health() -> dict[str, Any]:
+    try:
+        checked = subprocess.run([*DOCKER_COMMAND, "info", "--format", "{{.ServerVersion}}"],
+                                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False)
+        if checked.returncode:
+            raise HTTPException(503, "oci_engine_unavailable")
+    except (OSError, subprocess.SubprocessError):
+        raise HTTPException(503, "oci_engine_unavailable") from None
     return {
         "status": "ready",
         "languages": sorted(IMAGES),
@@ -118,6 +130,8 @@ def judge(payload: JudgeRequest) -> dict[str, Any]:
             status_code=409,
             detail="test_bundle_language_mismatch",
         )
+    # Wake/validate the OCI engine before the student execution time budget.
+    health()
     started = time.monotonic()
     results = []
     for hidden_test in bundle.get("tests") or []:
@@ -193,8 +207,9 @@ def _run_one(
     ).decode("ascii")
     container_name = f"lingzhi-judge-{uuid4().hex}"
     docker_command = [
-        "docker",
+        *DOCKER_COMMAND,
         "run",
+        "--pull=never",
         "--rm",
         "--interactive",
         "--name",
@@ -237,6 +252,8 @@ def _run_one(
             docker_command,
             input=stdin,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             capture_output=True,
             timeout=5,
             check=False,
@@ -262,6 +279,8 @@ def _run_one(
             student_status = int(raw_status)
         except ValueError:
             student_status = None
+    if result.returncode in {125, 126, 127} or student_status is None:
+        return _test_result(test_id, False, "runner_unavailable")
     if result.returncode != 0 or student_status != 0:
         return _test_result(test_id, False, "runtime_error")
     passed = output.strip() == expected.strip()
@@ -275,8 +294,10 @@ def _run_one(
 def _force_remove_container(container_name: str) -> None:
     try:
         subprocess.run(
-            ["docker", "rm", "--force", container_name],
+            [*DOCKER_COMMAND, "rm", "--force", container_name],
             text=True,
+            encoding="utf-8",
+            errors="replace",
             capture_output=True,
             timeout=2,
             check=False,

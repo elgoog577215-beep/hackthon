@@ -1,9 +1,12 @@
 import { taskProgressStep } from '@/utils/course-progress'
 import { createUuid } from '@/utils/client-id'
+import { getStudyIdentity, getStudyToken } from '../utils/study-identity'
 import { defineStore } from 'pinia'
 import http, {
   activeIdentityHeaders,
   identityReadRequestConfig,
+  getIdentityForScope,
+  getQizhiAccessToken,
   learnerIdentityHeaders,
   teacherRequestConfig,
   withApiBase,
@@ -68,7 +71,12 @@ const downloadBlob = (blob: Blob, filename: string) => {
 type CourseProjection = 'published' | 'generation_preview' | 'teacher_lesson_summary'
 type CourseListSurface = 'student' | 'teacher'
 
-const courseListRequests = new WeakMap<object, Map<CourseListSurface, Promise<void>>>()
+const courseListRequests = new WeakMap<object, Map<string, Promise<void>>>()
+const courseListContexts = new WeakMap<object, string>()
+const courseListContext = (surface: CourseListSurface) => {
+    const scope = surface === 'teacher' ? 'teacher' : 'learner'
+    return `${surface}:${getIdentityForScope(scope)}:${getQizhiAccessToken() || (scope === 'learner' ? getStudyToken() : '')}`
+}
 
 function courseListRequestMap(store: object) {
     let requests = courseListRequests.get(store)
@@ -265,12 +273,15 @@ export const useCourseStore = defineStore('course', {
 
     async fetchCourseList(options: { surface?: CourseListSurface; background?: boolean } = {}) {
         const surface = options.surface || 'student'
+        const context = courseListContext(surface)
+        if (courseListContexts.has(this) && courseListContexts.get(this) !== context) this.courseList = []
+        courseListContexts.set(this, context)
         if (!options.background) {
             this.loading = true
             this.courseListError = null
         }
         const requests = courseListRequestMap(this)
-        const pending = requests.get(surface)
+        const pending = requests.get(context)
         if (pending) {
             try {
                 await pending
@@ -281,12 +292,17 @@ export const useCourseStore = defineStore('course', {
         }
         const request = (async () => {
             try {
-                const endpoint = surface === 'teacher' ? '/api/teacher/courses' : '/api/courses'
+                const authorizedStudent = surface === 'student' && getStudyIdentity()?.role === 'student'
+                const endpoint = surface === 'teacher' ? '/api/teacher/courses' : authorizedStudent ? '/api/study/courses' : '/api/courses'
                 const res = await http.get(endpoint, identityReadRequestConfig(
                     surface === 'teacher' ? 'teacher' : 'learner',
                     { silentError: options.background === true },
                 ))
-                this.courseList = res.data
+                if (courseListContexts.get(this) !== context || courseListContext(surface) !== context) return
+                this.courseList = authorizedStudent ? res.data.map((course: { course_id: string; title: string; section_count: number }) => ({
+                    course_id: course.course_id, course_name: course.title, node_count: course.section_count,
+                    generation_status: 'completed', created_at: '', updated_at: '',
+                })) : res.data
                 if (surface === 'teacher') {
                     const next = { ...this.teacherProductionStates }
                     this.courseList.forEach(course => {
@@ -300,16 +316,17 @@ export const useCourseStore = defineStore('course', {
                 }
                 this.courseListError = null
             } catch (error) {
+                if (courseListContexts.get(this) !== context || courseListContext(surface) !== context) return
                 logger.error(error)
                 this.courseListError = error instanceof Error ? error.message : String(error)
                 // Keep the last successful list so offline task actions do not disappear.
             }
         })()
-        requests.set(surface, request)
+        requests.set(context, request)
         try {
             await request
         } finally {
-            if (requests.get(surface) === request) requests.delete(surface)
+            if (requests.get(context) === request) requests.delete(context)
             if (!options.background) this.loading = false
         }
     },
@@ -402,7 +419,9 @@ export const useCourseStore = defineStore('course', {
                 const taskTypeQuery = options.taskType
                     ? `?task_type=${encodeURIComponent(options.taskType)}`
                     : ''
-                const taskRes = await http.get(`/api/courses/${courseId}/task${taskTypeQuery}`, identityReadRequestConfig(
+                const taskRes = getStudyIdentity()?.role === 'student' && options.previewSurface !== 'teacher'
+                  ? { data: { status: 'none' } }
+                  : await http.get(`/api/courses/${courseId}/task${taskTypeQuery}`, identityReadRequestConfig(
                     options.previewSurface === 'teacher' ? 'teacher' : 'learner', {
                     silentError: options.silentError,
                     },

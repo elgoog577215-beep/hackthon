@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import logging
+from copy import deepcopy
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -197,7 +198,7 @@ async def get_practice_history(
     if node_id:
         attempts = [item for item in attempts if item.get("node_id") == node_id]
     if view == "needs_review":
-        attempts = [item for item in attempts if _needs_review(item)]
+        attempts = _pending_review_attempts(attempts)
     legacy = []
     if view in {"all", "legacy"}:
         legacy = [
@@ -249,6 +250,12 @@ async def create_attempt(course_id: str, payload: AttemptCreate, request: Reques
             raise HTTPException(status_code=404, detail="Origin attempt not found") from exc
         if not _needs_review(origin_attempt):
             raise HTTPException(status_code=409, detail="Origin attempt is not eligible for targeted retry")
+        original_revision = str(origin_attempt.get("task_revision_id") or origin_attempt.get("question_revision_id") or "")
+        original_refs = _knowledge_revision_pairs(origin_attempt)
+        current_refs = _knowledge_revision_pairs(task)
+        same_objective = bool(origin_attempt.get("objective_revision_id") and origin_attempt.get("objective_revision_id") == task.get("objective_revision_id"))
+        if original_revision != revision_id and not same_objective and not original_refs.intersection(current_refs):
+            raise HTTPException(422, "再练题目必须对应原学习目标或同一知识修订")
     criterion = _criterion_for_task(course, task)
     data = {
         "attempt_id": payload.attempt_id,
@@ -288,14 +295,18 @@ async def create_attempt(course_id: str, payload: AttemptCreate, request: Reques
     )
     if created:
         _record_attempt_event("practice_attempt_started", attempt, user_id=user_id)
+    revealed_solution = None
+    if attempt.get("solution_revealed"):
+        if course.get("exchange_origin"):
+            from course_exchange import remote_task_action
+            response = await run_in_threadpool(remote_task_action, course, user_id, "solution", {"task_revision_id":revision_id})
+            revealed_solution = response["solution"]
+        else:
+            revealed_solution = _solution_payload(task)
     return {
         "status": "created" if created else "resumed",
         "attempt": attempt,
-        "solution": (
-            _solution_payload(task)
-            if attempt.get("solution_revealed")
-            else None
-        ),
+        "solution": revealed_solution,
     }
 
 
@@ -498,6 +509,10 @@ async def reveal_attempt_hint(
             item for item in ((question.get("hint_contract") or {}).get("levels") or [])
             if int(item.get("level") or 0) == level
         ), None)
+        if course.get("exchange_origin"):
+            from course_exchange import remote_task_action
+            hint = (await run_in_threadpool(remote_task_action, course, user_id, "hint",
+                {"task_revision_id":str(current.get("task_revision_id") or current.get("question_revision_id")), "level":level}))["hint"]
         if not hint:
             raise HTTPException(status_code=404, detail="Hint level not found")
         attempt, created = await run_in_threadpool(
@@ -658,6 +673,11 @@ async def reveal_attempt_solution(
     if current.get("status") == "in_progress" and int(current.get("attempt_number") or 1) < 2:
         raise HTTPException(status_code=409, detail="Complete one submission before revealing the full solution")
     question = _resolve_task(course, user_id, str(current.get("task_revision_id") or current.get("question_revision_id") or ""))
+    published_solution = None
+    if course.get("exchange_origin"):
+        from course_exchange import remote_task_action
+        published_solution = (await run_in_threadpool(remote_task_action, course, user_id, "solution",
+            {"task_revision_id":str(current.get("task_revision_id") or current.get("question_revision_id"))}))["solution"]
     try:
         attempt, created = await run_in_threadpool(
             practice_attempt_repository.reveal_solution,
@@ -673,7 +693,7 @@ async def reveal_attempt_solution(
     validation_task = _unseen_validation_task(course, attempt)
     return {
         "status": "revealed",
-        "solution": _solution_payload(question or {}),
+        "solution": published_solution if published_solution is not None else _solution_payload(question or {}),
         "attempt": attempt,
         "validation_requirement": {
             "required": validation_task is not None,
@@ -786,7 +806,7 @@ async def submit_attempt(
             },
         )
     grading_output, diagnosis_output = await asyncio.gather(
-        practice_grader.grade(question, attempt),
+        _grade_task(course, user_id, question, attempt),
         practice_analysis_service.diagnose_answer(question, attempt),
         return_exceptions=True,
     )
@@ -819,6 +839,13 @@ async def submit_attempt(
     )
     event_type = "practice_grading_requested" if graded.get("status") == "grading" else "practice_attempt_graded"
     _record_attempt_event(event_type, graded, user_id=user_id, result=result)
+    feedback_delivery = None
+    if course.get("exchange_origin"):
+        from course_exchange import send_practice_feedback
+        try:
+            feedback_delivery = await run_in_threadpool(send_practice_feedback, storage, course, user_id, graded)
+        except HTTPException:
+            feedback_delivery = {"status":"pending"}
     try:
         workflow = await run_in_threadpool(
             advance_workflow_after_grade,
@@ -864,6 +891,7 @@ async def submit_attempt(
         "attempt": graded,
         "result": result,
         "workflow": workflow,
+        "feedback_delivery": feedback_delivery,
     }
 
 
@@ -911,6 +939,10 @@ async def migrate_legacy_practice(
 
 
 def _questions(course: dict[str, Any], *, node_id: str | None, scope: str) -> list[dict[str, Any]]:
+    if course.get("exchange_origin"):
+        assets = course.get("learning_assets") or {}
+        items = (assets.get("final_assessment") or []) if scope == "final" else (assets.get("questions") or [])
+        return [deepcopy(q) for q in items if scope != "node" or not node_id or q.get("node_id") == node_id]
     assets = _learning_assets(course)
     if scope == "final":
         bank_finals = _question_bank_final_tasks(course)
@@ -979,6 +1011,16 @@ def _practice_batch(
 
 def _student_question_payload(question: dict[str, Any]) -> dict[str, Any]:
     return project_public_question(question)
+
+
+async def _grade_task(course, user_id, question, attempt):
+    if not course.get("exchange_origin"):
+        return await practice_grader.grade(question, attempt)
+    from course_exchange import remote_task_action
+    response = await run_in_threadpool(remote_task_action, course, user_id, "grade",
+        {"task_revision_id":str(attempt.get("task_revision_id") or attempt.get("question_revision_id")),
+         "attempt_id":attempt["attempt_id"], "attempt":attempt})
+    return {**response["result"], "publisher_receipt_id":response["receipt_id"]}
 
 
 def _student_attempt_payload(
@@ -1056,6 +1098,10 @@ def _find_question(course: dict[str, Any], revision_id: str) -> dict[str, Any] |
 
 
 def _resolve_task(course: dict[str, Any], user_id: str, revision_id: str) -> dict[str, Any] | None:
+    if course.get("exchange_origin"):
+        assets = course.get("learning_assets") or {}
+        return next((deepcopy(q) for q in [*assets.get("questions", []), *assets.get("final_assessment", [])]
+                     if str(q.get("task_revision_id") or q.get("revision_id")) == revision_id), None)
     assets = _learning_assets(course)
     if revision_id in _course_evolution_practice_task_ids(course):
         growth_task = next((
@@ -1124,6 +1170,8 @@ def _criterion_for_question(course: dict[str, Any], revision_id: str) -> dict[st
 
 
 def _learning_assets(course: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    if course.get("exchange_origin"):
+        return deepcopy(course.get("learning_assets") or {})
     return project_learning_assets_to_knowledge(
         course,
         _raw_learning_assets(course),
@@ -1460,7 +1508,24 @@ def _missing_answer_fields(
 
 def _needs_review(attempt: dict[str, Any]) -> bool:
     result = attempt.get("result") or {}
-    return attempt.get("status") == "grading" or result.get("passed") is False or result.get("mastery_eligible") is False
+    # A correct concept practice may intentionally carry no mastery evidence.
+    return attempt.get("status") == "grading" or result.get("passed") is False
+
+
+def _knowledge_revision_pairs(item: dict[str, Any]) -> set[tuple[str, str]]:
+    refs = item.get("knowledge_revision_refs") or {}
+    if isinstance(refs, dict):
+        return {(str(k), str(v)) for k, v in refs.items() if k and v}
+    return {(str(r["knowledge_id"]), str(r.get("revision_id") or r.get("knowledge_revision_id")))
+            for r in refs if isinstance(r, dict) and r.get("knowledge_id")
+            and (r.get("revision_id") or r.get("knowledge_revision_id"))}
+
+
+def _pending_review_attempts(attempts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    superseded = {str(item["origin_attempt_id"]) for item in attempts
+                  if item.get("origin_attempt_id") and item.get("practice_intent") == "targeted_retry"
+                  and item.get("status") in {"graded", "grading"}}
+    return [item for item in attempts if _needs_review(item) and item.get("attempt_id") not in superseded]
 
 
 def _attempt_summary(attempts: list[dict[str, Any]]) -> dict[str, int]:
@@ -1469,7 +1534,7 @@ def _attempt_summary(attempts: list[dict[str, Any]]) -> dict[str, int]:
         "in_progress": sum(item.get("status") == "in_progress" for item in attempts),
         "graded": sum(item.get("status") == "graded" for item in attempts),
         "pending_review": sum(item.get("status") == "grading" for item in attempts),
-        "needs_review": sum(_needs_review(item) for item in attempts),
+        "needs_review": len(_pending_review_attempts(attempts)),
     }
 
 

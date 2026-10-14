@@ -124,6 +124,10 @@ def sources(user=Depends(study_identity), repo=Depends(repository)):
     for manifest in source_repo.root.glob("mat-*/manifest.json"):
         asset = source_repo.get_asset(manifest.parent.name)
         if asset:
+            try:
+                repo.require_origin_access(user["id"], repo.source_origin(user["id"], asset.asset_id))
+            except KeyError:
+                continue
             result.append(source_view(asset, source_repo.load_parsed_document(asset.asset_id)))
     return result
 
@@ -153,6 +157,10 @@ async def upload_source(file: UploadFile = File(...), user=Depends(study_identit
 
 @router.get("/sources/{asset_id}/download")
 def download_source(asset_id: str, user=Depends(study_identity), repo=Depends(repository)):
+    try:
+        repo.require_origin_access(user["id"], repo.source_origin(user["id"], asset_id))
+    except KeyError:
+        raise HTTPException(404, "资料不存在或来源授权已撤销") from None
     source_repo = repo.sources(user["id"])
     try:
         asset = source_repo.get_asset(asset_id)

@@ -36,56 +36,7 @@ def owned_course(course_id: str, request: Request) -> dict:
         raise HTTPException(409, detail={"code": exc.code, "message": exc.message}) from exc
 
 
-def public_document(raw: dict) -> dict:
-    doc = CourseDocument.model_validate(raw["course_document"])
-    # Unknown conditional disclosure rules are private until supported. Never
-    # pass authoring metadata, candidates or source snapshots to this surface.
-    blocks = []
-    for b in doc.blocks:
-        if b.status != "final" or (b.visibility_rule and b.visibility_rule not in ({"audience": "student"}, {"audience": "all"})):
-            continue
-        blocks.append({"block_id": b.block_id, "section_id": b.section_id,
-            "position": b.position, "role": b.role, "kind": b.kind,
-            "internal_revision": b.internal_revision,
-            "concept_refs": list(b.concept_refs),
-            "payload": {key: deepcopy(b.payload[key]) for key in ("title", "markdown", "summary", "feedback_structure", "content_type", "type_label", "answer_to", "knowledge_refs", "source_knowledge_revision", "source_terminology_revision") if key in b.payload}})
-    visible_ids = {b["block_id"] for b in blocks}
-    for block in blocks:
-        if block["payload"].get("answer_to") not in visible_ids:
-            block["payload"].pop("answer_to", None)
-    return {"course_id": doc.course_id, "title": doc.title, "document_revision": doc.document_revision,
-        "sections": [s.model_dump(include={"section_id", "parent_section_id", "title", "position", "level"}) for s in doc.sections],
-        "blocks": blocks}
-
-
-def public_handout_plan(raw: dict, document: dict) -> dict:
-    """Expose concept data for disclosed sections, without teacher instructions."""
-    # Coverage and anchors must be computed from the disclosed body, never from
-    # private blocks that happen to share its section.
-    plan = project_course_teaching_plan({**raw, "course_document": document})
-    visible_sections = {b["section_id"] for b in document["blocks"]}
-    section_keys = ("node_id", "knowledge_structure", "key_points", "reused_knowledge_names", "knowledge_relations", "source_knowledge_revision", "source_terminology_revision", "knowledge_source_status", "knowledge_coverage")
-    sections = [{**{key: deepcopy(s[key]) for key in section_keys if key in s}, "teaching_modules": []}
-                for s in plan["sections"] if s["node_id"] in visible_sections]
-    names = {point["name"] for section in sections for group in section["knowledge_structure"] for point in group["knowledge_points"]}
-    identities = {identity for section in sections for group in section["knowledge_structure"]
-                  for point in group["knowledge_points"]
-                  for identity in [point["name"], point["knowledge_id"], *point["aliases"]] if identity}
-    visible_ids = {point["knowledge_id"] for section in sections for group in section["knowledge_structure"] for point in group["knowledge_points"] if point.get("knowledge_id")}
-    def endpoint_visible(relation, side):
-        identity = relation.get(side + "_knowledge_id")
-        return identity in visible_ids if identity else relation.get(side + "_name") in identities
-    for section in sections:
-        section["knowledge_relations"] = [r for r in section["knowledge_relations"] if endpoint_visible(r, "source") and endpoint_visible(r, "target")]
-        for group in section["knowledge_structure"]:
-            for point in group["knowledge_points"]:
-                point["relations"] = [r for r in point["relations"] if endpoint_visible(r, "target")]
-    return {
-        "schema_version": plan["schema_version"], "status": plan["status"],
-        "revision_id": plan["revision_id"], "strategy": plan["strategy"],
-        "section_count": len(sections), "knowledge_point_count": len(names),
-        "teaching_module_count": 0, "sections": sections,
-    }
+from course_learning_projection import public_document, public_handout_plan
 
 
 def formal_questions(raw: dict) -> list[dict]:

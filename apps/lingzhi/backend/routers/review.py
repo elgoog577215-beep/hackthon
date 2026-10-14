@@ -17,6 +17,14 @@ from learning_events import (
 from models import SubmitReviewRequest
 
 
+def review_nodes(course: dict) -> list[dict]:
+    # Courses are lecture based; do not silently drop a lecture at level 1.
+    if course.get("course_document"):
+        from course_learning_projection import public_course
+        course = public_course(course)
+    return [node for node in course.get("nodes") or [] if node.get("content_blocks") or node.get("node_content")]
+
+
 router = APIRouter(prefix="/courses/{course_id}/review", tags=["review"])
 
 
@@ -27,9 +35,7 @@ async def get_review_schedule(course_id: str, request: Request, max_items: int =
     user_id = require_user_id(request.headers.get("X-User-Id"))
     states = _review_states(course_id, user_id)
     items = []
-    for node in course.get("nodes") or []:
-        if int(node.get("node_level") or 1) != 2:
-            continue
+    for node in review_nodes(course):
         state = states.get(str(node.get("node_id") or ""), {})
         priority = "high" if state.get("last_passed") is False else "medium"
         if focus_on_weak and priority != "high" and state.get("review_count", 0):
@@ -100,7 +106,7 @@ async def get_review_progress(course_id: str, request: Request):
     course = await get_course_or_404(course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
     states = _review_states(course_id, user_id)
-    total = len([node for node in course.get("nodes") or [] if int(node.get("node_level") or 1) == 2])
+    total = len(review_nodes(course))
     reviewed = len(states)
     return {
         "course_id": course_id,
@@ -126,7 +132,7 @@ async def get_review_stats(course_id: str, request: Request):
     passed = sum(1 for event in events if (event.get("result") or {}).get("passed") is True)
     return {
         "course_id": course_id,
-        "total_items": len([node for node in course.get("nodes") or [] if int(node.get("node_level") or 1) == 2]),
+        "total_items": len(review_nodes(course)),
         "due_today": sum(1 for state in states.values() if _iso_date(state.get("next_review")) == today),
         "overdue": sum(1 for state in states.values() if _iso_date(state.get("next_review")) < today),
         "completed_today": completed_today,

@@ -321,10 +321,10 @@ def test_qizhi_student_scope_verified_without_teacher_access(monkeypatch):
     @app.get('/api/study/auth/me')
     def me(request: Request):
         return {'id': request.state.qizhi_identity.actor_id}
-    @app.get('/api/courses/private')
+    @app.get('/api/teacher/courses/private')
     def teacher_only():
         return {'secret': 'teacher'}
     client = TestClient(app)
     headers = {'Authorization': 'Bearer verified', 'X-User-Id': 'spoofed'}
     assert client.get('/api/study/auth/me', headers=headers).json() == {'id': 'qizhi:real-student'}
-    assert client.get('/api/courses/private', headers=headers).status_code == 403
+    assert client.get('/api/teacher/courses/private', headers=headers).status_code == 403

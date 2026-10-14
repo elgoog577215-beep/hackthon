@@ -26,15 +26,17 @@
     <div v-else ref="studyLayoutRoot" class="study-workspace" :class="{ 'is-reading': !!materialId }" :style="columnLayoutStyle">
       <aside class="study-navigation">
         <span class="study-eyebrow">PERSONAL LEARNING</span>
-        <button :class="{ active: !materialId && !creating }" @click="goLibrary"><LibraryBig :size="19" />{{ c('library') }}</button>
+        <button :class="{ active: !materialId && !creating && route.query.view !== 'courses' }" @click="goLibrary"><LibraryBig :size="19" />{{ c('library') }}</button>
         <button :class="{ active: creating }" @click="startNew"><Plus :size="19" />{{ c('create') }}</button>
+        <button :class="{ active: !materialId && !creating && route.query.view === 'courses' }" @click="router.push('/study?view=courses')"><GraduationCap :size="19" />{{ c('authorizedCourses') }}</button>
         <div class="recent-materials"><RouterLink v-for="item in library" :key="item.id" :to="`/study/${item.id}`" :class="{ active: materialId === item.id }"><span class="material-dot" :class="item.purpose" /><span>{{ item.title }}<small>{{ c(item.purpose) }}</small></span></RouterLink></div>
         <p class="study-nav-hint"><LockKeyhole :size="16" />{{ c('savedHint') }}</p>
       </aside>
 
       <ColumnResizeHandle v-bind="leftColumnHandle" />
       <section v-if="!materialId" class="study-main-scroll">
-        <div v-if="!creating" class="study-library">
+        <StudentCourseLibrary v-if="!creating && route.query.view === 'courses'" :key="user.id" :user-id="user.id" @source="createFromCourse" />
+        <div v-else-if="!creating" class="study-library">
           <div class="study-page-heading"><div><span class="study-eyebrow">MY MATERIALS</span><h1>{{ c('library') }}</h1><p>{{ c('intro') }}</p></div><button class="study-primary" @click="startNew"><Plus :size="18" />{{ c('create') }}</button></div>
           <div v-if="library.length" class="study-material-grid"><RouterLink v-for="item in library" :key="item.id" :to="`/study/${item.id}`" class="study-material-card"><span class="material-mode" :class="item.purpose"><Target v-if="item.purpose === 'exam_prep'" :size="18" /><BookOpen v-else :size="18" />{{ c(item.purpose) }}</span><h2>{{ item.title }}</h2><p>{{ c(item.purpose === 'exam_prep' ? 'examHint' : 'understandingHint') }}</p><footer><span class="study-status" :class="item.status">{{ statusLabel(item.status) }}</span><ArrowUpRight :size="22" /></footer></RouterLink></div>
           <div v-else class="study-empty"><div class="empty-books"><BookOpen :size="46" /></div><h2>{{ c('emptyLibrary') }}</h2><p>{{ c('emptyHint') }}</p><button class="study-primary" @click="startNew">{{ c('create') }}<ArrowRight :size="18" /></button></div>
@@ -93,6 +95,8 @@ import PersonalHandoutAssistant from '../components/PersonalHandoutAssistant.vue
 import { studyApi, studySession, StudyApiError, type StudyMaterial, type StudyPurpose, type StudySource, type StudySummary, type StudyUser } from '../api/study'
 import { activeLocale, setLocale } from '../shared/i18n'
 import { studyCopy as c, type StudyCopyKey } from '../shared/study-copy'
+import StudentCourseLibrary from '../components/StudentCourseLibrary.vue'
+import { setStudyIdentity } from '../utils/study-identity'
 import { buildHandoutConceptSections } from '../utils/handout-concepts'
 import { clearQizhiAccessToken, isQizhiAuthRequired, redirectToQizhiLogin } from '../utils/http'
 import ColumnResizeHandle from '../components/ColumnResizeHandle.vue'
@@ -171,14 +175,15 @@ async function loadLibrary() { const current = epoch; const result = await Promi
 async function connect() {
   const config = await studyApi.config(); localLoginEnabled.value = config.local_login_enabled
   if (!studySession.get() && !qizhiAuth) return
-  try { user.value = await studyApi.me(); restoreDraft(); await loadLibrary(); await openMaterial() }
+  try { user.value = await studyApi.me(); setStudyIdentity(user.value); restoreDraft(); await loadLibrary(); await openMaterial() }
   catch (cause) { showError(cause) }
 }
-async function authenticate() { if (busy.value) return; await action(async () => { const result = await studyApi.login(username.value, password.value, registerMode.value); studySession.set(result.token); password.value = ''; epoch++; user.value = result.user; restoreDraft(); await loadLibrary(); await openMaterial() }) }
+async function authenticate() { if (busy.value) return; await action(async () => { const result = await studyApi.login(username.value, password.value, registerMode.value); studySession.set(result.token); setStudyIdentity(result.user); password.value = ''; epoch++; user.value = result.user; restoreDraft(); await loadLibrary(); const returnTo = String(route.query.returnTo || ''); if (returnTo.startsWith('/course/') && !returnTo.startsWith('//')) await router.push(returnTo); else await openMaterial() }) }
 async function logout() { persistDraft(); await action(async () => { await studyApi.logout(); epoch++; studySession.clear(); if (qizhiAuth) clearQizhiAccessToken(); clearTimeout(timer); user.value = null; clearPrivateUi(); await router.push('/study') }) }
 function reconnect() { void action(async () => { if (!user.value) await connect(); else { await loadLibrary(); await openMaterial() } }) }
 async function goLibrary() { creating.value = false; await router.push('/study'); await action(loadLibrary) }
 async function startNew() { await router.push('/study'); creating.value = true; await action(loadLibrary) }
+async function createFromCourse(source: StudySource) { const owner = user.value?.id; await startNew(); if (sameOwner(owner)) { sources.value = sources.value.filter(item => item.id !== source.id); selectedRanges.value = []; form.title = ''; rememberSource(source) } }
 function rememberSource(source: StudySource) {
   sources.value.unshift(source)
   if (!source.sections.length) { error.value = source.error || c('sourceFailed'); return }

@@ -138,7 +138,9 @@
     "previous": "Previous",
     "next": "Next",
     "yes": "Yes",
-    "no": "No"
+    "no": "No",
+    "continue": "Continue",
+    "back": "Back"
   },
   "appError": {
     "centerLabel": "Error feedback",
@@ -683,7 +685,7 @@
     "outlineFlow": {
       "readyToContinue": "Lecture plan ready",
       "title": "Outline generation steps",
-      "courseInfo": "Enter course information",
+      "courseInfo": "Course information",
       "lightPlan": "Initial lesson sequence",
       "fullOutline": "Full outline",
       "generateFull": "Generate full outline",
@@ -1415,7 +1417,7 @@
       "lessonHelp": "Plan each session",
       "questionBank": "Question bank",
       "questionBankHelp": "Optional · questions and papers",
-      "script": "Script",
+      "script": "Handouts",
       "scriptHelp": "Lightweight editable content",
       "ppt": "PPT",
       "pptHelp": "Content alignment with script"
@@ -1430,7 +1432,7 @@
       "description": "Create formal files quickly from school templates"
     },
     "form": {
-      "lectureCount": "Planned lessons",
+      "lectureCount": "Planned lectures",
       "learningGoal": "Teaching goal",
       "learningGoalPlaceholder": "Students will be able to…",
       "totalHours": "Total hours",
@@ -6904,6 +6906,10 @@
     "globalChange": "Global changes"
   },
   "courseFiles": {
+    "headerActions": {
+      "change": "Changes",
+      "preview": "Student view"
+    },
     "spaceLabel": "Course file space",
     "sameSource": "Content alignment",
     "teacherAgent": "AI assistant",
@@ -7095,7 +7101,7 @@
       "documentTypes": {
         "outline": "Course outline",
         "lessonPlan": "Lesson plan",
-        "script": "Script",
+        "script": "Handout",
         "ppt": "PPT",
         "questionBank": "Question banks and exams",
         "schoolMaterial": "Course administration",
@@ -7263,7 +7269,8 @@
       "companionDocuments": "Other administration materials",
       "companionDocument": "Administration material",
       "folder": "Folder",
-      "file": "Uploaded original"
+      "file": "Uploaded original",
+      "trash": "Recycle bin"
     },
     "status": {
       "ready": "Ready",
@@ -7812,7 +7819,7 @@
     "prepareCourse": "Course information · Optional materials",
     "prepareHandouts": "Outline → Lesson plans → Handouts",
     "extractKnowledge": "Extract → Review and adopt",
-    "handoutsRequired": "No saved handouts yet. Prepare course information and generate handouts in the workbench. Uploads are optional.",
+    "handoutsRequired": "No saved handouts yet. Complete the course outline and a lecture handout before building its knowledge tree. Uploads are optional.",
     "sourceVersions": "View source handout versions",
     "viewHandouts": "View handouts",
     "prepareHandoutAction": "Prepare handouts",
@@ -8034,5 +8041,63 @@
     "originPinned": "From the knowledge version cited by this handout · Read arrows by relationship type",
     "page": "Page",
     "slide": "Slide"
+  },
+  "courseCreationFlow": {
+    "help": "Set the goals and lecture plan, choose your sources, then enter one preparation workspace.",
+    "stepsLabel": "Create course steps",
+    "steps": {
+      "goal": "Course goals",
+      "schedule": "Lecture plan",
+      "source": "Starting sources"
+    },
+    "goalTitle": "What should students learn in this course?",
+    "goalHelp": "These settings feed the outline and handouts. You can adjust them in the workspace.",
+    "learningGoal": "Learning goal",
+    "goalPlaceholder": "For example: understand linear algebra and use matrices and linear systems to solve practical problems.",
+    "scheduleTitle": "Organize the course by lecture",
+    "scheduleHelp": "The outline sets each lecture’s scope. Plans, handouts and PPTs belong to those same lectures.",
+    "hierarchy": "Course → Lecture N → Plan, handout and PPT",
+    "hierarchyHelp": "The knowledge tree and question bank support the course. Uploaded files are sources, not a separate course.",
+    "scheduleOptional": "Additional academic details and weekly timetable (optional)",
+    "sourceTitle": "How would you like to start?",
+    "sourceHelp": "Both options use the same course. Creating it does not start an AI request.",
+    "blankHelp": "Prepare an outline, then produce plans and handouts by lecture. You can add sources later.",
+    "materialsHelp": "Upload existing textbooks, plans or slides after creation, confirm their roles, then continue preparation.",
+    "summaryHours": "{lectures} lectures · {hours} class hours",
+    "nextBlank": "Next: preparation workspace → course outline. Your goals and schedule are already included.",
+    "nextMaterials": "Next: upload existing files → confirm source roles → preparation workspace.",
+    "noAutoGeneration": "Creation saves settings. You start generation and publication separately.",
+    "creating": "Creating…",
+    "createAndPrepare": "Create and prepare",
+    "next": "Next",
+    "openSavedCourse": "Open saved course",
+    "savedEntryFailed": "Your course was saved, but the workspace did not open. Retry opening the same course or return to your library."
+  },
+  "courseWorkspaceFlow": {
+    "settings": "Course settings",
+    "settingsHelp": "Goals, lectures, hours and academic schedule",
+    "production": "Teaching content",
+    "supporting": "Supporting resources",
+    "knowledgeHint": "Build knowledge and connections from saved handouts",
+    "stageScope": "One course outline; all other content uses the same lectures",
+    "publicationHelp": "Preparation draft → published version → authorized study → learning feedback",
+    "scopeCourse": "Whole course",
+    "scopeLecture": "Lecture {number}",
+    "scopeKnowledge": "Knowledge and connections in handouts",
+    "publication": "Publication",
+    "access": "Student access",
+    "feedback": "Learning feedback",
+    "deliveryTitle": "Publication and student learning",
+    "grantBeforePublish": "Grant student access, then publish the current version. Publish again after changing handouts.",
+    "previewHelp": "Student preview is a trial. Formal study starts in the student’s course library.",
+    "skipImport": "Upload later; enter workspace",
+    "importContext": "Your course is created. Upload files and confirm their roles, then return to the same workspace.",
+    "generationOptions": "Adjust purpose, discipline and teaching approach",
+    "generateNext": "After generating the course outline, prepare plans and handouts for those same lectures.",
+    "handoutBeforePublish": "There is no student-readable handout yet. Save public handout content before publishing.",
+    "readingUnverified": "Student-readable content could not be verified. Refresh before publishing.",
+    "studentSpace": "Student study space",
+    "returnWorkbench": "Return to preparation workbench",
+    "returnStudy": "Return to my study space"
   }
 }

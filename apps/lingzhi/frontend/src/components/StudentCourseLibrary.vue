@@ -1,0 +1,37 @@
+<template>
+  <section class="student-courses">
+    <header><div><span>MY COURSES</span><h1>{{ copy('教师授权课程', 'Authorized courses') }}</h1><p>{{ copy('阅读课程、完成练习，再根据自己的记录继续学习。', 'Read, practise, and continue from your own learning records.') }}</p></div><button :disabled="loading" @click="load">{{ copy('刷新', 'Refresh') }}</button></header>
+    <p v-if="error" role="alert">{{ error }}</p>
+    <p v-if="loading" role="status">{{ copy('正在读取课程…', 'Loading courses…') }}</p>
+    <div v-if="courses.length" class="course-grid"><article v-for="course in courses" :key="course.course_id"><span>{{ course.exchange_origin ? copy('教师已发布 · 已授权', 'Published by teacher · Access granted') : copy('已获得学习授权', 'Learning access granted') }}</span><h2>{{ course.title }}</h2><p>{{ course.section_count }} {{ copy('个学习章节', 'learning sections') }}<template v-if="course.question_count !== undefined"> · {{ course.question_count }} {{ copy('道课程练习', 'course exercises') }}</template></p><RouterLink v-if="course.reading_available" :to="`/course/${course.course_id}/learn?returnTo=/study?view=courses`">{{ copy('进入学习', 'Start learning') }} →</RouterLink><button v-if="course.reading_available" :disabled="loading" @click="derive(course)">{{ copy('生成个人复习讲义', 'Create a personal revision handout') }}</button><p v-else>{{ copy('教师尚未提供讲义', 'The teacher has not provided a handout yet') }}</p><div v-if="course.update_available" class="course-update"><strong>{{ copy('教师发布了新版本', 'Your teacher published an update') }}</strong><p>{{ copy('更新后继续学习，原作答与笔记保留。', 'Continue with the new version; previous attempts and notes are retained.') }}</p><button :disabled="loading" @click="update(course)">{{ copy('使用新版本', 'Use new version') }}</button></div><button v-if="course.exchange_origin" class="feedback-button" @click="feedbackCourse = feedbackCourse === course.course_id ? '' : course.course_id">{{ copy('课程提问与教师回复', 'Questions & teacher replies') }}</button><StudentCourseFeedback v-if="course.exchange_origin && feedbackCourse === course.course_id" :course-id="course.course_id" :revision-id="course.revision_id" /></article></div>
+    <p v-if="!loading && !courses.length" class="course-empty">{{ copy('还没有获授权课程。将你的学生身份提供给教师，教师授权后课程会显示在这里。', 'No authorized courses yet. Give your student identity to your teacher; granted courses will appear here.') }}</p>
+    <section v-for="course in courses.filter(c => c.published_ppts?.length)" :key="`ppt:${course.course_id}`" class="published-ppts"><h3>{{ course.title }} · {{ copy('教师发布的 PPT', 'Published PPTs') }}</h3><button v-for="ppt in course.published_ppts" :key="ppt.asset_id" :disabled="loading" @click="downloadPpt(course, ppt.asset_id, ppt.filename)">{{ copy('下载', 'Download') }} {{ ppt.filename }}</button></section>
+    <StudentLearningPath v-for="course in courses.filter(c => c.reading_available)" :key="`${course.course_id}:${course.revision_id}:${pathGeneration}`" :course-id="course.course_id" :title="course.title" />
+    <p class="student-id">{{ copy('我的学生身份', 'My student identity') }}：<code>{{ userId }}</code></p>
+  </section>
+</template>
+<script setup lang="ts">
+import { onMounted, onBeforeUnmount, ref } from 'vue'
+import { studyApi, type StudyCourse, type StudySource } from '../api/study'
+import { activeLocale } from '../shared/i18n'
+import StudentLearningPath from './StudentLearningPath.vue'
+import StudentCourseFeedback from './StudentCourseFeedback.vue'
+defineProps<{ userId: string }>()
+const emit = defineEmits<{ source: [source: StudySource] }>()
+const copy = (zh: string, en: string) => activeLocale.value === 'en' ? en : zh
+const courses = ref<StudyCourse[]>([]), loading = ref(false), error = ref('')
+const feedbackCourse = ref(''), pathGeneration = ref(0)
+let sequence = 0
+async function load() { const current = ++sequence; loading.value = true; error.value = ''; try { const result = await studyApi.courses(); if (current === sequence) { courses.value = result; pathGeneration.value++ } } catch (cause) { if (current === sequence) error.value = cause instanceof Error ? cause.message : copy('课程读取失败', 'Could not load courses') } finally { if (current === sequence) loading.value = false } }
+onMounted(load)
+async function derive(course: StudyCourse) { const current = ++sequence; loading.value = true; error.value = ''; try { const source = await studyApi.courseSource(course.course_id, course.revision_id); if (current === sequence) emit('source', source) } catch (cause) { if (current === sequence) error.value = cause instanceof Error ? cause.message : copy('资料选择失败', 'Could not select course sources') } finally { if (current === sequence) loading.value = false } }
+async function update(course: StudyCourse) { const current = ++sequence; loading.value = true; error.value = ''; try { await studyApi.updateCourse(course.course_id, course.revision_id); if (current === sequence) await load() } catch (cause) { if (current === sequence) error.value = cause instanceof Error ? cause.message : copy('课程更新失败', 'Could not update course') } finally { if (current === sequence) loading.value = false } }
+async function downloadPpt(course: StudyCourse, assetId: string, filename: string) { const current = ++sequence; loading.value = true; error.value = ''; try { const blob = await studyApi.coursePpt(course.course_id, assetId, course.revision_id); if (current !== sequence) return; const url = URL.createObjectURL(blob), link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url) } catch (cause) { if (current === sequence) error.value = cause instanceof Error ? cause.message : copy('PPT 下载失败', 'Could not download PPT') } finally { if (current === sequence) loading.value = false } }
+onBeforeUnmount(() => { sequence++ })
+</script>
+<style scoped>
+.student-courses{max-width:1080px;margin:auto;padding:42px 48px;color:#263449;font-size:15px}.student-courses header{display:flex;justify-content:space-between;gap:24px;align-items:center}.student-courses h1{font-size:30px;margin:8px 0}.student-courses header p{color:#748096}.student-courses header span{color:#7b6ca4;letter-spacing:.08em}.student-courses button{padding:9px 18px;border:1px solid #dbe0ed;border-radius:9px;background:white;cursor:pointer;font:inherit}.course-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:22px;margin-top:28px}.course-grid article{background:white;border:1px solid #e0e5f0;border-radius:17px;padding:26px}.course-grid h2{font-size:23px;margin:20px 0}.course-grid article>span{color:#608779}.course-grid a{display:inline-block;background:#6551c7;color:white;padding:10px 18px;border-radius:9px;text-decoration:none;margin-top:15px}.course-empty{padding:48px;background:white;border:1px dashed #d5d9eb;border-radius:16px;margin-top:30px}.student-id{margin-top:28px;color:#758195;overflow-wrap:anywhere}.student-id code{font-size:15px}a:focus-visible,button:focus-visible{outline:3px solid #9385ed;outline-offset:3px}
+</style>
+<style scoped>
+.course-grid article>button{display:block;margin-top:14px}.course-update{margin-top:20px;padding:16px;background:#f2eefa;border-radius:10px}.course-update strong{color:#6551a0}.course-update p{line-height:1.7;color:#68768c}.course-update button{background:#6551c7;color:white}.feedback-button{color:#6551a0}button:disabled{opacity:.55;cursor:default}.published-ppts{margin-top:22px;padding:20px;background:white;border:1px solid #e0e5f0;border-radius:14px}.published-ppts button{margin:8px 12px 0 0}.published-ppts h3{font-size:20px;margin-top:0}
+</style>

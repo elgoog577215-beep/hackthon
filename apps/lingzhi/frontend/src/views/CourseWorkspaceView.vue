@@ -24,14 +24,9 @@
 
     <Teleport to="#app-header-route-actions">
       <div class="workspace-route-actions">
-        <label v-if="workspaceView === 'files'" class="workspace-search workspace-search--inline">
-          <Search :size="15" />
-          <input v-model="searchQuery" type="search" :placeholder="t('courseFiles.searchCurrent')" :aria-label="t('courseFiles.searchCurrent')" />
-          <button v-if="searchQuery" type="button" :aria-label="t('courseFiles.clearSearch')" @click="searchQuery = ''"><X :size="14" /></button>
-        </label>
         <el-popover v-if="workspaceView === 'files'" placement="bottom-end" :width="280" trigger="click">
           <template #reference>
-            <button class="search-action" type="button" :title="t('courseFiles.searchCurrent')" :aria-label="t('courseFiles.searchCurrent')"><Search :size="16" /></button>
+            <CourseWorkspaceHeaderAction :label="t('courseFiles.searchCurrent')" icon-only><Search :size="16" /></CourseWorkspaceHeaderAction>
           </template>
           <label class="workspace-search workspace-search--popover">
             <Search :size="15" />
@@ -39,15 +34,17 @@
             <button v-if="searchQuery" type="button" :aria-label="t('courseFiles.clearSearch')" @click="searchQuery = ''"><X :size="14" /></button>
           </label>
         </el-popover>
-        <button
+        <CourseWorkspaceHeaderAction
           class="audit-action"
-          type="button"
-          :title="t('courseAuditUpdates.openHint', '查看材料变化、生成关系和全课调整')"
+          :label="t('courseAuditUpdates.globalChange', '全局修改')"
+          :display-label="t('courseFiles.headerActions.change')"
+          :hint="t('courseAuditUpdates.openHint', '查看材料变化、生成关系和全课调整')"
           @click="openGlobalChange"
         >
-          <ScanSearch :size="16" />{{ t('courseAuditUpdates.globalChange', '全局修改') }}
-        </button>
-        <button class="preview-action" type="button" @click="openCoursePreview"><Eye :size="16" />{{ t('courseFiles.previewCourse') }}</button>
+          <ScanSearch :size="16" />
+        </CourseWorkspaceHeaderAction>
+        <CoursePublicationPanel :course-id="courseId" />
+        <CourseWorkspaceHeaderAction class="preview-action" :label="t('courseFiles.previewCourse')" :display-label="t('courseFiles.headerActions.preview')" primary @click="openCoursePreview"><Eye :size="16" /></CourseWorkspaceHeaderAction>
       </div>
     </Teleport>
 
@@ -77,6 +74,8 @@
             :material-refresh-token="materialRefreshToken"
             :initial-stage="requestedWorkbenchStage"
             :initial-lesson-id="requestedLessonId"
+            :initial-knowledge="requestedKnowledge"
+            :initial-companion-template-id="requestedTemplateId"
             :initial-issue-id="requestedIssueId"
             :initial-block-id="requestedBlockId"
             :initial-task-id="requestedTaskId"
@@ -85,6 +84,7 @@
             @generate-outline="startOutlineGeneration"
             @open-course-information="courseInformationOpen = true"
             @open-course-adjustment="openCourseAdjustment"
+            @location-change="handleWorkbenchLocation"
           />
           <TeacherCourseSpaceView
             v-else
@@ -123,6 +123,7 @@
       v-if="!loading && !knowledgeFirstEnabled"
       :course-id="courseId"
       :course-title="courseTitle"
+      :start-mode="route.query.prepare === 'blank' ? 'blank' : route.query.prepare === 'materials' ? 'materials' : undefined"
       @completed="handlePreparationCompleted"
       @knowledge="handleKnowledgeUpdated"
     />
@@ -167,6 +168,8 @@ import CoursePreparationDialog from '../components/CoursePreparationDialog.vue'
 import CourseEvolutionWorkspace from '../components/CourseEvolutionWorkspace.vue'
 import CourseDialogShell from '../components/CourseDialogShell.vue'
 import TeacherCourseWorkbench from '../components/TeacherCourseWorkbench.vue'
+import CoursePublicationPanel from '../components/CoursePublicationPanel.vue'
+import CourseWorkspaceHeaderAction from '../components/CourseWorkspaceHeaderAction.vue'
 import TeacherCourseCalendarView from './TeacherCourseCalendarView.vue'
 import TeacherCourseSpaceView from './TeacherCourseSpaceView.vue'
 import { t } from '../shared/i18n'
@@ -177,6 +180,7 @@ import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { coursePreparationLabel, coursePreparationState } from '../utils/course-preparation'
 import { toAppError, type AppErrorPresentation } from '../utils/app-error'
+import { readWorkspaceLocation, workspaceLocationQuery, type WorkspaceLocation } from '../shared/course-workspace-navigation'
 import http, { teacherReadRequestConfig } from '../utils/http'
 
 const props = defineProps<{ courseId: string; mode?: string }>()
@@ -189,7 +193,8 @@ async function changeWorkspaceView(view: 'files' | 'categories') {
   workspaceView.value = view
 }
 onBeforeRouteLeave(finishWorkbenchEditing)
-onBeforeRouteUpdate(finishWorkbenchEditing)
+const synchronizingLocation = ref(false)
+onBeforeRouteUpdate(() => synchronizingLocation.value ? true : finishWorkbenchEditing())
 const courseStore = useCourseStore()
 const generationStore = useGenerationStore()
 const lessonStore = useTeacherLessonAuthoringStore()
@@ -213,6 +218,8 @@ const workspaceView = ref<'files' | 'categories'>(
 )
 const requestedWorkbenchStage = ref<'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt' | 'companion'>('foundation')
 const requestedLessonId = ref('')
+const requestedKnowledge = ref(false)
+const requestedTemplateId = ref('')
 const requestedIssueId = computed(() => String(route.query.issue || ''))
 const requestedBlockId = computed(() => String(route.query.block || ''))
 const requestedTaskId = computed(() => String(route.query.task || ''))
@@ -222,6 +229,36 @@ const courseGenerationOptions = ref<CourseGenerationOptions & { subject?: string
 const courseInformationEnvelope = ref<any | null>(null)
 const stableCourseTitle = ref('')
 let workspaceLoadToken = 0
+
+function applyWorkspaceLocation() {
+  const location = readWorkspaceLocation(route.query)
+  workspaceView.value = location.view
+  requestedWorkbenchStage.value = location.stage
+  requestedLessonId.value = location.lessonId
+  requestedKnowledge.value = location.knowledge
+  requestedTemplateId.value = location.companionTemplateId || ''
+}
+function handleWorkbenchLocation(location: Omit<WorkspaceLocation, 'view'>) {
+  requestedWorkbenchStage.value = location.stage
+  requestedLessonId.value = location.lessonId
+  requestedKnowledge.value = location.knowledge
+  requestedTemplateId.value = location.companionTemplateId || ''
+}
+watch(() => route.query, () => {
+  if (!synchronizingLocation.value && !loading.value) applyWorkspaceLocation()
+})
+watch([workspaceView, requestedWorkbenchStage, requestedLessonId, requestedKnowledge, requestedTemplateId], async () => {
+  if (loading.value) return
+  const query = workspaceLocationQuery(route.query, {
+    view: workspaceView.value, stage: requestedWorkbenchStage.value,
+    lessonId: requestedLessonId.value, knowledge: requestedKnowledge.value,
+    companionTemplateId: requestedTemplateId.value,
+  }) as typeof route.query
+  if (JSON.stringify(query) === JSON.stringify(route.query)) return
+  synchronizingLocation.value = true
+  try { await router.replace({ query }) }
+  finally { synchronizingLocation.value = false }
+}, { flush: 'post' })
 
 const courseId = computed(() => String(props.courseId || route.params.courseId || ''))
 const courseTitle = computed(() => (
@@ -256,7 +293,7 @@ async function loadWorkspace() {
   if (!courseId.value) return
   const requestedCourseId = courseId.value
   const loadToken = ++workspaceLoadToken
-  if (route.query.view === 'files') workspaceView.value = 'files'
+  applyWorkspaceLocation()
   generationStore.observeCourse(requestedCourseId)
   loading.value = true
   loadError.value = null
@@ -306,6 +343,7 @@ async function loadWorkspace() {
       information.course_name || stableCourseTitle.value,
     )
     if (requestedSection === 'outline') openOutlineEditor()
+    if (requestedSection === 'basic') courseInformationOpen.value = true
     if (requestedSection === 'calendar') calendarOpen.value = true
     if (route.query.generate === 'outline') {
       prepareOutlineGeneration()
@@ -330,23 +368,27 @@ async function loadWorkspace() {
 }
 
 function openLessonPlan(lessonId: string) {
+  requestedKnowledge.value = false
   requestedWorkbenchStage.value = 'lesson'
   requestedLessonId.value = lessonId
   workspaceView.value = 'categories'
 }
 
 function openOutlineEditor() {
+  requestedKnowledge.value = false
   requestedWorkbenchStage.value = 'foundation'
   workspaceView.value = 'categories'
   outlineEditing.value = true
 }
 
 function openQuestionBankWorkbench() {
+  requestedKnowledge.value = false
   requestedWorkbenchStage.value = 'question-bank'
   workspaceView.value = 'categories'
 }
 
 function openCompanionDocuments() {
+  requestedKnowledge.value = false
   requestedWorkbenchStage.value = 'companion'
   workspaceView.value = 'categories'
 }
@@ -371,12 +413,14 @@ function openPractice(lessonId: string) {
 }
 
 function openPpt(lessonId: string) {
+  requestedKnowledge.value = false
   requestedWorkbenchStage.value = 'ppt'
   requestedLessonId.value = lessonId
   workspaceView.value = 'categories'
 }
 
 function openScript(lessonId: string) {
+  requestedKnowledge.value = false
   requestedWorkbenchStage.value = 'script'
   requestedLessonId.value = lessonId
   workspaceView.value = 'categories'
@@ -423,7 +467,8 @@ function auditCenterReturnQuery(view: 'materials' | 'changes') {
     workspaceQuery.view = 'files'
     returnLabel = t('courseAuditUpdates.returnFiles', '返回课程文件')
   } else {
-    workspaceQuery.stage = requestedWorkbenchStage.value
+    workspaceQuery.stage = requestedKnowledge.value ? 'knowledge' : requestedWorkbenchStage.value
+    if (requestedTemplateId.value && requestedWorkbenchStage.value === 'companion') workspaceQuery.template = requestedTemplateId.value
     if (requestedLessonId.value) workspaceQuery.lesson = requestedLessonId.value
     const stageLabels: Record<string, string> = {
       foundation: t('courseAuditUpdates.stageFoundation', '课程大纲'),
@@ -514,27 +559,21 @@ onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(cour
 .workspace-route-context { min-width:0; display:flex; align-items:center; gap:9px; }
 .workspace-route-context>svg { flex:none; color:var(--lz-brand); }
 .workspace-route-context>h1 { min-width:0; margin:0; overflow:hidden; color:var(--lz-text-strong); font-family:inherit; font-size:22px; font-weight:800; letter-spacing:-.012em; line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
-.back-button,.workspace-route-actions button { display:inline-flex; align-items:center; justify-content:center; gap:7px; border:0; background:transparent; color:var(--lz-text-secondary); font-size:14px; font-weight:700; cursor:pointer; }
+.back-button { display:inline-flex; align-items:center; justify-content:center; gap:7px; border:0; background:transparent; color:var(--lz-text-secondary); font-size:15px; font-weight:700; cursor:pointer; }
 .back-button { width:34px; height:34px; flex:none; border-radius:8px; }
 .back-button:hover { color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
 .back-button:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
 .workspace-view-switch { display:flex; align-items:center; justify-content:center; gap:3px; width:max-content; margin:auto; padding:3px; border:1px solid var(--lz-border); border-radius:10px; background:#f5f6fa; }
-.workspace-view-switch button { height:32px; display:inline-flex; align-items:center; gap:6px; padding:0 11px; border:0; border-radius:7px; color:var(--lz-text-secondary); background:transparent; font-size:14px; font-weight:700; cursor:pointer; }
+.workspace-view-switch button { height:32px; display:inline-flex; align-items:center; gap:6px; padding:0 11px; border:0; border-radius:7px; color:var(--lz-text-secondary); background:transparent; font-size:15px; font-weight:700; cursor:pointer; }
 .workspace-view-switch button:hover { color:var(--lz-text-strong); }
 .workspace-view-switch button.active { color:var(--lz-brand-strong); background:#fff; box-shadow:0 2px 7px rgba(15,23,42,.08); }
 .workspace-view-switch button:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
 .workspace-route-actions { display:flex; align-items:center; gap:8px; }
-.workspace-route-actions button { min-height:38px; padding:0 11px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; white-space:nowrap; }
 .workspace-search { height:38px; display:flex; align-items:center; gap:7px; padding:0 9px; border:1px solid var(--lz-border); border-radius:9px; color:var(--lz-text-muted); background:#f8fafc; }
-.workspace-search--inline { width:clamp(160px,16vw,240px); }
 .workspace-search--popover { width:100%; }
 .workspace-search:focus-within { border-color:var(--lz-brand); background:#fff; box-shadow:0 0 0 3px var(--lz-brand-soft); }
 .workspace-search input { min-width:0; flex:1; border:0; outline:0; color:var(--lz-text-strong); background:transparent; font-size:14px; }
 .workspace-search button { width:24px; min-height:24px; padding:0; border:0; background:transparent; }
-.workspace-route-actions .search-action { display:none; width:38px; padding:0; }
-.workspace-route-actions .audit-action { border-color:#dfe3ea; color:#475569; background:#fff; }
-.workspace-route-actions .audit-action:hover { border-color:#aaa7f2; color:#5148dc; background:#f8f8ff; }
-.workspace-route-actions .preview-action { color:var(--lz-brand-strong); border-color:var(--lz-brand-border); }
 .workspace-state { flex:none; padding:4px 7px; border-radius:6px; background:#f1f5f9; color:#64748b; font-size:14px; font-weight:700; white-space:nowrap; }
 .workspace-state[data-state="prepared"] { background:#ecfdf5; color:#047857; }
 .workspace-state[data-state="preparing"] { background:#eef2ff; color:#4f46e5; }
@@ -560,10 +599,6 @@ onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(cour
 .global-change-choice__options button>svg { color:var(--lz-text-muted); }
 .spin { animation:spin 1s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
-@media (max-width:1050px) {
-  .workspace-route-actions>button { width:38px; padding:0; font-size:0; }
-  .workspace-route-actions>button svg { margin:auto; }
-}
 @media (max-width:720px) {
   .workspace-route-context { display:flex; gap:6px; }
   .workspace-route-context>svg,.workspace-state { display:none; }
@@ -572,12 +607,6 @@ onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(cour
   .workspace-view-switch button svg { margin:auto; }
   .workspace-view-switch button { font-size:0; }
   .workspace-route-actions { gap:5px; }
-  .workspace-route-actions>button { width:36px; padding:0; font-size:0; }
-  .workspace-route-actions>button svg { margin:auto; }
-}
-@media (max-width:1500px) {
-  .workspace-search--inline { display:none; }
-  .workspace-route-actions .search-action { display:inline-flex; }
 }
 @media (min-width:721px) and (max-width:1180px) {
   .workspace-route-context>h1 { max-width:280px; }

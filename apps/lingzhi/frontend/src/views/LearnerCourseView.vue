@@ -11,6 +11,7 @@
         :active-block-id="activeCourseBlockId"
         :production-mode="isGenerationPreview"
         :generation-task="generationTask"
+        :back-label="isTeacherPreview ? t('courseWorkspaceFlow.returnWorkbench') : getStudyIdentity()?.role === 'student' ? t('courseWorkspaceFlow.returnStudy') : undefined"
         @select="selectNode"
         @select-block="selectCourseBlock"
         @back="leaveTeacherPreview"
@@ -27,6 +28,7 @@
         @decline="declineSuggestion"
       />
       <div class="learning-stage">
+        <div v-if="isExchangeCourse" class="exchange-course-notice"><span>{{ exchangeCopy('教师发布课程 · 正式作答对教师可见', 'Published course · Formal attempts are shared with your teacher') }}</span><RouterLink to="/study?view=courses">{{ exchangeCopy('课程提问与更新', 'Questions & updates') }}</RouterLink></div>
         <ContentArea
           v-show="!taskOpen && !statsOpen && !courseStore.showKnowledgeLibrary"
           ref="contentAreaRef"
@@ -222,15 +224,18 @@ import type { CourseBlockEditTarget, CourseBlockNavigationTarget, Node, Note } f
 import { isWorkspaceTaskAction, learningActionLabel } from '../utils/learning-action'
 import { isStartableLearningObjective } from '../utils/learning-scope'
 import { isResumableLearningAction } from '../utils/learning-resume'
-import { t } from '../shared/i18n'
+import { t, activeLocale } from '../shared/i18n'
 import type { StudyRequest } from '../types/study-dialogue'
 import { resolvePublicAssetUrl } from '../utils/publicAssetUrl'
 import { useCompanionReminders, type CompanionReminder } from '../composables/useCompanionReminders'
 import { useCompanionLayout } from '../composables/useCompanionLayout'
 import { useCompanionWelcome } from '../composables/useCompanionWelcome'
 import { getLearnerIdentity } from '../utils/http'
+import { getStudyIdentity } from '../utils/study-identity'
 
 const route = useRoute()
+const isExchangeCourse = computed(() => /^exchange_[0-9a-f]{32}$/.test(String(route.params.courseId || route.params.id || '')))
+const exchangeCopy = (zh: string, en: string) => activeLocale.value === 'en' ? en : zh
 const router = useRouter()
 const courseStore = useCourseStore()
 const noteStore = useNoteStore()
@@ -456,13 +461,19 @@ watch(() => route.params.courseId, async value => {
       silentError: true,
     } : {}),
   ])
-  if (!isTeacherPreview.value) generationStore.observeCourse(courseId)
+  if (!isTeacherPreview.value && getStudyIdentity()?.role !== 'student') generationStore.observeCourse(courseId)
   if (isGenerationPreview.value) {
     selectInitialNode()
     return
   }
   await loadLearningContext(courseId)
   selectInitialNode()
+  const requestedAction = continuationAction.value
+  if (requestedAction?.availability === 'available'
+      && route.query.learningAction === requestedAction.action_type
+      && (isWorkspaceTaskAction(requestedAction) || requestedAction.action_type === 'view_chapter_result')) {
+    await handleContinuationAction(requestedAction)
+  }
   if (['practice', 'question-book'].includes(String(route.query.workspace || ''))) {
     await nextTick()
     openQuestionBook()
@@ -997,7 +1008,7 @@ function runResumeAction() {
 
 function leaveTeacherPreview() {
   if (!isTeacherPreview.value) {
-    void router.push('/courses')
+    void router.push(getStudyIdentity()?.role === 'student' ? '/study?view=courses' : '/courses')
     return
   }
   const returnTo = String(route.query.returnTo || '')
@@ -1026,6 +1037,7 @@ function closeMobileSurfaces() {
 .learning-side-panel.is-docked { display:flex; flex-direction:column; background:#fff; border:1px solid var(--lz-border); --side-width:clamp(320px,25vw,380px); width:var(--side-width); flex:0 0 var(--side-width); overflow:hidden; border-radius:var(--lz-radius-surface); }
 .learning-side-panel.is-docked > .ai-teacher-panel,.learning-side-panel.is-docked > .reading-notes { width:100%; flex:1; min-height:0; height:auto; }
 .learning-stage { position:relative; flex:1; display:flex; flex-direction:column; min-height:0; min-width:0; overflow:hidden; }
+.exchange-course-notice{flex:none;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 18px;background:#f6f3fc;color:#66548a;font-size:15px;border-bottom:1px solid #e4dff0}.exchange-course-notice a{color:#6551c7;white-space:nowrap}.exchange-course-notice a:focus-visible{outline:3px solid #9385ed;outline-offset:3px}
 .learning-main { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: #fff; box-shadow: var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
 .has-ai-course-growth .learning-main { border-color:rgba(165,180,252,.7); box-shadow:0 16px 42px rgba(30,64,175,.1),0 2px 8px rgba(15,23,42,.05); }
 .learning-content { min-height: 0; flex: 1; }

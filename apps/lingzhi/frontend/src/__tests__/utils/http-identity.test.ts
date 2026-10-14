@@ -1,5 +1,7 @@
 import { AxiosHeaders } from 'axios'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import http from '@/utils/http'
+import { setStudyIdentity, STUDY_SESSION_KEY } from '@/utils/study-identity'
 import type { InternalAxiosRequestConfig } from 'axios'
 import {
   applyLearnerIdentity,
@@ -20,6 +22,24 @@ import {
 const requestConfig = () => ({ headers: new AxiosHeaders() }) as InternalAxiosRequestConfig
 
 describe('learner identity request header', () => {
+  afterEach(() => { sessionStorage.removeItem(STUDY_SESSION_KEY); setStudyIdentity(null) })
+  it('uses the authenticated student for learning while keeping local student credentials out of teacher requests', async () => {
+    sessionStorage.setItem(STUDY_SESSION_KEY, 'student-session')
+    setStudyIdentity({ id: 'local-student:a', username: 'student_a', role: 'student' })
+    expect(learnerIdentityHeaders().get('Authorization')).toBe('Bearer student-session')
+    expect(learnerIdentityHeaders().get('X-User-Id')).toBe('local-student:a')
+    expect(teacherIdentityHeaders().has('Authorization')).toBe(false)
+    const captured: InternalAxiosRequestConfig[] = []
+    const adapter = async (config: InternalAxiosRequestConfig) => {
+      captured.push(config)
+      return { data: {}, status: 200, statusText: 'OK', headers: {}, config }
+    }
+    await http.get('/api/courses/course/document', { identityScope: 'learner', adapter })
+    await http.get('/api/teacher/courses', { identityScope: 'teacher', adapter })
+    expect(captured[0]!.headers.get('Authorization')).toBe('Bearer student-session')
+    expect(captured[1]!.headers.has('Authorization')).toBe(false)
+    expect(captured[1]!.headers.get('X-User-Id')).toBe(LOCAL_TEACHER_USER_ID)
+  })
   it('显式配置时为全部 API 请求附加隔离用户', () => {
     const config = applyLearnerIdentity(requestConfig(), ' acceptance-ui-user ')
 

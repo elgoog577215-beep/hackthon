@@ -139,6 +139,8 @@ qizhi_identity_verifier = configured_verifier()
 
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(CourseOwnershipMiddleware, course_storage=storage)
+from study.identity_middleware import LocalStudyIdentityMiddleware
+app.add_middleware(LocalStudyIdentityMiddleware, course_storage=storage)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.add_middleware(
@@ -207,6 +209,10 @@ def read_root():
 app.include_router(courses.router, prefix="/api")
 from routers import study
 app.include_router(study.router, prefix="/api")
+from routers import course_learning_access
+app.include_router(course_learning_access.router, prefix="/api")
+from routers import course_exchange
+app.include_router(course_exchange.router, prefix="/api")
 app.include_router(course_baseline.router, prefix="/api")
 app.include_router(nodes.router, prefix="/api")
 app.include_router(assistant.router, prefix="/api")

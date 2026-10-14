@@ -73,6 +73,21 @@ def freeze_request(repo: StudyRepository, owner: str, request: dict) -> dict:
         if not section:
             raise ValueError("所选资料范围不存在")
         section = deepcopy(section)
+        origin = repo.source_origin(owner, selection["asset_id"])
+        try:
+            repo.require_origin_access(owner, origin)
+        except KeyError:
+            raise ValueError("课程来源授权已撤销，不能继续生成") from None
+        if origin:
+            if origin.get("exchange_origin"):
+                from course_exchange import read_remote_course
+                current = read_remote_course(repo.storage, owner, origin["course_id"], release_id=origin["exchange_origin"]["release_id"])
+            else:
+                from course_repository import CourseDocumentRepository
+                current = CourseDocumentRepository(repo.storage).load_course_view(origin["course_id"])
+            if current.get("current_course_version_id") != origin["revision_id"]:
+                raise ValueError("教师讲义已更新，请从授权课程重新选择资料")
+            section["course_origin"] = deepcopy(origin)
         section["node_id"] = f"study-section-{len(selected) + 1}"
         section["node_name"] = section["title"]
         for block in section["blocks"]:
@@ -171,6 +186,8 @@ async def run_personal_handout(manager, task_id: str) -> None:
     repo.update(owner, material_id, {"status": "running"})
     plans = material["plans"]
     try:
+        for outline in outlines:
+            repo.require_origin_access(owner, outline.get("course_origin"))
         if not plans:
             await manager._update_phase(task_id, "study_scope", 3, "正在梳理所选资料与概念关系")
             budget = manager.course_service._generation_budget
@@ -185,6 +202,7 @@ async def run_personal_handout(manager, task_id: str) -> None:
             plans = validate_plans(raw or "", outlines)
             repo.update(owner, material_id, {"plans": plans})
         for index, outline in enumerate(outlines):
+            repo.require_origin_access(owner, outline.get("course_origin"))
             section_id = outline["node_id"]
             saved = next((section for section in revision["sections"] if section["id"] == section_id), None)
             if saved and saved["complete"]:

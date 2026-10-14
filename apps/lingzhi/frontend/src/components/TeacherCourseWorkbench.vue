@@ -14,9 +14,11 @@
       <header>
         <strong class="stage-rail-title">{{ t('courseWorkbench.title', '课程工作台') }}</strong>
       </header>
+      <button class="course-settings-entry" :title="t('courseWorkspaceFlow.settingsHelp')" type="button" :disabled="stageSwitching || aiCandidatePending" @click="emit('open-course-information')"><Settings2 :size="18" /><span><strong>{{ t('courseWorkspaceFlow.settings') }}</strong></span></button>
+      <p class="rail-group-label">{{ t('courseWorkspaceFlow.production') }}</p>
       <nav>
         <template v-for="stage in stages" :key="stage.id">
-        <button type="button" :class="{ active: !knowledgeOpen && activeStage === stage.id }" :disabled="stageSwitching || stagePrerequisiteBlocked(stage.id) || (aiCandidatePending && activeStage !== stage.id)" :title="stagePrerequisiteBlocked(stage.id) ? stagePrerequisiteReason(stage.id) : undefined" @click="requestStageChange(stage.id)">
+        <button type="button" :class="{ active: !knowledgeOpen && activeStage === stage.id }" :aria-pressed="!knowledgeOpen && activeStage === stage.id" :disabled="stageSwitching || stagePrerequisiteBlocked(stage.id) || (aiCandidatePending && activeStage !== stage.id)" :title="stagePrerequisiteBlocked(stage.id) ? stagePrerequisiteReason(stage.id) : undefined" @click="requestStageChange(stage.id)">
           <span>{{ stage.step }}</span><component :is="stage.icon" :size="18" /><strong>{{ stage.label }}</strong>
           <span
             v-if="stage.id !== 'ppt' || legacyPptOpen"
@@ -28,12 +30,12 @@
             :aria-label="stageProgressLabel(stage.id)"
           ><Check v-if="stageReady(stage.id)" :size="12" aria-hidden="true" /></span>
         </button>
-        <button v-if="stage.id === 'script'" type="button" :class="{ active: knowledgeOpen }" :disabled="stageSwitching || aiCandidatePending" @click="openKnowledge"><span>04</span><Layers3 :size="18" /><strong>{{ t('knowledgeFirst.tree') }}</strong></button>
         </template>
       </nav>
       <p v-if="!knowledgeOpen && activeStage === 'foundation' && !outlineAvailableForLessons" class="stage-prerequisite-reason" role="status">{{ outlinePrerequisiteReason }}</p>
       <section class="companion-entry">
-        <small>{{ t('courseWorkbench.supporting.group', '其他课程文件') }}</small>
+        <small>{{ t('courseWorkspaceFlow.supporting') }}</small>
+        <button type="button" :class="{ active: knowledgeOpen }" :aria-pressed="knowledgeOpen" :disabled="stageSwitching || aiCandidatePending" :title="t('courseWorkspaceFlow.knowledgeHint')" @click="openKnowledge"><Layers3 :size="18" /><strong>{{ t('knowledgeFirst.tree', '知识树') }}</strong></button>
         <button type="button" :class="{ active: !knowledgeOpen && activeStage === 'question-bank' }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== 'question-bank')" @click="requestStageChange('question-bank')">
           <ListChecks :size="18" /><strong>{{ t('courseWorkbench.stages.questionBank', '题库') }}</strong>
         </button>
@@ -67,6 +69,7 @@
         :aria-label="t('courseWorkbench.contextPane.expand', '展开当前内容信息')"
         @click="contextPaneCollapsed = false"
       ><PanelRightOpen :size="17" /></button>
+      <p class="workspace-document-scope"><span>{{ courseTitle }}</span><ChevronRight :size="14" /><strong>{{ knowledgeOpen ? t('courseWorkspaceFlow.scopeKnowledge') : activeStage === 'foundation' ? t('courseWorkspaceFlow.scopeCourse') : selectedLesson && ['lesson', 'script', 'ppt'].includes(activeStage) ? selectedLesson.title : t('courseWorkspaceFlow.supporting') }}</strong></p>
       <header v-if="activeStage === 'foundation'" class="center-heading">
         <div><h2>{{ activeStageDefinition.label }}</h2></div>
       </header>
@@ -242,6 +245,7 @@
           <label class="form-field"><span>{{ t('courseWorkbench.form.totalHours', '总学时') }}</span><input v-model.number="foundation.totalHours" type="number" min="1" max="1000" /></label>
           <label class="form-field"><span>{{ t('courseWorkbench.form.lectureCount', '计划讲数') }} <b>*</b></span><input v-model.number="foundation.lectureCount" type="number" min="1" max="1000" required /></label>
         </div>
+        <details class="foundation-options"><summary>{{ t('courseWorkspaceFlow.generationOptions') }}</summary>
         <section class="foundation-semantics" aria-labelledby="foundation-semantics-title">
           <header>
             <div>
@@ -318,8 +322,9 @@
           </select>
           <small>{{ t(outlineMode === 'full' ? 'courseWorkbench.outlineMode.fullHelp' : 'courseWorkbench.outlineMode.planHelp') }}</small>
         </label>
+        </details>
         <footer>
-          <span>{{ t('courseWorkbench.form.semanticHint', '系统先规划整课的课型分布，再为每一讲编排可调整的教学环节。') }}</span>
+          <span>{{ t('courseWorkspaceFlow.generateNext') }}</span>
           <button class="primary" type="submit" :disabled="generationStarting || !foundationReady || referenceGenerationBlocked" :title="referenceGenerationBlocked ? referenceGenerationBlockReason : undefined"><Sparkles :size="16" />{{ outlineMode === 'plan_first' ? t('courseWorkbench.outlineMode.generatePlan') : t('courseWorkbench.generateOutline', '生成课程大纲') }}</button>
         </footer>
       </form>
@@ -1159,7 +1164,7 @@
 <script setup lang="ts">
 import TeacherKnowledgeManager from './TeacherKnowledgeManager.vue'
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { BookOpenText, Check, CheckSquare2, ChevronLeft, ChevronRight, ClipboardCheck, ClipboardList, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, PanelRightClose, PanelRightOpen, Pause, Pencil, Play, Presentation, RotateCcw, Sparkles, TriangleAlert, Upload, X } from 'lucide-vue-next'
+import { BookOpenText, Check, CheckSquare2, ChevronLeft, ChevronRight, ClipboardCheck, ClipboardList, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, PanelRightClose, PanelRightOpen, Pause, Pencil, Play, Presentation, RotateCcw, Settings2, Sparkles, TriangleAlert, Upload, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
@@ -1315,9 +1320,10 @@ type OutlineEditorHandle = ProductionAiDocumentHandle & {
   undoEdit: () => void
   redoEdit: () => void
 }
-const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; generationOptions: CourseGenerationOptions & { subject?: string }; generationStarting?: boolean; materialRefreshToken?: number; initialStage?: StageId; initialLessonId?: string; initialIssueId?: string; initialBlockId?: string; initialTaskId?: string; expandIssue?: boolean; outlineEditing?: boolean }>(), { materialRefreshToken: 0, initialStage: 'foundation', initialLessonId: '', initialIssueId: '', initialBlockId: '', initialTaskId: '', expandIssue: false, outlineEditing: false })
+const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; generationOptions: CourseGenerationOptions & { subject?: string }; generationStarting?: boolean; materialRefreshToken?: number; initialStage?: StageId; initialLessonId?: string; initialKnowledge?: boolean; initialCompanionTemplateId?: string; initialIssueId?: string; initialBlockId?: string; initialTaskId?: string; expandIssue?: boolean; outlineEditing?: boolean }>(), { materialRefreshToken: 0, initialStage: 'foundation', initialLessonId: '', initialKnowledge: false, initialCompanionTemplateId: '', initialIssueId: '', initialBlockId: '', initialTaskId: '', expandIssue: false, outlineEditing: false })
 const emit = defineEmits<{
   (event: 'generateOutline', payload: { subject: string; options: CourseGenerationOptions; references: CourseReferenceItem[] }): void
+  (event: 'location-change', value: { stage: StageId; lessonId: string; knowledge: boolean; companionTemplateId: string }): void
   (event: 'update:outlineEditing', value: boolean): void
   (event: 'open-course-information'): void
   (event: 'open-course-adjustment', payload: { planId: string }): void
@@ -1346,9 +1352,9 @@ const activeProductionIssueSummary = computed(() => {
     : '本课程有 {count} 项内容需要处理。'
   return t(key, fallback).replace('{count}', String(count))
 })
-const knowledgeOpen = ref(false)
+const knowledgeOpen = ref(props.initialKnowledge)
 const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = ref(props.initialLessonId)
-const activeCompanionTemplateId = ref<CompanionTemplateId>(GRADING_RUBRIC_TEMPLATE_ID)
+const activeCompanionTemplateId = ref<CompanionTemplateId>(props.initialCompanionTemplateId === MATERIAL_CHECKLIST_TEMPLATE_ID ? MATERIAL_CHECKLIST_TEMPLATE_ID : GRADING_RUBRIC_TEMPLATE_ID)
 const stageSwitching = ref(false)
 const selectedLessonSectionId = ref('')
 const workbenchRoot = ref<HTMLElement | null>(null)
@@ -1523,7 +1529,7 @@ const stages = computed(() => [
   { id: 'foundation' as const, step: '01', label: t('courseWorkbench.stages.foundation', '大纲'), icon: markRaw(Layers3) },
   { id: 'lesson' as const, step: '02', label: t('courseWorkbench.stages.lesson', '教案'), icon: markRaw(ClipboardList) },
   { id: 'script' as const, step: '03', label: t('courseWorkbench.stages.script', '讲义'), icon: markRaw(BookOpenText) },
-  { id: 'ppt' as const, step: '05', label: t('courseWorkbench.stages.ppt', 'PPT'), icon: markRaw(Presentation) },
+  { id: 'ppt' as const, step: '04', label: t('courseWorkbench.stages.ppt', 'PPT'), icon: markRaw(Presentation) },
 ])
 const activeStageDefinition = computed(() => stages.value.find(item => item.id === activeStage.value) || {
   id: activeStage.value === 'question-bank' ? 'question-bank' as const : 'companion' as const,
@@ -4681,7 +4687,17 @@ watch([
     retainedOutlineGrowth.value = null
   }
 }, { immediate: true, deep: true })
-watch(() => props.initialStage, stage => { void requestStageChange(stage, { loadLesson: false }) })
+watch(() => props.initialStage, stage => { void requestStageChange(stage) })
+watch(() => props.initialKnowledge, async value => {
+  if (value) await openKnowledge()
+  else knowledgeOpen.value = false
+})
+watch(() => props.initialCompanionTemplateId, value => {
+  if (value === GRADING_RUBRIC_TEMPLATE_ID || value === MATERIAL_CHECKLIST_TEMPLATE_ID) activeCompanionTemplateId.value = value
+})
+watch([activeStage, selectedLessonId, knowledgeOpen, activeCompanionTemplateId], () => {
+  emit('location-change', { stage: activeStage.value, lessonId: selectedLessonId.value, knowledge: knowledgeOpen.value, companionTemplateId: activeCompanionTemplateId.value })
+}, { flush: 'post' })
 watch(() => props.initialLessonId, lessonId => { if (lessonId) void selectLesson(lessonId) })
 watch([activeProductionIssue, () => props.initialBlockId], async ([issue, blockId]) => {
   if (!issue || !blockId) return
@@ -5128,4 +5144,12 @@ onBeforeUnmount(() => {
   .stage-rail,.context-pane{min-width:0;overflow-wrap:anywhere}
 }
 @media(max-width:760px){.teacher-workbench>.column-resize-handle{display:none}}
+</style>
+
+<style scoped>
+.course-settings-entry{display:flex;align-items:center;gap:10px;width:100%;padding:13px 10px;margin:0 0 12px;border:1px solid #e4e7ef;border-radius:10px;background:#fff;color:#6653bf;cursor:pointer;text-align:left}.course-settings-entry>span{min-width:0;display:grid;gap:4px}.course-settings-entry strong{font-size:15px}.course-settings-entry small{font-size:15px;color:#7c8797;line-height:1.4}.course-settings-entry svg{flex:none}.course-settings-entry:focus-visible{outline:3px solid #b9a8ee;outline-offset:2px}.rail-group-label{padding:0 10px;margin:12px 0 6px;color:#7c8797;font-size:15px;font-weight:700}.workspace-document-scope{display:flex;align-items:center;gap:8px;margin:0 0 18px;color:#79859b;font-size:15px;line-height:1.6;overflow-wrap:anywhere}.workspace-document-scope svg{flex:none}.workspace-document-scope strong{font-weight:600;color:#5e6c83}.stage-rail>nav button>strong{font-size:15px}.companion-entry small,.companion-entry button>strong{font-size:15px}
+</style>
+
+<style scoped>
+.foundation-options{padding:17px 0;border-top:1px solid #e3e7ef}.foundation-options>summary{cursor:pointer;color:#6451b8;font-size:15px;font-weight:700}.foundation-options[open]>summary{margin-bottom:20px}.stage-form .form-field>span,.stage-form input,.stage-form textarea,.stage-form select{font-size:15px}.stage-form>footer{align-items:center}.stage-form>footer>span{font-size:15px;line-height:1.6}.course-settings-entry{min-height:44px;padding:11px 10px}
 </style>

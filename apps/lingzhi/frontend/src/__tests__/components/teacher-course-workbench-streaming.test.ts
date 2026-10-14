@@ -281,7 +281,7 @@ describe('teacher course workbench outline streaming', () => {
       return { schema_version: 'teacher_lesson_authoring_view_v1', course_id: courseId, outline_revision_id: 'outline-1', lessons: lessonStore.lessons, jobs: [] }
     })
     const wrapper = mountWorkbench({ initialStage: initialStage as any })
-    if (initialStage === 'foundation') await wrapper.get('.companion-entry button').trigger('click')
+    if (initialStage === 'foundation') await wrapper.findAll('.companion-entry button').find(button => button.text() === '题库')!.trigger('click')
     await flushPromises()
     expect(load).toHaveBeenCalledWith('course-1')
     expect(wrapper.findComponent({ name: 'QuestionBankReviewPanel' }).exists()).toBe(true)
@@ -296,7 +296,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.stage-rail > header small').exists()).toBe(false)
     expect(wrapper.find('.stage-rail nav small').exists()).toBe(false)
     expect(wrapper.find('.companion-entry button small').exists()).toBe(false)
-    expect(wrapper.findAll('.companion-entry button').map(button => button.text())).toEqual(['题库', '评分细则', '考试课程材料自查清单'])
+    expect(wrapper.findAll('.companion-entry button').map(button => button.text())).toEqual(['知识树', '题库', '评分细则', '考试课程材料自查清单'])
     expect(wrapper.findAll('.companion-entry button').every(button => button.findAll('svg').length === 1)).toBe(true)
     expect(wrapper.find('.stage-rail > footer').exists()).toBe(false)
     expect(wrapper.findAll('.stage-state')).toHaveLength(3) // PPT projects can span lectures and report their own state.

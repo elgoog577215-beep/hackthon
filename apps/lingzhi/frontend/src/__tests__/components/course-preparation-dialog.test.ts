@@ -61,6 +61,28 @@ describe('CoursePreparationDialog', () => {
     expect(wrapper.emitted('completed')?.[0]).toEqual([{ openAudit: false }])
   })
 
+  it('honors the blank choice from creation without asking for the same choice again', async () => {
+    httpMock.patch.mockResolvedValue({ data: { ...pendingPackage, preparation_status: 'skipped' } })
+    const wrapper = mount(CoursePreparationDialog, { props: { courseId: 'course-1', courseTitle: '数据结构', startMode: 'blank' }, global: { stubs: { Teleport: true } } })
+    await flushPromises()
+    expect(httpMock.patch).toHaveBeenCalledWith('/api/teacher-course-spaces/package-1/preparation', { status: 'skipped' }, expect.anything())
+    expect(wrapper.find('.preparation-choice').exists()).toBe(false)
+    expect(httpMock.post).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('opens upload for the material choice but can explicitly defer it', async () => {
+    httpMock.patch.mockResolvedValue({ data: { ...pendingPackage, preparation_status: 'skipped' } })
+    const wrapper = mount(CoursePreparationDialog, { props: { courseId: 'course-1', courseTitle: '数据结构', startMode: 'materials' }, global: { stubs: { Teleport: true } } })
+    await flushPromises()
+    expect(wrapper.find('.preparation-import').exists()).toBe(true)
+    expect(wrapper.find('.preparation-choice').exists()).toBe(false)
+    expect(httpMock.post).not.toHaveBeenCalled()
+    await wrapper.get('.defer-import').trigger('click'); await flushPromises()
+    expect(wrapper.emitted('completed')?.[0]).toEqual([{ openAudit: false }])
+    wrapper.unmount()
+  })
+
   it('批量导入并完成分析后要求进入独立审计报告', async () => {
     const reviewPackage = {
       ...pendingPackage,

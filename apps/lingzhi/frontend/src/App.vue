@@ -26,7 +26,8 @@
       <div v-if="!isLearningRoute" id="app-header-route-center" class="app-header-center" />
 
       <div v-if="!isLearningRoute" id="app-header-route-actions" class="route-header-actions">
-        <RouterLink v-if="route.name === 'course-library'" class="header-icon-button" to="/study">{{ activeLocale === 'en' ? 'My study space' : '我的学习空间' }}</RouterLink>
+        <a v-if="route.name === 'course-library' && studyPortalUrl" class="header-icon-button" :href="studyPortalUrl">{{ t('courseWorkspaceFlow.studentSpace') }}</a>
+        <RouterLink v-else-if="route.name === 'course-library'" class="header-icon-button" to="/study">{{ t('courseWorkspaceFlow.studentSpace') }}</RouterLink>
       </div>
 
       <div v-if="isLearningRoute" class="header-actions">
@@ -132,14 +133,18 @@ import { useCourseStore } from './stores/course'
 import { GENERATION_STATE_KEY, useGenerationStore } from './stores/generation'
 import { activeLocale, setLocale, t } from './shared/i18n'
 import { isQizhiAuthRequired } from './utils/http'
+import { configuredStudyPortal } from './shared/study-portal'
 
 const route = useRoute()
 const courseStore = useCourseStore()
 const generationStore = useGenerationStore()
 const qizhiHomeEnabled = isQizhiAuthRequired()
+const studyPortalUrl = configuredStudyPortal(import.meta.env.VITE_STUDY_APP_URL)
+const canMonitorGeneration = computed(() => route.name !== 'study'
+  && !(route.name === 'learning' && route.query.teacherPreview !== '1'))
 
 const reconcileGenerationTasks = () => {
-  if (route.name === 'study') return
+  if (!canMonitorGeneration.value) return
   void generationStore.fetchGlobalTasks()
 }
 const reconcileGenerationTasksFromStorage = (event: StorageEvent) => {
@@ -152,7 +157,9 @@ const reconcileVisibleGenerationTasks = () => {
 onMounted(() => {
   if (window.location.pathname.startsWith('/workspace-concept') || (import.meta.env.DEV && window.location.pathname.includes('/student-profile-demo'))) return
   const directStudyEntry = window.location.pathname.endsWith('/study') || window.location.pathname.includes('/study/')
-  if (route.name !== 'study' && !directStudyEntry) {
+  const directStudentLearning = /\/course\/[^/]+\/learn(?:\/|$)/.test(window.location.pathname)
+    && new URLSearchParams(window.location.search).get('teacherPreview') !== '1'
+  if (canMonitorGeneration.value && !directStudyEntry && !directStudentLearning) {
     generationStore.restoreGenerationState()
     generationStore.startGlobalMonitor()
   }
@@ -160,8 +167,8 @@ onMounted(() => {
   window.addEventListener('focus', reconcileGenerationTasks)
   document.addEventListener('visibilitychange', reconcileVisibleGenerationTasks)
 })
-watch(() => route.name, name => {
-  if (name === 'study') generationStore.stopGlobalMonitor()
+watch([canMonitorGeneration, () => route.name], ([allowed, name]) => {
+  if (!allowed) generationStore.stopGlobalMonitor()
   else if (name !== 'workspace-concept') {
     generationStore.restoreGenerationState()
     generationStore.startGlobalMonitor()
@@ -249,8 +256,9 @@ function changeLocale(locale: string) {
 }
 
 .app-shell.is-course-workspace-route .app-header {
-  grid-template-columns: minmax(320px, 1.2fr) auto minmax(320px, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   gap: 12px;
+  container: course-workspace-header / inline-size;
 }
 
 .app-shell.is-course-workspace-route .app-header-start { gap: 0; }
@@ -353,7 +361,7 @@ function changeLocale(locale: string) {
 
 @media (max-width: 900px) {
   .app-header { grid-template-columns: auto minmax(180px, 1fr) auto; gap: 8px; padding: 0 10px; }
-  .app-shell.is-course-workspace-route .app-header { grid-template-columns:minmax(230px,1fr) auto minmax(180px,auto); }
+  .app-shell.is-course-workspace-route .app-header { grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); }
   .brand-name { display:none; }
   .header-search { display: none; }
 }

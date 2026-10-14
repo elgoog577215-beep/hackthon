@@ -31,6 +31,21 @@ class StudyRepository:
         namespace = hashlib.sha256(owner.encode()).hexdigest()
         return MaterialRepository(Path(self.storage._data_dir) / "study_sources" / namespace)
 
+    def source_origin(self, owner: str, asset_id: str) -> dict | None:
+        return (self.storage.load_data("study_course_sources.json") or {}).get(owner, {}).get(asset_id)
+
+    def require_origin_access(self, owner: str, origin: dict | None):
+        if not origin:
+            return
+        if origin.get("exchange_origin"):
+            from course_exchange import read_remote_course
+            read_remote_course(self.storage, owner, origin["course_id"], release_id=origin["exchange_origin"]["release_id"])
+            return
+        from course_learning_access import CourseLearningAccess
+        course = self.storage.load_course(origin["course_id"])
+        if not course or (course.get("owner_id") != owner and not CourseLearningAccess(self.storage).active(course, owner)):
+            raise KeyError("来源授权已撤销")
+
     def ledger(self) -> dict:
         # Read under the shared lock: another worker may have committed progress.
         with self.storage._lock_generic_data("study_materials.json"):
@@ -42,6 +57,8 @@ class StudyRepository:
         value = self.ledger().get(material_id)
         if not value or value["owner_id"] != owner:
             raise KeyError(material_id)
+        for section in value.get("request", {}).get("source_sections", []):
+            self.require_origin_access(owner, section.get("course_origin"))
         return deepcopy(value)
 
     def list(self, owner: str) -> list[dict]:
