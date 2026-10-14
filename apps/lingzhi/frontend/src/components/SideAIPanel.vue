@@ -2161,8 +2161,9 @@ onUnmounted(() => {
 .action-proposal__icon { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 8px; color: var(--lz-brand); background: #fff; }
 .action-proposal strong { color: #3730a3; font-size: 11px; }
 .action-proposal p { margin: 3px 0 9px; color: var(--lz-text-secondary); font-size: 10px; line-height: 1.5; }
-.primary-command,.secondary-command { min-height: 29px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 9px; border-radius: 7px; font-size: 10px; font-weight: 700; cursor: pointer; }
-.primary-command { border: 1px solid var(--lz-brand-strong); color: #fff; background: var(--lz-brand-strong); }
+.primary-command { min-height: 29px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 9px; border-radius: var(--lz-action-radius); font-size: 10px; font-weight: 700; cursor: pointer; color:var(--lz-action-text); border:1px solid var(--lz-action-border); box-shadow:var(--lz-action-shadow); }
+.secondary-command { min-height: 29px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 9px; border-radius: 7px; font-size: 10px; font-weight: 700; cursor: pointer; }
+.primary-command { border: 1px solid var(--lz-action-border); color: var(--lz-action-text); background: var(--lz-action-bg); border-radius:var(--lz-action-radius); box-shadow:var(--lz-action-shadow); }
 .secondary-command { border: 1px solid rgba(165,180,252,.8); color: var(--lz-text-secondary); background: rgba(255,255,255,.8); }
 .action-receipt { min-width: 0; display: flex; align-items: center; gap: 7px; padding: 8px 9px; border: 1px solid rgba(22,163,74,.24); border-radius: 8px; color: #166534; background: var(--lz-success-soft); font-size: 10px; }
 .action-receipt:not(.is-succeeded) { border-color: rgba(220,38,38,.24); color: #991b1b; background: var(--lz-danger-soft); }
@@ -2181,10 +2182,10 @@ onUnmounted(() => {
 .composer-box textarea { width: 100%; min-height: 40px; max-height: 144px; resize: none; overflow-y: auto; border: 0; padding: 6px 0 4px; color: var(--lz-text); background: transparent; font: inherit; font-size: 12px; line-height: 1.5; outline: none; }
 .composer-box textarea::placeholder { color: var(--lz-text-muted); }
 .composer-box textarea:disabled { cursor: not-allowed; }
-.send-button { width: 38px; height: 38px; display: grid; place-items: center; border: 0; border-radius: 11px; color: #fff; background: linear-gradient(135deg,#6366f1,#8b5cf6); box-shadow: 0 6px 14px rgba(99,102,241,.22); cursor: pointer; transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
-.send-button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(99,102,241,.28); }
+.send-button { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--lz-action-border); border-radius: var(--lz-action-radius); color: var(--lz-action-text); background: var(--lz-action-bg); box-shadow: var(--lz-action-shadow); cursor: pointer; transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
+.send-button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--lz-action-shadow-hover); }
 .send-button.is-stop { color: var(--lz-danger); background: var(--lz-danger-soft); box-shadow: none; }
-.send-button:disabled { color: #cbd5e1; background: #f1f5f9; box-shadow: none; cursor: not-allowed; }
+.send-button:disabled { color: var(--lz-action-disabled-text); background: var(--lz-action-disabled-bg); box-shadow: none; cursor: not-allowed; }
 
 .spin { animation: spin 1s linear infinite; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
@@ -2214,7 +2215,8 @@ onUnmounted(() => {
   .user-message-bubble { max-width: 86%; }
   .action-proposal { grid-template-columns: 24px minmax(0,1fr); padding: 9px; }
   .proposal-actions { align-items: stretch; flex-direction: column; }
-  .primary-command,.secondary-command { width: 100%; }
+  .primary-command { width: 100%; color:var(--lz-action-text); border:1px solid var(--lz-action-border); border-radius:var(--lz-action-radius); box-shadow:var(--lz-action-shadow); }
+  .secondary-command { width: 100%; }
   .action-receipt { align-items: flex-start; flex-wrap: wrap; }
   .personalization-workspace { padding-inline:10px; }
   .personalization-scope > div { grid-template-columns:1fr; }

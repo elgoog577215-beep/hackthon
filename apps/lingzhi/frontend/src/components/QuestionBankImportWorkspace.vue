@@ -670,8 +670,24 @@ function documentStateLabel(item: ImportSummary) {
   font-size: 10.5px;
   line-height: 1.35;
 }
-.quiet-button,
 .primary-action {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid var(--lz-action-border);
+  border-radius: var(--lz-action-radius);
+  color: var(--lz-action-text);
+  background: var(--lz-action-bg);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: var(--lz-action-shadow);
+}
+.quiet-button {
   min-height: 34px;
   display: inline-flex;
   align-items: center;
@@ -693,24 +709,32 @@ function documentStateLabel(item: ImportSummary) {
   background: #f8f8ff;
 }
 .primary-action {
-  border-color: #514bdc;
-  color: #fff;
-  background: #514bdc;
-  box-shadow: 0 6px 14px rgba(81, 75, 220, .14);
+  border-color: var(--lz-action-border);
+  color: var(--lz-action-text);
+  background: var(--lz-action-bg);
+  box-shadow: var(--lz-action-shadow);
+  border: 1px solid var(--lz-action-border);
+  border-radius: var(--lz-action-radius);
 }
 .primary-action:hover:not(:disabled) {
-  background: #4338ca;
+  background: var(--lz-action-bg);
+}
+.primary-action:focus-visible {
+  outline: 2px solid var(--lz-action-focus);
+  outline-offset: 2px;
 }
 .quiet-button:focus-visible,
-.primary-action:focus-visible,
 .question-import__documents button:focus-visible,
 .source-preview button:focus-visible,
 .question-editor button:focus-visible {
   outline: 2px solid #6366f1;
   outline-offset: 2px;
 }
-.quiet-button:disabled,
 .primary-action:disabled {
+  opacity: .48;
+  cursor: not-allowed;
+}
+.quiet-button:disabled {
   opacity: .48;
   cursor: not-allowed;
 }

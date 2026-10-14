@@ -1074,12 +1074,12 @@ watch(() => courseStore.currentCourseId, () => {
 .knowledge-tree-relations button .knowledge-tree-relation-copy small { overflow:hidden; color:#777e91; font-size:10px; line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
 .knowledge-tree-detail-footer { max-width:880px; display:flex; align-items:center; justify-content:space-between; gap:20px; margin-top:32px; padding-top:18px; border-top:1px solid #e8eaf2; }
 .knowledge-tree-detail-footer > div { min-width:0; display:flex; flex-wrap:wrap; gap:6px 12px; color:#9aa0b1; font-size:9.5px; }
-.knowledge-tree-detail-footer button, .knowledge-tree-state button { min-height:36px; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:0 13px; border:1px solid #6a50e8; border-radius:9px; color:#fff; background:#6a50e8; font-size:11px; font-weight:700; cursor:pointer; }
-.knowledge-tree-detail-footer button:hover, .knowledge-tree-state button:hover { border-color:#563ccd; background:#563ccd; }
+.knowledge-tree-detail-footer button, .knowledge-tree-state button { min-height:36px; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:0 13px; border:1px solid var(--lz-action-border); border-radius:var(--lz-action-radius); color:var(--lz-action-text); background:var(--lz-action-bg); font-size:11px; font-weight:700; cursor:pointer; box-shadow:var(--lz-action-shadow); }
+.knowledge-tree-detail-footer button:hover, .knowledge-tree-state button:hover { border-color:var(--lz-action-border-hover); background:var(--lz-action-bg); }
 .knowledge-tree-detail-empty, .knowledge-tree-state { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:9px; padding:32px; color:#9298ab; text-align:center; }
 .knowledge-tree-detail-empty strong, .knowledge-tree-state strong { color:#50576f; font-size:13px; }
 .knowledge-tree-state span { max-width:460px; font-size:11px; line-height:1.6; }
-.knowledge-tree-state button { margin-top:4px; }
+.knowledge-tree-state button { margin-top:4px; color:var(--lz-action-text); border:1px solid var(--lz-action-border); border-radius:var(--lz-action-radius); box-shadow:var(--lz-action-shadow); }
 .knowledge-tree-state button:disabled { opacity:.62; cursor:wait; }
 .knowledge-tree-state--error svg { color:#ce5555; }
 .knowledge-tree-state--upgrade { gap:10px; }
@@ -1151,6 +1151,6 @@ watch(() => courseStore.currentCourseId, () => {
   .knowledge-tree-description { font-size:13px; }
   .knowledge-tree-bindings { gap:8px 15px; }
   .knowledge-tree-detail-footer { align-items:flex-start; flex-direction:column; }
-  .knowledge-tree-detail-footer button { width:100%; }
+  .knowledge-tree-detail-footer button { width:100%; color:var(--lz-action-text); border:1px solid var(--lz-action-border); border-radius:var(--lz-action-radius); box-shadow:var(--lz-action-shadow); }
 }
 </style>

@@ -37,17 +37,17 @@
                 <!-- Dialog Content -->
                 <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all">
                     <!-- Header -->
-                    <div class="px-6 py-5 bg-gradient-to-r from-primary-500 to-primary-600 flex items-center justify-between">
+                    <div class="reading-dialog-heading px-6 py-5 flex items-center justify-between">
                         <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                                <el-icon class="text-white" :size="24"><Download /></el-icon>
+                            <div class="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center">
+                                <el-icon class="text-primary-600" :size="24"><Download /></el-icon>
                             </div>
                             <div>
-                                <h3 class="text-lg font-bold text-white">{{ exportDialog.title }}</h3>
-                                <p class="text-sm text-white/80">{{ exportDialog.subtitle }}</p>
+                                <h3 class="text-lg font-bold text-slate-800">{{ exportDialog.title }}</h3>
+                                <p class="text-sm text-slate-500">{{ exportDialog.subtitle }}</p>
                             </div>
                         </div>
-                        <button @click="closeExportDialog" class="w-8 h-8 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/20 rounded-lg transition-all">
+                        <button @click="closeExportDialog" class="w-8 h-8 flex items-center justify-center text-slate-500 hover:text-primary-600 hover:bg-slate-100 rounded-lg transition-all">
                             <el-icon :size="20"><Close /></el-icon>
                         </button>
                     </div>
@@ -128,7 +128,7 @@
                         <button 
                             @click="executeExport" 
                             :disabled="exportDialog.loading"
-                            class="px-5 py-2 bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 text-white text-sm font-medium rounded-lg shadow-lg shadow-primary-500/25 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            class="lz-action-button px-5 py-2 font-medium transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             <el-icon v-if="exportDialog.loading" class="is-loading"><Loading /></el-icon>
                             <el-icon v-else><Download /></el-icon>
@@ -146,17 +146,17 @@
             <div v-if="settingsDialog.visible" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
                 <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="closeSettingsDialog"></div>
                 <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all">
-                    <div class="px-6 py-5 bg-gradient-to-r from-primary-500 to-primary-600 flex items-center justify-between">
+                    <div class="reading-dialog-heading px-6 py-5 flex items-center justify-between">
                         <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                                <el-icon class="text-white" :size="24"><Setting /></el-icon>
+                            <div class="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center">
+                                <el-icon class="text-primary-600" :size="24"><Setting /></el-icon>
                             </div>
                             <div>
-                                <h3 class="text-lg font-bold text-white">阅读设置</h3>
-                                <p class="text-sm text-white/80">自定义阅读体验</p>
+                                <h3 class="text-lg font-bold text-slate-800">阅读设置</h3>
+                                <p class="text-sm text-slate-500">自定义阅读体验</p>
                             </div>
                         </div>
-                        <button @click="closeSettingsDialog" class="w-8 h-8 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/20 rounded-lg transition-all">
+                        <button @click="closeSettingsDialog" class="w-8 h-8 flex items-center justify-center text-slate-500 hover:text-primary-600 hover:bg-slate-100 rounded-lg transition-all">
                             <el-icon :size="20"><Close /></el-icon>
                         </button>
                     </div>
@@ -200,7 +200,7 @@
                     </div>
                     <div class="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
                         <button @click="closeSettingsDialog" class="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-200/50 rounded-lg transition-all">取消</button>
-                        <button @click="applySettings" class="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg transition-all flex items-center gap-2">
+                        <button @click="applySettings" class="lz-action-button px-4 py-2 font-medium transition-colors flex items-center gap-2">
                             <el-icon><Check /></el-icon>应用设置
                         </button>
                     </div>

@@ -730,8 +730,8 @@ async function toggleDetail(group: string): Promise<void> {
 .knowledge-command-actions { display:flex; flex-wrap:wrap; gap:8px; }
 .knowledge-command-actions button { min-height:28px; display:inline-flex; align-items:center; gap:6px; padding:0 11px; border:1px solid #e1e3ed; border-radius:7px; color:#5d5a80; background:#fff; font-size:10.5px; font-weight:700; cursor:pointer; }
 .knowledge-command-actions button:disabled { color:#b3b7c6; cursor:not-allowed; }
-.knowledge-command-actions button.is-primary { border-color:transparent; color:#fff; background:linear-gradient(135deg,#6a4fdb,#8b5cf6); }
-.knowledge-command-actions button.is-primary:disabled { background:#cfcbe6; }
+.knowledge-command-actions button.is-primary { border-color:var(--lz-action-border); color:var(--lz-action-text); background:var(--lz-action-bg); border:1px solid var(--lz-action-border); border-radius:var(--lz-action-radius); box-shadow:var(--lz-action-shadow); }
+.knowledge-command-actions button.is-primary:disabled { background:var(--lz-action-disabled-bg); }
 .knowledge-command-candidate { display:flex; flex-direction:column; gap:8px; padding:10px 12px; border:1px solid #ddd8f5; border-radius:9px; background:#fff; }
 .knowledge-command-candidate > header { display:flex; align-items:center; gap:6px; color:#453b7a; font-size:11.5px; }
 .knowledge-command-badge { margin-left:auto; padding:1px 7px; border-radius:20px; font-size:9.5px; font-weight:700; }

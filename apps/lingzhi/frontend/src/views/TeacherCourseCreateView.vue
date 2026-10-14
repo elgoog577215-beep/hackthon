@@ -318,9 +318,9 @@ onBeforeUnmount(() => { if (dialogRef.value?.open) dialogRef.value.close() })
 .form-actions { flex: none; display: flex; align-items: center; gap: 8px; }
 .form-actions button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 14px; border: 1px solid var(--lz-border); border-radius: 8px; color: var(--lz-text); background: #fff; font: inherit; font-size: 15px; font-weight: 600; line-height: 1.4; white-space: nowrap; cursor: pointer; }
 .form-actions button svg { flex: none; }
-.form-actions button.primary { min-width: 112px; border-color: var(--lz-brand); color: #fff; background: var(--lz-brand); box-shadow: none; }
+.form-actions button.primary { min-width: 112px; border-color: var(--lz-action-border); color: var(--lz-action-text); background: var(--lz-action-bg); box-shadow: var(--lz-action-shadow); border: 1px solid var(--lz-action-border); border-radius: var(--lz-action-radius); }
 .form-actions button:hover { border-color: var(--lz-brand); color: var(--lz-brand-strong); }
-.form-actions button.primary:hover { border-color: var(--lz-brand-strong); color: #fff; background: var(--lz-brand-strong); }
+.form-actions button.primary:hover { border-color: var(--lz-action-border-hover); color: var(--lz-action-text); background: var(--lz-action-bg); }
 .form-actions button:disabled { opacity: .5; cursor: not-allowed; }
 button:focus-visible, summary:focus-visible { outline: 2px solid var(--lz-brand); outline-offset: 2px; }
 .spin { animation: spin 1s linear infinite; }

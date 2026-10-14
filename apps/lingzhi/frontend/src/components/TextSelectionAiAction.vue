@@ -1093,9 +1093,12 @@ defineExpose({ openForDocument, closeComposer })
   cursor: pointer;
 }
 .text-selection-ai__composer button.primary {
-  border-color: var(--lz-brand-strong, #5148b6);
-  background: var(--lz-brand-strong, #5148b6);
-  color: #fff;
+  border-color: var(--lz-action-border);
+  background: var(--lz-action-bg);
+  color: var(--lz-action-text);
+  border: 1px solid var(--lz-action-border);
+  border-radius: var(--lz-action-radius);
+  box-shadow: var(--lz-action-shadow);
 }
 .text-selection-ai__composer button:hover:not(:disabled) {
   filter: brightness(0.95);

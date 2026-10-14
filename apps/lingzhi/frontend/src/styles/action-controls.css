@@ -1,0 +1,68 @@
+/* Shared surfaces for course, learning, AI and dialog actions. */
+:root {
+  --lz-action-bg: #fff;
+  --lz-action-text: var(--lz-brand-strong, #4f46e5);
+  --lz-action-border: var(--lz-border, rgba(203, 213, 225, .68));
+  --lz-action-border-hover: #c8c9dc;
+  --lz-action-radius: 10px;
+  --lz-action-focus: #9385ed;
+  --lz-action-shadow: inset 0 0 0 3px #f5f6fa, 0 2px 7px rgba(15, 23, 42, .08);
+  --lz-action-shadow-hover: inset 0 0 0 3px #f1f2f7, 0 2px 7px rgba(15, 23, 42, .12);
+  --lz-action-disabled-bg: #f8f9fc;
+  --lz-action-disabled-text: #94a3b8;
+}
+
+/* Element Plus also supplies buttons in teleported confirmation dialogs. */
+.lz-action-button {
+  color: var(--lz-action-text);
+  background: var(--lz-action-bg);
+  border: 1px solid var(--lz-action-border);
+  border-radius: var(--lz-action-radius);
+  box-shadow: var(--lz-action-shadow);
+  font-size: 15px;
+}
+.lz-action-button:hover:not(:disabled) {
+  border-color: var(--lz-action-border-hover);
+  box-shadow: var(--lz-action-shadow-hover);
+}
+.lz-action-button:focus-visible {
+  outline: 2px solid var(--lz-action-focus);
+  outline-offset: 2px;
+}
+.lz-action-button:disabled {
+  color: var(--lz-action-disabled-text);
+  background: var(--lz-action-disabled-bg);
+  box-shadow: none;
+}
+.reading-dialog-heading {
+  color: var(--lz-text-strong, #263449);
+  background: #fff;
+  border-bottom: 1px solid var(--lz-action-border);
+}
+
+.el-button.el-button--primary:not(.is-text):not(.is-link) {
+  --el-button-bg-color: var(--lz-action-bg);
+  --el-button-text-color: var(--lz-action-text);
+  --el-button-border-color: var(--lz-action-border);
+  --el-button-hover-bg-color: var(--lz-action-bg);
+  --el-button-hover-text-color: var(--lz-action-text);
+  --el-button-hover-border-color: var(--lz-action-border-hover);
+  --el-button-active-bg-color: var(--lz-action-bg);
+  --el-button-active-text-color: var(--lz-action-text);
+  --el-button-active-border-color: var(--lz-action-border-hover);
+  --el-button-disabled-bg-color: var(--lz-action-disabled-bg);
+  --el-button-disabled-text-color: var(--lz-action-disabled-text);
+  --el-button-disabled-border-color: var(--lz-action-border);
+  border-radius: var(--lz-action-radius);
+  box-shadow: var(--lz-action-shadow);
+}
+.el-button.el-button--primary:not(.is-text):not(.is-link):hover:not(:disabled) {
+  box-shadow: var(--lz-action-shadow-hover);
+}
+.el-button.el-button--primary:not(.is-text):not(.is-link):focus-visible {
+  outline: 2px solid var(--lz-action-focus);
+  outline-offset: 2px;
+}
+.el-button.el-button--primary.is-disabled {
+  box-shadow: none;
+}

@@ -544,8 +544,8 @@ onUnmounted(() => {
 .review-footer > div { display:flex; gap:8px; }
 .review-footer button { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0 16px; border-radius:10px; font-size:11px; font-weight:800; cursor:pointer; }
 .review-footer .secondary { border:1px solid #cbd5e1; color:#475569; background:#fff; }
-.review-footer .apply-selected { border:1px solid #4f46e5; color:#fff; background:#4f46e5; }
-.review-footer .scan-running { border:1px solid #7c3aed; color:#fff; background:#7c3aed; }
+.review-footer .apply-selected { border:1px solid var(--lz-action-border); color:var(--lz-action-text); background:var(--lz-action-bg); border-radius:var(--lz-action-radius); box-shadow:var(--lz-action-shadow); }
+.review-footer .scan-running { border:1px solid var(--lz-action-border); color:var(--lz-action-text); background:var(--lz-action-bg); border-radius:var(--lz-action-radius); box-shadow:var(--lz-action-shadow); }
 .review-footer .apply-selected:disabled,.review-footer .scan-running:disabled { opacity:.58; cursor:not-allowed; }
 .spinning { animation:review-spin .8s linear infinite; }
 @keyframes review-spin { to { transform:rotate(360deg); } }

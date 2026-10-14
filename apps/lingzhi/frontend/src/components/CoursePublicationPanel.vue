@@ -85,15 +85,15 @@ p { color: var(--lz-text-secondary); white-space: pre-wrap; }
 .inline-access { min-height: 0; padding: 0 4px; border: 0; color: var(--lz-brand-strong); background: transparent; }
 .publication-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 16px; border: 1px solid var(--lz-border); border-radius: var(--lz-radius-control); background: var(--lz-surface-subtle); }
 .publication-actions strong { flex: 1; min-width: 180px; font-weight: 600; }
-.publication-actions button:first-of-type, form button { border-color: var(--lz-brand); color: #fff; background: var(--lz-brand); }
-.publication-actions button:first-of-type:hover, form button:hover { border-color: var(--lz-brand-strong); background: var(--lz-brand-strong); }
+.publication-actions button:first-of-type, form button { border-color: var(--lz-action-border); color: var(--lz-action-text); background: var(--lz-action-bg); border: 1px solid var(--lz-action-border); border-radius: var(--lz-action-radius); box-shadow: var(--lz-action-shadow); }
+.publication-actions button:first-of-type:hover, form button:hover { border-color: var(--lz-action-border-hover); background: var(--lz-action-bg); }
 article { margin-top: 20px; padding: 20px 0; border-top: 1px solid var(--lz-border); }
 .feedback-meta { display: flex; align-items: start; justify-content: space-between; gap: 16px; overflow-wrap: anywhere; }
 .feedback-meta span { color: var(--lz-text-secondary); }
 .saved-reply { padding: 10px 14px; border-left: 3px solid var(--lz-brand); background: var(--lz-surface-subtle); }
 label { display: flex; flex-direction: column; gap: 7px; color: var(--lz-text); }
 textarea { min-width: 0; padding: 10px 11px; border: 1px solid var(--lz-border); border-radius: 8px; color: var(--lz-text-strong); background: #fff; resize: vertical; line-height: 1.6; }
-form button { margin-top: 12px; }
+form button { margin-top: 12px; color: var(--lz-action-text); border: 1px solid var(--lz-action-border); border-radius: var(--lz-action-radius); box-shadow: var(--lz-action-shadow); }
 fieldset { margin: 20px 0 0; padding: 16px; border: 1px solid var(--lz-border); border-radius: var(--lz-radius-control); }
 .ppt-choice { display: flex; flex-direction: row; align-items: center; gap: 10px; margin: 8px 0; }
 .ppt-choice input { width: 18px; height: 18px; accent-color: var(--lz-brand); }

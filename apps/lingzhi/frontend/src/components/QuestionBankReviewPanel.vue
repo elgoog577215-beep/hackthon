@@ -2377,7 +2377,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-empty-state>p { max-width:430px; margin:0; color:#7a8699; font-size:11.5px; line-height:1.65; }
 .question-bank-empty-state>div { display:flex; align-items:center; gap:8px; margin-top:8px; }
 .question-bank-empty-state button { min-height:36px; display:inline-flex; align-items:center; gap:6px; padding:0 12px; border:1px solid #d7dde7; border-radius:8px; color:#5552c8; background:#fff; font:inherit; font-size:11.5px; font-weight:750; cursor:pointer; }
-.question-bank-empty-state .question-bank-empty-import { border-color:#514bdc; color:#fff; background:#514bdc; }
+.question-bank-empty-state .question-bank-empty-import { border-color:var(--lz-action-border); color:var(--lz-action-text); background:var(--lz-action-bg); border:1px solid var(--lz-action-border); border-radius:var(--lz-action-radius); box-shadow:var(--lz-action-shadow); }
 .question-bank-empty-state button:focus-visible { outline:2px solid #6366f1; outline-offset:2px; }
 .question-bank-panel.is-import .question-bank-workspace-body { display:block; }
 .question-bank-panel.is-generate .question-bank-workspace-main { grid-template-rows:repeat(3,max-content) minmax(620px,1fr); align-content:start; gap:14px; overflow:auto; padding:18px 20px 20px; }
@@ -2440,8 +2440,8 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-panel__header-buttons button:hover:not(:disabled) { border-color:#a5b4fc; background:#f8f9ff; }
 .question-bank-panel__header-buttons button:focus-visible,.question-generation-scope label:has(input:focus-visible),.question-generation-toggle:has(input:focus-visible) { outline:2px solid #6366f1; outline-offset:2px; }
 .question-bank-panel__header-buttons button:disabled { opacity:.5; cursor:not-allowed; }
-.question-bank-panel__header-buttons .question-generation-primary { border-color:#4f46e5; color:#fff; background:#4f46e5; }
-.question-bank-panel__header-buttons .question-generation-primary:hover:not(:disabled) { border-color:#4338ca; background:#4338ca; }
+.question-bank-panel__header-buttons .question-generation-primary { border-color:var(--lz-action-border); color:var(--lz-action-text); background:var(--lz-action-bg); border:1px solid var(--lz-action-border); border-radius:var(--lz-action-radius); box-shadow:var(--lz-action-shadow); }
+.question-bank-panel__header-buttons .question-generation-primary:hover:not(:disabled) { border-color:var(--lz-action-border-hover); background:var(--lz-action-bg); }
 .question-quality-details { overflow:hidden; margin:0; border-bottom:1px solid #e5eaf1; background:#fafbfe; }
 .question-quality-details__header { min-height:48px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 28px; }
 .question-quality-details__header>span { display:flex; align-items:center; gap:8px; color:#5552c8; }
@@ -2645,8 +2645,8 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-reader__compose { border:1px solid #c7d2fe; color:#4338ca; background:#eef2ff; }
 .question-review-item__reject { border:1px solid #fecaca; color:#b42318; background:#fff; }
 .question-review-item__reject:hover:not(:disabled) { border-color:#fca5a5; background:#fff7f7; }
-.question-review-item__approve { border:1px solid #514bdc; color:#fff; background:#514bdc; box-shadow:0 5px 14px rgba(81,75,220,.16); }
-.question-review-item__approve:hover:not(:disabled) { background:#4338ca; }
+.question-review-item__approve { border:1px solid var(--lz-action-border); color:var(--lz-action-text); background:var(--lz-action-bg); box-shadow:var(--lz-action-shadow); border-radius:var(--lz-action-radius); }
+.question-review-item__approve:hover:not(:disabled) { background:var(--lz-action-bg); }
 .question-bank-panel__state, .question-bank-panel__empty { min-height: 64px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--lz-text-muted); font-size: 12px; }
 .question-bank-panel__state--error { min-height:auto; justify-content:flex-start; padding:10px 12px; border:1px solid #fed7aa; border-radius:10px; color:#9a3412; background:#fff7ed; }
 .question-bank-panel__refresh-error { display:flex; align-items:center; gap:8px; margin:8px 0; padding:8px 10px; border-radius:8px; color:#9a3412; background:#fff7ed; font-size:12px; }

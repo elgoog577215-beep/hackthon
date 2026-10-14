@@ -294,7 +294,7 @@ function previewStyle(role: string): Record<string, string> {
 .template-creator__preview-grid strong { font-size:12px; }
 .template-creator__preview-grid small { color:color-mix(in srgb,var(--preview-title) 64%,transparent); font-size:8px; }
 .template-creator__panel > footer { display:flex; justify-content:flex-end; gap:10px; padding:20px 32px 25px; border-top:1px solid #e3e9f0; }
-.template-creator__panel > footer button { min-height:42px; display:flex; align-items:center; gap:8px; padding:0 20px; border:0; border-radius:11px; color:#fff; background:#2f63da; font-weight:750; }
+.template-creator__panel > footer button { min-height:42px; display:flex; align-items:center; gap:8px; padding:0 20px; border:1px solid var(--lz-action-border); border-radius:var(--lz-action-radius); color:var(--lz-action-text); background:var(--lz-action-bg); font-weight:750; box-shadow:var(--lz-action-shadow); }
 .template-creator__panel > footer button.secondary { color:#5f6f83; border:1px solid #d9e1ea; background:#fff; }
 .template-creator__panel > footer button:disabled { opacity:.55; }
 .spinning { animation:spin .8s linear infinite; }

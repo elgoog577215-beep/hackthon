@@ -78,8 +78,8 @@ onBeforeUnmount(() => { disposed = true; sequence++; clearTimeout(timer) })
 .question-supply h3 { margin:0 0 10px; font-size:16px; }
 .question-supply p { margin:8px 0; line-height:1.7; }
 .sources { color:#74748b; }
-.question-supply button { padding:9px 14px; border:1px solid #7765ba; border-radius:8px; background:#7765ba; color:white; font:inherit; cursor:pointer; }
+.question-supply button { padding:9px 14px; border:1px solid var(--lz-action-border); border-radius:var(--lz-action-radius); background:var(--lz-action-bg); color:var(--lz-action-text); font:inherit; cursor:pointer; box-shadow:var(--lz-action-shadow); }
 .question-supply button:disabled { opacity:.5; cursor:not-allowed; }
-.question-supply button:focus-visible { outline:3px solid #a296d1; outline-offset:3px; }
+.question-supply button:focus-visible { outline:2px solid var(--lz-action-focus); outline-offset:3px; }
 [role=alert] { color:#9c3e53; }
 </style>

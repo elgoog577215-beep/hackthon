@@ -31,8 +31,8 @@ h2 { margin: 0; font-family: inherit; font-size: 20px; font-weight: 700; line-he
 form { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin: 20px 0; }
 label { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 7px; }
 input { min-width: 0; min-height: 42px; padding: 9px 11px; border: 1px solid var(--lz-border); border-radius: 8px; color: var(--lz-text-strong); background: #fff; }
-form button { border-color: var(--lz-brand); color: #fff; background: var(--lz-brand); }
-form button:hover { border-color: var(--lz-brand-strong); color: #fff; background: var(--lz-brand-strong); }
+form button { border-color: var(--lz-action-border); color: var(--lz-action-text); background: var(--lz-action-bg); border: 1px solid var(--lz-action-border); border-radius: var(--lz-action-radius); box-shadow: var(--lz-action-shadow); }
+form button:hover { border-color: var(--lz-action-border-hover); color: var(--lz-action-text); background: var(--lz-action-bg); }
 p, small { color: var(--lz-text-secondary); }
 ul { list-style: none; padding: 0; }
 li { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid var(--lz-border); padding: 15px 0; overflow-wrap: anywhere; }

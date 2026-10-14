@@ -76,9 +76,9 @@
 .is-learning-assistant .composer-box:focus-within { border-color:var(--color-primary-400); box-shadow:0 2px 6px rgba(15,23,42,.05); }
 .is-learning-assistant .composer-box textarea { min-height:72px; font-size:15px; line-height:1.65; }
 .is-learning-assistant .composer-box textarea::placeholder { color:var(--assistant-secondary); }
-.is-learning-assistant .send-button { width:36px; height:36px; border:1px solid transparent; border-radius:10px; background:var(--lz-brand-strong); box-shadow:var(--assistant-shadow); transition:color .22s var(--assistant-ease),background-color .22s var(--assistant-ease),border-color .22s var(--assistant-ease),box-shadow .22s var(--assistant-ease); }
-.is-learning-assistant .send-button:hover:not(:disabled) { transform:none; background:var(--color-primary-700); box-shadow:0 2px 5px rgba(15,23,42,.08); }
-.is-learning-assistant .send-button:disabled { border-color:var(--lz-border); color:var(--assistant-secondary); background:var(--color-slate-100); box-shadow:none; }
+.is-learning-assistant .send-button { width:36px; height:36px; border:1px solid var(--lz-action-border); border-radius:var(--lz-action-radius); background:var(--lz-action-bg); box-shadow:var(--lz-action-shadow); transition:color .22s var(--assistant-ease),background-color .22s var(--assistant-ease),border-color .22s var(--assistant-ease),box-shadow .22s var(--assistant-ease); color:var(--lz-action-text); }
+.is-learning-assistant .send-button:hover:not(:disabled) { transform:none; background:var(--lz-action-bg); box-shadow:var(--lz-action-shadow-hover); }
+.is-learning-assistant .send-button:disabled { border-color:var(--lz-action-border); color:var(--lz-action-disabled-text); background:var(--lz-action-disabled-bg); box-shadow:none; }
 .is-learning-assistant .send-button.is-stop,.is-learning-assistant .send-button.is-stop:hover:not(:disabled) { border-color:var(--color-accent-rose); color:var(--lz-danger); background:var(--lz-danger-soft); box-shadow:none; }
 .is-learning-assistant .composer-status,.is-learning-assistant .offline-notice,.is-learning-assistant .panel-state,.is-learning-assistant .thinking-line { color:var(--assistant-secondary); font-size:14px; line-height:1.6; }
 .is-learning-assistant .thinking-line i { display:none; }
