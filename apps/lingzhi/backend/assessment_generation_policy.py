@@ -13,7 +13,7 @@ AssessmentGenerationScope = Literal[
 ]
 
 ASSESSMENT_GENERATION_POLICY_VERSION = (
-    "assessment_generation_policy_v16"
+    "assessment_generation_policy_v17"
 )
 
 _COMPLEX_INPUT_MODES = {
@@ -144,7 +144,7 @@ def resolve_assessment_generation_policy(
         stage_timeouts={
             "generate": 150.0,
             "repair": 120.0,
-            "solve": 120.0,
+            "solve": 180.0,
             "review": 90.0,
         },
     )

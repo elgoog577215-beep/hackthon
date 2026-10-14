@@ -16,6 +16,7 @@ from ai_base import (
     AIBase,
     AIProviderRequestError,
     AIProviderUnavailable,
+    AIResponseTruncated,
 )
 from assessment_blueprint import (
     compile_course_assessment_blueprint,
@@ -120,7 +121,7 @@ def _stage_output_budget(stage: str, mode: str, *, atomic: bool = False) -> int:
     if mode == "code":
         return _out_tokens(12288)
     if complex_mode:
-        return _out_tokens(8192)
+        return _out_tokens(16384 if stage == "solve" else 8192)
     if stage == "repair":
         return _out_tokens(6144)
     return _out_tokens(2048 if mode == "choice" else 6144 if stage == "solve" else 4096)
@@ -2764,9 +2765,16 @@ class AssessmentGenerationOrchestrator:
             AIProviderUnavailable,
         ) as exc:
             fallback = deepcopy(base)
+            truncated = isinstance(exc, AIResponseTruncated)
+            reason_code = "assessment_output_truncated" if truncated else "ai_validation_unavailable"
+            fallback["solution_envelope"]["generation_failure_artifact"] = {
+                "candidate": deepcopy(candidate), "error_code": type(exc).__name__,
+                "message": str(exc)[:500], "attempt": attempt_index + 1,
+                "completed_attempts": deepcopy(artifact_history),
+            }
             fallback["risk_flags"] = list(dict.fromkeys([
                 *fallback.get("risk_flags", []),
-                "ai_validation_unavailable",
+                reason_code,
             ]))
             deferred_validation_issues = deepcopy(
                 (fallback.get("solution_validation") or {}).get("issues")
@@ -2780,10 +2788,10 @@ class AssessmentGenerationOrchestrator:
                     "score": 0,
                     "decision": "discard",
                     "issues": [{
-                        "code": "AI_VALIDATION_UNAVAILABLE",
+                        "code": "ASSESSMENT_OUTPUT_TRUNCATED" if truncated else "AI_VALIDATION_UNAVAILABLE",
                         "severity": "critical",
                         "message": (
-                            "模型生成或验证不可用，禁止将本地保底合同"
+                            "模型输出达到长度上限，题目未完成，已发布题目保留。" if truncated else "模型生成或验证不可用，禁止将本地保底合同"
                             "自动发布为正式题目。"
                         ),
                     }],
@@ -2791,9 +2799,9 @@ class AssessmentGenerationOrchestrator:
             )
             fallback["generation_degradation"] = {
                 "status": "failed_fallback_local",
-                "reason_code": "ai_validation_unavailable",
+                "reason_code": reason_code,
                 "validation_basis": "deterministic_local_contract",
-                "independent_ai_validation_status": "unavailable",
+                "independent_ai_validation_status": "truncated" if truncated else "unavailable",
                 "teacher_review_recommended": True,
                 "deferred_validation_issues": deferred_validation_issues,
             }
