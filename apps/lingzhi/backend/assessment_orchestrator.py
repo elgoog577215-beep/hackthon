@@ -37,6 +37,7 @@ from assessment_generation_policy import (
     resolve_assessment_generation_policy,
 )
 from assessment_independent_solvers import IndependentSolverRegistry
+from dynamic_array_solver import public_dynamic_array_inputs
 from assessment_measurement_design import (
     attach_measurement_designs, candidate_from_measurement_design, evidence_recovery_action, measurement_design_prompt,
 )
@@ -4755,6 +4756,8 @@ def _local_solver_applicable(public_spec: dict[str, Any]) -> bool:
         return False
     if "blanks" in input_contract or public_spec.get("blanks"):
         return False
+    if public_dynamic_array_inputs(public_spec) is not None:
+        return True
     if (public_spec.get("solver_contract") or {}).get("kind") == "numeric_expression":
         # Arithmetic attests only a numerical value, not a probability model,
         # derivation, diagnosis or program required by a structured response.
