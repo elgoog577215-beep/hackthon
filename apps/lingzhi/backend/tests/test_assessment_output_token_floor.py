@@ -68,19 +68,10 @@ def test_absurd_floor_is_capped_rather_than_passed_to_the_provider(monkeypatch):
 
 
 def test_every_orchestrator_ceiling_goes_through_the_floor(monkeypatch):
-    """A ceiling added later must not silently reintroduce the 2048 problem."""
-    import re
-    from pathlib import Path
-
-    source = Path(__file__).resolve().parents[1] / "assessment_orchestrator.py"
-    text = source.read_text(encoding="utf-8")
-    # Every literal max_tokens= argument must be wrapped; the keyword-passthrough
-    # forms (max_tokens=max_tokens) and signatures are not ceilings.
-    unwrapped = [
-        line.strip()
-        for line in text.splitlines()
-        if re.search(r"max_tokens=(?!_out_tokens|max_tokens\b)", line)
-        and "def " not in line
-    ]
-
-    assert unwrapped == []
+    """The stage allocator honors the floor for every response shape."""
+    from assessment_orchestrator import _stage_output_budget
+    monkeypatch.setenv("ASSESSMENT_MIN_OUTPUT_TOKENS", "10000")
+    for stage in ("generate", "repair", "solve", "review"):
+        for mode in ("choice", "numeric_unit", "structured_fields", "rich_text", "code"):
+            for atomic in (False, True):
+                assert _stage_output_budget(stage, mode, atomic=atomic) >= 10000

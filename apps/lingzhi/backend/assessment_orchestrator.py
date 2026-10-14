@@ -79,7 +79,7 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v29"
+ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v30"
 
 
 def _out_tokens(limit: int) -> int:
@@ -2858,6 +2858,7 @@ class AssessmentGenerationOrchestrator:
         semantic_preflight = evaluate_question_semantic_preflight(
             contract,
             design_brief=contract.get("design_brief"),
+            require_solution_evidence=contract["solution_envelope"].get("validation_mode") not in OPEN_VALIDATORS,
         )
         contract["semantic_preflight"] = deepcopy(
             semantic_preflight
@@ -3023,6 +3024,14 @@ class AssessmentGenerationOrchestrator:
             validation,
             independent,
         )
+        if validation_mode in OPEN_VALIDATORS:
+            # The compact author draft is not a finished solution. Check
+            # solution-dependent evidence only after the blind solve is built.
+            semantic_preflight = evaluate_question_semantic_preflight(contract, design_brief=contract.get("design_brief"))
+            contract["semantic_preflight"] = deepcopy(semantic_preflight)
+            contract["material_bindings"] = deepcopy(semantic_preflight.get("material_bindings") or [])
+            if not semantic_preflight.get("passed"):
+                raise SemanticPreflightFailure(semantic_preflight, contract)
         return contract, validation, independent
 
     async def _semantic_report(

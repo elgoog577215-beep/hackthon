@@ -16,7 +16,7 @@ from course_versioning import stable_hash
 from question_evidence_guard import evidence_findings
 
 QUESTION_DESIGN_BRIEF_SCHEMA = "question_design_brief_v2"
-SEMANTIC_PREFLIGHT_SCHEMA = "question_semantic_preflight_v2"
+SEMANTIC_PREFLIGHT_SCHEMA = "question_semantic_preflight_v3"
 
 SEMANTIC_HARD_CODES = {
     "QUESTION_TYPE_SEMANTIC_MISMATCH",
@@ -493,6 +493,7 @@ def evaluate_question_semantic_preflight(
     contract: dict[str, Any],
     *,
     design_brief: dict[str, Any] | None = None,
+    require_solution_evidence: bool = True,
 ) -> dict[str, Any]:
     """Run inexpensive semantic gates before independent solving."""
     brief = deepcopy(design_brief or contract.get("design_brief") or {})
@@ -562,8 +563,8 @@ def evaluate_question_semantic_preflight(
         checks.update({
             "learner_visible_code": has_code,
             "error_localization_requested": asks_for_error,
-            "solution_confirms_real_defect": not denies_error,
-            "repair_evidence_present": debug_evidence_count >= 2,
+            "solution_confirms_real_defect": not denies_error if require_solution_evidence else None,
+            "repair_evidence_present": debug_evidence_count >= 2 if require_solution_evidence else None,
         })
         if not has_code:
             issues.append(_issue(
@@ -577,13 +578,13 @@ def evaluate_question_semantic_preflight(
                 "critical",
                 "题型标记为调试追踪，但任务没有要求定位、解释或修复缺陷。",
             ))
-        if asks_for_error and denies_error:
+        if require_solution_evidence and asks_for_error and denies_error:
             issues.append(_issue(
                 "FALSE_ERROR_PREMISE",
                 "critical",
                 "题面预设存在错误，但标准答案说明代码或轨迹没有错误。",
             ))
-        if not denies_error and debug_evidence_count < 2:
+        if require_solution_evidence and not denies_error and debug_evidence_count < 2:
             issues.append(_issue(
                 "MATERIAL_BINDING_INVALID",
                 "critical",
@@ -678,8 +679,8 @@ def evaluate_question_semantic_preflight(
         "state_trace_transfer",
     }
     binding_valid = bool(bindings) if material_required else True
-    checks["material_binding_valid"] = binding_valid
-    if material_required and not binding_valid:
+    checks["material_binding_valid"] = binding_valid if require_solution_evidence else None
+    if require_solution_evidence and material_required and not binding_valid:
         issues.append(_issue(
             "MATERIAL_BINDING_INVALID",
             "critical",
@@ -697,6 +698,7 @@ def evaluate_question_semantic_preflight(
     )
     report = {
         "schema_version": SEMANTIC_PREFLIGHT_SCHEMA,
+        "scope": "complete_artifact" if require_solution_evidence else "public_question",
         "question_type": question_type,
         "semantics_registry_id": (
             brief.get("question_type_semantics") or {}
