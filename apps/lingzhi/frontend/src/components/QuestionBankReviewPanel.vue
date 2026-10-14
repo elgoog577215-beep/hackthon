@@ -1142,6 +1142,16 @@ const scopeNodeIds = computed(() => {
 const generationScopeReady = computed(() => (
   generationScope.value === 'course' || scopeNodeIds.value.length > 0
 ))
+// The UI counts/selects lectures; generation consumes their content nodes.
+// Send explicit content IDs so existing workers can serve a newly loaded UI.
+const generationNodeIds = computed(() => {
+  if (generationScope.value === 'current') return scopeNodeIds.value
+  return [...new Set(scopeNodeIds.value.flatMap(nodeId => {
+    const chapter = chapterOptions.value.find(item => item.node_id === nodeId)
+    const sections = chapter?.node_ids.filter(id => id !== nodeId) || []
+    return sections.length ? sections : [nodeId]
+  }))]
+})
 const selectedScopeSummary = computed(() => {
   const count = scopeNodeIds.value.length
   return count
@@ -1938,7 +1948,7 @@ function startGeneration() {
   if (!generationScopeReady.value) return
   const nodeIds = generationScope.value === 'course'
     ? undefined
-    : scopeNodeIds.value
+    : generationNodeIds.value
   return rebuild(
     nodeIds,
     questionBankMissing.value ? false : keepPublished.value,
@@ -1988,7 +1998,7 @@ async function requestAiCandidate(value: string) {
     candidate_id: createUuid(),
     base_bundle_revision_id: bundleRevisionId.value,
     scope,
-    node_ids: scope === 'nodes' ? [...scopeNodeIds.value] : [],
+    node_ids: scope === 'nodes' ? [...generationNodeIds.value] : [],
     material_asset_ids: [...effectiveMaterialAssetIds.value],
     teacher_instruction: instruction,
     mode: keepPublished.value ? 'incremental' : 'full',
