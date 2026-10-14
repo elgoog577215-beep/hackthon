@@ -424,6 +424,7 @@ class UniversalAssessmentModel(AIBase):
         *,
         call_policy: AssessmentModelCallPolicy | None = None,
     ) -> dict[str, Any]:
+        public_question_spec = _model_public_question(public_question_spec)
         input_mode = str(
             (public_question_spec.get("input_contract") or {}).get(
                 "mode"
@@ -471,12 +472,7 @@ class UniversalAssessmentModel(AIBase):
                 "每个错误选项只用一句话说明与本题计算结果的差别，不扩展到其他语言、余数、未给出的转换等题外情境。"
                 "非终止小数或截断显示的有限小数必须标明约等于，不把干扰项的小数写法说成原算式的精确结果。"
                 "checks只写本题可核对的事实；common_errors最多一条。先写已核对的推导，最后填写answer。"
-                "只输出JSON：{\"summary\": \"...\", "
-                "\"work\": [{\"title\": \"...\", \"explanation\": \"...\", "
-                "\"calculation\": \"...\", \"result\": \"...\"}], "
-                "\"checks\": [\"具体核验方法\"], \"option_analysis\": "
-                "[{\"option_id\": \"A\", \"is_correct\": true, \"explanation\": \"具体原因\"}], "
-                "\"common_errors\": [...], \"answer\": ...}。\n"
+                f"只输出JSON：{json.dumps(_independent_solution_schema(), ensure_ascii=False)}。\n"
                 f"{code_answer_requirement}"
                 f"{json.dumps(public_question_spec, ensure_ascii=False)}"
             ),
@@ -689,9 +685,11 @@ class UniversalAssessmentModel(AIBase):
         *,
         call_policy: AssessmentModelCallPolicy | None = None,
     ) -> dict[str, Any]:
+        public_question_spec = _model_public_question(public_question_spec)
+        atomic = bool(slot.get("assessment_binding_schema"))
         evaluation_schema = {
-            "evidence_checks": {key: True for key in EVIDENCE_CHECKS},
-            "review_witness": _review_witness_schema(next(iter(objective.get("knowledge") or []), "")),
+            "evidence_checks": {key: True for key in EVIDENCE_CHECKS} if atomic else {},
+            "review_witness": _review_witness_schema(next(iter(objective.get("knowledge") or []), ""), atomic=atomic),
             "passed": True,
             "confidence": 0.9,
             "solution_consistent": True,
@@ -708,7 +706,7 @@ class UniversalAssessmentModel(AIBase):
         response = await self._assessment_llm_call(
             call_policy,
             (
-                _semantic_review_directive()
+                _semantic_review_directive(atomic=atomic)
                 +
                 "严格按以下JSON结构输出，所有字符串必须正确转义。"
                 "evidence只写短句，不复制代码，不在字符串中使用引号。\n"
@@ -724,8 +722,8 @@ class UniversalAssessmentModel(AIBase):
                 f"蓝图槽位：{json.dumps(slot, ensure_ascii=False)}"
             ),
             system_prompt=(
-                "你是独立的课程测评质量评审器。你看不到生成器的解释、"
-                "标准答案、隐藏测试或评分参数。只依据公开题面、独立作答、"
+                "你是独立的课程测评质量评审器。作者答案只是待核查提案；"
+                "请核查最终交付的答案、解析和量规。只依据公开题面、独立作答、"
                 "章节目标和蓝图给出结构化结论。"
             ),
             retry_count=1,
@@ -760,7 +758,7 @@ class UniversalAssessmentModel(AIBase):
             system_prompt=(
                 "你是独立课程测评质量评审器。只读取公开题面、"
                 "独立作答摘要、章节目标和蓝图槽位。"
-                "你看不到生成器解释、标准答案、隐藏测试或评分参数。"
+                "作者答案只是待核查提案，请核查最终交付的答案、解析和量规。"
                 "只输出JSON，不输出思维过程。"
             ),
             retry_count=1,
@@ -5752,34 +5750,40 @@ def _batch_repair_prompt(items: list[dict[str, Any]]) -> str:
     )
 
 
+def _model_public_question(spec: dict[str, Any]) -> dict[str, Any]:
+    """Only learner-visible inputs; author solver hints are never evidence."""
+    return {key: deepcopy(spec[key]) for key in (
+        "stimulus", "task", "constraints", "options", "input_contract", "response_contract",
+        "explanation_revision_issues",
+    ) if key in spec}
+
+
+def _independent_solution_schema() -> dict:
+    # A single ordering contract for single and batch calls: derive, verify,
+    # then summarize. No answer-first batch path that anchors later work.
+    return {
+        "work": [{"title": "步骤标题", "explanation": "可公开、可复核的推导",
+                  "calculation": "必要的计算过程", "result": "本步结果"}],
+        "checks": ["独立核算或边界检查"],
+        "option_analysis": [{"option_id": "实际选项ID，非选择题使用空数组",
+                             "is_correct": True, "explanation": "依据本题的原因"}],
+        "common_errors": [], "summary": "与已核对步骤一致的简洁概述",
+        "answer": "匹配input_contract且与推导一致的最终答案",
+    }
+
+
 def _batch_solution_prompt(items: list[dict[str, Any]]) -> str:
     public_items = [
         {
             "slot_id": str(item.get("slot_id") or ""),
-            "question_spec": deepcopy(item.get("question_spec") or {}),
+            "question_spec": _model_public_question(item.get("question_spec") or {}),
         }
         for item in items
     ]
     schema = {
         "solutions": [{
             "slot_id": "必须复制输入中的slot_id",
-            "solution": {
-                "answer": "匹配input_contract的答案",
-                "summary": "面向学生的简洁教学概述",
-                "work": [{
-                    "title": "步骤标题",
-                    "explanation": "可公开、可复核的推导",
-                    "calculation": "必要的计算过程",
-                    "result": "本步结果",
-                }],
-                "checks": ["结果检查"],
-                "option_analysis": [{
-                    "option_id": "复制公开选项ID，非选择题使用空数组",
-                    "is_correct": True,
-                    "explanation": "该选项成立或不成立的具体原因",
-                }],
-                "common_errors": [],
-            },
+            "solution": _independent_solution_schema(),
         }],
     }
     return (
@@ -5802,6 +5806,8 @@ def _batch_solution_prompt(items: list[dict[str, Any]]) -> str:
 def _batch_evaluation_prompt(
     items: list[dict[str, Any]],
 ) -> str:
+    items = [{**item, "question_spec": _model_public_question(item.get("question_spec") or {})} for item in items]
+    atomic = any((item.get("slot") or {}).get("assessment_binding_schema") for item in items)
     report_schema = {
         "evidence_checks": {key: True for key in EVIDENCE_CHECKS},
         "review_witness": _review_witness_schema(),
@@ -5829,13 +5835,16 @@ def _batch_evaluation_prompt(
             "report": {
                 **report_schema,
                 "review_witness": _review_witness_schema(
-                    next(iter((item.get("objective") or {}).get("knowledge") or []), "")
+                    next(iter((item.get("objective") or {}).get("knowledge") or []), ""),
+                    atomic=bool((item.get("slot") or {}).get("assessment_binding_schema")),
                 ),
+                "evidence_checks": {key: True for key in EVIDENCE_CHECKS}
+                    if (item.get("slot") or {}).get("assessment_binding_schema") else {},
             },
         } for item in items],
     }
     return (
-        _semantic_review_directive()
+        _semantic_review_directive(atomic=atomic)
         + f"分别评审以下{len(items)}道题。每道题必须独立评分，"
         "不能用另一题的答案或结论。只输出JSON，不输出思维过程。"
         "dimensions只能包含curriculum_targeting(0-20)、"
@@ -5859,7 +5868,14 @@ def _ordered_review_schema(schema: dict) -> dict:
     )}
 
 
-def _review_witness_schema(target_statement: str = "") -> dict:
+def _review_witness_schema(target_statement: str = "", *, atomic: bool = True) -> dict:
+    if not atomic:
+        return {
+            "delivery_checks": [{"path": "所核查的答案/解析/量规字段路径",
+                                 "claim": "该字段的实际断言", "verification": "依据公开条件的计算或核查",
+                                 "supported": True}],
+            "unsupported_assumptions": [],
+        }
     return {
         "option_audit": [{"option_id": "逐项复制实际ID", "meaning": "明确该选项按什么语义解释",
                           "is_correct": True, "reason": "依题面条件核对的具体理由"}],
@@ -5874,7 +5890,20 @@ def _review_witness_schema(target_statement: str = "") -> dict:
     }
 
 
-def _semantic_review_directive() -> str:
+def _semantic_review_directive(*, atomic: bool = True) -> str:
+    if not atomic:
+        return (
+            "评审最终交付的delivery_solution：答案、每步解析、检查、量规及solution_graph必须与公开题面相符。"
+            "author_answer_proposal是未验证的作者草稿，不是标准答案。不得以与草稿不同为由否定正确的独立解。"
+            "先在delivery_checks列出关键断言与可复核的计算，再给结论。没有错误时issues为空。"
+            "只依据实际题面，不构造题面没有要求的反例或虚构选项；非原子题不填写observation_test。"
+            "必要定义、初值和数据不是答案泄露；只有直接透露所考结论或作答方法才标ANSWER_RULE_DISCLOSED。"
+            "检查题目可答性、目标对齐、实际难度、表达清晰度；缺少条件标TASK_CONDITION_MISSING。"
+            "解析错误标EXPLANATION_CONTRADICTION；量规或solution_graph错误标RUBRIC_ANSWER_MISMATCH，"
+            "并给出具体字段路径、原断言及正确核算依据。不得把作者量规错误归咎于独立解。"
+            "最终数值正确不能豁免错误的步骤。所有critical问题必须passed=false、solution_consistent=false。"
+            "不确定的断言如实标未验证；不能凭猜测放行。最多列三条关键核查，输出简洁、一致的最终报告。"
+        )
     return (
         "Review delivery_solution as the exact proposed student-facing answer, explanation and grading contract. "
         "Check its canonical_answer, worked_solution summary, every step, final_answer and rubric against the public question. "
