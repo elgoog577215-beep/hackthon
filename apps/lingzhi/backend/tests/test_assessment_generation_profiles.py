@@ -288,7 +288,7 @@ def test_local_solver_still_declines_anything_it_cannot_prove() -> None:
 
 def test_registry_exposes_its_registered_kinds() -> None:
     registry = IndependentSolverRegistry.with_builtin_solvers()
-    assert registry.kinds() == ("numeric_expression", "state_operations")
+    assert registry.kinds() == ("dynamic_array_potential", "numeric_expression", "state_operations")
 
 
 def test_generation_prompt_names_exactly_the_registered_solver_kinds() -> None:

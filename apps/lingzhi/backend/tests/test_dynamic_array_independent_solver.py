@@ -50,6 +50,7 @@ def test_bounded_append_sequences_satisfy_capacity_and_telescoping_invariants(co
 @pytest.mark.parametrize(("old", "new"), [
     ("n_0=1", "n_0=0"), ("2n-c-1", "2n-c-10"), ("容量加倍", "容量增加1"),
     ("连续执行4次追加", "连续执行40次追加"), ("动态数组", "动态数组并允许删除和缩容"),
+    ("实际成本为", "每次追加有额外2单位成本，实际成本为"),
 ])
 def test_unsupported_public_conditions_do_not_trust_a_claimed_solver_contract(old, new):
     spec = deepcopy(public_question())
