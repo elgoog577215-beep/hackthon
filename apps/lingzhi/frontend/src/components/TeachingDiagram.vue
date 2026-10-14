@@ -296,6 +296,7 @@ summary:focus-visible,
 }
 .diagram-scroll :deep(svg) {
   display: block;
+  margin-inline: auto;
   max-width: 100%;
   height: auto;
   flex: none;

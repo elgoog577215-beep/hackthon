@@ -1,5 +1,7 @@
 import catalog from "../../../shared/teaching-diagrams-v1.json";
 import { teachingDiagramMarkers, teachingDiagramStyle } from './teaching-diagram-layout';
+import { diagramTextLines, diagramTextTokens, diagramTextWidth } from './teaching-diagram-text';
+export { diagramTextLines } from './teaching-diagram-text';
 
 export const teachingDiagramCatalog = catalog;
 export type DiagramNode = {
@@ -655,41 +657,6 @@ const colors = [
   "#64748b",
   "#0d9488",
 ];
-export function diagramTextLines(value: string, width = 200): string[] {
-  const result: string[] = [];
-  for (const paragraph of value.split("\n")) {
-    let line = "",
-      used = 0;
-    for (const token of paragraph.match(/[^\x00-\xff]|[a-zA-Z0-9_]+|\s+|./g) ||
-      []) {
-      const size = [...token].reduce(
-        (sum, char) => sum + (/[^\x00-\xff]/.test(char) ? 16 : 8),
-        0,
-      );
-      if (used + size > width && line) {
-        result.push(line);
-        line = "";
-        used = 0;
-      }
-      if (size > width) {
-        for (const char of token) {
-          if (used + 8 > width && line) {
-            result.push(line);
-            line = "";
-            used = 0;
-          }
-          line += char;
-          used += 8;
-        }
-      } else {
-        line += token;
-        used += size;
-      }
-    }
-    result.push(line);
-  }
-  return result;
-}
 const txt = (
   x: number,
   y: number,
@@ -725,12 +692,7 @@ const line = (
 const label = (x: number, y: number, text: string, width = 160) => {
   const ls = diagramTextLines(text, width);
   const actual = Math.max(
-    ...ls.map((line) =>
-      [...line].reduce(
-        (sum, char) => sum + (/[^\x00-\xff]/.test(char) ? 16 : 8),
-        0,
-      ),
-    ),
+    ...ls.map(diagramTextWidth),
   );
   return (
     rect(
@@ -771,7 +733,9 @@ const boxNode = (n: DiagramNode, b: Box, focal = false) => {
     const x = b.x + b.w / 2, y = b.y + b.h / 2 - total / 2 + 16;
     return `<g data-node-id="${e(n.id)}">${shape}${txt(x, y, n.label, width)}${n.detail ? line(x - width / 2, y + heading - 7, x + width / 2, y + heading - 7) + txt(x, y + heading + 21, n.detail, width, 'middle', '#475569') : ''}</g>`;
   }
-  return `<g data-node-id="${e(n.id)}">${shape}${txt(b.x + b.w / 2, b.y + 25, n.label, b.w - 24)}${n.detail ? line(b.x, b.y + headingHeight + 17, b.x + b.w, b.y + headingHeight + 17) + txt(b.x + 12, b.y + headingHeight + 39, n.detail, b.w - 24, "start", "#475569") : ""}</g>`;
+  const total = headingHeight + (n.detail ? 18 + diagramTextLines(n.detail, b.w - 24).length * 21 : 0);
+  const top = b.y + (b.h - total) / 2;
+  return `<g data-node-id="${e(n.id)}">${shape}${txt(b.x + b.w / 2, top + 16, n.label, b.w - 24)}${n.detail ? line(b.x + 12, top + headingHeight + 9, b.x + b.w - 12, top + headingHeight + 9) + txt(b.x + 12, top + headingHeight + 34, n.detail, b.w - 24, "start", "#475569") : ""}</g>`;
 };
 const connect = (
   a: Box,
@@ -834,55 +798,135 @@ function graphScene(d: TeachingDiagram, marker: string): DiagramScene {
   };
   const roots = d.nodes.filter((n) => !d.edges.some((e) => e.to === n.id));
   for (const n of [...roots, ...d.nodes]) if (!colors.has(n.id)) visit(n.id);
-  const levels = diagramRanks(d.nodes, forward),
-    cyclic = forward.length !== d.edges.length;
-  const counts = levels.map(
-    (level) => levels.filter((r) => r === level).length,
-  );
-  const width = Math.max(
-    900,
-    Math.max(...counts) * 280 + 160 + d.edges.length * 14,
-  );
-  const rowHeight =
-    Math.max(80, ...d.nodes.map((n) => nodeHeight(n))) +
-    Math.max(
-      135,
-      ...d.edges.map(
-        (edge) => diagramTextLines(edge.label || "", 160).length * 21 + 60,
-      ),
-    );
-  const height =
-    (Math.max(...levels) + 1) * rowHeight +
-    90 +
-    (cyclic ? d.edges.length * 30 : 0);
-  const boxes = d.nodes.map((n, i) => {
-    const same = levels
-      .map((r, j) => (r === levels[i]! ? j : -1))
-      .filter((j) => j >= 0);
-    return {
-      x: 60 + same.indexOf(i) * 280,
-      y: 50 + levels[i]! * rowHeight,
-      w: 240,
-      h: Math.max(70, nodeHeight(n)),
+  const levels = diagramRanks(d.nodes, forward);
+  const index = new Map(d.nodes.map((node, i) => [node.id, i]));
+  const outgoing = d.nodes.map(node => forward.filter(edge => edge.from === node.id).length);
+  const incoming = d.nodes.map(node => forward.filter(edge => edge.to === node.id).length);
+  const layers = Array.from({ length: Math.max(...levels) + 1 }, (_, rank) =>
+    d.nodes.map((_, i) => i).filter(i => levels[i] === rank));
+  const dimensions = d.nodes.map(node => {
+    const longest = Math.max(0, ...diagramTextTokens(node.label).map(diagramTextWidth));
+    const w = node.kind === 'decision' ? 240
+      : Math.min(280, Math.max(160, Math.min(224, diagramTextWidth(node.label) + 32), longest + 32));
+    return { w, h: Math.max(56, nodeHeight(node, w - 24)), inset: node.kind === 'decision' ? 16 : 0 };
+  });
+  // Order peers by their neighbours, rather than by the model's JSON order.
+  // This keeps parallel chains aligned and puts a merge between its inputs.
+  const positions = new Map<number, number>();
+  const order = (layer: number[], backwards: boolean) => {
+    const score = (i: number) => {
+      const neighbours = forward.filter(edge => (backwards ? edge.from : edge.to) === d.nodes[i]!.id)
+        .map(edge => positions.get(index.get(backwards ? edge.to : edge.from)!))
+        .filter((x): x is number => x !== undefined);
+      return neighbours.length ? neighbours.reduce((a, b) => a + b, 0) / neighbours.length : positions.get(i) || 0;
     };
+    layer.sort((a, b) => score(a) - score(b));
+    layer.forEach((i, j) => positions.set(i, (j + .5) / layer.length));
+  };
+  layers.forEach(layer => layer.forEach((i, j) => positions.set(i, (j + .5) / layer.length)));
+  for (let pass = 0; pass < 3; pass++) {
+    layers.forEach(layer => order(layer, false));
+    [...layers].reverse().forEach(layer => order(layer, true));
+  }
+  const peerGap = 64, padding = 28;
+  const rowWidths = layers.map(layer => layer.reduce((sum, i) => sum + dimensions[i]!.w + dimensions[i]!.inset * 2, 0) + (layer.length - 1) * peerGap);
+  const contentWidth = Math.max(...rowWidths);
+  const rowHeights = layers.map(layer => Math.max(...layer.map(i => dimensions[i]!.h + dimensions[i]!.inset * 2)));
+  const boxes: Box[] = [];
+  layers.forEach((layer, rank) => {
+    let left = padding + (contentWidth - rowWidths[rank]!) / 2;
+    for (const i of layer) {
+      const size = dimensions[i]!;
+      boxes[i] = { x: left + size.inset, y: 0, w: size.w, h: size.h };
+      left += size.w + size.inset * 2 + peerGap;
+    }
+  });
+  const edgeSpan = (from: number, to: number) => {
+    const a = boxes[from]!, b = boxes[to]!;
+    return Math.abs(a.x + a.w / 2 - b.x - b.w / 2);
+  };
+  const edgeLabelWidth = (from: number, to: number) => {
+    const span = edgeSpan(from, to);
+    return span < 64 ? 160 : Math.min(160, span - 16);
+  };
+  const gaps = layers.map((_, rank) => Math.max(56, ...d.edges.filter(edge => levels[index.get(edge.from)!] === rank && levels[index.get(edge.to)!] === rank + 1)
+    .map(edge => {
+      if (!edge.label) return 56;
+      const w = edgeLabelWidth(index.get(edge.from)!, index.get(edge.to)!);
+      const textHeight = diagramTextLines(edge.label, w).length * 21;
+      const from = index.get(edge.from)!, to = index.get(edge.to)!;
+      return edgeSpan(from, to) < 64
+        ? outgoing[from]! > 1 || incoming[to]! > 1 ? 2 * (textHeight + 24) : textHeight + 36
+        : 2 * (textHeight + 20);
+    })));
+  let bottom = padding;
+  const rowTops: number[] = [], rowBottoms: number[] = [];
+  layers.forEach((layer, rank) => {
+    rowTops[rank] = bottom;
+    for (const i of layer) boxes[i]!.y = bottom + (rowHeights[rank]! - boxes[i]!.h) / 2;
+    rowBottoms[rank] = bottom + rowHeights[rank]!;
+    bottom += rowHeights[rank]! + (rank < layers.length - 1 ? gaps[rank]! : 0);
   });
   const ports = boxes.map((box, i) =>
     d.nodes[i]!.kind === "decision"
       ? { x: box.x - 16, y: box.y - 16, w: box.w + 32, h: box.h + 32 }
       : box,
   );
-  const outerX = Math.max(...ports.map((box) => box.x + box.w));
+  let width = contentWidth + padding * 2;
+  let height = bottom + padding;
+  // Outside lanes must also clear labels beside a narrow, straight chain.
+  // Reserve their extent before routing any edge, regardless of JSON order.
+  for (const edge of d.edges) {
+    const from = index.get(edge.from)!, to = index.get(edge.to)!;
+    if (!edge.label || levels[to]! !== levels[from]! + 1 || edgeSpan(from, to) >= 64) continue;
+    const a = boxes[from]!, b = boxes[to]!;
+    width = Math.max(width, Math.max(a.x + a.w / 2, b.x + b.w / 2) + 12 + Math.min(160, diagramTextWidth(edge.label)) + padding);
+  }
+  let outerX = width;
   const edgeSvg = d.edges
-    .map((edge, i) =>
-      connect(
-        ports[d.nodes.findIndex((n) => n.id === edge.from)]!,
-        ports[d.nodes.findIndex((n) => n.id === edge.to)]!,
-        edge,
-        marker,
-        i,
-        outerX,
-      ),
-    )
+    .map(edge => {
+      const from = index.get(edge.from)!, to = index.get(edge.to)!;
+      const a = ports[from]!, b = ports[to]!;
+      const sx = a.x + a.w / 2, tx = b.x + b.w / 2;
+      let route: string, x: number, y: number, anchor = 'middle', labelWidth = 160;
+      const labelHeight = diagramTextLines(edge.label || '', labelWidth).length * 21;
+      if (levels[to]! === levels[from]! + 1) {
+        // Use the space between rows even when neighbouring cards have different heights.
+        const mid = (rowBottoms[levels[from]!]! + rowTops[levels[to]!]!) / 2;
+        route = `M${sx} ${a.y + a.h} V${mid} H${tx} V${b.y}`;
+        if (Math.abs(sx - tx) < 64) {
+          // A vertical connector stays continuous; its label reads alongside it.
+          x = Math.max(sx, tx) + 12; y = mid - labelHeight / 2 + 16; anchor = 'start';
+          // A central branch's label belongs below the shared rail; a central
+          // input's label belongs above it. Sibling connectors stay clear of it.
+          if (outgoing[from]! > 1) {
+            x = tx + 12; y = (mid + rowTops[levels[to]!]! - labelHeight) / 2 + 16;
+          } else if (incoming[to]! > 1) {
+            x = sx + 12; y = (rowBottoms[levels[from]!]! + mid - labelHeight) / 2 + 16;
+          }
+          width = Math.max(width, x + Math.min(labelWidth, diagramTextWidth(edge.label || '')) + padding);
+        } else {
+          // Branch labels sit above their own horizontal segment, clear of the shared stem.
+          labelWidth = edgeLabelWidth(from, to);
+          x = (sx + tx) / 2;
+          y = mid - 12 - (diagramTextLines(edge.label || '', labelWidth).length - 1) * 21;
+        }
+      } else {
+        // Skipped ranks, repeats and self loops use an outside lane, so they cannot
+        // cut through an intervening card or its text.
+        const startY = rowBottoms[levels[from]!]! + 8, endY = rowTops[levels[to]!]! - 8;
+        outerX += 24;
+        route = `M${sx} ${a.y + a.h} V${startY} H${outerX} V${endY} H${tx} V${b.y}`;
+        x = outerX + 12; y = Math.max(padding + 16, (startY + endY) / 2 - labelHeight / 2 + 16); anchor = 'start';
+        const labelSpace = Math.min(labelWidth, diagramTextWidth(edge.label || ''));
+        width = Math.max(width, x + labelSpace + padding);
+        outerX += labelSpace + 16;
+        height = Math.max(height, startY + padding, y + labelHeight - 16 + padding);
+      }
+      const actualMarker = edge.kind === 'inheritance' ? `${marker}-inheritance`
+        : edge.kind === 'composition' ? `${marker}-composition` : marker;
+      return `<g data-from="${e(edge.from)}" data-to="${e(edge.to)}">${path(route, edge.kind === 'return' ? '#94a3b8' : '#64748b', 1.7, actualMarker)}${edge.label ? txt(x, y, edge.label, labelWidth, anchor) : ''}</g>`;
+    })
     .join("");
   return {
     width,
