@@ -193,6 +193,12 @@
             <X :size="13" />
           </button>
         </div>
+        <div v-if="quoteVisible && !isTeacherMode && !props.blockTarget" class="quick-actions selection-quick-actions">
+          <button v-for="item in quickPrompts" :key="item.prompt" type="button" :disabled="composerDisabled" @click="sendPrompt(item.prompt)">
+            <component :is="item.icon" :size="14" />
+            {{ item.label }}
+          </button>
+        </div>
       </div>
 
       <section
@@ -556,7 +562,7 @@
           <span class="empty-mark"><MessageSquareText :size="22" /></span>
           <strong>{{ assistantEmptyTitle }}</strong>
           <p>{{ assistantEmptyDescription }}</p>
-          <div class="quick-actions">
+          <div v-if="!quoteVisible" class="quick-actions">
             <button v-for="item in quickPrompts" :key="item.prompt" type="button" :disabled="composerDisabled || aiStore.loadingConversations" @click="sendPrompt(item.prompt)">
               <component :is="item.icon" :size="14" />
               {{ item.label }}
@@ -848,6 +854,7 @@ const followingLatest = ref(true)
 let initialized = false
 let initialization: Promise<void> | null = null
 const quoteVisible = ref(Boolean(props.quoteText))
+const quoteEntryActive = ref(Boolean(props.quoteText && props.entrypoint === 'selection'))
 const conversationOpen = ref(!props.embedded && !props.docked && window.innerWidth > 760)
 const conversationQuery = ref('')
 const fileScopeOpen = ref(false)
@@ -1052,17 +1059,17 @@ const quickPrompts = computed(() => isTeacherMode.value
       {
         icon: WandSparkles,
         label: t('courseWorkspace.aiTeacher.quickExplain', '解释当前内容'),
-        prompt: t('courseWorkspace.aiTeacher.quickExplainPrompt', '请解释当前内容的核心概念。'),
+        prompt: quoteVisible.value ? t('courseWorkspace.aiTeacher.quickExplainQuotePrompt', '请解释我引用的这段内容，说明核心概念和推理。') : t('courseWorkspace.aiTeacher.quickExplainPrompt', '请解释当前内容的核心概念。'),
       },
       {
         icon: Lightbulb,
         label: t('courseWorkspace.aiTeacher.quickExample', '举一个例子'),
-        prompt: t('courseWorkspace.aiTeacher.quickExamplePrompt', '请用一个具体例子解释当前内容。'),
+        prompt: quoteVisible.value ? t('courseWorkspace.aiTeacher.quickExampleQuotePrompt', '请用一个具体例子解释我引用的这段内容。') : t('courseWorkspace.aiTeacher.quickExamplePrompt', '请用一个具体例子解释当前内容。'),
       },
       {
         icon: LocateFixed,
         label: t('courseWorkspace.aiTeacher.quickCheck', '检查我是否理解'),
-        prompt: t('courseWorkspace.aiTeacher.quickCheckPrompt', '请先用一个小问题检查我是否真正理解当前内容，不要直接给答案。'),
+        prompt: quoteVisible.value ? t('courseWorkspace.aiTeacher.quickCheckQuotePrompt', '请用一个小问题检查我是否理解引用的这段内容，先不要给答案。') : t('courseWorkspace.aiTeacher.quickCheckPrompt', '请先用一个小问题检查我是否真正理解当前内容，不要直接给答案。'),
       },
     ])
 
@@ -1127,7 +1134,7 @@ async function initialize() {
 async function sendPrompt(prompt: string) {
   if (composerDisabled.value) return
   input.value = prompt
-  if (props.docked && !isTeacherMode.value) {
+  if (!isTeacherMode.value && (props.docked || quoteVisible.value)) {
     await nextTick()
     resizeComposer()
     inputElement.value?.focus({ preventScroll: true })
@@ -1686,6 +1693,7 @@ async function createConversation() {
 }
 
 async function switchConversation(conversationId: string) {
+  quoteEntryActive.value = false
   if (conversationId) await aiStore.selectConversation(conversationId)
   if (props.docked) conversationOpen.value = false
   scrollToBottom()
@@ -1830,16 +1838,23 @@ async function openStudyRequest() {
     if (request.prompt && conversation.messages.length <= 1) await studyPanel.value?.startDiscussion(request.prompt)
   } catch { studyEntryError.value = t('studyDialogue.openFailed') }
 }
-watch(() => [props.knowledgeContext?.knowledge_id, props.blockTarget?.block.block_id, props.entrypoint], async () => {
-  if (!props.studyRequest && aiStore.currentConversation?.study_workspace && (props.knowledgeContext || props.blockTarget || props.entrypoint === 'practice')) {
-    try { await aiStore.createConversation() } catch { studyEntryError.value = t('studyDialogue.openFailed') }
+watch(() => [props.quoteText, props.quoteAnchor, props.entrypoint], () => {
+  quoteEntryActive.value = Boolean(props.quoteText && props.entrypoint === 'selection')
+})
+watch(() => [props.knowledgeContext?.knowledge_id, props.blockTarget?.block.block_id, props.entrypoint, quoteEntryActive.value, aiStore.currentConversation?.study_workspace], async () => {
+  if (!props.studyRequest && aiStore.currentConversation?.study_workspace && (props.knowledgeContext || props.blockTarget || props.entrypoint === 'practice' || quoteEntryActive.value)) {
+    try {
+      const previous = aiStore.conversations.find(conversation => !conversation.study_workspace)
+      if (previous) await aiStore.selectConversation(previous.conversation_id)
+      else await aiStore.createConversation()
+    } catch { studyEntryError.value = t('studyDialogue.openFailed') }
   }
 })
 watch(() => props.studyRequest?.token, () => { if (props.studyRequest) void openStudyRequest() }, { immediate:true })
 
 watch(() => props.quoteText, value => {
   quoteVisible.value = Boolean(value)
-  if (value && props.visible) nextTick(() => inputElement.value?.focus({ preventScroll: true }))
+  if (value && props.visible && !window.getSelection()?.toString()) nextTick(() => inputElement.value?.focus({ preventScroll: true }))
 })
 watch(() => props.scopeFiles.map(file => file.id).join('|'), () => {
   selectAllScopeFiles()
@@ -1877,7 +1892,7 @@ watch(() => props.visible, async visible => {
   await nextTick()
   if (!props.visible) return
   resizeComposer()
-  inputElement.value?.focus({ preventScroll: true })
+  if (!window.getSelection()?.toString()) inputElement.value?.focus({ preventScroll: true })
   if (followingLatest.value) scrollToBottom()
 })
 watch(() => courseStore.currentCourseId, () => {
@@ -2174,6 +2189,8 @@ onUnmounted(() => {
 .quick-actions { width:min(620px,100%); display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 7px; margin:8px auto 0; }
 .quick-actions button { min-width: 0; min-height: 37px; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 5px 6px; border: 1px solid #e0e7ff; border-radius: 9px; color: var(--lz-text-secondary); background: rgba(255,255,255,.92); font-size: 9px; line-height: 1.25; cursor: pointer; transition: color .16s ease, border-color .16s ease, background .16s ease, transform .16s ease; }
 .quick-actions button:hover { transform: translateY(-1px); border-color: #c4b5fd; color: var(--lz-brand-strong); background: #f5f3ff; }
+.selection-quick-actions button { font-size:15px; line-height:1.5; }
+.context-quote p { font-size:15px; }
 .composer-status,.offline-notice { width:min(900px,100%); display: flex; align-items: center; gap: 6px; margin:0 auto 7px; font-size: 9px; }
 .composer-status { color: var(--lz-brand); }
 .offline-notice { color: var(--lz-warning); }

@@ -99,6 +99,73 @@ function personalizationTarget(blockId = 'block-1', revision = 'cbr-1'): CourseB
 }
 
 describe('SideAIPanel', () => {
+  it('restores all three selected-text prompts even in an existing conversation, without sending or replacing a draft', async () => {
+    const wrapper = mountPanel([{message_id:'old',role:'assistant',content:'已有回答'} as any], '', undefined, undefined, 'learner', [], false, true)
+    await flushPromises()
+    const ai = useAITeacherStore(), send = vi.spyOn(ai, 'sendMessage').mockResolvedValue()
+    vi.spyOn(useLearningProgressStore(), 'loadRuntime').mockResolvedValue(null)
+    await wrapper.get('textarea').setValue('我的未发送问题')
+    await wrapper.setProps({ quoteText:'这是第二讲的选区', quoteNodeId:'node-2', quoteAnchor:{block_id:'b2',block_revision_id:'rev2'}, entrypoint:'selection' })
+    expect(wrapper.get('.context-quote').text()).toContain('这是第二讲的选区')
+    expect(wrapper.findAll('.selection-quick-actions button').map(button=>button.text())).toEqual(['换一种讲法','给个例子','检查我是否理解'])
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('我的未发送问题')
+    expect(send).not.toHaveBeenCalled()
+    await wrapper.findAll('.selection-quick-actions button')[1]!.trigger('click')
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toContain('引用的这段内容')
+    expect(send).not.toHaveBeenCalled()
+    await wrapper.get('.send-button').trigger('click')
+    await flushPromises()
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({selection:'这是第二讲的选区',entrypoint:'selection',contextRef:expect.objectContaining({content_anchor:{block_id:'b2',block_revision_id:'rev2'}})}))
+    await wrapper.get('.context-quote button').trigger('click')
+    expect(wrapper.find('.selection-quick-actions').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('shows the three English quote prompts in a floating panel and waits for an explicit send', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ok:true,json:async()=>enMessages})))
+    await setLocale('en')
+    const wrapper = mountPanel([], 'Quoted definition')
+    await flushPromises()
+    const send = vi.spyOn(useAITeacherStore(), 'sendMessage').mockResolvedValue()
+    expect(wrapper.findAll('.quick-actions button')).toHaveLength(3)
+    expect(wrapper.findAll('.selection-quick-actions button').map(button=>button.text())).toEqual(['Explain differently','Give an example','Check my understanding'])
+    await wrapper.findAll('.selection-quick-actions button')[2]!.trigger('click')
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toContain('quoted passage')
+    expect(send).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('returns from a note discussion to the existing AI conversation while keeping the note draft intact', async () => {
+    const wrapper = mountPanel([], '', undefined, undefined, 'learner', [], false, true)
+    await flushPromises()
+    const ai = useAITeacherStore()
+    const workspace = { kind:'note',revision:1,course_version_id:'',node_id:'node-1',quote:'原笔记引用',record_id:'record-1',draft:'未保存整理稿',anchor:{},saved_revision:0,nearby:[],knowledge:[],checks:[],versions:[] } as any
+    ai.conversations.push({...conversation(),conversation_id:'study-1',study_workspace:workspace})
+    ai.currentConversationId='study-1'
+    await flushPromises()
+    const select = vi.spyOn(ai,'selectConversation').mockImplementation(async id=>{ai.currentConversationId=id})
+    const create = vi.spyOn(ai,'createConversation').mockResolvedValue(null)
+    const send = vi.spyOn(ai,'sendMessage').mockResolvedValue()
+    await wrapper.setProps({quoteText:'新选中的讲义',entrypoint:'selection'})
+    await flushPromises()
+    expect(select).toHaveBeenCalledWith('conversation-1')
+    expect(create).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
+    expect(workspace.draft).toBe('未保存整理稿')
+    expect(wrapper.findAll('.selection-quick-actions button')).toHaveLength(3)
+    await wrapper.get('.conversation-rail-toggle').trigger('click')
+    await wrapper.findAll('.conversation-row__select').find(button=>button.text().includes('笔记'))!.trigger('click')
+    await flushPromises()
+    expect(ai.currentConversationId).toBe('study-1')
+    expect(wrapper.find('.study-dialogue').exists()).toBe(true)
+    expect(workspace.draft).toBe('未保存整理稿')
+    await wrapper.setProps({quoteText:'再次选中的讲义',quoteAnchor:{block_id:'b3'}})
+    await flushPromises()
+    expect(ai.currentConversationId).toBe('conversation-1')
+    expect(wrapper.findAll('.selection-quick-actions button')).toHaveLength(3)
+    wrapper.unmount()
+  })
+
   it('keeps a draft while switching presentation and binds the selected knowledge revision on send', async () => {
     const wrapper = mountPanel([], '', undefined, undefined, 'learner', [], false, true)
     const point = profileDemo.cases.at(-1)!.profile.nodes.find(node => node.knowledge_id === 'demo-k7') as KnowledgeProfileNode

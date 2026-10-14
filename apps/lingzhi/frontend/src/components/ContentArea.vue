@@ -210,7 +210,7 @@
     </Teleport>
 
     <!-- Content List (Continuous Scroll) -->
-    <div class="flex-1 overflow-auto p-3 lg:p-5 xl:p-6 relative custom-scrollbar" style="scroll-behavior: auto;" id="content-scroll-container" @mouseup="handleMouseUp" @click="handleContentClick">
+    <div class="flex-1 overflow-auto p-3 lg:p-5 xl:p-6 relative custom-scrollbar" style="scroll-behavior: auto;" id="content-scroll-container" @mouseup="handleMouseUp" @keyup="handleSelectionKeyUp" @click="handleContentClick">
         <InlineAnnotationLayer ref="annotationLayerRef" :notes="displayedQuotedNotes" @open="openInlineRecord" />
         <InlineRecordPopover
             ref="inlinePopoverRef"
@@ -411,6 +411,7 @@ import 'dayjs/locale/zh-cn'
 import logger from '../utils/logger'
 import { captureViewportAnchor, resolvedAnchorScrollTop } from '@/utils/learning-position'
 import { buildTextQuoteAnchor, resolveTextQuoteAnchor } from '@/utils/text-anchor'
+import { learningSelectionQuote } from '@/utils/learning-selection'
 import { t } from '@/shared/i18n'
 import { Cloud, CloudOff, LoaderCircle, TriangleAlert } from 'lucide-vue-next'
 import type { CourseBlockEditTarget, Note } from '@/stores/types'
@@ -1800,7 +1801,13 @@ watch(() => visibleNotes.value, () => {
 
 
 // Selection Handling
-const handleMouseUp = (_e: MouseEvent) => {
+const handleSelectionKeyUp = (event: KeyboardEvent) => {
+    if (event.key === 'Shift' || (event.shiftKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key))) {
+        handleMouseUp(event)
+    }
+}
+
+const handleMouseUp = (_e: MouseEvent | KeyboardEvent) => {
     if (isGenerationPreview.value) {
         selectionMenu.value.visible = false
         return
@@ -1818,7 +1825,13 @@ const handleMouseUp = (_e: MouseEvent) => {
     
     const selection = window.getSelection()
     if (selection && selection.toString().trim().length > 0) {
-        const range = selection.getRangeAt(0)
+        const range = selection.getRangeAt(0).cloneRange()
+        const container = document.getElementById('content-scroll-container')
+        const quote = container && learningSelectionQuote(range, container, new Set(courseStore.nodes.map(node => node.node_id)))
+        if (!quote) {
+            selectionMenu.value.visible = false
+            return
+        }
         const rect = range.getBoundingClientRect()
         
         // Detect Scale of the Teleport Target (Body)
@@ -1870,10 +1883,25 @@ const handleMouseUp = (_e: MouseEvent) => {
             range: range
         }
 
+        // Carry the reference into the existing assistant without sending a question.
+        emit('quoteAsk', quote)
+
         // Precise Adjustment after Render (Fix for P1: Scaling/Overflow Alignment)
-        nextTick(() => {
+        nextTick(async () => {
+            if (selectionMenu.value.range !== range || !range.startContainer.isConnected) return
+            // Update virtual lecture offsets before keeping the selected text in view.
+            measureVisibleNodeHeights()
+            await nextTick()
+            if (selectionMenu.value.range !== range || !range.startContainer.isConnected) return
+            const moved = range.getBoundingClientRect().top - rect.top
+            container.scrollTop += moved
             const menuEl = document.getElementById('selection-menu')
             if (menuEl) {
+                // Opening the companion can reflow the selected paragraph.
+                const rect = range.getBoundingClientRect()
+                const originalX = isScaled
+                    ? (rect.left - bodyRect.left + rect.width / 2) / scaleX
+                    : rect.left + rect.width / 2
                 // Use offsetWidth/Height to get the "layout" size, ignoring the scale-in animation
                 // getBoundingClientRect() would return the scaled-down size during the transition
                 const actualWidth = menuEl.offsetWidth
@@ -1956,8 +1984,7 @@ const handleAsk = () => {
         ? (props.studyDialogues ? studySelectionAnchor : buildTextQuoteAnchor)(selectionMenu.value.range, nodeElement, text)
         : undefined
 
-    if (props.studyDialogues) emit('studyDialogue', { kind:'explain', quote:text, nodeId, anchor })
-    else emit('quoteAsk', { text, nodeId, anchor })
+    emit('quoteAsk', { text, nodeId, anchor })
     
     // Hide menu
     selectionMenu.value.visible = false
