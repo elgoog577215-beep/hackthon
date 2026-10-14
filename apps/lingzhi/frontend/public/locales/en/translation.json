@@ -6261,6 +6261,7 @@
     "save": "Save note"
   },
   "questionBank": {
+    "regenerateFailed": "Question generation is incomplete; published questions remain available",
     "scopeLoading": "Loading course lectures",
     "scopeLoadingHelp": "Loading the question scope. The question bank will appear when ready.",
     "scopeLoadFailed": "Could not load course lectures",
