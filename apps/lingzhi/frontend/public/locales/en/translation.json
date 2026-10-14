@@ -5398,6 +5398,18 @@
     }
   },
   "courseWorkspace": {
+    "readingState": {
+      "loading": "Loading course content…",
+      "failed": "Course could not be loaded",
+      "failedHelp": "Course content is temporarily unavailable. Please reload.",
+      "retry": "Reload",
+      "previewEmpty": "No handouts to preview yet",
+      "previewEmptyHelp": "This course has no handouts to preview yet. Return to the preparation workspace to prepare handouts.",
+      "empty": "No reading content yet",
+      "emptyHelp": "This course currently has no reading content.",
+      "selectCourse": "Start your learning journey",
+      "selectCourseHelp": "Select a course or chapter on the left to start reading."
+    },
     "backToTop": "Back to the top of the course",
     "navigation": "Course workspace",
     "openCourseTree": "Open course outline",

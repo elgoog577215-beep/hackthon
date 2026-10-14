@@ -41,6 +41,8 @@
           @start-practice="openTask"
           @improve-block="openBlockImprovement"
           @active-block-change="handleActiveBlockChange"
+          @retry-load="reloadLearningCourse"
+          @return-workbench="leaveTeacherPreview"
         />
 
         <section v-show="courseStore.showKnowledgeLibrary" class="learning-tool-overlay knowledge-study-overlay">
@@ -489,10 +491,10 @@ watch(
   { immediate: true },
 )
 
-watch(() => route.params.courseId, async value => {
-  if (!value) return
-  const courseId = String(value)
-  loadedLearningCourseId.value = loadedLearningCourseId.value === courseId ? loadedLearningCourseId.value : ''
+let learningCourseRequest = 0
+async function loadLearningCourse(courseId: string) {
+  const request = ++learningCourseRequest
+  loadedLearningCourseId.value = ''
   autoFollowGeneration.value = true
   activeCourseBlockId.value = ''
   aiQuote.value = ''
@@ -515,7 +517,7 @@ watch(() => route.params.courseId, async value => {
     aiTeacherStore.clearPreviewSession()
   }
   await Promise.all([
-    courseStore.fetchCourseList({ surface: isTeacherPreview.value ? 'teacher' : 'student' }),
+    courseStore.fetchCourseList({ surface: isTeacherPreview.value ? 'teacher' : 'student', background: true }),
     courseStore.loadCourse(courseId, isTeacherPreview.value ? {
       includeLearningRecords: false,
       taskType: 'teacher_outline_generation',
@@ -525,12 +527,14 @@ watch(() => route.params.courseId, async value => {
       silentError: true,
     } : {}),
   ])
+  if (request !== learningCourseRequest || courseStore.currentCourseId !== courseId || courseStore.courseLoadError) return
   if (!isTeacherPreview.value && getStudyIdentity()?.role !== 'student') generationStore.observeCourse(courseId)
   if (isGenerationPreview.value) {
     selectInitialNode()
     return
   }
   await loadLearningContext(courseId)
+  if (request !== learningCourseRequest) return
   selectInitialNode()
   const requestedAction = continuationAction.value
   if (requestedAction?.availability === 'available'
@@ -542,6 +546,14 @@ watch(() => route.params.courseId, async value => {
     await nextTick()
     openQuestionBook()
   }
+}
+
+function reloadLearningCourse() {
+  if (!courseStore.loading && route.params.courseId) void loadLearningCourse(String(route.params.courseId))
+}
+
+watch(() => route.params.courseId, value => {
+  if (value) void loadLearningCourse(String(value))
 }, { immediate: true })
 
 
@@ -650,6 +662,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  learningCourseRequest++
   knowledgeReturnSequence++
   knowledgeReadingReturn = null
   aiTeacherStore.clearPreviewSession()
