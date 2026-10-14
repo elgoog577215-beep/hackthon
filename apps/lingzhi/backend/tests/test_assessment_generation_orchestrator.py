@@ -1472,6 +1472,42 @@ async def test_ordinary_lecture_solver_error_retries_solution_without_reauthorin
     assert row["final_decision"] == "publish"
 
 
+async def test_rubric_error_repairs_only_grading_without_resolving_or_reauthoring():
+    class RubricFailureModel(RepairingModel):
+        review_count = 0
+        repair_input = None
+        reviewed_questions = []
+        async def evaluate_candidate(self, spec, payload, *args):
+            self.review_count += 1
+            self.reviewed_questions.append(deepcopy(spec))
+            report = await super().evaluate_candidate(spec, payload, *args)
+            if self.review_count == 1:
+                report.update(passed=False, solution_consistent=False, issues=[{
+                    "code": "RUBRIC_ANSWER_MISMATCH", "severity": "critical", "message": "量规与已核对解答不符",
+                }])
+            else:
+                assert payload["delivery_solution"]["rubric"] == ["corrected criterion"]
+            return report
+        async def repair_candidate(self, context, candidate, validation):
+            self.repair_calls += 1
+            self.repair_input = deepcopy(candidate)
+            candidate["solution"]["rubric"] = ["corrected criterion"]
+            candidate["solution"]["canonical_answer"] = "unrelated answer"
+            candidate["question_spec"]["task"] = {"rendered_text": "unrelated rewritten task"}
+            return candidate
+
+    model = RubricFailureModel()
+    prepared = await AssessmentGenerationOrchestrator(model=model).prepare_course(
+        _course(), node_ids=["thermo-1"], practice_levels_by_node={"thermo-1": ["mastery_check"]})
+    row = prepared["_assessment_generation_audit"]["items"][0]
+    assert row["attempts"][0]["next_action"] == "rubric"
+    assert model.generate_calls == model.repair_calls == model.solve_calls == 1
+    assert row["final_decision"] == "publish"
+    assert model.reviewed_questions[0]["task"] == model.reviewed_questions[1]["task"]
+    contract = prepared["_assessment_generated_contracts"]["thermo-1"]["mastery_check"]
+    assert contract["solution_envelope"]["canonical_answer"] == model.repair_input["solution"]["canonical_answer"]
+
+
 async def test_single_node_repair_runs_its_practice_levels_concurrently(
     monkeypatch,
 ):
