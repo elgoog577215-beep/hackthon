@@ -92,6 +92,13 @@
     />
 
     <slot v-if="externalToolbar" name="toolbar" />
+    <section v-if="generationFailure" class="script-failure-notice" data-testid="script-failure-notice" role="alert">
+      <strong>{{ tr('courseWorkbench.scriptDocument.progress.failedTitle') }}</strong>
+      <p>{{ generationFailure.reason }} {{ generationFailure.repeated }}</p>
+      <p>{{ generationFailure.retained }}</p>
+      <strong>{{ tr('courseWorkbench.scriptFailure.nextSteps') }}</strong>
+      <ol><li v-for="action in generationFailure.actions" :key="action">{{ action }}</li></ol>
+    </section>
     <aside v-if="scriptStatusNotice && (!externalToolbar || savedScriptStale)" class="script-status-notice" :data-state="scriptStatusNotice.state" role="status">
       <strong>{{ scriptStatusNotice.title }}</strong>
       <span>{{ scriptStatusNotice.detail }}</span>
@@ -272,7 +279,7 @@ import { t } from '../shared/i18n'
 import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring'
 import type { TeacherLessonJob, TeacherLessonProjection, TeacherLessonScriptCandidate, TeacherLessonScriptState, TeacherLessonScriptBlock } from '../stores/teacherLessonAuthoring'
 import { toAppError } from '../utils/app-error'
-import { hasRetainedStaleScript, hasScriptPreviewContent, readableScriptTitle, scriptGenerationPresentation } from '../utils/teacher-script-presentation'
+import { hasRetainedStaleScript, hasScriptPreviewContent, readableScriptTitle, scriptFailurePresentation, scriptGenerationPresentation } from '../utils/teacher-script-presentation'
 import { teacherFacingTeachingLabel } from '../utils/teaching-terminology'
 import HandoutConceptMap from './HandoutConceptMap.vue'
 import { buildHandoutConceptSections } from '../utils/handout-concepts'
@@ -530,6 +537,7 @@ const scriptSections = computed<ScriptSection[]>(() => {
   })).filter(section => section.blocks?.length || section.content?.trim())
 })
 const generationPresentation = computed(() => scriptGenerationPresentation(props.generationJob))
+const generationFailure = computed(() => scriptFailurePresentation(props.generationJob))
 const waitingForScriptContent = computed(() => (
   props.generating
   && (!props.lesson.script.ready || showWorkingPreview.value)
@@ -869,6 +877,11 @@ defineExpose({
 .script-generation-progress__actions{display:flex;align-items:center;gap:10px}.script-generation-progress__actions button{min-height:28px;padding:0 10px;border:1px solid #d7ddea;border-radius:7px;color:#526077;background:#fff;font-size:14px;font-weight:750;cursor:pointer}.script-generation-progress__actions button:hover{color:#3730a3;border-color:#b9b9f4;background:#f7f7ff}.script-generation-progress[data-status="cancelled"]>i span{background:#e08a2e}
 .script-document{position:relative}
 .script-document>:deep(.app-error-notice){margin:12px 28px 0}
+.script-failure-notice{margin:18px 28px;padding:18px 22px;border:1px solid #ead8c9;border-radius:10px;background:#fffaf4;color:#4b4350;font-size:15px;line-height:1.7}
+.script-failure-notice>strong{display:block;color:#8b482e;font-size:16px}
+.script-failure-notice p{margin:8px 0}
+.script-failure-notice ol{margin:8px 0 0;padding-left:22px;list-style:decimal}
+.script-failure-notice li+li{margin-top:7px}
 .candidate-canvas-notice{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:11px 28px;border-bottom:1px solid #d9ddf5;color:#4338ca;background:#f5f5ff}.candidate-canvas-notice>div{min-width:0;display:flex;align-items:center;gap:9px}.candidate-canvas-notice>div>span{display:grid;gap:2px}.candidate-canvas-notice strong{font-size:15px}.candidate-canvas-notice small{color:#676aa0;font-size:11px}.candidate-canvas-notice nav{flex:none;display:flex;align-items:center;gap:6px}.candidate-canvas-notice button{min-height:32px;display:inline-flex;align-items:center;gap:5px;padding:0 9px;border:1px solid #d0d1ee;border-radius:7px;color:#4f55a9;background:#fff;font-size:11px;font-weight:750;cursor:pointer}.candidate-canvas-notice button.primary{border-color:#5148dc;color:#fff;background:#5148dc}.candidate-canvas-notice button:hover:not(:disabled){border-color:#9692e8;color:#4338ca;background:#f8f7ff}.candidate-canvas-notice button.primary:hover:not(:disabled){border-color:#433bc4;color:#fff;background:#433bc4}.candidate-canvas-notice button:focus-visible{outline:3px solid rgba(91,84,232,.22);outline-offset:2px}.candidate-canvas-notice button:disabled{opacity:.5;cursor:not-allowed}
 .script-status-notice{display:grid;gap:3px;margin:14px 28px 0;padding:11px 13px;border:1px solid #d8dff0;border-radius:8px;color:#4b5870;background:#f8faff;font-size:14px;line-height:1.55}.script-status-notice strong{color:#29334a;font-size:14px}.script-status-notice[data-state="suggestion"]{border-color:#efd2a8;background:#fff9ef}.script-status-notice[data-state="suggestion"] strong{color:#9a4c0c}.script-status-notice[data-state="ready"]{border-color:#cce4d5;background:#f5fbf7}.script-status-notice[data-state="ready"] strong{color:#276749}
 .script-continuous{width:min(100%,940px);min-width:0;max-width:100%;box-sizing:border-box;margin:0 auto}.script-continuous .script-body{min-height:0;scroll-margin-top:72px;border-bottom:1px solid #e4e8ef}.script-continuous .script-body:last-child{border-bottom:0}.script-continuous .script-body.active>header h4{color:#3730a3}.script-continuous .script-body.active>header span{color:#4f46e5}

@@ -402,6 +402,27 @@ describe('统一讲义页面', () => {
     expect(blocked.text()).not.toContain('暂无可用教案')
   })
 
+  it('explains repeated no-output failure in the document without exposing diagnostic logs', () => {
+    const emptyLesson = structuredClone(lesson)
+    emptyLesson.script = { ...emptyLesson.script, current_revision_id: '', ready: false, sections: [] }
+    const generationJob: TeacherLessonJob = {
+      id: 'failed-job', course_id: 'course-1', lesson_unit_id: 'lesson-1',
+      type: 'teacher_lesson_script_generation', status: 'failed', progress: 5,
+      phase: 'lesson_script_failed', message: 'internal raw log', warnings: [],
+      total_blocks: 1, completed_blocks: 0, attempt_number: 3,
+      error: { code: 'lesson_script_generation_failed', category: 'provider', message: '模型连续 90 秒没有内容输出，已保留收到的片段。 Traceback: TimeoutError' },
+    }
+    const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson: emptyLesson, generationJob, externalToolbar: true } })
+    const notice = wrapper.get('[data-testid="script-failure-notice"]').text()
+    expect(notice).toContain('90 秒')
+    expect(notice).toContain('3 次')
+    expect(notice).toContain('尚未生成可保存的正文')
+    expect(notice).toContain('相同条件')
+    expect(notice).toContain('教案')
+    expect(wrapper.text()).not.toMatch(/Traceback|TimeoutError|internal raw log|已保留收到的片段/)
+    wrapper.unmount()
+  })
+
   it('生成中展示已完成教学环节，失败后只提供继续剩余内容', async () => {
     const emptyLesson = structuredClone(lesson)
     emptyLesson.script = { ...emptyLesson.script, current_revision_id: '', ready: false, sections: [] }
