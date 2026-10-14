@@ -346,6 +346,27 @@ def test_output_prediction_accepts_chinese_predicted_final_state():
     assert report["checks"]["observable_result_requested"] is True
 
 
+@pytest.mark.parametrize("task", [
+    "描述场景B中根节点的key及其左右子树的key集合，并给出该形态下的最大路径深度。",
+    "画出插入后的树形结构，标出各节点的父子关系。",
+])
+def test_state_transfer_accepts_concrete_tree_configuration(task):
+    contract = _contract(question_type="state_trace_transfer",
+        stimulus="Treap按key保持BST序，按priority保持最小堆序。依次插入(1,10)、(2,20)、(3,30)。场景B固定priority与key正相关。",
+        task=task, canonical_answer={"root": 1, "left": [], "right": [2, 3], "depth": 2})
+    report = evaluate_question_semantic_preflight(contract)
+    assert report["checks"]["observable_state_transfer"] is True
+
+
+def test_state_transfer_still_rejects_generic_tree_theory():
+    contract = _contract(question_type="state_trace_transfer",
+        stimulus="Treap同时有根节点、左右子树及随机优先级。",
+        task="解释Treap的期望复杂度为什么是对数级，并描述其优势。",
+        canonical_answer="随机优先级使其期望深度为对数级。")
+    report = evaluate_question_semantic_preflight(contract)
+    assert report["checks"]["observable_state_transfer"] is False
+
+
 def test_state_trace_transfer_accepts_chinese_state_tracking_sequence():
     contract = _contract(
         question_type="state_trace_transfer",

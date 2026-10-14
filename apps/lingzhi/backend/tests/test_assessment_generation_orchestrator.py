@@ -1396,6 +1396,33 @@ def test_repair_prompts_preserve_non_choice_input_contract() -> None:
     assert "结构化作答题：options 必须为空数组" in batch
 
 
+def test_every_repair_keeps_public_length_and_answer_separation_constraints():
+    context = {"assessment_slot": {"input_mode": "structured_fields"}}
+    report = {"issues": [{"code": "QUESTION_TYPE_SEMANTIC_MISMATCH"}]}
+    for prompt in [_repair_prompt(context, {}, report), _batch_repair_prompt([{
+        "slot_id": "one", "context": context, "candidate": {}, "quality_report": report,
+    }])]:
+        assert "task.rendered_text最多300个字符" in prompt
+        assert "英文、公式、标点和换行均计数" in prompt
+        assert "不得在题面注释或提示中给出待考公式" in prompt
+
+
+def test_quality_failure_message_names_only_current_failed_questions():
+    from assessment_orchestrator import _question_quality_failure_message
+    message = _question_quality_failure_message([
+        {"practice_level": "concept_check", "final_decision": "publish", "attempts": []},
+        {"practice_level": "objective_practice", "final_decision": "discard", "attempts": [
+            {"issue_codes": ["TASK_TOO_LONG"]},
+            {"issue_codes": ["SEMANTIC_REVIEW_FAILED", "ANSWER_RULE_DISCLOSED"]},
+        ]},
+        {"practice_level": "mastery_check", "final_decision": "discard", "attempts": [{"issue_codes": ["TASK_TOO_LONG"]}]},
+    ])
+    assert "应用题：题面提示泄露待考规则" in message
+    assert "迁移题：任务说明超过300字符" in message
+    assert "概念题" not in message
+    assert "已发布题目保留" in message
+
+
 async def test_complete_profile_keeps_repairs_bounded():
     model = DisagreeingModel()
 
