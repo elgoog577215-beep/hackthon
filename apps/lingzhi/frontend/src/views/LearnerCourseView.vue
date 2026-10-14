@@ -21,26 +21,6 @@
 
     <ColumnResizeHandle v-if="!isNarrow && navigatorVisible" v-bind="leftColumnHandle" />
     <main class="learning-main glass-panel-elevated" data-companion-obstacle>
-      <LearningDock toolbar
-        v-if="!isGenerationPreview"
-        :location="dockLocation"
-        :notebook-open="notebookOpen"
-        :note-count="noteCount"
-        :question-count="questionCount"
-        :resume-action-label="resumeActionLabel"
-        :resume-action-available="resumableAction?.availability === 'available'"
-        :resume-action-busy="continuityBusy"
-        :active-domain="dockActiveDomain"
-        :assistant-open="aiVisible && !courseStore.isFocusMode"
-        @notebook="openNotebook"
-        @question-book="activateTool('practice')"
-        @stats="activateTool('overview')"
-        @knowledge-library="activateTool('knowledge')"
-        @ai="toggleAi"
-        @resume="runResumeAction"
-        @reading="activateTool('reading')"
-        @mistakes="activateTool('mistakes')"
-      />
       <AITeacherSuggestion
         :suggestion="aiTeacherStore.suggestion"
         @shown="aiTeacherStore.markSuggestionShown"
@@ -115,6 +95,28 @@
 
 
 
+      <LearningDock toolbar placement="bottom"
+        v-if="!isGenerationPreview"
+        :location="dockLocation"
+        :notebook-open="notebookOpen"
+        :navigator-hidden="!navigatorVisible"
+        :note-count="noteCount"
+        :question-count="questionCount"
+        :resume-action-label="resumeActionLabel"
+        :resume-action-available="resumableAction?.availability === 'available'"
+        :resume-action-busy="continuityBusy"
+        :active-domain="dockActiveDomain"
+        :assistant-open="aiVisible && !courseStore.isFocusMode"
+        @navigator="navigatorOpen = true"
+        @notebook="openNotebook"
+        @question-book="activateTool('practice')"
+        @stats="activateTool('overview')"
+        @knowledge-library="activateTool('knowledge')"
+        @ai="toggleAi"
+        @resume="runResumeAction"
+        @reading="activateTool('reading')"
+        @mistakes="activateTool('mistakes')"
+      />
     </main>
 
     <ColumnResizeHandle v-if="dockedSidePanelVisible" v-bind="rightColumnHandle" />

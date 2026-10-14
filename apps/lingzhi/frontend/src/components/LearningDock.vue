@@ -1,8 +1,8 @@
 <template>
   <component
-    :is="toolbar ? 'header' : 'footer'"
+    :is="toolbar && placement === 'top' ? 'header' : 'footer'"
     class="learning-dock"
-    :class="{ 'has-resume': resumeActionLabel, 'is-toolbar': toolbar }"
+    :class="{ 'has-resume': resumeActionLabel, 'is-toolbar': toolbar, 'is-bottom': toolbar && placement === 'bottom' }"
     :aria-label="t('learningDock.title', '学习工具')"
   >
     <div class="learning-dock__location" :title="location">
@@ -25,6 +25,7 @@
     </div>
 
     <nav class="learning-dock__actions" :aria-label="t('learningDock.primaryNavigation', '学习辅助导航')">
+      <button v-if="navigatorHidden" type="button" class="learning-dock__domain" data-domain="navigator" :aria-label="t('learningShell.openNavigator')" @click="emit('navigator')"><PanelLeftOpen :size="16" /><span>{{ t('learningNavigator.title') }}</span></button>
       <button v-if="toolbar" type="button" class="learning-dock__domain" data-domain="reading" :class="{ 'is-active': activeDomain === 'course' }" :aria-current="activeDomain === 'course' ? 'page' : undefined" @click="emit('reading')"><BookOpenCheck :size="16" /><span>{{ t('studentWorkspace.reading') }}</span></button>
       <button
         type="button"
@@ -105,6 +106,7 @@ import {
   MapPin,
   MessageSquareText,
   NotebookTabs,
+  PanelLeftOpen,
 } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 
@@ -112,6 +114,8 @@ withDefaults(defineProps<{
   location: string
   assistantOpen?: boolean
   toolbar?: boolean
+  placement?: 'top' | 'bottom'
+  navigatorHidden?: boolean
   notebookOpen?: boolean
   activeDomain?: 'mistakes' | 'course' | 'notebook' | 'question-book' | 'overview' | 'knowledge-library' | 'assistant'
   noteCount?: number
@@ -121,6 +125,8 @@ withDefaults(defineProps<{
   resumeActionBusy?: boolean
 }>(), {
   toolbar: false,
+  placement: 'top',
+  navigatorHidden: false,
   notebookOpen: false,
   activeDomain: 'course',
   assistantOpen: false,
@@ -132,9 +138,18 @@ withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  (event: 'notebook' | 'question-book' | 'stats' | 'knowledge-library' | 'ai' | 'resume' | 'reading' | 'mistakes'): void
+  (event: 'navigator' | 'notebook' | 'question-book' | 'stats' | 'knowledge-library' | 'ai' | 'resume' | 'reading' | 'mistakes'): void
 }>()
 </script>
+
+<style scoped>
+.learning-dock.is-toolbar.is-bottom { border-top: 1px solid var(--lz-border); border-bottom: 0; padding: 8px 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.learning-dock.is-bottom .learning-dock__actions { flex: 1; }
+@container (max-width: 720px) {
+  .learning-dock.is-bottom .learning-dock__resume > button { width: 38px; padding: 0; }
+  .learning-dock.is-bottom .learning-dock__resume > button span { display: none; }
+}
+</style>
 
 <style scoped>
 .learning-dock { position:relative; min-width:0; min-height:58px; flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; gap:14px; overflow:visible; padding:8px 12px 8px 16px; border-top:1px solid rgba(224,231,255,.94); background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(248,250,255,.99)); box-shadow:0 -8px 24px rgba(79,70,229,.05); }

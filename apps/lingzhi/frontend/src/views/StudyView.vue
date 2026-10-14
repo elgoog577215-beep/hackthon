@@ -1,7 +1,13 @@
 <template>
   <div class="study-space">
-    <header class="study-header">
-      <RouterLink to="/study" class="study-brand"><span class="brand-symbol"><GraduationCap :size="24" /></span><span><strong>{{ c('brand') }}</strong><small>{{ c('subtitle') }}</small></span></RouterLink>
+    <header class="study-header glass-panel-elevated">
+      <RouterLink to="/study" class="study-brand"><img src="/qizhi-favicon.svg" alt="启智" /><span><strong>启智</strong><small>{{ c('brand') }}</small></span></RouterLink>
+      <nav v-if="user && !materialId && !creating" class="study-surface-navigation" :aria-label="t('studentWorkspace.space')">
+        <button :class="{ active: !['courses','materials'].includes(String(route.query.view || '')) }" @click="openStudySection('home')">{{ t('studentWorkspace.home') }}</button>
+        <button :class="{ active: route.query.view === 'courses' }" @click="openStudySection('courses')">{{ c('authorizedCourses') }}</button>
+        <button :class="{ active: route.query.view === 'materials' }" @click="goLibrary">{{ c('library') }}</button>
+        <button data-testid="student-create-handout" @click="startNew()"><Plus :size="16" />{{ c('create') }}</button>
+      </nav>
       <div class="study-header-actions">
         <button @click="setLocale(activeLocale === 'zh' ? 'en' : 'zh')">{{ activeLocale === 'zh' ? 'English' : '中文' }}</button>
         <RouterLink v-if="!user" to="/courses">{{ c('teacher') }}</RouterLink>
@@ -23,8 +29,8 @@
       <div v-else class="study-login-card"><h2>{{ c('login') }}</h2><p>{{ c('disabledLogin') }}</p><button v-if="qizhiAuth" class="study-primary" @click="redirectToQizhiLogin">{{ c('unifiedLogin') }}</button></div>
     </main>
 
-    <div v-else ref="studyLayoutRoot" class="study-workspace" :class="{ 'is-reading': !!materialId }" :style="columnLayoutStyle">
-      <aside class="study-navigation">
+    <div v-else ref="studyLayoutRoot" class="study-workspace" :class="{ 'is-reading': !!materialId, 'is-library': !materialId && !creating }" :style="columnLayoutStyle">
+      <aside v-if="materialId || creating" class="study-navigation">
         <span class="study-eyebrow">{{ t('studentWorkspace.space') }}</span>
         <button :class="{ active: !materialId && !creating && !['courses','materials'].includes(String(route.query.view || '')) }" @click="openStudySection('home')"><BookOpen :size="19" />{{ t('studentWorkspace.home') }}</button>
         <button :class="{ active: !materialId && !creating && route.query.view === 'materials' }" @click="goLibrary"><LibraryBig :size="19" />{{ c('library') }}</button>
@@ -34,7 +40,7 @@
         <p class="study-nav-hint"><LockKeyhole :size="16" />{{ c('savedHint') }}</p>
       </aside>
 
-      <ColumnResizeHandle v-bind="leftColumnHandle" />
+      <ColumnResizeHandle v-if="materialId || creating" v-bind="leftColumnHandle" />
       <section v-if="!materialId" class="study-main-scroll">
         <StudentCourseLibrary v-if="!creating && route.query.view === 'courses'" :key="user.id" :user-id="user.id" @source="createFromCourse" />
         <StudentLearningHome v-else-if="!creating && route.query.view !== 'materials'" :user-id="user.id" :materials="library" @create="startNew" @source="createFromCourse" />
@@ -148,6 +154,7 @@ const materialId = computed(() => String(route.params.materialId || ''))
 const studyLayoutRoot = ref<HTMLElement | null>(null)
 const { layoutStyle: columnLayoutStyle, leftHandle: leftColumnHandle, rightHandle: rightColumnHandle } = useResizableColumns(studyLayoutRoot, {
   storageKey: 'lingzhi:personal-study:columns', left: 240, right: 360, leftMin: 170, rightMin: 280,
+  leftVisible: () => Boolean(materialId.value || creating.value),
   rightVisible: () => Boolean(materialId.value && material.value),
 })
 const materialStatus = computed(() => material.value?.task?.status || material.value?.status || 'pending')
@@ -262,4 +269,20 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-workspace>.study-navigation{box-sizing:border-box;width:var(--column-left-width);min-width:0;overflow-wrap:anywhere}
 .study-workspace>.study-reading-tools{box-sizing:border-box;width:var(--column-right-width);min-width:0}
 .study-workspace>.study-reading-tools .study-tool-tabs{flex-wrap:wrap}
+</style>
+
+<style scoped>
+.study-space { padding: 10px; gap: 10px; box-sizing: border-box; background: transparent; }
+.study-header { min-height: 60px; height: auto; padding: 8px 20px; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: rgba(255,255,255,.82); }
+.study-brand { flex: none; gap: 10px; }
+.study-brand > img { width: 34px; height: 34px; }
+.study-brand strong { color: #312e81; }
+.study-brand small { font-size: 15px; }
+.study-surface-navigation { display: flex; flex: 1; align-items: center; justify-content: center; gap: 4px; flex-wrap: wrap; }
+.study-surface-navigation button { padding: 7px 10px; border: 0; background: transparent; white-space: nowrap; }
+.study-surface-navigation button.active { color: var(--lz-brand-strong); background: var(--lz-brand-soft); }
+.study-header-actions { flex: none; gap: 10px; }
+.study-workspace { gap: 8px; }
+.study-workspace.is-library .study-main-scroll { border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: rgba(255,255,255,.76); box-shadow: var(--lz-shadow-panel); }
+@media(max-width:1100px) { .study-header-actions .study-user { display: none; } }
 </style>

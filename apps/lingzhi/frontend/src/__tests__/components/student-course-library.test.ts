@@ -43,6 +43,7 @@ describe('authorized student course library', () => {
     api.updateCourse.mockResolvedValue({ release_id: 'revision-b' })
     const view = await page()
     expect(api.updateCourse).not.toHaveBeenCalled()
+    await view.get('.course-detail-toggle').trigger('click'); await flushPromises()
     api.courses.mockResolvedValue([{ ...course, revision_id: 'revision-b', exchange_origin: { node_id: 'publisher' }, update_available: false }])
     await view.findAll('button').find(b => b.text() === '使用新版本')!.trigger('click')
     await flushPromises()
@@ -52,6 +53,7 @@ describe('authorized student course library', () => {
   })
   it('opens formal learning without preview and carries a practice continuation intent', async () => {
     const view = await page()
+    await view.get('.course-detail-toggle').trigger('click'); await flushPromises()
     expect(view.text()).toContain('线性代数')
     expect(view.text()).toContain('继续未完成练习')
     const links = view.findAll('a').map(a => a.attributes('href'))
@@ -80,6 +82,7 @@ describe('authorized student course library', () => {
     const view = await page()
     expect(view.text()).toContain('Authorized courses')
     expect(view.text()).toContain('Create a personal revision handout')
+    await view.get('.course-detail-toggle').trigger('click'); await flushPromises()
     expect(view.text()).toContain('Continue unfinished practice')
   })
 })
