@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import time
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -452,9 +454,10 @@ class QuestionBankRebuildJobRepository:
     def _path(self, course_id: str, job_id: str) -> Path:
         return self.root_dir / course_id / f"{job_id}.json"
 
-    @staticmethod
-    def _read(path: Path) -> dict[str, Any]:
-        with path.open("r", encoding="utf-8") as handle:
+    def _read(self, path: Path) -> dict[str, Any]:
+        # Windows readers can temporarily deny replacement. Polling and worker
+        # writes must use the same lock, including latest/active job scans.
+        with self._lock, path.open("r", encoding="utf-8") as handle:
             value = json.load(handle)
         value["assessment_generation_profile"] = (
             normalize_assessment_generation_profile(
@@ -470,10 +473,24 @@ class QuestionBankRebuildJobRepository:
     @staticmethod
     def _write(path: Path, value: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(".tmp")
-        with temporary.open("w", encoding="utf-8") as handle:
-            json.dump(value, handle, ensure_ascii=False, indent=2)
-        temporary.replace(path)
+        temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        try:
+            with temporary.open("x", encoding="utf-8") as handle:
+                json.dump(value, handle, ensure_ascii=False, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            for attempt in range(6):
+                try:
+                    temporary.replace(path)
+                    break
+                except OSError as exc:
+                    # Also tolerate short-lived handles held outside this
+                    # repository (indexer/antivirus). Never rerun generation.
+                    if getattr(exc, "winerror", None) not in {5, 32, 33} or attempt == 5:
+                        raise
+                    time.sleep(0.02 * (2 ** attempt))
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def _storage_id(value: str) -> str:
