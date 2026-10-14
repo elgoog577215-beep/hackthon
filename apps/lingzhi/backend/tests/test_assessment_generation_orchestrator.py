@@ -1511,6 +1511,32 @@ async def test_rubric_error_repairs_only_grading_without_resolving_or_reauthorin
     assert contract["solution_envelope"]["canonical_answer"] == model.repair_input["solution"]["canonical_answer"]
 
 
+async def test_final_author_attempt_can_finish_one_grading_only_correction():
+    class FinalRubricModel(RepairingModel):
+        review_count = 0
+        async def evaluate_candidate(self, *args):
+            self.review_count += 1
+            report = await super().evaluate_candidate(*args)
+            if self.review_count == 1:
+                report.update(passed=False, solution_consistent=False, issues=[{
+                    "code": "TASK_CONDITION_MISSING", "severity": "critical", "message": "题面条件不足"}])
+            if self.review_count == 2:
+                report.update(passed=False, solution_consistent=False, issues=[{
+                    "code": "RUBRIC_ANSWER_MISMATCH", "severity": "critical", "message": "仅评分规则有误"}],
+                    review_witness={"delivery_checks": [{"path": "canonical_answer", "supported": True},
+                                                        {"path": "rubric[0]", "supported": False}]})
+            return report
+    model = FinalRubricModel()
+    prepared = await AssessmentGenerationOrchestrator(model=model).prepare_course(
+        _course(), node_ids=["thermo-1"], practice_levels_by_node={"thermo-1": ["mastery_check"]})
+    row = prepared["_assessment_generation_audit"]["items"][0]
+    assert model.solve_calls == 2, "grading-only completion must not consume another solve"
+    assert model.generate_calls == 2
+    assert model.repair_calls == 1
+    assert row["attempts"][1]["next_action"] == "rubric"
+    assert row["final_decision"] == "publish"
+
+
 async def test_single_node_repair_runs_its_practice_levels_concurrently(
     monkeypatch,
 ):
