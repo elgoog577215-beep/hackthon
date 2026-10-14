@@ -2719,6 +2719,7 @@ class AssessmentGenerationOrchestrator:
                 recovery = evidence_recovery_action(
                     [str(i.get("code") or "") for i in quality.get("issues") or []],
                     validation_passed=validation.get("passed") is True,
+                    delivery_checks=(semantic_report.get("review_witness") or {}).get("delivery_checks"),
                 )
                 if recovery in {"review", "solve", "rubric"}:
                     next_action = recovery

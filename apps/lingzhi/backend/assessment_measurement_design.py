@@ -439,13 +439,22 @@ def normalize_assignment_observation(plan: dict, strategy: dict) -> dict:
     return result
 
 
-def evidence_recovery_action(codes: list[str], *, validation_passed: bool) -> str:
+def evidence_recovery_action(codes: list[str], *, validation_passed: bool, delivery_checks: list[dict] | None = None) -> str:
     """Retry the responsible artifact, never a specific point or answer."""
     failures = set(codes) - {"INDEPENDENT_EVIDENCE_UNVERIFIED", "SEMANTIC_REVIEW_FAILED", "QUALITY_DIMENSION_BELOW_MINIMUM", "FINAL_SOLUTION_REVIEW_MISSING", "VALIDATION_FAILED"}
     if not validation_passed or not failures:
         return "author"
-    if failures == {"RUBRIC_ANSWER_MISMATCH"}:
-        return "rubric"
+    if "RUBRIC_ANSWER_MISMATCH" in failures and failures <= {"RUBRIC_ANSWER_MISMATCH", "EXPLANATION_CONTRADICTION"}:
+        failed_fields = {
+            str(check.get("path") or "").removeprefix("delivery_solution.").split(".")[0].split("[")[0]
+            for check in delivery_checks or [] if check.get("supported") is False
+        }
+        if failed_fields and failed_fields <= {"canonical_answer", "worked_solution", "solution_graph"}:
+            return "solve"
+        if failed_fields and failed_fields <= {"rubric", "acceptable_answers", "validator_config"}:
+            return "rubric"
+        # Missing or conflicting evidence cannot justify changing only grading.
+        return "author"
     if failures <= {
         "TRACE_CONTROL_STRUCTURE_CHANGED",
         "COUNTERFACTUAL_INPUT_CHANGED",
